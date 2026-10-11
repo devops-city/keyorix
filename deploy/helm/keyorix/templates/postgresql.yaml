@@ -70,6 +70,9 @@ spec:
         {{- include "keyorix.labels" . | nindent 8 }}
         app.kubernetes.io/component: postgresql
       annotations:
+        {{- if .Values.secureBaseline.enabled }}
+        checksum/secure-baseline: {{ include "keyorix.secureBaseline.checksum" . }}
+        {{- end }}
         # kube-score, each with an already-settled reason elsewhere:
         #   - container-security-context-user-group-id: fixed uid to match
         #     the official postgres:*-alpine image's own user (see the
@@ -167,6 +170,20 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          {{- if .Values.secureBaseline.enabled }}
+          # secureBaseline (SECURE-DEFAULT-1): TLS with the chart's self-signed
+          # certificate (the server connects with ssl_mode: require). The key is
+          # root-owned 0440 (group = fsGroup 999), which PostgreSQL accepts.
+          # `postgres` first: args replace the image's CMD.
+          args:
+            - postgres
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/etc/postgresql/tls/tls.crt
+            - -c
+            - ssl_key_file=/etc/postgresql/tls/tls.key
+          {{- end }}
           ports:
             - name: postgres
               containerPort: 5432
@@ -195,6 +212,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            {{- if .Values.secureBaseline.enabled }}
+            - name: tls
+              mountPath: /etc/postgresql/tls
+              readOnly: true
+            {{- end }}
             - name: run
               mountPath: /var/run/postgresql
             - name: tmp
@@ -212,6 +234,17 @@ spec:
           emptyDir:
             sizeLimit: {{ .Values.postgresql.persistence.size | quote }}
           {{- end }}
+        {{- if .Values.secureBaseline.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ include "keyorix.fullname" . }}-secure-baseline
+            defaultMode: 0440
+            items:
+              - key: postgres.crt
+                path: tls.crt
+              - key: postgres.key
+                path: tls.key
+        {{- end }}
         - name: run
           emptyDir:
             sizeLimit: 1Mi

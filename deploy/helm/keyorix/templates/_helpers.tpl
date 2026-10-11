@@ -133,3 +133,55 @@ map "$keyorix_trusted_proxy:$http_x_forwarded_proto" $keyorix_hsts {
 {{- end }}
 }
 {{- end -}}
+
+{{/*
+secureBaseline Secret data (SECURE-DEFAULT-1), computed ONCE per render and
+returned as JSON, so the Secret and the pods' checksum/secure-baseline
+annotation always describe the same bytes (the generated values are random, two
+independent computations would differ). Existing keys are kept across upgrades
+(lookup); only missing ones are generated. `helm template` has no cluster to
+look up, so it renders fresh values each time.
+*/}}
+{{- define "keyorix.secureBaseline.data" -}}
+{{- if not (hasKey .Values "_secureBaselineData") -}}
+{{- $name := printf "%s-secure-baseline" (include "keyorix.fullname" .) -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $name -}}
+{{- $data := dict -}}
+{{- if and $existing $existing.data -}}
+{{- $data = deepCopy $existing.data -}}
+{{- end -}}
+{{- $days := int .Values.secureBaseline.certValidityDays -}}
+{{- if not (and (hasKey $data "server.crt") (hasKey $data "server.key")) -}}
+{{- $svc := include "keyorix.server.fullname" . -}}
+{{- $cert := genSelfSignedCert $svc nil (list $svc (printf "%s.%s" $svc .Release.Namespace) (printf "%s.%s.svc" $svc .Release.Namespace) "localhost") $days -}}
+{{- $_ := set $data "server.crt" ($cert.Cert | b64enc) -}}
+{{- $_ := set $data "server.key" ($cert.Key | b64enc) -}}
+{{- end -}}
+{{- if not (hasKey $data "metrics_token") -}}
+{{- $_ := set $data "metrics_token" (randAlphaNum 48 | b64enc) -}}
+{{- end -}}
+{{- if and .Values.postgresql.enabled (not (and (hasKey $data "postgres.crt") (hasKey $data "postgres.key"))) -}}
+{{- $pg := include "keyorix.postgresql.fullname" . -}}
+{{- $pgCert := genSelfSignedCert $pg nil (list $pg (printf "%s.%s" $pg .Release.Namespace) (printf "%s.%s.svc" $pg .Release.Namespace)) $days -}}
+{{- $_ := set $data "postgres.crt" ($pgCert.Cert | b64enc) -}}
+{{- $_ := set $data "postgres.key" ($pgCert.Key | b64enc) -}}
+{{- end -}}
+{{- $_ := set .Values "_secureBaselineData" $data -}}
+{{- end -}}
+{{- toJson .Values._secureBaselineData -}}
+{{- end -}}
+
+{{/*
+sha256 over "key=value\n" for the sorted secureBaseline Secret keys. A pod
+template annotation checksum/secure-baseline: <this> rolls the pods when the
+Secret changes (delete it to rotate, then helm upgrade), since Kubernetes does
+not restart pods on a mounted Secret change.
+*/}}
+{{- define "keyorix.secureBaseline.checksum" -}}
+{{- $d := include "keyorix.secureBaseline.data" . | fromJson -}}
+{{- $s := "" -}}
+{{- range $k := keys $d | sortAlpha -}}
+{{- $s = printf "%s%s=%s\n" $s $k (index $d $k) -}}
+{{- end -}}
+{{- sha256sum $s -}}
+{{- end -}}

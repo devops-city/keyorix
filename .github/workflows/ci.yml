@@ -571,6 +571,13 @@ jobs:
       - name: Self-test the review-coverage guard (must be able to go red both ways)
         run: ./scripts/check-review-coverage.sh --self-test
 
+      # server/entrypoint.sh (container image): bootstrap password never in argv
+      # (#241), bootstrap over the TLS URL with the server's own CA, config copy
+      # at 0600 (#2922), arguments run instead of the server. It ran nowhere
+      # before SECURE-DEFAULT-1 and had gone stale (no bootstrap token in its env).
+      - name: Container entrypoint tests (server/entrypoint_test.sh)
+        run: bash server/entrypoint_test.sh
+
       # Scope is derived from `go list ./...` at run time, never hand-enumerated
       # -- see docs/review-coverage.tsv's own header for why (a hand-maintained
       # package list is the exact failure mode this exists to prevent). Fails
@@ -2451,6 +2458,12 @@ jobs:
           helm template kx deploy/helm/keyorix \
             --set auth.masterPassword=ci --set postgresql.enabled=false \
             --set externalDatabase.host=db.example.com --set externalDatabase.password=ci \
+            | ./kubeconform -strict -summary -kubernetes-version 1.29.0
+          # secureBaseline (SECURE-DEFAULT-1): TLS server/web/postgres, the
+          # prepare-files initContainer and the generated Secret.
+          helm template kx deploy/helm/keyorix \
+            --set auth.masterPassword=ci --set postgresql.auth.password=ci \
+            --set auth.adminPassword=Ci-Render-Only-Pw1! --set secureBaseline.enabled=true \
             | ./kubeconform -strict -summary -kubernetes-version 1.29.0
 
       - name: Pinned default image tag + Secret-sourced passwords (#137)

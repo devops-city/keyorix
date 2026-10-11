@@ -367,6 +367,17 @@ grace period).
 
 ## 7. TLS
 
+**Secure baseline (from the release after v0.95.3).** `docker compose -f
+docker-compose.yml -f docker-compose.secure.yml up -d` runs the backend on TLS
+with a certificate its entrypoint generates on first start, has nginx verify
+it, turns on rate limiting and the `/metrics` token, and copies the config to a
+private 0600 file (so the host file's owner and mode no longer matter, #2922).
+`admin validate --posture` then reports no deviations. It needs a backend image
+newer than the pinned v0.95.3: until that release, build the backend from this
+checkout (`build:` in docker-compose.secure.yml). With the next release it
+becomes the default compose file. For Helm, the same baseline is
+`secureBaseline.enabled=true` (see `deploy/helm/keyorix/README.md`).
+
 The default stack serves plain HTTP on `8088`. Two ways to get HTTPS:
 
 **Bundled (recommended) — the `tls` profile.** An optional Caddy front-end that

@@ -63,6 +63,7 @@ helm test keyorix
 | `postgresql.enabled` | `true` | Bundled Postgres for evaluation. |
 | `postgresql.auth.password` | — | Required when bundled DB is enabled. |
 | `externalDatabase.*` | — | Used when `postgresql.enabled=false` (managed/HA Postgres). |
+| `secureBaseline.enabled` | `false` | ADR-112 secure baseline: server TLS (Helm-generated certificate, verified by the web pod), rate limiting, `/metrics` token, bundled Postgres over TLS, runtime files 0600. `admin validate --posture` then reports zero deviations. **Needs a server image newer than v0.95.3**; becomes the default with the next release. See below. |
 
 ## Upgrading: egress NetworkPolicy
 
@@ -154,6 +155,19 @@ your own `extraRules`.
 - **Backups:** back up both the database and the `*-server-keys` PVC. You need
   both (plus the master password) to recover.
 - **TLS:** terminate at the ingress (`ingress.tls` + cert-manager annotations).
+- **Secure baseline (`secureBaseline.enabled=true`):** Helm generates a
+  `<fullname>-secure-baseline` Secret (e.g. `kx-keyorix-secure-baseline`) on first install, kept across upgrades:
+  the server's self-signed certificate for its Service names, the `/metrics`
+  token, and a certificate for the bundled Postgres. The server serves and
+  requires TLS; the web pod's nginx verifies exactly that certificate; the
+  server connects to the bundled Postgres with `ssl_mode: require`; an
+  initContainer copies the config, certificate, key and token into a memory
+  emptyDir at 0600 owned by the server's uid (#2922). Give Prometheus the token
+  (`kubectl get secret <fullname>-secure-baseline -o jsonpath='{.data.metrics_token}' | base64 -d`).
+  To rotate the certificates or token, delete that Secret and `helm upgrade`,
+  then restart the pods. Verified on kind: posture `No deviations found.`,
+  server-to-Postgres TLS 1.3, `helm test` and a CLI journey through the web
+  Service.
 - **Swap:** run the nodes backing this deployment with swap disabled (the
   Kubernetes default). Decrypted secret memory is not locked against swap
   in-process (see `docs/adr-100-mlockall-removal-deployment-swap-control.md`

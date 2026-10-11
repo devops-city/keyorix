@@ -25,6 +25,8 @@ var (
 	initLoggingOnly    bool
 	initOverwrite      bool
 	initDev            bool
+	initSecureFiles    bool
+	initTLSDNSNames    []string
 )
 
 var initCmd = &cobra.Command{
@@ -46,6 +48,13 @@ existing config is never changed and nothing is generated for it.
 limit, unauthenticated /metrics. For a throwaway local demo only; the
 posture check reports it.
 
+--secure-files does only the generation step, for an EXISTING config that an
+orchestrator supplies (the container entrypoint uses it when
+KEYORIX_INIT_SECURE_FILES=true): it creates the TLS certificate/key and
+metrics token files that config references if they are missing, keeps any
+that exist, and changes nothing else. --tls-dns-name adds a DNS name to a
+generated certificate (e.g. the compose service name "backend").
+
 Exit codes: 0 on success, 1 on any failure (see the printed error message).`,
 	RunE: runAdminInit,
 }
@@ -56,6 +65,8 @@ func init() {
 	initCmd.Flags().BoolVar(&initDatabaseOnly, "database", false, "Initialize the database only")
 	initCmd.Flags().BoolVar(&initLoggingOnly, "logging", false, "Initialize logging only")
 	initCmd.Flags().BoolVar(&initOverwrite, "overwrite-existing", false, "Overwrite an existing config file (dangerous)")
+	initCmd.Flags().BoolVar(&initSecureFiles, "secure-files", false, "Only generate the TLS certificate/key and metrics token files an existing config references, if missing; never writes the config")
+	initCmd.Flags().StringSliceVar(&initTLSDNSNames, "tls-dns-name", nil, "Extra DNS name for a generated TLS certificate (repeatable)")
 	initCmd.Flags().BoolVar(&initDev, "dev", false, "Write the relaxed DEV-ONLY config (no TLS, no rate limit, unauthenticated /metrics) for a local demo; never for production")
 }
 
@@ -67,6 +78,13 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 
 	fmt.Println("Keyorix Server Admin: init")
 	fmt.Println("==========================")
+
+	if initSecureFiles {
+		// The config an orchestrator supplies: --config, else
+		// KEYORIX_CONFIG_PATH (what the server itself will load), not init's
+		// own ./keyorix.yaml default.
+		return runAdminInitSecureFiles(config.ResolvedPath(configPathFlag))
+	}
 
 	setupAll := initAll
 	if initEncryptionOnly || initDatabaseOnly || initLoggingOnly {
@@ -84,7 +102,7 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 	}
 	// Only for the config this run wrote: an existing install is never changed.
 	if wroteConfig && !initDev {
-		if err := generateSecureBaselineFiles(cfg); err != nil {
+		if err := generateSecureBaselineFiles(cfg, initTLSDNSNames); err != nil {
 			return fmt.Errorf("failed to generate TLS certificate / metrics token: %w", err)
 		}
 	}
@@ -128,6 +146,26 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 
 	recordAdminAction(cfg, "admin.init", fmt.Sprintf("ran `keyorix-server admin init` (config=%s)", configPath), true)
 
+	return nil
+}
+
+// runAdminInitSecureFiles is `admin init --secure-files`: generation only, for
+// a config that already exists. Asked for explicitly (an orchestrator's
+// entrypoint opts in), so it is not a silent change to an existing install.
+func runAdminInitSecureFiles(configPath string) error {
+	if initDev {
+		return fmt.Errorf("--secure-files and --dev cannot be combined")
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		return fmt.Errorf("--secure-files needs an existing config: %w", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if err := generateSecureBaselineFiles(cfg, initTLSDNSNames); err != nil {
+		return fmt.Errorf("failed to generate TLS certificate / metrics token: %w", err)
+	}
 	return nil
 }
 

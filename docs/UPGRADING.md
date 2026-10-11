@@ -64,6 +64,14 @@ yourself. Scripts that ran `admin init` and then talked plain HTTP need
 `admin init --dev` (relaxed, labelled DEV-ONLY) or the generated certificate
 (`keyorix config set ca_file <path>`, `--ca-file`, `KEYORIX_CA_FILE`).
 
+**Server image: `entrypoint.sh` is now the image's ENTRYPOINT** (it was its
+CMD). `docker run <image> <command>` and `docker compose run backend <command>`
+still run `<command>`, after the optional config copy (`KEYORIX_CONFIG_SOURCE`);
+only an explicit `--entrypoint` bypasses it. Compose and Helm can opt into the
+secure baseline: `docker-compose.secure.yml` / `secureBaseline.enabled=true`
+(docs/SELF_HOSTING.md §7); turning it on changes `/metrics` (token required)
+and the backend's listener (TLS only).
+
 Schema migrations run on boot. If a rolling multi-replica upgrade hits
 `database schema epoch N is newer than this binary's schema epoch M`, that's
 expected mid-rollout (see `docs/SELF_HOSTING.md` §9 troubleshooting table) —

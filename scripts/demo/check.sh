@@ -202,7 +202,11 @@ services:
     build:
       context: $REPO_ROOT/web
 EOF
-  docker compose -p "$PG_PROJECT" -f "$REPO_ROOT/docker-compose.yml" -f "$override_file" --env-file "$PG_ENV_FILE" up -d --build >"$SCRATCH/compose-up.log" 2>&1
+  # docker-compose.secure.yml: the secure baseline (TLS backend behind a
+  # verifying nginx, rate limiting, /metrics token, private config copy). It
+  # needs a backend newer than the pinned release, which the image built
+  # above is (SECURE-DEFAULT-1).
+  docker compose -p "$PG_PROJECT" -f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.secure.yml" -f "$override_file" --env-file "$PG_ENV_FILE" up -d --build >"$SCRATCH/compose-up.log" 2>&1
   local rc=$?
   cat "$SCRATCH/compose-up.log"
   [ "$rc" -eq 0 ] || return 1
@@ -292,7 +296,7 @@ seed_demo_org() {
 
 teardown_sqlite() { "$REPO_ROOT/scripts/demo/down.sh" --wipe >/dev/null 2>&1 || true; }
 teardown_postgres() {
-  docker compose -p "$PG_PROJECT" -f "$REPO_ROOT/docker-compose.yml" -f "$SCRATCH/compose-override.yml" --env-file "$PG_ENV_FILE" down -v >/dev/null 2>&1 || true
+  docker compose -p "$PG_PROJECT" -f "$REPO_ROOT/docker-compose.yml" -f "$REPO_ROOT/docker-compose.secure.yml" -f "$SCRATCH/compose-override.yml" --env-file "$PG_ENV_FILE" down -v >/dev/null 2>&1 || true
   rm -f "$REPO_ROOT/.demo-2-pg-state"
 }
 

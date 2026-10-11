@@ -57,6 +57,7 @@ payload_mode_file="$work_dir/payload_mode.txt"
 : >"$argv_log"
 
 wget_stub=$'#!/bin/sh\n'
+wget_stub+=$'printf \'SSL_CERT_FILE=%s\\n\' "${SSL_CERT_FILE:-}" >>"$WGET_ARGV_LOG"\n'
 wget_stub+=$'for a in "$@"; do\n'
 wget_stub+=$'    printf \'%s\\n\' "$a" >>"$WGET_ARGV_LOG"\n'
 wget_stub+=$'    case "$a" in\n'
@@ -93,10 +94,25 @@ env -i \
     WGET_PAYLOAD_PATH_FILE="$payload_path_file" \
     WGET_PAYLOAD_MODE_FILE="$payload_mode_file" \
     _kx_admin_password="$password" \
-    _kx_bootstrap_token="test-bootstrap-token" \
     KEYORIX_ADMIN_USERNAME="admin" \
     KEYORIX_ADMIN_EMAIL="admin@example.test" \
+    _kx_bootstrap_token="test-bootstrap-token" \
+    KEYORIX_LOCAL_URL="https://localhost:8080" \
+    KEYORIX_LOCAL_CA_FILE="/app/tls/server.crt" \
     sh -c "$block"
+
+# --- SECURE-DEFAULT-1: with TLS on, bootstrap goes to the https URL and
+# verifies the server's own certificate (SSL_CERT_FILE for that wget only). ---
+if grep -qxF -- "https://localhost:8080/system/init" "$argv_log"; then
+    note "bootstrap POST goes to KEYORIX_LOCAL_URL"
+else
+    bad "bootstrap POST did not use KEYORIX_LOCAL_URL (https://localhost:8080/system/init)"
+fi
+if grep -qxF -- "SSL_CERT_FILE=/app/tls/server.crt" "$argv_log"; then
+    note "bootstrap wget verifies with KEYORIX_LOCAL_CA_FILE"
+else
+    bad "bootstrap wget did not get SSL_CERT_FILE=KEYORIX_LOCAL_CA_FILE"
+fi
 
 # --- The password must never appear in wget's own argv. ---
 if grep -qF -- "$password" "$argv_log"; then
@@ -151,6 +167,34 @@ if [[ -f "$payload_path_file" ]]; then
     else
         note "bootstrap temp directory was removed after use"
     fi
+fi
+
+# --- SECURE-DEFAULT-1: KEYORIX_CONFIG_SOURCE is copied to KEYORIX_CONFIG_PATH
+# at 0600 (#2922), and arguments run instead of the server (`compose run`). ---
+cfg_dir="$work_dir/cfg"
+mkdir -p "$cfg_dir"
+printf 'server: {}\n' >"$cfg_dir/source.yaml"
+chmod 664 "$cfg_dir/source.yaml"
+ran_marker="$work_dir/ran-args"
+env -i PATH="$stub_bin:/usr/bin:/bin" TMPDIR="${TMPDIR:-/tmp}" \
+    KEYORIX_CONFIG_SOURCE="$cfg_dir/source.yaml" \
+    KEYORIX_CONFIG_PATH="$cfg_dir/keyorix.yaml" \
+    sh "$entrypoint" touch "$ran_marker"
+if [[ -f "$ran_marker" ]]; then
+    note "arguments run instead of the server"
+else
+    bad "entrypoint with arguments did not run them"
+fi
+copy_mode="$(stat -c '%a' "$cfg_dir/keyorix.yaml" 2>/dev/null || stat -f '%Lp' "$cfg_dir/keyorix.yaml" 2>/dev/null || echo missing)"
+if [[ "$copy_mode" = "600" ]] && cmp -s "$cfg_dir/source.yaml" "$cfg_dir/keyorix.yaml"; then
+    note "KEYORIX_CONFIG_SOURCE copied to KEYORIX_CONFIG_PATH at 0600"
+else
+    bad "config copy missing, different or mode '$copy_mode' (want 0600)"
+fi
+if env -i PATH="$stub_bin:/usr/bin:/bin" KEYORIX_CONFIG_SOURCE="$cfg_dir/source.yaml" sh "$entrypoint" true 2>/dev/null; then
+    bad "KEYORIX_CONFIG_SOURCE without KEYORIX_CONFIG_PATH did not fail"
+else
+    note "KEYORIX_CONFIG_SOURCE without KEYORIX_CONFIG_PATH fails"
 fi
 
 # --- #3025: when the bootstrap call keeps failing the entrypoint must exit

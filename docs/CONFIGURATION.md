@@ -608,6 +608,11 @@ Rate limiting is on (`50`/`100` HTTP, `25`/`50` gRPC, as in
   report then lists `security.insecure_allow_cleartext_transport` if you also set
   `require_transport_tls: false` (it must be false for a cleartext listener to start).
 
+Docker Compose and Helm reach the same baseline with `docker-compose.secure.yml`
+and the chart's `secureBaseline.enabled` (docs/SELF_HOSTING.md §7);
+`keyorix-server admin init --secure-files` is the generation step on its own,
+for a config an orchestrator supplies.
+
 **`admin init --dev`** writes the relaxed config for a throwaway local demo: TLS
 off and not required, rate limiting off, no metrics token. Its first lines are a
 `DEV-ONLY CONFIG` banner naming those three, and the posture report lists them

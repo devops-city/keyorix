@@ -147,6 +147,9 @@ func TestWebNginxHSTS_ComposeImage(t *testing.T) {
 			args := []string{
 				"--name", fmt.Sprintf("hsts3058-compose-%d-%d", os.Getpid(), i),
 				"-v", filepath.Join(web, "nginx.conf") + ":/etc/nginx/nginx.conf:ro",
+				// nginx.conf includes this file for the backend proxy settings (the image
+				// COPYs it; a bind-mounted nginx.conf on the stock image needs it too).
+				"-v", filepath.Join(web, "keyorix-backend.conf") + ":/etc/nginx/keyorix-backend.conf:ro",
 				"-v", dir + ":/etc/nginx/keyorix",
 				"-v", filepath.Join(web, "docker-entrypoint.d", "40-keyorix-hsts.sh") + ":/docker-entrypoint.d/40-keyorix-hsts.sh:ro",
 				"-e", "KEYORIX_WEB_TRUSTED_PROXIES=" + c.proxies,

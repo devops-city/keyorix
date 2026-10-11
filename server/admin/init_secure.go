@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,7 +46,7 @@ var hostnameLabel = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-
 
 // generateSecureBaselineFiles creates the TLS certificate/key and the metrics
 // token the freshly written config names, skipping any that already exist.
-func generateSecureBaselineFiles(cfg *config.Config) error {
+func generateSecureBaselineFiles(cfg *config.Config, extraDNSNames []string) error {
 	type tlsPair struct{ cert, key string }
 	var pairs []tlsPair
 	seenPair := map[tlsPair]bool{}
@@ -65,8 +66,12 @@ func generateSecureBaselineFiles(cfg *config.Config) error {
 		}
 	}
 
+	if len(pairs) == 0 && len(tokenPaths) == 0 {
+		fmt.Println("Nothing to generate: the config enables no TLS listener with cert_file/key_file and sets no metrics_token_file")
+		return nil
+	}
 	for _, p := range pairs {
-		if err := ensureSelfSignedCert(p.cert, p.key); err != nil {
+		if err := ensureSelfSignedCert(p.cert, p.key, extraDNSNames); err != nil {
 			return err
 		}
 	}
@@ -94,7 +99,7 @@ func fileExists(path string) (bool, error) {
 // for localhost, 127.0.0.1, ::1 and this host's name, unless both files exist.
 // One of the two existing without the other is an error: pairing an operator's
 // certificate with a generated key (or the reverse) can never work.
-func ensureSelfSignedCert(certPath, keyPath string) error {
+func ensureSelfSignedCert(certPath, keyPath string, extraDNSNames []string) error {
 	certExists, err := fileExists(certPath)
 	if err != nil {
 		return fmt.Errorf("check %s: %w", certPath, err)
@@ -122,6 +127,15 @@ func ensureSelfSignedCert(certPath, keyPath string) error {
 	dnsNames := []string{"localhost"}
 	if h, herr := os.Hostname(); herr == nil && h != "" && h != "localhost" && hostnameLabel.MatchString(h) {
 		dnsNames = append(dnsNames, strings.ToLower(h))
+	}
+	for _, n := range extraDNSNames {
+		n = strings.ToLower(strings.TrimSpace(n))
+		if !hostnameLabel.MatchString(n) {
+			return fmt.Errorf("--tls-dns-name %q is not a valid DNS name", n)
+		}
+		if !slices.Contains(dnsNames, n) {
+			dnsNames = append(dnsNames, n)
+		}
 	}
 	now := time.Now()
 	tmpl := &x509.Certificate{
@@ -188,12 +202,17 @@ func ensureMetricsToken(path string) error {
 	return nil
 }
 
-// createPrivateFile creates path (relative to the working directory, like
-// every path in the generated config) at 0600 inside a 0700 directory. It never
-// overwrites: O_EXCL plus a per-component no-symlink walk.
+// createPrivateFile creates path at 0600 inside a 0700 directory. It never
+// overwrites: O_EXCL plus a per-component no-symlink walk, beneath the working
+// directory for a relative path (every path in the generated config) or
+// beneath the file's own directory for an absolute one (an orchestrator's
+// config, e.g. /app/tls/server.crt).
 func createPrivateFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
+	}
+	if filepath.IsAbs(path) {
+		return securefiles.SecureCreateFileSync(filepath.Dir(path), filepath.Base(path), data, 0o600)
 	}
 	return securefiles.SecureCreateFileSync(".", path, data, 0o600)
 }

@@ -21,6 +21,29 @@ data:
         # the built-in loopback-only default (#2939) must be widened here.
         host: "0.0.0.0"
         port: "{{ .Values.server.service.port }}"
+        {{- if .Values.secureBaseline.enabled }}
+        # secureBaseline (SECURE-DEFAULT-1): /app/run is the memory emptyDir the
+        # prepare-files initContainer fills from the <fullname>-secure-baseline
+        # Secret, 0600, owned by the server's uid.
+        tls:
+          enabled: true
+          cert_file: "/app/run/tls/server.crt"
+          key_file: "/app/run/tls/server.key"
+        ratelimit:
+          enabled: true
+          requests_per_second: 50
+          burst: 100
+        metrics_token_file: "/app/run/tls/metrics_token"
+      grpc:
+        enabled: false
+        ratelimit:
+          enabled: true
+          requests_per_second: 25
+          burst: 50
+        metrics_token_file: "/app/run/tls/metrics_token"
+    security:
+      require_transport_tls: true
+        {{- end }}
     storage:
       type: postgres
       database:
@@ -28,7 +51,13 @@ data:
         port: "{{ .Values.postgresql.enabled | ternary 5432 .Values.externalDatabase.port }}"
         name: {{ .Values.postgresql.enabled | ternary .Values.postgresql.auth.database .Values.externalDatabase.database }}
         user: {{ .Values.postgresql.enabled | ternary .Values.postgresql.auth.username .Values.externalDatabase.user }}
+        {{- if and .Values.postgresql.enabled .Values.secureBaseline.enabled }}
+        # The bundled PostgreSQL serves TLS with the chart's self-signed
+        # certificate: encrypted, not verified (pod network only).
+        ssl_mode: require
+        {{- else }}
         ssl_mode: {{ .Values.postgresql.enabled | ternary "disable" .Values.externalDatabase.sslMode }}
+        {{- end }}
       encryption:
         enabled: true
         # The wrapped DEK + KEK salt live on the persisted keys volume. These MUST

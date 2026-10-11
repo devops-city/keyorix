@@ -19,6 +19,9 @@ spec:
         app.kubernetes.io/component: web
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/web-config.yaml") . | sha256sum }}
+        {{- if .Values.secureBaseline.enabled }}
+        checksum/secure-baseline: {{ include "keyorix.secureBaseline.checksum" . }}
+        {{- end }}
         # kube-score (helm-chart-policy CI job), each with an already-settled reason
         # elsewhere in this file/chart, not a fresh judgment call made here:
         #   - container-security-context-user-group-id: fixed uid 101 to match the
@@ -71,6 +74,11 @@ spec:
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
               readOnly: true
+            {{- if .Values.secureBaseline.enabled }}
+            - name: server-ca
+              mountPath: /etc/keyorix/tls
+              readOnly: true
+            {{- end }}
             - name: nginx-cache
               mountPath: /var/cache/nginx
             - name: nginx-run
@@ -107,6 +115,16 @@ spec:
         - name: nginx-config
           configMap:
             name: {{ include "keyorix.web.fullname" . }}-config
+        {{- if .Values.secureBaseline.enabled }}
+        # Only the server's public certificate, never its key or the token.
+        - name: server-ca
+          secret:
+            secretName: {{ include "keyorix.fullname" . }}-secure-baseline
+            defaultMode: 0444
+            items:
+              - key: server.crt
+                path: ca.crt
+        {{- end }}
         # Every emptyDir carries a sizeLimit: past it the kubelet evicts the pod
         # instead of letting a runaway writer fill the node's ephemeral storage.
         - name: nginx-cache

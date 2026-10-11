@@ -43,7 +43,14 @@ spec:
       args:
         - "--spider"
         - "-S"
+        {{- if .Values.secureBaseline.enabled }}
+        # secureBaseline: the server only speaks TLS (busybox wget has no CA
+        # option), so test the path users take: the web pod's nginx, which
+        # proxies to the server over verified HTTPS.
+        - "http://{{ include "keyorix.web.fullname" . }}:{{ .Values.web.service.port }}/api/v1/version"
+        {{- else }}
         - "http://{{ include "keyorix.server.fullname" . }}:{{ .Values.server.service.port }}/health"
+        {{- end }}
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true

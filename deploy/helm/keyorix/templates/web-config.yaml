@@ -67,7 +67,20 @@ data:
         # /api/ = authenticated API, /auth/ = public auth (login/refresh/logout,
         # served at the root), /system/ = first-boot init. Proxy all to the server.
         location ~ ^/(api|auth|system)/ {
+          {{- if .Values.secureBaseline.enabled }}
+          # secureBaseline (SECURE-DEFAULT-1): the server serves TLS; verify it
+          # against exactly its own certificate (server.crt from the
+          # <fullname>-secure-baseline Secret, mounted at /etc/keyorix/tls).
+          proxy_pass https://{{ include "keyorix.server.fullname" . }}:{{ .Values.server.service.port }};
+          proxy_ssl_verify on;
+          proxy_ssl_verify_depth 1;
+          proxy_ssl_trusted_certificate /etc/keyorix/tls/ca.crt;
+          proxy_ssl_name {{ include "keyorix.server.fullname" . }};
+          proxy_ssl_server_name on;
+          proxy_ssl_protocols TLSv1.2 TLSv1.3;
+          {{- else }}
           proxy_pass http://{{ include "keyorix.server.fullname" . }}:{{ .Values.server.service.port }};
+          {{- end }}
           proxy_set_header Host $host;
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

@@ -48,6 +48,7 @@ RUN pnpm build
 FROM nginx:alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3 AS production
 RUN apk update && apk add --no-cache --upgrade libuuid=2.42.3-r1 libexpat=2.8.5-r0
 COPY nginx.conf /etc/nginx/nginx.conf
+COPY keyorix-backend.conf /etc/nginx/keyorix-backend.conf
 # HSTS-behind-a-load-balancer policy: nginx-hsts.conf is the "no trusted proxy,
 # no HSTS" default; docker-entrypoint.d/40-keyorix-hsts.sh regenerates it at start
 # from KEYORIX_WEB_TRUSTED_PROXIES (see docs/SELF_HOSTING.md), so the directory

@@ -2,7 +2,10 @@
 # used by the helm-chart-policy CI job so kubeconform/kube-score see the full
 # template surface (ingress, TLS, CORS, image digests, imagePullSecrets,
 # scheduling knobs, a scaled-out web replica set, and a networkPolicy
-# extraRules entry), not just the default render's narrower code paths.
+# extraRules entry, the secureBaseline TLS/initContainer/Secret paths), not
+# just the default render's narrower code paths.
+secureBaseline:
+  enabled: true
 auth:
   masterPassword: ci-maximal
   adminUsername: admin
