@@ -129,6 +129,8 @@ interface DeletedSecret {
     type: string;
     classification?: string;
     deleted_at?: string;
+    /** UTC RFC 3339 instant before which the purge job will not remove the secret. */
+    purge_at?: string;
 }
 
 interface RenderSecuritySectionProps {
@@ -616,8 +618,9 @@ function renderRecycleBinSection({
                 Recycle bin
             </h2>
             <p className="text-xs mb-4" style={{ color: 'var(--text-muted)' }}>
-                Deleted secrets stay restorable until the retention window expires. Restore one to return it to the live
-                list.
+                Deleted secrets stay restorable until the date shown beside each one; it is not moved earlier when the
+                retention window is shortened later. Secrets deleted before this date was recorded follow the current
+                window, so their date can still change. Restore one to return it to the live list.
             </p>
             <div
                 className="rounded-lg border"
@@ -639,6 +642,9 @@ function renderRecycleBinSection({
                                         {s.type}
                                         {s.deleted_at
                                             ? ` · deleted ${new Date(s.deleted_at).toLocaleDateString()}`
+                                            : ''}
+                                        {s.purge_at
+                                            ? ` · restorable until ${new Date(s.purge_at).toLocaleString()}`
                                             : ''}
                                     </span>
                                 </div>

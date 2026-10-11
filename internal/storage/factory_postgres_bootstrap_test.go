@@ -12,6 +12,7 @@
 package storage
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,7 +57,7 @@ func TestCreateStorage_Postgres_Success(t *testing.T) {
 	assert.True(t, tableExists(db, "users"), "migrateDatabase must have created the users table")
 	var m models.SystemMetadata
 	require.NoError(t, db.Where("key = ?", schemaEpochMetadataKey).Take(&m).Error)
-	assert.Equal(t, "1", m.Value)
+	assert.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value)
 }
 
 // TestCreateStorage_Postgres_MigrationFailure_Propagates seeds a

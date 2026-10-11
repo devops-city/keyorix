@@ -539,6 +539,11 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	}
 
 	coreService := core.NewKeyorixCore(store)
+	// The configured soft-delete window, wired where the service is built (not in an
+	// unrelated wireX helper) so every transport and job that shows or applies a
+	// purge date (core.SecretPurgeAt) sees soft_delete.retention_days, never core's
+	// 30-day library default.
+	coreService.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
 
 	// keyless mode (docs/design-b2-recover-admin.md §5): flagged loudly and
 	// repeatedly wherever an operator or auditor would look -- a startup
@@ -1408,7 +1413,10 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 			}
 			// Single-replica-gated (ADR-039): only one replica runs the purge.
 			return lockedRun(ctx, coreService.Storage(), schedLockPurge, "Retention purge", func() error {
-				cutoff := time.Now().AddDate(0, 0, -retentionDays)
+				// UTC so the cutoff is exactly the inverse of models.PurgeAtFor
+				// (deleted_at + N days in UTC): a local zone with DST would let a
+				// legacy (un-stamped) secret go an hour before its displayed purge date.
+				cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
 				res, err := coreService.PurgeExpiredSoftDeletes(ctx, cutoff)
 				if err != nil {
 					log.Printf("Retention purge error: %v", err)

@@ -49,8 +49,8 @@ type SecretServiceClient interface {
 	GetSecretValue(ctx context.Context, in *GetSecretRequest, opts ...grpc.CallOption) (*SecretValue, error)
 	// Update an existing secret (a new value creates a new version)
 	UpdateSecret(ctx context.Context, in *UpdateSecretRequest, opts ...grpc.CallOption) (*Secret, error)
-	// Delete a secret
-	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Soft-delete a secret; the response says until when it can be restored.
+	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error)
 	// List secrets with filtering and pagination
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
 	// Get a secret's version history
@@ -118,9 +118,9 @@ func (c *secretServiceClient) UpdateSecret(ctx context.Context, in *UpdateSecret
 	return out, nil
 }
 
-func (c *secretServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *secretServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*DeleteSecretResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(emptypb.Empty)
+	out := new(DeleteSecretResponse)
 	err := c.cc.Invoke(ctx, SecretService_DeleteSecret_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -222,8 +222,8 @@ type SecretServiceServer interface {
 	GetSecretValue(context.Context, *GetSecretRequest) (*SecretValue, error)
 	// Update an existing secret (a new value creates a new version)
 	UpdateSecret(context.Context, *UpdateSecretRequest) (*Secret, error)
-	// Delete a secret
-	DeleteSecret(context.Context, *DeleteSecretRequest) (*emptypb.Empty, error)
+	// Soft-delete a secret; the response says until when it can be restored.
+	DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error)
 	// List secrets with filtering and pagination
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
 	// Get a secret's version history
@@ -263,7 +263,7 @@ func (UnimplementedSecretServiceServer) GetSecretValue(context.Context, *GetSecr
 func (UnimplementedSecretServiceServer) UpdateSecret(context.Context, *UpdateSecretRequest) (*Secret, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateSecret not implemented")
 }
-func (UnimplementedSecretServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*emptypb.Empty, error) {
+func (UnimplementedSecretServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*DeleteSecretResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteSecret not implemented")
 }
 func (UnimplementedSecretServiceServer) ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error) {

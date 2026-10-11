@@ -205,9 +205,11 @@ func TestSecretNodeCacheEpoch_FreshInstallAndUpgrade_Postgres(t *testing.T) {
 // knowledge of cache_epoch writes — raw SQL naming only the columns it knows —
 // and asserts the stamp is still maintained correctly.
 func TestSecretNodeCacheEpoch_NeedsNoSchemaEpochBump(t *testing.T) {
-	require.Equal(t, 1, currentSchemaEpoch,
-		"this test encodes the reasoning for leaving the epoch at 1; if you bump it, ADR-101's minCompatibleEpoch must land first (schema_epoch_tripwire_test.go) and this test's premise needs revisiting")
-
+	// The cache_epoch migration itself still needs no bump (the argument above). The
+	// epoch has since moved to 2 for an unrelated additive column (secret_nodes.purge_at,
+	// #3021) with the ADR-101 floor left at 1, so this test no longer pins the constant;
+	// what it pins is that a binary blind to cache_epoch keeps the stamp correct, and
+	// schema_epoch_tripwire_test.go pins the epoch and floor.
 	dbPath := filepath.Join(t.TempDir(), "epoch-compat.db")
 	db, err := gormOpenForTest(t, dbPath)
 	require.NoError(t, err)

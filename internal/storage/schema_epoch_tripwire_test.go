@@ -4,34 +4,37 @@
 // deliberately-not-yet-fixed gap for multi-replica rolling upgrades: it cannot
 // distinguish "a sibling replica already migrated, this pod is mid-rollout" from
 // "an operator genuinely downgraded" (see docs/adr-101-schema-epoch-compatibility-
-// floor.md for the full reasoning and the rejected alternatives). That gap is
-// latent only because currentSchemaEpoch has never been bumped since ADR-097
-// shipped -- the moment it is, the refusal becomes a real, live event for the
-// first time, and retrofitting ADR-101's compatibility-floor design after that
-// point means migrating the migration guard itself while replicas may already be
-// running under the old semantics.
+// floor.md for the full reasoning and the rejected alternatives). ADR-101's
+// compatibility floor (minCompatibleSchemaEpoch, recorded as
+// schema_min_compatible_epoch) is the mechanism that closes it, and it is in place.
 //
-// This test is the enforcement mechanism ADR-101 itself requires: it fails the
-// instant anyone bumps currentSchemaEpoch above 1, with a message pointing
-// straight at the design decision that must land first. It is not a statement
-// that raising the epoch is wrong -- it's a checkpoint ensuring whoever does it
-// meets ADR-101 at the moment it matters, not by already having to know to go
-// looking for it.
+// This test is the enforcement mechanism ADR-101 itself requires: it fails on any
+// change to currentSchemaEpoch that is not accompanied by an update of the expected
+// value here, with a message pointing straight at the design decision. It is not a
+// statement that raising the epoch is wrong -- it's a checkpoint ensuring whoever
+// does it meets ADR-101 (decide minCompatibleSchemaEpoch) at the moment it matters.
+//
+// History: 1 -> 2 for secret_nodes.purge_at (#3021), an additive nullable column an
+// older binary neither reads nor maintains. That is NOT safe (an epoch-1 restore/delete
+// leaves a stale purge_at), so minCompatibleSchemaEpoch is raised to 2.
 package storage
 
 import "testing"
 
-func TestCurrentSchemaEpoch_StillOne_SeeADR101(t *testing.T) {
-	if currentSchemaEpoch != 1 {
+func TestCurrentSchemaEpoch_Is2_SeeADR101(t *testing.T) {
+	if currentSchemaEpoch != 2 {
 		t.Fatalf(
-			"currentSchemaEpoch is now %d (was 1) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
-				"records a design decision that must land BEFORE this bump, not after. The current "+
-				"checkSchemaEpoch (ADR-097) hard-refuses ANY older binary against ANY newer epoch, "+
-				"including the common safe case (an old replica mid-rollout, not actually downgraded) -- "+
-				"ADR-101 replaces that with a declared per-migration compatibility floor so the refusal "+
-				"only fires when a migration author actually said this schema isn't safe for older "+
-				"binaries. Implement ADR-101's minCompatibleEpoch mechanism first, THEN update this "+
-				"test's expected value alongside your epoch bump -- do not just raise the constant here.",
+			"currentSchemaEpoch is now %d (expected 2) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
+				"requires every bump to also decide minCompatibleSchemaEpoch (additive-and-safe leaves it "+
+				"unchanged; a migration an older binary cannot safely run against raises it to the new epoch). "+
+				"Make that decision in factory.go, THEN update this test's expected value alongside your "+
+				"epoch bump -- do not just raise the constant here.",
 			currentSchemaEpoch)
+	}
+	if minCompatibleSchemaEpoch != 2 {
+		t.Fatalf("minCompatibleSchemaEpoch is %d; the purge_at column (epoch 2) is NOT safe for an epoch-1 binary: its "+
+			"RestoreSecret/RestoreProject do not clear purge_at and its DeleteSecret does not re-stamp it, so a restore+re-delete "+
+			"on an old replica leaves a stale date and the new purge job hard-deletes before the date shown (irreversible). "+
+			"The floor must be 2 so epoch-1 binaries refuse to start (INV-STORE-secret-purge-never-before-shown-date)", minCompatibleSchemaEpoch)
 	}
 }

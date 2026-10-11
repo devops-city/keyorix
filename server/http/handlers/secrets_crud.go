@@ -691,6 +691,13 @@ func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {
 		h.coreService.LogSecretDeletedWithProject(auditCtx, uid, sID, secretProjectID, uname, secretName, ip, ua)
 	}) // #nosec G118
 
+	// Tell the caller until when this delete is undoable. A failed read-back must not
+	// turn a completed delete into an error, so the header is simply omitted then.
+	if purgeAt, perr := h.coreService.DeletedSecretPurgeAt(r.Context(), uint(id)); perr == nil {
+		w.Header().Set(purgeAtHeader, formatPurgeAt(purgeAt))
+	} else {
+		log.Printf("Deleted secret %d but could not read back its purge date: %v", id, perr)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

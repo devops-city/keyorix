@@ -3141,7 +3141,15 @@ paths:
       parameters:
         - {name: id, in: path, required: true, schema: {type: integer}}
       responses:
-        '204': {description: Secret deleted (no content).}
+        '204':
+          description: >-
+            Secret soft-deleted (no content). The Keyorix-Purge-At header says
+            until when it can be restored; it is omitted only if the server could
+            not read the date back after the delete.
+          headers:
+            Keyorix-Purge-At:
+              description: UTC instant (RFC 3339) before which the purge job will not hard-delete the secret.
+              schema: {type: string, format: date-time}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -8132,6 +8140,16 @@ components:
         type: {type: string}
         classification: {type: string}
         deleted_at: {type: string}
+        purge_at:
+          type: string
+          format: date-time
+          description: >-
+            UTC instant (RFC 3339) before which the purge job will not hard-delete
+            this secret -- the restore deadline. Frozen when the secret was deleted
+            (deleted_at plus the secret's own retention override, else the
+            soft_delete.retention_days in force then), so a later change to the
+            configured window does not move it. For a secret deleted before this
+            field existed it is computed from the current configuration.
     Group:
       type: object
       description: A group (server/http/handlers/groups_handler.go's groupToAPIResponse).

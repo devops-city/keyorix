@@ -14,9 +14,9 @@ Format: `INV-STORAGE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue
   explicitly covers the older binary (INV-STORAGE-04). With no floor recorded, the refusal is
   unconditional. Why: ADR-097, ADR-101. Guard: `TestSchemaEpoch_NewerRecordedEpoch_RefusesToStart`,
   `TestSchemaEpochFloor_RefusesOutsideSupportedRange/db_epoch_above_binary,_no_floor_recorded`.
-- **INV-STORAGE-02** `currentSchemaEpoch` has not silently bumped past 1 without the
+- **INV-STORAGE-02** `currentSchemaEpoch` (now 2 for the additive `secret_nodes.purge_at`, #3021; floor stays 1) has not silently bumped without the
   accompanying ADR-101 compatibility-floor work landing — this is a deliberate tripwire, not a
-  claim that raising the epoch is wrong. Guard: `schema_epoch_tripwire_test.go:TestCurrentSchemaEpoch_StillOne_SeeADR101`.
+  claim that raising the epoch is wrong. Guard: `schema_epoch_tripwire_test.go:TestCurrentSchemaEpoch_Is2_SeeADR101`.
 - **INV-STORAGE-03** A corrupt (non-integer) `schema_epoch` value in `system_metadata` fails
   closed (refuses boot), not proceed silently. Why: ADR-097 "Corrupt value" section. UNGUARDED
   (#issue: no test located beyond the two epoch tests above directly asserting this; likely

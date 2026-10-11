@@ -189,6 +189,8 @@ test('secrets lifecycle: project/env creation, reveal gating, update, delete, re
     await expect(page.getByRole('heading', { name: 'Recycle bin', exact: true })).toBeVisible();
     const recycleRow = page.locator('li', { hasText: secretName });
     await expect(recycleRow).toBeVisible({ timeout: 10_000 });
+    // RETENTION-1: the recycle bin shows the server's real purge date for the secret.
+    await expect(recycleRow).toContainText('restorable until');
     await recycleRow.getByRole('button', { name: 'Restore' }).click();
     await expect(recycleRow).toHaveCount(0, { timeout: 10_000 });
 

@@ -1104,6 +1104,48 @@ describe('ProjectSettingsTab — Recycle bin', () => {
 
         await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/secrets/31/restore', {}));
     });
+
+    it('does not overstate the purge guarantee: legacy rows without a stored date follow the live window', async () => {
+        mockGet.mockImplementation(() => Promise.resolve({ data: { data: { deleted: [] } } }));
+
+        render(<ProjectSettingsTab projectId={1} />);
+
+        expect(await screen.findByText('Recycle bin')).toBeInTheDocument();
+        expect(screen.queryByText(/never purged earlier/i)).not.toBeInTheDocument();
+        expect(
+            screen.getByText(/deleted before this date was recorded follow the current window/i)
+        ).toBeInTheDocument();
+    });
+
+    it('shows the real purge date of each deleted secret, and none for a row without one', async () => {
+        mockGet.mockImplementation((url: string) =>
+            url.includes('/secrets/deleted')
+                ? Promise.resolve({
+                      data: {
+                          data: {
+                              deleted: [
+                                  {
+                                      id: 31,
+                                      name: 'dated-token',
+                                      type: 'apiKey',
+                                      deleted_at: '2025-01-01T00:00:00Z',
+                                      purge_at: '2025-01-31T00:00:00Z',
+                                  },
+                                  { id: 32, name: 'undated-token', type: 'apiKey', deleted_at: '2025-01-02T00:00:00Z' },
+                              ],
+                          },
+                      },
+                  })
+                : Promise.resolve({ data: { data: {} } })
+        );
+
+        render(<ProjectSettingsTab projectId={1} />);
+
+        const dated = (await screen.findByText('dated-token')).parentElement as HTMLElement;
+        expect(dated.textContent).toContain(`restorable until ${new Date('2025-01-31T00:00:00Z').toLocaleString()}`);
+        const undated = (await screen.findByText('undated-token')).parentElement as HTMLElement;
+        expect(undated.textContent).not.toContain('restorable until');
+    });
 });
 
 describe('ProjectSettingsTab — Danger zone', () => {

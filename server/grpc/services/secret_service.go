@@ -284,7 +284,7 @@ func (s *SecretGRPCService) UpdateSecret(ctx context.Context, req *pb.UpdateSecr
 }
 
 // DeleteSecret deletes a secret (owner-only, enforced by core).
-func (s *SecretGRPCService) DeleteSecret(ctx context.Context, req *pb.DeleteSecretRequest) (*emptypb.Empty, error) {
+func (s *SecretGRPCService) DeleteSecret(ctx context.Context, req *pb.DeleteSecretRequest) (*pb.DeleteSecretResponse, error) {
 	user, err := requireUser(ctx)
 	if err != nil {
 		return nil, err
@@ -326,7 +326,13 @@ func (s *SecretGRPCService) DeleteSecret(ctx context.Context, req *pb.DeleteSecr
 	goSafe(func() {
 		s.core.LogSecretDeletedWithProject(auditCtx, user.UserID, uint(req.GetId()), secretProjectID, user.Username, secretName, ip, ua)
 	}) // #nosec G118
-	return &emptypb.Empty{}, nil
+	// The delete is done; a failed read-back of the purge date leaves it unset rather
+	// than failing a completed delete (same stance as the HTTP handler's header).
+	resp := &pb.DeleteSecretResponse{}
+	if purgeAt, perr := s.core.DeletedSecretPurgeAt(ctx, uint(req.GetId())); perr == nil {
+		resp.PurgeAt = timestamppb.New(purgeAt.UTC())
+	}
+	return resp, nil
 }
 
 // SetSecretAutoRotate enables/disables automated rotation for a secret and sets its

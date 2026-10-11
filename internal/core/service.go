@@ -70,6 +70,11 @@ type KeyorixCore struct {
 	// enforce a lease's TTL, so IssueLease refuses to mint from them when it is off
 	// (the credential would otherwise never expire). Set via SetDynamicSweepEnabled.
 	dynamicSweepEnabled bool
+	// softDeleteRetentionDays mirrors config soft_delete.retention_days (via
+	// GetRetentionDays, so already defaulted). Used only to compute the purge date of a
+	// soft-deleted secret that has no frozen purge_at (see SecretPurgeAt); 0 = not
+	// wired, treated as the 30-day default. Set via SetSoftDeleteRetentionDays.
+	softDeleteRetentionDays int
 	// dynamicMaxLeaseTTL mirrors config dynamic_secrets.max_lease_ttl (#97): a hard,
 	// install-wide ceiling dynamicTTL enforces alongside (never instead of) each
 	// config's own MaxTTLSeconds, which has no ceiling of its own. Zero = the
@@ -990,6 +995,13 @@ func (c *KeyorixCore) SetDynamicEngineFactory(f ports.DynamicBackendFactory) {
 // to mint a credential from a backend whose TTL only the sweeper would enforce.
 func (c *KeyorixCore) SetDynamicSweepEnabled(enabled bool) {
 	c.dynamicSweepEnabled = enabled
+}
+
+// SetSoftDeleteRetentionDays records the configured soft-delete window
+// (config soft_delete.retention_days) for SecretPurgeAt's fallback on secrets that
+// carry no frozen purge date. Wired at startup beside the storage's own copy.
+func (c *KeyorixCore) SetSoftDeleteRetentionDays(days int) {
+	c.softDeleteRetentionDays = days
 }
 
 // SetDynamicAllowPrivateTargets controls whether the admin-DSN SSRF guard is

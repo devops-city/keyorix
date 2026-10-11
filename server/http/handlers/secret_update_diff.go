@@ -119,6 +119,7 @@ var updateSecretAllowlist = map[string]secretUpdateFieldClass{
 	"CertNotAfter":          secretFieldRejected, // SetSecretCertNotAfter's own primitive
 	"DeletedAt":             secretFieldRejected, // soft-delete/restore's own path
 	"RetentionOverrideDays": secretFieldRejected,
+	"PurgeAt":               secretFieldRejected, // frozen by soft-delete, cleared by restore; never client-writable
 
 	// -- rejected: gated by an authorization check this endpoint cannot run --
 	"OwnerID":                secretFieldRejected, // TransferSecretOwnership: current-owner + SoD check
@@ -273,6 +274,9 @@ func diffSecretUpdate(authoritative, desired *models.SecretNode) secretUpdateDif
 	}
 	if authoritative.RetentionOverrideDays != desired.RetentionOverrideDays {
 		d.Rejected = append(d.Rejected, "retention_override_days")
+	}
+	if !timePtrEqual(authoritative.PurgeAt, desired.PurgeAt) {
+		d.Rejected = append(d.Rejected, "purge_at")
 	}
 
 	return d

@@ -5688,6 +5688,11 @@ export interface components {
             type?: string;
             classification?: string;
             deleted_at?: string;
+            /**
+             * Format: date-time
+             * @description UTC instant (RFC 3339) before which the purge job will not hard-delete this secret -- the restore deadline. Frozen when the secret was deleted (deleted_at plus the secret's own retention override, else the soft_delete.retention_days in force then), so a later change to the configured window does not move it. For a secret deleted before this field existed it is computed from the current configuration.
+             */
+            purge_at?: string;
         };
         /** @description A group (server/http/handlers/groups_handler.go's groupToAPIResponse). */
         Group: {
@@ -9557,9 +9562,11 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Secret deleted (no content). */
+            /** @description Secret soft-deleted (no content). The Keyorix-Purge-At header says until when it can be restored; it is omitted only if the server could not read the date back after the delete. */
             204: {
                 headers: {
+                    /** @description UTC instant (RFC 3339) before which the purge job will not hard-delete the secret. */
+                    "Keyorix-Purge-At"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;

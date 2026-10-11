@@ -438,6 +438,32 @@ func TestSecretTrash_MatchesOldCLIOutputShape(t *testing.T) {
 	}
 }
 
+// RETENTION-1: the trash listing prints the server's real purge date per row, and "-" (not
+// a guessed one) for a row from a server that predates the field.
+func TestSecretTrash_PrintsPurgeDate(t *testing.T) {
+	srv := secretOpsServer(t, secretJSONRoute(http.MethodGet, "/api/v1/projects/1/secrets/deleted",
+		`{"data":{"deleted":[`+
+			`{"id":4,"name":"old-key","type":"generic","deleted_at":"2026-01-02T00:00:00Z","purge_at":"2026-02-01T00:00:00Z"},`+
+			`{"id":5,"name":"legacy","type":"generic","deleted_at":"2026-01-03T00:00:00Z"}]}}`))
+	setPATCreds(t, srv)
+	secretTrashProject = 1
+	defer func() { secretTrashProject = 0 }()
+
+	out := captureStdout(t, func() {
+		if err := secretTrashCmd.RunE(secretTrashCmd, nil); err != nil {
+			t.Fatalf("secretTrashCmd: %v", err)
+		}
+	})
+	if !containsAll(out, "PURGE AFTER (UTC)", "2026-02-01T00:00:00Z") {
+		t.Fatalf("trash output missing the purge column / date: %q", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "legacy") && !strings.HasSuffix(strings.TrimSpace(line), "-") {
+			t.Fatalf("a row without purge_at must show '-', got %q", line)
+		}
+	}
+}
+
 // ── templates ───────────────────────────────────────────────────────────────────
 
 func TestSecretTemplateCreate_RequiresName(t *testing.T) {

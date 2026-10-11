@@ -594,8 +594,8 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Println("This soft-deletes the secret and all its versions -- it stops appearing in")
 		fmt.Println("normal listings immediately, and can be restored with")
-		fmt.Printf("'keyorix secret restore --id %d' until the server's soft-delete retention\n", secretID)
-		fmt.Println("window expires (default 30 days; set by the server operator).")
+		fmt.Printf("'keyorix secret restore --id %d' until the purge date, which is printed once\n", secretID)
+		fmt.Println("the deletion is done (it depends on the server's soft-delete retention window).")
 		fmt.Println()
 		if !confirmSecretDeletion(secretName) {
 			fmt.Println("Deletion cancelled")
@@ -610,17 +610,41 @@ func runSecretDelete(cmd *cobra.Command, args []string) error {
 	if dresp.StatusCode() != 204 {
 		return httpStatusError("failed to delete secret", dresp.StatusCode(), dresp.Body)
 	}
+	rawPurgeAt := ""
+	if dresp.HTTPResponse != nil {
+		rawPurgeAt = dresp.HTTPResponse.Header.Get("Keyorix-Purge-At")
+	}
+	purgeAt := normalizePurgeAt(rawPurgeAt)
 	if jsonOut {
 		return writeSecretDeleteJSON(secretDeleteResult{
 			ID: secretID, Name: secretName, Deleted: true, SoftDeleted: true, Versions: versionCount,
 			RestoreCommand: fmt.Sprintf("keyorix secret restore --id %d", secretID),
+			PurgeAt:        purgeAt,
 			Dependents:     toDeleteDependents(dependents),
 		})
 	}
 	fmt.Printf("Secret '%s' (ID: %d) deleted (soft-delete)\n", secretName, secretID)
 	fmt.Printf("Its %d version(s) are kept, not destroyed; restore with: keyorix secret restore --id %d\n", versionCount, secretID)
-	fmt.Println("Restorable until the server's soft-delete retention window expires (default 30 days).")
+	if purgeAt != "" {
+		fmt.Printf("Restorable until %s (UTC); it will not be purged earlier.\n", purgeAt)
+	} else {
+		// An older server does not send the date; say so rather than guess one.
+		fmt.Println("Restorable until the server's soft-delete retention window expires (this server did not report the date).")
+	}
 	return nil
+}
+
+// normalizePurgeAt validates the Keyorix-Purge-At header of DELETE /secrets/{id} (the
+// instant before which the secret will not be purged) and renders it as UTC RFC 3339.
+// Empty when the server is older than the header or could not read the date back; a
+// value that is not a valid RFC 3339 time is treated as absent rather than echoed to the
+// terminal.
+func normalizePurgeAt(v string) string {
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 // secretDeleteResult is the --format json shape of 'secret delete'.
@@ -631,6 +655,7 @@ type secretDeleteResult struct {
 	SoftDeleted    bool                    `json:"soft_deleted"`
 	Versions       int                     `json:"versions"`
 	RestoreCommand string                  `json:"restore_command,omitempty"`
+	PurgeAt        string                  `json:"purge_at,omitempty"`
 	Dependents     []secretDeleteDependent `json:"dependents"`
 }
 

@@ -7,6 +7,8 @@
 package storage
 
 import (
+	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -24,22 +26,23 @@ func TestSchemaEpochFloor_Postgres_RecordAndRefuse(t *testing.T) {
 
 	f := &DefaultStorageFactory{}
 	require.NoError(t, f.migrateDatabase(db))
-	assert.Equal(t, "1", readEpochRow(t, db, schemaEpochMetadataKey))
-	assert.Equal(t, "1", readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(currentSchemaEpoch), readEpochRow(t, db, schemaEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(minCompatibleSchemaEpoch), readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
 
 	// Additive-safe newer epoch: floor unchanged, this binary still boots
 	// and does not stamp the epoch back down.
-	require.NoError(t, recordSchemaEpochAs(db, 2, 1))
+	newer, breaking := currentSchemaEpoch+1, currentSchemaEpoch+2
+	require.NoError(t, recordSchemaEpochAs(db, newer, minCompatibleSchemaEpoch))
 	require.NoError(t, f.migrateDatabase(db))
-	assert.Equal(t, "2", readEpochRow(t, db, schemaEpochMetadataKey))
-	assert.Equal(t, "1", readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(newer), readEpochRow(t, db, schemaEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(minCompatibleSchemaEpoch), readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
 
 	// Breaking newer epoch: floor raised above this binary -- refuse.
-	require.NoError(t, recordSchemaEpochAs(db, 3, 3))
+	require.NoError(t, recordSchemaEpochAs(db, breaking, breaking))
 	require.NoError(t, recordSchemaEpochAs(db, 1, 1), "an older record must be a no-op, not an error")
-	assert.Equal(t, "3", readEpochRow(t, db, schemaEpochMetadataKey))
-	assert.Equal(t, "3", readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(breaking), readEpochRow(t, db, schemaEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(breaking), readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
 	err := f.migrateDatabase(db)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "minimum compatible schema epoch of 3")
+	assert.Contains(t, err.Error(), fmt.Sprintf("minimum compatible schema epoch of %d", breaking))
 }

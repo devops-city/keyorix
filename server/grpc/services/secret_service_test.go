@@ -433,8 +433,12 @@ func TestSecretService_DeleteSecret(t *testing.T) {
 	ctx := authCtx(1, "owner", "secrets.write", "secrets.read", "secrets.delete")
 	created := r.createSecret(t, ctx, "temp", "v")
 
-	_, err := r.svc.DeleteSecret(ctx, &pb.DeleteSecretRequest{Id: created.GetId()})
+	resp, err := r.svc.DeleteSecret(ctx, &pb.DeleteSecretRequest{Id: created.GetId()})
 	require.NoError(t, err)
+	// RETENTION-1: the response says until when the delete is undoable (default window
+	// when the rig's core was never told one).
+	require.NotNil(t, resp.GetPurgeAt(), "delete response carries purge_at")
+	assert.WithinDuration(t, time.Now().UTC().AddDate(0, 0, 30), resp.GetPurgeAt().AsTime(), time.Minute)
 
 	_, err = r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId()})
 	require.Error(t, err)

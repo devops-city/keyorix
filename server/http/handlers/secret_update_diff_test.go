@@ -120,6 +120,7 @@ func TestDiffSecretUpdate_EveryFieldBehavesAsClassified(t *testing.T) {
 		{"CertNotAfter", secretFieldRejected, func(s *models.SecretNode) { now := time.Unix(4000, 0); s.CertNotAfter = &now }},
 		{"DeletedAt", secretFieldRejected, func(s *models.SecretNode) { s.DeletedAt.Valid = true; s.DeletedAt.Time = time.Unix(5000, 0) }},
 		{"RetentionOverrideDays", secretFieldRejected, func(s *models.SecretNode) { s.RetentionOverrideDays = 30 }},
+		{"PurgeAt", secretFieldRejected, func(s *models.SecretNode) { at := time.Unix(6000, 0); s.PurgeAt = &at }},
 		{"ParentID", secretFieldRejected, func(s *models.SecretNode) { id := uint(7); s.ParentID = &id }},
 	}
 

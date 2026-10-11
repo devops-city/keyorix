@@ -1017,6 +1017,16 @@ type SecretNode struct {
 	// RetentionOverrideDays overrides the global retention window for this secret.
 	// 0 means "use global setting". Must be >= 7 if non-zero.
 	RetentionOverrideDays int `gorm:"default:0" json:"retention_override_days,omitempty"`
+	// PurgeAt is the instant the purge job may first hard-delete this secret,
+	// frozen when the secret was soft-deleted (deleted_at + the effective retention
+	// window then in force) and always stored in UTC. NULL on a live secret and on
+	// rows soft-deleted before this column existed (those fall back to deleted_at +
+	// the current effective window, see core.SecretPurgeAt). The purge job honours
+	// it as written, so a later change to soft_delete.retention_days can neither
+	// pull a purge earlier than the date already shown to an operator nor silently
+	// push it out. Never range-queried in SQL (the purge compares it in Go), so
+	// SQLite string-comparison zone drift (G81) cannot apply.
+	PurgeAt *time.Time `json:"-"`
 	// ValueStored is a transient, in-process-only signal (#499): never persisted
 	// (`gorm:"-"`) and never serialized (`json:"-"`). storage.Storage.CreateSecret
 	// sets it true on the node it returns ONLY when the backend already durably
@@ -1055,7 +1065,38 @@ func (s *SecretNode) BeforeSave(_ *gorm.DB) error {
 		u := s.Expiration.UTC()
 		s.Expiration = &u
 	}
+	if s.PurgeAt != nil {
+		u := s.PurgeAt.UTC()
+		s.PurgeAt = &u
+	}
 	return nil
+}
+
+// PurgeAtFor is the one formula for "when may a secret soft-deleted at deletedAt be
+// hard-deleted under a retention window of days": deletedAt + days calendar days,
+// computed in UTC so a server zone with DST can never make the window an hour short.
+// The stamp written at delete time, the date shown to operators and the purge job's
+// legacy fallback all use it, so the three cannot drift apart.
+func PurgeAtFor(deletedAt time.Time, days int) time.Time {
+	return deletedAt.UTC().AddDate(0, 0, days)
+}
+
+// EffectivePurgeAt is the instant the purge job will first remove this soft-deleted
+// secret, and false for a live secret. The frozen PurgeAt wins; a row soft-deleted
+// before the column existed (PurgeAt nil) uses its per-secret override or else
+// globalDays, evaluated now. The purge job decides with exactly this value.
+func (s *SecretNode) EffectivePurgeAt(globalDays int) (time.Time, bool) {
+	if !s.DeletedAt.Valid {
+		return time.Time{}, false
+	}
+	if s.PurgeAt != nil {
+		return s.PurgeAt.UTC(), true
+	}
+	days := globalDays
+	if s.RetentionOverrideDays > 0 {
+		days = s.RetentionOverrideDays
+	}
+	return PurgeAtFor(s.DeletedAt.Time, days), true
 }
 
 // SecretDependency is a directed edge in a project's secret dependency graph:

@@ -37,7 +37,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 1
+const currentSchemaEpoch = 2
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -62,7 +62,12 @@ const schemaEpochMetadataKey = "schema_epoch"
 // (TestMinCompatibleSchemaEpoch_WithinRange). A floor already recorded in the
 // database is never lowered by recordSchemaEpoch, so declaring a lower value
 // here cannot reopen a floor a newer binary raised.
-const minCompatibleSchemaEpoch = 1
+//
+// Currently 2: an epoch-1 binary's RestoreSecret/RestoreProject do not clear
+// secret_nodes.purge_at and its DeleteSecret does not re-stamp it, so a
+// restore + re-delete on an old replica would leave a stale date that the
+// epoch-2 purge job honours, hard-deleting before the date shown (#3021).
+const minCompatibleSchemaEpoch = 2
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
 // compatibility floor (minCompatibleSchemaEpoch) is recorded under. #nosec
@@ -606,6 +611,7 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 
 	ls := store.NewLocalStorage(db)
 	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
+	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
 	// No SetAuditSkipDurableSync here, deliberately: ADR-112 Amendment 1's
 	// fast audit mode is PostgreSQL-only and config validation refuses to
 	// start a SQLite backend that sets it, so there is nothing to propagate --
@@ -638,6 +644,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (stora
 
 	ls := store.NewLocalStorage(db)
 	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
+	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
 	// ADR-112 Amendment 1: read the computed status rather than the raw bool,
 	// so "configured" and "actually in effect" cannot drift apart between
 	// here and the surfaces that report it (start-up log, posture, API). This
@@ -1255,6 +1262,23 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	// ADR-033: secrets soft-delete. Additive deleted_at (nil = live).
 	if tableExists(db, "secret_nodes") && !columnExists(db, "secret_nodes", "deleted_at") {
 		if err := exec("ALTER TABLE secret_nodes ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE"); err != nil {
+			return err
+		}
+	}
+	// Frozen purge date (models.SecretNode.PurgeAt). Additive, nil = live secret or one
+	// soft-deleted before this column existed. secret_nodes is NOT re-AutoMigrated on an
+	// existing database (freshInstallComplete returns early), so without this ALTER every
+	// secret create/delete on an upgraded install fails with "no column named purge_at".
+	// The type is per dialect: SQLite's driver only scans a non-NULL value into *time.Time
+	// when the declared type is DATETIME (what AutoMigrate creates on a fresh install);
+	// "TIMESTAMP WITH TIME ZONE" is stored but fails on read with "unsupported Scan,
+	// storing driver.Value type string into type *time.Time".
+	if tableExists(db, "secret_nodes") && !columnExists(db, "secret_nodes", "purge_at") {
+		purgeAtType := "DATETIME"
+		if db.Dialector.Name() == "postgres" {
+			purgeAtType = "TIMESTAMP WITH TIME ZONE"
+		}
+		if err := exec("ALTER TABLE secret_nodes ADD COLUMN purge_at " + purgeAtType); err != nil {
 			return err
 		}
 	}

@@ -188,6 +188,44 @@ func (ls *LocalStorage) PurgeDeletedEnvironmentsBefore(ctx context.Context, befo
 	return ls.purgeDeletedBefore(ctx, &models.Environment{}, before)
 }
 
+// secretPurgeCandidate is the projection of a soft-deleted secret the purge decides on.
+type secretPurgeCandidate struct {
+	ID                    uint
+	DeletedAt             gorm.DeletedAt
+	RetentionOverrideDays int
+	PurgeAt               *time.Time
+}
+
+// eligible reports whether the purge may hard-delete this secret at now. This is THE
+// purge rule, and the one invariant it exists for: a secret is never removed before
+// the purge date that was shown for it (RETENTION-1; see the table test around the
+// boundary in local_purge_purgeat_test.go).
+//
+//   - Frozen purge_at (every secret soft-deleted since the column exists, whenever the
+//     store knew the window): purge strictly after it, and nothing else is consulted.
+//     `before` is derived from the CURRENT soft_delete.retention_days, so honouring it
+//     here would let an operator who shortens the window pull a purge earlier than the
+//     date already displayed. A window changed after deletion therefore affects only
+//     later deletions, in both directions (it never defers a displayed date either).
+//   - No purge_at (soft-deleted before the column existed, or by a store never told the
+//     window): the legacy rule, which is also the date core.SecretPurgeAt shows for such
+//     a row, evaluated against the current configuration - its per-secret override, else
+//     the caller's cutoff (`before` = now - retention_days, computed in UTC by the
+//     scheduler so it equals models.PurgeAtFor exactly).
+func (c secretPurgeCandidate) eligible(now, before time.Time) bool {
+	if !c.DeletedAt.Valid {
+		return false
+	}
+	if c.PurgeAt != nil {
+		return now.After(c.PurgeAt.UTC())
+	}
+	cutoff := before
+	if c.RetentionOverrideDays > 0 {
+		cutoff = now.AddDate(0, 0, -c.RetentionOverrideDays)
+	}
+	return c.DeletedAt.Time.Before(cutoff)
+}
+
 // PurgeDeletedSecretsBefore hard-deletes soft-deleted secrets past the retention window,
 // together with their version rows AND the dependency-graph edges incident to them, in one
 // transaction. The secret VALUE lives in secret_versions.encrypted_value, which has no
@@ -218,29 +256,18 @@ func (ls *LocalStorage) PurgeDeletedSecretsBefore(ctx context.Context, before ti
 	// whether `before` (no override) or `now - override days` (override set) applies.
 	// now is a single wall-clock read for the whole sweep, not per-row, so every
 	// candidate in this run is judged against the same instant.
-	now := time.Now()
+	now := time.Now().UTC()
 	err := ls.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var candidates []struct {
-			ID                    uint
-			DeletedAt             gorm.DeletedAt
-			RetentionOverrideDays int
-		}
+		var candidates []secretPurgeCandidate
 		if e := tx.Unscoped().Model(&models.SecretNode{}).
-			Select("id, deleted_at, retention_override_days").
+			Select("id, deleted_at, retention_override_days, purge_at").
 			Where("deleted_at IS NOT NULL").
 			Find(&candidates).Error; e != nil {
 			return e
 		}
 		var ids []uint
 		for _, cand := range candidates {
-			if !cand.DeletedAt.Valid {
-				continue
-			}
-			cutoff := before
-			if cand.RetentionOverrideDays > 0 {
-				cutoff = now.AddDate(0, 0, -cand.RetentionOverrideDays)
-			}
-			if cand.DeletedAt.Time.Before(cutoff) {
+			if cand.eligible(now, before) {
 				ids = append(ids, cand.ID)
 			}
 		}

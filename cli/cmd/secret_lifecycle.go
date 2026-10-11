@@ -4,6 +4,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -118,12 +119,21 @@ with 'secret restore --id <id>'. Requires secrets.read at the project scope.`,
 			fmt.Println("Recycle bin is empty.")
 			return nil
 		}
-		fmt.Printf("%-8s %-24s %-12s %-14s %s\n", "ID", "NAME", "TYPE", "CLASS", "DELETED")
+		fmt.Printf("%-8s %-24s %-12s %-14s %-26s %s\n", "ID", "NAME", "TYPE", "CLASS", "DELETED", "PURGE AFTER (UTC)")
 		for _, r := range rows {
-			fmt.Printf("%-8d %-24s %-12s %-14s %s\n", derefSecretInt(r.Id), derefStr(r.Name), derefStr(r.Type), derefStr(r.Classification), derefStr(r.DeletedAt))
+			fmt.Printf("%-8d %-24s %-12s %-14s %-26s %s\n", derefSecretInt(r.Id), derefStr(r.Name), derefStr(r.Type), derefStr(r.Classification), derefStr(r.DeletedAt), purgeAtCell(r.PurgeAt))
 		}
 		return nil
 	},
+}
+
+// purgeAtCell renders a trash row's purge instant in UTC RFC 3339, or "-" when the server
+// (older than the field) did not send one.
+func purgeAtCell(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return "-"
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 var secretRestoreCmd = &cobra.Command{

@@ -37,8 +37,8 @@ service SecretService {
   // Update an existing secret (a new value creates a new version)
   rpc UpdateSecret(UpdateSecretRequest) returns (Secret);
 
-  // Delete a secret
-  rpc DeleteSecret(DeleteSecretRequest) returns (google.protobuf.Empty);
+  // Soft-delete a secret; the response says until when it can be restored.
+  rpc DeleteSecret(DeleteSecretRequest) returns (DeleteSecretResponse);
 
   // List secrets with filtering and pagination
   rpc ListSecrets(ListSecretsRequest) returns (ListSecretsResponse);
@@ -284,6 +284,15 @@ message UpdateSecretRequest {
 
 message DeleteSecretRequest {
   uint32 id = 1;
+}
+
+// DeleteSecretResponse replaces google.protobuf.Empty as DeleteSecret's result. Wire
+// compatible with it: an older client decoding this as Empty skips the unknown field.
+message DeleteSecretResponse {
+  // The instant (UTC) before which the purge job will not hard-delete the secret,
+  // i.e. the restore deadline. The same value the REST trash listing reports as
+  // purge_at.
+  google.protobuf.Timestamp purge_at = 1;
 }
 
 message ListSecretsRequest {

@@ -6,6 +6,7 @@ package storage
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -29,7 +30,7 @@ func TestSchemaEpoch_FreshInstall_RecordsCurrentEpoch(t *testing.T) {
 
 	var m models.SystemMetadata
 	require.NoError(t, db.Where("key = ?", schemaEpochMetadataKey).Take(&m).Error)
-	assert.Equal(t, "1", m.Value)
+	assert.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value)
 }
 
 // TestSchemaEpoch_OlderRecordedEpoch_UpgradesSucceed: the normal upgrade
@@ -49,7 +50,7 @@ func TestSchemaEpoch_OlderRecordedEpoch_UpgradeSucceeds(t *testing.T) {
 
 	var m models.SystemMetadata
 	require.NoError(t, db.Where("key = ?", schemaEpochMetadataKey).Take(&m).Error)
-	assert.Equal(t, "1", m.Value, "epoch must advance to the current binary's epoch")
+	assert.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value, "epoch must advance to the current binary's epoch")
 }
 
 // TestSchemaEpoch_SameRecordedEpoch_Succeeds: re-running the same binary
@@ -62,7 +63,7 @@ func TestSchemaEpoch_SameRecordedEpoch_Succeeds(t *testing.T) {
 	db, err := gormOpenForTest(t, filepath.Join(t.TempDir(), "epoch-same.db"))
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SystemMetadata{}))
-	require.NoError(t, db.Create(&models.SystemMetadata{Key: schemaEpochMetadataKey, Value: "1"}).Error)
+	require.NoError(t, db.Create(&models.SystemMetadata{Key: schemaEpochMetadataKey, Value: strconv.Itoa(currentSchemaEpoch)}).Error)
 
 	f := &DefaultStorageFactory{}
 	require.NoError(t, f.migrateDatabase(db))
@@ -87,7 +88,7 @@ func TestSchemaEpoch_NoRecordedEpoch_PredatesGuard_Succeeds(t *testing.T) {
 
 	var m models.SystemMetadata
 	require.NoError(t, db.Where("key = ?", schemaEpochMetadataKey).Take(&m).Error)
-	assert.Equal(t, "1", m.Value, "the epoch must be recorded going forward even though none was found")
+	assert.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value, "the epoch must be recorded going forward even though none was found")
 }
 
 // TestSchemaEpoch_NewerRecordedEpoch_RefusesToStart is the core regression
@@ -100,7 +101,7 @@ func TestSchemaEpoch_NewerRecordedEpoch_RefusesToStart(t *testing.T) {
 	db, err := gormOpenForTest(t, filepath.Join(t.TempDir(), "epoch-newer.db"))
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SystemMetadata{}))
-	require.NoError(t, db.Create(&models.SystemMetadata{Key: schemaEpochMetadataKey, Value: "2"}).Error)
+	require.NoError(t, db.Create(&models.SystemMetadata{Key: schemaEpochMetadataKey, Value: strconv.Itoa(currentSchemaEpoch + 1)}).Error)
 
 	f := &DefaultStorageFactory{}
 	err = f.migrateDatabase(db)

@@ -82,6 +82,11 @@ func seedSecretWithEveryReference(t *testing.T, st corestorage.Storage, db *gorm
 	require.NoError(t, st.LogAuditEvent(ctx, &models.AuditEvent{EventType: "secret.read", SecretNodeID: &sid, UserID: &user.ID}))
 
 	require.NoError(t, st.DeleteSecret(ctx, purged.ID))
+	// DeleteSecret freezes the real purge date (now + retention) and a purge never
+	// runs before it, whatever cutoff the caller passes. Move that date into the
+	// past, as if the retention window had elapsed.
+	past := time.Now().Add(-48 * time.Hour)
+	require.NoError(t, db.Exec("UPDATE secret_nodes SET deleted_at = ?, purge_at = ? WHERE id = ?", past, past, purged.ID).Error)
 	n, err := st.PurgeDeletedSecretsBefore(ctx, time.Now().Add(time.Hour))
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n, "the soft-deleted secret must be purged")

@@ -56,3 +56,34 @@ idempotent.
   net, so the default (30 days, off) is conservative.
 - Secrets soft-delete + restore (replacing the hard delete) is a follow-up; when
   it lands, adding `secret_nodes` to the purge is a one-line extension.
+
+## Amendment (RETENTION-1): the purge date is exposed, frozen at deletion, and never undercut
+
+A soft-deleted secret now carries `purge_at` (UTC): `deleted_at` + its per-secret
+`retention_override_days`, else the `soft_delete.retention_days` in force when it was
+deleted. It is returned as `purge_at` in `GET /projects/{id}/secrets/deleted`, as the
+`Keyorix-Purge-At` header of the (still 204) `DELETE /secrets/{id}`, and as
+`DeleteSecretResponse.purge_at` over gRPC; the CLI (`secret delete`, `secret trash`) and
+the web Recycle bin show it. No `api_version` bump: every change is additive.
+
+**Rule when the window changes after a deletion:** the date shown is the date used. The
+purge honours the frozen `purge_at` and ignores the current `retention_days`, so shortening
+the window never purges a secret earlier than the date an operator was told, and
+lengthening it never defers that date. A changed window affects deletions made after the
+change. Why not recompute from the live config (the previous behaviour): the date on screen
+would change under the operator, and a shortening would silently remove a secret that the
+UI had promised was restorable. Secrets deleted before this amendment have no frozen date
+and keep the live-config rule (their shown date is `deleted_at` + the current window).
+Invariant: `INV-STORE-secret-purge-never-before-shown-date`.
+
+**Mixed-version rollout (ADR-101).** An epoch-1 binary does not know `purge_at`: its
+`RestoreSecret`/`RestoreProject` do not clear it and its `DeleteSecret` does not re-stamp
+it. On a shared database a restore + re-delete on an old replica would leave the first
+deletion's date in place and the new purge job would hard-delete (irreversibly) before the
+date shown for the second deletion. The column is therefore NOT additive-and-safe, and
+`minCompatibleSchemaEpoch` is raised to 2 with this change: an epoch-1 binary refuses to
+start against a migrated database (`TestCurrentSchemaEpoch_Is2_SeeADR101`). Consequence:
+a rolling upgrade must not leave epoch-1 replicas running after the first epoch-2 replica
+migrates (they exit at their next start, and a one-release rollback is no longer possible
+without restoring the database). Secrets deleted before the upgrade have no `purge_at`
+and follow the live window, so the UI states that date can still move.

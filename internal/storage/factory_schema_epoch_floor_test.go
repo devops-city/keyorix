@@ -3,12 +3,14 @@
 //
 // checkSchemaEpochFor/recordSchemaEpochAs take the binary's epoch (and floor)
 // as parameters so these tests can stand in for binaries older and newer
-// than this one -- currentSchemaEpoch is still 1, so no real binary can yet
-// produce a database this build must refuse.
+// than this one. The cases below are written relative to currentSchemaEpoch
+// (E) so they stay valid when it is bumped.
 package storage
 
 import (
+	"fmt"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -61,9 +63,11 @@ func TestMinCompatibleSchemaEpoch_WithinRange(t *testing.T) {
 
 // TestSchemaEpochFloor_RefusesOutsideSupportedRange is the INV-STORAGE-04
 // refusal matrix, run through the real migrateDatabase entry point with this
-// binary's own epoch (1). Each case is a database this binary must not
+// binary's own epoch (E = currentSchemaEpoch). Each case is a database this binary must not
 // touch; each must refuse BEFORE any migration step runs.
 func TestSchemaEpochFloor_RefusesOutsideSupportedRange(t *testing.T) {
+	e := currentSchemaEpoch
+	bin := fmt.Sprintf("this binary's schema epoch %d", e)
 	cases := []struct {
 		name, epoch, floor string
 		wantInMsg          []string
@@ -71,19 +75,19 @@ func TestSchemaEpochFloor_RefusesOutsideSupportedRange(t *testing.T) {
 		{
 			// The dangerous rollback ADR-101 keeps refusing: a migration
 			// declared its schema unsafe for binaries this old.
-			name: "binary below recorded floor", epoch: "3", floor: "3",
-			wantInMsg: []string{"minimum compatible schema epoch of 3 (database schema epoch 3)", "this binary's schema epoch 1", "ADR-101"},
+			name: "binary below recorded floor", epoch: strconv.Itoa(e + 1), floor: strconv.Itoa(e + 1),
+			wantInMsg: []string{fmt.Sprintf("minimum compatible schema epoch of %d (database schema epoch %d)", e+1, e+1), bin, "ADR-101"},
 		},
 		{
-			name: "binary below floor lower than db epoch", epoch: "4", floor: "2",
-			wantInMsg: []string{"minimum compatible schema epoch of 2 (database schema epoch 4)", "this binary's schema epoch 1"},
+			name: "binary below floor lower than db epoch", epoch: strconv.Itoa(e + 3), floor: strconv.Itoa(e + 1),
+			wantInMsg: []string{fmt.Sprintf("minimum compatible schema epoch of %d (database schema epoch %d)", e+1, e+3), bin},
 		},
 		{
 			// Stricter reading (ADR-101 is silent on a newer epoch with no
 			// floor): with no compatibility claim recorded, ADR-097's original
 			// refusal stands.
-			name: "db epoch above binary, no floor recorded", epoch: "2", floor: "",
-			wantInMsg: []string{"database schema epoch 2 is newer than this binary's schema epoch 1", "No minimum compatible schema epoch is recorded"},
+			name: "db epoch above binary, no floor recorded", epoch: strconv.Itoa(e + 1), floor: "",
+			wantInMsg: []string{fmt.Sprintf("database schema epoch %d is newer than %s", e+1, bin), "No minimum compatible schema epoch is recorded"},
 		},
 		{
 			name: "corrupt floor", epoch: "1", floor: "one",
@@ -95,8 +99,8 @@ func TestSchemaEpochFloor_RefusesOutsideSupportedRange(t *testing.T) {
 		},
 		{
 			// A floor refuses on its own, whatever the epoch row says.
-			name: "floor above binary, no epoch row", epoch: "", floor: "2",
-			wantInMsg: []string{"minimum compatible schema epoch of 2", "this binary's schema epoch 1"},
+			name: "floor above binary, no epoch row", epoch: "", floor: strconv.Itoa(e + 1),
+			wantInMsg: []string{fmt.Sprintf("minimum compatible schema epoch of %d", e+1), bin},
 		},
 	}
 	for _, c := range cases {
@@ -122,15 +126,18 @@ func TestSchemaEpochFloor_RefusesOutsideSupportedRange(t *testing.T) {
 // migration). Running against it must not stamp the database's epoch or
 // floor back down to this binary's own.
 func TestSchemaEpochFloor_StartsInsideSupportedRange(t *testing.T) {
+	e, floor := strconv.Itoa(currentSchemaEpoch), strconv.Itoa(minCompatibleSchemaEpoch)
+	next := strconv.Itoa(currentSchemaEpoch + 1)
 	cases := []struct {
 		name, epoch, floor   string
 		wantEpoch, wantFloor string
 	}{
-		{name: "same epoch, same floor", epoch: "1", floor: "1", wantEpoch: "1", wantFloor: "1"},
-		{name: "same epoch, no floor yet (pre-ADR-101 database)", epoch: "1", floor: "", wantEpoch: "1", wantFloor: "1"},
-		{name: "newer epoch, floor covers this binary", epoch: "2", floor: "1", wantEpoch: "2", wantFloor: "1"},
-		{name: "much newer epoch, floor covers this binary", epoch: "9", floor: "1", wantEpoch: "9", wantFloor: "1"},
-		{name: "older epoch (normal upgrade)", epoch: "0", floor: "", wantEpoch: "1", wantFloor: "1"},
+		{name: "same epoch, same floor", epoch: e, floor: floor, wantEpoch: e, wantFloor: floor},
+		{name: "same epoch, no floor yet (pre-ADR-101 database)", epoch: e, floor: "", wantEpoch: e, wantFloor: floor},
+		{name: "newer epoch, floor covers this binary", epoch: next, floor: e, wantEpoch: next, wantFloor: e},
+		{name: "much newer epoch, floor covers this binary", epoch: "9", floor: e, wantEpoch: "9", wantFloor: e},
+		{name: "previous epoch (normal upgrade)", epoch: "1", floor: "1", wantEpoch: e, wantFloor: floor},
+		{name: "older epoch (normal upgrade)", epoch: "0", floor: "", wantEpoch: e, wantFloor: floor},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -154,8 +161,8 @@ func TestSchemaEpochFloor_FreshInstall_RecordsDeclaredFloor(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, (&DefaultStorageFactory{}).migrateDatabase(db))
-	assert.Equal(t, "1", readEpochRow(t, db, schemaEpochMetadataKey))
-	assert.Equal(t, "1", readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(currentSchemaEpoch), readEpochRow(t, db, schemaEpochMetadataKey))
+	assert.Equal(t, strconv.Itoa(minCompatibleSchemaEpoch), readEpochRow(t, db, schemaMinCompatibleEpochMetadataKey))
 	// And the very next boot of the same binary starts.
 	require.NoError(t, (&DefaultStorageFactory{}).migrateDatabase(db))
 }

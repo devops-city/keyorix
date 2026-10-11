@@ -414,7 +414,10 @@ type DeletedSecretEntry struct {
 	DeletedAt      *string `json:"deleted_at,omitempty"`
 	Id             *int    `json:"id,omitempty"`
 	Name           *string `json:"name,omitempty"`
-	Type           *string `json:"type,omitempty"`
+
+	// PurgeAt UTC instant (RFC 3339) before which the purge job will not hard-delete this secret -- the restore deadline. Frozen when the secret was deleted (deleted_at plus the secret's own retention override, else the soft_delete.retention_days in force then), so a later change to the configured window does not move it. For a secret deleted before this field existed it is computed from the current configuration.
+	PurgeAt *time.Time `json:"purge_at,omitempty"`
+	Type    *string    `json:"type,omitempty"`
 }
 
 // DeploymentRotationPlan The install-wide roll-up of every project's rotation plan (ADR-108 PR 1 addition, ADR-053) -- a roll-up of per-project plans, most pressing first.

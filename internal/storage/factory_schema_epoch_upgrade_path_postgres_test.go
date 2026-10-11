@@ -5,6 +5,7 @@
 package storage
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -34,5 +35,5 @@ func TestSchemaEpoch_Postgres_EstablishedDatabase_EpochRecordsOnEveryBoot(t *tes
 	require.NoError(t, db.Where("key = ?", schemaEpochMetadataKey).Take(&m).Error,
 		"BUG: the freshInstallComplete early-return path must record the schema epoch "+
 			"too, not only the fresh-install transactional tail")
-	require.Equal(t, "1", m.Value)
+	require.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value)
 }

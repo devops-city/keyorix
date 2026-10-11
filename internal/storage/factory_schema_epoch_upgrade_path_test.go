@@ -16,6 +16,7 @@ package storage
 
 import (
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -61,7 +62,7 @@ func TestSchemaEpoch_EstablishedDatabase_EpochRecordsOnEveryBoot(t *testing.T) {
 		"BUG: the freshInstallComplete early-return path must record the schema epoch "+
 			"too, not only the fresh-install transactional tail — otherwise an established "+
 			"database's epoch is written once at first install and never updated again")
-	require.Equal(t, "1", m.Value)
+	require.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value)
 }
 
 // TestSchemaEpoch_EstablishedDatabase_StaleEpochCorrectsOnNextBoot is the
@@ -86,7 +87,7 @@ func TestSchemaEpoch_EstablishedDatabase_StaleEpochCorrectsOnNextBoot(t *testing
 
 	var m models.SystemMetadata
 	require.NoError(t, db.Where("key = ?", schemaEpochMetadataKey).Take(&m).Error)
-	require.Equal(t, "1", m.Value,
+	require.Equal(t, strconv.Itoa(currentSchemaEpoch), m.Value,
 		"BUG: a stale schema_epoch value on an already-fully-migrated database must be "+
 			"corrected forward on the next boot via the early-return path, not left frozen")
 }

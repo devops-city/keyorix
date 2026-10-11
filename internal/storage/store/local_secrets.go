@@ -201,7 +201,7 @@ func (ls *LocalStorage) UpdateProjectFields(ctx context.Context, id uint, name, 
 // DeleteProjectIfEmpty can run the exact SAME cascade, inside its own transaction,
 // immediately after its own empty-project check, without duplicating this logic or
 // splitting the check and the cascade across two top-level storage calls.
-func deleteProjectCascade(tx *gorm.DB, id uint) error {
+func deleteProjectCascade(tx *gorm.DB, id uint, softDeleteDays int) error {
 	// Stamp the project and the rows the cascade soft-deletes with ONE uniform
 	// deleted_at, so RestoreProject can bring back exactly this cascade's rows and not
 	// resurrect secrets/environments that were retired independently earlier (which
@@ -215,9 +215,17 @@ func deleteProjectCascade(tx *gorm.DB, id uint) error {
 		return err
 	}
 	// Soft-delete all currently-live secrets in the project.
+	var liveSecretIDs []uint
+	if err := tx.Model(&models.SecretNode{}).
+		Where(sqlWhereProjectID, id).Pluck("id", &liveSecretIDs).Error; err != nil {
+		return fmt.Errorf("failed to list project secrets: %w", err)
+	}
 	if err := tx.Model(&models.SecretNode{}).
 		Where(sqlWhereProjectID, id).Update("deleted_at", deletedAt).Error; err != nil {
 		return fmt.Errorf("failed to soft-delete project secrets: %w", err)
+	}
+	if err := stampSecretPurgeAt(tx, liveSecretIDs, softDeleteDays); err != nil {
+		return err
 	}
 	// Revoke every still-active share for every secret in this project (#119
 	// residual): the bulk update above is a raw UPDATE on secret_nodes, unlike
@@ -331,7 +339,7 @@ func lockProjectRowForCascade(tx *gorm.DB, id uint) error {
 
 func (ls *LocalStorage) DeleteProject(ctx context.Context, id uint) error {
 	return ls.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		return deleteProjectCascade(tx, id)
+		return deleteProjectCascade(tx, id, ls.softDeleteRetentionDays())
 	})
 }
 
@@ -373,7 +381,7 @@ func (ls *LocalStorage) DeleteProjectIfEmpty(ctx context.Context, id uint) (int,
 			blockingSecretCount = int(secretCount)
 			return nil
 		}
-		return deleteProjectCascade(tx, id)
+		return deleteProjectCascade(tx, id, ls.softDeleteRetentionDays())
 	})
 	if err != nil {
 		return 0, err
@@ -429,6 +437,14 @@ func (ls *LocalStorage) RestoreProject(ctx context.Context, id uint) (restoredEn
 		}
 		restoredEnvironments = int(envResult.RowsAffected)
 
+		// The frozen purge date goes first, while deleted_at still selects these rows. It is
+		// its own statement rather than a map-form Updates alongside deleted_at so the
+		// un-delete below keeps the exact .Update("deleted_at", nil) shape that
+		// TestChildParentLiveness's site scanner recognises (a map-form update would
+		// silently hide this site from that guard).
+		if err := tx.Exec("UPDATE secret_nodes SET purge_at = NULL WHERE secret_nodes.project_id = ? AND secret_nodes.deleted_at >= ?", id, cascadeTS).Error; err != nil {
+			return fmt.Errorf("failed to restore project secrets: clearing purge dates: %w", err)
+		}
 		secResult := tx.Unscoped().Model(&models.SecretNode{}).
 			Where("project_id = ? AND deleted_at >= ?", id, cascadeTS).Update("deleted_at", nil)
 		if secResult.Error != nil {
@@ -917,6 +933,44 @@ func (ls *LocalStorage) SetRetentionOverride(ctx context.Context, secretID uint,
 	return nil
 }
 
+// stampSecretPurgeAt freezes secret_nodes.purge_at for secrets this transaction has just
+// soft-deleted: deleted_at + the secret's own retention override, else globalDays
+// (models.PurgeAtFor, the same formula the displayed date and the purge job use). It
+// runs inside the delete's transaction so a secret is never visible as deleted without
+// its purge date. globalDays <= 0 means the store was never told the window; nothing is
+// stamped and the purge falls back to the legacy cutoff rule for those rows. Each row's
+// own deleted_at is read back rather than assumed, so it stays correct whichever
+// timestamp the delete path used.
+func stampSecretPurgeAt(tx *gorm.DB, ids []uint, globalDays int) error {
+	if globalDays <= 0 || len(ids) == 0 {
+		return nil
+	}
+	var rows []struct {
+		ID                    uint
+		DeletedAt             gorm.DeletedAt
+		RetentionOverrideDays int
+	}
+	if err := tx.Unscoped().Model(&models.SecretNode{}).
+		Select("id, deleted_at, retention_override_days").
+		Where("id IN ? AND deleted_at IS NOT NULL", ids).
+		Find(&rows).Error; err != nil {
+		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	for _, row := range rows {
+		days := globalDays
+		if row.RetentionOverrideDays > 0 {
+			days = row.RetentionOverrideDays
+		}
+		purgeAt := models.PurgeAtFor(row.DeletedAt.Time, days)
+		if err := tx.Unscoped().Model(&models.SecretNode{}).
+			Where("id = ?", row.ID).
+			UpdateColumn("purge_at", purgeAt).Error; err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+	}
+	return nil
+}
+
 // DeleteSecret deletes a secret by ID. #370: ShareRecord rows are a fully
 // independent lifecycle from SecretNode's — left untouched, a share grant would
 // silently reactivate (via CheckSharePermission) the instant the secret is later
@@ -932,6 +986,9 @@ func (ls *LocalStorage) DeleteSecret(ctx context.Context, id uint) error {
 		}
 		if result.RowsAffected == 0 {
 			return fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
+		}
+		if err := stampSecretPurgeAt(tx, []uint{id}, ls.softDeleteRetentionDays()); err != nil {
+			return err
 		}
 		if err := tx.Where("secret_id = ? AND deleted_at IS NULL", id).
 			Delete(&models.ShareRecord{}).Error; err != nil {
@@ -997,6 +1054,11 @@ func (ls *LocalStorage) RestoreSecret(ctx context.Context, id uint) error {
 	// it is no longer what makes this safe.
 	restore := func(ctx context.Context) error {
 		return ls.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			// Clear the frozen purge date first (see RestoreProject for why this is its own
+			// statement and not a map-form Updates).
+			if err := tx.Exec("UPDATE secret_nodes SET purge_at = NULL WHERE secret_nodes.id = ? AND secret_nodes.deleted_at IS NOT NULL", id).Error; err != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			}
 			result := tx.Unscoped().Model(&models.SecretNode{}).
 				Where("id = ? AND deleted_at IS NOT NULL", id).Update("deleted_at", nil)
 			if result.Error != nil {

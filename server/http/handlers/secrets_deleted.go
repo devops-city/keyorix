@@ -5,6 +5,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -21,6 +22,19 @@ type deletedSecretEntry struct {
 	EnvironmentID  uint   `json:"environment_id"`
 	OwnerID        uint   `json:"owner_id"`
 	DeletedAt      string `json:"deleted_at,omitempty"`
+	// PurgeAt is the UTC instant (RFC 3339) before which the purge job will not
+	// hard-delete this secret: the restore deadline. See core.SecretPurgeAt.
+	PurgeAt string `json:"purge_at,omitempty"`
+}
+
+// purgeAtHeader carries the same instant on the DELETE /secrets/{id} response, which
+// stays 204 No Content so existing clients that check the status keep working.
+const purgeAtHeader = "Keyorix-Purge-At"
+
+// formatPurgeAt renders a purge instant the way every API timestamp is rendered:
+// RFC 3339, UTC.
+func formatPurgeAt(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
 }
 
 // DeletedSecrets handles GET /api/v1/projects/{id}/secrets/deleted?limit=N — the
@@ -54,7 +68,11 @@ func (h *SecretHandler) DeletedSecrets(w http.ResponseWriter, r *http.Request) {
 
 	entries := make([]deletedSecretEntry, 0, len(secrets))
 	for _, s := range secrets {
-		entries = append(entries, toDeletedSecretEntry(s))
+		e := toDeletedSecretEntry(s)
+		if at, ok := h.coreService.SecretPurgeAt(s); ok {
+			e.PurgeAt = formatPurgeAt(at)
+		}
+		entries = append(entries, e)
 	}
 	h.sendSuccess(w, map[string]interface{}{"deleted": entries, "total": len(entries)}, "")
 }

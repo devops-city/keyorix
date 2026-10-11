@@ -48,6 +48,7 @@ func (ls *LocalStorage) WithTransaction(ctx context.Context, fn func(storage.Sto
 			// would break it and must re-read this.
 			secretMetaCache: ls.secretMetaCache,
 			rolePermCache:   ls.rolePermCache,
+			softDeleteDays:  ls.softDeleteDays,
 		})
 	})
 }

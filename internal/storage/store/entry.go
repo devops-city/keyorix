@@ -21,6 +21,7 @@ package store
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gorm.io/gorm"
@@ -237,6 +238,13 @@ type LocalStorage struct {
 	// fails closed (no caching) rather than open (caching from inside a
 	// transaction).
 	cacheEnabled bool
+	// softDeleteDays is the deployment-wide soft-delete retention window used to
+	// stamp secret_nodes.purge_at at deletion time. A shared pointer so the
+	// transaction-scoped clone WithTransaction builds stamps with the same value
+	// as its parent; nil (a literal-constructed store) or 0 (never configured)
+	// stamps nothing, and the purge then falls back to the legacy
+	// deleted_at-vs-cutoff rule.
+	softDeleteDays *atomic.Int64
 	// nodeStampProbe is cacheEnabled's per-cache companion for the node cache
 	// specifically: the node stamp is only a stamp while secret_nodes'
 	// cache_epoch trigger exists, and without it the stamp is frozen so every
@@ -279,6 +287,7 @@ func NewLocalStorage(db *gorm.DB) *LocalStorage {
 		rawStmts:              &rawStatements{},
 		secretMetaCache:       newSecretMetadataCache(),
 		rolePermCache:         newRolePermissionCache(),
+		softDeleteDays:        &atomic.Int64{},
 		// The ONLY place this is set. See the field's doc comment: every derived
 		// or transaction-scoped LocalStorage must leave it false.
 		cacheEnabled: true,
@@ -287,6 +296,24 @@ func NewLocalStorage(db *gorm.DB) *LocalStorage {
 		// see the field's doc comment.
 		nodeStampProbe: &nodeStampProbe{},
 	}
+}
+
+// SetSoftDeleteRetentionDays configures the deployment-wide soft-delete window
+// (config soft_delete.retention_days) that DeleteSecret and the project-delete
+// cascade freeze into secret_nodes.purge_at. days <= 0 disables stamping.
+func (ls *LocalStorage) SetSoftDeleteRetentionDays(days int) {
+	if ls.softDeleteDays == nil {
+		ls.softDeleteDays = &atomic.Int64{}
+	}
+	ls.softDeleteDays.Store(int64(days))
+}
+
+// softDeleteRetentionDays returns the configured window, 0 when unconfigured.
+func (ls *LocalStorage) softDeleteRetentionDays() int {
+	if ls.softDeleteDays == nil {
+		return 0
+	}
+	return int(ls.softDeleteDays.Load())
 }
 
 // SetAuditFlusherLingerWindow configures how long the audit-chain batching

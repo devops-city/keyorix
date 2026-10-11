@@ -163,6 +163,7 @@ var cachedTableGenerationColumns = map[string]map[string]string{
 	"SecretNode": {
 		"updated_at": "the node generation's first term (secret_metadata_cache.go, nodeGeneration.updatedAt)",
 		"read_count": "the node generation's second term — added precisely because this column's only writer is an UpdateColumn (#133 max-reads)",
+		"purge_at":   "stampSecretPurgeAt's UpdateColumn (local_secrets.go) is an UPDATE of the row, and the secret_nodes cache_epoch BEFORE UPDATE trigger bumps the node generation on every UPDATE regardless of column; the stamp also runs in the same transaction as the soft delete that already moves the generation",
 	},
 	"SecretVersion": {
 		"read_count": "covered by the version generation's sum(read_count) term (liveVersionsGeneration)",
