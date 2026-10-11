@@ -45,10 +45,15 @@ This is the network-bootstrap half only. Local host setup (config file, encrypti
 keys, database) is "keyorix-server admin init", a separate host-filesystem tool this
 network-only CLI does not run.
 
+The admin password is read from KEYORIX_ADMIN_PASSWORD, or prompted for (hidden)
+when that is unset. The bootstrap token is read from KEYORIX_BOOTSTRAP_TOKEN. Do
+not pass either on the command line: arguments are visible via ps/proc and saved
+in shell history.
+
 Examples:
   keyorix system init --server http://localhost:8080
   keyorix system init --server https://vault.example.com \
-      --admin-username admin --admin-password secret --admin-email admin@example.com`,
+      --admin-username admin --admin-email admin@example.com`,
 	SilenceUsage: true,
 	RunE:         runSystemInit,
 }
@@ -136,7 +141,7 @@ func runSystemInit(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("  +-- Admin user: %s (change password after first login)\n", username)
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  keyorix login --server %s\n", server)
-	fmt.Printf("  keyorix secret create --name my-first-secret --value \"hello\"\n")
+	fmt.Printf("  keyorix secret create --name my-first-secret --interactive\n")
 	return nil
 }
 

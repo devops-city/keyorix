@@ -145,7 +145,9 @@ TLS is off in the generated config. Turn it on, or front the server with a
 TLS-terminating proxy, before anything reaches a network you do not control.
 `security.require_transport_tls` makes that failure loud instead of silent.
 The generated config also leaves API rate limiting and the `/metrics` token off,
-so `keyorix-server admin validate --posture` reports three deviations on it;
+so `keyorix-server admin validate --posture` reports three deviations on it
+(like every `admin` command it needs the database to itself: **stop the server
+first**, run it, then start the server again);
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md#hardening-the-generated-config-clearing-the-posture-report)
 lists the keys that clear them.
 
@@ -216,11 +218,15 @@ created right away:
 
 ```bash
 ./bin/keyorix secret create --name "stripe-api-key" --interactive   # value typed at a hidden prompt
-./bin/keyorix secret create --name "deploy-key" --from-file ~/.ssh/id_ed25519
+./bin/keyorix secret create --name "deploy-key" --from-file ./deploy_key   # relative path; absolute paths and symlinks are refused
 ./bin/keyorix secret list
 ./bin/keyorix secret get --id 1               # metadata only
 ./bin/keyorix secret get --id 1 --show-value  # decrypted value
 ```
+
+`--from-file` reads a file from the current directory (copy the key there first),
+so delete that copy once the secret is stored: `shred -u ./deploy_key` on Linux,
+`rm -P ./deploy_key` on macOS, or `rm` on a disk you trust to be encrypted.
 
 New secrets default to project `1`, environment `1`. Create another project for
 anything that needs its own environments. Every project gets its **own** three

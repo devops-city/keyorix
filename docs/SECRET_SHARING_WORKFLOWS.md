@@ -4,6 +4,16 @@
 
 This document provides practical examples and workflows for common secret sharing scenarios. These examples demonstrate best practices and real-world usage patterns for the Secret Sharing feature.
 
+Every CLI command below was checked against the real `keyorix` command tree
+(`keyorix <command> --help`). Two things to know before you copy them:
+
+- **The CLI addresses secrets, users and groups by numeric ID in `share`
+  commands**, not by name. Find IDs with `keyorix secret list`,
+  `keyorix user get --email <email>` and `keyorix group get <name>`.
+- **No secret value ever goes on a command line** (arguments are visible via
+  `ps` and saved in shell history). Use `--interactive`, `--from-file` or a
+  `KEYORIX_*` environment variable, as in Workflow 6.
+
 ## Table of Contents
 1. [Basic Workflows](#basic-workflows)
 2. [Team Collaboration](#team-collaboration)
@@ -39,39 +49,42 @@ This document provides practical examples and workflows for common secret sharin
 
 #### Via CLI
 ```bash
+# DBA looks up the IDs (secret 123, user 789 in this example)
+keyorix secret list
+keyorix user get --email john.developer@company.com
+
 # DBA shares the secret
-keyorix secret share \
-  --name "Production DB Password" \
-  --recipient john.developer \
-  --permission read \
-  --note "Debugging issue #1234"
+keyorix share create \
+  --secret-id 123 \
+  --recipient-id 789 \
+  --permission read
 
 # Developer accesses the secret
-keyorix secret get --name "Production DB Password"
+keyorix secret get --id 123 --show-value
 
 # DBA revokes access after debugging
-keyorix shares list --secret "Production DB Password"
-keyorix shares revoke --id 456
+keyorix share list --secret-id 123
+keyorix share revoke --share-id 456
 ```
 
 #### Via API
 ```bash
 # DBA shares the secret
-curl -X POST "https://api.keyorix.com/api/v1/secrets/123/share" \
+curl -X POST "$KEYORIX_SERVER/api/v1/secrets/123/share" \
   -H "Authorization: Bearer dba-token" \
   -H "Content-Type: application/json" \
   -d '{
     "recipient_id": 789,
-    "permission": "read",
-    "note": "Debugging issue #1234"
+    "is_group": false,
+    "permission": "read"
   }'
 
 # Developer accesses the secret
-curl -X GET "https://api.keyorix.com/api/v1/secrets/123" \
+curl -X GET "$KEYORIX_SERVER/api/v1/secrets/123" \
   -H "Authorization: Bearer dev-token"
 
 # DBA revokes access
-curl -X DELETE "https://api.keyorix.com/api/v1/shares/456" \
+curl -X DELETE "$KEYORIX_SERVER/api/v1/shares/456" \
   -H "Authorization: Bearer dba-token"
 ```
 
@@ -86,22 +99,24 @@ curl -X DELETE "https://api.keyorix.com/api/v1/shares/456" \
 
 **Implementation**:
 ```bash
-# Share with contractor
-keyorix secret share \
-  --name "Payment API Key" \
-  --recipient contractor@company.com \
+# Share with contractor for 7 days (secret 124, contractor is user 790).
+# --ttl is a Go duration (168h = 7 days); --expires takes an absolute RFC3339 time.
+keyorix share create \
+  --secret-id 124 \
+  --recipient-id 790 \
   --permission read \
-  --expires-in 7d \
-  --note "Integration project - expires 2025-07-29"
+  --ttl 168h
 
 # Monitor access
-keyorix audit logs \
-  --secret "Payment API Key" \
-  --user contractor@company.com \
-  --since 7d
+keyorix secret access-log --id 124 --days 7
+keyorix audit logs --user-id 790 --since 2026-01-01T00:00:00Z
+
+# Extend or shorten the expiry later
+keyorix share update --share-id 457 --permission read --ttl 24h
 
 # Manual revocation if needed
-keyorix shares revoke --recipient contractor@company.com
+keyorix share list --secret-id 124
+keyorix share revoke --share-id 457
 ```
 
 ## Team Collaboration
@@ -115,36 +130,42 @@ keyorix shares revoke --recipient contractor@company.com
 #### Using Groups (Recommended)
 ```bash
 # Create or use existing development group
-keyorix groups create --name "developers" \
+keyorix group create --name "developers" \
   --description "Development team members"
 
-# Add team members to group
-keyorix groups add-member --group developers --user alice.dev
-keyorix groups add-member --group developers --user bob.dev
-keyorix groups add-member --group developers --user charlie.dev
+# Add team members to group (username, email or numeric ID)
+keyorix group add-member --group developers --user alice.dev
+keyorix group add-member --group developers --user bob.dev
+keyorix group add-member --group developers --user charlie.dev
 
-# Share secrets with the entire group
-keyorix secret share \
-  --name "Dev Database URL" \
-  --group developers \
+# Find the group's ID
+keyorix group get developers
+
+# Share secrets with the entire group (group 5; secrets 101 and 102)
+keyorix share create \
+  --secret-id 101 \
+  --recipient-id 5 --is-group \
   --permission write
 
-keyorix secret share \
-  --name "Dev API Keys" \
-  --group developers \
+keyorix share create \
+  --secret-id 102 \
+  --recipient-id 5 --is-group \
   --permission read
 ```
 
 #### Individual Sharing (Alternative)
 ```bash
-# Share with each team member individually
-for user in alice.dev bob.dev charlie.dev; do
-  keyorix secret share \
-    --name "Dev Database URL" \
-    --recipient $user \
+# Share with each team member individually (user IDs 11, 12, 13)
+for uid in 11 12 13; do
+  keyorix share create \
+    --secret-id 101 \
+    --recipient-id "$uid" \
     --permission write
 done
 ```
+
+Sharing again with the same recipient updates the existing share instead of
+creating a duplicate, so these commands are safe to re-run.
 
 ### Workflow 4: Cross-Team Collaboration
 
@@ -152,54 +173,52 @@ done
 
 **Implementation**:
 ```bash
-# Backend team lead shares API secrets
-keyorix secret share \
-  --name "Backend API Key" \
-  --group frontend-team \
-  --permission read \
-  --note "For integration testing only"
+# Backend team lead shares API secrets with the frontend-team group (group 8)
+keyorix share create \
+  --secret-id 201 \
+  --recipient-id 8 --is-group \
+  --permission read
 
 # Share staging environment secrets
-keyorix secret share \
-  --name "Staging Database URL" \
-  --group frontend-team \
+keyorix share create \
+  --secret-id 202 \
+  --recipient-id 8 --is-group \
   --permission read
 
 # Monitor usage
-keyorix audit logs \
-  --secret "Backend API Key" \
-  --group frontend-team \
-  --format table
+keyorix share group-shares --group-id 8
+keyorix secret access-log --id 201
 ```
 
 ## DevOps Scenarios
 
 ### Workflow 5: CI/CD Pipeline Secrets
 
-**Scenario**: Share deployment secrets with CI/CD service accounts.
+**Scenario**: Give a CI/CD pipeline access to deployment secrets.
+
+Shares go to users and groups. A pipeline is not a person, so it gets a
+**machine identity** with a project-scoped role and its own token instead.
 
 **Implementation**:
 ```bash
-# Create service account for CI/CD
-keyorix users create-service-account \
+# Create a machine identity for CI/CD in project 1
+keyorix machine create \
   --name "github-actions" \
+  --project 1 \
+  --type ci \
   --description "GitHub Actions CI/CD"
 
-# Share deployment secrets
-keyorix secret share \
-  --name "Production Deploy Key" \
-  --recipient github-actions \
-  --permission read
+# Pick a role (keyorix rbac list-roles) and grant it at the project's scope
+keyorix machine grant-role github-actions --project 1 --role <role>
 
-keyorix secret share \
-  --name "Docker Registry Token" \
-  --recipient github-actions \
-  --permission read
+# Issue a token for the pipeline; the raw token is shown once, store it in the
+# CI system's own secret store
+keyorix machine token issue github-actions --project 1 \
+  --name "github-actions-prod" --expires-in-days 90
 
 # Monitor CI/CD access
-keyorix audit logs \
-  --user github-actions \
-  --format json | jq '.[] | select(.result == "success")'
+keyorix machine audit
+keyorix audit logs --actor-type machine_identity --limit 100
 ```
 
 ### Workflow 6: Infrastructure Team Rotation
@@ -211,29 +230,39 @@ keyorix audit logs \
 #!/bin/bash
 # Infrastructure secret rotation script
 
-# List of infrastructure secrets to rotate
-SECRETS=("AWS Root Key" "Database Master Password" "SSL Certificates")
-INFRA_TEAM="infrastructure-team"
+# Infrastructure secrets to rotate, as "<secret id>:<name>"
+SECRETS=("11:AWS Root Key" "12:Database Master Password" "13:SSL Certificates")
+INFRA_GROUP_ID=5   # numeric ID of the infrastructure-team group
 
-for secret in "${SECRETS[@]}"; do
+# The new value goes through a private file, never onto the command line
+# (arguments are visible via ps/proc and saved in shell history).
+# --from-file takes a relative, non-symlink path, so keep the file in the
+# current directory and remove it when done.
+umask 077
+VALUE_FILE=./.new-secret-value
+trap 'rm -f "$VALUE_FILE"' EXIT
+
+for entry in "${SECRETS[@]}"; do
+  id="${entry%%:*}"
+  secret="${entry#*:}"
   echo "Rotating: $secret"
-  
+
   # Generate new secret value
-  NEW_VALUE=$(openssl rand -base64 32)
-  
+  openssl rand -base64 32 | tr -d '\n' > "$VALUE_FILE"
+
   # Update secret
-  keyorix secret update --name "$secret" --value "$NEW_VALUE"
-  
-  # Ensure infrastructure team has access
-  keyorix secret share \
-    --name "$secret" \
-    --group "$INFRA_TEAM" \
-    --permission write \
-    --force-update
-  
-  # Notify team
-  keyorix notify --group "$INFRA_TEAM" \
-    --message "Secret '$secret' has been rotated"
+  keyorix secret update --id "$id" --from-file "$VALUE_FILE"
+
+  # Ensure infrastructure team has access (re-sharing updates the existing share)
+  keyorix share create \
+    --secret-id "$id" \
+    --recipient-id "$INFRA_GROUP_ID" --is-group \
+    --permission write
+
+  # The CLI has no "notify" command. Tell the team through your own channel
+  # (chat webhook, e-mail), or rely on the server's notification channels
+  # (keyorix notification channel --help).
+  echo "Secret '$secret' has been rotated"
 done
 ```
 
@@ -245,28 +274,23 @@ done
 
 **Implementation**:
 ```bash
-# Generate comprehensive sharing report
-keyorix audit sharing-report \
-  --format csv \
-  --output sharing-audit-$(date +%Y%m%d).csv \
-  --include-metadata
+# Export the audit trail as CSV for the auditor
+keyorix audit export --csv --all --since 2026-01-01T00:00:00Z > audit-export.csv
 
-# Review high-privilege shares
-keyorix shares list \
-  --permission write \
-  --format table \
-  --sort-by created_at
+# Who can reach a project's secrets through a role or a share (project 1)
+keyorix access-review --project-id 1
 
-# Check for stale shares (older than 90 days)
-keyorix shares list \
-  --older-than 90d \
-  --format json | \
-  jq '.[] | {secret_name, recipient, created_at, last_accessed}'
+# Review the effective access list of one high-value secret
+keyorix secret access --id 123
+
+# Review the shares of one secret, and everything shared with one group or user
+keyorix share list --secret-id 123
+keyorix share group-shares --group-id 5
+keyorix share shared-secrets --user-id 789
 
 # Review group memberships
-keyorix groups audit \
-  --include-permissions \
-  --format report
+keyorix group list
+keyorix group members developers
 ```
 
 ### Workflow 8: Incident Response - Compromised Account
@@ -277,38 +301,34 @@ keyorix groups audit \
 ```bash
 #!/bin/bash
 # Incident response script for compromised account
+# Usage: ./respond.sh <user id> <your admin email>
 
-COMPROMISED_USER="john.doe"
+COMPROMISED_USER_ID="$1"
+ADMIN_EMAIL="$2"
 INCIDENT_ID="INC-2025-001"
 
-echo "Starting incident response for user: $COMPROMISED_USER"
+echo "Starting incident response for user id: $COMPROMISED_USER_ID"
 
-# 1. Immediately lock the account
-keyorix users lock --username "$COMPROMISED_USER" \
-  --reason "Security incident $INCIDENT_ID"
+# 1. Immediately block login
+keyorix user suspend --id "$COMPROMISED_USER_ID" --by "$ADMIN_EMAIL"
 
 # 2. Revoke all active sessions
-keyorix sessions revoke-all --username "$COMPROMISED_USER"
+keyorix user revoke-sessions --id "$COMPROMISED_USER_ID" --by "$ADMIN_EMAIL"
 
-# 3. List all secrets the user had access to
-keyorix audit user-access \
-  --username "$COMPROMISED_USER" \
-  --output "incident-${INCIDENT_ID}-access.json"
+# 3. List all secrets shared with the user
+keyorix share shared-secrets --user-id "$COMPROMISED_USER_ID"
 
-# 4. Revoke all shares TO the user
-keyorix shares revoke-all --recipient "$COMPROMISED_USER" \
-  --reason "Security incident $INCIDENT_ID"
+# 4. Remove each share (list the share IDs per secret, then revoke)
+#    keyorix share list --secret-id <secret id>
+#    keyorix share revoke --share-id <share id>
 
-# 5. List all secrets the user owned/shared
-keyorix shares list --owner "$COMPROMISED_USER" \
-  --output "incident-${INCIDENT_ID}-owned.json"
+# 5. Review what the user did
+keyorix audit logs --user-id "$COMPROMISED_USER_ID" --limit 100
+keyorix audit export --csv --all --since 2026-01-01T00:00:00Z > "incident-${INCIDENT_ID}-audit.csv"
 
-# 6. Generate incident report
-keyorix audit incident-report \
-  --incident-id "$INCIDENT_ID" \
-  --username "$COMPROMISED_USER" \
-  --timeframe 30d \
-  --output "incident-${INCIDENT_ID}-report.pdf"
+# 6. Re-home or rotate what they owned
+#    keyorix secret reassign-owner --help
+#    keyorix secret rotate --id <secret id>   (prompts for the new value)
 
 echo "Incident response completed. Review generated reports."
 ```
@@ -323,45 +343,39 @@ echo "Incident response completed. Review generated reports."
 ```bash
 #!/bin/bash
 # New employee onboarding script
+# Secret IDs are examples; look yours up with: keyorix secret list
 
-NEW_USER="$1"
-TEAM="$2"
-ROLE="$3"
+NEW_USER="$1"      # username, email or numeric ID
+NEW_USER_ID="$2"   # numeric user ID (share create takes IDs)
+TEAM="$3"
+ROLE="$4"
 
-if [ -z "$NEW_USER" ] || [ -z "$TEAM" ] || [ -z "$ROLE" ]; then
-  echo "Usage: $0 <username> <team> <role>"
+if [ -z "$NEW_USER" ] || [ -z "$NEW_USER_ID" ] || [ -z "$TEAM" ] || [ -z "$ROLE" ]; then
+  echo "Usage: $0 <username> <user id> <team> <role>"
   exit 1
 fi
 
 echo "Onboarding $NEW_USER to $TEAM as $ROLE"
 
 # Add user to team group
-keyorix groups add-member --group "$TEAM" --user "$NEW_USER"
+keyorix group add-member --group "$TEAM" --user "$NEW_USER"
 
 # Grant role-specific access
 case "$ROLE" in
   "developer")
-    keyorix secret share --name "Dev Environment Secrets" \
-      --recipient "$NEW_USER" --permission write
-    keyorix secret share --name "Test Database URL" \
-      --recipient "$NEW_USER" --permission read
+    keyorix share create --secret-id 301 --recipient-id "$NEW_USER_ID" --permission write
+    keyorix share create --secret-id 302 --recipient-id "$NEW_USER_ID" --permission read
     ;;
   "devops")
-    keyorix secret share --name "Infrastructure Secrets" \
-      --recipient "$NEW_USER" --permission write
-    keyorix secret share --name "CI/CD Tokens" \
-      --recipient "$NEW_USER" --permission read
+    keyorix share create --secret-id 303 --recipient-id "$NEW_USER_ID" --permission write
+    keyorix share create --secret-id 304 --recipient-id "$NEW_USER_ID" --permission read
     ;;
   "qa")
-    keyorix secret share --name "Test Environment Secrets" \
-      --recipient "$NEW_USER" --permission read
+    keyorix share create --secret-id 305 --recipient-id "$NEW_USER_ID" --permission read
     ;;
 esac
 
-# Send welcome notification
-keyorix notify --user "$NEW_USER" \
-  --message "Welcome to $TEAM! You now have access to team secrets."
-
+# The CLI has no "notify" command; send the welcome message through your own channel.
 echo "Onboarding completed for $NEW_USER"
 ```
 
@@ -434,7 +448,7 @@ class SecretRotator:
 # Usage example
 if __name__ == "__main__":
     rotator = SecretRotator(
-        api_base="https://api.keyorix.com/api/v1",
+        api_base=os.environ['KEYORIX_SERVER'].rstrip('/') + "/api/v1",
         token=os.environ['KEYORIX_TOKEN']
     )
     
@@ -455,27 +469,27 @@ if __name__ == "__main__":
 
 **Diagnostic Steps**:
 ```bash
-# 1. Verify the secret exists
-keyorix secret get --id 123 --metadata-only
+# 1. Verify the secret exists (metadata only, no value)
+keyorix secret info --id 123
 
-# 2. Check if user has any access
-keyorix shares list --secret-id 123 --recipient john.doe
+# 2. Check who has access, and how it was granted
+keyorix secret access --id 123
+keyorix share list --secret-id 123
 
-# 3. Check user's group memberships
-keyorix users groups --username john.doe
+# 3. Check the user's roles, and a specific permission
+keyorix rbac list-user-roles --user john.doe@company.com
+keyorix rbac check-permission --user john.doe@company.com --permission secrets.read
 
-# 4. Review recent audit logs
-keyorix audit logs \
-  --secret-id 123 \
-  --user john.doe \
-  --since 24h \
-  --include-failures
+# 4. Review recent failed events for the secret and the user (user id 789)
+keyorix audit search \
+  --resource-type secret --resource-id 123 \
+  --user-id 789 \
+  --success false \
+  --since 2026-01-01T00:00:00Z
+keyorix secret audit --id 123
 
-# 5. Test access with different permission levels
-keyorix test-access --secret-id 123 --user john.doe
-
-# 6. Check for account issues
-keyorix users status --username john.doe
+# 5. Check for account issues (suspended, locked, ...)
+keyorix user get --email john.doe@company.com
 ```
 
 ### Workflow 12: Performance Investigation
@@ -484,32 +498,23 @@ keyorix users status --username john.doe
 
 **Investigation Steps**:
 ```bash
-# 1. Check system performance metrics
-keyorix system metrics --component sharing --timeframe 1h
+# 1. Check the server you are talking to and its version
+keyorix status
+keyorix system info
 
-# 2. Analyze slow queries
-keyorix audit slow-queries \
-  --component sharing \
-  --threshold 5s \
-  --since 1h
+# 2. Look at read activity per project over the last day
+keyorix usage show --days 1
 
-# 3. Review sharing patterns
-keyorix audit sharing-patterns \
-  --high-volume-secrets \
-  --format table
-
-# 4. Check for bulk operations
-keyorix audit bulk-operations \
-  --type sharing \
-  --since 1h
-
-# 5. Monitor real-time performance
-keyorix monitor sharing --real-time --duration 10m
+# 3. Look for bursts of sharing events
+keyorix audit search --action secret.shared --limit 200 --since 2026-01-01T00:00:00Z
 ```
+
+For latency and database-level metrics use the server's Prometheus metrics
+endpoint; the CLI has no `monitor` or slow-query command.
 
 ---
 
 *These workflows provide practical examples for common secret sharing scenarios. Adapt them to your specific environment and requirements.*
 
-*Last updated: July 22, 2025*
-*Version: 1.0.0*
+*Last updated: October 10, 2026*
+*Version: 1.1.0*

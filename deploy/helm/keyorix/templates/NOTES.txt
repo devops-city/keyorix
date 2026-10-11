@@ -37,7 +37,12 @@ Keyorix has been deployed as release "{{ .Release.Name }}".
    kubectl -n {{ .Release.Namespace }} get secret {{ include "keyorix.fullname" . }} \
      -o jsonpath='{.data.KEYORIX_BOOTSTRAP_TOKEN}' | base64 -d; echo
 
-   keyorix system init --server http://localhost:8080 --bootstrap-token <token from above>
+   read -r -s -p 'Bootstrap token: ' KEYORIX_BOOTSTRAP_TOKEN; echo
+   export KEYORIX_BOOTSTRAP_TOKEN
+   keyorix system init --server http://localhost:8080
+
+   (The CLI reads the token from KEYORIX_BOOTSTRAP_TOKEN and prompts for the admin
+   password; neither belongs on the command line.)
 {{- end }}
 
 ⚠️  CRITICAL — back up the encryption keys volume

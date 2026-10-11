@@ -51,7 +51,9 @@ Ns`, `Bootstrapping admin user` and `Admin bootstrap complete.` in
 `docker compose logs backend`. If you see the `ERROR:` lines instead, check that
 `KEYORIX_BOOTSTRAP_TOKEN` is set and matches, then fix `.env` and run
 `docker compose up -d` again (or create the admin by hand with
-`keyorix system init --server http://localhost:8088 --admin-username admin --admin-email admin@keyorix.local --bootstrap-token <KEYORIX_BOOTSTRAP_TOKEN>`).
+`keyorix system init --server http://localhost:8088 --admin-username admin --admin-email admin@keyorix.local`
+with `KEYORIX_BOOTSTRAP_TOKEN` exported in your shell: the CLI reads the token
+and prompts for the admin password; neither goes on the command line).
 `docker compose ps` shows `web` as `healthy`: its healthcheck probes
 `127.0.0.1` (busybox resolves `localhost` to IPv6 first and nginx listens on IPv4
 only).

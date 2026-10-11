@@ -107,9 +107,11 @@ it either way:
 
 ```sh
 export HOME=./.demo-2-cli-home   # the isolated CLI credential store up.sh used
-./bin/keyorix login --server http://localhost:8080 --username alice --password '<from up.sh output>' \
-  --mfa-code <6-digit code>                # only once alice has enrolled her own TOTP (step 2);
-                                           # until then require_mfa confines her to the enrolment endpoints
+./bin/keyorix login --server http://localhost:8080 --username alice
+                                           # paste alice's password (from the up.sh output) at the hidden prompt;
+                                           # once she has enrolled her own TOTP (step 2) the CLI also prompts for
+                                           # the 6-digit code. Until then require_mfa confines her to the
+                                           # enrolment endpoints
 ./bin/keyorix secret list --project 2     # numeric ID — alice holds no deployment-wide role,
                                            # so a project NAME needs one; the CLI says so
                                            # and tells you the numeric ID to use instead
@@ -123,8 +125,9 @@ they use a name instead.) Or just log in as alice in the web UI and show
 ## 4. An audited secret reveal (~1.5 min)
 
 ```sh
-./bin/keyorix login --server http://localhost:8080 --username admin --password '<from up.sh output>' \
-  --mfa-code <6-digit code from your authenticator app>
+./bin/keyorix login --server http://localhost:8080 --username admin
+# hidden prompts: the admin password (from the up.sh output), then the
+# 6-digit code from your authenticator app
 ./bin/keyorix secret get --id 1 --show-value       # stripe-api-key, already rotated to v2 by up.sh
 ./bin/keyorix audit logs --limit 3                 # the reveal is right there: secret.read
 ```

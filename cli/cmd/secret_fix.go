@@ -68,7 +68,7 @@ func runSecretFix(_ *cobra.Command, args []string) error {
 		fmt.Printf("No hardcoded occurrences of %s found in %s\n", keyName, absPath)
 		fmt.Printf("\nIf the secret is in a .env file, it is already in the right place.\n")
 		fmt.Printf("Store it in Keyorix:\n")
-		fmt.Printf("  keyorix secret create --name %s --value <value>\n", strings.ToLower(keyName))
+		fmt.Printf("  keyorix secret create --name %s --interactive\n", strings.ToLower(keyName))
 		return nil
 	}
 
@@ -123,7 +123,7 @@ func runSecretFix(_ *cobra.Command, args []string) error {
 	fmt.Printf("\nDone. Next steps:\n")
 	fmt.Printf("  1. Fill in the value in %s\n", fixEnvFile)
 	fmt.Printf("  2. Add %s to .gitignore\n", fixEnvFile)
-	fmt.Printf("  3. Store in Keyorix: keyorix secret create --name %s --value <value>\n", strings.ToLower(keyName))
+	fmt.Printf("  3. Store in Keyorix: keyorix secret create --name %s --interactive\n", strings.ToLower(keyName))
 	fmt.Printf("  4. Run with injection: keyorix run --env production --var %s=%s -- your-app\n", envVarName, strings.ToLower(keyName))
 
 	return nil

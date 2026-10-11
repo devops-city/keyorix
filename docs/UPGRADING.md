@@ -43,7 +43,8 @@ single binary and Compose + Postgres): a secret written by v0.95.3 reads back
 unchanged, `admin verify-audit` is VALID, and the first start logs
 `ADR-112 grace period: security.require_mfa now defaults to true, but this is an
 upgraded deployment` — MFA is not enforced yet and `admin validate --posture`
-counts it as a deviation until each admin enrols (`keyorix mfa enroll` /
+(run with the server stopped, like every `admin` command) counts it as a
+deviation until each admin enrols (`keyorix mfa enroll` /
 `activate`; the v0.95.3 CLI has no `mfa enroll`, so use the new CLI or the web
 UI) and `security.require_mfa: true` is set explicitly. Back up with the *old*
 release's tooling before swapping: on the v0.95.3 Compose image

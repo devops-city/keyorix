@@ -94,7 +94,7 @@ Complete documentation for the production-ready Keyorix secret management system
 ./keyorix-server &
 
 # Create a secret
-./keyorix secret create --name "api-key" --value "secret-value"
+./keyorix secret create --name "api-key" --interactive   # value typed at a hidden prompt
 
 # List secrets
 ./keyorix secret list

@@ -44,7 +44,7 @@ var secretExplanations = []secretExplanation{
 		Fix: []string{
 			"Remove from source code immediately",
 			"Rotate the key in AWS IAM console",
-			"Store in Keyorix: keyorix secret create --name aws-access-key --value <new-key>",
+			"Store in Keyorix: keyorix secret create --name aws-access-key --interactive",
 			helpInjectAtRuntime,
 			"Add to .gitignore if in a config file",
 		},
@@ -69,7 +69,7 @@ var secretExplanations = []secretExplanation{
 		Impact:      "Direct database access. An attacker can read, modify, or delete all data. Often reused across environments.",
 		Fix: []string{
 			"Move to environment variable: DB_PASSWORD=os.getenv(\"DB_PASSWORD\")",
-			"Store in Keyorix: keyorix secret create --name db-password --value <password>",
+			"Store in Keyorix: keyorix secret create --name db-password --interactive",
 			helpInjectAtRuntime,
 			"Rotate the database password after removing from code",
 			"Check if same password is used in other environments",
@@ -96,7 +96,7 @@ var secretExplanations = []secretExplanation{
 		Impact:      "An attacker can forge valid JWT tokens, impersonating any user including admins. All existing tokens must be invalidated on rotation.",
 		Fix: []string{
 			"Generate a new strong secret (min 256 bits): openssl rand -hex 32",
-			"Store in Keyorix: keyorix secret create --name jwt-secret --value <new-secret>",
+			"Store in Keyorix: keyorix secret create --name jwt-secret --interactive",
 			"Inject at runtime and invalidate all existing sessions",
 			"Never use the same JWT secret across environments",
 		},
@@ -160,7 +160,7 @@ func runSecretExplain(_ *cobra.Command, args []string) error {
 		fmt.Printf("General guidance:\n")
 		fmt.Printf("  - Never hardcode credentials in source code\n")
 		fmt.Printf("  - Move to environment variable\n")
-		fmt.Printf("  - Store in Keyorix: keyorix secret create --name %s --value <value>\n", strings.ToLower(args[0]))
+		fmt.Printf("  - Store in Keyorix: keyorix secret create --name %s --interactive\n", strings.ToLower(args[0]))
 		fmt.Printf("  - Inject at runtime: keyorix run --env production --var %s=%s -- your-app\n\n", strings.ToUpper(args[0]), strings.ToLower(args[0]))
 		fmt.Printf("Next:\n")
 		fmt.Printf("  keyorix secret fix %s\n", args[0])

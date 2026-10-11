@@ -307,14 +307,14 @@ keyorix secret versions --id 123
 
 #### Modifying Shared Secrets (Write Permission Required)
 ```bash
-# Update secret value
-keyorix secret update --id 123 --value "new-secret-value"
+# Update secret value (typed at a hidden prompt, so it never lands in shell history)
+keyorix secret update --id 123 --interactive
 
-# Update metadata
-keyorix secret update --id 123 --metadata key=value
+# Update secret value from a file (relative path, not a symlink)
+keyorix secret update --id 123 --from-file ./new-secret.txt
 
-# Add tags
-keyorix secret update --id 123 --tags production,database
+# Change the expiration
+keyorix secret update --id 123 --expires "2027-01-01T00:00:00Z"
 ```
 
 ### Understanding Sharing Context

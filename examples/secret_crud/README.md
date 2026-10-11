@@ -68,18 +68,18 @@ keyorix system validate
 
 ### Create Secrets
 ```bash
-# Basic creation
-keyorix secret create --name "db-password" --value "secret123" --type "password"
+# Basic creation (the value is typed at a hidden prompt, never on the command line)
+keyorix secret create --name "db-password" --interactive --type "password"
 
 # From file
 keyorix secret create --name "ssl-cert" --from-file ./certificate.pem --type "certificate"
 
-# Interactive mode (secure input)
-keyorix secret create --interactive
-
 # With expiration and limits
-keyorix secret create --name "temp-token" --value "abc123" --expires "2024-12-31T23:59:59Z" --max-reads 5
+keyorix secret create --name "temp-token" --interactive --expires "2024-12-31T23:59:59Z" --max-reads 5
 ```
+
+> Do not pass the secret with `--value`: anything on the command line is visible
+> to other local users via `ps`/`/proc` and is saved in shell history.
 
 ### Read Secrets
 ```bash
@@ -95,14 +95,14 @@ keyorix secret get --name "db-password" --project 1 --environment 1
 
 ### Update Secrets
 ```bash
-# Update value (creates new version)
-keyorix secret update --id 123 --value "new-secret"
-
-# Update metadata
-keyorix secret update --id 123 --type "new-type" --max-reads 10
-
-# Interactive update
+# Update value (creates new version; typed at a hidden prompt)
 keyorix secret update --id 123 --interactive
+
+# Update value from a file
+keyorix secret update --id 123 --from-file ./new-secret.txt
+
+# Update limits
+keyorix secret update --id 123 --max-reads 10
 ```
 
 ### List & Search

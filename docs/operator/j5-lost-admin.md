@@ -79,7 +79,7 @@ happens to be running when you do this.
 
 ```bash
 KEYORIX_CONFIG_PATH=./keyorix.yaml keyorix-server     # the server has no --config flag
-keyorix login --server http://localhost:8080 --username admin --password 'Qx-Wz+p^+LgF!3sPw33a'
+keyorix login --server http://localhost:8080 --username admin   # paste the one-time password at the hidden prompt
 ```
 
 Expected: `Logged in to http://localhost:8080 as admin.` This is a **setup session**: it
@@ -129,16 +129,16 @@ flags to be prompted (no terminal echo); passing `--current-password`/`--new-pas
 ```
 $ keyorix secret list
 Error: failed to list secrets: HTTP 401          # the setup session is gone
-$ keyorix login --server http://localhost:8080 --username admin --password '<new password>'
-Error: this account requires a second factor and there is no terminal to prompt on: pass --mfa-code ...
-$ keyorix login --server http://localhost:8080 --username admin --password '<new password>' --mfa-code 123456
+$ keyorix login --server http://localhost:8080 --username admin
+Password:                                        # the new password, no echo
+Authenticator code (or an unused recovery code):
 Logged in to http://localhost:8080 as admin.
 $ keyorix secret list
 Secrets List
 ...
 ```
 
-(At a terminal, `keyorix login` prompts for the code instead.) The one-time password no
+(Without a terminal there is nothing to prompt on, and `keyorix login` stops with an error naming the flag to use for the code; prefer a terminal for a recovery.) The one-time password no
 longer works (`401`). The audit trail shows the whole recovery:
 
 ```

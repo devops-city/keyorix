@@ -41,9 +41,11 @@ export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
 
 ./bin/keyorix system init --server http://localhost:8080 \
   --admin-username admin \
-  --admin-email admin@keyorix.local \
-  --bootstrap-token "$KEYORIX_BOOTSTRAP_TOKEN"
+  --admin-email admin@keyorix.local
 ```
+
+The CLI reads the bootstrap token from `KEYORIX_BOOTSTRAP_TOKEN` (exported above),
+so there is no `--bootstrap-token` argument to leak.
 
 Omitting `--admin-password` makes the CLI prompt for it interactively
 (hidden input) instead of putting it on the command line, where it would be
@@ -83,9 +85,13 @@ Enter `Correct-Horse-Battery9` (or whatever you chose in step 2) at the
 out of shell history and process listings.
 
 ```bash
-./bin/keyorix secret create --name my-first-secret --value "hello"
+./bin/keyorix secret create --name my-first-secret --interactive
 ./bin/keyorix secret get --id 1 --show-value
 ```
+
+Type `hello` at the hidden `Secret value` prompt (`--interactive` keeps the
+value out of shell history and process listings; `--from-file <path>` works
+too).
 
 Expected: `Logged in to http://localhost:8080 as admin.`, then a created-secret
 confirmation with `ID: 1`, then `Decrypted Value` / `hello`.

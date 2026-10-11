@@ -141,10 +141,11 @@ for _ in $(seq 1 30); do curl -sf "http://localhost:${KEYORIX_PORT}/health" >/de
 curl -sf "http://localhost:${KEYORIX_PORT}/health" >/dev/null 2>&1 || { echo "keyorix-server never became healthy" >&2; cat "${WORKDIR}/server.log"; exit 1; }
 
 CLI_ENV=(HOME="$WORKDIR")
-env "${CLI_ENV[@]}" "${BIN}/keyorix" system init --server http://localhost:"${KEYORIX_PORT}" \
-  --admin-username admin --admin-email admin@demo.local \
-  --admin-password 'Demo-Correct-Horse-9' \
-  --bootstrap-token "$KEYORIX_BOOTSTRAP_TOKEN" >/dev/null
+# The admin password and bootstrap token go by environment variable, not argv.
+# (KEYORIX_BOOTSTRAP_TOKEN is already exported above.)
+KEYORIX_ADMIN_PASSWORD='Demo-Correct-Horse-9' env "${CLI_ENV[@]}" \
+  "${BIN}/keyorix" system init --server http://localhost:"${KEYORIX_PORT}" \
+  --admin-username admin --admin-email admin@demo.local >/dev/null
 ok "Keyorix running at http://localhost:${KEYORIX_PORT}, admin bootstrapped"
 
 ADMIN_TOKEN_JSON="$(curl -sf -X POST http://localhost:"${KEYORIX_PORT}"/auth/login \

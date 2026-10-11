@@ -148,7 +148,9 @@ func deploymentDocInvocations(t *testing.T, relFiles []string) [][]string {
 			t.Fatalf("reading %s: %v", path, err)
 		}
 		for _, m := range backtickKeyorixRe.FindAllStringSubmatch(string(b), -1) {
-			toks := tokenize(m[1])
+			// entrypoint.sh writes the backticks as \` inside double-quoted echo
+			// strings, so the span captures a trailing backslash.
+			toks := tokenize(strings.TrimSuffix(m[1], `\`))
 			if len(toks) == 0 {
 				continue
 			}
