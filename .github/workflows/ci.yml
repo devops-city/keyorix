@@ -1439,28 +1439,36 @@ jobs:
   # re-run of the identical SQLite-only check the PR already passed adds
   # cost without adding confidence.
   #
-  # Runtime budget, re-measured 2026-10-05 (#2738) after
-  # scripts/e2e/web-real-smoke.sh moved to MAX_SPECS_PER_GROUP=1 (one spec
-  # file per freshly-booted server, so no group's login budget is ever a sum
-  # of per-file counts -- see that script's own comment for the live-confirmed
-  # collisions this replaced). 6 spec files => 6 groups, measured locally at
-  # 3m59s for the whole script, measured with `time` (each group: boot + bootstrap + seed +
-  # Playwright, 15-45s depending on the file; the two MFA files are the slow
-  # ones because they must wait out real 30-second TOTP steps). Still inside
-  # the 10-minute timeout, but the margin is now minutes rather than the
-  # previous ~25s, and CI-environment overhead (checkout, dependency install,
-  # Playwright browser setup) is on top of that and is NOT in the local
-  # figure. Each additional spec file now adds its own group, so ~20-45s each
-  # -- at roughly 10-12 spec files this job wants splitting into a matrix over
-  # groups rather than more sequential time. Not done here: a speculative
-  # matrix split would be unverifiable complexity today, but the headroom is
-  # materially smaller than it was, so the next person adding spec files
-  # should check this number rather than assume it.
-  web-e2e-real-smoke:
+  # Runtime budget. 2026-10-05 (#2738): scripts/e2e/web-real-smoke.sh moved to
+  # MAX_SPECS_PER_GROUP=1 (one spec file per freshly-booted server, so no
+  # group's login budget is ever a sum of per-file counts -- see that script's
+  # own comment). Each group costs 15-45s (boot + bootstrap + seed +
+  # Playwright; the MFA files wait out real 30-second TOTP steps) and
+  # ui-route-walk ~2m. 2026-10-11: with 17 spec files the single job was
+  # killed at its 10-minute timeout (10m06s on #3065, with every group
+  # passing), so it is now split into two parallel shards of the SAME specs:
+  # KEYORIX_E2E_SHARD=i/n gives spec k of the sorted list to shard k%n+1, and
+  # the script fails if any spec would belong to no shard. Measured on CI
+  # (PR #3100, run 38165198610): shard 1/2 = 9 specs, 7m06s job time (incl.
+  # ~1m checkout/pnpm/Playwright setup); shard 2/2 = 8 specs, 4m27s. Shard 1
+  # is the longer one because round-robin lands ui-route-walk (~2m) in it.
+  # Each shard keeps the 10-minute timeout. A spec file costs ~30s, so past
+  # ~25 spec files shard 1 gets close to the limit again: check the shard
+  # durations rather than assume, and raise the shard count in the matrix
+  # and in KEYORIX_E2E_SHARD below.
+  #
+  # The matrix job is web-e2e-real-smoke-shard; web-e2e-real-smoke further down
+  # is the aggregate under the original name.
+  web-e2e-real-smoke-shard:
     needs: [changes]
     if: github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    name: web-e2e-real-smoke-shard (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     permissions:
       contents: read
     steps:
@@ -1500,14 +1508,33 @@ jobs:
         working-directory: web
         run: pnpm exec playwright install-deps chromium
       - name: Real-backend web UI smoke
+        env:
+          KEYORIX_E2E_SHARD: ${{ matrix.shard }}/2
         run: make e2e-web-smoke
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: web-e2e-real-smoke-playwright-report
+          name: web-e2e-real-smoke-playwright-report-${{ matrix.shard }}
           path: web/playwright-report/
           retention-days: 7
+
+  # Aggregate under the job's ORIGINAL name, so anything that refers to
+  # `web-e2e-real-smoke` (a required-check entry, nightly-failure-issue's needs)
+  # keeps working: it fails if either shard failed or was cancelled, and is
+  # skipped exactly when the shards are (same gate as the shards).
+  web-e2e-real-smoke:
+    needs: [changes, web-e2e-real-smoke-shard]
+    if: always() && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require both shards to pass
+        env:
+          SHARDS_RESULT: ${{ needs.web-e2e-real-smoke-shard.result }}
+        run: |
+          echo "web-e2e-real-smoke-shard matrix result: $SHARDS_RESULT"
+          [ "$SHARDS_RESULT" = "success" ]
 
   # repo-guards (2026-10-05): the repo-wide structural guard tests (every
   # Test...Guard / ...Sweep / ...Completeness test: state-map completeness,

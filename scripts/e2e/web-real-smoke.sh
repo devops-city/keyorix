@@ -86,6 +86,38 @@ else
 fi
 [ "${#ALL_SPECS[@]}" -gt 0 ] || { echo "no e2e/real/*.spec.ts files found under $WEB_DIR" >&2; exit 1; }
 
+# KEYORIX_E2E_SHARD=i/n (CI: 1/2 and 2/2 as parallel jobs) runs only shard i of n.
+# Spec k (0-based, in the sorted ALL_SPECS order) belongs to shard (k % n) + 1:
+# deterministic, no hand-kept file list, so a new spec lands in a shard on its own.
+# Round-robin over the sorted names puts mfa-disable-dialog and mfa-login (the slow
+# TOTP-step files) in different shards. Before narrowing, every shard's selection is
+# computed and checked to cover ALL_SPECS exactly once, so a spec can never be
+# assigned to no shard (or two) -- the run fails instead of silently dropping it.
+if [ -n "${KEYORIX_E2E_SHARD:-}" ]; then
+    case "$KEYORIX_E2E_SHARD" in
+    [1-9]*/[1-9]*) ;;
+    *) echo "KEYORIX_E2E_SHARD must look like i/n (e.g. 1/2), got: $KEYORIX_E2E_SHARD" >&2; exit 1 ;;
+    esac
+    shard_idx="${KEYORIX_E2E_SHARD%%/*}"
+    shard_cnt="${KEYORIX_E2E_SHARD##*/}"
+    [ "$shard_idx" -le "$shard_cnt" ] || { echo "KEYORIX_E2E_SHARD index $shard_idx exceeds count $shard_cnt" >&2; exit 1; }
+    SHARD_SPECS=()
+    for ((k = 0; k < ${#ALL_SPECS[@]}; k++)); do
+        owners=0
+        for ((s = 1; s <= shard_cnt; s++)); do
+            [ $((k % shard_cnt + 1)) -eq "$s" ] && owners=$((owners + 1))
+        done
+        if [ "$owners" -ne 1 ]; then
+            echo "spec ${ALL_SPECS[$k]} is assigned to $owners shards of $shard_cnt (want exactly 1)" >&2
+            exit 1
+        fi
+        [ $((k % shard_cnt + 1)) -eq "$shard_idx" ] && SHARD_SPECS+=("${ALL_SPECS[$k]}")
+    done
+    [ "${#SHARD_SPECS[@]}" -gt 0 ] || { echo "shard $KEYORIX_E2E_SHARD has no specs (${#ALL_SPECS[@]} total)" >&2; exit 1; }
+    echo "==> shard $KEYORIX_E2E_SHARD: ${#SHARD_SPECS[@]} of ${#ALL_SPECS[@]} spec files: ${SHARD_SPECS[*]}"
+    ALL_SPECS=("${SHARD_SPECS[@]}")
+fi
+
 SPEC_GROUPS=()
 current_group=""
 current_count=0
