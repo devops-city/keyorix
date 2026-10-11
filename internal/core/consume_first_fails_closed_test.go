@@ -146,7 +146,12 @@ func TestFinishWebAuthnLogin_MintFailureAfterConsume_FailsClosed(t *testing.T) {
 	session, user, _, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
 	require.Nil(t, session)
-	require.Nil(t, user)
+	// #2894: a post-verdict failure now returns the resolved user alongside the
+	// error so the transport can name the account in its auth.login_error event.
+	// The property this test is about is unchanged and asserted below: no session
+	// is issued, and the challenge/ceremony pair stays consumed.
+	require.NotNil(t, user)
+	require.ErrorIs(t, err, ErrLoginPostVerdict, "a mint failure after the assertion verified is post-verdict, not a bad assertion")
 
 	var sessionCount int64
 	require.NoError(t, db.Model(&models.Session{}).Count(&sessionCount).Error)
@@ -179,7 +184,10 @@ func TestFinishWebAuthnPasswordlessLogin_MintFailureAfterConsume_FailsClosed(t *
 	session, user, _, err := c.FinishWebAuthnPasswordlessLogin(ctx, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
 	require.Nil(t, session)
-	require.Nil(t, user)
+	// #2894, as in the second-factor sibling above: the user comes back with the
+	// error so the transport can audit auth.login_error against the account.
+	require.NotNil(t, user)
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
 
 	var sessionCount int64
 	require.NoError(t, db.Model(&models.Session{}).Count(&sessionCount).Error)

@@ -1,7 +1,7 @@
 - **INV-CORE-session-delivered-or-absent** An operation that writes a session either hands
   that session's token to the client or leaves no live row for it. Concretely: (1) every
   fallible-and-reported read a login needs (the response identity) runs BEFORE the session
-  insert (`resolveLoginIdentityBeforeMint`; `LoginWithIdentity` for the password login, the
+  insert (`resolveLoginIdentityBeforeMint`; `LoginWithIdentity(Pending)` for the password login, the
   MFA and WebAuthn logins since #2841); (2) everything after the insert is panic-safe
   best-effort (`besteffort.Run`, never a bare `_ =`, which drops an error but not a panic);
   (3) a session write that reports an error is read back by its token

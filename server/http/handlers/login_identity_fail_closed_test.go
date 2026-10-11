@@ -137,7 +137,13 @@ func TestVerifyMFA_GetUserPermissionsError_FailsClosed(t *testing.T) {
 
 	w := postVerifyMFA(t, h, ch, code)
 
-	assert.Equal(t, http.StatusInternalServerError, w.Code, "a GetUserPermissions storage error must fail closed (500), not 200")
+	// #2888 (#2740 option C): completeLogin no longer writes its own distinct
+	// 500 here -- a storage error reached only once the credential was ALREADY
+	// confirmed correct must look byte-identical to a wrong credential (401),
+	// or the status code itself becomes a correctness oracle during a storage
+	// hiccup. "Fail closed" is still the property under test (not 200, no
+	// session, no data payload) -- which status represents that is not.
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "a GetUserPermissions storage error must fail closed (401, identical to a wrong code), not 200")
 	assert.True(t, fs.Fired(), "the armed fault must actually have fired on GetUserPermissions")
 
 	var body map[string]interface{}

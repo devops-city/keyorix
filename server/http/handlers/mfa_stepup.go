@@ -42,15 +42,30 @@ func (h *AuthHandler) MFAStepUp(w http.ResponseWriter, r *http.Request) {
 			sendError(w, "ServiceUnavailable", errMFAVerificationUnavailable, http.StatusServiceUnavailable, nil)
 			return
 		}
-		if errors.Is(err, core.ErrMFAVerificationStorageFailure) {
-			// Storage failed AFTER the code was found correct: answer exactly like
-			// a wrong code (same status, same text) so a correct guess is never
-			// confirmed, and never echo the wrapped storage error.
+		if errors.Is(err, core.ErrMFAVerificationStorageFailure) || errors.Is(err, core.ErrLoginPostVerdict) {
+			// Storage failed AFTER the code was found correct (the anti-replay
+			// mark, the lock recheck, the grant write): answer exactly like a
+			// wrong code (same status, same text) so a correct guess is never
+			// confirmed, and never echo the wrapped storage error. Core has
+			// already counted it and audited mfa.error (#2894 review).
 			sendError(w, "Unauthorized", "invalid code", http.StatusUnauthorized, nil)
 			return
 		}
-		sendError(w, "Unauthorized", err.Error(), http.StatusUnauthorized, nil)
+		sendError(w, "Unauthorized", stepUpRefusalMessage(err), http.StatusUnauthorized, nil)
 		return
 	}
 	sendSuccess(w, nil, "MFA step-up verified. Restricted secrets are accessible for 15 minutes.")
+}
+
+// stepUpRefusalMessage is the client text for every other step-up refusal. The
+// messages core returns on those branches are fixed strings about the caller's
+// own account (not active, locked, MFA not enrolled) or "invalid code", none of
+// which wraps a cause. Anything else (a new branch that wraps a storage error)
+// gets "invalid code" rather than its err.Error(), so a future wrap cannot
+// leak driver text or a post-verdict hint through this fallthrough.
+func stepUpRefusalMessage(err error) string {
+	if errors.Unwrap(err) != nil {
+		return "invalid code"
+	}
+	return err.Error()
 }

@@ -438,26 +438,32 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	// "unavailable" (see ErrMFAVerificationUnavailable).
 	codeMatched := false
 	var consumedTOTPStep *int64 // non-nil iff verified via a freshly-marked TOTP step (#2567, see VerifyMFALogin)
-	if secret, err := c.loadTOTPSecret(ctx, ch.UserID); err != nil {
-		storageErr = err
-	} else if step, ok := c.validateTOTPStep(secret, code); ok {
-		codeMatched = true
-		// Single-use within the validity window: atomically advance the last-used
-		// step. A code already accepted at this (or a later) step is a replay and
-		// MarkTOTPStepUsed returns false, so it is rejected — closing the ~90s
-		// replay window the bare totp validation left open.
-		if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, ch.UserID, step); ferr != nil {
-			storageErr = ferr
-		} else if fresh {
-			verified = true
-			consumedTOTPStep = &step
+	// Exactly one path evaluates a given input (#2894 review): see isTOTPShaped.
+	totpShaped := isTOTPShaped(code)
+	if totpShaped {
+		if secret, err := c.loadTOTPSecret(ctx, ch.UserID); err != nil {
+			storageErr = err
+		} else if step, ok := c.validateTOTPStep(secret, code); ok {
+			codeMatched = true
+			// Single-use within the validity window: atomically advance the last-used
+			// step. A code already accepted at this (or a later) step is a replay and
+			// MarkTOTPStepUsed returns false, so it is rejected — closing the ~90s
+			// replay window the bare totp validation left open.
+			if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, ch.UserID, step); ferr != nil {
+				storageErr = ferr
+			} else if fresh {
+				verified = true
+				consumedTOTPStep = &step
+			}
 		}
 	}
-	if !verified {
-		// Tried regardless of a TOTP-phase storageErr: the caller may have supplied
-		// a recovery code, not a TOTP code, and this path is independent of the one
-		// above — a failed TOTP secret read must not preempt a genuinely valid
-		// recovery code.
+	if !verified && !totpShaped {
+		// Only for input that cannot be a TOTP code. A six-digit input never
+		// reaches here: a recovery code can never match it, and looking one up
+		// anyway let a recovery-lookup fault turn a WRONG TOTP code into
+		// "unavailable" (503, uncounted) while a CORRECT one whose anti-replay
+		// mark failed stayed "invalid code" (401, counted) — the status code
+		// answered "was the TOTP code right?" (#2894 review).
 		if consumed, err := c.storage.ConsumeMFARecoveryCode(ctx, ch.UserID, sha256Hex(normalizeRecoveryCode(code)), c.now()); err != nil {
 			storageErr = err
 		} else if consumed {
@@ -466,13 +472,26 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	}
 	if !verified {
 		if storageErr != nil {
-			// Neither path could be conclusively evaluated — do NOT audit as a failed
-			// attempt and do NOT count it toward the lockout: this request never
-			// actually got a verdict on whether its code was right.
+			// Always audited distinctly from a confirmed wrong code -- an
+			// operator must be able to tell a storage hiccup apart from a
+			// genuine bad guess.
 			c.auditMFAError(ctx, ch.UserID, "login", storageErr)
 			if !codeMatched {
+				// Neither path could be conclusively evaluated: do NOT count it
+				// toward the lockout -- this request never actually got a
+				// verdict on whether its code was right, and its caller (the
+				// HTTP handler) releases the login-attempt-rate-limit slot for
+				// exactly this wrapped sentinel, for the same reason.
 				return nil, false, nil, fmt.Errorf("%w: %w: %s: %w", ErrMFAVerificationStorageFailure, ErrMFAVerificationUnavailable, i18n.T("ErrorRetrievalFailed", nil), storageErr)
 			}
+			// #2888 (#2740 option C extended to lockout/rate-limit bookkeeping,
+			// not just the HTTP response): the code WAS confirmed correct here
+			// -- only the anti-replay consumption write (MarkTOTPStepUsed)
+			// failed. This must still count toward the lockout exactly like a
+			// wrong code would, or the lockout/rate-limit timing becomes a side
+			// channel confirming correctness even though the returned error and
+			// the HTTP response are already identical either way.
+			c.recordFailedLogin(ctx, user)
 			return nil, false, nil, fmt.Errorf("%w: %s: %w", ErrMFAVerificationStorageFailure, i18n.T("ErrorRetrievalFailed", nil), storageErr)
 		}
 		c.auditMFAFailed(ctx, ch.UserID, "login")
@@ -482,9 +501,13 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	// Cleared the second factor — but a concurrent burst of failed second-factor
 	// attempts against this account may have tripped the lock since the
 	// pre-verification snapshot check above (TOCTOU). Re-check under the same
-	// serialization recordFailedLogin uses before minting a session.
-	if err := c.checkLockAndClearLoginFailures(ctx, user); err != nil {
-		return nil, false, nil, err
+	// serialization recordFailedLogin uses before minting a session. The
+	// accumulated failure state is deliberately NOT cleared here (#2894): the
+	// login still has a session to mint, a password-expiry gate to pass and an
+	// identity payload to resolve, and a fault in any of those must cost the
+	// attacker the same lockout progress a wrong code does — see LoginCompletion.
+	if err := c.recheckLockAfterCredentialMatched(ctx, user, true); err != nil {
+		return user, false, nil, err
 	}
 	return user, usedRecovery, consumedTOTPStep, nil
 }
@@ -493,35 +516,63 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 // and on success mints and returns the session (the second login step) together
 // with the response identity.
 //
-// The identity is resolved here, BEFORE the session/step-up-token writes, and
-// returned so the handler does not re-read it — see
-// resolveLoginIdentityBeforeMint (#2841). This path is the TOTP sibling of the
-// two WebAuthn login paths: it mints no MFAStepUpGrant, but it DOES write a
-// user-scoped MFAStepupToken, which HasActiveMFAStepup reads per-user rather
-// than per-session. A login reported as failed because the handler's identity
-// read failed used to leave that token behind (completeLogin revoked only the
-// session), so the restricted-secret MFA gate stayed satisfied for the rest of
-// the window on a later session the user never completed a second factor for.
+// The identity is resolved BEFORE the session/step-up-token writes, and returned
+// so the handler does not re-read it — see resolveLoginIdentityBeforeMint
+// (#2841). This path is the TOTP sibling of the two WebAuthn login paths: it
+// mints no MFAStepUpGrant, but it DOES write a user-scoped MFAStepupToken, which
+// HasActiveMFAStepup reads per-user rather than per-session. A login reported as
+// failed because the handler's identity read failed used to leave that token
+// behind (completeLogin revoked only the session), so the restricted-secret MFA
+// gate stayed satisfied for the rest of the window on a later session the user
+// never completed a second factor for.
+//
+// Convenience wrapper over VerifyMFALoginPending for callers that own nothing
+// further after this returns; every TRANSPORT must use the Pending form — see
+// Login/LoginPending and LoginCompletion for why (#2894).
 func (c *KeyorixCore) VerifyMFALogin(ctx context.Context, challenge, code, userAgent, ip string) (*models.Session, *models.User, UserIdentity, error) {
+	session, user, identity, lc, err := c.VerifyMFALoginPending(ctx, challenge, code, userAgent, ip)
+	if err != nil {
+		return nil, user, UserIdentity{}, err
+	}
+	lc.Succeeded(ctx)
+	return session, user, identity, nil
+}
+
+// VerifyMFALoginPending is VerifyMFALogin with the lockout accounting left open
+// — the returned LoginCompletion MUST get Succeeded or Failed exactly once
+// (#2894). On an error return the user is non-nil for every post-verdict
+// failure, so a transport can name the account in its auth.login_error event.
+func (c *KeyorixCore) VerifyMFALoginPending(ctx context.Context, challenge, code, userAgent, ip string) (*models.Session, *models.User, UserIdentity, *LoginCompletion, error) {
 	user, usedRecovery, consumedTOTPStep, err := c.VerifyMFACredentials(ctx, challenge, code)
 	if err != nil {
-		return nil, nil, UserIdentity{}, err
+		if errors.Is(err, ErrLoginPostVerdict) {
+			// The code matched and the lock recheck faulted: name the account so
+			// the transport can audit auth.login_error (#2894 review).
+			return nil, user, UserIdentity{}, nil, err
+		}
+		return nil, nil, UserIdentity{}, nil, err
 	}
 	// Apply the same password-expiry hard gate as the non-MFA login path (ADR-025).
 	// Idempotent: the gate is a no-op when the state is already password_reset_required
 	// (set during the initial credential check for MFA-enabled accounts).
 	if err := c.enforcePasswordExpiryGate(ctx, user); err != nil {
-		return nil, nil, UserIdentity{}, err
+		// The code was already confirmed correct, so this is a post-verdict storage
+		// fault (#2894) — counted toward the lockout exactly like a wrong code.
+		return nil, user, UserIdentity{}, nil, c.denyAfterCredentialMatched(ctx, user, err)
 	}
 	// #2841: the LAST fallible-and-reported read, done BEFORE the session and
-	// step-up-token writes. Not "before the first write" — the TOTP step mark,
-	// the lockout-counter clear and the password-expiry gate all write earlier;
-	// what matters is that nothing fallible runs AFTER the writes that outlive a
-	// login reported as failed.
+	// step-up-token writes. Not "before the first write" — the TOTP step mark and
+	// the password-expiry gate write earlier; what matters is that nothing
+	// fallible runs AFTER the writes that outlive a login reported as failed.
+	// #2894: the code matched, so a failure here is post-verdict — counted toward
+	// the lockout exactly like a wrong code, and wrapped with ErrLoginPostVerdict
+	// so the transport answers byte-identically to a wrong code and audits
+	// auth.login_error. It also keeps ErrLoginIdentityUnavailable in the chain.
 	identity, err := c.resolveLoginIdentityBeforeMint(ctx, user.ID)
 	if err != nil {
-		return nil, nil, UserIdentity{}, err
+		return nil, user, UserIdentity{}, nil, c.denyAfterCredentialMatched(ctx, user, err)
 	}
+	lc := c.newLoginCompletion(user)
 	session, err := c.mintSession(ctx, user.ID, userAgent, ip)
 	if err != nil {
 		// #2567: VerifyMFACredentials already consumed the TOTP step (anti-replay)
@@ -538,7 +589,13 @@ func (c *KeyorixCore) VerifyMFALogin(ctx context.Context, challenge, code, userA
 				log.Printf("VerifyMFALogin: failed to release TOTP step after mintSession failure for user %d: %v", user.ID, rerr)
 			}
 		}
-		return nil, nil, UserIdentity{}, err
+		// #2894: the code matched, so count this exactly as a wrong code would be
+		// counted, and mark it post-verdict so VerifyMFA audits auth.login_error.
+		// Note what is deliberately NOT done here: the per-IP login-attempt slot
+		// stays CONSUMED (the handler releases only for ErrMFAVerificationUnavailable),
+		// because a wrong code keeps its slot too.
+		lc.Failed(ctx)
+		return nil, user, UserIdentity{}, nil, fmt.Errorf("%w: %w", ErrLoginPostVerdict, err)
 	}
 	// Record the MFA step-up window when the classification gate requires it.
 	// Best-effort: a write failure does not block the login, but the user won't
@@ -555,7 +612,7 @@ func (c *KeyorixCore) VerifyMFALogin(ctx context.Context, challenge, code, userA
 		c.writeAuditEventFull(ctx, "mfa.recovery_used", &uid, nil, nil, ip, fmt.Sprintf("user %s used a recovery code", user.Username))
 	}
 	c.writeAuditEventFull(ctx, "mfa.login_verified", &uid, nil, nil, ip, fmt.Sprintf("user %s passed MFA", user.Username))
-	return session, user, identity, nil
+	return session, user, identity, lc, nil
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
@@ -566,6 +623,25 @@ func (c *KeyorixCore) loadTOTPSecret(ctx context.Context, userID uint) (string, 
 		return "", err
 	}
 	return c.decryptAuthSecret(row.SecretEnc, row.SecretMeta, ports.MFASecretAAD(userID))
+}
+
+// isTOTPShaped reports whether code can be a TOTP code at all: exactly six
+// ASCII digits after trimming, the only shape validateTOTPStep can match.
+// generateRecoveryCodes' codes normalize to ten characters, so the two shapes
+// are disjoint and every input has exactly one path that can verify it. The
+// MFA verifiers route on this so that a fault on the OTHER path can never
+// change the verdict a conclusive check already reached (#2894 review).
+func isTOTPShaped(code string) bool {
+	code = strings.TrimSpace(code)
+	if len(code) != 6 {
+		return false
+	}
+	for i := 0; i < len(code); i++ {
+		if code[i] < '0' || code[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // totpPeriod is the TOTP step length in seconds.
@@ -684,17 +760,32 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 	secondFactorEnrolled := user.MFAEnabled || user.WebAuthnEnabled
 	ok := false
 	// storageErr tracks a genuine storage-read failure that happened BEFORE any
-	// code or password was evaluated (only loading the TOTP secret), as distinct from a CONFIRMED negative result (wrong code/password),
-	// mirroring VerifyMFACredentials' own storageErr handling (#2548 sibling,
-	// found during the FIX-1 sweep): a resolution error here must not be
-	// indistinguishable from a legitimate negative result, or it both wrongly
-	// reports "invalid code or password" and wrongly counts toward the account
-	// lockout for a code/password that was never actually checked. Once set,
-	// storageErr takes precedence in the final verdict below even if the OTHER
-	// path (TOTP vs. password+step-up-grant) independently produced a clean
-	// negative result -- same precedence VerifyMFACredentials already uses
-	// between its TOTP and recovery-code paths.
-	var storageErr error
+	// code or password was evaluated (only loading the TOTP secret), as distinct
+	// from a CONFIRMED negative result (wrong code/password), mirroring
+	// VerifyMFACredentials' own storageErr handling (#2548 sibling, found during
+	// the FIX-1 sweep): a resolution error here must not be indistinguishable
+	// from a legitimate negative result, or it both wrongly reports "invalid
+	// code or password" and wrongly counts toward the account lockout for a
+	// code/password that was never actually checked. Once set, storageErr takes
+	// precedence in the final verdict below even if the OTHER path (TOTP vs.
+	// password+step-up-grant) independently produced a clean negative result --
+	// same precedence VerifyMFACredentials already uses between its TOTP and
+	// recovery-code paths.
+	//
+	// postVerdictErr (#2888 round 2) is the DIFFERENT case: the code or password
+	// WAS confirmed correct, and a SUBSEQUENT write (the anti-replay mark, or
+	// consuming the step-up grant) failed. The response must still stay
+	// identical to a wrong code/password (#2740 option C) -- but unlike
+	// storageErr, this must still count toward the lockout, exactly like a
+	// genuine wrong guess, and is audited as mfa.error (not mfa.failed) rather
+	// than silently discarded, so an operator can still tell the two apart. An
+	// earlier version of this function discarded MarkTOTPStepUsed/
+	// ConsumeMFAStepUpGrant's own error entirely to achieve the identical
+	// response -- which also meant a correct guess whose consumption write
+	// happened to fail went completely unaudited as anything OTHER than a
+	// confirmed wrong answer, the exact ambiguity storageErr exists to avoid in
+	// the other direction.
+	var storageErr, postVerdictErr error
 	if user.MFAEnabled {
 		if secret, err := c.loadTOTPSecret(ctx, user.ID); err != nil {
 			storageErr = err
@@ -702,10 +793,9 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 			// Use the same anti-replay path as VerifyMFACredentials: identify the
 			// matched time-step and atomically mark it used so a stolen code cannot
 			// be replayed within the ±1 step (~90 s) window.
-			// A MarkTOTPStepUsed failure here happens AFTER the code matched: it
-			// must stay indistinguishable from a wrong code (no storageErr), or the
-			// distinct response confirms a correct guess (#2740 option C).
-			if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, user.ID, step); ferr == nil && fresh {
+			if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, user.ID, step); ferr != nil {
+				postVerdictErr = ferr
+			} else if fresh {
 				ok = true
 			}
 		}
@@ -713,9 +803,9 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 	if !ok && codeOrPassword != "" && bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(codeOrPassword)) == nil {
 		if !secondFactorEnrolled {
 			ok = true
-		} else if consumed, gerr := c.storage.ConsumeMFAStepUpGrant(ctx, user.ID, models.MFAStepUpPurposeReauth, c.authEffectiveNow()); gerr == nil && consumed {
-			// (A ConsumeMFAStepUpGrant error is only reachable once the password
-			// was CORRECT, so it must not set storageErr: same #2740 option C rule.)
+		} else if consumed, gerr := c.storage.ConsumeMFAStepUpGrant(ctx, user.ID, models.MFAStepUpPurposeReauth, c.authEffectiveNow()); gerr != nil {
+			postVerdictErr = gerr
+		} else if consumed {
 			// The password is correct AND the caller independently proved they
 			// still hold the enrolled second factor recently, FOR THIS PURPOSE —
 			// password alone would not be enough on its own, but password + a
@@ -743,6 +833,17 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 			// never actually got a verdict on whether its code/password was right.
 			c.auditMFAError(ctx, user.ID, phase, storageErr)
 			return fmt.Errorf("%w: %s: %w", ErrMFAVerificationStorageFailure, i18n.T("ErrorRetrievalFailed", nil), storageErr)
+		}
+		if postVerdictErr != nil {
+			// The code/password WAS confirmed correct; only a subsequent
+			// consumption write failed. Audited distinctly for an operator, but
+			// still counts toward the lockout and returns the SAME generic error
+			// as a genuine wrong code/password (#2888, #2740 option C extended to
+			// lockout bookkeeping): a correct guess must never be cheaper,
+			// lockout-wise, than a wrong one.
+			c.auditMFAError(ctx, user.ID, phase, postVerdictErr)
+			c.recordFailedLogin(ctx, user)
+			return fmt.Errorf("invalid code or password")
 		}
 		c.auditMFAFailed(ctx, user.ID, phase)
 		c.recordFailedLogin(ctx, user) // count the failed re-auth attempt toward the lockout

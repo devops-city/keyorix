@@ -100,6 +100,16 @@ type oracleAByDesignError struct {
 	// anything else is a different, unexplained divergence and still fails.
 	// Required and non-empty.
 	tables []string
+	// outcomeLogs names the outcome-log tables (AuditEvent, ...) the same
+	// reported failure deliberately writes ALONGSIDE tables -- e.g. the
+	// auth.login_error audit event a post-verdict login fault records (#2894).
+	// Kept apart from tables so tables stays business-state only (the
+	// outcome-log check in TestOracleAByDesign_RowsAreFullyAttributed still
+	// applies to it unchanged), and so every outcome log a row accepts is named
+	// per row rather than stripped from every diff. onlyOutcomeLogTables
+	// accepts an outcome-log-ONLY diff on its own; it never accepts a MIXED one,
+	// which is the only case this field matters for. Optional.
+	outcomeLogs []string
 	// designComment names where in PRODUCTION code the intent is stated, so a
 	// reader can check the claim at its source rather than trusting this row.
 	// Required.
@@ -125,6 +135,9 @@ var oracleAByDesignErrors = []oracleAByDesignError{
 		kind:   faultstorage.KindError,
 		nth:    1,
 		tables: []string{"MFASecret"},
+		// #2894 review: the post-verdict denial is now audited mfa.error (it used
+		// to go unaudited), the same outcome log the login rows below carry.
+		outcomeLogs: []string{"AuditEvent"},
 		designComment: "internal/core/mfa_stepup.go: VerifyMFAStepUp consumes the TOTP step " +
 			"(advancing MFASecret's replay window) BEFORE minting the step-up grant, and fails " +
 			"closed if the grant write fails",
@@ -138,6 +151,84 @@ var oracleAByDesignErrors = []oracleAByDesignError{
 			"mis-labelled intended behaviour as a filed-but-unfixed bug and so guaranteed " +
 			"perpetual re-filing at each expiry.",
 	},
+	// #2880 / #2894: post-verdict faults on /auth/mfa/verify. Both are reached
+	// only AFTER the TOTP code matched, so the request is charged exactly like
+	// a wrong code -- lockout counter, per-IP LoginAttempt slot and a 401
+	// byte-identical to a wrong code -- because doing anything cheaper for a
+	// correct code is a side channel confirming correctness. Found untolerated
+	// on #2894's head by LOGIN-ACCT-1 (pass on main, where the slot used to be
+	// released). Pinned per method; never a wildcard.
+	{
+		op:          "REST POST /auth/mfa/verify",
+		method:      "MarkTOTPStepUsed",
+		kind:        faultstorage.KindError,
+		nth:         1,
+		tables:      []string{"LoginAttempt"},
+		outcomeLogs: []string{"AuditEvent"},
+		designComment: "internal/core/mfa.go VerifyMFACredentials: \"the code WAS confirmed correct here -- " +
+			"only the anti-replay consumption write (MarkTOTPStepUsed) failed. This must still count toward " +
+			"the lockout exactly like a wrong code would\" (#2888); the error wraps " +
+			"ErrMFAVerificationStorageFailure but NOT ErrMFAVerificationUnavailable, the handler's only " +
+			"release condition (server/http/handlers/mfa.go)",
+		provingTest: "server/http/handlers/TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode/MarkTOTPStepUsed " +
+			"(slot, lockout, response parity); internal/core/" +
+			"TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout (lockout, mfa.error audit)",
+		why: "The code matched; only the anti-replay write failed, so the login is refused (the step could not " +
+			"be recorded as used) and the request keeps its LoginAttempt slot like a wrong code does. Releasing " +
+			"the slot here would make a correct guess cheaper than a wrong one, observable as when the per-IP " +
+			"429s start (#2894). The AuditEvent is the mfa.error record that keeps the storage fault " +
+			"distinguishable from a wrong code for an operator. No session, grant or step is left behind.",
+	},
+	{
+		op:          "REST POST /auth/mfa/verify",
+		method:      "CreateSession",
+		kind:        faultstorage.KindError,
+		nth:         1,
+		tables:      []string{"LoginAttempt", "MFASecret"},
+		outcomeLogs: []string{"AuditEvent"},
+		designComment: "internal/core/mfa.go VerifyMFALoginPending: on a mintSession failure the consumed TOTP " +
+			"step is given back with ReleaseTOTPStepIfUnchanged (#2567; last_used_step -> step-1, see its " +
+			"interface doc), the attempt is counted (lc.Failed) and the error is ErrLoginPostVerdict, so " +
+			"\"the per-IP login-attempt slot stays CONSUMED\" and VerifyMFA audits auth.login_error",
+		provingTest: "server/http/handlers/TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode/CreateSession " +
+			"(slot, lockout, response parity, no session); server/http/handlers/" +
+			"TestVerifyMFA_MintFailureAfterCorrectCodeAuditsLoginError (audit); internal/core/" +
+			"TestVerifyMFALogin_CreateSessionFailure_ReleasesTOTPStepForRetry (MFASecret)",
+		why: "The code matched and the session write failed. No session exists, the slot stays counted exactly " +
+			"as for a wrong code (#2880/#2894), and MFASecret differs only because the step release writes " +
+			"last_used_step = step-1 rather than the row's pre-mark value -- which re-permits exactly this one " +
+			"step so the user can retry the same code, and cannot re-open any step a later request consumed " +
+			"(CAS-guarded). The AuditEvent is the auth.login_error record.",
+	},
+	// Same #2880 decision on REST POST /auth/webauthn/login/finish. On main this
+	// tuple's diff is [LoginAttempt], absorbed by #2565's wildcard
+	// knownOpenTolerance; #2894 adds the auth.login_error audit for a
+	// post-verdict fault, so the diff becomes [AuditEvent LoginAttempt] and the
+	// wildcard (tables [LoginAttempt]) no longer covers it. TOL-1 (#2949) pins
+	// the main-side shape of this same tuple without the AuditEvent: whichever of
+	// the two merges second keeps ONE row for this tuple -- this one, since it
+	// is the superset -- and TestOracleAByDesign_RowsAreLoadBearing fails on the
+	// narrower one if both survive.
+	{
+		op:          "REST POST /auth/webauthn/login/finish",
+		method:      "CreateSession",
+		kind:        faultstorage.KindError,
+		nth:         1,
+		tables:      []string{"LoginAttempt"},
+		outcomeLogs: []string{"AuditEvent"},
+		designComment: "server/http/handlers/webauthn.go FinishWebAuthnLogin releases the per-IP reservation " +
+			"ONLY on core.ErrWebAuthnLoginNotEvaluated, and audits a core.ErrLoginPostVerdict failure as " +
+			"auth.login_error (#2894); internal/core/webauthn.go ErrWebAuthnLoginNotEvaluated is reserved " +
+			"for storage errors BEFORE any verdict on the assertion, and mintSession runs after it passed",
+		provingTest: "internal/core/TestFinishWebAuthnLogin_MintFailureAfterAssertion_StillCountsTheLoginAttempt " +
+			"(slot); internal/core/TestFinishWebAuthnLogin_PostVerdictFaultCostsTheSameAsAFailedAssertion " +
+			"(ErrLoginPostVerdict, lockout parity)",
+		why: "The WebAuthn assertion was evaluated and passed before CreateSession failed, so the request is a " +
+			"genuine login attempt and keeps the IP slot it reserved -- releasing it would let an attacker " +
+			"drive unlimited post-verification failures without spending budget (#2880). No session is " +
+			"minted. The AuditEvent is the auth.login_error record that keeps the storage fault " +
+			"distinguishable from a failed assertion for an operator.",
+	},
 	// #2880 (auth owner's decision: a post-verdict storage fault keeps the
 	// per-IP login attempt counted), GetUserRoles half. Pinned, never a
 	// wildcard: only the one post-assertion read is covered, and only for the
@@ -146,12 +237,16 @@ var oracleAByDesignErrors = []oracleAByDesignError{
 	// twice in knownOpenTolerances); those halves were the bug and are gone —
 	// a diff naming MFAStepUpGrant or Session again is not covered by this row
 	// and fails oracle (a) loudly.
+	// With #2894 the failure is post-verdict (ErrLoginPostVerdict wrapping
+	// ErrLoginIdentityUnavailable): answered like a failed assertion and
+	// audited as auth.login_error, hence the AuditEvent outcome log.
 	{
-		op:     "REST POST /auth/webauthn/login/finish",
-		method: "GetUserRoles",
-		kind:   faultstorage.KindError,
-		nth:    1,
-		tables: []string{"LoginAttempt"},
+		op:          "REST POST /auth/webauthn/login/finish",
+		method:      "GetUserRoles",
+		kind:        faultstorage.KindError,
+		nth:         1,
+		tables:      []string{"LoginAttempt"},
+		outcomeLogs: []string{"AuditEvent"},
 		designComment: "internal/core/webauthn.go: ErrLoginIdentityUnavailable (\"deliberately NOT " +
 			"ErrWebAuthnLoginNotEvaluated: the assertion WAS evaluated and passed, so the per-IP " +
 			"login-attempt reservation must stay counted\"); server/http/handlers/webauthn.go " +
@@ -164,51 +259,27 @@ var oracleAByDesignErrors = []oracleAByDesignError{
 			"grant and no step-up token written (#2841), so the kept LoginAttempt row is the only state " +
 			"left, and it is the rate-limit enforcement, not a partial commit.",
 	},
-	// #2880 (auth owner's decision: a post-verdict storage fault keeps the
-	// per-IP login attempt counted), CreateSession half. Moved here by TOL-1
-	// from #2565's wildcard knownOpenTolerance, which absorbed it as if it were
-	// the pre-verdict bug #2565 was filed for. Pinned, never a wildcard. The
-	// GetUserRoles and GetUserPermissions halves are pinned alongside (#2876
-	// reduces those tuples' diffs to [LoginAttempt]).
+	// Same #2880 decision, the other half of the identity read (roles, then
+	// permissions). #2949 (TOL-1) pins this tuple with tables [LoginAttempt]
+	// only, from main's pre-#2894 shape; with #2894's auth.login_error audit the
+	// diff is [AuditEvent LoginAttempt]. Whichever merges second keeps ONE row
+	// for this tuple -- this one, the superset.
 	{
-		op:     "REST POST /auth/webauthn/login/finish",
-		method: "CreateSession",
-		kind:   faultstorage.KindError,
-		nth:    1,
-		tables: []string{"LoginAttempt"},
-		designComment: "server/http/handlers/webauthn.go FinishWebAuthnLogin releases the per-IP reservation " +
-			"ONLY on core.ErrWebAuthnLoginNotEvaluated (\"An invalid/expired challenge or session, or a failed " +
-			"assertion, stays counted\"); internal/core/webauthn.go ErrWebAuthnLoginNotEvaluated is reserved for " +
-			"storage errors BEFORE any verdict on the assertion, and mintSession runs after it passed",
-		provingTest: "internal/core/TestFinishWebAuthnLogin_MintFailureAfterAssertion_StillCountsTheLoginAttempt " +
-			"(with its calibration TestFinishWebAuthnLogin_PreVerdictFailureDoesNotCountTheLoginAttempt)",
-		why: "The WebAuthn assertion was evaluated and passed before CreateSession failed, so the request is a " +
-			"genuine login attempt and keeps the IP slot it reserved. Releasing it would let an attacker drive " +
-			"unlimited post-verification failures against an IP without spending budget (#2880). No session is " +
-			"minted, so the kept LoginAttempt row is the rate-limit enforcement, not a partial commit.",
-	},
-	// Same #2880 decision, the other half of the identity read: GetUserIdentity
-	// reads roles, then permissions, and both resolve before anything is minted
-	// (#2841). Pinned separately -- one row per method, never a wildcard.
-	// Found by the fuzzer on #2764's CI (pre-existing on main, where it still
-	// leaves [AuditEvent LoginAttempt MFAStepUpGrant]); on this branch the diff
-	// is [LoginAttempt], which #2565's wildcard used to absorb.
-	{
-		op:     "REST POST /auth/webauthn/login/finish",
-		method: "GetUserPermissions",
-		kind:   faultstorage.KindError,
-		nth:    1,
-		tables: []string{"LoginAttempt"},
-		designComment: "internal/core/webauthn.go: ErrLoginIdentityUnavailable (\"deliberately NOT " +
-			"ErrWebAuthnLoginNotEvaluated: the assertion WAS evaluated and passed, so the per-IP " +
-			"login-attempt reservation must stay counted\"); server/http/handlers/webauthn.go " +
-			"FinishWebAuthnLogin releases the reservation only on ErrWebAuthnLoginNotEvaluated",
+		op:          "REST POST /auth/webauthn/login/finish",
+		method:      "GetUserPermissions",
+		kind:        faultstorage.KindError,
+		nth:         1,
+		tables:      []string{"LoginAttempt"},
+		outcomeLogs: []string{"AuditEvent"},
+		designComment: "internal/core/webauthn.go FinishWebAuthnLoginPending: an identity-read failure after the " +
+			"assertion verified is denied via denyAfterCredentialMatched (ErrLoginPostVerdict wrapping " +
+			"ErrLoginIdentityUnavailable, never ErrWebAuthnLoginNotEvaluated); server/http/handlers/webauthn.go " +
+			"releases the reservation only on ErrWebAuthnLoginNotEvaluated and audits auth.login_error",
 		provingTest: "internal/core/TestFinishWebAuthnLogin_PermissionsReadFailureLeavesNoSessionOrGrant",
-		why: "Identical to the GetUserRoles row above: the assertion has passed when the permissions read " +
-			"fails, so the request keeps the IP slot it reserved (#2880) -- releasing it would make " +
-			"post-verification failures free -- and the login is refused before any session, step-up " +
-			"grant or step-up token is written (#2841). The kept LoginAttempt row is the rate-limit " +
-			"enforcement, not a partial commit.",
+		why: "The assertion has passed when the permissions read fails, so the request keeps the IP slot it " +
+			"reserved (#2880) -- releasing it would make post-verification failures free -- and the login is " +
+			"refused before any session, step-up grant or step-up token is written (#2841). The AuditEvent is " +
+			"the auth.login_error record (#2894).",
 	},
 }
 
@@ -228,7 +299,7 @@ func oracleAErrorByDesign(op, method string, kind faultstorage.FaultKind, nth in
 		if e.nth > 0 && e.nth != nth {
 			continue
 		}
-		if diffSubsetOf(diff, e.tables) {
+		if diffSubsetOf(diff, append(append([]string{}, e.tables...), e.outcomeLogs...)) {
 			return e
 		}
 	}
@@ -269,6 +340,12 @@ func TestOracleAByDesign_RowsAreFullyAttributed(t *testing.T) {
 				t.Errorf("oracleAByDesignError %q: table %q is an outcome log, already accepted "+
 					"unconditionally by onlyOutcomeLogTables — a row for it would be dead on arrival "+
 					"(exactly how #2549's four bulk-op tolerances went stale)", label, tb)
+			}
+		}
+		for _, tb := range e.outcomeLogs {
+			if !isOutcomeLogTable(tb) {
+				t.Errorf("oracleAByDesignError %q: outcomeLogs lists %q, which is not an outcome log — "+
+					"business state belongs in tables, where the outcome-log check above applies", label, tb)
 			}
 		}
 		if e.designComment == "" {

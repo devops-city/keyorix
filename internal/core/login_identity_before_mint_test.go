@@ -88,13 +88,19 @@ func TestFinishWebAuthnLogin_IdentityReadFailureLeavesNoSessionOrGrant(t *testin
 	session, user, identity, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrLoginIdentityUnavailable,
-		"the handler distinguishes this from an assertion failure by this sentinel (500, not 401), "+
-			"and from ErrWebAuthnLoginNotEvaluated by its absence (the attempt reservation stays counted "+
-			"because the assertion WAS evaluated and passed)")
+		"the sentinel stays in the chain; it is distinguished from ErrWebAuthnLoginNotEvaluated by "+
+			"that sentinel's absence (the attempt reservation stays counted because the assertion WAS "+
+			"evaluated and passed)")
 	require.NotErrorIs(t, err, ErrWebAuthnLoginNotEvaluated,
 		"the assertion was evaluated and passed, so this must NOT release the per-IP login-attempt slot")
 	require.Nil(t, session)
-	require.Nil(t, user)
+	// #2894: an identity-read failure is post-verdict -- it is answered exactly
+	// like a failed credential (not with a 500, #2888), counted toward the
+	// lockout, and returns the resolved user so the transport can audit
+	// auth.login_error. The property this test is about is unchanged and
+	// asserted below: nothing is written.
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
+	require.NotNil(t, user)
 	assert.Equal(t, UserIdentity{}, identity)
 
 	sessions, grants, tokens := countLoginArtifacts(t, db)
@@ -118,10 +124,10 @@ func (s *failGetUserPermissionsStorage) GetUserPermissions(ctx context.Context, 
 }
 
 // TestFinishWebAuthnLogin_PermissionsReadFailureLeavesNoSessionOrGrant is the
-// GetUserPermissions sibling of the test above: same sentinel, same
+// GetUserPermissions sibling of the test above: same sentinels, same
 // attempt-stays-counted rule, same nothing-written effect. It is the proving
 // test for the GetUserPermissions row in oracleAByDesignErrors (QUEUE-FIX-1;
-// the fuzzer found that tuple on #2764's CI, pre-existing on main).
+// the fuzzer found that tuple on #2764's CI, pre-existing on main before #2841).
 func TestFinishWebAuthnLogin_PermissionsReadFailureLeavesNoSessionOrGrant(t *testing.T) {
 	t.Parallel()
 	c, db := newWebAuthnSpecTestCore(t)
@@ -140,10 +146,11 @@ func TestFinishWebAuthnLogin_PermissionsReadFailureLeavesNoSessionOrGrant(t *tes
 	session, user, identity, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrLoginIdentityUnavailable)
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
 	require.NotErrorIs(t, err, ErrWebAuthnLoginNotEvaluated,
 		"the assertion was evaluated and passed, so this must NOT release the per-IP login-attempt slot")
 	require.Nil(t, session)
-	require.Nil(t, user)
+	require.NotNil(t, user, "post-verdict: the user comes back so the transport can audit auth.login_error (#2894)")
 	assert.Equal(t, UserIdentity{}, identity)
 
 	sessions, grants, tokens := countLoginArtifacts(t, db)
@@ -173,7 +180,13 @@ func TestFinishWebAuthnPasswordlessLogin_IdentityReadFailureLeavesNoSessionOrGra
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrLoginIdentityUnavailable)
 	require.Nil(t, session)
-	require.Nil(t, user)
+	// #2894: an identity-read failure is post-verdict -- it is answered exactly
+	// like a failed credential (not with a 500, #2888), counted toward the
+	// lockout, and returns the resolved user so the transport can audit
+	// auth.login_error. The property this test is about is unchanged and
+	// asserted below: nothing is written.
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
+	require.NotNil(t, user)
 	assert.Equal(t, UserIdentity{}, identity)
 
 	sessions, grants, tokens := countLoginArtifacts(t, db)
@@ -228,7 +241,13 @@ func TestVerifyMFALogin_IdentityReadFailureLeavesNoSessionOrStepUpToken(t *testi
 	require.NotErrorIs(t, err, ErrMFAVerificationStorageFailure,
 		"the code was verified and passed, so this must NOT release the per-IP login-attempt slot")
 	require.Nil(t, session)
-	require.Nil(t, user)
+	// #2894: an identity-read failure is post-verdict -- it is answered exactly
+	// like a failed credential (not with a 500, #2888), counted toward the
+	// lockout, and returns the resolved user so the transport can audit
+	// auth.login_error. The property this test is about is unchanged and
+	// asserted below: nothing is written.
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
+	require.NotNil(t, user)
 	assert.Equal(t, UserIdentity{}, identity)
 
 	c.storage = base

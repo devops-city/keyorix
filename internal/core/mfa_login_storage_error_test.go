@@ -96,3 +96,76 @@ func TestVerifyMFALogin_GetMFASecretErrorDoesNotFeedLockout(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, sess)
 }
+
+// markTOTPStepErrStub wraps a real storage.Storage and overrides exactly
+// MarkTOTPStepUsed to inject a fixed error -- the ANTI-REPLAY consumption
+// write, reached only AFTER the TOTP code has already been found correct.
+type markTOTPStepErrStub struct {
+	corestorage.Storage
+	err error
+}
+
+func (s *markTOTPStepErrStub) MarkTOTPStepUsed(ctx context.Context, userID uint, step int64) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+	return s.Storage.MarkTOTPStepUsed(ctx, userID, step)
+}
+
+// TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout
+// is #2888 round 2's proving test, the mirror image of the test above: N
+// MarkTOTPStepUsed failures with the CORRECT code -- which, unlike
+// GetMFASecret's pre-verdict failure, happen AFTER the code was confirmed
+// right -- MUST still count toward the lockout exactly like a genuine wrong
+// code would. The earlier version of this code path skipped
+// recordFailedLogin here (the same branch GetMFASecret's genuinely-
+// unevaluated case correctly skips it in), which meant a correct guess whose
+// consumption write failed was strictly CHEAPER, lockout-wise, than a wrong
+// one -- and, at the HTTP layer, the login-attempt rate-limit slot for this
+// exact case used to be released too (same bug, same root cause), a side
+// channel confirming correctness by watching when 429s start.
+func TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout(t *testing.T) {
+	t.Parallel()
+	c, db, fixed := newMFATestCore(t)
+	c.loginLockout = LoginLockoutPolicy{Enabled: true, MaxAttempts: 3, Window: time.Hour, BaseCooldown: 15 * time.Minute, MaxCooldown: time.Hour}
+	ctx := context.Background()
+
+	_, secret, err := c.BeginMFAEnrollment(ctx, 1)
+	require.NoError(t, err)
+	actCode, err := totp.GenerateCode(secret, fixed.Add(-30*time.Second))
+	require.NoError(t, err)
+	_, err = c.ActivateMFA(ctx, 1, actCode, mfaTestPassword, "")
+	require.NoError(t, err)
+
+	good, err := totp.GenerateCode(secret, fixed)
+	require.NoError(t, err)
+
+	realStorage := c.storage
+	faultErr := errors.New("fault-fuzz injected failure")
+	c.storage = &markTOTPStepErrStub{Storage: realStorage, err: faultErr}
+
+	// MaxAttempts (3) attempts with the CORRECT code -- it matches every time
+	// (never actually consumed, since MarkTOTPStepUsed never succeeds), but
+	// the write failure must still be treated as costing the account exactly
+	// what a confirmed wrong code would.
+	for i := 0; i < 3; i++ {
+		ch, cerr := c.CreateMFAChallenge(ctx, 1)
+		require.NoError(t, cerr)
+		_, _, _, verr := c.VerifyMFALogin(ctx, ch, good, "ua", "9.9.9.9")
+		require.Error(t, verr, "attempt %d: a post-match storage error must still refuse the login", i)
+	}
+
+	var afterFaults models.User
+	require.NoError(t, db.First(&afterFaults, 1).Error)
+	assert.NotNil(t, afterFaults.LoginLockedUntil,
+		"account MUST be locked after MaxAttempts correct-but-write-failed attempts -- a correct guess must never be cheaper, lockout-wise, than a wrong one")
+
+	// Still audited distinctly (mfa.error, never mfa.failed) despite counting
+	// toward the lockout -- an operator must be able to tell this apart from a
+	// genuine wrong-code streak even though the account pays the same price.
+	var failedCount, errorCount int64
+	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ? AND user_id = ?", "mfa.failed", uint(1)).Count(&failedCount).Error)
+	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ? AND user_id = ?", "mfa.error", uint(1)).Count(&errorCount).Error)
+	assert.Zero(t, failedCount, "a post-match storage-error attempt must be audited as mfa.error, not mfa.failed")
+	assert.EqualValues(t, 3, errorCount, "each post-match storage-error attempt must still be audited distinctly")
+}

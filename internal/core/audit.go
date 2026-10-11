@@ -705,6 +705,21 @@ func (c *KeyorixCore) LogAuthFailure(ctx context.Context, username, ip string) {
 		fmt.Sprintf("Failed login attempt for username: %s", username))
 }
 
+// LogAuthError writes an auth.login_error audit event (Success=false) —
+// distinct from auth.login_failed (#2888, mirroring mfa.go's
+// auditMFAFailed/auditMFAError split): this request's PASSWORD was already
+// confirmed correct, and a storage error afterward (resolving the identity
+// payload, creating an MFA challenge) is what actually denied the login, not
+// a wrong credential. The HTTP response to the client must stay byte-identical
+// to a genuine login_failed either way (#2740 option C: a storage error after
+// a credential matched must never confirm the match), so this distinction
+// exists ONLY for an operator reading the audit trail -- it changes nothing
+// the caller can observe.
+func (c *KeyorixCore) LogAuthError(ctx context.Context, username, ip string, err error) {
+	c.writeAuditEventFailed(ctx, "auth.login_error", nil, nil, ip,
+		fmt.Sprintf("Login for username %s denied by a storage error AFTER the password matched: %v", username, err))
+}
+
 // LogAuthLogout writes an auth.logout audit event.
 func (c *KeyorixCore) LogAuthLogout(ctx context.Context, userID uint, username, ip, ua string) {
 	uid := userID

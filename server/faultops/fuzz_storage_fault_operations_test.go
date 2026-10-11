@@ -1152,23 +1152,16 @@ var knownOpenTolerances = []knownOpenTolerance{
 	// stood here is removed: #2897 makes that purge failure observable and it is
 	// now an op-scoped acceptable-by-design entry above, so the tolerance no
 	// longer tolerates anything.)
-	// Pre-existing, unrelated to this PR's own MFA-reauth changes (#2392 only
-	// newly wires /auth/mfa/verify into the fuzzer, it doesn't touch this code
-	// path) -- found by a live 2-minute FuzzStorageFaultOperations run during
-	// this PR's rebase. VerifyMFACredentials (internal/core/mfa.go) calls
-	// MarkTOTPStepUsed (consuming the TOTP step) BEFORE mintSession's own,
-	// independent CreateSession call; a CreateSession failure reports the
-	// whole verify as an error with the step already burned, so the caller
-	// cannot retry with the same correct code. Filed as #2567 (cross-links
-	// #2548 -- same "distinguish a storage hiccup from a confirmed negative
-	// result before a real-consequence side effect runs" shape, different
-	// specific mechanism).
-	{
-		op: "REST POST /auth/mfa/verify", method: "CreateSession", kind: faultstorage.KindError,
-		nth: 1, oracle: "a", issue: "#2567", expires: "2026-10-17",
-		tables:     []string{"MFASecret", "LoginAttempt"},
-		findingDoc: "#2567",
-	},
+	// (#2567's entry -- REST POST /auth/mfa/verify, CreateSession#1/error,
+	// [MFASecret LoginAttempt] -- is gone. The "step burned, cannot retry with
+	// the same code" half is fixed: VerifyMFALoginPending gives the step back
+	// with ReleaseTOTPStepIfUnchanged
+	// (TestVerifyMFALogin_CreateSessionFailure_ReleasesTOTPStepForRetry). What
+	// remains is the by-design post-verdict shape #2894 makes deliberate (slot
+	// counted, auth.login_error audited, last_used_step = step-1), now pinned in
+	// oracleAByDesignErrors with its design citation and proving tests. This row
+	// stopped matching once #2894 added the AuditEvent, and
+	// TestKnownOpenTolerances_AreLoadBearing reported it dead.)
 	// Coordinator priority (12:34Z): random pre-existing fuzz findings were
 	// blocking unrelated PRs (e.g. #2556). Added here, into this PR's own
 	// branch, so the hotspot file stays serialized through one PR rather than

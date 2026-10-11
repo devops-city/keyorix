@@ -185,41 +185,47 @@ func (h *AuthHandler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 	// the session/step-up-token writes, so there is exactly ONE call to
 	// VerifyMFALogin on this path — re-reading the identity in the handler would
 	// reopen the very window this fix closed.
-	session, user, identity, err := h.verifyMFALoginReleasingOnPanic(r.Context(), body.Challenge, body.Code, r.Header.Get("User-Agent"), ip, reserved, attemptID)
+	session, user, identity, lc, err := h.verifyMFALoginReleasingOnPanic(r.Context(), body.Challenge, body.Code, r.Header.Get("User-Agent"), ip, reserved, attemptID)
 	if err != nil {
-		if errors.Is(err, core.ErrMFAVerificationStorageFailure) {
+		// FIX-1 (#2548) + #2740 review (option C), #2888 round 2: 503 "retry" and
+		// the reservation release are BOTH ONLY for ErrMFAVerificationUnavailable
+		// -- the genuinely pre-verdict case (the code was never evaluated at
+		// all). ErrMFAVerificationStorageFailure WITHOUT that wrap means the
+		// code WAS found correct and only a later write (the anti-replay mark)
+		// failed; releasing the slot for THAT case was the actual bug: a wrong
+		// code always keeps its slot consumed, so a correct-code-but-write-
+		// failed attempt releasing its slot was a side channel confirming
+		// correctness, observable by watching when 429s start -- regardless of
+		// this response's own status/body already matching the wrong-code case.
+		if errors.Is(err, core.ErrMFAVerificationUnavailable) {
 			if reserved {
 				h.coreService.ReleaseLoginAttempt(r.Context(), attemptID)
 			}
-			// FIX-1 (#2548) + #2740 review (option C): 503 "retry" ONLY when the
-			// failure happened before any code was evaluated. A failure after the
-			// code was found correct stays a plain 401, identical to a wrong code,
-			// so the response can never confirm a correct guess. err itself is
-			// never passed through (it wraps the raw storage error).
-			if errors.Is(err, core.ErrMFAVerificationUnavailable) {
-				sendError(w, "ServiceUnavailable", errMFAVerificationUnavailable, http.StatusServiceUnavailable, nil)
-				return
-			}
-		}
-		// #2841: the identity read now happens inside core, before the session
-		// and the user-scoped step-up token are written. Keep its caller-visible
-		// shape identical to the 500 completeLogin used to produce for the same
-		// failure — a transient authz-resolution error is not a wrong code and
-		// must not be reported as one. Unlike ErrMFAVerificationStorageFailure,
-		// the code WAS verified and passed, so the attempt reservation stays
-		// counted exactly as before.
-		if errors.Is(err, core.ErrLoginIdentityUnavailable) {
-			log.Printf("VerifyMFALogin: %v", err)
-			sendError(w, "Internal", errLoginIncomplete, http.StatusInternalServerError, nil)
+			sendError(w, "ServiceUnavailable", errMFAVerificationUnavailable, http.StatusServiceUnavailable, nil)
 			return
 		}
+		// #2894: a storage fault AFTER the code matched (the password-expiry gate,
+		// or the session mint) reaches here with the SAME 401 body a wrong code
+		// gets, and core has already counted it toward the lockout exactly as a
+		// wrong code would be -- but it must not be invisible in the audit trail.
+		// Previously this branch wrote NO audit event at all for a mintSession
+		// failure; now it writes auth.login_error, the operator-only half of the
+		// #2888 split. user is non-nil for every post-verdict failure.
+		if errors.Is(err, core.ErrLoginPostVerdict) && user != nil {
+			username := user.Username
+			goSafe(func() { h.coreService.LogAuthError(context.Background(), username, ip, err) }) // #nosec G118
+		}
+		// #2841 + #2894: the identity read now happens inside core, before the
+		// session and the user-scoped step-up token are written, and a failure
+		// there is post-verdict (ErrLoginPostVerdict wrapping
+		// ErrLoginIdentityUnavailable): counted like a wrong code, audited above,
+		// and answered with the SAME 401 a wrong code gets — not the 500
+		// completeLogin used to send, which would confirm the code was right
+		// (#2888). The attempt reservation stays counted (#2880).
 		sendError(w, "Unauthorized", "Invalid or expired code", http.StatusUnauthorized, nil)
 		return
 	}
-	resp, ok := h.completeLoginWithIdentity(w, session, user, identity)
-	if !ok {
-		return
-	}
+	resp := h.completeLoginWithIdentity(w, r, session, user, identity, lc)
 	goSafe(func() {
 		h.coreService.LogAuthLogin(context.Background(), user.ID, user.Username, ip, r.Header.Get("User-Agent"))
 	}) // #nosec G118
@@ -232,13 +238,13 @@ func (h *AuthHandler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 // returning — see VerifyMFA's call-site comment, and FinishWebAuthnLogin's identical
 // sibling (webauthn.go), for why this exists.
 //
-// #2841: it forwards all FOUR of VerifyMFALogin's results, including the response
-// identity core resolves before its session/step-up-token writes. The wrapper is
-// deliberately transparent: it adds the release-on-panic side effect and changes
-// nothing else. The recover() re-panics with the ORIGINAL value, so a panic is
-// never converted into a (nil, nil, zero, nil) "success" and never swallowed —
-// the slot is released and the panic continues to the recovery middleware.
-func (h *AuthHandler) verifyMFALoginReleasingOnPanic(ctx context.Context, challenge, code, userAgent, ip string, reserved bool, attemptID uint) (session *models.Session, user *models.User, identity core.UserIdentity, err error) {
+// #2841: it forwards all of VerifyMFALoginPending's results, including the
+// response identity core resolves before its session/step-up-token writes. The
+// wrapper is deliberately transparent: it adds the release-on-panic side effect
+// and changes nothing else. The recover() re-panics with the ORIGINAL value, so a
+// panic is never converted into a "success" and never swallowed — the slot is
+// released and the panic continues to the recovery middleware.
+func (h *AuthHandler) verifyMFALoginReleasingOnPanic(ctx context.Context, challenge, code, userAgent, ip string, reserved bool, attemptID uint) (session *models.Session, user *models.User, identity core.UserIdentity, lc *core.LoginCompletion, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			if reserved {
@@ -247,7 +253,10 @@ func (h *AuthHandler) verifyMFALoginReleasingOnPanic(ctx context.Context, challe
 			panic(rec)
 		}
 	}()
-	return h.coreService.VerifyMFALogin(ctx, challenge, code, userAgent, ip)
+	// Pending form: VerifyMFA's own completeLoginWithIdentity call commits the
+	// accounting (#2894). A panic here leaves the counter exactly as the code check found
+	// it, which is the conservative end of the two.
+	return h.coreService.VerifyMFALoginPending(ctx, challenge, code, userAgent, ip)
 }
 
 // errMFAVerificationUnavailable is returned (with http.StatusServiceUnavailable)

@@ -125,40 +125,24 @@ func TestMFAStepUpHandler_PostMatchStorageError_IndistinguishableFromWrongCode(t
 }
 
 // Review of #2947 (MERGE-MASTER): VerifyMFAStepUp returned raw storage errors from
-// the steps AFTER the code matched (the login-lockout re-check's LockUserForUpdate /
-// UpdateLoginLockoutState, and CreateMFAStepUpGrant). Those reached the handler's
-// generic branch as a 401 carrying err.Error(): distinguishable from a wrong code,
-// and now printed by the CLI. Every post-match storage fault must answer exactly
+// the steps AFTER the code matched (the login-lockout re-check's LockUserForUpdate,
+// and CreateMFAStepUpGrant). Those reached the handler's generic branch as a 401
+// carrying err.Error(): distinguishable from a wrong code, and now printed by the
+// CLI. Every post-match storage fault that DENIES the step-up must answer exactly
 // like a wrong code.
+//
+// UpdateLoginLockoutState is not in this list since #2894: the failure clear no
+// longer runs before the grant (that order made a correct code cheaper than a
+// wrong one when the grant then failed). It runs only after the grant was
+// written, so its fault cannot deny anything; see
+// TestMFAStepUpHandler_ClearFaultAfterGrant_GrantsAndKeepsTheCounter.
 func TestMFAStepUpHandler_EveryPostMatchStorageFault_IndistinguishableFromWrongCode(t *testing.T) {
-	for _, method := range []string{"MarkTOTPStepUsed", "LockUserForUpdate", "UpdateLoginLockoutState", "CreateMFAStepUpGrant"} {
+	for _, method := range []string{"MarkTOTPStepUsed", "LockUserForUpdate", "CreateMFAStepUpGrant"} {
 		t.Run(method, func(t *testing.T) {
-			require.NoError(t, i18n.Initialize(&config.Config{Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"}}))
-			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-			require.NoError(t, err)
-			require.NoError(t, db.AutoMigrate(
-				&models.User{}, &models.MFASecret{}, &models.MFARecoveryCode{},
-				&models.MFAChallenge{}, &models.Session{}, &models.AuditEvent{},
-				&models.MFAStepupToken{}, &models.MFAStepUpGrant{},
-			))
-			hash, err := bcrypt.GenerateFromPassword([]byte(stepUpTestPassword), bcrypt.MinCost)
-			require.NoError(t, err)
-			require.NoError(t, db.Create(&models.User{ID: 1, Username: "alice", Email: "a@b.com",
-				PasswordHash: string(hash), AccountState: "active"}).Error)
-			enc := encryption.NewService(&config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}, t.TempDir())
-			require.NoError(t, enc.Initialize("test-passphrase"))
-			fs := faultstorage.NewFaultyStorage(store.NewLocalStorage(db), nil)
-			coreService := core.NewKeyorixCore(fs)
-			coreService.SetAuthEncryptor(enc)
-			// Lockout on, so the re-check actually runs LockUserForUpdate.
-			coreService.SetLoginLockoutPolicy(core.LoginLockoutPolicy{
-				Enabled: true, MaxAttempts: 10, Window: 15 * time.Minute, BaseCooldown: time.Minute, MaxCooldown: time.Hour,
-			})
-			h := NewAuthHandler(coreService, false)
-			secret, _ := activateMFAForStepUpTest(t, coreService)
+			h, fs, _, secret := newStepUpFaultFixture(t)
 
 			// The reference wrong code also leaves one recorded failed attempt, so the
-			// later success has state to clear (UpdateLoginLockoutState is reached).
+			// later success has state to clear.
 			wrong := httptest.NewRecorder()
 			h.MFAStepUp(wrong, postJSON("/api/v1/auth/mfa/stepup", map[string]string{"code": "000000"}, 1))
 			require.Equal(t, http.StatusUnauthorized, wrong.Code, wrong.Body.String())
@@ -174,4 +158,61 @@ func TestMFAStepUpHandler_EveryPostMatchStorageFault_IndistinguishableFromWrongC
 			assert.Equal(t, wrong.Body.String(), post.Body.String(), "a post-match %s failure must not be distinguishable from a wrong code by body (and must not echo the storage error)", method)
 		})
 	}
+}
+
+// #2894 x #2947: the failure clear (UpdateLoginLockoutState) runs only after the
+// step-up grant is written. A fault there therefore cannot be an oracle: the step-up
+// was delivered, which a correct code earns anyway. The fault must not be silently
+// "fixed" by clearing anyway either: the counter stays where the wrong code left it
+// (the strict side), and the grant really exists.
+func TestMFAStepUpHandler_ClearFaultAfterGrant_GrantsAndKeepsTheCounter(t *testing.T) {
+	h, fs, db, secret := newStepUpFaultFixture(t)
+
+	wrong := httptest.NewRecorder()
+	h.MFAStepUp(wrong, postJSON("/api/v1/auth/mfa/stepup", map[string]string{"code": "000000"}, 1))
+	require.Equal(t, http.StatusUnauthorized, wrong.Code, wrong.Body.String())
+
+	code, err := totp.GenerateCode(secret, time.Now())
+	require.NoError(t, err)
+	fs.Arm(&faultstorage.FaultSpec{Method: "UpdateLoginLockoutState", NthCall: 1, Kind: faultstorage.KindError, Err: assert.AnError})
+	post := httptest.NewRecorder()
+	h.MFAStepUp(post, postJSON("/api/v1/auth/mfa/stepup", map[string]string{"code": code}, 1))
+	require.True(t, fs.Fired(), "the armed UpdateLoginLockoutState fault must have fired")
+
+	assert.Equal(t, http.StatusOK, post.Code, post.Body.String())
+	assert.NotContains(t, post.Body.String(), assert.AnError.Error(), "the clear's storage error must not reach the caller")
+	var grants int64
+	require.NoError(t, db.Model(&models.MFAStepUpGrant{}).Where("user_id = ?", 1).Count(&grants).Error)
+	assert.Equal(t, int64(1), grants, "a 200 must mean the grant was written BEFORE the clear was attempted")
+	var u models.User
+	require.NoError(t, db.First(&u, 1).Error)
+	assert.Equal(t, 1, u.FailedLoginAttempts, "a failed clear must leave the wrong code's count in place")
+}
+
+func newStepUpFaultFixture(t *testing.T) (*AuthHandler, *faultstorage.FaultyStorage, *gorm.DB, string) {
+	t.Helper()
+	require.NoError(t, i18n.Initialize(&config.Config{Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"}}))
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.User{}, &models.MFASecret{}, &models.MFARecoveryCode{},
+		&models.MFAChallenge{}, &models.Session{}, &models.AuditEvent{},
+		&models.MFAStepupToken{}, &models.MFAStepUpGrant{},
+	))
+	hash, err := bcrypt.GenerateFromPassword([]byte(stepUpTestPassword), bcrypt.MinCost)
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&models.User{ID: 1, Username: "alice", Email: "a@b.com",
+		PasswordHash: string(hash), AccountState: "active"}).Error)
+	enc := encryption.NewService(&config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}, t.TempDir())
+	require.NoError(t, enc.Initialize("test-passphrase"))
+	fs := faultstorage.NewFaultyStorage(store.NewLocalStorage(db), nil)
+	coreService := core.NewKeyorixCore(fs)
+	coreService.SetAuthEncryptor(enc)
+	// Lockout on, so the re-check actually runs LockUserForUpdate.
+	coreService.SetLoginLockoutPolicy(core.LoginLockoutPolicy{
+		Enabled: true, MaxAttempts: 10, Window: 15 * time.Minute, BaseCooldown: time.Minute, MaxCooldown: time.Hour,
+	})
+	h := NewAuthHandler(coreService, false)
+	secret, _ := activateMFAForStepUpTest(t, coreService)
+	return h, fs, db, secret
 }
