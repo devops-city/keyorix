@@ -22,9 +22,14 @@ Format: `INV-GRPCSVC-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue
   `TestMapRoleError_ValidationTextWithoutSentinel_NotEchoed`).
 - **INV-GRPCSVC-02** ADR-096's "403 for both" extends to gRPC: `authorizeSecretScoped`/
   `loadConfigScoped`/`loadLeaseScoped` (via the shared `authorizeScopedTarget` in
-  `conversions.go`) return the identical `PermissionDenied` code AND message for a
+  `conversions.go`; since #2941 `authorizeSecretScoped` decides a FOUND secret with the
+  share-aware `core.AuthorizeSecretPrincipalForSecret` and denies with the same
+  `"insufficient permissions"` text, see INV-CORE-share-elevates-member-on-one-secret) return the identical `PermissionDenied` code AND message for a
   real-but-forbidden resource ID and a nonexistent resource ID — an unprivileged caller cannot
-  distinguish "exists, no access" from "doesn't exist." Guard: `secret_403_convention_test.go`
+  distinguish "exists, no access" from "doesn't exist." One deliberate exception (#3001
+  follow-up): a caller who holds an active share covering secrets.write on the secret, refused
+  because the RPC's `core.SecretAction` is not on the write-share allowlist, gets
+  `core.ShareActionNotElevatedMessage` instead; that caller already knows the secret exists. Guard: `secret_403_convention_test.go`
   (`TestGetSecret_403ForBoth_UnprivilegedCallerCannotDistinguish`,
   `TestGetSecret_403ForBoth_GloballyPrivilegedCallerGetsRealNotFound`) — the gRPC analogue of
   `server/http/dynamic_secrets_403_convention_test.go`.

@@ -93,6 +93,9 @@ func groupUsersRolesRBAC(ctx *smokeCtx) {
 	c.callExpect("POST", "POST /api/v1/projects/{id}/members", p+"/members",
 		map[string]interface{}{"user_id": ctx.userID, "role": "project_viewer"}, 200, 201)
 	c.callExpect("GET", "GET /api/v1/projects/{id}/members", p+"/members", nil, 200)
+	// Share-dialog recipient search (SHARE-2): the bootstrap admin holds global
+	// users.read, so it may search any project.
+	c.callExpect("GET", "GET /api/v1/projects/{id}/share-recipients", p+"/share-recipients?q=a&page_size=5", nil, 200)
 	c.callExpect("PUT", "PUT /api/v1/projects/{id}/members/{userId}", fmt.Sprintf("%s/members/%d", p, ctx.userID),
 		map[string]string{"role": "project_viewer"}, 200)
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { render, screen, fireEvent, within } from '../../../test/test-utils';
 import { ProjectSecretsTab } from '../ProjectSecretsTab';
 
@@ -395,7 +396,10 @@ describe('ProjectSecretsTab — view / edit / delete / rotate / share', () => {
         expect(rotateMutate).toHaveBeenCalledWith({ id: 1, newValue: expect.any(String) });
     });
 
-    it('shares a secret and refetches on success', () => {
+    // SHARE-2: the page used to close the dialog in onSuccess, which unmounted it
+    // before its "Shared!" confirmation rendered. It now only refreshes the list; the
+    // dialog closes itself (onClose) once the confirmation has been shown.
+    it('refetches on share success and leaves the dialog open for its confirmation', () => {
         listState.secrets = secretsFixture;
         render(<ProjectSecretsTab projectId={1} />);
 
@@ -404,7 +408,33 @@ describe('ProjectSecretsTab — view / edit / delete / rotate / share', () => {
 
         fireEvent.click(screen.getByText('Share Success'));
         expect(refetchMock).toHaveBeenCalled();
+        expect(screen.getByText('Share: db-pass')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('Close Share'));
         expect(screen.queryByText('Share: db-pass')).not.toBeInTheDocument();
+    });
+
+    // SHARE-2: a refused update shows the server's reason (apiErrorMessage), not
+    // axios's "Request failed with status code 403".
+    it("shows the server's reason when an edit is refused", () => {
+        listState.secrets = secretsFixture;
+        listState.editMutation = {
+            isPending: false,
+            isError: true,
+            error: new AxiosError('Request failed with status code 403', 'ERR_BAD_REQUEST', undefined, undefined, {
+                status: 403,
+                statusText: 'Forbidden',
+                headers: {},
+                config: { headers: new AxiosHeaders() },
+                data: { error: 'Forbidden', message: 'Insufficient permissions' },
+            }),
+        };
+        render(<ProjectSecretsTab projectId={1} />);
+
+        fireEvent.click(screen.getByText('Edit db-pass'));
+        expect(screen.getByText('Failed to update secret')).toBeInTheDocument();
+        expect(screen.getByText('Insufficient permissions')).toBeInTheDocument();
+        expect(screen.queryByText('Request failed with status code 403')).not.toBeInTheDocument();
     });
 });
 

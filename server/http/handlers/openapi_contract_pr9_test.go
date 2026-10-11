@@ -185,3 +185,28 @@ func TestContractPR9_ListGroupShares(t *testing.T) {
 	contracttest.AssertOpenAPIResponse(t, req, w)
 	require.Equal(t, http.StatusOK, w.Code)
 }
+
+// TestContractShare2_SearchShareRecipients validates GET
+// /api/v1/projects/{id}/share-recipients (SHARE-2) against its response schema,
+// which forbids any field beyond id, username, display_name and email.
+func TestContractShare2_SearchShareRecipients(t *testing.T) {
+	cs, db := freshCoreS12WithAdmin(t)
+	require.NoError(t, db.Create(&models.Project{Name: "contract-share2-proj"}).Error)
+	u := &models.User{Username: "contract-share2-recip", Email: "contract-share2-recip@example.test", DisplayName: "R", AccountState: "active"}
+	require.NoError(t, db.Create(u).Error)
+	require.NoError(t, db.Create(&models.UserRole{UserID: u.ID, RoleID: 1, ProjectID: 1}).Error)
+
+	h, err := NewShareHandler(cs)
+	require.NoError(t, err)
+
+	req := withUserCtx(withChiParamsPR2(
+		httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/share-recipients?q=contract&page_size=5", nil),
+		"id", "1",
+	))
+	w := httptest.NewRecorder()
+	h.SearchShareRecipients(w, req)
+
+	contracttest.AssertOpenAPIResponse(t, req, w)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"username":"contract-share2-recip"`)
+}

@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 
+	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -26,9 +27,21 @@ func stubAuthorizedPrincipal(ms *MockStorage, actorID uint, scope Scope, perm st
 // stubUnauthorizedPrincipal wires MockStorage so AuthorizePrincipal/Authorize denies
 // actorID at scope — no roles at all, so Authorize short-circuits before ever reaching
 // the admin-name/permission lookups.
+//
+// It also wires "no shares on any secret" (stubNoShares): since #2941 a per-secret
+// decision the role denied consults the share term next, and a principal this helper
+// describes holds none.
 func stubUnauthorizedPrincipal(ms *MockStorage, actorID uint, scope Scope) {
 	ms.On("GetUserRoleIDsAt", mock.Anything, actorID, scope).Return([]uint{}, nil).Maybe()
 	ms.On("GetUserGroupRoleIDsAt", mock.Anything, actorID, scope).Return([]uint{}, nil).Maybe()
+	stubNoShares(ms, actorID)
+}
+
+// stubNoShares wires MockStorage so the share term (sharePermissionFor) finds no share
+// granting actorID anything: no share rows, no group memberships.
+func stubNoShares(ms *MockStorage, actorID uint) {
+	ms.On("ListSharesBySecret", mock.Anything, mock.Anything).Return([]*models.ShareRecord{}, nil).Maybe()
+	ms.On("GetUserGroupsAt", mock.Anything, actorID, mock.Anything).Return([]*models.Group{}, nil).Maybe()
 }
 
 // stubAuthorizedSecretPrincipal wires MockStorage so AuthorizeSecretPrincipal/

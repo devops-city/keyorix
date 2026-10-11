@@ -24,6 +24,7 @@ import {
 import { environmentsApi } from '../../services/environments';
 import { projectsApi } from '../../services/projects';
 import { RotationPolicy, RotationPolicyEvaluation, CreateRotationPolicyPayload } from '../../types';
+import { apiErrorMessage } from '../../services/client';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -637,11 +638,7 @@ export function RotationPoliciesPage() {
                         <Alert
                             type="error"
                             title="Failed to delete policy"
-                            message={
-                                deleteMutation.error instanceof Error
-                                    ? deleteMutation.error.message
-                                    : 'An unexpected error occurred'
-                            }
+                            message={apiErrorMessage(deleteMutation.error, 'An unexpected error occurred')}
                         />
                     )}
                     <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>

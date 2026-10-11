@@ -295,9 +295,13 @@ ok "Admin MFA enrolled (TOTP) and logged in with a code"
 step "Seeding org structure: 2 projects, 2 groups"
 "$CLI_BIN" project create --name backend-api --description "Backend API" >/dev/null
 "$CLI_BIN" project create --name mobile-app --description "Mobile App" >/dev/null
+# A global role makes nobody a member of any project, and only an owner who is a
+# member of the secret's project may share it (#2976). Make the admin a member of
+# backend-api so the demo's share step works on db-password.
+"$CLI_BIN" rbac assign-role --user "$ADMIN_EMAIL" --role project_admin --project backend-api >/dev/null
 "$CLI_BIN" group create --name platform-team --description "Platform team" >/dev/null
 "$CLI_BIN" group create --name mobile-team --description "Mobile team" >/dev/null
-ok "3 projects (default, backend-api, mobile-app), 2 groups"
+ok "3 projects (default, backend-api, mobile-app), 2 groups; admin is project_admin on backend-api"
 
 step "Seeding a least-privilege user"
 KEYORIX_INITIAL_PASSWORD="$ALICE_PASSWORD" "$CLI_BIN" user create --username alice --email alice@keyorix.demo >/dev/null

@@ -38,6 +38,8 @@ export const API_ENDPOINTS = {
         UPDATE: (id: number) => `/api/v1/shares/${id}`,
         DELETE: (id: number) => `/api/v1/shares/${id}`,
         SELF_REMOVE: (id: number) => `/api/v1/shares/${id}/self-remove`,
+        // Project-scoped recipient search for the Share dialog (SHARE-2).
+        RECIPIENTS: (projectId: number) => `/api/v1/projects/${projectId}/share-recipients`,
     },
     ENVIRONMENTS: {
         LIST: '/api/v1/environments',

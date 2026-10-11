@@ -48,7 +48,7 @@ func validateNameLength(kind, name string) error {
 // SetSecretDescription sets (or clears, with "") the secret's description. The actor
 // must be able to write the secret. The note is trimmed and length-bounded. Audited.
 func (c *KeyorixCore) SetSecretDescription(ctx context.Context, actorID, secretID uint, description string) (*models.SecretNode, error) {
-	if _, err := c.EnforceSecretWritePermission(ctx, secretID, actorID); err != nil {
+	if _, err := c.EnforceSecretActionPermission(ctx, secretID, actorID, SecretActionUpdateMetadata); err != nil {
 		return nil, err
 	}
 	desc := strings.TrimSpace(description)

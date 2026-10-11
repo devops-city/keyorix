@@ -80,6 +80,12 @@ export const useCreateShare = () => {
 // Lives here so components don't import directly from services/.
 export const searchRecipients = (query: string) => usersApi.search(query);
 
+// searchShareRecipients lists the active members of the secret's project the caller
+// can share with (GET /projects/{id}/share-recipients, SHARE-2). It needs secrets.write
+// in that project, not the global users.read GET /users needs.
+export const searchShareRecipients = (projectId: number, query: string, pageSize = 8) =>
+    sharingApi.searchRecipients(projectId, { q: query, pageSize });
+
 // Composite mutation: share with the identity already verified in the UI
 // (recipientId, captured when the caller picked a specific user from the
 // autocomplete dropdown), falling back to a fresh username search only when

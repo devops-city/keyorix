@@ -64,6 +64,7 @@ func TestCheckSecretPermission(t *testing.T) {
 		secretID           uint
 		userID             uint
 		requiredPermission PermissionLevel
+		action             SecretAction // set: EnforceSecretActionPermission (write) instead of CheckSecretPermission
 		setupMocks         func(*MockStorage)
 		expectedPermission PermissionLevel
 		expectedSource     string
@@ -94,10 +95,31 @@ func TestCheckSecretPermission(t *testing.T) {
 
 				ms.On("GetSecret", mock.Anything, uint(1)).Return(secret, nil)
 				ms.On("ListSharesBySecret", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
+				// #2941: a share applies only to a live member of the secret's project.
+				ms.On("IsProjectMember", mock.Anything, uint(2), uint(0)).Return(true, nil)
 			},
 			expectedPermission: PermissionRead,
 			expectedSource:     "direct_share",
 			expectError:        false,
+		},
+		{
+			name:               "Direct share to a non-member grants nothing (#2941)",
+			secretID:           1,
+			userID:             2,
+			requiredPermission: PermissionRead,
+			setupMocks: func(ms *MockStorage) {
+				secret := createTestSecret(1, 1, "test-secret")
+				share := createTestShare(1, 1, 2, "write", false)
+
+				ms.On("GetSecret", mock.Anything, uint(1)).Return(secret, nil)
+				ms.On("ListSharesBySecret", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
+				ms.On("IsProjectMember", mock.Anything, uint(2), uint(0)).Return(false, nil)
+				ms.On("GetSecretACL", mock.Anything, uint(1), uint(2)).Return(nil, errors.New("record not found"))
+				ms.On("GetSecretAncestors", mock.Anything, uint(1)).Return([]uint{}, nil)
+				ms.On("GetUserRoleIDsAt", mock.Anything, mock.Anything, mock.Anything).Return([]uint{}, nil)
+				ms.On("GetUserGroupRoleIDsAt", mock.Anything, mock.Anything, mock.Anything).Return([]uint{}, nil)
+			},
+			expectError: true,
 		},
 		{
 			name:               "Direct share with insufficient permission",
@@ -125,6 +147,7 @@ func TestCheckSecretPermission(t *testing.T) {
 			secretID:           1,
 			userID:             3,
 			requiredPermission: PermissionWrite,
+			action:             SecretActionUpdate, // #3001 follow-up: a write share elevates only allowlisted actions
 			setupMocks: func(ms *MockStorage) {
 				secret := createTestSecret(1, 1, "test-secret")
 				groupShare := createTestShare(2, 1, 10, "write", true)
@@ -133,6 +156,7 @@ func TestCheckSecretPermission(t *testing.T) {
 				ms.On("GetSecret", mock.Anything, uint(1)).Return(secret, nil)
 				ms.On("ListSharesBySecret", mock.Anything, uint(1)).Return([]*models.ShareRecord{groupShare}, nil)
 				ms.On("GetUserGroupsAt", mock.Anything, uint(3), mock.Anything).Return([]*models.Group{group}, nil)
+				ms.On("IsProjectMember", mock.Anything, uint(3), uint(0)).Return(true, nil)
 			},
 			expectedPermission: PermissionWrite,
 			expectedSource:     "group_share",
@@ -168,7 +192,13 @@ func TestCheckSecretPermission(t *testing.T) {
 			core := NewKeyorixCore(mockStorage)
 
 			ctx := context.Background()
-			permCtx, err := core.CheckSecretPermission(ctx, tt.secretID, tt.userID, tt.requiredPermission)
+			var permCtx *PermissionContext
+			var err error
+			if tt.action != "" {
+				permCtx, err = core.EnforceSecretActionPermission(ctx, tt.secretID, tt.userID, tt.action)
+			} else {
+				permCtx, err = core.CheckSecretPermission(ctx, tt.secretID, tt.userID, tt.requiredPermission)
+			}
 
 			if tt.expectError {
 				assert.Error(t, err)
@@ -349,6 +379,8 @@ func TestCanUserModifySecret(t *testing.T) {
 
 				ms.On("GetSecret", mock.Anything, uint(1)).Return(secret, nil)
 				ms.On("ListSharesBySecret", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
+				// #2941: a share applies only to a live member of the secret's project.
+				ms.On("IsProjectMember", mock.Anything, uint(1), uint(0)).Return(true, nil)
 			},
 			expected: true,
 		},
@@ -528,6 +560,8 @@ func TestGetEffectivePermission(t *testing.T) {
 
 				ms.On("GetSecret", mock.Anything, uint(1)).Return(secret, nil)
 				ms.On("ListSharesBySecret", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
+				// #2941: a share applies only to a live member of the secret's project.
+				ms.On("IsProjectMember", mock.Anything, uint(1), uint(0)).Return(true, nil)
 			},
 			expectedPermission: PermissionWrite,
 		},
@@ -741,6 +775,8 @@ func TestGetSecretWithPermissionCheck(t *testing.T) {
 		mockStorage.On("ListSharesBySecret", mock.Anything, uint(1)).Return([]*models.ShareRecord{
 			{ID: 1, SecretID: 1, RecipientID: 2, IsGroup: false, Permission: "read", CreatedAt: time.Now()},
 		}, nil)
+		// #2941: a share applies only to a live member of the secret's project.
+		mockStorage.On("IsProjectMember", mock.Anything, uint(2), uint(0)).Return(true, nil)
 
 		core := NewKeyorixCore(mockStorage)
 

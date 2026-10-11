@@ -489,6 +489,8 @@ func TestCheckSecretPermission_DirectShare(t *testing.T) {
 		IsGroup:     false,
 	}}
 	ms.On("ListSharesBySecret", mock.Anything, uint(5)).Return(shares, nil)
+	// #2941: a share applies only to a live member of the secret's project.
+	ms.On("IsProjectMember", mock.Anything, uint(1), uint(0)).Return(true, nil)
 	c := NewKeyorixCore(ms)
 	pctx, err := c.CheckSecretPermission(context.Background(), 5, 1, PermissionRead)
 	require.NoError(t, err)

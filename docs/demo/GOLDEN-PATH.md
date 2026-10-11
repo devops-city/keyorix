@@ -122,6 +122,40 @@ via the CLI, with a clear error pointing at the numeric-ID workaround when
 they use a name instead.) Or just log in as alice in the web UI and show
 `backend-api` is the only project she can see.
 
+## 3b. Share, then revoke: a share elevates one secret (~1.5 min)
+
+alice can read `db-password` (secret 2, in `backend-api`) through her
+`project_viewer` role, but she cannot change it. A `write` share lets her
+update that one secret's value and metadata and rotate it, nothing more: she
+still cannot suspend, move or re-share it (#2941, #3001). Revoking the share
+takes away exactly that and nothing else. `up.sh` makes the admin `project_admin` on `backend-api`, because
+only an owner who is a member of the secret's project can share it (#2976).
+
+```sh
+# as admin (alice is user 2)
+./bin/keyorix share create --secret-id 2 --recipient-id 2 --permission write
+./bin/keyorix share list --secret-id 2          # note the share ID
+
+# as alice (or in the web UI: open db-password, edit the value)
+./bin/keyorix secret update --id 2 --value demo-db-pass-v2   # works: the share elevates her on this secret
+./bin/keyorix secret suspend --id 2                          # 403: a share never lets her suspend it
+
+# as admin
+./bin/keyorix share revoke --share-id <id from share list>
+
+# as alice
+./bin/keyorix secret update --id 2 --value nope   # 403 again
+./bin/keyorix secret get --id 2 --show-value      # still works: her role's read was never the share's
+
+# as admin
+./bin/keyorix audit logs --limit 5   # share_created, share_access_elevated, share_revoked, each naming the share ID
+```
+
+If you skip the admin's project role, `share create` is refused with the
+reason ("you are not a member of this secret's project"); sharing with
+someone who holds no role in `backend-api` is refused the same way ("the
+recipient is not a member"). A share never applies to a non-member.
+
 ## 4. An audited secret reveal (~1.5 min)
 
 ```sh

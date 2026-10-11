@@ -89,6 +89,7 @@ func TestSpecLoadsAndValidates(t *testing.T) {
 func TestEnforcedSetMatchesADR074(t *testing.T) {
 	want := map[string]bool{
 		"authGetSetupToken":             true,
+		"searchShareRecipients":         true,
 		"authLogin":                     true,
 		"authRefresh":                   true,
 		"healthCheck":                   true,

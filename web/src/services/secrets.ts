@@ -80,6 +80,8 @@ export const secretsApi = {
             id: s.id,
             name: s.name,
             type: s.type,
+            // The Share dialog searches recipients in the secret's project (SHARE-2).
+            projectId: s.project_id ?? undefined,
             isShared: s.is_shared ?? false,
             shareCount: s.share_count ?? 0,
             lastModified: s.updated_at ?? s.created_at ?? '',

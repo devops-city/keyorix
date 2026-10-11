@@ -4,6 +4,7 @@ import { Alert } from '../../components/ui/Alert';
 import { useTransferOwnership } from './api';
 import { usersApi } from '../../services/users';
 import { Recipient } from '../../types';
+import { apiErrorMessage } from '../../services/client';
 
 interface TransferOwnershipProps {
     secretId: number;
@@ -86,7 +87,7 @@ export const TransferOwnership: React.FC<TransferOwnershipProps> = ({ secretId, 
                 <Alert
                     type="error"
                     title="Error"
-                    message={transfer.error instanceof Error ? transfer.error.message : 'Failed to transfer ownership.'}
+                    message={apiErrorMessage(transfer.error, 'Failed to transfer ownership.')}
                 />
             )}
             {done && <Alert type="success" title="Transferred" message="Ownership transferred." />}

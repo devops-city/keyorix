@@ -418,11 +418,7 @@ const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                 <Alert
                     type="error"
                     title="Rollback failed"
-                    message={
-                        rollbackMutation.error instanceof Error
-                            ? rollbackMutation.error.message
-                            : 'An unexpected error occurred'
-                    }
+                    message={apiErrorMessage(rollbackMutation.error, 'An unexpected error occurred')}
                 />
             )}
             <div className="divide-y divide-gray-200 dark:divide-gray-700">

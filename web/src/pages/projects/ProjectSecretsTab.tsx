@@ -1,4 +1,3 @@
-import { apiErrorMessage } from '../../services/client';
 import { useCan } from '../../features/auth/useCan';
 import React from 'react';
 import { useSearchParams } from 'react-router';
@@ -27,6 +26,7 @@ import { generateSecret } from '../../utils';
 import { SECRET_TYPES } from '../../features/secrets/listConstants';
 import { SecretsDriftPanel } from './SecretsDriftPanel';
 import { SecretsRotationPlanPanel } from './SecretsRotationPlanPanel';
+import { apiErrorMessage } from '../../services/client';
 
 const PAGE_SIZE_OPTIONS = [
     { value: '10', label: '10 / page' },
@@ -338,11 +338,7 @@ const CreateSecretModal: React.FC<CreateSecretModalProps> = ({
                 <Alert
                     type="error"
                     title="Failed to create secret"
-                    message={
-                        list.createMutation.error instanceof Error
-                            ? list.createMutation.error.message
-                            : 'Unexpected error'
-                    }
+                    message={apiErrorMessage(list.createMutation.error, 'Unexpected error')}
                 />
             )}
 
@@ -485,9 +481,7 @@ const EditSecretModal: React.FC<EditSecretModalProps> = ({
                 <Alert
                     type="error"
                     title="Failed to update secret"
-                    message={
-                        list.editMutation.error instanceof Error ? list.editMutation.error.message : 'Unexpected error'
-                    }
+                    message={apiErrorMessage(list.editMutation.error, 'Unexpected error')}
                 />
             )}
             <div>
@@ -587,11 +581,7 @@ const DeleteSecretModal: React.FC<DeleteSecretModalProps> = ({ list }) => (
                 <Alert
                     type="error"
                     title="Failed to delete secret"
-                    message={
-                        list.deleteMutation.error instanceof Error
-                            ? list.deleteMutation.error.message
-                            : 'Unexpected error'
-                    }
+                    message={apiErrorMessage(list.deleteMutation.error, 'Unexpected error')}
                 />
             )}
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -639,11 +629,7 @@ const RotateSecretModal: React.FC<RotateSecretModalProps> = ({ list, rotateValue
                 <Alert
                     type="error"
                     title="Failed to rotate secret"
-                    message={
-                        list.rotateMutation.error instanceof Error
-                            ? list.rotateMutation.error.message
-                            : 'Unexpected error'
-                    }
+                    message={apiErrorMessage(list.rotateMutation.error, 'Unexpected error')}
                 />
             )}
             <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -901,10 +887,10 @@ export const ProjectSecretsTab: React.FC<ProjectSecretsTabProps> = ({ projectId 
                     secret={list.modalData.secret}
                     isOpen
                     onClose={list.closeModal}
-                    onSuccess={() => {
-                        list.closeModal();
-                        list.refetch();
-                    }}
+                    // Refresh only: the dialog shows its "Shared!" confirmation and closes
+                    // itself shortly after. Closing it here unmounted it before the
+                    // confirmation could render.
+                    onSuccess={() => list.refetch()}
                 />
             )}
 

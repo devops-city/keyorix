@@ -265,30 +265,75 @@ func (c *KeyorixCore) principalHasScopedPermission(ctx context.Context, userID u
 // It first checks any explicit SecretACL grant (RBAC Phase 3); if found and it covers
 // perm, returns true immediately — the user need not hold a project role. Otherwise
 // falls back to project-scope RBAC (Authorize at the secret's own project/environment
-// scope). Fails closed: any resolution error returns (false, err).
+// scope), and finally to the share term (#2941, share_authz.go): an active share to a
+// project member satisfies secrets.read (read|write share). It names no SecretAction,
+// so a write share elevates nothing here; a per-secret write gate uses
+// AuthorizeSecretAction. Fails closed: any resolution error returns (false, err).
 func (c *KeyorixCore) AuthorizeSecret(ctx context.Context, userID, secretID uint, perm string) (bool, error) {
+	d, err := c.AuthorizeSecretAction(ctx, userID, secretID, perm, "")
+	return d.Allowed, err
+}
+
+// SecretDecision is the outcome of a per-secret authorization.
+type SecretDecision struct {
+	Allowed bool
+	// ShareNotElevated: refused, and the actor holds an active share that covers perm
+	// on this secret, but action is not one a share may elevate. Transports answer
+	// with ShareActionNotElevatedMessage instead of a bare 403. The actor already
+	// knows the secret exists (they hold a share on it), so this reveals nothing.
+	ShareNotElevated bool
+}
+
+// AuthorizeSecretAction is AuthorizeSecret for a gate that names the action it
+// guards: ACL, then role, then the share term, which may elevate secrets.write only
+// for an allowlisted action (secretActionShareElevates). A share-made grant is
+// recorded on ctx's ShareElevationRecorder and audited when the action is performed
+// (noteShareElevation); the ACL or role allowing it records nothing.
+func (c *KeyorixCore) AuthorizeSecretAction(ctx context.Context, userID, secretID uint, perm string, action SecretAction) (SecretDecision, error) {
+	deny := SecretDecision{}
 	// Resolve the secret first so we know its scope for the PAT check below.
 	secret, err := c.storage.GetSecret(ctx, secretID)
 	if err != nil {
-		return false, err
+		return deny, err
 	}
 	scope := Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
 	// PAT-SCOPE-002: a per-secret ACL grant must not let a project-scoped PAT read
 	// secrets outside the token's own project/environment — check the restriction
 	// against the secret's actual scope before honouring an ACL grant.
 	if !patRestrictionFromContext(ctx).Allows(perm, scope) {
-		return false, nil
+		return deny, nil
 	}
 	// Check per-secret ACL (additive grant).
 	hasACL, err := c.HasSecretACL(ctx, userID, secretID, perm)
 	if err != nil {
-		return false, err
+		return deny, err
 	}
 	if hasACL {
-		return true, nil
+		return SecretDecision{Allowed: true}, nil
 	}
 	// Fall back to project-scope RBAC.
-	return c.Authorize(ctx, userID, perm, scope)
+	allowed, err := c.Authorize(ctx, userID, perm, scope)
+	if err != nil || allowed {
+		return SecretDecision{Allowed: allowed}, err
+	}
+	// Share term (#2941): consulted only when ACL and role both said no, so the
+	// share_access_elevated audit row marks exactly the actions a share made possible.
+	need := shareNeedFor(perm)
+	if need == PermissionNone {
+		return deny, nil
+	}
+	grant, err := c.sharePermissionFor(ctx, userID, secretID, secret.ProjectID, need, action)
+	if err != nil {
+		return deny, err
+	}
+	if grant.Level == PermissionNone {
+		deny.ShareNotElevated = c.shareCoversButNotElevated(ctx, userID, secretID, secret.ProjectID, need, action)
+		return deny, nil
+	}
+	if !c.noteShareElevation(ctx, userID, secret, perm, action, grant) {
+		return deny, nil
+	}
+	return SecretDecision{Allowed: true}, nil
 }
 
 // AuthorizeSecretPrincipal is the actor-aware counterpart to AuthorizeSecret,
@@ -327,11 +372,20 @@ func (c *KeyorixCore) AuthorizeSecretPrincipal(ctx context.Context, actorType st
 // own fetch, so there is exactly one authorization-decision code path, not two
 // to keep in sync.
 func (c *KeyorixCore) AuthorizeSecretPrincipalForSecret(ctx context.Context, actorType string, principalID uint, secret *models.SecretNode, permission string) (bool, error) {
+	d, err := c.AuthorizeSecretPrincipalForSecretAction(ctx, actorType, principalID, secret, permission, "")
+	return d.Allowed, err
+}
+
+// AuthorizeSecretPrincipalForSecretAction is AuthorizeSecretPrincipalForSecret for a
+// gate that names its SecretAction (every per-secret secrets.write gate does). Machine
+// principals take the role-only path, as always: shares never apply to them.
+func (c *KeyorixCore) AuthorizeSecretPrincipalForSecretAction(ctx context.Context, actorType string, principalID uint, secret *models.SecretNode, permission string, action SecretAction) (SecretDecision, error) {
 	if actorType != ActorTypeMachine {
-		return c.AuthorizeSecret(ctx, principalID, secret.ID, permission)
+		return c.AuthorizeSecretAction(ctx, principalID, secret.ID, permission, action)
 	}
 	scope := Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
-	return c.AuthorizePrincipal(ctx, actorType, principalID, permission, scope)
+	allowed, err := c.AuthorizePrincipal(ctx, actorType, principalID, permission, scope)
+	return SecretDecision{Allowed: allowed}, err
 }
 
 // IsGlobalAdmin answers a SELF-CHECK: "should userID — always the ctx's own

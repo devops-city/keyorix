@@ -37,10 +37,8 @@ func (c *KeyorixCore) ShareSecretWithGroup(ctx context.Context, req *GroupShareS
 	// requires live project membership — see ShareSecret / CheckSecretPermission
 	// (RBAC-001): an owner removed from the project keeps their OwnerID tag until
 	// ClearProjectSecretOwnership runs.
-	if isLiveOwner, err := c.requireLiveOwnerAuthority(ctx, secret, req.SharedBy); err != nil {
+	if err := c.requireShareAuthority(ctx, secret, req.SharedBy); err != nil {
 		return nil, err
-	} else if !isLiveOwner {
-		return nil, fmt.Errorf("not authorized to share this secret")
 	}
 
 	// Reject cross-project grants: the target group must itself be scoped to the
@@ -54,7 +52,7 @@ func (c *KeyorixCore) ShareSecretWithGroup(ctx context.Context, req *GroupShareS
 	if isScoped, serr := c.storage.IsGroupProjectScoped(ctx, req.GroupID, secret.ProjectID); serr != nil {
 		return nil, fmt.Errorf("failed to verify group project scope: %w", serr)
 	} else if !isScoped {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorPermissionDenied", nil))
+		return nil, shareRefusal(ErrShareGroupNotInProject)
 	}
 
 	// A time-bound share must expire in the future (see ShareSecret).
@@ -90,6 +88,7 @@ func (c *KeyorixCore) ShareSecretWithGroup(ctx context.Context, req *GroupShareS
 		RecipientID: req.GroupID,
 		IsGroup:     true,
 		Permission:  req.Permission,
+		ShareID:     createdShare.ID,
 	}
 	c.LogGroupShareCreated(ctx, auditCtx)
 

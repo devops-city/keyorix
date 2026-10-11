@@ -500,6 +500,13 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// view the roster; mutations require roles.assign at the project scope, so
 		// a project_admin can manage their own project's members.
 		r.With(customMiddleware.RequireScopedPermission(permUsersRead, projectScope)).Get(pathProjectMembers, catalogHandler.ListProjectMembers)
+		// Share-dialog recipient search (SHARE-2): the active members of the project a
+		// caller who can share there (secrets.write at the project) may pick from, so a
+		// project-only admin no longer needs the global users.read of GET /users. Core
+		// adds the owner-must-be-a-member rule and shows emails only to a caller who
+		// may already read them (users.read at the project).
+		r.With(customMiddleware.RequireScopedPermission(permSecretsWrite, projectScope,
+			customMiddleware.DenyMessage(core.ShareRecipientSearchDeniedMessage))).Get("/projects/{id}/share-recipients", shareHandler.SearchShareRecipients)
 		r.With(customMiddleware.RequireScopedPermission(permRolesRead, projectScope)).Get("/projects/{id}/access-review", catalogHandler.GetProjectAccessReview)
 		// Recertification decisions (ISO 27001 A.5.18): attest is a reviewer action
 		// (roles.read); revoke removes the grant and needs roles.assign.
@@ -729,7 +736,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 
 			// Secret version comments — free-text annotations on a specific version.
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/versions/{versionId}/comments", versionCommentHandler.ListComments)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/versions/{versionId}/comments", versionCommentHandler.CreateComment)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionCommentVersion)).Post("/{id}/versions/{versionId}/comments", versionCommentHandler.CreateComment)
 			// Delete is gated on secrets.manage (admin-only), matching the ACL delete pattern.
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsManage, "id")).Delete("/{id}/versions/{versionId}/comments/{commentId}", versionCommentHandler.DeleteComment)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/risk", secretHandler.GetSecretRisk)
@@ -742,12 +749,12 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/audit", secretHandler.AuditTrail)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/ownership-history", secretHandler.OwnershipHistory)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/tags", secretHandler.GetTags)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Put("/{id}/tags", secretHandler.SetTags)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionUpdateMetadata)).Put("/{id}/tags", secretHandler.SetTags)
 
 			// Secret dependency graph (ADR-052).
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/dependencies", secretHandler.ListSecretDependencies)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/dependencies", secretHandler.AddSecretDependency)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Delete("/{id}/dependencies/{depId}", secretHandler.RemoveSecretDependency)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionAddDependency)).Post("/{id}/dependencies", secretHandler.AddSecretDependency)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionRemoveDep)).Delete("/{id}/dependencies/{depId}", secretHandler.RemoveSecretDependency)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/impact", secretHandler.GetSecretImpact)
 			// Blast-radius report: richer impact view with OwnerID, ProjectID, and risk level.
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/blast-radius", secretHandler.GetBlastRadius)
@@ -783,23 +790,23 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 
 			// Create: authorized inside the handler (scope comes from the body).
 			r.With(secretBodyLimit).Post("/", secretHandler.CreateSecret)
-			r.With(secretBodyLimit, customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Put("/{id}", secretHandler.UpdateSecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Patch("/{id}/classification", secretHandler.ClassifySecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Patch("/{id}/description", secretHandler.DescribeSecret)
+			r.With(secretBodyLimit, customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionUpdate)).Put("/{id}", secretHandler.UpdateSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionClassify)).Patch("/{id}/classification", secretHandler.ClassifySecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionUpdateMetadata)).Patch("/{id}/description", secretHandler.DescribeSecret)
 			// Copy into another environment: read the source ({id}); the handler also
 			// authorizes secrets.write at the target environment's scope.
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Post("/{id}/copy", secretHandler.CopySecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Patch("/{id}/auto-rotate", secretHandler.SetAutoRotate)
-			r.With(secretBodyLimit, customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/rotate", secretHandler.RotateSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionSetAutoRotate)).Patch("/{id}/auto-rotate", secretHandler.SetAutoRotate)
+			r.With(secretBodyLimit, customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionRotate)).Post("/{id}/rotate", secretHandler.RotateSecret)
 			// Rotation dry-run / simulation (ADR-047): validates the rotation config without
 			// making any live change. Read-only — requires only secrets.read.
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Post("/{id}/rotation/simulate", secretHandler.SimulateRotation)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/rollback", secretHandler.RollbackSecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/transfer-ownership", secretHandler.TransferOwnership)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/move", secretHandler.MoveSecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/suspend", secretHandler.SuspendSecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/resume", secretHandler.ResumeSecret)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id")).Post("/{id}/share", shareHandler.ShareSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionRollback)).Post("/{id}/rollback", secretHandler.RollbackSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionTransferOwner)).Post("/{id}/transfer-ownership", secretHandler.TransferOwnership)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionMove)).Post("/{id}/move", secretHandler.MoveSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionSuspend)).Post("/{id}/suspend", secretHandler.SuspendSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionResume)).Post("/{id}/resume", secretHandler.ResumeSecret)
+			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionShare)).Post("/{id}/share", shareHandler.ShareSecret)
 			// Self-service: a recipient removes their OWN direct share. No scoped
 			// permission — the action is on the caller's own grant (core only removes a
 			// share whose RecipientID == the caller), so it needs just authentication.

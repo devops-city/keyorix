@@ -306,11 +306,15 @@ func TestInspectCertificateEnforcesPerSecretPermission(t *testing.T) {
 	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.SecretAccessSchedule{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.SecretAccessSchedule{}, &models.UserRole{}))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: func() time.Time { return now }}
 
 	certPEM, _ := selfSignedPEM(t, "restricted.example.com", now.Add(30*24*time.Hour))
-	require.NoError(t, db.Create(&models.SecretNode{ID: 1, Name: "restricted-cert", IsSecret: true, Status: "active", Type: "certificate", OwnerID: 9}).Error)
+	require.NoError(t, db.Create(&models.SecretNode{ID: 1, Name: "restricted-cert", IsSecret: true, Status: "active", Type: "certificate", OwnerID: 9, ProjectID: 1}).Error)
+	// #2941: a share applies only to a live member of the secret's project, so the
+	// share recipient (7) is a member through a project-scoped grant of a role that
+	// carries no permissions.
+	require.NoError(t, db.Create(&models.UserRole{UserID: 7, RoleID: 999, ProjectID: 1}).Error)
 	require.NoError(t, db.Create(&models.SecretVersion{SecretNodeID: 1, VersionNumber: 1, EncryptedValue: certPEM}).Error)
 
 	t.Run("actor with no ownership/share is refused, despite the HTTP route already gating project-scoped secrets.read", func(t *testing.T) {

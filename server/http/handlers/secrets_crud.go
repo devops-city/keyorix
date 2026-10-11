@@ -709,6 +709,12 @@ func (h *SecretHandler) sendUpdateSecretError(w http.ResponseWriter, err error) 
 		h.sendError(w, "Conflict", "High write contention on this secret; retry the request", http.StatusConflict, nil)
 		return
 	}
+	// A write share covers the update but not its lifecycle change (expiry / read
+	// limit): say so, with core's fixed reason.
+	if msg, ok := core.ShareRefusalMessage(err); ok {
+		h.sendError(w, "Forbidden", msg, http.StatusForbidden, nil)
+		return
+	}
 	if strings.Contains(err.Error(), "not found") {
 		h.sendError(w, "NotFound", "Secret not found", http.StatusNotFound, nil)
 	} else if strings.Contains(err.Error(), "permission denied") {

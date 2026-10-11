@@ -500,7 +500,7 @@ func TestHandleScopedSecretPermission_NoUserContext(t *testing.T) {
 
 	req := makeRequest(t, http.MethodGet, "/secrets/7", map[string]string{"id": "7"}, nil, nil)
 	rec := httptest.NewRecorder()
-	handleScopedSecretPermissionRequest(next, rec, req, "secrets.read", "id")
+	handleScopedSecretPermissionRequest(next, rec, req, "secrets.read", "id", "")
 
 	assert.False(t, nextCalled, "next must not be called without a user context")
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
@@ -518,7 +518,7 @@ func TestHandleScopedSecretPermission_InvalidTarget(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handleScopedSecretPermissionRequest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), rec, req, "secrets.read", "id")
+	}), rec, req, "secrets.read", "id", "")
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -539,7 +539,7 @@ func TestHandleScopedSecretPermission_SecretNotFound(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handleScopedSecretPermissionRequest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), rec, req, "secrets.read", "id")
+	}), rec, req, "secrets.read", "id", "")
 
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
@@ -576,7 +576,7 @@ func TestHandleScopedSecretPermission_AllowedViaACL(t *testing.T) {
 
 	req := makeRequest(t, http.MethodGet, "/secrets/7", map[string]string{"id": "7"}, userCtx, cs)
 	rec := httptest.NewRecorder()
-	handleScopedSecretPermissionRequest(next, rec, req, "secrets.read", "id")
+	handleScopedSecretPermissionRequest(next, rec, req, "secrets.read", "id", "")
 
 	assert.True(t, nextCalled, "an ACL-only grantee with no project role must reach next()")
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -599,7 +599,7 @@ func TestHandleScopedSecretPermission_Denied(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handleScopedSecretPermissionRequest(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}), rec, req, "secrets.read", "id")
+	}), rec, req, "secrets.read", "id", "")
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 }

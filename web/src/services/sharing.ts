@@ -15,7 +15,44 @@ export const buildUpdateShareBody = (data: {
     ...(data.expiresAt ? { expires_at: data.expiresAt } : {}),
 });
 
+// ShareRecipient is one row of GET /projects/{id}/share-recipients: an active member
+// of the project the caller can share with. email is present only when the caller may
+// already read the project's member emails (users.read at the project).
+export interface ShareRecipient {
+    id: number;
+    username: string;
+    display_name: string;
+    email?: string;
+}
+
+export interface ShareRecipientPage {
+    recipients: ShareRecipient[];
+    total: number;
+    page: number;
+    page_size: number;
+}
+
 export const sharingApi = {
+    // searchRecipients looks recipients up among the secret's project members
+    // (SHARE-2). Unlike GET /users it needs no global permission, so a project-only
+    // admin can find who to share with.
+    async searchRecipients(
+        projectId: number,
+        params: { q: string; page?: number; pageSize?: number }
+    ): Promise<ShareRecipientPage> {
+        const response = await apiClient.get<ApiResponse<ShareRecipientPage>>(
+            API_ENDPOINTS.SHARING.RECIPIENTS(projectId),
+            {
+                params: {
+                    q: params.q,
+                    ...(params.page ? { page: params.page } : {}),
+                    ...(params.pageSize ? { page_size: params.pageSize } : {}),
+                },
+            }
+        );
+        return response.data.data;
+    },
+
     async list(params?: {
         page?: number;
         pageSize?: number;

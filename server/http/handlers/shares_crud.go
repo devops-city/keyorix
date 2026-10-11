@@ -75,6 +75,8 @@ func (h *ShareHandler) ShareSecret(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error sharing secret: %v", shareErr)
 		if strings.Contains(shareErr.Error(), errNotFound) {
 			h.sendError(w, "NotFound", "Secret not found", http.StatusNotFound, nil)
+		} else if reason, ok := core.ShareRefusalMessage(shareErr); ok {
+			h.sendError(w, "Forbidden", reason, http.StatusForbidden, nil)
 		} else if strings.Contains(shareErr.Error(), errPermissionDenied) {
 			h.sendError(w, "Forbidden", "Not authorized to share this secret", http.StatusForbidden, nil)
 		} else if strings.Contains(shareErr.Error(), "expiry must be in the future") {
@@ -128,6 +130,8 @@ func (h *ShareHandler) UpdateSharePermission(w http.ResponseWriter, r *http.Requ
 		log.Printf("Error updating share permission: %v", err)
 		if strings.Contains(err.Error(), errNotFound) {
 			h.sendError(w, "NotFound", "Share not found", http.StatusNotFound, nil)
+		} else if reason, ok := core.ShareRefusalMessage(err); ok {
+			h.sendError(w, "Forbidden", reason, http.StatusForbidden, nil)
 		} else if strings.Contains(err.Error(), errPermissionDenied) {
 			h.sendError(w, "Forbidden", "Not authorized to update this share", http.StatusForbidden, nil)
 		} else if strings.Contains(err.Error(), "expiry must be in the future") {
@@ -160,6 +164,8 @@ func (h *ShareHandler) RevokeShare(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error revoking share: %v", err)
 		if strings.Contains(err.Error(), errNotFound) {
 			h.sendError(w, "NotFound", "Share not found", http.StatusNotFound, nil)
+		} else if reason, ok := core.ShareRefusalMessage(err); ok {
+			h.sendError(w, "Forbidden", reason, http.StatusForbidden, nil)
 		} else if strings.Contains(err.Error(), errPermissionDenied) {
 			h.sendError(w, "Forbidden", "Not authorized to revoke this share", http.StatusForbidden, nil)
 		} else {

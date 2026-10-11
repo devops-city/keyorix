@@ -94,10 +94,19 @@ func TestGetSecretSharingStatus_RefusesUnauthorizedActor(t *testing.T) {
 	ms.On("GetSecret", mock.Anything, uint(5)).Return(&models.SecretNode{ID: 5}, nil)
 	ms.On("GetSecretACL", mock.Anything, uint(5), g10UnauthorizedActor).Return(nil, errNotFoundForTest).Maybe()
 	ms.On("GetSecretAncestors", mock.Anything, uint(5)).Return([]uint{}, nil).Maybe()
+	// The secret IS shared — with someone else (user 4242). Since #2941 the
+	// authorization itself reads the share rows (the share term, which finds nothing
+	// for this actor), so "ListSharesBySecret was not called" no longer
+	// distinguishes "refused before the status read" from "leaked it". The status
+	// read resolves each user recipient's name with GetUser; the authorization never
+	// does, so GetUser not being called is the leak detector.
+	ms.On("ListSharesBySecret", mock.Anything, uint(5)).Return([]*models.ShareRecord{
+		{ID: 1, SecretID: 5, RecipientID: 4242, Permission: "read"},
+	}, nil)
 	stubUnauthorizedPrincipal(ms, g10UnauthorizedActor, Scope{})
 
 	_, err := c.GetSecretSharingStatus(context.Background(), ActorTypeUser, g10UnauthorizedActor, 5)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "permission")
-	ms.AssertNotCalled(t, "ListSharesBySecret", mock.Anything, mock.Anything)
+	ms.AssertNotCalled(t, "GetUser", mock.Anything, mock.Anything)
 }

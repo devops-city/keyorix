@@ -123,9 +123,12 @@ func TestSuspendResumeProjectSecrets_PerSecretAuthzReCheck(t *testing.T) {
 	// CreateShareRecord verifies the recipient user row exists.
 	require.NoError(t, db.Create(&models.User{ID: actorID, Username: "actor", Email: "actor@example.com"}).Error)
 
-	// Both secrets are owned by someone else and actor 1 holds no project role at
-	// all (so it never passes via ownership or the RBAC fallback) — the ONLY
-	// thing that distinguishes them is a direct write share on "shared".
+	// All secrets are owned by someone else and actor 1 holds no role-derived
+	// authority (so it never passes via ownership or the RBAC fallback). The ONLY
+	// thing that distinguishes "shared" is a per-secret ACL grant of secrets.write.
+	// "writeShared" carries a direct WRITE SHARE instead: since the #3001 follow-up a
+	// write share elevates only update/metadata/rotate, never suspend/resume, so the
+	// bulk op must leave it alone too.
 	mk := func(name string) uint {
 		s, err := c.storage.CreateSecret(ctx, &models.SecretNode{
 			Name: name, ProjectID: p.ID, EnvironmentID: e.ID, Type: "password", OwnerID: otherOwnerID, IsSecret: true,
@@ -136,18 +139,30 @@ func TestSuspendResumeProjectSecrets_PerSecretAuthzReCheck(t *testing.T) {
 	}
 	sharedID := mk("shared")
 	unsharedID := mk("unshared")
+	writeSharedID := mk("write-shared")
 
+	require.NoError(t, db.Create(&models.SecretACL{
+		SecretID: sharedID, UserID: actorID, Permissions: `["secrets.read","secrets.write"]`, GrantedBy: otherOwnerID,
+	}).Error)
 	_, err = c.storage.CreateShareRecord(ctx, &models.ShareRecord{
-		SecretID: sharedID, OwnerID: otherOwnerID, RecipientID: actorID, IsGroup: false, Permission: "write", CreatedAt: time.Now(),
+		SecretID: writeSharedID, OwnerID: otherOwnerID, RecipientID: actorID, IsGroup: false, Permission: "write", CreatedAt: time.Now(),
 	})
 	require.NoError(t, err)
+	// #2941: a share applies only to a live member of the secret's project, so the
+	// actor is a member through a project-scoped grant of a role that carries no
+	// permissions (no roles/role_permissions rows exist here) — membership without
+	// any role-derived authority.
+	require.NoError(t, db.Create(&models.UserRole{UserID: actorID, RoleID: 999, ProjectID: p.ID}).Error)
 
-	// Sanity check: actor 1 really can write "shared" but not "unshared" via the
-	// single-secret path (this is exactly the authority the bulk op must mirror).
+	// Sanity check: actor 1 really can write "shared" but not "unshared" or
+	// "write-shared" via the single-secret path (exactly the authority the bulk op
+	// must mirror).
 	_, err = c.EnforceSecretWritePermission(ctx, sharedID, actorID)
-	require.NoError(t, err, "precondition: actor has write authority on the shared secret")
+	require.NoError(t, err, "precondition: actor has write authority on the ACL-granted secret")
 	_, err = c.EnforceSecretWritePermission(ctx, unsharedID, actorID)
 	require.Error(t, err, "precondition: actor has no write authority on the unshared secret")
+	_, err = c.EnforceSecretWritePermission(ctx, writeSharedID, actorID)
+	require.Error(t, err, "precondition: a write share is not suspend/resume authority")
 
 	t.Run("suspend-all only suspends the secret the caller has write authority over", func(t *testing.T) {
 		n, err := c.SuspendProjectSecrets(ctx, p.ID, actorID, "breach")
@@ -161,11 +176,17 @@ func TestSuspendResumeProjectSecrets_PerSecretAuthzReCheck(t *testing.T) {
 		unshared, err := c.storage.GetSecret(ctx, unsharedID)
 		require.NoError(t, err)
 		assert.Equal(t, SecretStatusActive, unshared.Status, "denied secret must be left untouched, not silently suspended")
+
+		writeShared, err := c.storage.GetSecret(ctx, writeSharedID)
+		require.NoError(t, err)
+		assert.Equal(t, SecretStatusActive, writeShared.Status, "a write share must not let the recipient suspend it")
 	})
 
 	t.Run("resume-all only resumes the secret the caller has write authority over", func(t *testing.T) {
-		// Suspend both directly (bypassing the bulk op) so both start suspended.
+		// Suspend the others directly (bypassing the bulk op) so all start suspended.
 		_, err := c.SuspendSecret(ctx, unsharedID, otherOwnerID, "setup")
+		require.NoError(t, err)
+		_, err = c.SuspendSecret(ctx, writeSharedID, otherOwnerID, "incident freeze")
 		require.NoError(t, err)
 
 		n, err := c.ResumeProjectSecrets(ctx, p.ID, actorID)
@@ -179,5 +200,9 @@ func TestSuspendResumeProjectSecrets_PerSecretAuthzReCheck(t *testing.T) {
 		unshared, err := c.storage.GetSecret(ctx, unsharedID)
 		require.NoError(t, err)
 		assert.Equal(t, SecretStatusSuspended, unshared.Status, "denied secret must be left untouched, not silently resumed")
+
+		writeShared, err := c.storage.GetSecret(ctx, writeSharedID)
+		require.NoError(t, err)
+		assert.Equal(t, SecretStatusSuspended, writeShared.Status, "a write share must not let the recipient undo an incident freeze")
 	})
 }

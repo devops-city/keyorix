@@ -675,30 +675,59 @@ var (
 // the target resource (e.g. a secret) via the core service to find its scope.
 type ScopeResolver func(r *http.Request, cs *core.KeyorixCore) (core.Scope, error)
 
+// defaultDenyMessage is the 403 message of every permission gate unless a route sets
+// its own with DenyMessage.
+const defaultDenyMessage = "Insufficient permissions"
+
+// ScopedGateOption adjusts how RequireScopedPermission reports a denial. It never
+// changes what the gate authorizes.
+type ScopedGateOption func(*scopedGateConfig)
+
+type scopedGateConfig struct {
+	denyMessage string
+}
+
+// DenyMessage replaces "Insufficient permissions" with a fixed explanation for this
+// route's 403s. It is used for BOTH denial shapes the gate produces (not authorized,
+// and target not found for a caller without the permission globally), so the text is
+// no more an existence oracle than the default (INV-HTTP-08). Pass a constant, never
+// anything derived from the request.
+func DenyMessage(message string) ScopedGateOption {
+	return func(c *scopedGateConfig) { c.denyMessage = message }
+}
+
 // RequireScopedPermission returns middleware that authorizes the request: it
 // resolves the target scope, then asks core.Authorize whether the user holds
 // permission there. Denials are 403, an unparseable target is 400, and a
 // missing target resource is 404.
-func RequireScopedPermission(permission string, resolve ScopeResolver) func(http.Handler) http.Handler {
+func RequireScopedPermission(permission string, resolve ScopeResolver, opts ...ScopedGateOption) func(http.Handler) http.Handler {
+	cfg := scopedGateConfig{denyMessage: defaultDenyMessage}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleScopedPermissionRequest(next, w, r, permission, resolve)
+			handleScopedPermissionRequestWith(next, w, r, permission, resolve, cfg)
 		})
 	}
 }
 
 func handleScopedPermissionRequest(next http.Handler, w http.ResponseWriter, r *http.Request, permission string, resolve ScopeResolver) {
+	handleScopedPermissionRequestWith(next, w, r, permission, resolve, scopedGateConfig{denyMessage: defaultDenyMessage})
+}
+
+func handleScopedPermissionRequestWith(next http.Handler, w http.ResponseWriter, r *http.Request, permission string, resolve ScopeResolver, cfg scopedGateConfig) {
 	userCtx, cs, ok := requireUserAndCore(w, r)
 	if !ok {
 		return
 	}
 	scope, err := resolve(r, cs)
 	if err != nil {
-		handleScopeResolutionError(w, r, cs, userCtx, permission, err)
+		handleScopeResolutionError(w, r, cs, userCtx, permission, err, cfg.denyMessage)
 		return
 	}
 	allowed, err := cs.AuthorizePrincipal(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID(), permission, scope)
-	finishScopedPermissionRequest(next, w, r, cs, scope, allowed, err)
+	finishScopedPermissionRequest(next, w, r, cs, scope, allowed, err, cfg.denyMessage)
 }
 
 // RequireScopedSecretPermission is RequireScopedPermission specialized for the
@@ -715,15 +744,38 @@ func handleScopedPermissionRequest(next http.Handler, w http.ResponseWriter, r *
 // denied exactly as before. Machine/OIDC principals are unaffected — SecretACL
 // rows are user-scoped, so AuthorizeSecretPrincipal skips the ACL lookup for them
 // and takes the same role-based path as always.
-func RequireScopedSecretPermission(permission, idParam string) func(http.Handler) http.Handler {
+//
+// action (#3001 follow-up) names the secrets.write operation the route performs. A
+// write share elevates only allowlisted actions (core.ShareElevatesAction); a route
+// that names none gets no write-share elevation. Every secrets.write route must name
+// one (share_authz_route_guard_test.go), and it must be a known action — a typo or a
+// read/manage route naming one panics when the router is built.
+//
+// A share-made grant is audited as share_access_elevated only once the handler has
+// PERFORMED the action (a 2xx response), via the request's ShareElevationRecorder;
+// a refused or failed request writes nothing.
+func RequireScopedSecretPermission(permission, idParam string, action ...core.SecretAction) func(http.Handler) http.Handler {
+	var act core.SecretAction
+	switch {
+	case len(action) > 1:
+		panic("RequireScopedSecretPermission: at most one SecretAction")
+	case len(action) == 1:
+		act = action[0]
+		if permission != permSecretsWriteName || !core.IsKnownSecretAction(act) {
+			panic(fmt.Sprintf("RequireScopedSecretPermission(%q, %q, %q): an action must be a known secrets.write SecretAction", permission, idParam, act))
+		}
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleScopedSecretPermissionRequest(next, w, r, permission, idParam)
+			handleScopedSecretPermissionRequest(next, w, r, permission, idParam, act)
 		})
 	}
 }
 
-func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWriter, r *http.Request, permission, idParam string) {
+// permSecretsWriteName is the permission every SecretAction belongs to.
+const permSecretsWriteName = "secrets.write"
+
+func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWriter, r *http.Request, permission, idParam string, action core.SecretAction) {
 	userCtx, cs, ok := requireUserAndCore(w, r)
 	if !ok {
 		return
@@ -735,7 +787,7 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 	}
 	secret, err := cs.Storage().GetSecret(r.Context(), secretID)
 	if err != nil {
-		handleScopeResolutionError(w, r, cs, userCtx, permission, errTargetNotFound)
+		handleScopeResolutionError(w, r, cs, userCtx, permission, errTargetNotFound, defaultDenyMessage)
 		return
 	}
 	scope := core.Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
@@ -745,11 +797,63 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 	// GetSecret's machine branch reuses it instead of fetching the same row again,
 	// and getSecretValueForUser reuses it again downstream (SESSION-PERF, #2403
 	// follow-up) instead of a 3rd fetch.
-	r = r.WithContext(WithResolvedSecret(r.Context(), secret))
-	// AuthorizeSecretPrincipalForSecret reuses the secret already fetched above
+	ctx, rec := core.WithShareElevationRecorder(WithResolvedSecret(r.Context(), secret))
+	r = r.WithContext(ctx)
+	// AuthorizeSecretPrincipalForSecretAction reuses the secret already fetched above
 	// instead of AuthorizeSecretPrincipal's own internal re-fetch of the same row.
-	allowed, err := cs.AuthorizeSecretPrincipalForSecret(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID(), secret, permission)
-	finishScopedPermissionRequest(next, w, r, cs, scope, allowed, err)
+	decision, err := cs.AuthorizeSecretPrincipalForSecretAction(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID(), secret, permission, action)
+	if err == nil && decision.ShareNotElevated {
+		forbiddenResponse(w, core.ShareActionNotElevatedMessage)
+		return
+	}
+	serveAndCommitShareElevations(next, w, r, cs, scope, decision.Allowed, err, rec)
+}
+
+// serveAndCommitShareElevations runs finishScopedPermissionRequest and, if the
+// response was a success, writes the share elevations the request recorded (the gate's
+// and any the handler's own per-secret checks made): the action was performed.
+func serveAndCommitShareElevations(next http.Handler, w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, scope core.Scope, allowed bool, err error, rec *core.ShareElevationRecorder) {
+	sw := &statusCaptureWriter{ResponseWriter: w}
+	finishScopedPermissionRequest(next, sw, r, cs, scope, allowed, err, defaultDenyMessage)
+	if sw.succeeded() {
+		cs.CommitShareElevations(core.DetachedAuditContext(r.Context()), rec)
+	}
+}
+
+// statusCaptureWriter records the response status so the share-aware gates can tell
+// a performed action (2xx) from a refused or failed one.
+type statusCaptureWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusCaptureWriter) WriteHeader(code int) {
+	if s.status == 0 {
+		s.status = code
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusCaptureWriter) Write(b []byte) (int, error) {
+	if s.status == 0 {
+		s.status = http.StatusOK
+	}
+	return s.ResponseWriter.Write(b)
+}
+
+// Flush keeps streaming handlers (CSV exports) working behind the gate.
+func (s *statusCaptureWriter) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (s *statusCaptureWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// succeeded: a handler that wrote nothing answered 200 (net/http's default).
+func (s *statusCaptureWriter) succeeded() bool {
+	return s.status == 0 || (s.status >= 200 && s.status < 300)
 }
 
 // RequireScopedSecretRefPermission is RequireScopedPermission specialized for
@@ -786,17 +890,21 @@ func handleScopedSecretRefPermissionRequest(next http.Handler, w http.ResponseWr
 		if errors.Is(err, core.ErrSecretRefInvalid) {
 			resolveErr = errInvalidTarget
 		}
-		handleScopeResolutionError(w, r, cs, userCtx, permission, resolveErr)
+		handleScopeResolutionError(w, r, cs, userCtx, permission, resolveErr, defaultDenyMessage)
 		return
 	}
 	scope := core.Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
-	allowed, err := cs.AuthorizePrincipal(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID(), permission, scope)
+	// The same per-secret decision as RequireScopedSecretPermission (role, per-secret
+	// ACL, #2941 share term), so reading a secret by reference is allowed exactly when
+	// reading it by ID is. Machine principals take the role-only path inside it.
+	ctx, rec := core.WithShareElevationRecorder(r.Context())
+	allowed, err := cs.AuthorizeSecretPrincipalForSecret(ctx, userCtx.ActorKind(), userCtx.PrincipalID(), secret, permission)
 	// Pin the resolution on the request context BEFORE dispatch, regardless of
 	// the authorize outcome (finishScopedPermissionRequest still gates on
 	// allowed/err below) — this is the ONLY resolution of this ref for the
 	// entire request; the handler must reuse it rather than resolve again.
-	r = r.WithContext(WithResolvedSecretRef(r.Context(), secret))
-	finishScopedPermissionRequest(next, w, r, cs, scope, allowed, err)
+	r = r.WithContext(WithResolvedSecretRef(ctx, secret))
+	serveAndCommitShareElevations(next, w, r, cs, scope, allowed, err, rec)
 }
 
 // WithResolvedSecretRef stores a secret resolved by ref on ctx, for
@@ -871,12 +979,12 @@ func AuthorizedAtGlobalScope(ctx context.Context, cs *core.KeyorixCore, userCtx 
 // globally (AuthorizedAtGlobalScope); otherwise it denies without confirming the
 // resource exists (avoids existence enumeration by unprivileged users). Any
 // other error is treated as an unparseable target (400).
-func handleScopeResolutionError(w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, userCtx *UserContext, permission string, err error) {
+func handleScopeResolutionError(w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, userCtx *UserContext, permission string, err error, denyMessage string) {
 	if errors.Is(err, errTargetNotFound) {
 		if AuthorizedAtGlobalScope(r.Context(), cs, userCtx, permission) {
 			notFoundResponse(w, "Resource not found")
 		} else {
-			forbiddenResponse(w, "Insufficient permissions")
+			forbiddenResponse(w, denyMessage)
 		}
 		return
 	}
@@ -886,9 +994,9 @@ func handleScopeResolutionError(w http.ResponseWriter, r *http.Request, cs *core
 // finishScopedPermissionRequest applies the authorize result and, on success,
 // the per-project MFA policy (ADR-037), before serving next. Shared by
 // RequireScopedPermission and RequireScopedSecretPermission.
-func finishScopedPermissionRequest(next http.Handler, w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, scope core.Scope, allowed bool, err error) {
+func finishScopedPermissionRequest(next http.Handler, w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, scope core.Scope, allowed bool, err error, denyMessage string) {
 	if err != nil || !allowed {
-		forbiddenResponse(w, "Insufficient permissions")
+		forbiddenResponse(w, denyMessage)
 		return
 	}
 	// Per-project MFA policy (ADR-037): deny an interactive session without a

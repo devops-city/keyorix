@@ -273,8 +273,13 @@ bootstrap is not enough:
 ```
 
 Skipping the two `rbac assign-role` lines and going straight to `share create`
-fails with a bare `HTTP 403` and no explanation — this is a known rough edge,
-tracked as a known gap below.
+is refused with the reason: the owner (or the recipient) is not a member of
+the secret's project. A share only applies to project members, and for them
+it can lift access on that one secret: a `project_viewer` shared with `write`
+can update its value and metadata and rotate it (nothing else: suspend, move,
+expiry changes and the like still need a project role), and revoking the share
+takes exactly that away again. See
+[the sharing guide](docs/SECRET_SHARING_USER_GUIDE.md#how-a-share-combines-with-a-project-role).
 
 `--ttl` (a Go duration) and `--expires` (RFC3339) are mutually exclusive; either
 makes the share time-bound, which is usually what you want for access granted
@@ -334,8 +339,8 @@ example including revocation.
 ## Known gaps
 
 - **Sharing requires an explicit project role on both owner and recipient**
-  (see "Sharing" above) — holding the global `admin` role is not enough, and
-  the failure mode (`HTTP 403`, no explanation) doesn't say so.
+  (see "Sharing" above) — holding the global `admin` role is not enough. The
+  refusal says which of the two is missing.
 
 ## What else is there
 

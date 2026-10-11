@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '../../../test/test-utils';
-import { ShareSecretModal, expiresAtFromPreset } from '../ShareSecretModal';
+import { render, screen, fireEvent, waitFor, act } from '../../../test/test-utils';
+import { ShareSecretModal, expiresAtFromPreset, SHARE_CONFIRMATION_MS } from '../ShareSecretModal';
 import { Secret } from '../../../types';
+import { AxiosError, AxiosHeaders } from 'axios';
 
 const mockMutate = vi.fn();
 const mockReset = vi.fn();
@@ -9,7 +10,18 @@ let isPending = false;
 let isError = false;
 let mutationError: unknown = null;
 
+// The project-scoped recipient search (SHARE-2), used when the secret's project is
+// known. Reassigned per test like searchImpl below.
+let projectSearchImpl: (projectId: number, query: string) => Promise<{ recipients: unknown[] }> = async () => ({
+    recipients: [],
+});
+const projectSearchCalls: Array<[number, string]> = [];
+
 vi.mock('../api', () => ({
+    searchShareRecipients: (projectId: number, query: string) => {
+        projectSearchCalls.push([projectId, query]);
+        return projectSearchImpl(projectId, query);
+    },
     useShareSecret: () => ({
         mutate: mockMutate,
         reset: mockReset,
@@ -26,11 +38,15 @@ vi.mock('../api', () => ({
 let searchImpl: (args: { search: string; pageSize: number }) => Promise<{ users: unknown[] }> = async () => ({
     users: [{ id: 7, username: 'bob', display_name: 'Bob', email: 'bob@test.com' }],
 });
+let globalSearchCalls = 0;
 
 // The modal searches users by query before a recipient can be selected.
 vi.mock('../../../services/users', () => ({
     usersApi: {
-        list: (...args: [{ search: string; pageSize: number }]) => searchImpl(...args),
+        list: (...args: [{ search: string; pageSize: number }]) => {
+            globalSearchCalls++;
+            return searchImpl(...args);
+        },
     },
 }));
 
@@ -58,6 +74,9 @@ beforeEach(() => {
     searchImpl = async () => ({
         users: [{ id: 7, username: 'bob', display_name: 'Bob', email: 'bob@test.com' }],
     });
+    globalSearchCalls = 0;
+    projectSearchCalls.length = 0;
+    projectSearchImpl = async () => ({ recipients: [] });
 });
 
 describe('expiresAtFromPreset', () => {
@@ -137,7 +156,7 @@ describe('ShareSecretModal recipient search', () => {
         expect(await screen.findByText('Bob')).toBeInTheDocument();
     });
 
-    it('clears results and stops loading when the user search rejects', async () => {
+    it('clears results and says so when the user search rejects', async () => {
         searchImpl = async () => {
             throw new Error('network down');
         };
@@ -145,7 +164,8 @@ describe('ShareSecretModal recipient search', () => {
         render(<ShareSecretModal secret={secret} isOpen onClose={() => {}} />);
         fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'bob' } });
 
-        expect(await screen.findByText(/No users found/)).toBeInTheDocument();
+        expect(await screen.findByText('Could not search users.')).toBeInTheDocument();
+        expect(screen.queryByText('Bob')).not.toBeInTheDocument();
     });
 
     // Unlike the test above (where "No users found" is also the dropdown's default
@@ -164,7 +184,61 @@ describe('ShareSecretModal recipient search', () => {
 
         expect(await screen.findByText('Searching…')).toBeInTheDocument();
         rejectSearch(new Error('network down'));
-        expect(await screen.findByText(/No users found/)).toBeInTheDocument();
+        expect(await screen.findByText('Could not search users.')).toBeInTheDocument();
+    });
+
+    // SHARE-2: with the secret's project known, the dialog searches that project's
+    // members (GET /projects/{id}/share-recipients), which a project-only admin may
+    // call, instead of GET /users, which needs global users.read.
+    it("searches the secret's project members, not the global user list", async () => {
+        projectSearchImpl = async () => ({
+            recipients: [{ id: 9, username: 'alice', display_name: 'Alice' }],
+        });
+        render(<ShareSecretModal secret={{ ...secret, projectId: 42 }} isOpen onClose={() => {}} />);
+        fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: ' ali' } });
+
+        fireEvent.click(await screen.findByText('Alice'));
+        expect(projectSearchCalls).toContainEqual([42, 'ali']);
+        expect(globalSearchCalls).toBe(0);
+        fireEvent.click(screen.getByRole('button', { name: /^Share$/i }));
+        await waitFor(() => expect(mockMutate).toHaveBeenCalled());
+        expect(mockMutate.mock.calls[0][0].recipientId).toBe(9);
+    });
+
+    it('shows a recipient without an email when the search hides it', async () => {
+        projectSearchImpl = async () => ({
+            recipients: [{ id: 9, username: 'alice', display_name: 'Alice' }],
+        });
+        render(<ShareSecretModal secret={{ ...secret, projectId: 42 }} isOpen onClose={() => {}} />);
+        fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'ali' } });
+
+        expect(await screen.findByText('@alice')).toBeInTheDocument();
+        expect(screen.queryByText(/undefined/)).not.toBeInTheDocument();
+    });
+
+    it("shows the server's reason when the project search is refused", async () => {
+        const reason = 'You can only search for share recipients in a project where you can share secrets.';
+        projectSearchImpl = async () => {
+            throw new AxiosError('Request failed with status code 403', 'ERR_BAD_REQUEST', undefined, undefined, {
+                status: 403,
+                statusText: 'Forbidden',
+                headers: {},
+                config: { headers: new AxiosHeaders() },
+                data: { error: 'Forbidden', message: reason },
+            });
+        };
+        render(<ShareSecretModal secret={{ ...secret, projectId: 42 }} isOpen onClose={() => {}} />);
+        fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'ali' } });
+
+        expect(await screen.findByText(reason)).toBeInTheDocument();
+        expect(screen.queryByText('Request failed with status code 403')).not.toBeInTheDocument();
+    });
+
+    it('says "No project members found" for an empty project search', async () => {
+        render(<ShareSecretModal secret={{ ...secret, projectId: 42 }} isOpen onClose={() => {}} />);
+        fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'zed' } });
+        await waitFor(() => expect(projectSearchCalls).toContainEqual([42, 'zed']));
+        expect(await screen.findByText(/No project members found/)).toBeInTheDocument();
     });
 
     // "No users found" is also the dropdown's default empty state, so a search that
@@ -335,20 +409,39 @@ describe('ShareSecretModal submission + lifecycle', () => {
         expect(payload.permission).toBe('write');
     });
 
-    it('only offers Read Only when the sharer lacks write on the secret', () => {
-        const readOnlySecret: Secret = { ...secret, permissions: ['read'] };
-        render(<ShareSecretModal secret={readOnlySecret} isOpen onClose={() => {}} />);
+    // The dialog is opened from a secrets-list row, and secretsApi.list maps every row with
+    // `permissions: []` (the list endpoint returns no per-secret permissions). The dialog used to
+    // hide the write option unless secret.permissions held 'write', so for every real row it never
+    // offered it and a write share (the #2941 elevation) could not be created from the UI. The
+    // server is the enforcement: POST /secrets/{id}/share needs secrets.write on the secret.
+    it('offers the write option for a list row, whose permissions array is empty', () => {
+        const listRow: Secret = { ...secret, permissions: [] };
+        render(<ShareSecretModal secret={listRow} isOpen onClose={() => {}} />);
         const select = screen.getByDisplayValue('Read Only') as HTMLSelectElement;
         const optionLabels = Array.from(select.options).map((o) => o.textContent);
-        expect(optionLabels).toEqual(['Read Only']);
-        expect(optionLabels).not.toContain('Read + update value/metadata, rotate');
+        expect(optionLabels).toEqual(['Read Only', 'Read + update value/metadata, rotate']);
     });
 
-    it('offers the update-value/metadata-and-rotate option when the sharer holds write on the secret', () => {
+    it('offers the write option when the secret carries write', () => {
         render(<ShareSecretModal secret={secret} isOpen onClose={() => {}} />);
         const select = screen.getByDisplayValue('Read Only') as HTMLSelectElement;
         const optionLabels = Array.from(select.options).map((o) => o.textContent);
         expect(optionLabels).toContain('Read + update value/metadata, rotate');
+    });
+
+    it('says what a write share grants and what it does not (#3001 allowlist)', () => {
+        render(<ShareSecretModal secret={secret} isOpen onClose={() => {}} />);
+        expect(screen.getByText('The recipient can read this secret.')).toBeInTheDocument();
+        fireEvent.change(screen.getByDisplayValue('Read Only'), { target: { value: 'write' } });
+        const hint = screen.getByText(/update its value and metadata/);
+        expect(hint).toHaveTextContent('rotate it');
+        expect(hint).toHaveTextContent(
+            /Suspending, changing its expiry, moving, deleting, re-sharing or changing access still needs a project role/
+        );
+        expect(screen.getByDisplayValue('Read + update value/metadata, rotate')).toHaveAttribute(
+            'aria-describedby',
+            hint.id
+        );
     });
 
     it('shows a success message, calls onSuccess, and auto-closes after a delay', async () => {
@@ -374,6 +467,23 @@ describe('ShareSecretModal submission + lifecycle', () => {
         expect(screen.getByText('Username not found')).toBeInTheDocument();
     });
 
+    it("shows the server's reason, not axios's generic text, when a share is refused (#2976)", () => {
+        isError = true;
+        mutationError = new AxiosError('Request failed with status code 403', 'ERR_BAD_REQUEST', undefined, undefined, {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: {},
+            config: { headers: new AxiosHeaders() },
+            data: {
+                error: 'Forbidden',
+                message: "The recipient is not a member of this secret's project.",
+            },
+        });
+        render(<ShareSecretModal secret={secret} isOpen onClose={() => {}} />);
+        expect(screen.getByText("The recipient is not a member of this secret's project.")).toBeInTheDocument();
+        expect(screen.queryByText('Request failed with status code 403')).not.toBeInTheDocument();
+    });
+
     it('shows a fallback message when the mutation fails with a non-Error value', () => {
         isError = true;
         mutationError = { code: 'ERR' };
@@ -386,5 +496,51 @@ describe('ShareSecretModal submission + lifecycle', () => {
         render(<ShareSecretModal secret={secret} isOpen onClose={() => {}} />);
         expect(screen.getByRole('button', { name: 'Sharing…' })).toBeInTheDocument();
         expect(screen.getByPlaceholderText(/Search by name/i)).toBeDisabled();
+    });
+});
+
+// SHARE-2: the "Shared!" confirmation must render and stay up before the dialog
+// closes itself; the pages used to close the dialog from onSuccess, so it never did.
+describe('ShareSecretModal success confirmation', () => {
+    const shareWithBob = async (onClose: () => void, onSuccess: () => void) => {
+        mockMutate.mockImplementation((_payload: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
+        const view = render(<ShareSecretModal secret={secret} isOpen onClose={onClose} onSuccess={onSuccess} />);
+        fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'bob' } });
+        fireEvent.click(await screen.findByText('Bob'));
+        vi.useFakeTimers();
+        fireEvent.click(screen.getByRole('button', { name: /^Share$/i }));
+        return view;
+    };
+
+    it('shows "Shared!" and closes itself only after the confirmation delay', async () => {
+        const onClose = vi.fn();
+        const onSuccess = vi.fn();
+        try {
+            await shareWithBob(onClose, onSuccess);
+            expect(onSuccess).toHaveBeenCalledTimes(1);
+            expect(screen.getByText('Shared!')).toBeInTheDocument();
+            expect(screen.getByText('Secret shared successfully.')).toBeInTheDocument();
+            expect(onClose).not.toHaveBeenCalled();
+
+            act(() => vi.advanceTimersByTime(SHARE_CONFIRMATION_MS - 1));
+            expect(onClose).not.toHaveBeenCalled();
+            expect(screen.getByText('Shared!')).toBeInTheDocument();
+            act(() => vi.advanceTimersByTime(1));
+            expect(onClose).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not fire a pending auto-close after the dialog is gone', async () => {
+        const onClose = vi.fn();
+        try {
+            const view = await shareWithBob(onClose, () => {});
+            view.unmount();
+            act(() => vi.advanceTimersByTime(SHARE_CONFIRMATION_MS * 2));
+            expect(onClose).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

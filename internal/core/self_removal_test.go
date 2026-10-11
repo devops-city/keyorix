@@ -264,7 +264,7 @@ func TestRemoveSelfFromShare_AuditLogging(t *testing.T) {
 			*event.UserID == userID &&
 			event.SecretNodeID != nil &&
 			*event.SecretNodeID == secretID &&
-			event.Description == "User removed themselves from shared secret (permission: write)"
+			event.Description == "User removed themselves from shared secret (permission: write) (share 1)" // #2941: names the share
 	})).Return(nil)
 
 	// Execute

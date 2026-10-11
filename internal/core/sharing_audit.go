@@ -46,6 +46,18 @@ type ShareAuditContext struct {
 	IsGroup       bool
 	Permission    string
 	OldPermission string // For update events
+	// ShareID is the share record the event is about (#2941: every share
+	// create/update/revoke names its share, so an elevated action's
+	// share_access_elevated row can be tied back to the grant). 0 = unknown.
+	ShareID uint
+}
+
+// shareRef renders " (share N)" for a known share id, "" otherwise.
+func shareRef(auditCtx *ShareAuditContext) string {
+	if auditCtx.ShareID == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (share %d)", auditCtx.ShareID)
 }
 
 // LogShareCreated logs a share creation event
@@ -55,7 +67,7 @@ func (c *KeyorixCore) LogShareCreated(ctx context.Context, auditCtx *ShareAuditC
 		recipientType = "group"
 	}
 
-	desc := fmt.Sprintf("Shared %s with %s (permission: %s)", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID), auditCtx.Permission)
+	desc := fmt.Sprintf("Shared %s with %s (permission: %s)%s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID), auditCtx.Permission, shareRef(auditCtx))
 	// Route through the shared choke point so impersonation context
 	// (ActorType/ImpersonatedBy/ActingAs/Impersonation) gets stamped consistently (#284).
 	c.writeAuditEvent(ctx, string(ShareAuditEventCreated), &auditCtx.ActorID, &auditCtx.SecretID, desc)
@@ -68,8 +80,8 @@ func (c *KeyorixCore) LogShareUpdated(ctx context.Context, auditCtx *ShareAuditC
 		recipientType = "group"
 	}
 
-	desc := fmt.Sprintf("Updated share permission of %s for %s (from %s to %s)",
-		c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID), auditCtx.OldPermission, auditCtx.Permission)
+	desc := fmt.Sprintf("Updated share permission of %s for %s (from %s to %s)%s",
+		c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID), auditCtx.OldPermission, auditCtx.Permission, shareRef(auditCtx))
 	c.writeAuditEvent(ctx, string(ShareAuditEventUpdated), &auditCtx.ActorID, &auditCtx.SecretID, desc)
 }
 
@@ -80,31 +92,31 @@ func (c *KeyorixCore) LogShareRevoked(ctx context.Context, auditCtx *ShareAuditC
 		recipientType = "group"
 	}
 
-	desc := fmt.Sprintf("Revoked share of %s for %s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID))
+	desc := fmt.Sprintf("Revoked share of %s for %s%s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID), shareRef(auditCtx))
 	c.writeAuditEvent(ctx, string(ShareAuditEventRevoked), &auditCtx.ActorID, &auditCtx.SecretID, desc)
 }
 
 // LogGroupShareCreated logs a group share creation event
 func (c *KeyorixCore) LogGroupShareCreated(ctx context.Context, auditCtx *ShareAuditContext) {
-	desc := fmt.Sprintf("Shared %s with %s (permission: %s)", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID), auditCtx.Permission)
+	desc := fmt.Sprintf("Shared %s with %s (permission: %s)%s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID), auditCtx.Permission, shareRef(auditCtx))
 	c.writeAuditEvent(ctx, string(ShareAuditEventGroupCreated), &auditCtx.ActorID, &auditCtx.SecretID, desc)
 }
 
 // LogGroupShareUpdated logs a group share permission update event
 func (c *KeyorixCore) LogGroupShareUpdated(ctx context.Context, auditCtx *ShareAuditContext) {
-	desc := fmt.Sprintf("Updated group share permission of %s for %s (from %s to %s)",
-		c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID), auditCtx.OldPermission, auditCtx.Permission)
+	desc := fmt.Sprintf("Updated group share permission of %s for %s (from %s to %s)%s",
+		c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID), auditCtx.OldPermission, auditCtx.Permission, shareRef(auditCtx))
 	c.writeAuditEvent(ctx, string(ShareAuditEventGroupUpdated), &auditCtx.ActorID, &auditCtx.SecretID, desc)
 }
 
 // LogGroupShareRevoked logs a group share revocation event
 func (c *KeyorixCore) LogGroupShareRevoked(ctx context.Context, auditCtx *ShareAuditContext) {
-	desc := fmt.Sprintf("Revoked group share of %s for %s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID))
+	desc := fmt.Sprintf("Revoked group share of %s for %s%s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID), shareRef(auditCtx))
 	c.writeAuditEvent(ctx, string(ShareAuditEventGroupRevoked), &auditCtx.ActorID, &auditCtx.SecretID, desc)
 }
 
 // LogSelfRemovalFromShare logs when a user removes themselves from a shared secret
 func (c *KeyorixCore) LogSelfRemovalFromShare(ctx context.Context, auditCtx *ShareAuditContext) {
-	desc := fmt.Sprintf("User removed themselves from shared secret (permission: %s)", auditCtx.Permission)
+	desc := fmt.Sprintf("User removed themselves from shared secret (permission: %s)%s", auditCtx.Permission, shareRef(auditCtx))
 	c.writeAuditEvent(ctx, string(ShareAuditEventSelfRemoved), &auditCtx.ActorID, &auditCtx.SecretID, desc)
 }

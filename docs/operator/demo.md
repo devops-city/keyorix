@@ -123,10 +123,13 @@ holding the global `admin` role from bootstrap is not enough:
 Expected: `✅ Secret shared successfully!`, then a one-row share list showing
 alice (recipient ID 2) with `read` permission.
 
-**What the share does — and what revoking shows.** alice must already hold a
+(Skipping the two `rbac assign-role` lines makes `share create` refuse with
+the reason: you, or alice, are not a member of the secret's project.)
+
+**What the share does, and what revoking shows.** alice must already hold a
 project role to receive a share, and with `project_viewer` she can read the
 secret through that role. Access is the union of owner, shares, ACLs and roles, so
-the share is an *additional* path:
+a `read` share is an *additional* path:
 
 ```bash
 ./bin/keyorix share revoke --share-id 1     # the share record is gone (share list is empty)
@@ -135,11 +138,15 @@ the share is an *additional* path:
 # NOW alice's access is gone.
 ```
 
-Demo it in that order: share → `share list` → revoke (the record and the
-`share.revoked` audit event are the visible effect) → remove the role to show
+Demo it in that order: share, `share list`, revoke (the record and the
+`share.revoked` audit event are the visible effect), then remove the role to show
 access actually ending. Do not present "revoke the share" alone as the moment alice
-loses access. (A recipient with no project role cannot be shared to at all:
-`share create` is refused until they are a member of the secret's project.)
+loses access.
+
+A `write` share is different: share with `--permission write` and alice, a
+`project_viewer`, can `secret update --id 1` (value, metadata, rotate; not
+suspend, move or anything else a role would grant); `share revoke` takes exactly
+that away again while her role's read stays.
 
 (Skipping the two `rbac assign-role` lines and going straight to
 `share create` is what QUICK_START.md's own sharing example currently shows

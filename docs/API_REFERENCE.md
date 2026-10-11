@@ -274,6 +274,18 @@ Content-Type: application/json
 }
 ```
 
+### Search Share Recipients (project-scoped)
+```http
+GET /api/v1/projects/{id}/share-recipients?q=al&page=1&page_size=20
+Authorization: Bearer <token>
+```
+The active members of project `{id}` that the caller can share a secret with: id,
+username and display name; email only when the caller holds `users.read` at the
+project. The caller needs `secrets.write` at the project and must be a member of it,
+or must hold global `users.read`. A project-only admin can use it; `GET /users` needs
+global `users.read`. Every refusal is the same 403 with a reason. Details:
+[SECRET_SHARING_API.md](SECRET_SHARING_API.md#8-search-share-recipients-in-a-project).
+
 ### List Shares
 ```http
 GET /api/v1/shares

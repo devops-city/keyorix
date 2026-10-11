@@ -25,23 +25,63 @@ Secret sharing in Keyorix allows you to securely collaborate by giving other use
 - **Real-time Updates**: Changes are immediately reflected across all interfaces
 
 ### Who Can Share Secrets?
-- **Secret Owners**: Can share their secrets with others
-- **Users with Write Permission**: Can modify shared secret content (but not sharing settings)
+- **Secret Owners**: Can share their secrets with others, as long as they are a
+  member of the secret's project (they hold a role in that project). A global
+  role, such as the bootstrap `admin`, does not make anyone a member of a
+  project: give yourself a project role first (for example `project_admin`).
+- **Users with Write ("Read & Write") Permission**: Can read the secret, update its value and
+  metadata (description, tags, type), and rotate it. Nothing else: see the next section.
 - **Users with Read Permission**: Can view shared secrets but cannot modify them
 
-### Shares and project roles: how they combine
+### How a Share Combines with a Project Role
+A share can only go to a **member of the secret's project**, and it only
+applies while the recipient is still a member. For that member, the
+permission on the shared secret is the **higher** of the two:
+
+| Project role gives | Share gives | Effective on that secret |
+|---|---|---|
+| read (e.g. `project_viewer`) | none | read |
+| read | `read` | read |
+| read | `write` | read **+ update value and metadata, rotate** (the share elevates them for these three only) |
+| write (e.g. `project_developer`) | `read` | everything the role allows (the role already covers it) |
+
+- The elevation covers that one secret only, never the rest of the project.
+- A `write` share elevates exactly three actions: **update the value**,
+  **update metadata** (description, tags, type), and **rotate**. Everything
+  else that needs `secrets.write` still needs a project role, even with a
+  `write` share: suspend and resume, changing the expiry or the read limit,
+  moving the secret, rolling it back to an older version, transferring
+  ownership, classification, auto-rotation settings, dependencies and version
+  comments. The refusal says so: "A share on this secret only lets you update
+  its value and metadata or rotate it."
+- A share never grants delete, restore, secret management (`secrets.manage`:
+  ACLs, schedules, retention) or the right to share the secret onward. Only
+  the owner can share, change or revoke shares, including other people's.
+- Revoking a share removes exactly the elevation. The recipient keeps whatever
+  their role gives them (in the table above, a `project_viewer` keeps read).
+- An expired share grants nothing, even before it is cleaned up.
+- A share to someone who is later removed from the project stops applying at
+  once.
+- Every action a share made possible (one the recipient's role alone would
+  not allow) is audited as `share_access_elevated` when it is performed,
+  naming the action (`secret.update`, `secret.update_metadata`,
+  `secret.rotate`), the secret, the share ID and the recipient. A refused or
+  failed request writes no such event, and neither does an action the
+  recipient's role already allowed. Share create, update and revoke events
+  name the share ID too.
+
+If a share is refused, the error says why: "you are not a member of this
+secret's project" (the owner needs a project role) or "the recipient is not a
+member of this secret's project" (the recipient needs one).
 
 A user's access to a secret is the **union** of every path that grants it: being the
 owner, a direct share, a group share, a per-secret ACL, and a role on the secret's
-project. A share *adds* a path; **revoking it removes only that path.**
-
-The recipient of a user share must already be a member of the secret's project (hold
-a role scoped to it). If that role already grants read (every built-in project role,
-including `project_viewer`, does), the recipient keeps reading the secret after the
-share is revoked — the share was not what gave them access. To end their access,
-also remove the role (`keyorix rbac remove-role`). A `write` share is not a reliable
-way to give a read-only role edit rights (see #2941). `keyorix secret access` lists
-owner and share access only, not role-derived access.
+project. A share *adds* a path; **revoking it removes only that path.** If the
+recipient's project role already grants read (every built-in project role,
+including `project_viewer`, does), they keep reading the secret after the share is
+revoked: the share was not what gave them read. To end their access, also remove
+the role (`keyorix rbac remove-role`). `keyorix secret access` lists owner and
+share access only, not role-derived access.
 
 ## Getting Started
 
@@ -77,7 +117,11 @@ See the [API Documentation](SECRET_SHARING_API.md) for programmatic access.
 #### Via Web Interface
 1. **Select Secret**: Navigate to the secret you want to share
 2. **Click Share**: Click the "Share" button
-3. **Choose Recipient**: Enter the username or select from suggestions
+3. **Choose Recipient**: Type a name, username or email and pick from the
+   suggestions. The suggestions are the active members of the secret's project,
+   because a share can only go to a project member. A project-only admin sees them
+   too; no global role is needed. If you have no role in the project that allows
+   sharing, the dialog says so instead of listing anyone.
 4. **Set Permission**: Choose "Read" or "Write" permission
 5. **Confirm**: Click "Share Secret" to complete
 

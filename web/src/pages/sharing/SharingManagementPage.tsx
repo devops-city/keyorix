@@ -1,6 +1,5 @@
 import { formatDateTime } from '../../utils/datetime';
 import { SHARE_WRITE_LABEL, sharePermissionLabel } from '../../utils/sharePermission';
-import { apiErrorMessage } from '../../services/client';
 import React, { useState } from 'react';
 import {
     ShareIcon,
@@ -27,6 +26,7 @@ import { Loading } from '../../components/ui/Loading';
 import { Alert } from '../../components/ui/Alert';
 import { Modal } from '../../components/ui/Modal';
 import { Dialog } from '../../components/ui/Dialog';
+import { apiErrorMessage } from '../../services/client';
 
 const ITEMS_PER_PAGE = 20;
 
@@ -636,11 +636,7 @@ export const SharingManagementPage: React.FC = () => {
                         <Alert
                             type="error"
                             title="Error"
-                            message={
-                                updateShare.error instanceof Error
-                                    ? updateShare.error.message
-                                    : 'Failed to update share.'
-                            }
+                            message={apiErrorMessage(updateShare.error, 'Failed to update share.')}
                         />
                     )}
                     <div>

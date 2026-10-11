@@ -101,7 +101,22 @@ type PermissionContext struct {
 }
 
 // CheckSecretPermission checks if a user has the required permission for a secret.
-func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userID uint, requiredPermission PermissionLevel) (*PermissionContext, error) { // NOSONAR -- cognitive complexity 16, suppress go:S3776
+// It names no SecretAction, so a write share does not satisfy PermissionWrite here
+// (#3001 follow-up: unnamed means not allowlisted); a core write path that a share may
+// elevate calls EnforceSecretActionPermission with its action.
+func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userID uint, requiredPermission PermissionLevel) (*PermissionContext, error) {
+	return c.checkSecretPermission(ctx, secretID, userID, requiredPermission, "")
+}
+
+// EnforceSecretActionPermission enforces write permission for action on the secret:
+// owner, an allowlisted share (secretActionShareElevates), an ACL or a role. A refusal
+// for an actor whose share covers secrets.write but not this action wraps
+// ErrShareActionNotElevated, so transports can say why (ShareRefusalMessage).
+func (c *KeyorixCore) EnforceSecretActionPermission(ctx context.Context, secretID, userID uint, action SecretAction) (*PermissionContext, error) {
+	return c.checkSecretPermission(ctx, secretID, userID, PermissionWrite, action)
+}
+
+func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userID uint, requiredPermission PermissionLevel, action SecretAction) (*PermissionContext, error) { // NOSONAR -- cognitive complexity 16, suppress go:S3776
 	if secretID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "secret ID is required")
 	}
@@ -139,42 +154,20 @@ func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userI
 		}, nil
 	}
 
-	shares, err := c.storage.ListSharesBySecret(ctx, secretID, c.shareEffectiveNow())
+	// Direct and group shares: the one share term every per-secret decision uses
+	// (share_authz.go) — active, project-member-only, read|write only.
+	grant, err := c.sharePermissionFor(ctx, userID, secretID, secret.ProjectID, requiredPermission, action)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+		return nil, err
 	}
-	// Drop expired (time-bound) shares before any authorization: an expired share
-	// must never grant access, even though the sweep that reclaims its row runs later.
-	shares = activeShares(shares, c.shareEffectiveNow())
-
-	// Check direct shares.
-	for _, share := range shares {
-		if !share.IsGroup && share.RecipientID == userID {
-			permission := PermissionLevel(share.Permission)
-			if c.hasRequiredPermission(permission, requiredPermission) {
-				return &PermissionContext{
-					SecretID:   secretID,
-					UserID:     userID,
-					Permission: permission,
-					Source:     "direct_share",
-					ShareID:    &share.ID,
-				}, nil
-			}
-		}
-	}
-
-	// Check group shares.
-	groupPermission, shareID, err := c.CheckGroupPermissions(ctx, secretID, userID, shares, secret.ProjectID)
-	if err == nil && groupPermission != PermissionNone {
-		if c.hasRequiredPermission(groupPermission, requiredPermission) {
-			return &PermissionContext{
-				SecretID:   secretID,
-				UserID:     userID,
-				Permission: groupPermission,
-				Source:     "group_share",
-				ShareID:    shareID,
-			}, nil
-		}
+	if grant.Level != PermissionNone {
+		return &PermissionContext{
+			SecretID:   secretID,
+			UserID:     userID,
+			Permission: grant.Level,
+			Source:     grant.Source,
+			ShareID:    grant.ShareID,
+		}, nil
 	}
 
 	// Per-secret ACL fallback (RBAC Phase 3, additive — see secret_acl.go's design
@@ -246,6 +239,9 @@ func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userI
 		}
 	}
 
+	if c.shareCoversButNotElevated(ctx, userID, secretID, secret.ProjectID, requiredPermission, action) {
+		return nil, shareRefusal(ErrShareActionNotElevated)
+	}
 	return nil, fmt.Errorf("%s: insufficient permissions", i18n.T("ErrorPermissionDenied", nil))
 }
 
@@ -334,9 +330,10 @@ func (c *KeyorixCore) ValidateSecretAccess(ctx context.Context, secretID, userID
 	return c.EnforceSecretReadPermission(ctx, secretID, userID)
 }
 
-// CanUserModifySecret checks if a user can modify a secret (requires write or owner permission).
+// CanUserModifySecret checks if a user can modify a secret's value (write or owner
+// permission; a write share counts, since updating the value is allowlisted).
 func (c *KeyorixCore) CanUserModifySecret(ctx context.Context, secretID, userID uint) (bool, error) {
-	permCtx, err := c.CheckSecretPermission(ctx, secretID, userID, PermissionWrite)
+	permCtx, err := c.EnforceSecretActionPermission(ctx, secretID, userID, SecretActionUpdate)
 	if err != nil {
 		return false, nil
 	}

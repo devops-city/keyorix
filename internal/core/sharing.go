@@ -55,10 +55,10 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 	// only while still a live member of the secret's project — mirrors
 	// CheckSecretPermission's owner branch (RBAC-001): an owner removed from the
 	// project keeps their OwnerID tag until ClearProjectSecretOwnership runs.
-	if isLiveOwner, err := c.requireLiveOwnerAuthority(ctx, secret, req.SharedBy); err != nil {
+	// requireShareAuthority says which half failed (#2976: a global-only admin owns
+	// what they create but is a member of no project, and used to get a bare 403).
+	if err := c.requireShareAuthority(ctx, secret, req.SharedBy); err != nil {
 		return nil, err
-	} else if !isLiveOwner {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorPermissionDenied", nil))
 	}
 
 	// For user shares, reject cross-project grants: the recipient must be a member of
@@ -72,7 +72,7 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 		if isMember, merr := c.IsProjectMember(ctx, req.RecipientID, secret.ProjectID); merr != nil {
 			return nil, fmt.Errorf("failed to verify project membership: %w", merr)
 		} else if !isMember {
-			return nil, fmt.Errorf("%s", i18n.T("ErrorPermissionDenied", nil))
+			return nil, shareRefusal(ErrShareRecipientNotMember)
 		}
 	}
 
@@ -101,6 +101,7 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 		RecipientID: req.RecipientID,
 		IsGroup:     req.IsGroup,
 		Permission:  req.Permission,
+		ShareID:     createdShare.ID,
 	}
 	if req.IsGroup {
 		c.LogGroupShareCreated(ctx, auditCtx)
@@ -131,10 +132,8 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 		return nil, err
 	}
 	// Owner authority also requires live project membership — see ShareSecret.
-	if isLiveOwner, err := c.requireLiveOwnerAuthority(ctx, secret, req.UpdatedBy); err != nil {
+	if err := c.requireShareAuthority(ctx, secret, req.UpdatedBy); err != nil {
 		return nil, err
-	} else if !isLiveOwner {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorPermissionDenied", nil))
 	}
 
 	if shareRecord.ExpiresAt != nil && shareRecord.ExpiresAt.Before(c.now()) {
@@ -168,6 +167,7 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 		IsGroup:       updatedShare.IsGroup,
 		Permission:    updatedShare.Permission,
 		OldPermission: oldPermission,
+		ShareID:       updatedShare.ID,
 	}
 	if updatedShare.IsGroup {
 		c.LogGroupShareUpdated(ctx, auditCtx)
@@ -190,10 +190,8 @@ func (c *KeyorixCore) RevokeShare(ctx context.Context, shareID uint, revokedBy u
 		return err
 	}
 	// Owner authority also requires live project membership — see ShareSecret.
-	if isLiveOwner, err := c.requireLiveOwnerAuthority(ctx, secret, revokedBy); err != nil {
+	if err := c.requireShareAuthority(ctx, secret, revokedBy); err != nil {
 		return err
-	} else if !isLiveOwner {
-		return fmt.Errorf("%s", i18n.T("ErrorPermissionDenied", nil))
 	}
 
 	// Wrapped in a transaction (not a bare c.storage.DeleteShareRecord call) so a
@@ -221,6 +219,7 @@ func (c *KeyorixCore) RevokeShare(ctx context.Context, shareID uint, revokedBy u
 		RecipientID: shareRecord.RecipientID,
 		IsGroup:     shareRecord.IsGroup,
 		Permission:  shareRecord.Permission,
+		ShareID:     shareRecord.ID,
 	}
 	if shareRecord.IsGroup {
 		c.LogGroupShareRevoked(ctx, auditCtx)
@@ -277,6 +276,7 @@ func (c *KeyorixCore) RemoveSelfFromShare(ctx context.Context, secretID, userID 
 		RecipientID: userID,
 		IsGroup:     false,
 		Permission:  shareToRemove.Permission,
+		ShareID:     shareToRemove.ID,
 	})
 	return nil
 }

@@ -96,6 +96,10 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 			// PrincipalRateLimit (post-auth, per-principal) and the inline per-IP
 			// token-failure budget in its auth middleware (server/middleware/auth.go).
 			interceptors.GRPCRateLimitInterceptor(cfg.Server.GRPC.RateLimit),
+			// Innermost: a per-RPC recorder for share elevations, committed to the audit
+			// log only when the handler succeeds (an elevated action is audited when
+			// performed). Without it core refuses write-share elevation, so it must stay.
+			interceptors.ShareElevationAuditInterceptor(coreService),
 		),
 		// The stream chain intentionally carries no metrics interceptor: MetricsInterceptor
 		// (and the keyorix_grpc_requests_total / _duration_seconds_total series it feeds)

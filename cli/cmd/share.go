@@ -39,7 +39,15 @@ var (
 var shareCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Share a secret with another user or group",
-	RunE:  runShareCreate,
+	Long: `Share a secret with another user or group. The recipient must be a member of
+the secret's project.
+
+  read   the recipient can read the secret.
+  write  the recipient can also update its value and metadata (description, tags)
+         and rotate it. A write share never lets them suspend or resume it, change
+         its expiry or read limit, move it, roll it back, transfer ownership,
+         re-share it, change access rules or delete it: those need a project role.`,
+	RunE: runShareCreate,
 }
 
 var shareListSecretID int
@@ -99,7 +107,7 @@ func init() {
 	shareCreateCmd.Flags().IntVar(&shareCreateSecretID, "secret-id", 0, "Secret ID (required)")
 	shareCreateCmd.Flags().IntVar(&shareCreateRecipientID, "recipient-id", 0, "Recipient ID (required)")
 	shareCreateCmd.Flags().BoolVar(&shareCreateIsGroup, "is-group", false, "Whether the recipient is a group")
-	shareCreateCmd.Flags().StringVar(&shareCreatePermission, "permission", "read", "Permission level (read or write)")
+	shareCreateCmd.Flags().StringVar(&shareCreatePermission, "permission", "read", "Permission level: read, or write (read + update value/metadata + rotate; see --help)")
 	shareCreateCmd.Flags().StringVar(&shareCreateExpires, "expires", "", "Make the share time-bound: absolute expiry (RFC3339, e.g. 2026-07-01T15:00:00Z)")
 	shareCreateCmd.Flags().StringVar(&shareCreateTTL, "ttl", "", "Make the share time-bound: lifetime from now (Go duration, e.g. 24h, 30m); mutually exclusive with --expires")
 	_ = shareCreateCmd.MarkFlagRequired("secret-id")    // #nosec G104
@@ -109,7 +117,7 @@ func init() {
 	_ = shareListCmd.MarkFlagRequired("secret-id") // #nosec G104
 
 	shareUpdateCmd.Flags().IntVar(&shareUpdateShareID, "share-id", 0, "Share ID (required)")
-	shareUpdateCmd.Flags().StringVar(&shareUpdatePermission, "permission", "", "Permission level (read or write) (required)")
+	shareUpdateCmd.Flags().StringVar(&shareUpdatePermission, "permission", "", "Permission level: read, or write (read + update value/metadata + rotate) (required)")
 	shareUpdateCmd.Flags().StringVar(&shareUpdateExpires, "expires", "", "Set/extend the time-bound expiry: absolute (RFC3339)")
 	shareUpdateCmd.Flags().StringVar(&shareUpdateTTL, "ttl", "", "Set/extend the time-bound expiry: lifetime from now (Go duration, e.g. 24h); mutually exclusive with --expires")
 	shareUpdateCmd.Flags().BoolVar(&shareUpdateClearExpiry, "clear-expiry", false, "Make the share permanent (remove its expiry)")

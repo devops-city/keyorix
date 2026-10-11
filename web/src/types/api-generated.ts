@@ -1096,6 +1096,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/share-recipients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search share recipients in a project
+         * @description The active members of the project that the caller could share a secret with, for the Share dialog. Requires secrets.write at the project's scope, and the caller must be a member of the project (the rule ShareSecret applies to a secret's owner) or hold global users.read. A project-only admin can therefore find recipients without the global users.read that GET /api/v1/users needs. Only members whose account is active are listed (not suspended, deprovisioned, deactivated or deleted), ordered by username. Each result carries id, username and display_name; email is included, and matched by q, only when the caller holds users.read at the project's scope. Every refusal is the same 403 with a fixed reason, whether or not the project exists.
+         */
+        get: operations["searchShareRecipients"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/members": {
         parameters: {
             query?: never;
@@ -7661,6 +7681,51 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    searchShareRecipients: {
+        parameters: {
+            query?: {
+                /** @description Case-insensitive prefix of the username, the display name (or any word of it) or, when visible, the email. Empty lists every recipient. */
+                q?: string;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Envelope `{success, data}`. `data.recipients` is one page of results; `data.total` counts every match. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            recipients: {
+                                /** Format: uint32 */
+                                id: number;
+                                username: string;
+                                display_name: string;
+                                /** @description Present only when the caller holds users.read at the project's scope. */
+                                email?: string;
+                            }[];
+                            total: number;
+                            page: number;
+                            page_size: number;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
         };
     };
     listProjectMembers: {
