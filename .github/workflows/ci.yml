@@ -59,9 +59,12 @@ permissions: {}
 # left ~20 approved PRs with an all-cancelled run reported as a build-and-test
 # failure. A push (synchronize), reopen, or the ci:full label still supersede
 # the in-flight run exactly as before.
+# Only pull_request runs are ever superseded. push to main, merge_group and
+# workflow_dispatch get a group of their own (run_id), so neither an in-flight
+# nor a queued run of those is cancelled by a newer one.
 concurrency:
-  group: ci-${{ github.ref }}${{ (github.event.action == 'labeled' && github.event.label.name != 'ci:full') && format('-label-{0}', github.run_id) || (github.event_name == 'schedule' && format('-nightly-{0}', github.run_id)) || '' }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.run_id }}${{ (github.event.action == 'labeled' && github.event.label.name != 'ci:full') && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Pinned security tooling (SSDLC Phase 1, June 2026). Do not use @latest:
@@ -1711,16 +1714,15 @@ jobs:
       - name: Verify the seed through the public API (not the database)
         run: |
           set -e
-          # Single source of truth: the demo admin password is the fixed
-          # constant scripts/demo/up.sh bootstrapped with; read it from there
-          # instead of repeating the literal in the workflow.
-          admin_pw=$(sed -n 's/^ADMIN_PASSWORD="\(.*\)"$/\1/p' scripts/demo/up.sh)
-          [ -n "$admin_pw" ] || { echo "could not read ADMIN_PASSWORD from scripts/demo/up.sh" >&2; exit 1; }
-          body=$(jq -n --arg p "$admin_pw" '{username:"admin",password:$p}')
-          TOKEN=$(curl -s -X POST http://localhost:8080/auth/login \
-            -H 'Content-Type: application/json' \
-            -d "$body" | \
-            jq -r '.data.token')
+          # up.sh enrols TOTP for the admin (#2982), so a password login needs a
+          # code, and every accepted code is single-use (anti-replay): a second
+          # login here replays up.sh's window (-> 401) or has to wait out a step,
+          # and every login AND MFA verify spends a slot of the per-IP budget
+          # (10 per 15 min) that up.sh (3) and the check.sh step below (6) already
+          # nearly use up (the 11th attempt is the 429). So reuse the admin
+          # session up.sh obtained with its code login instead of logging in again.
+          TOKEN=$(cat .demo-2-cli-home/.admin-session-token)
+          [ -n "$TOKEN" ] || { echo "up.sh left no admin session token in .demo-2-cli-home" >&2; exit 1; }
           projects=$(curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/projects | \
             jq -r '.data.projects | length')
           [ "$projects" = "3" ] || { echo "expected 3 seeded projects, got $projects" >&2; exit 1; }

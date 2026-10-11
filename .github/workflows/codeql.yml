@@ -43,8 +43,8 @@ permissions:
 # happens to overlap a push-triggered run, that push-run already scans the
 # current code, making the concurrent scheduled one redundant.
 concurrency:
-  group: codeql-${{ github.ref }}
-  cancel-in-progress: true
+  group: codeql-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: '1.27.2'

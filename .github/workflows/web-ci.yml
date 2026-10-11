@@ -31,8 +31,8 @@ permissions: {}
 
 # Cancel superseded runs on the same ref (matches web's original ci.yml).
 concurrency:
-  group: web-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: web-ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:

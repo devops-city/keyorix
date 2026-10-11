@@ -50,8 +50,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: pg-race-tests-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: pg-race-tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   pg-gated-race-tests:

@@ -24,8 +24,8 @@ permissions: {}
 # a later push/merge on the same branch makes an in-flight run's result moot
 # before it even finishes.
 concurrency:
-  group: sonarcloud-${{ github.ref }}
-  cancel-in-progress: true
+  group: sonarcloud-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Sonar's "New Code Coverage" gate only evaluates lines this PR actually

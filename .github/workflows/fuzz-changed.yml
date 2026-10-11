@@ -58,8 +58,8 @@ permissions:
   contents: read
 # A new push to the same PR supersedes the previous run instead of stacking.
 concurrency:
-  group: fuzz-changed-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: fuzz-changed-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   FUZZTIME: 90s   # per fuzz target
   FUZZ_SHARDS: 6  # max parallel fuzz jobs

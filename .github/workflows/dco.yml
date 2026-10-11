@@ -19,8 +19,8 @@ permissions:
 # Cancel superseded runs for the same PR/ref (2026-09-28, runner-cap relief).
 # merge_group refs are unique per group, so queue runs never cancel each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Named `dco-check`, not the generic `check` this job originally used --

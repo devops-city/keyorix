@@ -18,8 +18,8 @@ permissions: {}
 # a later push/merge on the same branch makes an in-flight run's result moot
 # before it even finishes.
 concurrency:
-  group: trivy-${{ github.ref }}
-  cancel-in-progress: true
+  group: trivy-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scan:
