@@ -161,16 +161,18 @@ func (c *KeyorixCore) GetDashboardStats(ctx context.Context, userID uint, userna
 	outgoing, err := c.storage.ListSharesByOwner(ctx, userID, c.shareEffectiveNow())
 	sharedSecrets := 0
 	if err == nil {
-		sharedSecrets = len(outgoing)
-	} else {
+		sharedSecrets, err = c.countSharesVisibleToPAT(ctx, outgoing)
+	}
+	if err != nil {
 		stats.degrade("shared_secrets", err)
 	}
 
 	incoming, err := c.storage.ListSharesByUser(ctx, userID, c.shareEffectiveNow())
 	sharedWithMe := 0
 	if err == nil {
-		sharedWithMe = len(incoming)
-	} else {
+		sharedWithMe, err = c.countSharesVisibleToPAT(ctx, incoming)
+	}
+	if err != nil {
 		stats.degrade("shared_with_me", err)
 	}
 
@@ -186,15 +188,14 @@ func (c *KeyorixCore) GetDashboardStats(ctx context.Context, userID uint, userna
 	// read.
 	hasAuditRead, _ := c.AuthorizePrincipal(ctx, actorTypeFromContext(ctx), principalID, "audit.read", Scope{})
 
-	var auditActor *uint
-	if !hasAuditRead {
-		auditActor = &userID
+	var events []*models.AuditEvent
+	if hasAuditRead {
+		// audit.read (honoured through AuthorizePrincipal, so a restricted PAT has it
+		// only at global scope) authorizes the deployment-wide log, as on GET /audit.
+		events, _, err = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{Page: 1, PageSize: dashboardRecentActivity})
+	} else {
+		events, err = c.ownRecentActivity(ctx, userID)
 	}
-	events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{
-		UserID:   auditActor,
-		Page:     1,
-		PageSize: 5,
-	})
 	if err != nil {
 		stats.degrade("recent_activity", err)
 	}
@@ -228,7 +229,10 @@ func (c *KeyorixCore) GetDashboardStats(ctx context.Context, userID uint, userna
 	if hasAuditRead {
 		c.saveDeploymentSnapshot(ctx, stats)
 	}
-	c.saveUserSnapshot(ctx, userID, stats, total, sharedSecrets, sharedWithMe)
+	// The per-user snapshot is the user's trend baseline. A restricted PAT's numbers
+	// describe only its restriction, so saving them would skew the user's own trend.
+	// It still reads the baseline for its trend arrows.
+	c.saveUserSnapshot(ctx, userID, stats, total, sharedSecrets, sharedWithMe, patRestrictionFromContext(ctx) == nil)
 
 	return stats, nil
 }
@@ -267,13 +271,16 @@ func (c *KeyorixCore) saveDeploymentSnapshot(ctx context.Context, stats *Dashboa
 }
 
 // saveUserSnapshot persists per-user stats and back-fills trend fields.
-func (c *KeyorixCore) saveUserSnapshot(ctx context.Context, userID uint, stats *DashboardStats, total int64, sharedSecrets, sharedWithMe int) {
+func (c *KeyorixCore) saveUserSnapshot(ctx context.Context, userID uint, stats *DashboardStats, total int64, sharedSecrets, sharedWithMe int, persist bool) {
 	prev, err := c.storage.GetPreviousStatsSnapshot(ctx, userID)
 	if err == nil && prev != nil {
 		stats.TotalSecretsTrend = computeTrend(float64(prev.TotalSecrets), float64(total))
 		stats.SharedSecretsTrend = computeTrend(float64(prev.SharedSecrets), float64(sharedSecrets))
 		stats.SharedWithMeTrend = computeTrend(float64(prev.SecretsSharedWithMe), float64(sharedWithMe))
 		stats.PrevTotalSecrets = &prev.TotalSecrets
+	}
+	if !persist {
+		return
 	}
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	existing, _ := c.storage.GetPreviousStatsSnapshot(ctx, userID)
@@ -379,6 +386,7 @@ func (c *KeyorixCore) getExpiringSecrets(ctx context.Context, username string) (
 	const pageSize = 200
 	var result []ExpiringSecret
 	var pageErr error
+	scanned := 0
 	for page := 1; ; page++ {
 		secrets, total, err := c.storage.ListSecrets(ctx, &storage.SecretFilter{
 			CreatedBy:     &username,
@@ -390,9 +398,13 @@ func (c *KeyorixCore) getExpiringSecrets(ctx context.Context, username string) (
 			pageErr = err
 			break
 		}
+		scanned += len(secrets)
 		for _, s := range secrets {
 			if s.Expiration == nil {
 				continue // defensive; the filter already excludes nulls
+			}
+			if !patAllowsSecretRead(ctx, s) {
+				continue // names a secret outside the PAT restriction (PAT-GUARD-1)
 			}
 			exp := s.Expiration.UTC()
 			envName := envNames[s.EnvironmentID]
@@ -408,7 +420,7 @@ func (c *KeyorixCore) getExpiringSecrets(ctx context.Context, username string) (
 				Expired:     exp.Before(now),
 			})
 		}
-		if len(secrets) < pageSize || int64(len(result)) >= total {
+		if len(secrets) < pageSize || int64(scanned) >= total {
 			break
 		}
 	}

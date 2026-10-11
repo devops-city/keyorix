@@ -2249,6 +2249,27 @@ func (m *MockStorage) ListNotifications(ctx context.Context, userID uint, unread
 	return args.Get(0).([]*models.Notification), args.Error(1)
 }
 
+func (m *MockStorage) ListScopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope, unreadOnly bool, limit int) ([]*models.Notification, error) {
+	args := m.Called(ctx, userID, scope, unreadOnly, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.Notification), args.Error(1)
+}
+
+func (m *MockStorage) CountUnreadScopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope) (int64, error) {
+	args := m.Called(ctx, userID, scope)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *MockStorage) MarkScopedNotificationRead(ctx context.Context, id, userID uint, scope storage.NotificationScope) error {
+	return m.Called(ctx, id, userID, scope).Error(0)
+}
+
+func (m *MockStorage) MarkAllScopedNotificationsRead(ctx context.Context, userID uint, scope storage.NotificationScope) error {
+	return m.Called(ctx, userID, scope).Error(0)
+}
+
 func (m *MockStorage) CountUnreadNotifications(ctx context.Context, userID uint) (int64, error) {
 	args := m.Called(ctx, userID)
 	return args.Get(0).(int64), args.Error(1)

@@ -138,3 +138,55 @@ func (ls *LocalStorage) MarkAllNotificationsRead(ctx context.Context, userID uin
 	}
 	return nil
 }
+
+// scopedNotifications is the user's notifications inside scope (a restricted PAT's
+// feed, PAT-GUARD-1). Rows with no project are never in scope.
+func (ls *LocalStorage) scopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope) *gorm.DB {
+	q := ls.db.WithContext(ctx).Model(&models.Notification{}).Where("user_id = ? AND project_id IS NOT NULL", userID)
+	if scope.ProjectID != 0 {
+		q = q.Where("project_id = ?", scope.ProjectID)
+	}
+	return q
+}
+
+func (ls *LocalStorage) ListScopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope, unreadOnly bool, limit int) ([]*models.Notification, error) {
+	if limit <= 0 || limit > 200 {
+		limit = defaultNotificationLimit
+	}
+	q := ls.scopedNotifications(ctx, userID, scope)
+	if unreadOnly {
+		q = q.Where("is_read = ?", false)
+	}
+	var rows []*models.Notification
+	if err := q.Order("created_at DESC").Limit(limit).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	return rows, nil
+}
+
+func (ls *LocalStorage) CountUnreadScopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope) (int64, error) {
+	var n int64
+	if err := ls.scopedNotifications(ctx, userID, scope).Where("is_read = ?", false).Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	return n, nil
+}
+
+func (ls *LocalStorage) MarkScopedNotificationRead(ctx context.Context, id, userID uint, scope storage.NotificationScope) error {
+	res := ls.scopedNotifications(ctx, userID, scope).Where("id = ?", id).Update("is_read", true)
+	if res.Error != nil {
+		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)
+	}
+	if res.RowsAffected == 0 {
+		// No row for this (id, user) inside scope — the same answer as not found.
+		return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+	}
+	return nil
+}
+
+func (ls *LocalStorage) MarkAllScopedNotificationsRead(ctx context.Context, userID uint, scope storage.NotificationScope) error {
+	if err := ls.scopedNotifications(ctx, userID, scope).Where("is_read = ?", false).Update("is_read", true).Error; err != nil {
+		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	return nil
+}

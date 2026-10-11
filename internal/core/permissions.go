@@ -114,6 +114,16 @@ func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userI
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
 
+	// PAT-GUARD-1: ownership, shares and ACL rows below grant access without ever
+	// calling Authorize, so a PAT restriction has to be checked here, against the
+	// secret's own scope, before any of them is honoured — the same check
+	// AuthorizeSecret makes before its ACL grant (PAT-SCOPE-002). Same denial as a
+	// caller with no grant at all, so it is not an existence oracle either.
+	if !patRestrictionFromContext(ctx).Allows(permissionLevelToRBACPerm(requiredPermission),
+		Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}) {
+		return nil, fmt.Errorf("%s: insufficient permissions", i18n.T("ErrorPermissionDenied", nil))
+	}
+
 	// Owners have all permissions, but only while still a member of the secret's
 	// project. A user removed from the project retains their OwnerID tag until
 	// ClearProjectSecretOwnership runs (RBAC-002), so we gate owner access on live

@@ -9,6 +9,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -178,6 +179,10 @@ func (h *PATHandler) CreatePAT(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.coreService.CreateOwnPAT(r.Context(), userCtx.UserID, body.Name, expiresAt, body.Scopes, body.ProjectScope, body.EnvironmentScope, body.AllowedCIDRs)
 	if err != nil {
+		if errors.Is(err, core.ErrRestrictedPATCannotMintPAT) {
+			sendError(w, "Forbidden", err.Error(), http.StatusForbidden, nil)
+			return
+		}
 		if strings.Contains(err.Error(), i18n.T("ErrorValidation", nil)) {
 			sendError(w, "BadRequest", err.Error(), http.StatusBadRequest, nil)
 		} else {

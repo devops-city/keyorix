@@ -698,6 +698,23 @@ func (w *FaultyStorage) CountUnreadNotifications(ctx context.Context, userID uin
 	return w.real.CountUnreadNotifications(ctx, userID)
 }
 
+func (w *FaultyStorage) CountUnreadScopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope) (int64, error) {
+	fire, kind, injected := w.check("CountUnreadScopedNotifications")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 int64
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.CountUnreadScopedNotifications(ctx, userID, scope)
+			return rv1, injected
+		}
+	}
+	return w.real.CountUnreadScopedNotifications(ctx, userID, scope)
+}
+
 func (w *FaultyStorage) CountUnusedMFARecoveryCodes(ctx context.Context, userID uint) (int, error) {
 	fire, kind, injected := w.check("CountUnusedMFARecoveryCodes")
 	if fire {
@@ -4927,6 +4944,23 @@ func (w *FaultyStorage) ListRotationPolicies(ctx context.Context, projectID *uin
 	return w.real.ListRotationPolicies(ctx, projectID, environmentID)
 }
 
+func (w *FaultyStorage) ListScopedNotifications(ctx context.Context, userID uint, scope storage.NotificationScope, unreadOnly bool, limit int) ([]*models.Notification, error) {
+	fire, kind, injected := w.check("ListScopedNotifications")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []*models.Notification
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListScopedNotifications(ctx, userID, scope, unreadOnly, limit)
+			return rv1, injected
+		}
+	}
+	return w.real.ListScopedNotifications(ctx, userID, scope, unreadOnly, limit)
+}
+
 func (w *FaultyStorage) ListSecretACLs(ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
 	fire, kind, injected := w.check("ListSecretACLs")
 	if fire {
@@ -5521,6 +5555,22 @@ func (w *FaultyStorage) MarkAllNotificationsRead(ctx context.Context, userID uin
 	return w.real.MarkAllNotificationsRead(ctx, userID)
 }
 
+func (w *FaultyStorage) MarkAllScopedNotificationsRead(ctx context.Context, userID uint, scope storage.NotificationScope) error {
+	fire, kind, injected := w.check("MarkAllScopedNotificationsRead")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			return injected
+		case KindEffectThenError:
+			_ = w.real.MarkAllScopedNotificationsRead(ctx, userID, scope)
+			return injected
+		}
+	}
+	return w.real.MarkAllScopedNotificationsRead(ctx, userID, scope)
+}
+
 func (w *FaultyStorage) MarkAnomalyAlertAlerted(ctx context.Context, id uint) error {
 	fire, kind, injected := w.check("MarkAnomalyAlertAlerted")
 	if fire {
@@ -5551,6 +5601,22 @@ func (w *FaultyStorage) MarkNotificationRead(ctx context.Context, id uint, userI
 		}
 	}
 	return w.real.MarkNotificationRead(ctx, id, userID)
+}
+
+func (w *FaultyStorage) MarkScopedNotificationRead(ctx context.Context, id uint, userID uint, scope storage.NotificationScope) error {
+	fire, kind, injected := w.check("MarkScopedNotificationRead")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			return injected
+		case KindEffectThenError:
+			_ = w.real.MarkScopedNotificationRead(ctx, id, userID, scope)
+			return injected
+		}
+	}
+	return w.real.MarkScopedNotificationRead(ctx, id, userID, scope)
 }
 
 func (w *FaultyStorage) MarkSetupTokenConsumed(ctx context.Context, id uint, consumedAt time.Time) (bool, error) {

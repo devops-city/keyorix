@@ -153,6 +153,10 @@ func (c *KeyorixCore) ListSecretsInScopeWithSharingInfo(ctx context.Context, use
 	if err != nil {
 		return nil, err
 	}
+	// PAT-GUARD-1: every caller authorizes the filter's scope before calling this,
+	// so for them this is a no-op. It is here so the function cannot return a row
+	// outside a PAT restriction if a future caller forgets to.
+	rows = filterSecretsByPATRestriction(ctx, rows)
 	if len(rows) == 0 {
 		return c.pageScopedSecrets(ctx, rows, filter, clamped), nil
 	}
@@ -302,6 +306,14 @@ func (c *KeyorixCore) ListSecretsWithSharingInfo(ctx context.Context, userID uin
 			return nil, err
 		}
 	}
+
+	// PAT-GUARD-1: this set is decided by ownership, shares and ACL rows, never by
+	// Authorize, so it must apply the caller's PAT restriction itself. Filtered per
+	// source, before the merge, so OwnedCount/SharedCount/ACLGrantedCount describe
+	// the rows the token can actually see.
+	ownedSecrets = filterSecretsByPATRestriction(ctx, ownedSecrets)
+	sharedSecrets = filterSecretsByPATRestriction(ctx, sharedSecrets)
+	aclGrantedSecrets = filterSecretsByPATRestriction(ctx, aclGrantedSecrets)
 
 	// Merge owned + shared + acl-granted, deduplicating by secret ID.
 	// aclDistinctCount tracks how many ACL-granted secrets were NOT already

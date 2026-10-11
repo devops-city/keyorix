@@ -23,10 +23,17 @@ func (c *KeyorixCore) ListSharedSecrets(ctx context.Context, userID uint) ([]*mo
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	if secrets == nil {
-		secrets = []*models.SecretNode{}
+	// PAT-GUARD-1: both callers (HTTP GET /shared-secrets, gRPC ListSharedSecrets)
+	// gate on GLOBAL secrets.read, which a scope-confined PAT already fails, so this
+	// is a no-op for them. It keeps the function itself from returning a secret
+	// outside a PAT restriction if a future caller gates it more weakly.
+	visible := make([]*models.SecretNode, 0, len(secrets))
+	for _, s := range secrets {
+		if patAllowsSecretRead(ctx, s) {
+			visible = append(visible, s)
+		}
 	}
-	return secrets, nil
+	return visible, nil
 }
 
 // ListSharedSecretsForUser lists the secrets shared with targetUserID, on

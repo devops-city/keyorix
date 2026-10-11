@@ -148,3 +148,18 @@ machine.
   chosen project) is the remaining UI surface for `environment_scope`.
 - **Scope presets** (e.g. a "read-only" macro expanding to the read permissions).
 - ~~CLI flags on token creation~~ — **shipped**: `keyorix pat create --scope … --project-id … --environment-id …` (plus `pat list` / `pat revoke`).
+
+## Addendum (2026-10-11): reads decided outside the chokepoint (PAT-GUARD-1)
+
+"Every authorization path funnels through `Authorize`" held for permission
+checks, not for every decision about what a token may see. Reads that decide
+visibility themselves — the personal secret set (owned ∪ shared ∪ ACL-granted),
+the notification feed, the secret access-request family (`requireAdminAuthorityAt`),
+`CheckSecretPermission`'s owner/share/ACL paths — and PAT creation itself never
+reached it, so a restricted token saw (and in two cases changed) data outside its
+restriction. Each now applies the restriction at the row's own scope
+(`internal/core/pat_restriction_listing.go`, `INV-CORE-pat-restriction-outside-authorize`),
+and a restricted PAT cannot create a PAT. The claim is now machine-checked rather than
+argued: `TestEveryGETRouteHonoursPATRestriction` (every GET route) and
+`TestEveryGRPCReadHonoursPATRestriction` (every unary read RPC) call the whole read
+surface with restricted tokens against a canary project and fail on any disclosure.

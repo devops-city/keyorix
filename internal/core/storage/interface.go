@@ -757,6 +757,15 @@ type Storage interface {
 	// MarkNotificationRead marks one notification read, scoped to its owner.
 	MarkNotificationRead(ctx context.Context, id, userID uint) error
 	MarkAllNotificationsRead(ctx context.Context, userID uint) error
+	// The Scoped variants see only the user's notifications inside scope (see
+	// NotificationScope): the feed of a restricted personal access token. The
+	// narrowing is in the query, so limit and the count apply to the rows the token
+	// can see, not to a newest-N window of all of them (PAT-GUARD-1).
+	ListScopedNotifications(ctx context.Context, userID uint, scope NotificationScope, unreadOnly bool, limit int) ([]*models.Notification, error)
+	CountUnreadScopedNotifications(ctx context.Context, userID uint, scope NotificationScope) (int64, error)
+	// MarkScopedNotificationRead returns not-found for a notification outside scope.
+	MarkScopedNotificationRead(ctx context.Context, id, userID uint, scope NotificationScope) error
+	MarkAllScopedNotificationsRead(ctx context.Context, userID uint, scope NotificationScope) error
 	// ListUserProjectMemberships returns all membership rows for a single user,
 	// newest first (powers the per-user assignments view).
 	ListUserProjectMemberships(ctx context.Context, userID uint) ([]*models.ProjectMembership, error)
@@ -2229,6 +2238,13 @@ type MembershipCounts struct {
 }
 
 // AuditFilter defines filtering options for audit log queries
+// NotificationScope selects the notifications that carry a project: every such row
+// when ProjectID is 0, otherwise only that project's. A notification with no project
+// is never in any scope.
+type NotificationScope struct {
+	ProjectID uint
+}
+
 type AuditFilter struct {
 	ProjectID *uint
 	UserID    *uint

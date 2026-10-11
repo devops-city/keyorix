@@ -420,7 +420,7 @@ paths:
     post:
       tags: [Auth]
       summary: Create a personal access token (raw token returned once)
-      description: Create a personal access token with optional scopes and expiry; the raw token is returned only once.
+      description: Create a personal access token with optional scopes and expiry; the raw token is returned only once. A request authenticated by a restricted personal access token (any scopes, project, environment or CIDR restriction) is refused with 403, since the new token would not carry that restriction.
       operationId: createPAT
       security: [{bearerAuth: []}]
       requestBody:
@@ -451,6 +451,7 @@ paths:
                       token: {type: string, description: 'Plaintext token, shown only in this response'}
                       pat: {$ref: '#/components/schemas/PATToken'}
         '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/auth/tokens/expired:
     get:
       tags: [Auth]

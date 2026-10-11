@@ -323,7 +323,7 @@ export interface paths {
         put?: never;
         /**
          * Create a personal access token (raw token returned once)
-         * @description Create a personal access token with optional scopes and expiry; the raw token is returned only once.
+         * @description Create a personal access token with optional scopes and expiry; the raw token is returned only once. A request authenticated by a restricted personal access token (any scopes, project, environment or CIDR restriction) is refused with 403, since the new token would not carry that restriction.
          */
         post: operations["createPAT"];
         delete?: never;
@@ -6514,6 +6514,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
         };
     };
     listExpiredPATs: {

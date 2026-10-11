@@ -56,6 +56,13 @@ func (c *KeyorixCore) CreateOwnPAT(ctx context.Context, userID uint, name string
 	if userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
 	}
+	// PAT-GUARD-1: a restricted PAT must not mint a token. The child is
+	// unrestricted unless asked otherwise, so this was a one-call escape from every
+	// dimension of the restriction (project, environment, permissions and the CIDR
+	// allowlist). Creation never runs Authorize, so the chokepoint could not catch it.
+	if patRestrictionFromContext(ctx) != nil {
+		return nil, ErrRestrictedPATCannotMintPAT
+	}
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%s: token name is required", i18n.T("ErrorValidation", nil))
 	}
