@@ -152,6 +152,11 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		log.Fatalf("Configuration is invalid: %v", err)
 	}
 
+	// ADR-112 opt-out rule (item 2): a deprecated alias (an old key renamed to its
+	// current insecure_ form) found in this config file gets a warning on EVERY
+	// start — never silent. See warnDeprecatedSettingAliases below.
+	warnDeprecatedSettingAliases(cfg)
+
 	// ADR-112: decide, once and from the database, whether this boot is an upgraded
 	// deployment still inside the file-permission-check grace period, then warn about
 	// every insecure_ setting in effect (opt-out rule item 2: on EVERY start, never
@@ -548,7 +553,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	// weaker mode -- an auditor reading the chain doesn't have to trust a
 	// point-in-time config dump.
 	if cfg.Security.RecoverAdmin.KeylessMode {
-		log.Printf("WARNING: security.recover_admin.keyless_mode is ENABLED -- `keyorix-server admin recover-admin` " +
+		log.Printf("WARNING: security.recover_admin.insecure_keyless_admin_recovery is ENABLED -- `keyorix-server admin recover-admin` " +
 			"can restore ANY admin account on HOST ACCESS ALONE, with no recovery key required or checked. This " +
 			"collapses host access and admin access into one trust boundary. Intended for labs/demo use only; " +
 			"disable it for any real deployment.")
@@ -745,7 +750,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	// Apply per-account login lockout (brute-force protection, distinct from and
 	// complementary to the per-IP rate limiter, which distributed guessing can evade).
 	// Enabled BY DEFAULT — a secrets-manager login must resist online guessing out of
-	// the box; set login_lockout.disabled to opt out.
+	// the box; set login_lockout.insecure_disable_login_lockout to opt out.
 	if ll := cfg.Security.LoginLockout; !ll.Disabled {
 		coreService.SetLoginLockoutPolicy(core.LoginLockoutPolicy{
 			Enabled:      true,
@@ -2063,7 +2068,7 @@ func checkTransportTLSPosture(cfg *config.Config) error {
 // not Go's bool zero value) — enforceKeyFilePermissions below still runs unconditionally
 // as the lighter-weight, always-on permission check it always was. When the flag is set,
 // ValidateStartup itself decides warn-vs-fail-closed for a bad permission via
-// allow_unsafe_file_permissions, and auto-fixes bad permissions when
+// insecure_allow_unsafe_file_permissions, and auto-fixes bad permissions when
 // auto_fix_file_permissions is set (run first, before enforceKeyFilePermissions, so an
 // auto-fix takes effect before that check re-inspects the same files) — any other failure
 // (missing/undersized DEK or salt, unreachable local database) refuses to start, matching
@@ -2138,7 +2143,7 @@ func runStartupValidation(cfg *config.Config) error {
 // bad umask, or one left 0644 by an operator, would otherwise expose the wrapped DEK / TLS
 // key to any local user with no signal. Fails closed only when
 // security.enable_file_permission_check is set (and not overridden by
-// allow_unsafe_file_permissions); otherwise it warns. A not-yet-created key file (first
+// insecure_allow_unsafe_file_permissions); otherwise it warns. A not-yet-created key file (first
 // boot) is skipped — it is created at 0600.
 //
 // ADR-112 implicit default (the key absent from the config): the encryption key material,
@@ -2194,10 +2199,10 @@ func enforceKeyFilePermissions(cfg *config.Config) error { // NOSONAR -- cogniti
 		// exactly how to comply. A fresh install never gets here (see
 		// adr112UpgradeGraceEligible).
 		adr112GraceSoftened.Store(true)
-		log.Printf("WARNING: %s — this now fails closed by default (ADR-112); set to warn-only, which is what the pre-upgrade behavior was, with security.allow_unsafe_file_permissions, or (preferred) chmod the files to 0600 and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+		log.Printf("WARNING: %s — this now fails closed by default (ADR-112); set to warn-only, which is what the pre-upgrade behavior was, with security.insecure_allow_unsafe_file_permissions, or (preferred) chmod the files to 0600 and set security.enable_file_permission_check: true explicitly once compliant.", msg)
 		return nil
 	}
-	return fmt.Errorf("%s — refusing to start (chmod to 0600, or set security.allow_unsafe_file_permissions to override)", msg)
+	return fmt.Errorf("%s — refusing to start (chmod to 0600, or set security.insecure_allow_unsafe_file_permissions to override)", msg)
 }
 
 // groupOrOtherReadable returns "path (mode NNN)" for every existing path whose mode grants
@@ -2276,7 +2281,7 @@ func enforceSecretFilePermissions(cfg *config.Config) error {
 			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
 			return nil
 		}
-		return fmt.Errorf("%s -- refusing to start (or set security.allow_unsafe_file_permissions to override)", msg)
+		return fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
 	}
 	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
 	return nil
@@ -2314,6 +2319,16 @@ func logWarnOnImplicitRequireMFADefault(cfg *config.Config) {
 			reason = "the key is not set in this config"
 		}
 		log.Printf("INFO: security.require_mfa is enforcing on its ADR-112 secure-by-default value (%s). Session-authenticated users without MFA are confined to MFA enrolment until they enrol (PAT/machine credentials are unaffected). Set security.require_mfa explicitly to silence this.", reason)
+	}
+}
+
+// warnDeprecatedSettingAliases logs every ADR-112 deprecated-alias key (an old
+// name config.Load translated to its current insecure_ form) found in this
+// config file — "deprecated alias, warns when used" (opt-out rule item 2)
+// means the old key still works exactly as before, but is never silent about it.
+func warnDeprecatedSettingAliases(cfg *config.Config) {
+	for _, w := range cfg.DeprecatedSettingWarnings {
+		log.Printf("WARNING: deprecated config key: %s", w)
 	}
 }
 
@@ -3179,7 +3194,7 @@ func buildSAMLProvider(pc config.SSOProviderConfig) (*samlpkg.Provider, error) {
 }
 
 // warnIfRecoveryKeyMissing logs a prominent WARN on EVERY boot (not just the
-// first) while security.recover_admin.keyless_mode is off and no recovery
+// first) while security.recover_admin.insecure_keyless_admin_recovery is off and no recovery
 // key has ever been generated -- `recover-admin` is unusable in that state
 // (F6, recovery-key visibility) and, unlike keyless mode, there is no other
 // startup-time signal an operator would see. Best-effort: a lookup failure
@@ -3198,7 +3213,7 @@ func warnIfRecoveryKeyMissing(store corestorage.Storage) {
 	}
 }
 
-// auditKeylessModeStartup records, at every boot while security.recover_admin.keyless_mode is
+// auditKeylessModeStartup records, at every boot while security.recover_admin.insecure_keyless_admin_recovery is
 // enabled, a system-actor audit event (no UserID, never machine-identity-typed), so the
 // tamper-evident chain itself carries a repeated record of the weaker mode. Direct
 // LogAuditEvent: this runs before any request context exists, the same shape as
@@ -3207,7 +3222,7 @@ func auditKeylessModeStartup(store corestorage.Storage) {
 	ok := true
 	if err := store.LogAuditEvent(context.Background(), &models.AuditEvent{
 		EventType:   "admin.keyless_mode_enabled_at_startup",
-		Description: "server started with security.recover_admin.keyless_mode enabled -- recover-admin can restore any admin account on host access alone",
+		Description: "server started with security.recover_admin.insecure_keyless_admin_recovery enabled -- recover-admin can restore any admin account on host access alone",
 		Success:     &ok,
 		ActorType:   core.ActorTypeSystem,
 		EventTime:   time.Now(),

@@ -124,7 +124,7 @@ func validateAdminDSNSingleHost(host string) error {
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateIP(ip) {
 			return fmt.Errorf("admin_dsn host %q is a private or link-local address; "+
-				"set dynamic_secrets.allow_private_network_targets: true to allow private-network backends", host)
+				"set dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true to allow private-network backends", host)
 		}
 		return nil
 	}
@@ -138,7 +138,7 @@ func validateAdminDSNSingleHost(host string) error {
 		if ip := net.ParseIP(zoneHost); ip != nil {
 			if isPrivateIP(ip) {
 				return fmt.Errorf("admin_dsn host %q is a private or link-local address; "+
-					"set dynamic_secrets.allow_private_network_targets: true to allow private-network backends", host)
+					"set dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true to allow private-network backends", host)
 			}
 			return nil
 		}
@@ -150,7 +150,7 @@ func validateAdminDSNSingleHost(host string) error {
 	for _, addr := range addrs {
 		if ip := net.ParseIP(addr); ip != nil && isPrivateIP(ip) {
 			return fmt.Errorf("admin_dsn host %q resolves to private or link-local address %s; "+
-				"set dynamic_secrets.allow_private_network_targets: true to allow private-network backends", host, addr)
+				"set dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true to allow private-network backends", host, addr)
 		}
 	}
 	return nil

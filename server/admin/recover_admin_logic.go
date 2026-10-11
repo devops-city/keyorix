@@ -41,7 +41,7 @@ type recoverAdminSummary struct {
 // performRecoverAdmin is the whole recovery act (design §3): verify the
 // target exists and holds a global-admin role, verify the recovery key
 // (skipped entirely when keyless is true -- design §5's labs/demo escape
-// hatch, gated by security.recover_admin.keyless_mode and never reachable
+// hatch, gated by security.recover_admin.insecure_keyless_admin_recovery and never reachable
 // from anywhere but a host-side config-file read, see recover_admin.go),
 // then reset account state / password / MFA / WebAuthn / lockout / sessions
 // on that ONE account, and record it. Every failure path returns before any
@@ -77,7 +77,7 @@ func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIde
 		if !found {
 			return nil, fmt.Errorf("no recovery key has been generated on this install yet -- " +
 				"run `keyorix-server admin recovery-key rotate` first, then retry recover-admin with the key it prints " +
-				"(or enable security.recover_admin.keyless_mode, not recommended outside labs/demo use)")
+				"(or enable security.recover_admin.insecure_keyless_admin_recovery, not recommended outside labs/demo use)")
 		}
 		if !recoverykey.Verify(rawRecoveryKey, record.KeyHash) {
 			return nil, fmt.Errorf("recovery key does not match")
@@ -190,7 +190,7 @@ func recordRecoveryAuditEvent(ctx context.Context, store corestorage.Storage, su
 	verification, err := store.VerifyAuditChain(ctx, nil)
 	keyDetail := fmt.Sprintf("recovery key generation %d", summary.recoveryKeyVersion)
 	if summary.keyless {
-		keyDetail = "KEYLESS MODE -- no recovery key was checked (security.recover_admin.keyless_mode)"
+		keyDetail = "KEYLESS MODE -- no recovery key was checked (security.recover_admin.insecure_keyless_admin_recovery)"
 	}
 	description := fmt.Sprintf(
 		"keyorix-server admin recover-admin, run by host user %s, restored account %q (user id %d): reactivated, password reset required, "+

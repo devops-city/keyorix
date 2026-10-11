@@ -13,11 +13,11 @@
 // the IDENTIFIER the warning, the audit trail and the posture report use, and
 // it is deliberately independent of what the YAML key is called today:
 //
-//   - NO setting is renamed by this PR. Andrei's 2026-10-06 split puts the
-//     literal YAML renames in later, small follow-ups, each keeping the old key
-//     working as a warning-logging deprecated alias. Until one lands, every
-//     entry is derived-only: Name is the target name, SourcePaths is what the
-//     config file actually says today.
+//   - Sixteen settings have been renamed to their insecure_ name (#2899), each
+//     keeping the old key working as a warning-logging deprecated alias
+//     (insecure_settings_aliases.go; DeprecatedAlias below names it). Every
+//     other entry is derived-only: Name is the target name, SourcePaths is
+//     what the config file actually says today.
 //   - Thirteen of them cannot be renamed mechanically at all, and are recorded
 //     here as KNOWN EXCEPTIONS rather than left out: each needs either a
 //     polarity inversion of a load-bearing flag, or a non-boolean field (an
@@ -25,8 +25,8 @@
 //     restructured into a real boolean. Those are product decisions, not
 //     mechanical edits. They are listed, with their current name, proposed
 //     name and the shape change each needs, in #2895 (rows 1-13; its row 14,
-//     sso.providers[].trust_asserted_email, IS mechanically renameable and is
-//     registered with the renameable entries) -- and they are fully
+//     sso.providers[].trust_asserted_email, was mechanically renameable and is
+//     now sso.providers[].insecure_trust_saml_asserted_email) -- and they are fully
 //     covered by the warning + audit + posture mechanisms under their CURRENT
 //     names in the meantime, so none of this is invisible while it waits.
 //
@@ -72,9 +72,10 @@ type InsecureSetting struct {
 	DerivedInputs []string
 	// DeprecatedAlias is the old dotted YAML path this setting was renamed
 	// from, or "" when it was already compliant (ships with an insecure_
-	// name already) or has not been renamed yet. Empty for EVERY entry at
-	// present: see the package doc -- the renames are follow-up PRs, and the
-	// field is kept so one can set it without reshaping the registry.
+	// name already) or has not been renamed (a derived-only entry, including
+	// the thirteen known exceptions). Set for the sixteen renamed settings;
+	// TestInsecureSettingsRegistry_DeprecatedAliasesMatchAliasTable keeps it in
+	// step with deprecatedSettingAliases.
 	DeprecatedAlias string
 	// Describe is a one-line, human-readable explanation of what being in
 	// effect actually weakens, for the start-up warning and (eventually)
@@ -149,86 +150,98 @@ var InsecureSettingsRegistry = []InsecureSetting{
 	//    shape change. NOT renamed here (Andrei's split puts renames in follow-up
 	//    PRs); listed under their target Name, swept via their current SourcePaths. --
 	{
-		Name:        "security.insecure_allow_unsafe_file_permissions",
-		SourcePaths: []string{"security.allow_unsafe_file_permissions"},
-		Describe:    "lets group/other-readable key material pass enforceKeyFilePermissions/ValidateStartup instead of failing closed",
-		InEffect:    func(c *Config) bool { return c.Security.AllowUnsafeFilePermissions },
-		Value:       func(c *Config) string { return boolStr(c.Security.AllowUnsafeFilePermissions) },
+		Name:            "security.insecure_allow_unsafe_file_permissions",
+		SourcePaths:     []string{"security.insecure_allow_unsafe_file_permissions"},
+		DeprecatedAlias: "security.allow_unsafe_file_permissions",
+		Describe:        "lets group/other-readable key material pass enforceKeyFilePermissions/ValidateStartup instead of failing closed",
+		InEffect:        func(c *Config) bool { return c.Security.AllowUnsafeFilePermissions },
+		Value:           func(c *Config) string { return boolStr(c.Security.AllowUnsafeFilePermissions) },
 	},
 	{
-		Name:        "security.login_lockout.insecure_disable_login_lockout",
-		SourcePaths: []string{"security.login_lockout.disabled"},
-		Describe:    "removes per-account brute-force lockout protection",
-		InEffect:    func(c *Config) bool { return c.Security.LoginLockout.Disabled },
-		Value:       func(c *Config) string { return boolStr(c.Security.LoginLockout.Disabled) },
+		Name:            "security.login_lockout.insecure_disable_login_lockout",
+		SourcePaths:     []string{"security.login_lockout.insecure_disable_login_lockout"},
+		DeprecatedAlias: "security.login_lockout.disabled",
+		Describe:        "removes per-account brute-force lockout protection",
+		InEffect:        func(c *Config) bool { return c.Security.LoginLockout.Disabled },
+		Value:           func(c *Config) string { return boolStr(c.Security.LoginLockout.Disabled) },
 	},
 	{
-		Name:        "security.recover_admin.insecure_keyless_admin_recovery",
-		SourcePaths: []string{"security.recover_admin.keyless_mode"},
-		Describe:    "lets `recover-admin` restore any admin on host access alone, with no recovery key",
-		InEffect:    func(c *Config) bool { return c.Security.RecoverAdmin.KeylessMode },
-		Value:       func(c *Config) string { return boolStr(c.Security.RecoverAdmin.KeylessMode) },
+		Name:            "security.recover_admin.insecure_keyless_admin_recovery",
+		SourcePaths:     []string{"security.recover_admin.insecure_keyless_admin_recovery"},
+		DeprecatedAlias: "security.recover_admin.keyless_mode",
+		Describe:        "lets `recover-admin` restore any admin on host access alone, with no recovery key",
+		InEffect:        func(c *Config) bool { return c.Security.RecoverAdmin.KeylessMode },
+		Value:           func(c *Config) string { return boolStr(c.Security.RecoverAdmin.KeylessMode) },
 	},
 	{
-		Name:        "audit.siem.insecure_allow_private_network_siem_target",
-		SourcePaths: []string{"audit.siem.allow_private_network_target"},
-		Describe:    "disables the SSRF guard on the SIEM forwarder's endpoint",
-		InEffect:    func(c *Config) bool { return c.Audit.SIEM.AllowPrivateNetworkTarget },
-		Value:       func(c *Config) string { return boolStr(c.Audit.SIEM.AllowPrivateNetworkTarget) },
+		Name:            "audit.siem.insecure_allow_private_network_siem_target",
+		SourcePaths:     []string{"audit.siem.insecure_allow_private_network_siem_target"},
+		DeprecatedAlias: "audit.siem.allow_private_network_target",
+		Describe:        "disables the SSRF guard on the SIEM forwarder's endpoint",
+		InEffect:        func(c *Config) bool { return c.Audit.SIEM.AllowPrivateNetworkTarget },
+		Value:           func(c *Config) string { return boolStr(c.Audit.SIEM.AllowPrivateNetworkTarget) },
 	},
 	{
-		Name:        "audit.siem.insecure_allow_plaintext_siem_transport",
-		SourcePaths: []string{"audit.siem.allow_insecure_transport"},
-		Describe:    "permits a plaintext (non-TLS) SIEM forwarder endpoint",
-		InEffect:    func(c *Config) bool { return c.Audit.SIEM.AllowInsecureTransport },
-		Value:       func(c *Config) string { return boolStr(c.Audit.SIEM.AllowInsecureTransport) },
+		Name:            "audit.siem.insecure_allow_plaintext_siem_transport",
+		SourcePaths:     []string{"audit.siem.insecure_allow_plaintext_siem_transport"},
+		DeprecatedAlias: "audit.siem.allow_insecure_transport",
+		Describe:        "permits a plaintext (non-TLS) SIEM forwarder endpoint",
+		InEffect:        func(c *Config) bool { return c.Audit.SIEM.AllowInsecureTransport },
+		Value:           func(c *Config) string { return boolStr(c.Audit.SIEM.AllowInsecureTransport) },
 	},
 	{
-		Name:        "evidence_delivery.webhook.insecure_allow_private_network_evidence_target",
-		SourcePaths: []string{"evidence_delivery.webhook.allow_private_network_target"},
-		Describe:    "disables the SSRF guard on the evidence-delivery webhook's endpoint",
-		InEffect:    func(c *Config) bool { return c.EvidenceDelivery.Webhook.AllowPrivateNetworkTarget },
-		Value:       func(c *Config) string { return boolStr(c.EvidenceDelivery.Webhook.AllowPrivateNetworkTarget) },
+		Name:            "evidence_delivery.webhook.insecure_allow_private_network_evidence_target",
+		SourcePaths:     []string{"evidence_delivery.webhook.insecure_allow_private_network_evidence_target"},
+		DeprecatedAlias: "evidence_delivery.webhook.allow_private_network_target",
+		Describe:        "disables the SSRF guard on the evidence-delivery webhook's endpoint",
+		InEffect:        func(c *Config) bool { return c.EvidenceDelivery.Webhook.AllowPrivateNetworkTarget },
+		Value:           func(c *Config) string { return boolStr(c.EvidenceDelivery.Webhook.AllowPrivateNetworkTarget) },
 	},
 	{
-		Name:        "evidence_delivery.webhook.insecure_allow_plaintext_evidence_transport",
-		SourcePaths: []string{"evidence_delivery.webhook.allow_insecure_transport"},
-		Describe:    "permits a plaintext (non-TLS) evidence-delivery webhook endpoint",
-		InEffect:    func(c *Config) bool { return c.EvidenceDelivery.Webhook.AllowInsecureTransport },
-		Value:       func(c *Config) string { return boolStr(c.EvidenceDelivery.Webhook.AllowInsecureTransport) },
+		Name:            "evidence_delivery.webhook.insecure_allow_plaintext_evidence_transport",
+		SourcePaths:     []string{"evidence_delivery.webhook.insecure_allow_plaintext_evidence_transport"},
+		DeprecatedAlias: "evidence_delivery.webhook.allow_insecure_transport",
+		Describe:        "permits a plaintext (non-TLS) evidence-delivery webhook endpoint",
+		InEffect:        func(c *Config) bool { return c.EvidenceDelivery.Webhook.AllowInsecureTransport },
+		Value:           func(c *Config) string { return boolStr(c.EvidenceDelivery.Webhook.AllowInsecureTransport) },
 	},
 	{
-		Name:        "notifications.webhook.insecure_allow_private_network_notify_target",
-		SourcePaths: []string{"notifications.webhook.allow_private_network_target"},
-		Describe:    "disables the SSRF guard on the notification webhook's endpoint",
-		InEffect:    func(c *Config) bool { return c.Notifications.Webhook.AllowPrivateNetworkTarget },
-		Value:       func(c *Config) string { return boolStr(c.Notifications.Webhook.AllowPrivateNetworkTarget) },
+		Name:            "notifications.webhook.insecure_allow_private_network_notify_target",
+		SourcePaths:     []string{"notifications.webhook.insecure_allow_private_network_notify_target"},
+		DeprecatedAlias: "notifications.webhook.allow_private_network_target",
+		Describe:        "disables the SSRF guard on the notification webhook's endpoint",
+		InEffect:        func(c *Config) bool { return c.Notifications.Webhook.AllowPrivateNetworkTarget },
+		Value:           func(c *Config) string { return boolStr(c.Notifications.Webhook.AllowPrivateNetworkTarget) },
 	},
 	{
-		Name:        "notifications.webhook.insecure_allow_plaintext_notify_transport",
-		SourcePaths: []string{"notifications.webhook.allow_insecure_transport"},
-		Describe:    "permits a plaintext (non-TLS) notification webhook endpoint",
-		InEffect:    func(c *Config) bool { return c.Notifications.Webhook.AllowInsecureTransport },
-		Value:       func(c *Config) string { return boolStr(c.Notifications.Webhook.AllowInsecureTransport) },
+		Name:            "notifications.webhook.insecure_allow_plaintext_notify_transport",
+		SourcePaths:     []string{"notifications.webhook.insecure_allow_plaintext_notify_transport"},
+		DeprecatedAlias: "notifications.webhook.allow_insecure_transport",
+		Describe:        "permits a plaintext (non-TLS) notification webhook endpoint",
+		InEffect:        func(c *Config) bool { return c.Notifications.Webhook.AllowInsecureTransport },
+		Value:           func(c *Config) string { return boolStr(c.Notifications.Webhook.AllowInsecureTransport) },
 	},
 	{
-		Name:        "dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets",
-		SourcePaths: []string{"dynamic_secrets.allow_private_network_targets"},
-		Describe:    "disables the SSRF guard on dynamic-secret backend DSNs (Postgres/MySQL/Mongo/Redis)",
-		InEffect:    func(c *Config) bool { return c.DynamicSecrets.AllowPrivateNetworkTargets },
-		Value:       func(c *Config) string { return boolStr(c.DynamicSecrets.AllowPrivateNetworkTargets) },
+		Name:            "dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets",
+		SourcePaths:     []string{"dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets"},
+		DeprecatedAlias: "dynamic_secrets.allow_private_network_targets",
+		Describe:        "disables the SSRF guard on dynamic-secret backend DSNs (Postgres/MySQL/Mongo/Redis)",
+		InEffect:        func(c *Config) bool { return c.DynamicSecrets.AllowPrivateNetworkTargets },
+		Value:           func(c *Config) string { return boolStr(c.DynamicSecrets.AllowPrivateNetworkTargets) },
 	},
 	{
-		Name:        "dynamic_secrets.insecure_allow_plaintext_dynamic_secret_transport",
-		SourcePaths: []string{"dynamic_secrets.allow_insecure_transport"},
-		Describe:    "disables the required-TLS guard for mongodb/redis dynamic-secret backends",
-		InEffect:    func(c *Config) bool { return c.DynamicSecrets.AllowInsecureTransport },
-		Value:       func(c *Config) string { return boolStr(c.DynamicSecrets.AllowInsecureTransport) },
+		Name:            "dynamic_secrets.insecure_allow_plaintext_dynamic_secret_transport",
+		SourcePaths:     []string{"dynamic_secrets.insecure_allow_plaintext_dynamic_secret_transport"},
+		DeprecatedAlias: "dynamic_secrets.allow_insecure_transport",
+		Describe:        "disables the required-TLS guard for mongodb/redis dynamic-secret backends",
+		InEffect:        func(c *Config) bool { return c.DynamicSecrets.AllowInsecureTransport },
+		Value:           func(c *Config) string { return boolStr(c.DynamicSecrets.AllowInsecureTransport) },
 	},
 	{
-		Name:        "storage.encryption.key_provider.insecure_allow_kms_context_fallback",
-		SourcePaths: []string{"storage.encryption.key_provider.kms_allow_context_fallback"},
-		Describe:    "lets a context-bound KMS-wrapped KEK fall back to decrypting with no context",
+		Name:            "storage.encryption.key_provider.insecure_allow_kms_context_fallback",
+		SourcePaths:     []string{"storage.encryption.key_provider.insecure_allow_kms_context_fallback", "storage.encryption.key_provider.fallbacks.insecure_allow_kms_context_fallback"},
+		DeprecatedAlias: "storage.encryption.key_provider.kms_allow_context_fallback",
+		Describe:        "lets a context-bound KMS-wrapped KEK fall back to decrypting with no context",
 		InEffect: func(c *Config) bool {
 			return anyKeyProviderInEffect(c, func(kp KeyProviderConfig) bool { return kp.KMSAllowContextFallback })
 		},
@@ -237,9 +250,10 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		},
 	},
 	{
-		Name:        "storage.encryption.key_provider.insecure_allow_weaker_kek_fallback",
-		SourcePaths: []string{"storage.encryption.key_provider.allow_weaker_fallback"},
-		Describe:    "permits a key-provider fallback chain that silently downgrades KEK-sourcing strength",
+		Name:            "storage.encryption.key_provider.insecure_allow_weaker_kek_fallback",
+		SourcePaths:     []string{"storage.encryption.key_provider.insecure_allow_weaker_kek_fallback", "storage.encryption.key_provider.fallbacks.insecure_allow_weaker_kek_fallback"},
+		DeprecatedAlias: "storage.encryption.key_provider.allow_weaker_fallback",
+		Describe:        "permits a key-provider fallback chain that silently downgrades KEK-sourcing strength",
 		InEffect: func(c *Config) bool {
 			return anyKeyProviderInEffect(c, func(kp KeyProviderConfig) bool { return kp.AllowWeakerFallback })
 		},
@@ -248,9 +262,10 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		},
 	},
 	{
-		Name:        "sso.providers.insecure_trust_saml_asserted_email",
-		SourcePaths: []string{"sso.providers.trust_asserted_email"},
-		Describe:    "treats a SAML provider's self-asserted email as verified for account-linking (account-takeover risk)",
+		Name:            "sso.providers.insecure_trust_saml_asserted_email",
+		SourcePaths:     []string{"sso.providers.insecure_trust_saml_asserted_email"},
+		DeprecatedAlias: "sso.providers[].trust_asserted_email",
+		Describe:        "treats a SAML provider's self-asserted email as verified for account-linking (account-takeover risk)",
 		InEffect: func(c *Config) bool {
 			return anySSOProviderInEffect(c, func(p SSOProviderConfig) bool { return p.TrustAssertedEmail })
 		},
@@ -259,9 +274,10 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		},
 	},
 	{
-		Name:        "sso.providers.saml.insecure_allow_idp_initiated_saml",
-		SourcePaths: []string{"sso.providers.saml.allow_idp_initiated"},
-		Describe:    "accepts SAML responses with no InResponseTo, losing CSRF/replay protection (validateSSOIDPInitiated already refuses this at boot -- see its own doc comment)",
+		Name:            "sso.providers.saml.insecure_allow_idp_initiated_saml",
+		SourcePaths:     []string{"sso.providers.saml.insecure_allow_idp_initiated_saml"},
+		DeprecatedAlias: "sso.providers[].saml.allow_idp_initiated",
+		Describe:        "accepts SAML responses with no InResponseTo, losing CSRF/replay protection (validateSSOIDPInitiated already refuses this at boot -- see its own doc comment)",
 		InEffect: func(c *Config) bool {
 			return anySSOProviderInEffect(c, func(p SSOProviderConfig) bool { return p.SAML != nil && p.SAML.AllowIDPInitiated })
 		},
@@ -270,11 +286,12 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		},
 	},
 	{
-		Name:        "audit_checkpoints.insecure_disable_audit_checkpoints",
-		SourcePaths: []string{"audit_checkpoints.disabled"},
-		Describe:    "leaves the audit trail only tamper-evident, not forgery-resistant (no signed checkpoints)",
-		InEffect:    func(c *Config) bool { return c.AuditCheckpoints.Disabled },
-		Value:       func(c *Config) string { return boolStr(c.AuditCheckpoints.Disabled) },
+		Name:            "audit_checkpoints.insecure_disable_audit_checkpoints",
+		SourcePaths:     []string{"audit_checkpoints.insecure_disable_audit_checkpoints"},
+		DeprecatedAlias: "audit_checkpoints.disabled",
+		Describe:        "leaves the audit trail only tamper-evident, not forgery-resistant (no signed checkpoints)",
+		InEffect:        func(c *Config) bool { return c.AuditCheckpoints.Disabled },
+		Value:           func(c *Config) string { return boolStr(c.AuditCheckpoints.Disabled) },
 	},
 
 	// -- Already compliant: ships with an insecure_ name, nothing to rename --

@@ -22,7 +22,7 @@ storage:
 security:
   enable_file_permission_check: false  # TEST-ONLY DEFAULT (#G36)
   auto_fix_file_permissions: false
-  allow_unsafe_file_permissions: true  # TEST-ONLY DEFAULT (#G36)
+  insecure_allow_unsafe_file_permissions: true  # TEST-ONLY DEFAULT (#G36)
 
 soft_delete:
   enabled: true

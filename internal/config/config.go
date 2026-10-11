@@ -149,6 +149,13 @@ type Config struct {
 	// secrets with MaxReads > 0 and sends in-app notifications to their owners
 	// when the read count approaches or reaches the limit.
 	ReadQuotaAlerts ReadQuotaAlertsConfig `yaml:"read_quota_alerts"`
+
+	// DeprecatedSettingWarnings lists every ADR-112 deprecated-alias key Load()
+	// found in this config file (old name -> current insecure_ name), one
+	// human-readable line per key. Computed by Load() from the raw YAML before
+	// the deprecated keys are translated away; never itself read from YAML. The
+	// caller (server/main.go) logs each line as a start-up warning.
+	DeprecatedSettingWarnings []string `yaml:"-"`
 }
 
 // LicenseConfig points at an installed offline license token and tunes its evaluation
@@ -877,7 +884,7 @@ type KeyProviderConfig struct {
 	// context=...` to durably re-wrap under the context), then disable it again —
 	// every fallback use is logged loudly specifically so that migration window is
 	// observable and finite, not a permanent standing weakening.
-	KMSAllowContextFallback bool `yaml:"kms_allow_context_fallback"`
+	KMSAllowContextFallback bool `yaml:"insecure_allow_kms_context_fallback"`
 	// ExecCommand is the argv for type "exec": the resolver command (argv[0] is the
 	// binary, the rest are arguments) whose stdout supplies the KEK as raw 32 bytes
 	// or a hex/base64 encoding thereof. Run directly without a shell. Lets a
@@ -920,7 +927,7 @@ type KeyProviderConfig struct {
 	// leaked/brute-forced", with only a log line marking the moment it happened. A
 	// fallback chain that stays flat or gets stronger (e.g. one KMS region falling
 	// back to another) is unaffected and never needs this flag.
-	AllowWeakerFallback bool `yaml:"allow_weaker_fallback"`
+	AllowWeakerFallback bool `yaml:"insecure_allow_weaker_kek_fallback"`
 }
 
 type SecretsConfig struct {
@@ -1045,7 +1052,7 @@ type SecurityConfig struct {
 	// ImplicitDefault: a hand-built *Config must never land in the softened path.
 	EnableFilePermissionCheckUpgradeGrace bool `yaml:"-"`
 	AutoFixFilePermissions                bool `yaml:"auto_fix_file_permissions"`
-	AllowUnsafeFilePermissions            bool `yaml:"allow_unsafe_file_permissions"`
+	AllowUnsafeFilePermissions            bool `yaml:"insecure_allow_unsafe_file_permissions"`
 	// RequireMFA mandates TOTP MFA for interactive login: a session-authenticated
 	// user without MFA enabled is confined to the MFA-enrolment endpoints until
 	// they enrol. Non-interactive credentials (PAT/machine/OIDC) are exempt.
@@ -1071,7 +1078,8 @@ type SecurityConfig struct {
 	// for an exponentially-backing-off cooldown. Distinct from (and complementary to)
 	// the per-IP rate limiter, which a distributed/botnet guess against one account can
 	// evade. It is ENABLED BY DEFAULT — a secrets-manager login must resist online
-	// guessing out of the box. Set login_lockout.disabled to opt out.
+	// guessing out of the box. Set login_lockout.insecure_disable_login_lockout
+	// to opt out (deprecated alias: login_lockout.disabled).
 	LoginLockout LoginLockoutConfig `yaml:"login_lockout"`
 	// RequireTransportTLS, when true, refuses to start an enabled HTTP/gRPC listener
 	// that has no TLS configured — failing closed so bearer tokens and secret values are
@@ -1097,7 +1105,7 @@ type RecoverAdminConfig struct {
 	// internal/config/keyless_mode_reachability_test.go). Changing it
 	// requires host-side config-file access and a server restart, the same
 	// bar as any other config field, by design.
-	KeylessMode bool `yaml:"keyless_mode"`
+	KeylessMode bool `yaml:"insecure_keyless_admin_recovery"`
 }
 
 // parseDurationDefault parses a Go duration string, returning def when empty or
@@ -1117,11 +1125,11 @@ func parseDurationDefault(raw string, def time.Duration) time.Duration {
 // compatibility and is now redundant with the default-on behavior.
 type LoginLockoutConfig struct {
 	Enabled      bool   `yaml:"enabled"`
-	Disabled     bool   `yaml:"disabled"`      // explicit opt-out (lockout is on by default)
-	MaxAttempts  int    `yaml:"max_attempts"`  // failures within the window before locking (default 5)
-	Window       string `yaml:"window"`        // Go duration; consecutive-failure window (default 15m)
-	BaseCooldown string `yaml:"base_cooldown"` // lock duration for the first lockout (default 1m)
-	MaxCooldown  string `yaml:"max_cooldown"`  // cap for the exponential backoff (default 1h)
+	Disabled     bool   `yaml:"insecure_disable_login_lockout"` // explicit opt-out (lockout is on by default)
+	MaxAttempts  int    `yaml:"max_attempts"`                   // failures within the window before locking (default 5)
+	Window       string `yaml:"window"`                         // Go duration; consecutive-failure window (default 15m)
+	BaseCooldown string `yaml:"base_cooldown"`                  // lock duration for the first lockout (default 1m)
+	MaxCooldown  string `yaml:"max_cooldown"`                   // cap for the exponential backoff (default 1h)
 }
 
 func (c LoginLockoutConfig) GetMaxAttempts() int {
@@ -1228,11 +1236,11 @@ type SIEMConfig struct {
 	// by default: Endpoint's resolved host must not be private/link-local/
 	// IMDS (loopback is exempt -- see notifychan/evidencesink's identical
 	// convention for this class of operator-configured external receiver).
-	AllowPrivateNetworkTarget bool `yaml:"allow_private_network_target"`
+	AllowPrivateNetworkTarget bool `yaml:"insecure_allow_private_network_siem_target"`
 	// AllowInsecureTransport permits a plaintext (http://) Endpoint. False by
 	// default: Endpoint must be https unless it targets loopback. Every use
 	// of this opt-out is logged (2d) -- see internal/netutil.Guard.RequireTLS.
-	AllowInsecureTransport bool `yaml:"allow_insecure_transport"`
+	AllowInsecureTransport bool `yaml:"insecure_allow_plaintext_siem_transport"`
 }
 
 // GetToken returns the resolved SIEM token, preferring the environment variable.
@@ -1455,7 +1463,7 @@ type EvidenceWebhookConfig struct {
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 	// AllowPrivateNetworkTarget opts the endpoint out of the SSRF guard — a
 	// SEPARATE decision from InsecureSkipVerify; see evidencesink.WebhookConfig.
-	AllowPrivateNetworkTarget bool `yaml:"allow_private_network_target"`
+	AllowPrivateNetworkTarget bool `yaml:"insecure_allow_private_network_evidence_target"`
 	// AllowInsecureTransport permits a plaintext (http://) endpoint to a
 	// non-loopback host. False by default: Endpoint must be https unless it
 	// targets loopback. A SEPARATE decision from AllowPrivateNetworkTarget
@@ -1464,7 +1472,7 @@ type EvidenceWebhookConfig struct {
 	// private one — an operator opting in to reach a legitimate internal
 	// receiver got a second, unrelated, broader exception for free). Every
 	// use of this opt-out is logged; see evidencesink.WebhookConfig.
-	AllowInsecureTransport bool `yaml:"allow_insecure_transport"`
+	AllowInsecureTransport bool `yaml:"insecure_allow_plaintext_evidence_transport"`
 }
 
 // GetToken returns the resolved webhook token, preferring the environment variable.
@@ -1600,7 +1608,7 @@ type NotificationWebhookConfig struct {
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 	// AllowPrivateNetworkTarget opts the endpoint out of the SSRF guard — a
 	// SEPARATE decision from InsecureSkipVerify; see notifychan.WebhookConfig.
-	AllowPrivateNetworkTarget bool `yaml:"allow_private_network_target"`
+	AllowPrivateNetworkTarget bool `yaml:"insecure_allow_private_network_notify_target"`
 	// AllowInsecureTransport permits a plaintext (http://) endpoint to a
 	// non-loopback host. False by default: Endpoint must be https unless it
 	// targets loopback. A SEPARATE decision from AllowPrivateNetworkTarget
@@ -1608,7 +1616,7 @@ type NotificationWebhookConfig struct {
 	// ALSO silently unlock cleartext HTTP to any public host, not just a
 	// private one). Every use of this opt-out is logged; see
 	// notifychan.WebhookConfig.
-	AllowInsecureTransport bool `yaml:"allow_insecure_transport"`
+	AllowInsecureTransport bool `yaml:"insecure_allow_plaintext_notify_transport"`
 	// SigningSecret HMAC-signs each payload (X-Keyorix-Signature) so the receiver can
 	// verify authenticity. Use KEYORIX_NOTIFY_WEBHOOK_SIGNING_SECRET instead of the file.
 	SigningSecret string `yaml:"signing_secret"`
@@ -1677,7 +1685,7 @@ type SSOProviderConfig struct {
 	// without it, a SAML login can still JIT-provision a NEW account but cannot
 	// claim an EXISTING one by asserting its email. Ignored for OIDC providers
 	// (whose email_verified claim is checked per-login instead).
-	TrustAssertedEmail bool `yaml:"trust_asserted_email"`
+	TrustAssertedEmail bool `yaml:"insecure_trust_saml_asserted_email"`
 
 	// GroupSync reconciles the user's NATIVE group memberships from the IdP's groups
 	// claim on each login (the IdP becomes the source of truth — membership is added
@@ -1712,7 +1720,7 @@ type SAMLProviderConfig struct {
 	ACSURL          string `yaml:"acs_url"`      // <public-host>/auth/saml/<name>/acs
 	// AllowIDPInitiated permits responses with no InResponseTo (loses CSRF/replay
 	// protection). Off by default — enable only for IdPs that require it.
-	AllowIDPInitiated bool `yaml:"allow_idp_initiated"`
+	AllowIDPInitiated bool `yaml:"insecure_allow_idp_initiated_saml"`
 	// Attribute names to read from the assertion (empty → common Azure AD/ADFS defaults).
 	EmailAttribute  string `yaml:"email_attribute"`
 	NameAttribute   string `yaml:"name_attribute"`
@@ -1852,7 +1860,7 @@ func (c RotationRemindersConfig) GetInterval() time.Duration {
 // the default-on behavior.
 type AuditCheckpointsConfig struct {
 	Enabled  bool   `yaml:"enabled"`
-	Disabled bool   `yaml:"disabled"`
+	Disabled bool   `yaml:"insecure_disable_audit_checkpoints"`
 	Schedule string `yaml:"schedule"`
 }
 
@@ -2121,7 +2129,7 @@ type DynamicSecretsConfig struct {
 	// an SSRF proxy against other internal hosts (including cloud IMDS at
 	// 169.254.169.254). Set this only when the dynamic-secret backend legitimately
 	// lives on a private network segment that Keyorix must reach.
-	AllowPrivateNetworkTargets bool `yaml:"allow_private_network_targets"`
+	AllowPrivateNetworkTargets bool `yaml:"insecure_allow_private_network_dynamic_secret_targets"`
 	// AllowInsecureTransport, when true, disables the TLS-required-by-default
 	// guard on the mongodb/redis backends (the two backends here whose wire
 	// protocol has no bolted-on-elsewhere TLS enforcement of its own -- see
@@ -2130,7 +2138,7 @@ type DynamicSecretsConfig struct {
 	// connection actually made under this opt-out is logged (2d) -- set this
 	// only when the backend legitimately cannot use TLS (e.g. a legacy/
 	// internal deployment).
-	AllowInsecureTransport bool `yaml:"allow_insecure_transport"`
+	AllowInsecureTransport bool `yaml:"insecure_allow_plaintext_dynamic_secret_transport"`
 }
 
 // GetSweepInterval returns the auto-revoke sweep cadence, parsing SweepInterval
@@ -2309,6 +2317,12 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
 	}
 
+	// ADR-112 opt-out rule: translate any deprecated old key (a renamed
+	// insecure_ setting) to its current name BEFORE the strict KnownFields(true)
+	// decode below, which would otherwise reject it outright as unrecognized.
+	// See insecure_settings_aliases.go.
+	data, deprecatedWarnings := resolveDeprecatedAliases(data)
+
 	// KnownFields(true) makes an unrecognized key (e.g. a correctly-spelled field
 	// nested under the wrong parent, or a typo) fail loudly at startup instead of
 	// being silently dropped by yaml.Unmarshal. Without this, an operator can set
@@ -2375,6 +2389,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid storage.database.path: %w", derr)
 	}
 	cfg.Storage.Database.Path = resolvedDBPath
+
+	cfg.DeprecatedSettingWarnings = deprecatedWarnings
 
 	return &cfg, nil
 }
@@ -2888,7 +2904,7 @@ func validateSSOIDPInitiated(sso SSOConfig) error {
 		}
 	}
 	if len(offending) > 0 {
-		return fmt.Errorf("sso: provider(s) set allow_idp_initiated, which is not supported — keyorix has no SAML assertion-replay cache, so an IdP-initiated response (no InResponseTo / RelayState) has no replay protection and is refused at the ACS regardless; remove allow_idp_initiated: %s", strings.Join(offending, ", "))
+		return fmt.Errorf("sso: provider(s) set insecure_allow_idp_initiated_saml (or its deprecated alias allow_idp_initiated), which is not supported — keyorix has no SAML assertion-replay cache, so an IdP-initiated response (no InResponseTo / RelayState) has no replay protection and is refused at the ACS regardless; remove it: %s", strings.Join(offending, ", "))
 	}
 	return nil
 }

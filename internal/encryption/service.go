@@ -191,7 +191,7 @@ func newKeyProviderFromConfig(cfg *config.EncryptionConfig, baseDir, passphrase 
 	// fires only when a fallback to a weaker provider actually occurs.
 	if d, downgrades := crypto.DetectFallbackDowngrade(providers); downgrades && !cfg.KeyProvider.AllowWeakerFallback {
 		return nil, fmt.Errorf(
-			"key_provider fallback [%d] (%q, %s) is weaker than an earlier provider in the configured chain (%s) — a fallback chain that can silently downgrade encryption strength requires explicit key_provider.allow_weaker_fallback: true; refusing to start without it",
+			"key_provider fallback [%d] (%q, %s) is weaker than an earlier provider in the configured chain (%s) — a fallback chain that can silently downgrade encryption strength requires explicit storage.encryption.key_provider.insecure_allow_weaker_kek_fallback: true; refusing to start without it",
 			d.Index-1, d.Provider, d.ToTier, d.FromTier)
 	}
 	return crypto.NewMultiKeyProvider(providers)

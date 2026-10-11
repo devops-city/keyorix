@@ -33,7 +33,7 @@ sso:
         # idp_metadata_xml: "<EntityDescriptor …>…</EntityDescriptor>"
         sp_entity_id: https://keyorix.internal/auth/saml/corp/metadata
         acs_url:      https://keyorix.internal/auth/saml/corp/acs
-        allow_idp_initiated: false     # keep off unless your IdP requires it
+        insecure_allow_idp_initiated_saml: false  # keep off unless your IdP requires it (deprecated alias: allow_idp_initiated)
         # Attribute names to read (defaults suit Azure AD / ADFS):
         email_attribute:  http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress
         name_attribute:   http://schemas.xmlsoap.org/ws/2005/05/identity/claims/displayname

@@ -44,7 +44,7 @@ func (s *Service) auditKMSContextFallback(ctx context.Context, keyID string) {
 	event := &models.AuditEvent{
 		EventType: EventKMSContextFallbackUsed,
 		Description: fmt.Sprintf(
-			"KMS decrypt for key %q succeeded only via the no-context fallback (kms_allow_context_fallback) — this blob is not bound to this install's encryption context; re-wrap it via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable kms_allow_context_fallback",
+			"KMS decrypt for key %q succeeded only via the no-context fallback (insecure_allow_kms_context_fallback) — this blob is not bound to this install's encryption context; re-wrap it via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback",
 			keyID),
 		Success:   &failed,
 		ActorType: "system",

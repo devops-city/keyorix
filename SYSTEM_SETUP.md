@@ -88,7 +88,7 @@ storage:
 security:
   enable_file_permission_check: true
   auto_fix_file_permissions: false
-  allow_unsafe_file_permissions: false
+  insecure_allow_unsafe_file_permissions: false   # deprecated alias: allow_unsafe_file_permissions
 ```
 
 ### Step 3: Security Validation

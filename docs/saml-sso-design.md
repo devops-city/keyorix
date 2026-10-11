@@ -132,7 +132,7 @@ sso:
         sp_entity_id:  https://keyorix.internal/saml/corp-adfs
         sp_acs_url:    https://keyorix.internal/auth/saml/corp-adfs/acs
         name_id_format: emailAddress
-        allow_idp_initiated: false
+        insecure_allow_idp_initiated_saml: false   # deprecated alias: allow_idp_initiated
         attribute_map:
           email:  http://schemas.xmlsoap.org/.../emailaddress
           name:   http://schemas.xmlsoap.org/.../displayname

@@ -240,13 +240,31 @@ func TestRunAdminValidatePosture_AdminWithoutMFAIsADeviationAndNonZeroExit(t *te
 	require.Error(t, err, "an admin-tier holder with no MFA must be a counted deviation")
 }
 
+// The explicit-path set comes from config.ExplicitlySetPaths over a real file,
+// for the current insecure_ key AND its pre-#2899 deprecated alias: a file still
+// writing the old name asked for the weakening just as explicitly, and must not
+// be reported as a shipped default because the registry's SourcePaths now name
+// the renamed key.
 func TestCollectInsecureSettingsPosture_InEffectSettingIsADeviation(t *testing.T) {
+	for _, key := range []string{"insecure_allow_unsafe_file_permissions", "allow_unsafe_file_permissions"} {
+		t.Run(key, func(t *testing.T) {
+			testInEffectSettingIsADeviation(t, key)
+		})
+	}
+}
+
+func testInEffectSettingIsADeviation(t *testing.T, key string) {
 	cfg := &config.Config{}
 	cfg.Security.AllowUnsafeFilePermissions = true
 	cfg.Security.EnableFilePermissionCheck = true
 
+	cfgPath := filepath.Join(t.TempDir(), "keyorix.yaml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte("security:\n  "+key+": true\n"), 0o600))
+	explicit, err := config.ExplicitlySetPaths(cfgPath)
+	require.NoError(t, err)
+
 	report := &postureReport{}
-	collectInsecureSettingsPosture(cfg, map[string]bool{"security.allow_unsafe_file_permissions": true}, report)
+	collectInsecureSettingsPosture(cfg, explicit, report)
 
 	// Asserts PRESENCE, not that this is the only deviation. A zero-value
 	// Config has several other weakenings in effect (encryption off, TLS not

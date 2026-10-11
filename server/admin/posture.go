@@ -242,7 +242,7 @@ func collectFilePermissionPosture(cfg *config.Config, configPath string, report 
 	if result.PermissionsChecked && result.PermissionsIssue != "" {
 		detail := "file permission validation found: " + result.PermissionsIssue
 		if cfg.Security.AllowUnsafeFilePermissions {
-			detail += " (tolerated at boot only because security.allow_unsafe_file_permissions is set)"
+			detail += " (tolerated at boot only because security.insecure_allow_unsafe_file_permissions is set)"
 		}
 		report.deviate("file-permissions", detail)
 	}

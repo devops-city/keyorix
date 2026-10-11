@@ -149,6 +149,27 @@ All notable changes to Keyorix are documented here. This project follows
   password; prints one-time recovery codes). With `require_mfa` on, this is
   how a CLI-only operator gets past the first-login enrolment confinement;
   `keyorix login --mfa-code` completes later logins.
+- **16 security-weakening settings renamed to an `insecure_` prefix** (ADR-112,
+  secure-by-default baseline, item 2, part 3) —
+  `security.allow_unsafe_file_permissions`, `security.login_lockout.disabled`,
+  `security.recover_admin.keyless_mode`,
+  `audit.siem.allow_private_network_target`/`allow_insecure_transport`,
+  `evidence_delivery.webhook.allow_private_network_target`/`allow_insecure_transport`,
+  `notifications.webhook.allow_private_network_target`/`allow_insecure_transport`,
+  `dynamic_secrets.allow_private_network_targets`/`allow_insecure_transport`,
+  `storage.encryption.key_provider.kms_allow_context_fallback`/`allow_weaker_fallback`,
+  `sso.providers[].trust_asserted_email`,
+  `sso.providers[].saml.allow_idp_initiated` and `audit_checkpoints.disabled`.
+  **Upgrade note: every old name still works exactly as before.** It is a
+  deprecated alias, not a removal — the raw YAML is rewritten before the strict
+  decode, so nothing changes except that using an old name now logs a start-up
+  warning naming its replacement. Setting both names is not ambiguous: the new
+  one wins and a "both set" warning fires. The two key-provider settings are
+  also aliased **inside the `fallbacks:` chain**, where a config file using the
+  old name previously hit the strict decode's unknown-field check and the
+  server refused to start instead of warning.
+  Not renamed: the fourteen settings tracked in #2895, each of which needs a
+  polarity inversion or a non-boolean field restructured first.
 - **Every security-weakening setting is now registered, warned about and
   audited** (ADR-112, secure-by-default baseline, item 2 — the opt-out rule).
   `internal/config.InsecureSettingsRegistry` is the single enumeration of all
@@ -164,11 +185,10 @@ All notable changes to Keyorix are documented here. This project follows
   A **sweep of the whole config surface** (`insecure_settings_sweep_test.go`)
   is what keeps the registry honest: a setting whose name reads as an opt-out
   and that no entry covers fails CI by name, and a set ratchet over every
-  leaf setting fails on *any* config addition, removal or rename — because eight of the registered
+  leaf setting fails on *any* config addition, removal or rename — because seven of the registered
   weakenings (`membership.validation_mode`, `storage.database.ssl_mode`,
   `credential_delivery.mode`, the SMTP/email `tls` enums, `metrics_token`,
-  `max_request_body_bytes`, `sso.providers[].trust_asserted_email`) have names
-  no pattern list can recognise. Thirteen settings that cannot be renamed
+  `max_request_body_bytes`) have names no pattern list can recognise. Thirteen settings that cannot be renamed
   mechanically — each needing a polarity inversion of a load-bearing flag, or
   a non-boolean field restructured into a real boolean — are recorded as known
   exceptions with an owning tracking issue, and are covered by the warning,

@@ -40,6 +40,25 @@ func TestWarnInsecureSettingsInEffect_WarnsOnlyWhenInEffect(t *testing.T) {
 	}
 }
 
+// Every DeprecatedSettingWarnings entry config.Load produced gets its own
+// logged line — this is the ONLY place those warnings are surfaced, since
+// config.Load itself is side-effect-free (see its own doc comment).
+func TestWarnDeprecatedSettingAliases_LogsEachWarning(t *testing.T) {
+	cfg := &config.Config{DeprecatedSettingWarnings: []string{"alpha is deprecated", "beta is deprecated"}}
+	logged := captureLogs(func() { warnDeprecatedSettingAliases(cfg) })
+	for _, want := range cfg.DeprecatedSettingWarnings {
+		if !strings.Contains(logged, want) {
+			t.Errorf("expected logged output to contain %q, got: %q", want, logged)
+		}
+	}
+
+	none := &config.Config{}
+	logged = captureLogs(func() { warnDeprecatedSettingAliases(none) })
+	if logged != "" {
+		t.Errorf("no deprecated warnings must log nothing, got: %q", logged)
+	}
+}
+
 // securityPostureSnapshot must cover every registry entry exactly once --
 // the settings-diff audit depends on this to see the whole picture every
 // boot, not just whichever entries happen to be in effect right now (an

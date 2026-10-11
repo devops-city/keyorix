@@ -293,3 +293,14 @@ func TestGuard_ValidateSRVTargets_EmptyResultRefused(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no targets")
 }
+
+// The refusal and the warning must name the config key that set the opt-out at
+// this construction site (the current insecure_ spelling), not a generic or
+// deprecated one.
+func TestGuard_RequireTLS_NamesTheConfiguredKey(t *testing.T) {
+	const key = "audit.siem.insecure_allow_plaintext_siem_transport"
+	err := Guard{InsecureTransportKey: key}.RequireTLS(false, "siem endpoint", "http://x")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), key)
+	assert.NotContains(t, err.Error(), "allow_insecure_transport")
+}

@@ -145,7 +145,7 @@ security:
   # Check file permission safety on startup
   enable_file_permission_check: true
   auto_fix_file_permissions: true
-  allow_unsafe_file_permissions: false
+  insecure_allow_unsafe_file_permissions: false
   # Require a second factor (TOTP or passkey) for interactive login (ADR-112: on by
   # default). The first admin login is confined to MFA enrolment until it enrols
   # (`keyorix mfa enroll` / `keyorix mfa activate`, or Profile -> Security in the web

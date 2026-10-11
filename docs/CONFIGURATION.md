@@ -514,7 +514,7 @@ change for this entry, because it did not appear in the previous snapshot.
 security:
   enable_file_permission_check: true
   auto_fix_file_permissions: true
-  allow_unsafe_file_permissions: false
+  insecure_allow_unsafe_file_permissions: false   # deprecated alias: allow_unsafe_file_permissions
   require_mfa: true               # false = don't mandate a second factor for interactive login
   login_lockout:
     enabled: false                # opt-in per-account lockout (brute-force protection)
@@ -522,12 +522,14 @@ security:
     window: "15m"                 # consecutive-failure window
     base_cooldown: "1m"           # lock duration for the first lockout
     max_cooldown: "1h"            # ceiling for the exponential backoff
+    insecure_disable_login_lockout: false   # deprecated alias: disabled
 ```
 
 Every setting named `insecure_*` is part of ADR-112's opt-out rule: it weakens
 the baseline below its secure default, is warned about at every start it's in
-effect, appears in the start-to-start settings diff audit, and is reported as a
-deviation by the posture report below.
+effect, appears in the start-to-start settings diff audit, is reported as a
+deviation by the posture report below, and (renamed settings only, for now)
+keeps its old name working as a deprecated alias that also warns when used.
 
 **`keyorix-server admin validate --posture`** (ADR-112 §4) reports every
 secure-baseline deviation in one place instead of warnings scattered across
@@ -583,6 +585,32 @@ Docker Compose the bind-mounted `keyorix.docker.yaml` arrives as the host's
 owner/mode (typically `0664`, uid 1000, while the container runs as uid 1001),
 which the report counts as a file-permission deviation until you
 `chmod 600 keyorix.docker.yaml && sudo chown 1001 keyorix.docker.yaml` (tracked in #2922).
+
+The renamed settings, with the deprecated name each still accepts (same
+meaning, a start-up warning when the old name is used; when both are set the
+new name wins and the old one is reported). `[]` marks a list: the rename
+applies to every entry.
+
+| Deprecated name | Current name |
+|---|---|
+| `security.allow_unsafe_file_permissions` | `security.insecure_allow_unsafe_file_permissions` |
+| `security.login_lockout.disabled` | `security.login_lockout.insecure_disable_login_lockout` |
+| `security.recover_admin.keyless_mode` | `security.recover_admin.insecure_keyless_admin_recovery` |
+| `audit.siem.allow_private_network_target` | `audit.siem.insecure_allow_private_network_siem_target` |
+| `audit.siem.allow_insecure_transport` | `audit.siem.insecure_allow_plaintext_siem_transport` |
+| `evidence_delivery.webhook.allow_private_network_target` | `evidence_delivery.webhook.insecure_allow_private_network_evidence_target` |
+| `evidence_delivery.webhook.allow_insecure_transport` | `evidence_delivery.webhook.insecure_allow_plaintext_evidence_transport` |
+| `notifications.webhook.allow_private_network_target` | `notifications.webhook.insecure_allow_private_network_notify_target` |
+| `notifications.webhook.allow_insecure_transport` | `notifications.webhook.insecure_allow_plaintext_notify_transport` |
+| `dynamic_secrets.allow_private_network_targets` | `dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets` |
+| `dynamic_secrets.allow_insecure_transport` | `dynamic_secrets.insecure_allow_plaintext_dynamic_secret_transport` |
+| `storage.encryption.key_provider.kms_allow_context_fallback` | `storage.encryption.key_provider.insecure_allow_kms_context_fallback` |
+| `storage.encryption.key_provider.allow_weaker_fallback` | `storage.encryption.key_provider.insecure_allow_weaker_kek_fallback` |
+| `storage.encryption.key_provider.fallbacks[].kms_allow_context_fallback` | `storage.encryption.key_provider.fallbacks[].insecure_allow_kms_context_fallback` |
+| `storage.encryption.key_provider.fallbacks[].allow_weaker_fallback` | `storage.encryption.key_provider.fallbacks[].insecure_allow_weaker_kek_fallback` |
+| `sso.providers[].trust_asserted_email` | `sso.providers[].insecure_trust_saml_asserted_email` |
+| `sso.providers[].saml.allow_idp_initiated` | `sso.providers[].saml.insecure_allow_idp_initiated_saml` |
+| `audit_checkpoints.disabled` | `audit_checkpoints.insecure_disable_audit_checkpoints` |
 
 With `require_mfa: true` (the default), an interactive (session-authenticated) user
 **without** a second factor is confined to the MFA-enrolment endpoints until they
@@ -1153,6 +1181,7 @@ encryption off the scheduler logs a warning and does nothing.
 audit_checkpoints:
   enabled: true
   schedule: "12h"         # Go duration between checkpoint writes (default 24h)
+  insecure_disable_audit_checkpoints: false   # deprecated alias: disabled
 ```
 
 **External-notary anchoring** (`audit.checkpoint_notary`, opt-in). The checkpoint

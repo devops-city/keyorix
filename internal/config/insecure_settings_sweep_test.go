@@ -21,9 +21,8 @@
 //     net cannot see them — membership.validation_mode,
 //     storage.database.ssl_mode, credential_delivery.mode,
 //     credential_delivery.smtp.tls, notifications.email.tls,
-//     server.http.metrics_token, server.http.max_request_body_bytes and
-//     sso.providers.trust_asserted_email are all security-weakening in some
-//     value, and not one of them contains a word a pattern list would flag. A
+//     server.http.metrics_token and server.http.max_request_body_bytes are
+//     all security-weakening in some value, and not one of them contains a word a pattern list would flag. A
 //     new field of that kind would sail straight through net 1. Net 2 cannot
 //     miss it: ANY added, removed or renamed leaf anywhere in Config fails, and
 //     the failure message states the two legitimate ways to resolve it.
@@ -54,8 +53,8 @@ type configLeaf struct {
 // configSurfaceLeaves walks Config and returns every leaf YAML path.
 //
 // Slices and pointers are flattened to their element type, so a per-provider
-// setting appears once as sso.providers.trust_asserted_email rather than being
-// invisible behind the slice — that is the same path spelling the registry's
+// setting appears once as sso.providers.insecure_trust_saml_asserted_email
+// rather than being invisible behind the slice — that is the same path spelling the registry's
 // SourcePaths use. `yaml:"-"` fields are skipped: they are never settable from
 // a config file, so they are not part of the opt-out surface (that is how
 // SecurityConfig.EnableFilePermissionCheckImplicitDefault, a derived field,
@@ -214,6 +213,18 @@ func TestConfigSurface_RegistrySourcePathsAllExist(t *testing.T) {
 					"sweep cannot tell whether the setting it describes still exists", e.Name)
 			}
 			for _, p := range e.SourcePaths {
+				// The walk stops at a recursive type, so it never lists the
+				// fallbacks[] copies of KeyProviderConfig's leaves. Such a path is
+				// real iff its primary spelling is and KeyProviderConfig really
+				// carries a Fallbacks []KeyProviderConfig (one level, as
+				// keyProviderChain reads it).
+				if primary, ok := strings.CutPrefix(p, "storage.encryption.key_provider.fallbacks."); ok {
+					sf, found := reflect.TypeOf(KeyProviderConfig{}).FieldByName("Fallbacks")
+					if !found || sf.Type != reflect.TypeOf([]KeyProviderConfig(nil)) || !strings.HasPrefix(sf.Tag.Get("yaml"), "fallbacks") {
+						t.Errorf("SourcePaths entry %q needs KeyProviderConfig.Fallbacks []KeyProviderConfig under yaml key fallbacks", p)
+					}
+					p = "storage.encryption.key_provider." + primary
+				}
 				if !real[p] {
 					t.Errorf("SourcePaths entry %q does not exist on Config's YAML surface (renamed? removed? "+
 						"typo?) — fix the path, or drop the entry if the setting is gone", p)
@@ -312,13 +323,14 @@ func liveConfigSurfacePaths() []string {
 // TestConfigSurface_LeafSetRatchet is net 2: the net for a weakening setting
 // whose NAME gives nothing away.
 //
-// Eight of the known exceptions are proof this is needed rather than
+// Seven of the known exceptions are proof this is needed rather than
 // decorative — membership.validation_mode, storage.database.ssl_mode,
 // credential_delivery.mode, credential_delivery.smtp.tls,
-// notifications.email.tls, server.http.metrics_token,
-// server.http.max_request_body_bytes and sso.providers.trust_asserted_email are
-// each weakening in some value and none of them contains a word net 1 looks
-// for. A ninth of the same kind, added tomorrow, would pass net 1 silently.
+// notifications.email.tls, server.http.metrics_token and
+// server.http.max_request_body_bytes are each weakening in some value and
+// none of them contains a word net 1 looks for (an eighth,
+// sso.providers.trust_asserted_email, became visible to net 1 when #2899
+// renamed it to insecure_trust_saml_asserted_email). An eighth of the same kind, added tomorrow, would pass net 1 silently.
 //
 // This check cannot be silently passed: any added, removed or renamed leaf
 // anywhere in Config fails it, including a swap that keeps the count.
@@ -379,7 +391,11 @@ func TestConfigSurface_RatchetCatchesACountPreservingSwap(t *testing.T) {
 // derivedFieldExemptions are derived (yaml:"-") Config fields that no registry
 // entry claims through DerivedInputs, each with the reason. Same contract as
 // sweepExemptions: a claim a reviewer can check at its source.
-var derivedFieldExemptions = map[string]string{}
+var derivedFieldExemptions = map[string]string{
+	"DeprecatedSettingWarnings": "text only: the start-up warnings resolveDeprecatedAliases collected for old keys " +
+		"it already translated to the current insecure_ key before decoding. It changes no setting's value or " +
+		"effect, so no InEffect/Value could depend on it (server/main.go warnDeprecatedSettingAliases only logs it).",
+}
 
 // configDerivedFields returns every yaml:"-" field reachable from Config, as
 // <yaml path of its parent>.<GoFieldName> -- the spelling DerivedInputs uses.

@@ -57,8 +57,8 @@ func TestService_AuditKMSContextFallback_RecordsEvent(t *testing.T) {
 	if !strings.Contains(got.Description, "arn:aws:kms:us-east-1:123456789012:key/canonical-id") {
 		t.Fatalf("Description must name the affected key, got %q", got.Description)
 	}
-	if !strings.Contains(got.Description, "kms_allow_context_fallback") {
-		t.Fatalf("Description must reference kms_allow_context_fallback so an operator knows what to disable, got %q", got.Description)
+	if !strings.Contains(got.Description, "insecure_allow_kms_context_fallback") {
+		t.Fatalf("Description must reference insecure_allow_kms_context_fallback so an operator knows what to disable, got %q", got.Description)
 	}
 }
 

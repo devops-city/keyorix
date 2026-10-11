@@ -65,9 +65,10 @@ login is confined to MFA enrolment, as in [QUICK_START.md](../QUICK_START.md#enr
 **Generate your admin recovery key now, before you need it.** If every admin
 account is ever locked out (lost password, lost MFA device), the only way back
 in is `keyorix-server admin recover-admin` on the server host — and by
-default it also requires this key (`security.recover_admin.keyless_mode` is an
+default it also requires this key (`security.recover_admin.insecure_keyless_admin_recovery`, formerly
+`keyless_mode`, is an
 explicit, less-secure opt-out documented in `configs/keyorix.yaml.tpl`, not the
-default, `security.recover_admin.keyless_mode: true` in server config opts
+default, `security.recover_admin.insecure_keyless_admin_recovery: true` in server config opts
 out). No key exists until you generate one. Like every `keyorix-server admin`
 command except a Postgres backup, it needs the database to itself — it holds
 the exclusive admin lock for the whole rotation, so a concurrent

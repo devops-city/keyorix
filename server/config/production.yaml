@@ -75,7 +75,7 @@ secrets:
 security:
   enable_file_permission_check: true
   auto_fix_file_permissions: true
-  allow_unsafe_file_permissions: false
+  insecure_allow_unsafe_file_permissions: false
   # #G37: this file's server.http/grpc.tls.enabled are false above because TLS is
   # expected to be terminated by the reverse proxy in front (see comments there) —
   # so require_transport_tls stays false here too; forcing it true would make the

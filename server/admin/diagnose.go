@@ -106,7 +106,7 @@ func runAdminDiagnose(cmd *cobra.Command, args []string) error { // NOSONAR -- c
 // not a [FAIL].
 func diagnoseRecoveryKey(db *gorm.DB, cfg *config.Config) {
 	if cfg.Security.RecoverAdmin.KeylessMode {
-		fmt.Println("[SKIP] recovery key (security.recover_admin.keyless_mode is enabled)")
+		fmt.Println("[SKIP] recovery key (security.recover_admin.insecure_keyless_admin_recovery is enabled)")
 		return
 	}
 	var rec models.RecoveryKeyRecord

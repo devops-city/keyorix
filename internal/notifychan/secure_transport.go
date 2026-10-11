@@ -36,7 +36,7 @@ func validateEndpoint(raw string, allowPrivateNetwork, allowInsecureTransport bo
 		// scheme OK; fall through to the destination-IP check
 	case "http":
 		if !allowInsecureTransport && !isLoopbackHost(u.Hostname()) {
-			return fmt.Errorf("notifychan: endpoint %q must use https (set allow_insecure_transport only for a trusted internal or loopback target)", raw)
+			return fmt.Errorf("notifychan: endpoint %q must use https (set notifications.webhook.insecure_allow_plaintext_notify_transport only for a trusted internal or loopback target)", raw)
 		}
 	default:
 		return fmt.Errorf("notifychan: endpoint %q must use https", raw)

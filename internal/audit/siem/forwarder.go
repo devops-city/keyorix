@@ -225,7 +225,7 @@ func newForwarder(cfg Config, baseBackoff time.Duration) (*Forwarder, error) {
 	// failure via http.NewRequestWithContext at send time, and duplicating
 	// the check here would only change WHEN the (unavoidable) error appears,
 	// not whether the SIEM forwarder is safe.
-	guard := netutil.Guard{AllowInsecureTransport: cfg.AllowInsecureTransport}
+	guard := netutil.Guard{AllowInsecureTransport: cfg.AllowInsecureTransport, InsecureTransportKey: "audit.siem.insecure_allow_plaintext_siem_transport"}
 	if u, perr := url.Parse(cfg.Endpoint); perr == nil {
 		tlsSatisfied := u.Scheme == "https" || isLoopbackHost(u.Hostname())
 		if err := guard.RequireTLS(tlsSatisfied, "siem endpoint", cfg.Endpoint); err != nil {

@@ -208,7 +208,7 @@ func connectMongo(ctx context.Context, adminDSN string, allowPrivateNetwork, all
 		return nil, fmt.Errorf("invalid mongodb admin URI: %w", err)
 	}
 
-	guard := netutil.Guard{AllowInsecureTransport: allowInsecureTransport}
+	guard := netutil.Guard{AllowInsecureTransport: allowInsecureTransport, InsecureTransportKey: "dynamic_secrets.insecure_allow_plaintext_dynamic_secret_transport"}
 	if !allowPrivateNetwork {
 		guard.Dial = netutil.Dialer{Disallow: netutil.IsPrivateOrLinkLocal, Resolve: dialResolve}
 		if u.Scheme == "mongodb+srv" {

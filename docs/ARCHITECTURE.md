@@ -114,7 +114,7 @@ a third binary, and never a network endpoint:
   (`admin recovery-key rotate` generates one; there is no network path to bypass this).
   Every use writes to the audit chain and notifies every current admin. A keyless,
   host-access-only mode exists only when explicitly configured (`security.
-  recover_admin.keyless_mode`), and every boot with it enabled logs a loud warning and
+  recover_admin.insecure_keyless_admin_recovery`, formerly `keyless_mode`), and every boot with it enabled logs a loud warning and
   an audit event.
 - `backup` / `restore` / `encryption rotate-kek` — offline backup/restore and a full
   KEK re-encryption sweep, run with the database to itself.

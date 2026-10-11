@@ -141,7 +141,10 @@ func TestNewKeyProviderFromConfig_WeakFallback_RejectedWithoutOptIn(t *testing.T
 	}
 	_, err := encryption.NewKeyProviderFromConfig(cfg, dir, "test-passphrase")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "allow_weaker_fallback")
+	// The refusal names the CURRENT key (the deprecated old one still works as an
+	// alias, but an operator must be told the name to put in new config).
+	assert.Contains(t, err.Error(), "insecure_allow_weaker_kek_fallback")
+	assert.NotContains(t, err.Error(), "key_provider.allow_weaker_fallback")
 	assert.Contains(t, err.Error(), "password")
 }
 

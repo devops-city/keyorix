@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/securefiles"
 	"gopkg.in/yaml.v3"
@@ -19,6 +20,13 @@ import (
 // what Load resolves an absent key to). It reports presence, not value: a file
 // that writes `require_transport_tls: false` has explicitly asked for
 // cleartext, even though false is also the default.
+//
+// A deprecated alias (insecure_settings_aliases.go) the file writes is ALSO
+// reported under the setting's current name, because InsecureSetting.SourcePaths
+// names the current key: a file that still says
+// security.allow_unsafe_file_permissions: true has asked for the weakening as
+// explicitly as one using the insecure_ name, and must not read as a shipped
+// default just because the setting was renamed. The old path stays in the set too.
 //
 // What it does not see: a YAML merge key (`<<: *anchor`) is reported as the
 // literal key "<<", not expanded, so a setting arriving only through a merge
@@ -61,5 +69,16 @@ func explicitlySetPathsIn(data []byte) (map[string]bool, error) {
 		}
 	}
 	walk(&root, "")
+	for _, a := range deprecatedSettingAliases {
+		if paths[flattenSequencePath(a.OldPath)] {
+			paths[flattenSequencePath(a.NewPath)] = true
+		}
+	}
 	return paths, nil
+}
+
+// flattenSequencePath spells an alias-table path ("sso.providers[].x") the way
+// explicitlySetPathsIn and SourcePaths do ("sso.providers.x"): no sequence marker.
+func flattenSequencePath(p string) string {
+	return strings.ReplaceAll(p, "[]", "")
 }

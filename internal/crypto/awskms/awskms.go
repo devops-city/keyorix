@@ -144,7 +144,7 @@ func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
 	if err != nil && len(c.encCtx) > 0 && c.allowFallback {
 		out, err = c.kms.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: ciphertext, KeyId: &c.keyID})
 		if err == nil {
-			log.Printf("aws-kms: decrypted a wrapped KEK WITHOUT its configured encryption context (kms_allow_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable kms_allow_context_fallback")
+			log.Printf("aws-kms: decrypted a wrapped KEK WITHOUT its configured encryption context (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback")
 			if c.fallbackHook != nil {
 				c.fallbackHook(ctx, c.keyID)
 			}

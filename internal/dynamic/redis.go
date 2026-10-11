@@ -156,7 +156,7 @@ func connectRedis(ctx context.Context, adminDSN string, allowPrivateNetwork, all
 		return nil, err
 	}
 
-	guard := netutil.Guard{AllowInsecureTransport: allowInsecureTransport}
+	guard := netutil.Guard{AllowInsecureTransport: allowInsecureTransport, InsecureTransportKey: "dynamic_secrets.insecure_allow_plaintext_dynamic_secret_transport"}
 	if !allowPrivateNetwork {
 		guard.Dial = netutil.Dialer{Disallow: netutil.IsPrivateOrLinkLocal, Resolve: dialResolve}
 	}

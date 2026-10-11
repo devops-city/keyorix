@@ -35,6 +35,10 @@ type Guard struct {
 	// construction site that sets this true logs the exception (2d) — see
 	// RequireTLS.
 	AllowInsecureTransport bool
+	// InsecureTransportKey is the config key that sets AllowInsecureTransport for
+	// this construction site (e.g. "audit.siem.insecure_allow_plaintext_siem_transport"),
+	// so the refusal and the warning tell the operator the real key to change.
+	InsecureTransportKey string
 }
 
 // RequireTLS enforces this Guard's TLS policy: tlsSatisfied must be true
@@ -48,10 +52,14 @@ func (g Guard) RequireTLS(tlsSatisfied bool, context, target string) error {
 	if tlsSatisfied {
 		return nil
 	}
-	if !g.AllowInsecureTransport {
-		return fmt.Errorf("netutil: %s %q must use TLS (set allow_insecure_transport to permit a plaintext connection)", context, target)
+	key := g.InsecureTransportKey
+	if key == "" {
+		key = "the insecure_allow_plaintext_*_transport setting for this connection"
 	}
-	log.Printf("WARNING: %s %q is using a plaintext (non-TLS) connection; allow_insecure_transport is explicitly enabled", context, target)
+	if !g.AllowInsecureTransport {
+		return fmt.Errorf("netutil: %s %q must use TLS (set %s to permit a plaintext connection)", context, target, key)
+	}
+	log.Printf("WARNING: %s %q is using a plaintext (non-TLS) connection; %s is explicitly enabled", context, target, key)
 	return nil
 }
 

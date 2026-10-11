@@ -77,7 +77,7 @@ secrets:
 security:
   enable_file_permission_check: true
   auto_fix_file_permissions: true
-  allow_unsafe_file_permissions: false
+  insecure_allow_unsafe_file_permissions: false
 
 soft_delete:
   enabled: true

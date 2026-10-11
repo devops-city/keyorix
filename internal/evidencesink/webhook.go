@@ -123,7 +123,7 @@ func validateEndpoint(raw string, allowPrivateNetwork, allowInsecureTransport bo
 		// scheme OK; fall through to the destination-IP check
 	case "http":
 		if !allowInsecureTransport && !isLoopbackHost(u.Hostname()) {
-			return fmt.Errorf("evidencesink: endpoint %q must use https (set allow_insecure_transport only for a trusted internal or loopback target)", raw)
+			return fmt.Errorf("evidencesink: endpoint %q must use https (set evidence_delivery.webhook.insecure_allow_plaintext_evidence_transport only for a trusted internal or loopback target)", raw)
 		}
 	default:
 		return fmt.Errorf("evidencesink: endpoint %q must use https", raw)

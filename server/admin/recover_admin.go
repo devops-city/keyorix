@@ -48,7 +48,7 @@ key alone, or holding the host alone, is not enough.
 
 --recovery-key must be exactly "-": the key is always read from stdin, never
 a command-line argument, to keep it out of shell history and process listings.
-Omit it entirely if security.recover_admin.keyless_mode is enabled in this
+Omit it entirely if security.recover_admin.insecure_keyless_admin_recovery is enabled in this
 host's config (a labs/demo escape hatch -- see the config field's own doc
 comment for why this is not recommended for a real deployment).
 
@@ -66,7 +66,7 @@ Exit codes: 0 on success, 1 on any failure (see the printed error message).`,
 
 func init() {
 	recoverAdminCmd.Flags().StringVar(&recoverAdminUser, "user", "", "The account to recover: numeric user ID or email address (required)")
-	recoverAdminCmd.Flags().StringVar(&recoverAdminKey, "recovery-key", "", `Must be "-" -- the key is read from stdin, never a CLI argument (required unless security.recover_admin.keyless_mode is enabled)`)
+	recoverAdminCmd.Flags().StringVar(&recoverAdminKey, "recovery-key", "", `Must be "-" -- the key is read from stdin, never a CLI argument (required unless security.recover_admin.insecure_keyless_admin_recovery is enabled)`)
 	rootCmd.AddCommand(recoverAdminCmd)
 }
 
@@ -87,7 +87,7 @@ func runRecoverAdmin(cmd *cobra.Command, args []string) error {
 		// into one trust boundary -- loud every time, never a silent
 		// downgrade, matching the startup warning's own "every boot, not
 		// just the first" posture.
-		fmt.Fprintln(os.Stderr, "WARNING: keyless mode is enabled (security.recover_admin.keyless_mode) -- "+
+		fmt.Fprintln(os.Stderr, "WARNING: keyless mode is enabled (security.recover_admin.insecure_keyless_admin_recovery) -- "+
 			"proceeding on HOST ACCESS ALONE, no recovery key required or checked. This collapses host access "+
 			"and admin access into one trust boundary; see docs/design-b2-recover-admin.md §1/§5.")
 		if recoverAdminKey != "" && recoverAdminKey != "-" {
