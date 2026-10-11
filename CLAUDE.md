@@ -429,6 +429,36 @@ feature branch. `docs/security-closures.tsv` is different: it is no longer
 committed at all, only built from `docs/security-closures.d/` on demand (see
 "Closing a security fix" above).
 
+### Test registry tables: one file per entry, never append to a shared list
+
+The exemption/guard tables that every fuzzer or security PR used to append to are
+filled by **one test file per row**, each calling a `register…` function from
+`init()`. **To add a row, add a new file** — never edit the table's declaration
+(those literals are empty on purpose) and never append to a shared list.
+
+- `server/faultops`: `knownOpenTolerances`, `opScopedBestEffortTables`,
+  `effectThenErrorExtraExclusions`, `bestEffortTables`, `nonLoadBearingAuthzReadExceptions`,
+  `multiStepAmbiguousCommitExceptions`, `oracleAByDesignErrors`, `toleranceDeadPendingTriage`,
+  `toleranceStalenessUndrivable`. File names and register functions:
+  `server/faultops/REGISTRY-ENTRIES.md`.
+- `internal/core`: `mfaStepUpPurposeAllowlist`, the `FuzzCrossReplicaInvariants` seeds
+  (`g4FuzzSeedPrograms`), `pendingSeedFix`; new `TestCTAReview_*` tests go in their own
+  `cta_review_<name>_postgres_test.go`. See `internal/core/REGISTRY-ENTRIES.md`.
+
+The registries keep order deterministic (sorted by registered name) and panic at
+package init on a duplicate name/key. When a PR you are rebasing still appends to one
+of the old literals, move the row into its own file (the conflict is then gone).
+Not covered: `FuzzCrossReplicaInvariants`' numbered op-kind `switch` / `g4NumOpKinds`
+(kind numbers are part of the fuzz corpus encoding, so two PRs adding "the next kind"
+still collide on the number itself).
+
+### `internal/faultstorage/faulty_storage_generated.go` conflicts
+
+It is generated: **on a merge conflict take main's version, then run
+`go generate ./internal/faultstorage/...` (genfaultystorage) — never hand-merge it.**
+`TestFaultyStorageGenerated_IsFresh` (default `go test`, so CI) fails on any drift.
+`.gitattributes` marks it `linguist-generated=true merge=ours`.
+
 ## Code-scanning alerts
 
 A confirmed false positive is **dismissed**, never silenced by editing the

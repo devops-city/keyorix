@@ -1102,21 +1102,12 @@ func FuzzCrossReplicaInvariants(f *testing.F) {
 	w := buildG4World(f)
 
 	// Seeds: only the issues already fixed on main (see header comment) — a
-	// seed for a still-open issue would fail this test on main today.
-	f.Add([]byte{9, 0, 8, 0})   // #2648: RevokeShare vs UpdateSharePermission (fixed, #2666)
-	f.Add([]byte{36, 0, 37, 0}) // #2658 class: both admins' global role removed concurrently (fixed, #2665)
-	f.Add([]byte{28, 0, 29, 0}) // #2660: AddSecretDependency both directions (fixed, #2670)
-	f.Add([]byte{0, 0, 6, 0})   // #2646: ShareSecret vs DeleteSecret (fixed, #2785)
-	f.Add([]byte{0, 0, 7, 0})   // #2647: ShareSecretWithGroup vs DeleteSecret (fixed, #2785)
-	f.Add([]byte{0, 0, 10, 0})  // #2649: GrantSecretACL vs DeleteSecret (fixed, #2785)
-	f.Add([]byte{2, 0, 30, 0})  // #2652: IssueLease vs DeleteProject (fixed, #2785)
-	f.Add([]byte{21, 0, 23, 0}) // #2653: UpdateUser vs SuspendUser (fixed, #2785)
-	f.Add([]byte{25, 0, 24, 0}) // #2654: UpdateOwnProfile vs ChangePassword (fixed, #2785)
-	f.Add([]byte{27, 0, 26, 0}) // #2655: ActivateMFA vs BeginMFAEnrollment (fixed, #2667)
-	f.Add([]byte{2, 0, 5, 0})   // #2656: RestoreEnvironment vs DeleteProject (fixed, #2785)
-	f.Add([]byte{14, 0, 13, 0}) // #2657: TransitionMembership activate vs revoke (fixed, #2669)
-	f.Add([]byte{2, 0, 39, 0})  // #2651: DeleteProject vs CreateDynamicSecretConfig (fixed, #2675)
-	f.Add([]byte{14, 0, 12, 0}) // #2659: open-mode InviteMember vs revoke (fixed, #2852 — the race by #2669, the oracle here)
+	// seed for a still-open issue would fail this test on main today. They live
+	// one per file (cross_replica_seed_entry_<issue>_test.go, registered into
+	// g4FuzzSeedPrograms; see registry_entries_test.go), never in a list here.
+	for _, s := range g4FuzzSeedPrograms {
+		f.Add(s.program)
+	}
 	f.Add([]byte{})
 
 	f.Fuzz(func(t *testing.T, program []byte) {

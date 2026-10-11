@@ -22,6 +22,10 @@
 // gap and fail by design until the locking fix lands (locking fixes need
 // coordinator review, so this file is test-only). Remove the Skip in the
 // fixing PR; the test then goes green.
+//
+// NEW REVIEW TESTS GO IN THEIR OWN FILE (cta_review_<name>_postgres_test.go, reusing
+// newCTAReview below), never appended to the end of this one: appends to a shared
+// file were a top merge-conflict source (CHURN-2, internal/core/REGISTRY-ENTRIES.md).
 package core
 
 import (

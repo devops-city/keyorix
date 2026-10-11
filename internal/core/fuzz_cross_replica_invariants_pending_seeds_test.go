@@ -29,6 +29,10 @@ import (
 // closes it. Remove a row the moment its PR merges AND its seed has been
 // promoted out of testdata/fuzz-pending/<issue>/ into
 // testdata/fuzz/FuzzCrossReplicaInvariants/ — both in the same commit.
+//
+// Rows are registered one per file (pending_seed_fix_entry_<issue>_test.go,
+// calling registerPendingSeedFix; see registry_entries_test.go), not written
+// into this literal.
 var pendingSeedFix = map[string]int{}
 
 func TestPendingSeedsPromotedAfterFix(t *testing.T) {

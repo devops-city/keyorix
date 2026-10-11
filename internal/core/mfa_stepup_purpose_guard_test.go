@@ -97,57 +97,11 @@ type mfaStepUpAllowEntry struct {
 // callee expression inside the same function (source order). Keys used to be
 // "<relpath>:<line>", which broke on every unrelated edit above a listed site
 // and made every such PR conflict with every other one touching this map.
-var mfaStepUpPurposeAllowlist = map[string]mfaStepUpAllowEntry{
-	"internal/faultstorage/faulty_storage_generated.go:(*FaultyStorage).ConsumeMFAStepUpGrant:w.real.ConsumeMFAStepUpGrant": {
-		expectedPurpose: "",
-		reason: "generated, mechanical pass-through (w.real.ConsumeMFAStepUpGrant(...)) inside a " +
-			"test/fuzz-harness-only storage.Storage wrapper (server/faultops's FuzzStorageFaultOperations) " +
-			"— forwards whatever purpose argument the real caller already hardcoded, unmodified. The real " +
-			"call site making the authorization decision is whatever separately-guarded internal/core " +
-			"function invoked it; this line is one hop further down, at the storage interface, and never " +
-			"itself chooses or inspects the purpose value.",
-	},
-	"internal/faultstorage/faulty_storage_generated.go:(*FaultyStorage).ConsumeMFAStepUpGrant:w.real.ConsumeMFAStepUpGrant#2": {
-		expectedPurpose: "",
-		reason:          "see the (*FaultyStorage).ConsumeMFAStepUpGrant entry above — the second (KindEffectThenError) call to the real ConsumeMFAStepUpGrant inside the same generated wrapper method, same pass-through reasoning.",
-	},
-	"internal/faultstorage/faulty_storage_generated.go:(*FaultyStorage).GetActiveMFAStepUpGrant:w.real.GetActiveMFAStepUpGrant": {
-		expectedPurpose: "",
-		reason: "generated, mechanical pass-through (w.real.GetActiveMFAStepUpGrant(...)) inside the same " +
-			"test/fuzz-harness-only wrapper — see the (*FaultyStorage).ConsumeMFAStepUpGrant entry's " +
-			"reasoning; this is the read-only sibling call, same forwarding shape.",
-	},
-	"internal/faultstorage/faulty_storage_generated.go:(*FaultyStorage).GetActiveMFAStepUpGrant:w.real.GetActiveMFAStepUpGrant#2": {
-		expectedPurpose: "",
-		reason:          "see the (*FaultyStorage).GetActiveMFAStepUpGrant entry above — the second (KindEffectThenError) call to the real GetActiveMFAStepUpGrant inside the same generated wrapper method, same pass-through reasoning.",
-	},
-	"internal/core/mfa.go:(*KeyorixCore).requireReauth:c.storage.ConsumeMFAStepUpGrant": {
-		expectedPurpose: "MFAStepUpPurposeReauth",
-		reason: "requireReauth's account-security-factor-change gate (DisableMFA, " +
-			"RegenerateMFARecoveryCodes, ActivateMFA, WebAuthn credential register/delete, email change). " +
-			"Must reject the ambient MFAStepUpPurposeRestrictedSecretRead grant a plain login mints -- " +
-			"accepting it here is the exact confused-deputy shape this fix closed (a leaked bearer token " +
-			"plus the password would otherwise ride the account owner's own earlier login into an " +
-			"account takeover). Now calls the atomic-consume ConsumeMFAStepUpGrant instead of the " +
-			"read-only HasActiveMFAStepUp (single-use reauth grant fix, follow-up to #1775) -- accepting " +
-			"the grant here also invalidates it, so it cannot go on to authorize a second, different " +
-			"sensitive action within the same window.",
-	},
-	"internal/core/classification_gate.go:(*KeyorixCore).checkRestrictedMFAGate:c.storage.GetActiveMFAStepUpGrant": {
-		expectedPurpose: "MFAStepUpPurposeRestrictedSecretRead",
-		reason: "checkRestrictedMFAGate, the classification_restricted_requires_mfa_stepup gate for " +
-			"reading a ClassificationRestricted secret's value. Must reject a MFAStepUpPurposeReauth grant " +
-			"(minted only for account-security changes) -- the two purposes must never satisfy each other.",
-	},
-	"internal/core/mfa_stepup.go:(*KeyorixCore).HasActiveMFAStepUp:c.storage.GetActiveMFAStepUpGrant": {
-		expectedPurpose: "",
-		reason: "HasActiveMFAStepUp's own implementation: forwards the `purpose` PARAMETER it was called " +
-			"with straight through to storage.GetActiveMFAStepUpGrant. This is the shared primitive, not a " +
-			"consumer -- it has no fixed purpose of its own to hardcode. Enforcement responsibility sits " +
-			"with HasActiveMFAStepUp's own callers, which this same allowlist enumerates separately " +
-			"(currently none outside this function).",
-	},
-}
+//
+// Entries live one per file (mfa_stepup_purpose_allow_entry_<slug>_test.go,
+// calling registerMFAStepUpPurposeAllow with the key above); this literal is
+// empty on purpose. See registry_entries_test.go.
+var mfaStepUpPurposeAllowlist = map[string]mfaStepUpAllowEntry{}
 
 type mfaStepUpSite struct {
 	relPath string
@@ -395,7 +349,7 @@ func TestMFAStepUpConsumersUseExpectedPurpose(t *testing.T) {
 	assert.Empty(t, unlisted,
 		"call site(s) to HasActiveMFAStepUp/GetActiveMFAStepUpGrant found with no reviewed allowlist "+
 			"entry -- a new MFA step-up grant consumer must hardcode the exact models.MFAStepUpPurpose* "+
-			"constant it requires and add a justified entry to mfaStepUpPurposeAllowlist, or it risks "+
+			"constant it requires and add a justified entry to mfaStepUpPurposeAllowlist (ONE NEW FILE mfa_stepup_purpose_allow_entry_<slug>_test.go calling registerMFAStepUpPurposeAllow, never an edit to a shared list), or it risks "+
 			"repeating the confused-deputy bug this guard exists to catch: %v", unlisted)
 	assert.Empty(t, mismatched,
 		"call site(s) to HasActiveMFAStepUp/GetActiveMFAStepUpGrant no longer pass the purpose constant "+
