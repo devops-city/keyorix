@@ -192,7 +192,9 @@ security.login_lockout.insecure_disable_login_lockout
 security.login_lockout.max_attempts
 security.login_lockout.max_cooldown
 security.login_lockout.window
+security.one_time_password_ttl
 security.recover_admin.insecure_keyless_admin_recovery
+security.recovery_one_time_password_ttl
 security.require_mfa
 security.require_transport_tls
 server.grpc.allowed_origins

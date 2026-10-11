@@ -1,6 +1,8 @@
 // users_types.go — Request/response types shared by users.go and groups.go.
 package core
 
+import "time"
+
 // CreateUserRequest represents a request to create a new user.
 //
 // G38: the `validate:"..."` tags below are documentation only — no validator
@@ -23,6 +25,11 @@ type CreateUserRequest struct {
 	// normalizes to "active". Setup-link provisioning sets pending_first_login so the
 	// account is confined from creation — no separate write that could leave it active.
 	AccountState string `json:"-"`
+	// OneTimePasswordExpiresAt, when set, marks Password as a one-time password that
+	// is refused at login from that instant (OTP-EXPIRY-1). Written in the same row
+	// insert as the password, so there is no window in which the credential exists
+	// without its expiry.
+	OneTimePasswordExpiresAt *time.Time `json:"-"`
 }
 
 // UpdateUserRequest represents a request to update an existing user.

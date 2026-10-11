@@ -1031,6 +1031,11 @@ func (m *MockStorage) SetPasswordHash(ctx context.Context, id uint, hash string,
 	return args.Error(0)
 }
 
+func (m *MockStorage) SetOneTimePasswordExpiry(ctx context.Context, id uint, expiresAt *time.Time, updatedAt time.Time) error {
+	args := m.Called(ctx, id, expiresAt, updatedAt)
+	return args.Error(0)
+}
+
 func (m *MockStorage) UpdateLoginLockoutState(ctx context.Context, id uint, attempts int, lastFailedAt, lockedUntil *time.Time, lockoutCount int) error {
 	args := m.Called(ctx, id, attempts, lastFailedAt, lockedUntil, lockoutCount)
 	return args.Error(0)

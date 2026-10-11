@@ -347,6 +347,17 @@ Content-Type: application/json
 `generate_one_time_password` is set instead (the user then sets/receives their
 own initial password rather than the admin choosing one).
 
+With `generate_one_time_password`, the response is
+`{"data": {"user": {...}, "one_time_password": {"email": "...", "one_time_password": "...", "expires_at": "2026-10-13T12:00:00Z"}}}`.
+`expires_at` (UTC, RFC 3339) is the instant after which login with that password
+is refused exactly like a wrong password (`401`, same body) and counted toward the
+account lockout; the server audits it as `auth.one_time_password_expired`. The
+lifetime is `security.one_time_password_ttl` (default 72h). A password the user has
+chosen themselves never expires. To get an account past an expired one-time
+password, send a setup link (`POST /api/v1/users/{id}/resend-setup-link`), or
+delete and re-create the user; for an admin who lost access, run
+`keyorix-server admin recover-admin` again.
+
 ## 🔧 **System API**
 
 ### System Information

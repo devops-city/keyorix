@@ -110,8 +110,10 @@ credentials to see the same secret in the dashboard.
 ./bin/keyorix user create --username alice --email alice@keyorix.local --one-time-password
 ```
 
-This prints a one-time password — relay it to alice; she'll be forced to
-change it on first login.
+This prints a one-time password and the UTC time it expires (72 hours by default) —
+relay it to alice; she'll be forced to change it on first login. After the expiry the
+password is refused like a wrong one; give alice a setup link instead
+(`keyorix user resend-setup-link`).
 
 Before you can share anything, both you (the owner) and alice (the
 recipient) need an explicit role in the project the secret lives in —

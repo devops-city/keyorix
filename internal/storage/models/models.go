@@ -474,6 +474,12 @@ type User struct {
 	// PasswordChangedAt is when the current password was set. Drives max-age
 	// expiry (ADR-025). nil on legacy rows = treat as set at account creation.
 	PasswordChangedAt *time.Time
+	// OneTimePasswordExpiresAt is set only while the current password is a one-time
+	// password (admin-created --one-time-password user, or recover-admin): after this
+	// instant the password is refused at login like a wrong one (OTP-EXPIRY-1). nil =
+	// the password is not a one-time password, or never expires. Cleared by
+	// SetPasswordHash, so any new password supersedes the one-time one.
+	OneTimePasswordExpiresAt *time.Time
 	// AccountState is the ADR-025 lifecycle state: active | pending_first_login |
 	// password_reset_required | suspended. Empty (legacy rows) is treated as active.
 	AccountState string `gorm:"default:'active'"`

@@ -1090,7 +1090,17 @@ type Storage interface {
 	// told their password changed when it silently didn't. Any accompanying
 	// account_state clear (a restricted state resetting to active) is persisted
 	// separately via SetAccountState, not folded into this primitive.
+	//
+	// It also CLEARS one_time_password_expires_at: any newly set password supersedes
+	// a one-time password, so the expiry must never outlive the credential it
+	// belonged to (OTP-EXPIRY-1). A caller that installs a one-time password calls
+	// SetOneTimePasswordExpiry AFTER this, in the same transaction.
 	SetPasswordHash(ctx context.Context, id uint, hash string, changedAt time.Time) error
+	// SetOneTimePasswordExpiry persists ONLY one_time_password_expires_at (plus
+	// updated_at): the instant after which the current one-time password is refused
+	// at login (OTP-EXPIRY-1). nil clears it. Must run in the same transaction as
+	// the SetPasswordHash that installs the one-time password.
+	SetOneTimePasswordExpiry(ctx context.Context, id uint, expiresAt *time.Time, updatedAt time.Time) error
 	// UpdateLoginLockoutState persists ONLY the four login-lockout accounting columns
 	// (failed_login_attempts, last_failed_login_at, login_locked_until,
 	// login_lockout_count) — the same #454 rationale as SetAccountState above. Unlike

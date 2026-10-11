@@ -471,6 +471,8 @@ message CreateUserResponse {
   // Out-of-band credential artifacts, set only for the matching mode.
   optional string setup_link = 2;
   optional string one_time_password = 3;
+  // When one_time_password stops working (UTC, RFC 3339); set with it.
+  optional string one_time_password_expires_at = 4;
 }
 
 message GetUserRequest {

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -192,8 +193,9 @@ func runUserCreate(cmd *cobra.Command, _ []string) error {
 			LinkForAdmin string `json:"link_for_admin,omitempty"`
 		} `json:"setup_link"`
 		OneTimePassword *struct {
-			Email    string `json:"email"`
-			OTPValue string `json:"one_time_password"`
+			Email     string    `json:"email"`
+			OTPValue  string    `json:"one_time_password"`
+			ExpiresAt time.Time `json:"expires_at"`
 		} `json:"one_time_password"`
 	}](resp.Body)
 	if err != nil {
@@ -224,6 +226,10 @@ func runUserCreate(cmd *cobra.Command, _ []string) error {
 		// constraint documented at its own suppression site).
 		// codeql[go/clear-text-logging]
 		fmt.Printf("One-time password for %s (relay securely — it must be changed on first login):\n  %s\n", otp.Email, otp.OTPValue)
+		if !otp.ExpiresAt.IsZero() {
+			fmt.Printf("Expires: %s (UTC). After that, login with it is refused like a wrong password; send a setup link (user resend-setup-link) or re-create the user.\n",
+				otp.ExpiresAt.UTC().Format(time.RFC3339))
+		}
 	}
 	return nil
 }

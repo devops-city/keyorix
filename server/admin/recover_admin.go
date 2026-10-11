@@ -25,6 +25,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core"
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
@@ -114,7 +115,8 @@ func runRecoverAdmin(cmd *cobra.Command, args []string) error {
 
 	var summary *recoverAdminSummary
 	err = withUsableStorage(cfg, func(store corestorage.Storage) error {
-		s, err := performRecoverAdmin(context.Background(), store, recoverAdminUser, rawKey, keyless)
+		s, err := performRecoverAdminWithTTL(context.Background(), store, recoverAdminUser, rawKey, keyless,
+			cfg.Security.GetRecoveryOneTimePasswordTTL())
 		summary = s
 		return err
 	})
@@ -137,6 +139,8 @@ func runRecoverAdmin(cmd *cobra.Command, args []string) error {
 	// same constraint documented at its own suppression site).
 	// codeql[go/clear-text-logging]
 	fmt.Printf("  %s\n", summary.oneTimePassword)
+	fmt.Printf("Expires: %s (UTC). After that, login with it is refused like a wrong password; run recover-admin again for a new one.\n",
+		summary.oneTimePasswordExpiresAt.UTC().Format(time.RFC3339))
 	if cfg.Security.RequireMFA {
 		// #3024: the login this password allows is a setup-only session.
 		fmt.Printf("Log in as %q with this password. That session lasts at most %d minutes and can only set a new\n",

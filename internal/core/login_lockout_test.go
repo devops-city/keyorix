@@ -24,6 +24,11 @@ func newLockoutTestCore(t *testing.T, enabled bool) (*KeyorixCore, *gorm.DB, *ti
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
+	// One connection: ":memory:" is per-connection, and the expired-OTP audit write
+	// runs in a goroutine (goSafe) that must see the same database as the test.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Session{}, &models.AuditEvent{}))
 	hash, err := bcrypt.GenerateFromPassword([]byte(lockoutTestPassword), int(bcryptCost.Load()))
 	require.NoError(t, err)

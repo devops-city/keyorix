@@ -324,15 +324,34 @@ func (ls *LocalStorage) ClaimUserExternalIDIfUnset(ctx context.Context, id uint,
 }
 
 // SetPasswordHash persists ONLY password_hash and password_changed_at (plus
-// updated_at) via a direct column update — see the storage.Storage interface doc
-// comment (#484/#454) for why this narrower primitive exists alongside the generic
-// UpdateUser.
+// updated_at, and clears one_time_password_expires_at: a new password supersedes
+// any one-time password) via a direct column update — see the storage.Storage
+// interface doc comment (#484/#454) for why this narrower primitive exists
+// alongside the generic UpdateUser.
 func (ls *LocalStorage) SetPasswordHash(ctx context.Context, id uint, hash string, changedAt time.Time) error {
 	result := ls.db.WithContext(ctx).Model(&models.User{}).Where(sqlWhereID, id).
 		Updates(map[string]interface{}{
-			"password_hash":       hash,
-			"password_changed_at": changedAt,
-			"updated_at":          changedAt,
+			"password_hash":                hash,
+			"password_changed_at":          changedAt,
+			"one_time_password_expires_at": nil,
+			"updated_at":                   changedAt,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("%s", i18n.T("ErrorUserNotFound", nil))
+	}
+	return nil
+}
+
+// SetOneTimePasswordExpiry persists ONLY one_time_password_expires_at (plus
+// updated_at) via a direct column update — see the storage.Storage interface doc.
+func (ls *LocalStorage) SetOneTimePasswordExpiry(ctx context.Context, id uint, expiresAt *time.Time, updatedAt time.Time) error {
+	result := ls.db.WithContext(ctx).Model(&models.User{}).Where(sqlWhereID, id).
+		Updates(map[string]interface{}{
+			"one_time_password_expires_at": expiresAt,
+			"updated_at":                   updatedAt,
 		})
 	if result.Error != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), result.Error)

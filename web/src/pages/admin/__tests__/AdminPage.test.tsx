@@ -701,6 +701,28 @@ describe('AdminPage — create user', () => {
         expect(screen.queryByText(/ via /i)).not.toBeInTheDocument();
     });
 
+    it('tells the admin when the generated one-time password expires', async () => {
+        createMutate.mockImplementation((_body, opts) =>
+            opts.onSuccess({
+                one_time_password: {
+                    email: 'new@example.com',
+                    one_time_password: 'Sup3rSecret!',
+                    expires_at: '2026-10-13T12:00:00Z',
+                },
+            })
+        );
+        render(<AdminPage />);
+        fireEvent.click(screen.getByRole('button', { name: /new user/i }));
+
+        fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'newu' } });
+        fireEvent.change(screen.getByLabelText('Display Name'), { target: { value: 'New User' } });
+        fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@example.com' } });
+        fireEvent.click(screen.getByLabelText('Generate a one-time password'));
+        fireEvent.click(screen.getByRole('button', { name: 'Create & Generate Password' }));
+
+        expect(await screen.findByTestId('otp-expires-at')).toHaveTextContent('Expires 2026-10-13T12:00:00Z');
+    });
+
     it('shows the generated one-time password result and copies it', async () => {
         vi.useFakeTimers();
         createMutate.mockImplementation((_body, opts) =>

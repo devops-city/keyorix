@@ -393,7 +393,10 @@ func runAdminRestoreV2(cfg *config.Config) error { // NOSONAR -- cognitive compl
 
 	fmt.Println("Loading data into the restored database (design §3.4)...")
 	if loadErr := targetDB.Transaction(func(tx *gorm.DB) error {
-		return backupfmt.LoadArchive(tx, manifest, stagingDir)
+		if err := backupfmt.LoadArchive(tx, manifest, stagingDir); err != nil {
+			return err
+		}
+		return backfillOTPExpiryForOlderArchive(tx, manifest)
 	}); loadErr != nil {
 		return fmt.Errorf("load backup data: %w", loadErr)
 	}

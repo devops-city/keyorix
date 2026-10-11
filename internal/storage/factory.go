@@ -1454,6 +1454,26 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		}
 	}
 
+	// One-time-password expiry (OTP-EXPIRY-1). Adding the column and the one-off
+	// legacy backfill share one transaction, so a crash between them cannot leave the
+	// column present with the backfill never run (the column's absence is what
+	// gates the backfill, so it must not be re-runnable on a later boot).
+	if tableExists(db, "users") && !columnExists(db, "users", "one_time_password_expires_at") {
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			// Via the Migrator, not a hand-written ALTER: it picks the dialect's own
+			// timestamp type (datetime on SQLite, timestamptz on Postgres). A literal
+			// "TIMESTAMP WITH TIME ZONE" makes the SQLite driver hand the value back as
+			// a string that cannot be scanned into the model's *time.Time, which would
+			// fail every login of an account carrying a backfilled expiry.
+			if err := tx.Migrator().AddColumn(&models.User{}, "OneTimePasswordExpiresAt"); err != nil {
+				return err
+			}
+			return backfillLegacyOneTimePasswordExpiry(tx, time.Now().UTC())
+		}); err != nil {
+			return fmt.Errorf("failed to add users.one_time_password_expires_at: %w", err)
+		}
+	}
+
 	// Enrich sessions for the My Account "active sessions" view (device/IP/last-active).
 	if tableExists(db, "sessions") {
 		if !columnExists(db, "sessions", "user_agent") {

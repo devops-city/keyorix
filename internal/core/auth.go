@@ -69,6 +69,13 @@ func (c *KeyorixCore) VerifyPasswordCredentials(ctx context.Context, username, p
 		c.recordFailedLogin(ctx, user) // increment + lock at the threshold
 		return nil, fmt.Errorf("invalid credentials")
 	}
+	// An expired one-time password is refused exactly like a wrong one: the same
+	// error (no new oracle: a caller cannot tell "right password, expired" from
+	// "wrong password"), counted toward the lockout, audited server-side only. The
+	// bcrypt comparison above has already run, so latency matches too.
+	if c.refuseExpiredOneTimePassword(ctx, user) {
+		return nil, fmt.Errorf("invalid credentials")
+	}
 	// Correct password — but this is only PARTIAL authentication when the account
 	// has a second factor configured (MFAEnabled/WebAuthnEnabled): Login refuses to
 	// mint a session at this point and instead returns ErrMFARequired, deferring to

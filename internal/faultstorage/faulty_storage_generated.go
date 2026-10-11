@@ -6495,6 +6495,22 @@ func (w *FaultyStorage) SetMachineIdentityCredentialClassification(ctx context.C
 	return w.real.SetMachineIdentityCredentialClassification(ctx, credentialID, fromClassification, toClassification)
 }
 
+func (w *FaultyStorage) SetOneTimePasswordExpiry(ctx context.Context, id uint, expiresAt *time.Time, updatedAt time.Time) error {
+	fire, kind, injected := w.check("SetOneTimePasswordExpiry")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			return injected
+		case KindEffectThenError:
+			_ = w.real.SetOneTimePasswordExpiry(ctx, id, expiresAt, updatedAt)
+			return injected
+		}
+	}
+	return w.real.SetOneTimePasswordExpiry(ctx, id, expiresAt, updatedAt)
+}
+
 func (w *FaultyStorage) SetPasswordHash(ctx context.Context, id uint, hash string, changedAt time.Time) error {
 	fire, kind, injected := w.check("SetPasswordHash")
 	if fire {

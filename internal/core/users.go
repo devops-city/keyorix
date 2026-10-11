@@ -137,6 +137,8 @@ func (c *KeyorixCore) buildUserForCreate(ctx context.Context, req *CreateUserReq
 		PasswordChangedAt: &now,                                    // baseline for max-age expiry (ADR-025)
 		CreatedAt:         now,
 		UpdatedAt:         now,
+
+		OneTimePasswordExpiresAt: req.OneTimePasswordExpiresAt,
 	}
 	return user, string(hash), nil
 }

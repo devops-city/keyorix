@@ -353,6 +353,35 @@ func TestRunUserCreate_SetupLinkMode(t *testing.T) {
 	}
 }
 
+// OTP-EXPIRY-1: the operator is told when the one-time password expires (UTC).
+func TestRunUserCreate_OneTimePasswordMode_PrintsExpiry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/users" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Header().Set("Content-Type", "application/json")
+		// A non-UTC offset on the wire must still be printed as UTC.
+		_, _ = fmt.Fprint(w, `{"data":{"user":{"id":7,"username":"otpuser","email":"otp@example.com"},"one_time_password":{"email":"otp@example.com","one_time_password":"Zx9#Temp-Pass","expires_at":"2026-10-13T14:00:00+02:00"}}}`)
+	}))
+	defer srv.Close()
+	setUserCreds(t, srv)
+	userCreateUsername = "otpuser"
+	userCreateEmail = "otp@example.com"
+	userCreateOneTimePassword = true
+	defer func() { userCreateUsername, userCreateOneTimePassword = "", false }()
+
+	out := captureStdout(t, func() {
+		if err := runUserCreate(userCreateCmd, nil); err != nil {
+			t.Fatalf("runUserCreate: %v", err)
+		}
+	})
+	if !containsAll(out, "One-time password for otp@example.com", "Zx9#Temp-Pass", "Expires: 2026-10-13T12:00:00Z (UTC)") {
+		t.Fatalf("output = %q", out)
+	}
+}
+
 func TestRunUserCreate_RequiresUsernameAndEmail(t *testing.T) {
 	userCreateUsername, userCreateEmail = "", ""
 	if err := runUserCreate(userCreateCmd, nil); err == nil || !containsAll(err.Error(), "username is required") {

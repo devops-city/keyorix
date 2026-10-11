@@ -11901,7 +11901,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Envelope `data` is the created user. With generate_one_time_password it is `{user, one_time_password}`; with deliver_setup_link it is `{user, setup_link}`. */
+            /** @description Envelope `data` is the created user. With generate_one_time_password it is `{user, one_time_password}` where `one_time_password` is `{email, one_time_password, expires_at}` (`expires_at` is the UTC RFC 3339 instant after which login with it is refused like a wrong password); with deliver_setup_link it is `{user, setup_link}`. */
             201: {
                 headers: {
                     [name: string]: unknown;

@@ -81,6 +81,7 @@ type setupGateResp struct {
 	status int
 	body   map[string]interface{}
 	raw    string
+	header http.Header
 }
 
 func (e *setupGateEnv) do(method, path, token string, body interface{}) setupGateResp {
@@ -104,7 +105,7 @@ func (e *setupGateEnv) do(method, path, token string, body interface{}) setupGat
 	defer resp.Body.Close() //nolint:errcheck
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(resp.Body)
-	out := setupGateResp{status: resp.StatusCode, raw: buf.String()}
+	out := setupGateResp{status: resp.StatusCode, raw: buf.String(), header: resp.Header.Clone()}
 	_ = json.Unmarshal(buf.Bytes(), &out.body)
 	return out
 }

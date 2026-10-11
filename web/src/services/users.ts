@@ -22,6 +22,8 @@ export interface SetupLinkResult {
 export interface OneTimePasswordResult {
     email: string;
     one_time_password: string;
+    // UTC RFC 3339 instant after which login with it is refused like a wrong password.
+    expires_at?: string;
 }
 
 export interface CreateUserResult {

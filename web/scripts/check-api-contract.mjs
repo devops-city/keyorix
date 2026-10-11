@@ -75,7 +75,7 @@ const KNOWN_VIOLATIONS = {
     'notificationChannels.ts:74': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
     'rbac.ts:95': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
     'secrets.ts:165': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'users.ts:167': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'users.ts:169': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
 };
 
 // ---------------------------------------------------------------------------

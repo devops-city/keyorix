@@ -2125,8 +2125,10 @@ type CreateUserResponse struct {
 	// Out-of-band credential artifacts, set only for the matching mode.
 	SetupLink       *string `protobuf:"bytes,2,opt,name=setup_link,json=setupLink,proto3,oneof" json:"setup_link,omitempty"`
 	OneTimePassword *string `protobuf:"bytes,3,opt,name=one_time_password,json=oneTimePassword,proto3,oneof" json:"one_time_password,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// When one_time_password stops working (UTC, RFC 3339); set with it.
+	OneTimePasswordExpiresAt *string `protobuf:"bytes,4,opt,name=one_time_password_expires_at,json=oneTimePasswordExpiresAt,proto3,oneof" json:"one_time_password_expires_at,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *CreateUserResponse) Reset() {
@@ -2176,6 +2178,13 @@ func (x *CreateUserResponse) GetSetupLink() string {
 func (x *CreateUserResponse) GetOneTimePassword() string {
 	if x != nil && x.OneTimePassword != nil {
 		return *x.OneTimePassword
+	}
+	return ""
+}
+
+func (x *CreateUserResponse) GetOneTimePasswordExpiresAt() string {
+	if x != nil && x.OneTimePasswordExpiresAt != nil {
+		return *x.OneTimePasswordExpiresAt
 	}
 	return ""
 }
@@ -10985,14 +10994,16 @@ const file_keyorix_proto_rawDesc = "" +
 	"\n" +
 	"_is_activeB\x10\n" +
 	"\x0e_account_stateB\a\n" +
-	"\x05_role\"\xb4\x01\n" +
+	"\x05_role\"\x9a\x02\n" +
 	"\x12CreateUserResponse\x12$\n" +
 	"\x04user\x18\x01 \x01(\v2\x10.keyorix.v1.UserR\x04user\x12\"\n" +
 	"\n" +
 	"setup_link\x18\x02 \x01(\tH\x00R\tsetupLink\x88\x01\x01\x12/\n" +
-	"\x11one_time_password\x18\x03 \x01(\tH\x01R\x0foneTimePassword\x88\x01\x01B\r\n" +
+	"\x11one_time_password\x18\x03 \x01(\tH\x01R\x0foneTimePassword\x88\x01\x01\x12C\n" +
+	"\x1cone_time_password_expires_at\x18\x04 \x01(\tH\x02R\x18oneTimePasswordExpiresAt\x88\x01\x01B\r\n" +
 	"\v_setup_linkB\x14\n" +
-	"\x12_one_time_password\" \n" +
+	"\x12_one_time_passwordB\x1f\n" +
+	"\x1d_one_time_password_expires_at\" \n" +
 	"\x0eGetUserRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\"\xd7\x01\n" +
 	"\x11UpdateUserRequest\x12\x0e\n" +

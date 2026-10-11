@@ -62,6 +62,7 @@ Reset: account state, password, MFA enrollment,
 
 One-time password (shown once — copy it now, it cannot be retrieved again):
   Qx-Wz+p^+LgF!3sPw33a
+Expires: 2026-10-11T09:30:12Z (UTC). After that, login with it is refused like a wrong password; run recover-admin again for a new one.
 Log in as "admin" with this password. That session lasts at most 15 minutes and can only set a new
 password (keyorix change-password) and enrol a second factor (keyorix mfa enroll + activate), in either
 order. When both are done it ends; log in again with the new password and a code.
@@ -70,7 +71,13 @@ order. When both are done it ends; log in again with the new password and a code
 This reactivates the account if it was deactivated, sets a one-time password (printed
 above, shown exactly once — copy it now), clears MFA/WebAuthn enrollment and the old
 recovery codes (forcing re-enrollment), clears any lockout, and revokes every session
-belonging to that account. It touches nothing else — no other user, role, project, or
+belonging to that account. The one-time password **expires**: 24 hours after the run by
+default (`security.recovery_one_time_password_ttl`, e.g. `4h`), at the UTC time printed
+on the `Expires:` line. Log in and change it before then; an expired password is refused
+exactly like a wrong one (same `401`, no hint that it was merely late; the server audits
+`auth.one_time_password_expired`, and each refused attempt counts toward the account
+lockout). If it expires unused, run `recover-admin` again — it issues a fresh password
+and a fresh expiry. It touches nothing else — no other user, role, project, or
 secret. Every use is written to the audit trail (`admin.recover_admin`, naming the host
 user who ran the command) and notifies every current admin, whether or not the server
 happens to be running when you do this.
@@ -93,7 +100,8 @@ Error: failed to list secrets: HTTP 403
 
 Over the API the refusal names what is still owed:
 `{"error":"PasswordChangeRequired", ..., "pending_steps":["change_password","enroll_mfa"]}`.
-If the 15 minutes run out, log in again with the same one-time password.
+If the 15 minutes run out, log in again with the same one-time password — as long as it
+has not expired (step 2 printed when); once it has, go back to step 2.
 
 ## 4. Enrol a second factor and set a real password (either order)
 
@@ -158,7 +166,8 @@ and, further back, the `admin.recover_admin` event with the host user who ran st
 
 Do **not** set `security.require_mfa: false` to get through this: it is not needed, and it
 weakens every account on the install. The same setup session is what a one-time-password
-user (`keyorix user create --one-time-password`), a user an admin forced to reset
+user (`keyorix user create --one-time-password`, which also prints an `Expires:` time,
+72 hours by default, `security.one_time_password_ttl`), a user an admin forced to reset
 (`keyorix user force-password-reset`) or a user whose password expired gets on a
 `require_mfa` install when they have no second factor yet. With `require_mfa: false` the
 one-time-password login is only confined to `change-password`, and the session continues

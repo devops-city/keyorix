@@ -110,6 +110,7 @@ func (s *UserGRPCService) CreateUser(ctx context.Context, req *pb.CreateUserRequ
 		u, res, err = s.core.CreateUserWithOneTimePassword(ctx, coreReq, actor.UserID)
 		if err == nil && res != nil {
 			resp.OneTimePassword = optStringValue(res.OTPValue)
+			resp.OneTimePasswordExpiresAt = optStringValue(res.ExpiresAt.UTC().Format(time.RFC3339))
 		}
 	default:
 		if req.GetPassword() == "" {

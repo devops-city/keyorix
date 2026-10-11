@@ -111,6 +111,7 @@ function getCreateButtonLabel(mode: CreateMode, isPending: boolean): string {
 interface CreateModalProps {
     setupResult: SetupLinkResult | null;
     otpResult: string | null;
+    otpExpiresAt: string | null;
     createEmail: string;
     formError: string;
     createUsername: string;
@@ -142,6 +143,7 @@ function buildCreateModalContent(props: CreateModalProps): React.ReactNode {
     const {
         setupResult,
         otpResult,
+        otpExpiresAt,
         createEmail,
         formError,
         createUsername,
@@ -220,6 +222,12 @@ function buildCreateModalContent(props: CreateModalProps): React.ReactNode {
                         {otpCopied ? 'Copied' : 'Copy'}
                     </Button>
                 </div>
+                {otpExpiresAt && (
+                    <p className="text-sm text-base-secondary" data-testid="otp-expires-at">
+                        Expires {otpExpiresAt}. After that, login with it is refused; send the user a setup link or
+                        re-create the account.
+                    </p>
+                )}
                 <div className="flex justify-end pt-2">
                     <Button variant="default" onClick={closeModal}>
                         Done
@@ -1053,6 +1061,7 @@ export const AdminPage: React.FC = () => {
     const [createAssignments, setCreateAssignments] = useState<ProjectAssignment[]>([]);
     const [setupResult, setSetupResult] = useState<SetupLinkResult | null>(null);
     const [otpResult, setOtpResult] = useState<string | null>(null);
+    const [otpExpiresAt, setOtpExpiresAt] = useState<string | null>(null);
     const [linkCopied, setLinkCopied] = useState(false);
     const [otpCopied, setOtpCopied] = useState(false);
 
@@ -1105,6 +1114,7 @@ export const AdminPage: React.FC = () => {
         setCreateAssignments([]);
         setSetupResult(null);
         setOtpResult(null);
+        setOtpExpiresAt(null);
         setLinkCopied(false);
         setOtpCopied(false);
         setRolesUserId(null);
@@ -1231,6 +1241,7 @@ export const AdminPage: React.FC = () => {
                     // The backend returns an {email, one_time_password} object (like
                     // setup_link), so read the password string out of it.
                     setOtpResult(res.one_time_password.one_time_password);
+                    setOtpExpiresAt(res.one_time_password.expires_at ?? null);
                 } else {
                     closeModal();
                 }
@@ -1353,6 +1364,7 @@ export const AdminPage: React.FC = () => {
     const createModalContent = buildCreateModalContent({
         setupResult,
         otpResult,
+        otpExpiresAt,
         createEmail,
         formError,
         createUsername,

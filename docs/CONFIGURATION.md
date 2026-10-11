@@ -677,6 +677,45 @@ done the session ends and the next login is a normal two-step MFA login (#3024;
 walkthrough in [operator/j5-lost-admin.md](operator/j5-lost-admin.md)). Every other
 endpoint answers 403 with `pending_steps`.
 
+**One-time passwords expire.** Every one-time password the system issues is stored with an
+expiry, and the command or API call that issues it reports that time (UTC):
+
+```yaml
+security:
+  recovery_one_time_password_ttl: 24h   # keyorix-server admin recover-admin (default 24h)
+  one_time_password_ttl: 72h            # keyorix user create --one-time-password (default 72h)
+```
+
+Both are Go durations (write days as hours: `168h`). Leave a key empty for the default; a value
+that is set but is not a duration, is zero or negative, or exceeds 168h (7 days) is refused at
+start-up with the key named, rather than silently becoming the default. There is deliberately
+no setting that means "never expires". The 24h default for recovery is
+because it is an admin credential printed on a terminal and should be used the same day; the
+72h default for new users covers a weekend between an admin creating an account and the
+colleague first logging in. After the expiry, login with the password is refused exactly like
+a wrong password (same response, no hint that it was merely late), audited server-side as
+`auth.one_time_password_expired` (written asynchronously, so the refusal costs the same time as a
+wrong password), and counted toward `login_lockout`. Expiry is enforced at login only: a session
+that already exists keeps working, and `change-password`, own-profile updates and re-authentication
+inside that session do not re-check it. A new password (the
+user's own, via `change-password` or a setup link) removes the expiry, so a password the user
+chose never expires this way. A fresh admin-forced reset (`user force-password-reset`) issues no
+password and has no expiry (but see *Upgrading*). To get an account past an expired one-time password: re-run
+`recover-admin` (admins), or `user resend-setup-link` / re-create the user.
+
+*Upgrading:* accounts already in `password_reset_required` when this version first starts
+have no recorded expiry and cannot be told apart (a one-time password, an admin-forced reset
+and an expired-password gate leave the same state), so they get **24 hours from the upgrade**.
+An account whose owner changes the password in that window is unaffected; one that does not
+is then refused at login until an admin re-issues access. **This includes accounts an admin
+forced to reset and accounts held by the password max-age gate**, not only one-time passwords.
+This happens once, in the same migration (SQLite and PostgreSQL) that adds the column, and is
+logged at start-up with the count.
+
+*Mixed-version rollouts:* the schema epoch is unchanged, so replicas still running the previous
+version keep accepting an expired one-time password until they are upgraded. Expiry is fully in
+force only once every replica runs this version; do not count on it during a rolling upgrade.
+
 **Per-account login lockout** (`login_lockout`, opt-in) is brute-force protection
 distinct from the per-IP rate limiter (ADR-040): after `max_attempts` failed
 password logins within `window`, the account is locked for a cooldown that **backs

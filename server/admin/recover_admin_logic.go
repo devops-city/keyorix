@@ -36,6 +36,9 @@ type recoverAdminSummary struct {
 	// "displayed out-of-band, never persisted in clear" contract
 	// CreateUserWithOneTimePassword's OneTimePasswordResult already has.
 	oneTimePassword string
+	// oneTimePasswordExpiresAt (UTC) is when that password stops working; the CLI
+	// prints it and the audit event records it.
+	oneTimePasswordExpiresAt time.Time
 }
 
 // performRecoverAdmin is the whole recovery act (design §3): verify the
@@ -49,6 +52,17 @@ type recoverAdminSummary struct {
 // regardless of whether the audit chain was already broken (design §4: a
 // broken chain does not block recovery, it's recorded alongside it).
 func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIdentifier, rawRecoveryKey string, keyless bool) (*recoverAdminSummary, error) {
+	return performRecoverAdminWithTTL(ctx, store, userIdentifier, rawRecoveryKey, keyless, core.DefaultRecoveryOneTimePasswordTTL)
+}
+
+// performRecoverAdminWithTTL is performRecoverAdmin with the lifetime of the
+// one-time password it issues (security.recovery_one_time_password_ttl,
+// OTP-EXPIRY-1). A non-positive otpTTL means the default: the password always
+// gets an expiry.
+func performRecoverAdminWithTTL(ctx context.Context, store corestorage.Storage, userIdentifier, rawRecoveryKey string, keyless bool, otpTTL time.Duration) (*recoverAdminSummary, error) {
+	if otpTTL <= 0 {
+		otpTTL = core.DefaultRecoveryOneTimePasswordTTL
+	}
 	user, err := resolveTargetUser(ctx, store, userIdentifier)
 	if err != nil {
 		return nil, err
@@ -86,6 +100,7 @@ func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIde
 	}
 
 	now := time.Now()
+	expiresAt := now.Add(otpTTL).UTC()
 
 	// A one-time password the recovered admin can actually log in with, not an
 	// empty hash: bcrypt.CompareHashAndPassword (VerifyPasswordCredentials,
@@ -120,6 +135,11 @@ func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIde
 		if err := tx.SetPasswordHash(ctx, user.ID, string(otpHash), now); err != nil {
 			return fmt.Errorf("set one-time password: %w", err)
 		}
+		// Same transaction as the hash (SetPasswordHash clears any prior expiry):
+		// the credential never exists without its expiry (OTP-EXPIRY-1).
+		if err := tx.SetOneTimePasswordExpiry(ctx, user.ID, &expiresAt, now); err != nil {
+			return fmt.Errorf("set one-time password expiry: %w", err)
+		}
 		if err := tx.SetUserMFAEnabled(ctx, user.ID, false); err != nil {
 			return fmt.Errorf("clear MFA enrollment flag: %w", err)
 		}
@@ -153,6 +173,7 @@ func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIde
 		return nil, err
 	}
 	summary.oneTimePassword = otp
+	summary.oneTimePasswordExpiresAt = expiresAt
 
 	recordRecoveryAuditEvent(ctx, store, summary)
 
@@ -194,8 +215,9 @@ func recordRecoveryAuditEvent(ctx context.Context, store corestorage.Storage, su
 	}
 	description := fmt.Sprintf(
 		"keyorix-server admin recover-admin, run by host user %s, restored account %q (user id %d): reactivated, password reset required, "+
-			"MFA cleared, %d WebAuthn credential(s) cleared, login-lockout cleared, %d session(s) revoked (%s)",
-		summary.operator, summary.username, summary.userID, summary.webAuthnCredentialsCleared, summary.sessionsRevoked, keyDetail)
+			"MFA cleared, %d WebAuthn credential(s) cleared, login-lockout cleared, %d session(s) revoked (%s); one-time password expires %s",
+		summary.operator, summary.username, summary.userID, summary.webAuthnCredentialsCleared, summary.sessionsRevoked, keyDetail,
+		summary.oneTimePasswordExpiresAt.UTC().Format(time.RFC3339))
 
 	if err == nil && !verification.Valid {
 		summary.auditChainBroken = true
