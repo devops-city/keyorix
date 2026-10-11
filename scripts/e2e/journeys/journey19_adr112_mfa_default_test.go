@@ -28,7 +28,7 @@ import (
 // Red before #2446's CLI enrolment port: `keyorix mfa enroll` does not exist on main.
 func TestJourney_ADR112FreshInstallRequiresMFAEnrolment(t *testing.T) {
 	serverBin, cliBin := harness.BuildBinaries(t)
-	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite", KeepMFADefault: true})
+	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite"})
 	t.Cleanup(s.Close)
 
 	const adminUser = "smoketestadmin"

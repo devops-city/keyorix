@@ -201,10 +201,17 @@ type mfaFactor struct {
 func enrolTOTPFactor(t *testing.T, s *harness.Server, username, password string) (string, *mfaFactor) {
 	t.Helper()
 	preToken := adminLogin(t, s, username, password)
-	secret := beginMFAEnrollment(t, s, preToken)
-	_, burned := activateMFA(t, s, preToken, secret, password)
-	f := &mfaFactor{Secret: secret, BurnedStep: burned}
+	f := enrolTOTPOnSession(t, s, preToken, password)
 	return loginWithTOTP(t, s, username, password, f), f
+}
+
+// enrolTOTPOnSession enrols + activates a TOTP factor on an existing (pre-enrolment)
+// session, exactly as the web UI does, and returns the factor.
+func enrolTOTPOnSession(t *testing.T, s *harness.Server, token, password string) *mfaFactor {
+	t.Helper()
+	secret := beginMFAEnrollment(t, s, token)
+	_, burned := activateMFA(t, s, token, secret, password)
+	return &mfaFactor{Secret: secret, BurnedStep: burned}
 }
 
 // loginWithTOTP completes a real two-step login for a user who already has an active
@@ -249,6 +256,30 @@ func requireMFAEnrolmentPremise(t *testing.T, s *harness.Server, username, passw
 		t.Fatalf("premise: the shipped config should require MFA enrolment first; GET /api/v1/projects got %d: %s",
 			denied.StatusCode, denied.Raw)
 	}
+}
+
+// mfaLogin is how a journey logs an interactive user in under the shipped
+// security.require_mfa default: assert the enrolment premise, then enrol a TOTP
+// factor and complete a real two-step login. Journeys use it where they used a
+// plain password login before the harness default became require_mfa on.
+func mfaLogin(t *testing.T, s *harness.Server, username, password string) string {
+	t.Helper()
+	requireMFAEnrolmentPremise(t, s, username, password)
+	return enrolTOTPAndLogin(t, s, username, password)
+}
+
+// mfaPersonaLogin is mfaLogin for a secondary persona (an editor, a viewer...) whose
+// journey is about what the persona may DO, not about the login. It enrols a TOTP
+// factor on the persona's first session and keeps using that session, which the
+// server stops confining once MFA is active -- the web UI's own enrol-and-continue
+// path. It spends 1 slot of the server's per-IP login budget (core.LoginMaxAttempts,
+// 10 per 15 min) where mfaLogin spends 3, so a journey with several personas stays
+// under it. The first user of a server goes through mfaLogin (premise + two-step login).
+func mfaPersonaLogin(t *testing.T, s *harness.Server, username, password string) string {
+	t.Helper()
+	token := adminLogin(t, s, username, password)
+	enrolTOTPOnSession(t, s, token, password)
+	return token
 }
 
 // totpPeriod mirrors internal/core's own step length (mfa.go's totpPeriod).

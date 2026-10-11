@@ -187,11 +187,8 @@ func assertPostgresLogin(t *testing.T, pgAddr, username, password string, wantSu
 func startServerWithDynamicSecrets(t *testing.T, binary string) *harness.Server {
 	t.Helper()
 	dir := t.TempDir()
-	env := []string{
-		"HOME=" + dir,
-		"PATH=" + os.Getenv("PATH"),
-		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-dynsecrets",
-	}
+	env := append(harness.BaseServerEnv(dir),
+		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-dynsecrets")
 	configPath := "./keyorix.yaml"
 
 	run := func(args ...string) {

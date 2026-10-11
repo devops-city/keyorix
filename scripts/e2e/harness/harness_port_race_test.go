@@ -12,7 +12,6 @@ package harness
 import (
 	"errors"
 	"net"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -71,7 +70,7 @@ func TestWaitHealthy_PortConflictDetection(t *testing.T) {
 func TestWaitHealthy_RetriesOnBindFailure(t *testing.T) {
 	serverBin, _ := BuildBinaries(t)
 	dir := t.TempDir()
-	env := []string{"HOME=" + dir, "PATH=" + os.Getenv("PATH"), "KEYORIX_MASTER_PASSWORD=e2e-bind-retry-test"}
+	env := append(BaseServerEnv(dir), "KEYORIX_MASTER_PASSWORD=e2e-bind-retry-test")
 	const configPath = "./keyorix.yaml"
 
 	run := func(args ...string) {

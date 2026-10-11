@@ -153,7 +153,7 @@ func TestJourney_VaultMigrate(t *testing.T) {
 			serverBin, cliBin := harness.BuildBinaries(t)
 			s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite"})
 			t.Cleanup(s.Close)
-			adminToken := adminLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
+			adminToken := mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
 			aEnv := adminEnv(s, adminToken)
 
 			projectName := "n4-" + backend.name + "-import"
@@ -466,8 +466,8 @@ func readScanReportJSON(t *testing.T, path string) map[string]interface{} {
 // (not a Finding's free-text Evidence) are what's asserted.
 func assertScanReportSchema(t *testing.T, report map[string]interface{}, vaultAddr string) {
 	t.Helper()
-	if v, _ := report["schema_version"].(float64); v != 2 {
-		t.Errorf("scan report schema_version: want 2, got %v", report["schema_version"])
+	if v, _ := report["schema_version"].(float64); v != 3 {
+		t.Errorf("scan report schema_version: want 3 (healthscan.SchemaVersion), got %v", report["schema_version"])
 	}
 	if got, _ := report["vault_addr"].(string); got != vaultAddr {
 		t.Errorf("scan report vault_addr: want %q, got %q", vaultAddr, got)

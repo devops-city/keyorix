@@ -37,7 +37,7 @@ func TestJourney_VersioningRollback(t *testing.T) {
 		valueV3     = "api-key-v3-rotated-8b2c"
 	)
 
-	adminToken := adminLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
+	adminToken := mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
 	aEnv := adminEnv(s, adminToken)
 
 	// ── set → update twice: three versions ──────────────────────────────────

@@ -101,11 +101,8 @@ func TestAPISmoke_UpgradePath(t *testing.T) {
 
 	backend := harness.DBBackend{Name: "sqlite-upgrade-from-" + fromTag}
 	dir := t.TempDir()
-	env := []string{
-		"HOME=" + dir,
-		"PATH=" + os.Getenv("PATH"),
-		"KEYORIX_MASTER_PASSWORD=e2e-upgrade-master-password",
-	}
+	env := append(harness.BaseServerEnv(dir),
+		"KEYORIX_MASTER_PASSWORD=e2e-upgrade-master-password")
 	configPath := "./keyorix.yaml"
 
 	runAdmin := func(binary string, args ...string) {

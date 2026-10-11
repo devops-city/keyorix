@@ -55,9 +55,10 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 
 	// ── Source: seed a known state (N1) ───────────────────────────────────
 	src := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite"})
-	seeded := appGetsSecret(t, src, cliBin, "smoketestadmin", harness.BootstrapAdminPassword)
+	requireMFAEnrolmentPremise(t, src, "smoketestadmin", harness.BootstrapAdminPassword)
+	srcAdminToken, adminFactor := enrolTOTPFactor(t, src, "smoketestadmin", harness.BootstrapAdminPassword)
+	seeded := appGetsSecretAs(t, src, cliBin, srcAdminToken)
 
-	srcAdminToken := adminLogin(t, src, "smoketestadmin", harness.BootstrapAdminPassword)
 	beforeValue, beforeVersions := secretValueAndCount(t, src, srcAdminToken, seeded.SecretID)
 	// Pin the actual expected value -- without this, an empty-string bug on
 	// BOTH sides of a later before/after comparison would still pass.
@@ -195,7 +196,7 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 	restored := bootRestoredServer(t, serverBin, targetDir, targetEnv, targetPort)
 	t.Cleanup(restored.Close)
 
-	restoredToken := adminLogin(t, restored, "smoketestadmin", harness.BootstrapAdminPassword)
+	restoredToken := loginWithTOTP(t, restored, "smoketestadmin", harness.BootstrapAdminPassword, adminFactor)
 
 	// Every t.Run below (through the negative cases at the end of this
 	// function) is ORDER-DEPENDENT, not an independent subtest: each one
@@ -343,7 +344,7 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 	postRotate := bootRestoredServer(t, serverBin, targetDir, rotatedEnv, targetPort)
 	t.Cleanup(postRotate.Close)
 
-	postRotateToken := adminLogin(t, postRotate, "smoketestadmin", harness.BootstrapAdminPassword)
+	postRotateToken := loginWithTOTP(t, postRotate, "smoketestadmin", harness.BootstrapAdminPassword, adminFactor)
 
 	t.Run("secret still readable, version history intact, after KEK rotation", func(t *testing.T) {
 		afterValue, afterVersions := secretValueAndCount(t, postRotate, postRotateToken, seeded.SecretID)
@@ -386,7 +387,7 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 		// was taken after both, right before rotate-kek.
 		preRotationServer := bootRestoredServer(t, serverBin, preRotationTargetDir, preRotationEnv, preRotationPort)
 		defer preRotationServer.Close()
-		preRotationToken := adminLogin(t, preRotationServer, "smoketestadmin", harness.BootstrapAdminPassword)
+		preRotationToken := loginWithTOTP(t, preRotationServer, "smoketestadmin", harness.BootstrapAdminPassword, adminFactor)
 		value, versions := secretValueAndCount(t, preRotationServer, preRotationToken, seeded.SecretID)
 		if value != n1ValueV2 {
 			t.Errorf("pre-rotation backup's restored secret value: mismatch (redacted; want-len=%d got-len=%d)", len(n1ValueV2), len(value))

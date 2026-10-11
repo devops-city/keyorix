@@ -11,6 +11,12 @@ import (
 	"github.com/keyorixhq/keyorix/scripts/e2e/harness"
 )
 
+// apiSmokeNoMFAReason is the explicit harness opt-out from the shipped
+// security.require_mfa default: this walk drives every route.json route as one
+// plain-password admin session (and the enrolment routes themselves are covered by
+// journeys 18/19), so a not-yet-enrolled session would 403 every non-enrolment route.
+const apiSmokeNoMFAReason = "route-coverage walk uses one plain-password admin session; MFA enrolment is driven by journeys 18/19"
+
 // TestAPISmoke_SQLite is I2: boot a real keyorix-server against a freshly
 // migrated SQLite database, bootstrap an admin, exercise one happy-path
 // create/read/list/update/delete per feature group over the public REST API,
@@ -18,7 +24,7 @@ import (
 // explicitly skipped-with-reason, and verify the audit hash chain at the end.
 func TestAPISmoke_SQLite(t *testing.T) {
 	serverBin, cliBin := harness.BuildBinaries(t)
-	backend := harness.DBBackend{Name: "sqlite"} // admin init's own default (configs/keyorix.yaml.tpl)
+	backend := harness.DBBackend{Name: "sqlite", NoMFAReason: apiSmokeNoMFAReason} // storage block: admin init's own default (configs/keyorix.yaml.tpl)
 	runAPISmoke(t, serverBin, cliBin, backend)
 }
 
@@ -52,6 +58,7 @@ func TestAPISmoke_Postgres(t *testing.T) {
 		// committed config" convention (configs/dev.yaml's header comment).
 		ConfigExtra: fmt.Sprintf("storage:\n  type: postgres\n  database:\n%s\n  encryption:\n    enabled: true\n    dek_path: keys/dek.key\n    salt_path: keys/kek.salt\n", pgDatabaseYAML(dsn)),
 		ExtraEnv:    []string{"KEYORIX_DB_PASSWORD=" + dbPassword},
+		NoMFAReason: apiSmokeNoMFAReason,
 		VerifyAuditFlag: func(_ string) []string {
 			return []string{"--pg-dsn", dsn}
 		},

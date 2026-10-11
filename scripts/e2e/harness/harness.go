@@ -156,12 +156,13 @@ type DBBackend struct {
 	// VerifyAuditFlag is the --db or --pg-dsn flag verify-audit needs to open
 	// the same database directly, without the running server's lock.
 	VerifyAuditFlag func(dir string) []string
-	// KeepMFADefault leaves security.require_mfa at the shipped value admin init
-	// writes (true, ADR-112). By default the harness sets it false: journeys log
-	// in as the bootstrap admin with a plain session and exercise other features;
-	// MFA itself is driven by journey18 (CLI MFA login) and journey19 (the
-	// require_mfa default), which set this.
-	KeepMFADefault bool
+	// NoMFAReason opts a server OUT of the shipped security.require_mfa default
+	// (true, ADR-112): when non-empty the harness writes require_mfa: false. The
+	// default is the shipped config, so a journey that logs in must enrol through
+	// the real API (requireMFAEnrolmentPremise + enrolTOTPAndLogin). Set this only
+	// for a journey that genuinely tests a non-MFA configuration, with a one-line
+	// reason; it is logged and listed in the PR that touches it.
+	NoMFAReason string
 }
 
 // Server is a running keyorix-server subprocess plus everything the caller
@@ -253,6 +254,19 @@ const BootstrapAdminPassword = "Quartz-Falcon-77-Ridge!"
 // BootstrapAdminPassword above -- that account is named "e2esmokeuser".
 const SmokeUserPassword = "Cobalt-Harbor-42-Ember!"
 
+// BaseServerEnv is the minimal environment every server/admin process the
+// harness spawns runs with: an isolated HOME, PATH, and -- only when the caller
+// has one -- TMPDIR. The child (admin backup/restore, os.MkdirTemp("", ...))
+// otherwise falls back to /tmp, which a sandboxed runner may not allow writing;
+// an environment without TMPDIR (CI) is unchanged. Nothing else is forwarded.
+func BaseServerEnv(dir string) []string {
+	env := []string{"HOME=" + dir, "PATH=" + os.Getenv("PATH")}
+	if tmp := os.Getenv("TMPDIR"); tmp != "" {
+		env = append(env, "TMPDIR="+tmp)
+	}
+	return env
+}
+
 // StartServer runs the exact operator-facing bootstrap sequence QUICK_START.md
 // documents and scripts/smoke.sh already proves works end to end: admin init
 // -> admin encryption init -> admin migrate -> start the server -> poll
@@ -260,11 +274,9 @@ const SmokeUserPassword = "Cobalt-Harbor-42-Ember!"
 func StartServer(t *testing.T, binary string, backend DBBackend) *Server {
 	t.Helper()
 	dir := t.TempDir()
-	env := append([]string{
-		"HOME=" + dir,
-		"PATH=" + os.Getenv("PATH"),
-		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-" + backend.Name,
-	}, backend.ExtraEnv...)
+	env := append(BaseServerEnv(dir),
+		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-"+backend.Name)
+	env = append(env, backend.ExtraEnv...)
 
 	configPath := "./keyorix.yaml"
 
@@ -278,7 +290,8 @@ func StartServer(t *testing.T, binary string, backend DBBackend) *Server {
 
 	run("init", "--config", configPath)
 
-	if !backend.KeepMFADefault {
+	if backend.NoMFAReason != "" {
+		t.Logf("require_mfa disabled for this server (%s): %s", backend.Name, backend.NoMFAReason)
 		path := filepath.Join(dir, "keyorix.yaml")
 		raw, err := os.ReadFile(path)
 		if err != nil {

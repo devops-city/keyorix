@@ -77,8 +77,6 @@ func TestJourney_HATwoReplicas(t *testing.T) {
 		Name:        "postgres",
 		ConfigExtra: configExtra,
 		ExtraEnv:    []string{"KEYORIX_DB_PASSWORD=" + dbPassword},
-		// Shipped security.require_mfa default (ADR-112); see the enrolment below.
-		KeepMFADefault: true,
 	}
 
 	// ── Replica A: the normal fresh-install boot sequence (admin init ->
@@ -296,15 +294,13 @@ func schedulerOutcomeCount(t *testing.T, s *harness.Server, scheduler, outcome s
 func startHAReplica(t *testing.T, serverBin string, backend harness.DBBackend, sourceDir string) *harness.Server {
 	t.Helper()
 	dir := t.TempDir()
-	env := append([]string{
-		"HOME=" + dir,
-		"PATH=" + os.Getenv("PATH"),
+	env := append(harness.BaseServerEnv(dir),
 		// Same derivation as harness.StartServer's own (backend.Name is "postgres"
 		// for both replicas, so this string is identical on both sides) -- the KEK
 		// is PBKDF2(master password, on-disk salt); replica B must derive the SAME
 		// KEK as replica A to unwrap the DEK it's about to copy.
-		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-" + backend.Name,
-	}, backend.ExtraEnv...)
+		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-"+backend.Name)
+	env = append(env, backend.ExtraEnv...)
 
 	configPath := "./keyorix.yaml"
 	run := func(args ...string) {

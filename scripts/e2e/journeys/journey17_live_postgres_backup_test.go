@@ -135,7 +135,5 @@ func j17PostgresBackend(t *testing.T, dsn, keysDir string) harness.DBBackend {
 		ConfigExtra: "storage:\n  type: postgres\n  database:\n" + pg.yaml() + fmt.Sprintf("  encryption:\n    enabled: true\n    dek_path: %q\n    salt_path: %q\n",
 			filepath.Join(keysDir, "data.key"), filepath.Join(keysDir, "kek.salt")),
 		ExtraEnv: []string{"KEYORIX_DB_PASSWORD=" + pg.Password},
-		// Shipped security.require_mfa default (ADR-112); the journey enrols TOTP.
-		KeepMFADefault: true,
 	}
 }

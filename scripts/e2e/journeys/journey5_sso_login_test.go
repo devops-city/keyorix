@@ -555,11 +555,8 @@ func assertCallbackRejectedNoSession(t *testing.T, s *harness.Server, jar *cooki
 func startServerWithSSO(t *testing.T, binary, port, issuer, redirectURL string) *harness.Server {
 	t.Helper()
 	dir := t.TempDir()
-	env := []string{
-		"HOME=" + dir,
-		"PATH=" + os.Getenv("PATH"),
-		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-sso",
-	}
+	env := append(harness.BaseServerEnv(dir),
+		"KEYORIX_MASTER_PASSWORD=e2e-smoke-master-password-sso")
 	configPath := "./keyorix.yaml"
 
 	run := func(args ...string) {

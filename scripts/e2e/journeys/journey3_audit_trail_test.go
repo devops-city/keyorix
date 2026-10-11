@@ -112,10 +112,10 @@ func TestJourney_AuditTrail(t *testing.T) {
 	// Kill()/Wait() on an already-reaped process just returns an ignored
 	// error.
 	t.Cleanup(s.Close)
-	adminToken := adminLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
+	adminToken := mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
 
-	appGetsSecret(t, s, cliBin, "smoketestadmin", harness.BootstrapAdminPassword)
-	accessControl(t, s, cliBin, "smoketestadmin", harness.BootstrapAdminPassword)
+	appGetsSecretAs(t, s, cliBin, adminToken)
+	accessControl(t, s, cliBin, adminToken)
 
 	// secret.read (and only secret.read -- every other event type this journey
 	// asserts on is written synchronously, in the request's own goroutine,

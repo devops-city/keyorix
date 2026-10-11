@@ -34,7 +34,7 @@ func TestJourney_RunEnvInjection(t *testing.T) {
 		machineName   = "j14-runner"
 	)
 
-	adminToken := adminLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
+	adminToken := mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
 	aEnv := adminEnv(s, adminToken)
 
 	// ── Setup: a project with a readable secret, a SECOND project holding a

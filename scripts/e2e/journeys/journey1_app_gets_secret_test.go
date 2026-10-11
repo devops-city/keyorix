@@ -40,7 +40,7 @@ func TestJourney_AppGetsSecret(t *testing.T) {
 	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite"})
 	t.Cleanup(s.Close)
 
-	appGetsSecret(t, s, cliBin, "smoketestadmin", harness.BootstrapAdminPassword)
+	appGetsSecretAs(t, s, cliBin, mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword))
 }
 
 // appGetsSecretResult is what the journey provisioned, returned so a caller
@@ -74,13 +74,9 @@ const (
 	n1BulkSecretCount = 24
 )
 
-func appGetsSecret(t *testing.T, s *harness.Server, cliBin, adminUser, adminPass string) appGetsSecretResult {
-	t.Helper()
-	return appGetsSecretAs(t, s, cliBin, adminLogin(t, s, adminUser, adminPass))
-}
-
-// appGetsSecretAs is appGetsSecret for a caller that already holds the admin session
-// token (e.g. an MFA-backed one from enrolTOTPAndLogin).
+// appGetsSecretAs runs the journey as a caller that already holds the admin session
+// token (an MFA-backed one from mfaLogin / enrolTOTPAndLogin: the shipped config
+// confines a not-yet-enrolled session to enrolment).
 func appGetsSecretAs(t *testing.T, s *harness.Server, cliBin, adminToken string) appGetsSecretResult {
 	t.Helper()
 	ctx := context.Background()

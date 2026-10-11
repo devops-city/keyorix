@@ -49,7 +49,7 @@ func TestJourney_AccessRequest(t *testing.T) {
 		deniedEm    = "j13-denied@example.invalid"
 	)
 
-	adminToken := adminLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
+	adminToken := mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
 	aEnv := adminEnv(s, adminToken)
 
 	// ── Setup: a project with a secret, and two zero-grant human users ──────
@@ -63,9 +63,9 @@ func TestJourney_AccessRequest(t *testing.T) {
 	runCLI(t, cliBin, aEnv, "user", "create", "--username", requesterU, "--email", requesterEm, "--password", userPass)
 	runCLI(t, cliBin, aEnv, "user", "create", "--username", deniedU, "--email", deniedEm, "--password", userPass)
 
-	requesterToken := adminLogin(t, s, requesterU, userPass)
+	requesterToken := mfaPersonaLogin(t, s, requesterU, userPass)
 	requesterEnvCLI := tokenEnv(s, requesterToken)
-	deniedToken := adminLogin(t, s, deniedU, userPass)
+	deniedToken := mfaPersonaLogin(t, s, deniedU, userPass)
 	deniedEnvCLI := tokenEnv(s, deniedToken)
 
 	ref := fmt.Sprintf("%s/%s/%s", projName, envName, secretName)

@@ -34,7 +34,7 @@ func TestJourney_Search(t *testing.T) {
 		needle      = "needle"
 	)
 
-	adminToken := adminLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
+	adminToken := mfaLogin(t, s, "smoketestadmin", harness.BootstrapAdminPassword)
 	aEnv := adminEnv(s, adminToken)
 
 	// ── Setup: two projects, a mix of matching and non-matching secrets, one
@@ -71,7 +71,7 @@ func TestJourney_Search(t *testing.T) {
 
 	// ── The scoped caller's search: sees project A's matches, nothing from B ──
 
-	searcherToken := adminLogin(t, s, searcherU, searcherPwd)
+	searcherToken := mfaPersonaLogin(t, s, searcherU, searcherPwd)
 	searcherEnv := tokenEnv(s, searcherToken)
 
 	hits := searchSecretNames(t, cliBin, searcherEnv, needle)
