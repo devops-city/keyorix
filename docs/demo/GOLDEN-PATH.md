@@ -137,14 +137,14 @@ only an owner who is a member of the secret's project can share it (#2976).
 ./bin/keyorix share list --secret-id 2          # note the share ID
 
 # as alice (or in the web UI: open db-password, edit the value)
-./bin/keyorix secret update --id 2 --value demo-db-pass-v2   # works: the share elevates her on this secret
+./bin/keyorix secret update --id 2 --interactive   # (type the new value at the hidden prompt) works: the share elevates her on this secret
 ./bin/keyorix secret suspend --id 2                          # 403: a share never lets her suspend it
 
 # as admin
 ./bin/keyorix share revoke --share-id <id from share list>
 
 # as alice
-./bin/keyorix secret update --id 2 --value nope   # 403 again
+./bin/keyorix secret update --id 2 --interactive   # 403 again
 ./bin/keyorix secret get --id 2 --show-value      # still works: her role's read was never the share's
 
 # as admin

@@ -49,7 +49,8 @@ const (
 
 func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEmail, adminPass string) {
 	t.Helper()
-	adminToken := adminLogin(t, s, adminUser, adminPass)
+	requireMFAEnrolmentPremise(t, s, adminUser, adminPass)
+	adminToken := enrolTOTPAndLogin(t, s, adminUser, adminPass)
 	aEnv := adminEnv(s, adminToken)
 
 	runCLI(t, cliBin, aEnv, "project", "create", "--name", n20Project)
@@ -64,7 +65,7 @@ func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEma
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n20ViewerEml, "--role", "project_viewer", "--project", n20Project)
 	aliceID := n20UserID(t, s, adminToken, n20Viewer)
 	bobID := n20UserID(t, s, adminToken, n20Outsider)
-	aliceToken := adminLogin(t, s, n20Viewer, n20UserPass)
+	aliceToken := enrolTOTPAndLogin(t, s, n20Viewer, n20UserPass)
 	aliceEnv := tokenEnv(s, aliceToken)
 	sharePath := fmt.Sprintf("/api/v1/secrets/%d/share", sid)
 
