@@ -1398,14 +1398,16 @@ jobs:
   # server on a freshly migrated database and calls every REST route, failing
   # on any 5xx. It exists for the bug class #2258 fixed (7 shipped features
   # that 500'd on every fresh install because no test used a fresh database).
-  # Runs on merge_group / push / dispatch only -- on pull_request it reports
-  # "skipped", which the ruleset treats as satisfied, so it can be a required
-  # check without adding a job to every PR push. Same docs/web/go-unaffected
+  # Runs on pull_request too (Andrei 2026-10-11): while it ran on merge_group
+  # / push / dispatch only, a smoke failure first showed up inside the merge
+  # queue, where it ejected the PR and every entry queued behind it (5 of 5
+  # PRs failed their first merge_group run on 2026-10-11). On the PR the
+  # failure is visible before the PR is queued. Same docs/web/go-unaffected
   # gating as the test matrix. The slower PostgreSQL, upgrade-path and web UI
   # legs run nightly in e2e-nightly.yml.
   e2e-smoke:
     needs: [changes]
-    if: github.event_name != 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
