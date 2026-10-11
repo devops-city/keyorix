@@ -25,6 +25,18 @@ on:
   # Manual trigger for the full -race test-suite matrix outside a PR/queue
   # context (e.g. investigating a suspected flake on a specific ref).
   workflow_dispatch:
+  # Nightly full run on main. A push to main skips test-suite, e2e-smoke and
+  # most other jobs whenever the merge queue already passed that exact SHA
+  # (changes.queue_verified), so "main green" said nothing about the journeys:
+  # TestJourney_BreakGlass failed deterministically on main after #2454 and
+  # looked like a flake. The schedule event takes the same `changes` path as
+  # workflow_dispatch (queue_verified=false, every *_only filter false), so
+  # everything that runs on push also runs here; test-suite, build-and-test's
+  # gate and the boot-smoke jobs list `schedule` explicitly below. The
+  # nightly-failure-issue job at the end files an issue when the run fails.
+  # Scheduled runs always use the default branch (main).
+  schedule:
+    - cron: '17 2 * * *'
 
 # Workflow-level default: zero permissions. No job here writes to the repo,
 # comments on PRs, or publishes anything — a compromised dependency/action in
@@ -48,7 +60,7 @@ permissions: {}
 # failure. A push (synchronize), reopen, or the ci:full label still supersede
 # the in-flight run exactly as before.
 concurrency:
-  group: ci-${{ github.ref }}${{ (github.event.action == 'labeled' && github.event.label.name != 'ci:full') && format('-label-{0}', github.run_id) || '' }}
+  group: ci-${{ github.ref }}${{ (github.event.action == 'labeled' && github.event.label.name != 'ci:full') && format('-label-{0}', github.run_id) || (github.event_name == 'schedule' && format('-nightly-{0}', github.run_id)) || '' }}
   cancel-in-progress: true
 
 env:
@@ -797,7 +809,7 @@ jobs:
     # pull_request push instead gets test-quick-root/test-quick-cli below --
     # see build-and-test's own gate-logic step for the pass/fail truth table
     # this split creates.
-    if: needs.preflight.result == 'success' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (github.event_name == 'merge_group' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')))
+    if: needs.preflight.result == 'success' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (github.event_name == 'merge_group' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')))
     strategy:
       fail-fast: false
       matrix:
@@ -1269,7 +1281,7 @@ jobs:
       # |------------------------------------------|----------------|-----------------------------------|
       # | pull_request                              | absent         | test-quick-root, test-quick-cli   |
       # | pull_request                              | present        | test-suite                        |
-      # | merge_group / push / workflow_dispatch    | n/a            | test-suite                        |
+      # | merge_group / push / workflow_dispatch / schedule | n/a     | test-suite                        |
       #
       # static-analysis is required in every row. Fail CLOSED: the tier that
       # SHOULD have run reporting anything other than 'success' -- including
@@ -1280,7 +1292,7 @@ jobs:
         id: gate
         run: |
           is_full_tier=false
-          if [ "${{ github.event_name }}" = "merge_group" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "merge_group" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
             is_full_tier=true
           elif [ "${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full') }}" = "true" ]; then
             is_full_tier=true
@@ -1596,7 +1608,7 @@ jobs:
   # output is real either way; this is a separate, event-level gate).
   docker-boot-smoke:
     needs: [changes]
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.boot_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'pull_request' && needs.changes.outputs.boot_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1673,7 +1685,7 @@ jobs:
   # unrelated PR.
   demo-up-smoke:
     needs: [changes]
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.demo_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'pull_request' && needs.changes.outputs.demo_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1746,7 +1758,7 @@ jobs:
   # identical comment just above for why.
   helm-boot-smoke:
     needs: [changes]
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.boot_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'pull_request' && needs.changes.outputs.boot_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2906,3 +2918,72 @@ jobs:
 
       - name: Lint OpenAPI spec
         run: ./node_modules/.bin/spectral lint --ruleset .spectral.yaml server/http/handlers/openapi.yaml
+
+  # Nightly failure report. Runs only for the scheduled run, after every other
+  # job, and only when at least one of them failed. Opens an issue titled
+  # "Nightly main CI failed", or comments on the existing open one so a
+  # multi-night outage is one thread, not one issue per night. No labels.
+  #
+  # The ONLY job in this workflow with issues: write (job-level, so nothing else
+  # inherits it). No checkout and no contents/actions scope: the failing jobs
+  # are named from `needs` (job ids; a matrix such as test-suite is reported
+  # under its job id) rather than from the Actions jobs API, which would need
+  # actions: read. The run link points at the per-leg detail.
+  nightly-failure-issue:
+    needs:
+      - changes
+      - pnpm-workspace-root-guard
+      - base-branch-check
+      - bug-origin-block-check
+      - adr-numbers
+      - workflow-lint
+      - preflight
+      - test-quick-root
+      - test-quick-cli
+      - test-suite
+      - exclusion-freshness
+      - assert-leg-completeness
+      - static-analysis
+      - build-and-test
+      - e2e-smoke
+      - web-e2e-real-smoke
+      - repo-guards
+      - lint
+      - smoke
+      - docker-boot-smoke
+      - demo-up-smoke
+      - helm-boot-smoke
+      - operator
+      - cli
+      - migrate
+      - fuzz-targets
+      - fuzz-reach
+      - licenses
+      - gitleaks
+      - helm-chart
+      - helm-chart-security
+      - helm-chart-policy
+      - openapi-lint
+    if: always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the "Nightly main CI failed" issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          failed=$(printf '%s' "$NEEDS_JSON" | jq -r 'to_entries[] | select(.value.result == "failure") | "- " + .key')
+          title="Nightly main CI failed"
+          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\nA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed")
+          existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
