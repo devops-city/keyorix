@@ -94,6 +94,7 @@ var skipList = map[string]string{
 	"POST /api/v1/auth/mfa/enroll":                    "TOTP enrollment; would need a TOTP code computed from the returned secret to complete activate -- not yet automated here, see server/http/handlers/mfa_test.go for existing coverage",
 	"POST /api/v1/auth/mfa/activate":                  "depends on mfa/enroll above",
 	"POST /api/v1/auth/mfa/disable":                   "depends on mfa/enroll+activate above (nothing enrolled to disable)",
+	"POST /api/v1/auth/change-password":               "would revoke this driver's own session mid-run; driven by journey 20",
 	"GET /api/v1/auth/mfa/recovery-codes":             "depends on mfa/enroll+activate above",
 	"POST /api/v1/auth/mfa/recovery-codes/regenerate": "depends on mfa/enroll+activate above",
 	"POST /api/v1/auth/mfa/stepup":                    "depends on mfa/enroll+activate above (nothing to step up into)",

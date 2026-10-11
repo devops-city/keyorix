@@ -36,7 +36,7 @@ import (
 // one of the 10-per-15-minutes per-IP login slots (core.LoginMaxAttempts).
 func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 	serverBin, cliBin := harness.BuildBinaries(t)
-	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite-recover-mfa", KeepMFADefault: true})
+	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite-recover-mfa"})
 	t.Cleanup(s.Close)
 
 	const (
@@ -134,7 +134,7 @@ func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 // one-time-password user (password_reset_required) created by that admin.
 func TestJourney_AccountSetupPasswordFirstUnderRequireMFA(t *testing.T) {
 	serverBin, cliBin := harness.BuildBinaries(t)
-	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite-setup-pwfirst", KeepMFADefault: true})
+	s := harness.StartServer(t, serverBin, harness.DBBackend{Name: "sqlite-setup-pwfirst"})
 	t.Cleanup(s.Close)
 
 	const (

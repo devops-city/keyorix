@@ -86,7 +86,6 @@ var knownUncoveredUserPaths = map[string]string{
 	"POST /api/v1/auth/webauthn/register/finish":      "see coverage.go skipList -- needs a real/simulated authenticator",
 	"POST /auth/password-reset":                       "see coverage.go skipList -- out-of-band emailed token",
 	"POST /auth/setup/consume":                        "see coverage.go skipList -- out-of-band admin-issued setup token",
-	"POST /api/v1/auth/change-password":               "see coverage.go skipList -- would revoke this driver's own session mid-run",
 	"POST /api/v1/risk-exceptions/{id}/approve":       "see coverage.go skipList -- dual-control, needs a second distinct session",
 	"POST /api/v1/audit/migrate-chain-encoding":       "see coverage.go skipList -- one-way irreversible migration of the live audit chain",
 	"POST /api/v1/admin/impersonate":                  "see coverage.go skipList -- mutates shared session state",
