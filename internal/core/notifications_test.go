@@ -80,7 +80,7 @@ func TestNotifyAccessResolved_NotifiesRequester(t *testing.T) {
 			return true
 		})).Return(&models.Notification{ID: 1}, nil)
 
-		c.notifyAccessResolved(ctx, &models.AccessRequest{ProjectID: 1, UserID: 2, GrantedRole: "project_developer"}, true)
+		require.NoError(t, c.notifyAccessResolved(ctx, &models.AccessRequest{ProjectID: 1, UserID: 2, GrantedRole: "project_developer"}, true))
 		require.NotNil(t, got)
 		assert.Equal(t, uint(2), got.UserID)
 		assert.Equal(t, NotificationAccessApproved, got.Type)
@@ -97,7 +97,7 @@ func TestNotifyAccessResolved_NotifiesRequester(t *testing.T) {
 			return true
 		})).Return(&models.Notification{ID: 1}, nil)
 
-		c.notifyAccessResolved(ctx, &models.AccessRequest{ProjectID: 1, UserID: 2}, false)
+		require.NoError(t, c.notifyAccessResolved(ctx, &models.AccessRequest{ProjectID: 1, UserID: 2}, false))
 		require.NotNil(t, got)
 		assert.Equal(t, uint(2), got.UserID)
 		assert.Equal(t, NotificationAccessRejected, got.Type)

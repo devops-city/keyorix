@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -741,7 +740,9 @@ func (c *KeyorixCore) RequestProjectAccess(ctx context.Context, projectID, userI
 	}
 	c.auditProjectScoped(ctx, "access_request.created", userID, projectID,
 		fmt.Sprintf("user %d requested %s access to project %d", userID, suggestedRole, projectID))
-	c.notifyAccessRequested(ctx, created)
+	c.runPostCommitNotification(ctx, "access_request.created", userID, created, func() error {
+		return c.notifyAccessRequested(ctx, created)
+	})
 	return created, nil
 }
 
@@ -1009,7 +1010,9 @@ func (c *KeyorixCore) recordPartialApproval(ctx context.Context, req *models.Acc
 	}
 	c.auditProjectScoped(ctx, "access_request.approval_recorded", approverID, req.ProjectID,
 		fmt.Sprintf("approval %d of %d recorded for access request %d", received, required, req.ID))
-	c.notifyApprovalProgress(ctx, req, received, required)
+	c.runPostCommitNotification(ctx, "access_request.approval_recorded", approverID, req, func() error {
+		return c.notifyApprovalProgress(ctx, req, received, required)
+	})
 	req.ApprovalsReceived = received
 	req.RequiredApprovals = required
 	return req, nil
@@ -1114,18 +1117,22 @@ func (c *KeyorixCore) finalizeAccessRequestApproval(ctx context.Context, req *mo
 	c.LogRoleAssigned(ctx, approverID, req.UserID, roleModel.ID, scope)
 	c.auditProjectScoped(ctx, "access_request.approved", approverID, req.ProjectID,
 		fmt.Sprintf("approved access request %d for user %d as %s (%d approval(s))", req.ID, req.UserID, grantDesc, received))
-	c.notifyAccessResolved(ctx, req, true)
+	c.runPostCommitNotification(ctx, "access_request.approved", approverID, req, func() error {
+		return c.notifyAccessResolved(ctx, req, true)
+	})
 	req.ApprovalsReceived = received
 	req.RequiredApprovals = required
 	return req, nil
 }
 
 // notifyApprovalProgress alerts the project's approvers that a request needs more
-// sign-offs (best-effort).
-func (c *KeyorixCore) notifyApprovalProgress(ctx context.Context, req *models.AccessRequest, received, required int) {
+// sign-offs (best-effort). It returns every failure for runPostCommitNotification
+// to record; whoever WAS resolved is still notified.
+func (c *KeyorixCore) notifyApprovalProgress(ctx context.Context, req *models.AccessRequest, received, required int) error {
+	var errs []error
 	recipients, rerr := c.projectAdminRecipients(ctx, req.ProjectID) // partial result still notified (best-effort)
 	if rerr != nil {
-		log.Printf("SECURITY: notifyApprovalProgress: failed to fully resolve project %d admins (%d resolved), some admins may not be notified: %v", req.ProjectID, len(recipients), rerr)
+		errs = append(errs, fmt.Errorf("resolve project %d admins (%d resolved), some admins may not be notified: %w", req.ProjectID, len(recipients), rerr))
 	}
 	pid := req.ProjectID
 	label := c.projectLabel(ctx, req.ProjectID)
@@ -1135,8 +1142,9 @@ func (c *KeyorixCore) notifyApprovalProgress(ctx context.Context, req *models.Ac
 		if uid == req.UserID {
 			continue
 		}
-		c.notify(ctx, uid, NotificationAccessRequested, "Access request needs another approval", msg, &pid, link)
+		errs = append(errs, c.notifyChecked(ctx, uid, NotificationAccessRequested, "Access request needs another approval", msg, &pid, link, models.NotificationSeverityNone))
 	}
+	return errors.Join(errs...)
 }
 
 // RejectAccessRequest rejects a pending request with a reason.
@@ -1170,7 +1178,9 @@ func (c *KeyorixCore) RejectAccessRequest(ctx context.Context, projectID, reques
 	}
 	c.auditProjectScoped(ctx, "access_request.rejected", approverID, req.ProjectID,
 		fmt.Sprintf("rejected access request %d for user %d", req.ID, req.UserID))
-	c.notifyAccessResolved(ctx, req, false)
+	c.runPostCommitNotification(ctx, "access_request.rejected", approverID, req, func() error {
+		return c.notifyAccessResolved(ctx, req, false)
+	})
 	return req, nil
 }
 

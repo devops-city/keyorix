@@ -33,11 +33,11 @@
 //
 // An *ast.FuncDecl is an emitter when its body contains a call whose callee is a
 // selector (any receiver spelling) named notify, notifyWithSeverity,
-// upgradeReminder or CreateNotification, or named Deliver on a receiver whose
+// notifyChecked (#3075), upgradeReminder or CreateNotification, or named Deliver on a receiver whose
 // rendered text contains "otificationSink" (notificationSink and
 // recipientNotificationSink are the only two sinks); or when its NAME starts with
 // notify/remind + an upper-case letter, which catches a notifier that reaches the
-// primitives indirectly. Those five primitives are the only ways core persists or
+// primitives indirectly. Those six primitives are the only ways core persists or
 // dispatches a notification (notifications.go is the single place that touches
 // storage.CreateNotification and the recipient sink), so an emitter that avoids
 // all of them and all naming convention does not emit through core at all.
@@ -138,6 +138,7 @@ var notifierRegistry = map[string]notifierDecl{
 	// --- delivery plumbing ---
 	"notify":               {kind: kindPrimitive, doc: "creates one in-app notification for the given user"},
 	"notifyWithSeverity":   {kind: kindPrimitive, doc: "notify plus severity"},
+	"notifyChecked":        {kind: kindPrimitive, doc: "notifyWithSeverity that returns the CreateNotification error (#3075)"},
 	"dispatchNotification": {kind: kindPrimitive, doc: "fans a per-user notification to the recipient-addressable sink"},
 }
 
@@ -202,7 +203,7 @@ func scanEmitters(t testing.TB, sources map[string]string) map[string]*emitterIn
 				case *ast.SelectorExpr:
 					info.callees[fn.Sel.Name] = true
 					switch fn.Sel.Name {
-					case "notify", "notifyWithSeverity", "upgradeReminder", "CreateNotification":
+					case "notify", "notifyWithSeverity", "notifyChecked", "upgradeReminder", "CreateNotification":
 						info.emits = true
 					case "Deliver":
 						if strings.Contains(renderExpr(fn.X), "otificationSink") {

@@ -161,8 +161,16 @@ func (c *KeyorixCore) notify(ctx context.Context, userID uint, nType, title, mes
 // or the race this index closes at the DB layer would still duplicate the
 // user-visible email/webhook. Mirrors upgradeReminder's identical guard (#482).
 func (c *KeyorixCore) notifyWithSeverity(ctx context.Context, userID uint, nType, title, message string, projectID *uint, link string, severity models.NotificationSeverity) { // NOSONAR -- domain-driven parameter count
+	_ = c.notifyChecked(ctx, userID, nType, title, message, projectID, link, severity)
+}
+
+// notifyChecked is notifyWithSeverity that RETURNS the CreateNotification error
+// instead of swallowing it, for a caller that has to record the failure: the
+// access-request notifiers, run under runPostCommitNotification (#3075). It does
+// not recover a panic; runPostCommitNotification does.
+func (c *KeyorixCore) notifyChecked(ctx context.Context, userID uint, nType, title, message string, projectID *uint, link string, severity models.NotificationSeverity) error { // NOSONAR -- domain-driven parameter count
 	if userID == 0 {
-		return
+		return nil
 	}
 	if _, err := c.storage.CreateNotification(ctx, &models.Notification{
 		UserID:    userID,
@@ -174,9 +182,46 @@ func (c *KeyorixCore) notifyWithSeverity(ctx context.Context, userID uint, nType
 		Severity:  severity,
 		CreatedAt: c.now(),
 	}); err != nil {
-		return
+		return fmt.Errorf("notify user %d (%s): %w", userID, nType, err)
 	}
 	c.dispatchNotification(ctx, userID, nType, title, message, projectID, link)
+	return nil
+}
+
+// runPostCommitNotification runs notifyFn, a notification step that follows an
+// access-request transition which has ALREADY committed, so nothing notifyFn does
+// can turn that committed transition into a reported failure (#3075, the #2880
+// rule: once the decision is durable, the response reports it).
+//
+// The bug it closes: FuzzStorageFaultOperations found PUT
+// /projects/{id}/access-requests/{requestId} with CreateNotification#1/panic
+// granting the role, approving the request and writing its audit row, then
+// answering 500 because the panic escaped the notify step. A CreateNotification
+// ERROR was already swallowed, but silently -- nobody could tell an approver was
+// never told.
+//
+// A returned error or a panic anywhere in notifyFn (recipient resolution, the
+// project label lookup, CreateNotification, the email sink) is recovered, logged
+// at SECURITY level with the step, actor, project and access request, and
+// recorded as one "notification.failed" audit event in the request's project.
+// The audit write recovers its own panic (writeAuditEventDiffOn, #2561).
+func (c *KeyorixCore) runPostCommitNotification(ctx context.Context, step string, actorID uint, req *models.AccessRequest, notifyFn func() error) {
+	var failure error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				failure = fmt.Errorf("panic: %v", r)
+			}
+		}()
+		failure = notifyFn()
+	}()
+	if failure == nil {
+		return
+	}
+	log.Printf("SECURITY: WARN: %s: notification for access request %d (project %d, actor %d) failed after the transition committed; the transition stands: %v",
+		step, req.ID, req.ProjectID, actorID, failure)
+	c.auditProjectScoped(ctx, auditNotificationFailed, actorID, req.ProjectID,
+		fmt.Sprintf("%s: notification for access request %d was not delivered: %v", step, req.ID, failure))
 }
 
 // upgradeReminder overwrites Title/Message/Severity on an existing unread
@@ -250,10 +295,14 @@ func (c *KeyorixCore) notifyMembershipActivated(ctx context.Context, m *models.P
 
 // notifyAccessRequested fans a new-request notification out to the project's
 // admins (projectAdminRecipients: approver-role members + install-wide admins).
-func (c *KeyorixCore) notifyAccessRequested(ctx context.Context, req *models.AccessRequest) {
+// It returns every failure (a partial recipient resolution, a failed
+// CreateNotification) for runPostCommitNotification to record; whoever WAS
+// resolved is still notified.
+func (c *KeyorixCore) notifyAccessRequested(ctx context.Context, req *models.AccessRequest) error {
+	var errs []error
 	recipients, rerr := c.projectAdminRecipients(ctx, req.ProjectID) // partial result still notified (best-effort)
 	if rerr != nil {
-		log.Printf("SECURITY: notifyAccessRequested: failed to fully resolve project %d admins (%d resolved), some admins may not be notified: %v", req.ProjectID, len(recipients), rerr)
+		errs = append(errs, fmt.Errorf("resolve project %d admins (%d resolved), some admins may not be notified: %w", req.ProjectID, len(recipients), rerr))
 	}
 	pid := req.ProjectID
 	label := c.projectLabel(ctx, req.ProjectID)
@@ -262,29 +311,30 @@ func (c *KeyorixCore) notifyAccessRequested(ctx context.Context, req *models.Acc
 		if uid == req.UserID {
 			continue // don't notify the requester of their own request.
 		}
-		c.notify(ctx, uid, NotificationAccessRequested,
+		errs = append(errs, c.notifyChecked(ctx, uid, NotificationAccessRequested,
 			"New access request",
 			fmt.Sprintf("User %d requested %s access to %s.", req.UserID, req.SuggestedRole, label),
-			&pid, link)
+			&pid, link, models.NotificationSeverityNone))
 	}
+	return errors.Join(errs...)
 }
 
 // notifyAccessResolved tells the requester their request was approved/rejected.
-func (c *KeyorixCore) notifyAccessResolved(ctx context.Context, req *models.AccessRequest, approved bool) {
+// Run it under runPostCommitNotification, which records a returned error.
+func (c *KeyorixCore) notifyAccessResolved(ctx context.Context, req *models.AccessRequest, approved bool) error {
 	pid := req.ProjectID
 	label := c.projectLabel(ctx, req.ProjectID)
 	link := fmt.Sprintf("/projects/%d", req.ProjectID)
 	if approved {
-		c.notify(ctx, req.UserID, NotificationAccessApproved,
+		return c.notifyChecked(ctx, req.UserID, NotificationAccessApproved,
 			"Access request approved",
 			fmt.Sprintf("Your request for access to %s was approved as %s.", label, req.GrantedRole),
-			&pid, link)
-		return
+			&pid, link, models.NotificationSeverityNone)
 	}
-	c.notify(ctx, req.UserID, NotificationAccessRejected,
+	return c.notifyChecked(ctx, req.UserID, NotificationAccessRejected,
 		"Access request rejected",
 		fmt.Sprintf("Your request for access to %s was rejected.", label),
-		&pid, link)
+		&pid, link, models.NotificationSeverityNone)
 }
 
 // notifySecretShared tells a recipient a secret was shared with them directly. Self-
@@ -461,3 +511,7 @@ func (c *KeyorixCore) MarkAllNotificationsRead(ctx context.Context, userID uint)
 	}
 	return c.storage.MarkAllScopedNotificationsRead(ctx, userID, scope)
 }
+
+// auditNotificationFailed is the audit event type recorded when a notification
+// that follows an already-committed operation could not be created (#3075).
+const auditNotificationFailed = "notification.failed"

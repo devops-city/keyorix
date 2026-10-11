@@ -130,7 +130,7 @@ func TestNotifyAccessRequested_NotifiesInstallWideAdmins(t *testing.T) {
 	t.Parallel()
 	c, db, _ := newExpiryReminderCore(t)
 	seedInstallWideAdmins(t, db)
-	c.notifyAccessRequested(context.Background(), &models.AccessRequest{ProjectID: 1, UserID: testRequesterID, SuggestedRole: "project_viewer"})
+	require.NoError(t, c.notifyAccessRequested(context.Background(), &models.AccessRequest{ProjectID: 1, UserID: testRequesterID, SuggestedRole: "project_viewer"}))
 	assertProjectAdminAudience(t, db, NotificationAccessRequested)
 	assert.Empty(t, notificationsFor(t, db, testRequesterID, NotificationAccessRequested), "the requester is never told about their own request")
 }
@@ -141,7 +141,7 @@ func TestNotifyAccessRequested_SkipsGlobalAdminRequester(t *testing.T) {
 	t.Parallel()
 	c, db, _ := newExpiryReminderCore(t)
 	seedInstallWideAdmins(t, db)
-	c.notifyAccessRequested(context.Background(), &models.AccessRequest{ProjectID: 1, UserID: testGlobalAdminID, SuggestedRole: "project_viewer"})
+	require.NoError(t, c.notifyAccessRequested(context.Background(), &models.AccessRequest{ProjectID: 1, UserID: testGlobalAdminID, SuggestedRole: "project_viewer"}))
 	assert.Empty(t, notificationsFor(t, db, testGlobalAdminID, NotificationAccessRequested))
 	assert.Len(t, notificationsFor(t, db, 5, NotificationAccessRequested), 1)
 }
@@ -150,8 +150,8 @@ func TestNotifySecretAccessRequested_NotifiesInstallWideAdmins(t *testing.T) {
 	t.Parallel()
 	c, db, _ := newExpiryReminderCore(t)
 	seedInstallWideAdmins(t, db)
-	c.notifySecretAccessRequested(context.Background(),
-		&models.AccessRequest{ProjectID: 1, UserID: testRequesterID}, &models.SecretNode{ID: 10, Name: "expired-key"})
+	require.NoError(t, c.notifySecretAccessRequested(context.Background(),
+		&models.AccessRequest{ProjectID: 1, UserID: testRequesterID}, &models.SecretNode{ID: 10, Name: "expired-key"}))
 	assertProjectAdminAudience(t, db, NotificationAccessRequested)
 }
 
@@ -159,7 +159,7 @@ func TestNotifyApprovalProgress_NotifiesInstallWideAdmins(t *testing.T) {
 	t.Parallel()
 	c, db, _ := newExpiryReminderCore(t)
 	seedInstallWideAdmins(t, db)
-	c.notifyApprovalProgress(context.Background(), &models.AccessRequest{ID: 3, ProjectID: 1, UserID: testRequesterID}, 1, 2)
+	require.NoError(t, c.notifyApprovalProgress(context.Background(), &models.AccessRequest{ID: 3, ProjectID: 1, UserID: testRequesterID}, 1, 2))
 	assertProjectAdminAudience(t, db, NotificationAccessRequested)
 }
 
