@@ -35,7 +35,8 @@ func TestGetSecretAccessStats(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Two versions carry the durable lifetime read counters (3 + 5 = 8).
+	// Two versions carry max_reads accounting counters (3 + 5 = 8). They are NOT the
+	// secret's read count (AUDIT-UX-3): total_reads comes from the access log (#2972).
 	require.NoError(t, db.Create(&models.SecretVersion{SecretNodeID: secret.ID, VersionNumber: 1, ReadCount: 3}).Error)
 	require.NoError(t, db.Create(&models.SecretVersion{SecretNodeID: secret.ID, VersionNumber: 2, ReadCount: 5}).Error)
 
@@ -53,7 +54,7 @@ func TestGetSecretAccessStats(t *testing.T) {
 	t.Run("aggregates lifetime + recent-window read stats", func(t *testing.T) {
 		stats, err := c.GetSecretAccessStats(ctx, secret.ID, 1, 0) // 0 → default 30-day window
 		require.NoError(t, err)
-		assert.Equal(t, 8, stats.TotalReads, "summed from version read counters")
+		assert.Equal(t, 3, stats.TotalReads, "lifetime access-log reads (core.SecretTotalReads), including the 40-day-old one; NOT the 3+5 max_reads counters")
 		assert.Equal(t, 2, stats.Versions)
 		assert.Equal(t, 30, stats.WindowDays)
 		assert.Equal(t, 2, stats.ReadsInWindow, "two reads in window; the update and the 40-day-old read are excluded")

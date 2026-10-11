@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// SecretAccessStats summarises a secret's read activity. TotalReads is the durable
-// lifetime counter (summed across versions, survives access-log retention); the *Window
-// fields cover the last WindowDays of the (retained) access log.
+// SecretAccessStats summarises a secret's read activity. TotalReads is the lifetime
+// value-read count (SecretTotalReads, the same figure as total_reads on GET
+// /secrets/{id}); the *Window fields cover the last WindowDays of the (retained) access log.
 type SecretAccessStats struct {
 	SecretID      uint       `json:"secret_id"`
 	TotalReads    int        `json:"total_reads"`
@@ -26,8 +26,8 @@ type SecretAccessStats struct {
 
 // GetSecretAccessStats returns read statistics for a secret, enforcing secrets.read on
 // the secret first. windowDays bounds the recent-activity summary (clamped to [1, 365],
-// default 30 when <= 0). Lifetime TotalReads comes from the per-version read counters;
-// the window fields are computed from the access log's "read" entries. No value is read.
+// default 30 when <= 0). Lifetime TotalReads and the window fields are both computed
+// from the access log's "read" entries. No value is read.
 func (c *KeyorixCore) GetSecretAccessStats(ctx context.Context, secretID, actorID uint, windowDays int) (*SecretAccessStats, error) {
 	if secretID == 0 {
 		return nil, fmt.Errorf("secret ID is required")
@@ -45,15 +45,21 @@ func (c *KeyorixCore) GetSecretAccessStats(ctx context.Context, secretID, actorI
 
 	stats := &SecretAccessStats{SecretID: secretID, WindowDays: windowDays}
 
-	// Lifetime reads — summed from the durable per-version counters.
 	versions, err := c.storage.GetSecretVersions(ctx, secretID)
 	if err != nil {
 		return nil, fmt.Errorf("get versions: %w", err)
 	}
 	stats.Versions = len(versions)
-	for _, v := range versions {
-		stats.TotalReads += v.ReadCount
+
+	// Lifetime reads — the same count GET /secrets/{id} and the versions listing
+	// report as total_reads (SecretTotalReads: access-log rows with action "read").
+	// NOT the per-version ReadCount sum, which only counts reads charged against
+	// max_reads and is 0 for an ordinary secret (AUDIT-UX-3, #2971).
+	total, err := c.SecretTotalReads(ctx, secretID)
+	if err != nil {
+		return nil, fmt.Errorf("total reads: %w", err)
 	}
+	stats.TotalReads = int(total)
 
 	// Recent window — from the access log's "read" entries.
 	since := c.now().AddDate(0, 0, -windowDays)

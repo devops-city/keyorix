@@ -950,7 +950,7 @@ type Secret struct {
 	RotationRef            *string    `json:"rotation_ref,omitempty"`
 	Status                 *string    `json:"status,omitempty"`
 
-	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Counts secret_access_logs rows with action read, i.e. value disclosures only: a by-name lookup is audited as secret.metadata_read (action metadata_read) and is not counted, see INV-CORE-secret-read-means-value-disclosure. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
 	TotalReads *int       `json:"total_reads,omitempty"`
 	Type       *string    `json:"type,omitempty"`
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
@@ -1061,7 +1061,7 @@ type SecretGetResult struct {
 	Secret *Secret `json:"secret,omitempty"`
 	Status *string `json:"status,omitempty"`
 
-	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Counts secret_access_logs rows with action read, i.e. value disclosures only: a by-name lookup is audited as secret.metadata_read (action metadata_read) and is not counted, see INV-CORE-secret-read-means-value-disclosure. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
 	TotalReads *int       `json:"total_reads,omitempty"`
 	Type       *string    `json:"type,omitempty"`
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`

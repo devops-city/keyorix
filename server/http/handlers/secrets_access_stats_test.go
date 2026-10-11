@@ -41,7 +41,7 @@ func TestGetSecretAccessStatsHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 		body := w.Body.String()
-		assert.Contains(t, body, `"total_reads":4`)
+		assert.Contains(t, body, `"total_reads":1`, "access-log reads, not the version max_reads counter (4)")
 		assert.Contains(t, body, `"reads_in_window":1`)
 		assert.Contains(t, body, `"unique_readers":1`)
 		assert.Contains(t, body, `"window_days":30`)
