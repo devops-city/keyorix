@@ -6,13 +6,6 @@ metadata:
   labels:
     {{- include "keyorix.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
-  annotations:
-    # checkov (helm-chart-security CI job): nginx needs a writable root filesystem
-    # for /var/cache/nginx, /var/run/nginx.pid and client-body temp files -- the
-    # container is otherwise fully hardened (allowPrivilegeEscalation: false,
-    # capabilities dropped, non-root uid 101, seccomp RuntimeDefault at the pod
-    # level), so only this one property is suppressed, not the whole check family.
-    checkov.io/skip1: CKV_K8S_22=nginx requires a writable root filesystem for its cache/pid/temp files
 spec:
   replicas: {{ .Values.web.replicas }}
   selector:
@@ -28,8 +21,6 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/web-config.yaml") . | sha256sum }}
         # kube-score (helm-chart-policy CI job), each with an already-settled reason
         # elsewhere in this file/chart, not a fresh judgment call made here:
-        #   - container-security-context-readonlyrootfilesystem: same nginx
-        #     cache/pid/temp-file need as the checkov.io/skip1 annotation above.
         #   - container-security-context-user-group-id: fixed uid 101 to match the
         #     nginx image's own user (see the securityContext comment below) -- same
         #     already-reviewed tradeoff as this repo's checkov CKV_K8S_40 exclusion.
@@ -42,7 +33,6 @@ spec:
         #     intended public entry point, often via an Ingress controller whose
         #     pod labels vary by installation).
         kube-score/ignore: >-
-          container-security-context-readonlyrootfilesystem,
           container-security-context-user-group-id,
           pod-probes-identical,
           pod-networkpolicy
@@ -58,6 +48,7 @@ spec:
         # standard/alpine nginx images this is built from.
         runAsNonRoot: true
         runAsUser: 101
+        runAsGroup: 101
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -66,6 +57,9 @@ spec:
           imagePullPolicy: {{ .Values.web.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
+            # nginx's cache, pid file, temp files and logs are the only writes;
+            # each lives on its own emptyDir (writable by uid 101) below.
+            readOnlyRootFilesystem: true
             capabilities:
               add: ["NET_BIND_SERVICE"]
               drop: ["ALL"]
@@ -77,6 +71,14 @@ spec:
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
               readOnly: true
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /run
+            - name: nginx-log
+              mountPath: /var/log/nginx
+            - name: nginx-tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /health
@@ -105,4 +107,19 @@ spec:
         - name: nginx-config
           configMap:
             name: {{ include "keyorix.web.fullname" . }}-config
+        # Every emptyDir carries a sizeLimit: past it the kubelet evicts the pod
+        # instead of letting a runaway writer fill the node's ephemeral storage.
+        - name: nginx-cache
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: nginx-run
+          emptyDir:
+            sizeLimit: 1Mi
+        # access/error logs (web/nginx.conf writes files here).
+        - name: nginx-log
+          emptyDir:
+            sizeLimit: 32Mi
+        - name: nginx-tmp
+          emptyDir:
+            sizeLimit: 16Mi
 {{- end -}}

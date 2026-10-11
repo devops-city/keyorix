@@ -19,6 +19,20 @@ services:
       POSTGRES_DB: keyorix
       POSTGRES_USER: keyorix
       POSTGRES_PASSWORD: ${KEYORIX_DB_PASSWORD:?KEYORIX_DB_PASSWORD is required (see .env.example)}
+    # Hardening (DEPLOY-1 audit): postgres:15-alpine's own uid/gid is 70. Running as
+    # it directly skips the entrypoint's root-then-su-exec step, so no capabilities
+    # are needed at all. Named volumes inherit the image's postgres:postgres
+    # ownership of the data dir, and existing volumes were chowned to 70 by the old
+    # entrypoint, so this is a no-op migration. The root FS is read-only; the
+    # unix-socket dir and /tmp are tmpfs.
+    user: "70:70"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+      - /var/run/postgresql:uid=70,gid=70,mode=0755,size=1m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -52,6 +66,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Hardening (DEPLOY-1 audit): the image already runs as uid 1001 (non-root).
+    # Only /app/keys (volume) and /tmp (entrypoint's bootstrap payload) are written.
+    read_only: true
+    # Every tmpfs below has an explicit size= so a runaway writer fills its own
+    # capped mount and fails, instead of consuming the host's RAM. /tmp here holds
+    # the entrypoint's bootstrap payload and `admin restore` staging: raise it if
+    # you restore a backup larger than this.
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./keyorix.docker.yaml:/app/keyorix.yaml:ro
       # The encryption keys (wrapped DEK + KEK salt) MUST persist across restarts.
@@ -67,6 +93,22 @@ services:
       - "8088:80"
     depends_on:
       - backend
+    # Hardening (DEPLOY-1 audit): image runs as nginx uid 101. nginx's cache, pid
+    # and log files go to tmpfs so the root FS can be read-only. NET_BIND_SERVICE
+    # mirrors the Helm chart (container port 80 as non-root) and keeps this working
+    # on runtimes that don't lower net.ipv4.ip_unprivileged_port_start.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+      - /run:uid=101,gid=101,mode=0755,size=1m
+      - /var/cache/nginx:uid=101,gid=101,mode=0755,size=64m
+      # access/error logs (web/nginx.conf writes files here): when full, nginx keeps
+      # serving and drops log lines; the cap is what keeps them out of host RAM.
+      - /var/log/nginx:uid=101,gid=101,mode=0755,size=32m
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
     # web/Dockerfile already bakes an image-level HEALTHCHECK (wget against
     # /health — nginx:alpine has no curl), which Compose inherits without this
     # block; declared explicitly so it shows up the same way postgres' does.
@@ -84,13 +126,78 @@ services:
   # (with 80/443 reachable + DNS pointing here) for an automatic, publicly-trusted
   # certificate; the default `localhost` uses Caddy's internal CA. See
   # docs/SELF_HOSTING.md §7. When using this, don't also expose web's 8088 publicly.
+  #
+  # Caddy runs as uid:gid 65532 (non-root) with only NET_BIND_SERVICE. Earlier
+  # releases ran it as root, so an existing caddy_data / caddy_config volume is
+  # root-owned and a non-root caddy could not write its certificates or autosave
+  # file. caddy-init is a one-shot that chowns those two volumes to caddy's user
+  # before caddy starts (a no-op on a fresh or already-migrated volume), so the
+  # upgrade needs no manual step. It is the only root container in this file, has
+  # every capability dropped except CHOWN and DAC_READ_SEARCH, a read-only root FS
+  # and no network.
+  #
+  # Scope: only /data and /config (the two Caddy volumes), never following symlinks
+  # or crossing a mount, and only entries whose owner or group is not already
+  # 65532:65532, so a second run on a migrated volume changes nothing. DAC_READ_SEARCH
+  # is what makes it idempotent: Caddy creates its storage directories 0700, so once
+  # they belong to 65532 root (without DAC_OVERRIDE/DAC_READ_SEARCH) can no longer
+  # open them, and a second `up` -- or a first one that was interrupted half-way --
+  # would fail here and, because caddy waits for this service to complete
+  # successfully, leave HTTPS down. It grants read/search only, not write.
+  caddy-init:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: "no"
+    user: "0:0"
+    entrypoint:
+      - find
+      - /data
+      - /config
+      - -xdev
+      - (
+      - "!"
+      - -user
+      - "65532"
+      - -o
+      - "!"
+      - -group
+      - "65532"
+      - )
+      - -exec
+      - chown
+      - -h
+      - "65532:65532"
+      - "{}"
+      - "+"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH]
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
   caddy:
     image: caddy:2-alpine
     profiles: ["tls"]
     restart: unless-stopped
+    user: "65532:65532"
     ports:
       - "80:80"
       - "443:443"
+    # Hardening (DEPLOY-1 audit, DEPLOY-2): caddy only needs to bind 80/443 and
+    # write its /data and /config volumes. Binding <1024 as non-root works because
+    # Docker/containerd set net.ipv4.ip_unprivileged_port_start=0 in the container's
+    # network namespace and the binary also carries cap_net_bind_service.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
     environment:
       KEYORIX_DOMAIN: ${KEYORIX_DOMAIN:-localhost}
     volumes:
@@ -100,7 +207,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
+      web:
+        condition: service_started
+      caddy-init:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:

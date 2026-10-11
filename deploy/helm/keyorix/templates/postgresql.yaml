@@ -42,19 +42,12 @@ metadata:
     {{- include "keyorix.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
   annotations:
-    # checkov (helm-chart-security CI job): postgres needs a writable root
-    # filesystem for its unix socket (/var/run/postgresql) and temp files outside
-    # the PVC-backed data directory -- the container is otherwise fully hardened
-    # (allowPrivilegeEscalation: false, capabilities dropped, non-root uid 999,
-    # seccomp RuntimeDefault at the pod level), so only this one property is
-    # suppressed, not the whole check family.
-    checkov.io/skip1: CKV_K8S_22=postgres requires a writable root filesystem for its socket/temp files
     # This is a third-party image (not one this project builds/publishes), already
     # pinned to a specific repository:tag; digest-pinning a bundled upstream
     # dependency is a separate, larger undertaking (tracking and rotating upstream
     # digests) than pinning the images this project builds itself (server, web,
     # operator, k8s-sync -- all of which support .Values.<component>.image.digest).
-    checkov.io/skip2: CKV_K8S_43=third-party bundled dependency, already tag-pinned; digest tracking is a separate undertaking from this project's own images
+    checkov.io/skip1: CKV_K8S_43=third-party bundled dependency, already tag-pinned; digest tracking is a separate undertaking from this project's own images
     # kube-score (helm-chart-policy CI job): same singleton reasoning as the
     # keyorix chart's server-deployment.yaml -- pinned to exactly 1 replica with
     # Recreate, since RollingUpdate would briefly run 2 pods against the same
@@ -78,9 +71,7 @@ spec:
         app.kubernetes.io/component: postgresql
       annotations:
         # kube-score, each with an already-settled reason elsewhere:
-        #   - container-security-context-readonlyrootfilesystem: same
-        #     socket/temp-file need as the checkov.io/skip1 annotation above.
-        #   - container-security-context-user-group-id: fixed uid 999 to match
+        #   - container-security-context-user-group-id: fixed uid to match
         #     the official postgres:*-alpine image's own user (see the
         #     securityContext comment below) -- same already-reviewed tradeoff
         #     as this repo's checkov CKV_K8S_40 exclusion.
@@ -90,7 +81,6 @@ spec:
         #     way, unlike a scaled-out clustered DB where a readiness failure
         #     should instead just pull the replica from load balancing.
         kube-score/ignore: >-
-          container-security-context-readonlyrootfilesystem,
           container-security-context-user-group-id,
           pod-probes-identical
     spec:
@@ -100,20 +90,81 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        # 999 is the postgres user in the official postgres:*-alpine images; fsGroup
-        # makes the PVC group-writable by it so a fresh (non-root-initialised)
-        # volume doesn't need the entrypoint's root-owned chown step.
+        # postgresql.runAsUser must be the uid of the postgres image: 70 in the
+        # official postgres:*-alpine images (the default tag, and what
+        # docker-compose.yml runs), 999 in the Debian-based ones -- deploy/hardening
+        # pins the pairing. Earlier charts ran this pod as 999 even on the alpine
+        # image, so a volume they created is owned by 999: see postgresql.runAsUser
+        # and postgresql.migrateOwnership in values.yaml for upgrading it.
+        # fsGroup makes a fresh PVC group-writable by it so no root-owned chown
+        # step is needed.
         runAsNonRoot: true
-        runAsUser: 999
-        fsGroup: 999
+        runAsUser: {{ .Values.postgresql.runAsUser }}
+        runAsGroup: {{ .Values.postgresql.runAsUser }}
+        fsGroup: {{ .Values.postgresql.runAsUser }}
         seccompProfile:
           type: RuntimeDefault
+      {{- if and .Values.postgresql.persistence.enabled .Values.postgresql.migrateOwnership }}
+      initContainers:
+        # Opt-in one-time migration (postgresql.migrateOwnership): a volume created by
+        # an older chart is owned by uid 999, and Postgres will not start on a data
+        # directory its own uid does not own. Root with CHOWN + DAC_READ_SEARCH only
+        # (the data directory is 0700, so root needs search permission to descend into
+        # it once it is owned by someone else); touches the data volume only and only
+        # entries not already owned by the target uid; a no-op on later starts.
+        - name: fix-data-ownership
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          command:
+            - find
+            - /var/lib/postgresql/data
+            - -xdev
+            - "("
+            - "!"
+            - -user
+            - {{ .Values.postgresql.runAsUser | quote }}
+            - -o
+            - "!"
+            - -group
+            - {{ .Values.postgresql.runAsUser | quote }}
+            - ")"
+            - -exec
+            - chown
+            - -h
+            - {{ printf "%d:%d" (int .Values.postgresql.runAsUser) (int .Values.postgresql.runAsUser) | quote }}
+            - "{}"
+            - "+"
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_READ_SEARCH"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+              ephemeral-storage: 8Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+              ephemeral-storage: 8Mi
+      {{- end }}
       containers:
         - name: postgresql
           image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
           imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
+            # Writes go to the data PVC, the unix-socket dir and /tmp only; the
+            # latter two are emptyDirs below.
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           ports:
@@ -144,6 +195,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
           {{- with .Values.postgresql.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -154,6 +209,13 @@ spec:
           persistentVolumeClaim:
             claimName: {{ include "keyorix.postgresql.fullname" . }}
           {{- else }}
-          emptyDir: {}
+          emptyDir:
+            sizeLimit: {{ .Values.postgresql.persistence.size | quote }}
           {{- end }}
+        - name: run
+          emptyDir:
+            sizeLimit: 1Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
 {{- end -}}

@@ -166,6 +166,22 @@ skip.
   (e.g. containing the admin username) no longer leaves the database
   half-seeded. The whole bootstrap runs in one transaction, so a rejected
   attempt writes nothing and retrying with a corrected password just works.
+- **Bundled PostgreSQL uid (70 on the alpine image).** The chart now runs the
+  bundled Postgres as the uid of its image, `postgresql.runAsUser` (default
+  `70`, what `postgres:15-alpine` and `docker-compose.yml` use). Charts since
+  v0.87.0 ran it as `999`, so a data volume they created is owned by `999`, and
+  Postgres refuses to start on a data directory it does not own (the pod
+  CrashLoops with `data directory ... has wrong ownership`). Pick one on the
+  `helm upgrade` that introduces this chart:
+  - `--set postgresql.runAsUser=999` -- keep running as the volume's owner (no
+    change to the volume; a Debian-based `postgres:*` image also needs 999); or
+  - `--set postgresql.migrateOwnership=true` -- a one-time, opt-in init container
+    chowns the volume to `runAsUser`. It runs as root with only `CHOWN` and
+    `DAC_READ_SEARCH`, touches only the data volume and only entries not already
+    owned by `runAsUser`, and is a no-op on later starts (remove the flag again
+    once migrated). A Pod Security "restricted" namespace rejects it. Rolling
+    back to an older chart afterwards needs the volume chowned back to `999`.
+  Compose volumes need nothing: the compose stack always ran as `70`.
 
 **VERIFIED** — real `helm install` and `helm upgrade` against a kind
 cluster with locally built server/web images: the password-length gate

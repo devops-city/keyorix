@@ -98,7 +98,8 @@ WORKDIR /app
 COPY --from=builder /app/bin/keyorix-server .
 COPY --from=builder /app/server/entrypoint.sh .
 RUN chmod +x entrypoint.sh && \
-    mkdir -p data keys && chown -R keyorix:keyorix /app
+    mkdir -p data keys && chown -R keyorix:keyorix /app && \
+    chmod 0700 data keys
 USER 1001:1001
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

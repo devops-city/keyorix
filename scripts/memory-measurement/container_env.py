@@ -58,8 +58,17 @@ class Workdir:
         self.path = tempfile.mkdtemp(prefix="keyorix-memory-measurement-")
         os.makedirs(os.path.join(self.path, "keys"), exist_ok=True)
         os.makedirs(os.path.join(self.path, "data"), exist_ok=True)
+        self._open_mounts_to_container_user()
         with open(os.path.join(self.path, "keyorix.yaml"), "w") as f:
             f.write(_KEYORIX_YAML)
+
+    def _open_mounts_to_container_user(self):
+        """The image runs as uid 1001. On a Linux Docker host a bind mount keeps the
+        host user's ownership (Docker Desktop maps it away), so without this the
+        server cannot create keyorix.db.server.lock in data/ and never starts. The
+        parent mkdtemp() directory is 0700, so no other host user can reach these."""
+        for sub in ("keys", "data"):
+            os.chmod(os.path.join(self.path, sub), 0o777)
 
     def reset_data(self):
         """Wipe the DB/key material so the next container boots fresh,
@@ -68,6 +77,7 @@ class Workdir:
             d = os.path.join(self.path, sub)
             shutil.rmtree(d)
             os.makedirs(d)
+        self._open_mounts_to_container_user()
 
     def cleanup(self):
         shutil.rmtree(self.path, ignore_errors=True)

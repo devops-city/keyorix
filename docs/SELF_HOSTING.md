@@ -367,6 +367,33 @@ then `SSL_CERT_FILE=$PWD/caddy-root.crt keyorix login --server https://localhost
 don't also expose web's `8088` publicly — front everything through Caddy on
 80/443.
 
+Caddy runs as uid:gid `65532` (not root), with every capability dropped except
+`NET_BIND_SERVICE` and a read-only root filesystem. Earlier releases ran it as
+root, so an existing `caddy_data` / `caddy_config` volume is root-owned. **Upgrading
+needs no manual step:** the one-shot `caddy-init` service (same profile) chowns
+both volumes to `65532:65532` before Caddy starts, and Caddy waits for it to
+complete. It is idempotent, so it also runs harmlessly on a fresh or
+already-migrated volume; the issued certificates and Caddy's internal CA are
+kept. `caddy-init` is the only container in the stack that runs as root, with
+only `CHOWN` and `DAC_READ_SEARCH` (read/search, not write: Caddy creates its
+storage directories `0700`, so once they belong to `65532` root could not open
+them on a second run without it) and no network. It touches only the two Caddy
+volumes, changes only entries not already owned by `65532:65532`, and exits.
+
+**Memory limits on scratch space.** Every `tmpfs` in the compose file has an
+explicit `size=` (`/tmp` 16-64 MiB, nginx cache 64 MiB, nginx logs 32 MiB, runtime
+dirs 1 MiB), and every `emptyDir` in the Helm chart has a `sizeLimit`, so a
+runaway writer fills its own capped mount instead of the host's RAM or the node's
+ephemeral storage. The backend's `/tmp` (64 MiB) also holds `admin restore`
+staging: raise that `size=` if you restore a backup larger than it.
+
+**PostgreSQL user.** The bundled `postgres:15-alpine` runs as uid:gid `70:70` in
+both the compose file and the Helm chart (the Debian-based `postgres:*` images use
+`999`; if you change the image flavour, change the uid in both places -- the Helm
+value is `postgresql.runAsUser`). Compose volumes from earlier releases are already
+owned by `70`, so that upgrade needs no `chown`. Helm volumes created by charts
+older than this one are owned by `999`: see [UPGRADING.md](UPGRADING.md) §5.
+
 **Your own proxy.** Or terminate TLS at an existing Caddy/Traefik/nginx/LB in
 front of the `web` container: point it at `web:80` and forward
 `X-Forwarded-Proto: https`.

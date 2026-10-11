@@ -6,6 +6,28 @@ All notable changes to Keyorix are documented here. This project follows
 ## Unreleased
 
 ### Security
+- **The bundled Caddy (`tls` compose profile) no longer runs as root.** It runs as
+  uid:gid 65532 with only `NET_BIND_SERVICE`. A one-shot `caddy-init` service
+  chowns the existing `caddy_data` / `caddy_config` volumes first, so upgrading
+  an install whose Caddy volumes are root-owned needs no manual step and keeps
+  its certificates. `caddy-init` runs with `CHOWN` + `DAC_READ_SEARCH` so a
+  second run (Caddy's storage directories are `0700`) and an interrupted first
+  run succeed; it touches only the two Caddy volumes and only entries not already
+  owned by 65532. See `docs/SELF_HOSTING.md` §7.
+- **Every `tmpfs` (compose) and `emptyDir` (Helm) now has an explicit size limit**
+  (`size=` / `sizeLimit`), so a runaway writer cannot exhaust host memory or node
+  ephemeral storage. The backend's `/tmp` (64 MiB) also stages `admin restore`.
+- **The bundled PostgreSQL runs as the image's own uid, 70, in both compose and
+  the Helm chart** (`postgres:15-alpine`; the Debian-based images use 999). Compose
+  volumes were already owned by 70. **Helm upgrade note:** charts since v0.87.0 ran
+  the pod as 999 even on the alpine image, so an existing chart-created volume is
+  owned by 999 and the pod will not start (Postgres refuses a data directory it
+  does not own). Either `--set postgresql.runAsUser=999` to keep the old owner, or
+  `--set postgresql.migrateOwnership=true` for a one-time chown to 70 (opt-in: it
+  adds a root init container with only `CHOWN` + `DAC_READ_SEARCH`, which a Pod
+  Security "restricted" namespace rejects). Guarded by `deploy/hardening`, which
+  ties compose user, chart securityContext and image flavour together. See
+  `docs/UPGRADING.md` §5.
 - **The shipped compose stack and Helm chart run with
   `security.enable_file_permission_check` on** (ADR-112 default): key material and
   the `*_FILE` secret files are checked strictly; the orchestrator-mounted config

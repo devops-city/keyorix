@@ -1,0 +1,1 @@
+deploy/hardening	none	-	test-only package: deploy/hardening asserts the container-hardening baseline of docker-compose.yml and the Helm chart from the files themselves (no non-test Go code)	test-helper

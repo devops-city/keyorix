@@ -159,6 +159,25 @@ postgresql:
     enabled: true
     size: 8Gi
     storageClass: ""
+  # The uid/gid the bundled Postgres runs as (and the fsGroup of its volume). It
+  # MUST be the uid of the image in use: 70 for the official postgres:*-alpine
+  # images (the default tag here and the one docker-compose.yml uses), 999 for the
+  # Debian-based postgres:* images. Postgres refuses to start on a data directory
+  # owned by a different uid.
+  #
+  # UPGRADING a release installed with a chart older than this one: those charts
+  # ran the pod as 999 even on the alpine image, so the existing volume is owned by
+  # 999 and the pod will CrashLoop ("data directory ... has wrong ownership"). Either
+  #   --set postgresql.runAsUser=999            (keep running as the old owner), or
+  #   --set postgresql.migrateOwnership=true    (one-time chown to runAsUser, below).
+  runAsUser: 70
+  # Opt-in, and off by default because it adds a ROOT init container (capabilities
+  # CHOWN + DAC_READ_SEARCH only, read-only root FS, no network access needed) that a
+  # Pod Security "restricted" namespace would reject. It chowns only entries of the
+  # data volume not already owned by runAsUser:runAsUser, and is a no-op afterwards,
+  # so it can be removed again once the volume is migrated. Rolling back to a chart
+  # that runs as 999 after migrating needs the reverse.
+  migrateOwnership: false
   resources:
     requests:
       cpu: 100m
