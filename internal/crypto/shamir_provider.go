@@ -163,7 +163,7 @@ func (p *ShamirKeyProvider) KEK() ([]byte, error) { // NOSONAR -- cognitive comp
 		if envVar == "" {
 			continue
 		}
-		val, found, err := secretenv.Lookup(envVar) // also honours <env var>_FILE
+		val, found, err := secretenv.LookupChecked(envVar) // also honours <env var>_FILE; a too-open file is refused (share = key material)
 		if err != nil {
 			return nil, fmt.Errorf("shamir key provider: %w", err)
 		}

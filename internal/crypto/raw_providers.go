@@ -92,7 +92,7 @@ func (p *EnvKeyProvider) KEK() ([]byte, error) {
 	if p.envVar == "" {
 		return nil, fmt.Errorf("env key provider: env_var is required")
 	}
-	val, found, err := secretenv.Lookup(p.envVar) // also honours <env_var>_FILE
+	val, found, err := secretenv.LookupChecked(p.envVar) // also honours <env_var>_FILE; a too-open file is refused (KEK = key material)
 	if err != nil {
 		return nil, fmt.Errorf("env key provider: %w", err)
 	}

@@ -77,7 +77,10 @@ func runSystemInit(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	token := resolveSystemInitBootstrapToken(cmd)
+	token, err := resolveSystemInitBootstrapToken(cmd)
+	if err != nil {
+		return err
+	}
 
 	client, err := newAPIClient(server, "")
 	if err != nil {
@@ -147,10 +150,16 @@ func resolveSystemInitAdminPassword(cmd *cobra.Command) (string, error) {
 		warnInsecureFlag(cmd, "admin-password", "prefer the KEYORIX_ADMIN_PASSWORD environment variable, or omit it to be prompted.")
 		return systemInitAdminPassword, nil
 	}
-	if p := os.Getenv("KEYORIX_ADMIN_PASSWORD"); p != "" {
+	// KEYORIX_ADMIN_PASSWORD_FILE is accepted too; both set, an unreadable file or
+	// a file with loose permissions is an error, never a silent prompt/fallback.
+	p, found, err := lookupSecretEnv("KEYORIX_ADMIN_PASSWORD")
+	if err != nil {
+		return "", err
+	}
+	if found {
 		return p, nil
 	}
-	p, err := promptPassword("Enter admin password for the new account: ")
+	p, err = promptPassword("Enter admin password for the new account: ")
 	if err != nil {
 		return "", fmt.Errorf("read admin password: %w", err)
 	}
@@ -164,12 +173,18 @@ func resolveSystemInitAdminPassword(cmd *cobra.Command) (string, error) {
 // warned) --bootstrap-token flag, else KEYORIX_BOOTSTRAP_TOKEN. Never logged,
 // echoed, or included in any error message -- it is as sensitive as the admin
 // password this same request carries.
-func resolveSystemInitBootstrapToken(cmd *cobra.Command) string {
+func resolveSystemInitBootstrapToken(cmd *cobra.Command) (string, error) {
 	if systemInitBootstrapToken != "" {
 		warnInsecureFlag(cmd, "bootstrap-token", "prefer the KEYORIX_BOOTSTRAP_TOKEN environment variable.")
-		return systemInitBootstrapToken
+		return systemInitBootstrapToken, nil
 	}
-	return strings.TrimSpace(os.Getenv("KEYORIX_BOOTSTRAP_TOKEN"))
+	// KEYORIX_BOOTSTRAP_TOKEN_FILE is accepted too (both set, unreadable or too
+	// open is an error).
+	v, _, err := lookupSecretEnv("KEYORIX_BOOTSTRAP_TOKEN")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(v), nil
 }
 
 // warnIfInsecureEndpoint warns before this command's admin credentials and

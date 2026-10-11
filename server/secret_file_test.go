@@ -95,9 +95,19 @@ func TestEnforceSecretFilePermissions(t *testing.T) {
 	t.Run("no secret files is a no-op", func(t *testing.T) {
 		require.NoError(t, enforceSecretFilePermissions(strict()))
 	})
-	t.Run("0440 passes (kubernetes fsGroup layout)", func(t *testing.T) {
-		t.Setenv("KEYORIX_DB_PASSWORD_FILE", secretFileMode(t, 0o440))
-		require.NoError(t, enforceSecretFilePermissions(strict()))
+	t.Run("0600 and 0400 pass", func(t *testing.T) {
+		for _, mode := range []os.FileMode{0o600, 0o400} {
+			t.Setenv("KEYORIX_DB_PASSWORD_FILE", secretFileMode(t, mode))
+			require.NoError(t, enforceSecretFilePermissions(strict()), mode.String())
+		}
+	})
+	t.Run("group-readable file owned by the running user refuses", func(t *testing.T) {
+		// The orchestrator-mount exception (root-owned 0440 in a held group) is covered
+		// in internal/secretenv; a file the test creates is owned by the test's uid.
+		for _, mode := range []os.FileMode{0o440, 0o640} {
+			t.Setenv("KEYORIX_DB_PASSWORD_FILE", secretFileMode(t, mode))
+			require.Error(t, enforceSecretFilePermissions(strict()), mode.String())
+		}
 	})
 	t.Run("world-readable refuses when the check is on", func(t *testing.T) {
 		p := secretFileMode(t, 0o644)
@@ -127,7 +137,7 @@ func TestEnforceSecretFilePermissions(t *testing.T) {
 	})
 }
 
-// ADR-112 (#2446) integration: a secret file is key material, so it is STRICT on the
+// ADR-112 (#2446) integration: a secret file is STRICT on the
 // implicit default too (unlike an orchestrator-mounted config/TLS file), but an
 // upgraded deployment inside the grace period gets a warning instead of a refusal and
 // the grace is recorded as softened (so the "enforced" marker is not written).
@@ -156,7 +166,10 @@ func TestEnforceSecretFilePermissions_ADR112(t *testing.T) {
 	})
 	t.Run("grace does not hide a compliant file", func(t *testing.T) {
 		adr112GraceSoftened.Store(false)
-		t.Setenv("KEYORIX_DB_PASSWORD_FILE", secretFileMode(t, 0o440))
+		// 0400, not main's 0440: a 0440 file owned by the running user is refused by
+		// the stricter secretenv.CheckPermissions (group-read is only for an
+		// orchestrator-owned file), so 0400 is the compliant mode for a test-owned file.
+		t.Setenv("KEYORIX_DB_PASSWORD_FILE", secretFileMode(t, 0o400))
 		cfg := &config.Config{Security: config.SecurityConfig{
 			EnableFilePermissionCheck: true, EnableFilePermissionCheckImplicitDefault: true,
 			EnableFilePermissionCheckUpgradeGrace: true}}

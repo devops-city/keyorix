@@ -63,10 +63,10 @@ type PassphraseSource struct {
 // precedence (FD, then FilePath, then Stdin), or from the envVarName
 // environment variable as the last-resort fallback -- the weakest option,
 // documented on PassphraseSource, kept working for backward compatibility.
-// A trailing newline is trimmed from file/fd/stdin sources (the common case
-// of a passphrase file created with `echo` or `printf ... > file`); the
-// environment variable is only whitespace-trimmed, matching this codebase's
-// pre-existing behavior.
+// A trailing newline is trimmed from file/fd/stdin sources and from
+// <envVarName>_FILE (the common case of a passphrase file created with `echo` or
+// `printf ... > file`); the environment variable itself is whitespace-trimmed,
+// matching this codebase's pre-existing behavior.
 func ResolvePassphrase(src PassphraseSource, envVarName string) ([]byte, error) {
 	switch {
 	case src.FDSet:
@@ -78,11 +78,21 @@ func ResolvePassphrase(src PassphraseSource, envVarName string) ([]byte, error) 
 	}
 	// The environment fallback also accepts <envVarName>_FILE (a mounted secret
 	// file); setting both, or an unreadable file, is an error, not a precedence.
-	raw, found, err := secretenv.Lookup(envVarName)
+	// The master passphrase is key material, so the file is held to the same rule
+	// as --passphrase-file (secretenv.CheckPermissions: 0600/0400, with the one
+	// orchestrator-mount exception) on every path that resolves it -- server, CLI
+	// and admin commands alike -- and a file that is too open is refused outright.
+	raw, found, err := secretenv.LookupChecked(envVarName)
 	if err != nil {
 		return nil, err
 	}
-	v := strings.TrimSpace(raw)
+	v := raw
+	if os.Getenv(envVarName+secretenv.FileSuffix) == "" {
+		// Environment value: whitespace-trimmed, as before. A file value is NOT
+		// whitespace-trimmed -- exactly one trailing newline is stripped, the same
+		// bytes --passphrase-file yields -- so both sources derive the same KEK.
+		v = strings.TrimSpace(raw)
+	}
 	if !found || v == "" {
 		return nil, fmt.Errorf("%s is not set (and no --passphrase-fd/--passphrase-file/--passphrase-stdin was given; %s%s works too)", envVarName, envVarName, secretenv.FileSuffix)
 	}

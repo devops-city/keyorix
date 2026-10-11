@@ -394,7 +394,7 @@ func PrintProviderStatus(kp config.KeyProviderConfig) {
 		}
 	case "env":
 		fmt.Printf("  Env var: %s\n", kp.EnvVar)
-		if _, found, lerr := secretenv.Lookup(kp.EnvVar); lerr != nil {
+		if _, found, lerr := secretenv.LookupChecked(kp.EnvVar); lerr != nil { // as the env KEK provider reads it: a too-open file is misconfigured, not set
 			fmt.Printf("  Status: env var misconfigured ❌ (%v)\n", lerr)
 		} else if found {
 			fmt.Println("  Status: env var set ✅")

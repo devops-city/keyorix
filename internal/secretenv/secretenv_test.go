@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -141,6 +142,8 @@ func TestLookup_ErrorNeverContainsFileContents(t *testing.T) {
 }
 
 func TestCheckPermissions(t *testing.T) {
+	// Files created by the test are owned by the running user, so the
+	// group-readable orchestrator exception does not apply to them.
 	cases := []struct {
 		name    string
 		mode    os.FileMode
@@ -148,8 +151,8 @@ func TestCheckPermissions(t *testing.T) {
 	}{
 		{"0600 owner rw", 0o600, false},
 		{"0400 owner r", 0o400, false},
-		{"0440 owner+group r (k8s fsGroup)", 0o440, false},
-		{"0640 group r, owner w", 0o640, false},
+		{"0440 own file group-readable", 0o440, true},
+		{"0640 own file group-readable", 0o640, true},
 		{"0644 world readable", 0o644, true},
 		{"0444 world readable", 0o444, true},
 		{"0604 world readable", 0o604, true},
@@ -168,6 +171,94 @@ func TestCheckPermissions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// asOrchestratorMount makes the test file look foreign-owned: the running
+// "user" is someone else, and the file's group is one the process holds (or not).
+func asOrchestratorMount(t *testing.T, path string, holdsGroup bool) {
+	t.Helper()
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	st := info.Sys().(*syscall.Stat_t)
+	oldUID, oldGroups := processUID, processGroups
+	t.Cleanup(func() { processUID, processGroups = oldUID, oldGroups })
+	processUID = func() int { return int(st.Uid) + 1 }
+	processGroups = func() []int {
+		if holdsGroup {
+			return []int{int(st.Gid)}
+		}
+		return []int{int(st.Gid) + 1}
+	}
+}
+
+func TestCheckPermissions_OrchestratorMountedGroupRead(t *testing.T) {
+	t.Run("0440 foreign-owned, group held (k8s fsGroup, Docker group_add)", func(t *testing.T) {
+		p := writeSecret(t, "x", 0o440)
+		asOrchestratorMount(t, p, true)
+		require.NoError(t, CheckPermissions(p))
+	})
+	t.Run("0640 foreign-owned, group held", func(t *testing.T) {
+		p := writeSecret(t, "x", 0o640)
+		asOrchestratorMount(t, p, true)
+		require.NoError(t, CheckPermissions(p))
+	})
+	t.Run("0440 foreign-owned, group NOT held", func(t *testing.T) {
+		p := writeSecret(t, "x", 0o440)
+		asOrchestratorMount(t, p, false)
+		require.Error(t, CheckPermissions(p))
+	})
+	t.Run("0444 foreign-owned, group held: other-readable still refused", func(t *testing.T) {
+		p := writeSecret(t, "x", 0o444)
+		asOrchestratorMount(t, p, true)
+		require.Error(t, CheckPermissions(p))
+	})
+	t.Run("0460 foreign-owned, group held: group-writable still refused", func(t *testing.T) {
+		p := writeSecret(t, "x", 0o460)
+		asOrchestratorMount(t, p, true)
+		require.Error(t, CheckPermissions(p))
+	})
+}
+
+func TestLookupChecked_RefusesLooseFile_LookupDoesNot(t *testing.T) {
+	for _, mode := range []os.FileMode{0o640, 0o644} {
+		t.Setenv(testVar+"_FILE", writeSecret(t, "TOPSECRET\n", mode))
+		_, _, err := LookupChecked(testVar)
+		require.Error(t, err, "mode %04o", mode)
+		assert.Contains(t, err.Error(), "refusing")
+		assert.NotContains(t, err.Error(), "TOPSECRET")
+
+		v, found, err := Lookup(testVar)
+		require.NoError(t, err, "plain Lookup leaves the policy to the caller")
+		assert.True(t, found)
+		assert.Equal(t, "TOPSECRET", v)
+	}
+}
+
+func TestLookupChecked_AcceptsStrictFile(t *testing.T) {
+	for _, mode := range []os.FileMode{0o600, 0o400} {
+		t.Setenv(testVar+"_FILE", writeSecret(t, "TOPSECRET\n", mode))
+		v, found, err := LookupChecked(testVar)
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, "TOPSECRET", v)
+	}
+}
+
+func TestLookupChecked_AcceptsOrchestratorMount(t *testing.T) {
+	p := writeSecret(t, "TOPSECRET\n", 0o440)
+	asOrchestratorMount(t, p, true)
+	t.Setenv(testVar+"_FILE", p)
+	v, _, err := LookupChecked(testVar)
+	require.NoError(t, err)
+	assert.Equal(t, "TOPSECRET", v)
+}
+
+func TestLookupChecked_EnvValueNeedsNoFile(t *testing.T) {
+	t.Setenv(testVar, "direct")
+	v, found, err := LookupChecked(testVar)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "direct", v)
 }
 
 func TestCheckPermissions_Missing(t *testing.T) {

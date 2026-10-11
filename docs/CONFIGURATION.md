@@ -65,9 +65,16 @@ entries, a rotation backend's `dsn_env`, and a Vault connector's `token_env`
 
 Rules (all enforced at startup; the server refuses to start rather than guess):
 
-- **`X_FILE` set:** the file is read and exactly one trailing newline (`\n` or
-  `\r\n`) is removed. Nothing else is trimmed, so a secret may contain spaces.
-  Symlinks are followed (Kubernetes mounts every Secret key as one).
+- **`X_FILE` set:** the file is read and one line terminator is removed: one
+  trailing `\n`, then one trailing `\r` (so `\n`, `\r\n` or a lone `\r`). Nothing
+  else is trimmed -- no leading or trailing spaces, no second newline -- so a secret
+  may contain them. The container entrypoint and `keyorix system init` apply the
+  same rule. For
+  `KEYORIX_MASTER_PASSWORD_FILE` this yields the same bytes as
+  `--passphrase-file`, so both derive the same KEK. (The plain
+  `KEYORIX_MASTER_PASSWORD` *environment variable* keeps its historical
+  whitespace trim; a passphrase with leading/trailing spaces must be supplied from
+  a file.) Symlinks are followed (Kubernetes mounts every Secret key as one).
 - **Both `X` and `X_FILE` set:** error, naming both variables. There is no
   precedence. An empty variable counts as unset, so `X=${X:-}` passthrough in a
   compose file does not trigger this.
@@ -75,12 +82,36 @@ Rules (all enforced at startup; the server refuses to start rather than guess):
   error. The server does not fall back to `X` or to a value in `keyorix.yaml`.
 - **Nothing is logged:** errors and warnings name the variable and the path, never
   the value or the file contents.
-- **File permissions:** the same warn-or-refuse policy as key material
-  (`security.enable_file_permission_check`, `security.allow_unsafe_file_permissions`).
-  A secret file that is accessible to *other* users (`o+rwx`) or writable by its
-  group is refused. Group-read (`0440`, what a Kubernetes Secret volume with
-  `fsGroup` produces) and `0400`/`0600` are accepted. The file's owner is not
-  compared with the server's uid, because an orchestrator owns the mount.
+- **File permissions -- key material is refused, other secrets follow the
+  file-permission policy.** The rule is the one the KEK file and
+  `--passphrase-file` already follow: `0600` or `0400`. One exception exists for
+  files an orchestrator mounts: a file *not owned by the running user* may also be
+  group-readable (`0440`, or `0640`) when its group is one the process belongs to --
+  which is exactly what a Kubernetes Secret volume with `fsGroup` produces (the
+  kubelet makes it root-owned, group = `fsGroup`, and adds group-read even with
+  `defaultMode: 0400`) and what a Docker secret with `group_add` looks like. Access
+  for *other*, group-write and setuid/setgid/sticky are never accepted, and a
+  group-readable file owned by the running user is refused.
+  - **Master password (`KEYORIX_MASTER_PASSWORD_FILE`), key-provider KEK
+    (`key_provider.env_var`) and Shamir shares (`shamir_share_env`):** a file that
+    breaks the rule is **always refused**, in the server, the CLI and every admin
+    command alike. There is no override. The check runs on the opened file
+    descriptor, so the file cannot be swapped between the check and the read.
+  - **`KEYORIX_ADMIN_PASSWORD_FILE` / `KEYORIX_BOOTSTRAP_TOKEN_FILE`** (the
+    container entrypoint's first-boot bootstrap and `keyorix system init`): the
+    entrypoint and the CLI refuse a file that breaks the rule, always. (The server's
+    own read of `KEYORIX_BOOTSTRAP_TOKEN_FILE` follows the last bullet.) Both
+    resolve `_FILE` with the same rules as the server, so a `_FILE`-only deployment
+    auto-bootstraps.
+  - **All other `*_FILE` secrets** (database password, API/SIEM/SCIM tokens, SSO,
+    SMTP, notification and evidence secrets, Vault token, ...): the same rule, but
+    with the policy of the other key files -- refused at startup when
+    `security.enable_file_permission_check` is on and
+    `security.allow_unsafe_file_permissions` is off, otherwise a loud warning.
+    While the ADR-112 upgrade grace period is active (an upgraded deployment that
+    never set `security.enable_file_permission_check` explicitly), these files only
+    warn and the boot is recorded as softened; set the key to `true` once the files
+    comply. Key material above never gets this grace.
 - **`--passphrase-fd`, `--passphrase-file` and `--passphrase-stdin` still win**
   over `KEYORIX_MASTER_PASSWORD[_FILE]`, as they do over the plain variable.
 

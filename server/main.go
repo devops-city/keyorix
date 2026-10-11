@@ -2246,9 +2246,12 @@ func resolveVaultToken(tokenEnv string) (string, error) {
 }
 
 // enforceSecretFilePermissions applies the key-material permission policy to the
-// files named by *_FILE secret variables (secretenv.CheckPermissions: nothing
-// for "other", no group write; owner not compared because an orchestrator owns
-// the mount). Same warn-vs-refuse matrix as enforceKeyFilePermissions: refuse
+// files named by *_FILE secret variables (secretenv.CheckPermissions: 0600/0400,
+// plus group-read only for an orchestrator-owned file in a group the process
+// holds). Key-material secrets (master password, KEK, Shamir shares) are refused
+// unconditionally where they are read (secretenv.LookupChecked, no grace); this
+// covers the rest, which follow the ADR-112 upgrade grace like the key files.
+// Same warn-vs-refuse matrix as enforceKeyFilePermissions: refuse
 // when security.enable_file_permission_check is on and
 // allow_unsafe_file_permissions is off, otherwise warn.
 func enforceSecretFilePermissions(cfg *config.Config) error {
@@ -2263,13 +2266,14 @@ func enforceSecretFilePermissions(cfg *config.Config) error {
 	}
 	msg := strings.Join(problems, "; ")
 	if cfg.Security.EnableFilePermissionCheck && !cfg.Security.AllowUnsafeFilePermissions {
-		// A secret file is key material: strict on the implicit ADR-112 default as
-		// well (only orchestrator-mounted config/TLS files are softened there). The
-		// one exception is the upgrade grace period, same as for the key files in
-		// enforceKeyFilePermissions: warn, and record that this boot was softened.
+		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
+		// config/TLS files are softened there). The one exception is the upgrade
+		// grace period, same as for the key files in enforceKeyFilePermissions:
+		// warn, and record that this boot was softened. Key material never gets
+		// here -- LookupChecked has already refused it.
 		if cfg.Security.EnableFilePermissionCheckUpgradeGrace {
 			adr112GraceSoftened.Store(true)
-			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400/0440, or defaultMode 0440 on a Kubernetes Secret volume) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
 			return nil
 		}
 		return fmt.Errorf("%s -- refusing to start (or set security.allow_unsafe_file_permissions to override)", msg)
