@@ -366,6 +366,55 @@ curl "https://api.keyorix.com/api/v1/projects/7/share-recipients?q=al&page_size=
   -H "Authorization: Bearer your-token"
 ```
 
+### 9. Effective Access List of a Secret
+
+**Endpoint:** `GET /secrets/{id}/access` (CLI: `keyorix secret access --id N`)
+
+Every user who can read the secret, with their **effective** permission. For a
+project member, that is the higher of their role and any active share, so a share
+that elevates a role shows as the higher level. `source` names the grant that
+gives the permission (`owner`, `role`, `acl`, `direct_share` or
+`group_share:<group>`). `grants` lists every grant the user holds, for example
+`["role:read", "direct_share:write"]`; a live owner's grant is `owner:owner`. An
+owner who is no longer a member of the secret's project has no owner authority and
+is not listed as owner. Expired shares, and shares to users who are no longer
+project members, grant nothing and are not listed. Holders of a global role (global
+admins) have implicit access and are not listed. Two parts of the report follow the
+gate of the route that would otherwise show them:
+
+- Project roles (`role:` grants, and members who hold access only through a role)
+  appear only if the caller holds `users.read` at the project (the gate of
+  `GET /projects/{id}/members`; every built-in project role has it).
+- Per-secret ACL holders and `acl:` grants appear only if the caller passes
+  `secrets.manage` on the secret (the gate of `GET /secrets/{id}/acl`).
+
+When either part is withheld it is left out and the response is flagged `degraded`
+with a `project_members` or `secret_acls` reason, so the list is an under-count,
+never presented as complete. A lookup that fails (a group's members, a user's group
+memberships, a role or ACL check) degrades the report the same way. No built-in
+project role holds `secrets.manage`, so a project member's report is normally
+degraded with a `secret_acls` reason. `keyorix secret access` prints
+`WARNING: this list is incomplete` with the reasons, and the web panel shows a
+"This list is incomplete" banner with them.
+
+The response is `{accessors, total, degraded, degraded_reasons}`.
+
+`grants` holds every share that applies, not only the strongest: a user with a
+direct read share and a group write share shows `direct_share:read` and
+`group_share:<group>:write`. The share term follows enforcement exactly (direct
+shares, group shares through a membership that is global or scoped to the secret's
+project, read/write levels only, project members only).
+
+What the report still reveals, by design:
+
+- Without `users.read`, a caller can still tell that a listed share recipient, or
+  the owner, is a member of the project: a share to a non-member grants nothing and
+  is not listed. The roster gate withholds the list of role holders, not the
+  membership of users the caller already sees through a share or ownership.
+- Deactivated or suspended accounts that still hold a role, share or ACL are
+  listed. Their grants apply again if the account is reactivated, so an access
+  review needs to see them. Account status is shown by the user routes, not here.
+
 ## Group Sharing
 
 ### Share with Group

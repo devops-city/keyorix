@@ -21,7 +21,9 @@ let mockVersionsError: unknown = null;
 let mockSecretValue: string | null = null;
 let mockValueLoading = false;
 let mockValueError: unknown = null;
-let mockAccessors: { user_id: number; username: string; permission: string; source: string }[] = [];
+let mockAccessors: { user_id: number; username: string; permission: string; source: string; grants?: string[] }[] = [];
+let mockAccessDegraded = false;
+let mockAccessDegradedReasons: string[] = [];
 let mockAccessLog: { accessed_by: string; access_time: string; action: string; ip_address: string }[] = [];
 let mockAuditTrail: {
     id: number;
@@ -72,7 +74,9 @@ vi.mock('../api', () => ({
     useTransferOwnership: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, isError: false }),
     useSuspendSecret: () => ({ mutate: mockSuspendMutate, isPending: false }),
     useResumeSecret: () => ({ mutate: mockResumeMutate, isPending: false }),
-    useSecretAccessors: () => ({ data: mockAccessors }),
+    useSecretAccessors: () => ({
+        data: { accessors: mockAccessors, degraded: mockAccessDegraded, degradedReasons: mockAccessDegradedReasons },
+    }),
     useSecretAccessLog: () => ({ data: mockAccessLog }),
     useSecretAuditTrail: () => ({ data: mockAuditTrail }),
     useSecretTags: () => ({ data: mockTags }),
@@ -116,6 +120,8 @@ const canState = vi.hoisted(() => ({
 vi.mock('../../auth/useCan', () => ({ useCan: () => canState.value }));
 beforeEach(() => {
     canState.value = { admin: true, writeSecrets: true, deleteSecrets: true, readAudit: true, manageMembers: true };
+    mockAccessDegraded = false;
+    mockAccessDegradedReasons = [];
 });
 
 describe('SecretDetailView classification', () => {
@@ -248,6 +254,43 @@ describe('SecretDetailView access list', () => {
         mockAccessors = [];
         render(<SecretDetailView secret={makeSecret()} />);
         expect(screen.queryByText('Who can access')).not.toBeInTheDocument();
+    });
+
+    it('shows no incomplete-list banner for a complete report', () => {
+        render(<SecretDetailView secret={makeSecret()} />);
+        expect(screen.queryByText('This list is incomplete')).not.toBeInTheDocument();
+    });
+
+    // A degraded report is an under-count (part withheld from this caller, or a lookup
+    // failed): the panel must say so with the reasons, not present the short list as
+    // everyone who can read the secret.
+    it('warns with the reasons when the report is degraded', () => {
+        mockAccessDegraded = true;
+        mockAccessDegradedReasons = [
+            'project_members: the caller lacks users.read in the project',
+            'secret_acls: the caller lacks secrets.manage on the secret',
+        ];
+        render(<SecretDetailView secret={makeSecret()} />);
+        expect(screen.getByText('This list is incomplete')).toBeInTheDocument();
+        expect(screen.getByText('project_members: the caller lacks users.read in the project')).toBeInTheDocument();
+        expect(screen.getByText('secret_acls: the caller lacks secrets.manage on the secret')).toBeInTheDocument();
+    });
+
+    it('still shows the panel and the warning when a degraded report lists nobody', () => {
+        mockAccessors = [];
+        mockAccessDegraded = true;
+        mockAccessDegradedReasons = ['group_members:group=10(platform): unavailable'];
+        render(<SecretDetailView secret={makeSecret()} />);
+        expect(screen.getByText('Who can access')).toBeInTheDocument();
+        expect(screen.getByText('This list is incomplete')).toBeInTheDocument();
+        expect(screen.getByText('group_members:group=10(platform): unavailable')).toBeInTheDocument();
+    });
+
+    it('labels a role-sourced write as write, not as the share-limited write', () => {
+        mockAccessors = [{ user_id: 4, username: 'dana', permission: 'write', source: 'role', grants: ['role:write'] }];
+        render(<SecretDetailView secret={makeSecret()} />);
+        expect(screen.getByText('write')).toBeInTheDocument();
+        expect(screen.queryByText('Update value/metadata, rotate')).not.toBeInTheDocument();
     });
 });
 

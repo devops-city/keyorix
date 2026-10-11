@@ -155,7 +155,7 @@ function buildSecretValueDisplay(
 // ─── Section components ─────────────────────────────────────────────────────
 
 type VersionItem = NonNullable<ReturnType<typeof useSecretVersions>['data']>[number];
-type Accessor = NonNullable<ReturnType<typeof useSecretAccessors>['data']>[number];
+type AccessReport = NonNullable<ReturnType<typeof useSecretAccessors>['data']>;
 type AccessLogEntry = NonNullable<ReturnType<typeof useSecretAccessLog>['data']>[number];
 type AuditEntry = NonNullable<ReturnType<typeof useSecretAuditTrail>['data']>[number];
 type RiskData = NonNullable<ReturnType<typeof useSecretRisk>['data']>;
@@ -455,29 +455,55 @@ const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
 };
 
 interface AccessorsPanelProps {
-    accessors: Accessor[] | undefined;
+    report: AccessReport | undefined;
 }
 
-const AccessorsPanel: React.FC<AccessorsPanelProps> = ({ accessors }) => {
-    if (!accessors || accessors.length === 0) return null;
+// A share grant (direct_share or group_share:<group>) at write allows only the
+// share-elevated actions, so it gets the share label; a role, ACL or owner level is
+// shown as is.
+const isShareSource = (source: string) => source === 'direct_share' || source.startsWith('group_share');
+
+const AccessorsPanel: React.FC<AccessorsPanelProps> = ({ report }) => {
+    const accessors = report?.accessors ?? [];
+    // A degraded report is an under-count: show the panel (and say so) even when it
+    // lists nobody, so a shortened list never reads as the complete one.
+    if (accessors.length === 0 && !report?.degraded) return null;
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">Who can access</h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-                Users who can read this secret (admins with a role grant are not listed).
+                Users who can read this secret, at their effective level (the higher of their project role and any
+                share). Global admins are not listed.
             </p>
+            {report?.degraded && (
+                <Alert type="warning" title="This list is incomplete" className="mb-4">
+                    <p>More users may have access than are shown here.</p>
+                    {report.degradedReasons.length > 0 && (
+                        <ul className="mt-1 list-disc pl-5">
+                            {report.degradedReasons.map((r) => (
+                                <li key={r}>{r}</li>
+                            ))}
+                        </ul>
+                    )}
+                </Alert>
+            )}
             <div className="divide-y divide-gray-200 dark:divide-gray-700">
                 {accessors.map((a) => (
                     <div key={a.user_id} className="flex items-center justify-between py-2.5 text-sm">
                         <div className="flex items-center gap-2">
                             <UserIcon className="h-4 w-4 text-gray-400" />
                             <span className="font-medium text-gray-900 dark:text-white">{a.username}</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400">{a.source}</span>
+                            <span
+                                className="text-xs text-gray-500 dark:text-gray-400"
+                                title={a.grants && a.grants.length > 0 ? a.grants.join(', ') : undefined}
+                            >
+                                {a.grants && a.grants.length > 1 ? a.grants.join(' + ') : a.source}
+                            </span>
                         </div>
                         <span
                             className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${getPermissionColor(a.permission)}`}
                         >
-                            {a.source === 'owner' ? a.permission : sharePermissionLabel(a.permission)}
+                            {isShareSource(a.source) ? sharePermissionLabel(a.permission) : a.permission}
                         </span>
                     </div>
                 ))}
@@ -999,7 +1025,7 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
     useAutoClearOnIdle(() => setShowValue(false), showValue);
     const rotateMutation = useRotateSecret(secret.id);
     const rollbackMutation = useRollbackSecret(secret.id);
-    const { data: accessors } = useSecretAccessors(secret.id);
+    const { data: accessReport } = useSecretAccessors(secret.id);
     const { data: accessLog } = useSecretAccessLog(secret.id);
     const { data: auditTrail } = useSecretAuditTrail(secret.id);
     const { data: secretTags = [] } = useSecretTags(secret.id);
@@ -1123,7 +1149,7 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
                 canRollback={can.writeSecrets}
             />
 
-            <AccessorsPanel accessors={accessors} />
+            <AccessorsPanel report={accessReport} />
 
             <RecentAccessPanel accessLog={accessLog} />
 

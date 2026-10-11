@@ -3677,14 +3677,32 @@ paths:
     get:
       tags: [Secrets]
       summary: List who can read a secret
-      description: Effective access list -- every user who can read the secret, with their permission and how it was granted (owner, direct share, group share).
+      description: >-
+        Effective access list -- every user who can read the secret, with their EFFECTIVE
+        permission and how it was granted. For a project member the level is
+        max(role permission, active share permission), so a share that elevates a role
+        shows as the higher level; `grants` lists every grant behind it. Expired shares
+        and shares to users who are not project members grant nothing and are not
+        listed. Holders of a global role (global admins) have implicit access and are
+        not enumerated. An owner who is no longer a project member is not listed as
+        owner. Project roles (role grants, and members who hold access only through a
+        role) are shown only when the caller holds users.read at the project (the gate
+        of GET /projects/{id}/members); per-secret ACL holders and acl grants only when
+        the caller passes secrets.manage on the secret (the gate of
+        GET /secrets/{id}/acl). A withheld part is left out and the response is
+        flagged `degraded`, as is a lookup that failed; a degraded list is an
+        under-count, never complete. A caller without users.read can still tell that
+        a listed share recipient or the owner is a project member (a share to a
+        non-member is not listed). Deactivated or suspended accounts that still hold a
+        grant are listed on purpose: the grant applies again if the account is
+        reactivated.
       operationId: listAccessors
       security: [{bearerAuth: []}]
       parameters:
         - {name: id, in: path, required: true, schema: {type: integer}}
       responses:
         '200':
-          description: Envelope `{data, message}`. `data` is `{accessors}`.
+          description: Envelope `{data, message}`. `data` is `{accessors, total, degraded, degraded_reasons}`.
           content:
             application/json:
               schema:
@@ -3694,6 +3712,18 @@ paths:
                     type: object
                     properties:
                       accessors: {type: array, items: {$ref: '#/components/schemas/SecretAccessor'}}
+                      total: {type: integer, description: Number of accessors listed.}
+                      degraded:
+                        type: boolean
+                        description: >-
+                          True when the list is incomplete: part of it was withheld from
+                          this caller (project roles, ACL holders) or a lookup failed.
+                          `accessors` is then an under-count. Clients must show it.
+                      degraded_reasons:
+                        type: array
+                        nullable: true
+                        items: {type: string}
+                        description: "One entry per gap, in the form `area: reason`; null when the list is complete."
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
@@ -8041,12 +8071,16 @@ components:
         affected: {type: array, items: {$ref: '#/components/schemas/SecretImpactedSecret'}}
     SecretAccessor:
       type: object
-      description: One entry in a secret's effective access list (owner, direct share, or group share).
+      description: One entry in a secret's effective access list.
       properties:
         user_id: {type: integer}
         username: {type: string}
-        permission: {type: string}
-        source: {type: string, description: "How access was granted: owner, direct share, or group share."}
+        permission: {type: string, description: "Effective level: read, write or owner."}
+        source: {type: string, description: "The grant that gives `permission`: owner, role, acl, direct_share or group_share:<group>."}
+        grants:
+          type: array
+          description: "Every grant the user holds on the secret as source:level, e.g. owner:owner, role:read, direct_share:write."
+          items: {type: string}
     SecretAccessLogEntry:
       type: object
       description: >-

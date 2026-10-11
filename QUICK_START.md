@@ -336,8 +336,8 @@ To demonstrate access actually disappearing, remove the role:
 ./bin/keyorix rbac remove-role --user alice@keyorix.local --role project_viewer --project default
 ```
 
-`secret access --id 1` lists the owner and the direct and group shares; it does not
-list access that comes from a role.
+`secret access --id 1` lists each user's effective level, including access that
+comes from a role, with a GRANTS column naming every grant they hold.
 
 ## Giving a machine (CI/app) access
 

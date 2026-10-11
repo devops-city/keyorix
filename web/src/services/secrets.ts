@@ -7,7 +7,7 @@ import {
     SecretUsageStat,
     UnusedSecretStat,
     SecretRiskScore,
-    SecretAccessor,
+    SecretAccessReport,
     SecretAccessLogEntry,
     SecretAuditEntry,
     SecretPolicy,
@@ -176,11 +176,16 @@ export const secretsApi = {
         return response.data;
     },
 
-    // accessList returns the users who can read the secret (owner + direct + group
-    // shares, members expanded) — GET /secrets/{id}/access.
-    async accessList(id: number): Promise<SecretAccessor[]> {
+    // accessList returns the users who can read the secret and whether that list is
+    // complete — GET /secrets/{id}/access. degraded means an under-count.
+    async accessList(id: number): Promise<SecretAccessReport> {
         const response = await apiClient.get(`/api/v1/secrets/${id}/access`);
-        return response.data.data?.accessors ?? [];
+        const data = response.data.data;
+        return {
+            accessors: data?.accessors ?? [],
+            degraded: data?.degraded === true,
+            degradedReasons: data?.degraded_reasons ?? [],
+        };
     },
 
     // accessLog returns the secret's recent reads (who/when/from where) —

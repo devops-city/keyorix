@@ -160,7 +160,7 @@ describe('useSecretRisk', () => {
 
 describe('useSecretAccessors', () => {
     it('fetches the accessors list', async () => {
-        mock.accessList!.mockResolvedValueOnce([{ user_id: 1 }]);
+        mock.accessList!.mockResolvedValueOnce({ accessors: [{ user_id: 1 }], degraded: false, degradedReasons: [] });
         const { result } = renderHook(() => useSecretAccessors(1), { wrapper });
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
         expect(mock.accessList).toHaveBeenCalledWith(1);

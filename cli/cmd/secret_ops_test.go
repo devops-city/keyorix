@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -275,6 +276,59 @@ func TestSecretAccess_MatchesOldCLIOutputShape(t *testing.T) {
 	})
 	if !containsAll(out, "alice", "read", "owner") {
 		t.Fatalf("output missing expected fields, got: %q", out)
+	}
+}
+
+// The effective level and every grant behind it are shown, so a write share that
+// elevates a viewer role is visible (#2941).
+func TestSecretAccess_ShowsEffectiveLevelAndGrants(t *testing.T) {
+	srv := secretOpsServer(t, secretJSONRoute(http.MethodGet, "/api/v1/secrets/1/access",
+		`{"data":{"accessors":[{"username":"alice","permission":"write","source":"direct_share","grants":["role:read","direct_share:write"]},`+
+			`{"username":"bob","permission":"read","source":"role","grants":["role:read"]}]}}`))
+	setPATCreds(t, srv)
+	secretAccessID = 1
+	defer func() { secretAccessID = 0 }()
+
+	out := captureStdout(t, func() {
+		if err := secretAccessCmd.RunE(secretAccessCmd, nil); err != nil {
+			t.Fatalf("secretAccessCmd: %v", err)
+		}
+	})
+	if !containsAll(out, "GRANTS", "alice", "write", "role:read, direct_share:write", "bob", "role") {
+		t.Fatalf("output missing the effective level or grants, got: %q", out)
+	}
+	if strings.Contains(out, "WARNING") {
+		t.Fatalf("a complete list must not carry the incomplete warning, got: %q", out)
+	}
+}
+
+// A degraded list (part withheld from this caller, or a lookup failed) is an
+// under-count: the CLI must say so with the server's reasons, whether or not any
+// accessor is listed, instead of printing a shortened list as if it were complete.
+func TestSecretAccess_WarnsWhenDegraded(t *testing.T) {
+	for name, body := range map[string]string{
+		"with rows": `{"data":{"accessors":[{"username":"owner","permission":"owner","source":"owner","grants":["owner:owner"]}],` +
+			`"degraded":true,"degraded_reasons":["project_members: the caller lacks users.read in the project","secret_acls: the caller lacks secrets.manage on the secret"]}}`,
+		"no rows": `{"data":{"accessors":[],"degraded":true,` +
+			`"degraded_reasons":["project_members: the caller lacks users.read in the project","secret_acls: the caller lacks secrets.manage on the secret"]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := secretOpsServer(t, secretJSONRoute(http.MethodGet, "/api/v1/secrets/1/access", body))
+			setPATCreds(t, srv)
+			secretAccessID = 1
+			defer func() { secretAccessID = 0 }()
+
+			out := captureStdout(t, func() {
+				if err := secretAccessCmd.RunE(secretAccessCmd, nil); err != nil {
+					t.Fatalf("secretAccessCmd: %v", err)
+				}
+			})
+			if !containsAll(out, "WARNING: this list is incomplete",
+				"project_members: the caller lacks users.read in the project",
+				"secret_acls: the caller lacks secrets.manage on the secret") {
+				t.Fatalf("degraded list printed without the warning and its reasons, got: %q", out)
+			}
+		})
 	}
 }
 

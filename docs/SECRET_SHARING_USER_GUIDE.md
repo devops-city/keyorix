@@ -70,6 +70,18 @@ permission on the shared secret is the **higher** of the two:
   recipient's role already allowed. Share create, update and revoke events
   name the share ID too.
 
+`keyorix secret access --id N` (and the API's `GET /secrets/{id}/access`) shows
+each user's **effective** level on the secret, the grant that gives it, and every
+grant they hold. A viewer elevated by a write share shows as `write`, from
+`direct_share`, with grants `role:read, direct_share:write`. Role grants need
+`users.read` at the project and ACL grants need `secrets.manage` on the secret;
+without them those grants are left out and the report says it is incomplete: the
+CLI prints `WARNING: this list is incomplete` with the reasons, and the web panel
+shows a "This list is incomplete" banner. No built-in project role holds
+`secrets.manage`, so project members normally see that warning. Deactivated
+accounts that still hold a grant are listed on purpose, because the grant applies
+again if the account is reactivated.
+
 If a share is refused, the error says why: "you are not a member of this
 secret's project" (the owner needs a project role) or "the recipient is not a
 member of this secret's project" (the recipient needs one).
@@ -80,8 +92,10 @@ project. A share *adds* a path; **revoking it removes only that path.** If the
 recipient's project role already grants read (every built-in project role,
 including `project_viewer`, does), they keep reading the secret after the share is
 revoked: the share was not what gave them read. To end their access, also remove
-the role (`keyorix rbac remove-role`). `keyorix secret access` lists owner and
-share access only, not role-derived access.
+the role (`keyorix rbac remove-role`). A `write` share does elevate a read-only
+role on that one secret (see the table above), and revoking it removes exactly
+that elevation. `keyorix secret access` shows the effective level of each user,
+including role-derived access (see above).
 
 ## Getting Started
 

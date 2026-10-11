@@ -339,15 +339,39 @@ describe('secretsApi.accessList', () => {
         const out = await secretsApi.accessList(1);
 
         expect(mocked.get).toHaveBeenCalledWith('/api/v1/secrets/1/access');
-        expect(out).toEqual([{ user_id: 1, username: 'alice', permission: 'owner', source: 'owner' }]);
+        expect(out).toEqual({
+            accessors: [{ user_id: 1, username: 'alice', permission: 'owner', source: 'owner' }],
+            degraded: false,
+            degradedReasons: [],
+        });
     });
 
-    it('defaults to an empty array when data is missing', async () => {
+    it('passes the degraded flag and its reasons through', async () => {
+        mocked.get.mockResolvedValue({
+            data: {
+                data: {
+                    accessors: [],
+                    degraded: true,
+                    degraded_reasons: ['secret_acls: the caller lacks secrets.manage on the secret'],
+                },
+            },
+        });
+
+        const out = await secretsApi.accessList(1);
+
+        expect(out).toEqual({
+            accessors: [],
+            degraded: true,
+            degradedReasons: ['secret_acls: the caller lacks secrets.manage on the secret'],
+        });
+    });
+
+    it('defaults to an empty, non-degraded report when data is missing', async () => {
         mocked.get.mockResolvedValue({ data: {} });
 
         const out = await secretsApi.accessList(1);
 
-        expect(out).toEqual([]);
+        expect(out).toEqual({ accessors: [], degraded: false, degradedReasons: [] });
     });
 });
 
