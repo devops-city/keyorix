@@ -41,6 +41,22 @@ func groupAuthProfile(ctx *smokeCtx) {
 	} else {
 		c.skip("DELETE /api/v1/auth/tokens/{id}")
 	}
+
+	// PAT-GUARD-3 (ADR-042): a restricted PAT is refused on an ungated
+	// self-service write, and may still revoke itself.
+	restricted := c.callExpect("POST", "POST /api/v1/auth/tokens", "/api/v1/auth/tokens",
+		map[string]interface{}{"name": "e2e-smoke-restricted-pat", "scopes": []string{"secrets.read"}}, 200, 201)
+	var rEnv struct {
+		Token string `json:"token"`
+		PAT   idOnly `json:"pat"`
+	}
+	c.unmarshalData(restricted, &rEnv, "create restricted PAT")
+	rc := newClient(c.t, c.baseURL)
+	rc.token = rEnv.Token
+	rc.callExpect("PUT", "PUT /api/v1/auth/profile", "/api/v1/auth/profile",
+		map[string]string{"display_name": "changed by a restricted PAT"}, 403)
+	rc.callExpect("DELETE", "DELETE /api/v1/auth/tokens/{id}", fmt.Sprintf("/api/v1/auth/tokens/%d", rEnv.PAT.ID), nil, 204)
+	rc.callExpect("GET", "GET /api/v1/auth/tokens", "/api/v1/auth/tokens", nil, 401)
 }
 
 // groupProjectsAndEnvironments creates the project + two environments (one

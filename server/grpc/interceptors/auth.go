@@ -107,6 +107,11 @@ func AuthInterceptor(coreService *core.KeyorixCore, requireMFA bool) grpc.UnaryS
 		if blockedUnderImpersonation(info.FullMethod) && userCtx.ImpersonatedBy != nil {
 			return nil, status.Error(codes.PermissionDenied, "this action is not permitted while impersonating")
 		}
+		if restriction != nil {
+			if err := restrictedPATWriteStatus(info.FullMethod); err != nil {
+				return nil, err
+			}
+		}
 
 		// Add user context to request context
 		newCtx := context.WithValue(ctx, userContextKey, userCtx)
@@ -143,6 +148,11 @@ func StreamAuthInterceptor(coreService *core.KeyorixCore, requireMFA bool) grpc.
 		if blockedUnderImpersonation(info.FullMethod) && userCtx.ImpersonatedBy != nil {
 			return status.Error(codes.PermissionDenied, "this action is not permitted while impersonating")
 		}
+		if restriction != nil {
+			if err := restrictedPATWriteStatus(info.FullMethod); err != nil {
+				return err
+			}
+		}
 
 		// Create a new stream with user context (+ audit attribution / PAT restriction).
 		streamCtx := context.WithValue(stream.Context(), userContextKey, userCtx)
@@ -175,6 +185,30 @@ var credentialMintingMethods = map[string]bool{
 	// (POST /projects/{id}/break-glass) gets the identical BlockWhenImpersonating
 	// guard.
 	pb.BreakGlassService_ActivateBreakGlass_FullMethodName: true,
+}
+
+// restrictedPATWriteStatus is the gRPC half of the HTTP
+// RefuseRestrictedPATUngatedWrites middleware: PermissionDenied when core's
+// restricted-PAT table refuses fullMethod (ADR-042, PAT-GUARD-3), nil otherwise.
+// Call it only for a request carrying a PAT restriction. The status text is a
+// fixed literal per sentinel, never the error's own text.
+func restrictedPATWriteStatus(fullMethod string) error {
+	return restrictedPATRefusalStatus(core.RestrictedPATWriteRefusal(fullMethod))
+}
+
+// restrictedPATRefusalStatus maps a restricted-PAT refusal sentinel (or nil) to
+// its gRPC status.
+func restrictedPATRefusalStatus(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, core.ErrRestrictedPATCannotBreakGlass):
+		return status.Error(codes.PermissionDenied, "a restricted personal access token cannot activate break-glass access")
+	case errors.Is(err, core.ErrRestrictedPATCannotMintPAT):
+		return status.Error(codes.PermissionDenied, "a restricted personal access token cannot create personal access tokens")
+	default:
+		return status.Error(codes.PermissionDenied, "a restricted personal access token cannot perform this self-service action")
+	}
 }
 
 // blockedUnderImpersonation reports whether fullMethod mints a durable credential that

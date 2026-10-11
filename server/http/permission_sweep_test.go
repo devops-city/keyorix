@@ -474,7 +474,9 @@ var noPermissionGateAllowlist = map[string]string{
 		"(classification_gate.go's own doc comment explains why the weaker project/role family's " +
 		"permission doesn't fit a grant that carries no role at all). A route-level permission gate " +
 		"here would either be wrong (roles.assign is not sufficient) or a duplicate of the exact " +
-		"check core already performs. See ResolveSecretAccessRequest.",
+		"check core already performs. For a restricted PAT core also applies the restriction first " +
+		"(requireAccessRequestAuthorityAt: roles.assign at the request's project), so the route is " +
+		"ALLOWED to restricted PATs in core.restrictedPATUngatedWrites (PAT-GUARD-3). See ResolveSecretAccessRequest.",
 	"POST /api/v1/secret-access-requests/{requestId}/withdraw": "Self-service, same reasoning as WithdrawAccessRequest above: POST " +
 		"secret-access-requests/{requestId}/withdraw cancels only the CALLER'S OWN pending request " +
 		"(core.WithdrawAccessRequest, reused unchanged, scopes to the requester -- #G14's identical " +

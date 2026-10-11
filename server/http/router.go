@@ -346,6 +346,10 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// short-lived setup-only session that is revoked once setup is done.
 		coreService.SetRequireMFA(cfg.Security.RequireMFA)
 		r.Use(customMiddleware.EnforceAccountSetup(cfg.Security.RequireMFA))
+		// A restricted PAT is refused on every ungated write core's table marks
+		// refused (ADR-042, PAT-GUARD-3): the self-service writes below never reach
+		// Authorize, so its restriction would mean nothing there.
+		r.Use(customMiddleware.RefuseRestrictedPATUngatedWrites(r, "/api/v1"))
 
 		// Self-service account endpoints (My Account). Authenticated but not
 		// permission-gated — every user manages their own profile, password,

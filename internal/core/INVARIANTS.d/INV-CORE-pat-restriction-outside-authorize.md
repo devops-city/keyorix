@@ -22,8 +22,21 @@
   sessions stays allowed (ADR-042 addendum of 2026-10-11, PAT-GUARD-2; guarded by
   `TestPATRestriction_RestrictedPATCannotActivateBreakGlass`,
   `TestPATRestriction_RestrictedPATRevokesOnlyOwnTokensAndSessions` and
-  `TestGRPCPATRestriction_RestrictedPATCannotActivateBreakGlass`). Helpers:
-  `pat_restriction_listing.go`. Why:
+  `TestGRPCPATRestriction_RestrictedPATCannotActivateBreakGlass`). More generally, a
+  restricted PAT is refused on EVERY ungated write (no permission gate, so no
+  `Authorize`), deny-by-default: `restrictedPATUngatedWrites`
+  (`pat_restriction_writes.go`) gives each one a policy whose zero value refuses
+  (`ErrRestrictedPATSelfServiceWrite`, or the write's own sentinel), and allowing one
+  takes a written reason — own-credential revocation, the creates authorized in the
+  handler through `Authorize`, and the routes a PAT never authenticates. Both
+  transports refuse from that one table (HTTP `RefuseRestrictedPATUngatedWrites` on
+  `/api/v1`, the gRPC auth interceptors) before the handler runs (ADR-042 addendum
+  "ungated writes, deny-by-default", PAT-GUARD-3; guarded by `server/http`
+  `TestEveryUngatedWriteDeclaresRestrictedPATPolicy` over every ungated route from
+  `router.go`'s AST and `server/grpc` `TestEveryUngatedGRPCWriteDeclaresRestrictedPATPolicy`
+  over every ungated write RPC from the services' AST: an undeclared write fails, and
+  every declaration is checked behaviourally with the restricted personas). Helpers:
+  `pat_restriction_listing.go`, `pat_restriction_writes.go`. Why:
   PAT-GUARD-1, after SHARE-4 found #3018's `/shares/owned` listing by membership; the
   sweep then found `/secrets`, `/notifications`, `/secret-access-requests` and
   `POST /auth/tokens` doing the same on main. Guard: `server/http`

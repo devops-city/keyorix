@@ -346,16 +346,19 @@ func TestPATRestriction_NotificationsHonourRestriction(t *testing.T) {
 			assert.Zero(t, f.Data.UnreadCount, "the badge count must describe the list the token can see")
 		})
 	}
-	// Writes on the feed follow the same visibility: a restricted token can neither
-	// mark a notification it cannot see read, nor sweep it with read-all.
+	// Writes on the feed cannot reach a notification the token cannot see: since
+	// PAT-GUARD-3 a restricted token is refused on both mark-read writes outright
+	// (core.restrictedPATUngatedWrites), so neither touches the unread count.
 	t.Run("restricted_writes_do_not_reach_hidden_notifications", func(t *testing.T) {
 		ctrl, _ := read(t, "session")
 		require.NotEmpty(t, ctrl.Data.Notifications)
 		id := ctrl.Data.Notifications[0].ID
 		code, body := w.do(t, http.MethodPost, w.tokens["pat_decoy_project"], fmt.Sprintf("/api/v1/notifications/%d/read", id), nil)
-		assert.Equal(t, http.StatusNotFound, code, body)
+		assert.Equal(t, http.StatusForbidden, code, body)
+		assert.Contains(t, body, core.ErrRestrictedPATSelfServiceWrite.Error())
 		code, body = w.do(t, http.MethodPost, w.tokens["pat_decoy_project"], "/api/v1/notifications/read-all", nil)
-		require.Equal(t, http.StatusOK, code, body)
+		require.Equal(t, http.StatusForbidden, code, body)
+		assert.Contains(t, body, core.ErrRestrictedPATSelfServiceWrite.Error())
 		after, _ := read(t, "session")
 		assert.Equal(t, ctrl.Data.UnreadCount, after.Data.UnreadCount,
 			"a restricted token's read-all must not mark notifications it cannot see")
@@ -434,13 +437,16 @@ func TestPATRestriction_SecretAccessRequestsHonourRestriction(t *testing.T) {
 		// paths never reach Authorize. Before the fix a confined token got past that
 		// visibility check for its owner's canary secret: a cross-project existence
 		// oracle, and a request row written in a project outside the restriction.
+		// Since PAT-GUARD-3 a restricted token cannot create a secret access request
+		// at all: the same 403 for every secret id, before any lookup, so no oracle.
 		t.Run(owner+"create_request_for_out_of_scope_secret", func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"secret_id":%d,"reason":"probe"}`, w.ownedSecret[owner]))
 			code, resp := w.do(t, http.MethodPost, w.tokens[owner+"pat_unrestricted"], "/api/v1/secret-access-requests", body)
 			require.NotEqual(t, http.StatusNotFound, code, "control: the unrestricted token can see the secret: %s", resp)
 			for _, p := range patGuardRestrictedPersonas {
 				code, resp = w.do(t, http.MethodPost, w.tokens[owner+p], "/api/v1/secret-access-requests", body)
-				assert.Equal(t, http.StatusNotFound, code, "%s: %s", owner+p, resp)
+				assert.Equal(t, http.StatusForbidden, code, "%s: %s", owner+p, resp)
+				assert.Contains(t, resp, core.ErrRestrictedPATSelfServiceWrite.Error(), owner+p)
 			}
 		})
 		// Still pending after every restricted attempt, and the unrestricted token

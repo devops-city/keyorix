@@ -192,3 +192,54 @@ every restricted persona of the PAT-GUARD-1 fixture (a project-only owner and th
 global admin), with unrestricted controls. The other ungated self-service writes
 (profile, password, MFA and WebAuthn enrolment, project access requests) are not
 decided by this addendum.
+
+## Addendum (2026-10-11): ungated writes, deny-by-default (PAT-GUARD-3)
+
+Decided by Andrei on 2026-10-11, answering the open note PAT-GUARD-2 left on
+#3071: a restricted PAT is **refused on every ungated write**, deny-by-default.
+"Ungated" means no permission gate covers the write, so `Authorize` never sees it
+and the restriction meant nothing there: the HTTP non-GET routes in
+`noPermissionGateAllowlist` and the gRPC write RPCs whose handler makes no
+authorization call. Unrestricted PATs, sessions and machine tokens are unchanged.
+
+- **One table, both transports.** `internal/core/pat_restriction_writes.go`'s
+  `restrictedPATUngatedWrites` gives every ungated write a policy whose zero value
+  is "refused"; allowing one takes `Allowed` and a written `Reason`. The HTTP
+  `/api/v1` group refuses from it (`RefuseRestrictedPATUngatedWrites`, after
+  `Authentication`) and so do both gRPC auth interceptors. The refusal shape is
+  #3062/#3071's: HTTP 403 with the sentinel text, gRPC `PermissionDenied` with the
+  same text. The new sentinel is `ErrRestrictedPATSelfServiceWrite`; PAT creation
+  and break-glass keep `ErrRestrictedPATCannotMintPAT` and
+  `ErrRestrictedPATCannotBreakGlass`, and their core checks stay as defence in depth.
+- **Refused:** profile, password change, MFA enrol/activate/disable/recovery-code
+  regeneration and step-up, passkey register/delete and re-authentication, PAT
+  creation, ending impersonation, marking notifications read, leaving a share
+  (`DELETE /secrets/{id}/self-share`), project access requests (create, withdraw),
+  secret access requests (create, withdraw), break-glass (HTTP and
+  gRPC). A step-up grant belongs to the user, not the token: the owner opens it
+  from a session and a restricted PAT then reads under it.
+- **Allowed, each with its reason in the table:** revoking the owner's own PATs
+  (one, or all expired ones) and sessions (#3071; it is also how a PAT logs
+  itself out); the four creates authorized inside the handler through `Authorize`
+  at the body's scope (`POST /secrets`, `/folders`, `/rotation-policies`,
+  `/dynamic-secrets/configs`), where the restriction already applies and refusing
+  would stop a restricted token creating anything inside its own restriction;
+  deciding a secret access request (`PUT /secret-access-requests/{requestId}`,
+  Andrei's follow-up decision of 2026-10-11), for parity with the gated sibling
+  `PUT /projects/{id}/access-requests/{requestId}`: core applies the restriction
+  (`roles.assign` at the request's own project) and then requires admin authority
+  there (`requireAccessRequestAuthorityAt`), so a token without `roles.assign` at
+  that project is refused by core and the request stays pending; and
+  the pre-authentication and infrastructure routes outside `/api/v1`, which a PAT
+  never authenticates.
+- **Family-wide guard.** `server/http` `TestEveryUngatedWriteDeclaresRestrictedPATPolicy`
+  derives every ungated route from `router.go`'s AST (the permission sweep's
+  `scanRouter`) and `server/grpc` `TestEveryUngatedGRPCWriteDeclaresRestrictedPATPolicy`
+  derives every ungated write RPC from the services' AST; each fails on an
+  undeclared write or a stale entry, then checks every declaration behaviourally
+  with #3062's restricted personas (two owners x five restrictions): a refused
+  write answers 403/`PermissionDenied` with its sentinel while the unrestricted
+  controls are not refused, an allowed one really succeeds (own revocations take
+  effect, in-scope creates succeed and out-of-scope ones are refused by
+  `Authorize`), and a pre-authentication route answers a restricted PAT exactly
+  as it answers an unrestricted one.

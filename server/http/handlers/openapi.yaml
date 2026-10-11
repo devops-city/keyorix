@@ -7345,6 +7345,12 @@ components:
       scheme: bearer
       description: |
         Session token, personal access token (kx_pat_…), or machine token (kx_machine_…).
+        A RESTRICTED personal access token (any scopes, project, environment or CIDR
+        restriction) is refused with 403 on every write that has no permission gate
+        (profile, password, MFA and passkeys, access requests, notifications,
+        break-glass, PAT creation, ...), except revoking the owner's own tokens and
+        sessions and the in-handler-authorized creates (ADR-042, PAT-GUARD-3; the
+        table is internal/core/pat_restriction_writes.go).
   responses:
     Error:
       description: >-
