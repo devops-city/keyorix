@@ -11,30 +11,26 @@ import { useRoles, useGroups } from '../../features/admin';
 import { apiClient } from '../../services/client';
 import { AnomalyAlert, User } from '../../types';
 import { humanizeAlertType } from '../../utils/anomaly';
+import { eventLabel } from '../../utils/eventLabels';
+import { formatDateTime } from '../../utils/datetime';
 
 // ─── Event badge ─────────────────────────────────────────────────────────────
 
-const EVENT_STYLES: Record<
-    string,
-    { label: string; darkBg: string; darkColor: string; lightBg: string; lightColor: string }
-> = {
+const EVENT_STYLES: Record<string, { darkBg: string; darkColor: string; lightBg: string; lightColor: string }> = {
     // Auth
     'auth.login': {
-        label: 'Login',
         darkBg: 'rgba(148,163,184,0.15)',
         darkColor: '#94a3b8',
         lightBg: '#f1f5f9',
         lightColor: '#475569',
     },
     'auth.logout': {
-        label: 'Logout',
         darkBg: 'rgba(148,163,184,0.15)',
         darkColor: '#94a3b8',
         lightBg: '#f1f5f9',
         lightColor: '#475569',
     },
     'auth.login_failed': {
-        label: 'Login Failed',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
@@ -42,7 +38,6 @@ const EVENT_STYLES: Record<
     },
     // Secrets
     'secret.read': {
-        label: 'Read',
         darkBg: 'rgba(251,191,36,0.15)',
         darkColor: '#fbbf24',
         lightBg: '#fef9c3',
@@ -50,7 +45,6 @@ const EVENT_STYLES: Record<
     },
     // A by-name lookup exposes metadata only, never a value: styled neutral, not as a Read.
     'secret.metadata_read': {
-        label: 'Metadata read',
         darkBg: 'rgba(148,163,184,0.15)',
         darkColor: '#94a3b8',
         lightBg: '#f1f5f9',
@@ -58,49 +52,42 @@ const EVENT_STYLES: Record<
     },
     // A version listing exposes metadata only, never a value: styled neutral, not as a Read.
     'secret.versions_listed': {
-        label: 'Versions listed',
         darkBg: 'rgba(148,163,184,0.15)',
         darkColor: '#94a3b8',
         lightBg: '#f1f5f9',
         lightColor: '#475569',
     },
     'secret.created': {
-        label: 'Created',
         darkBg: 'rgba(16,185,129,0.15)',
         darkColor: '#34d399',
         lightBg: '#dcfce7',
         lightColor: '#166534',
     },
     'secret.updated': {
-        label: 'Updated',
         darkBg: 'rgba(59,130,246,0.15)',
         darkColor: '#60a5fa',
         lightBg: '#dbeafe',
         lightColor: '#1e40af',
     },
     'secret.deleted': {
-        label: 'Deleted',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
         lightColor: '#991b1b',
     },
     'secret.rotated': {
-        label: 'Rotated',
         darkBg: 'rgba(168,85,247,0.15)',
         darkColor: '#c084fc',
         lightBg: '#f3e8ff',
         lightColor: '#6b21a8',
     },
     'secret.shared': {
-        label: 'Shared',
         darkBg: 'rgba(99,102,241,0.15)',
         darkColor: '#818cf8',
         lightBg: '#e0e7ff',
         lightColor: '#3730a3',
     },
     'share.revoked': {
-        label: 'Unshared',
         darkBg: 'rgba(251,146,60,0.15)',
         darkColor: '#fb923c',
         lightBg: '#ffedd5',
@@ -108,56 +95,48 @@ const EVENT_STYLES: Record<
     },
     // RBAC — roles (keys match the backend event types in internal/core/audit.go)
     'role.created': {
-        label: 'Role Created',
         darkBg: 'rgba(99,102,241,0.15)',
         darkColor: '#818cf8',
         lightBg: '#e0e7ff',
         lightColor: '#3730a3',
     },
     'role.updated': {
-        label: 'Role Updated',
         darkBg: 'rgba(99,102,241,0.15)',
         darkColor: '#818cf8',
         lightBg: '#e0e7ff',
         lightColor: '#3730a3',
     },
     'role.deleted': {
-        label: 'Role Deleted',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
         lightColor: '#991b1b',
     },
     'role.assigned': {
-        label: 'Role Assigned',
         darkBg: 'rgba(16,185,129,0.15)',
         darkColor: '#34d399',
         lightBg: '#dcfce7',
         lightColor: '#166534',
     },
     'role.removed': {
-        label: 'Role Removed',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
         lightColor: '#991b1b',
     },
     'role.expired': {
-        label: 'Role Expired',
         darkBg: 'rgba(251,146,60,0.15)',
         darkColor: '#fb923c',
         lightBg: '#ffedd5',
         lightColor: '#9a3412',
     },
     'role.group_assigned': {
-        label: 'Role Assigned to Group',
         darkBg: 'rgba(16,185,129,0.15)',
         darkColor: '#34d399',
         lightBg: '#dcfce7',
         lightColor: '#166534',
     },
     'role.group_removed': {
-        label: 'Role Removed from Group',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
@@ -165,14 +144,12 @@ const EVENT_STYLES: Record<
     },
     // RBAC — permissions
     'permission.assigned': {
-        label: 'Permission Granted',
         darkBg: 'rgba(16,185,129,0.15)',
         darkColor: '#34d399',
         lightBg: '#dcfce7',
         lightColor: '#166534',
     },
     'permission.removed': {
-        label: 'Permission Revoked',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
@@ -180,42 +157,36 @@ const EVENT_STYLES: Record<
     },
     // RBAC — groups
     'group.created': {
-        label: 'Group Created',
         darkBg: 'rgba(168,85,247,0.15)',
         darkColor: '#c084fc',
         lightBg: '#f3e8ff',
         lightColor: '#6b21a8',
     },
     'group.updated': {
-        label: 'Group Updated',
         darkBg: 'rgba(168,85,247,0.15)',
         darkColor: '#c084fc',
         lightBg: '#f3e8ff',
         lightColor: '#6b21a8',
     },
     'group.deleted': {
-        label: 'Group Deleted',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
         lightColor: '#991b1b',
     },
     'group.restored': {
-        label: 'Group Restored',
         darkBg: 'rgba(168,85,247,0.15)',
         darkColor: '#c084fc',
         lightBg: '#f3e8ff',
         lightColor: '#6b21a8',
     },
     'group.member_added': {
-        label: 'Added to Group',
         darkBg: 'rgba(16,185,129,0.15)',
         darkColor: '#34d399',
         lightBg: '#dcfce7',
         lightColor: '#166534',
     },
     'group.member_removed': {
-        label: 'Removed from Group',
         darkBg: 'rgba(239,68,68,0.15)',
         darkColor: '#f87171',
         lightBg: '#fee2e2',
@@ -229,13 +200,9 @@ const EVENT_STYLES: Record<
 const RBAC_EVENT_PREFIXES = ['role.', 'group.', 'permission.'];
 const isRbacEvent = (eventType: string): boolean => RBAC_EVENT_PREFIXES.some((prefix) => eventType.startsWith(prefix));
 
-function eventLabel(eventType: string): string {
-    return EVENT_STYLES[eventType]?.label ?? eventType;
-}
-
 function eventBadge(eventType: string, isDark: boolean) {
     const e = EVENT_STYLES[eventType];
-    const label = e?.label ?? eventType;
+    const label = eventLabel(eventType);
     const defaultBg = isDark ? 'rgba(148,163,184,0.15)' : '#f1f5f9';
     const eBgInner = isDark ? e?.darkBg : e?.lightBg;
     const eBg = e ? eBgInner : null;
@@ -255,15 +222,8 @@ function eventBadge(eventType: string, isDark: boolean) {
 }
 
 function fmtTime(ts: string): string {
-    const d = new Date(ts);
-    if (Number.isNaN(d.getTime())) return ts;
-    return d.toLocaleString('en', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-    });
+    const out = formatDateTime(ts, { seconds: true });
+    return out === '—' ? ts : out;
 }
 
 // ─── CSV export ───────────────────────────────────────────────────────────────

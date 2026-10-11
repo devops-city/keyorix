@@ -6,6 +6,7 @@ import { Footer } from './Footer';
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { CmdKSearch } from '../ui/CmdKSearch';
+import { isPaletteShortcut } from '../../utils/platform';
 
 export interface LayoutProps {
     children: React.ReactNode;
@@ -21,7 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
     // Global Cmd-K / Ctrl-K listener
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+            if (isPaletteShortcut(e)) {
                 e.preventDefault();
                 setCmdkOpen((prev) => !prev);
             }

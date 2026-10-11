@@ -85,7 +85,7 @@ export const EncryptionPage: React.FC = () => {
                         title="Key provider"
                         note="File paths, exec commands, environment variable names, and KMS key IDs are never exposed here."
                     >
-                        <Row label="Type" value={encryptionConfig.key_provider.type || '—'} />
+                        <Row label="Type" value={encryptionConfig.key_provider.type || 'password (default)'} />
                         {encryptionConfig.key_provider.shamir_commitment && (
                             <Row
                                 label="Shamir commitment"

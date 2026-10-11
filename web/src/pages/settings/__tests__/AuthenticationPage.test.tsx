@@ -56,7 +56,7 @@ describe('AuthenticationPage — loading and error states', () => {
 describe('AuthenticationPage — success state', () => {
     it('shows session TTLs, formatting a zero absolute TTL as "No ceiling"', () => {
         render(<AuthenticationPage />);
-        expect(screen.getByText('24h0m0s')).toBeInTheDocument();
+        expect(screen.getByText('24 hours')).toBeInTheDocument();
         expect(screen.getByText('No ceiling')).toBeInTheDocument();
     });
 
@@ -84,9 +84,9 @@ describe('AuthenticationPage — success state', () => {
     it('shows login lockout settings', () => {
         render(<AuthenticationPage />);
         expect(screen.getByText('5')).toBeInTheDocument();
-        expect(screen.getByText('15m0s')).toBeInTheDocument();
-        expect(screen.getByText('1m0s')).toBeInTheDocument();
-        expect(screen.getByText('1h0m0s')).toBeInTheDocument();
+        expect(screen.getByText('15 minutes')).toBeInTheDocument();
+        expect(screen.getByText('1 minute')).toBeInTheDocument();
+        expect(screen.getByText('1 hour')).toBeInTheDocument();
     });
 
     it('shows WebAuthn relying-party details only when enabled', () => {

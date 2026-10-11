@@ -128,7 +128,9 @@ describe('SystemHealthPage — success state', () => {
         expect(screen.getByText('abcdef123456')).toBeInTheDocument();
         expect(screen.getByText('go1.26.5')).toBeInTheDocument();
         expect(screen.getByText('linux / amd64')).toBeInTheDocument();
-        expect(screen.getByText('unknown')).toBeInTheDocument();
+        // An unstamped build time ("unknown") is hidden rather than printed.
+        expect(screen.queryByText('unknown')).not.toBeInTheDocument();
+        expect(screen.queryByText('Build time')).not.toBeInTheDocument();
     });
 
     it('shows only the real database fields, never the hardcoded connected/active-connections ones', () => {
@@ -228,7 +230,12 @@ describe('SystemHealthPage — fallback branches when nested structures are enti
         expect(screen.getByText('500 B')).toBeInTheDocument();
         expect(screen.getAllByText('0 B')).toHaveLength(2);
         // Every falsy string field renders its dash fallback.
-        expect(screen.getAllByText('—').length).toBeGreaterThan(5);
+        expect(screen.getAllByText('—').length).toBeGreaterThan(2);
+        // Unstamped build fields are hidden, not shown as dashes; the version says so plainly.
+        expect(screen.queryByText('Git commit')).not.toBeInTheDocument();
+        expect(screen.queryByText('Build time')).not.toBeInTheDocument();
+        expect(screen.queryByText('Environment')).not.toBeInTheDocument();
+        expect(screen.getByText('Development build (unstamped)')).toBeInTheDocument();
         expect(screen.getByText('— / —')).toBeInTheDocument();
         expect(screen.getByText('0.0ms')).toBeInTheDocument();
     });

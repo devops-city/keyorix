@@ -473,7 +473,7 @@ describe('DashboardPage — recent activity edge cases', () => {
         });
         render(<DashboardPage />);
         expect(screen.getByText('carol')).toBeInTheDocument();
-        expect(screen.getByText('custom_event')).toBeInTheDocument();
+        expect(screen.getByText('Custom event')).toBeInTheDocument();
     });
 
     it('renders a versions_listed activity as a listing, not the raw type or an access', () => {

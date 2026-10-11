@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/datetime';
 import React, { useState } from 'react';
 import { PlusIcon, PencilSquareIcon, TrashIcon, UsersIcon, KeyIcon } from '@heroicons/react/24/outline';
 import { Button, Modal, Input, Spinner, Select } from '../../components/ui';
@@ -463,9 +464,7 @@ export const GroupsPage: React.FC = () => {
                                                         backgroundColor: 'var(--warning-subtle, #fef9c3)',
                                                         color: 'var(--warning, #a16207)',
                                                     }}
-                                                    title={new Date(
-                                                        roleExpiryById.get(role.id) as string
-                                                    ).toLocaleString()}
+                                                    title={formatDateTime(roleExpiryById.get(role.id) as string)}
                                                 >
                                                     {formatRemaining(roleExpiryById.get(role.id) as string)}
                                                 </span>

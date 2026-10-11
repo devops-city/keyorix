@@ -94,7 +94,8 @@ describe('Sidebar', () => {
         expect(screen.queryByRole('link', { name: 'Keyorix Connect' })).not.toBeInTheDocument();
         expect(screen.queryByRole('link', { name: 'Appearance' })).not.toBeInTheDocument();
 
-        expect(screen.getByText('Keyorix v0.1.0')).toBeInTheDocument();
+        // No hardcoded version: an unstamped build shows no "vX.Y.Z" at all.
+        expect(screen.queryByText(/v\d+\.\d+\.\d+/)).not.toBeInTheDocument();
     });
 
     it('hides the admin-only Access Control group and its children entirely for a non-admin user', () => {

@@ -1,3 +1,4 @@
+import { formatGoDuration } from '../../utils/datetime';
 import React from 'react';
 import { useAuthConfig } from '../../features/dashboard';
 import { Spinner } from '../../components/ui';
@@ -53,7 +54,7 @@ const CapabilityPill: React.FC<{ label: string; active: boolean }> = ({ label, a
     </span>
 );
 
-const formatTTL = (value: string): string => (value === '0s' ? 'No ceiling' : value);
+const formatTTL = (value: string): string => (value === '0s' ? 'No ceiling' : formatGoDuration(value));
 
 export const AuthenticationPage: React.FC = () => {
     const { data: authConfig, isLoading, isError } = useAuthConfig();
@@ -127,9 +128,9 @@ export const AuthenticationPage: React.FC = () => {
                     <Section title="Login lockout">
                         <Row label="Enabled" value={authConfig.login_lockout.enabled ? 'Yes' : 'No'} />
                         <Row label="Max attempts" value={authConfig.login_lockout.max_attempts} />
-                        <Row label="Window" value={authConfig.login_lockout.window} />
-                        <Row label="Base cooldown" value={authConfig.login_lockout.base_cooldown} />
-                        <Row label="Max cooldown" value={authConfig.login_lockout.max_cooldown} />
+                        <Row label="Window" value={formatGoDuration(authConfig.login_lockout.window)} />
+                        <Row label="Base cooldown" value={formatGoDuration(authConfig.login_lockout.base_cooldown)} />
+                        <Row label="Max cooldown" value={formatGoDuration(authConfig.login_lockout.max_cooldown)} />
                     </Section>
 
                     <Section title="Multi-factor & passkeys">

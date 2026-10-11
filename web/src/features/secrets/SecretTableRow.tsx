@@ -12,6 +12,7 @@ import {
 import { Secret } from '../../types';
 import { useCan } from '../auth/useCan';
 import { classificationMeta } from './classification';
+import { SECRET_TYPES } from './listConstants';
 
 const formatDate = (d: string | Date) =>
     new Intl.DateTimeFormat('en', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(d));
@@ -34,46 +35,45 @@ interface SecretTableRowProps {
 
 import { useUIStore } from '../../store/uiStore';
 
-const TYPE_STYLES: Record<
-    string,
-    { darkBg: string; darkColor: string; lightBg: string; lightColor: string; label: string }
-> = {
+const TYPE_STYLES: Record<string, { darkBg: string; darkColor: string; lightBg: string; lightColor: string }> = {
     password: {
         darkBg: 'rgba(99,102,241,0.15)',
         darkColor: '#818cf8',
         lightBg: '#e0e7ff',
         lightColor: '#3730a3',
-        label: 'password',
     },
     api_key: {
         darkBg: 'rgba(16,185,129,0.15)',
         darkColor: '#34d399',
         lightBg: '#dcfce7',
         lightColor: '#166534',
-        label: 'api_key',
     },
     text: {
         darkBg: 'rgba(148,163,184,0.15)',
         darkColor: '#94a3b8',
         lightBg: '#f1f5f9',
         lightColor: '#475569',
-        label: 'text',
     },
     certificate: {
         darkBg: 'rgba(251,191,36,0.15)',
         darkColor: '#fbbf24',
         lightBg: '#fef9c3',
         lightColor: '#854d0e',
-        label: 'cert',
     },
     json: {
         darkBg: 'rgba(251,146,60,0.15)',
         darkColor: '#fb923c',
         lightBg: '#ffedd5',
         lightColor: '#9a3412',
-        label: 'json',
     },
 };
+
+// The badge text is the filter dropdown's own label ("API Key", not "api_key"), so the
+// column and the filter can never disagree. A type the filter does not offer
+// (the API's default "generic") is title-cased rather than shown as a raw identifier.
+export const typeLabel = (type: string): string =>
+    SECRET_TYPES.find((t) => t.value === type && t.value !== 'all')?.label ??
+    type.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
 
 const TypeBadge: React.FC<{ type: string }> = ({ type }) => {
     const { theme } = useUIStore();
@@ -84,14 +84,14 @@ const TypeBadge: React.FC<{ type: string }> = ({ type }) => {
         darkColor: '#94a3b8',
         lightBg: '#f1f5f9',
         lightColor: '#475569',
-        label: type,
     };
+    const label = typeLabel(type);
     return (
         <span
             className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium tracking-wide"
             style={{ backgroundColor: isDark ? s.darkBg : s.lightBg, color: isDark ? s.darkColor : s.lightColor }}
         >
-            {s.label}
+            {label}
         </span>
     );
 };

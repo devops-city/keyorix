@@ -3,19 +3,22 @@ import { DocumentTextIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/
 import { useAuditLog } from '../../features/audit/api';
 import { Button } from '../../components/ui/Button';
 import { parseServerDate } from '../../utils';
+import { eventLabel } from '../../utils/eventLabels';
+import { formatDateTime } from '../../utils/datetime';
+import { useAuditNames } from '../../features/audit/useAuditNames';
 
 interface ProjectActivityTabProps {
     projectId: number;
 }
 
 const EVENT_BADGE: Record<string, { bg: string; text: string }> = {
-    'secret.create': { bg: 'var(--success-subtle)', text: 'var(--success)' },
+    'secret.created': { bg: 'var(--success-subtle)', text: 'var(--success)' },
+    'secret.updated': { bg: 'var(--warning-subtle)', text: 'var(--warning)' },
+    'secret.deleted': { bg: 'var(--error-subtle)', text: 'var(--error)' },
+    'secret.rotated': { bg: 'var(--warning-subtle)', text: 'var(--warning)' },
     'secret.read': { bg: 'var(--accent-subtle)', text: 'var(--accent-text)' },
     'secret.versions_listed': { bg: 'var(--bg-muted)', text: 'var(--text-muted)' },
     'secret.metadata_read': { bg: 'var(--bg-muted)', text: 'var(--text-muted)' },
-    'secret.update': { bg: 'var(--warning-subtle)', text: 'var(--warning)' },
-    'secret.delete': { bg: 'var(--error-subtle)', text: 'var(--error)' },
-    'secret.rotate': { bg: 'var(--warning-subtle)', text: 'var(--warning)' },
     'auth.login': { bg: 'var(--bg-muted)', text: 'var(--text-muted)' },
     'auth.logout': { bg: 'var(--bg-muted)', text: 'var(--text-muted)' },
 };
@@ -31,7 +34,7 @@ function relativeTime(ts: string): string {
     if (mins < 60) return `${mins}m ago`;
     const hrs = Math.floor(mins / 60);
     if (hrs < 24) return `${hrs}h ago`;
-    return parseServerDate(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return formatDateTime(ts);
 }
 
 /**
@@ -48,6 +51,7 @@ export const ProjectActivityTab: React.FC<ProjectActivityTabProps> = ({ projectI
         pageSize: PAGE_SIZE,
     });
 
+    const resolveNames = useAuditNames();
     const events = data?.data ?? [];
     const totalPages = data?.totalPages ?? 1;
 
@@ -110,7 +114,7 @@ export const ProjectActivityTab: React.FC<ProjectActivityTabProps> = ({ projectI
                                             className="text-xs font-medium px-2 py-0.5 rounded-full"
                                             style={{ backgroundColor: badge.bg, color: badge.text }}
                                         >
-                                            {ev.event_type}
+                                            {eventLabel(ev.event_type)}
                                         </span>
                                     </td>
                                     <td
@@ -123,11 +127,12 @@ export const ProjectActivityTab: React.FC<ProjectActivityTabProps> = ({ projectI
                                         className="px-4 py-3 text-sm max-w-xs truncate"
                                         style={{ color: 'var(--text-secondary)' }}
                                     >
-                                        {ev.description || '—'}
+                                        {resolveNames(ev.event_type, ev.description) || '—'}
                                     </td>
                                     <td
                                         className="px-4 py-3 text-xs whitespace-nowrap"
                                         style={{ color: 'var(--text-muted)' }}
+                                        title={formatDateTime(ev.timestamp, { seconds: true })}
                                     >
                                         {relativeTime(ev.timestamp)}
                                     </td>

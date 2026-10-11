@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/datetime';
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
@@ -29,18 +30,7 @@ import { MACHINE_IDENTITY_TYPES } from '../../services/machineIdentities';
 import type { AdminUser, SetupLinkResult } from '../../services/users';
 
 function formatDate(iso?: string | null): string {
-    if (!iso) return '—';
-    try {
-        return new Date(iso).toLocaleString(undefined, {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
-    } catch {
-        return iso;
-    }
+    return formatDateTime(iso);
 }
 
 type PendingAction = null | 'suspend' | 'reactivate' | 'reset' | 'unlock' | 'revoke-sessions';

@@ -93,14 +93,14 @@ describe('EncryptionPage — success state', () => {
         expect(screen.queryByText('Yes')).not.toBeInTheDocument();
     });
 
-    it('falls back to an em dash when the key-provider type is missing', () => {
+    it('names the default (password) provider when the configured type is empty', () => {
         useEncryptionConfig.mockReturnValue({
             data: { ...baseEncryptionConfig, key_provider: { ...baseEncryptionConfig.key_provider, type: '' } },
             isLoading: false,
             isError: false,
         });
         render(<EncryptionPage />);
-        expect(screen.getByText('—')).toBeInTheDocument();
+        expect(screen.getByText('password (default)')).toBeInTheDocument();
         expect(screen.queryByText('aws-kms')).not.toBeInTheDocument();
     });
 });

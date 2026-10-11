@@ -6,6 +6,8 @@ import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
 import { ActivityItem, AnomalyAlert } from '../../types';
 import { humanizeAlertType } from '../../utils/anomaly';
+import { eventLabel } from '../../utils/eventLabels';
+import { formatDateTime } from '../../utils/datetime';
 import {
     useDashboardStats,
     useDashboardActivity,
@@ -22,10 +24,7 @@ import {
 
 const fmt = (n: number) => n.toLocaleString();
 const NOT_VISIBLE = 'Not visible to you';
-const fmtDate = (d: string | Date) =>
-    new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(
-        new Date(d)
-    );
+const fmtDate = (d: string | Date) => formatDateTime(d);
 
 interface SecurityCardData {
     label: string;
@@ -185,8 +184,9 @@ const EVENT_STYLES: Record<string, { dot: string; label: string }> = {
 
 const ActivityRow: React.FC<{ item: ActivityItem }> = ({ item }) => {
     // The server sends a readable `label` for every event; the raw audit type stays
-    // available as `eventType` (tooltip). Older servers send neither: fall back to type.
-    const style = EVENT_STYLES[item.type] ?? { dot: 'bg-gray-400', label: item.label ?? item.type };
+    // available as `eventType` (tooltip). Older servers send neither: fall back to a
+    // friendly label derived from the type.
+    const style = EVENT_STYLES[item.type] ?? { dot: 'bg-gray-400', label: item.label ?? eventLabel(item.type) };
     const secretPart = item.secretName ? ` "${item.secretName}"` : '';
     return (
         <div className="flex items-start gap-3 py-3 border-b border-base last:border-0">

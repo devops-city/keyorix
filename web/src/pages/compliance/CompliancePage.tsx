@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/datetime';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { complianceApi } from '../../services/compliance';
@@ -315,7 +316,7 @@ const PosturePanel: React.FC = () => {
                     Controls posture
                 </h2>
                 <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {p.generatedAt ? new Date(p.generatedAt).toLocaleString() : ''}
+                    {p.generatedAt ? formatDateTime(p.generatedAt) : ''}
                 </span>
             </div>
             <div className="px-6 py-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">

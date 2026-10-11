@@ -50,11 +50,8 @@ import { apiErrorMessage } from '../../services/client';
 import { useCan, type Can } from '../auth/useCan';
 import { Textarea } from '../../components/ui/Textarea';
 import { parseServerDate } from '../../utils';
-
-const formatDate = (d: string | Date) =>
-    new Intl.DateTimeFormat('en', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(d));
-const formatTime = (d: string | Date) =>
-    new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit' }).format(new Date(d));
+import { eventLabel, accessActionLabel } from '../../utils/eventLabels';
+import { formatDateTime } from '../../utils/datetime';
 
 const relativeFromNow = (d: string | Date): string => {
     const days = Math.floor((Date.now() - parseServerDate(d).getTime()) / 86_400_000);
@@ -67,26 +64,8 @@ const relativeFromNow = (d: string | Date): string => {
     return `${years} year${years === 1 ? '' : 's'} ago`;
 };
 
-// Human-readable label for an audit event_type; falls back to the raw type with the
-// "secret." prefix stripped so unknown/new events still render sensibly.
-const auditEventLabel = (eventType: string): string => {
-    const KNOWN: Record<string, string> = {
-        'secret.versions_listed': 'Versions listed',
-        'secret.metadata_read': 'Metadata read',
-        'secret.created': 'Created',
-        'secret.updated': 'Updated',
-        'secret.rotated': 'Rotated',
-        'secret.rolled_back': 'Rolled back',
-        'secret.suspended': 'Suspended',
-        'secret.resumed': 'Resumed',
-        'secret.shared': 'Shared',
-        'secret.unshared': 'Unshared',
-        'secret.owner_transferred': 'Owner transferred',
-        'secret.classified': 'Reclassified',
-        'secret.deleted': 'Deleted',
-    };
-    return KNOWN[eventType] ?? eventType.replace(/^secret\./, '').replaceAll('_', ' ');
-};
+// Inside a secret's own history the "secret." prefix is noise for events nobody curated a label for.
+const auditEventLabel = (eventType: string): string => eventLabel(eventType, 'secret.');
 
 const RISK_BAND_STYLE: Record<RiskBand, { label: string; color: string }> = {
     low: { label: 'Low risk', color: '#10b981' },
@@ -254,7 +233,7 @@ const SecretDetailHeader: React.FC<SecretDetailHeaderProps> = ({
                 </div>
                 <div className="flex items-center">
                     <ClockIcon className="h-4 w-4 mr-1" />
-                    {formatDate(secret.lastModified)} at {formatTime(secret.lastModified)}
+                    {formatDateTime(secret.lastModified)}
                 </div>
                 <div className="flex items-center">
                     <ArrowPathIcon className="h-4 w-4 mr-1" />
@@ -458,9 +437,7 @@ const VersionHistoryPanel: React.FC<VersionHistoryPanelProps> = ({
                                         current
                                     </span>
                                 )}
-                                <span className="text-gray-500 dark:text-gray-400">
-                                    {new Date(v.CreatedAt).toLocaleString()}
-                                </span>
+                                <span className="text-gray-500 dark:text-gray-400">{formatDateTime(v.CreatedAt)}</span>
                             </div>
                             {canRollback && v.VersionNumber !== latestVersion.VersionNumber && (
                                 <Button
@@ -533,13 +510,13 @@ const RecentAccessPanel: React.FC<RecentAccessPanelProps> = ({ accessLog }) => {
                                 {e.accessed_by || 'unknown'}
                             </span>
                             <span className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                {e.action}
+                                {accessActionLabel(e.action)}
                                 {e.ip_address ? ` · ${e.ip_address}` : ''}
                             </span>
                         </div>
                         <span
                             className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
-                            title={new Date(e.access_time).toLocaleString()}
+                            title={formatDateTime(e.access_time, { seconds: true })}
                         >
                             {relativeFromNow(e.access_time)}
                         </span>
@@ -697,7 +674,7 @@ const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({ auditTrail }) => {
                         </div>
                         <span
                             className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap"
-                            title={new Date(e.timestamp).toLocaleString()}
+                            title={formatDateTime(e.timestamp, { seconds: true })}
                         >
                             {relativeFromNow(e.timestamp)}
                         </span>

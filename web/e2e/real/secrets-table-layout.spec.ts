@@ -111,6 +111,6 @@ test('secrets table headers, rotation label and action bar at 1366 px', async ({
     await expect(page.getByText(`Rotate ${secretName}`)).not.toBeVisible({ timeout: 10_000 });
 
     await expect(dialog.getByText('Never rotated', { exact: true })).toHaveCount(0);
-    await expect(dialog.getByText(/^Rotated /)).toBeVisible();
+    await expect(dialog.getByTestId('secret-meta').getByText(/^Rotated /)).toBeVisible();
     await shot(page, 'detail-after-rotate');
 });

@@ -12,7 +12,7 @@ vi.mock('../../../features/audit/api', () => ({
 const events = [
     {
         id: 1,
-        event_type: 'secret.create',
+        event_type: 'secret.created',
         actor: 'alice',
         actor_type: 'user',
         description: 'Created secret db-password',
@@ -20,7 +20,7 @@ const events = [
     },
     {
         id: 2,
-        event_type: 'secret.delete',
+        event_type: 'secret.deleted',
         actor: '',
         actor_type: 'user',
         description: '',
@@ -93,7 +93,7 @@ describe('ProjectActivityTab', () => {
         render(<ProjectActivityTab projectId={1} />);
         const table = within(screen.getByRole('table'));
 
-        expect(table.getByText('secret.create')).toBeInTheDocument();
+        expect(table.getByText('Created')).toBeInTheDocument();
         expect(table.getByText('alice')).toBeInTheDocument();
         expect(table.getByText('Created secret db-password')).toBeInTheDocument();
         expect(table.getByText('bob')).toBeInTheDocument();
@@ -111,10 +111,10 @@ describe('ProjectActivityTab', () => {
         render(<ProjectActivityTab projectId={1} />);
         const table = within(screen.getByRole('table'));
 
-        const mappedBadge = table.getByText('secret.create');
+        const mappedBadge = table.getByText('Created');
         expect(mappedBadge).toHaveStyle({ backgroundColor: 'var(--success-subtle)', color: 'var(--success)' });
 
-        const unmappedBadge = table.getByText('unmapped.event');
+        const unmappedBadge = table.getByText('Unmapped event');
         expect(unmappedBadge).toHaveStyle({ backgroundColor: 'var(--bg-muted)', color: 'var(--text-secondary)' });
     });
 
@@ -143,7 +143,7 @@ describe('ProjectActivityTab', () => {
         // are 3 letters ("Jul", "Oct"), but some locales render September as 4 ("Sept") --
         // confirmed failing for real on this exact date (5 days back lands in September) before
         // widening {2} to {2,3}, not a hypothetical.
-        expect(table.getByText(/^(\d{1,2} [A-Z][a-z]{2,3}|[A-Z][a-z]{2,3} \d{1,2})$/)).toBeInTheDocument();
+        expect(table.getByText(/^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s?[AP]M [A-Z]/)).toBeInTheDocument();
     });
 
     it('hides pagination controls when there is only one page', () => {

@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/datetime';
 import React from 'react';
 import {
     useSystemInfo,
@@ -7,6 +8,7 @@ import {
     parseUptime,
 } from '../../features/dashboard';
 import { Spinner } from '../../components/ui';
+import { isKnownBuildValue } from '../../utils/buildInfo';
 
 const formatBytes = (bytes: number): string => {
     if (!bytes) return '0 B';
@@ -18,13 +20,7 @@ const formatBytes = (bytes: number): string => {
 
 const formatLastGC = (nanosSinceEpoch: number): string => {
     if (!nanosSinceEpoch) return '—';
-    return new Intl.DateTimeFormat('en', {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-    }).format(new Date(nanosSinceEpoch / 1e6));
+    return formatDateTime(new Date(nanosSinceEpoch / 1e6), { seconds: true });
 };
 
 interface SectionProps {
@@ -132,15 +128,26 @@ export const SystemHealthPage: React.FC = () => {
                             </div>
                         </div>
                         <Row label="Uptime" value={parseUptime(metrics.uptime ?? sysInfo.uptime)} />
-                        <Row label="Environment" value={sysInfo.environment || '—'} />
+                        {isKnownBuildValue(sysInfo.environment) && (
+                            <Row label="Environment" value={sysInfo.environment} />
+                        )}
                     </Section>
 
                     <Section title="Server">
-                        <Row label="Version" value={sysInfo.version || '—'} />
-                        <Row label="Git commit" value={sysInfo.git_commit ? sysInfo.git_commit.slice(0, 12) : '—'} />
+                        <Row
+                            label="Version"
+                            value={
+                                isKnownBuildValue(sysInfo.version) ? sysInfo.version : 'Development build (unstamped)'
+                            }
+                        />
+                        {isKnownBuildValue(sysInfo.git_commit) && (
+                            <Row label="Git commit" value={sysInfo.git_commit.slice(0, 12)} />
+                        )}
                         <Row label="Go version" value={sysInfo.go_version || '—'} />
                         <Row label="OS / Arch" value={`${sysInfo.os || '—'} / ${sysInfo.arch || '—'}`} />
-                        <Row label="Build time" value={sysInfo.build_time || '—'} />
+                        {isKnownBuildValue(sysInfo.build_time) && (
+                            <Row label="Build time" value={formatDateTime(sysInfo.build_time)} />
+                        )}
                     </Section>
 
                     <Section
@@ -148,8 +155,13 @@ export const SystemHealthPage: React.FC = () => {
                         note="Live connection and query metrics aren't instrumented on the server yet."
                     >
                         <Row label="Type" value={sysInfo.database?.type || '—'} />
-                        <Row label="Max connections" value={sysInfo.database?.pool?.max_connections ?? '—'} />
-                        <Row label="Idle connections" value={sysInfo.database?.pool?.idle_connections ?? '—'} />
+                        {/* A pool of 0/0/0 means the server does not report pool stats, not that there are no connections. */}
+                        {(sysInfo.database?.pool?.max_connections ?? 0) > 0 && (
+                            <>
+                                <Row label="Max connections" value={sysInfo.database.pool.max_connections} />
+                                <Row label="Idle connections" value={sysInfo.database.pool.idle_connections} />
+                            </>
+                        )}
                     </Section>
 
                     <Section title="Memory & runtime">

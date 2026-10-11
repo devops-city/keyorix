@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/datetime';
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import {
@@ -50,7 +51,7 @@ const TABS = [
 function formatDate(value?: string | null): string {
     if (!value) return '—';
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+    return Number.isNaN(d.getTime()) ? '—' : formatDateTime(d);
 }
 
 // ── Basic Info ──────────────────────────────────────────────────────────────

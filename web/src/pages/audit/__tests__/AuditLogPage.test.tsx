@@ -486,7 +486,7 @@ describe('AuditLogPage — unmapped event types, missing fields, and invalid tim
         render(<AuditLogPage />);
 
         const table = within(screen.getByRole('table'));
-        expect(table.getByText('custom.unmapped')).toBeInTheDocument();
+        expect(table.getByText('Custom unmapped')).toBeInTheDocument();
         expect(table.getByText('not-a-real-date')).toBeInTheDocument();
     });
 

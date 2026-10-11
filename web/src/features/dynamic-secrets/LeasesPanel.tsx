@@ -1,3 +1,4 @@
+import { formatDateTime } from '../../utils/datetime';
 import React, { useState } from 'react';
 import { KeyIcon, NoSymbolIcon } from '@heroicons/react/24/outline';
 import { Button } from '../../components/ui/Button';
@@ -120,9 +121,7 @@ export const LeasesPanel: React.FC<{ configId: number; canManage: boolean }> = (
                             {l.roleName || l.leaseId}
                         </span>
                         {l.expiresAt && (
-                            <span style={{ color: 'var(--text-muted)' }}>
-                                · expires {new Date(l.expiresAt).toLocaleString()}
-                            </span>
+                            <span style={{ color: 'var(--text-muted)' }}>· expires {formatDateTime(l.expiresAt)}</span>
                         )}
                         {/* A failed revoke means the credential is STILL LIVE upstream (see
                             CountActiveLeases/ListExpiredActiveLeases treating revoke_failed as
@@ -246,7 +245,7 @@ export const LeasesPanel: React.FC<{ configId: number; canManage: boolean }> = (
                                     ))}
                             {credential.expiresAt && (
                                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                    Expires {new Date(credential.expiresAt).toLocaleString()}
+                                    Expires {formatDateTime(credential.expiresAt)}
                                 </p>
                             )}
                         </>

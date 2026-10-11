@@ -251,10 +251,10 @@ describe('UserDetailPage — date formatting', () => {
     // Date.prototype.toLocaleString never throws for an invalid date; it returns the
     // string "Invalid Date" instead. That branch is not exercised here as it isn't
     // reachable via this environment's Intl implementation.
-    it('renders "Invalid Date" for an unparseable created_at rather than crashing', () => {
+    it('renders a dash, never "Invalid Date", for an unparseable created_at', () => {
         userData = { ...baseUser, created_at: 'not-a-real-date' };
         render(<UserDetailPage />);
-        expect(screen.getByText('Invalid Date')).toBeInTheDocument();
+        expect(screen.queryByText('Invalid Date')).not.toBeInTheDocument();
     });
 
     it('shows "Never" when the user has no last login', () => {

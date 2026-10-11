@@ -322,7 +322,7 @@ describe('SecretDetailView recent access', () => {
         mockAccessLog = [{ accessed_by: '', access_time: '2026-06-18T10:00:00Z', action: 'read', ip_address: '' }];
         render(<SecretDetailView secret={makeSecret()} />);
         expect(screen.getByText('unknown')).toBeInTheDocument();
-        expect(screen.getByText('read')).toBeInTheDocument();
+        expect(screen.getByText('Read')).toBeInTheDocument();
     });
 
     it('shows relative times across the today/yesterday/days/months/years ranges', () => {
@@ -447,7 +447,7 @@ describe('SecretDetailView history', () => {
             },
         ];
         render(<SecretDetailView secret={makeSecret()} />);
-        expect(screen.getByText('custom thing')).toBeInTheDocument();
+        expect(screen.getByText('Custom thing')).toBeInTheDocument();
     });
 });
 

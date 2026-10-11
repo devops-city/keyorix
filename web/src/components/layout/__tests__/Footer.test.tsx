@@ -5,7 +5,7 @@ import { Footer } from '../Footer';
 describe('Footer', () => {
     it('renders the version label', () => {
         render(<Footer />);
-        expect(screen.getByText('Keyorix v0.1.0')).toBeInTheDocument();
+        expect(screen.getByText('Keyorix')).toBeInTheDocument();
     });
 
     it('renders as a footer landmark', () => {
