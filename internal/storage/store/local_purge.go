@@ -263,6 +263,14 @@ func (ls *LocalStorage) PurgeDeletedSecretsBefore(ctx context.Context, before ti
 				Select("id").
 				Where("id IN ? AND deleted_at IS NOT NULL", ids)
 		}
+		// #3085: every mutable row that references the secret or one of its
+		// versions goes first (children before parents), so the purge leaves no
+		// orphan for restore's dangling-reference check to refuse. audit_events
+		// and the access_review_items snapshot are deliberately NOT here: they
+		// are historical references (see local_purge_secret_refs.go).
+		if e := purgeSecretReferences(tx, stillEligible); e != nil {
+			return e
+		}
 		if e := tx.Where("secret_node_id IN (?)", stillEligible()).Delete(&models.SecretVersion{}).Error; e != nil {
 			return e
 		}

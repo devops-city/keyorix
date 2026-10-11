@@ -1015,7 +1015,7 @@ func TestLogAuditEvent_MissingTable(t *testing.T) {
 
 func newPurgeStore(t *testing.T) *LocalStorage {
 	t.Helper()
-	return newMaxStore(t, "purge_"+t.Name(),
+	return newMaxStore(t, "purge_"+t.Name(), append([]any{
 		&models.User{}, &models.UserRole{}, &models.UserGroup{},
 		&models.ShareRecord{}, &models.SecretACL{}, &models.PersonalAccessToken{}, &models.Session{},
 		&models.Project{}, &models.Environment{},
@@ -1026,7 +1026,7 @@ func newPurgeStore(t *testing.T) *LocalStorage {
 		&models.BreakGlassActivation{},
 		&models.AccessRequest{}, &models.AccessRequestApproval{},
 		&models.DynamicSecretConfig{},
-	)
+	}, secretPurgeCascadeModels()...)...)
 }
 
 // PurgeDeletedUsersBefore — nothing to purge.

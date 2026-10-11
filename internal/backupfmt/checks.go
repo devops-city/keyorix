@@ -52,6 +52,9 @@ func CheckDanglingReferences(db *gorm.DB, models []any) ([]DanglingReference, er
 
 	var out []DanglingReference
 	for _, e := range edges {
+		if isHistoricalReference(e.ChildTable, e.ChildColumn) {
+			continue // named allow list, historical_refs.go (#3085)
+		}
 		// #nosec G201 -- table/column names come from referenceEdges(), which
 		// resolves them via gorm schema.Parse against storage.AllModels()'s
 		// compiled-in Go structs, never from archive or request content.

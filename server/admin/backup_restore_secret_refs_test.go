@@ -155,11 +155,13 @@ func TestAdminBackupRestore_SecretScopedRowsRestore(t *testing.T) {
 // with a SecretID column, a row pointing at a secret that does not exist
 // makes restore refuse, naming the table and secret_nodes. An MFA secret
 // with that same id exists, which is what made restore accept these rows
-// before #3078's fix.
+// before #3078's fix. access_review_items is not here: its secret_id is a
+// historical reference (backupfmt.HistoricalReferences, #3085) that a purge
+// leaves in place, so restore accepts it.
 func TestAdminBackupRestore_RefusesDanglingSecretReference(t *testing.T) {
 	const missingSecretID = 999
 	for _, table := range []string{
-		"share_records", "secret_acls", "access_requests", "secret_version_comments", "access_review_items",
+		"share_records", "secret_acls", "access_requests", "secret_version_comments",
 	} {
 		t.Run(table, func(t *testing.T) {
 			db, seed := openSecretRefsSource(t)

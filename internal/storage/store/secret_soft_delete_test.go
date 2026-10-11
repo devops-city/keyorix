@@ -23,7 +23,7 @@ func newSoftDeleteTestStore(t *testing.T) *LocalStorage {
 	sqlDB.SetMaxOpenConns(1)
 	// #370: DeleteSecret revokes ShareRecord rows in the same transaction as the
 	// secret's own soft-delete.
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.SecretNode{}, &models.SecretVersion{}, &models.Environment{}, &models.SecretDependency{}, &models.ShareRecord{}, &models.SecretACL{}))
+	require.NoError(t, db.AutoMigrate(append([]any{&models.Project{}, &models.SecretNode{}, &models.SecretVersion{}, &models.Environment{}, &models.SecretDependency{}, &models.ShareRecord{}, &models.SecretACL{}}, secretPurgeCascadeModels()...)...))
 	return NewLocalStorage(db)
 }
 

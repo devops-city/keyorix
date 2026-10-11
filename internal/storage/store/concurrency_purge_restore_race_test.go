@@ -47,8 +47,8 @@ func TestConcurrency_PurgeDeletedSecretsBefore_RestoreWinsRace(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretDependency{}, &models.SecretACL{}))
+	require.NoError(t, db.AutoMigrate(append([]any{&models.Project{}, &models.Environment{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretDependency{}, &models.SecretACL{}}, secretPurgeCascadeModels()...)...))
 	ls := NewLocalStorage(db)
 	ctx := context.Background()
 

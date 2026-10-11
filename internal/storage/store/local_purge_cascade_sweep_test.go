@@ -123,31 +123,34 @@ func newPurgeSecretsFixture(t *testing.T, extraModels ...any) *LocalStorage {
 
 func TestPurgeDeletedSecretsBefore_SecretVersionDeleteFails(t *testing.T) {
 	t.Parallel()
-	ls := newPurgeSecretsFixture(t)
+	// Every cascade table exists, so the cascade succeeds and the failure is the
+	// secret_versions delete the test is named for, not a missing cascade table.
+	ls := newPurgeSecretsFixture(t, secretPurgeCascadeModels()...)
 	_, err := ls.PurgeDeletedSecretsBefore(context.Background(), time.Now())
-	require.Error(t, err)
+	require.ErrorContains(t, err, "secret_versions")
 }
 
 func TestPurgeDeletedSecretsBefore_SecretDependencyDeleteFails(t *testing.T) {
 	t.Parallel()
-	ls := newPurgeSecretsFixture(t, &models.SecretVersion{})
+	ls := newPurgeSecretsFixture(t, append([]any{&models.SecretVersion{}}, secretPurgeCascadeModels()...)...)
 	_, err := ls.PurgeDeletedSecretsBefore(context.Background(), time.Now())
 	require.Error(t, err)
 }
 
 func TestPurgeDeletedSecretsBefore_SecretACLDeleteFails(t *testing.T) {
 	t.Parallel()
-	ls := newPurgeSecretsFixture(t, &models.SecretVersion{}, &models.SecretDependency{})
+	ls := newPurgeSecretsFixture(t, append([]any{&models.SecretVersion{}, &models.SecretDependency{}}, secretPurgeCascadeModels()...)...)
 	_, err := ls.PurgeDeletedSecretsBefore(context.Background(), time.Now())
 	require.Error(t, err)
 }
 
 func TestPurgeDeletedSecretsBefore_FinalSecretNodeDeleteFails(t *testing.T) {
 	t.Parallel()
-	ls := newPurgeSecretsFixture(t, &models.SecretVersion{}, &models.SecretDependency{}, &models.SecretACL{})
+	ls := newPurgeSecretsFixture(t, append([]any{&models.SecretVersion{}, &models.SecretDependency{}, &models.SecretACL{}}, secretPurgeCascadeModels()...)...)
 
-	// 3 delete-family statements precede the final SecretNode delete.
-	dropTableAfterDeletes(t, ls.db, 3, "secret_nodes")
+	// The reference cascade (#3085) plus 3 delete-family statements precede the
+	// final SecretNode delete.
+	dropTableAfterDeletes(t, ls.db, SecretPurgeStatementCount()+3, "secret_nodes")
 
 	_, err := ls.PurgeDeletedSecretsBefore(context.Background(), time.Now())
 	require.Error(t, err)
