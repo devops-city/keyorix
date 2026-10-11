@@ -10,8 +10,9 @@ on:
   # CodeQL's built-in go/zipslip DOES flag it (verified by running this
   # workflow on the pre-fix commit: alert at internal/backupfmt/reader.go,
   # traced into the stageFile helper, which free Semgrep cannot do). To keep
-  # the runner cost down, on pull_request: the JS/TS leg never runs (it still
-  # runs on merge_group/push/schedule), each Go leg runs only when its own
+  # the runner cost down, on pull_request: the JS/TS leg runs only when the PR
+  # touches web/** (see `web_changed`, added 2026-10-11; it always runs on
+  # merge_group/push/schedule), each Go leg runs only when its own
   # module's Go code changed (see the `changes` job), and a new push to the
   # PR cancels the in-flight run (concurrency below). The upload also
   # produces GitHub's "Code scanning results / CodeQL" check on the PR, which
@@ -95,6 +96,10 @@ jobs:
       root_go_changed: ${{ steps.filter.outputs.root_go_changed }}
       # pull_request only: same, for the separate operator/ module.
       operator_go_changed: ${{ steps.filter.outputs.operator_go_changed }}
+      # pull_request only: true when the PR changes anything under web/. Always
+      # true for every other event, so merge_group/push/schedule keep their full
+      # JS/TS scan unchanged.
+      web_changed: ${{ steps.filter.outputs.web_changed }}
     steps:
       - name: Detect docs-only / go-unaffected / operator-only changes
         id: filter
@@ -108,6 +113,7 @@ jobs:
               echo "operator_only=false"
               echo "root_go_changed=true"
               echo "operator_go_changed=true"
+              echo "web_changed=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -146,6 +152,12 @@ jobs:
             echo "operator_go_changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "operator_go_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          # JS/TS leg: only a PR that touches web/** (an empty list fails safe).
+          if [ -z "$changed" ] || echo "$changed" | grep -qE '^web/'; then
+            echo "web_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "web_changed=false" >> "$GITHUB_OUTPUT"
           fi
 
   # Was a single matrixed `analyze` job (server + operator legs). Split into
@@ -257,9 +269,10 @@ jobs:
   analyze-web:
     name: Analyze (javascript-typescript)
     needs: [changes]
-    # Never on pull_request (Go-only there, runner-cost decision 2026-09-29);
-    # still runs on merge_group/push/schedule.
-    if: github.event_name != 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    # On pull_request only when the PR touches web/** (web_changed, decided
+    # 2026-10-11): web PRs get a new-alert check, other PRs stay Go-only for
+    # runner cost. Always runs on merge_group/push/schedule. Not a required check.
+    if: needs.changes.outputs.web_changed == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
