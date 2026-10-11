@@ -126,6 +126,21 @@ web:
   # these same-origin (served by this same nginx) and needs no entry here. Empty by
   # default: no cross-origin API access unless explicitly opted in.
   corsAllowedOrigins: []
+  # trustedProxies lists the IPs/CIDRs of the load balancer / ingress controller
+  # that terminates TLS in front of the web pod, as the web nginx sees them (the TCP
+  # peer; with an ingress controller that is the controller pod network, not the
+  # cloud LB). Keep it equal to the server's http.trusted_proxies. The web nginx
+  # sends Strict-Transport-Security ONLY for a request from one of these peers that
+  # carries X-Forwarded-Proto=https; it never trusts that header from any other
+  # client and never sends HSTS over plain http. Empty (default): nothing is
+  # trusted, so no HSTS is sent by this layer.
+  trustedProxies: []
+  hsts:
+    # auto: send HSTS iff trustedProxies is non-empty. on: same, but fail the
+    # render if trustedProxies is empty. off: never send HSTS from the web nginx.
+    mode: auto
+    maxAge: 31536000
+    includeSubDomains: true
 
 # ── Ingress (for the web UI) ──────────────────────────────────────────────────
 ingress:

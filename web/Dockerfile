@@ -48,6 +48,12 @@ RUN pnpm build
 FROM nginx:alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3 AS production
 RUN apk update && apk add --no-cache --upgrade libuuid=2.42.3-r1 libexpat=2.8.5-r0
 COPY nginx.conf /etc/nginx/nginx.conf
+# HSTS-behind-a-load-balancer policy: nginx-hsts.conf is the "no trusted proxy,
+# no HSTS" default; docker-entrypoint.d/40-keyorix-hsts.sh regenerates it at start
+# from KEYORIX_WEB_TRUSTED_PROXIES (see docs/SELF_HOSTING.md), so the directory
+# must be writable by uid 101.
+COPY nginx-hsts.conf /etc/nginx/keyorix/nginx-hsts.conf
+COPY --chmod=0755 docker-entrypoint.d/40-keyorix-hsts.sh /docker-entrypoint.d/40-keyorix-hsts.sh
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # busybox wget ships in nginx:alpine; curl does not. 127.0.0.1, not localhost:
@@ -75,7 +81,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # log files under /var/log/nginx rather than the base image's default
 # symlink-to-stdout/stderr setup, so both need to be writable by uid 101
 # before dropping to it.
-RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /run /etc/nginx/keyorix
 USER 101
 
 EXPOSE 80

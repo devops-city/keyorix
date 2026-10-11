@@ -76,9 +76,15 @@ add_header (CORS, Cache-Control, health-check Content-Type) for other
 purposes, which would otherwise strip all of these from those responses. This
 template is the single source of truth; every location block that defines its
 own add_header must also include this so the headers still apply there.
+
+Strict-Transport-Security is NOT unconditional: this nginx listens on plain http
+(port 80), TLS terminates at the Ingress / load balancer in front of it, and HSTS
+sent over http:// is wrong (DEMO-WALK-3 finding 23, same as web/nginx.conf).
+$keyorix_hsts (see keyorix.web.hsts below, rendered in web-config.yaml) is
+non-empty only for a request from a web.trustedProxies peer that carries
+X-Forwarded-Proto=https; add_header omits the header when it is empty.
 */}}
 {{- define "keyorix.web.securityHeaders" -}}
-add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 add_header X-Frame-Options "DENY" always;
 add_header X-Content-Type-Options "nosniff" always;
 add_header X-XSS-Protection "1; mode=block" always;
@@ -87,4 +93,43 @@ add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style
 add_header Cross-Origin-Resource-Policy "same-origin" always;
 add_header Cross-Origin-Embedder-Policy "require-corp" always;
 add_header Cross-Origin-Opener-Policy "same-origin" always;
+add_header Strict-Transport-Security $keyorix_hsts always;
+{{- end -}}
+
+{{/*
+geo/map defining $keyorix_trusted_proxy and $keyorix_hsts (http context). Mirrors
+web/nginx-hsts.conf + web/docker-entrypoint.d/40-keyorix-hsts.sh for the compose
+image. Values are validated here because they land in nginx config unquoted.
+*/}}
+{{- define "keyorix.web.hsts" -}}
+{{- $mode := default "auto" .Values.web.hsts.mode -}}
+{{- if not (has $mode (list "auto" "on" "off")) -}}
+{{- fail (printf "web.hsts.mode must be auto, on or off (got %q)" $mode) -}}
+{{- end -}}
+{{- if not (regexMatch "^[0-9]+$" (toString (int64 .Values.web.hsts.maxAge))) -}}
+{{- fail "web.hsts.maxAge must be a number of seconds" -}}
+{{- end -}}
+{{- range .Values.web.trustedProxies -}}
+{{- if not (regexMatch "^[0-9a-fA-F:.]+(/[0-9]{1,3})?$" (toString .)) -}}
+{{- fail (printf "web.trustedProxies: %q is not an IP or CIDR" (toString .)) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (eq $mode "on") (not .Values.web.trustedProxies) -}}
+{{- fail "web.hsts.mode=on needs web.trustedProxies (HSTS is only sent for a trusted TLS-terminating proxy)" -}}
+{{- end -}}
+{{- $enabled := and (ne $mode "off") (gt (len .Values.web.trustedProxies) 0) -}}
+geo $keyorix_trusted_proxy {
+  default 0;
+{{- if $enabled }}
+{{- range .Values.web.trustedProxies }}
+  {{ toString . }} 1;
+{{- end }}
+{{- end }}
+}
+map "$keyorix_trusted_proxy:$http_x_forwarded_proto" $keyorix_hsts {
+  default "";
+{{- if $enabled }}
+  "~*^1:https$" "max-age={{ int64 .Values.web.hsts.maxAge }}{{ if .Values.web.hsts.includeSubDomains }}; includeSubDomains{{ end }}";
+{{- end }}
+}
 {{- end -}}

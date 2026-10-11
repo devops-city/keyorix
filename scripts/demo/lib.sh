@@ -83,6 +83,19 @@ demo_totp_code() {
   DEMO_CODE="$("$TOTPGEN_BIN" "$secret" "$offset")"
 }
 
+# demo_totp_last_step SECRET — prints the last 30 s step this tooling spent for the
+# secret (0 if none), so a different process (the Playwright UI walk) can wait for
+# a strictly later step instead of replaying a code the server already accepted.
+demo_totp_last_step() {
+  local secret="$1" last_var last file_last
+  last_var="DEMO_LAST_TOTP_STEP_${secret}"
+  last="${!last_var:-0}"
+  file_last="$(cat "${DEMO_STEP_DIR:-.demo-2-cli-home}/.totp-step-$(printf '%s' "$secret" | cksum | cut -d' ' -f1)" 2>/dev/null || echo 0)"
+  case "$file_last" in ''|*[!0-9]*) file_last=0 ;; esac
+  [ "$file_last" -gt "$last" ] && last="$file_last"
+  printf '%s' "$last"
+}
+
 # demo_login_mfa BASE_URL USER PASSWORD [TOTP_SECRET]
 # Logs in over the API; if the account is challenged for a second factor, answers
 # it with TOTP_SECRET. Sets DEMO_TOKEN (empty + non-zero return on failure, with

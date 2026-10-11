@@ -19,9 +19,14 @@
 // navigations inside a single test matches how the real UI is actually
 // used and avoids manufacturing a login burst no real user would produce.
 import { test, expect, Page } from '@playwright/test';
+import { waitForFreshTotpCode } from './helpers';
 
 const ADMIN_USERNAME = process.env.KEYORIX_E2E_ADMIN_USERNAME;
 const ADMIN_PASSWORD = process.env.KEYORIX_E2E_ADMIN_PASSWORD;
+// Optional: set by scripts/demo/check.sh when the admin has TOTP enrolled. Read
+// from the environment only; never logged or put in a test title/attachment.
+const ADMIN_TOTP_SECRET = process.env.KEYORIX_E2E_ADMIN_TOTP_SECRET;
+let lastTotpStep = Number(process.env.KEYORIX_E2E_ADMIN_TOTP_LAST_STEP || 0) || 0;
 
 if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
     throw new Error(
@@ -39,16 +44,35 @@ async function submitLogin(page: Page) {
     await page.getByTestId('username-input').fill(ADMIN_USERNAME as string);
     await page.getByTestId('password-input').fill(ADMIN_PASSWORD as string);
     await page.getByTestId('login-button').click();
+    if (ADMIN_TOTP_SECRET) {
+        // scripts/demo/check.sh runs this against the MFA-enrolled demo admin:
+        // answer the second-factor step with a code for a step strictly later
+        // than any the account already spent (anti-replay is one counter per
+        // account, shared by every login in this file).
+        const codeInput = page.getByPlaceholder('123456');
+        await expect(codeInput).toBeVisible({ timeout: 10_000 });
+        const next = await waitForFreshTotpCode(page, ADMIN_TOTP_SECRET, lastTotpStep);
+        lastTotpStep = next.step;
+        await codeInput.fill(next.code);
+        await page.getByRole('button', { name: /verify/i }).click();
+    }
     await page.waitForURL('/dashboard', { timeout: 15_000 });
 }
 
-// realLogin is submitLogin's convenience wrapper for callers that don't
-// need to observe the /login page's OWN initial load (the page-walk test
-// below) -- it navigates first, then submits.
-async function realLogin(page: Page) {
-    await page.goto('/login');
-    await submitLogin(page);
-}
+// ONE login for the whole file: the three tests run serially in one shared
+// browser page, and only the first one logs in. Per-test logins cost a login
+// attempt each against the per-IP budget (10 per 15 min, #2956), which
+// scripts/demo/check.sh's earlier steps have already partly spent -- with the
+// MFA-enrolled demo admin a third UI login ran out of it.
+test.describe.configure({ mode: 'serial' });
+let shared: Page;
+test.beforeAll(async ({ browser }, testInfo) => {
+    const context = await browser.newContext({ baseURL: testInfo.project.use.baseURL });
+    shared = await context.newPage();
+});
+test.afterAll(async () => {
+    await shared.context().close();
+});
 
 // watchPage wires up the two listeners every page-load assertion below
 // needs, returning the accumulating arrays directly -- a test resets them
@@ -81,7 +105,11 @@ function watchPage(page: Page) {
     return { consoleErrors, failedRequests };
 }
 
-test('logs in successfully and lands on the real dashboard', async ({ page }) => {
+test('logs in successfully and lands on the real dashboard', async () => {
+    // Waiting for the next unspent 30 s TOTP step can take most of the default
+    // 30 s test timeout on its own.
+    if (ADMIN_TOTP_SECRET) test.setTimeout(120_000);
+    const page = shared;
     await page.goto('/login');
     watchPage(page); // still wired up so a genuinely new failure mode shows up in a trace/screenshot, just not asserted below -- see the two known, non-blocking races this comment documents.
     await submitLogin(page);
@@ -137,11 +165,12 @@ const PAGES: Array<[string, string]> = [
     ['settings (appearance)', '/settings/appearance'],
 ];
 
-test('every main page loads with no console errors or failed API calls (single session)', async ({ page }) => {
+test('every main page loads with no console errors or failed API calls (single session)', async () => {
+    const page = shared; // already logged in by the first test
     const { consoleErrors, failedRequests } = watchPage(page);
-    await realLogin(page);
-    // The login page-load itself may have produced noise (e.g. a harmless
-    // dev-only Vite HMR message) -- reset both trackers right after login so
+    await page.goto('/dashboard');
+    // The page-load itself may have produced noise (e.g. a harmless
+    // dev-only Vite HMR message) -- reset both trackers right after it so
     // each page assertion below is scoped to that page's own navigation.
     consoleErrors.length = 0;
     failedRequests.length = 0;
@@ -176,8 +205,8 @@ test('every main page loads with no console errors or failed API calls (single s
 // legacy-service-accounts.md) -- its page and API client were deleted, but
 // an old bookmark/link to either admin URL must redirect to Machine
 // Identities, not 404 or dead-end silently.
-test('old service-accounts and api-tokens URLs redirect to Machine Identities', async ({ page }) => {
-    await realLogin(page);
+test('old service-accounts and api-tokens URLs redirect to Machine Identities', async () => {
+    const page = shared; // still the session from the first test
 
     for (const oldPath of ['/admin/service-accounts', '/admin/api-tokens']) {
         await page.goto(oldPath);

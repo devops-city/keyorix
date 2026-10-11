@@ -41,6 +41,9 @@ data:
         {{- end }}
       }
 
+      # HSTS only behind a trusted TLS-terminating proxy (web.trustedProxies).
+      {{- include "keyorix.web.hsts" . | nindent 6 }}
+
       # Baseline security headers. NOTE: nginx's add_header does not inherit into
       # any location block that defines its own add_header (see the comment on
       # keyorix.web.securityHeaders in _helpers.tpl) — every location below that
@@ -69,6 +72,18 @@ data:
           proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto $scheme;
+          # The backend adds the same security headers to its own responses
+          # (server/middleware/security_headers.go); drop its copy so the set
+          # added below is the only one (DEMO-WALK-3 finding 23).
+          proxy_hide_header X-Frame-Options;
+          proxy_hide_header X-Content-Type-Options;
+          proxy_hide_header X-XSS-Protection;
+          proxy_hide_header Referrer-Policy;
+          proxy_hide_header Content-Security-Policy;
+          proxy_hide_header Cross-Origin-Resource-Policy;
+          proxy_hide_header Cross-Origin-Embedder-Policy;
+          proxy_hide_header Cross-Origin-Opener-Policy;
+          proxy_hide_header Strict-Transport-Security;
           {{- include "keyorix.web.securityHeaders" . | nindent 10 }}
           add_header Access-Control-Allow-Origin $cors_allowed_origin always;
           add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;

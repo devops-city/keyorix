@@ -11,6 +11,13 @@ that section is the text written before the switch.
 ## Unreleased
 
 ### Security
+- **HSTS behind a TLS-terminating load balancer** (#3058): the web nginx (compose
+  image and Helm chart) sends `Strict-Transport-Security` only for a request from a
+  configured trusted proxy (`KEYORIX_WEB_TRUSTED_PROXIES` / `web.trustedProxies`)
+  that carries `X-Forwarded-Proto: https`; never for direct http, never on the say-so
+  of an untrusted client. On by default once a trusted proxy is configured, off
+  otherwise. See docs/SELF_HOSTING.md §7. Guarded by a real-nginx test
+  (`deploy` `TestWebNginxHSTS_*`).
 - **A database fault during login no longer reveals that the password, TOTP
   code or passkey was correct.** Every login path (password, TOTP, WebAuthn
   second factor, passwordless, re-authentication, MFA step-up) already answered
