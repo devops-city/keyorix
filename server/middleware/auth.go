@@ -89,10 +89,15 @@ type UserContext struct {
 	MachineIdentityType string `json:"-"`
 	// MFAEnabled is true when the user has any second factor enabled (TOTP or a
 	// passkey); SessionAuth is true only for an interactive session token (false for
-	// PAT / machine / OIDC). Together they drive EnforceMFAEnrollment, which must not
-	// confine non-interactive automation.
+	// PAT / machine / OIDC). Together they drive EnforceAccountSetup's MFA step,
+	// which must not confine non-interactive automation.
 	MFAEnabled  bool `json:"-"`
 	SessionAuth bool `json:"-"`
+	// SetupOnly is the authenticating session's models.Session.SetupOnly (#3024):
+	// a session that may only finish account setup, never become a full session.
+	// Read on the slow path with SessionID and cached with the identity (it never
+	// changes for a session row). Drives EnforceAccountSetup.
+	SetupOnly bool `json:"-"`
 	// PATRestriction is the least-privilege filter a personal access token imposes
 	// (ADR-042), or nil for sessions / unrestricted PATs. Cached with the rest of
 	// the identity and tagged onto the request context by buildRequestContext so
@@ -437,37 +442,32 @@ func handleAuthRequest(next http.Handler, w http.ResponseWriter, r *http.Request
 	// impersonation resolution below) get extra slow-path handling.
 	isSessionToken := coreService != nil && !strings.HasPrefix(token, patTokenPrefix) && !strings.HasPrefix(token, machineTokenPrefix) && !looksLikeJWT(token)
 
-	// Resolve impersonation once, on the slow path, so it is cached with the identity.
-	if isSessionToken {
-		userCtx.ImpersonatedBy = coreService.SessionImpersonator(r.Context(), token)
-		// #G18 (mirrors the gRPC interceptor's identical pattern, server/grpc/
-		// interceptors/auth.go): capture the session's own row id so the cache-hit
-		// path can re-verify THIS SPECIFIC session is still live, not just the
-		// owning account (see UserContext.SessionID, serveAuthCacheHit). For an
-		// impersonation token this naturally resolves to the impersonation
-		// session's own row -- GetSession looks up whatever row the PRESENTED
-		// token hashes to, impersonation or not. Degrades to nil, not a request
-		// failure, on a lookup error: the token was already validated one line
-		// above by validateToken, so a second lookup failing here means a rare
-		// race with a concurrent revoke, not a real problem with this request --
-		// serveAuthCacheHit's nil-SessionID fallback (account-state-only) is
-		// exactly pre-fix behavior, not a new failure mode.
-		if sess, sessErr := coreService.Storage().GetSession(r.Context(), token); sessErr == nil {
-			id := sess.ID
-			userCtx.SessionID = &id
-		}
-	}
-
-	// F-TOK-1: clamp the positive cache entry to the session's own expiry. The session
-	// cache-hit branch (serveAuthCacheHit) re-checks only account state, NOT the session's
-	// ExpiresAt/AbsoluteExpiresAt — unlike the PAT/machine branches, which re-check expiry
-	// on every hit. Without this clamp an expired session would keep authenticating on cache
-	// hits for the rest of validTokenTTL. Clamping makes the entry expire with the session,
-	// forcing a slow-path re-validation (which DOES reject an expired session) at that point.
-	// Resolved on the slow path only — no per-hit cost. (2026-09-14 review.)
+	// Session tokens: every per-session fact (impersonation, the row id for
+	// #G18's cache-hit liveness re-check, the #3024 setup-only flag, the F-TOK-1
+	// expiry clamp) comes from ONE read of the session row, resolved on the slow
+	// path and cached with the identity. Fail closed if that read fails (#3041
+	// review): each fact restricts the caller, so defaulting them (not
+	// impersonating, not setup-only, no expiry clamp) and caching the result
+	// would serve a setup-only session racing its own revocation with full
+	// access. Like a transient validation failure: 503, nothing cached, no strike
+	// against the IP's brute-force budget; core logs and audits the refusal.
 	cacheExpiry := time.Now().Add(validTokenTTL)
 	if isSessionToken {
-		cacheExpiry = clampCacheExpiry(cacheExpiry, coreService.SessionEffectiveExpiry(r.Context(), token))
+		facts, err := coreService.ResolveSessionAuthFacts(r.Context(), userCtx.UserID, token, "http")
+		if err != nil {
+			serviceUnavailableResponse(w, "authentication temporarily unavailable, please retry")
+			return
+		}
+		id := facts.SessionID
+		userCtx.SessionID = &id
+		userCtx.SetupOnly = facts.SetupOnly
+		userCtx.ImpersonatedBy = facts.ImpersonatedBy
+		// F-TOK-1: clamp the positive cache entry to the session's own expiry. The
+		// session cache-hit branch (serveAuthCacheHit) re-checks only account state
+		// and liveness, NOT the session's ExpiresAt/AbsoluteExpiresAt, so without the
+		// clamp an expired session would keep authenticating on cache hits for the
+		// rest of validTokenTTL. (2026-09-14 review.)
+		cacheExpiry = clampCacheExpiry(cacheExpiry, facts.EffectiveExpiry)
 	}
 
 	// Cache the positive result (race-safe: dropped if revoked mid-validation).
@@ -529,7 +529,7 @@ func isTransientValidationError(ctx context.Context, err error) bool {
 // cloneUserContextWithAccountState) so a transition into a
 // restricted-but-not-blocked state (pending_first_login/password_reset_required
 // — AccountRestricted and AccountLoginBlocked are NOT the same predicate, see
-// AccountRestricted's doc comment) is visible to EnforceAccountRestriction
+// AccountRestricted's doc comment) is visible to EnforceAccountSetup
 // immediately, not only once that state-change's own cache eviction lands;
 // and, as of the session-revoke-cache-race fix
 // (docs/findings/2026-09-20-FINDING-session-revoke-cache-race.md), whether the
@@ -907,84 +907,134 @@ func RequirePermission(permission string) func(next http.Handler) http.Handler {
 	return RequireScopedPermission(permission, ScopeGlobal)
 }
 
-// restrictedAllowedSuffixes are the only endpoints a restricted (must-change-
-// password) session may reach, beyond logout (registered at the root router).
-var restrictedAllowedSuffixes = []string{
-	"/auth/change-password",
-	"/auth/profile",
+// setupStepRoutes are the only "METHOD /path" endpoints each pending setup step
+// opens (#3024). A session owing setup steps may reach the union of its pending
+// steps' routes plus setupAlwaysAllowedRoutes, and nothing else; logout and
+// refresh are registered at the root router, outside this gate. Matched exactly
+// on method and full path, never by suffix or prefix.
+var setupStepRoutes = map[string][]string{
+	core.SetupStepChangePassword: {
+		"POST /api/v1/auth/change-password",
+	},
+	core.SetupStepEnrollMFA: {
+		"POST /api/v1/auth/mfa/enroll",
+		"POST /api/v1/auth/mfa/activate",
+		"POST /api/v1/auth/webauthn/register/begin",
+		"POST /api/v1/auth/webauthn/register/finish",
+		"GET /api/v1/auth/webauthn/credentials",
+	},
 }
 
-// EnforceAccountRestriction blocks a restricted account (ADR-025
-// pending_first_login / password_reset_required) from every endpoint except the
-// password-change allowlist, returning 403 with a PasswordChangeRequired code so
-// the client redirects to change-password. Applied inside the authenticated API
-// group, after Authentication has populated the user context.
-func EnforceAccountRestriction(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		userCtx := GetUserFromContext(r.Context())
-		if userCtx == nil || !userCtx.Restricted {
-			next.ServeHTTP(w, r)
-			return
+// setupAlwaysAllowedRoutes are reachable whatever is pending: reading the
+// caller's own profile, so a client can show who is signed in and what is owed.
+var setupAlwaysAllowedRoutes = []string{
+	"GET /api/v1/auth/profile",
+}
+
+// SetupAllowedRoutes returns the exact "METHOD /path" set a session owing the
+// given setup steps may reach. Exported for the route-registry guard test.
+func SetupAllowedRoutes(pending []string) map[string]bool {
+	allowed := map[string]bool{}
+	for _, route := range setupAlwaysAllowedRoutes {
+		allowed[route] = true
+	}
+	for _, step := range pending {
+		for _, route := range setupStepRoutes[step] {
+			allowed[route] = true
 		}
-		for _, suffix := range restrictedAllowedSuffixes {
-			if strings.HasSuffix(r.URL.Path, suffix) {
-				next.ServeHTTP(w, r)
-				return
-			}
-		}
-		w.Header().Set(hdrContentType, mimeJSON)
-		w.WriteHeader(http.StatusForbidden)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"error":   "PasswordChangeRequired",
-			"message": "You must change your password before continuing.",
-			"code":    http.StatusForbidden,
-		})
-	})
+	}
+	return allowed
 }
 
-// mfaEnrollAllowedSuffixes are the only endpoints an interactive user who must
-// still enrol MFA (the security.require_mfa policy is on) may reach, beyond logout.
-var mfaEnrollAllowedSuffixes = []string{
-	"/auth/mfa/enroll",
-	"/auth/mfa/activate",
-	"/auth/webauthn/register/begin",
-	"/auth/webauthn/register/finish",
-	"/auth/webauthn/credentials",
-	"/auth/profile",
-}
-
-// EnforceMFAEnrollment confines an interactive (session-authenticated) human user
-// who has not enabled MFA to the MFA-enrolment endpoints when the deployment
-// requires MFA (security.require_mfa). Non-interactive credentials — personal
-// access tokens, machine tokens, OIDC — are deliberately exempt so automation is
-// not broken; password-restricted sessions are handled first by
-// EnforceAccountRestriction. Applied after Authentication in the authed group.
-func EnforceMFAEnrollment(requireMFA bool) func(http.Handler) http.Handler {
+// EnforceAccountSetup confines a principal that still owes account-setup steps
+// (core.PendingAccountSetupSteps) to the endpoints of those steps:
+//
+//   - change_password while the account is restricted (ADR-025
+//     pending_first_login / password_reset_required), for any credential;
+//   - enroll_mfa while the deployment requires MFA (security.require_mfa,
+//     ADR-112) and an interactive session's account has no second factor.
+//     Non-interactive credentials (PATs, machine tokens, OIDC) are exempt so
+//     automation is not broken.
+//
+// Both steps pending opens both steps' endpoints, so they can be finished in
+// either order (#3024: the two used to be separate gates that each refused the
+// other's endpoint, which locked a recovered admin out for good). Every other
+// endpoint answers 403 with the pending steps; the error code stays
+// PasswordChangeRequired while a password change is owed, else
+// MFAEnrollmentRequired, which existing clients route on.
+//
+// A session that owes both steps must be a setup-only session
+// (models.Session.SetupOnly): one minted otherwise (e.g. live when an admin
+// forced a reset on a factor-less user) is sent to re-authenticate (401), and
+// its refresh or the next login yields a setup-only session. A setup-only
+// session that owes nothing any more is likewise refused with 401: core revokes
+// it when the last step completes (EndSetupSessionIfComplete), and this is the
+// backstop if that revocation did not land. Applied after Authentication in the
+// authenticated API group.
+func EnforceAccountSetup(requireMFA bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleMFAEnrollmentCheck(next, w, r, requireMFA)
+			handleAccountSetupCheck(next, w, r, requireMFA)
 		})
 	}
 }
 
-func handleMFAEnrollmentCheck(next http.Handler, w http.ResponseWriter, r *http.Request, requireMFA bool) {
+func handleAccountSetupCheck(next http.Handler, w http.ResponseWriter, r *http.Request, requireMFA bool) {
 	userCtx := GetUserFromContext(r.Context())
-	if !requireMFA || userCtx == nil || !userCtx.SessionAuth || userCtx.MFAEnabled {
+	if userCtx == nil {
 		next.ServeHTTP(w, r)
 		return
 	}
-	for _, suffix := range mfaEnrollAllowedSuffixes {
-		if strings.HasSuffix(r.URL.Path, suffix) {
-			next.ServeHTTP(w, r)
-			return
-		}
+	pending := core.PendingAccountSetupSteps(userCtx.Restricted, userCtx.MFAEnabled, userCtx.SessionAuth, requireMFA)
+	// An impersonation session is never a setup session and cannot be refreshed;
+	// it keeps the plain 403 confinement below.
+	if userCtx.SessionAuth && userCtx.ImpersonatedBy == nil &&
+		(userCtx.SetupOnly && len(pending) == 0 || !userCtx.SetupOnly && len(pending) == 2) {
+		reauthenticationRequiredResponse(w, userCtx.SetupOnly)
+		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	if len(pending) == 0 {
+		next.ServeHTTP(w, r)
+		return
+	}
+	if SetupAllowedRoutes(pending)[r.Method+" "+r.URL.Path] {
+		next.ServeHTTP(w, r)
+		return
+	}
+	accountSetupRequiredResponse(w, pending)
+}
+
+func accountSetupRequiredResponse(w http.ResponseWriter, pending []string) {
+	code := "MFAEnrollmentRequired"
+	message := "This deployment requires multi-factor authentication. Enrol MFA to continue."
+	if pending[0] == core.SetupStepChangePassword {
+		code = "PasswordChangeRequired"
+		message = "You must change your password before continuing."
+	}
+	if len(pending) > 1 {
+		message = "Finish account setup before continuing: change your password and enrol a second factor (MFA), in either order."
+	}
+	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusForbidden)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"error":   "MFAEnrollmentRequired",
-		"message": "This deployment requires multi-factor authentication. Enrol MFA to continue.",
-		"code":    http.StatusForbidden,
+		"error":         code,
+		"message":       message,
+		"code":          http.StatusForbidden,
+		"pending_steps": pending,
+	})
+}
+
+func reauthenticationRequiredResponse(w http.ResponseWriter, setupDone bool) {
+	message := "Sign in again to finish account setup."
+	if setupDone {
+		message = "Account setup is complete. Sign in again with your new password and second factor."
+	}
+	w.Header().Set(hdrContentType, mimeJSON)
+	w.WriteHeader(http.StatusUnauthorized)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error":   "ReauthenticationRequired",
+		"message": message,
+		"code":    http.StatusUnauthorized,
 	})
 }
 
@@ -1564,7 +1614,7 @@ func forbiddenResponse(w http.ResponseWriter, message string) {
 // session WITHOUT a second factor and the scoped project requires MFA. The
 // project lookup is skipped unless the caller could actually be subject to the
 // policy, so MFA-backed and non-interactive (PAT / machine / OIDC) callers pay no
-// cost and stay exempt — consistent with EnforceMFAEnrollment. Handlers that
+// cost and stay exempt — consistent with EnforceAccountSetup. Handlers that
 // authorize in-handler (not via RequireScopedPermission) call this too, so the
 // policy is enforced uniformly across every project-scoped path.
 //
@@ -1672,6 +1722,14 @@ func GetCoreServiceFromContext(ctx context.Context) *core.KeyorixCore {
 // Call this on logout to ensure the token is rejected immediately.
 func InvalidateTokenCache(token string) {
 	InvalidateTokenCacheByHash(tokenKey(token))
+}
+
+// ClearTokenCacheForToken is ClearTokenCacheIfCached by raw token: the next
+// request with this token re-validates from storage, without negative-caching
+// a credential that is still valid (a session whose account just became less
+// restricted).
+func ClearTokenCacheForToken(token string) {
+	ClearTokenCacheIfCached(tokenKey(token))
 }
 
 // InvalidateTokenCacheByHash evicts the entry keyed by the token's SHA-256 hash (hex).

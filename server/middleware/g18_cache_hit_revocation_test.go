@@ -38,6 +38,17 @@ func resetTokenCacheG18(raw string) {
 	tokenCacheMu.Unlock()
 }
 
+// seedSessionRow stores the session row a validated session token always has
+// (session_token holds the token's SHA-256 hex). fakeValidator accepts the raw
+// token without one, but the middleware's slow path re-reads the row for the
+// per-session facts and refuses the request when it is missing (#3041 review).
+func seedSessionRow(t *testing.T, db *gorm.DB, raw string, userID uint) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(raw))
+	exp := time.Now().Add(time.Hour)
+	require.NoError(t, db.Create(&models.Session{UserID: userID, SessionToken: hex.EncodeToString(sum[:]), ExpiresAt: &exp}).Error)
+}
+
 func serveG18(handler http.Handler, bearer string) int {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer "+bearer)
@@ -183,6 +194,7 @@ func TestAuthentication_SessionAccountSuspendedAfterCache_DeniedOnCacheHit(t *te
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Session{}))
 	user := &models.User{ID: 1, Username: "admin", Email: "admin@example.com", IsActive: true}
 	require.NoError(t, db.Create(user).Error)
+	seedSessionRow(t, db, validToken, 1)
 
 	coreService := core.NewKeyorixCore(store.NewLocalStorage(db))
 	mw := authenticationWithValidator(fakeValidator{}, coreService)

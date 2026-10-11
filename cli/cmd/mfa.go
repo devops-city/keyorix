@@ -40,7 +40,9 @@ var mfaActivateCmd = &cobra.Command{
 password, and enables MFA. On success it prints one-time-shown recovery codes --
 save them now, they will not be shown again. Activation keeps the current session
 signed in (you just proved the password and a code) and signs out every other
-session for the account; your next "keyorix login" asks for a code.`,
+session for the account; your next "keyorix login" asks for a code. Exception: in
+the setup session after a one-time password (recover-admin, forced reset) under
+security.require_mfa, activating as the last setup step ends that session too.`,
 	RunE: runMFAActivate,
 }
 
@@ -151,7 +153,11 @@ func runMFAActivate(cmd *cobra.Command, args []string) error {
 		return httpStatusError("MFA activation failed", resp.StatusCode(), resp.Body)
 	}
 
-	fmt.Println("MFA enabled. This session stays signed in; other sessions were signed out, and your next \"keyorix login\" asks for a code.")
+	if reauthenticationRequired(resp.Body) {
+		fmt.Println("MFA enabled. Account setup is complete and this session has ended: run \"keyorix login\" with your password and a code.")
+	} else {
+		fmt.Println("MFA enabled. This session stays signed in; other sessions were signed out, and your next \"keyorix login\" asks for a code.")
+	}
 	if codes := resp.JSON200.Data.RecoveryCodes; len(codes) > 0 {
 		fmt.Println()
 		fmt.Println("Save these recovery codes now -- they will not be shown again:")

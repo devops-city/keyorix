@@ -2,7 +2,8 @@
 
 What to do when every admin account is locked out, password-lost, or MFA-lost, and you
 still have shell access to the host running the server. Every command below was run for
-real against a fresh SQLite install while writing this page.
+real against a fresh SQLite install with the shipped config (`security.require_mfa: true`,
+the default) while writing this page (#3024, 2026-10-10).
 
 ## 0. Before you're locked out: generate a recovery key
 
@@ -57,51 +58,108 @@ Expected:
 ```
 Recovered admin account: admin (user id 1).
 Reset: account state, password, MFA enrollment,
-  0 WebAuthn credential(s), login-lockout state, 0 active session(s).
+  0 WebAuthn credential(s), login-lockout state, 1 active session(s).
 
 One-time password (shown once — copy it now, it cannot be retrieved again):
-  _M2vVfCk4K*6%x4v7uKt
-Log in as "admin" with this password; you will be required to set a new one immediately.
+  Qx-Wz+p^+LgF!3sPw33a
+Log in as "admin" with this password. That session lasts at most 15 minutes and can only set a new
+password (keyorix change-password) and enrol a second factor (keyorix mfa enroll + activate), in either
+order. When both are done it ends; log in again with the new password and a code.
 ```
 
 This reactivates the account if it was deactivated, sets a one-time password (printed
-above, shown exactly once — copy it now), clears MFA/WebAuthn enrollment (forcing
-re-enrollment), clears any lockout, and revokes every session belonging to that account.
-It touches nothing else — no other user, role, project, or secret. Every use is written
-to the audit trail and notifies every current admin, whether or not the server happens
-to be running when you do this.
+above, shown exactly once — copy it now), clears MFA/WebAuthn enrollment and the old
+recovery codes (forcing re-enrollment), clears any lockout, and revokes every session
+belonging to that account. It touches nothing else — no other user, role, project, or
+secret. Every use is written to the audit trail (`admin.recover_admin`, naming the host
+user who ran the command) and notifies every current admin, whether or not the server
+happens to be running when you do this.
 
 ## 3. Restart the server, then log in with the one-time password
 
 ```bash
 KEYORIX_CONFIG_PATH=./keyorix.yaml keyorix-server     # the server has no --config flag
-keyorix login --server http://localhost:8080 --username admin --password '_M2vVfCk4K*6%x4v7uKt'
+keyorix login --server http://localhost:8080 --username admin --password 'Qx-Wz+p^+LgF!3sPw33a'
 ```
 
-Expected: `Logged in to http://localhost:8080 as admin.` The account is still
-`password_reset_required`, so every OTHER endpoint returns `403` until you actually
-change it — confirmed live: `keyorix secret list` right after this login returns
-`Error: failed to list secrets: HTTP 403`.
+Expected: `Logged in to http://localhost:8080 as admin.` This is a **setup session**: it
+lasts at most 15 minutes (refreshing does not extend it) and can do exactly two things —
+set a new password and enrol a second factor. Everything else is refused:
 
-> **KNOWN BLOCKER (#3024) with the default `security.require_mfa: true`.** The
-> recovery clears the admin's MFA enrolment (step 2). On a default config the
-> next step then fails: `change-password` returns `MFAEnrollmentRequired`, and
-> `mfa enroll` returns `PasswordChangeRequired` — each waits for the other, so the
-> recovered admin cannot finish. Observed on `main` 12d5dbcb (SQLite). Do not work
-> around it with `require_mfa: false`. Until it is fixed, the way out is to restore
-> a backup taken while the admin still had MFA (`admin restore --allow-rollback`,
-> then sign in with the TOTP code or a recovery code). This page's transcript was
-> recorded before MFA became the default.
+```
+$ keyorix secret list
+Error: failed to list secrets: HTTP 403
+```
 
-## 4. Set a real password
+Over the API the refusal names what is still owed:
+`{"error":"PasswordChangeRequired", ..., "pending_steps":["change_password","enroll_mfa"]}`.
+If the 15 minutes run out, log in again with the same one-time password.
+
+## 4. Enrol a second factor and set a real password (either order)
+
+Enrol TOTP (or, in the web UI, a passkey). The password `mfa activate` asks for is the
+one-time password until you have changed it:
 
 ```bash
-keyorix change-password --current-password '_M2vVfCk4K*6%x4v7uKt' --new-password 'a-real-strong-password-you-choose'
+keyorix mfa enroll        # scan the otpauth:// URI or type the base32 secret into your app
+keyorix mfa activate      # prompts for a code from the app and the account password
 ```
 
-Omit either flag to be prompted for it instead (no terminal echo, and it confirms the new
-password before submitting). Expected: `Password changed. Every other active session for
-this account has been revoked.` From this point on, `keyorix secret list` (and everything
-else) works normally — confirmed live: logging in again with the OLD one-time password now
-returns `401` (it was superseded), and logging in with the new password succeeds with full
-access restored, no longer confined to the password-change allowlist.
+Expected: `MFA enabled. ...` followed by ten recovery codes — save them now, they are
+shown once. The session stays signed in because the password change is still owed.
+
+```bash
+keyorix change-password   # prompts for the current (one-time) password and the new one
+```
+
+Expected:
+
+```
+Password changed. Account setup is complete and this session has ended:
+run "keyorix login" with the new password and a code from your authenticator app.
+```
+
+Changing the password first and enrolling second works the same way; whichever step is
+last ends the session (`mfa activate` then says `Account setup is complete ...`). Omit the
+flags to be prompted (no terminal echo); passing `--current-password`/`--new-password`/
+`--code`/`--password` on the command line works but leaves them in shell history.
+
+## 5. Log in normally, with the second factor
+
+```
+$ keyorix secret list
+Error: failed to list secrets: HTTP 401          # the setup session is gone
+$ keyorix login --server http://localhost:8080 --username admin --password '<new password>'
+Error: this account requires a second factor and there is no terminal to prompt on: pass --mfa-code ...
+$ keyorix login --server http://localhost:8080 --username admin --password '<new password>' --mfa-code 123456
+Logged in to http://localhost:8080 as admin.
+$ keyorix secret list
+Secrets List
+...
+```
+
+(At a terminal, `keyorix login` prompts for the code instead.) The one-time password no
+longer works (`401`). The audit trail shows the whole recovery:
+
+```
+$ keyorix audit logs --limit 8
+EVENT                        DESCRIPTION
+auth.login                   User admin logged in
+mfa.login_verified           user admin passed MFA
+auth.account_setup_completed user 1 finished account setup in a setup-only session (both setup steps are done); ...
+auth.password_changed        user 1 changed their own password
+mfa.activated                user admin activated MFA
+mfa.reauth_verified          user admin completed MFA re-authentication ...
+mfa.enrolled                 user admin began MFA enrolment
+auth.login                   User admin logged in
+```
+
+and, further back, the `admin.recover_admin` event with the host user who ran step 2.
+
+Do **not** set `security.require_mfa: false` to get through this: it is not needed, and it
+weakens every account on the install. The same setup session is what a one-time-password
+user (`keyorix user create --one-time-password`), a user an admin forced to reset
+(`keyorix user force-password-reset`) or a user whose password expired gets on a
+`require_mfa` install when they have no second factor yet. With `require_mfa: false` the
+one-time-password login is only confined to `change-password`, and the session continues
+after it.

@@ -79,11 +79,17 @@ func (h *AuthHandler) FinishWebAuthnRegistration(w http.ResponseWriter, r *http.
 		h.writeWebAuthnErr(w, err)
 		return
 	}
+	message := "Passkey registered."
+	ended := h.endSetupSessionIfComplete(w, r, userCtx.UserID, extractBearerToken(r))
+	if ended {
+		message += " Account setup is complete: sign in again with your password and passkey."
+	}
 	sendSuccess(w, map[string]interface{}{
-		"id":         cred.ID,
-		"name":       cred.Name,
-		"created_at": cred.CreatedAt,
-	}, "Passkey registered.")
+		"id":                        cred.ID,
+		"name":                      cred.Name,
+		"created_at":                cred.CreatedAt,
+		"reauthentication_required": ended,
+	}, message)
 }
 
 // ListWebAuthnCredentials returns the caller's registered passkeys.

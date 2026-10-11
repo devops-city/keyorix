@@ -591,6 +591,14 @@ personal access tokens, machine tokens, OIDC — are **exempt** so automation is
 never broken. Per-project MFA (ADR-037) is set per project via the API
 (`PUT /projects/{id}` `{ "require_mfa": true }`), independent of this flag.
 
+An account that must also replace its password (a one-time password from `admin
+recover-admin` or `user create --one-time-password`, an admin-forced reset, an expired
+password) and has no second factor logs in to a **setup session**: at most 15 minutes,
+confined to `change-password` and MFA/passkey enrolment, in either order. When both are
+done the session ends and the next login is a normal two-step MFA login (#3024;
+walkthrough in [operator/j5-lost-admin.md](operator/j5-lost-admin.md)). Every other
+endpoint answers 403 with `pending_steps`.
+
 **Per-account login lockout** (`login_lockout`, opt-in) is brute-force protection
 distinct from the per-IP rate limiter (ADR-040): after `max_attempts` failed
 password logins within `window`, the account is locked for a cooldown that **backs

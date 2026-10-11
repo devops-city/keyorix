@@ -52,14 +52,21 @@ func (h *AuthHandler) ActivateMFA(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "BadRequest", errInvalidRequestBody, http.StatusBadRequest, nil)
 		return
 	}
-	codes, err := h.coreService.ActivateMFA(r.Context(), userCtx.UserID, body.Code, body.Password, extractBearerToken(r))
+	token := extractBearerToken(r)
+	codes, err := h.coreService.ActivateMFA(r.Context(), userCtx.UserID, body.Code, body.Password, token)
 	if err != nil {
 		h.writeMFAErr(w, err)
 		return
 	}
+	message := "MFA enabled. Save these recovery codes now — they will not be shown again."
+	ended := h.endSetupSessionIfComplete(w, r, userCtx.UserID, token)
+	if ended {
+		message += " Account setup is complete: sign in again with your password and a code."
+	}
 	sendSuccess(w, map[string]interface{}{
-		"recovery_codes": codes,
-	}, "MFA enabled. Save these recovery codes now — they will not be shown again.")
+		"recovery_codes":            codes,
+		"reauthentication_required": ended,
+	}, message)
 }
 
 // DisableMFA turns off MFA after verifying a current code or the password.

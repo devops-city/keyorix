@@ -171,7 +171,7 @@ kx login --server http://localhost:18080 --username admin --password "$ADMIN_PAS
     || fail "CLI login as bootstrapped admin failed"
 
 # ADR-112 item 1: security.require_mfa defaults on, so the bootstrap admin is
-# confined to the enrolment endpoints (EnforceMFAEnrollment) until it enrols
+# confined to the enrolment endpoints (EnforceAccountSetup) until it enrols
 # -- every other authenticated call below would otherwise fail closed with
 # "This deployment requires multi-factor authentication." Enrol for real
 # (see scripts/smoke.sh's identical block for the full rationale), then log

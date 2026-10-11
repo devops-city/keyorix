@@ -1278,7 +1278,10 @@ type Error struct {
 	// Error Short error-type label, e.g. "NotFound", "BadRequest".
 	Error   *string `json:"error,omitempty"`
 	Message *string `json:"message,omitempty"`
-	Success *bool   `json:"success,omitempty"`
+
+	// PendingSteps Values: change_password, enroll_mfa. Present on a 403 from the account-setup gate (error PasswordChangeRequired or MFAEnrollmentRequired, #3024): the setup steps the caller still owes. Until they are done only these are reachable -- change_password: POST /api/v1/auth/change-password; enroll_mfa: POST /api/v1/auth/mfa/enroll, /auth/mfa/activate, /auth/webauthn/register/begin|finish and GET /auth/webauthn/credentials; always GET /api/v1/auth/profile. Owing both opens both, in either order.
+	PendingSteps *[]string `json:"pending_steps,omitempty"`
+	Success      *bool     `json:"success,omitempty"`
 }
 
 // BulkApproveAccessRequestsJSONBody defines parameters for BulkApproveAccessRequests.

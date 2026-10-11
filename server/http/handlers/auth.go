@@ -692,10 +692,34 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "BadRequest", clientSafe(err), http.StatusBadRequest, nil)
 		return
 	}
-	// Evict the cached identity so a restriction cleared by this change (ADR-025)
+	// Drop the cached identity so a restriction cleared by this change (ADR-025)
 	// takes effect on the next request instead of lingering for the cache TTL.
-	middleware.InvalidateTokenCache(token)
-	sendSuccess(w, nil, "Password changed")
+	// Clear, never tombstone: this session is the one ChangePassword just KEPT, and
+	// a tombstone 401'd it for invalidTokenTTL right after the change (#3024 found
+	// it: the password-first setup order died on its next step; same bug class as
+	// #2978 for MFA activation). A stale restricted entry is only over-restrictive.
+	middleware.ClearTokenCacheForToken(token)
+	if h.endSetupSessionIfComplete(w, r, userCtx.UserID, token) {
+		sendSuccess(w, map[string]interface{}{"reauthentication_required": true},
+			"Password changed. Account setup is complete: sign in again with your new password and second factor.")
+		return
+	}
+	sendSuccess(w, map[string]interface{}{"reauthentication_required": false}, "Password changed")
+}
+
+// endSetupSessionIfComplete ends a setup-only session once the step this request
+// just completed was the last one owed (#3024, core.EndSetupSessionIfComplete),
+// clearing the session/CSRF cookies of a browser caller too. Reports whether the
+// session ended, for the response's reauthentication_required.
+func (h *AuthHandler) endSetupSessionIfComplete(w http.ResponseWriter, r *http.Request, userID uint, token string) bool {
+	if !h.coreService.EndSetupSessionIfComplete(r.Context(), userID, token) {
+		return false
+	}
+	if _, err := r.Cookie(middleware.SessionCookieName); err == nil {
+		middleware.ClearSessionCookie(w, h.tlsEnabled)
+		middleware.ClearCSRFCookie(w, h.tlsEnabled)
+	}
+	return true
 }
 
 // sessionResponse is the safe DTO for a session — never exposes the token.

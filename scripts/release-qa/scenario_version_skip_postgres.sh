@@ -254,7 +254,7 @@ clear_cli_credentials
 # ADR-112 item 1: security.require_mfa defaults on for the HEAD binary --
 # the restored admin account predates MFA entirely (old binary, old
 # schema default), so this login succeeds as a plain session but is
-# confined to the enrolment endpoints (EnforceMFAEnrollment) until it
+# confined to the enrolment endpoints (EnforceAccountSetup) until it
 # enrols. Enrol for real (see scripts/smoke.sh's identical block for the
 # full rationale), then log in again since ActivateMFA invalidates the
 # pre-enrolment session.

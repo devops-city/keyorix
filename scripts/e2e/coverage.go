@@ -153,8 +153,6 @@ var skipList = map[string]string{
 	"POST /auth/setup/consume":  "requires an out-of-band admin-issued setup token/link this driver cannot receive through this flow (user create in this driver goes through POST /api/v1/users directly, not the setup-token invite path)",
 	"GET /auth/setup/{token}":   "see setup/consume above",
 
-	"POST /api/v1/auth/change-password": "would change this driver's own admin credential mid-run and likely revoke its bearer session, breaking every later authenticated call in the same shared session -- needs a dedicated single-purpose test with its own session",
-
 	// risk-exceptions approve enforces dual control (approver must be a
 	// DIFFERENT system.write holder than the creator, internal/core's
 	// risk_exceptions.go) -- this driver's single shared admin session

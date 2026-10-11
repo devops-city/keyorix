@@ -130,7 +130,7 @@ audit_checkpoints:
   schedule: "3s"
 # ADR-112 item 1: security.require_mfa defaults on, which would confine the
 # bootstrap admin's session to the MFA-enrolment endpoints
-# (EnforceMFAEnrollment) until it enrols -- blocking the secret create/read
+# (EnforceAccountSetup) until it enrols -- blocking the secret create/read
 # calls below. scripts/smoke.sh and the release-qa scenarios enrol for real
 # via the CLI's \`mfa enroll\`/\`mfa activate\`; this script drives the raw
 # HTTP API with wget/jq instead of the CLI (see this file's own header: it

@@ -314,29 +314,32 @@ func authenticateRequest(ctx context.Context, coreService *core.KeyorixCore, req
 		return nil, nil, grpcAuthFailure(ctx)
 	}
 
-	// #G18: capture the session's row id (not the raw token — see UserContext.SessionID's
-	// doc comment) so a long-lived stream's periodic re-authorization can later re-verify
-	// THIS SPECIFIC session, not just the owning account. A failure here degrades to
-	// SessionID staying nil (the stream-reauth check below then falls back to
-	// account-only verification, matching pre-fix behavior) rather than failing the
-	// request outright — the session was just validated successfully one line above, so
-	// this second lookup failing indicates a rare race with a concurrent revoke, not a
-	// real problem with THIS request.
-	var sessionID *uint
+	// Session tokens: every per-session fact comes from ONE read of the session
+	// row (core.ResolveSessionAuthFacts), the same one the HTTP middleware makes:
+	//   - #G18: the row id (not the raw token — see UserContext.SessionID's doc
+	//     comment), so a long-lived stream's periodic re-authorization re-verifies
+	//     THIS SPECIFIC session, not just the owning account;
+	//   - the impersonator, so audit events record the initiating admin as on HTTP
+	//     and credential-minting RPCs are refused under impersonation;
+	//   - #3024: whether this is a setup-only session (enforceGRPCAccountSetup).
+	// Fail closed when the read fails (#3041 review): each fact restricts the
+	// caller, so defaulting them would serve a setup-only or impersonation
+	// session as an ordinary one. Unavailable, not a strike against the peer's
+	// brute-force budget; core logs and audits the refusal.
+	var (
+		sessionID      *uint
+		impersonatedBy *uint
+		setupOnly      bool
+	)
 	if !viaPAT {
-		if sess, sessErr := coreService.Storage().GetSession(ctx, token); sessErr == nil {
-			id := sess.ID
-			sessionID = &id
+		facts, err := coreService.ResolveSessionAuthFacts(ctx, user.ID, token, "grpc")
+		if err != nil {
+			return nil, nil, status.Error(codes.Unavailable, "authentication temporarily unavailable, please retry")
 		}
-	}
-
-	// Resolve impersonation for a real session token (a PAT is never an
-	// impersonation session). On HTTP the auth middleware tags the context so audit
-	// events record the initiating admin; mirror it here so that accountability is
-	// not lost by switching transport. A non-impersonation session returns nil.
-	var impersonatedBy *uint
-	if !viaPAT {
-		impersonatedBy = coreService.SessionImpersonator(ctx, token)
+		id := facts.SessionID
+		sessionID = &id
+		impersonatedBy = facts.ImpersonatedBy
+		setupOnly = facts.SetupOnly
 	}
 
 	viaSession := !viaPAT
@@ -354,6 +357,9 @@ func authenticateRequest(ctx context.Context, coreService *core.KeyorixCore, req
 	//
 	// Both fail closed. viaSession is true for a session token (machine tokens already
 	// returned above; a PAT carries the patTokenPrefix).
+	if err := enforceGRPCAccountSetup(user, requireMFA, viaSession, setupOnly, impersonatedBy != nil); err != nil {
+		return nil, nil, err
+	}
 	if err := enforceGRPCAccessPolicy(ctx, user, restriction, requireMFA, viaSession); err != nil {
 		return nil, nil, err
 	}
@@ -427,6 +433,48 @@ func validateGRPCMachineToken(ctx context.Context, coreService *core.KeyorixCore
 	// gRPC has no auth cache, so this always runs on the success path.
 	coreService.TouchMachineTokenLastUsed(ctx, credID)
 	return uc, nil, nil
+}
+
+// gRPC status messages of the account-setup gate (enforceGRPCAccountSetup),
+// distinct from every other interceptor message so the guard tests can tell
+// this gate's refusals apart.
+const (
+	grpcSetupOnlyMsg     = "a setup-only session can only change the password and enrol a second factor, which are not available over gRPC: finish account setup over the REST API or the CLI"
+	grpcSetupCompleteMsg = "account setup is complete: sign in again with your new password and second factor"
+	grpcSetupReauthMsg   = "sign in again to finish account setup"
+)
+
+// enforceGRPCAccountSetup is the gRPC side of the HTTP EnforceAccountSetup gate
+// (server/middleware, #3024). On HTTP a session owing setup steps reaches the
+// union of those steps' endpoints (setupStepRoutes) plus a profile read. gRPC
+// has none of those endpoints — no password-change, enrolment or profile RPC —
+// so on gRPC that allowlist is empty and a setup-only session is refused every
+// RPC (the guard TestEveryGRPCMethod_RefusesSetupOnlySession walks every
+// registered RPC and pins the allowed set as empty). Like HTTP:
+//
+//   - a setup-only session that owes nothing any more is told to sign in again
+//     (Unauthenticated): core revokes it when the last step completes
+//     (EndSetupSessionIfComplete), and this is the backstop when that
+//     revocation did not land (#3041 review: without it the surviving session
+//     had full gRPC access);
+//   - a setup-only session still owing a step is refused (PermissionDenied);
+//   - an ordinary (non-impersonation) session owing both steps is told to sign
+//     in again, which yields a setup-only session.
+//
+// A session owing exactly one step that is not setup-only falls through to
+// enforceGRPCAccessPolicy, which refuses it as before.
+func enforceGRPCAccountSetup(user *models.User, requireMFA, viaSession, setupOnly, impersonated bool) error {
+	pending := core.PendingAccountSetupSteps(core.AccountRestricted(user.AccountState),
+		user.MFAEnabled || user.WebAuthnEnabled, viaSession, requireMFA)
+	switch {
+	case setupOnly && len(pending) == 0:
+		return status.Error(codes.Unauthenticated, grpcSetupCompleteMsg)
+	case setupOnly:
+		return status.Error(codes.PermissionDenied, grpcSetupOnlyMsg)
+	case viaSession && !impersonated && len(pending) == 2:
+		return status.Error(codes.Unauthenticated, grpcSetupReauthMsg)
+	}
+	return nil
 }
 
 func enforceGRPCAccessPolicy(ctx context.Context, user *models.User, restriction *core.PATRestriction, requireMFA, viaSession bool) error {

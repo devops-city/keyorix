@@ -103,7 +103,7 @@ func TestEnforcePasswordExpiryGate(t *testing.T) {
 
 // TestLogin_ExpiredPassword verifies that Login transitions an active user to
 // password_reset_required when the password max-age policy has elapsed (ADR-025
-// hard gate), so EnforceAccountRestriction blocks API access on subsequent requests.
+// hard gate), so EnforceAccountSetup blocks API access on subsequent requests.
 func TestLogin_ExpiredPassword(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)

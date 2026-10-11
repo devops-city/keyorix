@@ -160,10 +160,10 @@ Format: `INV-MW-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
 
 ## Account/node gates
 
-- **INV-MW-20** `EnforceAccountRestriction`/`EnforceMFAEnrollment` are middleware-layer gates
-  applied post-authentication — not RBAC checks. Guard: `auth.go` lines ~849, 889;
-  `account_restriction_test.go:TestEnforceAccountRestriction`,
-  `mfa_enforcement_test.go:TestEnforceMFAEnrollment`.
+- **INV-MW-20** `EnforceAccountSetup` (which replaced the separate `EnforceAccountRestriction`/
+  `EnforceMFAEnrollment` gates, #3024) is a middleware-layer gate applied post-authentication —
+  not an RBAC check. Guard: `auth.go:EnforceAccountSetup`;
+  `account_setup_test.go:TestEnforceAccountSetup`. See INV-MW-account-setup-union-of-pending-steps.
 - **INV-MW-21** `RequireNodeCredential`/`isNodeCredential` gates a route group on holding a
   node-type machine credential; rejects every other principal type with 403, unauthenticated
   with 401. Currently UNWIRED — `router.go` never calls it; its OR-arm alternative

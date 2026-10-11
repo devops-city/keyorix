@@ -401,7 +401,7 @@ func TestAuthInterceptor_RestrictedAccountDeniedOverGRPC(t *testing.T) {
 // When the deployment mandates MFA (security.require_mfa), an interactive session
 // without MFA is confined to the enrolment endpoints on HTTP; gRPC has none, so it is
 // denied. A session with MFA is allowed, and a PAT is exempt (non-interactive) — both
-// matching the HTTP EnforceMFAEnrollment policy.
+// matching the HTTP EnforceAccountSetup policy.
 func TestAuthInterceptor_MFAEnrolmentGateOverGRPC(t *testing.T) {
 	h := setupAuthHelper(t)
 	defer h.Cleanup()

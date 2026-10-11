@@ -132,6 +132,7 @@ func TestCacheHit_SessionTransientStorageError_DegradesToStaleSnapshot(t *testin
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Session{}))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "admin", Email: "admin@example.com", IsActive: true}).Error)
+	seedSessionRow(t, db, validToken, 1)
 
 	coreService := core.NewKeyorixCore(store.NewLocalStorage(db))
 	handler := authenticationWithValidator(fakeValidator{}, coreService)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))

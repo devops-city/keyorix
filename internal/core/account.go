@@ -447,7 +447,7 @@ func (c *KeyorixCore) PasswordExpired(user *models.User) bool {
 // enforcePasswordExpiryGate transitions an active user to password_reset_required
 // when the configured max_age_days policy has elapsed (ADR-025). Called at
 // session-mint time so every subsequent API request is hard-gated by
-// EnforceAccountRestriction, not just the client-side soft flag in the login
+// EnforceAccountSetup, not just the client-side soft flag in the login
 // response.
 //
 // Only transitions active → password_reset_required; other states (already

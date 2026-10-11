@@ -2298,7 +2298,7 @@ func verifyKeyFileSetConsistency(cfg *config.Config) error {
 // RequireMFAImplicitDefault is true only then).
 //
 // On a fresh install (or a deployment already enforced once) MFA is enforced and this is
-// informational: server/middleware.EnforceMFAEnrollment confines a session-authenticated
+// informational: server/middleware.EnforceAccountSetup confines a session-authenticated
 // user without MFA to the enrolment endpoints (never locks the account out; PAT/machine
 // credentials are exempt). On an upgraded deployment, applyADR112UpgradeGrace has put
 // require_mfa in ADR-112's grace period (RequireMFAUpgradeGrace): MFA is NOT enforced yet,

@@ -365,19 +365,19 @@ func keysOf(m map[string]string) []string {
 // nonHandlerJSONWriters are the JSON response writers outside this package, by
 // "package-relative file:function". Each writes a fixed error envelope.
 var nonHandlerJSONWriters = map[string]string{
-	"server/http/router.go:writeJSONNotFound":              "404 envelope: error/message/code literals",
-	"server/middleware/auth.go:EnforceAccountRestriction":  "403 PasswordChangeRequired envelope",
-	"server/middleware/auth.go:handleMFAEnrollmentCheck":   "403 MFAEnrollmentRequired envelope",
-	"server/middleware/auth.go:unauthorizedResponse":       "401 envelope",
-	"server/middleware/auth.go:tooManyRequestsResponse":    "429 envelope",
-	"server/middleware/auth.go:serviceUnavailableResponse": "503 envelope",
-	"server/middleware/auth.go:forbiddenResponse":          "403 envelope",
-	"server/middleware/auth.go:projectMFARequiredResponse": "403 ProjectMFARequired envelope",
-	"server/middleware/auth.go:notFoundResponse":           "404 envelope",
-	"server/middleware/auth.go:badRequestResponse":         "400 envelope",
-	"server/middleware/rate_limit.go:middleware":           "429 envelope",
-	"server/middleware/scim.go:scimError":                  "SCIM error envelope",
-	"server/middleware/recovery.go:Recovery":               "500 envelope after a recovered panic",
+	"server/http/router.go:writeJSONNotFound":                    "404 envelope: error/message/code literals",
+	"server/middleware/auth.go:accountSetupRequiredResponse":     "403 PasswordChangeRequired / MFAEnrollmentRequired envelope",
+	"server/middleware/auth.go:reauthenticationRequiredResponse": "401 ReauthenticationRequired envelope",
+	"server/middleware/auth.go:unauthorizedResponse":             "401 envelope",
+	"server/middleware/auth.go:tooManyRequestsResponse":          "429 envelope",
+	"server/middleware/auth.go:serviceUnavailableResponse":       "503 envelope",
+	"server/middleware/auth.go:forbiddenResponse":                "403 envelope",
+	"server/middleware/auth.go:projectMFARequiredResponse":       "403 ProjectMFARequired envelope",
+	"server/middleware/auth.go:notFoundResponse":                 "404 envelope",
+	"server/middleware/auth.go:badRequestResponse":               "400 envelope",
+	"server/middleware/rate_limit.go:middleware":                 "429 envelope",
+	"server/middleware/scim.go:scimError":                        "SCIM error envelope",
+	"server/middleware/recovery.go:Recovery":                     "500 envelope after a recovered panic",
 }
 
 // 3. JSON writers outside this package: error envelopes only, no time-typed values.

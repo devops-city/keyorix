@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/besteffort"
@@ -107,7 +108,10 @@ func (c *KeyorixCore) Login(ctx context.Context, req *LoginRequest) (*models.Ses
 	if err != nil {
 		return nil, user, err
 	}
-	created, err := c.mintSession(ctx, user.ID, req.UserAgent, req.IPAddress)
+	// #3024: an account that owes both setup steps (restricted AND no second factor
+	// under security.require_mfa) gets a setup-only session: short-lived, confined to
+	// the setup steps, revoked once they are done (account_setup.go).
+	created, err := c.mintSessionWith(ctx, user.ID, req.UserAgent, req.IPAddress, c.needsSetupSession(user))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -130,7 +134,10 @@ func (c *KeyorixCore) LoginWithIdentity(ctx context.Context, req *LoginRequest) 
 	if err != nil {
 		return nil, nil, UserIdentity{}, err
 	}
-	created, err := c.mintSession(ctx, user.ID, req.UserAgent, req.IPAddress)
+	// #3024: an account that owes both setup steps (restricted AND no second factor
+	// under security.require_mfa) gets a setup-only session: short-lived, confined to
+	// the setup steps, revoked once they are done (account_setup.go).
+	created, err := c.mintSessionWith(ctx, user.ID, req.UserAgent, req.IPAddress, c.needsSetupSession(user))
 	if err != nil {
 		return nil, nil, UserIdentity{}, err
 	}
@@ -185,6 +192,13 @@ func (c *KeyorixCore) authenticatePasswordLogin(ctx context.Context, req *LoginR
 // Shared by Login and the setup-token consume flow (auto-login) so session
 // issuance — token generation, expiry, and the captured device fields — stays uniform.
 func (c *KeyorixCore) mintSession(ctx context.Context, userID uint, userAgent, ip string) (*models.Session, error) {
+	return c.mintSessionWith(ctx, userID, userAgent, ip, false)
+}
+
+// mintSessionWith is mintSession with the setup-only flag (#3024): a setup-only
+// session's whole life is capped at SetupSessionTTL from now, whatever the
+// configured access/absolute TTLs, and the cap is carried through every refresh.
+func (c *KeyorixCore) mintSessionWith(ctx context.Context, userID uint, userAgent, ip string, setupOnly bool) (*models.Session, error) {
 	token, err := generateSecureToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate session token: %w", err)
@@ -216,6 +230,9 @@ func (c *KeyorixCore) mintSession(ctx context.Context, userID uint, userAgent, i
 		}
 		session.AbsoluteExpiresAt = &absolute
 	}
+	if setupOnly {
+		capSetupSession(session, now)
+	}
 	// A failed insert may still have committed: createSession delivers the row
 	// if it landed instead of reporting a failed login over a live session
 	// (#2844). See session_undelivered.go.
@@ -235,6 +252,20 @@ func (c *KeyorixCore) mintSession(ctx context.Context, userID uint, userAgent, i
 		return c.storage.EnforceSessionLimit(ctx, userID, maxSessionsPerUser)
 	})
 	return created, nil
+}
+
+// capSetupSession clamps a setup-only session's access window and absolute
+// ceiling to SetupSessionTTL from now, never lengthening an earlier ceiling.
+func capSetupSession(session *models.Session, now time.Time) {
+	ceiling := now.Add(SetupSessionTTL)
+	if session.AbsoluteExpiresAt == nil || session.AbsoluteExpiresAt.After(ceiling) {
+		session.AbsoluteExpiresAt = &ceiling
+	}
+	if session.ExpiresAt == nil || session.ExpiresAt.After(*session.AbsoluteExpiresAt) {
+		exp := *session.AbsoluteExpiresAt
+		session.ExpiresAt = &exp
+	}
+	session.SetupOnly = true
 }
 
 // maxSessionsPerUser caps a user's concurrent sessions; the oldest beyond this are
@@ -380,6 +411,15 @@ func (c *KeyorixCore) RefreshSession(ctx context.Context, token string) (*models
 		LastSeenAt:        &now,
 		ExpiresAt:         &expiresAt,
 		AbsoluteExpiresAt: old.AbsoluteExpiresAt,
+		// #3024: a setup-only session stays one through every rotation, or a refresh
+		// would launder it into a full session. A session whose account has since come
+		// to owe both setup steps (e.g. an admin forced a reset on a factor-less user
+		// while it was live) becomes one here, capped from now — the setup gate sends
+		// such a session through refresh/re-login instead of serving it.
+		SetupOnly: old.SetupOnly || c.needsSetupSession(user),
+	}
+	if session.SetupOnly && !old.SetupOnly {
+		capSetupSession(session, now)
 	}
 	created, won, err := c.storage.RotateSession(ctx, old.ID, session, now)
 	if err != nil {
@@ -736,6 +776,70 @@ func (c *KeyorixCore) SessionLiveForToken(ctx context.Context, sessionID uint, t
 	return true, nil
 }
 
+// SessionAuthFacts is what a transport needs from the authenticating session's
+// own row once ValidateSessionToken has accepted the token: which row it is (for
+// the per-request liveness re-check, #G18), whether it is a setup-only session
+// (#3024), who is impersonating through it, and when it expires (F-TOK-1).
+type SessionAuthFacts struct {
+	SessionID       uint
+	SetupOnly       bool
+	ImpersonatedBy  *uint
+	EffectiveExpiry *time.Time
+}
+
+// EventSessionFactsUnavailable audits a request refused because its session row
+// could not be re-read after the token validated (ResolveSessionAuthFacts).
+const EventSessionFactsUnavailable = "auth.session_facts_unavailable" // #nosec G101 -- audit event type, not a credential
+
+// ErrSessionFactsUnavailable is ResolveSessionAuthFacts' error: the transports
+// refuse the request with their generic "temporarily unavailable" answer.
+var ErrSessionFactsUnavailable = errors.New("session facts unavailable")
+
+// ResolveSessionAuthFacts reads the session behind an already-validated session
+// token ONCE and returns every per-session fact the HTTP middleware and the gRPC
+// interceptor act on. An error is the fail-closed side: each of these facts
+// restricts the caller (setup-only confinement, impersonation guards, the
+// session-liveness re-check, the cache-lifetime clamp), so a request whose
+// facts could not be read must be refused, never served with them defaulted to
+// "no restriction" (#3041 review: a failed read used to leave SetupOnly false
+// and cache it, so a setup-only session racing its own revocation got full
+// access). The refusal is logged and audited under userID; transport names the
+// caller ("http"/"grpc"). A revoked session (not found) takes this path too: the
+// retry then fails validation with an ordinary 401.
+func (c *KeyorixCore) ResolveSessionAuthFacts(ctx context.Context, userID uint, token, transport string) (*SessionAuthFacts, error) {
+	session, err := c.getSessionRecovering(ctx, token)
+	if err == nil && session == nil {
+		err = errors.New("no session row")
+	}
+	if err == nil && session.UserID != userID {
+		err = fmt.Errorf("session belongs to user %d", session.UserID)
+	}
+	if err != nil {
+		log.Printf("SECURITY: %s request by user %d refused: its session could not be re-read after validation (%v)", transport, userID, err)
+		c.writeAuditEventFull(ctx, EventSessionFactsUnavailable, &userID, nil, nil, "",
+			fmt.Sprintf("a %s request by user %d was refused: its session could not be re-read after the token validated (%v), so its restrictions could not be applied", transport, userID, err))
+		return nil, ErrSessionFactsUnavailable
+	}
+	facts := &SessionAuthFacts{SessionID: session.ID, SetupOnly: session.SetupOnly, ImpersonatedBy: session.ImpersonatedBy}
+	for _, t := range []*time.Time{session.ExpiresAt, session.AbsoluteExpiresAt} {
+		if t != nil && (facts.EffectiveExpiry == nil || t.Before(*facts.EffectiveExpiry)) {
+			facts.EffectiveExpiry = t
+		}
+	}
+	return facts, nil
+}
+
+// getSessionRecovering is storage.GetSession with a panic turned into an error,
+// so ResolveSessionAuthFacts refuses rather than crashing the request.
+func (c *KeyorixCore) getSessionRecovering(ctx context.Context, token string) (s *models.Session, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			s, err = nil, fmt.Errorf("session lookup panicked: %v", r)
+		}
+	}()
+	return c.storage.GetSession(ctx, token)
+}
+
 // SessionEffectiveExpiry returns the earliest of a session's idle-expiry (ExpiresAt)
 // and absolute-expiry (AbsoluteExpiresAt), or nil when the session has neither or
 // cannot be resolved. The auth middleware calls this on the SLOW validation path only
@@ -792,7 +896,7 @@ func (c *KeyorixCore) AccountStillUsable(ctx context.Context, userID uint) (bool
 // passed (the account isn't blocked) but the CACHED UserContext's
 // AccountState/Restricted — fixed at the slow path's last fill — stayed
 // whatever it was then. A transition into a restricted-but-not-blocked state
-// was invisible to EnforceAccountRestriction on a cache hit until the entry's
+// was invisible to EnforceAccountSetup on a cache hit until the entry's
 // own eviction (whether via that state-change's own invalidateTokenCache call,
 // or the TTL) actually landed — the same race SHAPE as the session-liveness
 // bug this PR fixes elsewhere, not merely a bounded 30s lag: a request served

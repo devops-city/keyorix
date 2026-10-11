@@ -115,7 +115,7 @@ echo "==> keyorix login"
 
 # ADR-112 item 1: security.require_mfa defaults on, so admin init's generated
 # config enforces it from this run's first boot. The bootstrap admin has no
-# MFA enrolled yet, so EnforceMFAEnrollment confines this session to the
+# MFA enrolled yet, so EnforceAccountSetup confines this session to the
 # enrolment endpoints until it enrols -- every OTHER authenticated call below
 # (starting with project create) would otherwise fail closed with
 # "This deployment requires multi-factor authentication." Enrol for real,

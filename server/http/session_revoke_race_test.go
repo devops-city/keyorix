@@ -429,7 +429,7 @@ func TestSessionRevoke_RotatedTokenCacheHitDenied(t *testing.T) {
 }
 
 // TestSessionCacheHit_AccountRestrictionRefreshedOnHit closes the
-// AccountRestricted stale-cache gap: EnforceAccountRestriction reads
+// AccountRestricted stale-cache gap: EnforceAccountSetup reads
 // UserContext.Restricted, which a cache hit previously never refreshed — only
 // the outright-deny AccountStillUsable boolean was re-checked on a hit. A
 // transition into a restricted-but-not-login-blocked state
@@ -447,7 +447,7 @@ func TestSessionRevoke_RotatedTokenCacheHitDenied(t *testing.T) {
 // RED on unfixed code: the cache hit still serves the pre-transition
 // Restricted=false, so a non-allowlisted endpoint returns 200. GREEN after
 // the fix: the same cache hit re-reads AccountState fresh, and
-// EnforceAccountRestriction (server/middleware/auth.go, reading
+// EnforceAccountSetup (server/middleware/auth.go, reading
 // userCtx.Restricted) returns 403.
 func TestSessionCacheHit_AccountRestrictionRefreshedOnHit(t *testing.T) {
 	w := srrSetupWorld(t, "srr-restrict.db")

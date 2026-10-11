@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -31,7 +32,11 @@ revoked as a result -- the current one is not.
 
 This is the command to run right after logging in with a one-time password
 (e.g. the one keyorix-server admin recover-admin prints) -- the account stays
-confined to this command (and a handful of others) until a real password is set.`,
+confined to this command (and a handful of others) until a real password is set.
+With security.require_mfa on and no second factor yet, that login is a short
+setup session that must also enrol MFA ("keyorix mfa enroll" + "keyorix mfa
+activate", before or after this command); once both are done the session ends
+and the next "keyorix login" asks for a code.`,
 	RunE: runChangePassword,
 }
 
@@ -95,6 +100,23 @@ func runChangePassword(cmd *cobra.Command, args []string) error {
 		return apiError("change password", resp.StatusCode(), resp.Body)
 	}
 
+	if reauthenticationRequired(resp.Body) {
+		fmt.Println("Password changed. Account setup is complete and this session has ended:")
+		fmt.Println(`run "keyorix login" with the new password and a code from your authenticator app.`)
+		return nil
+	}
 	fmt.Println("Password changed. Every other active session for this account has been revoked.")
 	return nil
+}
+
+// reauthenticationRequired reports whether a change-password / MFA-activation
+// response says the server ended this session because account setup is complete
+// (#3024: a recovered admin's or one-time-password user's setup-only session).
+func reauthenticationRequired(body []byte) bool {
+	var env struct {
+		Data struct {
+			ReauthenticationRequired bool `json:"reauthentication_required"`
+		} `json:"data"`
+	}
+	return json.Unmarshal(body, &env) == nil && env.Data.ReauthenticationRequired
 }

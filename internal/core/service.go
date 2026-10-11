@@ -343,6 +343,11 @@ type KeyorixCore struct {
 	// sessionAbsoluteTTL caps total session lifetime from login — refresh never
 	// extends past it. 0 = no ceiling (refreshable indefinitely). Via SetSessionTTLs.
 	sessionAbsoluteTTL time.Duration
+	// deploymentRequiresMFA mirrors security.require_mfa (ADR-112), so session
+	// issuance can tell when a login must be a setup-only session (#3024,
+	// account_setup.go). Set by the HTTP router via SetRequireMFA, from the same
+	// config value that configures the setup gate.
+	deploymentRequiresMFA bool
 	// credentialDelivery transports setup links (ADR-028). nil = out-of-band: the
 	// link is returned to the caller. Set from config via SetCredentialDelivery.
 	credentialDelivery ports.CredentialDelivery

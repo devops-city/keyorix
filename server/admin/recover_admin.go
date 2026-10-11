@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/keyorixhq/keyorix/internal/core"
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/spf13/cobra"
@@ -136,7 +137,15 @@ func runRecoverAdmin(cmd *cobra.Command, args []string) error {
 	// same constraint documented at its own suppression site).
 	// codeql[go/clear-text-logging]
 	fmt.Printf("  %s\n", summary.oneTimePassword)
-	fmt.Printf("Log in as %q with this password; you will be required to set a new one immediately.\n", summary.username)
+	if cfg.Security.RequireMFA {
+		// #3024: the login this password allows is a setup-only session.
+		fmt.Printf("Log in as %q with this password. That session lasts at most %d minutes and can only set a new\n",
+			summary.username, int(core.SetupSessionTTL.Minutes()))
+		fmt.Println("password (keyorix change-password) and enrol a second factor (keyorix mfa enroll + activate), in either")
+		fmt.Println("order. When both are done it ends; log in again with the new password and a code.")
+	} else {
+		fmt.Printf("Log in as %q with this password; you will be required to set a new one immediately.\n", summary.username)
+	}
 	if summary.auditChainBroken {
 		fmt.Fprintf(os.Stderr, "WARNING: the audit chain was already broken before this run (first broken row: %d). "+
 			"This recovery was still performed and is recorded as a new chain segment -- see the audit log.\n",
@@ -149,9 +158,9 @@ func runRecoverAdmin(cmd *cobra.Command, args []string) error {
 			keyDetail = "KEYLESS MODE (host access alone, no recovery key checked)"
 		}
 		notifyAllAdmins(store, "Admin account recovered",
-			fmt.Sprintf("keyorix-server admin recover-admin restored account %q (user id %d) on this host, "+
+			fmt.Sprintf("keyorix-server admin recover-admin, run by host user %s, restored account %q (user id %d) on this host, "+
 				"using %s. If you did not expect this, investigate immediately.",
-				summary.username, summary.userID, keyDetail))
+				summary.operator, summary.username, summary.userID, keyDetail))
 		return nil
 	})
 	if notifyErr != nil {

@@ -23,7 +23,6 @@ var pendingRegistry = map[string]string{ // #nosec G101 -- operationId keys, not
 	"attestProjectAccessReview":          reasonSchemaNotYetWritten, // post /api/v1/projects/{id}/access-review/attest
 	"authLogout":                         reasonSchemaNotYetWritten, // post /auth/logout
 	"authPasswordReset":                  reasonSchemaNotYetWritten, // post /auth/password-reset
-	"changePassword":                     reasonSchemaNotYetWritten, // post /api/v1/auth/change-password
 	"closeAccessReviewCampaign":          reasonSchemaNotYetWritten, // post /api/v1/projects/{id}/access-review/campaigns/{campaignId}/close
 	"createAccessRequest":                reasonSchemaNotYetWritten, // post /api/v1/projects/{id}/access-requests
 	"createGlobalInvitation":             reasonSchemaNotYetWritten, // post /api/v1/invitations
@@ -217,6 +216,7 @@ var exercisingTests = map[string][]string{
 	"authConsumeSetup":              {"TestConsumeSetup_HappyPath_S11"},
 	"enrollMFA":                     {"TestContractQA2_EnrollMFA"},
 	"activateMFA":                   {"TestContractQA2_ActivateMFA"},
+	"changePassword":                {"TestContractRecover1_ChangePassword"},
 	"disableMFA":                    {"TestContractQA2_DisableMFA"},
 	"recoveryCodesStatus":           {"TestContractQA2_RecoveryCodesStatus"},
 	"regenerateMFARecoveryCodes":    {"TestContractQA2_RegenerateRecoveryCodes"},

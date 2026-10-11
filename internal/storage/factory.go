@@ -1529,6 +1529,13 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 				return err
 			}
 		}
+		// #3024: setup-only sessions (restricted, factor-less account under
+		// security.require_mfa). false on legacy rows = an ordinary session.
+		if !columnExists(db, "sessions", "setup_only") {
+			if err := exec("ALTER TABLE sessions ADD COLUMN setup_only BOOLEAN NOT NULL DEFAULT false"); err != nil {
+				return err
+			}
+		}
 	}
 
 	// RBAC Phase 2: scope role assignments by environment as well as project.

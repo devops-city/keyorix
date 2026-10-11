@@ -22,6 +22,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/dynamic"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -30,6 +31,13 @@ import (
 
 // newTestCore creates a minimal *core.KeyorixCore backed by an in-memory SQLite DB.
 func newTestCore(t *testing.T) *core.KeyorixCore {
+	t.Helper()
+	return newTestCoreWrapped(t, nil)
+}
+
+// newTestCoreWrapped is newTestCore with the core built over wrap(the real
+// storage) — a fault-injecting wrapper — when wrap is non-nil.
+func newTestCoreWrapped(t *testing.T, wrap func(storage.Storage) storage.Storage) *core.KeyorixCore {
 	t.Helper()
 	db := sqlitetest.OpenWithConfig(t, "kxtest_", &gorm.Config{})
 	// models.AllTestModels() is the single source of truth for the test schema —
@@ -62,7 +70,11 @@ func newTestCore(t *testing.T) *core.KeyorixCore {
 		"ON break_glass_activations (project_id, user_id) WHERE state = 'active'").Error)
 	require.NoError(t, db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email_active "+
 		"ON users (LOWER(email)) WHERE deleted_at IS NULL AND email <> ''").Error)
-	cs := core.NewKeyorixCore(store.NewLocalStorage(db))
+	var st storage.Storage = store.NewLocalStorage(db)
+	if wrap != nil {
+		st = wrap(st)
+	}
+	cs := core.NewKeyorixCore(st)
 	// ADR-109 step 3: internal/core no longer defaults to dynamic.New internally
 	// (that would mean importing internal/dynamic from production code) — wire it
 	// explicitly here, exactly as server/main.go's DefaultIntegrations does, so

@@ -338,12 +338,14 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// (Phase 1 auth-cookie migration) — no-op for Bearer-only callers (PATs,
 		// machine tokens, CI/API clients), see RequireCSRF's doc comment.
 		r.Use(customMiddleware.RequireCSRF)
-		// Confine restricted (must-change-password) sessions to the password-change
-		// allowlist (ADR-025).
-		r.Use(customMiddleware.EnforceAccountRestriction)
-		// When the deployment mandates MFA, confine interactive sessions without
-		// MFA to the enrolment endpoints (security.require_mfa). No-op when off.
-		r.Use(customMiddleware.EnforceMFAEnrollment(cfg.Security.RequireMFA))
+		// Confine a principal that still owes account setup to the endpoints of the
+		// steps it owes: change-password while restricted (ADR-025), MFA enrolment for
+		// an interactive session without a second factor when the deployment mandates
+		// MFA (security.require_mfa, ADR-112). Owing both opens both, in either order
+		// (#3024). core learns the same policy so a login owing both steps gets a
+		// short-lived setup-only session that is revoked once setup is done.
+		coreService.SetRequireMFA(cfg.Security.RequireMFA)
+		r.Use(customMiddleware.EnforceAccountSetup(cfg.Security.RequireMFA))
 
 		// Self-service account endpoints (My Account). Authenticated but not
 		// permission-gated — every user manages their own profile, password,

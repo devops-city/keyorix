@@ -228,6 +228,9 @@ export interface ApiError {
     error: string;
     message: string;
     details?: Record<string, unknown> | null;
+    // On a 403 from the account-setup gate (#3024): the setup steps still owed
+    // ("change_password", "enroll_mfa").
+    pending_steps?: string[];
 }
 
 // Form types

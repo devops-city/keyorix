@@ -345,7 +345,12 @@ paths:
     post:
       tags: [Auth]
       summary: Change own password (drops other sessions)
-      description: Change the authenticated user's password; invalidates all other active sessions.
+      description: >-
+        Change the authenticated user's password; invalidates all other active sessions.
+        In a setup-only session (an account that had to both replace a one-time password and
+        enrol a second factor under security.require_mfa, #3024), the step that finishes setup
+        also ends the calling session: data.reauthentication_required is then true and the
+        next login is a normal two-step MFA login.
       operationId: changePassword
       security: [{bearerAuth: []}]
       requestBody:
@@ -359,8 +364,23 @@ paths:
                 current_password: {type: string, format: password}
                 new_password: {type: string, format: password}
       responses:
-        '200': {description: Password changed}
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {type: string}
+                  data:
+                    type: object
+                    properties:
+                      reauthentication_required:
+                        type: boolean
+                        description: True when this change finished account setup and the calling session was ended (#3024).
         '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/auth/sessions:
     get:
       tags: [Auth]
@@ -552,6 +572,12 @@ paths:
                     required: [recovery_codes]
                     properties:
                       recovery_codes: {type: array, items: {type: string}}
+                      reauthentication_required:
+                        type: boolean
+                        description: >-
+                          True when this activation finished account setup in a setup-only session
+                          and that session was ended (#3024); otherwise the calling session stays
+                          signed in.
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
   /api/v1/auth/mfa/disable:
@@ -7282,6 +7308,17 @@ components:
               error: {type: string, description: 'Short error-type label, e.g. "NotFound", "BadRequest".'}
               message: {type: string}
               details: {type: object, additionalProperties: true, nullable: true}
+              pending_steps:
+                type: array
+                items: {type: string}
+                description: >-
+                  Values: change_password, enroll_mfa. Present on a 403 from the account-setup gate (error PasswordChangeRequired or
+                  MFAEnrollmentRequired, #3024): the setup steps the caller still owes. Until they
+                  are done only these are reachable -- change_password: POST
+                  /api/v1/auth/change-password; enroll_mfa: POST /api/v1/auth/mfa/enroll,
+                  /auth/mfa/activate, /auth/webauthn/register/begin|finish and GET
+                  /auth/webauthn/credentials; always GET /api/v1/auth/profile. Owing both opens
+                  both, in either order.
   schemas:
     # authLogin/authConsumeSetup/verifyMFALogin all return one of these two
     # shapes in `data`, disambiguated by presence of `mfa_required` -- never by
