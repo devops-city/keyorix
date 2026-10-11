@@ -91,7 +91,10 @@ CI round-trip into an immediate local one.
    hard requirement for anything security-relevant (see
    [docs/compliance/SECURITY-VERIFICATION.md](docs/compliance/SECURITY-VERIFICATION.md)
    for what that verification standard looks like in practice).
-4. Open a PR against `main`. CI must pass in full before it can merge via a
+4. If the change is user-visible, add a changelog fragment
+   `changelog.d/<PR-number>-<slug>.md` ([format](changelog.d/README.md)). Do
+   not edit `CHANGELOG.md` directly; fragments are assembled at release time.
+5. Open a PR against `main`. CI must pass in full before it can merge via a
    squash-only merge queue (branch protection enforces this through a
    GitHub ruleset). **Correction (2026-10-05):** this used to say "no
    bypass, including for maintainers" — the live ruleset

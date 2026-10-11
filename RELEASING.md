@@ -5,7 +5,14 @@ tag fires three workflows that publish everything a user consumes.
 
 ## Cut a release
 
-1. Make sure `main` is green and `CHANGELOG.md` has an entry for the new version.
+1. Make sure `main` is green, then assemble the changelog: run
+   `scripts/changelog-assemble.sh vX.Y.Z` (optionally a second `YYYY-MM-DD`
+   argument; default today). It merges every `changelog.d/*.md` fragment into
+   `CHANGELOG.md` under a new `## vX.Y.Z — <date>` heading, keeps any legacy
+   `## Unreleased` body under it, and deletes the fragments. Review the result
+   and commit it. `scripts/changelog-assemble.sh --check` validates fragments
+   without changing anything (CI runs it on every PR). Normal PRs never edit
+   `CHANGELOG.md`; they add a fragment (`changelog.d/README.md`).
 2. (If the chart changed) bump `version`/`appVersion` in
    `deploy/helm/keyorix/Chart.yaml`.
 3. Bump the image pins in `docker-compose.yml` (`keyorix-server` and `keyorix-web`)

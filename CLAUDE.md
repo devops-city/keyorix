@@ -100,6 +100,14 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
   even though the bare subcommand is guarded, since they never move HEAD.
   Respects `-C <path>` in the command being gated.
 
+- **Changelog: add a `changelog.d/` fragment, never edit `CHANGELOG.md`.** One file
+  per PR, `changelog.d/<PR-number>-<slug>.md` (or `<branch-slug>.md` before the PR
+  number exists), containing `### <Section>` heading(s) and the bullets exactly as they
+  would have appeared under "Unreleased". Format and sections: `changelog.d/README.md`;
+  `scripts/changelog-assemble.sh --check` validates. The maintainer assembles fragments
+  into `CHANGELOG.md` at release (`RELEASING.md`). Editing `CHANGELOG.md` directly
+  reintroduces the merge-main conflict churn this removed.
+
 ## Engineering practices
 
 Reasoning and incidents behind these: `docs/g80-remediation-notes.md`.

@@ -3,6 +3,11 @@
 All notable changes to Keyorix are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+**Unreleased entries now live in `changelog.d/`** (one fragment file per PR; see
+`changelog.d/README.md`) and are assembled into this file at release time by
+`scripts/changelog-assemble.sh`. Do not add new entries to "Unreleased" below;
+that section is the text written before the switch.
+
 ## Unreleased
 
 ### Security

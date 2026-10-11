@@ -6,6 +6,9 @@
 
 <!-- How you verified this: commands run, red/green proof for any guard or fix. -->
 
+<!-- Changelog: add a changelog.d/<PR-number>-<slug>.md fragment for user-visible
+changes. Do NOT edit CHANGELOG.md (see changelog.d/README.md). -->
+
 <!--
 Bug origin block -- required for PRs titled `fix(...)`/`fix: ...` (see
 COMMON-RULES.md's "Definition of done and bug-origin tracking"). Delete this

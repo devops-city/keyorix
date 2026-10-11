@@ -523,6 +523,24 @@ jobs:
       - name: Assert every docs/adr-NNN-*.md number is unique
         run: ./scripts/check-adr-numbers.sh
 
+      # CHURN-1: unreleased entries are changelog.d/ fragments, assembled into
+      # CHANGELOG.md at release time. --check validates every fragment.
+      - name: Validate changelog.d/ fragments
+        run: ./scripts/changelog-assemble.sh --check
+
+      # NON-FAILING for now (about 30 open PRs still edit CHANGELOG.md directly).
+      # A hard check can follow once they have drained. Needs the base ref.
+      - name: Notice if the PR edits CHANGELOG.md directly
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: |
+          # HEAD is the PR merge commit, so a two-dot diff against the base tip
+          # is exactly the PR's own change; depth 1 of the base is enough.
+          git fetch --no-tags --depth=1 origin "${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" || true
+          ./scripts/changelog-assemble.sh --notice
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
