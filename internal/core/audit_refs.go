@@ -22,6 +22,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -61,7 +62,19 @@ func (c *KeyorixCore) auditRefTail(ctx context.Context, st storage.Storage, kind
 }
 
 // auditObjectName returns the name of the object, or "" if it cannot be read.
-func (c *KeyorixCore) auditObjectName(ctx context.Context, st storage.Storage, kind string, id uint) string {
+//
+// A panic from the lookup is recovered and treated like a failed read (#3090):
+// the name is cosmetic audit text, and callers build it AFTER their primary
+// write (e.g. removeUserRoleWriteOn -> LogRoleRemovedOn -> logRoleChangeOn), in a
+// frame outside writeAuditEventDiffOn's own recover, so a panic here used to
+// misreport an already-persisted write as a failure.
+func (c *KeyorixCore) auditObjectName(ctx context.Context, st storage.Storage, kind string, id uint) (name string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: auditObjectName panicked reading %s %d for an audit description (best-effort, name left empty): %v", kind, id, r)
+			name = ""
+		}
+	}()
 	if st == nil || id == 0 {
 		return ""
 	}

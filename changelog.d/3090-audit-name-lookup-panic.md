@@ -1,0 +1,2 @@
+### Fixed
+- **A failing name lookup in an audit description no longer turns a committed change into an error (#3090).** Revoking a project access-review grant removed the role assignment and then answered HTTP 500 if reading the role's name for the audit text panicked. The name lookup used by every audit description (`auditObjectName`) now recovers a panic, logs it at `SECURITY` level and leaves the name out, exactly as it already did for a failed read.
