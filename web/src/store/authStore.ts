@@ -42,6 +42,9 @@ interface AuthStore extends AuthState {
     // profile and persists the expiry bookkeeping.
     completeSSOLogin: (expiresAt?: string, absoluteExpiresAt?: string) => Promise<void>;
     logout: () => Promise<void>;
+    // The server has already ended this session (setup finished, RECOVER-1): drop the local
+    // state without calling the server and go to the sign-in page with an explanation.
+    endSessionForReauth: () => void;
     refreshToken: () => Promise<void>;
     checkAuth: () => Promise<void>;
     clearError: () => void;
@@ -251,6 +254,12 @@ export const useAuthStore = create<AuthStore>()(
                         // client has cleared its own local state.
                         window.location.href = serverLogoutFailed ? '/login?logout_error=1' : '/login';
                     }
+                },
+
+                endSessionForReauth: () => {
+                    set({ user: null, isAuthenticated: false, impersonatedBy: null, isLoading: false, error: null });
+                    clearPersistedAuthData();
+                    window.location.href = '/login?reauth=1';
                 },
 
                 refreshToken: async () => {

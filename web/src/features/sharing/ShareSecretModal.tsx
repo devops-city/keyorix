@@ -7,6 +7,7 @@ import { Select } from '../../components/ui/Select';
 import { Alert } from '../../components/ui/Alert';
 import { useShareSecret } from './api';
 import { usersApi } from '../../services/users';
+import { SHARE_WRITE_LABEL } from '../../utils/sharePermission';
 
 interface ShareSecretModalProps {
     secret: Secret;
@@ -24,7 +25,7 @@ interface UserOption {
 
 const ALL_PERMISSION_OPTIONS = [
     { value: 'read', label: 'Read Only' },
-    { value: 'write', label: 'Read & Write' },
+    { value: 'write', label: `Read + ${SHARE_WRITE_LABEL.toLowerCase()}` },
 ];
 
 // Time-bound (JIT) share presets. 'never' = a permanent share (no expiry sent);

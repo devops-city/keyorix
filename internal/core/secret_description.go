@@ -79,6 +79,6 @@ func (c *KeyorixCore) SetSecretDescription(ctx context.Context, actorID, secretI
 	uid := actorID
 	sid := secretID
 	c.writeAuditEvent(ctx, "secret.description_updated", &uid, &sid,
-		fmt.Sprintf("updated description of secret %d", secretID))
+		fmt.Sprintf("updated description of %s", c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
 	return updated, nil
 }

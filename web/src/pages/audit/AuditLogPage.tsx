@@ -9,6 +9,9 @@ import { useAuditLog, AuditLogEntry } from '../../features/audit';
 import { useAnomalyAlerts, useAcknowledgeAnomaly } from '../../features/dashboard';
 import { useRoles, useGroups } from '../../features/admin';
 import { apiClient } from '../../services/client';
+import { secretsApi } from '../../services/secrets';
+import { projectsApi } from '../../services/projects';
+import { resolveAuditIds, toNameMap } from '../../features/audit/auditNames';
 import { AnomalyAlert, User } from '../../types';
 import { humanizeAlertType } from '../../utils/anomaly';
 import { eventLabel } from '../../utils/eventLabels';
@@ -1085,6 +1088,17 @@ export const AuditLogPage: React.FC = () => {
         staleTime: 5 * 60 * 1000,
     });
 
+    const { data: auditSecrets } = useQuery({
+        queryKey: ['audit-secret-map'],
+        queryFn: () => secretsApi.list({ page: 1, pageSize: 100 }),
+        staleTime: 5 * 60 * 1000,
+    });
+    const { data: auditProjects } = useQuery({
+        queryKey: ['audit-project-map'],
+        queryFn: () => projectsApi.list(),
+        staleTime: 5 * 60 * 1000,
+    });
+
     const { theme } = useUIStore();
     const isDark =
         theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -1113,22 +1127,44 @@ export const AuditLogPage: React.FC = () => {
         [urlFilter, actorFilter, eventTypeFilter, actorTypeFilter, dateFrom, dateTo]
     );
 
-    const userById = new Map<number, string>();
-    rbacUsers.forEach((u) => userById.set(u.id, u.displayName || u.email || u.username));
-    const roleById = new Map<number, string>();
-    (rbacRoles ?? []).forEach((r) => roleById.set(r.id, r.name));
-    const groupById = new Map<number, string>();
-    (rbacGroups?.groups ?? []).forEach((g: { id: number; name: string }) => groupById.set(g.id, g.name));
-
-    // Rewrite "role N" / "group N" / "user N" tokens to names, RBAC events only,
-    // leaving the token untouched when the id can't be resolved.
-    const humanizeRbacDescription = (desc: string): string =>
-        desc
-            .replace(/\brole (\d+)\b/g, (m: string, id: string) => roleById.get(Number(id)) ?? m)
-            .replace(/\bgroup (\d+)\b/g, (m: string, id: string) => groupById.get(Number(id)) ?? m)
-            .replace(/\buser (\d+)\b/g, (m: string, id: string) => userById.get(Number(id)) ?? m);
-    const resolveIds = (e: AuditLogEntry): AuditLogEntry =>
-        isRbacEvent(e.event_type) ? { ...e, description: humanizeRbacDescription(e.description) } : e;
+    const nameMaps = {
+        users: toNameMap(
+            rbacUsers,
+            (u) => u.id,
+            (u) => u.displayName || u.email || u.username
+        ),
+        roles: toNameMap(
+            rbacRoles,
+            (r) => r.id,
+            (r) => r.name
+        ),
+        groups: toNameMap(
+            rbacGroups?.groups as { id: number; name: string }[] | undefined,
+            (g) => g.id,
+            (g) => g.name
+        ),
+        secrets: auditSecrets
+            ? toNameMap(
+                  auditSecrets.data,
+                  (s) => s.id,
+                  (s) => s.name
+              )
+            : undefined,
+        projects: auditProjects
+            ? toNameMap(
+                  auditProjects,
+                  (p) => p.id,
+                  (p) => p.name
+              )
+            : undefined,
+    };
+    // Rewrite "role N" / "group N" / "user N" / "secret N" / "project N" tokens to names, leaving
+    // a token that already carries its name (newer events) alone. Unresolvable roles, groups and
+    // users keep the id; an unresolvable secret or project reads "secret #N".
+    const resolveIds = (e: AuditLogEntry): AuditLogEntry => ({
+        ...e,
+        description: resolveAuditIds(e.description, nameMaps),
+    });
 
     const auditEntries = applyFilters(allEntries).map(resolveIds);
     const rbacEntries = applyFilters(allEntries.filter((e) => isRbacEvent(e.event_type))).map(resolveIds);

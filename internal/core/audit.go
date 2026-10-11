@@ -126,7 +126,7 @@ func (c *KeyorixCore) logRoleChange(ctx context.Context, eventType, verb string,
 // logRoleChangeOn is logRoleChange against an explicit audit target. ONE body,
 // two entry points.
 func (c *KeyorixCore) logRoleChangeOn(ctx context.Context, tgt auditTarget, eventType, verb string, actorID, targetUserID, roleID uint, scope Scope, baselineBackfill bool) {
-	desc := fmt.Sprintf("role %d %s user %d", roleID, verb, targetUserID)
+	desc := fmt.Sprintf("%s %s %s", c.auditRef(ctx, tgt.st, auditKindRole, roleID), verb, c.auditRef(ctx, tgt.st, auditKindUser, targetUserID))
 	if baselineBackfill {
 		desc = fmt.Sprintf("%s reason=%s", desc, reasonBaselineRoleBackfill)
 	}
@@ -162,7 +162,7 @@ func (c *KeyorixCore) logGroupRoleChange(ctx context.Context, eventType, verb st
 // logGroupRoleChangeOn is logGroupRoleChange against an explicit audit target.
 // ONE body, two entry points.
 func (c *KeyorixCore) logGroupRoleChangeOn(ctx context.Context, tgt auditTarget, eventType, verb string, actorID, groupID, roleID uint, scope Scope) {
-	desc := fmt.Sprintf("role %d %s %d", roleID, verb, groupID)
+	desc := fmt.Sprintf("%s %s %s", c.auditRef(ctx, tgt.st, auditKindRole, roleID), verb, c.auditRefTail(ctx, tgt.st, auditKindGroup, groupID))
 	c.writeRBACAuditOn(ctx, tgt, eventType, desc, actorID, scope, rbacAuditDetail{
 		GroupID:       groupID,
 		RoleID:        roleID,
@@ -184,7 +184,7 @@ func (c *KeyorixCore) LogGroupMemberRemoved(ctx context.Context, actorID, userID
 }
 
 func (c *KeyorixCore) logGroupMemberChange(ctx context.Context, eventType, verb string, actorID, userID, groupID uint) {
-	desc := fmt.Sprintf("user %d %s %d", userID, verb, groupID)
+	desc := fmt.Sprintf("%s %s %s", c.auditRef(ctx, c.storage, auditKindUser, userID), verb, c.auditRefTail(ctx, c.storage, auditKindGroup, groupID))
 	c.writeRBACAudit(ctx, eventType, desc, actorID, Scope{}, rbacAuditDetail{
 		TargetUserID: userID,
 		GroupID:      groupID,

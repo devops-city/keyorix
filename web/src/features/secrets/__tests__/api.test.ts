@@ -683,3 +683,58 @@ describe('useOptimisticSecretUpdate', () => {
         expect(queryClient.getQueryData(queryKeys.secrets.detail(6))).toBeUndefined();
     });
 });
+
+// DEMO-UI-2: History (audit) and Recent access (access-log) are derived from the audit log,
+// so every hook that changes a secret, or reads its value, must refresh both panels.
+describe('secret activity panels stay fresh', () => {
+    const auditKey = [...queryKeys.secrets.detail(7), 'audit'];
+    const accessLogKey = [...queryKeys.secrets.detail(7), 'access-log'];
+
+    const mutations: Array<[string, () => unknown, unknown]> = [
+        ['rotate', () => useRotateSecret(7), 'new-value'],
+        ['rollback', () => useRollbackSecret(7), 2],
+        ['update', () => useUpdateSecret(7), { name: 'x' }],
+        ['suspend', () => useSuspendSecret(7), undefined],
+        ['resume', () => useResumeSecret(7), undefined],
+        ['classify', () => useClassifySecret(7), 'high'],
+        ['transfer ownership', () => useTransferOwnership(7), 3],
+        ['set tags', () => useSetSecretTags(7), ['a']],
+        ['set description', () => useSetSecretDescription(7), 'd'],
+        ['copy', () => useCopySecret(7), { environmentId: 2 }],
+        ['auto-rotate', () => useSetAutoRotate(7), { enabled: true }],
+    ];
+    const apiFor: Record<string, string> = {
+        rotate: 'rotate',
+        rollback: 'rollback',
+        update: 'update',
+        suspend: 'suspend',
+        resume: 'resume',
+        classify: 'classify',
+        'transfer ownership': 'transferOwnership',
+        'set tags': 'setTags',
+        'set description': 'setDescription',
+        copy: 'copy',
+        'auto-rotate': 'setAutoRotate',
+    };
+
+    it.each(mutations)('%s invalidates the audit trail and the access log', async (name, hook, vars) => {
+        mock[apiFor[name]!]!.mockResolvedValueOnce({});
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const { result } = renderHook(() => hook() as ReturnType<typeof useRotateSecret>, { wrapper });
+        act(() => {
+            result.current.mutate(vars as never);
+        });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: auditKey });
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: accessLogKey });
+    });
+
+    it('revealing the value (a read) invalidates the audit trail and the access log', async () => {
+        mock.getValue!.mockResolvedValueOnce('s3cret');
+        const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+        const { result } = renderHook(() => useSecretValue(7, true), { wrapper });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: auditKey });
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: accessLogKey });
+    });
+});

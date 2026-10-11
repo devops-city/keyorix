@@ -701,7 +701,26 @@ func (m *MockStorage) RestoreSecret(ctx context.Context, id uint) error {
 	return m.Called(ctx, id).Error(0)
 }
 
+// mockHasExpectation reports whether a test stubbed method. The audit-description
+// name lookups (audit_refs.go) are best-effort reads on code paths that predate them,
+// so for an unstubbed method the lookup-only getters below answer "not found" instead
+// of failing the mock's unexpected-call panic; a test that stubs the method still gets
+// exactly what it stubbed.
+func (m *MockStorage) mockHasExpectation(method string) bool {
+	for _, c := range m.ExpectedCalls {
+		if c.Method == method {
+			return true
+		}
+	}
+	return false
+}
+
+var errMockLookupNotStubbed = fmt.Errorf("mock: lookup not stubbed")
+
 func (m *MockStorage) GetSecretIncludingDeleted(ctx context.Context, id uint) (*models.SecretNode, error) {
+	if !m.mockHasExpectation("GetSecretIncludingDeleted") {
+		return nil, errMockLookupNotStubbed
+	}
 	a := m.Called(ctx, id)
 	v, _ := a.Get(0).(*models.SecretNode)
 	return v, a.Error(1)
@@ -951,6 +970,9 @@ func (m *MockStorage) CreateUser(ctx context.Context, user *models.User, _ ...st
 }
 
 func (m *MockStorage) GetUser(ctx context.Context, id uint) (*models.User, error) {
+	if !m.mockHasExpectation("GetUser") {
+		return nil, errMockLookupNotStubbed
+	}
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -1136,6 +1158,9 @@ func (m *MockStorage) CreateGroup(ctx context.Context, group *models.Group) (*mo
 }
 
 func (m *MockStorage) GetGroup(ctx context.Context, id uint) (*models.Group, error) {
+	if !m.mockHasExpectation("GetGroup") {
+		return nil, errMockLookupNotStubbed
+	}
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
@@ -1221,6 +1246,9 @@ func (m *MockStorage) SetRoleBypassesPermissionChecks(ctx context.Context, roleI
 }
 
 func (m *MockStorage) GetRole(ctx context.Context, id uint) (*models.Role, error) {
+	if !m.mockHasExpectation("GetRole") {
+		return nil, errMockLookupNotStubbed
+	}
 	args := m.Called(ctx, id)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)

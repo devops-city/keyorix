@@ -25,6 +25,9 @@ export const LoginPage: React.FC = () => {
     // clears its own local state as a fail-safe, but the user needs to know
     // the server may still consider the old session valid.
     const logoutError = new URLSearchParams(location.search).get('logout_error');
+    // The server ended the session because account setup just finished (one-time password
+    // replaced / second factor enrolled): not an error, the user only has to sign in again.
+    const reauthRequired = new URLSearchParams(location.search).get('reauth') === '1';
 
     useEffect(() => {
         let active = true;
@@ -140,6 +143,16 @@ export const LoginPage: React.FC = () => {
                                 >
                                     Sign-out could not be confirmed with the server. Your previous session may still be
                                     active — for safety on a shared device, consider changing your password.
+                                </div>
+                            )}
+                            {reauthRequired && (
+                                <div
+                                    role="status"
+                                    className="mb-4 rounded-lg px-3 py-2 text-sm"
+                                    style={{ backgroundColor: 'var(--bg-subtle)', color: 'var(--text-primary)' }}
+                                >
+                                    Your account setup is complete and your setup session has ended. Please sign in
+                                    again to continue.
                                 </div>
                             )}
                             {ssoError && (

@@ -365,6 +365,22 @@ describe('authStore', () => {
         });
     });
 
+    describe('endSessionForReauth', () => {
+        it('drops local state and goes to sign-in with the reauth notice, without calling the server (the session is already gone)', () => {
+            useAuthStore.setState({ user: makeUser(), isAuthenticated: true, error: 'stale error' });
+
+            useAuthStore.getState().endSessionForReauth();
+
+            expect(authService.logout).not.toHaveBeenCalled();
+            const state = useAuthStore.getState();
+            expect(state.user).toBeNull();
+            expect(state.isAuthenticated).toBe(false);
+            expect(state.error).toBeNull();
+            expect(authUtils.clearPersistedAuthData).toHaveBeenCalledOnce();
+            expect(window.location.href).toBe('/login?reauth=1');
+        });
+    });
+
     describe('logout', () => {
         it('clears local state, wipes persisted data, and redirects to /login on success', async () => {
             useAuthStore.setState({

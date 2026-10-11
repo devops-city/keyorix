@@ -359,20 +359,44 @@ describe('AuditLogPage — RBAC tab', () => {
         expect(screen.getByText('role 999 assigned to Frank OBrien')).toBeInTheDocument();
     });
 
-    it('does not rewrite ids in non-RBAC event descriptions', () => {
+    it('resolves secret and project ids in any event description; unknown ones read "secret #N"', async () => {
         useAuditLog.mockReturnValue({
             data: {
                 data: [
                     {
                         id: 1,
-                        event_type: 'secret.read',
+                        event_type: 'secret.restored',
                         actor: 'bob',
                         actor_type: 'user',
-                        description: 'read secret 9 in project 7',
+                        description: 'secret 9 restored',
                         timestamp: '2026-01-15T10:00:00Z',
                     },
+                    {
+                        id: 2,
+                        event_type: 'secret.restored',
+                        actor: 'bob',
+                        actor_type: 'user',
+                        description: 'secret 10 restored',
+                        timestamp: '2026-01-16T10:00:00Z',
+                    },
+                    {
+                        id: 3,
+                        event_type: 'project.restored',
+                        actor: 'bob',
+                        actor_type: 'user',
+                        description: 'project 7 restored (cascade resurrected 1 environment(s) and 2 secret(s))',
+                        timestamp: '2026-01-17T10:00:00Z',
+                    },
+                    {
+                        id: 4,
+                        event_type: 'secret.restored',
+                        actor: 'bob',
+                        actor_type: 'user',
+                        description: 'secret 9 ("db-password") restored',
+                        timestamp: '2026-01-18T10:00:00Z',
+                    },
                 ],
-                total: 1,
+                total: 4,
                 page: 1,
                 pageSize: 100,
                 totalPages: 1,
@@ -380,10 +404,25 @@ describe('AuditLogPage — RBAC tab', () => {
             isLoading: false,
             error: null,
         });
-        useRoles.mockReturnValue({ data: [{ id: 9, name: 'project_viewer' }] });
+        apiClientGet.mockImplementation(async (url: string) => {
+            if (url === '/api/v1/secrets') {
+                return { data: { data: { secrets: [{ id: 9, name: 'db-password' }], total: 1 } } };
+            }
+            if (String(url).startsWith('/api/v1/projects')) {
+                return { data: { data: { projects: [{ id: 7, name: 'payments' }] } } };
+            }
+            return { data: { data: { users: [] } } };
+        });
 
         render(<AuditLogPage />);
-        expect(screen.getByText('read secret 9 in project 7')).toBeInTheDocument();
+
+        expect(await screen.findByText('secret "db-password" restored')).toBeInTheDocument();
+        expect(screen.getByText('secret #10 restored')).toBeInTheDocument();
+        expect(
+            screen.getByText('project "payments" restored (cascade resurrected 1 environment(s) and 2 secret(s))')
+        ).toBeInTheDocument();
+        // A newer event already carries its name: shown as the server wrote it, not doubled.
+        expect(screen.getByText('secret 9 ("db-password") restored')).toBeInTheDocument();
     });
 });
 

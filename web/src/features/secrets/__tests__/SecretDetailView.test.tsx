@@ -235,6 +235,15 @@ describe('SecretDetailView access list', () => {
         expect(screen.getByText('group_share:platform')).toBeInTheDocument();
     });
 
+    it('labels a share-sourced write by what it allows, not as plain "write"', () => {
+        render(<SecretDetailView secret={makeSecret()} />);
+        // alice holds a direct write share (update value/metadata, rotate since #3001).
+        expect(screen.getByText('Update value/metadata, rotate')).toBeInTheDocument();
+        expect(screen.queryByText('write')).not.toBeInTheDocument();
+        // The owner keeps its own label.
+        expect(screen.getAllByText('owner').length).toBeGreaterThan(0);
+    });
+
     it('omits the section when there are no accessors', () => {
         mockAccessors = [];
         render(<SecretDetailView secret={makeSecret()} />);
@@ -412,6 +421,31 @@ describe('SecretDetailView history', () => {
         ];
         render(<SecretDetailView secret={makeSecret()} />);
         expect(screen.getByText('Versions listed')).toBeInTheDocument();
+    });
+
+    it('shows this secret by name in an old, id-only description, and leaves a named one alone', () => {
+        const secret = makeSecret();
+        mockAuditTrail = [
+            {
+                id: 5,
+                event_type: 'secret.restored',
+                timestamp: '2026-06-18T12:00:00Z',
+                actor_type: 'user',
+                description: `secret ${secret.id} restored`,
+                success: true,
+            },
+            {
+                id: 6,
+                event_type: 'secret.description_updated',
+                timestamp: '2026-06-18T13:00:00Z',
+                actor_type: 'user',
+                description: `updated description of secret ${secret.id} ("${secret.name}")`,
+                success: true,
+            },
+        ];
+        render(<SecretDetailView secret={secret} />);
+        expect(screen.getByText(`secret "${secret.name}" restored`)).toBeInTheDocument();
+        expect(screen.getByText(`updated description of secret ${secret.id} ("${secret.name}")`)).toBeInTheDocument();
     });
 
     it('omits the panel when there is no audit trail', () => {

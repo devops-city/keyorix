@@ -138,7 +138,7 @@ func (c *KeyorixCore) RemoveExpiredShares(ctx context.Context, before time.Time)
 			recipientKind = "group"
 		}
 		c.writeAuditEvent(ctx, EventShareExpired, nil, &sid,
-			fmt.Sprintf("time-bound share of secret %d expired for %s %d", s.SecretID, recipientKind, s.RecipientID))
+			fmt.Sprintf("time-bound share of %s expired for %s", c.auditRef(ctx, c.storage, auditKindSecret, s.SecretID), c.auditRef(ctx, c.storage, recipientKind, s.RecipientID)))
 	}
 	return len(removed), nil
 }
@@ -162,10 +162,10 @@ func (c *KeyorixCore) RemoveExpiredRoleGrants(ctx context.Context, before time.T
 		var desc string
 		if g.PrincipalType == "group" {
 			detail.GroupID = g.PrincipalID
-			desc = fmt.Sprintf("role %d expired for group %d", g.RoleID, g.PrincipalID)
+			desc = fmt.Sprintf("%s expired for %s", c.auditRef(ctx, c.storage, auditKindRole, g.RoleID), c.auditRef(ctx, c.storage, auditKindGroup, g.PrincipalID))
 		} else {
 			detail.TargetUserID = g.PrincipalID
-			desc = fmt.Sprintf("role %d expired for user %d", g.RoleID, g.PrincipalID)
+			desc = fmt.Sprintf("%s expired for %s", c.auditRef(ctx, c.storage, auditKindRole, g.RoleID), c.auditRef(ctx, c.storage, auditKindUser, g.PrincipalID))
 		}
 		c.writeRBACAudit(ctx, EventRoleExpired, desc, 0, scope, detail)
 	}

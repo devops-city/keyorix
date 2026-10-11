@@ -222,7 +222,7 @@ func (c *KeyorixCore) RestoreGroup(ctx context.Context, actorID, id uint) (*mode
 	}); err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventGroupRestored, actorPtr(actorID), nil, fmt.Sprintf("group %d restored", id))
+	c.writeAuditEvent(ctx, EventGroupRestored, actorPtr(actorID), nil, c.auditRef(ctx, c.storage, auditKindGroup, id)+" restored")
 	return restored, nil
 }
 

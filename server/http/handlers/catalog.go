@@ -396,6 +396,12 @@ func (h *CatalogHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
+	// Read the name now: after the delete there is nothing left to look up, and the
+	// audit event should say which project it was, not just its id.
+	projectName := ""
+	if p, gerr := h.coreService.GetProject(r.Context(), uint(id)); gerr == nil && p != nil {
+		projectName = p.Name
+	}
 	if err := h.coreService.DeleteProject(r.Context(), uint(id), force); err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
@@ -408,7 +414,7 @@ func (h *CatalogHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.coreService.LogProjectDeleted(r.Context(), actor.UserID, uint(id), force)
+	h.coreService.LogProjectDeleted(r.Context(), actor.UserID, uint(id), projectName, force)
 	sendSuccess(w, nil, "Project deleted")
 }
 

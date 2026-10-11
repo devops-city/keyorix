@@ -245,6 +245,20 @@ describe('LoginPage', () => {
         expect(screen.getByText(/Sign-out could not be confirmed with the server/)).toBeInTheDocument();
     });
 
+    it('explains a server-ended setup session from the reauth query param, as a notice and not an error', () => {
+        window.history.pushState({}, '', '/login?reauth=1');
+        render(<LoginPage />);
+
+        expect(screen.getByRole('status')).toHaveTextContent(/account setup is complete.*sign in again/i);
+        expect(screen.queryByText(/Sign-out could not be confirmed/)).not.toBeInTheDocument();
+    });
+
+    it('shows no reauth notice on a plain visit to the login page', () => {
+        render(<LoginPage />);
+
+        expect(screen.queryByText(/setup session has ended/)).not.toBeInTheDocument();
+    });
+
     it('does not show a logout-failure banner when there is no logout_error param (e.g. a clean logout)', () => {
         render(<LoginPage />);
 

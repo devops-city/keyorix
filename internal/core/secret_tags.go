@@ -52,7 +52,7 @@ func (c *KeyorixCore) SetSecretTags(ctx context.Context, secretID, actorID uint,
 	uid := actorID
 	sid := secretID
 	c.writeAuditEvent(ctx, EventSecretTagsUpdated, &uid, &sid,
-		fmt.Sprintf("set %d tag(s) on secret %d", len(normalized), secretID))
+		fmt.Sprintf("set %d tag(s) on %s", len(normalized), c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
 	return normalized, nil
 }
 

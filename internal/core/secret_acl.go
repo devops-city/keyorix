@@ -111,7 +111,7 @@ func (c *KeyorixCore) GrantSecretACL(ctx context.Context, actorID, secretID, use
 
 	projectID := secret.ProjectID
 	c.writeAuditEventFull(ctx, EventSecretACLGranted, actorPtr(actorID), &secretID, &projectID, "",
-		fmt.Sprintf("granted user %d ACL %v on secret %d", userID, perms, secretID))
+		fmt.Sprintf("granted %s ACL %v on %s", c.auditRef(ctx, c.storage, auditKindUser, userID), perms, c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
 	return nil
 }
 
@@ -144,7 +144,7 @@ func (c *KeyorixCore) RevokeSecretACL(ctx context.Context, actorID, secretID, ac
 	}
 
 	c.writeAuditEvent(ctx, EventSecretACLRevoked, actorPtr(actorID), &secretID,
-		fmt.Sprintf("revoked ACL %d (user %d) on secret %d", aclID, found.UserID, secretID))
+		fmt.Sprintf("revoked ACL %d (%s) on %s", aclID, c.auditRef(ctx, c.storage, auditKindUser, found.UserID), c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
 	return nil
 }
 

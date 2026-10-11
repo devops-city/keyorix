@@ -341,14 +341,14 @@ describe('ShareSecretModal submission + lifecycle', () => {
         const select = screen.getByDisplayValue('Read Only') as HTMLSelectElement;
         const optionLabels = Array.from(select.options).map((o) => o.textContent);
         expect(optionLabels).toEqual(['Read Only']);
-        expect(optionLabels).not.toContain('Read & Write');
+        expect(optionLabels).not.toContain('Read + update value/metadata, rotate');
     });
 
-    it('offers Read & Write when the sharer holds write on the secret', () => {
+    it('offers the update-value/metadata-and-rotate option when the sharer holds write on the secret', () => {
         render(<ShareSecretModal secret={secret} isOpen onClose={() => {}} />);
         const select = screen.getByDisplayValue('Read Only') as HTMLSelectElement;
         const optionLabels = Array.from(select.options).map((o) => o.textContent);
-        expect(optionLabels).toContain('Read & Write');
+        expect(optionLabels).toContain('Read + update value/metadata, rotate');
     });
 
     it('shows a success message, calls onSuccess, and auto-closes after a delay', async () => {

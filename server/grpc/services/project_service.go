@@ -243,10 +243,14 @@ func (s *ProjectGRPCService) DeleteProject(ctx context.Context, req *pb.DeletePr
 		return nil, err
 	}
 	force := req.GetForce()
+	projectName := ""
+	if p, gerr := s.core.GetProject(ctx, uint(req.GetId())); gerr == nil && p != nil {
+		projectName = p.Name
+	}
 	if err := s.core.DeleteProject(ctx, uint(req.GetId()), force); err != nil {
 		return nil, mapProjectError(err)
 	}
-	s.core.LogProjectDeleted(ctx, user.UserID, uint(req.GetId()), force)
+	s.core.LogProjectDeleted(ctx, user.UserID, uint(req.GetId()), projectName, force)
 	return &emptypb.Empty{}, nil
 }
 

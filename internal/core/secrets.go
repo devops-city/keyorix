@@ -722,7 +722,7 @@ func (c *KeyorixCore) RestoreSecret(ctx context.Context, actorID, id uint) error
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
 	sid := id
-	c.writeAuditEvent(ctx, "secret.restored", actorPtr(actorID), &sid, fmt.Sprintf("secret %d restored", id))
+	c.writeAuditEvent(ctx, "secret.restored", actorPtr(actorID), &sid, c.auditRef(ctx, c.storage, auditKindSecret, id)+" restored")
 	// Emit an audit event for every dependency edge that is now re-active so
 	// operators know which rotation plans are unblocked (best-effort).
 	if secret != nil {

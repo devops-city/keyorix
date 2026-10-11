@@ -39,9 +39,9 @@ func (c *KeyorixCore) SetSecretRetentionOverride(ctx context.Context, actorID, s
 	sid := secretID
 	var desc string
 	if days == 0 {
-		desc = fmt.Sprintf("cleared per-secret retention override on secret %d (reverts to global policy)", secretID)
+		desc = fmt.Sprintf("cleared per-secret retention override on %s (reverts to global policy)", c.auditRef(ctx, c.storage, auditKindSecret, secretID))
 	} else {
-		desc = fmt.Sprintf("set per-secret retention override on secret %d to %d days", secretID, days)
+		desc = fmt.Sprintf("set per-secret retention override on %s to %d days", c.auditRef(ctx, c.storage, auditKindSecret, secretID), days)
 	}
 	c.writeAuditEvent(ctx, "secret.retention_override_set", &uid, &sid, desc)
 	return nil

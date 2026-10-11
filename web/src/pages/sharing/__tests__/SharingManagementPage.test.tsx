@@ -203,7 +203,7 @@ describe('SharingManagementPage — table rendering', () => {
 
         const opsRow = rowFor('Ops Group');
         expect(within(opsRow).getByText('group')).toBeInTheDocument();
-        expect(within(opsRow).getByText('Read & Write')).toBeInTheDocument();
+        expect(within(opsRow).getByText('Update value/metadata, rotate')).toBeInTheDocument();
         expect(within(opsRow).getByText('Expired')).toBeInTheDocument();
 
         const carolRow = rowFor('Carol Smith');

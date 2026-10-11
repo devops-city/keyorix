@@ -330,7 +330,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	}
 	aid := adminID
 	c.writeAuditEventFull(ctx, eventType, &aid, nil, nil, "",
-		fmt.Sprintf("user %d account state set to %s", userID, state))
+		fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, c.storage, auditKindUser, userID), state))
 	return nil
 }
 

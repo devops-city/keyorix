@@ -78,11 +78,30 @@ apiClient.interceptors.request.use(
 // since only handle401 ever reads/writes this flag.
 type RetriableConfig = AxiosRequestConfig & { _retry?: boolean };
 
+// #3024 / RECOVER-1: the step that finishes a restricted account's setup (change the one-time
+// password, enrol a second factor) also ends the calling session, and says so with
+// `data.reauthentication_required: true` on its 200 response. The page that made the call
+// still has something to show (the new recovery codes, "password changed"), so the flag only
+// remembers the fact; the next request, which the server will now answer 401, is the moment
+// to send the user to sign in again, with a message that says why, instead of trying to
+// refresh a session that no longer exists and reporting a generic "session expired".
+let sessionEndedByServer = false;
+
+const sessionEndFlag = (body: unknown): boolean => {
+    const b = body as { reauthentication_required?: unknown; data?: { reauthentication_required?: unknown } } | null;
+    return b?.reauthentication_required === true || b?.data?.reauthentication_required === true;
+};
+
 const handle401 = async (
     error: AxiosError,
     authStore: ReturnType<typeof useAuthStore.getState>
 ): Promise<AxiosResponse | void> => {
     if (!authStore.isAuthenticated) {
+        return;
+    }
+    if (sessionEndedByServer || sessionEndFlag(error.response?.data)) {
+        sessionEndedByServer = false;
+        authStore.endSessionForReauth();
         return;
     }
     if (error.config?.url?.includes('/auth/refresh')) {
@@ -182,6 +201,9 @@ const handleErrorByStatus = async (
 
 apiClient.interceptors.response.use(
     (response: AxiosResponse) => {
+        if (sessionEndFlag(response.data)) {
+            sessionEndedByServer = true;
+        }
         return response;
     },
     async (error: AxiosError) => {

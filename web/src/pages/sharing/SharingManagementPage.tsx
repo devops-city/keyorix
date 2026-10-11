@@ -1,4 +1,5 @@
 import { formatDateTime } from '../../utils/datetime';
+import { SHARE_WRITE_LABEL, sharePermissionLabel } from '../../utils/sharePermission';
 import { apiErrorMessage } from '../../services/client';
 import React, { useState } from 'react';
 import {
@@ -38,7 +39,7 @@ const RECIPIENT_TYPE_OPTIONS = [
 const PERMISSION_OPTIONS = [
     { value: 'all', label: 'All Permissions' },
     { value: 'read', label: 'Read Only' },
-    { value: 'write', label: 'Read & Write' },
+    { value: 'write', label: `Read + ${SHARE_WRITE_LABEL.toLowerCase()}` },
 ];
 
 // Expiry actions offered when editing an existing share.
@@ -365,7 +366,7 @@ export const SharingManagementPage: React.FC = () => {
                                                 : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                                         }`}
                                     >
-                                        {share.permission === 'write' ? 'Read & Write' : 'Read Only'}
+                                        {sharePermissionLabel(share.permission)}
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-base-muted dark:text-base-muted">
@@ -656,7 +657,7 @@ export const SharingManagementPage: React.FC = () => {
                             onChange={(e) => setEditPermission(e.target.value as 'read' | 'write')}
                             options={[
                                 { value: 'read', label: 'Read Only' },
-                                { value: 'write', label: 'Read & Write' },
+                                { value: 'write', label: `Read + ${SHARE_WRITE_LABEL.toLowerCase()}` },
                             ]}
                             disabled={updateShare.isPending}
                         />

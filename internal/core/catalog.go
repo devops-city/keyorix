@@ -77,10 +77,12 @@ func (c *KeyorixCore) LogProjectUpdated(ctx context.Context, actorID, projectID 
 		fmt.Sprintf("project %d (%q) updated", projectID, name))
 }
 
-func (c *KeyorixCore) LogProjectDeleted(ctx context.Context, actorID, projectID uint, force bool) {
+// name is read by the caller BEFORE the delete (the row is gone afterwards and
+// there is no include-deleted project getter); empty degrades to the bare id.
+func (c *KeyorixCore) LogProjectDeleted(ctx context.Context, actorID, projectID uint, name string, force bool) {
 	pid := projectID
 	c.writeAuditEventFull(ctx, EventProjectDeleted, actorPtr(actorID), nil, &pid, "",
-		fmt.Sprintf("project %d deleted (force=%t)", projectID, force))
+		fmt.Sprintf("%s deleted (force=%t)", formatAuditRef(auditKindProject, projectID, name), force))
 }
 
 // identifierRegex is the anti-homograph/anti-spoofing charset guard (G38):
@@ -355,7 +357,7 @@ func (c *KeyorixCore) RestoreProject(ctx context.Context, actorID, id uint) erro
 	}
 	pid := id
 	c.writeAuditEventFull(ctx, "project.restored", actorPtr(actorID), nil, &pid, "",
-		fmt.Sprintf("project %d restored (cascade resurrected %d environment(s) and %d secret(s))", id, envCount, secretCount))
+		fmt.Sprintf("%s restored (cascade resurrected %d environment(s) and %d secret(s))", c.auditRef(ctx, c.storage, auditKindProject, id), envCount, secretCount))
 	return nil
 }
 

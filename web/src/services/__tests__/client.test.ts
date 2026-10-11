@@ -97,6 +97,7 @@ function makeAuthStore(overrides: Partial<Record<string, unknown>> = {}) {
         logout: vi.fn().mockResolvedValue(undefined),
         refreshToken: vi.fn().mockResolvedValue(undefined),
         setError: vi.fn(),
+        endSessionForReauth: vi.fn(),
         ...overrides,
     };
 }
@@ -333,6 +334,50 @@ describe('response interceptor (error): 401 handling', () => {
         expect(store.logout).toHaveBeenCalledTimes(1);
         expect(store.setError).toHaveBeenCalledWith('Your session has expired. Please log in again.');
         expect(mockRequest).not.toHaveBeenCalled();
+    });
+});
+
+describe('response interceptor: the server ended the session (reauthentication_required, #3024)', () => {
+    it('after a 200 that says the session ended, the next 401 sends the user to sign in again, without a refresh', async () => {
+        const store = makeAuthStore({ isAuthenticated: true });
+        mockGetState.mockReturnValue(store);
+
+        // The setup-finishing call itself succeeds and is returned untouched (the page can still
+        // show recovery codes / "password changed").
+        const done = { status: 200, data: { success: true, data: { reauthentication_required: true } } };
+        expect(responseOnFulfilled(done)).toBe(done);
+        expect(store.endSessionForReauth).not.toHaveBeenCalled();
+
+        const err = axiosErr({ config: { url: '/api/v1/secrets' }, response: { status: 401, data: {} } });
+        await expect(responseOnRejected(err)).rejects.toBe(err);
+
+        expect(store.endSessionForReauth).toHaveBeenCalledTimes(1);
+        expect(store.refreshToken).not.toHaveBeenCalled();
+        expect(store.logout).not.toHaveBeenCalled();
+        expect(store.setError).not.toHaveBeenCalled();
+    });
+
+    it('a 401 that itself carries reauthentication_required also goes to sign-in, not through a refresh', async () => {
+        const store = makeAuthStore({ isAuthenticated: true });
+        mockGetState.mockReturnValue(store);
+        const err = axiosErr({ response: { status: 401, data: { reauthentication_required: true } } });
+
+        await expect(responseOnRejected(err)).rejects.toBe(err);
+
+        expect(store.endSessionForReauth).toHaveBeenCalledTimes(1);
+        expect(store.refreshToken).not.toHaveBeenCalled();
+    });
+
+    it('an ordinary 200 or an ordinary 401 is unaffected (refresh as before)', async () => {
+        const store = makeAuthStore({ isAuthenticated: true });
+        mockGetState.mockReturnValue(store);
+        responseOnFulfilled({ status: 200, data: { success: true, data: { reauthentication_required: false } } });
+        const err = axiosErr({ config: undefined, response: { status: 401, data: {} } });
+
+        await expect(responseOnRejected(err)).rejects.toBe(err);
+
+        expect(store.endSessionForReauth).not.toHaveBeenCalled();
+        expect(store.refreshToken).toHaveBeenCalledTimes(1);
     });
 });
 

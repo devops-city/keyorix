@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { secretsApi } from '../../services/secrets';
-import { queryKeys, invalidateQueries, SENSITIVE_GC_TIME } from '../../lib/queryClient';
+import { queryClient, queryKeys, invalidateQueries, SENSITIVE_GC_TIME } from '../../lib/queryClient';
 import { Secret, SecretFormData } from '../../types';
 
 export const useSecrets = (params?: {
@@ -17,6 +17,17 @@ export const useSecrets = (params?: {
         queryFn: () => secretsApi.list(params),
         placeholderData: keepPreviousData,
     });
+};
+
+// A secret's History (audit trail) and Recent access (access log) panels are
+// derived from the audit log, so every action that writes an audit event for the
+// secret -- including a plain value read -- makes them stale. Call this from
+// every such mutation; invalidating the narrower keys explicitly keeps it working
+// even if the detail prefix is ever narrowed.
+export const invalidateSecretActivity = (id: number) => {
+    const detail = queryKeys.secrets.detail(id);
+    queryClient.invalidateQueries({ queryKey: [...detail, 'audit'] });
+    queryClient.invalidateQueries({ queryKey: [...detail, 'access-log'] });
 };
 
 export const useSecret = (id: number, enabled = true) => {
@@ -44,7 +55,12 @@ export const useSecretVersions = (id: number, enabled = true) => {
 export const useSecretValue = (id: number, enabled = true) => {
     return useQuery({
         queryKey: queryKeys.secrets.value(id),
-        queryFn: () => secretsApi.getValue(id),
+        queryFn: async () => {
+            const value = await secretsApi.getValue(id);
+            // The read itself is an audit event: refresh History and Recent access.
+            invalidateSecretActivity(id);
+            return value;
+        },
         enabled,
         gcTime: SENSITIVE_GC_TIME,
     });
@@ -69,6 +85,7 @@ export const useUpdateSecret = (id: number) => {
         mutationFn: (data: Partial<SecretFormData>) => secretsApi.update(id, data),
         onSuccess: (updatedSecret) => {
             queryClient.setQueryData(queryKeys.secrets.detail(id), updatedSecret);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -93,6 +110,7 @@ export const useRotateSecret = (id: number) => {
             // version history, the secret detail, and the lists are all stale.
             queryClient.invalidateQueries({ queryKey: queryKeys.secrets.versions(id) });
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -107,6 +125,7 @@ export const useRollbackSecret = (id: number) => {
             // as a rotation are stale.
             queryClient.invalidateQueries({ queryKey: queryKeys.secrets.versions(id) });
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -156,6 +175,7 @@ export const useCopySecret = (id: number) => {
             secretsApi.copy(id, vars.environmentId, vars.name),
         onSuccess: () => {
             invalidateQueries.secrets.lists();
+            invalidateSecretActivity(id);
         },
     });
 };
@@ -174,6 +194,7 @@ export const useSetSecretDescription = (id: number) => {
         mutationFn: (description: string) => secretsApi.setDescription(id, description),
         onSuccess: () => {
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
         },
     });
 };
@@ -192,6 +213,7 @@ export const useSetSecretTags = (id: number) => {
         mutationFn: (tags: string[]) => secretsApi.setTags(id, tags),
         onSuccess: () => {
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
         },
     });
 };
@@ -255,6 +277,7 @@ export const useSuspendSecret = (id: number) => {
         mutationFn: (reason?: string) => secretsApi.suspend(id, reason),
         onSuccess: () => {
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -265,6 +288,7 @@ export const useResumeSecret = (id: number) => {
         mutationFn: () => secretsApi.resume(id),
         onSuccess: () => {
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -277,6 +301,7 @@ export const useTransferOwnership = (id: number) => {
             // Ownership changes who can manage/share the secret — refresh the detail
             // (owner field) and the lists.
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -289,6 +314,7 @@ export const useClassifySecret = (id: number) => {
             // Classification feeds the compliance posture's per-level counts and the
             // secret lists, so refresh both; the detail badge updates from local state.
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });
@@ -300,6 +326,7 @@ export const useSetAutoRotate = (id: number) => {
             secretsApi.setAutoRotate(id, opts),
         onSuccess: () => {
             invalidateQueries.secrets.detail(id);
+            invalidateSecretActivity(id);
             invalidateQueries.secrets.lists();
         },
     });

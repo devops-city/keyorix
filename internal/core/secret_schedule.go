@@ -111,13 +111,13 @@ func (c *KeyorixCore) DeleteSecretSchedule(ctx context.Context, secretID uint) e
 func (c *KeyorixCore) LogSecretScheduleSet(ctx context.Context, actorID, secretID uint) {
 	sid := secretID
 	c.writeAuditEventFull(ctx, "secret.schedule_set", actorPtr(actorID), &sid, nil, "",
-		fmt.Sprintf("access schedule set for secret %d", secretID))
+		fmt.Sprintf("access schedule set for %s", c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
 }
 
 func (c *KeyorixCore) LogSecretScheduleDeleted(ctx context.Context, actorID, secretID uint) {
 	sid := secretID
 	c.writeAuditEventFull(ctx, "secret.schedule_deleted", actorPtr(actorID), &sid, nil, "",
-		fmt.Sprintf("access schedule deleted for secret %d", secretID))
+		fmt.Sprintf("access schedule deleted for %s", c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
 }
 
 // validateScheduleParams checks the schedule parameters before persistence.

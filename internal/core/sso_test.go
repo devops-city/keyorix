@@ -492,6 +492,10 @@ func TestSyncSSOGroups(t *testing.T) {
 		store.On("GetRoleByName", mock.Anything, "admin").Return(nil, assert.AnError)
 		store.On("GetRoleByName", mock.Anything, "system_admin").Return(nil, assert.AnError)
 		store.On("ListGroupRoleAssignments", mock.Anything, uint(3)).Return(nil, nil)
+		// The membership audit events now name the user and group (audit_refs.go);
+		// an unreadable name degrades to the bare id, which is all this test needs.
+		store.On("GetUser", mock.Anything, mock.Anything).Return(nil, assert.AnError).Maybe()
+		store.On("GetGroup", mock.Anything, mock.Anything).Return(nil, assert.AnError).Maybe()
 
 		require.NoError(t, c.syncSSOGroups(context.Background(), p, 7, raw))
 
