@@ -196,16 +196,12 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		if cfg.Server.HTTP.TLS.Enabled {
 			scheme = "https"
 		}
-		host := cfg.Server.HTTP.Domain
-		if host == "" {
-			host = "localhost"
-		}
-		log.Printf("HTTP server will start on %s://%s:%s", scheme, host, cfg.Server.HTTP.Port)
+		log.Printf("HTTP server will bind %s://%s%s", scheme, cfg.Server.HTTP.ListenAddr(), bindScopeNote(cfg.Server.HTTP.BindHost()))
 	} else {
 		log.Printf("HTTP server is disabled (check keyorix.yaml)")
 	}
 	if cfg.Server.GRPC.Enabled {
-		log.Printf("gRPC server will start on localhost:%s", cfg.Server.GRPC.Port)
+		log.Printf("gRPC server will bind %s%s", cfg.Server.GRPC.ListenAddr(), bindScopeNote(cfg.Server.GRPC.BindHost()))
 	}
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1888,7 +1884,7 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 
 	// Create HTTP server
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", cfg.Server.HTTP.Port),
+		Addr:    cfg.Server.HTTP.ListenAddr(),
 		Handler: router,
 		// ReadHeaderTimeout bounds how long a client can dribble in request headers one
 		// byte at a time before the connection is dropped (gosec G112 / slowloris-style
@@ -1911,7 +1907,7 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 	}
 
 	// Bind the listener early so we can confirm the address before serving.
-	ln, err := net.Listen("tcp", server.Addr)
+	ln, err := bindListener(cfg.Server.HTTP)
 	if err != nil {
 		return fmt.Errorf("%w: failed to bind HTTP listener: %v", errHTTPServerFailedToStart, err)
 	}
@@ -1920,8 +1916,7 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 	if cfg.Server.HTTP.TLS.Enabled {
 		scheme = "https"
 	}
-	ip := resolveOutboundIP()
-	log.Printf("HTTP server listening on %s://%s:%s", scheme, ip, cfg.Server.HTTP.Port)
+	log.Printf("HTTP server listening on %s://%s%s", scheme, ln.Addr().String(), bindScopeNote(cfg.Server.HTTP.BindHost()))
 
 	// Start server
 	go func() {
@@ -2385,12 +2380,12 @@ func startGRPCServer(ctx context.Context, cfg *config.Config, coreService *core.
 	}
 
 	// Create listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", cfg.Server.GRPC.Port))
+	lis, err := bindListener(cfg.Server.GRPC)
 	if err != nil {
 		return fmt.Errorf("failed to listen on gRPC port: %w", err)
 	}
 
-	log.Printf("gRPC server listening on %s", lis.Addr().String())
+	log.Printf("gRPC server listening on %s%s", lis.Addr().String(), bindScopeNote(cfg.Server.GRPC.BindHost()))
 
 	// Start server
 	go func() {
@@ -2541,14 +2536,26 @@ func buildAutoCertTLSConfig(domains []string, tlsCfg config.TLSConfig, mode stri
 	return tlsConfig, nil
 }
 
-// resolveOutboundIP returns the machine's preferred outbound IP address.
-func resolveOutboundIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80") // NOSONAR -- well-known UDP probe target; no data is sent, used only to resolve the local outbound interface
-	if err != nil {
-		return "127.0.0.1" // NOSONAR -- default bind address, not sensitive
+// bindListener is the only place the server opens a TCP listener for its HTTP
+// and gRPC transports. It binds server.<transport>.host (default
+// config.DefaultBindHost, loopback only) so the address in the startup log is
+// the address actually bound (#2939: it used to bind ":port", all interfaces,
+// while the log claimed 127.0.0.1).
+func bindListener(inst config.ServerInstanceConfig) (net.Listener, error) {
+	return net.Listen("tcp", inst.ListenAddr())
+}
+
+// bindScopeNote returns a log suffix saying who can reach a listener bound to
+// host. Empty for loopback, a warning for any wider bind.
+func bindScopeNote(host string) string {
+	ip := net.ParseIP(host)
+	if host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return ""
 	}
-	defer conn.Close() //nolint:errcheck
-	return conn.LocalAddr().(*net.UDPAddr).IP.String()
+	if ip != nil && ip.IsUnspecified() {
+		return " (ALL interfaces: reachable from the network; set server.*.host to 127.0.0.1 to restrict)"
+	}
+	return " (non-loopback interface: reachable from the network)"
 }
 
 // oidcDiscovery is the subset of an OIDC discovery document we need.

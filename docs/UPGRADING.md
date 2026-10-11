@@ -230,6 +230,28 @@ packages (`go list -tags "noaws noazure nogcp" -deps ./server`, 666 total
 packages, none matching; cross-checked those three SDK families ARE
 present in the unfiltered dependency graph, so this isn't a vacuous pass).
 
+## 6a. BREAKING: the server now binds 127.0.0.1 by default
+
+`server.http.host` and `server.grpc.host` now default to `127.0.0.1` (loopback
+only) instead of every interface (#2939 / #2946). An install that keeps its own
+config file with **no `host:` line** and is reached from another machine, a
+reverse proxy on another host, or through a published container port stops
+accepting those connections after the upgrade.
+
+Add the bind address explicitly under `server.http` (and `server.grpc` if you
+enable gRPC), then restart:
+
+```yaml
+server:
+  http:
+    host: "0.0.0.0"   # all interfaces; or a specific interface address
+```
+
+The shipped `docker-compose.yml` / `keyorix.docker.yaml`, the Helm chart and
+`scripts/demo/up.sh` already set `0.0.0.0`; only configs you wrote or mounted
+yourself need the line. The startup log prints the bound address, with a note
+when it is reachable from the network.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

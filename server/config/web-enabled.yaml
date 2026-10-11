@@ -17,6 +17,10 @@ locale:
 server:
   http:
     enabled: true
+    # Bind address. Omitted = 127.0.0.1 (this machine only). Set "0.0.0.0" to
+    # accept connections from the network (inside a container, or behind a
+    # reverse proxy on another host); a published port needs it (#2939).
+    # host: "127.0.0.1"
     port: "8080"
     protocol_versions: ["1.1", "2.0"]
     swagger_enabled: true  # DEV-ONLY DEFAULT (#G36) — disable in production.

@@ -5,6 +5,9 @@ locale:
 server:
   http:
     enabled: true
+    # The scanner containers reach keyorix:8080 over the compose network, so the
+    # server must listen on all interfaces (the default is 127.0.0.1, #2939).
+    host: "0.0.0.0"
     port: "8080"
     domain: "localhost"
     swagger_enabled: true

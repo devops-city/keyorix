@@ -27,6 +27,7 @@ storage:
 server:
   http:
     enabled: true
+    host: "0.0.0.0"
     port: 8080
 locale:
   language: en

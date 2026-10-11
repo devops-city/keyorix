@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -359,8 +360,18 @@ type ServerConfig struct {
 	GRPC ServerInstanceConfig `yaml:"grpc"`
 }
 
+// DefaultBindHost is the listen address used when server.http.host /
+// server.grpc.host is unset: loopback only. Reaching the server from another
+// machine (a container, a Kubernetes pod, a LAN demo) is an explicit opt-in,
+// e.g. host: "0.0.0.0". (#2939: the listeners used to bind all interfaces
+// while the startup log claimed 127.0.0.1.)
+const DefaultBindHost = "127.0.0.1"
+
 type ServerInstanceConfig struct {
-	Enabled          bool      `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// Host is the address the listener binds to. Empty means DefaultBindHost
+	// (loopback only). Use "0.0.0.0" or "::" to listen on all interfaces.
+	Host             string    `yaml:"host"`
 	Port             string    `yaml:"port"`
 	ProtocolVersions []string  `yaml:"protocol_versions"`
 	TLS              TLSConfig `yaml:"tls"`
@@ -2512,6 +2523,27 @@ func LoadConfig() (*Config, error) {
 	return Load("")
 }
 
+// BindHost returns the host the listener binds to: Host, or DefaultBindHost
+// when unset.
+func (s ServerInstanceConfig) BindHost() string {
+	if s.Host == "" {
+		return DefaultBindHost
+	}
+	return s.Host
+}
+
+// ListenAddr returns the host:port the listener binds to (IPv6-safe).
+func (s ServerInstanceConfig) ListenAddr() string {
+	return net.JoinHostPort(s.BindHost(), s.Port)
+}
+
+func validateBindHost(field, host string) error {
+	if host == "" || net.ParseIP(host) != nil || host == "localhost" {
+		return nil
+	}
+	return fmt.Errorf("%s %q is not an IP address (use 127.0.0.1, 0.0.0.0, ::1, :: or a specific interface IP)", field, host)
+}
+
 // Validate checks the configuration for required fields and correctness.
 func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppress go:S3776
 	// X and X_FILE both set, or an unreadable X_FILE, must stop the boot: the
@@ -2524,6 +2556,12 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		return err
 	}
 	if err := validateTLSMode("server.grpc.tls_mode", c.Server.GRPC.TLSMode); err != nil {
+		return err
+	}
+	if err := validateBindHost("server.http.host", c.Server.HTTP.Host); err != nil {
+		return err
+	}
+	if err := validateBindHost("server.grpc.host", c.Server.GRPC.Host); err != nil {
 		return err
 	}
 	if c.Server.HTTP.Enabled && c.Server.HTTP.Port == "" {

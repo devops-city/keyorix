@@ -141,6 +141,7 @@ locale:
 server:
   http:
     enabled: true
+    host: "127.0.0.1"             # bind address; default 127.0.0.1 (this machine only). "0.0.0.0" = all interfaces
     port: "8080"
     protocol_versions: ["1.1", "2.0"]
     swagger_enabled: false        # keep false in production
@@ -166,6 +167,7 @@ server:
     # only if you need it, and read docs/adr-105-grpc-scope-and-parity.md first —
     # governance controls such as classification cannot be set over gRPC.
     enabled: false
+    host: "127.0.0.1"             # same default and meaning as server.http.host
     port: "9090"
     protocol_versions: ["2.0"]
     reflection_enabled: false     # keep false in production

@@ -16,7 +16,6 @@
 //   - buildSSOProviders: SAML with valid metadata file (file path)
 //   - buildSSOProviders: JWKS resolver error (invalid jwks_uri after successful discovery)
 //   - runStartupValidation: enabled path with warnings (errors collection logs)
-//   - resolveOutboundIP: fallback path (127.0.0.1) is exercised indirectly via conn failure
 //
 // #G12: startHTTPServer/startGRPCServer no longer call initializeCoreService
 // themselves (that now happens once in main(), shared by both) — every test

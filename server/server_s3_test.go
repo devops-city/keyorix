@@ -1,5 +1,5 @@
 // server_s3_test.go — additional coverage for server/main.go helper functions
-// that previously had 0% coverage: cmpOr, resolveOutboundIP, requireSecureOrLoopback,
+// that previously had 0% coverage: cmpOr, requireSecureOrLoopback,
 // isLoopbackHostname, noDiscoveryCrossOriginRedirect, ssoCompleteURL, loadCertPool,
 // buildSSOProviders, buildSAMLProvider.
 // Also covers lockedRun in scheduler_run.go.
@@ -40,16 +40,6 @@ func TestCmpOr_BothEmpty(t *testing.T) {
 	if got := cmpOr("", ""); got != "" {
 		t.Errorf("cmpOr empty,empty = %q, want empty", got)
 	}
-}
-
-// ── resolveOutboundIP ─────────────────────────────────────────────────────────
-
-func TestResolveOutboundIP_ReturnsNonEmptyString(t *testing.T) {
-	ip := resolveOutboundIP()
-	if ip == "" {
-		t.Fatal("resolveOutboundIP returned an empty string")
-	}
-	// Must return either a real IP or the fallback "127.0.0.1".
 }
 
 // ── isLoopbackHostname ────────────────────────────────────────────────────────

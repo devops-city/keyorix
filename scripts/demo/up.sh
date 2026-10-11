@@ -218,6 +218,17 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
         # explicitly so `keyorix break-glass activate` works (#2943).
         printf "\nbreak_glass:\n  enabled: true\n  emergency_role: project_developer\n  default_ttl: 4h\n  max_ttl: 24h\n" >> keyorix.yaml
       fi
+      # The server binds 127.0.0.1 by default (#2939); inside the container it
+      # must listen on all interfaces for the published -p port to work. Done on
+      # every start (not only on creation) so demo volumes created before that
+      # change are fixed too, and it fails loudly if the insert did not land.
+      if ! grep -q "^    host: \"0.0.0.0\"" keyorix.yaml; then
+        sed -i "s|^    port: \"8080\"|    host: \"0.0.0.0\"\n    port: \"8080\"|" keyorix.yaml
+        if ! grep -q "^    host: \"0.0.0.0\"" keyorix.yaml; then
+          echo "up.sh: could not set server.http.host to 0.0.0.0 in keyorix.yaml (no 4-space-indented port: \"8080\" line to anchor on); the published port would not work" >&2
+          exit 1
+        fi
+      fi
       exec /app/keyorix-server
     ' >/dev/null
   ok "Container started"
@@ -228,6 +239,11 @@ for _ in $(seq 1 30); do
   if curl -s -o /dev/null "http://localhost:${PORT}/health"; then
     ok "Server is healthy"
     break
+  fi
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    docker logs "$CONTAINER_NAME" 2>&1 | tail -20 >&2
+    echo "Container $CONTAINER_NAME exited during startup (log tail above)" >&2
+    exit 1
   fi
   sleep 1
 done

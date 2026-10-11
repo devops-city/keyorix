@@ -9,6 +9,10 @@ environment: production
 server:
   http:
     enabled: true
+    # Inside the container the server must listen on all interfaces so the
+    # published port (and the web container) can reach it. The built-in default
+    # is 127.0.0.1 only (#2939).
+    host: "0.0.0.0"
     port: "8080"
 storage:
   type: postgres

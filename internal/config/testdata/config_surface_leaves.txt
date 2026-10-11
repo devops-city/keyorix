@@ -198,6 +198,7 @@ security.require_transport_tls
 server.grpc.allowed_origins
 server.grpc.domain
 server.grpc.enabled
+server.grpc.host
 server.grpc.keepalive.max_connection_age
 server.grpc.keepalive.max_connection_age_grace
 server.grpc.keepalive.min_time
@@ -226,6 +227,7 @@ server.grpc.web_assets_path
 server.http.allowed_origins
 server.http.domain
 server.http.enabled
+server.http.host
 server.http.keepalive.max_connection_age
 server.http.keepalive.max_connection_age_grace
 server.http.keepalive.min_time

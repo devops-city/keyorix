@@ -17,6 +17,9 @@ data:
     server:
       http:
         enabled: true
+        # Pod networking: the kubelet probes and Service reach the pod IP, so
+        # the built-in loopback-only default (#2939) must be widened here.
+        host: "0.0.0.0"
         port: "{{ .Values.server.service.port }}"
     storage:
       type: postgres
