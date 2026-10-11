@@ -241,7 +241,26 @@ func FreeTCPPort(t *testing.T) string {
 // in play. grpc defaults to "enabled: false", so anchoring to
 // "enabled: true" uniquely selects http's port even though grpc has the
 // identical enabled/port shape.
-var portLineRe = regexp.MustCompile(`(enabled: true\n\s*port: )"\d+"`)
+//
+// The earlier "enabled: true\n\s*port:" anchor broke when #2946 put comment
+// lines (the host: explanation) between the two keys: it silently matched
+// nothing, every server kept the template's 8080 while the harness polled its
+// random port, and e2e-smoke timed out waiting for /health. The anchor is now
+// the structure itself: the first 4-space-indented `port:` key after the
+// top-level `server:` / 2-space `http:` keys, whatever comments or sibling
+// keys sit in between. grpc's port is under `  grpc:` and the database port
+// is under `storage:`, so neither can be reached from `http:`'s block.
+var portLineRe = regexp.MustCompile(`(?ms)(^server:[^\n]*\n(?:[^\n]*\n)*?  http:[^\n]*\n(?:(?:    |\s*#|\s*\n)[^\n]*\n)*?    port: )"\d+"`)
+
+// rewriteHTTPPort returns text with server.http.port set to port, and whether
+// the port line was found. A no-match is a harness bug the caller must fail
+// on, never skip: the server would otherwise keep its template port.
+func rewriteHTTPPort(text, port string) (string, bool) {
+	if !portLineRe.MatchString(text) {
+		return text, false
+	}
+	return portLineRe.ReplaceAllString(text, fmt.Sprintf(`${1}"%s"`, port)), true
+}
 
 // BootstrapAdminPassword deliberately shares no substring with the
 // bootstrap admin's username/email/display_name (see StartServer's
@@ -376,7 +395,10 @@ func RewritePort(t *testing.T, dir, port string) {
 	if err != nil {
 		t.Fatalf("read config before port rewrite: %v", err)
 	}
-	rewritten := portLineRe.ReplaceAllString(string(raw), fmt.Sprintf(`${1}"%s"`, port))
+	rewritten, ok := rewriteHTTPPort(string(raw), port)
+	if !ok {
+		t.Fatalf("server.http.port not found in generated config (template layout changed?); refusing to boot on the template's default port:\n%s", raw)
+	}
 	if err := os.WriteFile(path, []byte(rewritten), 0o600); err != nil { // #nosec G703 -- path is derived from dir, always t.TempDir(), never attacker input; flagged only because RewritePort is now exported across the harness package boundary (gosec's taint check treats exported-function string params as untrusted, unlike the identical unexported call this had before the extraction)
 		t.Fatalf("rewrite config port: %v", err)
 	}

@@ -1,0 +1,2 @@
+### Testing
+- **e2e harness: `RewritePort` now really sets `server.http.port`.** Since #2946 the config template has comment lines between `enabled: true` and `port:`, so the harness's regex matched nothing, every e2e server kept the template's 8080 while the harness polled its own free port, and `e2e-smoke` timed out ("never became healthy"). The match is now anchored on the `server:` / `http:` structure, and a no-match is fatal instead of silent. Guarded by `TestRewriteHTTPPort_RealTemplate`.
