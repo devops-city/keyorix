@@ -154,17 +154,67 @@ test.describe('least-privilege persona (#2780, #2781)', () => {
         ).toBe(false);
     });
 
-    test('the New Secret dialog has a project and an environment to choose', async ({ page }) => {
+    test('the read-only persona is not offered New Secret, and the server refuses the create (#3067)', async ({
+        page,
+    }) => {
+        // #2780 originally asserted that this persona SEES "New Secret" with a populated
+        // dialog. That predates #3047 (permission-aware UI), which hides write controls
+        // from a caller without secrets.write. The persona holds project_viewer
+        // (secrets.read + users.read, internal/core/auth_bootstrap.go) plus
+        // system_viewer, so it must NOT be able to create: the button is hidden
+        // correctly, and the old expectation was stale. What survives of the #2780
+        // property is asserted below: the Project and Environment listings the dialog
+        // is built from still answer this persona.
         await login(page, LOWPRIV_USERNAME, LOWPRIV_PASSWORD);
         await page.goto('/secrets');
         await settle(page);
 
-        // Both selects were empty for this persona (the Project list came from the
-        // 403ing /api/v1/projects, the Environment list from /api/v1/environments,
-        // which was gated the same way), so the dialog rejected every submit with a
-        // validation message the user could not satisfy. Recorded as a comment on
-        // #2780 by WEB-SWEEP-1 rather than a separate issue, because it resolves
-        // only when the listings do.
+        // The list rendered (so a missing button is not just a page that never loaded).
+        await expect(page.locator('main')).toContainText('e2e-api-key');
+        await expect(
+            page.getByRole('button', { name: /new secret/i }),
+            'a project_viewer holds no secrets.write, so the UI must not offer New Secret'
+        ).toHaveCount(0);
+
+        // The server, not the hidden button, is the authority: the same create the
+        // dialog would send must be refused for this session.
+        const result = await page.evaluate(async () => {
+            const csrf = /(?:^|; )csrf_token=([^;]*)/.exec(document.cookie)?.[1] ?? '';
+            const get = async (path: string) => {
+                const res = await fetch(path, { credentials: 'include' });
+                return res.ok ? await res.json() : null;
+            };
+            const projects = (await get('/api/v1/projects'))?.data?.projects ?? [];
+            const envs = (await get('/api/v1/environments'))?.data?.environments ?? [];
+            const res = await fetch('/api/v1/secrets', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent(csrf) },
+                body: JSON.stringify({
+                    name: 'e2e-lowpriv-must-not-create',
+                    value: 'x',
+                    type: 'text',
+                    project_id: projects[0]?.id,
+                    environment_id: envs[0]?.id,
+                }),
+            });
+            return { projects: projects.length, envs: envs.length, status: res.status };
+        });
+        expect(result.projects, 'the Project listing (#2780) still answers this persona').toBeGreaterThanOrEqual(1);
+        expect(result.envs, 'the Environment listing (#2780) still answers this persona').toBeGreaterThanOrEqual(1);
+        expect(result.status, 'POST /api/v1/secrets by a project_viewer must be refused').toBe(403);
+    });
+
+    test('the New Secret dialog has a project and an environment to choose', async ({ page }) => {
+        // Driven as the admin, who may create: the dialog itself is still covered.
+        await login(page, ADMIN_USERNAME, ADMIN_PASSWORD);
+        await page.goto('/secrets');
+        await settle(page);
+
+        // Both selects were empty for the least-privilege persona (the Project list came
+        // from the 403ing /api/v1/projects, the Environment list from
+        // /api/v1/environments, which was gated the same way), so the dialog rejected
+        // every submit with a validation message the user could not satisfy (#2780).
         const newSecret = page.getByRole('button', { name: /new secret/i }).first();
         await expect(newSecret).toBeVisible();
         await newSecret.click();
