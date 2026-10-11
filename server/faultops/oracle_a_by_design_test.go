@@ -110,6 +110,38 @@ type oracleAByDesignError struct {
 	// accepts an outcome-log-ONLY diff on its own; it never accepts a MIXED one,
 	// which is the only case this field matters for. Optional.
 	outcomeLogs []string
+	// wrongCredentialResponse marks a #2880 post-verdict login row. The recorded
+	// decision is that a storage fault after a CORRECT credential is answered
+	// like a wrong one, audited and counted. When set, this is the exact op
+	// result ("HTTP <status>: <body>") a WRONG credential gets on this op, and
+	// the row then matches only a run that shows that whole outcome. The check
+	// runs on every fuzz input; it is not recorded once and trusted:
+	//   - answered like a wrong credential: in.result.Detail is byte-identical
+	//     to this string;
+	//   - counted: the diff contains EVERY table in tables (LoginAttempt), not
+	//     just a subset of them;
+	//   - audited: the diff contains every outcome log in outcomeLogs.
+	// TestOracleAByDesign_WrongCredentialOutcomesAreReal derives each value
+	// from a real wrong-credential run of the same op, so this string cannot
+	// drift from what a wrong credential actually gets.
+	//
+	// It is also the only way a row may name KindEffectThenError. For these
+	// tuples the decided state is "a wrong credential's state, plus the class-B
+	// consumption below", which is neither of oracle (d)'s accepted states (old,
+	// or the fault-free login's). The per-run check above pins that one state and
+	// response. That is narrower than anything (d) accepts for another op, so (d)
+	// consults these rows and no others. Optional.
+	wrongCredentialResponse string
+	// consumedBy names the docs/atomicity-exempt.tsv class-B function whose
+	// single-use consumption explains a table in tables that a wrong credential
+	// leaves untouched. Example: MFASecret on /auth/mfa/verify, where the code
+	// matched, so VerifyMFACredentials burned its TOTP step before the
+	// post-verdict fault. consumedColumns are the only columns of each such table
+	// the row lets differ, checked per run. Both are required exactly when tables
+	// names something the wrong-credential run does not change, and consumedBy
+	// must read B in the ledger (TestOracleAByDesign_WrongCredentialOutcomesAreReal).
+	consumedBy      string
+	consumedColumns map[string][]string
 	// designComment names where in PRODUCTION code the intent is stated, so a
 	// reader can check the claim at its source rather than trusting this row.
 	// Required.
@@ -134,27 +166,83 @@ type oracleAByDesignError struct {
 // this literal is empty on purpose. Add a row as a NEW FILE, never here.
 var oracleAByDesignErrors = []oracleAByDesignError{}
 
+// The exact results a WRONG credential gets on the two class-A ops, as
+// httpResult formats them. TestOracleAByDesign_WrongCredentialOutcomesAreReal
+// re-derives both from real wrong-credential runs.
+const (
+	wrongPasswordResponse = "HTTP 401: {\"code\":401,\"error\":\"Unauthorized\",\"message\":\"Invalid credentials\",\"success\":false}\n"
+	wrongTOTPCodeResponse = "HTTP 401: {\"code\":401,\"error\":\"Unauthorized\",\"message\":\"Invalid or expired code\",\"success\":false}\n"
+)
+
+const (
+	loginPostVerdictDesign = "internal/core/auth.go LoginWithIdentityPending: the identity read runs after " +
+		"authenticatePasswordLogin matched the password and is denied via denyAfterCredentialMatched " +
+		"(ErrLoginPostVerdict, counted toward the lockout); a mint failure is LoginCompletion.Failed; " +
+		"server/http/handlers/auth.go Login answers ErrLoginPostVerdict with the wrong-password 401, audits " +
+		"auth.login_error, and returns the per-IP slot only for a delivered login (#2936)"
+	loginPostVerdictWhy = "The password matched before the storage fault, so the login is refused and must cost " +
+		"exactly what a wrong password costs (#2880, #2894): the same 401, the LoginAttempt slot kept, the lockout " +
+		"counted. Answering or charging it differently would tell an attacker the password was right. The AuditEvent " +
+		"is auth.login_error, which lets an operator tell the fault apart from a guess. No session is minted."
+	mfaVerifyPostVerdictDesign = "internal/core/mfa.go VerifyMFALoginPending: the identity read runs after " +
+		"VerifyMFACredentials matched and consumed the code and is denied via denyAfterCredentialMatched " +
+		"(ErrLoginPostVerdict, counted toward the lockout, the step NOT given back); server/http/handlers/mfa.go " +
+		"VerifyMFA answers it with the wrong-code 401, audits auth.login_error, and releases the slot only for " +
+		"ErrMFAVerificationUnavailable"
+	mfaVerifyPostVerdictWhy = "The code matched before the identity read failed, so the login is refused and costs " +
+		"exactly what a wrong code costs (#2880, #2894): the same 401, the LoginAttempt slot kept, the lockout counted, " +
+		"audited auth.login_error. MFASecret.LastUsedStep is VerifyMFACredentials' class-B anti-replay consumption " +
+		"(docs/atomicity-exempt.tsv), deliberately not released here: the code was already used once."
+)
+
 // oracleAErrorByDesign reports whether an error-reporting-branch oracle (a)
-// divergence is covered by a reviewed row. Mirrors acceptableByDesign /
+// divergence (or, for a wrongCredentialResponse row, an oracle (d) one) is
+// covered by a reviewed row. Mirrors acceptableByDesign /
 // opScopedAcceptableByDesign's subset semantics deliberately, so all three
-// exemption mechanisms narrow a diff the same way.
-func oracleAErrorByDesign(op, method string, kind faultstorage.FaultKind, nth int, diff []string) *oracleAByDesignError {
+// exemption mechanisms narrow a diff the same way. A wrongCredentialResponse
+// row additionally requires the whole decided outcome (postVerdictOutcomeHolds).
+func oracleAErrorByDesign(in oracleInput, diff []string) *oracleAByDesignError {
 	if len(diff) == 0 {
 		return nil
 	}
 	for i := range oracleAByDesignErrors {
 		e := &oracleAByDesignErrors[i]
-		if e.op != op || e.method != method || e.kind != kind {
+		if e.op != in.op || e.method != in.method || e.kind != in.kind {
 			continue
 		}
-		if e.nth > 0 && e.nth != nth {
+		if e.nth > 0 && e.nth != in.nth {
 			continue
 		}
-		if diffSubsetOf(diff, append(append([]string{}, e.tables...), e.outcomeLogs...)) {
-			return e
+		allowed := append(append([]string{}, e.tables...), e.outcomeLogs...)
+		if !diffSubsetOf(diff, allowed) {
+			continue
 		}
+		if e.wrongCredentialResponse != "" && !postVerdictOutcomeHolds(e, in, diff, allowed) {
+			continue
+		}
+		return e
 	}
 	return nil
+}
+
+// postVerdictOutcomeHolds checks a wrongCredentialResponse row's decided outcome
+// against one run: the reported failure is byte-identical to a wrong
+// credential's, every table and outcome log the row names really diverged
+// (counted AND audited, not merely "nothing else moved"), and a class-B
+// consumed table moved only in its declared columns.
+func postVerdictOutcomeHolds(e *oracleAByDesignError, in oracleInput, diff, allowed []string) bool {
+	if in.result.Success || in.result.Detail != e.wrongCredentialResponse {
+		return false
+	}
+	if !diffSubsetOf(allowed, diff) {
+		return false
+	}
+	for tbl, cols := range e.consumedColumns {
+		if rowsHashExcludingColumns(in.before.Tables[tbl].Rows, cols) != rowsHashExcludingColumns(in.after.Tables[tbl].Rows, cols) {
+			return false
+		}
+	}
+	return true
 }
 
 // ── Guards on the mechanism itself ──────────────────────────────────────────
@@ -178,9 +266,18 @@ func TestOracleAByDesign_RowsAreFullyAttributed(t *testing.T) {
 				"nobody reviewed. Name the ordinal the reviewed case actually uses (1 for the first call)",
 				label, e.nth)
 		}
-		if e.kind == faultstorage.KindEffectThenError {
+		if e.kind == faultstorage.KindEffectThenError && e.wrongCredentialResponse == "" {
 			t.Errorf("oracleAByDesignError %q: KindEffectThenError belongs to oracle (d), which has its own "+
-				"exclusions and its own reasoning — this mechanism covers the error-reporting branch only", label)
+				"exclusions and its own reasoning — this mechanism covers the error-reporting branch only, "+
+				"except for a #2880 post-verdict row whose wrongCredentialResponse pins the whole outcome", label)
+		}
+		if (e.consumedBy == "") != (len(e.consumedColumns) == 0) {
+			t.Errorf("oracleAByDesignError %q: consumedBy and consumedColumns come together -- a class-B "+
+				"citation without the columns it may change, or columns with no class-B function behind them, "+
+				"is an unexplained divergence", label)
+		}
+		if e.consumedBy != "" && e.wrongCredentialResponse == "" {
+			t.Errorf("oracleAByDesignError %q: consumedBy is only meaningful on a wrongCredentialResponse row", label)
 		}
 		if len(e.tables) == 0 {
 			t.Errorf("oracleAByDesignError %q: tables is empty, which would accept ANY divergence for this "+
@@ -255,15 +352,63 @@ func TestOracleAByDesign_RowsAreLoadBearing(t *testing.T) {
 					"onlyOutcomeLogTables before this mechanism is consulted — the row is dead. Remove it",
 					label, diff)
 			}
-			if got := oracleAErrorByDesign(e.op, e.method, e.kind, e.nth, diff); got == nil {
-				t.Fatalf("oracleAByDesignError %q: the real diff is %v, which this row's tables %v do not "+
-					"cover — either the behaviour changed or the row's table list is wrong. NOT widened "+
-					"automatically: an unexplained table is a different finding", label, diff, e.tables)
+			if got := oracleAErrorByDesign(in, diff); got == nil {
+				t.Fatalf("oracleAByDesignError %q: the real diff is %v (response %q), which this row (tables %v, "+
+					"outcome logs %v, wrong-credential response %q) does not cover — either the behaviour changed "+
+					"or the row is wrong. NOT widened automatically: an unexplained table is a different finding",
+					label, diff, in.result.Detail, e.tables, e.outcomeLogs, e.wrongCredentialResponse)
+			}
+			// Counterfactual, through the REAL oracle rather than a re-derivation
+			// of its layer order: with this row the case passes, without it the
+			// case is reported. A row that some earlier layer (onlyOutcomeLogTables,
+			// consume-first, an op-scoped best-effort entry, another row) already
+			// shadows passes both ways, and is dead.
+			if f := oracleFindingsWithout(t, in, func() func() { return withoutByDesignRow(e) }); len(f) == 0 {
+				t.Fatalf("oracleAByDesignError %q: with the row removed the oracle STILL accepts this case, so "+
+					"something earlier already covers it and the row is dead. Remove it", label)
+			}
+			if f := oracleFindingsWithout(t, in, func() func() { return func() {} }); len(f) > 0 {
+				t.Fatalf("oracleAByDesignError %q: with the row in place the oracle still reports: %v", label, f)
 			}
 			t.Logf("load-bearing: %s diverges in %v, covered by the reviewed row (proving test: %s)",
 				label, diff, e.provingTest)
 		})
 	}
+}
+
+// oracleFindingsWithout runs the real checkOraclesReporting on one already
+// driven case, with remove() applied for the duration (it edits a package-level
+// exemption list and returns the restore). Callers are sequential top-level
+// tests: Go starts parallel top-level tests only after every sequential one
+// has finished, so the swap cannot race with t.Parallel readers.
+func oracleFindingsWithout(t *testing.T, in oracleInput, remove func() func()) []string {
+	t.Helper()
+	restore := remove()
+	defer restore()
+	sink := &driveSink{t: t}
+	func() {
+		defer func() { rethrowUnlessDriveAbort(recover()) }()
+		checkOraclesReporting(sink, in)
+	}()
+	if sink.notEvaluated != "" {
+		t.Fatalf("the oracle could not evaluate the case: %s", sink.notEvaluated)
+	}
+	return sink.findings
+}
+
+// withoutByDesignRow removes exactly e from oracleAByDesignErrors and returns
+// the restore.
+func withoutByDesignRow(e oracleAByDesignError) func() {
+	saved := oracleAByDesignErrors
+	kept := make([]oracleAByDesignError, 0, len(saved))
+	for _, r := range saved {
+		if r.op == e.op && r.method == e.method && r.kind == e.kind && r.nth == e.nth {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	oracleAByDesignErrors = kept
+	return func() { oracleAByDesignErrors = saved }
 }
 
 // TestKnownOpenTolerances_AreLoadBearing is the same staleness check applied to

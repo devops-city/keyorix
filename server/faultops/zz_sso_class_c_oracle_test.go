@@ -396,7 +396,7 @@ func TestSSOClassCRule_IsLoadBearing(t *testing.T) {
 			if _, ok := consumeFirstAccountsForDiff(in); ok {
 				t.Fatalf("consume-first already accepts %v -- this rule is dead for the case", diff)
 			}
-			if e := oracleAErrorByDesign(in.op, in.method, in.kind, in.nth, diff); e != nil {
+			if e := oracleAErrorByDesign(in, diff); e != nil {
 				t.Fatalf("an oracleAByDesignErrors row already accepts %v -- this rule is dead for the case", diff)
 			}
 			if !ssoClassCAccountsForDiff(in) {

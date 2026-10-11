@@ -39,6 +39,8 @@ package faultops
 import (
 	"fmt"
 	"sort"
+
+	"github.com/keyorixhq/keyorix/internal/faultstorage"
 )
 
 // sliceRegistry keeps *table sorted by entry name, whatever order init()s run in.
@@ -114,6 +116,12 @@ type opScopedBestEffortTable struct {
 	// exemption to apply. Empty (the zero value, every pre-existing entry)
 	// means no log-evidence check — unchanged behavior for those entries.
 	requireLogSubstring string
+	// pinnedKinds, when non-empty, are the fault kinds this entry was reviewed
+	// for, at call ordinal max(1, minNthCall).
+	// TestOpScopedBestEffort_PinnedEntriesAreLoadBearing drives each one through
+	// the real oracle and fails if the entry is dead. Empty for the entries that
+	// predate it (ORPHAN-2): they are not covered by that staleness check.
+	pinnedKinds []faultstorage.FaultKind
 }
 
 // effectThenErrorExclusion is one row of effectThenErrorExtraExclusions

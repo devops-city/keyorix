@@ -244,9 +244,24 @@ func (e *lockoutOracleEnv) driveToThresholdMinusOne(t *testing.T) {
 // "Invalid credentials" a wrong password gets (#2888). Before #2894 the account
 // was left at 0 failures instead of locked, which told the attacker the
 // password was correct just as plainly as a 500 would have.
+//
+// ORPHAN-2: GetUserRoles (the other half of the identity read) and the
+// effect-then-error kind of each read are the server/faultops
+// oracleAByDesignErrors rows' proving subtests, so every pinned class-A tuple
+// has a handler-level parity proof.
 func TestLogin_PostVerdictFaultCostsTheSameAsAWrongPassword(t *testing.T) {
-	for _, method := range []string{"CreateSession", "GetUserPermissions"} {
-		t.Run(method, func(t *testing.T) {
+	for _, c := range []struct {
+		method string
+		kind   faultstorage.FaultKind
+	}{
+		{"CreateSession", faultstorage.KindError},
+		{"GetUserPermissions", faultstorage.KindError},
+		{"GetUserRoles", faultstorage.KindError},
+		{"GetUserPermissions", faultstorage.KindEffectThenError},
+		{"GetUserRoles", faultstorage.KindEffectThenError},
+	} {
+		method, kind := c.method, c.kind
+		t.Run(method+"/"+kind.String(), func(t *testing.T) {
 			// Control: the last attempt is a genuinely wrong password.
 			ctrlEnv := newLockoutOracleEnv(t)
 			ctrlEnv.driveToThresholdMinusOne(t)
@@ -257,7 +272,7 @@ func TestLogin_PostVerdictFaultCostsTheSameAsAWrongPassword(t *testing.T) {
 			probeEnv := newLockoutOracleEnv(t)
 			probeEnv.driveToThresholdMinusOne(t)
 			probeEnv.fs.Arm(&faultstorage.FaultSpec{
-				Method: method, NthCall: 1, Kind: faultstorage.KindError, Err: assert.AnError,
+				Method: method, NthCall: 1, Kind: kind, Err: assert.AnError,
 			})
 			w := probeEnv.postLogin(t, lockoutOracleTestPassword)
 			require.True(t, probeEnv.fs.Fired(), "the armed %s fault must actually have fired", method)
@@ -460,8 +475,23 @@ func TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 	// matched: post-verdict too, so it must cost the same as a wrong code,
 	// rate-limit slot included (the oracleAByDesignErrors row for
 	// /auth/mfa/verify MarkTOTPStepUsed#1/error cites this subtest).
-	for _, method := range []string{"CreateSession", "GetUserPermissions", "MarkTOTPStepUsed"} {
-		t.Run(method, func(t *testing.T) {
+	//
+	// ORPHAN-2: GetUserRoles and the effect-then-error kinds are the proving
+	// subtests of the server/faultops oracleAByDesignErrors class-A rows.
+	for _, c := range []struct {
+		method string
+		kind   faultstorage.FaultKind
+	}{
+		{"CreateSession", faultstorage.KindError},
+		{"GetUserPermissions", faultstorage.KindError},
+		{"MarkTOTPStepUsed", faultstorage.KindError},
+		{"GetUserRoles", faultstorage.KindError},
+		{"GetUserPermissions", faultstorage.KindEffectThenError},
+		{"GetUserRoles", faultstorage.KindEffectThenError},
+		{"MarkTOTPStepUsed", faultstorage.KindEffectThenError},
+	} {
+		method, kind := c.method, c.kind
+		t.Run(method+"/"+kind.String(), func(t *testing.T) {
 			ctrlEnv := newLockoutOracleEnvWithMFA(t)
 			ctrlEnv.driveMFAToThresholdMinusOne(t)
 			ctrlCh, err := ctrlEnv.h.coreService.CreateMFAChallenge(context.Background(), 1)
@@ -476,7 +506,7 @@ func TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 			code, err := totp.GenerateCode(probeEnv.totpSecret, probeEnv.clock)
 			require.NoError(t, err)
 			probeEnv.fs.Arm(&faultstorage.FaultSpec{
-				Method: method, NthCall: 1, Kind: faultstorage.KindError, Err: assert.AnError,
+				Method: method, NthCall: 1, Kind: kind, Err: assert.AnError,
 			})
 			w := probeEnv.postVerify(t, probeCh, code)
 			require.True(t, probeEnv.fs.Fired(), "the armed %s fault must actually have fired", method)

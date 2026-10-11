@@ -93,7 +93,12 @@ func (ls *LocalStorage) GetSession(ctx context.Context, token string) (*models.S
 func (ls *LocalStorage) GetSessionAny(ctx context.Context, token string) (*models.Session, error) {
 	var session models.Session
 	if err := ls.db.WithContext(ctx).Where("session_token = ?", hashSessionToken(token)).First(&session).Error; err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorNotFound", nil), err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Typed like GetSession: RefreshSession tells "no such token" (a counted
+			// guess) from a storage failure (no verdict, the slot is released).
+			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorNotFound", nil), storage.ErrSessionNotFound)
+		}
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
 	return &session, nil
 }

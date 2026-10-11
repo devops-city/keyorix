@@ -632,6 +632,15 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.coreService.RefreshSession(r.Context(), token)
 	if err != nil {
+		if errors.Is(err, core.ErrRefreshNotEvaluated) {
+			// The session lookup itself failed, so no token was found or judged
+			// (#2880): nothing was guessed, so the slot goes back. The client sees
+			// the same refusal a dead token gets -- a post-verdict fault (the owner
+			// read, RotateSession, the reuse revocation) keeps its slot and gets the
+			// same answer.
+			log.Printf("RefreshToken: %v", err)
+			h.returnLoginSlot(r.Context(), slot)
+		}
 		sendError(w, "Unauthorized", "Session not found or expired", http.StatusUnauthorized, nil)
 		return
 	}

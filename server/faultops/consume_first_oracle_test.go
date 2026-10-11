@@ -201,6 +201,28 @@ var consumeFirstExemptions = []consumeFirstExemption{
 		consumedColumns: map[string][]string{"MFASecret": {"LastUsedStep"}},
 		why:             "requireReauth burned the matched TOTP time-step before the recovery-code replacement transaction; it must stay burned so the same code cannot be replayed",
 	},
+	// ORPHAN-2 (#2844 triage class B). VerifyMFAStepUp's verifyMFAStepUpCode is
+	// class B in the ledger: MarkTOTPStepUsed burns the matched step before
+	// CreateMFAStepUpGrant, and the step stays burned if the grant write fails,
+	// panics, or lands-then-errors, so one code cannot buy two grants. Before
+	// this entry the oracle knew the shape only as a per-tuple by-design row
+	// (CreateMFAStepUpGrant#1/error), and the panic and effect-then-error
+	// siblings failed. Now that oracle (d) consults this list too, one entry
+	// covers every kind.
+	//
+	// Deliberately NOT added: /auth/mfa/verify. VerifyMFACredentials is class B
+	// too, but no post-verdict tuple on that op is the consumption ALONE. The
+	// error/effect-then-error tuples also keep the LoginAttempt slot (#2880,
+	// pinned per tuple with the consumption in oracleAByDesignErrors). The one
+	// shape that IS consumption-only, [MFASecret] on a post-verdict PANIC, is
+	// #3048's bug (the slot was handed back), and an entry here would accept it.
+	// TestConsumeFirst_NonExemptOpStillFailsTheOracle pins that.
+	{
+		op:              "REST POST /api/v1/auth/mfa/stepup",
+		fn:              "(*KeyorixCore).verifyMFAStepUpCode",
+		consumedColumns: map[string][]string{"MFASecret": {"LastUsedStep"}},
+		why:             "verifyMFAStepUpCode burned the matched TOTP time-step before the step-up grant write; it must stay burned so the same code cannot be replayed for a second grant",
+	},
 }
 
 // consumeFirstExemptionFor returns the entry for op, or nil.

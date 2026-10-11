@@ -15,7 +15,7 @@ func init() {
 			"step is given back with ReleaseTOTPStepIfUnchanged (#2567; last_used_step -> step-1, see its " +
 			"interface doc), the attempt is counted (lc.Failed) and the error is ErrLoginPostVerdict, so " +
 			"\"the per-IP login-attempt slot stays CONSUMED\" and VerifyMFA audits auth.login_error",
-		provingTest: "server/http/handlers/TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode/CreateSession " +
+		provingTest: "server/http/handlers/TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode/CreateSession/error " +
 			"(slot, lockout, response parity, no session); server/http/handlers/" +
 			"TestVerifyMFA_MintFailureAfterCorrectCodeAuditsLoginError (audit); internal/core/" +
 			"TestVerifyMFALogin_CreateSessionFailure_ReleasesTOTPStepForRetry (MFASecret)",

@@ -23,7 +23,7 @@ func init() {
 			"the lockout exactly like a wrong code would\" (#2888); the error wraps " +
 			"ErrMFAVerificationStorageFailure but NOT ErrMFAVerificationUnavailable, the handler's only " +
 			"release condition (server/http/handlers/mfa.go)",
-		provingTest: "server/http/handlers/TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode/MarkTOTPStepUsed " +
+		provingTest: "server/http/handlers/TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode/MarkTOTPStepUsed/error " +
 			"(slot, lockout, response parity); internal/core/" +
 			"TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout (lockout, mfa.error audit)",
 		why: "The code matched; only the anti-replay write failed, so the login is refused (the step could not " +

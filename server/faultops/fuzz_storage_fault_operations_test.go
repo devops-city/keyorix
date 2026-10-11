@@ -1250,6 +1250,28 @@ func checkOraclesReporting(t fuzzVerdict, in oracleInput) {
 					"a sub-transition of the fault-free login's, no session minted", ssoClassCLedgerKey, label)
 				return
 			}
+			// ORPHAN-2 (#2844 class B): docs/atomicity-exempt.tsv's consume-first
+			// class, the same predicate as the error branch's fourth layer. An
+			// effect-then-error fault on a step AFTER the consume leaves the old
+			// state plus the declared single-use consumption, which is neither of
+			// (d)'s two states, and every table and column outside that
+			// consumption must still equal the pre-fault state.
+			// consume_first_oracle_test.go says what this does and does not verify.
+			if e, ok := consumeFirstAccountsForDiff(in); ok {
+				t.Logf("ACCEPTABLE-BY-DESIGN (consume-first, docs/atomicity-exempt.tsv class B, %s): %s: "+
+					"effect-then-error state is the pre-fault state plus this op's declared single-use consumption -- %s",
+					e.fn, label, e.why)
+				return
+			}
+			// ORPHAN-2 (#2880 class A): a post-verdict login row pins the whole
+			// wrong-credential outcome (response, counted, audited, class-B
+			// consumption); only such rows may name this kind, see
+			// oracleAByDesignError.wrongCredentialResponse.
+			if e := oracleAErrorByDesign(in, diffTables(in.before, in.after)); e != nil && e.wrongCredentialResponse != "" {
+				t.Logf("ACCEPTABLE-BY-DESIGN (#2880 post-verdict): %s: answered and accounted exactly like a wrong "+
+					"credential -- %s (proving test: %s)", label, e.designComment, e.provingTest)
+				return
+			}
 			report("d", nil, "%s: ORACLE (d) VIOLATION — effect-then-error state matches NEITHER the pre-fault "+
 				"state nor the fault-free reference state (a genuine partial/mixed commit, not just an "+
 				"ambiguous-but-consistent one). Differing tables vs before: %v; vs reference: %v",
@@ -1305,7 +1327,7 @@ func checkOraclesReporting(t fuzzVerdict, in oracleInput) {
 			// reviewed, names the production comment and the test that establish
 			// the design, and allowlists an EXACT table set — see
 			// oracle_a_by_design_test.go.
-			if e := oracleAErrorByDesign(in.op, in.method, in.kind, in.nth, diff); e != nil {
+			if e := oracleAErrorByDesign(in, diff); e != nil {
 				t.Logf("ACCEPTABLE-BY-DESIGN: %s: state diverges only in %v, which this op/method pair "+
 					"deliberately keeps while reporting failure — %s (proving test: %s)",
 					label, diff, e.designComment, e.provingTest)
