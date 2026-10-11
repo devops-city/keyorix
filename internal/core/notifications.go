@@ -164,6 +164,19 @@ func (c *KeyorixCore) notifyWithSeverity(ctx context.Context, userID uint, nType
 	_ = c.notifyChecked(ctx, userID, nType, title, message, projectID, link, severity)
 }
 
+// recoverPostCommitNotifyPanic is deferred by a notifier that runs AFTER its
+// primary write has committed and keeps no failure record of its own (#3092):
+// it recovers a PANIC from the insert or the out-of-band dispatch and logs it at
+// SECURITY level, so the committed write is never reported as an error. A
+// CreateNotification ERROR is already swallowed by notify; this closes the panic
+// half. Deliberately not folded into notify itself: break-glass relies on the
+// panic reaching notifyBreakGlassAdmins' own recover to audit it.
+func recoverPostCommitNotifyPanic(nType string, userID uint) {
+	if r := recover(); r != nil {
+		log.Printf("SECURITY: WARN: %s notification for user %d panicked (best-effort, primary operation already committed): %v", nType, userID, r)
+	}
+}
+
 // notifyChecked is notifyWithSeverity that RETURNS the CreateNotification error
 // instead of swallowing it, for a caller that has to record the failure: the
 // access-request notifiers, run under runPostCommitNotification (#3075). It does
@@ -414,6 +427,7 @@ func (c *KeyorixCore) notifySecretOwnershipTransferred(ctx context.Context, secr
 		p := secret.ProjectID
 		pid = &p
 	}
+	defer recoverPostCommitNotifyPanic(NotificationSecretOwnershipTransferred, newOwnerID)
 	c.notify(ctx, newOwnerID, NotificationSecretOwnershipTransferred,
 		"You are now a secret owner",
 		fmt.Sprintf("You were made the owner of secret %q.", secret.Name),
@@ -431,6 +445,7 @@ func (c *KeyorixCore) notifySecretsReassigned(ctx context.Context, newOwnerID, a
 		p := projectID
 		pid = &p
 	}
+	defer recoverPostCommitNotifyPanic(NotificationSecretOwnershipTransferred, newOwnerID)
 	c.notify(ctx, newOwnerID, NotificationSecretOwnershipTransferred,
 		"Secrets reassigned to you",
 		fmt.Sprintf("%d secret(s) in %s were reassigned to you.", count, c.projectLabel(ctx, projectID)),
