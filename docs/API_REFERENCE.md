@@ -45,19 +45,29 @@ Returns the complete OpenAPI 3.0 specification for all endpoints.
 ## 🕒 **Conventions**
 
 ### Timestamps
-Timestamps are RFC 3339. Responses sent through the standard
-`{"success": true, "data": ...}` envelope convert every `time.Time` in `data`
-to UTC (for example `2026-10-10T01:53:40Z`; sub-second digits appear only when
-present), and `GET /api/v1/projects` reports `last_activity`/`deleted_at` in
-UTC. This is display only: stored values, including everything covered by the
-audit hash chain, are not changed. Query parameters that take a time
-(`start_time`, `end_time`, `since`) accept any RFC 3339 offset and are compared
-as instants.
+Every time in an API response is **UTC, RFC 3339** (for example
+`2026-10-10T01:53:40Z`; sub-second digits appear only when present), whatever
+zone the server runs in or the database stored:
 
-Not yet covered by that conversion (they use their own response helpers or a
-custom JSON encoding): the secrets, shares, rotation-policy and folder handlers,
-and `gorm.DeletedAt` fields. A guard over every endpoint is tracked separately;
-until it lands, do not rely on a `Z` suffix outside the cases above.
+- **REST:** every JSON body is written by one encoder that converts each
+  `time.Time` (including `deleted_at`) to UTC; CSV exports format their time
+  columns in UTC.
+- **gRPC:** times are `google.protobuf.Timestamp` (no zone, UTC by definition).
+  The one string time field, `SecretACLEntry.created_at`, is formatted in UTC.
+
+This is display only: stored values, including everything covered by the audit
+hash chain, are not changed. Free text is data, not a time field: an audit
+event's `description` and its stored `diff` are returned exactly as recorded,
+and may contain a time in another zone. Query parameters that take a time
+(`start_time`, `end_time`, `since`, `from`, `to`) accept any RFC 3339 offset and
+are compared as instants.
+
+Checked by `server/faultops` `TestUTCResponseGuard`. It runs the server in a
+non-UTC zone, seeds data, calls every GET route and every read RPC, and fails on
+any non-UTC time; routes it cannot drive are listed in the test with a reason.
+Structural tests in `server/http/handlers` and `server/grpc/services` stop a new
+encoder, an unreviewed `json.Marshaler` or a new string time field from slipping
+past it.
 
 ### Audit log actor kind
 `GET /api/v1/audit/logs`, `/audit/search`, `GET /api/v1/secrets/{id}/audit`,

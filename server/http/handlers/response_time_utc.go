@@ -2,12 +2,20 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"reflect"
 	"time"
+
+	"gorm.io/gorm"
 )
 
-// Responses sent through sendSuccess/sendCreated carry UTC RFC 3339 times
-// (docs/API_REFERENCE.md, "Timestamps", which lists what this does not cover).
+// Every JSON response this package writes carries UTC RFC 3339 times
+// (docs/API_REFERENCE.md, "Timestamps"). encodeJSONResponse is the one place a
+// handler encodes JSON onto an http.ResponseWriter, and it runs utcTimes first.
+// Guards: server/faultops TestUTCResponseGuard (every GET route, seeded world,
+// non-UTC process zone) and utc_response_structural_guard_test.go (no encoder
+// bypasses encodeJSONResponse; every json.Marshaler a response can reach is
+// reviewed).
 //
 // Times read back from the database carry whatever zone they were stored in
 // (gorm stamps CreatedAt/UpdatedAt in the server's local zone, SQLite hands the
@@ -21,6 +29,22 @@ var (
 	timeType      = reflect.TypeOf(time.Time{})
 	marshalerType = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
 )
+
+// utcTimesWalkMarshalers are json.Marshaler types whose MarshalJSON renders
+// their own exported time fields, so utcTimes converts those fields like a plain
+// struct's. Any other Marshaler is left alone (its wire format is its own); the
+// structural guard requires every Marshaler a response can reach to be either
+// listed here or reviewed as carrying no local time.
+var utcTimesWalkMarshalers = map[reflect.Type]bool{
+	reflect.TypeOf(gorm.DeletedAt{}): true, // MarshalJSON emits .Time when .Valid
+}
+
+// encodeJSONResponse writes v as the JSON body of w, with every time.Time in it
+// converted to UTC. Every JSON response in this package goes through here
+// (TestUTCStructural_EveryResponseEncoderIsEncodeJSONResponse).
+func encodeJSONResponse(w io.Writer, v interface{}) error {
+	return json.NewEncoder(w).Encode(utcTimes(v))
+}
 
 const utcTimesMaxDepth = 12
 
@@ -48,7 +72,7 @@ func utcTimesValue(v reflect.Value, depth int) reflect.Value {
 		if v.IsNil() || !canHoldTime(t.Elem(), 0) {
 			return v
 		}
-		if t.Implements(marshalerType) && t.Elem() != timeType {
+		if t.Implements(marshalerType) && t.Elem() != timeType && !utcTimesWalkMarshalers[t.Elem()] {
 			return v
 		}
 		nv := reflect.New(t.Elem())
@@ -62,7 +86,7 @@ func utcTimesValue(v reflect.Value, depth int) reflect.Value {
 		nv.Set(utcTimesValue(v.Elem(), depth+1))
 		return nv
 	case reflect.Struct:
-		if !canHoldTime(t, 0) || t.Implements(marshalerType) {
+		if !canHoldTime(t, 0) || (t.Implements(marshalerType) && !utcTimesWalkMarshalers[t]) {
 			return v
 		}
 		nv := reflect.New(t).Elem()

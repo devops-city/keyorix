@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"os"
 	"time"
@@ -41,7 +40,7 @@ func HealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
 
-	if err := json.NewEncoder(w).Encode(health); err != nil {
+	if err := encodeJSONResponse(w, health); err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }

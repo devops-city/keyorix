@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/keyorixhq/keyorix/internal/config"
@@ -40,7 +39,7 @@ func MakeVersionHandler(cfg *config.Config) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
 
-		if err := json.NewEncoder(w).Encode(info); err != nil {
+		if err := encodeJSONResponse(w, info); err != nil {
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 	}

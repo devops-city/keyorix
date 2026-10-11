@@ -41,7 +41,7 @@ func NewSCIMHandler(coreService *core.KeyorixCore) *SCIMHandler {
 func writeSCIM(w http.ResponseWriter, status int, body interface{}) {
 	w.Header().Set("Content-Type", scimContentType)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	_ = encodeJSONResponse(w, body)
 }
 
 func scimError(w http.ResponseWriter, status int, detail string) {

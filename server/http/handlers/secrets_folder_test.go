@@ -139,9 +139,9 @@ func TestCreateSecret_WithParentID(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, w.Code, "body: %s", w.Body.String())
 
-	// The create response wraps a secretNodeWire (snake_case) in "data".
+	// The create response wraps a SecretNodeWire (snake_case) in "data".
 	var resp struct {
-		Data *secretNodeWire `json:"data"`
+		Data *SecretNodeWire `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.NotNil(t, resp.Data, "expected data in response")

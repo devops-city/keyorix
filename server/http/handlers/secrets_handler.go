@@ -14,7 +14,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 
@@ -70,7 +69,7 @@ type SuccessResponse struct {
 func (h *SecretHandler) sendSuccess(w http.ResponseWriter, data interface{}, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if err := json.NewEncoder(w).Encode(SuccessResponse{Success: true, Data: data, Message: message}); err != nil {
+	if err := encodeJSONResponse(w, SuccessResponse{Success: true, Data: data, Message: message}); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
@@ -81,7 +80,7 @@ func (h *SecretHandler) sendError(w http.ResponseWriter, errorType, message stri
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)
-	if err := json.NewEncoder(w).Encode(ErrorResponse{
+	if err := encodeJSONResponse(w, ErrorResponse{
 		Error:   errorType,
 		Message: message,
 		Code:    statusCode,

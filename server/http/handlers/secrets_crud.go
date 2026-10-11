@@ -344,7 +344,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 // Display only: if the count cannot be read the field is omitted and the
 // response is otherwise unchanged. On a value read it is computed after that
 // read's own audit + access-log write, so it includes this read.
-func (h *SecretHandler) secretWireWithTotalReads(ctx context.Context, secret *models.SecretNode) secretNodeWire {
+func (h *SecretHandler) secretWireWithTotalReads(ctx context.Context, secret *models.SecretNode) SecretNodeWire {
 	w := newSecretNodeWire(secret)
 	if n, err := h.coreService.SecretTotalReads(ctx, secret.ID); err == nil {
 		w.TotalReads = &n

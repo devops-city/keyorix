@@ -17,7 +17,11 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
-type secretNodeWire struct {
+// SecretNodeWire is exported only because secretWithSharingInfoWire embeds it:
+// encoding/json promotes an embedded struct's fields, but utcTimes (reflection)
+// cannot rewrite an UNEXPORTED embedded field, so its times would leave in the
+// server's local zone (utc_response_structural_guard_test.go).
+type SecretNodeWire struct {
 	ID                     uint        `json:"id"`
 	ParentID               *uint       `json:"parent_id,omitempty"`
 	ProjectID              uint        `json:"project_id"`
@@ -53,16 +57,16 @@ type secretNodeWire struct {
 	TotalReads *int64 `json:"total_reads,omitempty"`
 }
 
-func newSecretNodeWireList(nodes []*models.SecretNode) []secretNodeWire {
-	out := make([]secretNodeWire, 0, len(nodes))
+func newSecretNodeWireList(nodes []*models.SecretNode) []SecretNodeWire {
+	out := make([]SecretNodeWire, 0, len(nodes))
 	for _, n := range nodes {
 		out = append(out, newSecretNodeWire(n))
 	}
 	return out
 }
 
-func newSecretNodeWire(s *models.SecretNode) secretNodeWire {
-	w := secretNodeWire{
+func newSecretNodeWire(s *models.SecretNode) SecretNodeWire {
+	w := SecretNodeWire{
 		ID: s.ID, ParentID: s.ParentID, ProjectID: s.ProjectID, EnvironmentID: s.EnvironmentID,
 		Name: s.Name, IsSecret: s.IsSecret, Type: s.Type, Description: s.Description,
 		MaxReads: s.MaxReads, ReadCount: s.ReadCount, Expiration: s.Expiration, Metadata: s.Metadata,
@@ -83,17 +87,17 @@ func newSecretNodeWire(s *models.SecretNode) secretNodeWire {
 // secretWithSharingInfoWire mirrors SecretWithSharingInfo's shape exactly
 // (flat, not nested — SecretNode's fields promoted alongside the sharing
 // fields, matching the shape every existing consumer already expects modulo
-// casing) but with every field correctly tagged. secretNodeWire is embedded
+// casing) but with every field correctly tagged. SecretNodeWire is embedded
 // anonymously so its fields promote using ITS OWN correct tags (verified:
 // anonymous-embedding a properly-tagged struct produces clean flat output,
 // unlike embedding the untagged model). IsShared is intentionally redeclared
 // here, at depth 0: SecretWithSharingInfo does the same (its own
 // sharing-computed IsShared, not SecretNode's raw stored one) — Go's
 // shallower-field-wins collision rule makes this one win over the embedded
-// secretNodeWire.IsShared automatically, exactly reproducing that intended
+// SecretNodeWire.IsShared automatically, exactly reproducing that intended
 // precedence (verified empirically, not assumed).
 type secretWithSharingInfoWire struct {
-	secretNodeWire
+	SecretNodeWire
 	ProjectName     string `json:"project_name,omitempty"`
 	EnvironmentName string `json:"environment_name,omitempty"`
 	IsShared        bool   `json:"is_shared"`
@@ -110,7 +114,7 @@ type secretWithSharingInfoWire struct {
 
 func newSecretWithSharingInfoWire(s *models.SecretWithSharingInfo) secretWithSharingInfoWire {
 	return secretWithSharingInfoWire{
-		secretNodeWire:    newSecretNodeWire(s.SecretNode),
+		SecretNodeWire:    newSecretNodeWire(s.SecretNode),
 		ProjectName:       s.ProjectName,
 		EnvironmentName:   s.EnvironmentName,
 		IsShared:          s.IsShared,

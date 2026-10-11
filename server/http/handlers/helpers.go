@@ -42,7 +42,7 @@ func sendSuccess(w http.ResponseWriter, data interface{}, message string) {
 		response["message"] = message
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := encodeJSONResponse(w, response); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
@@ -63,7 +63,7 @@ func sendCreated(w http.ResponseWriter, data interface{}, message string) {
 	if message != "" {
 		response["message"] = message
 	}
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := encodeJSONResponse(w, response); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
 	}
 }
@@ -191,7 +191,7 @@ func sendError(w http.ResponseWriter, errorType, message string, statusCode int,
 		response["details"] = details
 	}
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := encodeJSONResponse(w, response); err != nil {
 		log.Printf("Error encoding JSON error response: %v", err)
 	}
 }

@@ -7,7 +7,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -62,9 +61,9 @@ func ReadinessCheck(svc *core.KeyorixCore) http.HandlerFunc {
 
 		if notReady {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "not_ready", "reason": "database unreachable"})
+			_ = encodeJSONResponse(w, map[string]string{"status": "not_ready", "reason": "database unreachable"})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
+		_ = encodeJSONResponse(w, map[string]string{"status": "ready"})
 	}
 }
