@@ -8,7 +8,7 @@
 verifies the actual on-disk DEK content before any rename-dek error cleanup —
 see "Fix implemented" below for exactly what landed, in place of the earlier
 "Suggested fix (drafted, not implemented)" section this replaces. Closure row:
-`docs/security-closures.tsv`, claim `kek-rename-dek-cleanup-dataloss-001`,
+`docs/security-closures.d/`, claim `kek-rename-dek-cleanup-dataloss-001`,
 proving test `FuzzFaultInjectedOperations` (`internal/encryption`).
 **Severity: High impact / Low likelihood** (assessed pre-fix; retained here
 for context — see "Reachability" and "Impact" below, both still accurate

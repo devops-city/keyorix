@@ -437,7 +437,7 @@ genuinely failing, not merely "an option exists") without it.
   suite (`vault_integration_test.go`) separately covers KV v1/v2 read/walk,
   AppRole, namespaces, custom-metadata, and version/created-time extraction
   directly against Vault. Both suites are `VAULT_ADDR`-gated
-  (`default-ci` per `docs/security-closures.tsv`'s verification tiers — a skip
+  (`default-ci` per `docs/security-closures.d/`'s verification tiers — a skip
   is only expected when `VAULT_ADDR` is unset, which CI's service container
   ensures it never is). **PR #2077 review item 4:** the whole suite also runs
   once per CI invocation against OpenBao (`openbao/openbao@sha256:05d777d6…`,

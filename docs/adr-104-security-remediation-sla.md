@@ -304,7 +304,7 @@ person.
 Severity classification against the CRITICAL definition above is made once,
 at merge time, by whoever fixed the issue together with the maintainer —
 not re-litigated later at release-cut time. It is recorded as a row in
-`docs/security-closures.tsv` (the existing closure-ledger convention),
+`docs/security-closures.d/` (the existing closure-ledger convention),
 which is also how a reader can check whether a given published commitment
 was actually met, rather than taking that on trust. Publishing a release
 (cutting the tag) remains the maintainer's call, always — this ADR sets

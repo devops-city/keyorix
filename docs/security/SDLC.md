@@ -112,7 +112,7 @@ process, not personnel: a documented adversarial-review campaign
 (`keyorix-private/adversarial-review/`, referenced throughout this
 codebase's ADRs and ADR-conformance ledger), AI-assisted review sessions
 distinct from the implementing session, and the machine-checked ledgers
-(`docs/review-coverage.tsv`, `docs/security-closures.tsv`,
+(`docs/review-coverage.tsv`, `docs/security-closures.d/`,
 `docs/adr-conformance-enforced.tsv`, all three CI-enforced — see
 [`testing.md`](testing.md) §4) that make "was this reviewed" and "is this
 fix real" checkable rather than a matter of recollection. None of that is a

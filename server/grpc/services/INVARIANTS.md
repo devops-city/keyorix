@@ -52,7 +52,7 @@ Format: `INV-GRPCSVC-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue
   `server/middleware/INVARIANTS.md` INV-MW-08 — same invariant, cite from there too. Guard:
   `machine_identity_revoke_token_cache_invalidation_test.go:TestGRPCRevokeMachineToken_EvictsHTTPAuthCacheImmediately`,
   `machine_identity_transition_cache_invalidation_test.go:TestGRPCTransitionMachineIdentity_{Revoke,Suspend}EvictsHTTPAuthCacheImmediately`.
-  **Not yet in `docs/security-closures.tsv`** despite being a real, previously-shipped defect
+  **Not yet in `docs/security-closures.d/`** despite being a real, previously-shipped defect
   fix — a closure-ledger gap, not a code gap.
 - **INV-GRPCSVC-06** `StreamAuditLogs` periodically re-verifies the streaming principal's
   authorization mid-stream, not only once at open — a role revocation (#108), account

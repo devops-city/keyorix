@@ -35,8 +35,16 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LEDGER="${CLOSURE_LEDGER:-$REPO_ROOT/docs/security-closures.tsv}"
 REPO="${GH_REPO:-keyorixhq/keyorix}"
+# docs/security-closures.tsv is no longer committed: build the flat ledger from
+# docs/security-closures.d/ unless the caller supplies one.
+if [ -n "${CLOSURE_LEDGER:-}" ]; then
+    LEDGER="$CLOSURE_LEDGER"
+else
+    LEDGER="$(mktemp)"
+    trap 'rm -f "$LEDGER"' EXIT
+    "$REPO_ROOT/scripts/gen-security-closures-tsv.sh" --stdout > "$LEDGER"
+fi
 
 if [ ! -f "$LEDGER" ]; then
     echo "FAIL: closure ledger not found at $LEDGER" >&2; exit 1

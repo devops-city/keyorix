@@ -293,5 +293,5 @@ system pseudo-actor for startup/background processes. No code change made
   everything above is currently uncommitted on this branch.
 - The remaining 40 unverified allowlist entries (deferred to the fuzzer per
   instruction).
-- `docs/security-closures.tsv` rows — deferred to after merge, keyed to the
+- `docs/security-closures.d/` rows — deferred to after merge, keyed to the
   merge SHA, per instruction (not part of this PR).

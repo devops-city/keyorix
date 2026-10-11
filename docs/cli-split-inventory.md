@@ -1749,7 +1749,7 @@ to keep each under review size. Started only after the Phase 5 switch PR (§1) m
   needed no change. Same check for `docs/review-coverage.tsv`'s `internal/testutil/fuzzworld` row (its
   "server/http fuzz test files" clause still holds — those 5 fuzzers are the ones importing it, not any
   file in the deleted set) — no change needed there either.
-  - `docs/security-closures.tsv`: retired FIX-3-1551 (verification→`manual`, pkg/test→`-`, note prefixed
+  - `docs/security-closures.d/`: retired FIX-3-1551 (verification→`manual`, pkg/test→`-`, note prefixed
     `SURFACE REMOVED` — the RemoteStorage machine-identity-credential-revoke proxy this proved is being
     deleted in the same Phase, so the property is moot). `secret-delete-machine-actor-001` was NOT
     moot — its fixed code (`secrets_crud.go`'s `DeleteSecret` handler, an ordinary REST route Phase 6
@@ -1773,7 +1773,7 @@ to keep each under review size. Started only after the Phase 5 switch PR (§1) m
   lines), its entrypoint (`main.go`, the `keyorix-legacy` build), and the tools that existed only to
   test/generate docs from it (`scripts/cli-parity-check.sh`, `scripts/cli-command-census.sh`,
   `scripts/smoke-legacy.sh`). 615 files, 111,209 lines total across both commits. `Makefile`/CI's
-  `smoke-legacy` job/`docs/security-closures.tsv` (6 embedded-mode-bug rows, all surface-removed)/
+  `smoke-legacy` job/`docs/security-closures.d/` (6 embedded-mode-bug rows, all surface-removed)/
   `docs/review-coverage.tsv` (38 rows + the now-fileless root `.` package) all updated in a
   separate, smaller commit for review. `docs/cli-migration.md` and `docs/cli-split-inventory-census.md`
   (both generated FROM `internal/cli`) marked FROZEN rather than deleted — still the real
@@ -1794,7 +1794,7 @@ to keep each under review size. Started only after the Phase 5 switch PR (§1) m
     `server/admin`/`internal/encryptionops` — untouched, no RemoteStorage dependency) needed no change.
     One local test file (`local_failopen_stub_test.go`) used an AST-printing helper (`exprString`)
     that had lived in a deleted remote_*.go file — restored as a small helper in its only remaining
-    caller. `docs/security-closures.tsv` (1 more surface-removed row), `docs/review-coverage.tsv`
+    caller. `docs/security-closures.d/` (1 more surface-removed row), `docs/review-coverage.tsv`
     (the now-gone `internal/storage/remote` package row), `docs/adr-conformance-enforced.tsv`
     (1 surface-removed row for the RemoteStorage half of the rate-limit ADR) updated.
   - **cross-track: CORE** (`internal/core/**`, not this track's paths — mechanically tied 1:1 to the
@@ -1832,7 +1832,7 @@ to keep each under review size. Started only after the Phase 5 switch PR (§1) m
   (`cli-command-census.sh`, `cli-parity-check.sh`, `smoke-legacy.sh`), plus the Makefile/CI/
   docs fallout: the `keyorix-legacy` build target and `smoke-legacy` CI job (its own comment
   pre-anticipated this removal), 38 stale `docs/review-coverage.tsv` rows (81 packages remain,
-  down from 120), 6 `docs/security-closures.tsv` rows retired as `SURFACE REMOVED`.
+  down from 120), 6 `docs/security-closures.d/` rows retired as `SURFACE REMOVED`.
   `docs/cli-migration.md` and `docs/cli-split-inventory-census.md` frozen as historical record
   rather than deleted. CHANGELOG's switch entry updated from "removed entirely in Phase 6"
   (forward-looking) to "now removed entirely" (done) now that it's actually landed.

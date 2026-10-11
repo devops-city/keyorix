@@ -515,7 +515,7 @@ test, not a footnote in this one.
   any generation-read error is a miss.* With its `Guard:` line naming the item-2 guard and the
   item-3 registry.
 - `docs/security-closures.d/GUARD-6-CACHE-ORDERING.tsv` + regenerated
-  `docs/security-closures.tsv`, recording the bug class and the test that proves it closed.
+  `docs/security-closures.d/`, recording the bug class and the test that proves it closed.
 - A short section in `internal/storage/store/INVARIANTS.md` pointing at the fragment and at
   this spec.
 

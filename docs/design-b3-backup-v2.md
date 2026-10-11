@@ -756,7 +756,7 @@ right way to catch a subtly incomplete restore.
 
 A dedicated `TestAdminBackupRestore_SQLiteToPostgres` (gated on
 `KEYORIX_TEST_PG_DSN`, this repo's existing convention for Postgres-only
-tests, per `docs/security-closures.tsv`'s `pg-gated` category) exercising
+tests, per `docs/security-closures.d/`'s `pg-gated` category) exercising
 exactly the "SQLite → PostgreSQL move" ADR-108 names: back up a SQLite
 install, restore into a fresh Postgres database — and the reverse direction —
 confirm `verify-audit` reports VALID and the row-equality check from §11.1

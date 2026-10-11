@@ -17,7 +17,7 @@ related material. Reconciled against current `origin/main` before continuing:
   landed, under a renamed primitive (`RequireUsersWriteAuthority`, folded
   into a broader transactional/panic-safety rewrite of `internal/core/users.go`
   — unrelated later work). Fully redundant; not reapplied.
-- The second commit (a `docs/security-closures.tsv` row for the above) is
+- The second commit (a `docs/security-closures.d/` row for the above) is
   also fully redundant — `origin/main`'s own row for the same claim
   (`active-transition-proxy-users-write-001`) is already current.
 - The third commit (admin-rank ceiling + TOTP step bound — THIS finding) was

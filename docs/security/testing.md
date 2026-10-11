@@ -129,7 +129,7 @@ recollection:
 | Ledger | Enforced by | What it proves |
 |---|---|---|
 | `docs/review-coverage.tsv` | `scripts/check-review-coverage.sh` | Every Go package (derived live from `go list ./...`) has a recorded adversarial-review depth (`full-adversarial` / `targeted` / `structural-only` / `none`-with-a-reason) — fails if any package has no row, or any row names a package that no longer exists. |
-| `docs/security-closures.tsv` | `scripts/check-closures.sh` | Every claimed security-fix closure names a real, currently-passing test — fails the build if the test doesn't exist or doesn't produce a `--- PASS` in the environment its `verification` column claims (`default-ci`, `pg-gated`, or `manual` with a cited artifact). |
+| `docs/security-closures.d/` | `scripts/check-closures.sh` | Every claimed security-fix closure names a real, currently-passing test — fails the build if the test doesn't exist or doesn't produce a `--- PASS` in the environment its `verification` column claims (`default-ci`, `pg-gated`, or `manual` with a cited artifact). |
 | `docs/adr-conformance-enforced.tsv` | `scripts/check-adr-conformance.sh` | An ongoing architectural property an ADR asserts (e.g. "PBKDF2 uses 600k iterations") has a currently-passing test proving it, re-verified rather than transcribed from a point-in-time audit. |
 
 These exist specifically because a hand-written claim of "this was reviewed" or

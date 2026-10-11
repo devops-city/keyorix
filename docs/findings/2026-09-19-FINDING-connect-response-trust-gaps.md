@@ -492,7 +492,7 @@ Applied at BOTH points, per this round's instruction:
 decode NAT64 (`64:ff9b::/96`) or deprecated IPv4-compatible (`::a.b.c.d`)
 encodings of an embedded IPv4 address — confirmed by direct read of
 `internal/netutil/dialer.go`: only `IsPrivateOrLinkLocal` called the
-`embeddedIPv4` decode step (the #1937 fix, `docs/security-closures.tsv`'s
+`embeddedIPv4` decode step (the #1937 fix, `docs/security-closures.d/`'s
 `ssrf-nat64-ipv4compat-001` row); `IsLinkLocal` checked the raw IP against
 `linkLocalCIDRs` only. A NAT64- or compat-encoded IMDS target (e.g.
 `64:ff9b::a9fe:a9fe`, which embeds 169.254.169.254) would have passed

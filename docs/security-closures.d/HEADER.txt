@@ -2,8 +2,9 @@
 #
 # Produced by scripts/gen-security-closures-tsv.sh from the per-claim files in
 # docs/security-closures.d/. To add or edit a closure, add (or edit) a file
-# under security-closures.d/ and re-run that script — a CI check
-# (gen-security-closures-tsv.sh --check) fails the build if this file drifts.
+# under security-closures.d/. This flat file is a build artifact and is NOT
+# committed; scripts/check-closures.sh builds it on the fly, and CI runs
+# gen-security-closures-tsv.sh --check to validate the fragments.
 # See security-closures.d/README.md for the format, and
 # security-closures.d/EXCLUDED.md for claims deliberately not tracked here.
 #

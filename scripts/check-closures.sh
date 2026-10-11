@@ -33,7 +33,7 @@
 #      real closures with no row, indistinguishable from closures that never
 #      happened — the ledger's completeness became a function of which
 #      environment it runs in, not of what was actually fixed. The
-#      `verification` column (see docs/security-closures.tsv's own header)
+#      `verification` column (see docs/security-closures.d/HEADER.txt)
 #      fixes this by making the row say which environment its proof requires,
 #      so a skip can be judged against that claim instead of against a single
 #      hardcoded assumption. This script still does not set the DSN itself —
@@ -49,7 +49,19 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LEDGER="${CLOSURE_LEDGER:-$REPO_ROOT/docs/security-closures.tsv}"
+# docs/security-closures.tsv is no longer committed: unless the caller supplies
+# CLOSURE_LEDGER (--self-test and check-adr-conformance.sh do), build the flat
+# ledger from docs/security-closures.d/ right now. The generator validates the
+# fragments first and exits non-zero on a malformed one, which fails this check.
+if [ -n "${CLOSURE_LEDGER:-}" ]; then
+    LEDGER="$CLOSURE_LEDGER"
+else
+    LEDGER="$(mktemp)"
+    trap 'rm -f "$LEDGER"' EXIT
+    "$REPO_ROOT/scripts/gen-security-closures-tsv.sh" --stdout > "$LEDGER" || {
+        echo "FAIL: could not build the closure ledger from docs/security-closures.d/" >&2; exit 1
+    }
+fi
 fail=0
 checked=0
 gated_skips=0
@@ -71,7 +83,7 @@ rows=$(grep -vE '^[[:space:]]*(#|$)' "$LEDGER" || true)
 # set, every <dir>/*.tsv file is ONE more row in the same format, read in
 # addition to the flat ledger above — so a new claim is a new file, not an
 # append to a shared one (two PRs appending to one ledger is a guaranteed
-# merge conflict). Unset (the default, i.e. docs/security-closures.tsv) means
+# merge conflict). Unset (the default, i.e. the ledger generated from docs/security-closures.d/) means
 # no fragments: that ledger is already generated from docs/security-closures.d/
 # by scripts/gen-security-closures-tsv.sh, and reading that directory here as
 # well would count every claim twice. A fragment must hold exactly one row;

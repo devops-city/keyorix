@@ -546,14 +546,16 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Verify docs/security-closures.tsv is generated from security-closures.d/*.tsv
+      # docs/security-closures.tsv is no longer committed (generated from
+      # docs/security-closures.d/ on demand); this validates the fragments.
+      - name: Validate docs/security-closures.d/*.tsv fragments
         run: scripts/gen-security-closures-tsv.sh --check
 
       - name: Self-test the closure guard (must be able to go red)
         run: ./scripts/check-closures.sh --self-test
 
       # This job never sets KEYORIX_TEST_PG_DSN, so every pg-gated row in
-      # docs/security-closures.tsv gate-skips here by design -- that is
+      # docs/security-closures.d/ gate-skips here by design -- that is
       # expected, not a failure (see the ledger's own header). The test-suite
       # job's `core` leg below runs this SAME script again, WITH the DSN, and
       # is what actually proves those rows.
@@ -581,7 +583,7 @@ jobs:
       # exits 0, and continue-on-error is set as a second, belt-and-suspenders
       # layer in case a future edit ever changes that). See the script's own
       # header for why an issue missing from this report is not proof nothing
-      # is owed, and docs/security-closures.tsv's header for the same caveat
+      # is owed, and docs/security-closures.d/HEADER.txt for the same caveat
       # on its `issue` column.
       - name: Report closed security-labeled issues the ledger doesn't cite (informational)
         continue-on-error: true
@@ -1141,7 +1143,7 @@ jobs:
 
       # This job is the ONLY one with a Postgres service container (see this
       # job's own KEYORIX_TEST_PG_DSN comment above), so it is the only place
-      # a pg-gated docs/security-closures.tsv row can ever be genuinely
+      # a pg-gated docs/security-closures.d/ row can ever be genuinely
       # proven rather than gate-skipped. Restricted to the `core` leg: every
       # pg-gated row today lives in ./internal/core, and running the full
       # ledger sweep once per leg would just repeat the same ~17-row check 15
@@ -2013,7 +2015,7 @@ jobs:
   # "moved out, not dropped" decision in docs/cli-split-inventory.md). The service container
   # makes internal/vaultsource's and internal/e2e's VAULT_ADDR-gated tests
   # (docs/design-keyorix-migrate.md's "Testing" section) actually run here as `default-ci`
-  # (docs/security-closures.tsv's verification tiers) rather than silently skip forever --
+  # (docs/security-closures.d/HEADER.txt's verification tiers) rather than silently skip forever --
   # the same failure mode CLAUDE.md's Postgres-container comment above documents for
   # KEYORIX_TEST_PG_DSN, avoided here by wiring the container from this job's first commit
   # instead of adding it later.

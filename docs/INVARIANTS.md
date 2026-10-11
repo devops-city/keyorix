@@ -7,7 +7,7 @@ code in any of these packages.** See the root `CLAUDE.md`'s "Spec first, indepen
 package invariants" convention for when this is required.
 
 These are not invented — every entry traces to an ADR, an existing test/fuzzer/static guard,
-`docs/security-closures.tsv`, `docs/adr-conformance-enforced.tsv`, or a documented review
+`docs/security-closures.d/`, `docs/adr-conformance-enforced.tsv`, or a documented review
 finding. If you discover or add an invariant while working in a package, add it to that
 package's file in the same PR; if a change would have to break one, stop and ask rather than
 silently removing it.
