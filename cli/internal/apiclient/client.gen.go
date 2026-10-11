@@ -18287,6 +18287,7 @@ type CreateNotificationChannelResponse struct {
 	JSON400      *Error
 	JSON401      *Error
 	JSON403      *Error
+	JSON409      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -21831,7 +21832,9 @@ type GetSecretVersionsResponse struct {
 	HTTPResponse *http.Response
 	JSON200      *struct {
 		Data *struct {
-			Versions *[]SecretVersion `json:"versions,omitempty"`
+			// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read; on an install upgraded from before #2970 the earlier version listings, which were logged as reads, are included, so the lifetime count is inflated there). Each version's ReadCount counts only reads charged against max_reads.
+			TotalReads *int             `json:"total_reads,omitempty"`
+			Versions   *[]SecretVersion `json:"versions,omitempty"`
 		} `json:"data,omitempty"`
 	}
 	JSON400 *Error
@@ -28673,6 +28676,13 @@ func ParseCreateNotificationChannelResponse(rsp *http.Response) (*CreateNotifica
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -34853,7 +34863,9 @@ func ParseGetSecretVersionsResponse(rsp *http.Response) (*GetSecretVersionsRespo
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest struct {
 			Data *struct {
-				Versions *[]SecretVersion `json:"versions,omitempty"`
+				// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read; on an install upgraded from before #2970 the earlier version listings, which were logged as reads, are included, so the lifetime count is inflated there). Each version's ReadCount counts only reads charged against max_reads.
+				TotalReads *int             `json:"total_reads,omitempty"`
+				Versions   *[]SecretVersion `json:"versions,omitempty"`
 			} `json:"data,omitempty"`
 		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

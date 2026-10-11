@@ -282,11 +282,18 @@ func runSecretGetByName(ctx context.Context, client *apiclient.ClientWithRespons
 	if found == nil {
 		return fmt.Errorf("secret %q not found", secretGetName)
 	}
+	id := derefSecretInt(found.Id)
 	if !showValue {
+		// The list omits total_reads; a metadata read by id (no value, so no read is
+		// recorded) carries it. Fall back to the list entry if that fetch fails.
+		f := false
+		if mresp, merr := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &f}); merr == nil && mresp.JSON200 != nil && mresp.JSON200.Data != nil {
+			displaySecret(secretGetResultToSecret(mresp.JSON200.Data), "", false)
+			return nil
+		}
 		displaySecret(secretListEntryToSecret(found), "", false)
 		return nil
 	}
-	id := derefSecretInt(found.Id)
 	t := true
 	vresp, err := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &t})
 	if err != nil {
@@ -331,6 +338,10 @@ func displaySecret(s *apiclient.Secret, value string, showValue bool) {
 	if s.MaxReads != nil {
 		fmt.Printf("Max Reads:   %d\n", *s.MaxReads)
 	}
+	if s.TotalReads != nil {
+		// Lifetime value reads (the server's access-log count), not the max_reads counter.
+		fmt.Printf("Total Reads: %d\n", *s.TotalReads)
+	}
 	if s.Expiration != nil {
 		fmt.Printf("Expires:     %s\n", s.Expiration.UTC().Format("2006-01-02 15:04:05 UTC"))
 		if time.Now().After(*s.Expiration) {
@@ -363,7 +374,7 @@ func secretGetResultToSecret(d *apiclient.SecretGetResult) *apiclient.Secret {
 		MaxReads: d.MaxReads, ReadCount: d.ReadCount, Expiration: d.Expiration,
 		Classification: d.Classification, Status: d.Status, CreatedBy: d.CreatedBy,
 		OwnerId: d.OwnerId, IsShared: d.IsShared, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
-		LastRotatedAt: d.LastRotatedAt,
+		LastRotatedAt: d.LastRotatedAt, TotalReads: d.TotalReads,
 	}
 }
 

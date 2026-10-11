@@ -61,12 +61,13 @@ func runSecretVersions(cmd *cobra.Command, args []string) error {
 		return httpStatusError("failed to get versions", vresp.StatusCode(), vresp.Body)
 	}
 	versions := derefSecretVersionSlice(vresp.JSON200.Data.Versions)
+	totalReads := vresp.JSON200.Data.TotalReads
 
 	switch secretVersionsFormat {
 	case "json":
-		return displayVersionsJSON(secret, versions)
+		return displayVersionsJSON(secret, versions, totalReads)
 	case "table":
-		displayVersionsTable(secret, versions)
+		displayVersionsTable(secret, versions, totalReads)
 		return nil
 	default:
 		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", secretVersionsFormat)
@@ -78,11 +79,14 @@ func runSecretVersions(cmd *cobra.Command, args []string) error {
 // on the server (internal/storage/models.SecretVersion) and never sent over
 // the wire, so faking those columns from data that never arrives would be
 // dishonest, not a parity gap.
-func displayVersionsTable(secret *apiclient.Secret, versions []apiclient.SecretVersion) {
+func displayVersionsTable(secret *apiclient.Secret, versions []apiclient.SecretVersion, totalReads *int) {
 	fmt.Println("Secret Versions")
 	fmt.Println("==================")
 	fmt.Printf("Secret: %s (ID: %d)\n", derefStr(secret.Name), derefSecretInt(secret.Id))
 	fmt.Printf("Total Versions: %d\n", len(versions))
+	if totalReads != nil {
+		fmt.Printf("Total Reads: %d\n", *totalReads)
+	}
 	fmt.Println("(size/algorithm columns are omitted -- not exposed by the API)")
 	fmt.Println()
 
@@ -111,7 +115,7 @@ func displayVersionsTable(secret *apiclient.Secret, versions []apiclient.SecretV
 			created = latest.CreatedAt.UTC().Format("2006-01-02 15:04:05")
 		}
 		fmt.Printf("\nLatest Version: %d (Created: %s)\n", derefSecretInt(latest.VersionNumber), created)
-		fmt.Println("* READS counts reads against a --max-reads limit only (0 when none is set); every read is listed by `keyorix secret access-log`.")
+		fmt.Println("* READS counts reads against a --max-reads limit only (0 when none is set); Total Reads above counts every value read of the secret; each is listed by `keyorix secret access-log`.")
 	}
 }
 
@@ -122,7 +126,7 @@ type jsonVersionEntry struct {
 	CreatedAt     string `json:"created_at"`
 }
 
-func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVersion) error {
+func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVersion, totalReads *int) error {
 	var out struct {
 		Secret struct {
 			ID   int    `json:"id"`
@@ -130,8 +134,10 @@ func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVe
 			Type string `json:"type"`
 		} `json:"secret"`
 		TotalVersions int                `json:"total_versions"`
+		TotalReads    *int               `json:"total_reads,omitempty"`
 		Versions      []jsonVersionEntry `json:"versions"`
 	}
+	out.TotalReads = totalReads
 	out.Secret.ID = derefSecretInt(secret.Id)
 	out.Secret.Name = derefStr(secret.Name)
 	out.Secret.Type = derefStr(secret.Type)

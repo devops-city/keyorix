@@ -195,7 +195,7 @@ Authorization: Bearer <token>
 ```
 
 **Read counters:**
-- `total_reads`: the secret's lifetime read count, counted from the secret access log (rows with action `read`: one per value disclosure, plus metadata-only `GET /api/v1/secrets/by-name` lookups, which are still logged as reads today). Returned by `GET /api/v1/secrets/{id}` and `GET /api/v1/secrets/{id}/versions` (as `data.total_reads`); not included in listings or in `GET /api/v1/secrets/by-name`. On a value read, the count includes that read. On an install upgraded from before #2970, version listings were logged as `read` rows too; those rows still count, so a lifetime total there is inflated by the number of earlier version listings.
+- `total_reads`: the secret's lifetime read count, counted from the secret access log (rows with action `read`: one per value disclosure; metadata-only `GET /api/v1/secrets/by-name` lookups are logged as `secret.metadata_read` / action `metadata_read` and are not counted). Returned by `GET /api/v1/secrets/{id}` and `GET /api/v1/secrets/{id}/versions` (as `data.total_reads`); not included in listings or in `GET /api/v1/secrets/by-name`. On a value read, the count includes that read. The same figure is returned over gRPC (`Secret.total_reads` on `GetSecret`, `GetSecretVersionsResponse.total_reads`; absent on lists) and printed by `keyorix secret get` ("Total Reads") and `keyorix secret versions`. On an install upgraded from before #2970, version listings were logged as `read` rows too; those rows still count, so a lifetime total there is inflated by the number of earlier version listings.
 - `read_count` (and each version's `ReadCount`): only the reads charged against `max_reads`. It stays `0` for a secret without `max_reads`.
 
 ### Update Secret

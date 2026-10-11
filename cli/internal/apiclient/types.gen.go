@@ -949,8 +949,11 @@ type Secret struct {
 	RotationLength         *int       `json:"rotation_length,omitempty"`
 	RotationRef            *string    `json:"rotation_ref,omitempty"`
 	Status                 *string    `json:"status,omitempty"`
-	Type                   *string    `json:"type,omitempty"`
-	UpdatedAt              *time.Time `json:"updated_at,omitempty"`
+
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Counts secret_access_logs rows with action read, which today also include metadata-only by-name lookups (a known exception, see INV-CORE-secret-read-means-value-disclosure), so it can exceed the number of value disclosures. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	TotalReads *int       `json:"total_reads,omitempty"`
+	Type       *string    `json:"type,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 }
 
 // SecretACL Per-secret ACL grant. Confers the listed permissions on a specific user for one secret, independently of project RBAC (RBAC Phase 3).
@@ -1055,10 +1058,13 @@ type SecretGetResult struct {
 	ReadCount      *int       `json:"read_count,omitempty"`
 
 	// Secret A secret or folder node (internal/storage/models.SecretNode), metadata only -- never a value. Wire keys are snake_case, via the handler-level secretNodeWire type (server/http/handlers/secrets_wire.go) -- fixed from the previous bare-Go-field-name leak (ADR-108 PR 4/5) as part of the API-hygiene casing campaign.
-	Secret    *Secret    `json:"secret,omitempty"`
-	Status    *string    `json:"status,omitempty"`
-	Type      *string    `json:"type,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Secret *Secret `json:"secret,omitempty"`
+	Status *string `json:"status,omitempty"`
+
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Counts secret_access_logs rows with action read, which today also include metadata-only by-name lookups (a known exception, see INV-CORE-secret-read-means-value-disclosure), so it can exceed the number of value disclosures. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	TotalReads *int       `json:"total_reads,omitempty"`
+	Type       *string    `json:"type,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 
 	// Value The decrypted value. Present only when include_value=true.
 	Value *string `json:"value,omitempty"`

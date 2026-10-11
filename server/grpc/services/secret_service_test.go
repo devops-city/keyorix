@@ -520,6 +520,47 @@ func TestSecretService_SetSecretAutoRotate_PermissionDenied(t *testing.T) {
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
+// #2971 (AUDIT-UX-3): gRPC parity with REST's total_reads. GetSecret and
+// GetSecretVersions report the secret's lifetime value-read count
+// (core.SecretTotalReads: access-log rows with action read), not the per-version
+// max_reads counters (which stay 0 for a secret without max_reads).
+func TestSecretService_TotalReads_GetSecretAndVersions(t *testing.T) {
+	r := newSecretTestRig(t)
+	require.NoError(t, r.db.AutoMigrate(&models.AuditEvent{}, &models.SecretAccessLog{}))
+	ctx := authCtx(1, "owner", "secrets.write", "secrets.read")
+	created := r.createSecret(t, ctx, "counted", "the-value")
+
+	before, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+	require.NoError(t, err)
+	require.NotNil(t, before.TotalReads, "total_reads is reported on GetSecret (0 before any read)")
+	assert.Equal(t, int64(0), before.GetTotalReads())
+
+	for i := 0; i < 2; i++ {
+		_, err = r.svc.GetSecretValue(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+		require.NoError(t, err)
+	}
+
+	got, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+	require.NoError(t, err)
+	require.NotNil(t, got.TotalReads)
+	assert.Equal(t, int64(2), got.GetTotalReads(), "two value reads; the version max_reads counter stays 0 for this secret")
+
+	vers, err := r.svc.GetSecretVersions(ctx, &pb.GetSecretVersionsRequest{Id: created.GetId()})
+	require.NoError(t, err)
+	require.NotNil(t, vers.TotalReads)
+	want, err := r.svc.core.SecretTotalReads(ctx, uint(created.GetId()))
+	require.NoError(t, err)
+	assert.Equal(t, want, vers.GetTotalReads(), "versions listing reports the same figure as core.SecretTotalReads")
+	assert.GreaterOrEqual(t, vers.GetTotalReads(), int64(2))
+
+	// Lists do not carry it (REST: omitted from listings).
+	list, err := r.svc.ListSecrets(ctx, &pb.ListSecretsRequest{})
+	require.NoError(t, err)
+	for _, s := range list.GetSecrets() {
+		assert.Nil(t, s.TotalReads, "ListSecrets must not carry total_reads")
+	}
+}
+
 // AUDIT-UX-2 item 3: listing version history over gRPC is audited as
 // secret.versions_listed with an access-log row of action "versions_list"
 // (anomaly detection reads every action), never as secret.read: no value is

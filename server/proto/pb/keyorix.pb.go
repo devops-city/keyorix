@@ -47,8 +47,12 @@ type Secret struct {
 	IsOwnedByUser  bool   `protobuf:"varint,18,opt,name=is_owned_by_user,json=isOwnedByUser,proto3" json:"is_owned_by_user,omitempty"`
 	UserPermission string `protobuf:"bytes,19,opt,name=user_permission,json=userPermission,proto3" json:"user_permission,omitempty"` // "read" | "write" | ""
 	ShareCount     uint32 `protobuf:"varint,20,opt,name=share_count,json=shareCount,proto3" json:"share_count,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Lifetime count of reads of this secret's value (core.SecretTotalReads: access-log
+	// rows with action read). Set only by GetSecret; absent on lists. Not the per-version
+	// read_count, which counts only reads charged against max_reads. (#2971)
+	TotalReads    *int64 `protobuf:"varint,21,opt,name=total_reads,json=totalReads,proto3,oneof" json:"total_reads,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Secret) Reset() {
@@ -217,6 +221,13 @@ func (x *Secret) GetUserPermission() string {
 func (x *Secret) GetShareCount() uint32 {
 	if x != nil {
 		return x.ShareCount
+	}
+	return 0
+}
+
+func (x *Secret) GetTotalReads() int64 {
+	if x != nil && x.TotalReads != nil {
+		return *x.TotalReads
 	}
 	return 0
 }
@@ -1005,8 +1016,11 @@ func (x *SecretVersion) GetReadCount() uint32 {
 }
 
 type GetSecretVersionsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Versions      []*SecretVersion       `protobuf:"bytes,1,rep,name=versions,proto3" json:"versions,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Versions []*SecretVersion       `protobuf:"bytes,1,rep,name=versions,proto3" json:"versions,omitempty"`
+	// Lifetime count of reads of the secret's value (core.SecretTotalReads). Each
+	// version's read_count counts only reads charged against max_reads. (#2971)
+	TotalReads    *int64 `protobuf:"varint,2,opt,name=total_reads,json=totalReads,proto3,oneof" json:"total_reads,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1046,6 +1060,13 @@ func (x *GetSecretVersionsResponse) GetVersions() []*SecretVersion {
 		return x.Versions
 	}
 	return nil
+}
+
+func (x *GetSecretVersionsResponse) GetTotalReads() int64 {
+	if x != nil && x.TotalReads != nil {
+		return *x.TotalReads
+	}
+	return 0
 }
 
 type DependencyEdge struct {
@@ -10714,7 +10735,7 @@ var File_keyorix_proto protoreflect.FileDescriptor
 const file_keyorix_proto_rawDesc = "" +
 	"\n" +
 	"\rkeyorix.proto\x12\n" +
-	"keyorix.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xbb\x06\n" +
+	"keyorix.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bgoogle/protobuf/empty.proto\"\xf1\x06\n" +
 	"\x06Secret\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -10743,13 +10764,16 @@ const file_keyorix_proto_rawDesc = "" +
 	"\x10is_owned_by_user\x18\x12 \x01(\bR\risOwnedByUser\x12'\n" +
 	"\x0fuser_permission\x18\x13 \x01(\tR\x0euserPermission\x12\x1f\n" +
 	"\vshare_count\x18\x14 \x01(\rR\n" +
-	"shareCount\x1a;\n" +
+	"shareCount\x12$\n" +
+	"\vtotal_reads\x18\x15 \x01(\x03H\x02R\n" +
+	"totalReads\x88\x01\x01\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\f\n" +
 	"\n" +
 	"_max_readsB\r\n" +
-	"\v_expiration\"\x8d\x01\n" +
+	"\v_expirationB\x0e\n" +
+	"\f_total_reads\"\x8d\x01\n" +
 	"\vSecretValue\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -10849,9 +10873,12 @@ const file_keyorix_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"read_count\x18\x03 \x01(\rR\treadCount\"R\n" +
+	"read_count\x18\x03 \x01(\rR\treadCount\"\x88\x01\n" +
 	"\x19GetSecretVersionsResponse\x125\n" +
-	"\bversions\x18\x01 \x03(\v2\x19.keyorix.v1.SecretVersionR\bversions\"r\n" +
+	"\bversions\x18\x01 \x03(\v2\x19.keyorix.v1.SecretVersionR\bversions\x12$\n" +
+	"\vtotal_reads\x18\x02 \x01(\x03H\x00R\n" +
+	"totalReads\x88\x01\x01B\x0e\n" +
+	"\f_total_reads\"r\n" +
 	"\x0eDependencyEdge\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x1b\n" +
 	"\tsecret_id\x18\x02 \x01(\rR\bsecretId\x12\x1f\n" +
@@ -12369,6 +12396,7 @@ func file_keyorix_proto_init() {
 	file_keyorix_proto_msgTypes[2].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[4].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[6].OneofWrappers = []any{}
+	file_keyorix_proto_msgTypes[11].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[23].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[25].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[26].OneofWrappers = []any{}

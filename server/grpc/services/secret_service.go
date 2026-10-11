@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/core"
@@ -120,7 +121,22 @@ func (s *SecretGRPCService) GetSecret(ctx context.Context, req *pb.GetSecretRequ
 	if err != nil {
 		return nil, mapSecretError(err)
 	}
-	return secretNodeToProto(secret), nil
+	out := secretNodeToProto(secret)
+	out.TotalReads = s.totalReads(ctx, secret.ID)
+	return out, nil
+}
+
+// totalReads returns the secret's lifetime value-read count (core.SecretTotalReads,
+// the same figure the REST API reports as total_reads), or nil when it cannot be
+// computed: the field is optional, and a failed count must not fail a metadata read
+// (REST/gRPC parity, #2971).
+func (s *SecretGRPCService) totalReads(ctx context.Context, secretID uint) *int64 {
+	n, err := s.core.SecretTotalReads(ctx, secretID)
+	if err != nil {
+		log.Printf("total_reads for secret %d unavailable: %v", secretID, err)
+		return nil
+	}
+	return &n
 }
 
 // ListSecretDependencies returns a secret's direct dependencies and dependents
@@ -444,7 +460,7 @@ func (s *SecretGRPCService) GetSecretVersions(ctx context.Context, req *pb.GetSe
 			ReadCount:     intToU32(v.ReadCount),
 		})
 	}
-	return &pb.GetSecretVersionsResponse{Versions: out}, nil
+	return &pb.GetSecretVersionsResponse{Versions: out, TotalReads: s.totalReads(ctx, uint(req.GetId()))}, nil
 }
 
 // GrantSecretACL grants (or updates) a per-secret ACL for a user.

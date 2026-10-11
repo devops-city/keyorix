@@ -228,6 +228,10 @@ message Secret {
   bool is_owned_by_user = 18;
   string user_permission = 19; // "read" | "write" | ""
   uint32 share_count = 20;
+  // Lifetime count of reads of this secret's value (core.SecretTotalReads: access-log
+  // rows with action read). Set only by GetSecret; absent on lists. Not the per-version
+  // read_count, which counts only reads charged against max_reads. (#2971)
+  optional int64 total_reads = 21;
 }
 
 message SecretValue {
@@ -330,6 +334,9 @@ message SecretVersion {
 
 message GetSecretVersionsResponse {
   repeated SecretVersion versions = 1;
+  // Lifetime count of reads of the secret's value (core.SecretTotalReads). Each
+  // version's read_count counts only reads charged against max_reads. (#2971)
+  optional int64 total_reads = 2;
 }
 
 // --- Secret dependency graph (ADR-052) ---
