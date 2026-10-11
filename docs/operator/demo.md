@@ -117,6 +117,24 @@ holding the global `admin` role from bootstrap is not enough:
 Expected: `✅ Secret shared successfully!`, then a one-row share list showing
 alice (recipient ID 2) with `read` permission.
 
+**What the share does — and what revoking shows.** alice must already hold a
+project role to receive a share, and with `project_viewer` she can read the
+secret through that role. Access is the union of owner, shares, ACLs and roles, so
+the share is an *additional* path:
+
+```bash
+./bin/keyorix share revoke --share-id 1     # the share record is gone (share list is empty)
+# alice can STILL read secret 1: her project_viewer role grants it.
+./bin/keyorix rbac remove-role --user alice@keyorix.local --role project_viewer --project default
+# NOW alice's access is gone.
+```
+
+Demo it in that order: share → `share list` → revoke (the record and the
+`share.revoked` audit event are the visible effect) → remove the role to show
+access actually ending. Do not present "revoke the share" alone as the moment alice
+loses access. (A recipient with no project role cannot be shared to at all:
+`share create` is refused until they are a member of the secret's project.)
+
 (Skipping the two `rbac assign-role` lines and going straight to
 `share create` is what QUICK_START.md's own sharing example currently shows
 — it fails with a bare `HTTP 403` and no explanation. Filed for a fix; use

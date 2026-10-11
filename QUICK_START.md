@@ -271,6 +271,29 @@ tracked as a known gap below.
 makes the share time-bound, which is usually what you want for access granted
 during an incident.
 
+### A share does not override the recipient's role
+
+Access to a secret is the **union** of every way the user has it: owner, a direct
+share, a group share, a per-secret ACL, or a role on the secret's project. A share
+adds a path; revoking it removes only that path.
+
+Because the recipient must already hold a role in the project to receive a share
+(above), a recipient with `project_viewer` can read every secret in the project
+through that role. So `share revoke` removes the share record — `share list` and
+the audit log (`share.revoked`) show it — but **alice keeps read access** until her
+role is removed too (`rbac remove-role`). Do not rely on a `write` share to let a
+read-only role edit a secret: when tried (`share create --permission write`, then
+`secret update` as a `project_viewer`) the update was still refused (#2941).
+
+To demonstrate access actually disappearing, remove the role:
+
+```bash
+./bin/keyorix rbac remove-role --user alice@keyorix.local --role project_viewer --project default
+```
+
+`secret access --id 1` lists the owner and the direct and group shares; it does not
+list access that comes from a role.
+
 ## Giving a machine (CI/app) access
 
 ```bash

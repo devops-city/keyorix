@@ -29,6 +29,20 @@ Secret sharing in Keyorix allows you to securely collaborate by giving other use
 - **Users with Write Permission**: Can modify shared secret content (but not sharing settings)
 - **Users with Read Permission**: Can view shared secrets but cannot modify them
 
+### Shares and project roles: how they combine
+
+A user's access to a secret is the **union** of every path that grants it: being the
+owner, a direct share, a group share, a per-secret ACL, and a role on the secret's
+project. A share *adds* a path; **revoking it removes only that path.**
+
+The recipient of a user share must already be a member of the secret's project (hold
+a role scoped to it). If that role already grants read (every built-in project role,
+including `project_viewer`, does), the recipient keeps reading the secret after the
+share is revoked — the share was not what gave them access. To end their access,
+also remove the role (`keyorix rbac remove-role`). A `write` share is not a reliable
+way to give a read-only role edit rights (see #2941). `keyorix secret access` lists
+owner and share access only, not role-derived access.
+
 ## Getting Started
 
 ### Prerequisites
