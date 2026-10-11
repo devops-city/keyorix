@@ -196,6 +196,13 @@ type LocalStorage struct {
 	// transaction, whose durability is the caller's business, not the audit
 	// chain's.
 	auditSkipDurableSync bool
+	// secretMetaCache backs GetSecret/GetLatestSecretVersion/GetSecretAccessSchedule's
+	// read-path cache (PERF-3, docs/specs/read-path-caching.md). A pointer so a
+	// transaction-scoped LocalStorage (see WithTransaction) shares the SAME cache as
+	// its parent, same sharing reason as auditChainMu etc. above — see
+	// secret_metadata_cache.go's own header for why this must NOT be a package-level
+	// global instead.
+	secretMetaCache *secretMetadataCache
 	// rolePermCache backs RoleSetHasPermission's read-path cache (PERF-3,
 	// docs/specs/read-path-caching.md PR-2). A pointer so a transaction-scoped
 	// LocalStorage (see WithTransaction) shares the SAME cache as its parent,
@@ -207,7 +214,7 @@ type LocalStorage struct {
 	// exactly ONE place — NewLocalStorage — and is deliberately never copied
 	// anywhere else, so any LocalStorage derived from another (WithTransaction's
 	// tx-scoped clone, and the several ad-hoc `&LocalStorage{db: tx}` literals
-	// in this package) has it false by construction and bypasses the cache
+	// in this package and its tests) has it false by construction and bypasses the cache
 	// entirely.
 	//
 	// This is a correctness requirement, not an optimisation. A tx-scoped store
@@ -221,12 +228,29 @@ type LocalStorage struct {
 	// remote possibility: with the generation now a monotonic integer (see
 	// bumpRolePermissionsGenerationTx), a rolled-back bump N→N+1 is reproduced
 	// EXACTLY by the very next committed role_permissions write.
+	// For the latest-version cache the same hazard serves a version row that never
+	// committed — wrong ID, wrong ciphertext — and on SQLite even the row id can
+	// repeat after a rollback, because sqlite_sequence is rolled back too.
 	//
 	// Phrased as a flag that must be SET to enable the cache, never one that
 	// must be set to disable it, so a future constructor that forgets about it
 	// fails closed (no caching) rather than open (caching from inside a
 	// transaction).
 	cacheEnabled bool
+	// nodeStampProbe is cacheEnabled's per-cache companion for the node cache
+	// specifically: the node stamp is only a stamp while secret_nodes'
+	// cache_epoch trigger exists, and without it the stamp is frozen so every
+	// hit would serve the row as first read. See
+	// SecretNodeCacheEpochTriggerPresent for the two ways a real database ends
+	// up with the column but not the trigger.
+	//
+	// Resolved LAZILY, on first use, not in NewLocalStorage: that constructor
+	// deliberately performs no I/O, and tests rely on it (the dialect-SQL tests
+	// capture every statement a handle issues and assert on the count, and one
+	// of them builds an unconnected DryRun handle on purpose). nil on a derived
+	// store, which therefore never trusts the stamp — same fail-closed shape as
+	// cacheEnabled.
+	nodeStampProbe *nodeStampProbe
 }
 
 // clockWatermark pairs a mutex with the time.Time it guards, so a single
@@ -253,10 +277,15 @@ func NewLocalStorage(db *gorm.DB) *LocalStorage {
 		rbacClockWatermark:    &clockWatermark{},
 		auditFlusher:          &auditFlusherState{},
 		rawStmts:              &rawStatements{},
+		secretMetaCache:       newSecretMetadataCache(),
 		rolePermCache:         newRolePermissionCache(),
 		// The ONLY place this is set. See the field's doc comment: every derived
 		// or transaction-scoped LocalStorage must leave it false.
 		cacheEnabled: true,
+		// Fail closed: without the trigger the node stamp never moves, so the
+		// node cache must not be used at all. Probed on first use, not here —
+		// see the field's doc comment.
+		nodeStampProbe: &nodeStampProbe{},
 	}
 }
 

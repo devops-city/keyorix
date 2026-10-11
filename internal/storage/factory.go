@@ -1333,6 +1333,24 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		if err := ensureSecretNodeNameIndex(db); err != nil {
 			return err
 		}
+		// The UPGRADE call site for cache_epoch (the read-path cache's generation
+		// stamp — see store.EnsureSecretNodeCacheEpoch). It needs BOTH this one
+		// and the one in the transactional tail, for the same reason
+		// ensureSecretNodeNameIndex does and in the opposite direction:
+		// freshInstallComplete below returns early on EVERY boot of an
+		// already-initialised database, so the tail covers only a fresh (or
+		// half-migrated) install, while this tableExists-gated call is the only
+		// thing that reaches an existing deployment. Caught by
+		// TestSecretNodeCacheEpoch_FreshInstallAndUpgrade_{SQLite,Postgres}, which
+		// failed with "cache_epoch missing" when only the tail call existed.
+		//
+		// The two never both ALTER in one boot (on a fresh install secret_nodes
+		// does not exist yet at this point, so this call no-ops), so this cannot
+		// re-trip the pgx "insufficient arguments" hazard that re-inspecting a
+		// just-ALTERed table in the bulk AutoMigrate loop causes.
+		if err := store.EnsureSecretNodeCacheEpoch(db); err != nil {
+			return err
+		}
 	}
 	// Anomaly alerting: additive `alerted` flag (false = not yet pushed out).
 	if tableExists(db, "anomaly_alerts") && !columnExists(db, "anomaly_alerts", "alerted") {
@@ -2641,6 +2659,24 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 			return err
 		}
 		if err := ensureSecretVersionIndex(tx); err != nil {
+			return err
+		}
+		// Runs here, in the final block, rather than in the early
+		// additive-migration section: this block is reached on BOTH a fresh
+		// install and an upgrade (the old `if projectsExists { return nil }` gate
+		// is long gone), and being after the bulk AutoMigrate loop it cannot
+		// trip the pgx "insufficient arguments" hazard that re-inspecting a
+		// just-ALTERed table causes (see automigrate_altered_table_hazard_test.go
+		// and the AutoMigrate list's own NOTEs). The cache_epoch COLUMN is a
+		// field on models.SecretNode so the bulk AutoMigrate loop above already
+		// created it; the TRIGGER that maintains it is not something AutoMigrate
+		// can create, and this is the ONLY thing that does — on every path.
+		// Defined in package store (store.EnsureSecretNodeCacheEpoch), not here,
+		// so the cache's own tests (which live in that package) build their
+		// schema with the same call rather than a second copy of the SQL that
+		// could drift — and so they fail loudly instead of running against a
+		// trigger-less schema, i.e. a stamp that never moves, passing vacuously.
+		if err := store.EnsureSecretNodeCacheEpoch(tx); err != nil {
 			return err
 		}
 		// ADR-097: only after every migration step above has succeeded -- a crash

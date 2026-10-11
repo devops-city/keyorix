@@ -85,6 +85,18 @@ import (
 var secretNodesSweepExemptFiles = map[string]string{
 	"internal/storage/factory.go":            "migrateDatabase DDL and backfills: schema changes must reach every row, soft-deleted included",
 	"internal/storage/normalize_backfill.go": "name_folded backfill: must normalize soft-deleted rows too, or a restore lands an un-normalized name",
+	// Same class as factory.go's entry, just living in this package so the
+	// cache's own tests build their schema with the one definition rather than a
+	// second copy that could drift (see that file's header). Two kinds of
+	// statement, neither of which can filter deleted_at: ALTER TABLE / CREATE
+	// TRIGGER are DDL with no WHERE clause at all, and the SQLite trigger body's
+	// nested `UPDATE secret_nodes SET cache_epoch = ... WHERE id = NEW.id` must
+	// fire for EVERY updated row including a soft-deleted one — a soft-deleted
+	// row is still a row, and skipping its stamp would let a cache entry survive
+	// a restore. Soft-delete scoping for this cache belongs in the READ path
+	// (readLiveNodeStamp and GetSecret both go through Model(&SecretNode{}),
+	// which auto-scopes deleted_at IS NULL), not in the trigger.
+	"internal/storage/store/secret_node_cache_epoch.go": "cache_epoch DDL and trigger body: schema changes and the trigger's own nested UPDATE must reach every row, soft-deleted included",
 }
 
 // secretNodesSoftDeleteAllowlist names query sites that deliberately do NOT

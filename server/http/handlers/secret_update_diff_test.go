@@ -99,6 +99,11 @@ func TestDiffSecretUpdate_EveryFieldBehavesAsClassified(t *testing.T) {
 		{"Name", secretFieldRejected, func(s *models.SecretNode) { s.Name = "renamed" }},
 		{"IsSecret", secretFieldRejected, func(s *models.SecretNode) { s.IsSecret = false }},
 		{"ReadCount", secretFieldRejected, func(s *models.SecretNode) { s.ReadCount = 42 }},
+		// CacheEpoch: the read-path cache's generation stamp, owned by a database
+		// trigger and read-only to GORM. A client proposing one must be rejected,
+		// not ignored — silently dropping it would hide a caller that believes it
+		// controls cache invalidation.
+		{"CacheEpoch", secretFieldRejected, func(s *models.SecretNode) { s.CacheEpoch = 99 }},
 		{"Classification", secretFieldRejected, func(s *models.SecretNode) { s.Classification = "restricted" }},
 		{"Status", secretFieldRejected, func(s *models.SecretNode) { s.Status = "suspended" }},
 		{"CreatedBy", secretFieldRejected, func(s *models.SecretNode) { s.CreatedBy = "someone-else" }},

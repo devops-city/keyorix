@@ -1007,6 +1007,23 @@ type SecretNode struct {
 	// is always still needed against the current, LocalStorage-only backend. Never
 	// carries the value itself.
 	ValueStored bool `gorm:"-" json:"-"`
+	// CacheEpoch is the read-path metadata cache's generation stamp
+	// (internal/storage/store/secret_metadata_cache.go), maintained by a DATABASE
+	// TRIGGER — store.EnsureSecretNodeCacheEpoch — which bumps it on EVERY update
+	// to this row: Save(), Updates(), UpdateColumn() and raw SQL alike, with no Go
+	// code to forget and nothing for a new writer to opt into.
+	//
+	// `<-:false` makes it READ-ONLY to GORM: it is selected into this struct but
+	// never written, so no Go code can set it even by accident, and a full-struct
+	// Save() of a stale struct cannot roll it backwards. That is load-bearing, not
+	// tidiness — the whole point of the column is that application code does not
+	// own it. Guarded by TestSecretNodeCacheEpoch_FieldStaysReadOnlyToGORM.
+	// `json:"-"` keeps an internal cache stamp out of API responses.
+	//
+	// It IS a field (rather than a column with no field) so AutoMigrate creates it
+	// for every test schema and fresh install; the migration's explicit ALTER
+	// covers the upgrade path, where AutoMigrate does not run at all.
+	CacheEpoch int64 `gorm:"<-:false;not null;default:0" json:"-"`
 }
 
 // BeforeSave normalises Expiration to UTC so SQLite string comparisons are
