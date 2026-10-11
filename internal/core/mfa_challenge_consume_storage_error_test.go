@@ -67,7 +67,7 @@ func TestVerifyMFACredentials_ChallengeConsumeStorageError_IsTaggedPreVerdict(t 
 	realStorage := c.storage
 	c.storage = &consumeMFAChallengeErrStorage{Storage: realStorage, err: errors.New("fault-fuzz injected failure")}
 
-	_, _, _, verr := c.VerifyMFACredentials(ctx, ch, good)
+	_, _, _, _, verr := c.VerifyMFACredentials(ctx, ch, good)
 	require.Error(t, verr)
 	assert.ErrorIs(t, verr, ErrMFAVerificationStorageFailure,
 		"a genuine ConsumeMFAChallenge storage error reached no verdict on the code — it must be tagged as a storage failure so the caller releases the IP attempt slot")
@@ -79,7 +79,7 @@ func TestVerifyMFACredentials_ChallengeConsumeStorageError_IsTaggedPreVerdict(t 
 	c.storage = realStorage
 	ch2, err := c.CreateMFAChallenge(ctx, 1)
 	require.NoError(t, err)
-	user, _, _, err := c.VerifyMFACredentials(ctx, ch2, good)
+	user, _, _, _, err := c.VerifyMFACredentials(ctx, ch2, good)
 	require.NoError(t, err)
 	require.NotNil(t, user)
 }
@@ -95,7 +95,7 @@ func TestVerifyMFACredentials_InvalidChallenge_IsNotTaggedStorageFailure(t *test
 	c, _, _ := newMFATestCore(t)
 	ctx := context.Background()
 
-	_, _, _, verr := c.VerifyMFACredentials(ctx, "no-such-challenge-token", "000000")
+	_, _, _, _, verr := c.VerifyMFACredentials(ctx, "no-such-challenge-token", "000000")
 	require.Error(t, verr)
 	assert.NotErrorIs(t, verr, ErrMFAVerificationStorageFailure,
 		"a stale/guessed challenge token is a confirmed negative result, not a storage ambiguity — tagging it would hand an attacker free per-IP budget")

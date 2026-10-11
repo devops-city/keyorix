@@ -226,6 +226,9 @@ func (h *AuthHandler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := h.completeLoginWithIdentity(w, r, session, user, identity, lc)
+	// #2936: the session is delivered, so this step's slot goes back. The
+	// password step of this flow kept its own, so one MFA login costs one slot.
+	h.returnLoginSlot(r.Context(), loginSlot{id: attemptID, ok: reserved})
 	goSafe(func() {
 		h.coreService.LogAuthLogin(context.Background(), user.ID, user.Username, ip, r.Header.Get("User-Agent"))
 	}) // #nosec G118

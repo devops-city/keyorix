@@ -943,8 +943,15 @@ var knownOpenTolerances = []knownOpenTolerance{
 	//       reference only by the missing LoginAttempt row. That is #2837's
 	//       question (an op-scoped best-effort exemption for the reservation
 	//       write; see also #2921's proposal to bind such rows to the
-	//       atomicity ledger instead), so the row is re-pointed there and
-	//       pinned to that one method. Expiry deliberately NOT moved.
+	//       atomicity ledger instead), so the row was re-pointed there and
+	//       pinned to that one method.
+	//       DELETED by #2956 (#2936, "the per-IP login budget counts failures,
+	//       not logins"): a delivered login now RETURNS its reservation
+	//       (returnLoginSlot after completeLoginWithIdentity), so the fault-free
+	//       reference run has no LoginAttempt row either and the
+	//       ReserveLoginAttempt#1/error run no longer differs from it at all.
+	//       TestKnownOpenTolerances_AreLoadBearing reported the row dead; it went
+	//       quiet because the behaviour changed, not because something shadows it.
 }
 
 // observeKnownOpenMatch, when non-nil, is called with every tolerance

@@ -329,12 +329,24 @@ func (c *KeyorixCore) MFARecoveryCodesRemaining(ctx context.Context, userID uint
 // CreateMFAChallenge issues a short-lived single-use challenge for an MFA-enabled
 // user that has passed the password step. Only the token hash is stored.
 func (c *KeyorixCore) CreateMFAChallenge(ctx context.Context, userID uint) (string, error) {
+	return c.CreateMFAChallengeHoldingLoginSlot(ctx, userID, nil)
+}
+
+// CreateMFAChallengeHoldingLoginSlot is CreateMFAChallenge for a password step
+// that reserved a per-IP login-budget slot and keeps it: the slot id is stored
+// on the challenge, and the second factor that consumes the challenge and
+// delivers a session hands it back (LoginCompletion.Succeeded). A failed,
+// expired or abandoned second factor never does, so the slot stays counted
+// (#2936 item 4: N ordinary MFA logins from one office IP no longer use N
+// slots). slotID nil means nothing was reserved.
+func (c *KeyorixCore) CreateMFAChallengeHoldingLoginSlot(ctx context.Context, userID uint, slotID *uint) (string, error) {
 	token, err := generateSecureToken()
 	if err != nil {
 		return "", err
 	}
 	if err := c.storage.CreateMFAChallenge(ctx, &models.MFAChallenge{
 		UserID: userID, TokenHash: sha256Hex(token), ExpiresAt: c.now().Add(mfaChallengeTTL), CreatedAt: c.now(),
+		LoginAttemptID: slotID,
 	}); err != nil {
 		return "", err
 	}
@@ -366,7 +378,11 @@ func (c *KeyorixCore) CreateMFAChallenge(ctx context.Context, userID uint) (stri
 // (#2567) if a later, independent storage call (mintSession) fails after this
 // one already succeeded, since the caller's code was never actually at
 // fault.
-func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code string) (*models.User, bool, *int64, error) { // NOSONAR -- cognitive complexity 18, suppress go:S3776
+//
+// The fourth result is the login-budget slot the consumed challenge holds
+// (CreateMFAChallengeHoldingLoginSlot), for VerifyMFALoginPending to hand to
+// its LoginCompletion (#2936 item 4); nil whenever the error is non-nil.
+func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code string) (*models.User, bool, *int64, *uint, error) { // NOSONAR -- cognitive complexity 18, suppress go:S3776
 	ch, err := c.storage.ConsumeMFAChallenge(ctx, sha256Hex(challenge), c.now())
 	if err != nil {
 		// A missing/expired/already-consumed challenge is ConsumeMFAChallenge's
@@ -394,16 +410,16 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 		// ConsumeMFAChallenge call via ErrWebAuthnLoginNotEvaluated — the MFA
 		// path was the one login flow still missing it.
 		if !errors.Is(err, storage.ErrMFAChallengeInvalid) {
-			return nil, false, nil, fmt.Errorf("%w: %w: consuming login challenge: %w",
+			return nil, false, nil, nil, fmt.Errorf("%w: %w: consuming login challenge: %w",
 				ErrMFAVerificationStorageFailure, ErrMFAVerificationUnavailable, err)
 		}
-		return nil, false, nil, fmt.Errorf("invalid or expired challenge")
+		return nil, false, nil, nil, fmt.Errorf("invalid or expired challenge")
 	}
 	user, err := c.storage.GetUser(ctx, ch.UserID)
 	if err != nil {
 		// Same ambiguity as above: GetUser failing on a storage hiccup must not read
 		// the same as "this challenge really does belong to no user."
-		return nil, false, nil, fmt.Errorf("%w: %w: user not found", ErrMFAVerificationStorageFailure, ErrMFAVerificationUnavailable)
+		return nil, false, nil, nil, fmt.Errorf("%w: %w: user not found", ErrMFAVerificationStorageFailure, ErrMFAVerificationUnavailable)
 	}
 	// Completing a second factor still mints a login session, so a suspended or
 	// deactivated account must be refused here too — the challenge may have been
@@ -411,7 +427,7 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	// nothing rechecks the state between the two steps. Mirrors the password,
 	// session, PAT, and passwordless-WebAuthn gates.
 	if !user.IsActive || AccountLoginBlocked(user.ID, user.AccountState) {
-		return nil, false, nil, fmt.Errorf("account is not active")
+		return nil, false, nil, nil, fmt.Errorf("account is not active")
 	}
 	// Per-account lockout also gates the second factor. The per-IP rate limiter is
 	// spoofable behind a misconfigured proxy, and it is otherwise the ONLY online
@@ -419,7 +435,7 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	// by ch.UserID, which the attacker does not control) makes second-factor brute force
 	// cost the same lockout as password brute force.
 	if c.loginLocked(user) {
-		return nil, false, nil, fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
+		return nil, false, nil, nil, fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
 	}
 	// storageErr tracks a genuine storage-read/write failure on either path below,
 	// as distinct from a CONFIRMED negative result (wrong code / non-matching
@@ -482,7 +498,7 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 				// verdict on whether its code was right, and its caller (the
 				// HTTP handler) releases the login-attempt-rate-limit slot for
 				// exactly this wrapped sentinel, for the same reason.
-				return nil, false, nil, fmt.Errorf("%w: %w: %s: %w", ErrMFAVerificationStorageFailure, ErrMFAVerificationUnavailable, i18n.T("ErrorRetrievalFailed", nil), storageErr)
+				return nil, false, nil, nil, fmt.Errorf("%w: %w: %s: %w", ErrMFAVerificationStorageFailure, ErrMFAVerificationUnavailable, i18n.T("ErrorRetrievalFailed", nil), storageErr)
 			}
 			// #2888 (#2740 option C extended to lockout/rate-limit bookkeeping,
 			// not just the HTTP response): the code WAS confirmed correct here
@@ -492,11 +508,11 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 			// channel confirming correctness even though the returned error and
 			// the HTTP response are already identical either way.
 			c.recordFailedLogin(ctx, user)
-			return nil, false, nil, fmt.Errorf("%w: %s: %w", ErrMFAVerificationStorageFailure, i18n.T("ErrorRetrievalFailed", nil), storageErr)
+			return nil, false, nil, nil, fmt.Errorf("%w: %s: %w", ErrMFAVerificationStorageFailure, i18n.T("ErrorRetrievalFailed", nil), storageErr)
 		}
 		c.auditMFAFailed(ctx, ch.UserID, "login")
 		c.recordFailedLogin(ctx, user) // count the failed second factor toward the lockout
-		return nil, false, nil, fmt.Errorf("invalid code")
+		return nil, false, nil, nil, fmt.Errorf("invalid code")
 	}
 	// Cleared the second factor — but a concurrent burst of failed second-factor
 	// attempts against this account may have tripped the lock since the
@@ -507,9 +523,9 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	// identity payload to resolve, and a fault in any of those must cost the
 	// attacker the same lockout progress a wrong code does — see LoginCompletion.
 	if err := c.recheckLockAfterCredentialMatched(ctx, user, true); err != nil {
-		return user, false, nil, err
+		return user, false, nil, nil, err
 	}
-	return user, usedRecovery, consumedTOTPStep, nil
+	return user, usedRecovery, consumedTOTPStep, ch.LoginAttemptID, nil
 }
 
 // VerifyMFALogin consumes a challenge, verifies a TOTP code or a recovery code,
@@ -543,7 +559,7 @@ func (c *KeyorixCore) VerifyMFALogin(ctx context.Context, challenge, code, userA
 // (#2894). On an error return the user is non-nil for every post-verdict
 // failure, so a transport can name the account in its auth.login_error event.
 func (c *KeyorixCore) VerifyMFALoginPending(ctx context.Context, challenge, code, userAgent, ip string) (*models.Session, *models.User, UserIdentity, *LoginCompletion, error) {
-	user, usedRecovery, consumedTOTPStep, err := c.VerifyMFACredentials(ctx, challenge, code)
+	user, usedRecovery, consumedTOTPStep, heldSlot, err := c.VerifyMFACredentials(ctx, challenge, code)
 	if err != nil {
 		if errors.Is(err, ErrLoginPostVerdict) {
 			// The code matched and the lock recheck faulted: name the account so
@@ -573,6 +589,7 @@ func (c *KeyorixCore) VerifyMFALoginPending(ctx context.Context, challenge, code
 		return nil, user, UserIdentity{}, nil, c.denyAfterCredentialMatched(ctx, user, err)
 	}
 	lc := c.newLoginCompletion(user)
+	lc.holdLoginSlots(heldSlot)
 	session, err := c.mintSession(ctx, user.ID, userAgent, ip)
 	if err != nil {
 		// #2567: VerifyMFACredentials already consumed the TOTP step (anti-replay)

@@ -145,6 +145,14 @@ func (c *KeyorixCore) loadWebAuthnUser(ctx context.Context, userID uint) (*webau
 // storeWebAuthnSession persists the ceremony SessionData under the hash of an
 // opaque token (returned to the caller), single-use and short-lived.
 func (c *KeyorixCore) storeWebAuthnSession(ctx context.Context, userID uint, purpose string, sd *webauthn.SessionData) (string, error) {
+	return c.storeWebAuthnSessionHoldingLoginSlot(ctx, userID, purpose, sd, nil)
+}
+
+// storeWebAuthnSessionHoldingLoginSlot is storeWebAuthnSession for a login
+// Begin that reserved a per-IP login-budget slot and keeps it: the slot id is
+// stored on the ceremony row, and only the Finish that consumes the row and
+// delivers a session hands it back (#2936 review).
+func (c *KeyorixCore) storeWebAuthnSessionHoldingLoginSlot(ctx context.Context, userID uint, purpose string, sd *webauthn.SessionData, slotID *uint) (string, error) {
 	data, err := json.Marshal(sd)
 	if err != nil {
 		return "", err
@@ -154,12 +162,13 @@ func (c *KeyorixCore) storeWebAuthnSession(ctx context.Context, userID uint, pur
 		return "", err
 	}
 	if err := c.storage.CreateWebAuthnSession(ctx, &models.WebAuthnSession{
-		UserID:    userID,
-		TokenHash: sha256Hex(token),
-		Purpose:   purpose,
-		Data:      data,
-		ExpiresAt: c.now().Add(webauthnSessionTTL),
-		CreatedAt: c.now(),
+		UserID:         userID,
+		TokenHash:      sha256Hex(token),
+		Purpose:        purpose,
+		Data:           data,
+		ExpiresAt:      c.now().Add(webauthnSessionTTL),
+		CreatedAt:      c.now(),
+		LoginAttemptID: slotID,
 	}); err != nil {
 		return "", err
 	}
@@ -462,6 +471,17 @@ func (c *KeyorixCore) FinishWebAuthnReauth(ctx context.Context, userID uint, ses
 // webauthn session token to echo back at FinishWebAuthnLogin (alongside the
 // challenge, which is consumed there).
 func (c *KeyorixCore) BeginWebAuthnLogin(ctx context.Context, challenge string) (*protocol.CredentialAssertion, string, error) {
+	return c.BeginWebAuthnLoginHoldingLoginSlot(ctx, challenge, nil)
+}
+
+// BeginWebAuthnLoginHoldingLoginSlot is BeginWebAuthnLogin for a transport that
+// reserved a per-IP login-budget slot for this Begin and KEEPS it (#2936
+// review): Begin does not consume the MFA challenge and writes a ceremony row
+// per call, so a slot handed back here would let one valid challenge drive
+// unlimited Begin calls at no budget cost. The slot is bound to the ceremony
+// row instead, and FinishWebAuthnLoginPending's LoginCompletion hands it back
+// only once a session is delivered. slotID nil means nothing was reserved.
+func (c *KeyorixCore) BeginWebAuthnLoginHoldingLoginSlot(ctx context.Context, challenge string, slotID *uint) (*protocol.CredentialAssertion, string, error) {
 	if c.webauthnRP == nil {
 		return nil, "", ErrWebAuthnDisabled
 	}
@@ -485,7 +505,7 @@ func (c *KeyorixCore) BeginWebAuthnLogin(ctx context.Context, challenge string) 
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to begin login: %w", err)
 	}
-	token, err := c.storeWebAuthnSession(ctx, ch.UserID, "login", sd)
+	token, err := c.storeWebAuthnSessionHoldingLoginSlot(ctx, ch.UserID, "login", sd, slotID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -629,6 +649,9 @@ func (c *KeyorixCore) FinishWebAuthnLoginPending(ctx context.Context, challenge,
 		return nil, wu.user, UserIdentity{}, nil, c.denyAfterCredentialMatched(ctx, wu.user, err)
 	}
 	lc := c.newLoginCompletion(wu.user)
+	// #2936 item 4: the password step's slot (on the challenge) and Begin's (on
+	// the ceremony row) go back only if this login is delivered.
+	lc.holdLoginSlots(ch.LoginAttemptID, sess.LoginAttemptID)
 	session, err := c.mintSession(ctx, ch.UserID, userAgent, ip)
 	if err != nil {
 		lc.Failed(ctx)
@@ -676,6 +699,14 @@ func (c *KeyorixCore) FinishWebAuthnLoginPending(ctx context.Context, challenge,
 // gesture proves both possession and the user (MFA-grade), making this a complete
 // passwordless login. Returns the assertion options + an opaque session token.
 func (c *KeyorixCore) BeginWebAuthnPasswordlessLogin(ctx context.Context) (*protocol.CredentialAssertion, string, error) {
+	return c.BeginWebAuthnPasswordlessLoginHoldingLoginSlot(ctx, nil)
+}
+
+// BeginWebAuthnPasswordlessLoginHoldingLoginSlot is BeginWebAuthnPasswordlessLogin
+// with the transport's kept budget slot bound to the ceremony row, exactly as
+// BeginWebAuthnLoginHoldingLoginSlot does: the slot stays counted unless the
+// Finish that consumes this row delivers a session.
+func (c *KeyorixCore) BeginWebAuthnPasswordlessLoginHoldingLoginSlot(ctx context.Context, slotID *uint) (*protocol.CredentialAssertion, string, error) {
 	if c.webauthnRP == nil {
 		return nil, "", ErrWebAuthnDisabled
 	}
@@ -686,7 +717,7 @@ func (c *KeyorixCore) BeginWebAuthnPasswordlessLogin(ctx context.Context) (*prot
 		return nil, "", fmt.Errorf("failed to begin passwordless login: %w", err)
 	}
 	// userID is unknown until finish resolves it from the credential's user handle.
-	token, err := c.storeWebAuthnSession(ctx, 0, "passwordless", sd)
+	token, err := c.storeWebAuthnSessionHoldingLoginSlot(ctx, 0, "passwordless", sd, slotID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -781,6 +812,7 @@ func (c *KeyorixCore) FinishWebAuthnPasswordlessLoginPending(ctx context.Context
 	// is no longer CLEARED on the way to a denial. See
 	// newLoginCompletionNotCounted.
 	lc := c.newLoginCompletionNotCounted(resolved)
+	lc.holdLoginSlots(sess.LoginAttemptID) // Begin's kept slot (#2936)
 	if err := c.enforcePasswordExpiryGate(ctx, resolved); err != nil {
 		lc.Failed(ctx)
 		return nil, resolved, UserIdentity{}, nil, fmt.Errorf("%w: %w", ErrLoginPostVerdict, err)

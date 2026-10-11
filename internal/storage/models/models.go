@@ -661,6 +661,12 @@ type MFAChallenge struct {
 	ExpiresAt time.Time
 	UsedAt    *time.Time
 	CreatedAt time.Time
+	// LoginAttemptID is the per-IP login-budget slot (a LoginAttempt row) the
+	// password step reserved and KEPT when it issued this challenge (#2936
+	// item 4). The second factor that consumes the challenge and delivers a
+	// session hands it back; a failed or abandoned second factor never does, so
+	// the slot stays counted as a failure. nil when nothing was reserved.
+	LoginAttemptID *uint `json:"-"`
 }
 
 // BeforeSave normalises ExpiresAt to UTC so SQLite string comparisons are
@@ -739,6 +745,12 @@ type WebAuthnSession struct {
 	ExpiresAt time.Time
 	UsedAt    *time.Time
 	CreatedAt time.Time
+	// LoginAttemptID is the per-IP login-budget slot a login Begin reserved and
+	// KEPT when it wrote this ceremony (#2936 review). Only the Finish that
+	// consumes this session AND delivers a session hands it back, so an
+	// unfinished Begin stays counted. nil when nothing was reserved, and for
+	// every non-login purpose.
+	LoginAttemptID *uint `json:"-"`
 }
 
 // BeforeSave normalises ExpiresAt to UTC so SQLite string comparisons are

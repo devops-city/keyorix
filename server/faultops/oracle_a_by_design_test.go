@@ -576,7 +576,8 @@ var toleranceDeadPendingTriage = map[string]string{}
 //
 // (Empty since TOL-1: the four wildcard rows that used to be listed here --
 // /auth/mfa/verify and /auth/webauthn/login/finish, error and panic -- were
-// deleted as dead or pinned to ReserveLoginAttempt, so every remaining row is
+// deleted as dead or pinned to ReserveLoginAttempt (those two pins were deleted
+// as dead by #2956), so every remaining row is
 // fully specified and actually driven.)
 var toleranceStalenessUndrivable = map[string]bool{}
 

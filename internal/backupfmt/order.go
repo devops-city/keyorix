@@ -70,6 +70,18 @@ var notReferences = []notReferenceField{
 	{"AccessReviewItem", "PrincipalID"},
 	// RecipientID is polymorphic: IsGroup discriminates User vs Group.
 	{"ShareRecord", "RecipientID"},
+	// LoginAttemptID is a WEAK pointer to the per-IP login-budget slot (a
+	// login_attempts row) the login flow reserved and kept (#2956). That
+	// table is a prunable rate-limit ledger, not data: a delivered login
+	// releases the slot by deleting its row (LoginCompletion.Succeeded ->
+	// ReleaseLoginAttempt), and the age prune and admin clear-login-lockout
+	// delete rows too, while the single-use challenge / ceremony row keeps
+	// its pointer. Releasing a missing id is already a no-op, so a dangling
+	// value is a legal state, not corruption -- enforcing it made restore
+	// refuse every backup taken after one delivered MFA or passkey login
+	// (DR-FIX-1, TestBackupRestore_AfterDelivered* in server/http/handlers).
+	{"MFAChallenge", "LoginAttemptID"},
+	{"WebAuthnSession", "LoginAttemptID"},
 }
 
 // selfReferenceFields lists (model, field) pairs that reference a row in the

@@ -1755,6 +1755,13 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		if err := db.AutoMigrate(&models.MFAChallenge{}); err != nil {
 			return fmt.Errorf("failed to migrate mfa_challenges table: %w", err)
 		}
+	} else if m := db.Migrator(); !m.HasColumn(&models.MFAChallenge{}, "LoginAttemptID") {
+		// #2936 item 4: the login-budget slot the password step keeps. Additive
+		// and nullable (nil = nothing to hand back), via the Migrator like the
+		// other columns added to existing tables here.
+		if err := m.AddColumn(&models.MFAChallenge{}, "LoginAttemptID"); err != nil {
+			return fmt.Errorf("failed to add mfa_challenges.login_attempt_id column: %w", err)
+		}
 	}
 	// mfa_step_up_grants. store-mfa-002 found that MFAStepUpGrant "was never
 	// migrated anywhere" and fixed it by adding the model to the bulk
@@ -1848,6 +1855,12 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if !webauthnSessExists {
 		if err := db.AutoMigrate(&models.WebAuthnSession{}); err != nil {
 			return fmt.Errorf("failed to migrate web_authn_sessions table: %w", err)
+		}
+	} else if m := db.Migrator(); !m.HasColumn(&models.WebAuthnSession{}, "LoginAttemptID") {
+		// #2936 review: the login-budget slot a WebAuthn Begin keeps. Additive
+		// and nullable, as for mfa_challenges above.
+		if err := m.AddColumn(&models.WebAuthnSession{}, "LoginAttemptID"); err != nil {
+			return fmt.Errorf("failed to add web_authn_sessions.login_attempt_id column: %w", err)
 		}
 	}
 

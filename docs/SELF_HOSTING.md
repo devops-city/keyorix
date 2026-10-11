@@ -90,6 +90,26 @@ never written to a log file or the audit chain in plaintext, and losing it
 means running the command again (which invalidates the old key). See
 `docs/design-b2-recover-admin.md` for the full design.
 
+**"Too many login attempts" (HTTP 429).** Each IP address gets
+`LoginMaxAttempts` (10) *failed* login attempts per 15 minutes, shared by the
+password, TOTP, passkey and refresh endpoints; successful logins do not count
+(#2936), and an MFA or passkey login counts once however many requests it
+takes. The count lives in the database, so restarting the server does not
+reset it. To lift it early for one address, or to clear one account's
+failed-login lockout, use the audited host-side command (it needs the database
+to itself, like every admin command):
+
+```sh
+docker compose stop backend
+docker compose run --rm backend ./keyorix-server admin clear-login-lockout --ip 203.0.113.9
+docker compose run --rm backend ./keyorix-server admin clear-login-lockout --user alice@example.com
+docker compose start backend
+```
+
+Each run writes an `admin.login_lockout_cleared` audit event naming what it
+cleared. An admin who can still log in can unlock an account online instead
+(`POST /api/v1/users/{id}/unlock`).
+
 ## 3. Configuration (`.env`)
 
 All secrets come from `.env` — there are **no baked-in default passwords**; the

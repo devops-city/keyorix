@@ -282,6 +282,26 @@ type LoginCompletion struct {
 	// countsFailures is false for a path whose own WRONG-credential branch does
 	// not feed this counter either — see newLoginCompletionNotCounted.
 	countsFailures bool
+	// heldSlots are per-IP login-budget slots EARLIER requests of this login
+	// flow reserved and kept (the password step's, bound to the MFA challenge;
+	// a WebAuthn Begin's, bound to its ceremony session). Succeeded hands them
+	// back; Failed keeps them counted (#2936 item 4).
+	heldSlots []uint
+}
+
+// holdLoginSlots records the budget slots bound to the single-use challenge /
+// ceremony rows this login just consumed. Because those rows are consumed
+// atomically, at most one login ever holds a given slot, and Succeeded's
+// done-guard releases it at most once.
+func (lc *LoginCompletion) holdLoginSlots(ids ...*uint) {
+	if lc == nil {
+		return
+	}
+	for _, id := range ids {
+		if id != nil && *id != 0 {
+			lc.heldSlots = append(lc.heldSlots, *id)
+		}
+	}
 }
 
 // newLoginCompletion is called by a login path once the credential has been
@@ -319,6 +339,12 @@ func (lc *LoginCompletion) Succeeded(ctx context.Context) {
 	}
 	lc.done = true
 	lc.c.clearLoginFailures(ctx, lc.user)
+	// #2936 item 4: the flow delivered a session, so the slots its earlier
+	// steps kept were not failures. Best-effort (ReleaseLoginAttempt): a
+	// release that fails leaves the slot counted, the strict side.
+	for _, id := range lc.heldSlots {
+		lc.c.ReleaseLoginAttempt(ctx, id)
+	}
 }
 
 // Failed records that the login was denied AFTER the credential had already

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 )
 
@@ -98,8 +99,17 @@ func (c *KeyorixCore) ReserveLoginAttempt(ctx context.Context, ip string) (id ui
 // mirroring RecordFailedLogin: a storage error here does not surface to the
 // caller, it just leaves the reservation counted as if release had never been
 // attempted.
+//
+// Through besteffort.Run, which also recovers a PANIC: since #2936 this runs
+// on the SUCCESS path of every login-family handler (a delivered session
+// returns its slot), after the session is already minted, so an escaping
+// panic would report a completed login as a 500 -- the post-commit
+// best-effort class besteffort exists for. A recovered panic leaves the slot
+// counted, the same strict-side outcome as a returned error.
 func (c *KeyorixCore) ReleaseLoginAttempt(ctx context.Context, id uint) {
-	_ = c.storage.ReleaseLoginAttempt(ctx, id)
+	besteffort.Run(ctx, "rate_limit.ReleaseLoginAttempt", func() error {
+		return c.storage.ReleaseLoginAttempt(ctx, id)
+	})
 }
 
 // ErrInvalidLoginAttemptKey is returned by RecordLoginAttemptRelay when the
