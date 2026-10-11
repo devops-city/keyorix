@@ -180,8 +180,11 @@ type Secret struct {
 	RotationLength         *int       `json:"rotation_length,omitempty"`
 	RotationRef            *string    `json:"rotation_ref,omitempty"`
 	Status                 *string    `json:"status,omitempty"`
-	Type                   *string    `json:"type,omitempty"`
-	UpdatedAt              *time.Time `json:"updated_at,omitempty"`
+
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	TotalReads *int       `json:"total_reads,omitempty"`
+	Type       *string    `json:"type,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 }
 
 // SecretGetResult GET /api/v1/secrets/{id}'s response `data`: the bare Secret fields directly (metadata-only), OR, when include_value=true, `{secret, value}` instead. Declared as one flat schema combining both shapes' properties (rather than oneOf) since the CLI always knows in advance which branch a given request will get -- it controls include_value.
@@ -204,10 +207,13 @@ type SecretGetResult struct {
 	ReadCount      *int       `json:"read_count,omitempty"`
 
 	// Secret A secret or folder node (internal/storage/models.SecretNode), metadata only -- never a value. Wire keys are snake_case, via the handler-level secretNodeWire type (server/http/handlers/secrets_wire.go) -- fixed from the previous bare-Go-field-name leak (ADR-108 PR 4/5) as part of the API-hygiene casing campaign.
-	Secret    *Secret    `json:"secret,omitempty"`
-	Status    *string    `json:"status,omitempty"`
-	Type      *string    `json:"type,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	Secret *Secret `json:"secret,omitempty"`
+	Status *string `json:"status,omitempty"`
+
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	TotalReads *int       `json:"total_reads,omitempty"`
+	Type       *string    `json:"type,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 
 	// Value The decrypted value. Present only when include_value=true.
 	Value *string `json:"value,omitempty"`
@@ -260,7 +266,10 @@ type Error struct {
 	// Error Short error-type label, e.g. "NotFound", "BadRequest".
 	Error   *string `json:"error,omitempty"`
 	Message *string `json:"message,omitempty"`
-	Success *bool   `json:"success,omitempty"`
+
+	// PendingSteps Values: change_password, enroll_mfa. Present on a 403 from the account-setup gate (error PasswordChangeRequired or MFAEnrollmentRequired, #3024): the setup steps the caller still owes. Until they are done only these are reachable -- change_password: POST /api/v1/auth/change-password; enroll_mfa: POST /api/v1/auth/mfa/enroll, /auth/mfa/activate, /auth/webauthn/register/begin|finish and GET /auth/webauthn/credentials; always GET /api/v1/auth/profile. Owing both opens both, in either order.
+	PendingSteps *[]string `json:"pending_steps,omitempty"`
+	Success      *bool     `json:"success,omitempty"`
 }
 
 // CreatePATJSONBody defines parameters for CreatePAT.
@@ -284,7 +293,7 @@ type CreatePATJSONBody struct {
 
 // ListProjectsParams defines parameters for ListProjects.
 type ListProjectsParams struct {
-	// IncludeDeleted When 'true', also returns soft-deleted projects (each flagged via deleted/deleted_at) for the restore UI.
+	// IncludeDeleted When 'true', also returns soft-deleted projects (each flagged via deleted/deleted_at) for the restore UI. This form requires secrets.read at the GLOBAL scope: project-scoped role grants deliberately survive a soft-delete (so RestoreProject can work) while GET /api/v1/projects/{id} returns 404 for a deleted project, so a project-scoped reader cannot read a soft-deleted project through any path and must not see one listed. A caller without the global grant gets 403 for this form, and 200 for the default one.
 	IncludeDeleted *ListProjectsParamsIncludeDeleted `form:"include_deleted,omitempty" json:"include_deleted,omitempty"`
 }
 
