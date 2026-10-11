@@ -116,8 +116,44 @@ jobs:
       - name: Customer journeys (containers tier)
         run: make e2e-journeys-containers
 
+  # Postgres-only customer journeys: 15 (HA, two replicas on one database) and
+  # 17 (live pg backup/restore). They skip without KEYORIX_TEST_PG_DSN, so
+  # `make e2e-journeys` (no DSN) never ran them and they broke unnoticed. Each
+  # journey creates its own database on this server (isolatedPGDatabase), so the
+  # service's default database is only the connection target.
+  e2e-journeys-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: keyorix
+          POSTGRES_PASSWORD: keyorix-e2e
+          POSTGRES_DB: keyorix
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      KEYORIX_TEST_PG_DSN: "host=localhost port=5432 dbname=keyorix user=keyorix sslmode=disable password=keyorix-e2e"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+      # Journey 15 takes ~90s (waits out the anomaly scheduler's deferred first pass).
+      - name: Postgres journeys (15 HA two replicas, 17 live backup)
+        run: go test -tags e2e ./scripts/e2e/journeys/... -run 'TestJourney_(HATwoReplicas|LivePostgresBackup)$' -v -timeout 900s
+
   alert:
-    needs: [e2e-smoke-postgres, e2e-smoke-upgrade, e2e-web-smoke, e2e-journeys-containers]
+    needs: [e2e-smoke-postgres, e2e-smoke-upgrade, e2e-web-smoke, e2e-journeys-containers, e2e-journeys-postgres]
     # Always report, but only for runs on main (a manual dispatch on a
     # feature branch must not open or close the main-branch issue).
     if: always() && github.ref == 'refs/heads/main'
