@@ -39,15 +39,22 @@ Open **http://localhost:8088** and log in with the admin credentials you set in
 > backend spends on first-boot migrations and key derivation.
 
 **First boot check.** With `KEYORIX_ADMIN_PASSWORD` + `KEYORIX_BOOTSTRAP_TOKEN` set
-the backend creates the admin by calling `/system/init` once the server answers,
-but it only waits about 30 s. If first boot is slower than that (a loaded host)
-the log shows `Bootstrap call failed ... — continuing`, the container is
-healthy, and logging in returns `HTTP 401` (tracked in #3025). Look for
-`Server is ready` followed by `Bootstrapping admin user` in
-`docker compose logs backend`; if it is missing, create the admin by hand with
-`keyorix system init --server http://localhost:8088 --admin-username admin --admin-email admin@keyorix.local --bootstrap-token <KEYORIX_BOOTSTRAP_TOKEN>`.
-`docker compose ps` shows `web` as `(unhealthy)` on current images although it
-serves traffic (#3026).
+the backend creates the admin by calling `/system/init` as soon as the server
+answers `GET /health`. The entrypoint waits for that for up to
+`KEYORIX_READY_TIMEOUT` seconds (default 180, so a slow first boot on a loaded
+host is fine), then retries the bootstrap call up to `KEYORIX_BOOTSTRAP_ATTEMPTS`
+times (default 10, 3 s apart). It fails loudly: if the admin still cannot be
+created, the entrypoint logs `ERROR: admin bootstrap did not complete ...`, stops
+the server and exits non-zero, so the backend restarts instead of sitting
+"healthy" with no usable login. On success the log shows `Server is ready after
+Ns`, `Bootstrapping admin user` and `Admin bootstrap complete.` in
+`docker compose logs backend`. If you see the `ERROR:` lines instead, check that
+`KEYORIX_BOOTSTRAP_TOKEN` is set and matches, then fix `.env` and run
+`docker compose up -d` again (or create the admin by hand with
+`keyorix system init --server http://localhost:8088 --admin-username admin --admin-email admin@keyorix.local --bootstrap-token <KEYORIX_BOOTSTRAP_TOKEN>`).
+`docker compose ps` shows `web` as `healthy`: its healthcheck probes
+`127.0.0.1` (busybox resolves `localhost` to IPv6 first and nginx listens on IPv4
+only).
 
 **Using the CLI against the stack.** The backend's port is not published; the
 CLI talks to it through the web container's proxy:
@@ -91,7 +98,7 @@ with `openssl rand -base64 32`.
 | `KEYORIX_DB_PASSWORD`     | ✅       | PostgreSQL password (shared by `postgres` and `backend`). |
 | `KEYORIX_MASTER_PASSWORD` | ✅       | Passphrase the encryption KEK is derived from. **See the warning below.** |
 | `KEYORIX_ADMIN_PASSWORD`  | optional | If set, the first admin is created on first boot (idempotent). Leave blank to run `keyorix-server admin init` manually on the server host. |
-| `KEYORIX_BOOTSTRAP_TOKEN` | required if `KEYORIX_ADMIN_PASSWORD` is set | `/system/init` always requires a matching bootstrap token. Setting `KEYORIX_ADMIN_PASSWORD` without this silently skips admin creation (a WARN is logged, but the container still reports healthy). |
+| `KEYORIX_BOOTSTRAP_TOKEN` | required if `KEYORIX_ADMIN_PASSWORD` is set | `/system/init` always requires a matching bootstrap token. Setting `KEYORIX_ADMIN_PASSWORD` without this makes the backend exit at startup with an `ERROR:` message (it no longer skips admin creation silently); set the token, or unset the password and run `keyorix system init` by hand. |
 | `KEYORIX_ADMIN_USERNAME`  | optional | Defaults to `admin`. |
 | `KEYORIX_ADMIN_EMAIL`     | optional | Defaults to `admin@keyorix.local`. |
 

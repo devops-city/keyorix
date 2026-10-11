@@ -70,17 +70,17 @@ KEYORIX_MASTER_PASSWORD=yourpassword keyorix-server
 **Log in with the CLI:**
 
 ```bash
-keyorix login --server http://localhost:8080 --username admin --password yourpassword
+keyorix login --server http://localhost:8080 --username admin
+# Password: (typed at the no-echo prompt)
 ```
 
 With an authenticator app enrolled, `login` prompts for a code after the
-password; `--mfa-code` supplies one (or an unused recovery code)
-non-interactively.
+password (an unused recovery code works too).
 
-**Create and use secrets:**
+**Create and use secrets** (passwords and values are prompted or read from a file, not passed as flags, because command-line arguments are visible via `ps` and saved in shell history):
 
 ```bash
-keyorix secret create --name db-password --value supersecret
+keyorix secret create --name db-password --interactive   # value typed at a hidden prompt
 keyorix run --env production --var DATABASE_URL=db-password -- node app.js
 keyorix run --env production --var DATABASE_URL=db-password -- flask run
 keyorix run --env production --var DATABASE_URL=db-password -- ./myapp

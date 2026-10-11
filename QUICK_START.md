@@ -107,11 +107,18 @@ admin account and default workspace with `keyorix system init --server`:
 export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
 KEYORIX_CONFIG_PATH=./keyorix.yaml ./bin/keyorix-server &
 
+# The admin password and bootstrap token come from the environment (or, if
+# KEYORIX_ADMIN_PASSWORD is unset, an interactive prompt) — never from flags.
+read -r -s -p 'Admin password: ' KEYORIX_ADMIN_PASSWORD; echo
+export KEYORIX_ADMIN_PASSWORD
 ./bin/keyorix system init --server http://localhost:8080 \
-  --admin-username admin --admin-email admin@keyorix.local \
-  --admin-password 'Correct-Horse-Battery9' \
-  --bootstrap-token "$KEYORIX_BOOTSTRAP_TOKEN"
+  --admin-username admin --admin-email admin@keyorix.local
 ```
+
+> **Why no `--admin-password` / `--password` / `--value` flags?** Anything on a
+> command line is visible to other local users (`ps`, `/proc`) and saved in shell
+> history, and the CLI itself prints a warning when you do it. The examples here
+> use the prompt, environment-variable or file forms instead.
 
 Two things about this command are not obvious from `--help` alone:
 
@@ -126,7 +133,8 @@ reports `already_initialized` on every call after the first. It creates the
 admin user, default RBAC roles, and a default workspace (a project with three
 seeded environments — development, staging, production — as IDs 1/2/3) in one
 call. Without `KEYORIX_BOOTSTRAP_TOKEN` set before the server starts, the server
-generates and logs a random token instead — pass that one to `--bootstrap-token`.
+generates and logs a random token instead — export that one as
+`KEYORIX_BOOTSTRAP_TOKEN` before running `system init`.
 
 - Health: <http://localhost:8080/health>
 - OpenAPI spec: <http://localhost:8080/openapi.yaml> — only when
@@ -166,8 +174,8 @@ For Postgres instead of SQLite, `docker compose up -d postgres` starts one, and
 ## Log in
 
 ```bash
-./bin/keyorix login --server http://localhost:8080 \
-  --username admin --password 'Correct-Horse-Battery9'
+./bin/keyorix login --server http://localhost:8080 --username admin
+# Password: (typed at the no-echo prompt)
 ```
 
 Stores the session token (and server URL) at the CLI's one credential-file
@@ -191,17 +199,12 @@ In the web UI the same step is Profile → Security → Enable (TOTP) or a passk
 Save the recovery codes `mfa activate` prints — they are shown once. The session
 you activated from stays signed in (every *other* session is signed out), so the
 commands below work immediately; the next `login` asks for a code after the
-password — or pass one non-interactively:
-
-```bash
-./bin/keyorix login --server http://localhost:8080 \
-  --username admin --password 'Correct-Horse-Battery9' --mfa-code 123456
-```
-
-An unused recovery code works there too. Either is used for that one request:
-only the session token is stored. An account whose only second factor is a
-WebAuthn passkey cannot complete a CLI login — sign in with the web UI and use a
-personal access token (`KEYORIX_TOKEN`) for CLI work instead.
+password; type the authenticator code there (an unused recovery code works too).
+Either is used for that one request: only the session token is stored. For
+non-interactive use, log in once and use a personal access token
+(`KEYORIX_TOKEN`) instead of scripting the password and code. An account whose
+only second factor is a WebAuthn passkey cannot complete a CLI login — sign in
+with the web UI and use a personal access token for CLI work.
 
 (To opt out, set `security.require_mfa: false` explicitly in the config.)
 
@@ -212,7 +215,7 @@ seeded project `1` with environments `1`/`2`/`3` above, so new secrets can be
 created right away:
 
 ```bash
-./bin/keyorix secret create --name "stripe-api-key" --value "sk_test_..."
+./bin/keyorix secret create --name "stripe-api-key" --interactive   # value typed at a hidden prompt
 ./bin/keyorix secret create --name "deploy-key" --from-file ~/.ssh/id_ed25519
 ./bin/keyorix secret list
 ./bin/keyorix secret get --id 1               # metadata only
@@ -228,7 +231,7 @@ project's environment ID fails with a bare `HTTP 422`, so list them first:
 ./bin/keyorix project create --name "my-project"
 ./bin/keyorix project env list --project 2     # development 4, staging 5, production 6
 
-./bin/keyorix secret create --name "db-password" --value "..." \
+./bin/keyorix secret create --name "db-password" --interactive \
   --project 2 --environment 6 --description "primary read-write user"
 
 # Or address one by reference instead of ID
@@ -236,8 +239,8 @@ project's environment ID fails with a bare `HTTP 422`, so list them first:
 ```
 
 Useful on create: `--max-reads N` (burn after N reads), `--expires` (RFC3339),
-`--type`, `--description`, `--interactive` (hidden-prompt value instead of
-`--value` on the command line).
+`--type`, `--description`, `--interactive` (hidden-prompt value) and
+`--from-file` — rather than `--value`, which puts the secret on the command line.
 
 Export everything in a project/environment at once — the same call the
 [GitHub Action](integrations/github-action/README.md) makes:

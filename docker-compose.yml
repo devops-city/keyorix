@@ -70,6 +70,8 @@ services:
     # web/Dockerfile already bakes an image-level HEALTHCHECK (wget against
     # /health — nginx:alpine has no curl), which Compose inherits without this
     # block; declared explicitly so it shows up the same way postgres' does.
+    # 127.0.0.1, not localhost: busybox resolves localhost to ::1 first and nginx
+    # listens on IPv4 only, so "localhost" was permanently unhealthy (#3026).
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
       interval: 30s

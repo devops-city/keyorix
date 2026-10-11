@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -46,10 +47,17 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("contact %s: %w", serverURL, err)
 	}
-	if healthResp.StatusCode() != http.StatusOK || healthResp.JSON200 == nil || healthResp.JSON200.Status == nil {
-		fmt.Printf("Health: unreachable or unexpected response (HTTP %d)\n", healthResp.StatusCode())
-	} else {
+	switch {
+	case healthResp.StatusCode() == http.StatusOK && healthResp.JSON200 != nil && healthResp.JSON200.Status != nil:
 		fmt.Printf("Health: %s\n", *healthResp.JSON200.Status)
+	case healthResp.StatusCode() == http.StatusOK && strings.TrimSpace(string(healthResp.Body)) == "healthy":
+		// The bundled web tier (nginx, compose :8088 / Helm web service) answers
+		// /health itself with a plain-text "healthy" instead of proxying the
+		// backend's JSON. That only proves the proxy is up, so say so; the
+		// version check below goes through /api/v1/ and fails if the backend is down.
+		fmt.Println("Health: ok (web proxy; backend is verified by the version check below)")
+	default:
+		fmt.Printf("Health: unreachable or unexpected response (HTTP %d)\n", healthResp.StatusCode())
 	}
 
 	skewResult, err := checkVersionSkew(ctx, client)
