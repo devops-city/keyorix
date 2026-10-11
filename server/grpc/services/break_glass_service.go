@@ -119,6 +119,9 @@ func breakGlassToProto(a *models.BreakGlassActivation) *pb.BreakGlassActivation 
 // sentinel is Internal whatever its words say.
 func breakGlassError(err error) error {
 	switch {
+	case errors.Is(err, core.ErrRestrictedPATCannotBreakGlass):
+		// PAT-GUARD-2: fixed text, the sentinel's own wording; names no resource.
+		return status.Error(codes.PermissionDenied, "a restricted personal access token cannot activate break-glass access")
 	case errors.Is(err, storage.ErrBreakGlassNotFound):
 		return status.Error(codes.NotFound, "break-glass activation not found") // GRPC-005: was msg — leaked storage error details
 	case errors.Is(err, core.ErrBreakGlassInvalidRequest):

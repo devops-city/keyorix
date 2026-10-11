@@ -91,6 +91,7 @@ type grpcPATGuardWorld struct {
 	canaryEID uint64
 	ids       []uint64
 	tokens    map[string]string
+	core      *core.KeyorixCore
 }
 
 func newGRPCPATGuardWorld(t *testing.T) *grpcPATGuardWorld {
@@ -177,7 +178,7 @@ func newGRPCPATGuardWorld(t *testing.T) *grpcPATGuardWorld {
 
 	return &grpcPATGuardWorld{
 		conn: conn, srv: srv, canaryPID: uint64(canary.ID), canaryEID: uint64(canaryEnv.ID),
-		ids: ids, tokens: tokens,
+		ids: ids, tokens: tokens, core: c,
 	}
 }
 

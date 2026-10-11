@@ -44,6 +44,11 @@ func (h *CatalogHandler) ActivateBreakGlass(w http.ResponseWriter, r *http.Reque
 	}
 	activation, err := h.coreService.ActivateBreakGlass(r.Context(), uint(id), actor.UserID, body.Justification, body.TTL)
 	if err != nil {
+		// PAT-GUARD-2: the same refusal shape as ErrRestrictedPATCannotMintPAT.
+		if errors.Is(err, core.ErrRestrictedPATCannotBreakGlass) {
+			sendError(w, "Forbidden", err.Error(), http.StatusForbidden, nil)
+			return
+		}
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		// #2905: mapped by sentinel (errors.Is), not by matching text that

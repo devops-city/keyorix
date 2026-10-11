@@ -1067,7 +1067,7 @@ export interface paths {
         put?: never;
         /**
          * Activate break-glass emergency access (self-service)
-         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled.
+         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled, and always when the caller authenticated with a restricted personal access token (ADR-042).
          */
         post: operations["activateBreakGlass"];
         delete?: never;

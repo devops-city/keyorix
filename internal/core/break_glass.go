@@ -167,6 +167,11 @@ func (c *KeyorixCore) SetBreakGlassPolicy(p BreakGlassPolicy) {
 // the justified activation, audits it loudly, and alerts the project's admins.
 // userID is the activating (self) user; ttlOverride is an optional Go duration.
 func (c *KeyorixCore) ActivateBreakGlass(ctx context.Context, projectID, userID uint, justification, ttlOverride string) (*models.BreakGlassActivation, error) { // NOSONAR -- cognitive complexity 28, suppress go:S3776
+	// PAT-GUARD-2: a restricted PAT may not escalate its owner. Checked before
+	// anything else so the refusal does not depend on configuration or membership.
+	if patRestrictionFromContext(ctx) != nil {
+		return nil, ErrRestrictedPATCannotBreakGlass
+	}
 	if !c.breakGlassPolicy.Enabled {
 		// Disabled is the secure default, but "permission denied" alone looks like
 		// a role problem. Say it is off and which key turns it on (#2943). The

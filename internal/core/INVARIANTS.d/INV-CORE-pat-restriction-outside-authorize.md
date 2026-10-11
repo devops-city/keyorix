@@ -15,8 +15,15 @@
   overwrite the user's trend snapshot; the secret
   access-request family checks `roles.assign` at the request's project before admin
   authority (`requireAccessRequestAuthorityAt`) and `secrets.read` there for the
-  requester's own rows; and a restricted PAT cannot create a PAT
-  (`ErrRestrictedPATCannotMintPAT`). Helpers: `pat_restriction_listing.go`. Why:
+  requester's own rows; a restricted PAT cannot create a PAT
+  (`ErrRestrictedPATCannotMintPAT`); and a restricted PAT cannot activate
+  break-glass (`ErrRestrictedPATCannotBreakGlass`, checked first in
+  `ActivateBreakGlass`, HTTP and gRPC), while revoking the owner's OWN tokens and
+  sessions stays allowed (ADR-042 addendum of 2026-10-11, PAT-GUARD-2; guarded by
+  `TestPATRestriction_RestrictedPATCannotActivateBreakGlass`,
+  `TestPATRestriction_RestrictedPATRevokesOnlyOwnTokensAndSessions` and
+  `TestGRPCPATRestriction_RestrictedPATCannotActivateBreakGlass`). Helpers:
+  `pat_restriction_listing.go`. Why:
   PAT-GUARD-1, after SHARE-4 found #3018's `/shares/owned` listing by membership; the
   sweep then found `/secrets`, `/notifications`, `/secret-access-requests` and
   `POST /auth/tokens` doing the same on main. Guard: `server/http`

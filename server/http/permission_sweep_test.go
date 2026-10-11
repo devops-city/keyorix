@@ -532,7 +532,8 @@ var noPermissionGateAllowlist = map[string]string{
 		"instead by deployment config + a mandatory justification + full audit trail + automatic " +
 		"expiry (NIS2/DORA incident response). Blocked under impersonation (BlockWhenImpersonating) " +
 		"so an admin acting as a user cannot mint a durable emergency role grant attributed to the " +
-		"target. See router.go's own adjacent comment.",
+		"target. A restricted PAT is refused in core (ErrRestrictedPATCannotBreakGlass, ADR-042 " +
+		"addendum of 2026-10-11). See router.go's own adjacent comment.",
 
 	"GET /api/v1/projects": "GET /projects (ListProjects) performs its own authorization INSIDE the handler " +
 		"(#2780), exactly like GET /secrets below and for the same reason: the route used to require " +

@@ -36,6 +36,14 @@ import (
 // authority — the one outcome ADR-042's restriction exists to prevent.
 var ErrRestrictedPATCannotMintPAT = errors.New("a restricted personal access token cannot create personal access tokens")
 
+// ErrRestrictedPATCannotBreakGlass refuses a break-glass activation authenticated
+// by a restricted PAT (PAT-GUARD-2, Andrei's decision of 2026-10-11). Activation is
+// deliberately not RBAC-gated, so Authorize never sees it, and it grants the owner
+// an emergency role at a project: a privilege-escalation path a token confined
+// below its owner must not reach. Revoking the owner's own tokens and sessions stays
+// allowed for a restricted PAT, since it only ever reduces access.
+var ErrRestrictedPATCannotBreakGlass = errors.New("a restricted personal access token cannot activate break-glass access")
+
 // patAllowsSecretRead reports whether the request's PAT restriction permits
 // secrets.read on secret at the secret's own project/environment.
 func patAllowsSecretRead(ctx context.Context, secret *models.SecretNode) bool {
