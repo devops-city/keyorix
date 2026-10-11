@@ -118,7 +118,12 @@ func (u *webauthnUser) WebAuthnCredentials() []webauthn.Credential { return u.cr
 func (c *KeyorixCore) loadWebAuthnUser(ctx context.Context, userID uint) (*webauthnUser, error) {
 	user, err := c.storage.GetUser(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("user not found")
+		// AUTH-AUDIT-1 item 2 (#2746): keep WHICH failure this was, without
+		// changing the "user not found" text callers render today. The
+		// passwordless caller needs the class: its user handle is
+		// attacker-supplied, so a handle naming no user is a failed attempt,
+		// while a storage failure evaluated nothing.
+		return nil, &webauthnUserLoadError{cause: err}
 	}
 	rows, err := c.storage.ListWebAuthnCredentials(ctx, userID)
 	if err != nil {
@@ -141,6 +146,15 @@ func (c *KeyorixCore) loadWebAuthnUser(ctx context.Context, userID uint) (*webau
 	}
 	return &webauthnUser{user: user, creds: creds}, nil
 }
+
+// webauthnUserLoadError is loadWebAuthnUser's failure: always the text "user
+// not found" (what every caller has rendered since it was written), with the
+// storage error kept in the chain so storage.IsUserNotFound tells a genuinely
+// absent account from a storage failure.
+type webauthnUserLoadError struct{ cause error }
+
+func (e *webauthnUserLoadError) Error() string { return "user not found" }
+func (e *webauthnUserLoadError) Unwrap() error { return e.cause }
 
 // storeWebAuthnSession persists the ceremony SessionData under the hash of an
 // opaque token (returned to the caller), single-use and short-lived.
@@ -168,7 +182,7 @@ func (c *KeyorixCore) storeWebAuthnSessionHoldingLoginSlot(ctx context.Context, 
 		Data:           data,
 		ExpiresAt:      c.now().Add(webauthnSessionTTL),
 		CreatedAt:      c.now(),
-		LoginAttemptID: slotID,
+		LoginAttemptID: sharedLoginSlot(slotID),
 	}); err != nil {
 		return "", err
 	}
@@ -774,19 +788,34 @@ func (c *KeyorixCore) FinishWebAuthnPasswordlessLoginPending(ctx context.Context
 	// the authenticator returns (our WebAuthnID encoding). ValidatePasskeyLogin then
 	// verifies the assertion against that user's stored credentials.
 	var resolved *models.User
+	// AUTH-AUDIT-1 item 2 (#2746): a storage failure loading the handle's user
+	// evaluated nothing. Carried out of the handler by closure, because
+	// ValidatePasskeyLogin folds whatever the handler returns into its own error.
+	var notEvaluated error
 	handler := func(_, userHandle []byte) (webauthn.User, error) {
 		if len(userHandle) != 8 {
+			// Malformed input: a genuine negative result, still a failed attempt.
 			return nil, fmt.Errorf("unexpected user handle")
 		}
 		uid := uint(binary.BigEndian.Uint64(userHandle))
 		wu, err := c.loadWebAuthnUser(ctx, uid)
 		if err != nil {
+			// A handle naming no user is a credential guess (no first factor on
+			// this path); only a storage failure is not-evaluated.
+			if !storage.IsUserNotFound(err) {
+				notEvaluated = err
+			}
 			return nil, err
 		}
 		resolved = wu.user
 		return wu, nil
 	}
 	_, cred, err := c.webauthnRP.ValidatePasskeyLogin(handler, sd, parsed)
+	if notEvaluated != nil {
+		// Not audited here: the transport writes auth.login_error and hands the
+		// per-IP slot back, and answers exactly as for a failed assertion.
+		return nil, nil, UserIdentity{}, nil, fmt.Errorf("%w: loading the passkey's user: %w", ErrWebAuthnLoginNotEvaluated, notEvaluated)
+	}
 	if err != nil || resolved == nil {
 		c.writeAuditEventFull(ctx, "webauthn.failed", nil, nil, nil, ip, "failed passwordless WebAuthn login")
 		return nil, nil, UserIdentity{}, nil, fmt.Errorf("assertion verification failed: %w", err)

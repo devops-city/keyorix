@@ -54,6 +54,16 @@ func (c *KeyorixCore) VerifyPasswordCredentials(ctx context.Context, username, p
 		// Spend an equivalent bcrypt comparison so a missing username doesn't return
 		// faster than a wrong password (account-enumeration timing side-channel).
 		_ = bcrypt.CompareHashAndPassword(*dummyBcryptHash.Load(), []byte(password))
+		if !storage.IsUserNotFound(err) {
+			// AUTH-AUDIT-1 item 1 (#2745): a storage failure, not "no such user".
+			// The password was never checked, so the transport audits
+			// auth.login_error and hands the per-IP slot back. The dummy bcrypt
+			// above is spent BEFORE this branch, so both outcomes cost the same;
+			// the text stays "invalid credentials", so nothing a transport might
+			// render changes; and a storage error does not depend on the username,
+			// so the class says nothing about whether the account exists.
+			return nil, &loginNotEvaluatedError{}
+		}
 		return nil, fmt.Errorf("invalid credentials")
 	}
 	// Per-account lockout gate: while locked, refuse regardless of the password, so
@@ -110,6 +120,26 @@ func (c *KeyorixCore) VerifyPasswordCredentials(ctx context.Context, username, p
 	}
 	return user, nil
 }
+
+// ErrLoginNotEvaluated marks a password login that reached NO verdict: the
+// username lookup failed with a storage error, so the supplied password was
+// never checked against anything (#2745, AUTH-AUDIT-1 item 1). The transport
+// audits it as auth.login_error rather than auth.login_failed and hands the
+// per-IP slot back (the budget counts failed credential attempts only, #2936),
+// while answering exactly as it answers a wrong password: the error's text is
+// still "invalid credentials", and a storage failure does not depend on the
+// username supplied, so the class says nothing about whether the account
+// exists. Same contract as ErrWebAuthnLoginNotEvaluated (#2565).
+var ErrLoginNotEvaluated = errors.New("login not evaluated: username lookup failed")
+
+// loginNotEvaluatedError is ErrLoginNotEvaluated with the wrong-password text,
+// so a caller that renders err.Error() renders exactly what it did before. It
+// deliberately does not wrap the storage error: driver text never travels
+// towards an unauthenticated caller.
+type loginNotEvaluatedError struct{}
+
+func (*loginNotEvaluatedError) Error() string        { return "invalid credentials" }
+func (*loginNotEvaluatedError) Is(target error) bool { return target == ErrLoginNotEvaluated }
 
 // ErrLoginPostVerdict marks an error a login path returned AFTER the supplied
 // credential had already been confirmed CORRECT — a storage fault during the

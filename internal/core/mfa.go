@@ -173,7 +173,17 @@ func (c *KeyorixCore) ActivateMFA(ctx context.Context, userID uint, code, passwo
 		c.auditMFAFailed(ctx, userID, "activate")
 		return nil, fmt.Errorf("invalid code")
 	}
-	if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, userID, step); ferr != nil || !fresh {
+	fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, userID, step)
+	if ferr != nil {
+		// AUTH-AUDIT-1 item 3 (#2744): a storage error is not a wrong code, so it
+		// is audited mfa.error. The caller still gets exactly the wrong-code
+		// error (the code had matched; any other answer would confirm it), and
+		// the step was not marked, so the same code works once storage recovers.
+		c.auditMFAError(ctx, userID, "activate", ferr)
+		return nil, fmt.Errorf("invalid code")
+	}
+	if !fresh {
+		// A confirmed replay: this one IS a failed attempt.
 		c.auditMFAFailed(ctx, userID, "activate")
 		return nil, fmt.Errorf("invalid code")
 	}
@@ -346,7 +356,7 @@ func (c *KeyorixCore) CreateMFAChallengeHoldingLoginSlot(ctx context.Context, us
 	}
 	if err := c.storage.CreateMFAChallenge(ctx, &models.MFAChallenge{
 		UserID: userID, TokenHash: sha256Hex(token), ExpiresAt: c.now().Add(mfaChallengeTTL), CreatedAt: c.now(),
-		LoginAttemptID: slotID,
+		LoginAttemptID: sharedLoginSlot(slotID),
 	}); err != nil {
 		return "", err
 	}

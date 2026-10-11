@@ -720,6 +720,18 @@ func (c *KeyorixCore) LogAuthError(ctx context.Context, username, ip string, err
 		fmt.Sprintf("Login for username %s denied by a storage error AFTER the password matched: %v", username, err))
 }
 
+// LogAuthNotEvaluated writes the same auth.login_error event as LogAuthError,
+// for the PRE-verdict case: a storage failure before any credential was
+// checked (the username lookup on /auth/login, loading a passkey's user on a
+// passwordless login), so neither auth.login_failed nor "after the password
+// matched" is true (AUTH-AUDIT-1 items 1-2, #2745/#2746). Same event name on
+// purpose: one error event for a login the server could not complete, the
+// message says which kind. username is "" when the request named none.
+func (c *KeyorixCore) LogAuthNotEvaluated(ctx context.Context, username, ip string, err error) {
+	c.writeAuditEventFailed(ctx, "auth.login_error", nil, nil, ip,
+		fmt.Sprintf("Login for username %q could not be evaluated: storage error before any credential was checked: %v", username, err))
+}
+
 // LogAuthLogout writes an auth.logout audit event.
 func (c *KeyorixCore) LogAuthLogout(ctx context.Context, userID uint, username, ip, ua string) {
 	uid := userID

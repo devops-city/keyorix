@@ -265,7 +265,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		// already counted them toward the lockout. The RESPONSE stays byte-identical
 		// either way, and both audit writes are async (goSafe) so this branch is not
 		// measurably slower than the wrong-password one.
-		if errors.Is(err, core.ErrLoginPostVerdict) {
+		if errors.Is(err, core.ErrLoginNotEvaluated) {
+			// AUTH-AUDIT-1 item 1 (#2745): the username lookup hit a storage
+			// error, so no credential was checked. Audited auth.login_error (not
+			// login_failed), and the slot goes back: the budget counts failed
+			// credential attempts only (#2936). The response below is the same
+			// as for a wrong password or an unknown username.
+			h.returnLoginSlot(r.Context(), slot)
+			goSafe(func() { h.coreService.LogAuthNotEvaluated(context.Background(), body.Username, ip, err) }) // #nosec G118
+		} else if errors.Is(err, core.ErrLoginPostVerdict) {
 			goSafe(func() { h.coreService.LogAuthError(context.Background(), body.Username, ip, err) }) // #nosec G118
 		} else {
 			goSafe(func() { h.coreService.LogAuthFailure(context.Background(), body.Username, ip) }) // #nosec G118

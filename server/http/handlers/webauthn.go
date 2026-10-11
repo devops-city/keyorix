@@ -424,7 +424,14 @@ func (h *AuthHandler) FinishWebAuthnPasswordlessLogin(w http.ResponseWriter, r *
 		// identity-read failure, which core now does before its writes, #2841),
 		// and auth.login_error for the operator when the assertion had in fact
 		// already verified.
-		if errors.Is(err, core.ErrLoginPostVerdict) && user != nil {
+		if errors.Is(err, core.ErrWebAuthnLoginNotEvaluated) {
+			// AUTH-AUDIT-1 item 2 (#2746): loading the passkey's user hit a
+			// storage error, so the assertion was never evaluated. Audited
+			// auth.login_error (not webauthn.failed) and the slot goes back
+			// (#2936); the response stays the one a failed assertion gets.
+			h.returnLoginSlot(r.Context(), slot)
+			goSafe(func() { h.coreService.LogAuthNotEvaluated(context.Background(), "", ip, err) }) // #nosec G118
+		} else if errors.Is(err, core.ErrLoginPostVerdict) && user != nil {
 			username := user.Username
 			goSafe(func() { h.coreService.LogAuthError(context.Background(), username, ip, err) }) // #nosec G118
 		}
