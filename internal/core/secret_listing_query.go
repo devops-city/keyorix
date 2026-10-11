@@ -172,12 +172,15 @@ func (c *KeyorixCore) ListSecretsInScopeWithSharingInfo(ctx context.Context, use
 	if err != nil {
 		return nil, err
 	}
-	var shared []*models.SecretWithSharingInfo
-	if filter.ProjectID == nil {
-		shared, err = c.getSharedSecretsWithSharingInfo(ctx, userID, filter)
-		if err != nil {
-			return nil, err
-		}
+	// The caller's own shares are looked up for a project-scoped listing too. Here they
+	// only DECORATE rows the role already makes visible (the byID join below never adds a
+	// row), so the "shared secrets are excluded when filtering by project" rule that
+	// ListSecretsWithSharingInfo applies to the rows it adds does not apply. Without them
+	// a recipient of a write share on a secret in their own project got no user_permission,
+	// and the UI could not offer the Edit / Rotate the share elevates them to.
+	shared, err := c.getSharedSecretsWithSharingInfo(ctx, userID, filter)
+	if err != nil {
+		return nil, err
 	}
 	aclGranted, err := c.getACLGrantedSecretsWithSharingInfo(ctx, userID, filter)
 	if err != nil {

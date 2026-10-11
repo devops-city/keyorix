@@ -84,6 +84,7 @@ export const secretsApi = {
             projectId: s.project_id ?? undefined,
             isShared: s.is_shared ?? false,
             shareCount: s.share_count ?? 0,
+            userPermission: s.user_permission ?? '',
             lastModified: s.updated_at ?? s.created_at ?? '',
             owner: s.created_by ?? '',
             namespace: s.namespace_name ?? s.namespace ?? 'default',

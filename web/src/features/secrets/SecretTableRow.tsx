@@ -112,6 +112,10 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
     copyErrorId,
 }) => {
     const can = useCan();
+    // Update value/metadata and rotate: the role union, or a write share on this one secret
+    // (the share elevates a member whose roles lack secrets.write, SHARE-5 allowlist). Share,
+    // delete and automated rotation stay role-only: a share never offers them.
+    const canUpdate = can.writeSecrets || secret.userPermission === 'write';
     const copyIcon =
         copiedId === secret.id ? (
             <CheckIcon className="h-4 w-4 text-green-500" />
@@ -166,7 +170,8 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
                 {secret.isShared ? (
                     <div className="flex items-center">
                         <ShareIcon className="h-4 w-4 mr-1 text-green-500" />
-                        <span>{secret.shareCount} shares</span>
+                        {/* A recipient's own list carries no count (the share list is the owner's). */}
+                        <span>{secret.shareCount > 0 ? `${secret.shareCount} shares` : 'Shared with you'}</span>
                     </div>
                 ) : (
                     <span>Private</span>
@@ -188,7 +193,7 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
                     >
                         <EyeIcon className="h-4 w-4" />
                     </button>
-                    {can.writeSecrets && (
+                    {canUpdate && (
                         <button
                             type="button"
                             onClick={() => onEdit(secret)}
@@ -198,7 +203,7 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
                             <PencilIcon className="h-4 w-4" />
                         </button>
                     )}
-                    {can.writeSecrets && (
+                    {canUpdate && (
                         <button
                             type="button"
                             onClick={() => onRotate(secret)}

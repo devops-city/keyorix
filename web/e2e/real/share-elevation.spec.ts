@@ -11,10 +11,10 @@
 //      is not offered) and shares secret A at `write` → the dialog shows "Shared!" and
 //      closes, and the share is listed for A.
 //   2. the viewer edits A in the UI (the value really changes) while B, which was NOT
-//      shared, stays read-only: the UI refuses the edit and the API answers 403.
+//      shared, stays read-only: its row offers no Edit/Rotate and the API answers 403.
 //      The same write share does NOT allow Suspend: refused with the server's reason (#3001).
-//   3. owner revokes the share → it is gone from A's share list and the viewer's edit of A
-//      is refused again in the UI (with the server's reason), the value unchanged.
+//   3. owner revokes the share → it is gone from A's share list, A's row stops offering
+//      Edit/Rotate and the API refuses the viewer's update again, the value unchanged.
 //   4. a global admin who OWNS a secret but holds no role in its project tries to share →
 //      the dialog shows the explanatory message and the API answers 403 with the same text.
 //
@@ -189,6 +189,15 @@ async function editSecretValue(page: Page, secretName: string, newValue: string)
     return (await answered).status();
 }
 
+// expectNoUpdateControls: the row is listed (the viewer reads it) but offers neither Edit nor Rotate.
+async function expectNoUpdateControls(page: Page, secretName: string) {
+    await openProjectSecrets(page);
+    const row = secretRow(page, secretName);
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(row.getByTitle('Edit')).toHaveCount(0);
+    await expect(row.getByTitle('Rotate')).toHaveCount(0);
+}
+
 // readValue asks the API, as the page's own session, for a secret's plaintext.
 async function readValue(page: Page, id: number): Promise<string | null> {
     return page.evaluate(async (secretId) => {
@@ -340,21 +349,21 @@ test('the viewer can update the shared secret A in the UI, and B stays read-only
     await expect(viewerPage.getByRole('dialog')).toBeHidden({ timeout: 10_000 });
     await expect(viewerPage.getByText('Failed to update secret')).toHaveCount(0);
     expect(await readValue(viewerPage, secretA), 'the new value is really stored').toBe(valueA1);
+    // The row offers exactly what the write share allows: Rotate yes; Share and Delete no.
+    await openProjectSecrets(viewerPage);
+    const rowA = secretRow(viewerPage, secretAName);
+    await expect(rowA.getByTitle('Rotate')).toBeVisible();
+    await expect(rowA.getByTitle('Share')).toHaveCount(0);
+    await expect(rowA.getByTitle('Delete')).toHaveCount(0);
 
     // ── B: nothing shared, so the viewer's role alone decides ──
-    const statusB = await editSecretValue(viewerPage, secretBName, valueB1);
-    expect(statusB, 'PUT /secrets/B as the un-elevated viewer').toBe(403);
-    const dialog = viewerPage.getByRole('dialog');
-    await expect(dialog, 'the refusal must be visible in the dialog, which stays open').toContainText(
-        'Failed to update secret'
-    );
+    // The permission-aware UI (#3047) does not offer Edit or Rotate on a row the viewer cannot
+    // update, so the refusal is not reachable through the dialog any more; the server still
+    // refuses and says why.
+    await expectNoUpdateControls(viewerPage, secretBName);
     const viaApi = await bearer(viewerToken, 'PUT', `/api/v1/secrets/${secretB}`, { value: valueB1 });
-    expect(viaApi.status).toBe(403);
-    // SHARE-2: the dialog shows the server's reason, not axios's status text.
-    expect(typeof viaApi.body?.message).toBe('string');
-    await expect(dialog).toContainText(viaApi.body.message);
-    await expect(dialog).not.toContainText('Request failed with status code');
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    expect(viaApi.status, 'PUT /secrets/B as the un-elevated viewer').toBe(403);
+    expect(typeof viaApi.body?.message, 'the refusal carries a reason').toBe('string');
     // The owner still sees B's original value.
     expect(await readValue(ownerPage, secretB)).toBe(valueB0);
 
@@ -409,17 +418,12 @@ test('owner revokes the share: it leaves the list and the viewer is refused agai
     await openProjectSecrets(ownerPage);
     await expect(secretRow(ownerPage, secretAName)).not.toContainText('shares', { timeout: 10_000 });
 
-    // The viewer's next update of A is refused, in the UI and at the API, value unchanged.
-    const status = await editSecretValue(viewerPage, secretAName, valueA2);
-    expect(status, 'PUT /secrets/A after the share was revoked').toBe(403);
-    await expect(viewerPage.getByRole('dialog')).toContainText('Failed to update secret');
+    // The elevation is gone in the UI (the row no longer offers Edit or Rotate, #3047) and at
+    // the API (403 with a reason), value unchanged.
+    await expectNoUpdateControls(viewerPage, secretAName);
     const viaApi = await bearer(viewerToken, 'PUT', `/api/v1/secrets/${secretA}`, { value: valueA2 });
-    expect(viaApi.status).toBe(403);
+    expect(viaApi.status, 'PUT /secrets/A after the share was revoked').toBe(403);
     expect(typeof viaApi.body?.message === 'string' && viaApi.body.message.length > 0, 'a reason is given').toBe(true);
-    // SHARE-2: and the dialog shows that reason, not axios's status text.
-    await expect(viewerPage.getByRole('dialog')).toContainText(viaApi.body.message);
-    await expect(viewerPage.getByRole('dialog')).not.toContainText('Request failed with status code');
-    await viewerPage.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click();
     expect(
         await readValue(ownerPage, secretA),
         "the viewer's last accepted value survives; the refused one never landed"

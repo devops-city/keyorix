@@ -351,3 +351,34 @@ describe('SecretTableRow permission-aware actions (DEMO-UI-1)', () => {
         expect(within(row).queryByTitle('Delete')).not.toBeInTheDocument();
     });
 });
+
+describe('SecretTableRow write-share elevation (CI-FIX-4)', () => {
+    const readOnlyUser = () => {
+        canState.value = {
+            ...canState.value,
+            admin: false,
+            writeSecrets: false,
+            deleteSecrets: false,
+            manageMembers: false,
+            readAudit: false,
+        };
+    };
+
+    it('a write share offers Edit and Rotate on that secret, and nothing else a role would', () => {
+        readOnlyUser();
+        renderRow({ secret: { ...baseSecret, isShared: true, userPermission: 'write' } });
+        const row = screen.getByRole('row');
+        for (const title of ['Edit', 'Rotate']) expect(within(row).getByTitle(title), title).toBeInTheDocument();
+        for (const title of ['Share', 'Delete', 'Automated rotation']) {
+            expect(within(row).queryByTitle(title), title).not.toBeInTheDocument();
+        }
+        expect(within(row).getByText('Shared with you')).toBeInTheDocument();
+    });
+
+    it('a read share does not offer Edit or Rotate', () => {
+        readOnlyUser();
+        renderRow({ secret: { ...baseSecret, isShared: true, userPermission: 'read' } });
+        const row = screen.getByRole('row');
+        for (const title of ['Edit', 'Rotate']) expect(within(row).queryByTitle(title), title).not.toBeInTheDocument();
+    });
+});

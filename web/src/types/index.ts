@@ -38,6 +38,11 @@ export interface Secret {
     environment: string;
     isShared: boolean;
     shareCount: number;
+    // The signed-in user's per-secret grant from the list response ('read' | 'write' for a
+    // share or ACL grant), '' / undefined when they hold none. A 'write' share elevates the
+    // user on this one secret even when their roles do not (the role union in useCan cannot
+    // see that), so Edit / Rotate follow it.
+    userPermission?: string;
     lastModified: string;
     owner: string;
     permissions: string[];
