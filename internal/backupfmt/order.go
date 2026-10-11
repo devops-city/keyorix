@@ -31,18 +31,26 @@ type refOverride struct {
 }
 
 var referenceOverrides = []refOverride{
+	{"AccessRequest", "SecretID", "SecretNode"}, // nil for a project/role request
 	{"AccessRequestApproval", "ApproverID", "User"},
 	{"AccessRequestApproval", "RequestID", "AccessRequest"},
 	{"AccessReviewItem", "CampaignID", "AccessReviewCampaign"},
+	{"AccessReviewItem", "SecretID", "SecretNode"}, // 0 unless the snapshotted grant is secret-scoped
+	{"APICallLog", "ClientID", "APIClient"},        // APIClient.ID, not APIClient.ClientID (a string public id)
+	{"APIToken", "ClientID", "APIClient"},
 	{"AuditCheckpoint", "HeadID", "AuditEvent"}, // the AuditEvent this checkpoint certifies (§3.4: checkpoint after the events it certifies)
 	{"DynamicSecretLease", "ConfigID", "DynamicSecretConfig"},
 	{"ExternalIdentity", "ProviderID", "IdentityProvider"},
+	{"RateLimit", "ClientID", "APIClient"},
+	{"SecretACL", "SecretID", "SecretNode"},
 	{"SecretDependency", "DependentSecretID", "SecretNode"},
 	{"SecretDependency", "DependsOnSecretID", "SecretNode"},
 	{"SecretNode", "OwnerID", "User"}, // 0 when the creator was a machine identity (see OwnerMachineIdentityID)
+	{"SecretVersionComment", "SecretID", "SecretNode"},
 	{"SecretVersionComment", "VersionID", "SecretVersion"},
 	{"SetupToken", "InvitationID", "ProjectInvitation"},
 	{"ShareRecord", "OwnerID", "User"},
+	{"ShareRecord", "SecretID", "SecretNode"},
 }
 
 // notReferences lists (model, field) pairs that look ID-shaped (an
@@ -142,21 +150,22 @@ func idShapedFields(m any) []string {
 	return out
 }
 
-// resolveByConvention finds the referenced model's Go type name for field on
-// model, using two suffix-matching directions against every real model type
-// name in candidates:
+// resolveByConvention finds the referenced model's Go type name for field:
+// strip field's trailing "ID"; if the remainder ENDS WITH a candidate type
+// name, that candidate is the reference (handles "OwnerMachineIdentityID" ->
+// remainder "OwnerMachineIdentity" ends with "MachineIdentity"). Ties are
+// broken by preferring the LONGEST matching candidate name (most specific
+// match). Returns "", false if no candidate matches.
 //
-//   - Direction A: strip field's trailing "ID"; if the remainder ENDS WITH a
-//     candidate type name, that candidate is the reference (handles
-//     "OwnerMachineIdentityID" -> remainder "OwnerMachineIdentity" ends with
-//     "MachineIdentity").
-//   - Direction B: if some candidate type name ENDS WITH the remainder, that
-//     candidate is the reference (handles "ConfigID" -> remainder "Config",
-//     and "DynamicSecretConfig" ends with "Config").
-//
-// Ties are broken by preferring the LONGEST matching candidate name in
-// either direction (most specific match). Returns "", false if neither
-// direction finds a unique longest match.
+// The reverse direction (a candidate name that ends with the remainder,
+// e.g. "ConfigID" -> "DynamicSecretConfig") is deliberately NOT a
+// convention match: it guesses which longer name the field abbreviates, and
+// guessed wrong for every "SecretID" field (#3078) -- there is no "Secret"
+// model, so it picked "MFASecret" over the real target "SecretNode", and
+// restore's dangling-reference check then validated secret references
+// against mfa_secrets. A field whose remainder does not name its model in
+// full is unresolved here, so TestRestoreOrder_EveryReferenceFieldIsClassified
+// fails until it is listed in referenceOverrides by hand.
 func resolveByConvention(field string, candidates []string) (string, bool) {
 	remainder := strings.TrimSuffix(field, "ID")
 	if remainder == "" {
@@ -165,40 +174,8 @@ func resolveByConvention(field string, candidates []string) (string, bool) {
 
 	best := ""
 	for _, c := range candidates {
-		if strings.HasSuffix(remainder, c) || strings.HasSuffix(c, remainder) {
-			// Only accept a Direction-B (candidate ends with remainder) match
-			// when remainder is the FULL candidate minus a short, plausible
-			// prefix -- otherwise near-arbitrary short remainders (e.g. "Id")
-			// would spuriously match almost everything. Direction A has no
-			// such risk: remainder ending with the candidate is already a
-			// strong, specific signal on its own.
-			if strings.HasSuffix(remainder, c) {
-				if len(c) > len(best) {
-					best = c
-				}
-				continue
-			}
-			// Direction B: candidate ends with remainder. Require remainder
-			// to be at least half of the candidate's length, so "Config"
-			// (6 of "DynamicSecretConfig"'s 19 chars) still qualifies only
-			// because it's the field's ENTIRE remainder and a real English
-			// compound-word suffix match, not a coincidental short overlap;
-			// tightened further by requiring remainder to start at a
-			// plausible word boundary (candidate's char before the match is
-			// absent or uppercase, i.e. PascalCase word start).
-			idx := len(c) - len(remainder)
-			if idx < 0 {
-				continue
-			}
-			if idx > 0 {
-				prevChar := c[idx-1 : idx]
-				if strings.ToUpper(prevChar) != prevChar {
-					continue // not a PascalCase word boundary
-				}
-			}
-			if len(c) > len(best) {
-				best = c
-			}
+		if strings.HasSuffix(remainder, c) && len(c) > len(best) {
+			best = c
 		}
 	}
 	if best == "" {

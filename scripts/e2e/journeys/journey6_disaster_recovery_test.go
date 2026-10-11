@@ -24,6 +24,15 @@ import (
 // refuses if this equals the old passphrase, so it must differ.
 const n6NewMasterPassword = "e2e-smoke-master-password-sqlite-ROTATED-n6"
 
+// The second secret and its ACL grantee (#3078).
+const (
+	n6ACLSecret   = "n6-acl-secret"
+	n6ACLValue    = "n6-acl-value"
+	n6ACLUser     = "n6-acl-reader"
+	n6ACLUserEml  = "n6-acl-reader@example.invalid"
+	n6ACLUserPass = "Quarry-Heron-47-Basil!"
+)
+
 // n6AbsolutePathRe matches an absolute filesystem path -- used to prove the
 // generated config's storage/key paths are RELATIVE (resolved against
 // whichever dir the admin command's cwd is), which is what makes "restore
@@ -89,6 +98,27 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 	controlIssueOut := runCLI(t, cliBin, aEnv, "machine", "token", "issue", n1MachineName,
 		"--project", n1ProjectName, "--name", "n6-positive-control-token")
 	n6ControlToken, _ := parseIssuedToken(t, controlIssueOut)
+
+	// A per-secret ACL on a SECOND secret (#3078). Restore used to check
+	// secret_acls.secret_id (and the other four SecretID columns) against
+	// mfa_secrets instead of secret_nodes, so it refused this backup unless
+	// an MFA secret happened to have the same id. The admin's TOTP enrolment
+	// above is this journey's only MFA secret (id 1), so the ACL must sit on
+	// a secret whose id is not 1.
+	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n6ACLSecret, "--project", strconv.Itoa(seeded.ProjectID),
+		"--environment", strconv.Itoa(seeded.EnvID), "--value", n6ACLValue)
+	aclSecretID := secretID(t, src, srcAdminToken, seeded.ProjectID, seeded.EnvID, n6ACLSecret)
+	if aclSecretID == 1 {
+		t.Fatalf("ACL secret has id 1, the same id as the admin's MFA secret: it would not exercise #3078")
+	}
+	runCLI(t, cliBin, aEnv, "user", "create", "--username", n6ACLUser, "--email", n6ACLUserEml, "--password", n6ACLUserPass)
+	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n6ACLUserEml, "--role", "project_viewer", "--project", n1ProjectName)
+	aclUserID := n20UserID(t, src, srcAdminToken, n6ACLUser)
+	runCLI(t, cliBin, aEnv, "secret", "acl", "grant", "--secret", strconv.Itoa(aclSecretID),
+		"--user", strconv.Itoa(aclUserID), "--perm", "secrets.read")
+	if got := secretACLUserIDs(t, src, srcAdminToken, aclSecretID); len(got) != 1 || got[0] != aclUserID {
+		t.Fatalf("source ACL on secret %d: want exactly user %d, got %v", aclSecretID, aclUserID, got)
+	}
 
 	// secret.read is logged via a DETACHED, fire-and-forget goroutine (see
 	// N3's own doc comment on this exact issue) -- wait for the count to
@@ -241,6 +271,12 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 		v2Readback, _ := secretValueAndCount(t, restored, restoredToken, seeded.SecretID)
 		if v2Readback != n1ValueV2 {
 			t.Errorf("restored version 2's value: mismatch (redacted; want-len=%d got-len=%d)", len(n1ValueV2), len(v2Readback))
+		}
+	})
+
+	t.Run("a per-secret ACL survives restore (#3078)", func(t *testing.T) {
+		if got := secretACLUserIDs(t, restored, restoredToken, aclSecretID); len(got) != 1 || got[0] != aclUserID {
+			t.Errorf("restored ACL on secret %d: want exactly user %d, got %v", aclSecretID, aclUserID, got)
 		}
 	})
 
@@ -723,4 +759,22 @@ func replaceEnvVar(env []string, key, value string) []string {
 		out = append(out, key+"="+value)
 	}
 	return out
+}
+
+// secretACLUserIDs returns the user ids of secret secID's ACL entries
+// (GET /api/v1/secrets/{id}/acl).
+func secretACLUserIDs(t *testing.T, s *harness.Server, adminToken string, secID int) []int {
+	t.Helper()
+	e := restExpect(t, s, adminToken, http.MethodGet, fmt.Sprintf("/api/v1/secrets/%d/acl", secID), nil, http.StatusOK)
+	var acls []struct {
+		UserID int `json:"user_id"`
+	}
+	if err := json.Unmarshal(e.Data, &acls); err != nil {
+		t.Fatalf("decode ACLs of secret %d: %v\nraw: %s", secID, err, e.Data)
+	}
+	ids := make([]int, len(acls))
+	for i, a := range acls {
+		ids[i] = a.UserID
+	}
+	return ids
 }
