@@ -105,7 +105,7 @@ func TestAdminRecoverAdmin_FullFlow_SQLite(t *testing.T) {
 	dir := t.TempDir()
 	env := append(baseEnv(dir), "KEYORIX_MASTER_PASSWORD=test-passphrase-recover-admin")
 
-	if out, err := runAdmin(t, bin, dir, env, "init", "--config", "./keyorix.yaml"); err != nil {
+	if out, err := runAdmin(t, bin, dir, env, "init", "--dev", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin init failed: %v\n%s", err, out)
 	}
 	if out, err := runAdmin(t, bin, dir, env, "diagnose", "--config", "./keyorix.yaml"); err != nil {
@@ -165,7 +165,7 @@ func TestAdminRecoverAdmin_KeylessMode_SQLite(t *testing.T) {
 	dir := t.TempDir()
 	env := append(baseEnv(dir), "KEYORIX_MASTER_PASSWORD=test-passphrase-recover-admin-keyless")
 
-	if out, err := runAdmin(t, bin, dir, env, "init", "--config", "./keyorix.yaml"); err != nil {
+	if out, err := runAdmin(t, bin, dir, env, "init", "--dev", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin init failed: %v\n%s", err, out)
 	}
 	// Enable keyless mode by editing the generated config's existing
@@ -176,8 +176,8 @@ func TestAdminRecoverAdmin_KeylessMode_SQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generated config: %v", err)
 	}
-	edited := strings.Replace(string(raw), "require_transport_tls: false\n",
-		"require_transport_tls: false\n  recover_admin:\n    keyless_mode: true\n", 1)
+	edited := strings.Replace(string(raw), "\nsecurity:\n",
+		"\nsecurity:\n  recover_admin:\n    keyless_mode: true\n", 1)
 	if edited == string(raw) {
 		t.Fatalf("failed to inject keyless_mode into the generated config (anchor line not found)")
 	}

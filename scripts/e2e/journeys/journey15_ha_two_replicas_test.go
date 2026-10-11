@@ -310,7 +310,7 @@ func startHAReplica(t *testing.T, serverBin string, backend harness.DBBackend, s
 			t.Fatalf("keyorix-server admin %s (replica B): %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	run("init", "--config", configPath)
+	run("init", "--dev", "--config", configPath) // plain-HTTP harness (SECURE-DEFAULT-1)
 	applyConfigExtraJ15(t, dir, backend.ConfigExtra)
 	// No `admin migrate` here: the shared database is already migrated by
 	// replica A's own boot sequence, and `admin migrate` takes serverguard's

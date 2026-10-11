@@ -72,7 +72,8 @@ run_admin() {
 }
 
 echo "==> admin init / encryption init / migrate"
-run_admin admin init --config ./keyorix.yaml >/dev/null 2>&1 || fail "admin init failed"
+# --dev: this check GETs / over plain HTTP on the container loopback.
+run_admin admin init --dev --config ./keyorix.yaml >/dev/null 2>&1 || fail "admin init failed"
 run_admin admin encryption init --config ./keyorix.yaml >/dev/null 2>&1 || fail "admin encryption init failed"
 run_admin admin migrate --config ./keyorix.yaml >/dev/null 2>&1 || fail "admin migrate failed"
 

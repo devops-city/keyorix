@@ -61,7 +61,32 @@ export KEYORIX_MASTER_PASSWORD='choose-a-strong-passphrase'
 ./bin/keyorix-server admin init --config ./keyorix.yaml
 ./bin/keyorix-server admin encryption init --config ./keyorix.yaml
 ./bin/keyorix-server admin migrate --config ./keyorix.yaml
+./bin/keyorix-server admin validate --posture --config ./keyorix.yaml   # "No deviations found."
 ```
+
+The generated config is the secure baseline (ADR-112): TLS on and required, API
+rate limiting on, and `/metrics` behind a token. `admin init` generates the files
+it needs, all mode `0600`, and never prints their contents:
+
+- `certs/server.crt` and `certs/server.key`: a self-signed TLS certificate for
+  `localhost`, this host's name, `127.0.0.1` and `::1`. Replace it with a
+  CA-issued certificate (same paths) before other machines connect.
+- `secrets/metrics_token`: the bearer token `GET /metrics` requires
+  (`Authorization: Bearer <contents>`).
+
+Tell the CLI to trust that certificate. `admin init` prints this exact line with
+the absolute path:
+
+```bash
+./bin/keyorix config set ca_file "$PWD/certs/server.crt"
+```
+
+(`--ca-file <path>` or `KEYORIX_CA_FILE=<path>` do the same for one command or
+one shell.)
+
+Only for a throwaway local demo, `admin init --dev` writes the old relaxed config
+instead: no TLS, no rate limit, open `/metrics`. Its first line says DEV-ONLY and
+`admin validate --posture` reports all three. Never use it on a network.
 
 `admin init` only creates the encryption key *directories* — it does not generate
 key material. `admin encryption init` generates the actual KEK/DEK pair; the
@@ -111,7 +136,7 @@ KEYORIX_CONFIG_PATH=./keyorix.yaml ./bin/keyorix-server &
 # KEYORIX_ADMIN_PASSWORD is unset, an interactive prompt) — never from flags.
 read -r -s -p 'Admin password: ' KEYORIX_ADMIN_PASSWORD; echo
 export KEYORIX_ADMIN_PASSWORD
-./bin/keyorix system init --server http://localhost:8080 \
+./bin/keyorix system init --server https://localhost:8080 \
   --admin-username admin --admin-email admin@keyorix.local
 ```
 
@@ -136,32 +161,38 @@ call. Without `KEYORIX_BOOTSTRAP_TOKEN` set before the server starts, the server
 generates and logs a random token instead — export that one as
 `KEYORIX_BOOTSTRAP_TOKEN` before running `system init`.
 
-- Health: <http://localhost:8080/health>
-- OpenAPI spec: <http://localhost:8080/openapi.yaml> — only when
+- Health: <https://localhost:8080/health>
+- OpenAPI spec: <https://localhost:8080/openapi.yaml> — only when
   `server.http.swagger_enabled: true` in `keyorix.yaml` (otherwise it returns 404)
-- Swagger UI: <http://localhost:8080/swagger/> — same setting
+- Swagger UI: <https://localhost:8080/swagger/> — same setting
 
-TLS is off in the generated config. Turn it on, or front the server with a
-TLS-terminating proxy, before anything reaches a network you do not control.
-`security.require_transport_tls` makes that failure loud instead of silent.
-The generated config also leaves API rate limiting and the `/metrics` token off,
-so `keyorix-server admin validate --posture` reports three deviations on it
-(like every `admin` command it needs the database to itself: **stop the server
-first**, run it, then start the server again);
-[docs/CONFIGURATION.md](docs/CONFIGURATION.md#hardening-the-generated-config-clearing-the-posture-report)
+The server speaks TLS from the first start, with the certificate `admin init`
+generated. `curl` needs to be told about it too:
+`curl --cacert certs/server.crt https://localhost:8080/health`. A browser shows
+a warning for a self-signed certificate until you install a CA-issued one.
+
+`keyorix-server admin validate --posture` reports zero deviations on the
+generated config (like every `admin` command it needs the database to itself:
+**stop the server first**, run it, then start the server again). A `--dev`
+config is the relaxed one: TLS, API rate limiting and the `/metrics` token are
+off, so it reports three deviations;
+[docs/CONFIGURATION.md](docs/CONFIGURATION.md#hardening-an-older-config-clearing-the-posture-report)
 lists the keys that clear them.
 
-**CLI against a TLS server with a private CA or self-signed certificate.** The
-CLI trusts the OS store only. Point it at your CA with the standard
-`SSL_CERT_FILE=/path/to/ca.pem` environment variable (Linux/macOS) rather than
-turning verification off (`tls_verify: false`). For the bundled Caddy `tls`
-profile the CA is `docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt`.
+**CLI against a TLS server with a private CA or self-signed certificate.** By
+default the CLI trusts the OS store only. Name the CA (or the self-signed server
+certificate) with `keyorix config set ca_file <path>` (stored with your
+credentials), `KEYORIX_CA_FILE=<path>`, or `--ca-file <path>`. The CLI then
+trusts exactly that file's certificates, on every platform. `SSL_CERT_FILE`
+works on Linux only: on macOS Go verifies through the system keychain and
+ignores it. For the bundled Caddy `tls` profile the CA is
+`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt`.
 
 What you will see on first start, and what it means:
 
-- **Three `WARNING` lines about cleartext transport and `trusted_proxies`.**
-  Expected with the generated config: TLS is off and no reverse proxy is
-  trusted. Fine on one machine; act on them before exposing the server.
+- **`WARNING: HTTP protocol_versions is set but NOT honored`.** Informational:
+  the TLS 1.2 minimum is fixed in code. (A `--dev` config also prints cleartext
+  and `trusted_proxies` warnings: TLS is off there.)
 - **`Automatic file-permission fixing is on (security.auto_fix_file_permissions ...)`.**
   Informational. The generated config turns the setting on, so it is printed on
   every start. A permission change is reported separately as `[FIXED] <path>`; if
@@ -176,7 +207,7 @@ For Postgres instead of SQLite, `docker compose up -d postgres` starts one, and
 ## Log in
 
 ```bash
-./bin/keyorix login --server http://localhost:8080 --username admin
+./bin/keyorix login --server https://localhost:8080 --username admin
 # Password: (typed at the no-echo prompt)
 ```
 

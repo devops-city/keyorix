@@ -162,6 +162,8 @@ server:
       enabled: true
       requests_per_second: 50
       burst: 100
+    metrics_token: ""             # GET /metrics then requires "Authorization: Bearer <token>"
+    metrics_token_file: ""        # or read the token from this file (secret-file rules, see below); set one, not both
   grpc:
     # Partial surface, off by default. HTTP is the complete interface; enable this
     # only if you need it, and read docs/adr-105-grpc-scope-and-parity.md first —
@@ -567,20 +569,66 @@ Like every `admin` command, `admin validate --posture` needs the database to
 itself: it refuses while the server runs (stop it, or in Docker Compose use
 `docker compose stop backend` then `docker compose run --rm backend ./keyorix-server admin validate --posture`).
 
-### Hardening the generated config (clearing the posture report)
+### The generated config is the secure baseline
 
-The config written by `admin init` (and `keyorix.docker.yaml`) is a dev baseline:
-on it the report lists the three `insecure_*` settings below (cleartext transport,
-unauthenticated `/metrics`, no API rate limit), and exits 1. Verified on a fresh
-SQLite install: setting exactly these keys makes `admin validate --posture` print
-`No deviations found.` and exit 0 (the startup warning text for each is the
-`insecure_*` name, not the YAML key, so the mapping is:)
+`keyorix-server admin init` writes a config on which `admin validate --posture`
+prints `No deviations found.` (ADR-112 §4; guarded in CI by
+`server/admin_init_secure_baseline_test.go`). In the same run it generates the
+files that config references, each `0600` in a `0700` directory, and prints
+none of their contents:
+
+| File | What | Config key |
+|---|---|---|
+| `certs/server.crt`, `certs/server.key` | self-signed ECDSA P-256 certificate for `localhost`, the host name, `127.0.0.1`, `::1`, valid 397 days | `server.http/grpc.tls.cert_file`/`key_file`, with `tls.enabled: true` and `security.require_transport_tls: true` |
+| `secrets/metrics_token` | 32 random bytes, base64url | `server.http/grpc.metrics_token_file` |
+
+Rate limiting is on (`50`/`100` HTTP, `25`/`50` gRPC, as in
+`server/config/production.yaml`); the request-body cap stays at its default.
+
+- **Existing files are kept.** A certificate/key pair or token already at those
+  paths is used as is (only one of cert/key present is an error). To use your own
+  certificate, put it there before `admin init`, or change `cert_file`/`key_file`.
+- **An existing config is never changed**, and nothing is generated for it
+  (ADR-112: no silent change on upgrade). Re-running `admin init` next to one is a
+  no-op for the config.
+- **Fail closed.** A missing certificate, or an unreadable/empty
+  `metrics_token_file`, stops the server at startup. `metrics_token_file` follows
+  the secret-file rules (regular file, one trailing newline stripped, not readable
+  by others; the startup permission check covers it). Setting both
+  `metrics_token` and `metrics_token_file` is refused.
+- **The CLI must trust the self-signed certificate:**
+  `keyorix config set ca_file /abs/path/certs/server.crt` (stored in the CLI's
+  credentials file), `KEYORIX_CA_FILE`, or `--ca-file` on one command, in that
+  order of precedence: flag, env, stored. The CLI then trusts exactly that file's
+  certificates (not the OS store); a missing file, one with no certificate, one
+  holding a private key, or one writable by group/others is refused. `admin init`
+  prints the exact line. `SSL_CERT_FILE` only works on Linux.
+- **Behind a TLS-terminating proxy** instead: set `server.http.tls.enabled: false`,
+  list the proxy in `server.http.trusted_proxies`, and accept that the posture
+  report then lists `security.insecure_allow_cleartext_transport` if you also set
+  `require_transport_tls: false` (it must be false for a cleartext listener to start).
+
+**`admin init --dev`** writes the relaxed config for a throwaway local demo: TLS
+off and not required, rate limiting off, no metrics token. Its first lines are a
+`DEV-ONLY CONFIG` banner naming those three, and the posture report lists them
+and exits 1. It generates no certificate or token. `require_mfa` stays on. The
+demo and e2e scripts in `scripts/` that talk plain HTTP use it explicitly.
+
+### Hardening an older config (clearing the posture report)
+
+A config written by an earlier `admin init` (and `keyorix.docker.yaml`) is a dev
+baseline: on it the report lists the three `insecure_*` settings below
+(cleartext transport, unauthenticated `/metrics`, no API rate limit), and exits
+1. Upgrading does not change it. Verified on a fresh SQLite install: setting
+exactly these keys makes `admin validate --posture` print `No deviations found.`
+and exit 0 (the startup warning text for each is the `insecure_*` name, not the
+YAML key, so the mapping is:)
 
 | Report names | Set in `keyorix.yaml` |
 |---|---|
 | `security.insecure_allow_cleartext_transport` | `server.http.tls.enabled: true` (with `cert_file`/`key_file`) and `security.require_transport_tls: true`; or terminate TLS at a proxy you trust and list it in `server.http.trusted_proxies` |
-| `server.insecure_allow_unauthenticated_metrics` | `server.http.metrics_token: "<long random string>"`; `/metrics` then answers 401 without `Authorization: Bearer <token>` and 200 with it |
-| `server.insecure_disable_api_ratelimit` | `server.http.ratelimit.enabled: true` (and `server.grpc.ratelimit.enabled: true` if gRPC is on) |
+| `server.insecure_allow_unauthenticated_metrics` | `metrics_token: "<long random string>"` or `metrics_token_file: <path to a 0600 file>` on **both** `server.http` and `server.grpc` (the entry checks both listeners); `/metrics` then answers 401 without `Authorization: Bearer <token>` and 200 with it |
+| `server.insecure_disable_api_ratelimit` | `server.http.ratelimit.enabled: true` and `server.grpc.ratelimit.enabled: true` (the entry checks both listeners, even with gRPC off) |
 
 Also keep the key and config files `0600` and owned by the server's user. In
 Docker Compose the bind-mounted `keyorix.docker.yaml` arrives as the host's

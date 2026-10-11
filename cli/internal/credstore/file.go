@@ -33,6 +33,11 @@ func NewFileStore(path string) *FileStore {
 	return &FileStore{path: path}
 }
 
+// Path returns the file this store reads and writes.
+func (s *FileStore) Path() string {
+	return s.path
+}
+
 // Save writes c to the store's path at mode 0600, creating its parent directory (mode
 // 0700) if needed. The mode is set explicitly on the open call AND via an explicit
 // Chmod after opening: O_CREATE's mode argument only applies when the file is newly

@@ -125,7 +125,8 @@ ok "seeded ${BACKEND}: 4 secrets, 3 policies (incl. 1 deny), 2 AppRole roles + u
 log "Bootstrapping a fresh Keyorix server"
 export KEYORIX_MASTER_PASSWORD="demo-master-password-$$"
 KX_CONFIG="./keyorix.yaml"
-(cd "$WORKDIR" && "${BIN}/keyorix-server" admin init --config "$KX_CONFIG" >/dev/null)
+# --dev: a local demo over plain HTTP (DEV-ONLY config).
+(cd "$WORKDIR" && "${BIN}/keyorix-server" admin init --dev --config "$KX_CONFIG" >/dev/null)
 sed -i.bak "s/port: \"8080\"/port: \"${KEYORIX_PORT}\"/" "${WORKDIR}/keyorix.yaml" && rm -f "${WORKDIR}/keyorix.yaml.bak"
 (cd "$WORKDIR" && "${BIN}/keyorix-server" admin encryption init --config "$KX_CONFIG" >/dev/null)
 (cd "$WORKDIR" && "${BIN}/keyorix-server" admin migrate --config "$KX_CONFIG" >/dev/null)

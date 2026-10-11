@@ -241,24 +241,24 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// this replica. Unauthenticated, like /health (k8s probes are unauthenticated).
 	r.Get("/readyz", handlers.ReadinessCheck(coreService))
 
-	// Prometheus metrics. When cfg.HTTP.MetricsToken is set, require a matching
-	// "Authorization: Bearer <token>" header — suitable for internet-facing deploys
-	// where network perimeter control is not available. When unset, the endpoint is
-	// unauthenticated (standard for in-cluster Prometheus scraping); keep it inside
-	// your perimeter. Exposes HTTP request metrics + Go runtime/process.
-	metricsHandler := customMiddleware.MetricsHandler()
-	if tok := cfg.Server.HTTP.MetricsToken; tok != "" {
-		inner := metricsHandler
-		metricsHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			auth := req.Header.Get("Authorization")
-			if len(auth) < 8 || auth[:7] != "Bearer " || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(tok)) != 1 {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			inner.ServeHTTP(w, req)
-		})
-	}
-	r.Handle(pathMetrics, metricsHandler)
+	// Prometheus metrics. When server.http.metrics_token (or metrics_token_file,
+	// which `keyorix-server admin init` generates at 0600) is set, require a
+	// matching "Authorization: Bearer <token>" header — suitable for
+	// internet-facing deploys where network perimeter control is not available.
+	// When unset, the endpoint is unauthenticated (standard for in-cluster
+	// Prometheus scraping); keep it inside your perimeter. Exposes HTTP request
+	// metrics + Go runtime/process.
+	//
+	// The token check lives in metricsHandlerFor at the end of this file: an
+	// unresolvable token source answers 401 there, never an open /metrics.
+	// (Moved out of line without changing this function's line count, so
+	// scripts/e2e/routes.json's router_go_line entries for every route below
+	// stay valid.) The comparison is constant-time (subtle.ConstantTimeCompare).
+	//
+	// Config.Validate refuses to start on an unreadable metrics_token_file or on
+	// both metrics_token and metrics_token_file being set (SECURE-DEFAULT-1).
+	//
+	r.Handle(pathMetrics, metricsHandlerFor(cfg.Server.HTTP))
 
 	// Status page endpoint - serves stylish status dashboard
 	r.Get(pathStatus, func(w http.ResponseWriter, r *http.Request) {
@@ -1536,5 +1536,30 @@ func setCacheHeaders(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// metricsHandlerFor serves GET /metrics, gated on inst's metrics token when
+// one is configured. Config.Validate already refuses to start on an
+// unresolvable metrics_token_file (or both token keys set); if that were ever
+// bypassed, this still answers 401 and never serves /metrics unauthenticated.
+func metricsHandlerFor(inst config.ServerInstanceConfig) http.Handler {
+	metricsHandler := customMiddleware.MetricsHandler()
+	tok, err := inst.ResolveMetricsToken()
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		})
+	}
+	if tok == "" {
+		return metricsHandler
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		auth := req.Header.Get("Authorization")
+		if len(auth) < 8 || auth[:7] != "Bearer " || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(tok)) != 1 {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		metricsHandler.ServeHTTP(w, req)
 	})
 }

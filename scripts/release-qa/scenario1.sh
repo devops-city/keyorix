@@ -41,7 +41,12 @@ cd "$WORK_DIR"
 CONFIG_PATH="./keyorix.yaml"
 
 pass "keyorix-server admin init (storage=$STORAGE)"
-"$SERVER_BIN" admin init --config "$CONFIG_PATH" || fail "admin init exited non-zero"
+# This harness drives plain HTTP. A binary with --dev (SECURE-DEFAULT-1) writes the
+# secure baseline (TLS) by default, so ask for the DEV-ONLY config; an older
+# release binary has no --dev and already writes the relaxed config.
+INIT_DEV=""
+"$SERVER_BIN" admin init --help 2>&1 | grep -q -- '--dev' && INIT_DEV="--dev"
+"$SERVER_BIN" admin init $INIT_DEV --config "$CONFIG_PATH" || fail "admin init exited non-zero"
 [ -f "$CONFIG_PATH" ] || fail "admin init did not create $CONFIG_PATH"
 sed -i.bak -E "s/port: \"8080\"/port: \"$SERVER_PORT\"/" "$CONFIG_PATH"
 

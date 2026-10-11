@@ -79,7 +79,7 @@ func TestWaitHealthy_RetriesOnBindFailure(t *testing.T) {
 			t.Fatalf("keyorix-server admin %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	run("init", "--config", configPath)
+	run("init", "--dev", "--config", configPath)
 	run("encryption", "init", "--config", configPath)
 	run("migrate", "--config", configPath)
 

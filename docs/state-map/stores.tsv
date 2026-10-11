@@ -132,6 +132,7 @@ server/admin/backup.go (os.WriteFile)	file_write	server/admin	1
 server/admin/backup_v1_legacy.go (os.WriteFile)	file_write	server/admin	1
 server/admin/init.go (os.OpenFile)	file_write	server/admin	2
 server/admin/init.go (securefiles.SecureWriteFileSync)	file_write	server/admin	1
+server/admin/init_secure.go (securefiles.SecureCreateFileSync)	file_write	server/admin	1
 server/admin/recovery_key_encrypt.go (os.OpenFile)	file_write	server/admin	1
 server/admin/restore.go (os.WriteFile)	file_write	server/admin	1
 #

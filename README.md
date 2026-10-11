@@ -70,9 +70,12 @@ KEYORIX_MASTER_PASSWORD=yourpassword keyorix-server
 **Log in with the CLI:**
 
 ```bash
-keyorix login --server http://localhost:8080 --username admin
+keyorix login --server https://localhost:8080 --ca-file certs/server.crt --username admin
 # Password: (typed at the no-echo prompt)
 ```
+
+(`certs/server.crt` is the self-signed certificate `keyorix-server admin init`
+generated; `login` remembers the CA file for later commands.)
 
 With an authenticator app enrolled, `login` prompts for a code after the
 password (an unused recovery code works too).

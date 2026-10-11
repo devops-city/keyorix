@@ -24,6 +24,7 @@ var (
 	initDatabaseOnly   bool
 	initLoggingOnly    bool
 	initOverwrite      bool
+	initDev            bool
 )
 
 var initCmd = &cobra.Command{
@@ -33,6 +34,17 @@ var initCmd = &cobra.Command{
 encryption key directories, and an empty database file. Never starts a
 listener; run 'keyorix-server' (no subcommand) or 'keyorix-server admin
 migrate' afterward.
+
+The config is the secure baseline: 'admin validate --posture' reports zero
+deviations on it. When init writes it, init also generates the files it
+references, without printing their contents: a self-signed TLS certificate
+and key (certs/server.crt, certs/server.key) and a random /metrics token
+(secrets/metrics_token), all 0600. Files that already exist are kept. An
+existing config is never changed and nothing is generated for it.
+
+--dev writes a relaxed config instead, labelled DEV-ONLY: no TLS, no rate
+limit, unauthenticated /metrics. For a throwaway local demo only; the
+posture check reports it.
 
 Exit codes: 0 on success, 1 on any failure (see the printed error message).`,
 	RunE: runAdminInit,
@@ -44,6 +56,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initDatabaseOnly, "database", false, "Initialize the database only")
 	initCmd.Flags().BoolVar(&initLoggingOnly, "logging", false, "Initialize logging only")
 	initCmd.Flags().BoolVar(&initOverwrite, "overwrite-existing", false, "Overwrite an existing config file (dangerous)")
+	initCmd.Flags().BoolVar(&initDev, "dev", false, "Write the relaxed DEV-ONLY config (no TLS, no rate limit, unauthenticated /metrics) for a local demo; never for production")
 }
 
 func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cognitive complexity 17, suppress go:S3776
@@ -60,13 +73,20 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 		setupAll = false
 	}
 
-	if err := generateAdminConfigFile(configPath); err != nil {
+	wroteConfig, err := generateAdminConfigFile(configPath)
+	if err != nil {
 		return fmt.Errorf("failed to generate config file: %w", err)
 	}
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+	// Only for the config this run wrote: an existing install is never changed.
+	if wroteConfig && !initDev {
+		if err := generateSecureBaselineFiles(cfg); err != nil {
+			return fmt.Errorf("failed to generate TLS certificate / metrics token: %w", err)
+		}
 	}
 	if cfg.Storage.Type == "" {
 		cfg.Storage.Type = "local"
@@ -111,25 +131,40 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 	return nil
 }
 
-func generateAdminConfigFile(configPath string) error {
+// generateAdminConfigFile writes the config template (the DEV-ONLY variant
+// with --dev) unless a config already exists, and reports whether it wrote one.
+func generateAdminConfigFile(configPath string) (bool, error) {
 	fmt.Printf("Generating config file: %s\n", configPath)
 
 	if _, err := os.Stat(configPath); err == nil && !initOverwrite {
 		fmt.Printf("Config file already exists: %s\n", configPath)
 		fmt.Println("   Use --overwrite-existing to overwrite")
-		return nil
+		return false, nil
+	}
+
+	tpl := configs.DefaultConfigTemplate
+	if initDev {
+		dev, err := configs.DevConfigTemplate()
+		if err != nil {
+			return false, err
+		}
+		tpl = dev
 	}
 
 	if err := os.MkdirAll(filepath.Dir(configPath), 0750); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+		return false, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	if err := securefiles.SecureWriteFileSync(".", configPath, configs.DefaultConfigTemplate, 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+	if err := securefiles.SecureWriteFileSync(".", configPath, tpl, 0600); err != nil {
+		return false, fmt.Errorf("failed to write config file: %w", err)
 	}
 
-	fmt.Printf("Config file created: %s\n", configPath)
-	return nil
+	if initDev {
+		fmt.Printf("Config file created: %s (DEV-ONLY: no TLS, no rate limit, unauthenticated /metrics -- never use it for production)\n", configPath)
+	} else {
+		fmt.Printf("Config file created: %s (secure baseline)\n", configPath)
+	}
+	return true, nil
 }
 
 func initializeAdminDatabase(cfg *config.Config) error {

@@ -50,7 +50,10 @@ cd "$WORK_DIR"
 CONFIG_PATH="./keyorix.yaml"
 
 pass "fresh install"
-"$SERVER_BIN" admin init --config "$CONFIG_PATH" || fail "admin init exited non-zero"
+# Plain-HTTP harness: --dev where the binary has it (see scenario1.sh).
+INIT_DEV=""
+"$SERVER_BIN" admin init --help 2>&1 | grep -q -- '--dev' && INIT_DEV="--dev"
+"$SERVER_BIN" admin init $INIT_DEV --config "$CONFIG_PATH" || fail "admin init exited non-zero"
 sed -i.bak -E "s/port: \"8080\"/port: \"$SERVER_PORT\"/" "$CONFIG_PATH"
 "$SERVER_BIN" admin encryption init --config "$CONFIG_PATH" || fail "admin encryption init exited non-zero"
 "$SERVER_BIN" admin migrate --config "$CONFIG_PATH" || fail "admin migrate exited non-zero"

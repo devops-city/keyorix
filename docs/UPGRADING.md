@@ -52,6 +52,18 @@ release's tooling before swapping: on the v0.95.3 Compose image
 encryption key lock`; stop `backend` and use `docker compose run` (see
 SELF_HOSTING.md §5).
 
+**Your config is not changed.** From the release after v0.95.3, a *fresh*
+`keyorix-server admin init` writes the secure baseline (TLS with a generated
+self-signed certificate, rate limiting on, a generated `/metrics` token file;
+see [CONFIGURATION.md](CONFIGURATION.md#the-generated-config-is-the-secure-baseline)).
+An existing `keyorix.yaml` keeps its values, and re-running `admin init` next to
+it generates nothing, so `admin validate --posture` keeps reporting the same
+deviations until you set the keys listed in
+[CONFIGURATION.md](CONFIGURATION.md#hardening-an-older-config-clearing-the-posture-report)
+yourself. Scripts that ran `admin init` and then talked plain HTTP need
+`admin init --dev` (relaxed, labelled DEV-ONLY) or the generated certificate
+(`keyorix config set ca_file <path>`, `--ca-file`, `KEYORIX_CA_FILE`).
+
 Schema migrations run on boot. If a rolling multi-replica upgrade hits
 `database schema epoch N is newer than this binary's schema epoch M`, that's
 expected mid-rollout (see `docs/SELF_HOSTING.md` §9 troubleshooting table) —

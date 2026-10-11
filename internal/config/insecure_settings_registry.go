@@ -421,14 +421,14 @@ var InsecureSettingsRegistry = []InsecureSetting{
 			return boolStr(anySSOProviderInEffect(c, func(p SSOProviderConfig) bool { return p.GroupSync }))
 		},
 	},
+	// metrics_token_file (SECURE-DEFAULT-1) is the same setting supplied from a
+	// file; an unreadable file counts as no token (metricsTokenMissing).
 	{
 		Name:        "server.insecure_allow_unauthenticated_metrics",
-		SourcePaths: []string{"server.http.metrics_token", "server.grpc.metrics_token"},
+		SourcePaths: []string{"server.http.metrics_token", "server.grpc.metrics_token", "server.http.metrics_token_file", "server.grpc.metrics_token_file"},
 		Describe:    "/metrics served fully unauthenticated",
-		InEffect:    func(c *Config) bool { return c.Server.HTTP.MetricsToken == "" || c.Server.GRPC.MetricsToken == "" },
-		Value: func(c *Config) string {
-			return boolStr(c.Server.HTTP.MetricsToken == "" || c.Server.GRPC.MetricsToken == "")
-		},
+		InEffect:    func(c *Config) bool { return c.metricsTokenMissing() },
+		Value:       func(c *Config) string { return boolStr(c.metricsTokenMissing()) },
 	},
 	{
 		Name:        "server.insecure_disable_max_request_body_cap",

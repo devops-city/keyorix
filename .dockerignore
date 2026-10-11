@@ -22,9 +22,11 @@ scripts/
 deploy/
 # configs/ is excluded EXCEPT the embedded default config template that
 # server/admin/init.go compiles in (configs.DefaultConfigTemplate); excluding the
-# whole directory broke `docker build -f server/Dockerfile .`.
+# whole directory broke `docker build -f server/Dockerfile .`. Every non-test Go
+# file there must be listed: deploy TestDockerignoreKeepsEveryFileTheServerCompiles.
 configs/*
 !configs/embed.go
+!configs/dev_template.go
 !configs/keyorix.yaml.tpl
 operator/
 

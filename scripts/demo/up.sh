@@ -211,7 +211,8 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     -c '
       set -e
       if [ ! -f keyorix.yaml ]; then
-        /app/keyorix-server admin init --config keyorix.yaml
+        # Local demo over plain HTTP: the relaxed, DEV-ONLY-labelled config.
+        /app/keyorix-server admin init --dev --config keyorix.yaml
         /app/keyorix-server admin encryption init --config keyorix.yaml
         /app/keyorix-server admin migrate --config keyorix.yaml
         # Break-glass is off by default (secure default); the demo turns it on

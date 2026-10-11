@@ -22,10 +22,15 @@ Produces `./bin/keyorix` (CLI) and `./bin/keyorix-server`.
 
 ```bash
 export KEYORIX_MASTER_PASSWORD='choose-a-strong-passphrase'
-./bin/keyorix-server admin init --config ./keyorix.yaml
+./bin/keyorix-server admin init --dev --config ./keyorix.yaml
 ./bin/keyorix-server admin encryption init --config ./keyorix.yaml
 ./bin/keyorix-server admin migrate --config ./keyorix.yaml
 ```
+
+`--dev` writes the relaxed DEV-ONLY config (no TLS, no rate limit, open
+`/metrics`) so this demo runs over plain `http://localhost`. A real install
+drops `--dev` and gets TLS with a generated certificate; see
+[QUICK_START.md](../../QUICK_START.md#initialise-the-server-host).
 
 Expected: each command prints its own success banner. `admin init`'s config
 file is created at `./keyorix.yaml`; `admin encryption init` generates
@@ -69,10 +74,10 @@ spelled out here rather than left for you to discover the hard way:
   three; something like `admin-password1` will not, because it contains
   `admin`.
 
-This page uses `http://localhost:8080` throughout because it's genuinely
-local — the server and client are the same machine. Talking to a real,
-non-local server should always use `https://`; the CLI does not add TLS for
-you.
+This page uses `http://localhost:8080` throughout because it runs the
+`--dev` config on one machine. Talking to a real, non-local server should
+always use `https://` (the default `admin init` config); the CLI does not add
+TLS for you.
 
 ## 3. Log in and store your first secret (1 min)
 

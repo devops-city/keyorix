@@ -207,6 +207,7 @@ server.grpc.keepalive.time
 server.grpc.keepalive.timeout
 server.grpc.max_request_body_bytes
 server.grpc.metrics_token
+server.grpc.metrics_token_file
 server.grpc.port
 server.grpc.protocol_versions
 server.grpc.ratelimit.burst
@@ -236,6 +237,7 @@ server.http.keepalive.time
 server.http.keepalive.timeout
 server.http.max_request_body_bytes
 server.http.metrics_token
+server.http.metrics_token_file
 server.http.port
 server.http.protocol_versions
 server.http.ratelimit.burst

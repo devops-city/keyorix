@@ -164,7 +164,7 @@ func startServerWithBreakGlass(t *testing.T, binary string) *harness.Server {
 			t.Fatalf("keyorix-server admin %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	run("init", "--config", configPath)
+	run("init", "--dev", "--config", configPath) // plain-HTTP harness (SECURE-DEFAULT-1)
 
 	bgBlock := "\nbreak_glass:\n  enabled: true\n  emergency_role: project_developer\n  default_ttl: 4h\n  max_ttl: 24h\n"
 	cfgFile := filepath.Join(dir, "keyorix.yaml")

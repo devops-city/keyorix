@@ -19,6 +19,11 @@ type Credentials struct {
 	ServerURL     string `yaml:"server_url"`
 	Token         string `yaml:"token"`
 	ActiveProject string `yaml:"active_project,omitempty"`
+	// CAFile is the PEM CA/certificate file the CLI trusts for ServerURL's TLS certificate
+	// (SECURE-DEFAULT-1: `keyorix-server admin init` generates a self-signed one). Set by
+	// `keyorix config set ca_file` or by a successful `keyorix login` that used one. Not a
+	// secret: it is a path to a public certificate.
+	CAFile string `yaml:"ca_file,omitempty"`
 }
 
 // Store loads and saves Credentials. FileStore is the only implementation today; a future

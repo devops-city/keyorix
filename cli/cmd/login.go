@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -105,7 +106,15 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve credential store: %w", err)
 	}
-	if err := store.Save(credstore.Credentials{ServerURL: serverURL, Token: token}); err != nil {
+	// Keep the CA file this login was verified with (flag, env or stored), so the next
+	// command trusts the same server certificate without repeating --ca-file.
+	caFile, _ := resolveCAFile()
+	if caFile != "" {
+		if abs, aerr := filepath.Abs(caFile); aerr == nil {
+			caFile = abs
+		}
+	}
+	if err := store.Save(credstore.Credentials{ServerURL: serverURL, Token: token, CAFile: caFile}); err != nil {
 		return fmt.Errorf("save credentials: %w", err)
 	}
 

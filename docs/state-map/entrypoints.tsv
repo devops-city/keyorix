@@ -71,6 +71,10 @@ cli	keyorix compliance permission-changes	cli/cmd/compliance.go	614	<expr>	D	com
 cli	keyorix compliance report	cli/cmd/compliance.go	161	<expr>	D	compliance.go:161-253 is fully read-only.
 cli	keyorix compliance rotation-by-backend	cli/cmd/compliance.go	879	<expr>	D	compliance.go:879-923 is fully read-only.
 cli	keyorix compliance verify	cli/cmd/compliance.go	348	<expr>	D	compliance.go:348-408: two local file reads plus one verify-only HTTP call; no state-changing writes.
+cli	keyorix config	cli/cmd/config.go	19		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix config get	cli/cmd/config.go	37	runConfigGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix config set	cli/cmd/config.go	30	runConfigSet	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix config unset	cli/cmd/config.go	44	runConfigUnset	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix diagnose	server/admin/diagnose.go	28	runAdminDiagnose	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix dynamic-secret	cli/cmd/dynamicsecret.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix dynamic-secret classify	cli/cmd/dynamicsecret.go	142	runDynClassify	none	single/no write-shaped call found by a 1-hop scan of the handler body

@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -131,4 +132,64 @@ func readAll(t *testing.T, r interface{ Read([]byte) (int, error) }) string {
 		}
 	}
 	return sb.String()
+}
+
+// SECURE-DEFAULT-1: metrics_token_file supplies the token from a file (admin
+// init generates one). A readable file gates /metrics like metrics_token; an
+// unreadable one never falls back to serving /metrics unauthenticated, even if
+// Config.Validate (which refuses to start on it) were bypassed.
+func TestMetricsEndpoint_TokenFile(t *testing.T) {
+	require.NoError(t, i18n.InitializeForTesting())
+	defer i18n.ResetForTesting()
+
+	dir := t.TempDir()
+	tokenPath := dir + "/metrics_token"
+	require.NoError(t, os.WriteFile(tokenPath, []byte("file-metrics-token\n"), 0o600))
+
+	serve := func(t *testing.T, cfg *config.Config) *httptest.Server {
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		require.NoError(t, err)
+		router, err := NewRouter(cfg, core.NewKeyorixCore(store.NewLocalStorage(db)))
+		require.NoError(t, err)
+		srv := httptest.NewServer(router)
+		t.Cleanup(srv.Close)
+		return srv
+	}
+	status := func(t *testing.T, srv *httptest.Server, bearer string) int {
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/metrics", nil)
+		require.NoError(t, err)
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	t.Run("readable file gates /metrics", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.HTTP.MetricsTokenFile = tokenPath
+		srv := serve(t, cfg)
+		assert.Equal(t, http.StatusUnauthorized, status(t, srv, ""))
+		assert.Equal(t, http.StatusUnauthorized, status(t, srv, "wrong"))
+		assert.Equal(t, http.StatusOK, status(t, srv, "file-metrics-token"))
+	})
+
+	t.Run("unreadable file fails closed", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.HTTP.MetricsTokenFile = dir + "/missing"
+		srv := serve(t, cfg)
+		assert.Equal(t, http.StatusUnauthorized, status(t, srv, ""))
+		assert.Equal(t, http.StatusUnauthorized, status(t, srv, "file-metrics-token"))
+	})
+
+	t.Run("token and token file both set fails closed", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Server.HTTP.MetricsToken = "inline"
+		cfg.Server.HTTP.MetricsTokenFile = tokenPath
+		srv := serve(t, cfg)
+		assert.Equal(t, http.StatusUnauthorized, status(t, srv, ""))
+		assert.Equal(t, http.StatusUnauthorized, status(t, srv, "inline"))
+	})
 }

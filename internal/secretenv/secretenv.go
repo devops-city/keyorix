@@ -92,6 +92,16 @@ func FilePaths(names ...string) []string {
 	return out
 }
 
+// ReadFile reads a secret file named by a config key (e.g.
+// server.http.metrics_token_file) under the same rules as an X_FILE variable:
+// regular file, size-capped, one trailing line terminator stripped, empty is an
+// error, and errors never carry the contents. Like Lookup, it does not judge
+// permissions itself: the file is listed in the config's SecretFilePaths and the
+// startup check (security.enable_file_permission_check) covers it.
+func ReadFile(path string) (string, error) {
+	return readSecretFile(path, false)
+}
+
 func readSecretFile(path string, checkPerms bool) (string, error) {
 	// Symlinks are followed on purpose: a Kubernetes Secret volume exposes each
 	// key as a symlink into the kubelet's ..data/ directory. The permission

@@ -217,7 +217,7 @@ func TestFastAuditMode_DefaultBootIsSilentAndDurable(t *testing.T) {
 	dir := t.TempDir()
 	env := append(baseEnv(dir), "KEYORIX_MASTER_PASSWORD=test-passphrase-fast-audit-default")
 
-	if out, err := runAdmin(t, bin, dir, env, "init", "--config", "./keyorix.yaml"); err != nil {
+	if out, err := runAdmin(t, bin, dir, env, "init", "--dev", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin init failed: %v\n%s", err, out)
 	}
 	// Deliberately NO config edit: this is what `admin init` generates.

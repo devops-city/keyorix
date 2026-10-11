@@ -50,12 +50,51 @@ func resolveServerAndToken(store *credstore.FileStore) (serverURL, token string,
 	return serverURL, token, nil
 }
 
+// caFileFlag is the global --ca-file flag (root.go).
+var caFileFlag string
+
+// caFileEnv names the environment variable form of --ca-file.
+const caFileEnv = "KEYORIX_CA_FILE"
+
+// resolveCAFile applies the precedence --ca-file > KEYORIX_CA_FILE > ca_file in the
+// credentials file, and names where the value came from (for error messages and for
+// `config get`). An unreadable credentials file yields no stored value here: every command
+// that needs credentials reports that refusal itself, and without a CA file a self-signed
+// server simply fails TLS verification (fails closed).
+func resolveCAFile() (path, source string) {
+	if caFileFlag != "" {
+		return caFileFlag, "--ca-file"
+	}
+	if v := os.Getenv(caFileEnv); v != "" {
+		return v, caFileEnv
+	}
+	store, err := resolveCredStore()
+	if err != nil {
+		return "", ""
+	}
+	if creds, err := store.Load(); err == nil && creds.CAFile != "" {
+		return creds.CAFile, "ca_file in " + store.Path()
+	}
+	return "", ""
+}
+
 // newAPIClient builds a generated client against serverURL, attaching an Authorization
 // header when token is non-empty. Always uses apiclient.NewHardenedHTTPClient (request
 // timeout, response-size cap, redirect refusal) instead of the generated client's bare
 // &http.Client{} default -- see hardened_client.go's doc comment for why.
+//
+// When a CA file is configured (resolveCAFile), the client trusts exactly that file's
+// certificates for TLS instead of the system roots.
 func newAPIClient(serverURL, token string) (*apiclient.ClientWithResponses, error) {
-	opts := []apiclient.ClientOption{apiclient.WithHTTPClient(apiclient.NewHardenedHTTPClient())}
+	httpClient := apiclient.NewHardenedHTTPClient()
+	if caFile, source := resolveCAFile(); caFile != "" {
+		c, err := apiclient.NewHardenedHTTPClientWithCAFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("CA file from %s: %w", source, err)
+		}
+		httpClient = c
+	}
+	opts := []apiclient.ClientOption{apiclient.WithHTTPClient(httpClient)}
 	if token != "" {
 		opts = append(opts, apiclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
 			req.Header.Set("Authorization", "Bearer "+token)

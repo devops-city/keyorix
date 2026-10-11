@@ -198,7 +198,7 @@ func startServerWithDynamicSecrets(t *testing.T, binary string) *harness.Server 
 			t.Fatalf("keyorix-server admin %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	run("init", "--config", configPath)
+	run("init", "--dev", "--config", configPath) // plain-HTTP harness (SECURE-DEFAULT-1)
 
 	dynBlock := "\ndynamic_secrets:\n  allow_private_network_targets: true\n"
 	cfgFile := filepath.Join(dir, "keyorix.yaml")

@@ -353,7 +353,9 @@ run_group() {
     local config_path="$smoke_dir/keyorix.yaml"
 
     echo "==> [group $group_label] keyorix-server admin init"
-    (cd "$smoke_dir" && "$SERVER_BIN" admin init --config "$config_rel") || fail "admin init exited non-zero"
+    # --dev: the browser specs run against plain HTTP; the secure default (TLS +
+    # metrics token) is covered by scripts/smoke.sh and the server tests.
+    (cd "$smoke_dir" && "$SERVER_BIN" admin init --dev --config "$config_rel") || fail "admin init exited non-zero"
     [ -f "$config_path" ] || fail "admin init did not create $config_path"
     sed -i.bak -E "s/port: \"8080\"/port: \"$server_port\"/" "$config_path"
     rm -f "$config_path.bak"

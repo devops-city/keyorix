@@ -566,7 +566,7 @@ func startServerWithSSO(t *testing.T, binary, port, issuer, redirectURL string) 
 			t.Fatalf("keyorix-server admin %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
-	run("init", "--config", configPath)
+	run("init", "--dev", "--config", configPath) // plain-HTTP harness (SECURE-DEFAULT-1)
 
 	ssoBlock := fmt.Sprintf(`
 sso:

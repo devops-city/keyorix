@@ -117,10 +117,19 @@ func TestInsecureSettingsRegistry_DescribeIsOperatorText(t *testing.T) {
 // NOT honored" warning the template itself used to trigger on every boot.
 // The real security warnings (cleartext listener, insecure settings in effect)
 // must still be there: this is about wording and noise, not about hiding state.
+//
+// Since the template became the secure baseline (ADR-112 §4), the relaxed
+// config that still produces those warnings is the one `admin init --dev`
+// writes, so this test runs against it; the secure template is covered by
+// TestDefaultConfigTemplate_SecureBootLogIsOperatorText below.
 func TestDefaultConfigTemplate_BootLogIsOperatorText(t *testing.T) {
+	devTemplate, err := configs.DevConfigTemplate()
+	if err != nil {
+		t.Fatalf("dev config template: %v", err)
+	}
 	var cfg config.Config
-	if err := yaml.Unmarshal(configs.DefaultConfigTemplate, &cfg); err != nil {
-		t.Fatalf("default config template does not parse: %v", err)
+	if err := yaml.Unmarshal(devTemplate, &cfg); err != nil {
+		t.Fatalf("dev config template does not parse: %v", err)
 	}
 	out := captureLogs(func() {
 		warnInsecureSettingsInEffect(&cfg)
@@ -136,6 +145,29 @@ func TestDefaultConfigTemplate_BootLogIsOperatorText(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("real security warning %q went missing from the default-config boot log:\n%s", want, out)
 		}
+	}
+}
+
+// The secure template is the config every new install boots with: its boot log
+// must be free of internal notes and the "NOT honored" noise, and it must not
+// carry the cleartext-listener warning (TLS is on, require_transport_tls is set).
+func TestDefaultConfigTemplate_SecureBootLogIsOperatorText(t *testing.T) {
+	var cfg config.Config
+	if err := yaml.Unmarshal(configs.DefaultConfigTemplate, &cfg); err != nil {
+		t.Fatalf("default config template does not parse: %v", err)
+	}
+	out := captureLogs(func() {
+		warnInsecureSettingsInEffect(&cfg)
+		_ = checkTransportTLSPosture(&cfg)
+	})
+	if m := internalMarker.FindString(out); m != "" {
+		t.Errorf("default-config boot log leaks an internal marker %q:\n%s", m, out)
+	}
+	if strings.Contains(out, "NOT honored") {
+		t.Errorf("the shipped template sets a field the server warns it ignores on every boot:\n%s", out)
+	}
+	if strings.Contains(out, "CLEARTEXT") {
+		t.Errorf("the secure default config boots with a cleartext listener warning:\n%s", out)
 	}
 }
 

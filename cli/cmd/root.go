@@ -26,6 +26,9 @@ func Execute() error {
 }
 
 func init() {
+	rootCmd.PersistentFlags().StringVar(&caFileFlag, "ca-file", "",
+		"PEM CA/certificate file to trust for the server's TLS certificate, instead of the system roots (or set KEYORIX_CA_FILE, or: keyorix config set ca_file <path>)")
+	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(statusCmd)
