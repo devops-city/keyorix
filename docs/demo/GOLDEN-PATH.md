@@ -19,7 +19,8 @@ listed below.
 `make demo-check` (or `./scripts/demo/check.sh`) walks this exact script end
 to end through the public API/CLI only — health, both logins, least
 privilege, create/read/rotate/version-history, ACL, the machine-identity
-read, MFA, audit + chain verify, the posture report, secret-read p50 latency,
+read, MFA, audit + chain verify, the posture report, that a fresh seed shows
+exactly the one deliberate Compliance finding (section 1b), secret-read p50 latency,
 and (if Playwright is installed) a real-backend UI walk of login/projects/
 secrets/audit — printing one ✅/❌ line per step and a final `DEMO READY` /
 `NOT READY: N problems`. Run it with no arguments the morning of a demo: it
@@ -53,8 +54,12 @@ git clone https://github.com/keyorixhq/keyorix.git && cd keyorix
 
 One command: builds a local air-gapped image with the web UI embedded,
 starts it, bootstraps an admin, and seeds a realistic org — 3 projects, 2
-groups, a least-privilege user, 3 secrets (one with 2 versions; backend-api has one in Development and one in Production, so the Secrets tab is never empty), a machine
-identity, and a populated audit trail — through the public API/CLI only.
+groups, a least-privilege user, a second administrator, 3 secrets (one with 2 versions; backend-api has one in Development and one in Production, so the Secrets tab is never empty), a machine
+identity, and a populated audit trail — through the public API/CLI only. It also
+seeds a **healthy compliance posture with exactly one deliberate finding** (section
+1b): every account has a second factor, every project has a completed access review,
+every secret/machine identity is classified, and two of the three secrets are on a
+rotation policy.
 Prints the URL and every login it just created. It also builds a small
 `keyorix-demo-sqlite:local` helper image (alpine + `sqlite3`) once, while it
 still has network, for the tamper demo in section 6. Re-running it is a no-op
@@ -88,14 +93,59 @@ with the admin credentials it printed plus the 6-digit code from your
 authenticator app. Walk the dashboard: total secrets,
 active users, audit events, security status.
 
+## 1b. The one finding: a production secret with no rotation policy (~1.5 min)
+
+Open **Compliance**. A fresh demo is deliberately calm: the control matrix reads
+`16 controls · 12 pass · 1 gap` (the other 3 are optional controls that are not
+configured on a demo: certificate scanning, data retention, signed-update keys). The
+single gap is **Secret-rotation hygiene**: *0 overdue, 0 due soon; 2 of 3 secrets
+covered*. That is the talking point, and it is a real one: `payments-webhook-secret`
+in backend-api / Production was added after the rotation policies were written, so
+nothing would ever tell anyone it is going stale. Keyorix finds it because it checks
+coverage as well as age ("every secret is on a schedule", not just "nothing is
+overdue yet").
+
+Fix it live, and watch the matrix go to `0 gaps` after a reload:
+
+```sh
+./bin/keyorix rotation create --name backend-api-prod-90d \
+  --scope environment --environment-id 6 --interval-days 90
+```
+
+Why exactly this finding: it needs no time travel (a fresh install cannot have an
+*overdue* secret, only an uncovered one), it fires deterministically, and the fix is
+one command. To get the talking point back, re-seed:
+`./scripts/demo/down.sh --wipe && ./scripts/demo/up.sh`. `make demo-check` fails
+if a fresh demo shows anything other than exactly this one gap.
+
+Anomalies: the **Open anomalies** tile and the Audit -> Anomaly Alerts tab are empty
+until the first detection pass, which runs 1-5 minutes after the server starts and
+then hourly. A day-zero install has no access baseline yet (a user or IP must be
+seen for 24 hours before it counts as "known", so an attacker cannot make
+themselves normal), so that first pass flags the demo's own first accesses as
+low-severity *new user* / *new IP* (and *off hours* outside 06:00-22:00 UTC)
+alerts. Say so rather than hide them: they are informational, none is high
+severity, the "Access-anomaly detection" control stays green (it only turns red on a
+high-severity alert), and Dismiss clears them. See "Known rough edges".
+
 ## 2. MFA enrollment, live (~1.5 min)
 
-The admin is already enrolled by `up.sh` (that is why the login above asked
-for a code). To show enrolment itself live, log in as **alice**: the server
-confines her to the security page (`/profile?tab=security&mfa=required`) until
-she enrols — scan the QR/enter the setup key in any TOTP app, enter the
-6-digit code and her password, confirm. Log out, log back in — the server now
-challenges for the code. (Disabling it again: Security -> Disable; **use a
+The admin, alice and the second admin (`security-officer`) are already enrolled by
+`up.sh` (that is why the login above asked for a code, and why Compliance shows
+100% second-factor coverage); their setup keys are in `.demo-2-state`. To show
+enrolment itself live, create a brand-new user and log in as them:
+
+```sh
+KEYORIX_INITIAL_PASSWORD='<a long passphrase>' ./bin/keyorix user create \
+  --username dana --email dana@keyorix.demo
+```
+
+The server confines **dana** to the security page
+(`/profile?tab=security&mfa=required`) until she enrols — scan the QR/enter the
+setup key in any TOTP app, enter the 6-digit code and her password, confirm. Log
+out, log back in — the server now challenges for the code. While she is not yet
+enrolled, Compliance's second-factor coverage drops below 100% and that control is
+a gap; it returns to 100% the moment she enrols. (Disabling it again: Security -> Disable; **use a
 fresh TOTP code, not the password** — the password-only path is correctly
 rejected once MFA is enrolled, and a rejected attempt currently leaves the
 dialog stuck, #2738 — close and reopen it if that happens.)
@@ -109,9 +159,8 @@ it either way:
 export HOME=./.demo-2-cli-home   # the isolated CLI credential store up.sh used
 ./bin/keyorix login --server http://localhost:8080 --username alice
                                            # paste alice's password (from the up.sh output) at the hidden prompt;
-                                           # once she has enrolled her own TOTP (step 2) the CLI also prompts for
-                                           # the 6-digit code. Until then require_mfa confines her to the
-                                           # enrolment endpoints
+                                           # alice is enrolled by up.sh, so the CLI then prompts for a 6-digit
+                                           # code: generate it from her setup key (".demo-2-state", "Alice TOTP key")
 ./bin/keyorix secret list --project 2     # numeric ID — alice holds no deployment-wide role,
                                            # so a project NAME needs one; the CLI says so
                                            # and tells you the numeric ID to use instead
@@ -311,6 +360,17 @@ soft-delete confirmation text (#2568), stale docker-compose image pins
   was closed 2026-10-04 but the failure still reproduces on current `main`;
   flagged on the issue for the coordinator to confirm. Stop the server (or
   `docker stop keyorix-demo`) first if you want to demo it live.
+
+**Open anomalies on a day-zero install (found DEMO-SEED-1, 2026-10-12):** the
+first detection pass, 1-5 minutes after the server starts, flags the seed's own
+accesses — creating, rotating and revealing a secret as admin — as *new user* and
+*new IP* (low) and, between 22:00 and 06:00 UTC, *off hours* (medium) on the secret
+they touch: 24 alerts for the untouched seed (measured at 22:19 UTC, so including the
+off-hours ones; fewer in the daytime), none high. This is the detector
+working as designed on an install with no baseline (the baseline-quarantine rule,
+#101), not a seed problem, so the seed does not suppress it and the product's
+thresholds were not changed; whether the creator's own first access to a brand-new
+secret should count as "new" is a product question, not a demo one.
 
 **Polish, safe to demo through:** none currently open that affect this
 script's own steps.

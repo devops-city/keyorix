@@ -126,6 +126,38 @@ demo_login_mfa() {
   [ -n "$DEMO_TOKEN" ] || { echo "login ($user) succeeded but returned no token: $DEMO_BODY" >&2; return 1; }
 }
 
+# demo_review_project BASE_URL TOKEN OTHER_TOKEN PROJECT_ID CAMPAIGN_NAME REASON
+# Runs one complete access-review campaign (A.5.18 recertification) through the
+# public API: open it (snapshots the project's current access), attest EVERY item
+# with REASON, close it. No item is skipped and nothing is force-closed, so the
+# resulting "reviewed" state is a real review of the seeded grants, not a
+# bookkeeping shortcut. The product requires an INDEPENDENT reviewer (nobody
+# attests their own access): TOKEN decides each item; where the server refuses
+# that as "independent", the same item is decided by OTHER_TOKEN (the second
+# administrator) instead. Any other refusal fails the run. Returns non-zero
+# (reason on stderr) if any step is refused.
+demo_review_project() {
+  local base="$1" token="$2" other_token="$3" pid="$4" name="$5" reason="$6" cid item items body
+  demo_api POST "$base" "/api/v1/projects/${pid}/access-review/campaigns" "$token" \
+    "$(python3 -c 'import json,sys; print(json.dumps({"name":sys.argv[1]}))' "$name")"
+  [ "$DEMO_HTTP_CODE" = "200" ] || [ "$DEMO_HTTP_CODE" = "201" ] || { echo "open access-review campaign (project $pid) returned $DEMO_HTTP_CODE: $DEMO_BODY" >&2; return 1; }
+  cid="$(demo_json 'd["data"]["campaign"]["id"]' "$DEMO_BODY")"
+  [ -n "$cid" ] || { echo "open access-review campaign (project $pid) returned no campaign id: $DEMO_BODY" >&2; return 1; }
+  demo_api GET "$base" "/api/v1/projects/${pid}/access-review/campaigns/${cid}" "$token"
+  [ "$DEMO_HTTP_CODE" = "200" ] || { echo "read access-review campaign $cid (project $pid) returned $DEMO_HTTP_CODE: $DEMO_BODY" >&2; return 1; }
+  items="$(demo_json '" ".join(str(i["id"]) for i in d["data"].get("items") or [])' "$DEMO_BODY")"
+  body="$(python3 -c 'import json,sys; print(json.dumps({"action":"attest","reason":sys.argv[1]}))' "$reason")"
+  for item in $items; do
+    demo_api POST "$base" "/api/v1/projects/${pid}/access-review/campaigns/${cid}/items/${item}/decide" "$token" "$body"
+    if [ "$DEMO_HTTP_CODE" = "400" ] && printf '%s' "$DEMO_BODY" | grep -qi 'independent'; then
+      demo_api POST "$base" "/api/v1/projects/${pid}/access-review/campaigns/${cid}/items/${item}/decide" "$other_token" "$body"
+    fi
+    [ "$DEMO_HTTP_CODE" = "200" ] || { echo "attest item $item of campaign $cid (project $pid) returned $DEMO_HTTP_CODE: $DEMO_BODY" >&2; return 1; }
+  done
+  demo_api POST "$base" "/api/v1/projects/${pid}/access-review/campaigns/${cid}/close" "$token" '{"force":false}'
+  [ "$DEMO_HTTP_CODE" = "200" ] || { echo "close access-review campaign $cid (project $pid) returned $DEMO_HTTP_CODE: $DEMO_BODY" >&2; return 1; }
+}
+
 # demo_enroll_mfa BASE_URL USER PASSWORD
 # Enrols TOTP for a user that has none yet (a freshly bootstrapped admin, or any
 # user, through the login session that is still allowed before MFA exists), then logs in again with a code. Sets

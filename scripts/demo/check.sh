@@ -429,6 +429,42 @@ step_admin_login() {
   return 0
 }
 
+# step_seed_posture asserts what a FRESH demo shows on the Compliance page: a
+# healthy posture with exactly ONE deliberate, explainable finding -- the
+# production secret (payments-webhook-secret) that has no rotation policy
+# (docs/demo/GOLDEN-PATH.md section 1b). It runs before any step that changes
+# the org, so it sees the seed exactly as the presenter will. Strict on purpose:
+# a second gap means the seed regressed (or the product started failing a
+# control the seed used to satisfy), and zero gaps means the talking point is
+# gone (an instance that was already remediated by hand: re-seed with
+# scripts/demo/down.sh --wipe && scripts/demo/up.sh).
+step_seed_posture() {
+  if [ "$BACKEND" != "sqlite" ]; then
+    echo "SKIP: only scripts/demo/up.sh's seed is checked; the --postgres seed (seed_demo_org) is a minimal replica of the org, not of the compliance setup"
+    return 0
+  fi
+  req GET /api/v1/compliance/controls "$ADMIN_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || { echo "GET /api/v1/compliance/controls returned $HTTP_CODE: $RESP_BODY"; return 1; }
+  local gaps unknown
+  gaps="$(jget '",".join(c["id"] for c in d["data"]["controls"] if c["status"]=="gap")')"
+  unknown="$(jget '",".join(c["id"] for c in d["data"]["controls"] if c["status"] in ("unknown","partially_evaluated"))')"
+  [ -z "$unknown" ] || { echo "controls with an unknown/partial status on a fresh demo: $unknown -- the posture could not be collected, internal/core/control_framework.go"; return 1; }
+  [ "$gaps" = "secret-rotation" ] || {
+    echo "a fresh demo must show exactly one gap, secret-rotation (the production secret with no rotation policy); got: '${gaps:-none}' -- scripts/demo/up.sh seed, docs/demo/GOLDEN-PATH.md section 1b"
+    return 1
+  }
+  local detail; detail="$(jget 'next(c["detail"] for c in d["data"]["controls"] if c["id"]=="secret-rotation")')"
+  case "$detail" in
+    *"2 of 3 secrets covered"*) ;;
+    *) echo "secret-rotation gap has the wrong detail '$detail', expected '2 of 3 secrets covered' (payments-webhook-secret uncovered)"; return 1 ;;
+  esac
+  # No high-severity anomaly: that is what turns the anomaly-detection control red.
+  local passing; passing="$(jget 'next(c["status"] for c in d["data"]["controls"] if c["id"]=="anomaly-detection")')"
+  [ "$passing" = "pass" ] || { echo "anomaly-detection control is '$passing' on a fresh demo, expected pass (no high-severity alert)"; return 1; }
+  echo "one deliberate finding: secret-rotation ($detail)"
+  return 0
+}
+
 step_alice_login() {
   # alice has no TOTP yet (the demo has her enrol live): a password login must
   # still succeed, but only into the MFA-enrolment-only session.
@@ -511,8 +547,14 @@ step_verify_history() {
   [ "$HTTP_CODE" = "200" ] || { echo "GET /api/v1/secrets/$VERIFY_SECRET_ID/versions returned $HTTP_CODE: $RESP_BODY"; return 1; }
   local n; n="$(jget 'len(d["data"]["versions"])')"
   [ -n "$n" ] && [ "$n" -ge 2 ] 2>/dev/null || { echo "expected >=2 versions after a rotate, got $n -- server/http/handlers/secrets_crud.go GetSecretVersions"; return 1; }
-  # cleanup -- scratch project, not part of the demo narrative
+  # cleanup -- scratch project, not part of the demo narrative. The secret has to
+  # go first: deleting a project that still holds a secret is refused with 409,
+  # which used to be ignored, leaving a never-reviewed project and an unclassified,
+  # uncovered secret behind in every --keep demo (and in the Compliance page).
+  req DELETE "/api/v1/secrets/$VERIFY_SECRET_ID" "$ADMIN_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ] || { echo "cleanup: DELETE /api/v1/secrets/$VERIFY_SECRET_ID returned $HTTP_CODE: $RESP_BODY"; return 1; }
   req DELETE "/api/v1/projects/$VERIFY_PROJECT_ID" "$ADMIN_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "204" ] || { echo "cleanup: DELETE /api/v1/projects/$VERIFY_PROJECT_ID returned $HTTP_CODE: $RESP_BODY"; return 1; }
   echo "$n versions"
   return 0
 }
@@ -696,6 +738,9 @@ step_ui() {
       export KEYORIX_E2E_ADMIN_TOTP_LAST_STEP="$totp_last"
     fi
     export KEYORIX_E2E_WEB_PORT=18199
+    # Turns on pages.spec.ts's two seed-posture tests (Compliance + anomaly views):
+    # they only make sense against scripts/demo/up.sh's seed, so the sqlite backend.
+    [ "$BACKEND" != "sqlite" ] || export KEYORIX_E2E_DEMO_SEED=1
     pnpm exec playwright test --config=playwright.config.real.ts e2e/real/pages.spec.ts
   )
 }
@@ -711,6 +756,7 @@ run_step "health/version"            step_health
 run_step "api version"               step_version
 run_step "web UI served (#2752)"     step_webui
 run_step "admin login"               step_admin_login
+run_step "compliance: healthy seed, one deliberate finding" step_seed_posture
 run_step "alice (non-admin) login"   step_alice_login
 run_step "mfa: enroll + login (viewer session for the alice checks)" step_mfa
 run_step "alice: project list non-empty"      step_alice_projects_nonempty

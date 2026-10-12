@@ -201,6 +201,57 @@ test('every main page loads with no console errors or failed API calls (single s
     expect(perPageFailures, 'one entry per page that failed its own check').toEqual([]);
 });
 
+// DEMO-SEED-1: what a FRESH demo shows. scripts/demo/up.sh seeds a healthy
+// posture with exactly one deliberate, explainable finding -- the production
+// secret payments-webhook-secret has no rotation policy (docs/demo/GOLDEN-PATH.md
+// section 1b). These two tests assert that on the real Compliance and anomaly
+// views. They are only meaningful against that seed, so they run only when
+// scripts/demo/check.sh sets KEYORIX_E2E_DEMO_SEED=1 (web-real-smoke.sh boots a
+// blank server whose Compliance page legitimately shows many gaps; there they
+// are reported as skipped, with this reason).
+const DEMO_SEED = process.env.KEYORIX_E2E_DEMO_SEED === '1';
+const DEMO_SEED_SKIP = "asserts scripts/demo/up.sh's seed; scripts/demo/check.sh sets KEYORIX_E2E_DEMO_SEED=1";
+
+test('demo seed: Compliance shows a healthy posture with exactly one deliberate finding', async () => {
+    test.skip(!DEMO_SEED, DEMO_SEED_SKIP);
+    const page = shared;
+    await page.goto('/compliance');
+    await page.waitForLoadState('networkidle', { timeout: 15_000 });
+
+    // The control matrix header: "16 controls · 12 pass · 1 gap". The 3 optional
+    // controls that are not configured on a demo are neither pass nor gap.
+    await expect(page.getByText(/\d+ controls? · \d+ pass · \d+ gaps?/)).toContainText('· 1 gap');
+    // ... and that single gap is the secret-rotation control, for the reason the
+    // talking point gives.
+    const gapRows = page.getByRole('listitem').filter({ has: page.getByText('Gap', { exact: true }) });
+    await expect(gapRows).toHaveCount(1);
+    await expect(gapRows.first()).toContainText('Secret-rotation hygiene');
+    await expect(gapRows.first()).toContainText('2 of 3 secrets covered');
+
+    // The posture tiles agree with the matrix: nothing else is amber.
+    const tile = (label: string) => page.locator('div.rounded-lg').filter({ hasText: label });
+    await expect(tile('Second-factor coverage')).toContainText('100%');
+    await expect(tile('Projects reviewed (A.5.18)')).toContainText('3/3');
+    await expect(tile('Projects overdue for recert (A.5.18)')).toContainText(/^0/);
+    await expect(tile('Dormant role grants')).toContainText(/^0/);
+    await expect(tile('Unclassified secrets')).toContainText('0 / 3');
+    await expect(tile('Rotation overdue / due-soon (A.5.15)')).toContainText('0 / 0');
+    // Anomalies: a day-zero install has no baseline, so low/medium new-user/new-IP
+    // alerts appear a few minutes after boot (see GOLDEN-PATH.md); what must never
+    // be on a fresh demo is a high-severity one, which would show as "(N high)".
+    await expect(tile('(NIS2)')).not.toContainText('high');
+});
+
+test('demo seed: the anomaly view lists no high-severity alert', async () => {
+    test.skip(!DEMO_SEED, DEMO_SEED_SKIP);
+    const page = shared;
+    await page.goto('/audit?tab=anomalies');
+    await page.waitForLoadState('networkidle', { timeout: 15_000 });
+    // Either the empty state (the scan has not run yet) or the alert table.
+    await expect(page.getByText('No anomalies detected').or(page.getByText('Filter:'))).toBeVisible();
+    await expect(page.locator('tbody tr').getByText(/^(high|critical)$/i)).toHaveCount(0);
+});
+
 // WEB-SA-1: the Service Accounts feature was retired (docs/adr-113-retire-
 // legacy-service-accounts.md) -- its page and API client were deleted, but
 // an old bookmark/link to either admin URL must redirect to Machine
