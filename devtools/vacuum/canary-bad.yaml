@@ -1,0 +1,28 @@
+# Deliberately broken OpenAPI document. The openapi-lint CI job lints this with
+# .vacuum.yaml and fails if vacuum accepts it: proof the ruleset is loaded and
+# its error-severity rules fire (an inert ruleset would otherwise pass every
+# spec). Never point a real consumer at this file.
+openapi: 3.0.3
+info:
+  title: canary
+  version: 0.0.0
+  description: Lint canary, intentionally invalid.
+paths:
+  /canary:
+    get:
+      operationId: canary
+      tags: [canary]
+      description: Query param whose string enum holds YAML booleans.
+      parameters:
+        - {name: flag, in: query, description: Flag., schema: {type: string, enum: [true, false]}}
+      responses:
+        '200': {description: ok}
+  /canary/{id}:
+    get:
+      operationId: canary
+      tags: [canary]
+      description: Duplicate operationId and an undeclared path parameter.
+      responses:
+        '200': {description: ok}
+tags:
+  - {name: canary, description: Canary.}

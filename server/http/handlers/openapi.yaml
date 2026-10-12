@@ -6440,7 +6440,7 @@ paths:
         - {name: resource_type, in: query, schema: {type: string}, description: "Resource kind prefix (e.g. secret)."}
         - {name: resource_id, in: query, schema: {type: integer}, description: Exact secret_node_id.}
         - {name: ip, in: query, schema: {type: string}, description: Exact originating IP address.}
-        - {name: success, in: query, schema: {type: string, enum: [true, false]}, description: Filter by operation success/failure.}
+        - {name: success, in: query, schema: {type: string, enum: ['true', 'false']}, description: Filter by operation success/failure.}
         - {name: since, in: query, schema: {type: string, format: date-time}, description: RFC3339 start of time range (inclusive).}
         - {name: until, in: query, schema: {type: string, format: date-time}, description: RFC3339 end of time range (inclusive).}
         - {name: limit, in: query, schema: {type: integer, default: 100, maximum: 1000}, description: Maximum results.}

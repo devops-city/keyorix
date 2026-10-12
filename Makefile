@@ -403,6 +403,10 @@ vet:
 	go vet ./...
 lint:
 	golangci-lint run ./...
+# Same command as ci.yml's openapi-lint job (vacuum, version pinned in devtools/vacuum/go.mod).
+.PHONY: openapi-lint
+openapi-lint:
+	GOWORK=off GOFLAGS=-mod=readonly go tool -modfile=devtools/vacuum/go.mod vacuum lint -r .vacuum.yaml --no-update-check server/http/handlers/openapi.yaml
 test:
 	go test -race ./...
 test-cover:

@@ -4,8 +4,7 @@
   "private": true,
   "description": "CI tooling dependencies (pinned for Scorecard supply-chain compliance)",
   "dependencies": {
-    "@cyclonedx/cdxgen": "12.8.4",
-    "@stoplight/spectral-cli": "6.16.3"
+    "@cyclonedx/cdxgen": "12.8.4"
   },
   "overrides": {
     "brace-expansion": "5.0.12",

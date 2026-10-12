@@ -81,8 +81,8 @@ jobs:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      # Pinned via the root package-lock.json + npm ci, same pattern as
-      # openapi-lint's Spectral install (Scorecard #533): `npm install -g` has
+      # Pinned via the root package-lock.json + npm ci, the pattern the
+      # openapi-lint job used for Spectral (Scorecard #533): `npm install -g` has
       # no integrity hash for Scorecard's Pinned-Dependencies check to verify
       # against, whereas a committed lockfile records the exact SHA of every
       # package in the tree (Scorecard #636). node_modules/.bin is added to

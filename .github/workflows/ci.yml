@@ -2956,12 +2956,20 @@ jobs:
             --ignore-test container-image-pull-policy
 
   # The 3,000-line openapi.yaml is the contract between the server and every
-  # client (dashboard, CLI remote mode, SDK users). Spectral validates structural
+  # client (dashboard, CLI remote mode, SDK users). vacuum validates structural
   # correctness (response schemas present, security schemes consistent, no
   # trailing slashes, typed enums) so drift between the spec and handler intent
-  # is caught in CI rather than discovered by a consumer. The OAS ruleset is
-  # used as-is: it only fails on ERRORs by default, so warnings are surfaced
-  # without blocking, and the .spectral.yaml at the repo root controls overrides.
+  # is caught in CI rather than discovered by a consumer. .vacuum.yaml at the
+  # repo root selects the rules (the spectral:oas set plus a few zero-finding
+  # extras); the job fails on ERRORs only, warnings are surfaced without
+  # blocking. vacuum replaced @stoplight/spectral-cli, whose dependency tree
+  # carries braces GHSA-vfj7-8cjw-p6xm with no patched release.
+  #
+  # vacuum is built from source at the exact version in devtools/vacuum/go.mod;
+  # every module it needs is verified against devtools/vacuum/go.sum (and
+  # GOFLAGS=-mod=readonly forbids any drift), the Scorecard-friendly
+  # equivalent of npm ci against a lockfile. The canary step proves the
+  # ruleset is loaded and error rules fire.
   #
   # Skipped on merge_group (CI-1, 2026-10-03): same reasoning as smoke's own
   # comment above -- no event gating, already runs on every pull_request push
@@ -2977,11 +2985,30 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Spectral (lockfile-pinned, lifecycle scripts disabled)
-        run: npm ci --ignore-scripts
+      # Go toolchain + module/build cache keyed on devtools/vacuum/go.sum, so a
+      # warm run only relinks vacuum.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: devtools/vacuum/go.sum
 
       - name: Lint OpenAPI spec
-        run: ./node_modules/.bin/spectral lint --ruleset .spectral.yaml server/http/handlers/openapi.yaml
+        env:
+          GOWORK: 'off'
+          GOFLAGS: -mod=readonly
+        run: go tool -modfile=devtools/vacuum/go.mod vacuum lint -r .vacuum.yaml --no-update-check -b -q server/http/handlers/openapi.yaml
+
+      # A guard nobody has watched fail is not a guard: the canary is a
+      # deliberately broken spec, and this step fails if vacuum accepts it.
+      - name: Ruleset canary (a broken spec must fail)
+        env:
+          GOWORK: 'off'
+          GOFLAGS: -mod=readonly
+        run: |
+          if go tool -modfile=devtools/vacuum/go.mod vacuum lint -r .vacuum.yaml --no-update-check -b -q -x devtools/vacuum/canary-bad.yaml; then
+            echo "::error::vacuum accepted devtools/vacuum/canary-bad.yaml; .vacuum.yaml is not enforcing its error rules"
+            exit 1
+          fi
 
   # Nightly failure report. Runs only for the scheduled run, after every other
   # job, and only when at least one of them failed. Opens an issue titled

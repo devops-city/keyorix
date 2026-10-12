@@ -13442,7 +13442,7 @@ export interface operations {
                 /** @description Exact originating IP address. */
                 ip?: string;
                 /** @description Filter by operation success/failure. */
-                success?: true | false;
+                success?: "true" | "false";
                 /** @description RFC3339 start of time range (inclusive). */
                 since?: string;
                 /** @description RFC3339 end of time range (inclusive). */

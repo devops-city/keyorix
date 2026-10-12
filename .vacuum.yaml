@@ -1,0 +1,107 @@
+# Ruleset for `vacuum lint` (openapi-lint job in .github/workflows/ci.yml).
+#
+# Replaces .spectral.yaml (extends: spectral:oas). Goal: check what spectral:oas
+# checked, at the same severity (CI fails on `error` only; `warn` is reported,
+# never blocking), and nothing noisier. vacuum's own "recommended" set is
+# larger than spectral:oas and flags ~1,400 findings on this spec (style rules:
+# camelCase properties, examples, descriptions); those are switched off below.
+#
+# Mapping of spectral:oas rule -> vacuum rule (OAS 3.0.x rules only; the oas2-*
+# and oas3_1-* rules never apply to this 3.0.3 document):
+#   operation-success-response, operation-operationId-unique, operation-parameters,
+#   operation-tag-defined, path-params, info-description, no-eval-in-markdown,
+#   no-script-tags-in-markdown, operation-operationId,
+#   operation-operationId-valid-in-url, operation-tags,
+#   path-declarations-must-exist, path-keys-no-trailing-slash,
+#   path-not-include-query, no-$ref-siblings, oas3-api-servers,
+#   oas3-operation-security-defined, oas3-schema, oas3-unused-component,
+#   oas3-server-trailing-slash, oas3-valid-schema-example   -> same id
+#   oas3-examples-value-or-externalValue                    -> oas3-example-external-check
+#   operation-description (operation has a description)     -> operation-description-present
+#       (below; vacuum's operation-description also demands a description on every
+#       requestBody, which spectral never did)
+#   array-items                                             -> array-items (below)
+# No vacuum equivalent (not checked any more): openapi-tags-uniqueness,
+# oas3-valid-media-example (partly covered by oas3-valid-schema-example),
+# oas3-server-variables, oas3-callbacks-in-callbacks. See the PR description.
+#
+# Severity follows spectral:oas. Where vacuum's default differs it is pinned
+# here, so a rule that was a warning stays a warning.
+extends: [[vacuum:oas, recommended]]
+
+rules:
+  # --- spectral:oas parity: severity pinned to spectral's ---
+  operation-success-response: warn
+  operation-operationId-unique: error
+  operation-parameters: warn
+  operation-tag-defined: warn
+  path-params: error
+  info-description: warn
+  no-eval-in-markdown: warn
+  no-script-tags-in-markdown: warn
+  operation-operationId: warn
+  operation-operationId-valid-in-url: warn
+  operation-tags: warn
+  path-declarations-must-exist: warn
+  path-keys-no-trailing-slash: warn
+  path-not-include-query: warn
+  no-$ref-siblings: error
+  oas3-api-servers: warn
+  oas3-example-external-check: warn
+  oas3-operation-security-defined: warn
+  oas3-schema: error
+  oas3-unused-component: warn
+  oas3-server-trailing-slash: warn
+  oas3-valid-schema-example: error
+
+  # spectral's operation-description: the operation has a description.
+  operation-description: false
+  operation-description-present:
+    description: Operation must have a description.
+    given: $.paths[*][get,put,post,delete,options,head,patch,trace]
+    severity: warn
+    then:
+      field: description
+      function: truthy
+
+  # spectral's array-items: every array schema declares `items`.
+  array-items:
+    description: Schemas with type "array" must declare "items".
+    given: $..[?(@.type=='array')]
+    severity: error
+    then:
+      field: items
+      function: truthy
+
+  # --- not enabled in spectral today (info-contact, info-license off in the old
+  # .spectral.yaml; spectral:oas leaves them off anyway) ---
+  info-contact: false
+  info-license: false
+
+  # --- extra vacuum rules with 0 findings on main: free guards, kept on ---
+  # typed-enum / oas-schema-check caught `enum: [true, false]` on a string
+  # parameter (audit/search `success`); spectral's typed-enum was switched off
+  # here, which is why it went unnoticed.
+  typed-enum: warn
+  duplicated-entry-in-enum: warn
+  oas-schema-check: error
+  allof-conflicts: error
+  duplicate-paths: error
+  info-license-spdx: error
+  migrate-zally-ignore: warn
+  no-ambiguous-paths: error
+  no-http-verbs-in-path: warn
+  no-unnecessary-combinator: warn
+  nullable-enum-contains-null: warn
+  path-item-refs: warn
+  paths-kebab-case: warn
+
+  # --- extra vacuum rules with findings on main: off (follow-up idea, counts
+  # from vacuum v0.33.0 on server/http/handlers/openapi.yaml) ---
+  camel-case-properties: false        # 523
+  oas3-missing-example: false         # 483
+  oas3-parameter-description: false   # 232
+  description-duplication: false      # 52
+  component-description: false        # 28
+  no-request-body: false              # 2 (DELETE with a body)
+  oas-missing-type: false             # 2

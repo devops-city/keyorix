@@ -1,6 +1,0 @@
-extends: ["spectral:oas"]
-rules:
-  info-contact: off
-  info-license: off
-  typed-enum: off
-  duplicated-entry-in-enum: off

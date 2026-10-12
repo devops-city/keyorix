@@ -55,6 +55,20 @@ updates:
         update-types:
           - "minor"
           - "patch"
+  # devtools/vacuum: the OpenAPI linter used by ci.yml's openapi-lint job (own
+  # module, not in go.work). A bump changes which findings the lint reports,
+  # so it needs the job's red/green canary to pass, same as any ruleset edit.
+  - package-ecosystem: gomod
+    directory: /devtools/vacuum
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    groups:
+      go-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
   # ADR-070: web/ (the dashboard, ex-keyorix-web) is now a subtree here.
   # web/.github/dependabot.yml — the pnpm-ecosystem entry that covered it as
   # a standalone repo — is deleted along with the rest of web/.github/ in the
@@ -74,7 +88,7 @@ updates:
           - "minor"
           - "patch"
   # The repo root also has its own package.json/package-lock.json
-  # (keyorix-ci-tools: cdxgen + spectral-cli, pinned for Scorecard
+  # (keyorix-ci-tools: cdxgen, pinned for Scorecard
   # supply-chain compliance). Dependabot's security updates already cover
   # it regardless of this file (PR #1687 bumped fast-uri here without any
   # entry below) -- this entry is only for routine patch/minor version
