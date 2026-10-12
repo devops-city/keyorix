@@ -245,26 +245,40 @@ func (c *KeyorixCore) CreateDynamicSecretConfig(ctx context.Context, req *Create
 	// it by project, not by ID. So the second write touches ONLY the DSN columns
 	// (SetDynamicSecretConfigAdminDSN, #2651); a full-row Save here wrote
 	// disabled=false back over a concurrent DeleteProject.
-	cfg, err := c.insertDynamicSecretConfigRow(ctx, req)
-	if err != nil {
+	//
+	// #3108: both writes run in ONE transaction, so a failure of the second (or of the
+	// encryption between them) rolls the insert back instead of leaving a config row
+	// with no DSN behind an error. The concurrency guard is unchanged:
+	// CreateDynamicSecretConfig's lockLiveParent takes FOR SHARE on the project row
+	// inside this transaction, so DeleteProject's cascade waits for our commit and
+	// then disables the committed row.
+	var cfg *models.DynamicSecretConfig
+	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		row, err := insertDynamicSecretConfigRow(ctx, tx, c.now(), req)
+		if err != nil {
+			return err
+		}
+		dsnEnc, dsnMeta, err := c.encryptAuthSecret(req.AdminDSN, ports.DynamicSecretConfigAAD(row.ID, row.ProjectID, row.EnvironmentID))
+		if err != nil {
+			return fmt.Errorf("failed to encrypt admin DSN: %w", err)
+		}
+		row.AdminDSNEnc = dsnEnc
+		row.AdminDSNMeta = dsnMeta
+		// A direct read of row.AdminDSNEnc (the field every issue/renew-time decrypt
+		// site later reads) passed to a validator-named call, distinct from
+		// enforceDynamicSecretSSRFGuard(req.AdminDSN) above which validates the
+		// pre-encryption plaintext parameter, not this field -- a static analyzer can
+		// only recognize the field itself as validated via a call shaped like this one.
+		if err := validateEncryptedAdminDSNField(row.AdminDSNEnc); err != nil {
+			return fmt.Errorf("encrypted admin DSN is invalid: %w", err)
+		}
+		if err := tx.SetDynamicSecretConfigAdminDSN(ctx, row.ID, row.AdminDSNEnc, row.AdminDSNMeta); err != nil {
+			return fmt.Errorf("failed to persist encrypted admin DSN: %w", err)
+		}
+		cfg = row
+		return nil
+	}); err != nil {
 		return nil, err
-	}
-	dsnEnc, dsnMeta, err := c.encryptAuthSecret(req.AdminDSN, ports.DynamicSecretConfigAAD(cfg.ID, cfg.ProjectID, cfg.EnvironmentID))
-	if err != nil {
-		return nil, fmt.Errorf("failed to encrypt admin DSN: %w", err)
-	}
-	cfg.AdminDSNEnc = dsnEnc
-	cfg.AdminDSNMeta = dsnMeta
-	// A direct read of cfg.AdminDSNEnc (the field every issue/renew-time decrypt
-	// site later reads) passed to a validator-named call, distinct from
-	// enforceDynamicSecretSSRFGuard(req.AdminDSN) above which validates the
-	// pre-encryption plaintext parameter, not this field -- a static analyzer can
-	// only recognize the field itself as validated via a call shaped like this one.
-	if err := validateEncryptedAdminDSNField(cfg.AdminDSNEnc); err != nil {
-		return nil, fmt.Errorf("encrypted admin DSN is invalid: %w", err)
-	}
-	if err := c.storage.SetDynamicSecretConfigAdminDSN(ctx, cfg.ID, cfg.AdminDSNEnc, cfg.AdminDSNMeta); err != nil {
-		return nil, fmt.Errorf("failed to persist encrypted admin DSN: %w", err)
 	}
 	pid := cfg.ProjectID
 	c.writeAuditEventFull(ctx, "dynamic_secret.config_created", nil, nil, &pid, "",
@@ -343,8 +357,8 @@ func validateEncryptedAdminDSNField(dsnEnc []byte) error {
 	return nil
 }
 
-func (c *KeyorixCore) insertDynamicSecretConfigRow(ctx context.Context, req *CreateDynamicSecretConfigRequest) (*models.DynamicSecretConfig, error) {
-	cfg, err := c.storage.CreateDynamicSecretConfig(ctx, &models.DynamicSecretConfig{
+func insertDynamicSecretConfigRow(ctx context.Context, st storage.Storage, now time.Time, req *CreateDynamicSecretConfigRequest) (*models.DynamicSecretConfig, error) {
+	cfg, err := st.CreateDynamicSecretConfig(ctx, &models.DynamicSecretConfig{
 		Name:              req.Name,
 		ProjectID:         req.ProjectID,
 		EnvironmentID:     req.EnvironmentID,
@@ -355,8 +369,8 @@ func (c *KeyorixCore) insertDynamicSecretConfigRow(ctx context.Context, req *Cre
 		MaxActiveLeases:   req.MaxActiveLeases,
 		Classification:    req.Classification,
 		CreatedBy:         req.CreatedBy,
-		CreatedAt:         c.now(),
-		UpdatedAt:         c.now(),
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	})
 	if err != nil {
 		// #462: DynamicSecretConfig's doc comment states "one per (project, env,

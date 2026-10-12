@@ -433,12 +433,29 @@ func TestCTAReview_SetSecretAutoRotate_vs_DeleteSecret_CrossReplicaPostgres(t *t
 }
 
 // TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgres:
-// CreateDynamicSecretConfig's insert commits on its own (the row IS visible to
-// other callers, contrary to its in-code comment), then a second full-row
-// Save writes the encrypted DSN. DeleteProject landing in between disables
-// the config (#369); the stale Save writes disabled=false back. RestoreProject
-// deliberately does not re-enable configs (#369), so this leaves a config
-// that can mint credentials as soon as the project is restored.
+// the original race (#2651): CreateDynamicSecretConfig inserted the row, then wrote
+// the encrypted DSN in a second, separately committed write. DeleteProject landing
+// between the two disabled the (visible) config (#369); a stale full-row Save then
+// wrote disabled=false back. RestoreProject deliberately does not re-enable configs
+// (#369), so that left a config able to mint credentials once the project was restored.
+//
+// Why the interleave point moved (#3108/#3110): the insert and the DSN write now run in
+// ONE transaction, and its project FOR SHARE re-check (lockLiveParent) holds until
+// commit. The old hook (B's DeleteProject run synchronously, on A's goroutine, just
+// before A's DSN UPDATE) now sits INSIDE that transaction, where A holds the project
+// row lock B's cascade needs (lockProjectRowForCascade): B waits for A, A waits for the
+// hook that is running B, and the test hangs. That is a harness deadlock of its own
+// making, not a product bug: replicas A and B really are on different goroutines. The
+// interleave that is still meaningful is "B lands while A is mid-transaction, after its
+// insert and project lock, before its commit". So the hook now starts B on its OWN
+// goroutine, waits (bounded, via pg_blocking_pids on A's backend) until B is observed
+// blocked behind A, and lets A commit. The safe serialization is: B's cascade runs after
+// A's commit, sees the committed config and disables it. The assertions check exactly
+// that: both operations succeed and the committed config is disabled. If B did not
+// serialize behind A it would not see A's uncommitted row, and the config would commit
+// enabled under a deleted project (the #369 violation asserted below).
+// The pre-transaction interleave is covered by
+// TestCTAReview_CreateDynamicSecretConfig_DeleteProjectBeforeTx_CrossReplicaPostgres.
 func TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgres(t *testing.T) {
 	t.Parallel()
 	f := newCTAReview(t)
@@ -446,16 +463,53 @@ func TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgr
 	f.coreA.SetDynamicEngineFactory(func(string) (dynamic.CredentialEngine, error) { return fake, nil })
 	f.coreB.SetDynamicEngineFactory(func(string) (dynamic.CredentialEngine, error) { return fake, nil })
 
-	var errB error
-	fired := f.beforeA("update", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	const bound = 60 * time.Second
+	bDone := make(chan error, 1)
+	var once sync.Once
+	var fired, bBlockedBehindA bool
+	require.NoError(t, f.dbA.Callback().Update().Before("gorm:update").Register("cta-review:concurrent-delete-in-tx", func(tx *gorm.DB) {
+		if tx.Statement.Table != "dynamic_secret_configs" {
+			return
+		}
+		once.Do(func() {
+			fired = true
+			var aPID int
+			require.NoError(t, tx.Statement.ConnPool.QueryRowContext(f.ctx, "SELECT pg_backend_pid()").Scan(&aPID))
+			go func() { bDone <- f.coreB.DeleteProject(f.ctx, f.projectID, true) }()
+			// Bounded wait until B's backend is blocked behind A's transaction.
+			deadline := time.Now().Add(bound)
+			for time.Now().Before(deadline) {
+				var n int64
+				require.NoError(t, f.setupDB.Raw("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))", aPID).Scan(&n).Error)
+				if n > 0 {
+					bBlockedBehindA = true
+					return
+				}
+				select {
+				case err := <-bDone: // B finished without ever waiting for A: it did not serialize.
+					bDone <- err
+					return
+				case <-time.After(10 * time.Millisecond):
+				}
+			}
+		})
+	}))
+
 	cfg, errA := f.coreA.CreateDynamicSecretConfig(f.ctx, &CreateDynamicSecretConfigRequest{
 		Name: "cta-dyn", ProjectID: f.projectID, EnvironmentID: f.envID, BackendType: "postgres",
 		AdminDSN:          "postgres://admin:s3cr3t@db.internal:5432/app",
 		CreationTemplate:  "GRANT SELECT ON ALL TABLES IN SCHEMA public TO {{name}};",
 		DefaultTTLSeconds: 3600, CreatedBy: "admin", ActorID: f.adminID,
 	})
+	require.True(t, fired, "the hook must have started B's DeleteProject inside A's transaction")
+	var errB error
+	select {
+	case errB = <-bDone:
+	case <-time.After(bound):
+		t.Fatalf("B's DeleteProject did not finish within %s after A's transaction ended", bound)
+	}
 	t.Logf("CreateDynamicSecretConfig (A) err=%v, DeleteProject (B) err=%v", errA, errB)
-	require.True(t, fired(), "the hook must have interleaved B's DeleteProject before A's config re-Save")
+	require.True(t, bBlockedBehindA, "B's DeleteProject must block behind A's open transaction (the project row lock), else this run did not exercise the serialization")
 	require.NoError(t, errA)
 	require.NoError(t, errB)
 
