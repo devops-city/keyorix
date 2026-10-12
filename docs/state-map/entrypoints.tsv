@@ -105,6 +105,7 @@ cli	keyorix encryption shamir-split	server/admin/encryption.go	232	<expr>	C	encr
 cli	keyorix encryption status	server/admin/encryption.go	93	runEncStatus	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix encryption upgrade-aad	server/admin/encryption.go	159	runEncUpgradeAAD	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix encryption validate	server/admin/encryption.go	187	runEncValidate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix generate-secrets	server/admin/generate_secrets.go	53	runGenerateSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group	cli/cmd/group.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix group add-member	cli/cmd/group.go	360	runGroupAddMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group create	cli/cmd/group.go	56	runGroupCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
