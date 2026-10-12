@@ -117,6 +117,24 @@ func performClearLoginLockout(ctx context.Context, db *gorm.DB, store corestorag
 		target = u
 	}
 
+	// Audit FIRST (#2956 follow-up): lifting a brute-force refusal is a security
+	// action, so it must never happen without a record. If the audit write fails
+	// nothing is cleared and the command fails; if the clear then fails, a
+	// failure event is appended (best effort) so the chain does not claim a clear
+	// that did not happen. The counts ("cleared N attempts") are only known after
+	// the delete, so they go to the operator's console, not the audit event.
+	var intent []string
+	if canonical != "" {
+		intent = append(intent, fmt.Sprintf("clearing the counted login attempts for IP %s", canonical))
+	}
+	if target != nil {
+		intent = append(intent, fmt.Sprintf("clearing the login lockout of user %q (id %d)", target.Username, target.ID))
+	}
+	description := "keyorix-server admin clear-login-lockout: " + strings.Join(intent, "; ")
+	if err := logLoginLockoutAudit(ctx, store, "admin.login_lockout_cleared", description, true, target); err != nil {
+		return "", fmt.Errorf("%s -- nothing was cleared because the audit event could not be written: %w", description, err)
+	}
+
 	var parts []string
 	if canonical != "" {
 		// Exactly the key the login handlers count under (core.CanonicalIP),
@@ -124,23 +142,35 @@ func performClearLoginLockout(ctx context.Context, db *gorm.DB, store corestorag
 		// this table under their own prefixes and are not what a login 429 is.
 		res := db.WithContext(ctx).Where("ip = ?", canonical).Delete(&models.LoginAttempt{})
 		if res.Error != nil {
-			return "", fmt.Errorf("clear login attempts for %s: %w", canonical, res.Error)
+			return "", failedClear(ctx, store, description, target, fmt.Errorf("clear login attempts for %s: %w", canonical, res.Error))
 		}
 		parts = append(parts, fmt.Sprintf("cleared %d counted login attempt(s) for IP %s", res.RowsAffected, canonical))
 	}
 	if target != nil {
 		if err := store.UpdateLoginLockoutState(ctx, target.ID, 0, nil, nil, 0); err != nil {
-			return "", fmt.Errorf("clear login lockout for user %d: %w", target.ID, err)
+			return "", failedClear(ctx, store, description, target, fmt.Errorf("clear login lockout for user %d: %w", target.ID, err))
 		}
 		parts = append(parts, fmt.Sprintf("cleared the login lockout of user %q (id %d)", target.Username, target.ID))
 	}
-	description := "keyorix-server admin clear-login-lockout: " + strings.Join(parts, "; ")
+	return "keyorix-server admin clear-login-lockout: " + strings.Join(parts, "; "), nil
+}
 
-	ok := true
+// failedClear records that the clear audited by the preceding
+// admin.login_lockout_cleared event did not (fully) happen, and returns the
+// original error. The failure event is best effort: the operator already gets
+// the error, and a second audit fault must not mask the first.
+func failedClear(ctx context.Context, store corestorage.Storage, description string, target *models.User, cause error) error {
+	if aerr := logLoginLockoutAudit(ctx, store, "admin.login_lockout_clear_failed", description+" -- FAILED: "+cause.Error(), false, target); aerr != nil {
+		return fmt.Errorf("%w (and the failure audit event could not be written: %v)", cause, aerr)
+	}
+	return cause
+}
+
+func logLoginLockoutAudit(ctx context.Context, store corestorage.Storage, eventType, description string, success bool, target *models.User) error {
 	ev := &models.AuditEvent{
-		EventType:   "admin.login_lockout_cleared",
+		EventType:   eventType,
 		Description: description,
-		Success:     &ok,
+		Success:     &success,
 		ActorType:   adminActorType,
 		EventTime:   time.Now(),
 	}
@@ -148,9 +178,5 @@ func performClearLoginLockout(ctx context.Context, db *gorm.DB, store corestorag
 		uid := target.ID
 		ev.UserID = &uid
 	}
-	if err := store.LogAuditEvent(ctx, ev); err != nil {
-		// The clear already happened; say so rather than pretend it did not.
-		return description, fmt.Errorf("%s -- but the audit event could not be written: %w", description, err)
-	}
-	return description, nil
+	return store.LogAuditEvent(ctx, ev)
 }

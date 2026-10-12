@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -127,4 +128,67 @@ func TestClearLoginLockout_RejectsBadInputBeforeChangingAnything(t *testing.T) {
 	var n int64
 	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ?", "admin.login_lockout_cleared").Count(&n).Error)
 	assert.Zero(t, n)
+}
+
+// auditFaultStorage fails LogAuditEvent (and/or UpdateLoginLockoutState) so the
+// ordering of clear vs audit can be observed.
+type auditFaultStorage struct {
+	*storelib.LocalStorage
+	failAudit  bool
+	failUpdate bool
+}
+
+func (s *auditFaultStorage) LogAuditEvent(ctx context.Context, ev *models.AuditEvent) error {
+	if s.failAudit {
+		return errors.New("injected audit fault")
+	}
+	return s.LocalStorage.LogAuditEvent(ctx, ev)
+}
+
+func (s *auditFaultStorage) UpdateLoginLockoutState(ctx context.Context, id uint, a int, b, c *time.Time, d int) error {
+	if s.failUpdate {
+		return errors.New("injected lockout-update fault")
+	}
+	return s.LocalStorage.UpdateLoginLockoutState(ctx, id, a, b, c, d)
+}
+
+// TestClearLoginLockout_AuditWriteFailureClearsNothing (#2956 follow-up): the
+// audit is written BEFORE anything is cleared, so a failing audit write leaves
+// both the IP budget and the account lockout in place and fails the command.
+// Before the fix the clear ran first and the operator was told "cleared -- but
+// the audit event could not be written": an unaudited lift of a lockout.
+func TestClearLoginLockout_AuditWriteFailureClearsNothing(t *testing.T) {
+	db, st := newClearLockoutTestDB(t)
+	faulty := &auditFaultStorage{LocalStorage: st, failAudit: true}
+
+	_, err := performClearLoginLockout(context.Background(), db, faulty, "203.0.113.9", "alice@example.com")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nothing was cleared")
+
+	assert.EqualValues(t, core.LoginMaxAttempts, countAttempts(t, db, "203.0.113.9"), "IP budget must survive an audit failure")
+	var u models.User
+	require.NoError(t, db.First(&u, 1).Error)
+	assert.Equal(t, 5, u.FailedLoginAttempts, "account lockout must survive an audit failure")
+	assert.NotNil(t, u.LoginLockedUntil)
+}
+
+// TestClearLoginLockout_ClearFailureIsAuditedAsFailed: the intent event is
+// already in the chain when the account clear faults, so a failure event must
+// follow it -- the chain must not claim a lift that did not happen.
+func TestClearLoginLockout_ClearFailureIsAuditedAsFailed(t *testing.T) {
+	db, st := newClearLockoutTestDB(t)
+	faulty := &auditFaultStorage{LocalStorage: st, failUpdate: true}
+
+	_, err := performClearLoginLockout(context.Background(), db, faulty, "", "alice@example.com")
+	require.Error(t, err)
+
+	var u models.User
+	require.NoError(t, db.First(&u, 1).Error)
+	assert.Equal(t, 5, u.FailedLoginAttempts, "the faulted clear must not have applied")
+
+	var ev models.AuditEvent
+	require.NoError(t, db.Where("event_type = ?", "admin.login_lockout_clear_failed").First(&ev).Error)
+	require.NotNil(t, ev.Success)
+	assert.False(t, *ev.Success)
+	assert.Contains(t, ev.Description, "injected lockout-update fault")
 }

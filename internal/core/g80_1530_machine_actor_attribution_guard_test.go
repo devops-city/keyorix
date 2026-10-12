@@ -89,7 +89,7 @@ var auditAttributionAllowlist = map[string]string{
 		"here is the host OS user (no Keyorix identity to attribute to, by definition -- design §4) and is never " +
 		"conflated with the target. ActorType never being \"machine_identity\" is what makes emitAudit's " +
 		"corrections inapplicable here, independent of what UserID holds.",
-	"server/admin/login_lockout.go:performClearLoginLockout": "hardcodes ActorType: adminActorType " +
+	"server/admin/login_lockout.go:logLoginLockoutAudit": "hardcodes ActorType: adminActorType " +
 		"(\"admin_cli\") for `keyorix-server admin clear-login-lockout` (#2936) -- same host-side, " +
 		"no-network-listener shape as recordRecoveryAuditEvent above (ADR-108 §B). Like it, UserID is set only " +
 		"to the TARGET account whose login lockout was cleared (when --user is given), never to an acting " +

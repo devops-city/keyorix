@@ -107,7 +107,9 @@ docker compose start backend
 ```
 
 Each run writes an `admin.login_lockout_cleared` audit event naming what it
-cleared. An admin who can still log in can unlock an account online instead
+is about to clear, before it clears anything: if the audit write fails, nothing
+is cleared and the command fails. If the clear itself then fails, an
+`admin.login_lockout_clear_failed` event follows. An admin who can still log in can unlock an account online instead
 (`POST /api/v1/users/{id}/unlock`).
 
 ## 3. Configuration (`.env` and `./secrets`)
