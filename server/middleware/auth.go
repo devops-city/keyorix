@@ -588,7 +588,13 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 				effective = cloneUserContextWithMachineRestriction(entry.userCtx, fresh)
 			}
 		default:
-			if usable, state, err := coreService.AccountUsabilityAndState(r.Context(), entry.userCtx.UserID); err == nil {
+			// One storage statement answers both re-reads below (PERF-FIX-7):
+			// the account's usability/state and, when the entry carries a
+			// session id, the session row's liveness, from one snapshot. Each
+			// half keeps its own verdict and error contract, judged in the
+			// same order as when they were two calls.
+			live := coreService.SessionCacheHitLiveness(r.Context(), entry.userCtx.UserID, entry.userCtx.SessionID, token)
+			if usable, state, err := live.AccountUsable, live.AccountState, live.AccountErr; err == nil {
 				if !usable {
 					denyRevokedCacheHit(w, token)
 					return
@@ -607,11 +613,9 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 			// lookup itself failed (see handleAuthRequest's #G18 comment) — skip
 			// rather than deny, which is exactly pre-fix behavior for that entry,
 			// not a new failure mode.
-			if entry.userCtx.SessionID != nil {
-				if live, err := coreService.SessionLiveForToken(r.Context(), *entry.userCtx.SessionID, token); err == nil && !live {
-					denyRevokedCacheHit(w, token)
-					return
-				}
+			if live.SessionChecked && live.SessionErr == nil && !live.SessionLive {
+				denyRevokedCacheHit(w, token)
+				return
 			}
 		}
 	}

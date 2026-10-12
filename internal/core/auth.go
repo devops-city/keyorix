@@ -911,20 +911,93 @@ func (c *KeyorixCore) SessionLiveForToken(ctx context.Context, sessionID uint, t
 		}
 		return false, err
 	}
-	if session.SessionToken != hashSessionTokenForLookup(token) {
-		return false, nil
+	return c.sessionRowLiveForToken(session.SessionToken, session.RotatedAt, session.ExpiresAt, session.AbsoluteExpiresAt, token), nil
+}
+
+// sessionRowLiveForToken is SessionLiveForToken's verdict on a session row that
+// was found: the row must belong to the presented token, not be rotated away,
+// and be inside both its idle and its absolute expiry.
+func (c *KeyorixCore) sessionRowLiveForToken(storedHash string, rotatedAt, expiresAt, absoluteExpiresAt *time.Time, token string) bool {
+	if storedHash != hashSessionTokenForLookup(token) {
+		return false
 	}
-	if session.RotatedAt != nil {
-		return false, nil
+	if rotatedAt != nil {
+		return false
 	}
 	now := c.now()
-	if session.ExpiresAt != nil && now.After(*session.ExpiresAt) {
-		return false, nil
+	if expiresAt != nil && now.After(*expiresAt) {
+		return false
 	}
-	if session.AbsoluteExpiresAt != nil && now.After(*session.AbsoluteExpiresAt) {
-		return false, nil
+	if absoluteExpiresAt != nil && now.After(*absoluteExpiresAt) {
+		return false
 	}
-	return true, nil
+	return true
+}
+
+// SessionCacheHitCheck is SessionCacheHitLiveness's answer: the two facts the
+// HTTP session cache hit acts on, each with the meaning (and error contract) of
+// the method it used to come from.
+//   - AccountErr / AccountUsable / AccountState: AccountUsabilityAndState's
+//     (err, usable, state). AccountErr non-nil means the account could not be
+//     read (absent, soft-deleted or a storage error): the caller keeps the
+//     cached snapshot for it, as before.
+//   - SessionChecked: a session id was given (a cache entry filled before the
+//     liveness check existed has none; the caller skips the check then).
+//   - SessionErr / SessionLive: SessionLiveForToken's (live, err): SessionErr nil
+//     and SessionLive false is a DEFINITIVE "not live" (row gone, hash mismatch,
+//     rotated, expired); SessionErr non-nil is a failed lookup.
+type SessionCacheHitCheck struct {
+	AccountErr     error
+	AccountUsable  bool
+	AccountState   string
+	SessionChecked bool
+	SessionErr     error
+	SessionLive    bool
+}
+
+// SessionCacheHitLiveness answers AccountUsabilityAndState(userID) and, when
+// sessionID is non-nil, SessionLiveForToken(*sessionID, token) from ONE storage
+// read (storage.GetSessionAuthLiveness, PERF-FIX-7): the session cache hit's
+// two re-reads become one statement and one snapshot. The verdicts are those
+// two methods' own (accountUsableFromRow, sessionRowLiveForToken). A failure
+// of the read itself is reported on both halves, the way two failed reads were.
+// Without a session id it is AccountUsabilityAndState alone (one statement, as
+// before).
+func (c *KeyorixCore) SessionCacheHitLiveness(ctx context.Context, userID uint, sessionID *uint, token string) SessionCacheHitCheck {
+	var out SessionCacheHitCheck
+	if sessionID == nil {
+		out.AccountUsable, out.AccountState, out.AccountErr = c.AccountUsabilityAndState(ctx, userID)
+		return out
+	}
+	out.SessionChecked = true
+	res, err := c.storage.GetSessionAuthLiveness(ctx, userID, *sessionID)
+	if err == nil && res == nil {
+		err = errors.New("no session/account snapshot")
+	}
+	if err != nil {
+		out.AccountErr, out.SessionErr = err, err
+		return out
+	}
+	if res.UserErr != nil {
+		out.AccountErr = res.UserErr
+	} else if res.User == nil {
+		out.AccountErr = errors.New("no account row")
+	} else {
+		out.AccountUsable = accountUsableFromRow(res.User.ID, res.User.IsActive, res.User.AccountState)
+		out.AccountState = res.User.AccountState
+	}
+	switch {
+	case res.SessionErr != nil && storage.IsSessionNotFound(res.SessionErr):
+		// Definitive: the row is gone (SessionLiveForToken's (false, nil)).
+	case res.SessionErr != nil:
+		out.SessionErr = res.SessionErr
+	case res.Session == nil:
+		out.SessionErr = errors.New("no session row")
+	default:
+		out.SessionLive = c.sessionRowLiveForToken(res.Session.SessionToken, res.Session.RotatedAt,
+			res.Session.ExpiresAt, res.Session.AbsoluteExpiresAt, token)
+	}
+	return out
 }
 
 // SessionAuthFacts is what a transport needs from the authenticating session's
@@ -1059,7 +1132,13 @@ func (c *KeyorixCore) AccountUsabilityAndState(ctx context.Context, userID uint)
 	if err != nil {
 		return false, "", err
 	}
-	return user.IsActive && !AccountLoginBlocked(user.ID, user.AccountState), user.AccountState, nil
+	return accountUsableFromRow(user.ID, user.IsActive, user.AccountState), user.AccountState, nil
+}
+
+// accountUsableFromRow is AccountUsabilityAndState's verdict on a user row:
+// active and not login-blocked (ADR-025). Shared with SessionCacheHitLiveness.
+func accountUsableFromRow(id uint, isActive bool, accountState string) bool {
+	return isActive && !AccountLoginBlocked(id, accountState)
 }
 
 // RequestPasswordReset issues a password-reset link for the given email and

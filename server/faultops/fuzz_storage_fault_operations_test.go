@@ -504,7 +504,9 @@ func FuzzStorageFaultOperations(f *testing.F) {
 	// account-state re-read) reports success, so oracle (a) compares against the
 	// independently-bootstrapped reference world -- whose setup minted its own
 	// random machine token. TokenPrefix must be presence-only, like TokenHash.
-	if s := seedFor("REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}", "GetUser", 1, 0); s != nil {
+	// PERF-FIX-7: that re-read (GetUser#1 before) is now GetSessionAuthLiveness#1,
+	// the same call site (the account and session rows in one statement).
+	if s := seedFor("REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}", "GetSessionAuthLiveness", 1, 0); s != nil {
 		f.Add(s)
 	}
 	// #2354: a post-commit GetRole read-back faulted with an error after
@@ -542,7 +544,9 @@ func FuzzStorageFaultOperations(f *testing.F) {
 	// recheck, which already degrades to the cached snapshot on a storage error by design
 	// (serveAuthCacheHit) -- RevokeLease's own write path is never faulted. Not a real
 	// bug; kept as a regression seed for the snapshot comparison gap itself.
-	if s := seedFor("REST POST /api/v1/dynamic-secrets/leases/{leaseID}/revoke", "GetUser", 1, 0); s != nil {
+	// PERF-FIX-7: that recheck is now GetSessionAuthLiveness#1 (was GetUser#1),
+	// the same call site.
+	if s := seedFor("REST POST /api/v1/dynamic-secrets/leases/{leaseID}/revoke", "GetSessionAuthLiveness", 1, 0); s != nil {
 		f.Add(s)
 	}
 	// Per-worker world reuse (M5): each `go test -fuzz` worker is a separate

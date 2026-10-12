@@ -1690,6 +1690,13 @@ type Storage interface {
 	// already-rotated token (a reuse signal) apart from one that never existed.
 	GetSessionAny(ctx context.Context, token string) (*models.Session, error)
 	GetSessionByID(ctx context.Context, id uint) (*models.Session, error)
+	// GetSessionAuthLiveness is GetUser(userID) plus GetSessionByID(sessionID)
+	// in ONE statement (PERF-FIX-7, collapse C6): the HTTP auth middleware's
+	// session cache-hit check reads the owning account's state and the session
+	// row from one snapshot. Each half reports what its per-statement method
+	// would have (see SessionAuthLiveness); a failure of the combined statement
+	// is answered through those methods (ComposeSessionAuthLiveness).
+	GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*SessionAuthLiveness, error)
 	ListSessionsByUser(ctx context.Context, userID uint) ([]*models.Session, error)
 	// EnforceSessionLimit deletes a user's oldest sessions beyond the `keep` most-recent
 	// (by created_at), bounding concurrent sessions per user. No-op when under the cap.

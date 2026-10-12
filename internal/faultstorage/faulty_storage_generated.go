@@ -3380,6 +3380,23 @@ func (w *FaultyStorage) GetSessionAny(ctx context.Context, token string) (*model
 	return w.real.GetSessionAny(ctx, token)
 }
 
+func (w *FaultyStorage) GetSessionAuthLiveness(ctx context.Context, userID uint, sessionID uint) (*storage.SessionAuthLiveness, error) {
+	fire, kind, injected := w.check("GetSessionAuthLiveness")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *storage.SessionAuthLiveness
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetSessionAuthLiveness(ctx, userID, sessionID)
+			return rv1, injected
+		}
+	}
+	return w.real.GetSessionAuthLiveness(ctx, userID, sessionID)
+}
+
 func (w *FaultyStorage) GetSessionByID(ctx context.Context, id uint) (*models.Session, error) {
 	fire, kind, injected := w.check("GetSessionByID")
 	if fire {

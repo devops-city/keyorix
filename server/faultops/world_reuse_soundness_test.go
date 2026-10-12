@@ -134,7 +134,9 @@ func faultOpsExplicitSeeds() [][]byte {
 	add("REST POST /api/v1/secrets/", "CreateSecret", 1, 1)
 	add("GRPC keyorix.v1.RoleService.AssignRole", "GetUserRoleIDsAt", 1, 0)
 	add("REST DELETE /api/v1/secrets/{id}", "DeleteSecret", 1, 2)
-	add("REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}", "GetUser", 1, 0)
+	// PERF-FIX-7: the cache-hit account re-read this seed faults is now
+	// GetSessionAuthLiveness#1 (was GetUser#1), the same call site.
+	add("REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}", "GetSessionAuthLiveness", 1, 0)
 	return out
 }
 
