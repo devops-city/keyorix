@@ -422,24 +422,24 @@ grpc	UserService.GetUser	server/proto/keyorix.proto	93	GetUser	none	single/no wr
 grpc	UserService.ListUsers	server/proto/keyorix.proto	102	ListUsers	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.ReissueOneTimePassword	server/proto/keyorix.proto	108	ReissueOneTimePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.UpdateUser	server/proto/keyorix.proto	96	UpdateUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	audit_checkpoint	server/main.go	1682		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	auto_rotation	server/main.go	1570		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	break_glass_review_reminder	server/main.go	1847		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	certificate_expiry	server/main.go	1525		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	compliance_digest	server/main.go	1592		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	data_retention	server/main.go	1453		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	dynamic_secret_sweep	server/main.go	1745		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	evidence_delivery	server/main.go	1645		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	expiry_reminder	server/main.go	1503		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	jit_access_expiry	server/main.go	1704		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
-job	license_expiry	server/main.go	1548		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	login_attempt_prune	server/main.go	1770		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	mfa_stepup_grant_prune	server/main.go	1805		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	read_quota_alerts	server/main.go	1860		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recertification	server/main.go	1618		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recover_admin_alert	server/main.go	1821		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	retention_purge	server/main.go	1410		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
-job	rotation_reminder	server/main.go	1481		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	audit_checkpoint	server/main.go	1687		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	auto_rotation	server/main.go	1575		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	break_glass_review_reminder	server/main.go	1852		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	certificate_expiry	server/main.go	1530		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	compliance_digest	server/main.go	1597		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	data_retention	server/main.go	1458		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	dynamic_secret_sweep	server/main.go	1750		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	evidence_delivery	server/main.go	1650		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	expiry_reminder	server/main.go	1508		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	jit_access_expiry	server/main.go	1709		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
+job	license_expiry	server/main.go	1553		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	login_attempt_prune	server/main.go	1775		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	mfa_stepup_grant_prune	server/main.go	1810		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	read_quota_alerts	server/main.go	1865		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recertification	server/main.go	1623		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recover_admin_alert	server/main.go	1826		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	retention_purge	server/main.go	1415		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
+job	rotation_reminder	server/main.go	1486		none	single/no write-shaped call found by a 1-hop scan of the handler body
 mcp	keyorix_get_secret	internal/mcp/tools.go	63		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 mcp	keyorix_list_secrets	internal/mcp/tools.go	65		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 rest	DELETE /api/v1/alert-escalation-policies/{id}	server/http/router.go	425	alertEscalationHandler.Delete	C	server/http/handlers/alert_escalation.go:174-195: DeleteAlertEscalationPolicy is the primary write; LogAlertEscalationPolicyDeleted runs after it as a synchronous audit-trail write -- the policy deletion has already committed by the time the audit call happens.
@@ -643,7 +643,7 @@ rest	GET /auth/setup/{token}	server/http/router.go	213	authHandler.GetSetupToken
 rest	GET /auth/sso/providers	server/http/router.go	220	authHandler.ListSSOProviders	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /auth/sso/{provider}/callback	server/http/router.go	222	authHandler.CompleteSSO	D	AuthHandler.CompleteSSO (server/http/handlers/sso.go:107) has exactly one real storage write (coreService.CompleteSSO); setSessionCookies and the frag.Set x3 calls only build the HTTP response (cookie header + redirect fragment), not storage writes.
 rest	GET /auth/sso/{provider}/login	server/http/router.go	221	authHandler.BeginSSO	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /health	server/http/router.go	232	handlers.HealthCheck	D	handlers.HealthCheck (server/http/handlers/health.go:17) builds a status map from time.Now()/uptime and JSON-encodes it after two w.Header().Set calls; trivially read-only.
+rest	GET /health	server/http/router.go	232	<expr>	D	handlers.HealthCheck (server/http/handlers/health.go:17) builds a status map from time.Now()/uptime and JSON-encodes it after two w.Header().Set calls; trivially read-only.
 rest	GET /openapi.yaml	server/http/router.go	1337	handlers.OpenAPISpec	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /readyz	server/http/router.go	242	<expr>	D	router.go:237 wires handlers.ReadinessCheck(coreService) (server/http/handlers/readiness.go:44): the only "writes" are an in-process mutex-guarded readinessCache struct, not storage.
 rest	GET /scim/v2/Groups	server/http/router.go	316	scimHandler.ListGroups	D	SCIMHandler.ListGroups (server/http/handlers/scim_groups.go:85) calls coreService.ListGroups/ListSCIMGroupsPage and GetGroupMembers per page item -- all reads; no writes.

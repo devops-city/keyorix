@@ -12,13 +12,24 @@
   exponential cooldown: an account stays locked while its stored failures inside
   the window plus its in-memory ones reach MaxAttempts (`accountFailuresSpent`;
   compared separately, an intermittently failing lockout write let up to
-  2*(MaxAttempts-1) failures through, #3029 review). Each fallback is audited `auth.rate_limit_error`
+  2*(MaxAttempts-1) failures through, #3029 review). While on the fallback, the
+  in-memory count is held to the
+  budget's fallback limit: its limit divided by `fallbackDivisor` (2 for password
+  reset) and by `SetAuthRateLimitFallbackReplicas` (config
+  `security.auth_rate_limit_fallback.replicas`, default 1), never below 1; a stored
+  count that could be read keeps the normal, cluster-wide limit. While the
+  password-reset budget is degraded, `RequestPasswordReset` also caps resets per
+  account (`passwordResetAccountBudget`, check-and-record atomic), refusing
+  silently so the response is unchanged. `AuthRateLimitDegraded` is true while any
+  budget fell back within its window and drives `/health`'s `auth_rate_limit`
+  field, which names no budget, key or address. Each fallback is audited `auth.rate_limit_error`
   (Success=false; attributed to the account for `account_lockout`) and counted
   in `keyorix_auth_rate_limit_fallback_total{budget}`. The client response is
   unchanged. Why: Andrei, 2026-10-10 18:52 (AUTH-AUDIT-1 item 5). Guard:
   `auth_budget_storage_guard_test.go` (`TestAuthBudgetStorage_OnlyThroughTheSharedLimiter`:
   no login_attempts storage call outside `auth_budget.go` except the relay),
   `account_lockout_storage_fallback_test.go`,
-  `account_lockout_stored_plus_fallback_test.go`, and
+  `account_lockout_stored_plus_fallback_test.go`, `auth_budget_degraded_test.go`
+  (half limit, per-account cap, replica divisor, degraded window), and
   `server/http/handlers/auth_budget_routes_guard_test.go`
   (`TestEveryAuthBudget_HoldsWithItsStorageDown`).

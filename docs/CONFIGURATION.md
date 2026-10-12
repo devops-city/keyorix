@@ -527,7 +527,32 @@ security:
     base_cooldown: "1m"           # lock duration for the first lockout
     max_cooldown: "1h"            # ceiling for the exponential backoff
     insecure_disable_login_lockout: false   # deprecated alias: disabled
+  auth_rate_limit_fallback:
+    replicas: 1                   # server replicas sharing the auth rate limits (see below)
 ```
+
+**Auth rate limits during a database fault** (`auth_rate_limit_fallback`). The auth
+rate limits are kept in the database, so they hold across replicas:
+- the per-IP login, password-reset and SSO/SAML-begin budgets;
+- the per-account lockout.
+
+If that storage fails, no limit is switched off. Each server process enforces the same
+limits from memory until the database recovers (ADR-040 amendment). While it does:
+
+- **Each replica counts on its own.** With `replicas: N`, each process allows 1/N of
+  every limit (at least one attempt), so the cluster as a whole stays near the normal
+  limit. Set it to your replica count. Left at `1` with several replicas, an attacker
+  who reaches every replica gets up to N times the limit during the outage. Normal
+  operation is unaffected: a count read from the database is already cluster-wide.
+- **Password reset is tighter.** Each replica allows half the per-IP reset limit,
+  divided by `replicas`, and at most the same number of reset emails per account per
+  window. Requests over the limit still get the usual "if that email is registered"
+  response; the email is just not sent.
+- **It is visible.** Every fallback writes an `auth.rate_limit_error` audit event and
+  increments `keyorix_auth_rate_limit_fallback_total{budget}`. `/health` reports
+  `"auth_rate_limit": "degraded"` until no limit has needed the fallback for one
+  limit window (15 minutes). It names no budget, account or address, and `/health`
+  still returns 200.
 
 Every setting named `insecure_*` is part of ADR-112's opt-out rule: it weakens
 the baseline below its secure default, is warned about at every start it's in

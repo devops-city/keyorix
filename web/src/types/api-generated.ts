@@ -6345,6 +6345,11 @@ export interface operations {
                         timestamp?: string;
                         version?: string;
                         checks?: Record<string, never>;
+                        /**
+                         * @description degraded while any auth rate limit (login, password reset, SSO begin, per-account lockout) is enforcing from its in-memory fallback because its database storage failed within the last limit window. Names no budget, key or address; liveness (status, HTTP 200) is unaffected.
+                         * @enum {string}
+                         */
+                        auth_rate_limit?: "ok" | "degraded";
                     };
                 };
             };

@@ -748,6 +748,11 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 		log.Printf("Secret-name policy enabled (pattern=%q, max_length=%d)", snp.Pattern, snp.MaxLength)
 	}
 
+	// The auth rate limits' in-memory fallback is per process; divide its limits
+	// by the replicas sharing the budgets (ADR-040 amendment, AUTH-AUDIT-1).
+	coreService.SetAuthRateLimitFallbackReplicas(cfg.Security.AuthRateLimitFallback.GetReplicas())
+	log.Printf("Auth rate-limit storage fallback: limits divided by %d replica(s)", cfg.Security.AuthRateLimitFallback.GetReplicas())
+
 	// Admin-created one-time passwords expire (OTP-EXPIRY-1); the recover-admin
 	// password's lifetime is read by that command itself, from the same section.
 	coreService.SetOneTimePasswordTTL(cfg.Security.GetOneTimePasswordTTL())

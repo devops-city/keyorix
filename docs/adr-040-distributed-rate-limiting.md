@@ -68,10 +68,20 @@ and counted in `keyorix_auth_rate_limit_fallback_total{budget}`. The client sees
 the same response.
 
 The in-memory limiter is per process. During an outage each replica enforces its
-own copy, so the cluster-wide bound is up to the limit times the replicas an
-attacker can reach. That is still a bound, where fail-open had none. After
-recovery the stored count is authoritative again; the in-memory attempts age out
-with the window and are never merged into the table.
+own copy. `security.auth_rate_limit_fallback.replicas` (default 1) divides every
+in-memory limit by the replica count, never below one attempt, so the cluster
+stays near the normal limit. Left at 1 with N replicas, the outage-time bound is
+up to N times the limit, which is still a bound, where fail-open had none. A
+stored count that could be read is cluster-wide already and keeps the normal
+limit.
+
+While the password-reset budget is on its fallback it is tighter: half the per-IP
+limit, plus a per-account cap on reset emails, refused silently so the response
+does not change. `/health` reports `auth_rate_limit: degraded` while any budget
+has fallen back within its window, and names no budget, key or address.
+
+After recovery the stored count is authoritative again. The in-memory attempts
+age out with the window and are never merged into the table.
 
 Guards: `TestAuthBudgetStorage_OnlyThroughTheSharedLimiter` (no `login_attempts`
 access outside the limiter) and `TestEveryAuthRoute_IsClassifiedAndBudgeted`

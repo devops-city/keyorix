@@ -46,13 +46,12 @@
 //     those whose stored write failed, so adding them never double-counts,
 //     and leftover entries age out with the window after storage recovers. The
 //     counts are never merged into storage.
-//   - mirrored while degraded (#3023/#3029/#3032 review): a write that
-//     SUCCEEDS while the budget is on its fallback is also noted in memory,
-//     flagged as mirrored. A COUNT that fails is then judged on memory
-//     including the mirrored attempts, so a budget whose count query fails
-//     while its inserts succeed still binds (it used to fail open: memory
-//     stayed empty). A count that works ignores mirrored attempts: they are in
-//     the stored count already.
+//   - mirrored while degraded (#3023, #3029, #3032 reviews): a write that SUCCEEDS while the
+//     budget is on its fallback is also noted in memory, flagged as mirrored.
+//     A COUNT that fails is then judged on memory including the mirrored
+//     attempts, so a budget whose count query fails while its inserts succeed
+//     still binds (it used to fail open: memory stayed empty). A count that
+//     works ignores mirrored attempts: they are in the stored count already.
 //   - releasable (login only): a reservation taken here gets an id with
 //     authFallbackIDBit set, which no stored row id can carry, so
 //     ReleaseLoginAttempt (a delivered login, #2936) refunds it here. Such an
@@ -64,6 +63,17 @@
 //     MaxAttempts (the check adds the two, as for every budget; #3029 review),
 //     and unlocks as they age out. A delivered login and an admin unlock clear the entry, as they
 //     clear the stored columns.
+//
+// While a budget is on its fallback (item 5, points 2-4):
+//   - the in-memory count is held to the budget's fallback limit: its limit
+//     divided by fallbackDivisor (2 for password reset: half the per-IP limit)
+//     and by the configured replica count (SetAuthRateLimitFallbackReplicas,
+//     default 1), never below 1. A stored count that could be read is
+//     cluster-wide already and keeps the normal limit.
+//   - password reset also caps resets per account (passwordResetAccountBudget,
+//     checked in RequestPasswordReset): the email-bombing guard.
+//   - AuthRateLimitDegraded reports true until no budget has fallen back within
+//     its window, for the health endpoint.
 //
 // Every fallback is audited (EventAuthRateLimitError, Success=false) and
 // counted (keyorix_auth_rate_limit_fallback_total{budget}). The client sees no
@@ -88,18 +98,24 @@ import (
 const EventAuthRateLimitError = "auth.rate_limit_error"
 
 // authBudget names one budget: its key namespace in login_attempts, its limit
-// and its window.
+// and its window. fallbackDivisor (0 means 1) tightens the limit while the
+// budget runs on its in-memory fallback.
 type authBudget struct {
-	name   string
-	prefix string
-	limit  int
-	window time.Duration
+	name            string
+	prefix          string
+	limit           int
+	window          time.Duration
+	fallbackDivisor int
 }
 
 var (
 	loginBudget         = authBudget{name: "login", limit: LoginMaxAttempts, window: LoginWindow}
-	passwordResetBudget = authBudget{name: "password_reset", prefix: passwordResetRateLimitPrefix, limit: PasswordResetMaxAttempts, window: PasswordResetWindow}
-	ssoBeginBudget      = authBudget{name: "sso_begin", prefix: ssoRateLimitPrefix, limit: SSOBeginMaxAttempts, window: SSOBeginWindow}
+	passwordResetBudget = authBudget{name: "password_reset", prefix: passwordResetRateLimitPrefix, limit: PasswordResetMaxAttempts, window: PasswordResetWindow, fallbackDivisor: 2}
+	// passwordResetAccountBudget caps resets per account while
+	// passwordResetBudget is on its fallback (memory only; see
+	// RequestPasswordReset). Same limit, window and divisor as the per-IP one.
+	passwordResetAccountBudget = authBudget{name: "password_reset_account", limit: PasswordResetMaxAttempts, window: PasswordResetWindow, fallbackDivisor: 2}
+	ssoBeginBudget             = authBudget{name: "sso_begin", prefix: ssoRateLimitPrefix, limit: SSOBeginMaxAttempts, window: SSOBeginWindow}
 	// accountLockoutBudget's limit and window come from the core's
 	// LoginLockoutPolicy; see accountBudget.
 	accountLockoutBudget = authBudget{name: "account_lockout"}
@@ -128,7 +144,48 @@ var authRateLimitFallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Help: "Count of auth rate-limit operations that fell back to the in-memory limiter because the budget's storage failed.",
 }, []string{"budget"})
 
-// --- the stored budget, with the fallback behind it -------------------------
+// SetAuthRateLimitFallbackReplicas sets how many server replicas share the
+// auth budgets (security.auth_rate_limit_fallback.replicas). Each replica's
+// in-memory fallback then enforces 1/n of a budget's fallback limit, so the
+// cluster as a whole stays near the normal limit during an outage. n < 1 is
+// treated as 1. Called once at startup.
+func (c *KeyorixCore) SetAuthRateLimitFallbackReplicas(n int) {
+	if n < 1 {
+		n = 1
+	}
+	c.authFallbackReplicas.Store(int64(n))
+}
+
+// fallbackLimit is b's limit while it runs on the in-memory fallback.
+func (c *KeyorixCore) fallbackLimit(b authBudget) int {
+	div := int64(1)
+	if b.fallbackDivisor > 1 {
+		div = int64(b.fallbackDivisor)
+	}
+	if r := c.authFallbackReplicas.Load(); r > 1 {
+		div *= r
+	}
+	limit := int64(b.limit) / div
+	if limit < 1 {
+		limit = 1
+	}
+	return int(limit)
+}
+
+// AuthRateLimitDegraded reports whether any auth budget has used its in-memory
+// fallback within that budget's window, i.e. whether a fallback may still be
+// deciding. For the health endpoint; it names no budget, key or address.
+func (c *KeyorixCore) AuthRateLimitDegraded() bool {
+	now := c.now()
+	c.authFallbackMu.Lock()
+	defer c.authFallbackMu.Unlock()
+	for _, m := range c.authFallbackLast {
+		if now.Sub(m.at) <= m.window {
+			return true
+		}
+	}
+	return false
+}
 
 // budgetDegraded reports whether b itself has fallen back within its window.
 func (c *KeyorixCore) budgetDegraded(b authBudget) bool {
@@ -139,20 +196,28 @@ func (c *KeyorixCore) budgetDegraded(b authBudget) bool {
 	return ok && now.Sub(m.at) <= m.window
 }
 
+// --- the stored budget, with the fallback behind it -------------------------
+
 // budgetLimited reports whether key has spent b within its window: the stored
-// count plus the fallback's. When the count fails, the fallback decides on
-// everything it holds for key, mirrored attempts included (#3029 review): the
-// inserts may still be succeeding, and without the mirror nothing would ever
-// reach memory, so the budget would never bind.
+// count plus the fallback's against the normal limit, or the fallback's alone
+// against the fallback limit. A stored count that cannot be read counts as 0.
+//
+// When the count fails, the fallback decides on everything it holds for key,
+// mirrored attempts included (#3023, #3029, #3032 reviews): the inserts may still be
+// succeeding, and without the mirror nothing would ever reach memory.
 func (c *KeyorixCore) budgetLimited(ctx context.Context, b authBudget, key string) bool {
 	since := c.now().Add(-b.window)
 	f := c.authBudgetFallback(b)
+	mem := int64(f.count(key, since, false))
+	if mem >= int64(c.fallbackLimit(b)) {
+		return true
+	}
 	n, err := c.storage.CountRecentLoginAttempts(ctx, b.prefix+key, since)
 	if err != nil {
 		c.noteAuthBudgetFallback(ctx, b, "check", key, nil, err)
-		return f.count(key, since, true) >= b.limit
+		return int64(f.count(key, since, true)) >= int64(c.fallbackLimit(b))
 	}
-	return n+int64(f.count(key, since, false)) >= int64(b.limit)
+	return n+mem >= int64(b.limit)
 }
 
 // budgetRecord counts one attempt against key, in memory when storage fails.
@@ -220,13 +285,11 @@ func (c *KeyorixCore) budgetReleaseStored(ctx context.Context, b authBudget, id 
 // sharedLoginSlot is slotID as it may be persisted on a row every replica
 // reads and that outlives this process (mfa_challenges / web_authn_sessions
 // login_attempt_id): a stored reservation id as is, a fallback id never
-// (#3023/#3029 review). A fallback id names a per-process counter value:
-// another replica, or this one after a restart, releasing it would refund an
-// unrelated reservation of its own, and with the top bit set it does not fit
-// a signed 64-bit column (SQLite stores it negative and cannot read it back
-// into a uint, so the MFA or passkey login fails during the very outage the
-// fallback exists for). The fallback reservation simply stays counted until
-// it ages out of the window: the strict side.
+// (#3023, #3029, #3032 reviews). A fallback id names a per-process counter value: another
+// replica, or this one after a restart, releasing it would refund an unrelated
+// reservation of its own, and it does not fit a signed 64-bit column. The
+// fallback reservation then simply stays counted until it ages out of the
+// window: the strict side.
 func sharedLoginSlot(slotID *uint) *uint {
 	if slotID == nil || *slotID&authFallbackIDBit != 0 {
 		return nil
@@ -248,11 +311,23 @@ func (c *KeyorixCore) budgetRecordFallback(ctx context.Context, b authBudget, ke
 	c.authBudgetFallback(b).reserve(key, c.now(), b.window, 4*b.limit)
 }
 
-// budgetFallbackLimitedWithStored reports whether stored, the attempts the
-// budget's own storage holds for key inside b's window, plus the fallback's
-// reach b's limit.
+// budgetFallbackLimitedWithStored reports whether key has spent b, for a
+// budget stored outside login_attempts (account_lockout): stored is the
+// attempts its own storage holds for key inside b's window. The in-memory
+// count alone binds at b's fallback limit; otherwise the check adds it to the
+// stored count against b's normal limit, as budgetLimited does (#3029 review).
 func (c *KeyorixCore) budgetFallbackLimitedWithStored(b authBudget, key string, stored int) bool {
-	return b.limit > 0 && stored+c.authBudgetFallback(b).count(key, c.now().Add(-b.window), true) >= b.limit
+	if b.limit <= 0 {
+		return false
+	}
+	mem := c.authBudgetFallback(b).count(key, c.now().Add(-b.window), true)
+	return mem >= c.fallbackLimit(b) || stored+mem >= b.limit
+}
+
+// budgetFallbackTryReserve counts one attempt for key in memory if key is
+// still under b's fallback limit, atomically, and reports whether it did.
+func (c *KeyorixCore) budgetFallbackTryReserve(b authBudget, key string) bool {
+	return c.authBudgetFallback(b).tryReserve(key, c.now(), b.window, 4*b.limit, c.fallbackLimit(b))
 }
 
 // budgetFallbackClear forgets key's in-memory attempts.
@@ -370,8 +445,22 @@ func (f *authFallbackLimiter) mirror(key string, now time.Time, window time.Dura
 	}
 }
 
-// add appends one attempt at now to e, keeping at most maxPerKey. Caller
-// holds f.mu.
+// tryReserve is reserve, but only while key has fewer than limit attempts
+// inside window; the check and the record happen under one lock.
+func (f *authFallbackLimiter) tryReserve(key string, now time.Time, window time.Duration, maxPerKey, limit int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	e := f.touch(key)
+	f.prune(e, now.Add(-window))
+	if len(e.attempts) >= limit {
+		return false
+	}
+	f.add(e, now, maxPerKey)
+	return true
+}
+
+// add appends one attempt to e (it becomes e's last), dropping the oldest
+// beyond maxPerKey. Caller holds f.mu.
 func (f *authFallbackLimiter) add(e *authFallbackEntry, now time.Time, maxPerKey int) {
 	if maxPerKey < 1 {
 		maxPerKey = 1 // a zero limit still keeps the attempt just added

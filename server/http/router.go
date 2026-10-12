@@ -229,7 +229,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 
 	// Health check endpoint — lightweight liveness signal (does not touch the DB, so a
 	// transient DB outage won't get the pod restarted).
-	r.Get("/health", handlers.HealthCheck)
+	r.Get("/health", handlers.HealthCheckWithAuthRateLimit(coreService.AuthRateLimitDegraded))
 
 	// Version-skew endpoint (ADR-108 PR 0, docs/cli-split-inventory.md §5): unauthenticated,
 	// like /health, so a thin CLI can check compatibility before it has credentials. Kept

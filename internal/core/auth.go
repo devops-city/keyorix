@@ -1095,6 +1095,13 @@ func (c *KeyorixCore) RequestPasswordReset(ctx context.Context, email string) er
 	if user.ExternalID != "" {
 		return nil
 	}
+	// While the per-IP password-reset budget runs on its in-memory fallback, cap
+	// resets per account as well (AUTH-AUDIT-1 item 5): the email-bombing guard
+	// for a window in which the per-IP limit is per replica. Swallowed like every
+	// other refusal here, so the response does not change.
+	if c.budgetDegraded(passwordResetBudget) && !c.budgetFallbackTryReserve(passwordResetAccountBudget, accountBudgetKey(user.ID)) {
+		return nil
+	}
 	// Throttle abusive repeats to a victim address (same control as resend). A
 	// throttled repeat returns an error here, swallowed below to stay enumeration-safe.
 	// Detached from the request context: the HTTP handler returns immediately after

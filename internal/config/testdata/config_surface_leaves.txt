@@ -183,6 +183,7 @@ secrets.chunking.max_chunk_size_kb
 secrets.chunking.max_chunks_per_secret
 secrets.limits.max_secret_size
 secrets.limits.max_secrets_per_user
+security.auth_rate_limit_fallback.replicas
 security.auto_fix_file_permissions
 security.enable_file_permission_check
 security.insecure_allow_unsafe_file_permissions

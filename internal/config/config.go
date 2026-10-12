@@ -1128,6 +1128,11 @@ type SecurityConfig struct {
 	// guessing out of the box. Set login_lockout.insecure_disable_login_lockout
 	// to opt out (deprecated alias: login_lockout.disabled).
 	LoginLockout LoginLockoutConfig `yaml:"login_lockout"`
+	// AuthRateLimitFallback tunes the auth rate limits' in-memory fallback, which
+	// decides only while a budget's database storage is failing (ADR-040
+	// amendment). Each server process keeps its own copy, so Replicas divides
+	// every fallback limit by the number of replicas sharing the budgets.
+	AuthRateLimitFallback AuthRateLimitFallbackConfig `yaml:"auth_rate_limit_fallback"`
 	// RequireTransportTLS, when true, refuses to start an enabled HTTP/gRPC listener
 	// that has no TLS configured — failing closed so bearer tokens and secret values are
 	// never served in cleartext. Default false (a TLS-terminating proxy in front is a
@@ -1195,6 +1200,26 @@ func parseDurationDefault(raw string, def time.Duration) time.Duration {
 		return d
 	}
 	return def
+}
+
+// AuthRateLimitFallbackConfig configures the auth rate limits' in-memory
+// fallback (security.auth_rate_limit_fallback).
+type AuthRateLimitFallbackConfig struct {
+	// Replicas is the number of server replicas that share the auth budgets
+	// (default 1). While a budget's storage is failing, each replica enforces
+	// 1/Replicas of that budget's limit (never below one attempt), so the
+	// cluster as a whole stays near the normal limit. Set it to your replica
+	// count; a lower value only makes the outage-time limit looser, never the
+	// normal one.
+	Replicas int `yaml:"replicas"`
+}
+
+// GetReplicas returns Replicas, or 1 when unset or not positive.
+func (c AuthRateLimitFallbackConfig) GetReplicas() int {
+	if c.Replicas > 0 {
+		return c.Replicas
+	}
+	return 1
 }
 
 // LoginLockoutConfig configures per-account login lockout. Lockout is enabled by

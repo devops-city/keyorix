@@ -100,7 +100,7 @@ func TestAuthBudget_CountOnlyFailureStillBinds(t *testing.T) {
 			var stored int64
 			require.NoError(t, db.Model(&models.LoginAttempt{}).Count(&stored).Error)
 			require.EqualValues(t, allowed, stored, "calibration: every allowed attempt's write succeeded (only the count is down)")
-			assert.Equal(t, tc.budget.limit, allowed,
+			assert.Equal(t, c.fallbackLimit(tc.budget), allowed,
 				"with only the COUNT failing the budget must still bind at its fallback limit (allowed %d, refused %d)", allowed, refused)
 			assert.Positive(t, refused, "the budget failed open: no attempt was ever refused")
 		})
@@ -132,47 +132,6 @@ func TestAuthBudget_CountOnlyFailure_RecoveryDoesNotDoubleCount(t *testing.T) {
 		_, _ = c.ReserveLoginAttempt(ctx, ip)
 	}
 	assert.Equal(t, LoginMaxAttempts-3, left, "attempts stored while the count was down must count exactly once after recovery")
-}
-
-// TestAuthBudget_CountOnlyFailure_MirrorAgesOutWithTheWindow: the mirrored
-// attempts are bound by the same window, so an IP refused on them is allowed
-// again once they age out, as with every other fallback attempt.
-func TestAuthBudget_CountOnlyFailure_MirrorAgesOutWithTheWindow(t *testing.T) {
-	ctx := context.Background()
-	c, stub, _ := newCountOnlyDownCore(t)
-	stub.down = true
-	const ip = "198.51.100.9"
-	base := c.now()
-	for i := 0; i < LoginMaxAttempts; i++ {
-		require.False(t, c.IsLoginRateLimited(ctx, ip))
-		c.RecordFailedLogin(ctx, ip)
-	}
-	require.True(t, c.IsLoginRateLimited(ctx, ip))
-	later := base.Add(LoginWindow + time.Minute)
-	c.now = func() time.Time { return later }
-	assert.False(t, c.IsLoginRateLimited(ctx, ip), "mirrored attempts age out with the window")
-}
-
-// TestAuthBudget_CountOnlyFailure_DeliveredLoginReleasesItsMirror keeps
-// #2936's "count failures only" while the count is down: a delivered login's
-// release refunds the stored row AND its mirror, so successful logins do not
-// fill the in-memory budget.
-func TestAuthBudget_CountOnlyFailure_DeliveredLoginReleasesItsMirror(t *testing.T) {
-	ctx := context.Background()
-	c, stub, db := newCountOnlyDownCore(t)
-	const ip = "198.51.100.10"
-	stub.down = true
-	for i := 0; i < 2*LoginMaxAttempts; i++ {
-		require.False(t, c.IsLoginRateLimited(ctx, ip), "delivered login %d must not be refused", i+1)
-		id, ok := c.ReserveLoginAttempt(ctx, ip)
-		require.True(t, ok)
-		require.Zero(t, id&authFallbackIDBit, "calibration: the write works, so the id is a stored one")
-		c.ReleaseLoginAttempt(ctx, id)
-	}
-	var stored int64
-	require.NoError(t, db.Model(&models.LoginAttempt{}).Count(&stored).Error)
-	assert.Zero(t, stored)
-	assert.Zero(t, c.authBudgetFallback(loginBudget).count(ip, c.now().Add(-LoginWindow), true), "every mirror went with its stored row")
 }
 
 func newSlotPersistenceCore(t *testing.T) (*KeyorixCore, *loginAttemptsDownStub, *gorm.DB) {
@@ -250,4 +209,45 @@ func TestFallbackLoginSlot_ReleaseOnAnotherReplicaRefundsNothingThere(t *testing
 	}
 	after := b.authBudgetFallback(loginBudget).count("192.0.2.77", since, true)
 	assert.Equal(t, 1, after, "replica B refunded an unrelated IP's reservation using replica A's fallback id")
+}
+
+// TestAuthBudget_CountOnlyFailure_MirrorAgesOutWithTheWindow: the mirrored
+// attempts are bound by the same window, so an IP refused on them is allowed
+// again once they age out, as with every other fallback attempt.
+func TestAuthBudget_CountOnlyFailure_MirrorAgesOutWithTheWindow(t *testing.T) {
+	ctx := context.Background()
+	c, stub, _ := newCountOnlyDownCore(t)
+	stub.down = true
+	const ip = "198.51.100.9"
+	base := c.now()
+	for i := 0; i < LoginMaxAttempts; i++ {
+		require.False(t, c.IsLoginRateLimited(ctx, ip))
+		c.RecordFailedLogin(ctx, ip)
+	}
+	require.True(t, c.IsLoginRateLimited(ctx, ip))
+	later := base.Add(LoginWindow + time.Minute)
+	c.now = func() time.Time { return later }
+	assert.False(t, c.IsLoginRateLimited(ctx, ip), "mirrored attempts age out with the window")
+}
+
+// TestAuthBudget_CountOnlyFailure_DeliveredLoginReleasesItsMirror keeps
+// #2936's "count failures only" while the count is down: a delivered login's
+// release refunds the stored row AND its mirror, so successful logins do not
+// fill the in-memory budget.
+func TestAuthBudget_CountOnlyFailure_DeliveredLoginReleasesItsMirror(t *testing.T) {
+	ctx := context.Background()
+	c, stub, db := newCountOnlyDownCore(t)
+	const ip = "198.51.100.10"
+	stub.down = true
+	for i := 0; i < 2*LoginMaxAttempts; i++ {
+		require.False(t, c.IsLoginRateLimited(ctx, ip), "delivered login %d must not be refused", i+1)
+		id, ok := c.ReserveLoginAttempt(ctx, ip)
+		require.True(t, ok)
+		require.Zero(t, id&authFallbackIDBit, "calibration: the write works, so the id is a stored one")
+		c.ReleaseLoginAttempt(ctx, id)
+	}
+	var stored int64
+	require.NoError(t, db.Model(&models.LoginAttempt{}).Count(&stored).Error)
+	assert.Zero(t, stored)
+	assert.Zero(t, c.authBudgetFallback(loginBudget).count(ip, c.now().Add(-LoginWindow), true), "every mirror went with its stored row")
 }

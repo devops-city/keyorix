@@ -283,6 +283,14 @@ paths:
                   timestamp: {type: string, format: date-time}
                   version: {type: string}
                   checks: {type: object}
+                  auth_rate_limit:
+                    type: string
+                    enum: [ok, degraded]
+                    description: >-
+                      degraded while any auth rate limit (login, password reset, SSO begin,
+                      per-account lockout) is enforcing from its in-memory fallback because its
+                      database storage failed within the last limit window. Names no budget, key
+                      or address; liveness (status, HTTP 200) is unaffected.
   /api/v1/version:
     get:
       tags: [System]

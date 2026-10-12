@@ -25,6 +25,23 @@ var instanceNonce = os.Getenv("KEYORIX_E2E_INSTANCE_NONCE")
 // dependencies (that is /readyz's job) — a transient dependency outage should not cause
 // the liveness probe to fail and restart the pod.
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
+	writeHealth(w, nil)
+}
+
+// HealthCheckWithAuthRateLimit is HealthCheck plus an "auth_rate_limit" field:
+// "degraded" while authRateLimitDegraded reports that an auth rate limit is
+// enforcing from its in-memory storage fallback
+// (core.KeyorixCore.AuthRateLimitDegraded, AUTH-AUDIT-1 item 5), else "ok".
+// The probe reads process memory only, so this still never touches the
+// database. Liveness is unaffected, and the field never says which budget, key
+// or address.
+func HealthCheckWithAuthRateLimit(authRateLimitDegraded func() bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeHealth(w, authRateLimitDegraded)
+	}
+}
+
+func writeHealth(w http.ResponseWriter, authRateLimitDegraded func() bool) {
 	// Deliberately omit version/commit: /health is unauthenticated, and disclosing the
 	// exact build aids CVE targeting. The precise version is available on the
 	// system.read-gated /api/v1/system/info instead.
@@ -35,6 +52,13 @@ func HealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	if instanceNonce != "" {
 		health["instance_nonce"] = instanceNonce
+	}
+	if authRateLimitDegraded != nil {
+		state := "ok"
+		if authRateLimitDegraded() {
+			state = "degraded"
+		}
+		health["auth_rate_limit"] = state
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -9,4 +9,8 @@
   limiter with the same limits, per server process. Each fallback writes an
   `auth.rate_limit_error` audit event and increments
   `keyorix_auth_rate_limit_fallback_total{budget}`, so alert on that metric.
-  Clients see the same responses as before.
+  `/health` also reports `"auth_rate_limit": "degraded"` while a fallback is in use.
+  During the outage, password reset is tighter: half the per-IP limit, and a cap on
+  reset emails per account. In HA, set the new
+  `security.auth_rate_limit_fallback.replicas` to your replica count so each
+  replica enforces its share. Clients see the same responses as before.
