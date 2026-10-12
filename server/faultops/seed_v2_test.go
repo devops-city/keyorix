@@ -141,6 +141,7 @@ var seedIntent = map[string]struct{ op, method string }{
 	"webauthn-loginfinish-listcredentials-2565":        {"REST POST /auth/webauthn/login/finish", "ListWebAuthnCredentials"},
 	// FUZZ-RULES-2: committed already legacy-encoded; TestByDesignSeeds_AcceptedOnlyThroughTheirRule.
 	"3091_webauthn_loginfinish_getuserpermissions_effect_then_error":   {"REST POST /auth/webauthn/login/finish", "GetUserPermissions"},
+	"3106_webauthn_loginfinish_getuserroles_effect_then_error":         {"REST POST /auth/webauthn/login/finish", "GetUserRoles"},
 	"3093_grpc_createuser_getuserrolescopes_error":                     {"GRPC keyorix.v1.UserService.CreateUser", "GetUserRoleScopes"},
 	"3093_grpc_updateuser_getuserrolescopes_nth2_error":                {"GRPC keyorix.v1.UserService.UpdateUser", "GetUserRoleScopes"},
 	"3094_recoverycodes_regenerate_marktotpstepused_effect_then_error": {"REST POST /api/v1/auth/mfa/recovery-codes/regenerate", "MarkTOTPStepUsed"},

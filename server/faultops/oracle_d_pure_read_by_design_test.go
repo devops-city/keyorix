@@ -56,8 +56,11 @@ import (
 // rule. GetUserPermissions resolves a user's permission names with SELECTs
 // only (#3091 review, SESSION-FUZZ-FIX-A). Add a method only with the same
 // review; the per-row check still drives every tuple that relies on it.
+// GetUserRoles, the sibling identity read, joined with the same decision
+// (#3106, Andrei 2026-10-12: same as #3091).
 var pureReadMethods = map[string]bool{
 	"GetUserPermissions": true,
+	"GetUserRoles":       true,
 }
 
 // oracleDPureReadByDesign returns the opted-in KindError row that accounts for

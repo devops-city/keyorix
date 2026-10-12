@@ -22,6 +22,10 @@ func init() {
 		nth:         1,
 		tables:      []string{"LoginAttempt"},
 		outcomeLogs: []string{"AuditEvent"},
+		// #3106 (FUZZ-RULES-3): same decision as #3091. GetUserRoles is a pure
+		// read, so its effect-then-error ends in this same state; oracle (d) may
+		// consult this row for it (oracle_d_pure_read_by_design_test.go).
+		pureReadEffectThenError: true,
 		designComment: "internal/core/webauthn.go: ErrLoginIdentityUnavailable (\"deliberately NOT " +
 			"ErrWebAuthnLoginNotEvaluated: the assertion WAS evaluated and passed, so the per-IP " +
 			"login-attempt reservation must stay counted\"); server/http/handlers/webauthn.go " +

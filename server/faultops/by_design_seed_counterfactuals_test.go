@@ -40,6 +40,15 @@ var byDesignSeedCases = []struct {
 		oracle: "d",
 	},
 	{
+		seed: "3106_webauthn_loginfinish_getuserroles_effect_then_error",
+		op:   "REST POST /auth/webauthn/login/finish", method: "GetUserRoles", nth: 1, kind: faultstorage.KindEffectThenError,
+		rule: "pureReadEffectThenError on post_auth_webauthn_login_finish_getuserroles",
+		remove: func(t *testing.T) func() {
+			return withoutPureReadOptIn(mustByDesignRow(t, "REST POST /auth/webauthn/login/finish", "GetUserRoles", faultstorage.KindError, 1))
+		},
+		oracle: "d",
+	},
+	{
 		seed: "3093_grpc_createuser_getuserrolescopes_error",
 		op:   "GRPC keyorix.v1.UserService.CreateUser", method: "GetUserRoleScopes", nth: 1, kind: faultstorage.KindError,
 		rule: "nonLoadBearingAuthzRead grpc_userservice_createuser_getuserrolescopes_1",
