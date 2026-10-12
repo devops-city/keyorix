@@ -1,0 +1,2 @@
+### Testing
+- **`TestConcurrency_LoginAttempts_NoLostRecords` no longer flakes with SQLITE_BUSY (#3087).** The test now opens its database through `storage.OpenGormDB` (production DSN, pool cap and FIFO write gate) instead of a bare SQLite handle, so 100 concurrent `RecordLoginAttempt` writers are served in arrival order as on the server. The assertion (no writer errors, all 100 attempts counted) is unchanged. No product change: a failed record is already counted in memory by the auth-budget fallback.
