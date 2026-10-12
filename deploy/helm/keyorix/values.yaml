@@ -56,6 +56,33 @@ secureBaseline:
   # server <-> postgresql). Browsers never see them. Rotate by deleting the
   # <fullname>-secure-baseline Secret and running `helm upgrade`.
   certValidityDays: 3650
+  # Name of a pre-created Secret holding the baseline's certificates and token.
+  # When set, the chart generates NOTHING and renders no Secret: the pods mount
+  # this one. Use it with GitOps tools that render with `helm template` (ArgoCD,
+  # Flux post-renderers): there `lookup` sees no cluster, so the generated
+  # values change on every sync. Requires secureBaseline.enabled=true (setting
+  # it alone fails the render rather than being ignored). Unset (default) keeps
+  # the chart-generated, lookup-persisted Secret.
+  # Required keys (the Postgres pair only while postgresql.enabled=true):
+  #   server.crt      PEM server certificate (SANs: the server Service names)
+  #   server.key      PEM private key for server.crt
+  #   metrics_token   bearer token for GET /metrics
+  #   postgres.crt    PEM certificate of the bundled PostgreSQL
+  #   postgres.key    PEM private key for postgres.crt
+  # Where Helm can read the cluster (helm install/upgrade) a missing or empty
+  # key fails the render; under `helm template` it cannot be checked.
+  # Also set auth.existingSecret for a fully deterministic render (the
+  # bootstrap token in the auth Secret is generated otherwise).
+  # See README.md ("Secure baseline with an existing Secret").
+  existingSecret: ""
+  # Optional, only with existingSecret. Any string (a counter, a date, the
+  # Secret's resourceVersion). Kubernetes does not restart pods when a mounted
+  # Secret changes and, under ArgoCD, the chart cannot see the Secret, so the
+  # pod annotation checksum/secure-baseline is constant: after rotating the
+  # Secret, bump this value in Git to roll the server, web and bundled-Postgres
+  # pods. Empty (default) leaves the annotation exactly as it is without it.
+  # Setting it without existingSecret fails the render.
+  existingSecretRevision: ""
 
 # ── API server ────────────────────────────────────────────────────────────────
 server:

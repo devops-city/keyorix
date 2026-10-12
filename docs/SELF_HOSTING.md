@@ -404,6 +404,13 @@ checkout (`build:` in docker-compose.secure.yml). With the next release it
 becomes the default compose file. For Helm, the same baseline is
 `secureBaseline.enabled=true` (see `deploy/helm/keyorix/README.md`).
 
+**ArgoCD / GitOps with Helm.** ArgoCD renders charts with `helm template`, which
+cannot look up the cluster, so the baseline's generated certificates and
+`/metrics` token would change on every sync. Create the Secret yourself and set
+`secureBaseline.existingSecret` (and `auth.existingSecret`); the chart then
+generates nothing. Keys and a `kubectl create secret` example:
+[`deploy/helm/keyorix/README.md`](../deploy/helm/keyorix/README.md#secure-baseline-with-an-existing-secret-argocd--gitops).
+
 The default stack serves plain HTTP on `8088`. Two ways to get HTTPS:
 
 **Bundled (recommended) — the `tls` profile.** An optional Caddy front-end that

@@ -248,7 +248,7 @@ spec:
         {{- if .Values.secureBaseline.enabled }}
         - name: tls
           secret:
-            secretName: {{ include "keyorix.fullname" . }}-secure-baseline
+            secretName: {{ include "keyorix.secureBaseline.secretName" . }}
             defaultMode: 0440
             items:
               - key: postgres.crt

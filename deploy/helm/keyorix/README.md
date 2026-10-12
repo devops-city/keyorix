@@ -181,12 +181,69 @@ your own `extraRules`.
   then restart the pods. Verified on kind: posture `No deviations found.`,
   server-to-Postgres TLS 1.3, `helm test` and a CLI journey through the web
   Service.
+  GitOps (ArgoCD) renders with `helm template`, which cannot `lookup` the
+  cluster, so the generated values would change on every sync: use
+  `secureBaseline.existingSecret` (next section).
 - **Swap:** run the nodes backing this deployment with swap disabled (the
   Kubernetes default). Decrypted secret memory is not locked against swap
   in-process (see `docs/adr-100-mlockall-removal-deployment-swap-control.md`
   for why an in-process lock was tried and removed) — this is now a
   deployment-level control, not something the chart or server configures for
   you.
+
+## Secure baseline with an existing Secret (ArgoCD / GitOps)
+
+Tools that render with `helm template` (ArgoCD) get new certificates and a new
+`/metrics` token on every sync, because `lookup` returns nothing without a
+cluster. Pre-create the Secret and point the chart at it:
+
+```yaml
+secureBaseline:
+  enabled: true
+  existingSecret: keyorix-secure-baseline   # your Secret, same namespace
+auth:
+  existingSecret: keyorix-auth              # also fixes the bootstrap token
+```
+
+With `existingSecret` set the chart generates nothing and renders no
+`-secure-baseline` Secret; the server, web and bundled-Postgres pods mount yours.
+Unset keeps today's behaviour (generated, persisted by `lookup`). Setting it
+with `secureBaseline.enabled=false` fails the render.
+
+Required keys: `server.crt`, `server.key` (certificate valid for the server
+Service names `<fullname>-server`, `<fullname>-server.<ns>`,
+`<fullname>-server.<ns>.svc`, `localhost`), `metrics_token`, and, while
+`postgresql.enabled=true`, `postgres.crt`, `postgres.key` (valid for the
+`<fullname>-postgresql` Service names). Example with throwaway self-signed
+certificates (use your own CA or cert-manager in production):
+
+```sh
+kubectl -n keyorix create secret generic keyorix-secure-baseline \
+  --from-file=server.crt=server.crt --from-file=server.key=server.key \
+  --from-file=postgres.crt=postgres.crt --from-file=postgres.key=postgres.key \
+  --from-literal=metrics_token="$(openssl rand -base64 36)"
+```
+
+On `helm install/upgrade` a missing or empty key fails the render naming the
+key. Under `helm template` the cluster is invisible, so the check cannot run
+and a bad Secret shows up as pods that do not start. The pod checksum
+annotation tracks the Secret's content where Helm can read it; under ArgoCD it
+is constant, so rotating the Secret does not restart the pods by itself.
+
+**Rotation under GitOps.** Kubernetes does not restart pods when a mounted
+Secret changes. After you rotate the existing Secret, either restart the
+workloads (`kubectl rollout restart`) or bump the optional revision in Git, which
+feeds the `checksum/secure-baseline` pod annotation of the server, web and
+bundled-Postgres pods and so rolls them on the next sync:
+
+```yaml
+secureBaseline:
+  existingSecret: keyorix-secure-baseline
+  existingSecretRevision: "2026-10-12"   # any string; change it on every rotation
+```
+
+Empty (default) leaves the annotation exactly as without the value. It only
+applies together with `existingSecret`; setting it alone fails the render.
 
 ## Image pinning
 

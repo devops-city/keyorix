@@ -119,7 +119,7 @@ spec:
         # Only the server's public certificate, never its key or the token.
         - name: server-ca
           secret:
-            secretName: {{ include "keyorix.fullname" . }}-secure-baseline
+            secretName: {{ include "keyorix.secureBaseline.secretName" . }}
             defaultMode: 0444
             items:
               - key: server.crt

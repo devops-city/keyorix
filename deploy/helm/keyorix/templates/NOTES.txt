@@ -48,10 +48,10 @@ Keyorix has been deployed as release "{{ .Release.Name }}".
 {{- if .Values.secureBaseline.enabled }}
 
 Secure baseline is on: the server speaks TLS only, with the certificate in the
-"{{ include "keyorix.fullname" . }}-secure-baseline" Secret (the web pod verifies it). To talk to the
+"{{ include "keyorix.secureBaseline.secretName" . }}" Secret (the web pod verifies it). To talk to the
 server directly with the CLI, trust that certificate:
 
-   kubectl -n {{ .Release.Namespace }} get secret {{ include "keyorix.fullname" . }}-secure-baseline \
+   kubectl -n {{ .Release.Namespace }} get secret {{ include "keyorix.secureBaseline.secretName" . }} \
      -o jsonpath='{.data.server\.crt}' | base64 -d > keyorix-server.crt
    keyorix config set ca_file "$PWD/keyorix-server.crt"
 
