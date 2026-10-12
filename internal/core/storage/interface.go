@@ -43,7 +43,13 @@ type Storage interface {
 	// RecordLoginAttempt; only /auth/mfa/verify needs this pair today.
 	// RecordLoginAttempt; only /auth/mfa/verify and /auth/webauthn/login/finish
 	// need this pair today.
-	ReserveLoginAttempt(ctx context.Context, ip string, at time.Time) (id uint, err error)
+	//
+	// key is a caller-generated reservation identifier, unique per reservation
+	// (#2956 follow-up). The write is idempotent per key: reserving the same key
+	// again writes nothing and returns the existing row's id. That is what lets a
+	// caller whose write landed but reported an error retry with the same key and
+	// get the reservation back instead of losing it or counting it twice.
+	ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (id uint, err error)
 	// ReleaseLoginAttempt deletes the LoginAttempt row `id`, undoing a prior
 	// ReserveLoginAttempt. A no-op, not an error, if the row is already gone
 	// (e.g. a maintenance prune raced it).

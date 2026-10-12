@@ -28,7 +28,7 @@ func (loginAttemptsDownStore) CountRecentLoginAttempts(context.Context, string, 
 func (loginAttemptsDownStore) RecordLoginAttempt(context.Context, string, time.Time) error {
 	return errLoginAttemptsStoreDown
 }
-func (loginAttemptsDownStore) ReserveLoginAttempt(context.Context, string, time.Time) (uint, error) {
+func (loginAttemptsDownStore) ReserveLoginAttempt(context.Context, string, time.Time, string) (uint, error) {
 	return 0, errLoginAttemptsStoreDown
 }
 func (loginAttemptsDownStore) ReleaseLoginAttempt(context.Context, uint) error {

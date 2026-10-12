@@ -106,12 +106,32 @@ func (c *KeyorixCore) RecordFailedLogin(ctx context.Context, ip string) {
 // call ReleaseLoginAttempt. On a storage error the reservation is taken in the
 // in-memory fallback instead and its id is returned as usual, so the budget
 // still binds and a delivered login can still hand it back.
+//
+// The reservation is identified by a key generated HERE, before the write
+// (#2956 follow-up). A write can land and still report an error (a lost
+// acknowledgement). Keyed by the row id alone, that reservation had no handle:
+// the request could not hand it back when it delivered a session, so a
+// successful login stayed counted. One retry with the SAME key resolves it: the
+// storage write is idempotent per key, so the retry returns the row that
+// landed, or writes it if the first attempt did not. Either way the attempt is
+// counted exactly once and stays releasable. Only a write that keeps failing
+// falls back to the in-memory limiter above.
 func (c *KeyorixCore) ReserveLoginAttempt(ctx context.Context, ip string) (id uint, ok bool) {
 	if ip == "" {
 		return 0, false
 	}
 	ip = CanonicalIP(ip)
-	id, err := c.storage.ReserveLoginAttempt(ctx, ip, c.now())
+	key, err := generateSecureToken()
+	if err != nil {
+		// No key, so no idempotent storage write: the in-memory fallback still
+		// counts the attempt (never fail open).
+		return c.loginBudgetFallback().reserve(ip, c.now()), true
+	}
+	now := c.now()
+	id, err = c.storage.ReserveLoginAttempt(ctx, ip, now, key)
+	if err != nil {
+		id, err = c.storage.ReserveLoginAttempt(ctx, ip, now, key)
+	}
 	if err != nil {
 		c.noteLoginBudgetFallback(ctx, "reserve", ip, err)
 		return c.loginBudgetFallback().reserve(ip, c.now()), true

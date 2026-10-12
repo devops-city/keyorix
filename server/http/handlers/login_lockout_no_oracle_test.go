@@ -138,7 +138,14 @@ func newLockoutOracleEnvOver(t *testing.T, wrap func(corestorage.Storage, *gorm.
 // code so the first verify presents a step the anti-replay check has not seen.
 func newLockoutOracleEnvWithMFA(t *testing.T) *lockoutOracleEnv {
 	t.Helper()
-	env := newLockoutOracleEnv(t)
+	return newLockoutOracleEnvWithMFAOver(t, nil)
+}
+
+// newLockoutOracleEnvWithMFAOver is newLockoutOracleEnvWithMFA over
+// newLockoutOracleEnvOver(t, wrap).
+func newLockoutOracleEnvWithMFAOver(t *testing.T, wrap func(corestorage.Storage, *gorm.DB) corestorage.Storage) *lockoutOracleEnv {
+	t.Helper()
+	env := newLockoutOracleEnvOver(t, wrap)
 	enc := encryption.NewService(&config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}, t.TempDir())
 	require.NoError(t, enc.Initialize("test-passphrase"))
 	env.h.coreService.SetAuthEncryptor(enc)

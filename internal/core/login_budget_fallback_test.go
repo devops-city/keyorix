@@ -47,11 +47,11 @@ func (s *loginAttemptsDownStub) RecordLoginAttempt(ctx context.Context, ip strin
 	return s.Storage.RecordLoginAttempt(ctx, ip, at)
 }
 
-func (s *loginAttemptsDownStub) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time) (uint, error) {
+func (s *loginAttemptsDownStub) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
 	if s.down {
 		return 0, errLoginAttemptsDown
 	}
-	return s.Storage.ReserveLoginAttempt(ctx, ip, at)
+	return s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
 }
 
 func (s *loginAttemptsDownStub) ReleaseLoginAttempt(ctx context.Context, id uint) error {

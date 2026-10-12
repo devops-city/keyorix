@@ -5,7 +5,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"gorm.io/gorm/clause"
 
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -39,12 +42,27 @@ func (ls *LocalStorage) PruneLoginAttempts(ctx context.Context, before time.Time
 
 // ReserveLoginAttempt is RecordLoginAttempt plus returning the new row's id —
 // see the Storage interface doc for why only one caller needs this.
-func (ls *LocalStorage) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time) (uint, error) {
-	row := &models.LoginAttempt{IP: ip, AttemptedAt: at}
-	if err := ls.db.WithContext(ctx).Create(row).Error; err != nil {
+//
+// Idempotent per key: the insert does nothing if a row with this
+// reservation_key already exists, and the id is always read back by key. So a
+// retry after a write that landed but reported an error returns the SAME row
+// and never counts the attempt twice.
+func (ls *LocalStorage) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
+	if key == "" {
+		return 0, errors.New("ReserveLoginAttempt: empty reservation key")
+	}
+	k := key
+	row := &models.LoginAttempt{IP: ip, AttemptedAt: at, ReservationKey: &k}
+	if err := ls.db.WithContext(ctx).
+		Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "reservation_key"}}, DoNothing: true}).
+		Create(row).Error; err != nil {
 		return 0, err
 	}
-	return row.ID, nil
+	var got models.LoginAttempt
+	if err := ls.db.WithContext(ctx).Select("id").Where("reservation_key = ?", key).First(&got).Error; err != nil {
+		return 0, err
+	}
+	return got.ID, nil
 }
 
 // ReleaseLoginAttempt undoes a ReserveLoginAttempt write. Deleting zero rows

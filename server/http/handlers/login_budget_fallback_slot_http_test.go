@@ -7,29 +7,64 @@
 // and the MFA verify path charged a lockout strike for it. MFA and passkey
 // logins broke during the very outage the fallback exists for.
 //
-// Here the reservation alone fails once (the password step's, or Begin's), and
-// the rest of the flow runs against healthy storage: it must deliver a session.
+// Here the reservation alone fails (the password step's, or Begin's), and the
+// rest of the flow runs against healthy storage: it must deliver a session.
+// The reservation fails on EVERY call while down, because core retries a failed
+// reservation write once with the same key (#3050): a single failure is
+// recovered by that retry and never reaches the fallback.
 package handlers
 
 import (
+	"context"
 	"net/http"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
-	"github.com/keyorixhq/keyorix/internal/faultstorage"
+	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
+// reserveLoginAttemptDownStore fails ReserveLoginAttempt (only) while down,
+// on every call, counting them.
+type reserveLoginAttemptDownStore struct {
+	corestorage.Storage
+	down  *atomic.Bool
+	calls *atomic.Int32
+}
+
+func (s reserveLoginAttemptDownStore) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
+	if s.down.Load() {
+		s.calls.Add(1)
+		return 0, errLoginAttemptsStoreDown
+	}
+	return s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
+}
+
+// requireReservationFellBack is the calibration: both the reservation write
+// and its retry failed, and no stored row exists.
+func requireReservationFellBack(t *testing.T, db *gorm.DB, calls *atomic.Int32) {
+	t.Helper()
+	require.Equal(t, int32(2), calls.Load(), "calibration: the reservation and its one retry both failed")
+	var n int64
+	require.NoError(t, db.Model(&models.LoginAttempt{}).Count(&n).Error)
+	require.Zero(t, n, "calibration: no stored reservation, so the slot came from the in-memory fallback")
+}
+
 func TestLoginBudgetFallbackSlot_TOTPLoginStillCompletes(t *testing.T) {
-	env := newLockoutOracleEnvWithMFA(t)
-	env.fs.Arm(&faultstorage.FaultSpec{
-		Method: "ReserveLoginAttempt", NthCall: 1, Kind: faultstorage.KindError, Err: errLoginAttemptsStoreDown,
+	var down atomic.Bool
+	var calls atomic.Int32
+	env := newLockoutOracleEnvWithMFAOver(t, func(s corestorage.Storage, _ *gorm.DB) corestorage.Storage {
+		return reserveLoginAttemptDownStore{Storage: s, down: &down, calls: &calls}
 	})
+	down.Store(true)
 	ch := env.mfaPasswordStep(t)
-	require.True(t, env.fs.Fired(), "calibration: the password step's reservation went to the in-memory fallback")
-	env.fs.Arm(nil)
+	requireReservationFellBack(t, env.db, &calls)
+	down.Store(false)
 
 	v := env.postVerify(t, ch, env.nextTOTP(t))
 	require.Equal(t, http.StatusOK, v.Code,
@@ -42,15 +77,17 @@ func TestLoginBudgetFallbackSlot_TOTPLoginStillCompletes(t *testing.T) {
 }
 
 func TestLoginBudgetFallbackSlot_PasswordlessLoginStillCompletes(t *testing.T) {
-	h, fs, db := newWebAuthnCompletionEnv(t)
+	var down atomic.Bool
+	var calls atomic.Int32
+	h, _, db := newWebAuthnCompletionEnvOver(t, func(s corestorage.Storage) corestorage.Storage {
+		return reserveLoginAttemptDownStore{Storage: s, down: &down, calls: &calls}
+	})
 	cred, _ := wcAssertionJSONWithUserHandle(t, false)
 
-	fs.Arm(&faultstorage.FaultSpec{
-		Method: "ReserveLoginAttempt", NthCall: 1, Kind: faultstorage.KindError, Err: errLoginAttemptsStoreDown,
-	})
+	down.Store(true)
 	tok := beginPasskey(t, db, postJSONTo(t, h.BeginWebAuthnPasswordlessLogin, "/auth/webauthn/passwordless/begin", map[string]string{}), true)
-	require.True(t, fs.Fired(), "calibration: Begin's reservation went to the in-memory fallback")
-	fs.Arm(nil)
+	requireReservationFellBack(t, db, &calls)
+	down.Store(false)
 
 	var ws models.WebAuthnSession
 	require.NoError(t, db.First(&ws).Error, "Begin's ceremony row must be readable")

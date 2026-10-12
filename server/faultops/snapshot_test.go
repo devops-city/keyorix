@@ -142,6 +142,9 @@ var presenceOnlyFields = map[string]string{
 // OTHER models still produces a different canonicalRow() output -- i.e. the
 // oracle can still see it.
 var typeScopedPresenceOnlyFields = map[string]map[string]string{
+	"LoginAttempt": {
+		"ReservationKey": "generateSecureToken()-random reservation identifier minted by core.ReserveLoginAttempt per request (#2956 follow-up, models.go LoginAttempt.ReservationKey) — the reference and fault worlds never mint the same one, so without this every reserved LoginAttempt row differs byte-for-byte. Presence still compared: a reservation row versus a plain RecordLoginAttempt row (nil key) stays distinguishable.",
+	},
 	"DynamicSecretLease": {
 		"LeaseID":  "generateSecureToken()-random opaque public identifier (internal/core/dynamic_secrets.go:535, models.go:1153) — two independent IssueLease calls never mint the same lease ID, so DynamicSecretLease rows never match byte-for-byte even when nothing else differs; missed by the original \"ends in Hash/Enc\" enumeration since this field holds the raw token itself, not a hash of it. Found live: FuzzStorageFaultOperations (GRPC keyorix.v1.DynamicSecretService.IssueLease, fault=LogAuditEvent#1/error), Session CR round 2.",
 		"RoleName": "the generated role/username on the target DB (models.go:1156) — every engine.Issue (both the real backend engines, e.g. internal/dynamic/postgres.go's \"kx_dyn_\"+randString(16), and dynamictest.FakeEngine's \"kx_fake_\"+randString(8)) mints a fresh random suffix per call, so two independent issues never produce the same role name. Same root cause and found alongside LeaseID above. Table-scoped (not global) because BreakGlassActivation.RoleName and AccessReviewItem.RoleName are unrelated, deterministic fields that must stay byte-compared — see this map's own doc comment.",

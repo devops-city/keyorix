@@ -41,6 +41,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -100,6 +101,13 @@ func wcWebAuthnID(userID uint) []byte {
 // with user 1 holding the spec vector's passkey and the lockout policy enabled.
 func newWebAuthnCompletionEnv(t *testing.T) (*AuthHandler, *faultstorage.FaultyStorage, *gorm.DB) {
 	t.Helper()
+	return newWebAuthnCompletionEnvOver(t, nil)
+}
+
+// newWebAuthnCompletionEnvOver is newWebAuthnCompletionEnv with wrap (when
+// non-nil) interposed between the fault wrapper and the real storage.
+func newWebAuthnCompletionEnvOver(t *testing.T, wrap func(corestorage.Storage) corestorage.Storage) (*AuthHandler, *faultstorage.FaultyStorage, *gorm.DB) {
+	t.Helper()
 	require.NoError(t, i18n.Initialize(&config.Config{Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"}}))
 	// A NAMED shared-cache in-memory DB, not a bare ":memory:": gorm pools
 	// connections, and a bare ":memory:" gives every new connection its own
@@ -125,7 +133,11 @@ func newWebAuthnCompletionEnv(t *testing.T) (*AuthHandler, *faultstorage.FaultyS
 		IsActive: true, AccountState: "active",
 	}).Error)
 
-	fs := faultstorage.NewFaultyStorage(store.NewLocalStorage(db), nil)
+	var real corestorage.Storage = store.NewLocalStorage(db)
+	if wrap != nil {
+		real = wrap(real)
+	}
+	fs := faultstorage.NewFaultyStorage(real, nil)
 	c := core.NewKeyorixCore(fs)
 	c.SetLoginLockoutPolicy(core.LoginLockoutPolicy{
 		Enabled: true, MaxAttempts: 3, Window: time.Hour, BaseCooldown: 15 * time.Minute, MaxCooldown: time.Hour,

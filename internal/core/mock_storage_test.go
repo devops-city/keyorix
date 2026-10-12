@@ -78,7 +78,7 @@ func (m *MockStorage) RecordLoginAttempt(_ context.Context, _ string, _ time.Tim
 func (m *MockStorage) CountRecentLoginAttempts(_ context.Context, _ string, _ time.Time) (int64, error) {
 	return 0, nil
 }
-func (m *MockStorage) ReserveLoginAttempt(_ context.Context, _ string, _ time.Time) (uint, error) {
+func (m *MockStorage) ReserveLoginAttempt(_ context.Context, _ string, _ time.Time, _ string) (uint, error) {
 	return 0, nil
 }
 func (m *MockStorage) ReleaseLoginAttempt(_ context.Context, _ uint) error { return nil }

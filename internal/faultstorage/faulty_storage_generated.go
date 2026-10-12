@@ -6066,7 +6066,7 @@ func (w *FaultyStorage) RemoveUserFromGroup(ctx context.Context, userID uint, gr
 	return w.real.RemoveUserFromGroup(ctx, userID, groupID, projectID)
 }
 
-func (w *FaultyStorage) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time) (uint, error) {
+func (w *FaultyStorage) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
 	fire, kind, injected := w.check("ReserveLoginAttempt")
 	if fire {
 		switch kind {
@@ -6076,11 +6076,11 @@ func (w *FaultyStorage) ReserveLoginAttempt(ctx context.Context, ip string, at t
 			var zero1 uint
 			return zero1, injected
 		case KindEffectThenError:
-			rv1, _ := w.real.ReserveLoginAttempt(ctx, ip, at)
+			rv1, _ := w.real.ReserveLoginAttempt(ctx, ip, at, key)
 			return rv1, injected
 		}
 	}
-	return w.real.ReserveLoginAttempt(ctx, ip, at)
+	return w.real.ReserveLoginAttempt(ctx, ip, at, key)
 }
 
 func (w *FaultyStorage) RestoreEnvironment(ctx context.Context, projectID uint, id uint) error {

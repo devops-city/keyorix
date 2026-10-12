@@ -1913,6 +1913,15 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		if err := db.AutoMigrate(&models.LoginAttempt{}); err != nil {
 			return fmt.Errorf("failed to migrate login_attempts table: %w", err)
 		}
+	} else if m := db.Migrator(); !m.HasColumn(&models.LoginAttempt{}, "ReservationKey") {
+		// Identifiable login-budget reservations (#2956 follow-up). Additive and
+		// nullable (existing rows were never reservations), plus its unique index.
+		if err := m.AddColumn(&models.LoginAttempt{}, "ReservationKey"); err != nil {
+			return fmt.Errorf("failed to add login_attempts.reservation_key column: %w", err)
+		}
+		if err := m.CreateIndex(&models.LoginAttempt{}, "idx_login_attempt_reservation_key"); err != nil {
+			return fmt.Errorf("failed to index login_attempts.reservation_key: %w", err)
+		}
 	}
 
 	// Recovery-key verifier record (design-b2-recover-admin.md §2). Additive,
