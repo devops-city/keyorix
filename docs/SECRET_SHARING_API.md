@@ -85,6 +85,15 @@ Each elevated action is audited as `share_access_elevated` once it succeeds
 (action, secret, share id, actor); refusals and failures write nothing. See the
 [user guide](SECRET_SHARING_USER_GUIDE.md#how-a-share-combines-with-a-project-role).
 
+**Transferring a shared secret.** `POST /api/v1/secrets/{id}/transfer-ownership`
+(and the bulk `reassign-owner`) moves the secret's shares to the new owner in the
+same transaction: afterwards the shares appear in the new owner's
+`GET /api/v1/shares/owned` and gRPC `ListUserShares` as their own (`createdBy` is the
+new owner), disappear from the previous owner's, and only the new owner can update
+or revoke them (`PUT`/`DELETE /api/v1/shares/{id}` answer `403` for the previous
+owner). Recipients, permissions and expiries are untouched. Who originally created a
+share is in the audit log (`share_created`), not in `createdBy`.
+
 **Example:**
 ```bash
 curl -X POST "https://api.keyorix.com/api/v1/secrets/123/share" \

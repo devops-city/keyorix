@@ -996,6 +996,17 @@ type Storage interface {
 	// and at or before the cutoff, returning the removed rows so the caller can audit
 	// each expiry. Server-side only (run by the JIT expiry scheduler).
 	DeleteExpiredShareRecords(ctx context.Context, before time.Time) ([]*models.ShareRecord, error)
+	// ReassignSecretShareOwner re-stamps ShareRecord.OwnerID to newOwnerID on EVERY row
+	// of secretID — live, expired-unswept and soft-deleted (revoked) alike — and returns
+	// how many rows it wrote (#3102). Only owner_id is written: permission, expires_at,
+	// recipient and deleted_at are untouched, so no recipient's access changes and a
+	// revoked share stays revoked. It exists for ONE caller, the ownership transfer
+	// (core.transferOwnership), and MUST run in the same WithTransaction as the
+	// secret's owner_id write: ShareRecord.OwnerID is the key of the owner-scoped share
+	// lists while revoke/update are gated on owning the SECRET, so the two have to move
+	// together. Every soft-deleted row is re-stamped too, so nothing that ever
+	// resurrects a row can bring the previous owner back as the share's owner.
+	ReassignSecretShareOwner(ctx context.Context, secretID, newOwnerID uint) (int64, error)
 
 	// User Management
 	//

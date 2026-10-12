@@ -20,7 +20,7 @@
   `TestOwnedShares_PATRestrictionNarrowsTheList`, red before the fix, SESSION-SHARE-4),
   `server/http/handlers/openapi_contract_pr9_test.go:TestContractShare3_ListOwnedShares`
   (schema forbids extra fields), `actor_sentinel_completeness_test.go` (the actor-id-0
-  refusal is classified). All default-ci. **Not covered**: shares keep the OwnerID of the
-  secret's owner at creation; `TransferSecretOwnership` does not re-own existing shares,
-  so after a transfer they stay on the previous owner's list (and that owner can no longer
-  revoke them, `requireShareAuthority`). Same as `GET /api/v1/shares` today.
+  refusal is classified). All default-ci. Shares keep the OwnerID of the secret's owner at
+  creation and `TransferSecretOwnership` re-owns them with the secret
+  (INV-CORE-transfer-reowns-shares, #3102), so after a transfer they leave the previous
+  owner's list and join the new owner's. The same holds for `GET /api/v1/shares`.

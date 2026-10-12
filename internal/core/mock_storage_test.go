@@ -948,6 +948,11 @@ func (m *MockStorage) CheckSharePermission(ctx context.Context, secretID, userID
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockStorage) ReassignSecretShareOwner(ctx context.Context, secretID, newOwnerID uint) (int64, error) {
+	args := m.Called(ctx, secretID, newOwnerID)
+	return int64(args.Int(0)), args.Error(1)
+}
+
 func (m *MockStorage) DeleteExpiredShareRecords(ctx context.Context, before time.Time) ([]*models.ShareRecord, error) {
 	args := m.Called(ctx, before)
 	if args.Get(0) == nil {

@@ -45,6 +45,22 @@ func (ls *LocalStorage) CreateShareRecord(ctx context.Context, share *models.Sha
 		if !live {
 			return fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
 		}
+		// #3102: the FOR SHARE above is held to commit, so the secret's owner_id read
+		// here cannot change under us. createShareRecordTx compared share.OwnerID with
+		// the owner it read BEFORE its write; a TransferSecretOwnership that committed
+		// in between has already re-stamped the shares it could see, so this row would
+		// commit stamped with the PREVIOUS owner on a secret the new owner owns, the
+		// exact state the transfer exists to prevent. Re-check, and roll back (fail
+		// closed) if the owner moved. A transfer that starts after the lock blocks on
+		// the secret row until we commit, then re-stamps this row with the rest.
+		var owners []uint
+		if err := tx.Model(&models.SecretNode{}).Where(sqlWhereID, share.SecretID).
+			Limit(1).Pluck("owner_id", &owners).Error; err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), err)
+		}
+		if len(owners) != 1 || owners[0] != share.OwnerID {
+			return fmt.Errorf("%s", i18n.T("ErrorNotAuthorized", nil))
+		}
 		out = created
 		return nil
 	})
@@ -244,6 +260,27 @@ func (ls *LocalStorage) DeleteExpiredShareRecords(ctx context.Context, before ti
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), err)
 	}
 	return removed, nil
+}
+
+// ReassignSecretShareOwner re-stamps owner_id on every share_records row of secretID
+// (#3102) — Unscoped on purpose, so expired-unswept and soft-deleted (revoked) rows are
+// included: a row that ever comes back live (a restore path, a stale write) must not
+// carry the previous owner as the share's owner. Writes owner_id only (no updated_at:
+// the grant itself did not change), as a conditional UPDATE, never a Save — see
+// UpdateShareRecord's bug-origin note on why a Save of a share row is unsafe.
+//
+// Core calls it inside the same WithTransaction as the secret's owner_id write.
+func (ls *LocalStorage) ReassignSecretShareOwner(ctx context.Context, secretID, newOwnerID uint) (int64, error) {
+	if secretID == 0 || newOwnerID == 0 {
+		return 0, fmt.Errorf("%s: secret ID and new owner ID are required", i18n.T("ErrorValidation", nil))
+	}
+	res := ls.db.WithContext(ctx).Unscoped().Model(&models.ShareRecord{}).
+		Where("secret_id = ?", secretID).
+		Update("owner_id", newOwnerID)
+	if res.Error != nil {
+		return 0, fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), res.Error)
+	}
+	return res.RowsAffected, nil
 }
 
 // ListSharesBySecret lists currently-active share records for a secret — soft-deleted

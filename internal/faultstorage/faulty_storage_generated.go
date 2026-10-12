@@ -5856,6 +5856,23 @@ func (w *FaultyStorage) PurgeDeletedUsersBefore(ctx context.Context, before time
 	return w.real.PurgeDeletedUsersBefore(ctx, before)
 }
 
+func (w *FaultyStorage) ReassignSecretShareOwner(ctx context.Context, secretID uint, newOwnerID uint) (int64, error) {
+	fire, kind, injected := w.check("ReassignSecretShareOwner")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 int64
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ReassignSecretShareOwner(ctx, secretID, newOwnerID)
+			return rv1, injected
+		}
+	}
+	return w.real.ReassignSecretShareOwner(ctx, secretID, newOwnerID)
+}
+
 func (w *FaultyStorage) RecentPasswordHashes(ctx context.Context, userID uint, limit int) ([]string, error) {
 	fire, kind, injected := w.check("RecentPasswordHashes")
 	if fire {

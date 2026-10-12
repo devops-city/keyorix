@@ -32,6 +32,9 @@ const EventSecretOwnerTransferred = "secret.owner_transferred"
 type ownershipTransferDetail struct {
 	FromUserID uint `json:"from_user_id"`
 	ToUserID   uint `json:"to_user_id"`
+	// SharesReassigned counts the ShareRecord rows (live, expired and revoked) the
+	// transfer re-stamped to the new owner in the same transaction (#3102).
+	SharesReassigned int64 `json:"shares_reassigned"`
 }
 
 // TransferSecretOwnership sets secretID's owner to newOwnerID. The caller (transport)
@@ -138,25 +141,46 @@ func (c *KeyorixCore) transferOwnership(ctx context.Context, secretID, newOwnerI
 	}
 
 	oldOwner := secret.OwnerID
+	// The secret's owner_id and its shares' owner_id move in ONE transaction (#3102).
+	// ShareRecord.OwnerID keys the owner-scoped share lists (ListSharesByOwner) while
+	// revoke/update are gated on owning the SECRET (requireShareAuthority); moved
+	// separately, a crash or a concurrent reader between the two writes would leave the
+	// previous owner listing shares they cannot revoke (or the new owner revoking shares
+	// they cannot list), which is the bug. Every share row of the secret is re-stamped,
+	// revoked and expired ones included (ReassignSecretShareOwner says why). No
+	// recipient, permission or expiry is touched, so nobody's access changes.
+	//
 	// #2695: owner_id only — see ClassifySecret's comment. Notably this is the
 	// column ClearProjectSecretOwnership (offboarding) also writes, so a
 	// full-row write from ANY other caller could hand the owner short-circuit
 	// back to a departed user.
-	matched, err := c.storage.UpdateSecretFields(ctx, secret.ID, storage.SecretFieldUpdate{OwnerID: &newOwnerID})
+	var sharesReassigned int64
+	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		matched, uerr := tx.UpdateSecretFields(ctx, secret.ID, storage.SecretFieldUpdate{OwnerID: &newOwnerID})
+		if uerr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
+		}
+		if !matched {
+			return fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
+		}
+		n, rerr := tx.ReassignSecretShareOwner(ctx, secret.ID, newOwnerID)
+		if rerr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), rerr)
+		}
+		sharesReassigned = n
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-	if !matched {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
+		return nil, err
 	}
 	secret.OwnerID = newOwnerID
 	updated := secret
 
 	uid := actorID
 	sid := secretID
-	detail, _ := json.Marshal(ownershipTransferDetail{FromUserID: oldOwner, ToUserID: newOwnerID})
+	detail, _ := json.Marshal(ownershipTransferDetail{FromUserID: oldOwner, ToUserID: newOwnerID, SharesReassigned: sharesReassigned})
 	c.writeAuditEventDiff(ctx, EventSecretOwnerTransferred, &uid, &sid, nil, "",
-		fmt.Sprintf("transferred ownership of secret %q from user %d to user %d", updated.Name, oldOwner, newOwnerID),
+		fmt.Sprintf("transferred ownership of secret %q from user %d to user %d (%d share record(s) re-owned)", updated.Name, oldOwner, newOwnerID, sharesReassigned),
 		string(detail))
 	return updated, nil
 }

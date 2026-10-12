@@ -177,7 +177,7 @@ func newOwnershipHistoryFixture(t *testing.T) (*KeyorixCore, uint) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{},
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.AuditEvent{}))
