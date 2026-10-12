@@ -345,10 +345,16 @@ func (h *AuthHandler) FinishWebAuthnLogin(w http.ResponseWriter, r *http.Request
 // effect and changes nothing else. The recover() re-panics with the ORIGINAL
 // value, so a panic is never converted into a "success" and never swallowed —
 // the slot is released and the panic continues to the Recovery middleware.
+//
+// #3048: it releases ONLY while the assertion had not been evaluated yet
+// (core.LoginVerdict). A panic after ValidateLogin ran is post-verdict: the
+// slot stays counted, as it does for the same fault returned as an error
+// (#2880).
 func (h *AuthHandler) finishWebAuthnLoginReleasingOnPanic(ctx context.Context, challenge, webAuthnSession, userAgent, ip string, parsed *protocol.ParsedCredentialAssertionData, reserved bool, attemptID uint) (session *models.Session, user *models.User, identity core.UserIdentity, lc *core.LoginCompletion, err error) {
+	ctx, verdict := core.WithLoginVerdict(ctx)
 	defer func() {
 		if rec := recover(); rec != nil {
-			if reserved {
+			if reserved && !verdict.Reached() {
 				h.coreService.ReleaseLoginAttempt(ctx, attemptID)
 			}
 			panic(rec)

@@ -471,6 +471,9 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 			storageErr = err
 		} else if step, ok := c.validateTOTPStep(secret, code); ok {
 			codeMatched = true
+			// #3048: the code matched. Mark the verdict BEFORE the anti-replay
+			// write, so a panic in it keeps the slot like its error does.
+			markLoginVerdict(ctx)
 			// Single-use within the validity window: atomically advance the last-used
 			// step. A code already accepted at this (or a later) step is a replay and
 			// MarkTOTPStepUsed returns false, so it is rejected — closing the ~90s
@@ -495,6 +498,12 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 		} else if consumed {
 			verified, usedRecovery, storageErr = true, true, nil
 		}
+	}
+	// #3048: with no storage error, the submitted input WAS evaluated (a wrong
+	// TOTP code, or a recovery code that did or did not match). Everything after
+	// this point, recordFailedLogin's writes included, is post-verdict.
+	if storageErr == nil {
+		markLoginVerdict(ctx)
 	}
 	if !verified {
 		if storageErr != nil {

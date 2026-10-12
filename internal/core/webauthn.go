@@ -615,6 +615,9 @@ func (c *KeyorixCore) FinishWebAuthnLoginPending(ctx context.Context, challenge,
 		return nil, nil, UserIdentity{}, nil, err
 	}
 	cred, err := c.webauthnRP.ValidateLogin(wu, sd, parsed)
+	// #3048: the assertion has been evaluated, pass or fail; ValidateLogin makes
+	// no storage call, so every later storage call is post-verdict.
+	markLoginVerdict(ctx)
 	if err != nil {
 		c.auditWebAuthnFailed(ctx, ch.UserID, "login")
 		c.recordFailedLogin(ctx, wu.user) // count the failed second factor toward the lockout

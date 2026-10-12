@@ -247,10 +247,16 @@ func (h *AuthHandler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 // and changes nothing else. The recover() re-panics with the ORIGINAL value, so a
 // panic is never converted into a "success" and never swallowed — the slot is
 // released and the panic continues to the recovery middleware.
+//
+// #3048: it releases ONLY while the code had not been evaluated yet
+// (core.LoginVerdict). A panic after the code matched is a post-verdict fault
+// like any other: the slot stays counted, as it does when the same fault comes
+// back as an error (#2880), or a correct code would cost less than a wrong one.
 func (h *AuthHandler) verifyMFALoginReleasingOnPanic(ctx context.Context, challenge, code, userAgent, ip string, reserved bool, attemptID uint) (session *models.Session, user *models.User, identity core.UserIdentity, lc *core.LoginCompletion, err error) {
+	ctx, verdict := core.WithLoginVerdict(ctx)
 	defer func() {
 		if rec := recover(); rec != nil {
-			if reserved {
+			if reserved && !verdict.Reached() {
 				h.coreService.ReleaseLoginAttempt(ctx, attemptID)
 			}
 			panic(rec)
