@@ -373,50 +373,52 @@ func (c *KeyorixCore) activateBreakGlassLocked(
 	// that check before either inserted. Creating the record before the role grant
 	// (rather than after, as before) also means a losing racer here never grants
 	// itself the emergency role at all.
-	activation, err := c.storage.CreateBreakGlassActivation(ctx, &models.BreakGlassActivation{
-		ProjectID:     projectID,
-		UserID:        userID,
-		RoleID:        role.ID,
-		RoleName:      role.Name,
-		Justification: justification,
-		State:         BreakGlassActive,
-		ExpiresAt:     &expiresAt,
-		CreatedAt:     now,
-	})
-	if err != nil {
-		if errors.Is(err, storage.ErrBreakGlassAlreadyActive) {
-			return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "you already have an active break-glass grant on this project; revoke it before activating again")
-		}
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-
-	// Self-granted: actor == the activating user. Time-bound so it auto-expires. If
-	// this fails, the activation record already claimed the race slot above but no
-	// access was actually granted — reconcile it to revoked rather than leaving a
-	// phantom "active" record with no corresponding role, and free the slot so the
-	// user can retry.
 	//
-	// Deliberately calls assignUserRoleWithExpirySkipSoD, not AssignUserRoleWithExpiry:
+	// #3109: the record insert and the role grant run in ONE transaction (the
+	// same shape RevokeBreakGlassActivationAtomic uses for its two writes), so a
+	// failed grant rolls the record back with it. The previous compensation (flip
+	// the already-committed record to revoked afterwards) left a visible
+	// 'active' row with no role for the window between the two commits, left a
+	// 'revoked' row behind an error, and relied on a second write that could
+	// itself fail ("MANUAL CLEANUP REQUIRED", user locked out of retrying by the
+	// partial unique index). Nothing here is visible, audited or notified until
+	// the transaction commits; the grant audit below runs after commit, as
+	// RevokeBreakGlassActivationAtomic does.
+	//
+	// Self-granted: actor == the activating user. Time-bound so it auto-expires.
+	// Deliberately calls tx.AssignRoleWithExpiry directly (as
+	// assignUserRoleWithExpirySkipSoD does), not AssignUserRoleWithExpiry:
 	// break-glass is un-gated by design (the whole point is access the user does NOT
 	// already have), so it must not be refused by the #419 separation-of-duties
 	// preventive gate during a genuine incident — see that function's doc comment
 	// (jit_access.go).
-	if err := c.assignUserRoleWithExpirySkipSoD(ctx, userID, userID, role.ID, scope, expiresAt); err != nil {
-		activation.State = BreakGlassRevoked
-		activation.RevokedAt = &now
-		// Not best-effort: if THIS reconcile itself fails, the activation row is stuck
-		// "active" with no corresponding role grant — the partial unique index
-		// (ensureBreakGlassActiveIndex) then blocks the user's retry, indefinitely,
-		// with no signal anywhere that anything is wrong. Audit loudly instead of
-		// silently swallowing, mirroring revertFailedActivation's identical
-		// "MANUAL CLEANUP REQUIRED" pattern (membership_lifecycle.go) for the same
-		// shape: a compensating action whose own failure must not go unnoticed.
-		if rerr := c.storage.UpdateBreakGlassActivation(ctx, activation); rerr != nil {
-			c.auditProjectScoped(ctx, "break_glass.activation_revert_failed", userID, projectID,
-				fmt.Sprintf("break-glass activation %d for user %d in project %d could not be reconciled to revoked after a role-grant failure: %v — MANUAL CLEANUP REQUIRED (the user cannot retry until this row is fixed)", activation.ID, userID, projectID, rerr))
+	var activation *models.BreakGlassActivation
+	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		a, err := tx.CreateBreakGlassActivation(ctx, &models.BreakGlassActivation{
+			ProjectID:     projectID,
+			UserID:        userID,
+			RoleID:        role.ID,
+			RoleName:      role.Name,
+			Justification: justification,
+			State:         BreakGlassActive,
+			ExpiresAt:     &expiresAt,
+			CreatedAt:     now,
+		})
+		if err != nil {
+			if errors.Is(err, storage.ErrBreakGlassAlreadyActive) {
+				return fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "you already have an active break-glass grant on this project; revoke it before activating again")
+			}
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
-		return nil, fmt.Errorf("failed to grant emergency role: %w", err)
+		if err := tx.AssignRoleWithExpiry(ctx, userID, role.ID, scope, expiresAt); err != nil {
+			return fmt.Errorf("failed to grant emergency role: %s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		activation = a
+		return nil
+	}); err != nil {
+		return nil, err
 	}
+	c.LogRoleAssigned(ctx, userID, userID, role.ID, scope)
 	return activation, nil
 }
 

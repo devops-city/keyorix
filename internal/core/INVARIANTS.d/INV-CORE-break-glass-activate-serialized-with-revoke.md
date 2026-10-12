@@ -21,8 +21,14 @@
   the two no longer exclude each other and nothing else goes red, so the precondition is
   guarded directly rather than assumed (`TestRevokeBreakGlass_StillTakesTheSameLock`).
   Lock-order safety: a single acquisition at `storage.NamedLockOrder` rank 3
-  (`project-admin-guard`) with nothing nested inside — `assignUserRoleWithExpirySkipSoD`
+  (`project-admin-guard`) with nothing nested inside — the grant (`tx.AssignRoleWithExpiry`)
   takes no named lock, deliberately.
+  **Atomic (#3109)**: the insert and the grant are also ONE `WithTransaction`, so a failed
+  grant rolls the record back with it — no `revoked` row behind an error, no `active` row
+  without its role in between, no audit/notification before commit, and no stuck
+  unique-index slot if a compensating write were to fail. Guard:
+  `TestActivateBreakGlass_FailedGrantLeavesNoActivationRecord` and the one-transaction
+  assertion in the structural test below.
   Guard: `break_glass_lock_guard_test.go`
   (`TestActivateBreakGlass_InsertAndGrantShareTheRevokeLock`, structural, default-ci — it
   asserts the two writes live in `activateBreakGlassLocked` AND that `ActivateBreakGlass`

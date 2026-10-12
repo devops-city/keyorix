@@ -12,34 +12,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// failBreakGlassGrantStorage always fails AssignRoleWithExpiry (forcing
-// ActivateBreakGlass's compensating-revert path) and fails
-// UpdateBreakGlassActivation once (the revert's OWN write), mirroring the
-// failOnceStorage idiom from #2295.
+// failBreakGlassGrantStorage fails AssignRoleWithExpiry while armed, on the
+// handle ActivateBreakGlass actually uses: WithTransaction re-wraps the
+// transaction-scoped handle so the fault fires inside the transaction too
+// (an embedded Storage would hand the callback the bare, un-faulted handle).
 type failBreakGlassGrantStorage struct {
 	storage.Storage
-	revertArmed *bool
+	armed *bool
 }
 
 func (s *failBreakGlassGrantStorage) AssignRoleWithExpiry(ctx context.Context, userID, roleID uint, scope storage.Scope, expiresAt time.Time) error {
-	return errors.New("injected fault: AssignRoleWithExpiry")
-}
-
-func (s *failBreakGlassGrantStorage) UpdateBreakGlassActivation(ctx context.Context, a *models.BreakGlassActivation) error {
-	if *s.revertArmed {
-		*s.revertArmed = false
-		return errors.New("injected fault: UpdateBreakGlassActivation (the revert itself)")
+	if *s.armed {
+		return errors.New("injected fault: AssignRoleWithExpiry")
 	}
-	return s.Storage.UpdateBreakGlassActivation(ctx, a)
+	return s.Storage.AssignRoleWithExpiry(ctx, userID, roleID, scope, expiresAt)
 }
 
-// TestActivateBreakGlass_RevertFailureIsAuditedLoudly is the red-proof for
-// Session O's O3 break-glass fix: when the compensating revert (reconciling
-// the activation row to "revoked" after a role-grant failure) ITSELF fails,
-// that must be audited loudly -- not silently swallowed (`_ =`), since a
-// stuck "active" row with no real grant blocks the user's retry via the
-// partial unique index, indefinitely, with no signal anywhere.
-func TestActivateBreakGlass_RevertFailureIsAuditedLoudly(t *testing.T) {
+func (s *failBreakGlassGrantStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		return fn(&failBreakGlassGrantStorage{Storage: tx, armed: s.armed})
+	})
+}
+
+// TestActivateBreakGlass_FailedGrantLeavesNoActivationRecord is the red-proof
+// for #3109: the activation record and the role grant are one transaction, so
+// when the grant fails NOTHING of the activation survives -- no row (neither
+// 'active' nor a compensated 'revoked'), no grant audit, and the user's retry is
+// not blocked by the one-active-slot unique index. Before the fix the record was
+// committed first and "undone" by a second write, which left a revoked row
+// behind the error (and an 'active' row with no role in between).
+func TestActivateBreakGlass_FailedGrantLeavesNoActivationRecord(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	ctx := context.Background()
@@ -54,19 +56,27 @@ func TestActivateBreakGlass_RevertFailureIsAuditedLoudly(t *testing.T) {
 		Enabled: true, EmergencyRole: "project_developer", DefaultTTL: time.Hour, MaxTTL: 4 * time.Hour,
 	})
 
-	revertArmed := true
-	c.storage = &failBreakGlassGrantStorage{Storage: st, revertArmed: &revertArmed}
+	armed := true
+	c.storage = &failBreakGlassGrantStorage{Storage: st, armed: &armed}
 
 	_, err = c.ActivateBreakGlass(ctx, proj.ID, u.ID, "prod incident, needs immediate access", "")
 	require.Error(t, err)
-	require.False(t, revertArmed, "the injected revert fault must actually have fired")
+	assert.Contains(t, err.Error(), "failed to grant emergency role")
+
+	rows, err := st.ListBreakGlassActivations(ctx, proj.ID)
+	require.NoError(t, err)
+	assert.Empty(t, rows, "a failed grant must leave no activation record behind (not active, not revoked)")
 
 	events, _, eerr := st.GetAuditLogs(ctx, &storage.AuditFilter{})
 	require.NoError(t, eerr)
-	var loggedTypes []string
 	for _, e := range events {
-		loggedTypes = append(loggedTypes, e.EventType)
+		assert.NotEqual(t, EventBreakGlassActivated, e.EventType, "a failed activation must not be audited as activated")
 	}
-	assert.Contains(t, loggedTypes, "break_glass.activation_revert_failed",
-		"a failed compensating revert must be audited loudly, not silently swallowed")
+
+	// The slot is free: the same user can activate once the fault clears.
+	armed = false
+	act, err := c.ActivateBreakGlass(ctx, proj.ID, u.ID, "prod incident, needs immediate access", "")
+	require.NoError(t, err)
+	require.NotNil(t, act)
+	assert.Equal(t, BreakGlassActive, act.State)
 }

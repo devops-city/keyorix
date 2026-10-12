@@ -35,8 +35,40 @@ import (
 // The two writes that must not be separable, by the name each is called under.
 const (
 	bgInsertCall = "CreateBreakGlassActivation"
-	bgGrantCall  = "assignUserRoleWithExpirySkipSoD"
+	bgGrantCall  = "AssignRoleWithExpiry"
 )
+
+// bgInsertAndGrantShareOneTransaction reports whether a single WithTransaction
+// callback in body contains both the insert and the grant (#3109): the helper
+// calling both is not enough, they must not be separable commits.
+func bgInsertAndGrantShareOneTransaction(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		ce, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		sel, ok := ce.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "WithTransaction" {
+			return true
+		}
+		for _, a := range ce.Args {
+			if fl, ok := a.(*ast.FuncLit); ok {
+				names := bgCallNames(fl.Body)
+				hasInsert, hasGrant := false, false
+				for _, nm := range names {
+					hasInsert = hasInsert || nm == bgInsertCall
+					hasGrant = hasGrant || nm == bgGrantCall
+				}
+				if hasInsert && hasGrant {
+					found = true
+				}
+			}
+		}
+		return true
+	})
+	return found
+}
 
 func TestActivateBreakGlass_InsertAndGrantShareTheRevokeLock(t *testing.T) {
 	fset := token.NewFileSet()
@@ -53,6 +85,9 @@ func TestActivateBreakGlass_InsertAndGrantShareTheRevokeLock(t *testing.T) {
 			"covers it and a concurrent revoke can land between the two writes again (#2722)")
 	require.Contains(t, lockedCalls, bgGrantCall,
 		"activateBreakGlassLocked must perform the role grant — see above (#2722)")
+	require.True(t, bgInsertAndGrantShareOneTransaction(locked.Body),
+		"activateBreakGlassLocked must run the activation insert and the role grant inside ONE WithTransaction "+
+			"callback — separate commits leave a record without its grant behind an error (#3109)")
 
 	// (c) ActivateBreakGlass does neither directly. This is the assertion that
 	// actually prevents the regression: a write moved back up here would be
