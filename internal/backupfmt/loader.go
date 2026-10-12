@@ -53,9 +53,9 @@ func checkSchemaDelta(modelName string, currentColumns []string, archived TableE
 		if current[col] || removed[col] {
 			continue
 		}
-		return fmt.Errorf("table %q (archive) has column %q, which this binary's current schema neither has "+
+		return fmt.Errorf("table %q (archive, model %s) has column %q, which this binary's current schema neither has "+
 			"nor lists as a known, deliberately-removed column -- refusing rather than silently drop or "+
-			"misinterpret what may be a renamed or type-changed column (design §3.5)", archived.Name, col)
+			"misinterpret what may be a renamed or type-changed column (design §3.5)", archived.Name, modelName, col)
 	}
 	return nil
 }
@@ -219,8 +219,11 @@ func LoadArchive(db *gorm.DB, manifest Manifest, stagingDir string) error {
 	if err != nil {
 		return fmt.Errorf("derive restore order: %w", err)
 	}
-	models := modelsInOrder(order)
-	names := modelTypeNames()
+	// Walk the restore order by NAME and look each model up by that name:
+	// the name used for error messages and for knownRemovedColumns must
+	// come from the same element as the model, never from a parallel slice
+	// in a different (registry) order (#3086).
+	byName := modelsByTypeName()
 
 	archivedByTable := make(map[string]TableEntry, len(manifest.Tables))
 	for _, te := range manifest.Tables {
@@ -229,10 +232,11 @@ func LoadArchive(db *gorm.DB, manifest Manifest, stagingDir string) error {
 	usedArchiveTables := make(map[string]bool, len(manifest.Tables))
 
 	var loadedModels []any
-	for i, m := range models {
+	for _, name := range order {
+		m := byName[name]
 		s, err := parseSchema(m)
 		if err != nil {
-			return fmt.Errorf("parse schema for %s: %w", names[i], err)
+			return fmt.Errorf("parse schema for %s: %w", name, err)
 		}
 		entry, ok := archivedByTable[s.Table]
 		if !ok {
@@ -240,7 +244,7 @@ func LoadArchive(db *gorm.DB, manifest Manifest, stagingDir string) error {
 		}
 		usedArchiveTables[s.Table] = true
 
-		if err := checkSchemaDelta(names[i], s.DBNames, entry); err != nil {
+		if err := checkSchemaDelta(name, s.DBNames, entry); err != nil {
 			return err
 		}
 		if _, err := loadTable(db, m, entry, stagingDir); err != nil {

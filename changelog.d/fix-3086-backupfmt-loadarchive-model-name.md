@@ -1,0 +1,2 @@
+### Fixed
+- **Restore: `knownRemovedColumns` allowance could apply to the wrong table.** `backupfmt.LoadArchive` named each model by indexing the registry-order name list with its restore-order loop index, so a deliberately-removed-column allowance (empty today) would have been applied to a different model's table and the owner's refused. Each model is now looked up by its restore-order name; the schema-delta error also names the model (#3086).
