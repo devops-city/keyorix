@@ -918,11 +918,12 @@ var ShareService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	UserService_CreateUser_FullMethodName = "/keyorix.v1.UserService/CreateUser"
-	UserService_GetUser_FullMethodName    = "/keyorix.v1.UserService/GetUser"
-	UserService_UpdateUser_FullMethodName = "/keyorix.v1.UserService/UpdateUser"
-	UserService_DeleteUser_FullMethodName = "/keyorix.v1.UserService/DeleteUser"
-	UserService_ListUsers_FullMethodName  = "/keyorix.v1.UserService/ListUsers"
+	UserService_CreateUser_FullMethodName             = "/keyorix.v1.UserService/CreateUser"
+	UserService_GetUser_FullMethodName                = "/keyorix.v1.UserService/GetUser"
+	UserService_UpdateUser_FullMethodName             = "/keyorix.v1.UserService/UpdateUser"
+	UserService_DeleteUser_FullMethodName             = "/keyorix.v1.UserService/DeleteUser"
+	UserService_ListUsers_FullMethodName              = "/keyorix.v1.UserService/ListUsers"
+	UserService_ReissueOneTimePassword_FullMethodName = "/keyorix.v1.UserService/ReissueOneTimePassword"
 )
 
 // UserServiceClient is the client API for UserService service.
@@ -941,6 +942,11 @@ type UserServiceClient interface {
 	DeleteUser(ctx context.Context, in *DeleteUserRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// List users with filtering and pagination
 	ListUsers(ctx context.Context, in *ListUsersRequest, opts ...grpc.CallOption) (*ListUsersResponse, error)
+	// Issue a new one-time password for an existing user (REISSUE-1). Same
+	// permission as creating a user with a one-time password (users.write). The
+	// password is returned once. Refused for the caller's own account, SSO-only
+	// and suspended users.
+	ReissueOneTimePassword(ctx context.Context, in *ReissueOneTimePasswordRequest, opts ...grpc.CallOption) (*ReissueOneTimePasswordResponse, error)
 }
 
 type userServiceClient struct {
@@ -1001,6 +1007,16 @@ func (c *userServiceClient) ListUsers(ctx context.Context, in *ListUsersRequest,
 	return out, nil
 }
 
+func (c *userServiceClient) ReissueOneTimePassword(ctx context.Context, in *ReissueOneTimePasswordRequest, opts ...grpc.CallOption) (*ReissueOneTimePasswordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReissueOneTimePasswordResponse)
+	err := c.cc.Invoke(ctx, UserService_ReissueOneTimePassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserServiceServer is the server API for UserService service.
 // All implementations must embed UnimplementedUserServiceServer
 // for forward compatibility.
@@ -1017,6 +1033,11 @@ type UserServiceServer interface {
 	DeleteUser(context.Context, *DeleteUserRequest) (*emptypb.Empty, error)
 	// List users with filtering and pagination
 	ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error)
+	// Issue a new one-time password for an existing user (REISSUE-1). Same
+	// permission as creating a user with a one-time password (users.write). The
+	// password is returned once. Refused for the caller's own account, SSO-only
+	// and suspended users.
+	ReissueOneTimePassword(context.Context, *ReissueOneTimePasswordRequest) (*ReissueOneTimePasswordResponse, error)
 	mustEmbedUnimplementedUserServiceServer()
 }
 
@@ -1041,6 +1062,9 @@ func (UnimplementedUserServiceServer) DeleteUser(context.Context, *DeleteUserReq
 }
 func (UnimplementedUserServiceServer) ListUsers(context.Context, *ListUsersRequest) (*ListUsersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListUsers not implemented")
+}
+func (UnimplementedUserServiceServer) ReissueOneTimePassword(context.Context, *ReissueOneTimePasswordRequest) (*ReissueOneTimePasswordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReissueOneTimePassword not implemented")
 }
 func (UnimplementedUserServiceServer) mustEmbedUnimplementedUserServiceServer() {}
 func (UnimplementedUserServiceServer) testEmbeddedByValue()                     {}
@@ -1153,6 +1177,24 @@ func _UserService_ListUsers_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserService_ReissueOneTimePassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReissueOneTimePasswordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserServiceServer).ReissueOneTimePassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserService_ReissueOneTimePassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserServiceServer).ReissueOneTimePassword(ctx, req.(*ReissueOneTimePasswordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserService_ServiceDesc is the grpc.ServiceDesc for UserService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1179,6 +1221,10 @@ var UserService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListUsers",
 			Handler:    _UserService_ListUsers_Handler,
+		},
+		{
+			MethodName: "ReissueOneTimePassword",
+			Handler:    _UserService_ReissueOneTimePassword_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -45,6 +45,29 @@ func groupUsersRolesRBAC(ctx *smokeCtx) {
 	c.callExpect("POST", "POST /api/v1/users/{id}/reactivate", u+"/reactivate", nil, 200)
 	c.callExpect("POST", "POST /api/v1/users/{id}/revoke-sessions", u+"/revoke-sessions", nil, 200)
 
+	// Reissue-one-time-password replaces the target's password, and groupOps
+	// later logs in as e2esmokeuser with harness.SmokeUserPassword, so it runs on
+	// a throwaway user (deleted right after) instead of ctx.userID. Journey 22
+	// drives the full first-login flow with the reissued password.
+	tmp := c.callExpect("POST", "POST /api/v1/users", "/api/v1/users", map[string]interface{}{
+		"username": "e2esmokereissue", "email": "e2esmokereissue@smoke.local",
+		"display_name": "E2E Smoke Reissue", "password": harness.SmokeUserPassword,
+	}, 201)
+	var tmpUser idOnly
+	c.unmarshalData(tmp, &tmpUser, "create reissue user")
+	tu := fmt.Sprintf("/api/v1/users/%d", tmpUser.ID)
+	reissued := c.callExpect("POST", "POST /api/v1/users/{id}/reissue-one-time-password", tu+"/reissue-one-time-password", nil, 200)
+	var otp struct {
+		OneTimePassword struct {
+			Password string `json:"one_time_password"`
+		} `json:"one_time_password"`
+	}
+	c.unmarshalData(reissued, &otp, "reissue one-time password")
+	if otp.OneTimePassword.Password == "" {
+		c.t.Errorf("reissue-one-time-password: 200 without a one-time password in the body")
+	}
+	c.callExpect("DELETE", "DELETE /api/v1/users/{id}", tu, nil, 200, 204)
+
 	// Roles: create a custom role bundling a permission the bootstrap admin
 	// already holds (secrets.read), assign it to the new user via the
 	// user-roles endpoints, then read it back both ways

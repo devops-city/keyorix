@@ -84,6 +84,7 @@ var pendingRegistry = map[string]string{ // #nosec G101 -- operationId keys, not
 	"openAccessReviewCampaign":           reasonSchemaNotYetWritten, // post /api/v1/projects/{id}/access-review/campaigns
 	"placeLegalHold":                     reasonSchemaNotYetWritten, // post /api/v1/legal-hold
 	"reactivateUser":                     reasonSchemaNotYetWritten, // post /api/v1/users/{id}/reactivate
+	"reissueOneTimePassword":             reasonSchemaNotYetWritten, // post /api/v1/users/{id}/reissue-one-time-password
 	"removeMachineRole":                  reasonSchemaNotYetWritten, // delete /api/v1/projects/{id}/machine-identities/{machineId}/roles/{roleId}
 	"removeProjectMember":                reasonSchemaNotYetWritten, // delete /api/v1/projects/{id}/members/{userId}
 	"requirePasswordReset":               reasonSchemaNotYetWritten, // post /api/v1/users/{id}/require-password-reset

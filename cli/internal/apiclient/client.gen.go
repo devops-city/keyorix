@@ -937,6 +937,9 @@ type ClientInterface interface {
 	// ReactivateUser request
 	ReactivateUser(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ReissueOneTimePassword request
+	ReissueOneTimePassword(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RequirePasswordReset request
 	RequirePasswordReset(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -4683,6 +4686,18 @@ func (c *Client) UpdateUser(ctx context.Context, id int, body UpdateUserJSONRequ
 
 func (c *Client) ReactivateUser(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReactivateUserRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReissueOneTimePassword(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReissueOneTimePasswordRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -14936,6 +14951,40 @@ func NewReactivateUserRequest(server string, id int) (*http.Request, error) {
 	return req, nil
 }
 
+// NewReissueOneTimePasswordRequest generates requests for ReissueOneTimePassword
+func NewReissueOneTimePasswordRequest(server string, id int) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/users/%s/reissue-one-time-password", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRequirePasswordResetRequest generates requests for RequirePasswordReset
 func NewRequirePasswordResetRequest(server string, id int) (*http.Request, error) {
 	var err error
@@ -16277,6 +16326,9 @@ type ClientWithResponsesInterface interface {
 
 	// ReactivateUserWithResponse request
 	ReactivateUserWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*ReactivateUserResponse, error)
+
+	// ReissueOneTimePasswordWithResponse request
+	ReissueOneTimePasswordWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*ReissueOneTimePasswordResponse, error)
 
 	// RequirePasswordResetWithResponse request
 	RequirePasswordResetWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*RequirePasswordResetResponse, error)
@@ -22415,6 +22467,32 @@ func (r ReactivateUserResponse) StatusCode() int {
 	return 0
 }
 
+type ReissueOneTimePasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON400      *Error
+	JSON401      *Error
+	JSON403      *Error
+	JSON404      *Error
+	JSON409      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ReissueOneTimePasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReissueOneTimePasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
 type RequirePasswordResetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -25459,6 +25537,15 @@ func (c *ClientWithResponses) ReactivateUserWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParseReactivateUserResponse(rsp)
+}
+
+// ReissueOneTimePasswordWithResponse request returning *ReissueOneTimePasswordResponse
+func (c *ClientWithResponses) ReissueOneTimePasswordWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*ReissueOneTimePasswordResponse, error) {
+	rsp, err := c.ReissueOneTimePassword(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReissueOneTimePasswordResponse(rsp)
 }
 
 // RequirePasswordResetWithResponse request returning *RequirePasswordResetResponse
@@ -35843,6 +35930,60 @@ func ParseReactivateUserResponse(rsp *http.Response) (*ReactivateUserResponse, e
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReissueOneTimePasswordResponse parses an HTTP response from a ReissueOneTimePasswordWithResponse call
+func ParseReissueOneTimePasswordResponse(rsp *http.Response) (*ReissueOneTimePasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReissueOneTimePasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

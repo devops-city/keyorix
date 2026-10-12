@@ -5457,6 +5457,38 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
 
+  /api/v1/users/{id}/reissue-one-time-password:
+    parameters:
+      - {name: id, in: path, required: true, schema: {type: integer}}
+    post:
+      tags: [Users]
+      summary: Reissue a one-time password for an existing user (REISSUE-1)
+      description: >-
+        Issue a new server-generated one-time password for an existing local user and
+        return it ONCE in this response, for the administrator to relay out of band.
+        Requires users.write (the same permission as creating a user with a one-time
+        password) and the admin-rank ceiling over the target. The password expires
+        after security.one_time_password_ttl (default 72h); the account is put into
+        password_reset_required, so its first login is confined to changing the
+        password (and to MFA enrolment where security.require_mfa applies); every
+        existing session of the user ends. An enrolled second factor is kept.
+        Personal access tokens are handled as for require-password-reset (restricted
+        at once, revoked when the user sets a new password). Refused for the caller's
+        own account (400, use `keyorix-server admin recover-admin`), for an
+        externally-managed (SSO/SCIM) account and for a suspended or inactive one
+        (409). Audited as user.one_time_password_reissued (actor and target, never the
+        password).
+      operationId: reissueOneTimePassword
+      security: [{bearerAuth: []}]
+      responses:
+        '200':
+          description: "Envelope `data` is {user_id, one_time_password: {email, one_time_password, expires_at}}. The response is not cacheable."
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+
   /api/v1/users/{id}/revoke-sessions:
     parameters:
       - {name: id, in: path, required: true, schema: {type: integer}}

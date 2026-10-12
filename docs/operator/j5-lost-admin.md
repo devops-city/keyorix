@@ -164,6 +164,15 @@ auth.login                   User admin logged in
 
 and, further back, the `admin.recover_admin` event with the host user who ran step 2.
 
+**Not locked out yourself?** `recover-admin` is for the *last* way back into your own account.
+If it is a colleague whose one-time password expired or got lost and you can still log in, you
+do not need the host or the recovery key: any administrator with `users.write` (and rank over
+that account) can run `keyorix user reissue-one-time-password <user id or email>`. It prints a
+new one-time password once, ends the user's sessions and puts them through the same
+change-password / enrol-MFA setup session described here. It refuses your *own* account (that
+is what this runbook is for) and SSO-only users. See
+[CONFIGURATION.md](../CONFIGURATION.md#security) ("Reissuing a one-time password").
+
 Do **not** set `security.require_mfa: false` to get through this: it is not needed, and it
 weakens every account on the install. The same setup session is what a one-time-password
 user (`keyorix user create --one-time-password`, which also prints an `Expires:` time,

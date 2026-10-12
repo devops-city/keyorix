@@ -402,3 +402,12 @@ func ResendSetupLink(w http.ResponseWriter, r *http.Request) {
 	}
 	defaultUserHandler.ResendSetupLink(w, r)
 }
+
+// ReissueOneTimePassword handles POST /api/v1/users/{id}/reissue-one-time-password (REISSUE-1).
+func ReissueOneTimePassword(w http.ResponseWriter, r *http.Request) {
+	if defaultUserHandler == nil {
+		sendError(w, "ServiceUnavailable", errUserHandlerNotInit, http.StatusServiceUnavailable, nil)
+		return
+	}
+	defaultUserHandler.ReissueOneTimePassword(w, r)
+}

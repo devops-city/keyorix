@@ -956,6 +956,10 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 			r.With(customMiddleware.RequirePermission(permUsersWrite)).Post("/{id}/require-password-reset", handlers.RequirePasswordReset)
 			// Credential-delivery resend (ADR-028): reissue + redeliver a setup link.
 			r.With(customMiddleware.RequirePermission(permUsersWrite)).Post("/{id}/resend-setup-link", handlers.ResendSetupLink)
+			// Reissue a one-time password for an existing user (REISSUE-1): the same gate
+			// as creating a user with a one-time password (users.write); core adds the
+			// admin-rank ceiling and the own-account / SSO-only refusals.
+			r.With(customMiddleware.RequirePermission(permUsersWrite)).Post("/{id}/reissue-one-time-password", handlers.ReissueOneTimePassword)
 			// roles.read, not the group-wide users.read (#141) — matches the gRPC
 			// RoleService.GetUserRoles gate for the same data. users.read is held by
 			// nearly every seeded role (project_viewer, editor, …), so gating a user's

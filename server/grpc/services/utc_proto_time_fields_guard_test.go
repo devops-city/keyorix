@@ -23,10 +23,11 @@ import (
 // (server/faultops TestUTCResponseGuard) scans every string VALUE of every read
 // RPC it can call for a non-UTC RFC 3339 time, whatever the field is called.
 var reviewedProtoStringTimeFields = map[string]string{
-	"keyorix.v1.SecretACLEntry.created_at":                       "secret_service.go formats a.CreatedAt.UTC() as 2006-01-02T15:04:05Z",
-	"keyorix.v1.CreateUserResponse.one_time_password_expires_at": "user_service.go CreateUser formats res.ExpiresAt.UTC() as RFC 3339 (…Z); same shape as the REST expires_at",
-	"keyorix.v1.SystemInfo.build_time":                           "never set by system_service.go GetSystemInfo (always empty); set it as UTC if it is ever filled",
-	"keyorix.v1.SystemInfo.uptime":                               "never set by GetSystemInfo (always empty); a duration, not a point in time, if filled",
+	"keyorix.v1.SecretACLEntry.created_at":                                   "secret_service.go formats a.CreatedAt.UTC() as 2006-01-02T15:04:05Z",
+	"keyorix.v1.CreateUserResponse.one_time_password_expires_at":             "user_service.go CreateUser formats res.ExpiresAt.UTC() as RFC 3339 (…Z); same shape as the REST expires_at",
+	"keyorix.v1.ReissueOneTimePasswordResponse.one_time_password_expires_at": "user_service.go ReissueOneTimePassword formats res.ExpiresAt.UTC() as RFC 3339 (…Z); same shape as the REST expires_at",
+	"keyorix.v1.SystemInfo.build_time":                                       "never set by system_service.go GetSystemInfo (always empty); set it as UTC if it is ever filled",
+	"keyorix.v1.SystemInfo.uptime":                                           "never set by GetSystemInfo (always empty); a duration, not a point in time, if filled",
 }
 
 var protoStringTimeName = regexp.MustCompile(`(?i)(_at|_on|time|date|timestamp|since|until|expir\w*|deadline|uptime)$`)

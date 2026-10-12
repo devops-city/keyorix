@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/server/middleware"
@@ -604,6 +605,54 @@ func (h *UserHandler) RevokeSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sendSuccess(w, map[string]any{"revoked": n}, "Sessions revoked")
+}
+
+// ReissueOneTimePassword handles POST /api/v1/users/{id}/reissue-one-time-password
+// (REISSUE-1): issue a new server-generated one-time password for an existing user.
+// The password is returned once, in this response only, for the admin to relay out of
+// band. Same gate as creating a user with a one-time password (users.write, enforced
+// by the router); core adds the admin-rank ceiling and refuses the caller's own
+// account (recover-admin is the way back for that) and SSO-only / suspended users.
+func (h *UserHandler) ReissueOneTimePassword(w http.ResponseWriter, r *http.Request) {
+	admin, ok := mustGetUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		sendError(w, "InvalidParameter", errInvalidUserID, http.StatusBadRequest, nil)
+		return
+	}
+	res, err := h.coreService.ReissueOneTimePassword(r.Context(), admin.UserID, uint(id))
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrInsufficientAdminAuthority):
+			// clientSafe: the underlying error names the permission the target holds.
+			sendError(w, "PermissionDenied", clientSafe(err), http.StatusForbidden, nil)
+		case errors.Is(err, core.ErrCannotActOnSelf):
+			sendError(w, "BadRequest", "Cannot reissue your own one-time password; use `keyorix-server admin recover-admin` to recover your own account", http.StatusBadRequest, nil)
+		case errors.Is(err, core.ErrReissueExternalIdentity):
+			sendError(w, "Conflict", core.ReissueExternalIdentityMessage, http.StatusConflict, nil)
+		case errors.Is(err, core.ErrReissueAccountBlocked):
+			sendError(w, "Conflict", core.ReissueAccountBlockedMessage, http.StatusConflict, nil)
+		case errors.Is(err, storage.ErrUserNotFound):
+			// The typed sentinel, not the "not found" substring: a storage fault is a
+			// 500, never a 404 the admin would read as "no such user".
+			sendError(w, "Error", errNotFound, http.StatusNotFound, nil)
+		case strings.Contains(err.Error(), i18n.T("ErrorValidation", nil)):
+			sendError(w, "ValidationError", err.Error(), http.StatusBadRequest, nil)
+		default:
+			log.Printf("reissue one-time password error for user %d: %v", uint(id), err)
+			sendError(w, "InternalError", "Failed to reissue the one-time password", http.StatusInternalServerError, nil)
+		}
+		return
+	}
+	// The body carries a credential: never cache it.
+	w.Header().Set("Cache-Control", "no-store")
+	sendSuccess(w, map[string]any{
+		"user_id":           uint(id),
+		"one_time_password": res,
+	}, "One-time password reissued")
 }
 
 // ResendSetupLink handles POST /api/v1/users/{id}/resend-setup-link (ADR-028). It

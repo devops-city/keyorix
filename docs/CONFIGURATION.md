@@ -706,7 +706,45 @@ inside that session do not re-check it. A new password (the
 user's own, via `change-password` or a setup link) removes the expiry, so a password the user
 chose never expires this way. A fresh admin-forced reset (`user force-password-reset`) issues no
 password and has no expiry (but see *Upgrading*). To get an account past an expired one-time password: re-run
-`recover-admin` (admins), or `user resend-setup-link` / re-create the user.
+`recover-admin` (admins, on the host), have **another administrator reissue it** (below), or
+`user resend-setup-link` / re-create the user.
+
+**Reissuing a one-time password** (REISSUE-1). An administrator issues a new one-time
+password for an existing user — one whose first password expired, was lost, or who was never
+told it:
+
+```sh
+keyorix user reissue-one-time-password bob@example.com     # or a numeric user ID
+```
+
+REST `POST /api/v1/users/{id}/reissue-one-time-password`, gRPC `UserService.ReissueOneTimePassword`.
+
+- **Who:** the same permission as creating a user with a one-time password (`users.write`), plus
+  the usual admin-rank ceiling over the target (you cannot reissue the password of an account
+  that holds permissions you do not). There is no separate step-up or re-authentication: none of
+  the existing user-management actions (suspend, force-logout, `require-password-reset`, resend
+  setup link) asks for one, and this action is no more powerful than they are.
+- **What the admin gets:** a freshly generated password, printed **once** — it is not stored
+  in clear, is never written to the audit log, and a repeated call issues a different one — and
+  the UTC time it expires (`security.one_time_password_ttl`, default 72h).
+- **What happens to the account:** it goes to `password_reset_required` like a newly created
+  one-time-password user, so the first login is confined to `change-password` (and, under
+  `require_mfa`, to MFA enrolment, as in the setup session above); any login lockout is cleared;
+  and **every existing session of the user ends**. Personal access tokens are treated as
+  `user require-password-reset` treats them: the restriction applies to them at once (they stop
+  working for anything but the password change) and they are revoked when the user sets the new
+  password, like any password change. An enrolled second factor is **kept** — reissuing a
+  password must not be a way to strip MFA from someone else's account; an MFA device that is
+  lost needs its own reset.
+- **Refused:** your own account (`400`, use `keyorix-server admin recover-admin` — see
+  [operator/j5-lost-admin.md](operator/j5-lost-admin.md)); an account managed by an external
+  identity provider (SSO/SCIM — a local password would bypass the IdP; `409`); a suspended or
+  inactive account (`409` — reactivate it first, deliberately, rather than having a password
+  reissue reactivate it); an actor who does not meet the rank ceiling (`403`). A refusal changes
+  nothing.
+- **Audit:** `user.one_time_password_reissued` (actor = the administrator, the description
+  names the target and the expiry) and the existing `credential.displayed_out_of_band`; neither
+  contains the password.
 
 *Upgrading:* accounts already in `password_reset_required` when this version first starts
 have no recorded expiry and cannot be told apart (a one-time password, an admin-forced reset

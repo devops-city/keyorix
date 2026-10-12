@@ -180,6 +180,7 @@ var keptPaths = []string{
 	"/api/v1/users/{id}/require-password-reset",
 	"/api/v1/users/{id}/revoke-sessions",
 	"/api/v1/users/{id}/resend-setup-link",
+	"/api/v1/users/{id}/reissue-one-time-password",
 	"/api/v1/admin/jobs/suspend-inactive-users",
 	// PR 3 (docs/cli-split-inventory.md §7) -- rbac, group, invite.
 	"/api/v1/users/{id}/roles",

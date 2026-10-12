@@ -3593,6 +3593,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/{id}/reissue-one-time-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reissue a one-time password for an existing user (REISSUE-1)
+         * @description Issue a new server-generated one-time password for an existing local user and return it ONCE in this response, for the administrator to relay out of band. Requires users.write (the same permission as creating a user with a one-time password) and the admin-rank ceiling over the target. The password expires after security.one_time_password_ttl (default 72h); the account is put into password_reset_required, so its first login is confined to changing the password (and to MFA enrolment where security.require_mfa applies); every existing session of the user ends. An enrolled second factor is kept. Personal access tokens are handled as for require-password-reset (restricted at once, revoked when the user sets a new password). Refused for the caller's own account (400, use `keyorix-server admin recover-admin`), for an externally-managed (SSO/SCIM) account and for a suspended or inactive one (409). Audited as user.one_time_password_reissued (actor and target, never the password).
+         */
+        post: operations["reissueOneTimePassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{id}/revoke-sessions": {
         parameters: {
             query?: never;
@@ -12266,6 +12288,31 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             404: components["responses"]["Error"];
+        };
+    };
+    reissueOneTimePassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Envelope `data` is {user_id, one_time_password: {email, one_time_password, expires_at}}. The response is not cacheable. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["Error"];
         };
     };
     revokeUserSessions: {

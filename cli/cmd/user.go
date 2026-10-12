@@ -51,6 +51,7 @@ func init() {
 	userCmd.AddCommand(userForcePasswordResetCmd)
 	userCmd.AddCommand(userRevokeSessionsCmd)
 	userCmd.AddCommand(userResendSetupLinkCmd)
+	userCmd.AddCommand(userReissueOneTimePasswordCmd)
 	userCmd.AddCommand(userSuspendInactiveCmd)
 }
 
@@ -732,6 +733,96 @@ func init() {
 	userResendSetupLinkCmd.Flags().StringVar(&userResendSetupLinkBy, "by", "", "Acting admin email (required; unused in this REST-only CLI -- kept for flag compatibility)")
 	_ = userResendSetupLinkCmd.MarkFlagRequired("id")
 	_ = userResendSetupLinkCmd.MarkFlagRequired("by")
+}
+
+// ── user reissue-one-time-password ───────────────────────────────────────────
+
+var userReissueOneTimePasswordCmd = &cobra.Command{
+	Use:   "reissue-one-time-password <user>",
+	Short: "Issue a new one-time password for an existing user",
+	Long: "Issue a new server-generated one-time password for an existing user, for when\n" +
+		"the first one expired (see user create --one-time-password) or was lost.\n" +
+		"<user> is a numeric user ID or an email address.\n\n" +
+		"The password is printed once for you to relay out of band; it is never shown\n" +
+		"again. It expires after security.one_time_password_ttl (default 72h). The\n" +
+		"account is restricted to changing its password at the next login (and to MFA\n" +
+		"enrolment where the deployment requires MFA), and all of the user's existing\n" +
+		"sessions end. Needs the same permission as creating a user (users.write).\n\n" +
+		"Refused for your own account (use `keyorix-server admin recover-admin`), for\n" +
+		"users managed by an external identity provider (SSO), and for suspended users.",
+	Args: cobra.ExactArgs(1),
+	RunE: runUserReissueOneTimePassword,
+}
+
+// resolveUserArg turns the <user> argument (a numeric user ID or an email address)
+// into a user ID, resolving an email through GET /api/v1/users/by-email.
+func resolveUserArg(ctx context.Context, client *apiclient.ClientWithResponses, arg string) (uint, error) {
+	if id, err := strconv.ParseUint(arg, 10, 32); err == nil && id > 0 {
+		return uint(id), nil
+	}
+	if strings.Contains(arg, "@") {
+		resp, err := client.GetUserByEmailWithResponse(ctx, &apiclient.GetUserByEmailParams{Email: arg})
+		if err != nil {
+			return 0, err
+		}
+		if resp.StatusCode() != 200 {
+			return 0, apiError("look up user by email", resp.StatusCode(), resp.Body)
+		}
+		u, err := decodeData[remoteUser](resp.Body)
+		if err != nil {
+			return 0, err
+		}
+		if u.ID == 0 {
+			return 0, fmt.Errorf("no user with email %q", arg)
+		}
+		return u.ID, nil
+	}
+	return 0, fmt.Errorf("<user> must be a numeric user ID or an email address, got %q", arg)
+}
+
+func runUserReissueOneTimePassword(_ *cobra.Command, args []string) error {
+	ctx := context.Background()
+	client, err := apiClientWithSkewCheck(ctx)
+	if err != nil {
+		return err
+	}
+	id, err := resolveUserArg(ctx, client, args[0])
+	if err != nil {
+		return err
+	}
+	label := remoteUserLabel(ctx, client, id)
+	fmt.Printf("Reissuing one-time password for %s...\n", label)
+
+	resp, err := client.ReissueOneTimePasswordWithResponse(ctx, int(id))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() != 200 {
+		return apiError(fmt.Sprintf("reissue one-time password for %s", label), resp.StatusCode(), resp.Body)
+	}
+	payload, err := decodeData[struct {
+		OneTimePassword struct {
+			Email     string    `json:"email"`
+			OTPValue  string    `json:"one_time_password"`
+			ExpiresAt time.Time `json:"expires_at"`
+		} `json:"one_time_password"`
+	}](resp.Body)
+	if err != nil {
+		return err
+	}
+	otp := payload.OneTimePassword
+	if otp.OTPValue == "" {
+		return errors.New("the server accepted the reissue but returned no password; reissue again")
+	}
+	// Intentional one-time display to the admin who ran this command -- the only
+	// channel by which a freshly issued OTP can reach them (same as user create).
+	// codeql[go/clear-text-logging]
+	fmt.Printf("One-time password for %s (relay securely — it is shown only once and must be changed on first login; the user's existing sessions have ended):\n  %s\n", otp.Email, otp.OTPValue)
+	if !otp.ExpiresAt.IsZero() {
+		fmt.Printf("Expires: %s (UTC). After that, login with it is refused like a wrong password; reissue another with `keyorix user reissue-one-time-password`.\n",
+			otp.ExpiresAt.UTC().Format(time.RFC3339))
+	}
+	return nil
 }
 
 // ── user suspend-inactive ────────────────────────────────────────────────────

@@ -100,6 +100,12 @@ service UserService {
 
   // List users with filtering and pagination
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // Issue a new one-time password for an existing user (REISSUE-1). Same
+  // permission as creating a user with a one-time password (users.write). The
+  // password is returned once. Refused for the caller's own account, SSO-only
+  // and suspended users.
+  rpc ReissueOneTimePassword(ReissueOneTimePasswordRequest) returns (ReissueOneTimePasswordResponse);
 }
 
 // Role service for managing roles and assignments
@@ -482,6 +488,19 @@ message CreateUserResponse {
   optional string one_time_password = 3;
   // When one_time_password stops working (UTC, RFC 3339); set with it.
   optional string one_time_password_expires_at = 4;
+}
+
+message ReissueOneTimePasswordRequest {
+  uint32 id = 1;
+}
+
+message ReissueOneTimePasswordResponse {
+  uint32 user_id = 1;
+  string email = 2;
+  // Shown once, never stored in clear and never audited.
+  string one_time_password = 3;
+  // When one_time_password stops working (UTC, RFC 3339).
+  string one_time_password_expires_at = 4;
 }
 
 message GetUserRequest {

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -132,6 +133,48 @@ func (s *UserGRPCService) CreateUser(ctx context.Context, req *pb.CreateUserRequ
 
 	resp.User = s.userToProto(ctx, u)
 	return resp, nil
+}
+
+// ReissueOneTimePassword issues a new one-time password for an existing user
+// (REISSUE-1). Same gate as CreateUser with generate_one_time_password
+// (users.write at global scope); core adds the admin-rank ceiling and refuses the
+// caller's own account, SSO-only and suspended users. The password is returned once.
+func (s *UserGRPCService) ReissueOneTimePassword(ctx context.Context, req *pb.ReissueOneTimePasswordRequest) (*pb.ReissueOneTimePasswordResponse, error) {
+	actor, err := requireUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := authorizeGlobal(ctx, s.core, actor, "users.write"); err != nil {
+		return nil, err
+	}
+	if req.GetId() == 0 {
+		return nil, status.Error(codes.InvalidArgument, "id is required")
+	}
+	res, err := s.core.ReissueOneTimePassword(ctx, actor.UserID, uint(req.GetId()))
+	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrCannotActOnSelf):
+			return nil, status.Error(codes.FailedPrecondition, "cannot reissue your own one-time password; use `keyorix-server admin recover-admin` to recover your own account")
+		case errors.Is(err, core.ErrReissueExternalIdentity):
+			return nil, status.Error(codes.FailedPrecondition, core.ReissueExternalIdentityMessage)
+		case errors.Is(err, core.ErrReissueAccountBlocked):
+			return nil, status.Error(codes.FailedPrecondition, core.ReissueAccountBlockedMessage)
+		case errors.Is(err, core.ErrInsufficientAdminAuthority):
+			return nil, mapUserError(err)
+		case errors.Is(err, corestorage.ErrUserNotFound):
+			return nil, status.Error(codes.NotFound, "user not found")
+		}
+		// Not mapUserError's substring switch: a storage fault whose text happens to
+		// say "not found" or "invalid" must stay Internal, never NotFound/InvalidArgument.
+		log.Printf("reissue one-time password error for user %d: %v", req.GetId(), err)
+		return nil, status.Error(codes.Internal, "user operation failed")
+	}
+	return &pb.ReissueOneTimePasswordResponse{
+		UserId:                   req.GetId(),
+		Email:                    res.Email,
+		OneTimePassword:          res.OTPValue,
+		OneTimePasswordExpiresAt: res.ExpiresAt.UTC().Format(time.RFC3339),
+	}, nil
 }
 
 // GetUser returns a user by ID.

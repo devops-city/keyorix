@@ -67,7 +67,7 @@ var (
 	grpcReadVerbs  = []string{"List", "Get", "Search", "Count", "Export", "Check", "Validate", "Verify", "Read", "Health"}
 	grpcWriteVerbs = []string{
 		"Create", "Update", "Delete", "Remove", "Add", "Assign", "Grant", "Revoke", "Issue", "Renew",
-		"Activate", "Restore", "Transition", "Classify", "Share", "Set", "Write", "Rotate",
+		"Activate", "Restore", "Transition", "Classify", "Share", "Set", "Write", "Rotate", "Reissue",
 	}
 )
 
