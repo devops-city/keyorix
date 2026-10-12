@@ -67,6 +67,7 @@ import (
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	localstore "github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 	"github.com/keyorixhq/keyorix/server/admin"
 	"github.com/keyorixhq/keyorix/server/grpc"
@@ -93,6 +94,14 @@ func isAdminDispatch(args []string) bool {
 	return len(args) > 1 && args[1] == "admin"
 }
 
+// isVersionRequest reports whether argv is exactly `keyorix-server --version`
+// (or -version). It is checked before any config, storage or flag parsing, so
+// the build info prints on a host with no config file and never starts a
+// listener.
+func isVersionRequest(args []string) bool {
+	return len(args) == 2 && (args[1] == "--version" || args[1] == "-version")
+}
+
 func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// #1647: see main.go's identical call for the full rationale -- an explicit,
 	// restrictive process umask means the SQLite database and its -wal/-shm sidecars
@@ -107,6 +116,11 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// confused with) the plain `keyorix-server` flag set --
 	// --passphrase-fd/--passphrase-file/--passphrase-stdin keep their existing
 	// meaning and behavior for every other invocation, unchanged.
+	if isVersionRequest(os.Args) {
+		fmt.Print(version.Info())
+		return
+	}
+
 	if isAdminDispatch(os.Args) {
 		os.Exit(admin.Execute(os.Args[2:]))
 	}

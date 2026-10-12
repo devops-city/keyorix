@@ -4,13 +4,29 @@
 // VERSION=<tag>` carry the real tag and commit.
 package version
 
+import (
+	"fmt"
+	"runtime"
+)
+
 var (
 	// Version is the release version (a git tag like "v0.68.0"), or "dev" for an
 	// un-injected build.
 	Version = "dev"
 	// Commit is the short git commit the binary was built from, or "none".
 	Commit = "none"
+	// BuildDate is the commit date (RFC 3339, UTC) of the revision the binary was built
+	// from, not the wall-clock build time, so release builds stay reproducible; "unknown"
+	// for an un-injected build.
+	BuildDate = "unknown"
 )
+
+// Info returns the multi-line build identity printed by `keyorix-server --version` and
+// `keyorix-server admin version`: version, commit, build date and the Go toolchain.
+func Info() string {
+	return fmt.Sprintf("keyorix-server %s\ncommit: %s\nbuilt: %s\ngo: %s\n",
+		Version, Commit, BuildDate, runtime.Version())
+}
 
 // APIVersion is the server's REST API version (ADR-108 PR 0's version-skew mechanism,
 // docs/cli-split-inventory.md §5). Unlike Version/Commit above, it is NOT derived from the

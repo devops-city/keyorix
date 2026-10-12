@@ -23,6 +23,7 @@ BINARY_SERVER_AIRGAP=$(BINARY_SERVER)-airgap
 BUILD_DIR=./bin
 VERSION?=dev
 GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+BUILD_DATE?=$(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)
 # Air-gap trust keys (ADR-062): embed the trusted update/license signing PUBLIC keys at
 # build time, each "keyID=base64pub". Empty by default → a dev build trusts no keys and
 # verification fails closed; release builds set these. `keyorix trust keygen` prints the
@@ -31,8 +32,9 @@ TRUST_UPDATE_KEYS?=
 TRUST_LICENSE_KEYS?=
 # Inject the build identity into keyorix-server plus the shared internal/version package
 # (read by the server's /health + /system/info). Commit is deterministic per source
-# revision, so release builds stay reproducible (no build date).
-VERSION_LDFLAGS=-X github.com/keyorixhq/keyorix/internal/version.Version=$(VERSION) -X github.com/keyorixhq/keyorix/internal/version.Commit=$(GIT_COMMIT) -X github.com/keyorixhq/keyorix/pkg/trust.updateKeysB64=$(TRUST_UPDATE_KEYS) -X github.com/keyorixhq/keyorix/pkg/trust.licenseKeysB64=$(TRUST_LICENSE_KEYS)
+# revision, so release builds stay reproducible: BUILD_DATE is the commit date, never the
+# wall clock.
+VERSION_LDFLAGS=-X github.com/keyorixhq/keyorix/internal/version.Version=$(VERSION) -X github.com/keyorixhq/keyorix/internal/version.Commit=$(GIT_COMMIT) -X github.com/keyorixhq/keyorix/internal/version.BuildDate=$(BUILD_DATE) -X github.com/keyorixhq/keyorix/pkg/trust.updateKeysB64=$(TRUST_UPDATE_KEYS) -X github.com/keyorixhq/keyorix/pkg/trust.licenseKeysB64=$(TRUST_LICENSE_KEYS)
 LDFLAGS=-ldflags "$(VERSION_LDFLAGS)"
 # RELEASE_LDFLAGS additionally strips the symbol table + DWARF debug info (-s -w):
 # ~92MB -> ~62MB for keyorix-server. Only the `release` target uses this — build-cli/

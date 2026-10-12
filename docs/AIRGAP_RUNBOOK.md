@@ -139,9 +139,24 @@ keyorix-server admin verify-audit --json --anchor /path/to/checkpoint-2026-09-20
 Check `.verdict == "VALID"` and `.external_anchor.supplied == true` /
 `.external_anchor.authenticated == true` in the JSON output. `authenticated`
 additionally requires `--checkpoint-key-file` (the KEK-derived checkpoint
-signing key, extracted out of band — never the KEK or passphrase itself; no
-documented command produces that file today, so in practice a drill sees
-`supplied: true, authenticated: false`); a
+signing key — never the KEK or passphrase itself). Extract it once, with the
+server stopped, using the master passphrase (the same sources as `admin backup`:
+`KEYORIX_MASTER_PASSWORD`, `--passphrase-file`, `--passphrase-fd` or
+`--passphrase-stdin`):
+
+```sh
+keyorix-server admin audit export-checkpoint-key --output /path/to/checkpoint.key
+keyorix-server admin verify-audit --json \
+  --anchor /path/to/checkpoint-2026-09-20.json \
+  --checkpoint-key-file /path/to/checkpoint.key
+```
+
+The file is 32 hex-encoded bytes, written `0600`, and the command refuses to
+overwrite an existing path. It is never printed; the command prints only the key
+version a checkpoint records, so you can match the two. **It is a shared secret:**
+anyone holding it plus the database can forge a validly-checkpointed history. Keep
+it with the offline auditor's media, not on the audited host, and delete it after
+the check. Without it a drill sees `supplied: true, authenticated: false`; a
 supplied-but-unauthenticated anchor still cross-checks the chain's head/
 chained-event count against the external copy, just without cryptographic
 proof it came from this exact key. Read the full report's "What this run

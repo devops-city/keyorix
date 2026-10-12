@@ -57,8 +57,8 @@ database it verifies.
 
 WHAT THIS PROVES: a bare re-walk detects any modification, deletion,
 insertion, or reordering of a row still present in the table. With
---checkpoint-key-file (the KEK-derived checkpoint signing key, extracted by
-the operator out of band -- never the KEK or passphrase itself), it
+--checkpoint-key-file (the KEK-derived checkpoint signing key, written by
+'admin audit export-checkpoint-key' -- never the KEK or passphrase itself), it
 additionally detects tail-truncation and genesis re-seed against the
 certified high-water mark. With --anchor (or, if not passed, audit.
 offline_anchor_path from config -- an offline anchor source: a checkpoint

@@ -47,6 +47,8 @@ COPY . .
 # docker-publish workflow passes the git tag + sha. Mirrors the Makefile LDFLAGS.
 ARG VERSION=dev
 ARG GIT_COMMIT=none
+# Commit date (RFC 3339 UTC), not wall-clock time, so the image stays reproducible.
+ARG BUILD_DATE=unknown
 # Set by buildx to the requested target platform, independent of the builder's
 # own (BUILDPLATFORM) arch above -- same CGO_ENABLED=0 cross-compile shape the
 # release Makefile already uses (modernc.org/sqlite is pure Go, no cgo needed).
@@ -73,7 +75,8 @@ RUN set -- \
     "-s -w" \
     "-X github.com/keyorixhq/keyorix/internal/cli.version=${VERSION}" \
     "-X github.com/keyorixhq/keyorix/internal/version.Version=${VERSION}" \
-    "-X github.com/keyorixhq/keyorix/internal/version.Commit=${GIT_COMMIT}" && \
+    "-X github.com/keyorixhq/keyorix/internal/version.Commit=${GIT_COMMIT}" \
+    "-X github.com/keyorixhq/keyorix/internal/version.BuildDate=${BUILD_DATE}" && \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 go build -tags "${BUILD_TAGS}" -ldflags "$*" \
     -o bin/keyorix-server ./server
 

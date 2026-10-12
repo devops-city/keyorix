@@ -18,6 +18,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/serverguard"
 	"github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
 )
@@ -34,7 +35,10 @@ var rootCmd = &cobra.Command{
 network API (ADR-108 §B): the server can't start, everyone is locked out, or
 the operation needs the database to itself. These need shell access on the
 server host, plus the database and key files -- owning the host is the
-authority. No admin command starts an HTTP or gRPC listener.`,
+authority. No admin command starts an HTTP or gRPC listener.
+
+'keyorix-server admin version' prints the build version, commit, build date and
+Go version.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
@@ -62,6 +66,15 @@ func init() {
 // documented, three-way verdict (0/1/2/3, design §6), not merely a
 // success/failure bit.
 func Execute(args []string) int {
+	// `admin version` / `admin --version`: build info only. Answered before cobra and
+	// before any config or database lock, so it works on a host with no config and
+	// beside a running server. Not a cobra subcommand on purpose: the state-map
+	// entrypoint key drops "admin", so a `version` subcommand here would collide with
+	// the CLI's own `keyorix version` row.
+	if len(args) == 1 && (args[0] == "version" || args[0] == "--version") {
+		fmt.Print(version.Info())
+		return 0
+	}
 	rootCmd.SetArgs(args)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)

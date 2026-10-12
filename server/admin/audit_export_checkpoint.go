@@ -127,7 +127,8 @@ func runExportCheckpoint(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Exported checkpoint (chained_events=%d, head_id=%d, key_version=%s) to %s\n",
 		bundle.ChainedEvents, bundle.HeadID, bundle.KeyVersion, exportCheckpointOutput)
 	fmt.Println("Copy this file to write-once/removable media held OUTSIDE this host, then verify with:")
-	fmt.Printf("  keyorix-server admin verify-audit --anchor %s --checkpoint-key-file <key>\n", exportCheckpointOutput)
+	fmt.Printf("  keyorix-server admin verify-audit --anchor %s --checkpoint-key-file <key>\n"+
+		"  (produce <key> with: keyorix-server admin audit export-checkpoint-key --output <key>)\n", exportCheckpointOutput)
 
 	recordAdminAction(cfg, "admin.audit_checkpoint_exported",
 		fmt.Sprintf("exported audit checkpoint (chained_events=%d, head_id=%d) to %s", bundle.ChainedEvents, bundle.HeadID, exportCheckpointOutput), true)

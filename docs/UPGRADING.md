@@ -38,6 +38,11 @@ docker compose up -d
 # stop the old process, replace the binary, restart
 ```
 
+Confirm which build is installed with `keyorix-server --version` (or `keyorix-server
+admin version`; in Compose, `docker compose run --rm backend ./keyorix-server
+--version`): it prints the version, commit, build date and Go version, and needs no
+config file.
+
 **What you will see when moving a v0.95.3 install to `main`** (verified, SQLite
 single binary and Compose + Postgres): a secret written by v0.95.3 reads back
 unchanged, `admin verify-audit` is VALID, and the first start logs

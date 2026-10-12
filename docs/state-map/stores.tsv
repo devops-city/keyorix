@@ -127,6 +127,7 @@ scripts/e2e/harness/harness.go (os.WriteFile)	file_write	scripts/e2e/harness	3
 scripts/fuzzing/autofuzzgen/main.go (os.WriteFile)	file_write	scripts/fuzzing/autofuzzgen	2
 scripts/fuzzing/reencode-seeds.go (os.WriteFile)	file_write	scripts/fuzzing	1
 server/admin/audit_export_checkpoint.go (os.OpenFile)	file_write	server/admin	1
+server/admin/audit_export_checkpoint_key.go (os.OpenFile)	file_write	server/admin	1
 server/admin/backup.go (os.OpenFile)	file_write	server/admin	1
 server/admin/backup.go (os.WriteFile)	file_write	server/admin	1
 server/admin/backup_v1_legacy.go (os.WriteFile)	file_write	server/admin	1

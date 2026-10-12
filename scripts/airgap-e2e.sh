@@ -248,6 +248,17 @@ $ENGINE run --rm --network none --workdir /app/data \
 cp "$SRC_DIR/checkpoint-export.json" "$EXTERNAL_DIR/checkpoint-export.json"
 [ -s "$EXTERNAL_DIR/checkpoint-export.json" ] || fail "checkpoint export is empty"
 
+echo "==> Extracting the checkpoint verification key (admin audit export-checkpoint-key, F12)"
+$ENGINE run --rm --network none --workdir /app/data \
+    -v "$SRC_DIR:/app/data" \
+    -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
+    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --entrypoint /app/keyorix-server \
+    "$IMAGE" admin --config /app/data/keyorix.yaml audit export-checkpoint-key --output /app/data/checkpoint.key >/dev/null \
+    || fail "admin audit export-checkpoint-key failed"
+cp "$SRC_DIR/checkpoint.key" "$EXTERNAL_DIR/checkpoint.key"
+[ -s "$EXTERNAL_DIR/checkpoint.key" ] || fail "checkpoint key export is empty"
+
 echo "==> admin backup (--network none)"
 $ENGINE run --rm --network none --workdir /app/data \
     -v "$SRC_DIR:/app/data" \
@@ -291,17 +302,21 @@ $ENGINE run --rm --network none --workdir /app/data \
 
 echo "==> admin verify-audit against the restored database, cross-checked against the externally-held anchor"
 cp "$EXTERNAL_DIR/checkpoint-export.json" "$DST_DIR/checkpoint-export.json"
+cp "$EXTERNAL_DIR/checkpoint.key" "$DST_DIR/checkpoint.key"
 VERIFY_OUT="$($ENGINE run --rm --network none --workdir /app/data \
     -v "$DST_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
     --entrypoint /app/keyorix-server \
     "$IMAGE" admin --config /app/data/keyorix.yaml verify-audit --json \
-        --anchor /app/data/checkpoint-export.json)" || fail "admin verify-audit (restored db) failed: $VERIFY_OUT"
+        --anchor /app/data/checkpoint-export.json \
+        --checkpoint-key-file /app/data/checkpoint.key)" || fail "admin verify-audit (restored db) failed: $VERIFY_OUT"
 echo "$VERIFY_OUT" | jq -e '.verdict == "VALID"' >/dev/null \
     || fail "verify-audit on the restored database did not report VALID: $VERIFY_OUT"
 echo "$VERIFY_OUT" | jq -e '.external_anchor.supplied == true' >/dev/null \
     || fail "verify-audit did not report the external anchor as supplied: $VERIFY_OUT"
-echo "    verify-audit: VALID, external anchor cross-checked"
+echo "$VERIFY_OUT" | jq -e '.external_anchor.authenticated == true' >/dev/null \
+    || fail "verify-audit did not authenticate the external anchor with the extracted key: $VERIFY_OUT"
+echo "    verify-audit: VALID, external anchor cross-checked and authenticated"
 
 echo "==> Booting a server against the RESTORED data to confirm the secret VALUE survived"
 $ENGINE run -d --name "$RESTORE_CONTAINER" --network none --workdir /app/data \
