@@ -5140,7 +5140,7 @@ export interface components {
             description?: string;
             max_reads?: number | null;
             read_count?: number;
-            /** @description Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads. */
+            /** @description Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id only when the request sends include=total_reads (the count is O(reads), so it is not computed by default), including value reads; omitted otherwise, from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads. */
             total_reads?: number;
             /** Format: date-time */
             expiration?: string | null;
@@ -5553,7 +5553,7 @@ export interface components {
             description?: string;
             max_reads?: number | null;
             read_count?: number;
-            /** @description Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads. */
+            /** @description Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id only when the request sends include=total_reads (the count is O(reads), so it is not computed by default), including value reads; omitted otherwise, from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads. */
             total_reads?: number;
             /** Format: date-time */
             expiration?: string | null;
@@ -9534,6 +9534,8 @@ export interface operations {
             query?: {
                 /** @description When `true`, response `data` becomes `{secret, value}` with the decrypted value. */
                 include_value?: boolean;
+                /** @description Comma-separated (or repeated) optional fields. `total_reads` adds the secret's lifetime read count as `total_reads`; it is computed only when requested, so it is absent by default. */
+                include?: string;
             };
             header?: never;
             path: {
@@ -9543,7 +9545,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope `{data, message}`. `data` is the secret node, or `{secret, value}` when `include_value=true`. */
+            /** @description Envelope `{data, message}`. `data` is the secret node, or `{secret, value}` when `include_value=true`. `total_reads` is present only when `include=total_reads` is sent. */
             200: {
                 headers: {
                     [name: string]: unknown;

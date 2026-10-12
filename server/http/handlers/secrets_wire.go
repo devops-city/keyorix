@@ -52,8 +52,9 @@ type SecretNodeWire struct {
 	DeletedAt              *time.Time  `json:"deleted_at,omitempty"`
 	RetentionOverrideDays  int         `json:"retention_override_days,omitempty"`
 	// TotalReads is the secret's lifetime value-read count
-	// (core.SecretTotalReads), set only by the single-secret GETs; omitted in
-	// listings. Not ReadCount, which is max_reads accounting (#2963).
+	// (core.SecretTotalReads), set only by GET /secrets/{id} when the caller sends
+	// include=total_reads; omitted in listings and by default. Not ReadCount,
+	// which is max_reads accounting (#2963).
 	TotalReads *int64 `json:"total_reads,omitempty"`
 }
 

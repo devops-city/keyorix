@@ -1792,6 +1792,22 @@ func NewGetSecretRequest(server string, id int, params *GetSecretParams) (*http.
 
 		}
 
+		if params.Include != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "include", runtime.ParamLocationQuery, *params.Include); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
 		queryURL.RawQuery = queryValues.Encode()
 	}
 
@@ -2055,6 +2071,7 @@ type CreatePATResponse struct {
 		} `json:"data,omitempty"`
 	}
 	JSON400 *Error
+	JSON403 *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -3121,6 +3138,13 @@ func ParseCreatePATResponse(rsp *http.Response) (*CreatePATResponse, error) {
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 

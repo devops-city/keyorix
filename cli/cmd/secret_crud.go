@@ -240,10 +240,11 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 }
 
 func runSecretGetByID(ctx context.Context, client *apiclient.ClientWithResponses, id int, showValue bool) error {
-	var params *apiclient.GetSecretParams
+	// `secret get` prints "Total Reads", so it asks for the opt-in count.
+	params := &apiclient.GetSecretParams{Include: &includeTotalReads}
 	if showValue {
 		t := true
-		params = &apiclient.GetSecretParams{IncludeValue: &t}
+		params.IncludeValue = &t
 	}
 	resp, err := client.GetSecretWithResponse(ctx, id, params)
 	if err != nil {
@@ -287,7 +288,7 @@ func runSecretGetByName(ctx context.Context, client *apiclient.ClientWithRespons
 		// The list omits total_reads; a metadata read by id (no value, so no read is
 		// recorded) carries it. Fall back to the list entry if that fetch fails.
 		f := false
-		if mresp, merr := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &f}); merr == nil && mresp.JSON200 != nil && mresp.JSON200.Data != nil {
+		if mresp, merr := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &f, Include: &includeTotalReads}); merr == nil && mresp.JSON200 != nil && mresp.JSON200.Data != nil {
 			displaySecret(secretGetResultToSecret(mresp.JSON200.Data), "", false)
 			return nil
 		}
@@ -295,7 +296,7 @@ func runSecretGetByName(ctx context.Context, client *apiclient.ClientWithRespons
 		return nil
 	}
 	t := true
-	vresp, err := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &t})
+	vresp, err := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &t, Include: &includeTotalReads})
 	if err != nil {
 		return fmt.Errorf("get secret value: %w", err)
 	}
@@ -312,6 +313,10 @@ func runSecretGetByName(ctx context.Context, client *apiclient.ClientWithRespons
 }
 
 func intPtr(n int) *int { return &n }
+
+// includeTotalReads is the opt-in `include` token for GET /secrets/{id}: the server
+// computes total_reads (an O(reads) count) only when asked.
+var includeTotalReads = "total_reads"
 
 // ── Display ───────────────────────────────────────────────────────────────────
 

@@ -64,7 +64,7 @@ func TestSecretGetAndVersions_ReportTotalReads(t *testing.T) {
 	}
 	getMeta := func() secretWire {
 		t.Helper()
-		st, body := do(http.MethodGet, fmt.Sprintf("/api/v1/secrets/%d", id), "")
+		st, body := do(http.MethodGet, fmt.Sprintf("/api/v1/secrets/%d?include=total_reads", id), "")
 		require.Equal(t, http.StatusOK, st, string(body))
 		var out struct {
 			Data secretWire `json:"data"`
@@ -79,7 +79,7 @@ func TestSecretGetAndVersions_ReportTotalReads(t *testing.T) {
 
 	// Two value reads. The second response's own total includes itself.
 	for i := 1; i <= 2; i++ {
-		st, body := do(http.MethodGet, fmt.Sprintf("/api/v1/secrets/%d?include_value=true", id), "")
+		st, body := do(http.MethodGet, fmt.Sprintf("/api/v1/secrets/%d?include_value=true&include=total_reads", id), "")
 		require.Equal(t, http.StatusOK, st, string(body))
 		var out struct {
 			Data struct {

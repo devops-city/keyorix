@@ -122,7 +122,10 @@ func (s *SecretGRPCService) GetSecret(ctx context.Context, req *pb.GetSecretRequ
 		return nil, mapSecretError(err)
 	}
 	out := secretNodeToProto(secret)
-	out.TotalReads = s.totalReads(ctx, secret.ID)
+	// Opt-in: the count is O(reads) over the access log (same default as REST).
+	if req.GetIncludeTotalReads() {
+		out.TotalReads = s.totalReads(ctx, secret.ID)
+	}
 	return out, nil
 }
 

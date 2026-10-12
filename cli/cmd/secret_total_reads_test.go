@@ -11,9 +11,17 @@ import (
 	"testing"
 )
 
+// totalReadsQueries records the `include` query values of GET /api/v1/secrets/{id}
+// requests seen by totalReadsServer.
+var totalReadsQueries []string
+
 func totalReadsServer(t *testing.T, routes map[string]string) *httptest.Server {
 	t.Helper()
+	totalReadsQueries = nil
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/secrets/") && !strings.HasSuffix(r.URL.Path, "/versions") {
+			totalReadsQueries = append(totalReadsQueries, r.URL.Query().Get("include"))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		body, ok := routes[r.URL.Path]
 		if !ok {
@@ -41,6 +49,10 @@ func TestSecretGet_PrintsTotalReads(t *testing.T) {
 		})
 		if !strings.Contains(out, "Total Reads: 7") {
 			t.Fatalf("expected 'Total Reads: 7', got: %q", out)
+		}
+		// total_reads is opt-in on the server; the view that prints it must ask.
+		if len(totalReadsQueries) != 1 || totalReadsQueries[0] != "total_reads" {
+			t.Fatalf("secret get must send include=total_reads, got include values %q", totalReadsQueries)
 		}
 	})
 
@@ -90,6 +102,9 @@ func TestSecretGet_PrintsTotalReads(t *testing.T) {
 		})
 		if !strings.Contains(out, "Total Reads: 5") {
 			t.Fatalf("expected 'Total Reads: 5' for a by-name get, got: %q", out)
+		}
+		if len(totalReadsQueries) != 1 || totalReadsQueries[0] != "total_reads" {
+			t.Fatalf("by-name secret get must send include=total_reads, got include values %q", totalReadsQueries)
 		}
 	})
 }

@@ -331,19 +331,47 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 			h.sendError(w, "InternalError", "Failed to record audit trail", http.StatusInternalServerError, nil)
 			return
 		}
-		response = map[string]interface{}{"secret": h.secretWireWithTotalReads(r.Context(), secret), "value": string(value)}
+		response = map[string]interface{}{"secret": h.secretWireForGet(r, secret), "value": string(value)}
 	} else {
-		response = h.secretWireWithTotalReads(r.Context(), secret)
+		response = h.secretWireForGet(r, secret)
 	}
 
 	h.sendSuccess(w, response, "")
 }
 
+// includeTotalReads is the `include` query token that opts GET /secrets/{id} in to
+// total_reads. The count is O(reads) over the secret's access log, so it is never
+// computed unless the caller asks for it.
+const includeTotalReads = "total_reads"
+
+// wantsTotalReads reports whether the request's `include` parameter (repeated
+// and/or comma-separated) contains total_reads.
+func wantsTotalReads(r *http.Request) bool {
+	for _, v := range r.URL.Query()["include"] {
+		for _, tok := range strings.Split(v, ",") {
+			if strings.TrimSpace(tok) == includeTotalReads {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// secretWireForGet is the wire form for GET /secrets/{id}: total_reads is added
+// only when the caller opted in with include=total_reads. Authorization is
+// unchanged (the caller already passed the read check to get here).
+func (h *SecretHandler) secretWireForGet(r *http.Request, secret *models.SecretNode) SecretNodeWire {
+	if wantsTotalReads(r) {
+		return h.secretWireWithTotalReads(r.Context(), secret)
+	}
+	return newSecretNodeWire(secret)
+}
+
 // secretWireWithTotalReads is newSecretNodeWire plus total_reads, the secret's
-// lifetime value-read count (core.SecretTotalReads), for the single-secret GETs.
-// Display only: if the count cannot be read the field is omitted and the
-// response is otherwise unchanged. On a value read it is computed after that
-// read's own audit + access-log write, so it includes this read.
+// lifetime value-read count (core.SecretTotalReads), for the single-secret GET
+// when requested. Display only: if the count cannot be read the field is omitted
+// and the response is otherwise unchanged. On a value read it is computed after
+// that read's own audit + access-log write, so it includes this read.
 func (h *SecretHandler) secretWireWithTotalReads(ctx context.Context, secret *models.SecretNode) SecretNodeWire {
 	w := newSecretNodeWire(secret)
 	if n, err := h.coreService.SecretTotalReads(ctx, secret.ID); err == nil {

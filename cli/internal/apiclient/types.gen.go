@@ -953,7 +953,7 @@ type Secret struct {
 	RotationRef            *string    `json:"rotation_ref,omitempty"`
 	Status                 *string    `json:"status,omitempty"`
 
-	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id only when the request sends include=total_reads (the count is O(reads), so it is not computed by default), including value reads; omitted otherwise, from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
 	TotalReads *int       `json:"total_reads,omitempty"`
 	Type       *string    `json:"type,omitempty"`
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
@@ -1068,7 +1068,7 @@ type SecretGetResult struct {
 	Secret *Secret `json:"secret,omitempty"`
 	Status *string `json:"status,omitempty"`
 
-	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id (including value reads) and omitted from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
+	// TotalReads Lifetime count of reads of this secret's value (secret_access_logs rows with action read). Present on GET by id only when the request sends include=total_reads (the count is O(reads), so it is not computed by default), including value reads; omitted otherwise, from listings and from GET by-name. Metadata-only by-name lookups are logged as secret.metadata_read (action metadata_read) and are not counted. On an install upgraded from before #2970, rows that version listings wrote as action read before that fix also count, so a lifetime count there is inflated by the number of earlier version listings. Not read_count, which counts only reads charged against max_reads.
 	TotalReads *int       `json:"total_reads,omitempty"`
 	Type       *string    `json:"type,omitempty"`
 	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
@@ -2109,6 +2109,9 @@ type GetSecretValueByRefParams struct {
 type GetSecretParams struct {
 	// IncludeValue When `true`, response `data` becomes `{secret, value}` with the decrypted value.
 	IncludeValue *bool `form:"include_value,omitempty" json:"include_value,omitempty"`
+
+	// Include Comma-separated (or repeated) optional fields. `total_reads` adds the secret's lifetime read count as `total_reads`; it is computed only when requested, so it is absent by default.
+	Include *string `form:"include,omitempty" json:"include,omitempty"`
 }
 
 // UpdateSecretJSONBody defines parameters for UpdateSecret.

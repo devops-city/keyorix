@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
@@ -534,7 +536,7 @@ func TestSecretService_TotalReads_GetSecretAndVersions(t *testing.T) {
 	ctx := authCtx(1, "owner", "secrets.write", "secrets.read")
 	created := r.createSecret(t, ctx, "counted", "the-value")
 
-	before, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+	before, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId(), IncludeTotalReads: true})
 	require.NoError(t, err)
 	require.NotNil(t, before.TotalReads, "total_reads is reported on GetSecret (0 before any read)")
 	assert.Equal(t, int64(0), before.GetTotalReads())
@@ -544,7 +546,7 @@ func TestSecretService_TotalReads_GetSecretAndVersions(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	got, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+	got, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId(), IncludeTotalReads: true})
 	require.NoError(t, err)
 	require.NotNil(t, got.TotalReads)
 	assert.Equal(t, int64(2), got.GetTotalReads(), "two value reads; the version max_reads counter stays 0 for this secret")
@@ -563,6 +565,46 @@ func TestSecretService_TotalReads_GetSecretAndVersions(t *testing.T) {
 	for _, s := range list.GetSecrets() {
 		assert.Nil(t, s.TotalReads, "ListSecrets must not carry total_reads")
 	}
+}
+
+// countingReadsStorage counts CountSecretReadsBySecretIDs calls (the O(reads)
+// query behind total_reads).
+type countingReadsStorage struct {
+	storage.Storage
+	calls atomic.Int64
+}
+
+func (s *countingReadsStorage) CountSecretReadsBySecretIDs(ctx context.Context, ids []uint, since time.Time) (map[uint]int, error) {
+	s.calls.Add(1)
+	return s.Storage.CountSecretReadsBySecretIDs(ctx, ids, since)
+}
+
+// total_reads on GetSecret is opt-in (include_total_reads): the default request
+// neither sets the field nor runs the access-log count; the opt-in request
+// returns the same figure as before.
+func TestSecretService_GetSecret_TotalReadsIsOptIn(t *testing.T) {
+	r := newSecretTestRig(t)
+	require.NoError(t, r.db.AutoMigrate(&models.AuditEvent{}, &models.SecretAccessLog{}))
+	counter := &countingReadsStorage{Storage: store.NewLocalStorage(r.db)}
+	r.svc = NewSecretService(core.NewKeyorixCore(counter))
+	ctx := authCtx(1, "owner", "secrets.write", "secrets.read")
+	created := r.createSecret(t, ctx, "opt-in", "the-value")
+	for i := 0; i < 2; i++ {
+		_, err := r.svc.GetSecretValue(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+		require.NoError(t, err)
+	}
+
+	counter.calls.Store(0)
+	def, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId()})
+	require.NoError(t, err)
+	assert.Nil(t, def.TotalReads, "default GetSecret must not carry total_reads")
+	assert.Zero(t, counter.calls.Load(), "default GetSecret must not run the total_reads count")
+
+	opt, err := r.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: created.GetId(), IncludeTotalReads: true})
+	require.NoError(t, err)
+	require.NotNil(t, opt.TotalReads)
+	assert.Equal(t, int64(2), opt.GetTotalReads())
+	assert.Equal(t, int64(1), counter.calls.Load(), "opt-in runs exactly one count")
 }
 
 // AUDIT-UX-2 item 3: listing version history over gRPC is audited as

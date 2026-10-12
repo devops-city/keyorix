@@ -48,7 +48,8 @@ type Secret struct {
 	UserPermission string `protobuf:"bytes,19,opt,name=user_permission,json=userPermission,proto3" json:"user_permission,omitempty"` // "read" | "write" | ""
 	ShareCount     uint32 `protobuf:"varint,20,opt,name=share_count,json=shareCount,proto3" json:"share_count,omitempty"`
 	// Lifetime count of reads of this secret's value (core.SecretTotalReads: access-log
-	// rows with action read). Set only by GetSecret; absent on lists. Not the per-version
+	// rows with action read). Set only by GetSecret when the request sets
+	// include_total_reads (an O(reads) count, so opt-in); absent otherwise and on lists. Not the per-version
 	// read_count, which counts only reads charged against max_reads. (#2971)
 	TotalReads    *int64 `protobuf:"varint,21,opt,name=total_reads,json=totalReads,proto3,oneof" json:"total_reads,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -428,11 +429,13 @@ func (x *CreateSecretRequest) GetParentId() uint32 {
 }
 
 type GetSecretRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            uint32                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	IncludeValue  bool                   `protobuf:"varint,2,opt,name=include_value,json=includeValue,proto3" json:"include_value,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Id           uint32                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	IncludeValue bool                   `protobuf:"varint,2,opt,name=include_value,json=includeValue,proto3" json:"include_value,omitempty"`
+	// Opt in to Secret.total_reads, which costs an O(reads) count; off by default.
+	IncludeTotalReads bool `protobuf:"varint,3,opt,name=include_total_reads,json=includeTotalReads,proto3" json:"include_total_reads,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GetSecretRequest) Reset() {
@@ -475,6 +478,13 @@ func (x *GetSecretRequest) GetId() uint32 {
 func (x *GetSecretRequest) GetIncludeValue() bool {
 	if x != nil {
 		return x.IncludeValue
+	}
+	return false
+}
+
+func (x *GetSecretRequest) GetIncludeTotalReads() bool {
+	if x != nil {
+		return x.IncludeTotalReads
 	}
 	return false
 }
@@ -10975,10 +10985,11 @@ const file_keyorix_proto_rawDesc = "" +
 	"_max_readsB\r\n" +
 	"\v_expirationB\f\n" +
 	"\n" +
-	"_parent_idJ\x04\b\v\x10\x15\"G\n" +
+	"_parent_idJ\x04\b\v\x10\x15\"w\n" +
 	"\x10GetSecretRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12#\n" +
-	"\rinclude_value\x18\x02 \x01(\bR\fincludeValue\"\xe6\x02\n" +
+	"\rinclude_value\x18\x02 \x01(\bR\fincludeValue\x12.\n" +
+	"\x13include_total_reads\x18\x03 \x01(\bR\x11includeTotalReads\"\xe6\x02\n" +
 	"\x13UpdateSecretRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x19\n" +
 	"\x05value\x18\x02 \x01(\tH\x00R\x05value\x88\x01\x01\x12 \n" +
