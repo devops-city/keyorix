@@ -46,11 +46,19 @@ const SERVICES_DIR = join(WEB_ROOT, 'src', 'services');
 
 // ---------------------------------------------------------------------------
 // Known, already-tracked violations. Each entry is
-// `${file}:${line}` -> { issue, reason }. A violation at this exact call
-// site is downgraded from a failure to a logged pending-known entry. Remove
-// the entry once its issue is fixed -- CheckKnownViolationsStillApply below
-// fails the build if an entry here no longer corresponds to a real
-// violation, so this list can't silently outlive the bug it names.
+// `${file} ${METHOD} ${path template}` -> { issue, reason }, e.g.
+// 'secrets.ts POST /api/v1/secrets/{dyn}/transfer-ownership'. The template is
+// the call's path as this script resolves it (every `${...}` interpolation
+// becomes `{dyn}`, a query-string tail is dropped -- see resolvePathArg), so
+// the key does not move when lines above the call are added or removed (it
+// used to be file:LINE, which made every parallel PR touching a service file
+// conflict). A violation at a call site with this key is downgraded from a
+// failure to a logged pending-known entry. An entry tolerates exactly ONE
+// call site with that key (`count`, default 1): a second call to the same
+// file+method+path is a new call site and fails, as it did under file:LINE.
+// Remove the entry once its issue is fixed -- main() fails the build if an
+// entry here no longer corresponds to a real violation, so this list can't
+// silently outlive the bug it names.
 // ---------------------------------------------------------------------------
 const SPEC_GAP_REASON =
     'Route is real (verified against server/http/router.go); it is just not yet added to ' +
@@ -58,24 +66,36 @@ const SPEC_GAP_REASON =
     'describes. Remove this entry once an operation is added for this path+method.';
 
 const KNOWN_VIOLATIONS = {
-    'admin.ts:58': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'admin.ts:66': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'admin.ts:73': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'admin.ts:80': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'admin.ts:84': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'connect.ts:24': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'connect.ts:33': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'connect.ts:40': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'connect.ts:45': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'connect.ts:54': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'license.ts:33': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'machineIdentities.ts:136': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'machineIdentities.ts:177': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'notificationChannels.ts:64': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'notificationChannels.ts:74': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'rbac.ts:95': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'secrets.ts:165': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
-    'users.ts:169': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'admin.ts GET /api/v1/users/{dyn}/permissions': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'admin.ts POST /api/v1/admin/jobs/anomaly-alerts': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'admin.ts POST /api/v1/admin/jobs/rotation-reminders': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'admin.ts POST /api/v1/admin/jobs/expiry-reminders': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'admin.ts POST /api/v1/admin/jobs/compliance-digest': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'connect.ts GET /api/v1/connect/connectors': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'connect.ts POST /api/v1/connect/{dyn}/secret:read': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'connect.ts GET /api/v1/connect/ref-grants': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'connect.ts POST /api/v1/connect/ref-grants': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'connect.ts DELETE /api/v1/connect/ref-grants/{dyn}': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'license.ts GET /api/v1/license/status': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'machineIdentities.ts PATCH /api/v1/projects/{dyn}/machine-identities/{dyn}/classification': {
+        issue: 'ADR-074',
+        reason: SPEC_GAP_REASON,
+    },
+    'machineIdentities.ts PATCH /api/v1/projects/{dyn}/machine-identities/{dyn}/tokens/{dyn}/classification': {
+        issue: 'ADR-074',
+        reason: SPEC_GAP_REASON,
+    },
+    'notificationChannels.ts GET /api/v1/notification-channels/{dyn}/retry-policy': {
+        issue: 'ADR-074',
+        reason: SPEC_GAP_REASON,
+    },
+    'notificationChannels.ts PUT /api/v1/notification-channels/{dyn}/retry-policy': {
+        issue: 'ADR-074',
+        reason: SPEC_GAP_REASON,
+    },
+    'rbac.ts GET /api/v1/groups/{dyn}/shared-secrets': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'secrets.ts POST /api/v1/secrets/{dyn}/transfer-ownership': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
+    'users.ts POST /api/v1/users/{dyn}/unlock': { issue: 'ADR-074', reason: SPEC_GAP_REASON },
 };
 
 // ---------------------------------------------------------------------------
@@ -245,43 +265,64 @@ function extractCallSites(filePath, textOverride) {
 // Main
 // ---------------------------------------------------------------------------
 
-function main() {
-    const operations = loadSpecOperations();
-    const serviceFiles = readdirSync(SERVICES_DIR)
-        .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
-        .map((f) => join(SERVICES_DIR, f));
+/**
+ * The stable identity of a call site for KNOWN_VIOLATIONS: file + HTTP method
+ * + resolved path template. Deliberately has no line number.
+ */
+function siteKey(baseName, site) {
+    return `${baseName} ${site.method} ${site.path.template}`;
+}
 
+/**
+ * Pure core of the check. `files` is [{ baseName, sites }] (sites as returned
+ * by extractCallSites); `known` is a KNOWN_VIOLATIONS-shaped map. Returns the
+ * failures and log lines instead of printing/exiting so the test file can
+ * drive it with synthetic inputs.
+ */
+function evaluate(files, operations, known) {
     let resolvedCount = 0;
     let unresolvedPathCount = 0;
     let unresolvedBodyCount = 0;
     const failures = [];
-    const knownStillPresent = new Set();
+    const logs = [];
+    const seen = new Map(); // key -> number of violating call sites tolerated or seen
 
-    for (const file of serviceFiles) {
-        const baseName = file.split('/').pop();
-        for (const site of extractCallSites(file)) {
-            const key = `${baseName}:${site.line}`;
+    // Tolerates a violating call site if its key has an entry with room left;
+    // otherwise records a failure. Returns nothing.
+    const report = (key, where, message, kv) => {
+        const n = (seen.get(key) ?? 0) + 1;
+        seen.set(key, n);
+        if (kv && n <= (kv.count ?? 1)) {
+            logs.push(`[api-contract] KNOWN (${kv.issue}) ${key}: ${message} -- ${kv.reason}`);
+            return;
+        }
+        failures.push(
+            kv
+                ? `${where} (${key}): ${message} -- more call sites than the ${kv.count ?? 1} KNOWN_VIOLATIONS tolerates for this key`
+                : `${where} (${key}): ${message}`
+        );
+    };
 
+    for (const { baseName, sites } of files) {
+        for (const site of sites) {
             if (site.path.unresolved) {
                 unresolvedPathCount++;
                 continue;
             }
             resolvedCount++;
 
+            const key = siteKey(baseName, site);
+            const where = `${baseName}:${site.line}`; // for humans only; never a lookup key
             const callSegments = site.path.template.split('/').filter(Boolean);
             const op = findOperation(operations, site.method, callSegments);
-            const known = KNOWN_VIOLATIONS[key];
+            const kv = known[key];
 
             if (!op) {
-                if (known) {
-                    knownStillPresent.add(key);
-                    console.log(
-                        `[api-contract] KNOWN (${known.issue}) ${key}: ${site.method} "${site.path.template}" has no matching operation -- ${known.reason}`
-                    );
-                    continue;
-                }
-                failures.push(
-                    `${key}: ${site.method} "${site.path.template}" does not match any operation in openapi.yaml`
+                report(
+                    key,
+                    where,
+                    `${site.method} "${site.path.template}" does not match any operation in openapi.yaml`,
+                    kv
                 );
                 continue;
             }
@@ -293,29 +334,43 @@ function main() {
             }
             const missing = op.required.filter((f) => !site.body.keys.has(f));
             if (missing.length > 0) {
-                if (known) {
-                    knownStillPresent.add(key);
-                    console.log(
-                        `[api-contract] KNOWN (${known.issue}) ${key}: ${op.operationId} requires [${missing.join(', ')}] -- ${known.reason}`
-                    );
-                    continue;
-                }
-                failures.push(
-                    `${key}: ${op.operationId} requires [${op.required.join(', ')}] but the call's object literal is missing [${missing.join(', ')}]`
+                report(
+                    key,
+                    where,
+                    `${op.operationId} requires [${op.required.join(', ')}] but the call's object literal is missing [${missing.join(', ')}]`,
+                    kv
                 );
             }
         }
     }
 
-    // A KNOWN_VIOLATIONS entry whose call site no longer reproduces the
-    // violation (fixed, or the call site moved/was rewritten) is stale --
-    // fail loudly rather than let an exemption silently outlive its bug.
-    const staleKnown = Object.keys(KNOWN_VIOLATIONS).filter((k) => !knownStillPresent.has(k));
-    for (const k of staleKnown) {
-        failures.push(
-            `${k}: listed in KNOWN_VIOLATIONS (${KNOWN_VIOLATIONS[k].issue}) but no longer reproduces -- remove the stale entry`
-        );
+    // A KNOWN_VIOLATIONS entry with no violating call site left (fixed, or
+    // the call was removed/rewritten) is stale -- fail loudly rather than let
+    // an exemption silently outlive its bug.
+    for (const k of Object.keys(known)) {
+        if (!seen.has(k)) {
+            failures.push(
+                `${k}: listed in KNOWN_VIOLATIONS (${known[k].issue}) but no longer reproduces -- remove the stale entry`
+            );
+        }
     }
+
+    return { failures, logs, resolvedCount, unresolvedPathCount, unresolvedBodyCount };
+}
+
+function main() {
+    const operations = loadSpecOperations();
+    const serviceFiles = readdirSync(SERVICES_DIR)
+        .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))
+        .map((f) => join(SERVICES_DIR, f));
+
+    const files = serviceFiles.map((file) => ({ baseName: file.split('/').pop(), sites: extractCallSites(file) }));
+    const { failures, logs, resolvedCount, unresolvedPathCount, unresolvedBodyCount } = evaluate(
+        files,
+        operations,
+        KNOWN_VIOLATIONS
+    );
+    for (const l of logs) console.log(l);
 
     console.log(
         `[api-contract] checked ${resolvedCount} resolved call site(s) across ${serviceFiles.length} service file(s); ` +
@@ -338,4 +393,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     main();
 }
 
-export { loadSpecOperations, segmentsMatch, findOperation, resolvePathArg, resolveBodyKeys, extractCallSites };
+export {
+    loadSpecOperations,
+    segmentsMatch,
+    findOperation,
+    resolvePathArg,
+    resolveBodyKeys,
+    extractCallSites,
+    siteKey,
+    evaluate,
+    KNOWN_VIOLATIONS,
+};
