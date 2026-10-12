@@ -37,7 +37,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import ts from 'typescript';
-import yaml from 'js-yaml';
+import { load as loadYaml } from 'js-yaml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = join(__dirname, '..');
@@ -83,7 +83,7 @@ const KNOWN_VIOLATIONS = {
 // ---------------------------------------------------------------------------
 
 function loadSpecOperations() {
-    const doc = yaml.load(readFileSync(SPEC_PATH, 'utf8'));
+    const doc = loadYaml(readFileSync(SPEC_PATH, 'utf8'));
     const operations = [];
     for (const [specPath, pathItem] of Object.entries(doc.paths ?? {})) {
         for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
