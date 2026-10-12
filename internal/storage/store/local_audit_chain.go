@@ -30,6 +30,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 )
 
 // auditGenesisHash is the prev_hash of the first chained event. A fixed, visibly
@@ -571,20 +572,104 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 	}
 }
 
+// auditInsertMaxBindVars is the bind-parameter budget of one multi-row audit
+// INSERT. SQLite's SQLITE_MAX_VARIABLE_NUMBER defaults to 32766 (since 3.32;
+// modernc.org/sqlite keeps the default) and Postgres' wire protocol allows
+// 65535, so the smaller one bounds both dialects.
+// TestAuditInsertRowsPerStatement_SQLiteVariableLimitIsReal proves the SQLite
+// ceiling is real, and TestCommitBatchAttempt_ChunksAtVariableLimitBoundary
+// that a batch on either side of the derived row bound still commits.
+const auditInsertMaxBindVars = 32766
+
+// auditInsertSchemaCache backs auditInsertRowsPerStatement's schema.Parse.
+var auditInsertSchemaCache sync.Map
+
+// auditInsertRowsPerStatement returns how many rows of model one INSERT may
+// carry under auditInsertMaxBindVars. It counts EVERY column of the model,
+// the primary key included although GORM leaves a zero one out, so the bound
+// stays conservative whichever columns GORM ends up binding.
+func auditInsertRowsPerStatement(model any) (int, error) {
+	s, err := schema.Parse(model, &auditInsertSchemaCache, schema.NamingStrategy{})
+	if err != nil {
+		return 0, err
+	}
+	return auditInsertMaxBindVars / len(s.DBNames), nil
+}
+
+// createAuditRowsMultiRow inserts rows with one multi-row INSERT per
+// auditInsertRowsPerStatement-sized chunk (one statement for any batch up to
+// auditFlusherMaxBatch), in slice order. GORM writes each returned ID back
+// onto the matching element.
+func createAuditRowsMultiRow[T any](tx *gorm.DB, rows []*T) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	perStmt, err := auditInsertRowsPerStatement(rows[0])
+	if err != nil {
+		return err
+	}
+	for start := 0; start < len(rows); start += perStmt {
+		chunk := rows[start:min(start+perStmt, len(rows))]
+		if err := tx.Create(&chunk).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkAuditInsertIDOrder fails the attempt unless the IDs GORM wrote back are
+// non-zero and strictly ascending in slice order. See commitBatchAttempt for
+// why the hash chain depends on that.
+func checkAuditInsertIDOrder(events []*models.AuditEvent) error {
+	for i, e := range events {
+		if e.ID == 0 || (i > 0 && e.ID <= events[i-1].ID) {
+			return fmt.Errorf("audit batch insert: row %d of %d came back with id %d, not in VALUES order", i, len(events), e.ID)
+		}
+	}
+	return nil
+}
+
 // commitBatchAttempt runs ONE transaction attempt for batch: reads the
 // current chain head, assigns/recomputes prev_hash+entry_hash for every
 // item in order, and inserts them all — one fsync for the whole attempt.
 //
+// The rows go in with one INSERT for all the events and one for all the
+// non-nil access logs (PERF-FIX-2), not one statement per item. The hashes
+// are still computed first, item by item, exactly as the per-item version
+// did, so the chain is byte-identical. What the multi-row form adds is a
+// dependency on ID order: VerifyAuditChain walks id ASC and the next attempt
+// reads the head as id DESC, so row k of the VALUES list must get a smaller
+// id than row k+1, and GORM must map the RETURNING rows back onto the slice
+// in that same order (gorm.Scan assigns RETURNING row k to element k). Both
+// hold on both dialects: SQLite assigns rowids as it steps through VALUES and
+// Postgres calls nextval per VALUES row, and both emit RETURNING rows in that
+// processing order (SQLite's documentation leaves the RETURNING order
+// unspecified, so this is checked rather than assumed):
+//   - checkAuditInsertIDOrder re-checks the write-back on every attempt and
+//     fails closed if the returned ids are not strictly ascending (the attempt
+//     rolls back and commitAuditBatch bisects, down to single rows that need
+//     no ordering);
+//   - TestCommitBatchAttempt_MultiRowMatchesPerRow_{SQLite,Postgres} prove the
+//     stored rows, ids and hashes equal the per-item path's, that every
+//     returned id points at the row with that item's own entry_hash, that the
+//     id DESC head is the batch's last item, and that the chain verifies.
+//
+// A bad row now fails the whole statement rather than only its own one, which
+// commitAuditBatch's bisection already handles: it never relied on WHICH
+// statement failed, only on the attempt failing, and each half is a fresh
+// attempt. TestCommitAuditBatch_RealDBErrorOnOneRowIsolated_{SQLite,Postgres}
+// pin that with a genuine database error (a trigger), not a GORM callback.
+//
 // Zeros each item's event/accessLog ID at the START of this attempt
 // (coordinator review, #2420, item 4): tx.Create assigns the DB-generated ID
-// onto the Go struct the moment that individual statement succeeds, which
-// can happen for an EARLIER item in this same loop before a LATER item's
-// Create fails and rolls the whole transaction back. Without this reset, a
-// retried attempt's tx.Create for that earlier item would run with the
-// stale ID already set from the rolled-back attempt, turning what should be
-// a fresh auto-assigned insert into an explicit-primary-key insert — wrong
-// on every backend, and on Postgres specifically a correctness hazard: that
-// stale ID may not even be the one the sequence would hand out next.
+// onto the Go struct the moment that statement succeeds, which can happen for
+// the events INSERT before the access-log INSERT fails and rolls the whole
+// transaction back. Without this reset, a retried attempt would insert those
+// events with the stale IDs still set from the rolled-back attempt, turning
+// what should be a fresh auto-assigned insert into an explicit-primary-key
+// insert — wrong on every backend, and on Postgres specifically a correctness
+// hazard: that stale ID may not even be the one the sequence would hand out
+// next.
 func (ls *LocalStorage) commitBatchAttempt(ctx context.Context, batch []*auditBatchItem) error {
 	return ls.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
@@ -607,24 +692,26 @@ func (ls *LocalStorage) commitBatchAttempt(ctx context.Context, batch []*auditBa
 		if prev == "" {
 			prev = auditGenesisHash
 		}
+		events := make([]*models.AuditEvent, 0, len(batch))
+		var accessLogs []*models.SecretAccessLog
 		for _, item := range batch {
 			item.event.ID = 0
 			if item.accessLog != nil {
 				item.accessLog.ID = 0
+				accessLogs = append(accessLogs, item.accessLog)
 			}
 			item.event.PrevHash = prev
 			item.event.EntryHash = computeAuditEntryHash(item.event, prev)
-			if err := tx.Create(item.event).Error; err != nil {
-				return err
-			}
 			prev = item.event.EntryHash
-			if item.accessLog != nil {
-				if err := tx.Create(item.accessLog).Error; err != nil {
-					return err
-				}
-			}
+			events = append(events, item.event)
 		}
-		return nil
+		if err := createAuditRowsMultiRow(tx, events); err != nil {
+			return err
+		}
+		if err := checkAuditInsertIDOrder(events); err != nil {
+			return err
+		}
+		return createAuditRowsMultiRow(tx, accessLogs)
 	})
 }
 

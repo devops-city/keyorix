@@ -1,0 +1,2 @@
+### Changed
+- **Audit batches are written with one INSERT per batch.** The audit flusher now inserts a batch's audit events with one multi-row INSERT and its secret access-log rows with another, instead of one INSERT per item. The hash chain, row contents and ids are unchanged, and every caller still returns only after its audit row is committed (same transaction, advisory lock, durability setting and SQLite busy-retry). A row the database rejects still fails only its own caller.

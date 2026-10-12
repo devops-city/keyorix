@@ -42,8 +42,10 @@ func TestCommitAuditBatch_PoisonedItemIsolatedFromRest(t *testing.T) {
 	require.NoError(t, ls.db.Callback().Create().Before("gorm:before_create").Register(
 		"test:poison_one_audit_event",
 		func(tx *gorm.DB) {
-			if ev, ok := tx.Statement.Dest.(*models.AuditEvent); ok && ev.Description == poisonMarker {
-				_ = tx.AddError(sentinelErr)
+			for _, ev := range auditEventsInCreate(tx) {
+				if ev.Description == poisonMarker {
+					_ = tx.AddError(sentinelErr)
+				}
 			}
 		},
 	))

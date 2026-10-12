@@ -109,7 +109,7 @@ func TestCommitAuditBatch_GateContentionFailsTheBatchWithoutBisecting(t *testing
 	require.NoError(t, ls.db.Callback().Create().Before("gorm:before_create").Register(
 		"test:gate_contention_every_attempt",
 		func(tx *gorm.DB) {
-			if _, ok := tx.Statement.Dest.(*models.AuditEvent); ok {
+			if len(auditEventsInCreate(tx)) > 0 {
 				attempts.Add(1)
 				_ = tx.AddError(fmt.Errorf("begin write transaction: %w", corestorage.ErrSQLiteWriteContention))
 			}
@@ -177,8 +177,10 @@ func TestCommitAuditBatch_StillBisectsAPoisonedItemUnderContentionsSibling(t *te
 	require.NoError(t, ls.db.Callback().Create().Before("gorm:before_create").Register(
 		"test:poison_one_not_contention",
 		func(tx *gorm.DB) {
-			if ev, ok := tx.Statement.Dest.(*models.AuditEvent); ok && ev.Description == poisonMarker {
-				_ = tx.AddError(errors.New("injected: item-specific constraint violation"))
+			for _, ev := range auditEventsInCreate(tx) {
+				if ev.Description == poisonMarker {
+					_ = tx.AddError(errors.New("injected: item-specific constraint violation"))
+				}
 			}
 		},
 	))
@@ -237,7 +239,7 @@ func TestCommitAuditBatch_GateWaitEndedByCtxDeadlineIsAlsoBatchGlobal(t *testing
 	require.NoError(t, ls.db.Callback().Create().Before("gorm:before_create").Register(
 		"test:gate_ctx_deadline_every_attempt",
 		func(tx *gorm.DB) {
-			if _, ok := tx.Statement.Dest.(*models.AuditEvent); ok {
+			if len(auditEventsInCreate(tx)) > 0 {
 				_ = tx.AddError(gateCtxErr)
 			}
 		},
