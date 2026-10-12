@@ -479,6 +479,15 @@ type Storage interface {
 	GetSecretAccessSchedule(ctx context.Context, secretNodeID uint) (*models.SecretAccessSchedule, error)
 	SetSecretAccessSchedule(ctx context.Context, schedule *models.SecretAccessSchedule) error
 	DeleteSecretAccessSchedule(ctx context.Context, secretNodeID uint) error
+	// GetSecretScheduleAndLatestVersion is GetSecretAccessSchedule plus
+	// GetLatestSecretVersion for one secret, for a latest-version value read
+	// (PERF-FIX-4, collapse C5): the schedule row and the latest-version cache
+	// generation come from ONE statement (one snapshot), and the version row is
+	// read only when the version cache misses. The returned error is the shared
+	// statement's failure only; a latest-version failure is carried in
+	// LatestVersionErr, exactly as GetLatestSecretVersion would have returned it,
+	// so the caller still judges the schedule first.
+	GetSecretScheduleAndLatestVersion(ctx context.Context, secretNodeID uint) (*SecretScheduleAndLatestVersion, error)
 
 	// Legal hold (ISO 27001 A.5.34 / eDiscovery) — a deployment-wide hold that
 	// blocks the purge jobs from hard-deleting records while active.
@@ -2199,6 +2208,17 @@ type SecretFilter struct {
 	// true = actual secrets only, false = folder nodes only.
 	// When nil, both secrets and folders are returned.
 	IsSecret *bool
+}
+
+// SecretScheduleAndLatestVersion is GetSecretScheduleAndLatestVersion's result.
+// Schedule is nil when the secret has no access schedule (no restriction, as
+// GetSecretAccessSchedule's nil, nil). Exactly one of LatestVersion and
+// LatestVersionErr is set; LatestVersionErr is the error GetLatestSecretVersion
+// would have returned (wrapping ErrSecretVersionNotFound when there is none).
+type SecretScheduleAndLatestVersion struct {
+	Schedule         *models.SecretAccessSchedule
+	LatestVersion    *models.SecretVersion
+	LatestVersionErr error
 }
 
 // DriftSecretRow is one secret's drift-relevant projection: which environment it

@@ -1426,6 +1426,15 @@ func (ls *LocalStorage) GetLatestSecretVersion(ctx context.Context, secretID uin
 	// would keep being served. Read first, a race can only produce an entry under
 	// an already-stale generation, which never hits.
 	liveGen, genErr := liveVersionsGeneration(ctx, ls.db, secretID)
+	return ls.readLatestSecretVersionRow(ctx, secretID, liveGen, genErr)
+}
+
+// readLatestSecretVersionRow is GetLatestSecretVersion's cache-miss tail: the
+// version row query, and the publish under liveGen. liveGen/genErr MUST have
+// been read BEFORE this is called (see GetLatestSecretVersion); shared with
+// GetSecretScheduleAndLatestVersion, which reads the generation in its combined
+// statement.
+func (ls *LocalStorage) readLatestSecretVersionRow(ctx context.Context, secretID uint, liveGen versionsGeneration, genErr error) (*models.SecretVersion, error) {
 	var version models.SecretVersion
 	err := ls.db.WithContext(ctx).Where(sqlWhereSecretNodeID, secretID).Order("version_number DESC").First(&version).Error
 	if err != nil {

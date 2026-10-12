@@ -3244,6 +3244,23 @@ func (w *FaultyStorage) GetSecretReadCounts(ctx context.Context, secretID uint, 
 	return w.real.GetSecretReadCounts(ctx, secretID, since, until, limit)
 }
 
+func (w *FaultyStorage) GetSecretScheduleAndLatestVersion(ctx context.Context, secretNodeID uint) (*storage.SecretScheduleAndLatestVersion, error) {
+	fire, kind, injected := w.check("GetSecretScheduleAndLatestVersion")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *storage.SecretScheduleAndLatestVersion
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetSecretScheduleAndLatestVersion(ctx, secretNodeID)
+			return rv1, injected
+		}
+	}
+	return w.real.GetSecretScheduleAndLatestVersion(ctx, secretNodeID)
+}
+
 func (w *FaultyStorage) GetSecretTags(ctx context.Context, secretID uint) ([]string, error) {
 	fire, kind, injected := w.check("GetSecretTags")
 	if fire {

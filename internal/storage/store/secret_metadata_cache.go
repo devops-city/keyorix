@@ -11,6 +11,10 @@
 // AuthorizeSecret/AuthorizePrincipal decide, only how cheaply the data they
 // and the handler read is served.
 //
+// GetSecretScheduleAndLatestVersion (local_secret_schedule_and_version.go)
+// reads the versions and schedule signals below in ONE statement for a
+// latest-version value read, and uses the same entries under the same rules.
+//
 // # One rule, three signals
 //
 // A generation must change whenever ANY column of the cached value changes.
