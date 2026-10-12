@@ -11,3 +11,5 @@ overrides:
   undici@>=5.0.0 <7.29.0: ^7.29.0
   # brace-expansion <5.0.7: exponential-time DoS. react-router transitively.
   brace-expansion@>=5.0.0 <5.0.7: ^5.0.8
+  # source-map-js <1.2.2: GHSA-68fv-2mgg-jv7q. Pulled by postcss (vite, tailwind).
+  source-map-js@<1.2.2: 1.2.2
