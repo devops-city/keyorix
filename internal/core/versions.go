@@ -265,6 +265,45 @@ func (c *KeyorixCore) GetSecretValueWithPermissionCheck(ctx context.Context, sec
 	return c.getSecretValueForUser(ctx, secretID, userID, nil)
 }
 
+// ReadPermittedSecret is proof that GetSecretForValueRead's read-permission check
+// (the same EnforceSecretReadPermission + access-schedule check as
+// GetSecretWithPermissionCheck) passed for one user on one secret. Its fields are
+// unexported, so outside this package it can only be obtained from that check, and
+// GetPermittedSecretValue cannot be handed an unchecked secret.
+type ReadPermittedSecret struct {
+	secret *models.SecretNode
+	userID uint
+}
+
+// Secret returns the secret as the permission check resolved it.
+func (p *ReadPermittedSecret) Secret() *models.SecretNode { return p.secret }
+
+// GetSecretForValueRead is GetSecretWithPermissionCheck for a request that goes on
+// to read the value: same checks, same errors, same returned secret, plus the proof
+// GetPermittedSecretValue takes (PERF-FIX-3).
+func (c *KeyorixCore) GetSecretForValueRead(ctx context.Context, id, userID uint) (*ReadPermittedSecret, error) {
+	secret, err := c.GetSecretWithPermissionCheck(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &ReadPermittedSecret{secret: secret, userID: userID}, nil
+}
+
+// GetPermittedSecretValue is GetSecretValueWithPermissionCheck for a request whose
+// read permission GetSecretForValueRead has just checked (PERF-FIX-3). The
+// permission decision is not evaluated a second time and the secret is not fetched
+// again (the second evaluation was the same CheckSecretPermission call with the same
+// arguments, ~12 statements); everything else is GetSecretValueWithPermissionCheck's
+// own tail: the full read-guard bundle (clock, expiry, suspended, classification
+// gate with the real userID, schedule), the latest version and the atomic max-reads
+// accounting.
+func (c *KeyorixCore) GetPermittedSecretValue(ctx context.Context, p *ReadPermittedSecret) ([]byte, error) {
+	if p == nil || p.secret == nil || p.userID == 0 {
+		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required for permission checking")
+	}
+	return c.getSecretValueForUser(ctx, p.secret.ID, p.userID, p.secret)
+}
+
 // GetSecretValueByVersion retrieves the decrypted value of a specific version of a secret.
 // Like GetSecretValue, a direct call has no user principal — see
 // getSecretValueByVersionForUser.

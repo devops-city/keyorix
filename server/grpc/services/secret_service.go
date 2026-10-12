@@ -191,21 +191,27 @@ func (s *SecretGRPCService) GetSecretValue(ctx context.Context, req *pb.GetSecre
 	// the per-user owner/sharing check does not apply to them (W1 — see GetSecret).
 	isMachine := user.ActorKind() == core.ActorTypeMachine
 
-	// Resolve the name first (metadata read, no read-count side effect).
+	// Resolve the name first (metadata read, no read-count side effect). The value
+	// read below reuses this resolution, and for a human its read-permission check,
+	// instead of fetching and checking the same secret again (PERF-FIX-3).
 	var secret *models.SecretNode
+	var permitted *core.ReadPermittedSecret
 	if isMachine {
 		secret, err = s.core.GetSecret(ctx, uint(req.GetId()))
 	} else {
-		secret, err = s.core.GetSecretWithPermissionCheck(ctx, uint(req.GetId()), user.UserID)
+		permitted, err = s.core.GetSecretForValueRead(ctx, uint(req.GetId()), user.UserID)
+		if err == nil {
+			secret = permitted.Secret()
+		}
 	}
 	if err != nil {
 		return nil, mapSecretError(err)
 	}
 	var value []byte
 	if isMachine {
-		value, err = s.core.GetSecretValue(ctx, uint(req.GetId()))
+		value, err = s.core.GetSecretValueResolved(ctx, secret)
 	} else {
-		value, err = s.core.GetSecretValueWithPermissionCheck(ctx, uint(req.GetId()), user.UserID)
+		value, err = s.core.GetPermittedSecretValue(ctx, permitted)
 	}
 	if err != nil {
 		return nil, mapSecretError(err)

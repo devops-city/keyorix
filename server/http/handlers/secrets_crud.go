@@ -247,6 +247,9 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 	isMachine := userCtx.MachineIdentityID != nil
 
 	var secret *models.SecretNode
+	// Human principals: the read-permission proof the value branch below reuses, so
+	// the same permission check is not evaluated twice in one request (PERF-FIX-3).
+	var permitted *core.ReadPermittedSecret
 	if isMachine {
 		// SESSION-PERF (#2403 follow-up): reuse the EXACT resolution
 		// RequireScopedSecretPermission already fetched to compute the
@@ -281,7 +284,10 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 			}
 		}
 	} else {
-		secret, err = h.coreService.GetSecretWithPermissionCheck(r.Context(), uint(id), userCtx.UserID)
+		permitted, err = h.coreService.GetSecretForValueRead(r.Context(), uint(id), userCtx.UserID)
+		if err == nil {
+			secret = permitted.Secret()
+		}
 	}
 	if err != nil {
 		log.Printf("Error getting secret: %v", err)
@@ -307,7 +313,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 			// follow-up).
 			value, err = h.coreService.GetSecretValueResolved(r.Context(), secret)
 		} else {
-			value, err = h.coreService.GetSecretValueWithPermissionCheck(r.Context(), uint(id), userCtx.UserID)
+			value, err = h.coreService.GetPermittedSecretValue(r.Context(), permitted)
 		}
 		if err != nil {
 			log.Printf("Error getting secret value: %v", err)
