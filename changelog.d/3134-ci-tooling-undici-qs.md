@@ -1,0 +1,2 @@
+### Security
+- **Root CI-tooling `undici` raised to 7.29.1 and `qs` pinned to 6.16.0** (the ten undici advisories fixed in 7.29.1, and qs GHSA-x5fp-wj9c-mxmx / GHSA-4mjr-xmp4-gh2g). Both arrive transitively through `@cyclonedx/cdxgen` (cheerio, body-parser); the root `package.json` overrides now pin the first patched versions and `npm audit` reports 0 vulnerabilities. CI/release-SBOM tooling only, not shipped in any binary.
