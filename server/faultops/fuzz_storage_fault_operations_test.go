@@ -116,6 +116,12 @@ var authzReadMethods = map[string]bool{
 type nonLoadBearingException struct {
 	op, method string
 	nth        int
+	// designComment, provingTest and why attribute a row the same way
+	// oracleAByDesignError does: where production states the read is not an
+	// authz decision, the test (pkg/TestName) proving authz fails closed before
+	// it, and the reason. All three or none (rows from before FUZZ-RULES-2 carry
+	// their trace as a comment); TestNonLoadBearingAuthzRead_AttributedRows checks.
+	designComment, provingTest, why string
 }
 
 // REST PUT /api/v1/auth/profile, GetUserPermissions, NthCall=1 (#2839): UpdateProfile
@@ -1270,6 +1276,15 @@ func checkOraclesReporting(t fuzzVerdict, in oracleInput) {
 			if e := oracleAErrorByDesign(in, diffTables(in.before, in.after)); e != nil && e.wrongCredentialResponse != "" {
 				t.Logf("ACCEPTABLE-BY-DESIGN (#2880 post-verdict): %s: answered and accounted exactly like a wrong "+
 					"credential -- %s (proving test: %s)", label, e.designComment, e.provingTest)
+				return
+			}
+			// FUZZ-RULES-2 (#3091): a pure read's effect-then-error is its error.
+			// Only a KindError row that opts in (pureReadEffectThenError), and only
+			// when this run left exactly that row's state; see
+			// oracle_d_pure_read_by_design_test.go.
+			if e := oracleDPureReadByDesign(in, diffTables(in.before, in.after)); e != nil {
+				t.Logf("ACCEPTABLE-BY-DESIGN (pure read, effect-then-error == error): %s: the reviewed error-kind "+
+					"state of this (op, method, nth) -- %s (proving test: %s)", label, e.designComment, e.provingTest)
 				return
 			}
 			report("d", nil, "%s: ORACLE (d) VIOLATION — effect-then-error state matches NEITHER the pre-fault "+

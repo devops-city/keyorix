@@ -16,6 +16,10 @@ func init() {
 		nth:         1,
 		tables:      []string{"LoginAttempt"},
 		outcomeLogs: []string{"AuditEvent"},
+		// #3091 (FUZZ-RULES-2): GetUserPermissions is a pure read, so its
+		// effect-then-error ends in this same state; oracle (d) may consult this
+		// row for it (oracle_d_pure_read_by_design_test.go).
+		pureReadEffectThenError: true,
 		designComment: "internal/core/webauthn.go FinishWebAuthnLoginPending: an identity-read failure after the " +
 			"assertion verified is denied via denyAfterCredentialMatched (ErrLoginPostVerdict wrapping " +
 			"ErrLoginIdentityUnavailable, never ErrWebAuthnLoginNotEvaluated); server/http/handlers/webauthn.go " +

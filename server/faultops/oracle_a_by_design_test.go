@@ -142,6 +142,12 @@ type oracleAByDesignError struct {
 	// must read B in the ledger (TestOracleAByDesign_WrongCredentialOutcomesAreReal).
 	consumedBy      string
 	consumedColumns map[string][]string
+	// pureReadEffectThenError (FUZZ-RULES-2, #3091) lets oracle (d) consult this
+	// KindError row for an effect-then-error fault on the same (op, method, nth):
+	// the method is a pure read (pureReadMethods), so effect-then-error leaves
+	// exactly the state its error leaves. Checked per run and per row, see
+	// oracle_d_pure_read_by_design_test.go. Optional.
+	pureReadEffectThenError bool
 	// designComment names where in PRODUCTION code the intent is stated, so a
 	// reader can check the claim at its source rather than trusting this row.
 	// Required.
