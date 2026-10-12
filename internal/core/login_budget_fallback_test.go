@@ -148,14 +148,14 @@ func TestLoginBudgetFallback_RecoveredStorageIsAuthoritativeAgain(t *testing.T) 
 func TestLoginBudgetFallback_NoFaultNoChange(t *testing.T) {
 	c, _, db, _ := newFallbackCore(t)
 	ctx := context.Background()
-	before := testutil.ToFloat64(loginBudgetFallbackTotal)
+	before := testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("login"))
 	for i := 0; i < LoginMaxAttempts; i++ {
 		c.RecordFailedLogin(ctx, "203.0.113.13")
 	}
 	assert.True(t, c.IsLoginRateLimited(ctx, "203.0.113.13"))
-	assert.Zero(t, c.loginBudgetFallback().size(), "a healthy store must not populate the fallback")
-	assert.Zero(t, auditEventsOfType(t, db, EventLoginBudgetFallback))
-	assert.Equal(t, before, testutil.ToFloat64(loginBudgetFallbackTotal))
+	assert.Zero(t, c.authBudgetFallback(loginBudget).size(), "a healthy store must not populate the fallback")
+	assert.Zero(t, auditEventsOfType(t, db, EventAuthRateLimitError))
+	assert.Equal(t, before, testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("login")))
 }
 
 // TestLoginBudgetFallback_IsAuditedAndCounted: every fallback writes the error
@@ -164,16 +164,16 @@ func TestLoginBudgetFallback_IsAuditedAndCounted(t *testing.T) {
 	c, stub, db, _ := newFallbackCore(t)
 	ctx := context.Background()
 	stub.down = true
-	before := testutil.ToFloat64(loginBudgetFallbackTotal)
+	before := testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("login"))
 
 	c.RecordFailedLogin(ctx, "203.0.113.14")
 	_, _ = c.ReserveLoginAttempt(ctx, "203.0.113.14")
 	_ = c.IsLoginRateLimited(ctx, "203.0.113.14")
 
-	assert.Equal(t, before+3, testutil.ToFloat64(loginBudgetFallbackTotal), "one per fallback")
-	assert.EqualValues(t, 3, auditEventsOfType(t, db, EventLoginBudgetFallback), "one error event per fallback")
+	assert.Equal(t, before+3, testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("login")), "one per fallback")
+	assert.EqualValues(t, 3, auditEventsOfType(t, db, EventAuthRateLimitError), "one error event per fallback")
 	var ev models.AuditEvent
-	require.NoError(t, db.Where("event_type = ?", EventLoginBudgetFallback).First(&ev).Error)
+	require.NoError(t, db.Where("event_type = ?", EventAuthRateLimitError).First(&ev).Error)
 	require.NotNil(t, ev.Success)
 	assert.False(t, *ev.Success, "an error event, not a success")
 }
@@ -182,16 +182,16 @@ func TestLoginBudgetFallback_IsAuditedAndCounted(t *testing.T) {
 // source addresses cannot grow the fallback without bound.
 func TestLoginBudgetFallback_BoundedUnderManyDistinctIPs(t *testing.T) {
 	t.Parallel()
-	f := newLoginFallbackLimiter(64)
+	f := newAuthFallbackLimiter(64)
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
 	for i := 0; i < 10_000; i++ {
 		ip := "10." + itoa(i>>16&255) + "." + itoa(i>>8&255) + "." + itoa(i&255)
-		f.reserve(ip, now)
+		f.reserve(ip, now, LoginWindow, 4*LoginMaxAttempts)
 	}
 	assert.LessOrEqual(t, f.size(), 64, "the fallback holds at most its capacity of IPs")
 	// The most recent IPs are the ones kept, and they still count.
 	for i := 0; i < LoginMaxAttempts; i++ {
-		f.reserve("192.0.2.200", now)
+		f.reserve("192.0.2.200", now, LoginWindow, 4*LoginMaxAttempts)
 	}
 	assert.GreaterOrEqual(t, f.count("192.0.2.200", now.Add(-LoginWindow), true), LoginMaxAttempts)
 }

@@ -47,9 +47,35 @@ func (c *KeyorixCore) loginFailureLock(userID uint) *sync.Mutex {
 	return &c.loginFailureMu[userID%loginFailureMuShards]
 }
 
-// loginLocked reports whether the user is currently within an active lockout window.
+// loginLocked reports whether the user is currently within an active lockout
+// window (the stored one), or has spent MaxAttempts failures inside Window
+// counting the stored failures and the shared limiter's in-memory ones
+// together (accountFailuresSpent).
 func (c *KeyorixCore) loginLocked(user *models.User) bool {
-	return c.loginLockout.Enabled && user.LoginLockedUntil != nil && c.now().Before(*user.LoginLockedUntil)
+	if !c.loginLockout.Enabled {
+		return false
+	}
+	if user.LoginLockedUntil != nil && c.now().Before(*user.LoginLockedUntil) {
+		return true
+	}
+	return c.accountFailuresSpent(user)
+}
+
+// accountFailuresSpent reports whether u's stored failures inside Window plus
+// the in-memory failures counted while the lockout columns could not be
+// written (auth_budget.go) reach MaxAttempts. ADR-040's amendment: the check
+// adds the in-memory count to the stored one, for every budget (#3029 review
+// at 81a070aa: compared separately, a lockout write failing intermittently let
+// up to 2*(MaxAttempts-1) failures through). The in-memory failures are those
+// whose stored write failed, so the sum does not double-count. The stored
+// count is u's as read by the caller; a stale one (last failure older than
+// Window) counts 0, exactly as recordFailedLogin restarts it.
+func (c *KeyorixCore) accountFailuresSpent(u *models.User) bool {
+	stored := 0
+	if u.LastFailedLoginAt != nil && c.now().Sub(*u.LastFailedLoginAt) <= c.loginLockout.Window {
+		stored = u.FailedLoginAttempts
+	}
+	return c.budgetFallbackLimitedWithStored(c.accountBudget(), accountBudgetKey(u.ID), stored)
 }
 
 // cooldownFor returns the lock duration for the nth lockout (1-based): an
@@ -67,8 +93,10 @@ func (p LoginLockoutPolicy) cooldownFor(lockoutCount int) time.Duration {
 
 // recordFailedLogin increments the user's failed-attempt counter (resetting it when
 // the previous failure is older than the window) and locks the account once it
-// reaches MaxAttempts. Best-effort persistence: a storage error must not change the
-// "invalid credentials" outcome the caller returns.
+// reaches MaxAttempts. A storage error must not change the "invalid credentials"
+// outcome the caller returns, and must not let the failure go uncounted: it is
+// counted in the shared limiter's in-memory fallback instead (auth_budget.go),
+// which loginLocked and the pre-mint re-check consult.
 //
 // The read-increment-write runs inside a transaction over a freshly LockUserForUpdate'd
 // row, under the user's loginFailureMu shard, so concurrent failures for the same
@@ -138,7 +166,9 @@ func (c *KeyorixCore) recordFailedLogin(ctx context.Context, user *models.User) 
 		return nil
 	})
 	if err != nil {
-		return // best-effort: a storage error must not change the caller's outcome
+		// The caller's outcome is unchanged, but the failure still counts.
+		c.budgetRecordFallback(ctx, c.accountBudget(), accountBudgetKey(uid), &uid, err)
+		return
 	}
 
 	// Emit the lock audit only after the transaction commits, so a rolled-back lock is
@@ -205,6 +235,12 @@ func (c *KeyorixCore) recheckLoginLockFailClosed(ctx context.Context, user *mode
 			user.LoginLockoutCount = u.LoginLockoutCount
 			lockErr = fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
 			return nil
+		}
+		if c.accountFailuresSpent(u) {
+			// MaxAttempts failures between the stored count (read fresh under
+			// the row lock) and the in-memory one, counted while the lockout
+			// columns could not be written (auth_budget.go).
+			lockErr = fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
 		}
 		return nil
 	})
@@ -397,6 +433,7 @@ func (c *KeyorixCore) RecordPostVerdictLoginFailure(ctx context.Context, user *m
 // write on every login. Persists via the narrow UpdateLoginLockoutState, not the
 // generic UpdateUser.
 func (c *KeyorixCore) clearLoginFailures(ctx context.Context, user *models.User) {
+	c.budgetFallbackClear(c.accountBudget(), accountBudgetKey(user.ID))
 	if user.FailedLoginAttempts == 0 && user.LoginLockedUntil == nil && user.LoginLockoutCount == 0 {
 		return
 	}
@@ -436,6 +473,7 @@ func (c *KeyorixCore) UnlockUser(ctx context.Context, adminID, userID uint) erro
 	if err := c.storage.UpdateLoginLockoutState(ctx, userID, 0, nil, nil, 0); err != nil {
 		return fmt.Errorf("failed to unlock user: %w", err)
 	}
+	c.budgetFallbackClear(c.accountBudget(), accountBudgetKey(userID))
 	user.FailedLoginAttempts = 0
 	user.LastFailedLoginAt = nil
 	user.LoginLockedUntil = nil

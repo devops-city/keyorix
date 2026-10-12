@@ -1,5 +1,5 @@
 // login_budget_fallback_http_test.go — the per-IP login budget's in-memory
-// fallback (core/login_budget_fallback.go) over HTTP: with LoginAttempt storage
+// fallback (core/auth_budget.go, the login budget) over HTTP: with LoginAttempt storage
 // down the IP is still refused after LoginMaxAttempts failures, and the refusal
 // is byte-for-byte the 429 the stored budget sends.
 package handlers

@@ -133,11 +133,14 @@ type KeyorixCore struct {
 	// per-shard lock + row lock still provide. Zero value is ready to use (each
 	// shard is its own zero-value sync.Mutex). See login_lockout.go.
 	loginFailureMu [loginFailureMuShards]sync.Mutex
-	// loginFallback is the per-IP login budget's in-memory fallback, used only
-	// while LoginAttempt storage fails (login_budget_fallback.go). Created on
-	// first use via loginFallbackOnce, so a zero-value core gets one too.
-	loginFallbackOnce sync.Once
-	loginFallback     *loginFallbackLimiter
+	// authFallbacks are the auth budgets' in-memory fallbacks, one per budget,
+	// used only while a budget's storage fails (auth_budget.go). Created on
+	// first use under authFallbackMu, so a zero-value core gets them too.
+	authFallbackMu sync.Mutex
+	authFallbacks  map[string]*authFallbackLimiter
+	// authFallbackLast is when each budget last fell back (budgetDegraded),
+	// guarded by authFallbackMu.
+	authFallbackLast map[string]authFallbackMark
 	// globalAdminGuardMu serializes RemoveUserRole's last-global-admin check and the
 	// removal it guards (guardLastGlobalAdmin) into one atomic unit, so two admins
 	// concurrently removing each other's role assignment cannot both observe

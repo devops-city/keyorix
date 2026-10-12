@@ -21,8 +21,9 @@ import (
 
 // checkLoginRateLimit returns true if the IP has exceeded the login-attempt budget
 // within the window. Backed by the DB so the limit holds across HA replicas
-// (ADR-040). Fails open on a storage error — it's a backstop on top of the real
-// credential check, not the auth gate itself.
+// (ADR-040). On a storage error the shared limiter's in-memory fallback decides
+// (core/auth_budget.go): it neither fails open nor closed. A backstop on top of
+// the real credential check, not the auth gate itself.
 func (h *AuthHandler) checkLoginRateLimit(ctx context.Context, ip string) bool {
 	return h.coreService.IsLoginRateLimited(ctx, ip)
 }

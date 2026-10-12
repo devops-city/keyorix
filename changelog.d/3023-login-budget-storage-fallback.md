@@ -4,7 +4,7 @@
   only the count query failed while inserts still worked. It now falls back to
   a bounded in-memory limiter with the same limit and window, per server
   process. Each fallback writes an `auth.rate_limit_error` audit event and
-  increments `keyorix_login_budget_fallback_total`. Clients see the same 429.
+  increments `keyorix_auth_rate_limit_fallback_total{budget="login"}`. Clients see the same 429.
   An MFA or passkey login whose slot came from that fallback completes as
   normal: the in-memory slot is never written to the challenge or ceremony row.
 - **A storage error before any credential was checked is no longer recorded as

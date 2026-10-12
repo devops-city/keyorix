@@ -227,7 +227,11 @@ func (h *AuthHandler) VerifyMFA(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := h.completeLoginWithIdentity(w, r, session, user, identity, lc)
 	// #2936: the session is delivered, so this step's slot goes back. The
-	// password step of this flow kept its own, so one MFA login costs one slot.
+	// password step's slot, bound to the challenge, went back inside core
+	// (LoginCompletion.Succeeded), so a delivered MFA login costs no slot. The
+	// one exception is a password-step slot the in-memory fallback took: it is
+	// never bound to the shared challenge row (sharedLoginSlot), so it stays
+	// counted until it ages out.
 	h.returnLoginSlot(r.Context(), loginSlot{id: attemptID, ok: reserved})
 	goSafe(func() {
 		h.coreService.LogAuthLogin(context.Background(), user.ID, user.Username, ip, r.Header.Get("User-Agent"))

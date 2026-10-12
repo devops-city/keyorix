@@ -285,8 +285,8 @@ func (c *KeyorixCore) ResendAccountSetupLink(ctx context.Context, userID, create
 }
 
 // checkResendThrottle enforces the per-subject resend limits: a minimum interval
-// between issues and a daily cap (ADR-028 abuse section). Counting failures fail
-// open — a throttle-store error must not block a legitimate resend.
+// between issues and a daily cap (ADR-028 abuse section). A count error fails
+// closed (ErrResendThrottleUnverifiable), as the comment below explains.
 func (c *KeyorixCore) checkResendThrottle(ctx context.Context, purpose, email string) error {
 	key := strings.TrimSpace(strings.ToLower(email))
 
