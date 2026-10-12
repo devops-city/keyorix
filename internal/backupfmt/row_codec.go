@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 )
 
 // rowFieldsToMarshal returns every field on row's struct type that GORM
@@ -57,9 +58,53 @@ func rowFieldsToMarshal(row any) (map[string]any, error) {
 		if gormTag == "-" || strings.HasPrefix(gormTag, "-:") {
 			continue
 		}
-		out[f.Name] = v.Field(i).Interface()
+		out[f.Name] = normalizeTimesToUTC(v.Field(i)).Interface()
 	}
 	return out, nil
+}
+
+var timeType = reflect.TypeOf(time.Time{})
+
+// normalizeTimesToUTC returns v with every time.Time reachable through it
+// (directly, behind a pointer, or inside a struct such as sql.NullTime /
+// gorm.DeletedAt) converted to UTC. v itself is never mutated.
+//
+// Why: a database driver hands back times in time.Local. For instants whose
+// Local offset is a seconds-resolution local-mean-time offset (any pre-1900
+// instant, notably the zero time.Time that audit rows written without an
+// EventTime carry, e.g. Europe/Berlin +00:53:28), encoding/json's RFC 3339
+// output has only minute resolution, so the written offset is truncated and the
+// decoded instant is shifted by the dropped seconds (FIX-3088: Postgres
+// restore on a non-UTC host corrupted audit row 1 and verify-audit reported
+// BROKEN). UTC has a zero offset everywhere, so the instant survives exactly
+// and the encoding no longer depends on the host's TZ (which also keeps the
+// manifest's per-table hash host-independent). This applies to every model and
+// column, not to any one table.
+func normalizeTimesToUTC(v reflect.Value) reflect.Value {
+	switch v.Kind() {
+	case reflect.Struct:
+		if v.Type() == timeType {
+			return reflect.ValueOf(v.Interface().(time.Time).UTC())
+		}
+		out := reflect.New(v.Type()).Elem()
+		out.Set(v) // keeps unexported fields as they are
+		for i := 0; i < v.NumField(); i++ {
+			if !v.Type().Field(i).IsExported() {
+				continue
+			}
+			out.Field(i).Set(normalizeTimesToUTC(v.Field(i)))
+		}
+		return out
+	case reflect.Pointer:
+		if v.IsNil() {
+			return v
+		}
+		p := reflect.New(v.Type().Elem())
+		p.Elem().Set(normalizeTimesToUTC(v.Elem()))
+		return p
+	default:
+		return v
+	}
 }
 
 // marshalRow encodes row (a model struct or pointer to one) as a JSON
