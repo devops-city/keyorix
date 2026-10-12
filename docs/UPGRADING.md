@@ -179,6 +179,21 @@ skip.
   upgrade`) — the server requires this token to authorize `POST
   /system/init`. `NOTES.txt` prints the retrieval command for a manual
   `keyorix system init` if you need it.
+- **Credentials are mounted files, not env vars (needs a server image that
+  supports `*_FILE`, i.e. a release containing #2968).** The Secret is mounted
+  at `/run/secrets/keyorix` and the pods read `KEYORIX_MASTER_PASSWORD_FILE`,
+  `KEYORIX_DB_PASSWORD_FILE`, … (and `POSTGRES_PASSWORD_FILE` for the bundled
+  Postgres). The Secret's keys are unchanged, so no Secret edit is needed. With
+  `auth.existingSecret`, `helm upgrade` finds the optional
+  `KEYORIX_ADMIN_PASSWORD` / `KEYORIX_BOOTSTRAP_TOKEN` keys in the live Secret
+  by itself; when rendering with `helm template` or a GitOps tool that cannot
+  look the Secret up, set `auth.existingSecretKeys.adminPassword` /
+  `.bootstrapToken` to `true`. `helm upgrade --reuse-values` works.
+- **Docker Compose: credentials moved from `.env` to `./secrets`.** Run
+  `./scripts/selfhost/init-secrets.sh --from-env .env` before `docker compose up
+  -d` (details in `docs/SELF_HOSTING.md` §3); it keeps the same master and
+  database passwords. The `tls` profile's Caddy now runs as non-root after a
+  one-shot `caddy-init` chown of its volumes — no manual step.
 - **Password-length gate.** The chart refuses to render if
   `auth.adminPassword` is under 16 characters. **Check your values file's
   `adminPassword` length before upgrading the chart** — a value that

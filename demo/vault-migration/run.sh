@@ -19,12 +19,24 @@ VAULT_PORT="8200"
 VAULT_ADDR="http://localhost:${VAULT_PORT}"
 VAULT_TOKEN="root"
 
-# Throwaway demo credentials (compose bootstraps the admin from these).
-export KEYORIX_DB_PASSWORD="demo-db-pass"
-export KEYORIX_MASTER_PASSWORD="demo-master-pass"
+# Throwaway demo credentials (compose bootstraps the admin from these). The stack
+# reads its credentials from Docker secrets files, not the environment, so write
+# them into a temp directory (0640, group = your primary group, which the
+# containers join via KEYORIX_SECRETS_GID).
+KEYORIX_ADMIN_PASSWORD="Admin123!"
 export KEYORIX_ADMIN_USERNAME="admin"
-export KEYORIX_ADMIN_PASSWORD="Admin123!"
 export KEYORIX_ADMIN_EMAIL="admin@keyorix.local"
+DEMO_SECRETS_DIR="$(mktemp -d)"
+(
+  umask 037
+  printf '%s\n' "demo-db-pass" > "${DEMO_SECRETS_DIR}/db_password"
+  printf '%s\n' "demo-master-pass" > "${DEMO_SECRETS_DIR}/master_password"
+  printf '%s\n' "${KEYORIX_ADMIN_PASSWORD}" > "${DEMO_SECRETS_DIR}/admin_password"
+  printf '%s\n' "demo-bootstrap-token-0123456789abcdef" > "${DEMO_SECRETS_DIR}/bootstrap_token"
+)
+export KEYORIX_SECRETS_DIR="${DEMO_SECRETS_DIR}"
+KEYORIX_SECRETS_GID="$(id -g)"
+export KEYORIX_SECRETS_GID
 
 c()  { local msg="$1"; printf '\n\033[1;34m▶ %s\033[0m\n' "$msg"; }
 ok() { local msg="$1"; printf '\033[0;32m✓ %s\033[0m\n' "$msg"; }
@@ -33,6 +45,7 @@ cleanup() {
   c "Cleaning up"
   docker rm -f keyorix-demo-vault >/dev/null 2>&1 || true
   $COMPOSE down -v >/dev/null 2>&1 || true
+  rm -rf "${DEMO_SECRETS_DIR}"
   ok "Demo environment removed"
 }
 trap cleanup EXIT

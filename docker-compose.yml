@@ -1,16 +1,28 @@
 # Keyorix self-hosted stack: web UI + API server + PostgreSQL.
 #
-#   1. cp .env.example .env   and fill in the (required) passwords
-#   2. docker compose up -d
-#   3. open http://localhost:8088  and log in with the admin you set in .env
+#   1. cp .env.example .env
+#   2. ./scripts/selfhost/init-secrets.sh   (creates ./secrets/* and KEYORIX_SECRETS_GID in .env)
+#   3. docker compose up -d
+#   4. open http://localhost:8088  and log in with the admin in ./secrets/admin_password
 #
 # The image pins below are the RELEASE pair (server + web from one tag; guarded by
 # deploy/compose_pins_test.go). scripts/demo/check.sh --postgres overlays both
 # with images built from the checkout (see docs/demo/GOLDEN-PATH.md, "Which
 # images does what") because a released web UI does not match a main backend.
 #
-# All secrets come from .env — there are NO baked-in default passwords. See
-# docs/SELF_HOSTING.md for production hardening (TLS, backups, upgrades).
+# Secrets are Docker secrets FILES under ./secrets (or $KEYORIX_SECRETS_DIR), read by
+# the containers through the *_FILE variables below. They are not in any container's
+# environment (`docker inspect`, /proc/<pid>/environ). There are NO baked-in default
+# passwords. Upgrading from a .env-based install:
+#   ./scripts/selfhost/init-secrets.sh --from-env .env
+# See docs/SELF_HOSTING.md for production hardening (TLS, backups, upgrades).
+#
+# Why group_add: Compose bind-mounts file secrets as-is and ignores their uid/gid/mode
+# (it warns "not supported"), so a 0600 host file is unreadable by the container's
+# non-root user. init-secrets.sh writes the files 0640 with your primary group and
+# records that gid as KEYORIX_SECRETS_GID; each container that reads a secret joins
+# that group. Nothing is world-readable, and the server's file-permission check
+# (no access for "other", no group write) passes.
 services:
   postgres:
     image: postgres:15-alpine
@@ -18,7 +30,7 @@ services:
     environment:
       POSTGRES_DB: keyorix
       POSTGRES_USER: keyorix
-      POSTGRES_PASSWORD: ${KEYORIX_DB_PASSWORD:?KEYORIX_DB_PASSWORD is required (see .env.example)}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     # Hardening (DEPLOY-1 audit): postgres:15-alpine's own uid/gid is 70. Running as
     # it directly skips the entrypoint's root-then-su-exec step, so no capabilities
     # are needed at all. Named volumes inherit the image's postgres:postgres
@@ -33,6 +45,9 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    group_add: ["${KEYORIX_SECRETS_GID:?KEYORIX_SECRETS_GID is required: run ./scripts/selfhost/init-secrets.sh}"]
+    secrets:
+      - db_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -50,19 +65,21 @@ services:
     #   dockerfile: server/Dockerfile
     restart: unless-stopped
     environment:
-      KEYORIX_DB_PASSWORD: ${KEYORIX_DB_PASSWORD:?KEYORIX_DB_PASSWORD is required}
+      # Secrets are files (see the `secrets:` block at the bottom); the server and
+      # the entrypoint read them through these *_FILE variables.
+      KEYORIX_DB_PASSWORD_FILE: /run/secrets/db_password
       # Master passphrase for the encryption KEK. REQUIRED. Changing it after
       # first boot makes all stored secrets undecryptable.
-      KEYORIX_MASTER_PASSWORD: ${KEYORIX_MASTER_PASSWORD:?KEYORIX_MASTER_PASSWORD is required}
-      # Optional first-boot admin bootstrap (idempotent). Omit to initialise
-      # manually with `keyorix system init`. KEYORIX_BOOTSTRAP_TOKEN must be set
-      # alongside KEYORIX_ADMIN_PASSWORD — /system/init always requires a matching
-      # bootstrap token, and the entrypoint has no way to read back the random one
-      # the server would otherwise generate for itself.
+      KEYORIX_MASTER_PASSWORD_FILE: /run/secrets/master_password
+      # Optional first-boot admin bootstrap (idempotent). To initialise manually with
+      # `keyorix system init` instead, delete the two *_FILE lines below. The bootstrap
+      # token must accompany the admin password: /system/init always requires a
+      # matching bootstrap token, and the entrypoint has no way to read back the
+      # random one the server would otherwise generate for itself.
       KEYORIX_ADMIN_USERNAME: ${KEYORIX_ADMIN_USERNAME:-admin}
       KEYORIX_ADMIN_EMAIL: ${KEYORIX_ADMIN_EMAIL:-admin@keyorix.local}
-      KEYORIX_ADMIN_PASSWORD: ${KEYORIX_ADMIN_PASSWORD:-}
-      KEYORIX_BOOTSTRAP_TOKEN: ${KEYORIX_BOOTSTRAP_TOKEN:-}
+      KEYORIX_ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      KEYORIX_BOOTSTRAP_TOKEN_FILE: /run/secrets/bootstrap_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,6 +95,12 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+    group_add: ["${KEYORIX_SECRETS_GID:?KEYORIX_SECRETS_GID is required: run ./scripts/selfhost/init-secrets.sh}"]
+    secrets:
+      - db_password
+      - master_password
+      - admin_password
+      - bootstrap_token
     volumes:
       - ./keyorix.docker.yaml:/app/keyorix.yaml:ro
       # The encryption keys (wrapped DEK + KEK salt) MUST persist across restarts.
@@ -226,6 +249,16 @@ services:
         condition: service_started
       caddy-init:
         condition: service_completed_successfully
+
+secrets:
+  db_password:
+    file: ${KEYORIX_SECRETS_DIR:-./secrets}/db_password
+  master_password:
+    file: ${KEYORIX_SECRETS_DIR:-./secrets}/master_password
+  admin_password:
+    file: ${KEYORIX_SECRETS_DIR:-./secrets}/admin_password
+  bootstrap_token:
+    file: ${KEYORIX_SECRETS_DIR:-./secrets}/bootstrap_token
 
 volumes:
   postgres_data:

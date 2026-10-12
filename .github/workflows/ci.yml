@@ -1706,7 +1706,12 @@ jobs:
         env:
           COMPOSE_PROJECT_NAME: kx-ci-boot-smoke
         run: |
-          printf 'KEYORIX_DB_PASSWORD=ci-boot-smoke-db-password\nKEYORIX_MASTER_PASSWORD=ci-boot-smoke-master-password\n' > .env
+          # The stack reads Docker secrets FILES (./secrets), not env vars. The runner's
+          # uid is 1001 -- the uid the server runs as, which refuses a group-readable
+          # file it owns -- so the script fails once and the files are handed to root
+          # (the documented fix), then the second run succeeds.
+          ./scripts/selfhost/init-secrets.sh || sudo chown root:"$(id -g)" secrets/*
+          ./scripts/selfhost/init-secrets.sh
           printf 'services:\n  backend:\n    image: keyorix-server:boot-smoke\n  web:\n    image: keyorix-web:boot-smoke\n    ports:\n      - "18088:80"\n' > docker-compose.override.yml
           docker compose up -d
 
@@ -2498,15 +2503,20 @@ jobs:
           if ! grep -q 'image: "ghcr.io/keyorixhq/keyorix-web@sha256:deadbeef"$' override-render.yaml; then
             echo "expected web.image.digest to still take precedence over tag"; exit 1
           fi
-          # #137 residual: the master/db/admin passwords must be sourced from
-          # the Secret via secretKeyRef, never a literal env var value.
-          for key in KEYORIX_MASTER_PASSWORD KEYORIX_DB_PASSWORD KEYORIX_ADMIN_PASSWORD; do
-            if ! grep -A2 "name: $key\$" default-render.yaml | grep -q 'secretKeyRef'; then
-              echo "expected $key to be sourced via secretKeyRef, not a literal value"; exit 1
+          # #137 residual, DEPLOY-2: the master/db/admin passwords reach the pod as
+          # files from the mounted Secret (a *_FILE variable), never as an env var --
+          # neither a literal value nor a secretKeyRef. (deploy/hardening
+          # TestHelmChart_SecretsAreMountedFilesNotEnv checks the mount modes.)
+          for key in KEYORIX_MASTER_PASSWORD KEYORIX_DB_PASSWORD KEYORIX_ADMIN_PASSWORD POSTGRES_PASSWORD; do
+            if grep -q "name: $key\$" default-render.yaml; then
+              echo "expected $key NOT to be an environment variable (use ${key}_FILE)"; exit 1
+            fi
+            if ! grep -A1 "name: ${key}_FILE\$" default-render.yaml | grep -q 'value: /run/secrets/keyorix/'; then
+              echo "expected ${key}_FILE to point at the mounted Secret under /run/secrets/keyorix/"; exit 1
             fi
           done
-          if ! grep -A2 'name: POSTGRES_PASSWORD$' default-render.yaml | grep -q 'secretKeyRef'; then
-            echo "expected POSTGRES_PASSWORD to be sourced via secretKeyRef, not a literal value"; exit 1
+          if grep -q 'secretKeyRef' default-render.yaml; then
+            echo "expected no secretKeyRef env var in the default render (credentials are mounted files)"; exit 1
           fi
 
       - name: Lint + render keyorix-k8s-sync chart

@@ -52,8 +52,9 @@ cd keyorix && make install
 **Self-host the full stack (web UI + API + PostgreSQL) with Docker Compose:**
 
 ```bash
-cp .env.example .env   # set KEYORIX_DB_PASSWORD, KEYORIX_MASTER_PASSWORD, admin creds
-docker compose up -d   # open http://localhost:8088
+cp .env.example .env
+./scripts/selfhost/init-secrets.sh   # generates ./secrets/* (Docker secrets files); admin password is in ./secrets/admin_password
+docker compose up -d                 # open http://localhost:8088
 ```
 
 See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for production setup (TLS,

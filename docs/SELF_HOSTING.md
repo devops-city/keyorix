@@ -24,12 +24,12 @@ The stack is three containers:
 git clone https://github.com/keyorixhq/keyorix.git
 cd keyorix
 cp .env.example .env
-# Edit .env and set strong values (see below). Then:
+./scripts/selfhost/init-secrets.sh     # generates ./secrets/* and records KEYORIX_SECRETS_GID in .env
 docker compose up -d
 ```
 
-Open **http://localhost:8088** and log in with the admin credentials you set in
-`.env`. That's it.
+Open **http://localhost:8088** and log in as `admin` with the password in
+`./secrets/admin_password`. That's it.
 
 > Building from source instead of pulling published images: edit
 > `docker-compose.yml` and swap the `backend` service's `image:` for the
@@ -38,8 +38,8 @@ Open **http://localhost:8088** and log in with the admin credentials you set in
 > about 1–2 minutes more (image pulls); nothing is printed for the 15–35 s the
 > backend spends on first-boot migrations and key derivation.
 
-**First boot check.** With `KEYORIX_ADMIN_PASSWORD` + `KEYORIX_BOOTSTRAP_TOKEN` set
-the backend creates the admin by calling `/system/init` as soon as the server
+**First boot check.** With `KEYORIX_ADMIN_PASSWORD_FILE` + `KEYORIX_BOOTSTRAP_TOKEN_FILE` set
+(the shipped compose file does) the backend creates the admin by calling `/system/init` as soon as the server
 answers `GET /health`. The entrypoint waits for that for up to
 `KEYORIX_READY_TIMEOUT` seconds (default 180, so a slow first boot on a loaded
 host is fine), then retries the bootstrap call up to `KEYORIX_BOOTSTRAP_ATTEMPTS`
@@ -49,7 +49,7 @@ the server and exits non-zero, so the backend restarts instead of sitting
 "healthy" with no usable login. On success the log shows `Server is ready after
 Ns`, `Bootstrapping admin user` and `Admin bootstrap complete.` in
 `docker compose logs backend`. If you see the `ERROR:` lines instead, check that
-`KEYORIX_BOOTSTRAP_TOKEN` is set and matches, then fix `.env` and run
+`./secrets/bootstrap_token` exists and is the one the backend reads, then fix it and run
 `docker compose up -d` again (or create the admin by hand with
 `keyorix system init --server http://localhost:8088 --admin-username admin --admin-email admin@keyorix.local`
 with `KEYORIX_BOOTSTRAP_TOKEN` exported in your shell: the CLI reads the token
@@ -110,33 +110,59 @@ Each run writes an `admin.login_lockout_cleared` audit event naming what it
 cleared. An admin who can still log in can unlock an account online instead
 (`POST /api/v1/users/{id}/unlock`).
 
-## 3. Configuration (`.env`)
+## 3. Configuration (`.env` and `./secrets`)
 
-All secrets come from `.env` — there are **no baked-in default passwords**; the
-stack refuses to start if the required ones are missing. Generate strong values
-with `openssl rand -base64 32`.
+Credentials are **Docker secrets files** under `./secrets` (or `$KEYORIX_SECRETS_DIR`),
+not environment variables: they never appear in `docker inspect` or in a container's
+process environment. There are **no baked-in default passwords**; the stack refuses to
+start if `./scripts/selfhost/init-secrets.sh` has not been run. The script generates
+strong values, never overwrites an existing file, and never prints a value.
 
-| Variable                  | Required | Notes |
-|---------------------------|----------|-------|
-| `KEYORIX_DB_PASSWORD`     | ✅       | PostgreSQL password (shared by `postgres` and `backend`). |
-| `KEYORIX_MASTER_PASSWORD` | ✅       | Passphrase the encryption KEK is derived from. **See the warning below.** |
-| `KEYORIX_ADMIN_PASSWORD`  | optional | If set, the first admin is created on first boot (idempotent). Leave blank to run `keyorix-server admin init` manually on the server host. |
-| `KEYORIX_BOOTSTRAP_TOKEN` | required if `KEYORIX_ADMIN_PASSWORD` is set | `/system/init` always requires a matching bootstrap token. Setting `KEYORIX_ADMIN_PASSWORD` without this makes the backend exit at startup with an `ERROR:` message (it no longer skips admin creation silently); set the token, or unset the password and run `keyorix system init` by hand. |
-| `KEYORIX_ADMIN_USERNAME`  | optional | Defaults to `admin`. |
-| `KEYORIX_ADMIN_EMAIL`     | optional | Defaults to `admin@keyorix.local`. |
+| File in `./secrets`  | Read through | Notes |
+|----------------------|--------------|-------|
+| `db_password`        | `KEYORIX_DB_PASSWORD_FILE`, `POSTGRES_PASSWORD_FILE` | PostgreSQL password (shared by `postgres` and `backend`). |
+| `master_password`    | `KEYORIX_MASTER_PASSWORD_FILE` | Passphrase the encryption KEK is derived from. **See the warning below.** |
+| `admin_password`     | `KEYORIX_ADMIN_PASSWORD_FILE` | The first admin is created on first boot (idempotent). To initialise manually with `keyorix-server admin init` instead, delete the `KEYORIX_ADMIN_PASSWORD_FILE` and `KEYORIX_BOOTSTRAP_TOKEN_FILE` lines from the `backend` service. |
+| `bootstrap_token`    | `KEYORIX_BOOTSTRAP_TOKEN_FILE` | `/system/init` always requires a matching bootstrap token; the admin bootstrap needs both. Setting the admin password file without this makes the backend exit at startup with an `ERROR:` message. |
 
-**Secrets as files.** The server also accepts each secret as a file instead of an
-environment variable: set `KEYORIX_DB_PASSWORD_FILE`, `KEYORIX_MASTER_PASSWORD_FILE`
-or `KEYORIX_BOOTSTRAP_TOKEN_FILE` (and, for the container's first-boot admin
-bootstrap, `KEYORIX_ADMIN_PASSWORD_FILE`) to a path (Docker secrets mount under
-`/run/secrets/`, a Kubernetes Secret volume wherever you mount it). Setting both
-`X` and `X_FILE` is a startup error, not a precedence rule, and an unreadable or
-empty file stops the server. The master-password file must be `0600`/`0400` (or a
-`0440` mount owned by another user, e.g. root, in a group the container holds --
-Kubernetes `fsGroup`, Docker `group_add`); a looser one is refused. The container
-entrypoint passes `X_FILE` through to the server unchanged and never exports a
-value it read from a file. Details and the full list of supported variables:
-[CONFIGURATION.md](CONFIGURATION.md#secrets-from-files-name_file).
+Non-secret settings stay in `.env`: `KEYORIX_ADMIN_USERNAME` (default `admin`),
+`KEYORIX_ADMIN_EMAIL` (default `admin@keyorix.local`), `KEYORIX_DOMAIN`, and
+`KEYORIX_SECRETS_GID` (written by `init-secrets.sh`).
+
+**Why a group id.** Compose bind-mounts a file secret as-is and ignores its
+`uid`/`gid`/`mode` (it warns "not supported"), so a `0600` file on the host would be
+unreadable by the containers' non-root users. `init-secrets.sh` writes the files
+`0640` with your primary group and records that gid as `KEYORIX_SECRETS_GID`; the
+`postgres` and `backend` containers join that group. Nothing is world-readable, and
+the server's secret-file permission check (nothing for "other", no group write; a
+group-readable file must not be owned by the container's own user) passes. Run the
+script as a regular user, not root. If your uid is `1001` (the uid the server
+container runs as) the server would refuse the group-readable files it "owns", and the
+script says so: hand them to another owner with `sudo chown root:<your gid> secrets/*`
+and re-run it. Docker Desktop (macOS/Windows) maps file ownership
+differently; this layout is for Linux hosts.
+
+**Upgrading an install that keeps its passwords in `.env`:**
+
+```sh
+./scripts/selfhost/init-secrets.sh --from-env .env   # copies the four values byte for byte
+# then delete KEYORIX_DB_PASSWORD, KEYORIX_MASTER_PASSWORD, KEYORIX_ADMIN_PASSWORD and
+# KEYORIX_BOOTSTRAP_TOKEN from .env, and:
+docker compose up -d
+```
+
+The master password and the database password are copied unchanged, which is what keeps
+your stored secrets decryptable and the existing `postgres_data` volume working.
+
+**Secrets as files, in general.** The server accepts any of its secrets as a file:
+set `KEYORIX_<NAME>_FILE` to a path (Docker secrets mount under `/run/secrets/`, a
+Kubernetes Secret volume wherever you mount it). Setting both `X` and `X_FILE` is a
+startup error, not a precedence rule, and an unreadable or empty file stops the server.
+The master-password file must be `0600`/`0400` (or a `0440` mount owned by another user,
+e.g. root, in a group the container holds -- Kubernetes `fsGroup`, Docker `group_add`);
+a looser one is refused. The container entrypoint passes `X_FILE` through to the server
+unchanged and never exports a value it read from a file. Details and the full list of
+supported variables: [CONFIGURATION.md](CONFIGURATION.md#secrets-from-files-name_file).
 
 Server configuration (storage, encryption paths, ports) lives in
 `keyorix.docker.yaml`, mounted read-only into the `backend` container. The full,
@@ -556,7 +582,9 @@ dropping or failing audit events is a compliance gap.
 
 | Symptom | Cause / fix |
 |---------|-------------|
-| `KEYORIX_DB_PASSWORD is required` on `up` | No `.env`, or the required vars are blank. `cp .env.example .env` and fill them in. |
+| `KEYORIX_SECRETS_GID is required` on `up` | `./scripts/selfhost/init-secrets.sh` has not been run (it creates `./secrets/*` and writes the gid to `.env`). |
+| `bind source path does not exist: .../secrets/...` on `up` | Same: run `./scripts/selfhost/init-secrets.sh`, or point `KEYORIX_SECRETS_DIR` at your secrets directory. |
+| Backend exits with `KEYORIX_MASTER_PASSWORD_FILE ... permission denied` | `KEYORIX_SECRETS_GID` in `.env` is not the group of the files in `./secrets`. Re-run `init-secrets.sh` (it fixes the gid in `.env` and keeps your files). |
 | Backend logs `password authentication failed` | The `postgres_data` volume was initialised with a different password. For a *new* install, `docker compose down -v` and start fresh (this wipes data — only for a clean install). |
 | Backend can't decrypt secrets after a change | `KEYORIX_MASTER_PASSWORD` changed or the `keyorix_keys` volume was lost. Restore both from backup (section 5). |
 | Login returns 404 | Reverse proxy not forwarding `/auth/` — Keyorix serves login at the root path, not under `/api/`. The bundled `web` image already handles this. |

@@ -26,8 +26,17 @@ auth:
   adminPassword: ""
   # Bring your own Secret instead of the values above. It must contain keys:
   #   KEYORIX_MASTER_PASSWORD, KEYORIX_DB_PASSWORD, and optionally
-  #   KEYORIX_ADMIN_PASSWORD.
+  #   KEYORIX_ADMIN_PASSWORD and KEYORIX_BOOTSTRAP_TOKEN.
+  # Pods read these as mounted files (the server's *_FILE support), never as env.
   existingSecret: ""
+  # Which optional keys existingSecret carries. A pod only gets a *_FILE variable for
+  # a key that exists (a *_FILE pointing at nothing is a startup error by design).
+  # `helm install/upgrade` detects the keys in the live Secret on its own; set these
+  # to true for `helm template`, GitOps renderers (Argo CD, Flux) and other flows
+  # where the chart cannot look the Secret up.
+  existingSecretKeys:
+    adminPassword: false
+    bootstrapToken: false
 
 # ── Secure baseline (SECURE-DEFAULT-1, ADR-112 §4) ────────────────────────────
 # When enabled, `keyorix-server admin validate --posture` reports zero

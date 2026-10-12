@@ -48,12 +48,25 @@ helm test keyorix
 > undecryptable. For production, supply it via `auth.existingSecret` and back up
 > the `*-server-keys` PVC.
 
+## Secrets
+
+No credential is passed to a container as an environment variable. The Secret (chart-managed,
+or `auth.existingSecret`) is mounted read-only as a projected volume at
+`/run/secrets/keyorix` with `defaultMode: 0440` (readable through the pod's `fsGroup`, nothing
+for other users), and the pods are pointed at the files with `*_FILE` variables:
+`KEYORIX_MASTER_PASSWORD_FILE`, `KEYORIX_DB_PASSWORD_FILE`, `KEYORIX_ADMIN_PASSWORD_FILE`,
+`KEYORIX_BOOTSTRAP_TOKEN_FILE` (server) and `POSTGRES_PASSWORD_FILE` (bundled Postgres). The
+server refuses to start if a `*_FILE` file is missing, empty or accessible to other users
+(`docs/CONFIGURATION.md`, "Secrets from files"). The Secret's keys are unchanged, so an
+existing release or `existingSecret` keeps working on upgrade.
+
 ## Key values
 
 | Value | Default | Notes |
 |-------|---------|-------|
 | `auth.masterPassword` | — | **Required** (or `auth.existingSecret`). KEK passphrase. |
-| `auth.existingSecret` | — | Bring your own Secret (`KEYORIX_MASTER_PASSWORD`, `KEYORIX_DB_PASSWORD`, opt. `KEYORIX_ADMIN_PASSWORD`). |
+| `auth.existingSecret` | — | Bring your own Secret (`KEYORIX_MASTER_PASSWORD`, `KEYORIX_DB_PASSWORD`, opt. `KEYORIX_ADMIN_PASSWORD` and `KEYORIX_BOOTSTRAP_TOKEN`). Mounted as files; see "Secrets" below. |
+| `auth.existingSecretKeys.adminPassword` / `.bootstrapToken` | `false` | Say that `auth.existingSecret` carries the optional key. `helm install/upgrade` finds the keys in the live Secret by itself; set these for `helm template` and GitOps renderers (Argo CD, Flux) that cannot look the Secret up. |
 | `auth.adminPassword` | — | Optional first-boot admin bootstrap (idempotent). ≥16 chars, upper+lower+digit+special — see quick start note above. |
 | `server.image.tag` | chart `appVersion` | Server image tag (empty pins to the chart's own `appVersion`; `server.image.digest` takes precedence if set). |
 | `web.image.tag` | chart `appVersion` | Web UI image tag (same default/precedence as `server.image.tag`). |

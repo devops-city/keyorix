@@ -180,12 +180,34 @@ bring_up_postgres() {
     git -C "$REPO_ROOT" checkout -- server/webui/dist/index.html 2>/dev/null || true
   fi
 
-  cat > "$PG_ENV_FILE" <<'EOF'
-# Throwaway demo-check values -- not security-sensitive, this stack is torn
-# down (or re-created) by scripts/demo/check.sh every run.
-KEYORIX_DB_PASSWORD=demo-check-db-password-2026
-KEYORIX_MASTER_PASSWORD=demo-check-master-passphrase-2026
-KEYORIX_BOOTSTRAP_TOKEN=demo-check-bootstrap-token
+  # docker-compose.yml reads its credentials from Docker secrets FILES, not the
+  # environment (it also needs KEYORIX_SECRETS_GID: the containers join that group
+  # to read the 0640 files). Throwaway demo-check values -- not security-sensitive,
+  # this stack is torn down (or re-created) by scripts/demo/check.sh every run. The
+  # entrypoint creates the admin (idempotent) from admin_password + bootstrap_token;
+  # the POST /system/init below then just confirms it (200, already initialised).
+  local secrets_dir="$SCRATCH/demo-secrets"
+  mkdir -p "$secrets_dir"
+  (
+    umask 037
+    printf '%s\n' "demo-check-db-password-2026" > "$secrets_dir/db_password"
+    printf '%s\n' "demo-check-master-passphrase-2026" > "$secrets_dir/master_password"
+    printf '%s\n' "Correct-Horse-Battery-2026" > "$secrets_dir/admin_password"
+    printf '%s\n' "demo-check-bootstrap-token" > "$secrets_dir/bootstrap_token"
+  )
+  chmod 750 "$secrets_dir"
+  # The server container runs as uid 1001 and refuses a group-readable secret file
+  # it owns. A host user that is also uid 1001 (the GitHub-hosted runner) hands the
+  # files to root, keeping the group bit the container joins; deleting them later
+  # needs only write access to the directory, which we keep.
+  if [ "$(id -u)" = "1001" ]; then
+    sudo -n chown root:"$(id -g)" "$secrets_dir"/db_password "$secrets_dir"/master_password "$secrets_dir"/admin_password "$secrets_dir"/bootstrap_token \
+      || { echo "uid 1001 needs passwordless sudo to hand the demo secrets files to root (the server refuses group-readable files it owns)"; return 1; }
+  fi
+  cat > "$PG_ENV_FILE" <<EOF
+KEYORIX_SECRETS_DIR=$secrets_dir
+KEYORIX_SECRETS_GID=$(id -g)
+KEYORIX_ADMIN_EMAIL=admin@keyorix.demo
 EOF
   # Same story for the web image: docker-compose.yml pins the RELEASED
   # keyorix-web, which does not match a main backend (login bounced to

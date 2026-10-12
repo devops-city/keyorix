@@ -12,7 +12,9 @@
 //
 // What this does NOT cover: whether the workloads actually start under these
 // settings (that was proven by deploying on the bench VM, see the PR), image
-// contents, or secrets handling (env vs file mounts needs server *_FILE support).
+// contents. Secrets handling (DEPLOY-2) IS covered statically -- no credential in any
+// container environment, *_FILE variables pointing at mounted secret files -- but that
+// the files are actually readable by the container user was proven on the bench.
 //
 // The chart half needs `helm` and skips cleanly without it; CI's "helm-chart"
 // job has it (see password_policy_helm_chart_test.go).
@@ -246,6 +248,83 @@ func TestCompose_CaddyRunsNonRootAfterOneShotInit(t *testing.T) {
 		if !found {
 			t.Errorf("caddy-init: volume %s missing -- it must chown the same volumes caddy uses", want)
 		}
+	}
+}
+
+// secretish reports whether an environment variable name carries a credential
+// (so its value must come from a file, never from the container environment).
+func secretish(name string) bool {
+	if strings.HasSuffix(name, "_FILE") {
+		return false
+	}
+	for _, s := range []string{"PASSWORD", "TOKEN", "SECRET", "API_KEY"} {
+		if strings.HasSuffix(name, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// DEPLOY-2 decision 1: no secret value in any container's environment. Each
+// credential reaches its container as a Docker secrets file named by a *_FILE
+// variable (server: internal/secretenv; postgres: POSTGRES_PASSWORD_FILE;
+// entrypoint.sh for the admin bootstrap).
+func TestCompose_SecretsAreFilesNotEnv(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(), "docker-compose.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc m
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	top := asMap(doc["secrets"])
+	for name, def := range top {
+		if f, _ := asMap(def)["file"].(string); f == "" {
+			t.Errorf("top-level secret %q must be file-based, got %v", name, def)
+		}
+	}
+	usedAny := false
+	for svcName, v := range asMap(doc["services"]) {
+		svc := asMap(v)
+		mounted := map[string]bool{}
+		for _, s := range asList(svc["secrets"]) {
+			if n, ok := s.(string); ok {
+				mounted[n] = true
+				if _, defined := top[n]; !defined {
+					t.Errorf("%s: secret %q is not defined at top level", svcName, n)
+				}
+			}
+		}
+		usesFile := false
+		for k, val := range asMap(svc["environment"]) {
+			if secretish(k) {
+				t.Errorf("%s: environment variable %s carries a credential; use %s_FILE with a Docker secret", svcName, k, k)
+			}
+			if strings.HasSuffix(k, "_FILE") {
+				usesFile = true
+				usedAny = true
+				p, _ := val.(string)
+				base := strings.TrimPrefix(p, "/run/secrets/")
+				if base == p || !mounted[base] {
+					t.Errorf("%s: %s=%q must point at /run/secrets/<name> of a secret the service mounts (%v)", svcName, k, p, mounted)
+				}
+			}
+		}
+		if usesFile {
+			gid := false
+			for _, g := range asList(svc["group_add"]) {
+				if s, _ := g.(string); strings.Contains(s, "KEYORIX_SECRETS_GID") {
+					gid = true
+				}
+			}
+			if !gid {
+				t.Errorf("%s: reads secret files but does not join KEYORIX_SECRETS_GID via group_add (Compose ignores secret uid/gid/mode, so the 0640 host file would be unreadable)", svcName)
+			}
+		}
+	}
+	if !usedAny {
+		t.Error("no *_FILE variable found in docker-compose.yml -- the guard would be vacuous")
 	}
 }
 
@@ -559,5 +638,81 @@ func TestHelmChart_PostgresOwnershipMigrationIsOptInAndNarrow(t *testing.T) {
 		if pod[k] != 999 {
 			t.Errorf("postgresql.runAsUser=999: %s is %v", k, pod[k])
 		}
+	}
+}
+
+// DEPLOY-2 decision 1 for the chart: no credential in a container's environment
+// (neither as a literal nor via secretKeyRef). Each reaches the pod as a file from
+// a Secret volume (defaultMode <= 0440, read-only mount) named by a *_FILE variable.
+func TestHelmChart_SecretsAreMountedFilesNotEnv(t *testing.T) {
+	docs := renderChart(t)
+	filesSeen := 0
+	for _, d := range docs {
+		if d["kind"] != "Deployment" {
+			continue
+		}
+		name, _ := asMap(d["metadata"])["name"].(string)
+		spec := asMap(asMap(asMap(d["spec"])["template"])["spec"])
+		volumes := map[string]m{}
+		for _, v := range asList(spec["volumes"]) {
+			vm := asMap(v)
+			n, _ := vm["name"].(string)
+			volumes[n] = vm
+		}
+		for _, c := range asList(spec["containers"]) {
+			cm := asMap(c)
+			cname, _ := cm["name"].(string)
+			mounts := map[string]m{}
+			for _, mnt := range asList(cm["volumeMounts"]) {
+				mm := asMap(mnt)
+				p, _ := mm["mountPath"].(string)
+				mounts[p] = mm
+			}
+			for _, e := range asList(cm["env"]) {
+				em := asMap(e)
+				en, _ := em["name"].(string)
+				if _, ok := asMap(em["valueFrom"])["secretKeyRef"]; ok {
+					t.Errorf("%s/%s: env %s uses secretKeyRef -- mount the Secret as a file and use %s_FILE", name, cname, en, en)
+				}
+				if secretish(en) {
+					t.Errorf("%s/%s: env %s carries a credential; use %s_FILE", name, cname, en, en)
+				}
+				if !strings.HasSuffix(en, "_FILE") {
+					continue
+				}
+				filesSeen++
+				val, _ := em["value"].(string)
+				var mount m
+				var mountPath string
+				for p, mm := range mounts {
+					if strings.HasPrefix(val, strings.TrimSuffix(p, "/")+"/") {
+						mount, mountPath = mm, p
+					}
+				}
+				if mount == nil {
+					t.Errorf("%s/%s: %s=%q is not under any volumeMount", name, cname, en, val)
+					continue
+				}
+				if mount["readOnly"] != true {
+					t.Errorf("%s/%s: secret mount %s must be readOnly", name, cname, mountPath)
+				}
+				vol := volumes[mount["name"].(string)]
+				var defaultMode any
+				if sec := asMap(vol["secret"]); len(sec) > 0 {
+					defaultMode = sec["defaultMode"]
+				} else if prj := asMap(vol["projected"]); len(prj) > 0 {
+					defaultMode = prj["defaultMode"]
+				} else {
+					t.Errorf("%s/%s: %s is not backed by a secret/projected volume", name, cname, en)
+					continue
+				}
+				if dm, ok := defaultMode.(int); !ok || dm == 0 || dm&^0o440 != 0 {
+					t.Errorf("%s/%s: secret volume defaultMode must be set and <= 0440 (got %v)", name, cname, defaultMode)
+				}
+			}
+		}
+	}
+	if filesSeen == 0 {
+		t.Error("no *_FILE env found in the rendered chart -- the guard would be vacuous")
 	}
 }

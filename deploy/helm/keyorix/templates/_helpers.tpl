@@ -37,6 +37,32 @@ is no live Secret yet for it to diverge from).
 {{- end -}}
 {{- end -}}
 
+{{/*
+Which optional keys the server's Secret carries, so the pod only gets a *_FILE
+variable for a file that will exist (the server and entrypoint treat a *_FILE that
+points at nothing as a fatal misconfiguration, not as "unset").
+  - chart-managed Secret: the admin password only when auth.adminPassword is set;
+    the bootstrap token always (secret.yaml generates it).
+  - auth.existingSecret: true when auth.existingSecretKeys.<key> says so, or when
+    the live Secret already has the key (`lookup`; empty under `helm template`/
+    `--dry-run`, so CI renders see "false" there unless the flag is set).
+Renders "true" or nothing.
+*/}}
+{{- define "keyorix.hasAdminPassword" -}}
+{{- if .Values.auth.existingSecret -}}
+{{- $k := .Values.auth.existingSecretKeys | default dict -}}
+{{- $s := lookup "v1" "Secret" .Release.Namespace .Values.auth.existingSecret -}}
+{{- if or $k.adminPassword (and $s $s.data (hasKey $s.data "KEYORIX_ADMIN_PASSWORD")) -}}true{{- end -}}
+{{- else if .Values.auth.adminPassword -}}true{{- end -}}
+{{- end -}}
+{{- define "keyorix.hasBootstrapToken" -}}
+{{- if .Values.auth.existingSecret -}}
+{{- $k := .Values.auth.existingSecretKeys | default dict -}}
+{{- $s := lookup "v1" "Secret" .Release.Namespace .Values.auth.existingSecret -}}
+{{- if or $k.bootstrapToken (and $s $s.data (hasKey $s.data "KEYORIX_BOOTSTRAP_TOKEN")) -}}true{{- end -}}
+{{- else -}}true{{- end -}}
+{{- end -}}
+
 {{/* Database host: the bundled Postgres service, or the external host. */}}
 {{- define "keyorix.dbHost" -}}
 {{- if .Values.postgresql.enabled -}}{{ include "keyorix.postgresql.fullname" . }}{{- else -}}{{ required "externalDatabase.host is required when postgresql.enabled is false" .Values.externalDatabase.host }}{{- end -}}

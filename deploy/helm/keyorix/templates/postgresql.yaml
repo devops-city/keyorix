@@ -192,11 +192,10 @@ spec:
               value: {{ .Values.postgresql.auth.database | quote }}
             - name: POSTGRES_USER
               value: {{ .Values.postgresql.auth.username | quote }}
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "keyorix.secretName" . }}
-                  key: KEYORIX_DB_PASSWORD
+            # The official image's own *_FILE convention: the password is a mounted
+            # file (fsGroup + defaultMode 0440), not an environment value.
+            - name: POSTGRES_PASSWORD_FILE
+              value: /run/secrets/keyorix/db-password
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           readinessProbe:
@@ -210,6 +209,9 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
           volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets/keyorix
+              readOnly: true
             - name: data
               mountPath: /var/lib/postgresql/data
             {{- if .Values.secureBaseline.enabled }}
@@ -226,6 +228,15 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: {{ include "keyorix.secretName" . }}
+                  items:
+                    - key: KEYORIX_DB_PASSWORD
+                      path: db-password
         - name: data
           {{- if .Values.postgresql.persistence.enabled }}
           persistentVolumeClaim:

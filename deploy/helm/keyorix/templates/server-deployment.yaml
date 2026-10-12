@@ -121,41 +121,33 @@ spec:
             - name: http
               containerPort: {{ .Values.server.service.port }}
           env:
-            - name: KEYORIX_MASTER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "keyorix.secretName" . }}
-                  key: KEYORIX_MASTER_PASSWORD
-            - name: KEYORIX_DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "keyorix.secretName" . }}
-                  key: KEYORIX_DB_PASSWORD
+            # Credentials are FILES from the mounted Secret (see the `secrets` volume),
+            # never environment values: an env var is returned verbatim by the API to
+            # anyone who can read the pod spec's resolved env, shows up in
+            # /proc/<pid>/environ and is inherited by every child process. The server
+            # (internal/secretenv) and entrypoint.sh read these *_FILE paths.
+            - name: KEYORIX_MASTER_PASSWORD_FILE
+              value: /run/secrets/keyorix/master-password
+            - name: KEYORIX_DB_PASSWORD_FILE
+              value: /run/secrets/keyorix/db-password
             - name: KEYORIX_ADMIN_USERNAME
               value: {{ .Values.auth.adminUsername | quote }}
             - name: KEYORIX_ADMIN_EMAIL
               value: {{ .Values.auth.adminEmail | quote }}
-            {{- if or .Values.auth.adminPassword .Values.auth.existingSecret }}
-            - name: KEYORIX_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "keyorix.secretName" . }}
-                  key: KEYORIX_ADMIN_PASSWORD
-                  optional: true
+            {{- if include "keyorix.hasAdminPassword" . }}
+            - name: KEYORIX_ADMIN_PASSWORD_FILE
+              value: /run/secrets/keyorix/admin-password
             {{- end }}
+            {{- if include "keyorix.hasBootstrapToken" . }}
             # Required for auth.adminPassword's first-boot bootstrap to actually
             # complete (server/main.go rejects POST /system/init without a matching
             # token) and to make manual `keyorix system init` possible without
             # rebooting the pod -- see keyorix.bootstrapToken in _helpers.tpl.
-            # optional: true so an auth.existingSecret that predates this key (or
-            # was hand-rolled without it) degrades to the old masked-log-only
-            # behaviour instead of crash-looping on a missing key.
-            - name: KEYORIX_BOOTSTRAP_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "keyorix.secretName" . }}
-                  key: KEYORIX_BOOTSTRAP_TOKEN
-                  optional: true
+            # Omitted (old masked-log-only behaviour) for an auth.existingSecret
+            # that has no KEYORIX_BOOTSTRAP_TOKEN key.
+            - name: KEYORIX_BOOTSTRAP_TOKEN_FILE
+              value: /run/secrets/keyorix/bootstrap-token
+            {{- end }}
             {{- if .Values.secureBaseline.enabled }}
             # The private copy prepare-files made, and how entrypoint.sh reaches
             # this server for its first-boot bootstrap (verified TLS).
@@ -167,6 +159,9 @@ spec:
               value: /app/run/tls/server.crt
             {{- end }}
           volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets/keyorix
+              readOnly: true
             - name: config
               mountPath: /app/keyorix.yaml
               subPath: keyorix.yaml
@@ -213,6 +208,28 @@ spec:
               memory: 512Mi
             {{- end }}
       volumes:
+        # 0440 + the pod's fsGroup (1001) = readable by the server, nobody else, and
+        # exactly what the server's secret-file permission check accepts (nothing for
+        # "other", no group write). A projected volume lets only the listed keys in.
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              - secret:
+                  name: {{ include "keyorix.secretName" . }}
+                  items:
+                    - key: KEYORIX_MASTER_PASSWORD
+                      path: master-password
+                    - key: KEYORIX_DB_PASSWORD
+                      path: db-password
+                    {{- if include "keyorix.hasAdminPassword" . }}
+                    - key: KEYORIX_ADMIN_PASSWORD
+                      path: admin-password
+                    {{- end }}
+                    {{- if include "keyorix.hasBootstrapToken" . }}
+                    - key: KEYORIX_BOOTSTRAP_TOKEN
+                      path: bootstrap-token
+                    {{- end }}
         - name: config
           configMap:
             name: {{ include "keyorix.server.fullname" . }}-config
