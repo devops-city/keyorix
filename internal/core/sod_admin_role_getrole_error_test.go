@@ -93,6 +93,12 @@ func (s *roleIDOrderStub) GetUserGroupRoleIDsAt(ctx context.Context, userID uint
 	return nil, nil
 }
 
+// ResolveUserPermissionAt (PERF-FIX-6) reads through this stub's own role-id
+// methods, so an Authorize on it sees the same fixed role set.
+func (s *roleIDOrderStub) ResolveUserPermissionAt(ctx context.Context, userID uint, scope corestorage.Scope, permission string) (*corestorage.PrincipalPermission, error) {
+	return corestorage.ComposeUserPermissionAt(ctx, s, userID, scope, permission)
+}
+
 // TestIsGlobalAdminRoleName_DanglingRoleReferenceIsSkippedNotFailed: a
 // user-role row pointing at a since-deleted role (AT4's orphan class, guard
 // #2380) must NOT block every subsequent isGlobalAdminRoleName check for

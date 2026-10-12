@@ -199,16 +199,48 @@ func (c *KeyorixCore) AuthorizePrincipal(ctx context.Context, actorType string, 
 		return false, nil
 	}
 	if actorType == ActorTypeMachine {
-		roleIDs, err := c.storage.GetMachineRoleIDsAt(ctx, principalID, scope)
+		// One storage read (PERF-FIX-6): the machine's role ids at scope and the
+		// role->permission cache generation in one statement; the bypass flag is
+		// never consulted for a machine.
+		r, err := c.storage.ResolveMachinePermissionAt(ctx, principalID, scope, permission)
 		if err != nil {
 			return false, err
 		}
-		if len(roleIDs) == 0 {
+		if r == nil {
+			return false, errNoPrincipalPermission
+		}
+		if len(r.RoleIDs) == 0 {
 			return false, nil
 		}
-		return c.storage.RoleSetHasPermission(ctx, roleIDs, permission)
+		return r.HasPermission, nil
 	}
 	return c.Authorize(ctx, principalID, permission, scope)
+}
+
+// errNoPrincipalPermission: a storage implementation returned (nil, nil) from
+// ResolveUserPermissionAt / ResolveMachinePermissionAt. Fail closed.
+var errNoPrincipalPermission = errors.New("role resolution returned no result")
+
+// userHasScopedPermission is Authorize's role decision for userID at scope,
+// without the PAT check: no roles -> deny; an admin-bypass role -> allow;
+// otherwise whether the role set grants permission. The role ids (direct and
+// via groups), the bypass flag and the role->permission cache generation come
+// from ONE storage read (PERF-FIX-6, collapse C4). Fails closed.
+func (c *KeyorixCore) userHasScopedPermission(ctx context.Context, userID uint, permission string, scope Scope) (bool, error) {
+	r, err := c.storage.ResolveUserPermissionAt(ctx, userID, scope, permission)
+	if err != nil {
+		return false, err
+	}
+	if r == nil {
+		return false, errNoPrincipalPermission
+	}
+	if len(r.RoleIDs) == 0 {
+		return false, nil
+	}
+	if r.BypassesPermissionChecks {
+		return true, nil
+	}
+	return r.HasPermission, nil
 }
 
 // Authorize reports whether userID may exercise permission (e.g. "secrets.read")
@@ -222,21 +254,7 @@ func (c *KeyorixCore) Authorize(ctx context.Context, userID uint, permission str
 	if !patRestrictionFromContext(ctx).Allows(permission, scope) {
 		return false, nil
 	}
-	roleIDs, err := c.scopedRoleIDs(ctx, userID, scope)
-	if err != nil {
-		return false, err
-	}
-	if len(roleIDs) == 0 {
-		return false, nil
-	}
-	containsAdmin, err := c.roleSetContainsAdmin(ctx, roleIDs)
-	if err != nil {
-		return false, err
-	}
-	if containsAdmin {
-		return true, nil
-	}
-	return c.storage.RoleSetHasPermission(ctx, roleIDs, permission)
+	return c.userHasScopedPermission(ctx, userID, permission, scope)
 }
 
 // principalHasScopedPermission reports whether userID's OWN roles grant permission at
@@ -244,21 +262,7 @@ func (c *KeyorixCore) Authorize(ctx context.Context, userID uint, permission str
 // requesting actor, not this user). Use it to vet a THIRD party — e.g. a prospective
 // secret owner — without the caller's token narrowing the result. Fails closed.
 func (c *KeyorixCore) principalHasScopedPermission(ctx context.Context, userID uint, permission string, scope Scope) (bool, error) {
-	roleIDs, err := c.scopedRoleIDs(ctx, userID, scope)
-	if err != nil {
-		return false, err
-	}
-	if len(roleIDs) == 0 {
-		return false, nil
-	}
-	containsAdmin, err := c.roleSetContainsAdmin(ctx, roleIDs)
-	if err != nil {
-		return false, err
-	}
-	if containsAdmin {
-		return true, nil
-	}
-	return c.storage.RoleSetHasPermission(ctx, roleIDs, permission)
+	return c.userHasScopedPermission(ctx, userID, permission, scope)
 }
 
 // AuthorizeSecret checks whether userID may perform perm on the given secretID.

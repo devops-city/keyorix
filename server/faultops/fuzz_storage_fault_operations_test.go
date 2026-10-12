@@ -90,6 +90,11 @@ var authzReadMethods = map[string]bool{
 	// on DeleteSecret's authz path — another instance of "enumeration only as
 	// complete as the idioms it knows about" (CLAUDE.md).
 	"GetSecretAncestors": true,
+	// PERF-FIX-6: Authorize / AuthorizePrincipal now read a principal's role ids,
+	// admin-bypass flag and role->permission answer through ONE of these (the
+	// per-statement methods above are what they compose on a fallback).
+	"ResolveUserPermissionAt":    true,
+	"ResolveMachinePermissionAt": true,
 }
 
 // nonLoadBearingAuthzReadExceptions narrowly exempts a SPECIFIC (op, method,

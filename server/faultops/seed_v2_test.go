@@ -131,9 +131,12 @@ var seedIntent = map[string]struct{ op, method string }{
 	"2565_finishwebauthnlogin_consumewebauthnsession_error":  {"REST POST /auth/webauthn/login/finish", "ConsumeWebAuthnSession"},
 	"2565_finishwebauthnlogin_listwebauthncredentials_error": {"REST POST /auth/webauthn/login/finish", "ListWebAuthnCredentials"},
 	"5900200031": {"GRPC keyorix.v1.UserService.CreateUser", "CountProjectMembershipsByUsers"},
-	"mfa-verify-enforcesessionlimit-panic-2416":        {"REST POST /auth/mfa/verify", "EnforceSessionLimit"},
-	"bulk_delete_getsecret_partial_success_reported":   {"REST POST /api/v1/projects/{id}/secrets/bulk-delete", "GetSecret"},
-	"bulk-approve-rolesetbypass-audit-2549":            {"REST POST /api/v1/access-requests/bulk-approve", "RoleSetBypassesPermissionChecks"},
+	"mfa-verify-enforcesessionlimit-panic-2416":      {"REST POST /auth/mfa/verify", "EnforceSessionLimit"},
+	"bulk_delete_getsecret_partial_success_reported": {"REST POST /api/v1/projects/{id}/secrets/bulk-delete", "GetSecret"},
+	// PERF-FIX-6: the 4th Authorize's bypass read (this seed's nth is 4) is now
+	// part of ResolveUserPermissionAt#4, the same call site; see
+	// TestOracleAErrorBranch_BulkAccessRequestAuditDiffIsAcceptedWithoutATolerance.
+	"bulk-approve-rolesetbypass-audit-2549":            {"REST POST /api/v1/access-requests/bulk-approve", "ResolveUserPermissionAt"},
 	"classification-createsecretaccesslog-panic-2554":  {"REST PATCH /api/v1/secrets/{id}/classification", "CreateSecretAccessLog"},
 	"invitations-countsetuptokenssince-audit-2599":     {"REST POST /api/v1/invitations", "CountSetupTokensSince"},
 	"mfa-disable-deletesessionsforuserexcept-accepted": {"REST POST /api/v1/auth/mfa/disable", "DeleteSessionsForUserExcept"},

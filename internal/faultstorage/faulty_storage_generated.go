@@ -6117,6 +6117,40 @@ func (w *FaultyStorage) ReserveLoginAttempt(ctx context.Context, ip string, at t
 	return w.real.ReserveLoginAttempt(ctx, ip, at, key)
 }
 
+func (w *FaultyStorage) ResolveMachinePermissionAt(ctx context.Context, machineID uint, scope storage.Scope, permission string) (*storage.PrincipalPermission, error) {
+	fire, kind, injected := w.check("ResolveMachinePermissionAt")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *storage.PrincipalPermission
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ResolveMachinePermissionAt(ctx, machineID, scope, permission)
+			return rv1, injected
+		}
+	}
+	return w.real.ResolveMachinePermissionAt(ctx, machineID, scope, permission)
+}
+
+func (w *FaultyStorage) ResolveUserPermissionAt(ctx context.Context, userID uint, scope storage.Scope, permission string) (*storage.PrincipalPermission, error) {
+	fire, kind, injected := w.check("ResolveUserPermissionAt")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *storage.PrincipalPermission
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ResolveUserPermissionAt(ctx, userID, scope, permission)
+			return rv1, injected
+		}
+	}
+	return w.real.ResolveUserPermissionAt(ctx, userID, scope, permission)
+}
+
 func (w *FaultyStorage) RestoreEnvironment(ctx context.Context, projectID uint, id uint) error {
 	fire, kind, injected := w.check("RestoreEnvironment")
 	if fire {

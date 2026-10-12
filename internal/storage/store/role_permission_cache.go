@@ -11,6 +11,10 @@
 // cannot let a revoked role keep authorizing, because the role list itself
 // is never cached here.
 //
+// ResolveUserPermissionAt / ResolveMachinePermissionAt
+// (local_principal_permission.go) read the generation in the SAME statement as
+// the role ids and use the same entries under the same rules.
+//
 // Unlike secret_metadata_cache.go's per-row generation (one column per
 // secret), role_permissions edits are rare, install-wide, admin-only
 // actions (grant/revoke a permission on a role) — a single GLOBAL

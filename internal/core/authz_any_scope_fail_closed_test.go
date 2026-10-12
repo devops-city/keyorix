@@ -34,6 +34,12 @@ func (s *machineAnyScopeStub) GetMachineRoleIDsAt(_ context.Context, _ uint, sco
 	return nil, nil
 }
 
+// ResolveMachinePermissionAt (PERF-FIX-6) reads through this stub's own
+// GetMachineRoleIDsAt, so AuthorizePrincipal still meets the project-scope error.
+func (s *machineAnyScopeStub) ResolveMachinePermissionAt(ctx context.Context, machineID uint, scope corestorage.Scope, permission string) (*corestorage.PrincipalPermission, error) {
+	return corestorage.ComposeMachinePermissionAt(ctx, s, machineID, scope, permission)
+}
+
 func TestHoldsPermissionInAnyScope_UserScopeEnumerationErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 	c, _ := newACLCore(t)

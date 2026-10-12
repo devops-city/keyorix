@@ -36,6 +36,12 @@ func (s *erroringGetUserGroupRoleIDsAtStorage) GetUserGroupRoleIDsAt(ctx context
 	return nil, assert.AnError
 }
 
+// ResolveUserPermissionAt (PERF-FIX-6) reads through this wrapper's own
+// GetUserGroupRoleIDsAt, so Authorize still meets the fault.
+func (s *erroringGetUserGroupRoleIDsAtStorage) ResolveUserPermissionAt(ctx context.Context, userID uint, scope storage.Scope, permission string) (*storage.PrincipalPermission, error) {
+	return storage.ComposeUserPermissionAt(ctx, s, userID, scope, permission)
+}
+
 // TestBulkDeleteSecrets_GetUserGroupRoleIDsAtFault_NeverWronglyDeletes: a user
 // whose ONLY path to secrets.delete on a project is a role granted through
 // GROUP membership (project_developer, assigned to a group they belong to —

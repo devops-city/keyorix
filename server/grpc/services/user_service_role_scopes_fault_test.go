@@ -68,6 +68,12 @@ func (s *roleScopesFaultStub) GetUserRoleIDsAt(ctx context.Context, userID uint,
 	return s.Storage.GetUserRoleIDsAt(ctx, userID, scope)
 }
 
+// ResolveUserPermissionAt (PERF-FIX-6) reads through this stub's own
+// GetUserRoleIDsAt, so Authorize still meets failRoleIDsAt.
+func (s *roleScopesFaultStub) ResolveUserPermissionAt(ctx context.Context, userID uint, scope corestorage.Scope, permission string) (*corestorage.PrincipalPermission, error) {
+	return corestorage.ComposeUserPermissionAt(ctx, s, userID, scope, permission)
+}
+
 func (s *roleScopesFaultStub) recorded() []roleScopesCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()

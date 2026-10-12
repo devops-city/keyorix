@@ -703,6 +703,12 @@ type Storage interface {
 	AssignMachineRole(ctx context.Context, machineID, roleID uint, scope Scope) error
 	RemoveMachineRole(ctx context.Context, machineID, roleID uint, scope Scope) error
 	GetMachineRoleIDsAt(ctx context.Context, machineID uint, scope Scope) ([]uint, error)
+	// ResolveMachinePermissionAt is GetMachineRoleIDsAt plus RoleSetHasPermission
+	// for one machine-principal decision (PERF-FIX-6, collapse C4): the role ids
+	// and the role->permission cache generation come from ONE statement (one
+	// snapshot), and the permission join runs only when that cache misses.
+	// BypassesPermissionChecks is never set: a machine never bypasses (ADR-030).
+	ResolveMachinePermissionAt(ctx context.Context, machineID uint, scope Scope, permission string) (*PrincipalPermission, error)
 	GetMachineRoles(ctx context.Context, machineID uint) ([]*models.Role, error)
 	// GetMachineRoleScopes returns the distinct (project, environment) scopes at
 	// which machineID holds ANY role grant (machine_identity_roles) — the
@@ -1360,6 +1366,14 @@ type Storage interface {
 	// resolve-by-ID replacement for roleSetContainsAdmin's old fixed-name-list
 	// lookup (internal/core/authz.go). Mirrors RoleSetHasPermission's shape.
 	RoleSetBypassesPermissionChecks(ctx context.Context, roleIDs []uint) (bool, error)
+	// ResolveUserPermissionAt is one user-principal role decision's reads
+	// (PERF-FIX-6, collapse C4): GetUserRoleIDsAt ∪ GetUserGroupRoleIDsAt,
+	// RoleSetBypassesPermissionChecks over that set and the role->permission
+	// cache generation come from ONE statement (one snapshot); RoleSetHasPermission
+	// is then answered from the cache under that generation, or by the live join
+	// on a miss. The permission is not resolved (HasPermission false) when the
+	// set is empty or bypasses, exactly as core.Authorize never asked then.
+	ResolveUserPermissionAt(ctx context.Context, userID uint, scope Scope, permission string) (*PrincipalPermission, error)
 	// ListAdminBypassRoleIDs enumerates every role ID carrying
 	// BypassesPermissionChecks = true (ADR-084) -- the ENUMERATION counterpart to
 	// RoleSetBypassesPermissionChecks' membership test, and the single source of
@@ -2219,6 +2233,18 @@ type SecretFilter struct {
 	// true = actual secrets only, false = folder nodes only.
 	// When nil, both secrets and folders are returned.
 	IsSecret *bool
+}
+
+// PrincipalPermission is ResolveUserPermissionAt's / ResolveMachinePermissionAt's
+// result. RoleIDs is the de-duplicated role set that applies at the scope (the
+// set core's scopedRoleIDs / GetMachineRoleIDsAt returned; order unspecified).
+// BypassesPermissionChecks reports whether any of them carries the ADR-084
+// flag (users only). HasPermission is RoleSetHasPermission(RoleIDs, permission),
+// resolved only when RoleIDs is non-empty and does not bypass.
+type PrincipalPermission struct {
+	RoleIDs                  []uint
+	BypassesPermissionChecks bool
+	HasPermission            bool
 }
 
 // SecretScheduleAndLatestVersion is GetSecretScheduleAndLatestVersion's result.

@@ -858,14 +858,19 @@ func TestOracleAErrorBranch_BulkAccessRequestAuditDiffIsAcceptedWithoutAToleranc
 	for _, c := range []struct{ op, method string }{
 		{"REST POST /api/v1/access-requests/bulk-reject", "GetAccessRequest"},
 		{"REST POST /api/v1/access-requests/bulk-approve", "GetAccessRequest"},
-		{"REST POST /api/v1/access-requests/bulk-approve", "RoleSetBypassesPermissionChecks"},
+		// The deleted tolerance recorded RoleSetBypassesPermissionChecks#4: the
+		// bypass read of bulk-approve's 4th Authorize (the one right after
+		// GetRolePermissions#1). Since PERF-FIX-6 every Authorize reads its role
+		// ids and bypass flag in one ResolveUserPermissionAt call, in the same
+		// order, so that same call site is ResolveUserPermissionAt#4.
+		{"REST POST /api/v1/access-requests/bulk-approve", "ResolveUserPermissionAt"},
 		{"REST POST /api/v1/access-requests/bulk-approve", "GetRolePermissions"},
 	} {
 		c := c
 		t.Run(strings.ReplaceAll(c.op+"/"+c.method, "/", "_"), func(t *testing.T) {
 			nth := 1
-			if c.method == "RoleSetBypassesPermissionChecks" {
-				nth = 4 // the ordinal the deleted tolerance recorded
+			if c.method == "ResolveUserPermissionAt" {
+				nth = 4 // the 4th Authorize: the call site the deleted tolerance recorded
 			}
 			in, outcome, reason := driveFaultCase(t, c.op, c.method, nth, faultstorage.KindError)
 			if outcome != driveObserved {
