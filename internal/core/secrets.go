@@ -368,6 +368,12 @@ func (c *KeyorixCore) GetSecret(ctx context.Context, id uint) (*models.SecretNod
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorSecretNotFound", nil), err)
 	}
+	return unexpiredSecret(secret)
+}
+
+// unexpiredSecret is GetSecret's expiration check: the secret itself, or
+// ErrorSecretExpired once its Expiration has passed.
+func unexpiredSecret(secret *models.SecretNode) (*models.SecretNode, error) {
 	if secret.Expiration != nil && time.Now().After(*secret.Expiration) {
 		return nil, fmt.Errorf("%s", i18n.T("ErrorSecretExpired", nil))
 	}
@@ -375,14 +381,21 @@ func (c *KeyorixCore) GetSecret(ctx context.Context, id uint) (*models.SecretNod
 }
 
 // GetSecretWithPermissionCheck retrieves a secret by ID with read permission enforcement.
+//
+// It runs the same read check as EnforceSecretReadPermission (checkSecretPermission with
+// PermissionRead and no action) and returns the secret that check fetched, instead of
+// fetching it again with GetSecret (PERF-FIX-5). The order is unchanged: permission,
+// then the access schedule, then GetSecret's expiration check, evaluated here at the
+// same point it used to be.
 func (c *KeyorixCore) GetSecretWithPermissionCheck(ctx context.Context, id, userID uint) (*models.SecretNode, error) {
-	if _, err := c.EnforceSecretReadPermission(ctx, id, userID); err != nil {
+	_, secret, err := c.checkSecretPermission(ctx, id, userID, PermissionRead, "")
+	if err != nil {
 		return nil, err
 	}
 	if err := c.checkSecretAccessSchedule(ctx, id); err != nil {
 		return nil, err
 	}
-	return c.GetSecret(ctx, id)
+	return unexpiredSecret(secret)
 }
 
 // GetSecretByName resolves a secret by its name within a project/environment. Like

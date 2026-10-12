@@ -105,7 +105,8 @@ type PermissionContext struct {
 // (#3001 follow-up: unnamed means not allowlisted); a core write path that a share may
 // elevate calls EnforceSecretActionPermission with its action.
 func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userID uint, requiredPermission PermissionLevel) (*PermissionContext, error) {
-	return c.checkSecretPermission(ctx, secretID, userID, requiredPermission, "")
+	pc, _, err := c.checkSecretPermission(ctx, secretID, userID, requiredPermission, "")
+	return pc, err
 }
 
 // EnforceSecretActionPermission enforces write permission for action on the secret:
@@ -113,20 +114,26 @@ func (c *KeyorixCore) CheckSecretPermission(ctx context.Context, secretID, userI
 // for an actor whose share covers secrets.write but not this action wraps
 // ErrShareActionNotElevated, so transports can say why (ShareRefusalMessage).
 func (c *KeyorixCore) EnforceSecretActionPermission(ctx context.Context, secretID, userID uint, action SecretAction) (*PermissionContext, error) {
-	return c.checkSecretPermission(ctx, secretID, userID, PermissionWrite, action)
+	pc, _, err := c.checkSecretPermission(ctx, secretID, userID, PermissionWrite, action)
+	return pc, err
 }
 
-func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userID uint, requiredPermission PermissionLevel, action SecretAction) (*PermissionContext, error) { // NOSONAR -- cognitive complexity 16, suppress go:S3776
+// checkSecretPermission is the decision behind CheckSecretPermission and
+// EnforceSecretActionPermission. On a grant it also returns the secret it fetched to
+// decide (the row storage.GetSecret returned), so a caller that serves that secret
+// does not fetch it again (GetSecretWithPermissionCheck, PERF-FIX-5); on a refusal the
+// secret is nil.
+func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userID uint, requiredPermission PermissionLevel, action SecretAction) (*PermissionContext, *models.SecretNode, error) { // NOSONAR -- cognitive complexity 16, suppress go:S3776
 	if secretID == 0 {
-		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "secret ID is required")
+		return nil, nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "secret ID is required")
 	}
 	if userID == 0 {
-		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
+		return nil, nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
 	}
 
 	secret, err := c.storage.GetSecret(ctx, secretID)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+		return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
 
 	// PAT-GUARD-1: ownership, shares and ACL rows below grant access without ever
@@ -136,7 +143,7 @@ func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userI
 	// caller with no grant at all, so it is not an existence oracle either.
 	if !patRestrictionFromContext(ctx).Allows(permissionLevelToRBACPerm(requiredPermission),
 		Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}) {
-		return nil, fmt.Errorf("%s: insufficient permissions", i18n.T("ErrorPermissionDenied", nil))
+		return nil, nil, fmt.Errorf("%s: insufficient permissions", i18n.T("ErrorPermissionDenied", nil))
 	}
 
 	// Owners have all permissions, but only while still a member of the secret's
@@ -144,21 +151,21 @@ func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userI
 	// ClearProjectSecretOwnership runs (RBAC-002), so we gate owner access on live
 	// project membership to prevent post-offboarding access (RBAC-001).
 	if isLiveOwner, err := c.requireLiveOwnerAuthority(ctx, secret, userID); err != nil {
-		return nil, err
+		return nil, nil, err
 	} else if isLiveOwner {
 		return &PermissionContext{
 			SecretID:   secretID,
 			UserID:     userID,
 			Permission: PermissionOwner,
 			Source:     "owner",
-		}, nil
+		}, secret, nil
 	}
 
 	// Direct and group shares: the one share term every per-secret decision uses
 	// (share_authz.go) — active, project-member-only, read|write only.
 	grant, err := c.sharePermissionFor(ctx, userID, secretID, secret.ProjectID, requiredPermission, action)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if grant.Level != PermissionNone {
 		return &PermissionContext{
@@ -167,7 +174,7 @@ func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userI
 			Permission: grant.Level,
 			Source:     grant.Source,
 			ShareID:    grant.ShareID,
-		}, nil
+		}, secret, nil
 	}
 
 	// Per-secret ACL fallback (RBAC Phase 3, additive — see secret_acl.go's design
@@ -200,7 +207,7 @@ func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userI
 			// never over-grant), but still wrong: a caller with a genuine ACL-only
 			// grant (no independent RBAC access) was wrongly DENIED under this fault
 			// instead of seeing the real error.
-			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), aerr)
+			return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), aerr)
 		}
 		if hasACL {
 			return &PermissionContext{
@@ -208,7 +215,7 @@ func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userI
 				UserID:     userID,
 				Permission: requiredPermission,
 				Source:     "acl",
-			}, nil
+			}, secret, nil
 		}
 	}
 
@@ -235,14 +242,14 @@ func (c *KeyorixCore) checkSecretPermission(ctx context.Context, secretID, userI
 				UserID:     userID,
 				Permission: requiredPermission,
 				Source:     "rbac",
-			}, nil
+			}, secret, nil
 		}
 	}
 
 	if c.shareCoversButNotElevated(ctx, userID, secretID, secret.ProjectID, requiredPermission, action) {
-		return nil, shareRefusal(ErrShareActionNotElevated)
+		return nil, nil, shareRefusal(ErrShareActionNotElevated)
 	}
-	return nil, fmt.Errorf("%s: insufficient permissions", i18n.T("ErrorPermissionDenied", nil))
+	return nil, nil, fmt.Errorf("%s: insufficient permissions", i18n.T("ErrorPermissionDenied", nil))
 }
 
 // permissionLevelToRBACPerm maps a PermissionLevel to the equivalent RBAC permission

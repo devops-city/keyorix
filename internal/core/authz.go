@@ -289,10 +289,16 @@ type SecretDecision struct {
 // for an allowlisted action (secretActionShareElevates). A share-made grant is
 // recorded on ctx's ShareElevationRecorder and audited when the action is performed
 // (noteShareElevation); the ACL or role allowing it records nothing.
-func (c *KeyorixCore) AuthorizeSecretAction(ctx context.Context, userID, secretID uint, perm string, action SecretAction) (SecretDecision, error) {
+//
+// resolved is optional: the secret the caller has just fetched for this request by
+// c.Storage().GetSecret(secretID) or by name (c.Storage().GetSecretByName, through
+// ResolveSecretRef). When it is exactly one non-nil secret whose ID is secretID, the
+// decision uses it instead of fetching the same row again (PERF-FIX-5); anything else
+// is ignored and the secret is fetched here, as before.
+func (c *KeyorixCore) AuthorizeSecretAction(ctx context.Context, userID, secretID uint, perm string, action SecretAction, resolved ...*models.SecretNode) (SecretDecision, error) {
 	deny := SecretDecision{}
 	// Resolve the secret first so we know its scope for the PAT check below.
-	secret, err := c.storage.GetSecret(ctx, secretID)
+	secret, err := c.secretForDecision(ctx, secretID, resolved)
 	if err != nil {
 		return deny, err
 	}
@@ -334,6 +340,21 @@ func (c *KeyorixCore) AuthorizeSecretAction(ctx context.Context, userID, secretI
 		return deny, nil
 	}
 	return SecretDecision{Allowed: true}, nil
+}
+
+// secretForDecision returns the caller's resolution of secretID when there is exactly
+// one and it names secretID, and otherwise fetches the secret. Reusing it is safe because
+// both lookups the callers use read the same live row the fetch would (secret_nodes by
+// primary key or by name, GORM's soft-delete scope only; SecretNode has no tenant
+// column). The fetch is not in a transaction with the decision either, so a write that
+// commits between the two reads gives a result main can also give, when the same write
+// commits just after its fetch. Ownership, shares, ACL rows and roles are read live
+// afterwards, exactly as before.
+func (c *KeyorixCore) secretForDecision(ctx context.Context, secretID uint, resolved []*models.SecretNode) (*models.SecretNode, error) {
+	if len(resolved) == 1 && resolved[0] != nil && resolved[0].ID == secretID {
+		return resolved[0], nil
+	}
+	return c.storage.GetSecret(ctx, secretID)
 }
 
 // AuthorizeSecretPrincipal is the actor-aware counterpart to AuthorizeSecret,
@@ -378,10 +399,12 @@ func (c *KeyorixCore) AuthorizeSecretPrincipalForSecret(ctx context.Context, act
 
 // AuthorizeSecretPrincipalForSecretAction is AuthorizeSecretPrincipalForSecret for a
 // gate that names its SecretAction (every per-secret secrets.write gate does). Machine
-// principals take the role-only path, as always: shares never apply to them.
+// principals take the role-only path, as always: shares never apply to them. A human
+// user's decision reuses secret as well, instead of fetching it again (PERF-FIX-5), so
+// secret must be the caller's own resolution for this request (see AuthorizeSecretAction).
 func (c *KeyorixCore) AuthorizeSecretPrincipalForSecretAction(ctx context.Context, actorType string, principalID uint, secret *models.SecretNode, permission string, action SecretAction) (SecretDecision, error) {
 	if actorType != ActorTypeMachine {
-		return c.AuthorizeSecretAction(ctx, principalID, secret.ID, permission, action)
+		return c.AuthorizeSecretAction(ctx, principalID, secret.ID, permission, action, secret)
 	}
 	scope := Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
 	allowed, err := c.AuthorizePrincipal(ctx, actorType, principalID, permission, scope)
