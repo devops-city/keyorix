@@ -13,6 +13,8 @@
 //   2. the viewer edits A in the UI (the value really changes) while B, which was NOT
 //      shared, stays read-only: its row offers no Edit/Rotate and the API answers 403.
 //      The same write share does NOT allow Suspend: refused with the server's reason (#3001).
+//      The secret's detail page offers Edit/Rotate on A exactly like the row (and edits from
+//      it), and neither on B; Share, Copy, Suspend and Delete stay role-only (SHARE-DETAIL-1).
 //   3. owner revokes the share → it is gone from A's share list, A's row stops offering
 //      Edit/Rotate and the API refuses the viewer's update again, the value unchanged.
 //   4. a global admin who OWNS a secret but holds no role in its project tries to share →
@@ -64,6 +66,7 @@ const secretCName = `share-c-${stamp}`;
 const valueA0 = `value-a-original-${stamp}`;
 const valueA1 = `value-a-by-viewer-${stamp}`;
 const valueA2 = `value-a-after-revoke-${stamp}`;
+const valueA3 = `value-a-from-detail-${stamp}`;
 const valueB0 = `value-b-original-${stamp}`;
 const valueB1 = `value-b-by-viewer-${stamp}`;
 
@@ -372,6 +375,42 @@ test('the viewer can update the shared secret A in the UI, and B stays read-only
     // secrets.read / secrets.write).
     const del = await bearer(viewerToken, 'DELETE', `/api/v1/secrets/${secretA}`);
     expect(del.status, 'a write share must not allow delete').toBe(403);
+});
+
+test("the viewer's detail page offers Edit and Rotate on A, like the row, and edits from it (SHARE-DETAIL-1)", async () => {
+    await openProjectSecrets(viewerPage);
+    await secretRow(viewerPage, secretAName).getByTitle('View').click();
+    const actions = viewerPage.getByTestId('secret-actions');
+    await expect(actions).toBeVisible({ timeout: 15_000 });
+    // Exactly what the write share allows; Share, Copy, Suspend and Delete stay role-only.
+    await expect(actions.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+    await expect(actions.getByRole('button', { name: 'Rotate', exact: true })).toBeVisible();
+    for (const name of ['Share', 'Copy', 'Suspend', 'Delete']) {
+        await expect(actions.getByRole('button', { name, exact: true }), name).toHaveCount(0);
+    }
+    // Edit from the detail page: the value really changes.
+    await actions.getByRole('button', { name: 'Edit', exact: true }).click();
+    const dialog = viewerPage.getByRole('dialog');
+    await expect(dialog).toContainText(`Edit Secret: ${secretAName}`);
+    await dialog.locator('#edit-secret-value').fill(valueA3);
+    const answered = viewerPage.waitForResponse(
+        (r) => /\/api\/v1\/secrets\/\d+$/.test(new URL(r.url()).pathname) && r.request().method() === 'PUT'
+    );
+    await dialog.getByRole('button', { name: 'Save Changes' }).click();
+    expect((await answered).status(), 'PUT /secrets/A from the detail page').toBe(200);
+    await expect(viewerPage.getByText('Failed to update secret')).toHaveCount(0);
+    expect(await readValue(viewerPage, secretA), 'the detail-page edit is really stored').toBe(valueA3);
+
+    // B was not shared: its detail page offers no Edit or Rotate.
+    await openProjectSecrets(viewerPage);
+    await secretRow(viewerPage, secretBName).getByTitle('View').click();
+    await expect(viewerPage.getByTestId('secret-header')).toContainText(secretBName, { timeout: 15_000 });
+    await expect(viewerPage.getByTestId('secret-actions').getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+    await expect(viewerPage.getByTestId('secret-actions').getByRole('button', { name: 'Rotate', exact: true })).toHaveCount(0);
+
+    // Put A back to the value the later steps expect (still through the elevation).
+    const back = await bearer(viewerToken, 'PUT', `/api/v1/secrets/${secretA}`, { value: valueA1 });
+    expect(back.status, 'restore A to its step-2 value').toBe(200);
 });
 
 test("a write-share recipient's Suspend is refused with the server's reason (#3001 allowlist)", async () => {

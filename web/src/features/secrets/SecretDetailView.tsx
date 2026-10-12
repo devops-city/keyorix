@@ -268,7 +268,9 @@ const SecretDetailHeader: React.FC<SecretDetailHeaderProps> = ({
         </div>
 
         <div data-testid="secret-actions" className="flex flex-wrap items-center gap-2">
-            {can.writeSecrets && (
+            {/* Same rule as the list row: the role union, or a write share on this one secret.
+                Share, Copy, Suspend, Delete and classification stay role-only. */}
+            {(can.writeSecrets || secret.userPermission === 'write') && (
                 <>
                     <Button variant="outline" size="sm" onClick={() => onEdit?.(secret)}>
                         <PencilIcon className="h-4 w-4 mr-2" />
@@ -278,6 +280,10 @@ const SecretDetailHeader: React.FC<SecretDetailHeaderProps> = ({
                         <ArrowPathIcon className="h-4 w-4 mr-2" />
                         Rotate
                     </Button>
+                </>
+            )}
+            {can.writeSecrets && (
+                <>
                     <Button variant="outline" size="sm" onClick={() => onShare?.(secret)}>
                         <ShareIcon className="h-4 w-4 mr-2" />
                         Share

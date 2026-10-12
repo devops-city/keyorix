@@ -1391,3 +1391,70 @@ describe('SecretDetailView permission-aware controls (DEMO-UI-1)', () => {
         expect(screen.queryByText('Transfer ownership')).not.toBeInTheDocument();
     });
 });
+
+describe('SecretDetailView write-share elevation (SHARE-DETAIL-1)', () => {
+    const readOnlyUser = () => {
+        canState.value = {
+            ...canState.value,
+            admin: false,
+            writeSecrets: false,
+            deleteSecrets: false,
+            manageMembers: false,
+            readAudit: false,
+        };
+    };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockVersions = [];
+        mockAccessors = [];
+    });
+
+    it('a write share offers Edit and Rotate on that secret, and nothing else a role would', () => {
+        readOnlyUser();
+        render(<SecretDetailView secret={makeSecret({ isShared: true, userPermission: 'write' })} />);
+        const actions = within(screen.getByTestId('secret-actions'));
+        for (const name of [/^edit$/i, /^rotate$/i]) {
+            expect(actions.getByRole('button', { name }), String(name)).toBeInTheDocument();
+        }
+        for (const name of [/^share$/i, /^copy$/i, /^suspend$/i, /^delete$/i]) {
+            expect(actions.queryByRole('button', { name }), String(name)).not.toBeInTheDocument();
+        }
+        expect(screen.queryByText('Transfer ownership')).not.toBeInTheDocument();
+        expect(screen.getByLabelText('Classification')).toBeDisabled();
+    });
+
+    it('a write share Edit hands the secret to onEdit and Rotate opens the rotate dialog', () => {
+        readOnlyUser();
+        const onEdit = vi.fn();
+        const secret = makeSecret({ isShared: true, userPermission: 'write' });
+        render(<SecretDetailView secret={secret} onEdit={onEdit} />);
+        const actions = within(screen.getByTestId('secret-actions'));
+        fireEvent.click(actions.getByRole('button', { name: /^edit$/i }));
+        expect(onEdit).toHaveBeenCalledWith(secret);
+        fireEvent.click(actions.getByRole('button', { name: /^rotate$/i }));
+        expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    it('a read share stays read-only', () => {
+        readOnlyUser();
+        render(<SecretDetailView secret={makeSecret({ isShared: true, userPermission: 'read' })} />);
+        const actions = within(screen.getByTestId('secret-actions'));
+        for (const name of [/^edit$/i, /^rotate$/i, /^share$/i, /^delete$/i]) {
+            expect(actions.queryByRole('button', { name }), String(name)).not.toBeInTheDocument();
+        }
+    });
+
+    it('no share: the role alone decides', () => {
+        readOnlyUser();
+        const { unmount } = render(<SecretDetailView secret={makeSecret({ userPermission: '' })} />);
+        expect(within(screen.getByTestId('secret-actions')).queryByRole('button', { name: /^edit$/i })).toBeNull();
+        unmount();
+        canState.value = { ...canState.value, writeSecrets: true };
+        render(<SecretDetailView secret={makeSecret()} />);
+        const actions = within(screen.getByTestId('secret-actions'));
+        for (const name of [/^edit$/i, /^rotate$/i, /^share$/i]) {
+            expect(actions.getByRole('button', { name }), String(name)).toBeInTheDocument();
+        }
+    });
+});
