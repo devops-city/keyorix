@@ -191,3 +191,29 @@ func TestShareService_ListUserShares_DeniesGlobalScopeMFABypass(t *testing.T) {
 	_, err = r.shareSvc.ListUserShares(sessionCtx(1, "auditor", true, "secrets.read"), &pb.ListUserSharesRequest{})
 	require.NoError(t, err, "a session with MFA is allowed")
 }
+
+// erroringSecretsByIDsStorage makes the batched secret lookup fail (a transient
+// storage error), which is the only source of the project ids ListUserShares'
+// aggregate MFA check sees.
+type erroringSecretsByIDsStorage struct {
+	corestorage.Storage
+}
+
+func (erroringSecretsByIDsStorage) GetSecretsByIDs(context.Context, []uint) ([]*models.SecretNode, error) {
+	return nil, fmt.Errorf("connection reset by peer")
+}
+
+// TestShareService_ListUserShares_MFACheckFailsClosedOnLookupError: shareProjectIDs
+// used to log a failed project lookup and return no project ids, so the aggregate
+// MFA check had nothing to check and a no-MFA session got the shares on an
+// MFA-required project back (review of #3018, note 3). A lookup error must deny.
+func TestShareService_ListUserShares_MFACheckFailsClosedOnLookupError(t *testing.T) {
+	r := newMFAAggregateTestRig(t)
+	require.NoError(t, r.db.Create(&models.User{ID: 3, Username: "other", Email: "other@example.com"}).Error)
+	require.NoError(t, r.db.Create(&models.ShareRecord{SecretID: 1, OwnerID: 1, RecipientID: 3, IsGroup: false, Permission: "read"}).Error)
+	svc := NewShareService(core.NewKeyorixCore(erroringSecretsByIDsStorage{store.NewLocalStorage(r.db)}))
+
+	resp, err := svc.ListUserShares(sessionCtx(1, "auditor", false, "secrets.read"), &pb.ListUserSharesRequest{})
+	require.Error(t, err, "an unverifiable MFA policy must not let the shares through: %v", resp)
+	assert.Equal(t, codes.Internal, status.Code(err))
+}

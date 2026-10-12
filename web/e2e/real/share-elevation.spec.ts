@@ -20,11 +20,12 @@
 //
 // SHARE-2: the owner used to need the global system_auditor role, because the dialog's
 // recipient search was GET /api/v1/users (global users.read). It now searches
-// GET /api/v1/projects/{id}/share-recipients, so the owner is project-only. The Sharing
-// Management page still loads GET /api/v1/shares (global secrets.read), so a project-only
-// owner can't open it; this spec revokes with DELETE /api/v1/shares/{id}, the same call
-// that page makes (secret-scoped, the owner may), and checks the result on A's own share
-// list. NEEDS ANDREI (SESSION-SHARE-2 report): a project-scoped "my shares" list.
+// GET /api/v1/projects/{id}/share-recipients, so the owner is project-only.
+//
+// SHARE-3: the Sharing Management page loads GET /api/v1/shares (global secrets.read). For the
+// project-only owner that is refused, so the page loads the owner-scoped
+// GET /api/v1/shares/owned instead and labels it "Shares you created". Step 3 revokes from
+// that page. The global admin's page is unchanged (no label, GET /shares answers 200).
 //
 // Login budget: server/http/handlers/auth.go allows 10 login attempts per IP per 15 min and
 // web-real-smoke.sh gives every spec file its own fresh server. This file uses 3 API logins
@@ -391,25 +392,46 @@ test("a write-share recipient's Suspend is refused with the server's reason (#30
     expect(update.status, 'update stays elevated').toBe(200);
 });
 
-test('owner revokes the share: it leaves the list and the viewer is refused again', async () => {
-    // The project-only owner can't open Sharing Management (GET /api/v1/shares is a global
-    // secrets.read gate, see the header), so revoke with the call that page makes:
-    // DELETE /api/v1/shares/{id}, scoped to the shared secret, as the owner's own browser session.
-    const before = await bearer(ownerToken, 'GET', `/api/v1/secrets/${secretA}/shares`);
-    const share = (before.body.data.shares as Array<{ id: number; recipient_id: number }>).find(
-        (sh) => sh.recipient_id === viewer.id
+test('owner revokes the share from Sharing Management: it leaves the list and the viewer is refused again', async () => {
+    // SHARE-3: the project-only owner opens Sharing Management. GET /api/v1/shares (global
+    // secrets.read) is refused, so the page loads the owner-scoped GET /api/v1/shares/owned.
+    const globalList = ownerPage.waitForResponse(
+        (r) => new URL(r.url()).pathname === '/api/v1/shares' && r.request().method() === 'GET'
     );
-    expect(share, 'the share from the previous test').toBeTruthy();
-    const revoked = await ownerPage.evaluate(async (id) => {
-        const csrf = document.cookie.match(/(?:^|; )csrf_token=([^;]+)/)?.[1] ?? '';
-        const res = await fetch(`/api/v1/shares/${id}`, {
-            method: 'DELETE',
-            credentials: 'include',
-            headers: { 'X-CSRF-Token': decodeURIComponent(csrf) },
-        });
-        return res.status;
-    }, share!.id);
-    expect(revoked, 'DELETE /shares/{id} as the project-only owner').toBeLessThan(300);
+    const ownedList = ownerPage.waitForResponse(
+        (r) => new URL(r.url()).pathname === '/api/v1/shares/owned' && r.request().method() === 'GET'
+    );
+    await ownerPage.goto('/sharing');
+    expect((await globalList).status(), 'GET /shares stays a global secrets.read route').toBe(403);
+    expect((await ownedList).status(), 'the owner-scoped list is open to a project-only owner').toBe(200);
+    await expect(ownerPage.getByRole('heading', { name: 'Shares you created' })).toBeVisible({ timeout: 15_000 });
+    await expect(ownerPage.getByText('Failed to load shares')).toHaveCount(0);
+
+    // The row for the share to the viewer, on secret A, created by the owner.
+    const row = ownerPage.getByRole('row', { name: new RegExp(`Secret #${secretA}\\b.*${viewer.username}`) });
+    await expect(row).toBeVisible();
+    await expect(row).toContainText(owner.username);
+    // The API agrees: only the owner's shares, and this one is among them.
+    const owned = await bearer(ownerToken, 'GET', '/api/v1/shares/owned');
+    expect(owned.status).toBe(200);
+    const ownedRows = owned.body.data.data as Array<{
+        id: number;
+        secretId: number;
+        recipientId: number;
+        createdBy: string;
+    }>;
+    expect(new Set(ownedRows.map((sh) => sh.createdBy))).toEqual(new Set([owner.username]));
+    expect(ownedRows.filter((sh) => sh.secretId === secretA && sh.recipientId === viewer.id)).toHaveLength(1);
+
+    // Revoke in the UI: the row's trash button, then the confirmation.
+    await row.getByTitle('Revoke access').click();
+    const deleted = ownerPage.waitForResponse(
+        (r) => /\/api\/v1\/shares\/\d+$/.test(new URL(r.url()).pathname) && r.request().method() === 'DELETE'
+    );
+    await ownerPage.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    expect((await deleted).status(), 'DELETE /shares/{id} as the project-only owner').toBeLessThan(300);
+    await expect(row).toHaveCount(0, { timeout: 10_000 });
+    await expect(ownerPage.getByText('Failed to revoke share')).toHaveCount(0);
 
     // Gone from A's share list (the server's answer, not a cache).
     const shares = await bearer(ownerToken, 'GET', `/api/v1/secrets/${secretA}/shares`);
@@ -454,4 +476,17 @@ test('a global admin who owns a secret but is not a project member is told why t
     expect(JSON.stringify(res.body)).toMatch(OWNER_NOT_MEMBER_MESSAGE);
     const shares = await bearer(adminToken, 'GET', `/api/v1/secrets/${secretC}/shares`);
     expect(JSON.stringify(shares.body)).not.toContain(viewer.username);
+});
+
+test('the global admin still gets the unchanged Sharing Management list', async () => {
+    // SHARE-3: global secrets.read keeps GET /api/v1/shares; the page does not switch to the
+    // owner-scoped list or label it.
+    const globalList = adminPage.waitForResponse(
+        (r) => new URL(r.url()).pathname === '/api/v1/shares' && r.request().method() === 'GET'
+    );
+    await adminPage.goto('/sharing');
+    expect((await globalList).status()).toBe(200);
+    await expect(adminPage.getByRole('heading', { name: 'Sharing Management' })).toBeVisible({ timeout: 15_000 });
+    await expect(adminPage.getByText('Failed to load shares')).toHaveCount(0);
+    await expect(adminPage.getByRole('heading', { name: 'Shares you created' })).toHaveCount(0);
 });

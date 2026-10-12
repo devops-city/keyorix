@@ -156,18 +156,31 @@ func (c *KeyorixCore) ListSecretSharesWithPermissionCheck(ctx context.Context, s
 
 // ListSharesByUser lists shares involving the user (received as recipient + outgoing as owner).
 func (c *KeyorixCore) ListSharesByUser(ctx context.Context, userID uint) ([]*models.ShareRecord, error) {
-	if userID == 0 {
-		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
-	}
-	received, err := c.storage.ListSharesByUser(ctx, userID, c.shareEffectiveNow())
+	received, owned, err := c.sharesReceivedAndOwned(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		return nil, err
 	}
-	owned, err := c.storage.ListSharesByOwner(ctx, userID, c.shareEffectiveNow())
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
+	return mergeSharesByID(received, owned), nil
+}
 
+// sharesReceivedAndOwned fetches the two storage lists ListSharesByUser merges.
+func (c *KeyorixCore) sharesReceivedAndOwned(ctx context.Context, userID uint) (received, owned []*models.ShareRecord, err error) {
+	if userID == 0 {
+		return nil, nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
+	}
+	received, err = c.storage.ListSharesByUser(ctx, userID, c.shareEffectiveNow())
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	owned, err = c.storage.ListSharesByOwner(ctx, userID, c.shareEffectiveNow())
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	return received, owned, nil
+}
+
+// mergeSharesByID unions the lists by share id, ordered by id.
+func mergeSharesByID(received, owned []*models.ShareRecord) []*models.ShareRecord {
 	byID := make(map[uint]*models.ShareRecord)
 	for _, s := range received {
 		if s != nil {
@@ -184,7 +197,7 @@ func (c *KeyorixCore) ListSharesByUser(ctx context.Context, userID uint) ([]*mod
 		out = append(out, s)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out, nil
+	return out
 }
 
 // ShareView is an enriched, transport-ready share record: recipient and creator are
@@ -204,12 +217,46 @@ type ShareView struct {
 
 // ListUserShareViews returns the user's shares (received + owned) as enriched views
 // with recipient/creator names resolved, ready to serialise for the web sharing UI.
-func (c *KeyorixCore) ListUserShareViews(ctx context.Context, userID uint) ([]ShareView, error) { // NOSONAR -- cognitive complexity 17, suppress go:S3776
-	shares, err := c.ListSharesByUser(ctx, userID)
+func (c *KeyorixCore) ListUserShareViews(ctx context.Context, userID uint) ([]ShareView, error) {
+	received, owned, err := c.sharesReceivedAndOwned(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
+	if shareFetchMayBeTruncated(received) || shareFetchMayBeTruncated(owned) {
+		return nil, ErrShareListOverCap
+	}
+	return c.shareViews(ctx, mergeSharesByID(received, owned))
+}
 
+// shareFetchMayBeTruncated: storage list queries without pagination return at most
+// maxUnboundedListRows (10000, internal/storage/store) rows and cut the rest off
+// silently, so a result of that size cannot be told from a truncated one. The cap in
+// shareViews alone would never fire on a single such list; refuse, never show a list
+// that may be missing shares (the page that revokes them).
+func shareFetchMayBeTruncated(shares []*models.ShareRecord) bool {
+	return len(shares) >= maxShareViewBatchSize
+}
+
+// maxShareViewBatchSize bounds how many share rows one list call enriches. The rows
+// come from storage (never a request payload), but enrichment does a user/group
+// lookup per distinct recipient and creator, and the CLI's embedded mode calls core
+// directly, so a very large share table would turn one list call into an unbounded
+// run of round trips (CWE-400). Same pattern as maxBulkAccessRequestBatchSize. The
+// list is refused (ErrShareListOverCap, a 422 on HTTP), never truncated: a silently
+// shortened list would hide shares from the page that revokes them. Real pagination
+// in core is a parked follow-up.
+const maxShareViewBatchSize = 10000
+
+// ErrShareListOverCap: the share list exceeds maxShareViewBatchSize. Transports map it
+// to a typed 4xx, not a 500.
+var ErrShareListOverCap = fmt.Errorf("share list is over the cap of %d shares per request", maxShareViewBatchSize)
+
+// shareViews enriches share records with recipient/creator display names, resolving
+// each user and group once.
+func (c *KeyorixCore) shareViews(ctx context.Context, shares []*models.ShareRecord) ([]ShareView, error) { // NOSONAR -- cognitive complexity 17, suppress go:S3776
+	if len(shares) > maxShareViewBatchSize {
+		return nil, ErrShareListOverCap
+	}
 	userNames := map[uint]string{}
 	resolveUser := func(id uint) string {
 		if id == 0 {

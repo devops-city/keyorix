@@ -136,6 +136,10 @@ export const SharingManagementPage: React.FC = () => {
         }
     }, [data]);
 
+    // SHARE-3: 'owned' when the caller lacks global secrets.read and sees only the
+    // shares they created, in projects they are a member of (GET /shares/owned).
+    const ownedOnly = data?.scope === 'owned';
+
     const deleteMutation = useDeleteShare();
     const bulkDeleteMutation = useBulkDeleteShares();
 
@@ -271,7 +275,9 @@ export const SharingManagementPage: React.FC = () => {
                 <p className="text-base-muted dark:text-base-muted">
                     {filters.search || filters.recipientType !== 'all' || filters.permission !== 'all'
                         ? 'Try adjusting your filters.'
-                        : 'No secrets have been shared yet.'}
+                        : ownedOnly
+                          ? "You haven't shared any secrets in your projects yet."
+                          : 'No secrets have been shared yet.'}
                 </p>
             </div>
         ) : (
@@ -539,6 +545,30 @@ export const SharingManagementPage: React.FC = () => {
                     </Button>
                 </div>
             </div>
+
+            {ownedOnly && (
+                <div>
+                    <h2 className="text-lg font-medium text-base-primary dark:text-white">Shares you created</h2>
+                    <p className="mt-1 text-sm text-base-muted dark:text-base-muted">
+                        The shares you created, in projects you are a member of. You can revoke them here.
+                    </p>
+                </div>
+            )}
+
+            {deleteMutation.isError && (
+                <Alert
+                    type="error"
+                    title="Failed to revoke share"
+                    message={apiErrorMessage(deleteMutation.error, 'The share could not be revoked.')}
+                />
+            )}
+            {bulkDeleteMutation.isError && (
+                <Alert
+                    type="error"
+                    title="Failed to revoke shares"
+                    message={apiErrorMessage(bulkDeleteMutation.error, 'Some shares could not be revoked.')}
+                />
+            )}
 
             {/* Filters */}
             <div className="bg-surface dark:bg-gray-800 rounded-lg border border-base dark:border-gray-700 p-4">

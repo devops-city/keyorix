@@ -71,17 +71,79 @@ func (h *ShareHandler) ListShares(w http.ResponseWriter, r *http.Request) {
 	views, err := h.coreService.ListUserShareViews(r.Context(), userCtx.UserID)
 	if err != nil {
 		log.Printf("Error listing shares: %v", err)
+		if errors.Is(err, core.ErrShareListOverCap) {
+			h.sendError(w, "ShareListOverCap", err.Error(), http.StatusUnprocessableEntity, nil)
+			return
+		}
 		h.sendError(w, "InternalError", "Failed to list shares", http.StatusInternalServerError, nil)
 		return
 	}
 	// #G17: ShareView only carries SecretID, so resolve each share's owning
 	// project in one batched lookup before applying the aggregate MFA check —
 	// mirrors the gRPC-side ListUserShares fix in the same finding.
-	if middleware.ProjectsMFABlocked(r, h.coreService, h.shareViewProjectIDs(r.Context(), views)) {
-		middleware.WriteProjectMFARequired(w)
+	if !h.shareViewsMFAAllowed(w, r, views) {
 		return
 	}
 
+	h.sendShareViewPage(w, r, views)
+}
+
+// ListOwnedShares handles GET /api/v1/shares/owned — the owner-scoped list behind the
+// Sharing Management page for a caller without global secrets.read (SHARE-3): only the
+// shares the caller created, on secrets in projects they are a member of now
+// (core.ListOwnedShareViews). Same filters, paging and response shape as ListShares.
+// The route gate (RequirePermissionInAnyScope) refuses a caller with no secrets.read
+// anywhere; core refuses machine identities. Both refusals carry
+// core.OwnedShareListDeniedMessage. Like ListShares, a read: no audit event.
+func (h *ShareHandler) ListOwnedShares(w http.ResponseWriter, r *http.Request) {
+	userCtx := middleware.GetUserFromContext(r.Context())
+	if userCtx == nil {
+		h.sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+		return
+	}
+	views, err := h.coreService.ListOwnedShareViews(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID())
+	if err != nil {
+		if reason, ok := core.ShareRefusalMessage(err); ok {
+			h.sendError(w, "Forbidden", reason, http.StatusForbidden, nil)
+			return
+		}
+		log.Printf("Error listing owned shares: %v", err)
+		if errors.Is(err, core.ErrShareListOverCap) {
+			h.sendError(w, "ShareListOverCap", err.Error(), http.StatusUnprocessableEntity, nil)
+			return
+		}
+		h.sendError(w, "InternalError", "Failed to list shares", http.StatusInternalServerError, nil)
+		return
+	}
+	if !h.shareViewsMFAAllowed(w, r, views) {
+		return
+	}
+	h.sendShareViewPage(w, r, views)
+}
+
+// shareViewsMFAAllowed applies the aggregate per-project MFA check (#G17) to the
+// projects views disclose. It writes the refusal and returns false when a project
+// requires MFA the session lacks, or when those projects can't be resolved: an
+// unverifiable policy denies (500), it never lets the list through.
+func (h *ShareHandler) shareViewsMFAAllowed(w http.ResponseWriter, r *http.Request, views []core.ShareView) bool {
+	projectIDs, err := h.shareViewProjectIDs(r.Context(), views)
+	if err != nil {
+		log.Printf("share list: failed to resolve project ids for the MFA check: %v", err)
+		h.sendError(w, "InternalError", "Failed to list shares", http.StatusInternalServerError, nil)
+		return false
+	}
+	if middleware.ProjectsMFABlocked(r, h.coreService, projectIDs) {
+		middleware.WriteProjectMFARequired(w)
+		return false
+	}
+	return true
+}
+
+// sendShareViewPage applies the optional ?secretId= and ?recipientType= filters and
+// ?page / ?pageSize paging to views and writes the PaginatedResponse shape the web
+// client consumes. Shared by ListShares and ListOwnedShares so the two lists cannot
+// drift apart in shape.
+func (h *ShareHandler) sendShareViewPage(w http.ResponseWriter, r *http.Request, views []core.ShareView) {
 	// Optional server-side filters.
 	if v := r.URL.Query().Get("secretId"); v != "" {
 		if sid, perr := strconv.ParseUint(v, 10, 32); perr == nil {
@@ -126,13 +188,12 @@ func (h *ShareHandler) ListShares(w http.ResponseWriter, r *http.Request) {
 }
 
 // shareViewProjectIDs resolves the distinct projects the given share views'
-// secrets belong to, via one batched GetSecretsByIDs lookup. A resolution
-// failure is logged and treated as an empty set — see the gRPC-side
-// shareProjectIDs (share_service.go) for why this degrades safely rather than
-// blocking the endpoint outright.
-func (h *ShareHandler) shareViewProjectIDs(ctx context.Context, views []core.ShareView) []uint {
+// secrets belong to, via one batched GetSecretsByIDs lookup. A resolution failure
+// is returned: treating it as an empty set made the MFA check fail open (review of
+// #3018), matching the gRPC-side shareProjectIDs (share_service.go).
+func (h *ShareHandler) shareViewProjectIDs(ctx context.Context, views []core.ShareView) ([]uint, error) {
 	if len(views) == 0 {
-		return nil
+		return nil, nil
 	}
 	secretIDSet := make(map[uint]bool, len(views))
 	secretIDs := make([]uint, 0, len(views))
@@ -144,14 +205,13 @@ func (h *ShareHandler) shareViewProjectIDs(ctx context.Context, views []core.Sha
 	}
 	secrets, err := h.coreService.Storage().GetSecretsByIDs(ctx, secretIDs)
 	if err != nil {
-		log.Printf("shareViewProjectIDs: failed to resolve project ids for MFA check: %v", err)
-		return nil
+		return nil, err
 	}
 	projectIDs := make([]uint, 0, len(secrets))
 	for _, sec := range secrets {
 		projectIDs = append(projectIDs, sec.ProjectID)
 	}
-	return projectIDs
+	return projectIDs, nil
 }
 
 // filterShareViews returns the views satisfying keep.

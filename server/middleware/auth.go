@@ -1015,6 +1015,34 @@ func RequirePermission(permission string) func(next http.Handler) http.Handler {
 	return RequireScopedPermission(permission, ScopeGlobal)
 }
 
+// RequirePermissionInAnyScope admits a caller who holds permission at the global
+// scope OR at one or more project/environment scopes (core.HoldsPermissionInAnyScope).
+// It is for list routes whose handler narrows the answer to what the caller may see
+// (GET /api/v1/shares/owned): the gate only refuses callers with no such grant
+// anywhere. Denials are 403 with the default or DenyMessage text. No per-project MFA
+// check here: there is no one project; the handler applies ProjectsMFABlocked over the
+// projects its answer touches.
+func RequirePermissionInAnyScope(permission string, opts ...ScopedGateOption) func(http.Handler) http.Handler {
+	cfg := scopedGateConfig{denyMessage: defaultDenyMessage}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			userCtx, cs, ok := requireUserAndCore(w, r)
+			if !ok {
+				return
+			}
+			allowed, err := cs.HoldsPermissionInAnyScope(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID(), permission)
+			if err != nil || !allowed {
+				forbiddenResponse(w, cfg.denyMessage)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // setupStepRoutes are the only "METHOD /path" endpoints each pending setup step
 // opens (#3024). A session owing setup steps may reach the union of its pending
 // steps' routes plus setupAlwaysAllowedRoutes, and nothing else; logout and

@@ -1,18 +1,15 @@
 import { useQuery, useMutation, keepPreviousData } from '@tanstack/react-query';
-import { sharingApi } from '../../services/sharing';
+import { sharingApi, type ShareListParams } from '../../services/sharing';
 import { usersApi } from '../../services/users';
 import { queryKeys, invalidateQueries } from '../../lib/queryClient';
 import { ShareFormData } from '../../types';
 
-export const useShares = (params?: {
-    page?: number;
-    pageSize?: number;
-    secretId?: number;
-    recipientType?: 'user' | 'group';
-}) => {
+// useShares is the Sharing Management list: GET /shares for a caller with global
+// secrets.read, otherwise the owner-scoped GET /shares/owned (data.scope says which).
+export const useShares = (params?: ShareListParams) => {
     return useQuery({
         queryKey: queryKeys.sharing.list(params),
-        queryFn: () => sharingApi.list(params),
+        queryFn: () => sharingApi.listForManagement(params),
         placeholderData: keepPreviousData,
     });
 };

@@ -1,5 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { AxiosError } from 'axios';
 import { render, screen, fireEvent, within, waitFor, act } from '../../../test/test-utils';
 import { SharingManagementPage, shareExpiry } from '../SharingManagementPage';
 
@@ -34,7 +35,7 @@ const sharesState = vi.hoisted(() => ({
 }));
 
 const mutationState = vi.hoisted(() => ({
-    delete: { isPending: false },
+    delete: { isPending: false } as { isPending: boolean; isError?: boolean; error?: unknown },
     bulkDelete: { isPending: false },
     update: { isPending: false, isError: false, error: null as unknown },
 }));
@@ -640,5 +641,72 @@ describe('SharingManagementPage — edit share modal', () => {
         expect(screen.getByLabelText('Access expires')).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    });
+});
+
+// SHARE-3: a caller without global secrets.read gets the owner-scoped list
+// (useShares reports scope 'owned'); the page says so. Server reasons are shown,
+// never axios's own "Request failed with status code 403".
+describe('SharingManagementPage — owner-scoped mode (SHARE-3)', () => {
+    const axios403 = (message: string) =>
+        new AxiosError('Request failed with status code 403', 'ERR_BAD_REQUEST', undefined, undefined, {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: {},
+            config: {} as never,
+            data: { error: 'Forbidden', message, code: 403 },
+        });
+
+    it('global mode: no "Shares you created" label', () => {
+        sharesState.data = { ...makeResponse(allShares), scope: 'all' };
+        render(<SharingManagementPage />);
+        expect(screen.queryByText('Shares you created')).not.toBeInTheDocument();
+        expect(screen.getByText('Manage secret sharing permissions and access')).toBeInTheDocument();
+    });
+
+    it('owned mode: labels the list "Shares you created" and explains its scope', () => {
+        sharesState.data = { ...makeResponse([shareAlice]), scope: 'owned' };
+        render(<SharingManagementPage />);
+        expect(screen.getByRole('heading', { name: 'Shares you created' })).toBeInTheDocument();
+        expect(
+            screen.getByText('The shares you created, in projects you are a member of. You can revoke them here.')
+        ).toBeInTheDocument();
+        expect(rowFor('Alice Anderson')).toBeInTheDocument();
+    });
+
+    it('owned mode: the empty state says the caller has not shared anything', () => {
+        sharesState.data = { ...makeResponse([]), scope: 'owned' };
+        render(<SharingManagementPage />);
+        expect(screen.getByText("You haven't shared any secrets in your projects yet.")).toBeInTheDocument();
+    });
+
+    it('owned mode: revoking a share calls the same delete', () => {
+        sharesState.data = { ...makeResponse([shareAlice]), scope: 'owned' };
+        render(<SharingManagementPage />);
+        fireEvent.click(within(rowFor('Alice Anderson')).getByTitle('Revoke access'));
+        fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+        expect(deleteMutate).toHaveBeenCalledWith(1, expect.anything());
+    });
+
+    it("a load failure shows the server's reason, not the axios text", () => {
+        sharesState.error = axios403('You can only list the shares you created in projects you are a member of.');
+        render(<SharingManagementPage />);
+        expect(screen.getByText('Failed to load shares')).toBeInTheDocument();
+        expect(
+            screen.getByText('You can only list the shares you created in projects you are a member of.')
+        ).toBeInTheDocument();
+        expect(screen.queryByText(/Request failed with status code/)).not.toBeInTheDocument();
+    });
+
+    it("a refused revoke shows the server's reason, not the axios text", () => {
+        mutationState.delete = {
+            isPending: false,
+            isError: true,
+            error: axios403("Only the secret's owner can share it or change its shares."),
+        } as never;
+        render(<SharingManagementPage />);
+        expect(screen.getByText('Failed to revoke share')).toBeInTheDocument();
+        expect(screen.getByText("Only the secret's owner can share it or change its shares.")).toBeInTheDocument();
+        expect(screen.queryByText(/Request failed with status code/)).not.toBeInTheDocument();
     });
 });

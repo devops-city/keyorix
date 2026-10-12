@@ -213,6 +213,7 @@ var schemaExemptOperations = map[string]bool{
 var exercisingTests = map[string][]string{
 	"authGetSetupToken":             {"TestGetSetupToken_HappyPath_S11"},
 	"searchShareRecipients":         {"TestContractShare2_SearchShareRecipients"},
+	"listOwnedShares":               {"TestContractShare3_ListOwnedShares"},
 	"authLogin":                     {"TestLogin_HappyPath_S8", "TestContractQA2_Login_MFARequiredBranch"},
 	"authConsumeSetup":              {"TestConsumeSetup_HappyPath_S11"},
 	"enrollMFA":                     {"TestContractQA2_EnrollMFA"},

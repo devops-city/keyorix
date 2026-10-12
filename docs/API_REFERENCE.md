@@ -286,6 +286,18 @@ or must hold global `users.read`. A project-only admin can use it; `GET /users` 
 global `users.read`. Every refusal is the same 403 with a reason. Details:
 [SECRET_SHARING_API.md](SECRET_SHARING_API.md#8-search-share-recipients-in-a-project).
 
+### List Shares You Created (owner-scoped)
+```http
+GET /api/v1/shares/owned?page=1&pageSize=20
+Authorization: Bearer <token>
+```
+The shares the caller created, on secrets in projects the caller is a member of now.
+Same filters (`secretId`, `recipientType`), paging and response shape as
+`GET /api/v1/shares`. The caller needs `secrets.read` at the global scope or in at least
+one project; machine identities are refused. The Sharing Management page uses it for a
+caller without global `secrets.read`. Every refusal is the same 403 with a reason.
+Details: [SECRET_SHARING_API.md](SECRET_SHARING_API.md#10-list-shares-you-created-owner-scoped).
+
 ### List Shares
 ```http
 GET /api/v1/shares

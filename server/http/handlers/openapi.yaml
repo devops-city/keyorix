@@ -4876,6 +4876,68 @@ paths:
         '200':
           description: Envelope `{data, message}`. `data.shares` is the share records array.
         '401': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+  /api/v1/shares/owned:
+    get:
+      tags: [Shares]
+      summary: List the shares the caller created, in projects they are a member of
+      description: >-
+        The owner-scoped share list behind the Sharing Management page for a caller
+        without global secrets.read (GET /api/v1/shares needs it). Returns only shares
+        the caller created, and only on secrets in projects the caller is a member of
+        now: after removal from a project its shares stop being listed (they are not
+        revoked). Received shares are not listed, and holding global secrets.read does
+        not add anyone else's shares. Requires secrets.read at the global scope or at
+        one or more project scopes; machine identities are refused. Every refusal is
+        the same 403 with a fixed reason. Same filters, paging and shape as
+        GET /api/v1/shares. A read: no audit event, like GET /api/v1/shares. A list over
+        10000 shares is refused with 422 ShareListOverCap (never truncated); pagination
+        in core is a follow-up.
+      operationId: listOwnedShares
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: secretId, in: query, required: false, schema: {type: integer, format: uint32}}
+        - {name: recipientType, in: query, required: false, schema: {type: string, enum: [user, group]}}
+        - {name: page, in: query, required: false, schema: {type: integer, minimum: 1, default: 1}}
+        - {name: pageSize, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 20}}
+      responses:
+        '200':
+          description: Envelope `{success, data}`. `data.data` is one page of shares; `data.total` counts every match.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success: {type: boolean}
+                  data:
+                    type: object
+                    required: [data, total, page, pageSize, totalPages]
+                    additionalProperties: false
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, secretId, recipientType, recipientId, recipientName, permission, createdAt, createdBy]
+                          additionalProperties: false
+                          properties:
+                            id: {type: integer, format: uint32}
+                            secretId: {type: integer, format: uint32}
+                            recipientType: {type: string, enum: [user, group]}
+                            recipientId: {type: integer, format: uint32}
+                            recipientName: {type: string}
+                            permission: {type: string}
+                            expiresAt: {type: string, format: date-time, description: Absent for a permanent share.}
+                            createdAt: {type: string, format: date-time}
+                            createdBy: {type: string, description: Username of the share's creator (always the caller here).}
+                      total: {type: integer}
+                      page: {type: integer}
+                      pageSize: {type: integer}
+                      totalPages: {type: integer}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
   /api/v1/shares/{id}:
     put:
       tags: [Shares]

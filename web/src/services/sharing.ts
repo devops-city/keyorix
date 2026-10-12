@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import { apiClient } from './client';
 import { ApiResponse, PaginatedResponse, ShareRecord, ShareFormData } from '../types';
 import { API_ENDPOINTS } from '../constants';
@@ -32,6 +33,24 @@ export interface ShareRecipientPage {
     page_size: number;
 }
 
+export interface ShareListParams {
+    page?: number;
+    pageSize?: number;
+    secretId?: number;
+    recipientType?: 'user' | 'group';
+}
+
+// ManagedShareList is one page of the Sharing Management list. scope 'all' is
+// GET /shares (global secrets.read); 'owned' is GET /shares/owned.
+export type ManagedShareList = PaginatedResponse<ShareRecord> & { scope: 'all' | 'owned' };
+
+// isPermissionGateRefusal: the 403 a permission gate writes ({error: 'Forbidden'}),
+// as opposed to a 403 with its own code such as ProjectMFARequired.
+const isPermissionGateRefusal = (err: unknown): boolean =>
+    isAxiosError(err) &&
+    err.response?.status === 403 &&
+    (err.response.data as { error?: string } | undefined)?.error === 'Forbidden';
+
 export const sharingApi = {
     // searchRecipients looks recipients up among the secret's project members
     // (SHARE-2). Unlike GET /users it needs no global permission, so a project-only
@@ -53,16 +72,34 @@ export const sharingApi = {
         return response.data.data;
     },
 
-    async list(params?: {
-        page?: number;
-        pageSize?: number;
-        secretId?: number;
-        recipientType?: 'user' | 'group';
-    }): Promise<PaginatedResponse<ShareRecord>> {
+    async list(params?: ShareListParams): Promise<PaginatedResponse<ShareRecord>> {
         const response = await apiClient.get<ApiResponse<PaginatedResponse<ShareRecord>>>(API_ENDPOINTS.SHARING.LIST, {
             params,
         });
         return response.data.data;
+    },
+
+    // listOwned is the owner-scoped list (SHARE-3): only the shares the caller created,
+    // on secrets in projects they are a member of now. Same params and shape as list.
+    async listOwned(params?: ShareListParams): Promise<PaginatedResponse<ShareRecord>> {
+        const response = await apiClient.get<ApiResponse<PaginatedResponse<ShareRecord>>>(API_ENDPOINTS.SHARING.OWNED, {
+            params,
+        });
+        return response.data.data;
+    },
+
+    // listForManagement backs the Sharing Management page. GET /shares needs GLOBAL
+    // secrets.read; a caller its permission gate refuses (a project-only owner) gets
+    // the owner-scoped list instead, tagged scope 'owned'. The profile can't decide
+    // this up front: its permissions are merged across every scope. Any other failure
+    // (e.g. a project-MFA refusal) is not a permission answer and is rethrown.
+    async listForManagement(params?: ShareListParams): Promise<ManagedShareList> {
+        try {
+            return { ...(await sharingApi.list(params)), scope: 'all' };
+        } catch (err) {
+            if (!isPermissionGateRefusal(err)) throw err;
+        }
+        return { ...(await sharingApi.listOwned(params)), scope: 'owned' };
     },
 
     async get(id: number): Promise<ShareRecord> {

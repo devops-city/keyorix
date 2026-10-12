@@ -415,6 +415,55 @@ What the report still reveals, by design:
   listed. Their grants apply again if the account is reactivated, so an access
   review needs to see them. Account status is shown by the user routes, not here.
 
+### 10. List Shares You Created (owner-scoped)
+
+**Endpoint:** `GET /shares/owned`
+
+The list behind the Sharing Management page for a caller who does not hold global
+`secrets.read` (which `GET /shares` requires), for example a project-only
+`project_admin`. It returns:
+- only shares the caller created, and
+- only on secrets in projects the caller is a member of now. Removing the caller from a
+  project hides their shares in it (it does not revoke them); adding them back shows
+  them again.
+
+Received shares are not listed, and global `secrets.read` adds nobody else's shares here.
+Access: `secrets.read` at the global scope or in at least one project. Machine identities
+are refused. Every refusal is the same `403` with this reason: "You can only list the
+shares you created in projects you are a member of: ...". Listing is a read and writes no
+audit event, like `GET /shares`.
+
+**Query Parameters:** `secretId`, `recipientType` (`user` or `group`), `page`
+(default 1), `pageSize` (default 20, max 200).
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "data": {
+    "data": [
+      {
+        "id": 456,
+        "secretId": 123,
+        "recipientType": "user",
+        "recipientId": 789,
+        "recipientName": "john.doe",
+        "permission": "read",
+        "createdAt": "2026-10-10T10:30:00Z",
+        "createdBy": "olga"
+      }
+    ],
+    "total": 1,
+    "page": 1,
+    "pageSize": 20,
+    "totalPages": 1
+  }
+}
+```
+
+The owner revokes a listed share with `DELETE /shares/{id}` (section 4), which needs
+`secrets.write` at the secret's project and the secret's ownership.
+
 ## Group Sharing
 
 ### Share with Group

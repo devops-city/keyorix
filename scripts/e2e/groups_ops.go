@@ -87,6 +87,9 @@ func groupShares(ctx *smokeCtx) {
 	c.unmarshalData(created, &share, "create share")
 
 	c.callExpect("GET", "GET /api/v1/shares", "/api/v1/shares", nil, 200)
+	// Owner-scoped list (SHARE-3): the admin was just made a member of the project
+	// and created this share, so it is listed here too.
+	c.callExpect("GET", "GET /api/v1/shares/owned", "/api/v1/shares/owned", nil, 200)
 	if share.ID != 0 {
 		sh := fmt.Sprintf("/api/v1/shares/%d", share.ID)
 		c.callExpect("PUT", "PUT /api/v1/shares/{id}", sh, map[string]string{"permission": "write"}, 200)

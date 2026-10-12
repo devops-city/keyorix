@@ -26,7 +26,7 @@ const { listMock, createMock, updateMock, deleteMock } = vi.hoisted(() => ({
 
 vi.mock('../../../services/sharing', () => ({
     sharingApi: {
-        list: listMock,
+        listForManagement: listMock,
         create: createMock,
         update: updateMock,
         delete: deleteMock,
@@ -102,7 +102,7 @@ describe('features/sharing/api', () => {
             expect(result.current.data).toEqual(paginated([share]));
         });
 
-        it('calls sharingApi.list with the given params', async () => {
+        it('calls sharingApi.listForManagement with the given params', async () => {
             listMock.mockResolvedValue(paginated([]));
 
             const params = { page: 2, pageSize: 10, secretId: 42, recipientType: 'user' as const };
@@ -114,7 +114,7 @@ describe('features/sharing/api', () => {
             expect(listMock).toHaveBeenCalledTimes(1);
         });
 
-        it('calls sharingApi.list with undefined when no params are given', async () => {
+        it('calls sharingApi.listForManagement with undefined when no params are given', async () => {
             listMock.mockResolvedValue(paginated([]));
 
             const { result } = renderHook(() => useShares(), { wrapper: createWrapper() });

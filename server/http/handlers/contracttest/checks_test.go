@@ -90,6 +90,7 @@ func TestEnforcedSetMatchesADR074(t *testing.T) {
 	want := map[string]bool{
 		"authGetSetupToken":             true,
 		"searchShareRecipients":         true,
+		"listOwnedShares":               true,
 		"authLogin":                     true,
 		"authRefresh":                   true,
 		"healthCheck":                   true,

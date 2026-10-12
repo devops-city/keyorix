@@ -615,6 +615,7 @@ rest	GET /api/v1/secrets/{id}/versions/{from}/diff/{to}	server/http/router.go	73
 rest	GET /api/v1/secrets/{id}/versions/{versionId}/comments	server/http/router.go	738	versionCommentHandler.ListComments	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/shared-secrets	server/http/router.go	830	shareHandler.ListSharedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/shares/	server/http/router.go	824	shareHandler.ListShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/shares/owned	server/http/router.go	834	shareHandler.ListOwnedShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/sod/policies	server/http/router.go	1231	catalogHandler.ListSoDPolicies	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/sod/violations	server/http/router.go	1234	catalogHandler.ListSoDViolations	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/system/auth-config	server/http/router.go	447	<expr>	D	router.go:440 wires handlers.MakeAuthConfigHandler(cfg): a closure returning a redacted config summary directly from in-memory cfg -- no storage access.

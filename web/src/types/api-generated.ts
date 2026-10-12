@@ -3193,6 +3193,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/shares/owned": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the shares the caller created, in projects they are a member of
+         * @description The owner-scoped share list behind the Sharing Management page for a caller without global secrets.read (GET /api/v1/shares needs it). Returns only shares the caller created, and only on secrets in projects the caller is a member of now: after removal from a project its shares stop being listed (they are not revoked). Received shares are not listed, and holding global secrets.read does not add anyone else's shares. Requires secrets.read at the global scope or at one or more project scopes; machine identities are refused. Every refusal is the same 403 with a fixed reason. Same filters, paging and shape as GET /api/v1/shares. A read: no audit event, like GET /api/v1/shares. A list over 10000 shares is refused with 422 ShareListOverCap (never truncated); pagination in core is a follow-up.
+         */
+        get: operations["listOwnedShares"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/shares/{id}": {
         parameters: {
             query?: never;
@@ -11525,6 +11545,64 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Error"];
+            422: components["responses"]["Error"];
+        };
+    };
+    listOwnedShares: {
+        parameters: {
+            query?: {
+                secretId?: number;
+                recipientType?: "user" | "group";
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Envelope `{success, data}`. `data.data` is one page of shares; `data.total` counts every match. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        success: boolean;
+                        data: {
+                            data: {
+                                /** Format: uint32 */
+                                id: number;
+                                /** Format: uint32 */
+                                secretId: number;
+                                /** @enum {string} */
+                                recipientType: "user" | "group";
+                                /** Format: uint32 */
+                                recipientId: number;
+                                recipientName: string;
+                                permission: string;
+                                /**
+                                 * Format: date-time
+                                 * @description Absent for a permanent share.
+                                 */
+                                expiresAt?: string;
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** @description Username of the share's creator (always the caller here). */
+                                createdBy: string;
+                            }[];
+                            total: number;
+                            page: number;
+                            pageSize: number;
+                            totalPages: number;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            422: components["responses"]["Error"];
         };
     };
     updateSharePermission: {

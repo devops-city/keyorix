@@ -33,6 +33,9 @@ export const API_ENDPOINTS = {
     },
     SHARING: {
         LIST: '/api/v1/shares',
+        // Owner-scoped list (SHARE-3): the shares the caller created, in projects they are
+        // a member of. The Sharing Management page uses it when LIST is refused.
+        OWNED: '/api/v1/shares/owned',
         CREATE: (secretId: number) => `/api/v1/secrets/${secretId}/share`,
         GET: (id: number) => `/api/v1/shares/${id}`,
         UPDATE: (id: number) => `/api/v1/shares/${id}`,

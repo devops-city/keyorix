@@ -181,6 +181,8 @@ func ShareRefusalMessage(err error) (string, bool) {
 		return "Only the secret's owner can share it or change its shares.", true
 	case errors.Is(err, ErrShareRecipientSearchDenied):
 		return ShareRecipientSearchDeniedMessage, true
+	case errors.Is(err, ErrOwnedShareListDenied):
+		return OwnedShareListDeniedMessage, true
 	case errors.Is(err, ErrShareActionNotElevated):
 		return ShareActionNotElevatedMessage, true
 	}

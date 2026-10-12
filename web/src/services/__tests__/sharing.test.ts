@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { AxiosError } from 'axios';
 
 vi.mock('../client', () => ({
     apiClient: {
@@ -173,5 +174,51 @@ describe('sharingApi.selfRemove', () => {
         mock.post.mockResolvedValueOnce({});
         await sharingApi.selfRemove(1);
         expect(mock.post).toHaveBeenCalledWith('/api/v1/shares/1/self-remove');
+    });
+});
+
+// SHARE-3: the Sharing Management page lists GET /shares for a caller with global
+// secrets.read and falls back to the owner-scoped GET /shares/owned when that route's
+// permission gate refuses them. The profile cannot tell the two apart (its
+// permissions are merged across scopes), so the server decides.
+describe('sharingApi.listForManagement', () => {
+    const page = { data: [share], total: 1, page: 1, pageSize: 20, totalPages: 1 };
+    const refusal = (error: string, message: string) =>
+        new AxiosError('Request failed with status code 403', 'ERR_BAD_REQUEST', undefined, undefined, {
+            status: 403,
+            statusText: 'Forbidden',
+            headers: {},
+            config: {} as never,
+            data: { error, message, code: 403 },
+        });
+
+    it('uses GET /shares (scope "all") when the caller may list it', async () => {
+        mock.get.mockResolvedValueOnce(ok(page));
+        const out = await sharingApi.listForManagement({ page: 2, pageSize: 10 });
+        expect(out).toEqual({ ...page, scope: 'all' });
+        expect(mock.get).toHaveBeenCalledTimes(1);
+        expect(mock.get).toHaveBeenCalledWith('/api/v1/shares', { params: { page: 2, pageSize: 10 } });
+    });
+
+    it('falls back to GET /shares/owned (scope "owned") on the permission gate refusal', async () => {
+        mock.get.mockRejectedValueOnce(refusal('Forbidden', 'Insufficient permissions'));
+        mock.get.mockResolvedValueOnce(ok(page));
+        const out = await sharingApi.listForManagement({ recipientType: 'user' });
+        expect(out).toEqual({ ...page, scope: 'owned' });
+        expect(mock.get).toHaveBeenLastCalledWith('/api/v1/shares/owned', { params: { recipientType: 'user' } });
+    });
+
+    it('does not fall back on a project-MFA refusal (that is not a permission answer)', async () => {
+        const mfa = refusal('ProjectMFARequired', 'This project requires MFA');
+        mock.get.mockRejectedValueOnce(mfa);
+        await expect(sharingApi.listForManagement()).rejects.toBe(mfa);
+        expect(mock.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('surfaces the owner-scoped list refusal itself', async () => {
+        const denied = refusal('Forbidden', 'You can only list the shares you created');
+        mock.get.mockRejectedValueOnce(refusal('Forbidden', 'Insufficient permissions'));
+        mock.get.mockRejectedValueOnce(denied);
+        await expect(sharingApi.listForManagement()).rejects.toBe(denied);
     });
 });

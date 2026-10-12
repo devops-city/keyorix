@@ -210,3 +210,25 @@ func TestContractShare2_SearchShareRecipients(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"username":"contract-share2-recip"`)
 }
+
+// TestContractShare3_ListOwnedShares validates GET /api/v1/shares/owned (SHARE-3)
+// against its response schema, which forbids any field beyond the ShareView set.
+func TestContractShare3_ListOwnedShares(t *testing.T) {
+	cs, db := freshCoreS12WithAdmin(t)
+	require.NoError(t, db.Create(&models.Project{Name: "contract-share3-proj"}).Error)
+	require.NoError(t, db.Create(&models.UserRole{UserID: 1, RoleID: 1, ProjectID: 1}).Error)
+	secret := &models.SecretNode{Name: "contract-share3-secret", IsSecret: true, OwnerID: 1, ProjectID: 1}
+	require.NoError(t, db.Create(secret).Error)
+	require.NoError(t, db.Create(&models.ShareRecord{SecretID: secret.ID, OwnerID: 1, RecipientID: 2, Permission: "read"}).Error)
+
+	h, err := NewShareHandler(cs)
+	require.NoError(t, err)
+
+	req := withUserCtx(httptest.NewRequest(http.MethodGet, "/api/v1/shares/owned", nil))
+	w := httptest.NewRecorder()
+	h.ListOwnedShares(w, req)
+
+	contracttest.AssertOpenAPIResponse(t, req, w)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), fmt.Sprintf(`"secretId":%d`, secret.ID))
+}

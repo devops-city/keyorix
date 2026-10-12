@@ -151,6 +151,9 @@ const NOT_COMPARED: Record<string, string> = {
     PasswordResetConfirm: 'UI form state',
     EnvironmentConfig: 'client build/runtime config',
     GroupSharedSecret: 'UI model normalised from the server SecretNode',
+    SecretAccessReport:
+        'UI model (services/secrets.ts accessList maps the snake_case listAccessors body, degraded_reasons -> degradedReasons, ' +
+        'into it); the spec inlines that 200 body with no named schema, and its accessors items are compared as SecretAccessor',
     // Wire types the spec does not schema (200 is a prose description only).
     SecretPolicy: 'GET /secrets/policy is not documented in openapi.yaml',
     ProfileImpersonation: 'GET /api/v1/auth/profile 200 has a prose description, no schema',

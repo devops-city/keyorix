@@ -1392,6 +1392,41 @@ func (c *KeyorixCore) GetReadableScopes(ctx context.Context, principalID uint, p
 	return result, nil
 }
 
+// HoldsPermissionInAnyScope reports whether the principal holds permission at the
+// global scope or at one or more of the project/environment scopes it has a role at.
+// It answers "may this caller use a list that core then narrows to what they may
+// see" (the owner-scoped share list, SHARE-3); it never authorizes access to any one
+// scope's data by itself. Fails closed: an authorization error at any scope is
+// returned, not skipped, so an evaluation failure cannot turn into a pass.
+func (c *KeyorixCore) HoldsPermissionInAnyScope(ctx context.Context, actorType string, principalID uint, permission string) (bool, error) {
+	ok, err := c.AuthorizePrincipal(ctx, actorType, principalID, permission, Scope{})
+	if err != nil || ok {
+		return ok, err
+	}
+	var scopes []Scope
+	if actorType == ActorTypeMachine {
+		scopes, err = c.storage.GetMachineRoleScopes(ctx, principalID)
+	} else {
+		scopes, err = c.storage.GetUserRoleScopes(ctx, principalID)
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to enumerate principal scopes: %w", err)
+	}
+	for _, scope := range scopes {
+		if scope.ProjectID == 0 {
+			continue // the global scope was checked above
+		}
+		ok, err := c.AuthorizePrincipal(ctx, actorType, principalID, permission, scope)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // dedupeUints returns ids with duplicates removed, preserving first-seen order.
 func dedupeUints(ids []uint) []uint {
 	if len(ids) <= 1 {

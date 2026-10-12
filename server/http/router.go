@@ -826,6 +826,13 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		shareScope := customMiddleware.ScopeFromShareParam("id")
 		r.Route("/shares", func(r chi.Router) {
 			r.With(customMiddleware.RequirePermission(permSecretsRead)).Get("/", shareHandler.ListShares)
+			// Owner-scoped list (SHARE-3) for the Sharing Management page when the caller
+			// lacks global secrets.read: only shares they created, on secrets in projects
+			// they are a member of now (core.ListOwnedShareViews). A separate route rather
+			// than a ?owner= variant of GET /shares, so GET /shares keeps its global gate
+			// byte for byte and each route has one gate the registries can name.
+			r.With(customMiddleware.RequirePermissionInAnyScope(permSecretsRead,
+				customMiddleware.DenyMessage(core.OwnedShareListDeniedMessage))).Get("/owned", shareHandler.ListOwnedShares)
 			r.With(customMiddleware.RequireScopedPermission(permSecretsWrite, shareScope)).Put("/{id}", shareHandler.UpdateSharePermission)
 			r.With(customMiddleware.RequireScopedPermission(permSecretsWrite, shareScope)).Delete("/{id}", shareHandler.RevokeShare)
 		})
