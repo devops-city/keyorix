@@ -1807,7 +1807,7 @@ jobs:
         run: ./scripts/demo/check.sh --url http://localhost:8080 --no-ui
 
       - name: scripts/demo/down.sh
-        run: ./scripts/demo/down.sh --wipe
+        run: ./scripts/demo/down.sh --wipe --force-default
 
       - name: Offline guarantee -- scripts/airgap-e2e.sh --network none against the same image
         run: |

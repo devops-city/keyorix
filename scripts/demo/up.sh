@@ -43,8 +43,16 @@
 # makes zero outbound network calls (proven by scripts/airgap-e2e.sh and by
 # this script's own CI coverage, journey17).
 #
-# Usage: scripts/demo/up.sh [--rebuild]
-#   --rebuild   force a fresh image build even if keyorix-demo:airgap exists
+# Stale images (#3149): the image is labelled with a fingerprint of the source tree
+# it was built from (scripts/demo/image-stamp.sh). A run reuses the image only when
+# that label matches the checkout; otherwise it says so and rebuilds. --no-build
+# never builds and fails fast, with the fix, when the image is missing or stale.
+# Rebuilding re-tags the image, so it is refused while another container is running
+# from that tag (set KEYORIX_DEMO_IMAGE to a name of your own on a shared host).
+#
+# Usage: scripts/demo/up.sh [--rebuild | --no-build]
+#   --rebuild    force a fresh image build even if the image matches the checkout
+#   --no-build   never build; fail with instructions if the image is missing or stale
 
 set -euo pipefail
 
@@ -84,14 +92,22 @@ warn() { echo -e "${YELLOW}  !${NC} $1"; }
 
 # shellcheck source=scripts/demo/lib.sh
 . "$SCRIPT_DIR/lib.sh"
+# shellcheck source=scripts/demo/image-stamp.sh
+. "$SCRIPT_DIR/image-stamp.sh"
 
 REBUILD=false
+NO_BUILD=false
 for arg in "$@"; do
   case "$arg" in
     --rebuild) REBUILD=true ;;
+    --no-build) NO_BUILD=true ;;
     *) echo "unknown argument: $arg" >&2; exit 1 ;;
   esac
 done
+if [ "$REBUILD" = true ] && [ "$NO_BUILD" = true ]; then
+  echo "--rebuild and --no-build contradict each other; pass one" >&2
+  exit 1
+fi
 
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "python3 is required (JSON handling in scripts/demo/lib.sh)" >&2; exit 1; }
@@ -111,16 +127,59 @@ if [ ! -x "$TOTPGEN_BIN" ]; then
   GOWORK=off go build -o "$TOTPGEN_BIN" "$REPO_ROOT/scripts/totpgen/main.go"
 fi
 
-# ── Build the image (once) ─────────────────────────────────────────────────
-if [ "$REBUILD" = true ] || ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-  step "Building the air-gapped image with the web UI embedded (needs network this one time)"
-  command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required to build the web UI (see web/package.json)" >&2; exit 1; }
-  make -C "$REPO_ROOT" populate-webui-dist >/dev/null
-  docker build -f server/Dockerfile --build-arg BUILD_TAGS=noaws,noazure,nogcp -t "$IMAGE_TAG" "$REPO_ROOT" >/dev/null
-  git -C "$REPO_ROOT" checkout -- server/webui/dist/index.html 2>/dev/null || true
-  ok "Built $IMAGE_TAG"
+# ── Build the image (or reuse it, if it matches this checkout) ─────────────
+CHECKOUT_FP="$(demo_source_fingerprint "$REPO_ROOT" || true)"
+IMAGE_FP=""
+BUILD_REASON=""
+if [ "$REBUILD" = true ]; then
+  BUILD_REASON="--rebuild was given"
+elif ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+  BUILD_REASON="image $IMAGE_TAG does not exist"
+elif [ -z "$CHECKOUT_FP" ]; then
+  info "Reusing existing image $IMAGE_TAG (not a git checkout, so it cannot be compared with the source; pass --rebuild to force a fresh build)"
 else
-  info "Reusing existing image $IMAGE_TAG (pass --rebuild to force a fresh build)"
+  IMAGE_FP="$(demo_image_label "$IMAGE_TAG" || true)"
+  if [ "$IMAGE_FP" = "$CHECKOUT_FP" ]; then
+    info "Reusing image $IMAGE_TAG: built from $IMAGE_FP, which matches this checkout"
+  else
+    BUILD_REASON="image $IMAGE_TAG is stale: built from ${IMAGE_FP:-an unknown source (no $DEMO_IMAGE_LABEL label: built by an older up.sh or by check.sh)}, this checkout is $CHECKOUT_FP"
+  fi
+fi
+
+DEMO_RUNNING_SEEDED=false
+if [ -f "$STATE_FILE" ] && docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+  DEMO_RUNNING_SEEDED=true
+fi
+
+if [ -n "$BUILD_REASON" ]; then
+  if [ "$NO_BUILD" = true ]; then
+    echo "up.sh: $BUILD_REASON, and --no-build forbids building." >&2
+    echo "       Re-run without --no-build (it rebuilds when needed), or with --rebuild to force it." >&2
+    exit 1
+  elif [ "$DEMO_RUNNING_SEEDED" = true ] && [ "$REBUILD" = false ]; then
+    warn "$BUILD_REASON. The demo is already running from the old image, so it is left alone; to pick up this checkout run: scripts/demo/down.sh --wipe && scripts/demo/up.sh"
+  else
+    # `docker build -t` re-points the tag; a container another session started from
+    # it would keep running the old image while the tag moves under it.
+    foreign="$(docker ps --filter "ancestor=$IMAGE_TAG" --format '{{.Names}}' | grep -vx "$CONTAINER_NAME" || true)"
+    if [ -n "$foreign" ] && docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
+      echo "up.sh: need to rebuild $IMAGE_TAG ($BUILD_REASON), but other container(s) are running from that tag:" >&2
+      echo "         ${foreign//$'\n'/, }" >&2
+      echo "       Rebuilding would re-point the tag under them. Use your own names instead, e.g." >&2
+      echo "       KEYORIX_DEMO_IMAGE=keyorix-demo:mine KEYORIX_DEMO_CONTAINER=keyorix-demo-mine KEYORIX_DEMO_VOLUME=keyorix-demo-mine-data KEYORIX_DEMO_PORT=8081 scripts/demo/up.sh" >&2
+      exit 1
+    fi
+    step "Building the air-gapped image with the web UI embedded (needs network this one time): $BUILD_REASON"
+    command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required to build the web UI (see web/package.json)" >&2; exit 1; }
+    make -C "$REPO_ROOT" populate-webui-dist >/dev/null
+    LABEL_ARGS=()
+    [ -z "$CHECKOUT_FP" ] || LABEL_ARGS=(--label "$DEMO_IMAGE_LABEL=$CHECKOUT_FP")
+    docker build -f server/Dockerfile --build-arg BUILD_TAGS=noaws,noazure,nogcp \
+      ${LABEL_ARGS[@]+"${LABEL_ARGS[@]}"} -t "$IMAGE_TAG" "$REPO_ROOT" >/dev/null
+    git -C "$REPO_ROOT" checkout -- server/webui/dist/index.html 2>/dev/null || true
+    IMAGE_FP="$CHECKOUT_FP"
+    ok "Built $IMAGE_TAG${CHECKOUT_FP:+ from $CHECKOUT_FP}"
+  fi
 fi
 
 # The tamper demo in docs/demo/GOLDEN-PATH.md (section 6) edits the SQLite file
@@ -150,7 +209,7 @@ mkdir -p "$CLI_HOME"
 chmod 600 "$SECRETS_ENV_FILE"
 
 # ── Idempotent re-run: already seeded ──────────────────────────────────────
-if [ -f "$STATE_FILE" ] && docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+if [ "$DEMO_RUNNING_SEEDED" = true ]; then
   info "Demo already running and seeded — reprinting connection info"
   cat "$STATE_FILE"
   exit 0
@@ -245,6 +304,10 @@ for _ in $(seq 1 30); do
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     docker logs "$CONTAINER_NAME" 2>&1 | tail -20 >&2
     echo "Container $CONTAINER_NAME exited during startup (log tail above)" >&2
+    started_fp="$(demo_image_label "$IMAGE_TAG" || true)"
+    if [ -n "$CHECKOUT_FP" ] && [ "$started_fp" != "$CHECKOUT_FP" ]; then
+      echo "Likely cause: image $IMAGE_TAG was built from ${started_fp:-an unknown source}, but this checkout is $CHECKOUT_FP. Re-run with --rebuild." >&2
+    fi
     exit 1
   fi
   sleep 1

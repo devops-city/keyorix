@@ -321,7 +321,9 @@ seed_demo_org() {
   return 0
 }
 
-teardown_sqlite() { "$REPO_ROOT/scripts/demo/down.sh" --wipe >/dev/null 2>&1 || true; }
+# check.sh brought this demo up itself (with whatever KEYORIX_DEMO_* names are set), so it
+# owns the default names too: --force-default is the explicit opt-in down.sh asks for (#3149).
+teardown_sqlite() { "$REPO_ROOT/scripts/demo/down.sh" --wipe --force-default >/dev/null 2>&1 || true; }
 teardown_postgres() {
   docker compose -p "$PG_PROJECT" -f "$REPO_ROOT/docker-compose.yml" -f "$SCRATCH/compose-override.yml" --env-file "$PG_ENV_FILE" down -v >/dev/null 2>&1 || true
   rm -f "$REPO_ROOT/.demo-2-pg-state"

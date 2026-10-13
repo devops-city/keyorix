@@ -1,0 +1,1 @@
+scripts/demo	none	-	test-only package: scripts/demo runs the real demo up.sh/down.sh against a throwaway git checkout with docker/make/pnpm shims (no non-test Go code)	test-helper
