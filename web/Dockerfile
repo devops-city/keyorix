@@ -46,7 +46,12 @@ RUN pnpm build
 # 78410 (util-linux, all in the libuuid sub-package this minimal image
 # actually installs -- nothing else from util-linux is present here).
 FROM nginx:alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3 AS production
-RUN apk update && apk add --no-cache --upgrade libuuid=2.42.3-r1 libexpat=2.8.5-r0
+# v0.96.1: same pattern for pcre2 (CVE-2026-103111) and tiff (CVE-2026-4775),
+# both HIGH. Checked 2026-10-13: the newest nginx:alpine digest still ships
+# pcre2 10.48-r0 / tiff 4.7.1-r0, so no base-image bump carries the fix yet.
+# Remove these two pins once the pinned base digest above includes
+# pcre2>=10.49-r0 and tiff>=4.7.2-r0.
+RUN apk update && apk add --no-cache --upgrade libuuid=2.42.3-r1 libexpat=2.8.5-r0 pcre2=10.49-r0 tiff=4.7.2-r0
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY keyorix-backend.conf /etc/nginx/keyorix-backend.conf
 # HSTS-behind-a-load-balancer policy: nginx-hsts.conf is the "no trusted proxy,
