@@ -94,6 +94,10 @@ LEDGER_D="${CLOSURE_LEDGER_D:-}"
 if [ -n "$LEDGER_D" ] && [ -d "$LEDGER_D" ]; then
     for frag in "$LEDGER_D"/*.tsv; do
         [ -e "$frag" ] || continue
+        if grep -q $'\r' "$frag"; then
+            die "fragment $frag contains a carriage return (CRLF or CR inside a field) — a ledger fragment is one LF-terminated line"
+            continue
+        fi
         frag_rows=$(grep -vE '^[[:space:]]*(#|$)' "$frag" || true)
         n=$(grep -c . <<<"$frag_rows" || true)
         if [ "$n" -ne 1 ]; then
@@ -313,6 +317,16 @@ if [ "${1:-}" = "--self-test" ]; then
         "-" \
         $'SELF-TEST-12.tsv=SELF-TEST-12\t-\t-\tmanual\tdeadbeef\t-\tone\nSELF-TEST-13\t-\t-\tmanual\tdeadbeef\t-\ttwo'
 
+    run_case "fragment row split across two lines (embedded newline in a field)" "reject" \
+        'SELF-TEST-27	-	-	manual	deadbeef	-	calibration row (legacy)' \
+        "-" \
+        $'SELF-TEST-28.tsv=SELF-TEST-28\t-\t-\tmanual\tdeadbeef\t-\tnote with an\nembedded newline'
+
+    run_case "fragment with CRLF line ending" "reject" \
+        'SELF-TEST-29	-	-	manual	deadbeef	-	calibration row (legacy)' \
+        "-" \
+        $'SELF-TEST-30.tsv=SELF-TEST-30\t-\t-\tmanual\tdeadbeef\t-\tcalibration row\r'
+
     run_case "malformed fragment row (bad verification) is checked like a legacy row" "reject" \
         'SELF-TEST-14	-	-	manual	deadbeef	-	calibration row (legacy)' \
         "-" \
@@ -360,6 +374,9 @@ if [ "${1:-}" = "--self-test" ]; then
     run_case "row in a module the checker cannot run (operator/)" "reject" \
         'SELF-TEST-26	./operator/api	TestX	default-ci	deadbeef	-	calibration row' \
         ""
+
+    # The fragment-shape validator lives in the generator; run its own self-test.
+    echo; "$REPO_ROOT/scripts/gen-security-closures-tsv.sh" --self-test || selffail=1
 
     if [ "$selffail" -ne 0 ]; then
         exit 1

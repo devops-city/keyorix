@@ -1,0 +1,1 @@
+ar-revoke-atomic-003	./internal/core	TestDecideAccessReviewItem_Postgres_RevokeRollsBackClaimOnRemovalFailure	pg-gated	pending-merge	2676	the same rollback against real Postgres, which aborts a transaction on a failing statement rather than SQLites more forgiving semantics - a rollback path that works on SQLite is not evidence it works here

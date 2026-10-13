@@ -1,0 +1,2 @@
+### Internal
+- **`scripts/gen-security-closures-tsv.sh` refuses malformed closure fragments.** A fragment in `docs/security-closures.d/` must now be exactly one row on one line: a second row, a field with an embedded newline (a row split across lines) or any carriage return (CRLF) fails `--check` with a message naming the file. The two historical multi-row fragments (`mi-suspend-cachehit`, `ar-revoke-atomic`) were split into one file per claim_id. New `--self-test` (also run by `scripts/check-closures.sh --self-test`) proves each case goes red.
