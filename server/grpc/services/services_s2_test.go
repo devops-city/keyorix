@@ -292,7 +292,7 @@ func TestBreakGlassError_Default(t *testing.T) {
 
 func TestResolveActor_NilUserIDSystemType(t *testing.T) {
 	e := &models.AuditEvent{ActorType: "system"}
-	got := resolveActor(e, nil)
+	got := resolveActor(e, nil, nil)
 	if got != "system" {
 		t.Errorf("resolveActor with system actor = %q, want %q", got, "system")
 	}
@@ -300,7 +300,7 @@ func TestResolveActor_NilUserIDSystemType(t *testing.T) {
 
 func TestResolveActor_NilUserIDUnknownType(t *testing.T) {
 	e := &models.AuditEvent{ActorType: "job"}
-	got := resolveActor(e, nil)
+	got := resolveActor(e, nil, nil)
 	if got != "unknown" {
 		t.Errorf("resolveActor with non-system actor = %q, want %q", got, "unknown")
 	}
@@ -309,7 +309,7 @@ func TestResolveActor_NilUserIDUnknownType(t *testing.T) {
 func TestResolveActor_UserIDInMap(t *testing.T) {
 	uid := uint(5)
 	e := &models.AuditEvent{UserID: &uid}
-	got := resolveActor(e, map[uint]string{5: "alice"})
+	got := resolveActor(e, map[uint]string{5: "alice"}, nil)
 	if got != "alice" {
 		t.Errorf("resolveActor with known user = %q, want %q", got, "alice")
 	}
@@ -318,7 +318,7 @@ func TestResolveActor_UserIDInMap(t *testing.T) {
 func TestResolveActor_UserIDNotInMap(t *testing.T) {
 	uid := uint(99)
 	e := &models.AuditEvent{UserID: &uid}
-	got := resolveActor(e, map[uint]string{})
+	got := resolveActor(e, map[uint]string{}, nil)
 	if got != "unknown" {
 		t.Errorf("resolveActor with unknown user = %q, want %q", got, "unknown")
 	}

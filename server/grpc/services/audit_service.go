@@ -205,10 +205,11 @@ func (s *AuditGRPCService) GetAuditLogs(ctx context.Context, req *pb.GetAuditLog
 		return nil, status.Error(codes.Internal, "failed to read audit logs")
 	}
 	names := s.core.ResolveUsernames(ctx, events)
+	machineNames := s.core.ResolveMachineNames(ctx, events)
 
 	logs := make([]*pb.AuditLog, 0, len(events))
 	for _, e := range events {
-		logs = append(logs, auditEventToProto(e, names))
+		logs = append(logs, auditEventToProto(e, names, machineNames))
 	}
 	return &pb.GetAuditLogsResponse{
 		Logs:       logs,
@@ -464,8 +465,9 @@ func (s *AuditGRPCService) StreamAuditLogs(req *pb.StreamAuditLogsRequest, strea
 				return nil
 			}
 			names := s.core.ResolveUsernames(ctx, events)
+			machineNames := s.core.ResolveMachineNames(ctx, events)
 			for _, e := range events {
-				if err := stream.Send(auditEventToProto(e, names)); err != nil {
+				if err := stream.Send(auditEventToProto(e, names, machineNames)); err != nil {
 					return err // client gone / send failed
 				}
 				cursor = e.ID
@@ -524,7 +526,7 @@ func (s *AuditGRPCService) latestAuditID(ctx context.Context) (uint, error) {
 // helpers
 // ---------------------------------------------------------------------------
 
-func auditEventToProto(e *models.AuditEvent, names map[uint]string) *pb.AuditLog {
+func auditEventToProto(e *models.AuditEvent, names, machineNames map[uint]string) *pb.AuditLog {
 	success := true
 	if e.Success != nil {
 		success = *e.Success
@@ -532,7 +534,7 @@ func auditEventToProto(e *models.AuditEvent, names map[uint]string) *pb.AuditLog
 	out := &pb.AuditLog{
 		Id:            intToU32(int(e.ID)),
 		EventType:     e.EventType,
-		Actor:         resolveActor(e, names),
+		Actor:         resolveActor(e, names, machineNames),
 		ActorType:     corestorage.AuditActorKind(e), // same display rule as HTTP and the actor_type filter (#2951)
 		Description:   e.Description,
 		IpAddress:     e.IPAddress,
@@ -562,8 +564,8 @@ func auditEventToProto(e *models.AuditEvent, names map[uint]string) *pb.AuditLog
 // resolveActor returns the actor's username, "system" for a kind-system row, or
 // "unknown" when there is no resolvable user (corestorage.AuditActorName, the
 // rule HTTP uses too).
-func resolveActor(e *models.AuditEvent, names map[uint]string) string {
-	return corestorage.AuditActorName(e, names)
+func resolveActor(e *models.AuditEvent, names, machineNames map[uint]string) string {
+	return corestorage.AuditActorName(e, names, machineNames)
 }
 
 func ptrU32(v uint) *uint32 {

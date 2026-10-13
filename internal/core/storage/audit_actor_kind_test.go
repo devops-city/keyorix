@@ -49,6 +49,8 @@ func TestAuditActorKind_SystemOnlyWithoutAnyPrincipal(t *testing.T) {
 func TestAuditActorName_MatchesKind(t *testing.T) {
 	uid := uint(7)
 	names := map[uint]string{0: "system", 7: "alice"}
+	mid, goneMid := uint(7), uint(99) // machine id 7 deliberately equals user id 7: separate ID spaces
+	machineNames := map[uint]string{7: "ci-app"}
 	cases := []struct {
 		e    models.AuditEvent
 		want string
@@ -57,10 +59,13 @@ func TestAuditActorName_MatchesKind(t *testing.T) {
 		{models.AuditEvent{EventType: "auth.login_failed", ActorType: "user", IPAddress: "198.51.100.7"}, "unknown"},
 		{models.AuditEvent{EventType: "secret.read", ActorType: "machine_identity"}, "unknown"},
 		{models.AuditEvent{EventType: "secret.read", ActorType: "user", UserID: &uid}, "alice"},
+		// #3150: a machine read is attributed to the machine, not "unknown".
+		{models.AuditEvent{EventType: "secret.read", ActorType: "machine_identity", MachineIdentityID: &mid}, "ci-app"},
+		{models.AuditEvent{EventType: "secret.read", ActorType: "machine_identity", MachineIdentityID: &goneMid}, "unknown"},
 	}
 	for _, c := range cases {
 		e := c.e
-		if got := AuditActorName(&e, names); got != c.want {
+		if got := AuditActorName(&e, names, machineNames); got != c.want {
 			t.Errorf("%s/%s: AuditActorName = %q, want %q", e.EventType, e.ActorType, got, c.want)
 		}
 	}

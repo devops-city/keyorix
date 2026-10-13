@@ -397,7 +397,7 @@ ok "ci-app machine identity, project_viewer on default"
 
 step "Populating an audit trail (reveal + rotate + a machine read already happened above)"
 "$CLI_BIN" secret get --id 1 --show-value >/dev/null
-curl -s -H "Authorization: Bearer $MACHINE_TOKEN" "http://localhost:${PORT}/api/v1/secrets/1" >/dev/null
+curl -s -H "Authorization: Bearer $MACHINE_TOKEN" "http://localhost:${PORT}/api/v1/secrets/1?include_value=true" >/dev/null
 demo_api GET "$SERVER_URL" "/api/v1/secrets/value?ref=backend-api%2Fdevelopment%2Fdb-password" "$ALICE_TOKEN"
 [ "$DEMO_HTTP_CODE" = "200" ] || { echo "alice could not read backend-api/development/db-password ($DEMO_HTTP_CODE): $DEMO_BODY" >&2; exit 1; }
 ok "Audit trail populated — 'keyorix audit logs' now has real events to show"

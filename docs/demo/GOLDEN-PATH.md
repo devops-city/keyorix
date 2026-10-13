@@ -221,9 +221,14 @@ recipient is not a member"). A share never applies to a non-member.
 (printed by `up.sh`). As the "CI job" would:
 
 ```sh
-curl -H "Authorization: Bearer <machine token from up.sh output>" http://localhost:8080/api/v1/secrets/1
-./bin/keyorix audit logs --limit 3    # actor_type=machine_identity on the read
+curl -H "Authorization: Bearer <machine token from up.sh output>" "http://localhost:8080/api/v1/secrets/1?include_value=true"
+./bin/keyorix audit logs --actor-type machine_identity --limit 3   # secret.read, actor ci-app, "Machine identity ci-app read secret stripe-api-key"
 ```
+
+`?include_value=true` is what makes it a value read: that is the call that is
+audited as `secret.read` (written before the value is returned). A plain
+`GET /api/v1/secrets/1` returns metadata only, no value, and is deliberately
+not a `secret.read`, so it leaves no row to show here.
 
 ## 6. Audit search + offline chain verification (~2 min) — the dramatic finish
 

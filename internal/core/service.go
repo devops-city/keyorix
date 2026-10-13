@@ -1206,3 +1206,27 @@ func (c *KeyorixCore) ResolveUsernames(ctx context.Context, events []*models.Aud
 	}
 	return byID
 }
+
+// ResolveMachineNames maps MachineIdentityID → machine identity name for the
+// machine-actor rows in a slice of audit events (#3150), so an audit view shows
+// "ci-app" for a machine read instead of "unknown". Its own map, not merged into
+// ResolveUsernames': user and machine IDs are separate ID spaces and would collide.
+// An identity that cannot be read maps to "unknown".
+func (c *KeyorixCore) ResolveMachineNames(ctx context.Context, events []*models.AuditEvent) map[uint]string { // nosemgrep: keyorix-unbounded-bulk-slice-param -- events is an already-paginated audit-log query result, not a raw client-supplied array; the per-item DB round trip below is over the deduped machine-id set, not events itself
+	byID := map[uint]string{}
+	for _, e := range events {
+		if e.MachineIdentityID == nil {
+			continue
+		}
+		id := *e.MachineIdentityID
+		if _, done := byID[id]; done {
+			continue
+		}
+		if m, err := c.storage.GetMachineIdentity(ctx, id); err == nil && m != nil && m.Name != "" {
+			byID[id] = m.Name
+		} else {
+			byID[id] = "unknown"
+		}
+	}
+	return byID
+}

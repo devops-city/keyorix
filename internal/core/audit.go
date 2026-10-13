@@ -449,6 +449,16 @@ func (c *KeyorixCore) LogSecretRead(ctx context.Context, userID uint, secretID u
 	c.writeAccessLog(ctx, secretID, username, "read", ip, ua)
 }
 
+// actorNounForDescription is the lead word of a secret-access description:
+// "Machine identity" when the request is authenticated as a machine principal,
+// "User" otherwise (#3150: a CI read used to say "User ci-app read secret ...").
+func actorNounForDescription(ctx context.Context) string {
+	if actorTypeFromContext(ctx) == ActorTypeMachine {
+		return "Machine identity"
+	}
+	return "User"
+}
+
 // LogSecretReadWithProject writes audit_events + secret_access_logs including
 // project context, as ONE atomic unit, and BLOCKS until both are durably
 // committed (SESSION-PERF, #2403 follow-up, item 3 — audit-before-disclosure).
@@ -468,7 +478,7 @@ func (c *KeyorixCore) LogSecretReadWithProject(ctx context.Context, userID uint,
 		SecretNodeID: &sid,
 		ProjectID:    &pid,
 		IPAddress:    ip,
-		Description:  sanitizeAuditText(fmt.Sprintf("User %s read secret %s", username, secretName)),
+		Description:  sanitizeAuditText(fmt.Sprintf("%s %s read secret %s", actorNounForDescription(ctx), username, secretName)),
 		Success:      &t,
 		EventTime:    time.Now(),
 		ActorType:    actorTypeFromContext(ctx),
@@ -523,7 +533,7 @@ const AccessActionMetadataRead = "metadata_read"
 // Returns an error if the write fails; the caller must not send the listing.
 func (c *KeyorixCore) LogSecretVersionsListed(ctx context.Context, userID uint, secretID uint, projectID uint, username, secretName, ip, ua string) error { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
 	return c.logSecretMetadataAccess(ctx, EventSecretVersionsListed, AccessActionVersionsList,
-		fmt.Sprintf("User %s listed the versions of secret %s", username, secretName),
+		fmt.Sprintf("%s %s listed the versions of secret %s", actorNounForDescription(ctx), username, secretName),
 		userID, secretID, projectID, username, ip, ua)
 }
 
@@ -532,7 +542,7 @@ func (c *KeyorixCore) LogSecretVersionsListed(ctx context.Context, userID uint, 
 // metadata-only lookup by name.
 func (c *KeyorixCore) LogSecretMetadataRead(ctx context.Context, userID uint, secretID uint, projectID uint, username, secretName, ip, ua string) error { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
 	return c.logSecretMetadataAccess(ctx, EventSecretMetadataRead, AccessActionMetadataRead,
-		fmt.Sprintf("User %s looked up secret %s", username, secretName),
+		fmt.Sprintf("%s %s looked up secret %s", actorNounForDescription(ctx), username, secretName),
 		userID, secretID, projectID, username, ip, ua)
 }
 

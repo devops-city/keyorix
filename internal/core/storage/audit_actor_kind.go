@@ -110,11 +110,19 @@ func AuditSystemActorWhere() (string, []interface{}) {
 
 // AuditActorName returns the actor shown beside AuditActorKind: the acting
 // user's name from names (core.ResolveUsernames), "system" for a kind-system
-// row, and "unknown" for any other row with no acting user (a failed login, a
-// machine identity), so a row is never shown as actor "system" with another kind.
-func AuditActorName(e *models.AuditEvent, names map[uint]string) string {
+// row, the machine identity's name from machineNames (core.ResolveMachineNames)
+// for a machine-actor row (#3150), and "unknown" for any other row with no acting
+// principal (a failed login), so a row is never shown as actor "system" with
+// another kind.
+func AuditActorName(e *models.AuditEvent, names, machineNames map[uint]string) string {
 	if e.UserID != nil && *e.UserID != 0 {
 		if n := names[*e.UserID]; n != "" {
+			return n
+		}
+		return "unknown"
+	}
+	if e.MachineIdentityID != nil {
+		if n := machineNames[*e.MachineIdentityID]; n != "" {
 			return n
 		}
 		return "unknown"

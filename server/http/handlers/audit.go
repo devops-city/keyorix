@@ -135,12 +135,13 @@ func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) { //
 // merely by holding audit.read (see ExportAuditLogs's own gate).
 func (h *AuditHandler) toAuditLogEntries(ctx context.Context, events []*models.AuditEvent) []AuditLogEntry {
 	actorNames := h.coreService.ResolveUsernames(ctx, events)
+	machineNames := h.coreService.ResolveMachineNames(ctx, events)
 	entries := make([]AuditLogEntry, 0, len(events))
 	for _, e := range events {
 		entry := AuditLogEntry{
 			ID:          e.ID,
 			EventType:   e.EventType,
-			Actor:       storage.AuditActorName(e, actorNames),
+			Actor:       storage.AuditActorName(e, actorNames, machineNames),
 			ActorType:   storage.AuditActorKind(e),
 			Description: e.Description,
 			Timestamp:   e.EventTime,

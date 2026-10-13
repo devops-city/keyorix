@@ -580,6 +580,34 @@ step_machine_read_by_ref() {
   return 0
 }
 
+# GOLDEN-PATH section 5 (#3150): the machine value read the doc shows
+# (GET /secrets/{id}?include_value=true) is audited as secret.read with the
+# machine identity as actor, and `audit logs --actor-type machine_identity` finds it.
+# A plain GET /secrets/{id} is metadata only (no value) and is deliberately not a
+# secret.read, so the doc must not use it for this step.
+step_machine_read_audited() {
+  [ -n "$MACHINE_TOKEN" ] || { echo "no machine token found (.demo-2-state / .demo-2-pg-state missing)"; return 1; }
+  get_secret_by_ref "$MACHINE_TOKEN" "default/development/stripe-api-key"
+  [ "$HTTP_CODE" = "200" ] || { echo "ci-app could not resolve default/development/stripe-api-key: $HTTP_CODE $RESP_BODY"; return 1; }
+  local sid; sid="$(jget 'd["data"]["secret"]["id"]')"
+  [ -n "$sid" ] || { echo "no secret id in by-ref response: $RESP_BODY"; return 1; }
+
+  req GET "/api/v1/secrets/$sid" "$MACHINE_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || { echo "plain GET /api/v1/secrets/$sid as ci-app returned $HTTP_CODE: $RESP_BODY"; return 1; }
+  case "$RESP_BODY" in *'"value"'*) echo "plain GET /api/v1/secrets/$sid disclosed a value: it must be metadata only -- server/http/handlers/secrets_crud.go GetSecret"; return 1;; esac
+
+  req GET "/api/v1/secrets/$sid?include_value=true" "$MACHINE_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || { echo "GET /api/v1/secrets/$sid?include_value=true as ci-app returned $HTTP_CODE: $RESP_BODY"; return 1; }
+  local v; v="$(jget 'd["data"]["value"]')"
+  [ -n "$v" ] || { echo "machine value read returned no value: $RESP_BODY"; return 1; }
+
+  req GET "/api/v1/audit/logs?actor_type=machine_identity&action=secret.read&page_size=5" "$ADMIN_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || { echo "GET /api/v1/audit/logs?actor_type=machine_identity returned $HTTP_CODE: $RESP_BODY"; return 1; }
+  local hit; hit="$(jget 'sum(1 for e in d["data"]["logs"] if e["actor"]=="ci-app" and e["actor_type"]=="machine_identity" and e["event_type"]=="secret.read" and e["description"].startswith("Machine identity ci-app read secret"))')"
+  [ -n "$hit" ] && [ "$hit" -ge 1 ] 2>/dev/null || { echo "no secret.read row with actor ci-app / actor_type machine_identity after the machine value read: $RESP_BODY -- internal/core/audit.go LogSecretReadWithProject, internal/core/storage/audit_actor_kind.go AuditActorName"; return 1; }
+  return 0
+}
+
 step_mfa() {
   local username="mfa-demo" email="mfa-demo@keyorix.demo" password="Obsidian-Lumen-Thicket-77"
   local state_file="$CHECK_STATE_DIR/mfa-secret"
@@ -769,6 +797,7 @@ run_step "acl: alice can read backend-api secret"   step_acl_can_read
 run_step "acl: alice cannot read default secret"    step_acl_cannot_read
 run_step "machine identity: read secret by ref"     step_machine_read_by_ref
 run_step "audit: log shows actions"   step_audit_logs
+run_step "audit: machine value read is attributed to ci-app" step_machine_read_audited
 run_step "audit: chain verify"        step_audit_verify
 run_step "posture report"             step_posture
 run_step "latency: p50 secret read"   step_latency
