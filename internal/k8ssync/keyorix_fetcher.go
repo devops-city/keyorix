@@ -17,12 +17,95 @@ import (
 
 // ErrUpstreamGone is a sentinel a Fetch error wraps when the failure is DEFINITIVE —
 // the secret no longer exists upstream (404, or absent from the environment listing)
-// or access to it has been revoked (401/403) — as opposed to a transient failure
+// or access to it has been revoked (403) — as opposed to a transient failure
 // (network error, timeout, 5xx) that might clear on the next reconcile pass. #140:
 // the sync loop uses this distinction to actively remove a de-authorized/deleted
 // secret's stale materialized value from the cluster, rather than leaving it as-is
 // indefinitely (which a plain, unclassified fetch error did).
 var ErrUpstreamGone = errors.New("k8ssync: secret not found or access revoked upstream")
+
+// ErrUnauthorized is what a Fetch error wraps on HTTP 401, classified from the response
+// status alone: the agent's OWN bearer token was rejected (invalid, expired or rotated).
+// That says nothing about the referenced secret or the agent's grant on it, so it is NOT
+// ErrUpstreamGone: the engine never wipes on it, whatever prune_on_revoke says (Andrei,
+// 2026-10-13). The target Secret is kept, the failure is counted as auth_failed and
+// reported, and the pass backs off like any failure until the token is fixed.
+var ErrUnauthorized = errors.New("k8ssync: Keyorix rejected the agent's credential (HTTP 401)")
+
+// ErrUnreachable, ErrTimeout and ErrServerError are what a Fetch error wraps when Keyorix
+// could not answer: no response arrived (connection refused, DNS, TLS), the request timed
+// out, or the server answered 5xx. They are classified from the transport error and the
+// status alone and mirror the operator's keyorix.ErrUnreachable / ErrTimeout /
+// ErrServerError. The target Secret is kept, the target is counted failed AND
+// keyorix_unreachable, and the pass log says KeyorixUnreachable with the reason.
+var (
+	ErrUnreachable = errors.New("k8ssync: Keyorix server unreachable")
+	ErrTimeout     = errors.New("k8ssync: Keyorix request timed out")
+	ErrServerError = errors.New("k8ssync: Keyorix server error (5xx)")
+)
+
+// fetchUnavailableReason returns "unreachable", "timeout" or "server_error" (the same
+// reason values as the operator's keyorix_operator_fetch_errors_total label) for an error
+// wrapping one of the could-not-answer sentinels, "" otherwise.
+func fetchUnavailableReason(err error) string {
+	switch {
+	case errors.Is(err, ErrTimeout):
+		return "timeout"
+	case errors.Is(err, ErrServerError):
+		return "server_error"
+	case errors.Is(err, ErrUnreachable):
+		return "unreachable"
+	}
+	return ""
+}
+
+// classifyTransportError wraps a failed http.Client.Do error with ErrTimeout or
+// ErrUnreachable. A cancelled context (the pass was abandoned) is left unclassified.
+func classifyTransportError(err error) error {
+	var ne net.Error
+	switch {
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("request failed: %w", err)
+	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()):
+		return fmt.Errorf("request failed: %w: %w", err, ErrTimeout)
+	default:
+		return fmt.Errorf("request failed: %w: %w", err, ErrUnreachable)
+	}
+}
+
+// ErrSourceSuspended and ErrSourceExpired are what a Fetch error wraps when the server
+// answers 409 SecretSuspended / SecretExpired. Neither says the secret is gone or access
+// was cut (resuming or extending restores the read), so neither is ErrUpstreamGone and
+// neither removes anything: the engine retains the target Secret (or, for a suspended
+// source with on_suspend: clear, empties its keys) and reports the state.
+var (
+	ErrSourceSuspended = errors.New("k8ssync: source secret is suspended")
+	ErrSourceExpired   = errors.New("k8ssync: source secret has expired")
+)
+
+// secretStateRefusal classifies a 403/409 whose envelope names a secret-state
+// refusal of a value read (server/http/handlers/openapi.yaml, SecretReadRefused;
+// ERRMAP-1), or returns nil for any other body. Suspended and expired wrap their own
+// sentinels (never ErrUpstreamGone); a read outside the secret's access schedule, or
+// with its max-reads budget spent, is a plain transient error. In every case the synced
+// value stays. It reads at most maxResponseBodyBytes of the body.
+func secretStateRefusal(resp *http.Response) error {
+	var env struct {
+		Error string `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&env) != nil {
+		return nil
+	}
+	switch env.Error {
+	case "SecretSuspended":
+		return fmt.Errorf("%s (HTTP %d): %w", env.Error, resp.StatusCode, ErrSourceSuspended)
+	case "SecretExpired":
+		return fmt.Errorf("%s (HTTP %d): %w", env.Error, resp.StatusCode, ErrSourceExpired)
+	case "SecretAccessOutsideSchedule", "SecretMaxReadsExhausted":
+		return fmt.Errorf("value read refused: %s (HTTP %d)", env.Error, resp.StatusCode)
+	}
+	return nil
+}
 
 // maxServerPageSize is the Keyorix server's maximum accepted page_size for
 // GET /api/v1/secrets (server/http/handlers/secrets_list.go: 1 <= page_size <= 100;
@@ -125,13 +208,20 @@ func isLoopbackHostname(host string) bool {
 // Fetch resolves ref ("<environment>/<name>") to the secret's id and returns its
 // current value.
 func (f *KeyorixFetcher) Fetch(ctx context.Context, ref string) ([]byte, error) {
+	v, _, err := f.FetchWithExpiry(ctx, ref)
+	return v, err
+}
+
+// FetchWithExpiry is Fetch plus the secret's expiration (nil when it has none), which
+// the engine uses to warn ahead of it. It satisfies ExpiryFetcher.
+func (f *KeyorixFetcher) FetchWithExpiry(ctx context.Context, ref string) ([]byte, *time.Time, error) {
 	env, name, err := parseRef(ref)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	id, err := f.resolveID(ctx, env, name)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return f.fetchValue(ctx, id)
 }
@@ -239,15 +329,19 @@ func (f *KeyorixFetcher) loadEnvironmentsLocked(ctx context.Context) error {
 	return nil
 }
 
-// fetchValue returns the decrypted value of the secret with the given id.
-func (f *KeyorixFetcher) fetchValue(ctx context.Context, id uint) ([]byte, error) {
+// fetchValue returns the decrypted value of the secret with the given id and the
+// secret's expiration (nil when it has none).
+func (f *KeyorixFetcher) fetchValue(ctx context.Context, id uint) ([]byte, *time.Time, error) {
 	var body struct {
-		Value string `json:"value"`
+		Value  string `json:"value"`
+		Secret struct {
+			Expiration *time.Time `json:"expiration"`
+		} `json:"secret"`
 	}
 	if err := f.getJSON(ctx, fmt.Sprintf("/api/v1/secrets/%d?include_value=true", id), &body); err != nil {
-		return nil, fmt.Errorf("read secret %d value: %w", id, err)
+		return nil, nil, fmt.Errorf("read secret %d value: %w", id, err)
 	}
-	return []byte(body.Value), nil
+	return []byte(body.Value), body.Secret.Expiration, nil
 }
 
 // getJSON performs an authenticated GET and decodes the {"data": …} envelope into out.
@@ -273,15 +367,26 @@ func (f *KeyorixFetcher) getJSON(ctx context.Context, path string, out interface
 
 	resp, err := f.hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return classifyTransportError(err)
 	}
 	defer drainAndClose(resp)
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("not authorized (HTTP %d) — check the agent's token and its permissions: %w", resp.StatusCode, ErrUpstreamGone)
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusConflict {
+		if err := secretStateRefusal(resp); err != nil {
+			return err
+		}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("not authorized (HTTP 401) — check the agent's token is valid and not expired or rotated: %w", ErrUnauthorized)
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("not authorized (HTTP 403) — check the agent's permissions: %w", ErrUpstreamGone)
 	}
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("not found (HTTP 404): %w", ErrUpstreamGone)
+	}
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("server returned HTTP %d: %w", resp.StatusCode, ErrServerError)
 	}
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("server returned HTTP %d", resp.StatusCode)

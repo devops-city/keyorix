@@ -84,11 +84,18 @@ owns the `data` it writes and prunes keys it no longer maps.
 A **transient** failure (network error, timeout, 5xx from Keyorix) leaves the target
 Secret completely untouched — every key it currently holds, not just the one that
 failed to fetch — and retries next pass. This is always true, regardless of
-`pruneOnRevoke` below.
+`pruneOnRevoke` below. The target is counted `failed` and `keyorix_unreachable` (the log
+line says `KeyorixUnreachable` with the reason `unreachable`, `timeout` or `server_error`;
+the operator's counterpart is `KeyorixUnreachable` plus
+`keyorix_operator_fetch_errors_total{reason}`).
+
+A **401** (Keyorix rejected the agent's *own* token: invalid, expired or rotated) never
+prunes either, whatever `pruneOnRevoke` says: every synced Secret is kept, the target is
+counted `failed` and `auth_failed` (the log line says `KeyorixAuthFailed`), and the loop
+backs off until the token is fixed, after which the next pass syncs normally.
 
 A **confirmed** gone-or-revoked result (Keyorix returns 404/403 — the secret was
-deleted or this agent's access to it was removed — or 401, which in practice means the
-machine-identity token was revoked or rotated) is a different signal: the upstream has
+deleted or this agent's access to it was removed) is a different signal: the upstream has
 *affirmatively* said this value is no longer available, not just "ask again later."
 `pruneOnRevoke` (default **`true`** — the secure default, since a confirmed-gone or
 confirmed-revoked value must not stay readable in the cluster indefinitely) acts on it:
@@ -99,9 +106,8 @@ confirmed-revoked value must not stay readable in the cluster indefinitely) acts
   removed.
 - **Mass-revocation circuit breaker**: if more than one target AND more than 20% of
   every target this agent manages are confirmed gone/revoked in the *same* pass, none
-  of them are pruned — this looks like one shared event (e.g. the agent's own token was
-  rotated, which reads as 401 on every fetch at once), not N independent per-secret
-  revocations. The pass instead reports `MASS REVOCATION SUSPECTED` (see `/status` and
+  of them are pruned — this looks like one shared event (e.g. a shared grant removed),
+  not N independent per-secret revocations. The pass instead reports `MASS REVOCATION SUSPECTED` (see `/status` and
   the `keyorix_k8s_sync_secrets_total{outcome="mass_revocation_suspected"}` metric).
   Acknowledge an expected event (a planned credential rotation) by setting
   `massPruneAck` to an RFC3339 timestamp (valid for 1 hour) to let the next pass
@@ -114,6 +120,36 @@ confirmed-revoked value must not stay readable in the cluster indefinitely) acts
 `pruneOnRevoke`'s delete path needs `delete` RBAC on the target Secret names, which the
 chart grants whenever `cleanup` **or** `pruneOnRevoke` is enabled (see below) — since
 `pruneOnRevoke` defaults on, a default install already has it.
+
+## Suspended and expired sources
+
+A Keyorix secret can be *suspended* (an operator's "block value reads" switch; the server
+answers `409 SecretSuspended`) or *expire* (`409 SecretExpired`). Neither is a revoked
+grant, so neither deletes the target Secret, and neither counts as a failure or a
+revocation (the loop keeps its normal interval, so a resume is picked up within one
+interval). The setting is `onSuspend: retain|clear` in the Helm values, `on_suspend` in the
+agent's config file. By cause:
+
+| Cause | Target Secret | Logged / counted |
+| --- | --- | --- |
+| Server **unreachable, timeout, 5xx** | **Never modified or deleted**; counted `failed`, retried with backoff; syncs normally once Keyorix answers | `KeyorixUnreachable (unreachable\|timeout\|server_error)` in the pass log, outcome `keyorix_unreachable` |
+| **401** — the agent's own token rejected | **Kept** (never pruned, whatever `pruneOnRevoke` is); counted `failed`, retried with backoff; syncs normally once the token is fixed | `KeyorixAuthFailed` in the pass log, outcome `auth_failed` |
+| **403 / 404** — grant revoked / secret deleted | **Pruned** when `pruneOnRevoke` is true (default), behind the mass-revocation circuit breaker; kept when false | outcome `revoked` (or `mass_revocation_suspected`) |
+| Source **expired** | **Only that mapping's key is retained** (never overwritten or deleted); the target's other keys keep syncing in the same Apply. When every mapping is held nothing is written | `WARNING SourceSecretExpired`, outcome `source_expired` |
+| Source **suspended**, `onSuspend: retain` (default) | **Only that mapping's key is retained**, as above | `WARNING SourceSecretSuspended`, outcome `source_suspended` |
+| Source **suspended**, `onSuspend: clear` | The suspended mapping's key is **emptied** (also while another mapping of the same target is expired: that key is held); other keys stay current. The Secret is never deleted, and a Secret the agent does not own is never touched | as above |
+| Within **30, 7 or 1 days** of expiring | Syncs normally | `WARNING SourceSecretExpiring` when each window is first entered, outcome `source_expiring` |
+| Resumed / extended | The next pass **restores** the data: same name, labels and values | "readable again" line |
+
+The lines are logged when a source *enters or leaves* a state, not every pass; the
+`keyorix_k8s_sync_secrets_total{outcome=…}` counters (and `/status`) count the targets
+observed in each state per pass. A target that also has a confirmed-revoked mapping still
+takes the `pruneOnRevoke` path above; retained keys are carried over unchanged.
+
+**What running workloads see** — same as for the operator (`docs/k8s-operator.md`):
+environment variables of running containers stay fixed until restart; volume-mounted
+files follow the Secret (`retain` keeps them, `clear` removes them until the resume);
+new pods fail with `CreateContainerConfigError` only if `clear` removed a key they need.
 
 ## Orphan cleanup (`cleanup`)
 

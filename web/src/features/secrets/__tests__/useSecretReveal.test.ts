@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { AxiosError, AxiosHeaders } from 'axios';
 import { useSecretReveal } from '../useSecretReveal';
 import { Secret } from '../../../types';
 
@@ -14,7 +15,9 @@ vi.mock('../../../services/secrets', () => ({
     },
 }));
 
-vi.mock('../../../utils', () => ({
+// Partial: the real apiErrorMessage (services/client) needs the real getEnvConfig.
+vi.mock('../../../utils', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../../utils')>()),
     copyToClipboard: copyToClipboardMock,
 }));
 
@@ -74,7 +77,7 @@ describe('useSecretReveal', () => {
         expect(result.current.copiedSecretId).toBeNull();
     });
 
-    it('sets copyErrorId (not copiedSecretId) when getValue rejects, and clears after 2s', async () => {
+    it('sets copyErrorId (not copiedSecretId) when getValue rejects, and clears after 6s', async () => {
         vi.useFakeTimers();
         const secret = makeSecret({ id: 7 });
         getValueMock.mockRejectedValue(new Error('Forbidden'));
@@ -90,11 +93,48 @@ describe('useSecretReveal', () => {
         expect(result.current.copiedSecretId).toBeNull();
         expect(result.current.copyingSecretId).toBeNull();
 
+        // ERRMAP-1: the error stays up long enough to read its reason in the tooltip.
         await act(async () => {
             await vi.advanceTimersByTimeAsync(2000);
         });
+        expect(result.current.copyErrorId).toBe(7);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4000);
+        });
 
         expect(result.current.copyErrorId).toBeNull();
+        expect(result.current.copyError).toBeNull();
+    });
+
+    // ERRMAP-1: a value read the secret's own state refuses (409 SecretExpired /
+    // SecretSuspended / SecretMaxReadsExhausted, 403 SecretAccessOutsideSchedule)
+    // must say why, not just turn the button red.
+    it('keeps the server reason when the read is refused', async () => {
+        const secret = makeSecret({ id: 5 });
+        const refusal = new AxiosError('Request failed with status code 409', 'ERR_BAD_REQUEST', undefined, undefined, {
+            status: 409,
+            statusText: 'Conflict',
+            headers: {},
+            config: { headers: new AxiosHeaders() },
+            data: {
+                success: false,
+                code: 409,
+                error: 'SecretExpired',
+                message: 'secret has expired; its value can no longer be read',
+            },
+        });
+        getValueMock.mockRejectedValue(refusal);
+
+        const { result } = renderHook(() => useSecretReveal());
+
+        await act(async () => {
+            await result.current.handleCopySecretValue(secret);
+        });
+
+        expect(copyToClipboardMock).not.toHaveBeenCalled();
+        expect(result.current.copyErrorId).toBe(5);
+        expect(result.current.copyError).toBe('secret has expired; its value can no longer be read');
     });
 
     it('sets copyErrorId when copyToClipboard rejects', async () => {

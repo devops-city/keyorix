@@ -184,8 +184,16 @@ func fetchRunSecrets(ctx context.Context, client *apiclient.ClientWithResponses,
 			name := derefStr(s.Name)
 			includeValue := true
 			getResp, err := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &includeValue})
-			if err != nil || getResp.JSON200 == nil || getResp.JSON200.Data == nil || getResp.JSON200.Data.Value == nil {
-				fmt.Fprintf(os.Stderr, "warning: skipping secret %q (id=%d): could not fetch value\n", name, id)
+			if err == nil && (getResp.JSON200 == nil || getResp.JSON200.Data == nil) {
+				// The server's reason, e.g. a secret that is expired or suspended (ERRMAP-1).
+				err = httpStatusError("could not fetch value", getResp.StatusCode(), getResp.Body)
+			}
+			if err != nil || getResp.JSON200.Data.Value == nil {
+				reason := "could not fetch value"
+				if err != nil {
+					reason = err.Error()
+				}
+				fmt.Fprintf(os.Stderr, "warning: skipping secret %q (id=%d): %s\n", name, id, reason)
 				continue
 			}
 			result[name] = *getResp.JSON200.Data.Value

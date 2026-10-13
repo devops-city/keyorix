@@ -54,6 +54,15 @@ type Config struct {
 	// suspected metric/status count), then unset it again once resolved — a
 	// permanently-set ack defeats the breaker for every future incident, not just
 	// this one.
+	// OnSuspend is what happens to a target Secret while a referenced Keyorix secret is
+	// SUSPENDED (an operator's "block value reads" switch; the server answers 409
+	// SecretSuspended): "retain" (the default when unset) leaves the target Secret
+	// exactly as it is; "clear" empties the keys this agent manages in it (the Secret
+	// object is never deleted, and a Secret the agent does not own is never touched).
+	// Resuming restores the data on the next pass in both modes. An EXPIRED source is
+	// always retained. Fetch failures (server unreachable, timeouts, 5xx) never modify the
+	// target in either mode. See GetOnSuspend.
+	OnSuspend        string `yaml:"on_suspend"`
 	MassPruneAck     string `yaml:"mass_prune_ack"`
 	massPruneAckTime time.Time
 	Mappings         []SecretMapping `yaml:"mappings"`
@@ -67,6 +76,20 @@ func (c *Config) GetPruneOnRevoke() bool {
 		return true
 	}
 	return *c.PruneOnRevoke
+}
+
+// Values of Config.OnSuspend.
+const (
+	OnSuspendRetain = "retain"
+	OnSuspendClear  = "clear"
+)
+
+// GetOnSuspend returns the normalized on_suspend setting: OnSuspendRetain when unset.
+func (c *Config) GetOnSuspend() string {
+	if strings.TrimSpace(c.OnSuspend) == "" {
+		return OnSuspendRetain
+	}
+	return strings.ToLower(strings.TrimSpace(c.OnSuspend))
 }
 
 // GetMassPruneAck returns the parsed mass_prune_ack timestamp (set by validate),
@@ -119,6 +142,9 @@ func (c *Config) validate() error {
 		if _, err := time.ParseDuration(c.Interval); err != nil {
 			return fmt.Errorf("invalid interval %q: %w", c.Interval, err)
 		}
+	}
+	if g := c.GetOnSuspend(); g != OnSuspendRetain && g != OnSuspendClear {
+		return fmt.Errorf("invalid on_suspend %q: must be %q or %q", c.OnSuspend, OnSuspendRetain, OnSuspendClear)
 	}
 	if c.MassPruneAck != "" {
 		t, err := time.Parse(time.RFC3339, c.MassPruneAck)

@@ -1999,7 +1999,7 @@ export interface paths {
         put?: never;
         /**
          * Render a template, expanding ${secret:<environment>/<name>} references
-         * @description Resolves every ${secret:<environment>/<name>} reference within the project under the caller's own read permissions. A missing or forbidden reference fails the render without returning partial output.
+         * @description Resolves every ${secret:<environment>/<name>} reference within the project under the caller's own read permissions. A missing or forbidden reference fails the render without returning partial output. A referenced secret whose state refuses the read fails the render the same way, with that refusal's status and code. A read refused by the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired, suspended or max-reads-exhausted secret answers 409 (see the SecretReadRefused response).
          */
         post: operations["renderSecretTemplate"];
         delete?: never;
@@ -2041,7 +2041,7 @@ export interface paths {
         };
         /**
          * Get a secret
-         * @description Return a secret by ID; include include_value=true to retrieve the decrypted value.
+         * @description Return a secret by ID; include include_value=true to retrieve the decrypted value. A read refused by the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired, suspended or max-reads-exhausted secret answers 409 (see the SecretReadRefused response).
          */
         get: operations["getSecret"];
         /**
@@ -2161,7 +2161,7 @@ export interface paths {
         };
         /**
          * Read a secret's value by reference
-         * @description Resolve a "project/environment/name" reference (ADR-059) directly to its decrypted value -- for scripts/integrations (e.g. the External Secrets Operator) that template a key string instead of tracking a numeric ID. Always reads and audits the value, like any value read.
+         * @description Resolve a "project/environment/name" reference (ADR-059) directly to its decrypted value -- for scripts/integrations (e.g. the External Secrets Operator) that template a key string instead of tracking a numeric ID. Always reads and audits the value, like any value read. A read refused by the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired, suspended or max-reads-exhausted secret answers 409 (see the SecretReadRefused response).
          */
         get: operations["getSecretValueByRef"];
         put?: never;
@@ -2778,7 +2778,7 @@ export interface paths {
         };
         /**
          * Show a certificate secret's public X.509 metadata
-         * @description Subject, issuer, validity window, SANs, and algorithms of a certificate-valued secret. Never returns the value or any private key.
+         * @description Subject, issuer, validity window, SANs, and algorithms of a certificate-valued secret. Never returns the value or any private key. Refused like a value read: a read outside the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired or suspended secret answers 409 (see the SecretReadRefused response). Inspecting does not charge max_reads, so SecretMaxReadsExhausted is never returned here.
          */
         get: operations["getSecretCertificate"];
         put?: never;
@@ -5080,6 +5080,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description Stable code of a 409 secret-state read refusal (see the SecretReadRefused response).
+         * @enum {string}
+         */
+        SecretReadRefusalCode: "SecretExpired" | "SecretSuspended" | "SecretMaxReadsExhausted";
         LoginSuccessData: {
             /** @description Session bearer token */
             token: string;
@@ -6057,6 +6062,20 @@ export interface components {
                     } | null;
                     /** @description Values: change_password, enroll_mfa. Present on a 403 from the account-setup gate (error PasswordChangeRequired or MFAEnrollmentRequired, #3024): the setup steps the caller still owes. Until they are done only these are reachable -- change_password: POST /api/v1/auth/change-password; enroll_mfa: POST /api/v1/auth/mfa/enroll, /auth/mfa/activate, /auth/webauthn/register/begin|finish and GET /auth/webauthn/credentials; always GET /api/v1/auth/profile. Owing both opens both, in either order. */
                     pending_steps?: string[];
+                };
+            };
+        };
+        /** @description The caller may read this secret, but the secret's own state refuses the value read (ERRMAP-1). `error` is a stable code clients can branch on and `message` a fixed, client-safe sentence: SecretExpired (its expiration has passed; an operator can extend or clear it), SecretSuspended (resume it to allow reads), SecretMaxReadsExhausted (its max_reads budget is spent; an operator can raise it). A read outside the secret's access schedule is a permission decision and answers 403 with error SecretAccessOutsideSchedule instead. 409, not 410: each state is reversible. Only a caller who may read the secret ever sees these; any other caller gets the same 403/404 as for a secret it cannot see. The gRPC GetSecretValue twin is FailedPrecondition (PermissionDenied for the schedule) with the same message and an ErrorInfo detail (domain keyorix.secrets, reason = the code). */
+        SecretReadRefused: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    success?: boolean;
+                    code?: number;
+                    error?: components["schemas"]["SecretReadRefusalCode"];
+                    message?: string;
                 };
             };
         };
@@ -9436,6 +9455,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["SecretReadRefused"];
         };
     };
     listSecrets: {
@@ -9567,6 +9587,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["SecretReadRefused"];
         };
     };
     updateSecret: {
@@ -9831,6 +9852,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            409: components["responses"]["SecretReadRefused"];
         };
     };
     diffSecretVersions: {
@@ -10954,6 +10976,9 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            409: components["responses"]["SecretReadRefused"];
         };
     };
     getSecretBlastRadius: {

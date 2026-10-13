@@ -49,6 +49,12 @@ func (h *SecretHandler) RenderTemplate(w http.ResponseWriter, r *http.Request) {
 // sendRenderTemplateError dispatches the correct HTTP error for a RenderSecretTemplate
 // failure. Extracted from RenderTemplate to reduce its cognitive complexity.
 func (h *SecretHandler) sendRenderTemplateError(w http.ResponseWriter, r *http.Request, userCtx *middleware.UserContext, err error) {
+	// A referenced secret's own state refused the read (ERRMAP-1). Core raises
+	// these only after the per-reference permission check passed (stageRenderRef),
+	// so naming the refusal reveals nothing to a caller who cannot read it.
+	if h.sendSecretReadRefusal(w, err) {
+		return
+	}
 	switch {
 	// core.ErrSecretRefNotFound covers both "no such secret" and "exists but no
 	// read access" — must be checked before the generic "not found" / "permission"

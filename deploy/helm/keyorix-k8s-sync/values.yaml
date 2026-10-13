@@ -117,6 +117,19 @@ cleanup: false
 # prefer availability over immediate reap.
 pruneOnRevoke: true
 
+# onSuspend: what happens to a target Secret while a Keyorix secret it references is
+# SUSPENDED (an operator's "block value reads" switch). "retain" (default) keeps that
+# source's key exactly as it is (the target's other keys keep syncing). "clear" empties
+# that source's key (the Secret object is never deleted; a Secret this agent does not own
+# is never touched), so
+# workloads stop receiving the value; new pods that require one of those keys fail with
+# CreateContainerConfigError until it is resumed. Resuming restores the data on the next
+# pass either way. An EXPIRED source's key is always retained; fetch failures (server
+# unreachable, 5xx) never modify the target. Each state is logged (SourceSecretSuspended /
+# SourceSecretExpired / SourceSecretExpiring at 30, 7 and 1 days before expiry) and counted
+# as keyorix_k8s_sync_secrets_total{outcome="source_suspended|source_expired|source_expiring"}.
+onSuspend: retain
+
 # massPruneAck acknowledges the mass-revocation circuit breaker above: an RFC3339
 # timestamp, valid for 1 hour after it's set. Leave empty in normal operation -- set it
 # only in direct response to an observed "MASS REVOCATION SUSPECTED" alert that you've

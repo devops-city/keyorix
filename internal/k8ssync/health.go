@@ -21,7 +21,13 @@ type Status struct {
 	passes  int64
 	// Cumulative target-Secret outcomes across all passes (monotonic counters).
 	totCreated, totUpdated, totUnchanged, totFailed, totDeleted, totRevoked, totSuspected int64
-	now                                                                                   func() time.Time
+	// Targets observed with a suspended / expired / soon-to-expire source (FIX-3175B).
+	totSourceSuspended, totSourceExpired, totSourceExpiring int64
+	// Targets skipped on a 401 from Keyorix; their Secrets were kept.
+	totAuthFailed int64
+	// Targets skipped because Keyorix was unreachable, timed out or answered 5xx; kept.
+	totKeyorixUnreachable int64
+	now                   func() time.Time
 }
 
 // NewStatus returns a Status with a real clock.
@@ -45,6 +51,11 @@ func (s *Status) Record(res Result) {
 	s.totDeleted += int64(res.Deleted)
 	s.totRevoked += int64(res.Revoked)
 	s.totSuspected += int64(res.Suspected)
+	s.totSourceSuspended += int64(res.SourceSuspended)
+	s.totSourceExpired += int64(res.SourceExpired)
+	s.totSourceExpiring += int64(res.SourceExpiring)
+	s.totAuthFailed += int64(res.AuthFailed)
+	s.totKeyorixUnreachable += int64(res.KeyorixUnreachable)
 }
 
 func (s *Status) snapshot() (bool, time.Time, Result) {
@@ -95,15 +106,17 @@ func (s *Status) HandlerWithToken(token string) http.Handler {
 	mux.HandleFunc("/status", func(w http.ResponseWriter, _ *http.Request) {
 		ran, lastRun, last := s.snapshot()
 		body := map[string]interface{}{
-			"ran":       ran,
-			"created":   last.Created,
-			"updated":   last.Updated,
-			"unchanged": last.Unchanged,
-			"failed":    last.Failed,
-			"deleted":   last.Deleted,
-			"revoked":   last.Revoked,
-			"suspected": last.Suspected,
-			"errors":    len(last.Errors),
+			"ran":                 ran,
+			"created":             last.Created,
+			"updated":             last.Updated,
+			"unchanged":           last.Unchanged,
+			"failed":              last.Failed,
+			"deleted":             last.Deleted,
+			"revoked":             last.Revoked,
+			"suspected":           last.Suspected,
+			"auth_failed":         last.AuthFailed,
+			"keyorix_unreachable": last.KeyorixUnreachable,
+			"errors":              len(last.Errors),
 		}
 		if ran {
 			body["last_run"] = lastRun.UTC().Format(time.RFC3339)
@@ -143,6 +156,8 @@ func (s *Status) metrics() string {
 	last := s.last
 	passes := s.passes
 	c, u, n, f, d, rv, sp := s.totCreated, s.totUpdated, s.totUnchanged, s.totFailed, s.totDeleted, s.totRevoked, s.totSuspected
+	ss, se, sx, af := s.totSourceSuspended, s.totSourceExpired, s.totSourceExpiring, s.totAuthFailed
+	ku := s.totKeyorixUnreachable
 	s.mu.Unlock()
 
 	var lastTS int64
@@ -161,11 +176,16 @@ keyorix_k8s_sync_secrets_total{outcome="failed"} %d
 keyorix_k8s_sync_secrets_total{outcome="deleted"} %d
 keyorix_k8s_sync_secrets_total{outcome="revoked"} %d
 keyorix_k8s_sync_secrets_total{outcome="mass_revocation_suspected"} %d
+keyorix_k8s_sync_secrets_total{outcome="source_suspended"} %d
+keyorix_k8s_sync_secrets_total{outcome="source_expired"} %d
+keyorix_k8s_sync_secrets_total{outcome="source_expiring"} %d
+keyorix_k8s_sync_secrets_total{outcome="auth_failed"} %d
+keyorix_k8s_sync_secrets_total{outcome="keyorix_unreachable"} %d
 # HELP keyorix_k8s_sync_last_run_timestamp_seconds Unix time of the last completed reconcile (0 if none).
 # TYPE keyorix_k8s_sync_last_run_timestamp_seconds gauge
 keyorix_k8s_sync_last_run_timestamp_seconds %d
 # HELP keyorix_k8s_sync_last_failed Target Secrets that failed in the most recent reconcile.
 # TYPE keyorix_k8s_sync_last_failed gauge
 keyorix_k8s_sync_last_failed %d
-`, passes, c, u, n, f, d, rv, sp, lastTS, last.Failed)
+`, passes, c, u, n, f, d, rv, sp, ss, se, sx, af, ku, lastTS, last.Failed)
 }

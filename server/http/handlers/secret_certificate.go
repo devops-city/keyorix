@@ -29,12 +29,21 @@ func (h *SecretHandler) GetSecretCertificate(w http.ResponseWriter, r *http.Requ
 	}
 	info, err := h.coreService.InspectCertificate(r.Context(), userCtx.UserID, uint(id))
 	if err != nil {
+		// Same mapping as the value routes (ERRMAP-1): schedule 403, expired and
+		// suspended 409, each with its stable code. InspectCertificate authorizes the
+		// caller (EnforceSecretReadPermission) before it evaluates any secret-state
+		// guard, so a refusal reaching here is only ever returned to an authorized
+		// reader; an unauthorized caller's error is a permission error that never
+		// classifies, and falls through to the 403 below exactly as before.
+		if h.sendSecretReadRefusal(w, err) {
+			return
+		}
 		msg := err.Error()
 		status := http.StatusInternalServerError
 		switch {
 		case strings.Contains(msg, "not found"):
 			status = http.StatusNotFound
-		case strings.Contains(msg, "not a parseable"), strings.Contains(msg, "suspended"):
+		case strings.Contains(msg, "not a parseable"):
 			status = http.StatusBadRequest
 		case strings.Contains(msg, "permission") || strings.Contains(msg, "not authorized"):
 			status = http.StatusForbidden

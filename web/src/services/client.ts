@@ -136,6 +136,11 @@ const handle401 = async (
 // Where MFAEnrollmentRequired sends the user; ProfilePage reads `tab` and `mfa`.
 export const MFA_ENROLMENT_URL = '/profile?tab=security&mfa=required';
 
+// The `error` code of a 403 for a secret value read outside the secret's access schedule
+// (server: SecretReadRefused in openapi.yaml). Expired, suspended and max-reads-exhausted
+// secrets answer 409 with their own codes; the server's `message` says which.
+export const SECRET_OUTSIDE_SCHEDULE = 'SecretAccessOutsideSchedule';
+
 const handle403 = (error: AxiosError, authStore: ReturnType<typeof useAuthStore.getState>): void => {
     // ADR-025: a restricted account is blocked from everything but the
     // password change. Route it to the profile page rather than just
@@ -155,6 +160,10 @@ const handle403 = (error: AxiosError, authStore: ReturnType<typeof useAuthStore.
         if (!window.location.pathname.startsWith('/profile')) {
             window.location.href = MFA_ENROLMENT_URL;
         }
+    } else if (code === SECRET_OUTSIDE_SCHEDULE) {
+        // ERRMAP-1: a read outside the secret's access schedule. The caller has access,
+        // just not now; the view that asked shows the server's reason, so no generic
+        // "no permission" error.
     } else {
         authStore.setError('You do not have permission to perform this action.');
     }

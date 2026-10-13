@@ -27,6 +27,10 @@ data:
     unset/missing key still resolves to that base value through Helm's normal
     values-merge, and an explicit override (either direction) renders as given. */}}
     prune_on_revoke: {{ .Values.pruneOnRevoke }}
+    {{- /* on_suspend: retain (default) | clear; see values.yaml. The config validator
+    rejects anything else, so a typo fails the pod at start rather than silently
+    retaining. */}}
+    on_suspend: {{ .Values.onSuspend | default "retain" | quote }}
     {{- if .Values.massPruneAck }}
     mass_prune_ack: {{ .Values.massPruneAck | quote }}
     {{- end }}

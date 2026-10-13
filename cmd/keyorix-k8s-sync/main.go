@@ -121,6 +121,10 @@ func runAgent(cfg *k8ssync.Config, fetcher k8ssync.Fetcher, sink k8ssync.Sink, o
 	} else {
 		engineOpts = append(engineOpts, k8ssync.WithKeepOnRevoke())
 	}
+	// on_suspend (config-file-only): "retain" (default) or "clear"; see Config.OnSuspend.
+	if cfg.GetOnSuspend() == k8ssync.OnSuspendClear {
+		engineOpts = append(engineOpts, k8ssync.WithClearOnSuspend())
+	}
 	// mass_prune_ack acknowledges the mass-revocation circuit breaker (see
 	// WithMassPruneAck's own doc comment); a zero Time (unset) never acknowledges
 	// anything, so this is always safe to wire unconditionally.

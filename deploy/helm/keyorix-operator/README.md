@@ -29,26 +29,50 @@ helm install keyorix-operator deploy/helm/keyorix-operator -n keyorix-system --c
 
 ## Failure modes
 
-- **Keyorix unreachable, or returns a 5xx:** treated as transient
-  (`r.fail`/`SyncError` on the `Ready` condition). The target Secret is left
+- **Keyorix unreachable, times out, or returns a 5xx:** treated as transient.
+  `Ready` goes `False` with its unchanged reason `SyncError` and a message
+  starting `KeyorixUnreachable:`, one Warning Event `KeyorixUnreachable` is
+  emitted when the state is entered,
+  `keyorix_operator_fetch_errors_total{reason}` counts each failed reconcile,
+  and a Normal `KeyorixRecovered` Event follows the first successful read. The
+  target Secret is left
   completely untouched and retried on the next reconcile, which
   controller-runtime backs off exponentially (bounded, per-`KeyorixSecret`)
   after a non-nil `Reconcile` error — see [Upgrading: egress
   NetworkPolicy](#upgrading-egress-networkpolicy) above for what "retried"
   actually needs egress for.
-- **A referenced secret is deleted upstream, or access/the token is
-  revoked/expired:** detected (Keyorix returns 401/403/404) and always
-  surfaced distinctly on the `Ready` condition (`reason` `UpstreamSecretGone`
-  or `UpstreamAccessRevoked`). By default (`spec.prunePolicy: Delete` — the
+- **The operator's own token is rejected (401):** every synced Secret is kept
+  untouched, whatever `spec.prunePolicy` says. `Ready` goes `False` with
+  reason `UpstreamAccessRevoked` (the historical reason, kept so existing alerts
+  keep firing; the message starts with `KeyorixAuthFailed:`), a Warning Event
+  `KeyorixAuthFailed` is emitted,
+  `keyorix_operator_auth_failures_total` counts it, and the controller retries
+  with backoff; fixing the token Secret resumes normal syncing.
+- **A referenced secret is deleted upstream, or access to it is revoked:**
+  detected (Keyorix returns 404/403) and always
+  surfaced distinctly on the `Ready` condition (`reason` `UpstreamSecretGone`). By default (`spec.prunePolicy: Delete` — the
   secure default) the operator actively reaps the target Secret the moment
   its reference is confirmed gone/revoked. Set `spec.prunePolicy: Keep`
   per-CR to opt OUT and leave the target Secret's last-known value untouched
   instead, for deployments that prefer availability over immediate reap —
   see the field's own CRD description.
+- **A referenced secret is suspended or expired:** never a reason to delete.
+  Only that reference's keys are affected: they are retained by default
+  (`spec.onSuspend: Retain`, never overwritten or deleted) while the other keys of
+  the same Secret keep syncing; with `spec.onSuspend: Clear` the suspended
+  reference's keys are emptied (also while a sibling is expired) and the Secret
+  itself stays. An expired source's keys are always retained. Either way the
+  `SourceSecretHealthy` condition goes `False` (reason `SourceSecretSuspended` /
+  `SourceSecretExpired`), a Warning Event is emitted, and the
+  `keyorix_operator_source_secrets{state}` gauge counts it; resuming restores
+  the data on the next reconcile and clears all three. Warnings also fire 30, 7
+  and 1 days ahead of an expiry (`SourceSecretExpiring`). See
+  [docs/k8s-operator.md](../../../docs/k8s-operator.md#suspended-and-expired-secrets).
 - **Mass-revocation circuit breaker:** `tokenSecretRef` is commonly *shared*
   across several `KeyorixSecret`s, so a single credential rotation or
-  revocation event reads as the identical 401 (or a simultaneous 404/403) on
-  every `KeyorixSecret` that references it, not just one — with
+  revocation event reads as a simultaneous 404/403 on
+  every `KeyorixSecret` that references it, not just one (a rotated credential
+  reads as 401, which never wipes) — with
   `prunePolicy: Delete` on by default, an unconditional wipe would otherwise
   delete every target Secret backed by that token, triggered by nothing more
   than a routine credential rotation. Before wiping, the operator checks

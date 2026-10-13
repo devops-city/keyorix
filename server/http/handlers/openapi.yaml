@@ -2968,7 +2968,8 @@ paths:
       description: >-
         Resolves every ${secret:<environment>/<name>} reference within the project under
         the caller's own read permissions. A missing or forbidden reference fails the
-        render without returning partial output.
+        render without returning partial output. A referenced secret whose state refuses the
+        read fails the render the same way, with that refusal's status and code. A read refused by the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired, suspended or max-reads-exhausted secret answers 409 (see the SecretReadRefused response).
       operationId: renderSecretTemplate
       security: [{bearerAuth: []}]
       parameters:
@@ -2998,6 +2999,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/SecretReadRefused'}
 
   /api/v1/secrets:
     get:
@@ -3095,7 +3097,8 @@ paths:
     get:
       tags: [Secrets]
       summary: Get a secret
-      description: Return a secret by ID; include include_value=true to retrieve the decrypted value.
+      description: >-
+        Return a secret by ID; include include_value=true to retrieve the decrypted value. A read refused by the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired, suspended or max-reads-exhausted secret answers 409 (see the SecretReadRefused response).
       operationId: getSecret
       security: [{bearerAuth: []}]
       parameters:
@@ -3127,6 +3130,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/SecretReadRefused'}
     put:
       tags: [Secrets]
       summary: Update a secret
@@ -3351,7 +3355,7 @@ paths:
         Resolve a "project/environment/name" reference (ADR-059) directly to
         its decrypted value -- for scripts/integrations (e.g. the External
         Secrets Operator) that template a key string instead of tracking a
-        numeric ID. Always reads and audits the value, like any value read.
+        numeric ID. Always reads and audits the value, like any value read. A read refused by the secret's access schedule answers 403 with error SecretAccessOutsideSchedule; an expired, suspended or max-reads-exhausted secret answers 409 (see the SecretReadRefused response).
       operationId: getSecretValueByRef
       security: [{bearerAuth: []}]
       parameters:
@@ -3373,6 +3377,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/SecretReadRefused'}
   /api/v1/secrets/{id}/versions/{from}/diff/{to}:
     get:
       tags: [Secrets]
@@ -4333,7 +4338,11 @@ paths:
       summary: Show a certificate secret's public X.509 metadata
       description: >-
         Subject, issuer, validity window, SANs, and algorithms of a certificate-valued
-        secret. Never returns the value or any private key.
+        secret. Never returns the value or any private key. Refused like a value read: a
+        read outside the secret's access schedule answers 403 with error
+        SecretAccessOutsideSchedule; an expired or suspended secret answers 409 (see the
+        SecretReadRefused response). Inspecting does not charge max_reads, so
+        SecretMaxReadsExhausted is never returned here.
       operationId: getSecretCertificate
       security: [{bearerAuth: []}]
       parameters:
@@ -4349,6 +4358,9 @@ paths:
                   data: {$ref: '#/components/schemas/CertificateInfo'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/SecretReadRefused'}
   /api/v1/secrets/{id}/blast-radius:
     get:
       tags: [Secrets]
@@ -7552,11 +7564,38 @@ components:
                   /auth/mfa/activate, /auth/webauthn/register/begin|finish and GET
                   /auth/webauthn/credentials; always GET /api/v1/auth/profile. Owing both opens
                   both, in either order.
+    SecretReadRefused:
+      description: >-
+        The caller may read this secret, but the secret's own state refuses the value
+        read (ERRMAP-1). `error` is a stable code clients can branch on and `message`
+        a fixed, client-safe sentence: SecretExpired (its expiration has passed; an
+        operator can extend or clear it), SecretSuspended (resume it to allow reads),
+        SecretMaxReadsExhausted (its max_reads budget is spent; an operator can raise
+        it). A read outside the secret's access schedule is a permission decision and
+        answers 403 with error SecretAccessOutsideSchedule instead. 409, not 410: each
+        state is reversible. Only a caller who may read the secret ever sees these; any
+        other caller gets the same 403/404 as for a secret it cannot see. The gRPC
+        GetSecretValue twin is FailedPrecondition (PermissionDenied for the schedule)
+        with the same message and an ErrorInfo detail (domain keyorix.secrets, reason =
+        the code).
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success: {type: boolean}
+              code: {type: integer}
+              error: {$ref: '#/components/schemas/SecretReadRefusalCode'}
+              message: {type: string}
   schemas:
     # authLogin/authConsumeSetup/verifyMFALogin all return one of these two
     # shapes in `data`, disambiguated by presence of `mfa_required` -- never by
     # status code (both are 200). See server/http/handlers/auth.go's
     # buildLoginResponse and mfa.go's VerifyMFA.
+    SecretReadRefusalCode:
+      type: string
+      description: Stable code of a 409 secret-state read refusal (see the SecretReadRefused response).
+      enum: [SecretExpired, SecretSuspended, SecretMaxReadsExhausted]
     LoginSuccessData:
       type: object
       required: [token]

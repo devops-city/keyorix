@@ -370,11 +370,13 @@ func voEquivalence(t *testing.T, backend string) {
 		{"cross-project", "outsider", nil, func(*models.SecretNode) voOutcome { return forbidden }},
 		{"deleted", "dev", func(s *models.SecretNode) { require.NoError(t, c.DeleteSecret(ctx, s.ID)) },
 			func(*models.SecretNode) voOutcome { return forbidden }}, // the gate answers a deleted secret like an ungranted one (no existence oracle)
+		// ERRMAP-1 changed the secret-state refusals below (and max reads) from
+		// 500/Internal to their own status and fixed message.
 		{"suspended", "dev", func(s *models.SecretNode) {
 			_, err := c.SuspendSecret(ctx, s.ID, w.adminID, "perf-fix-3 equivalence")
 			require.NoError(t, err)
 		}, func(*models.SecretNode) voOutcome {
-			return voDenied(http.StatusInternalServerError, "InternalError", "Failed to get secret value")
+			return voDenied(http.StatusConflict, "SecretSuspended", "secret is suspended; its value cannot be read until it is resumed")
 		}},
 		{"expired", "dev", func(s *models.SecretNode) {
 			// Through Save(), so SecretNode's BeforeSave hook runs (G1619).
@@ -384,13 +386,13 @@ func voEquivalence(t *testing.T, backend string) {
 			row.Expiration = &past
 			require.NoError(t, r.db.Save(&row).Error)
 		}, func(*models.SecretNode) voOutcome {
-			return voDenied(http.StatusInternalServerError, "InternalError", "Failed to get secret")
+			return voDenied(http.StatusConflict, "SecretExpired", "secret has expired; its value can no longer be read")
 		}},
 		{"schedule denies", "dev", func(s *models.SecretNode) {
 			_, err := c.SetSecretSchedule(ctx, s.ID, notTodayOrTomorrow(), 0, 24, "UTC")
 			require.NoError(t, err)
 		}, func(*models.SecretNode) voOutcome {
-			return voDenied(http.StatusForbidden, "Forbidden", core.ErrAccessOutsideSchedule.Error())
+			return voDenied(http.StatusForbidden, "SecretAccessOutsideSchedule", core.ErrAccessOutsideSchedule.Error())
 		}},
 		{"schedule allows", "dev", func(s *models.SecretNode) {
 			_, err := c.SetSecretSchedule(ctx, s.ID, "*", 0, 24, "UTC")
@@ -416,7 +418,7 @@ func voEquivalence(t *testing.T, backend string) {
 		_, err := c.UpdateSecret(ctx, &core.UpdateSecretRequest{ID: s.ID, MaxReads: &one, UpdatedBy: "owner"})
 		require.NoError(t, err)
 		assert.Equal(t, w.allowed(s, "dev"), r.valueRead(t, w.tokens["dev"], s.ID))
-		assert.Equal(t, voDenied(http.StatusInternalServerError, "InternalError", "Failed to get secret value"),
+		assert.Equal(t, voDenied(http.StatusConflict, "SecretMaxReadsExhausted", "secret has reached its maximum number of reads"),
 			r.valueRead(t, w.tokens["dev"], s.ID))
 	})
 }
@@ -450,7 +452,7 @@ func TestValueReadAuthorizeOnce_CrossReplica(t *testing.T) {
 			_, err := b.c.SuspendSecret(ctx, s.ID, w.adminID, "perf-fix-3 cross-replica")
 			require.NoError(t, err)
 		}, func(*models.SecretNode) voOutcome {
-			return voDenied(http.StatusInternalServerError, "InternalError", "Failed to get secret value")
+			return voDenied(http.StatusConflict, "SecretSuspended", "secret is suspended; its value cannot be read until it is resumed")
 		}},
 		{"deleted on B", "owner", nil, func(s *models.SecretNode) { require.NoError(t, b.c.DeleteSecret(ctx, s.ID)) },
 			func(*models.SecretNode) voOutcome { return forbidden }}, // the gate answers a deleted secret like an ungranted one (no existence oracle)
@@ -458,7 +460,7 @@ func TestValueReadAuthorizeOnce_CrossReplica(t *testing.T) {
 			_, err := b.c.SetSecretSchedule(ctx, s.ID, notTodayOrTomorrow(), 0, 24, "UTC")
 			require.NoError(t, err)
 		}, func(*models.SecretNode) voOutcome {
-			return voDenied(http.StatusForbidden, "Forbidden", core.ErrAccessOutsideSchedule.Error())
+			return voDenied(http.StatusForbidden, "SecretAccessOutsideSchedule", core.ErrAccessOutsideSchedule.Error())
 		}},
 		{"value rotated on B", "owner", nil, func(s *models.SecretNode) {
 			_, err := b.c.UpdateSecret(ctx, &core.UpdateSecretRequest{ID: s.ID, Value: []byte("rotated-on-b"), UpdatedBy: "owner"})

@@ -54,7 +54,9 @@ func (c *KeyorixCore) checkSecretExpiryClockNotRegressed(now time.Time) error {
 		// oracle (it confirms the manipulation had an effect worth reacting
 		// to). A uniform refusal reveals nothing beyond "this read did not
 		// succeed," matching how every other guard in this bundle refuses.
-		return fmt.Errorf("%s", i18n.T("ErrorSecretExpired", nil))
+		// The same sentinel too (ERRMAP-1), so every transport answers it with
+		// the identical SecretExpired status and code, never a distinct one.
+		return errSecretExpired()
 	}
 	if now.After(c.secretExpiryWatermark) {
 		c.secretExpiryWatermark = now
@@ -214,10 +216,10 @@ func (c *KeyorixCore) enforceSecretReadGuardsWith(ctx context.Context, secret *m
 		return err
 	}
 	if secret.Expiration != nil && now.After(*secret.Expiration) {
-		return fmt.Errorf("%s", i18n.T("ErrorSecretExpired", nil))
+		return errSecretExpired()
 	}
 	if secret.Status == SecretStatusSuspended {
-		return fmt.Errorf("secret is suspended")
+		return errSecretSuspended()
 	}
 	if err := c.checkRestrictedSecretReadApproval(ctx, secret, userID); err != nil {
 		return err
@@ -430,7 +432,7 @@ func (c *KeyorixCore) readVersionValue(ctx context.Context, secret *models.Secre
 			return nil, fmt.Errorf("max-reads enforcement failed: %w", err)
 		}
 		if !ok {
-			return nil, fmt.Errorf("%s", i18n.T("ErrorMaxReadsExceeded", nil))
+			return nil, errSecretMaxReadsExhausted()
 		}
 		// Best-effort per-version read_count (CLI/gRPC display only, not the
 		// enforcement mechanism above): a failure here must not block an already-

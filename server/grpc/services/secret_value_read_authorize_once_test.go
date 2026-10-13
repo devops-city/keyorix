@@ -246,14 +246,16 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 					denied("PermissionDenied", "insufficient permissions")},
 				{"deleted (machine)", "machine", func(s *models.SecretNode) { require.NoError(t, c.DeleteSecret(ctx, s.ID)) },
 					denied("PermissionDenied", "insufficient permissions")},
+				// ERRMAP-1 changed the secret-state refusals below (and max reads) from
+				// 500/Internal to their own status and fixed message.
 				{"suspended", "dev", func(s *models.SecretNode) {
 					_, err := c.SuspendSecret(ctx, s.ID, w.adminID, "perf-fix-3")
 					require.NoError(t, err)
-				}, denied("Internal", "secret operation failed")},
+				}, denied("FailedPrecondition", "secret is suspended; its value cannot be read until it is resumed")},
 				{"suspended (machine)", "machine", func(s *models.SecretNode) {
 					_, err := c.SuspendSecret(ctx, s.ID, w.adminID, "perf-fix-3")
 					require.NoError(t, err)
-				}, denied("Internal", "secret operation failed")},
+				}, denied("FailedPrecondition", "secret is suspended; its value cannot be read until it is resumed")},
 				{"expired", "dev", func(s *models.SecretNode) {
 					// Through Save(), so SecretNode's BeforeSave hook runs (G1619).
 					var row models.SecretNode
@@ -261,15 +263,15 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 					past := time.Now().Add(-time.Minute)
 					row.Expiration = &past
 					require.NoError(t, w.db.Save(&row).Error)
-				}, denied("Internal", "secret operation failed")},
+				}, denied("FailedPrecondition", "secret has expired; its value can no longer be read")},
 				{"schedule denies", "dev", func(s *models.SecretNode) {
 					_, err := c.SetSecretSchedule(ctx, s.ID, gvoNotTodayOrTomorrow(), 0, 24, "UTC")
 					require.NoError(t, err)
-				}, denied("Internal", "secret operation failed")},
+				}, denied("PermissionDenied", "secret access is not permitted outside the configured time window")},
 				{"schedule denies (machine)", "machine", func(s *models.SecretNode) {
 					_, err := c.SetSecretSchedule(ctx, s.ID, gvoNotTodayOrTomorrow(), 0, 24, "UTC")
 					require.NoError(t, err)
-				}, denied("Internal", "secret operation failed")},
+				}, denied("PermissionDenied", "secret access is not permitted outside the configured time window")},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
@@ -287,7 +289,7 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 				_, err := c.UpdateSecret(ctx, &core.UpdateSecretRequest{ID: s.ID, MaxReads: &one, UpdatedBy: "owner"})
 				require.NoError(t, err)
 				assert.Equal(t, gvoAllowed(s), w.read(t, "dev", s.ID))
-				assert.Equal(t, gvoOutcome{Code: "Internal", Msg: "secret operation failed"}, w.read(t, "dev", s.ID))
+				assert.Equal(t, gvoOutcome{Code: "FailedPrecondition", Msg: "secret has reached its maximum number of reads"}, w.read(t, "dev", s.ID))
 			})
 
 			t.Run("permission check runs once", func(t *testing.T) {

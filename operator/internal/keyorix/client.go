@@ -41,17 +41,71 @@ const maxResponseBodyBytes = 10 << 20 // 10 MiB
 // grant was checked and denied. It gets its own sentinel, ErrUnauthorized, below.
 var ErrSecretGone = errors.New("secret reference no longer exists or is not accessible")
 
-// ErrUnauthorized is wrapped into the error FetchValue returns on HTTP 401. A 401 is
-// distinct from 403/404 (see ErrSecretGone) in what it tells us about the referenced
-// secret, but it is NOT merely "transient and ignorable" either: the overwhelmingly
-// common real-world cause of a previously-working bearer token suddenly turning invalid
-// is that an admin revoked or rotated the machine-identity credential — i.e. access was
-// deliberately cut. That is exactly the same "stop serving the stale value" signal as a
-// confirmed-gone 404/403, so callers (the controller's Reconcile) treat
-// errors.Is(err, ErrUnauthorized) the same as ErrSecretGone for the purpose of wiping a
-// previously-materialized target Secret, while still recording a distinct status reason
-// so it's clear from the CR's condition which of the two actually happened.
+// ErrUnauthorized is wrapped into the error FetchValue returns on HTTP 401, classified
+// from the response status alone (never from message text). A 401 says the operator's OWN
+// bearer token is invalid, expired or rotated; it says nothing about the referenced
+// secret or this workload's grant on it (that is a 403/404, see ErrSecretGone). The
+// controller therefore never wipes a target Secret on a 401: it keeps it, reports
+// KeyorixAuthFailed and retries with backoff until the credential is fixed.
 var ErrUnauthorized = errors.New("bearer token rejected (unauthorized)")
+
+// ErrSecretUnavailable is wrapped into the error FetchValue returns when the server
+// answers that the referenced secret exists and this token may read it, but the
+// secret's own state refuses the read right now: outside its access schedule (403
+// SecretAccessOutsideSchedule) or its max-reads budget is spent (409
+// SecretMaxReadsExhausted). Neither says access was cut, so it is NOT ErrSecretGone
+// and a previously synced target Secret is left in place: a schedule window that closes
+// every night must not become a nightly outage, and a max-reads budget limits
+// disclosures (the operator's own refreshes spend it), it does not withdraw the value
+// already materialized.
+var ErrSecretUnavailable = errors.New("secret is temporarily unavailable for reading")
+
+// ErrSecretSuspended is wrapped into the error FetchValue returns on 409
+// SecretSuspended: an operator has switched value reads off for the secret. It is NOT
+// ErrSecretGone (the secret exists and the grant stands, and resuming restores it), so
+// nothing here removes a target Secret. The controller decides what the target holds
+// meanwhile from spec.onSuspend (Retain by default, or Clear) and reports it.
+var ErrSecretSuspended = errors.New("secret is suspended")
+
+// ErrSecretExpired is wrapped into the error FetchValue returns on 409 SecretExpired.
+// The target Secret keeps its last value (Retain); the controller flags the state with
+// a condition, a Warning Event and a metric, as it does ahead of the expiry.
+var ErrSecretExpired = errors.New("secret has expired")
+
+// ErrUnreachable, ErrTimeout and ErrServerError are wrapped into the error FetchValue
+// returns when Keyorix could not answer the read at all: the request failed before a
+// response arrived (connection refused, DNS, TLS, reset), it timed out, or the server
+// answered 5xx. They are classified from the transport error and the status code alone
+// (never from message text). None of them says anything about the secret or the grant,
+// so the controller keeps the target Secret, reports KeyorixUnreachable (one Warning
+// Event on entry, keyorix_operator_fetch_errors_total) and retries with backoff.
+var (
+	ErrUnreachable = errors.New("keyorix server unreachable")
+	ErrTimeout     = errors.New("keyorix request timed out")
+	ErrServerError = errors.New("keyorix server error (5xx)")
+)
+
+// Error codes the server puts in the error envelope's "error" field when a
+// secret's own state refuses a value read (server/http/handlers/openapi.yaml,
+// SecretReadRefused; ERRMAP-1).
+const (
+	codeOutsideSchedule   = "SecretAccessOutsideSchedule"
+	codeExpired           = "SecretExpired"
+	codeSuspended         = "SecretSuspended"
+	codeMaxReadsExhausted = "SecretMaxReadsExhausted"
+)
+
+// errorCode reads the "error" code from an error response's envelope, or "" when the
+// body is not that shape. It reads at most maxResponseBodyBytes.
+func errorCode(resp *http.Response) string {
+	var env struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&env); err != nil {
+		return ""
+	}
+	return env.Error
+}
 
 // Client reads secret values from a Keyorix server with a bearer (machine-identity)
 // token. The token is sent on every request and never logged.
@@ -119,6 +173,22 @@ func validateClientBaseURL(raw string) error {
 	return nil
 }
 
+// classifyTransportError wraps a failed http.Client.Do error with ErrTimeout (deadline
+// exceeded, client or request timeout) or ErrUnreachable (anything else that stopped a
+// response arriving). A cancelled context is neither: the reconcile was abandoned, not
+// the server at fault, so the error is returned unclassified.
+func classifyTransportError(err error) error {
+	var ne net.Error
+	switch {
+	case errors.Is(err, context.Canceled):
+		return fmt.Errorf("request failed: %w", err)
+	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()):
+		return fmt.Errorf("request failed: %w: %w", err, ErrTimeout)
+	default:
+		return fmt.Errorf("request failed: %w: %w", err, ErrUnreachable)
+	}
+}
+
 // isLoopbackHost reports whether host is localhost or a loopback IP.
 func isLoopbackHost(host string) bool {
 	if host == "localhost" {
@@ -130,9 +200,28 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
+// Value is a fetched secret value with the source secret's metadata the controller
+// reports on.
+type Value struct {
+	Data []byte
+	// Expiration is the source secret's expiration, nil when it has none or the server
+	// did not send it.
+	Expiration *time.Time
+}
+
 // FetchValue returns the current value of the secret referenced by
 // "project/environment/name".
 func (c *Client) FetchValue(ctx context.Context, ref string) ([]byte, error) {
+	v, err := c.FetchValueInfo(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return v.Data, nil
+}
+
+// FetchValueInfo is FetchValue plus the source secret's expiration, which the
+// controller uses to warn ahead of it.
+func (c *Client) FetchValueInfo(ctx context.Context, ref string) (Value, error) {
 	// c.hc (built in New above) already sets CheckRedirect to refuseRedirect, and the
 	// caller (KeyorixSecretReconciler.buildDesired) already validates ks.Spec.Server
 	// against an operator-configured --allowed-servers allowlist via validateServer
@@ -141,45 +230,57 @@ func (c *Client) FetchValue(ctx context.Context, ref string) ([]byte, error) {
 	// three call frames away, so this direct read of c.baseURL itself is what lets a
 	// static analyzer connect a validation call to this exact destination.
 	if err := validateClientBaseURL(c.baseURL); err != nil {
-		return nil, err
+		return Value{}, err
 	}
 	q := url.Values{}
 	q.Set("ref", ref)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/secrets/value?"+q.Encode(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return Value{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return Value{}, classifyTransportError(err)
 	}
 	defer drainAndClose(resp)
 
+	code := ""
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusConflict {
+		code = errorCode(resp)
+	}
 	switch {
+	case code == codeOutsideSchedule || code == codeMaxReadsExhausted:
+		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d): %w", ref, code, resp.StatusCode, ErrSecretUnavailable)
+	case code == codeSuspended:
+		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d): %w", ref, code, resp.StatusCode, ErrSecretSuspended)
+	case code == codeExpired:
+		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d): %w", ref, code, resp.StatusCode, ErrSecretExpired)
 	case resp.StatusCode == http.StatusNotFound:
 		// The server's ref-resolution collapses "never existed" and "soft-deleted"
 		// into an identical 404 (closing an existence oracle) — either way the
 		// secret this reference names is gone.
-		return nil, fmt.Errorf("secret reference %q not found: %w", ref, ErrSecretGone)
+		return Value{}, fmt.Errorf("secret reference %q not found: %w", ref, ErrSecretGone)
 	case resp.StatusCode == http.StatusForbidden:
 		// Distinct from 401: this means the request was authenticated but the
 		// caller's own scope/grant for THIS reference was denied — e.g. a revoked
-		// machine-identity role or a suspended secret. Treated the same as "gone".
-		return nil, fmt.Errorf("secret reference %q forbidden (HTTP 403) — access revoked: %w", ref, ErrSecretGone)
+		// machine-identity role. Treated the same as "gone". (A schedule refusal is
+		// also a 403 but carries its own code, handled above.)
+		return Value{}, fmt.Errorf("secret reference %q forbidden (HTTP 403) — access revoked: %w", ref, ErrSecretGone)
 	case resp.StatusCode == http.StatusUnauthorized:
 		// Unlike 403, a 401 says the token itself is invalid/expired — it says
 		// nothing about whether the referenced secret still exists or is still
-		// permitted, so this must NOT be treated as ErrSecretGone. It IS wrapped as
-		// ErrUnauthorized (see its doc comment) so the controller can still treat a
-		// revoked/rotated credential as an access-cut signal worth wiping for.
-		return nil, fmt.Errorf("not authorized (HTTP 401) — check the token is valid: %w", ErrUnauthorized)
+		// permitted, so this must NOT be treated as ErrSecretGone. It is wrapped as
+		// ErrUnauthorized (see its doc comment); the controller keeps the target Secret.
+		return Value{}, fmt.Errorf("not authorized (HTTP 401) — check the token is valid: %w", ErrUnauthorized)
 	case resp.StatusCode == http.StatusBadRequest:
-		return nil, fmt.Errorf("invalid reference %q (want project/environment/name)", ref)
+		return Value{}, fmt.Errorf("invalid reference %q (want project/environment/name)", ref)
+	case resp.StatusCode >= 500:
+		return Value{}, fmt.Errorf("server returned HTTP %d: %w", resp.StatusCode, ErrServerError)
 	case resp.StatusCode >= 400:
-		return nil, fmt.Errorf("server returned HTTP %d", resp.StatusCode)
+		return Value{}, fmt.Errorf("server returned HTTP %d", resp.StatusCode)
 	}
 
 	// Value is a *string (not string) so decoding can tell "data.value absent from the
@@ -197,14 +298,17 @@ func (c *Client) FetchValue(ctx context.Context, ref string) ([]byte, error) {
 	// requires a non-empty value and update ignores an empty one).
 	var body struct {
 		Data struct {
-			Value *string `json:"value"`
+			Value  *string `json:"value"`
+			Secret struct {
+				Expiration *time.Time `json:"expiration"`
+			} `json:"secret"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&body); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+		return Value{}, fmt.Errorf("decode response: %w", err)
 	}
 	if body.Data.Value == nil {
-		return nil, fmt.Errorf("decode response: success (HTTP 200) but response is missing data.value")
+		return Value{}, fmt.Errorf("decode response: success (HTTP 200) but response is missing data.value")
 	}
-	return []byte(*body.Data.Value), nil
+	return Value{Data: []byte(*body.Data.Value), Expiration: body.Data.Secret.Expiration}, nil
 }

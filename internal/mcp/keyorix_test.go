@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -51,6 +52,34 @@ func TestKeyorixClient_GetSecretErrors(t *testing.T) {
 			_, err := mustClient(t, srv.URL, "tok").GetSecret(context.Background(), "a/b/c")
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), want)
+		})
+	}
+}
+
+// ERRMAP-1: a refused value read names the secret's state, not the token.
+func TestKeyorixClient_GetSecretStateRefusals(t *testing.T) {
+	for code, want := range map[string]string{
+		"SecretAccessOutsideSchedule": "outside its access schedule",
+		"SecretExpired":               "has expired",
+		"SecretSuspended":             "is suspended",
+		"SecretMaxReadsExhausted":     "maximum number of reads",
+	} {
+		t.Run(code, func(t *testing.T) {
+			status := http.StatusConflict
+			if code == "SecretAccessOutsideSchedule" {
+				status = http.StatusForbidden
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = fmt.Fprintf(w, `{"success":false,"code":%d,"error":%q,"message":"server text"}`, status, code)
+			}))
+			defer srv.Close()
+			_, err := mustClient(t, srv.URL, "tok").GetSecret(context.Background(), "a/b/c")
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), want)
+			assert.NotContains(t, err.Error(), "not authorized")
+			assert.NotContains(t, err.Error(), "server text", "the server's text is never echoed")
 		})
 	}
 }

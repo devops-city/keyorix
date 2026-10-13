@@ -435,6 +435,28 @@ describe('response interceptor (error): 403 handling (ADR-025 password-change ga
         expect(store.setError).not.toHaveBeenCalled();
     });
 
+    // ERRMAP-1: a value read outside the secret's access schedule is a 403 the caller
+    // cannot fix with more permissions; the view shows the server's reason instead.
+    it('does not report a schedule refusal as a missing permission, and keeps its reason', async () => {
+        const store = makeAuthStore({ isAuthenticated: true });
+        mockGetState.mockReturnValue(store);
+        const err = axiosErr({
+            message: 'Request failed with status code 403',
+            response: {
+                status: 403,
+                data: {
+                    error: 'SecretAccessOutsideSchedule',
+                    message: 'secret access is not permitted outside the configured time window',
+                },
+            },
+        });
+
+        await expect(responseOnRejected(err)).rejects.toBe(err);
+        expect(location.href).toBe('');
+        expect(store.setError).not.toHaveBeenCalled();
+        expect(err.message).toBe('secret access is not permitted outside the configured time window');
+    });
+
     it('sets a generic permission-error message for any other 403', async () => {
         const store = makeAuthStore({ isAuthenticated: true });
         mockGetState.mockReturnValue(store);

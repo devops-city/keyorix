@@ -80,7 +80,25 @@ type Result struct {
 	Deleted   int
 	Revoked   int
 	Suspected int
-	Errors    []string
+	// SourceSuspended / SourceExpired / SourceExpiring count targets observed this pass
+	// with a suspended source, an expired source, or a source inside an expiry warning
+	// window (see source_state.go). They are not failures and not revocations: the
+	// target Secret is retained (or, for a suspended source with on_suspend clear, has
+	// that key emptied) and the loop keeps its normal interval.
+	SourceSuspended int
+	SourceExpired   int
+	SourceExpiring  int
+	// AuthFailed counts targets skipped because Keyorix answered 401 to the agent's own
+	// credential (ErrUnauthorized). The target Secret is left untouched; such a target is
+	// ALSO counted in Failed, so the loop backs off.
+	AuthFailed int
+	// KeyorixUnreachable counts targets skipped because Keyorix could not answer
+	// (ErrUnreachable, ErrTimeout, ErrServerError: no response, timeout or 5xx). The
+	// target Secret is left untouched; such a target is ALSO counted in Failed.
+	KeyorixUnreachable int
+	// Notes are informational log lines (state changes of sources), distinct from Errors.
+	Notes  []string
+	Errors []string
 }
 
 // target is the (namespace, name) identity of a Kubernetes Secret.
@@ -125,8 +143,12 @@ func (e *Engine) Reconcile(ctx context.Context, mappings []SecretMapping) (Resul
 	states := make([]reconcileState, 0, len(targets))
 	revokedCount := 0
 	for _, t := range targets {
-		desired, revokedRefs, ferr := e.buildDesired(ctx, grouped[t])
-		states = append(states, reconcileState{t: t, desired: desired, revokedRefs: revokedRefs, ferr: ferr})
+		desired, revokedRefs, rep, ferr := e.buildDesired(ctx, grouped[t])
+		refs := make([]string, 0, len(grouped[t]))
+		for _, m := range grouped[t] {
+			refs = append(refs, m.Ref)
+		}
+		states = append(states, reconcileState{t: t, desired: desired, revokedRefs: revokedRefs, rep: rep, refs: refs, ferr: ferr})
 		if ferr == nil && len(revokedRefs) > 0 {
 			revokedCount++
 		}
@@ -153,11 +175,34 @@ func (e *Engine) Reconcile(ctx context.Context, mappings []SecretMapping) (Resul
 			// may still be valid, so the existing Secret is left completely
 			// untouched rather than written with a key missing or removed outright.
 			res.Failed++
+			if errors.Is(st.ferr, ErrUnauthorized) {
+				res.AuthFailed++
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: KeyorixAuthFailed: %v — target Secret left unchanged (a 401 never prunes)", t, st.ferr))
+				continue
+			}
+			if reason := fetchUnavailableReason(st.ferr); reason != "" {
+				res.KeyorixUnreachable++
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: KeyorixUnreachable (%s): %v — target Secret left unchanged", t, reason, st.ferr))
+				continue
+			}
 			res.Errors = append(res.Errors, fmt.Sprintf("%s: %v", t, st.ferr))
 			continue
 		}
 		desired := st.desired
 		revokedRefs := st.revokedRefs
+
+		// Suspended / expired / soon-to-expire sources: counted and logged (not errors).
+		// A held key (expired source, or suspended with on_suspend retain) keeps its live
+		// value; the target's other keys keep syncing in the same single Apply (carried
+		// over below, so Apply's field ownership does not prune the held keys). Only a
+		// target whose every mapping is held, with nothing to clear or prune, is skipped
+		// outright. A revoked ref in the same target takes the revoked path below.
+		e.recordSourceStates(&res, st.t, st.rep, st.refs)
+		held := st.rep.hold(e.clearOnSuspend)
+		clearing := len(st.rep.suspended) > 0 && e.clearOnSuspend
+		if held && len(revokedRefs) == 0 && len(desired) == 0 && !clearing {
+			continue
+		}
 
 		if len(revokedRefs) > 0 {
 			switch {
@@ -197,6 +242,38 @@ func (e *Engine) Reconcile(ctx context.Context, mappings []SecretMapping) (Resul
 				}
 				res.Errors = append(res.Errors, fmt.Sprintf("%s: upstream secret gone or access revoked for %s; %s", t, strings.Join(revokedRefs, ", "), action))
 			}
+		}
+
+		if held {
+			if cerr := e.carryOverHeld(ctx, t, st.rep, desired); cerr != nil {
+				res.Failed++
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: read: %v", t, cerr))
+				continue
+			}
+		}
+
+		if len(desired) == 0 && len(revokedRefs) == 0 {
+			// on_suspend clear and every source is suspended: nothing to write. Empty the
+			// keys in a Secret the agent manages; never create an empty one.
+			current, gerr := e.sink.Get(ctx, t.namespace, t.name)
+			if gerr != nil {
+				res.Failed++
+				res.Errors = append(res.Errors, fmt.Sprintf("%s: read: %v", t, gerr))
+				continue
+			}
+			if len(current) == 0 {
+				res.Unchanged++
+				continue
+			}
+			if !e.dryRun {
+				if aerr := e.sink.Apply(ctx, t.namespace, t.name, map[string][]byte{}); aerr != nil {
+					res.Failed++
+					res.Errors = append(res.Errors, fmt.Sprintf("%s: apply: %v", t, aerr))
+					continue
+				}
+			}
+			res.Updated++
+			continue
 		}
 
 		if len(desired) == 0 {
@@ -320,6 +397,8 @@ type reconcileState struct {
 	t           target
 	desired     map[string][]byte
 	revokedRefs []string
+	rep         sourceReport
+	refs        []string // every ref of the target, for recovery logging
 	ferr        error
 }
 
@@ -398,6 +477,11 @@ type Engine struct {
 	pruneOnRevoke bool
 	massPruneAck  time.Time
 	now           func() time.Time
+	// clearOnSuspend (WithClearOnSuspend, config on_suspend: clear): a suspended source's
+	// key is emptied in the target Secret instead of retained. See source_state.go.
+	clearOnSuspend bool
+	// sourceSeen remembers each "target|ref" state so a state change is logged once.
+	sourceSeen map[string]string
 }
 
 // Option configures an Engine.
@@ -435,6 +519,14 @@ func WithKeepOnRevoke() Option {
 	return func(e *Engine) { e.pruneOnRevoke = false }
 }
 
+// WithClearOnSuspend makes a suspended source empty its key in the target Secret
+// instead of leaving the last value in place (the default, "retain"). The Secret object
+// is never deleted and a Secret the agent does not own is never touched. An expired
+// source is always retained. See source_state.go.
+func WithClearOnSuspend() Option {
+	return func(e *Engine) { e.clearOnSuspend = true }
+}
+
 // WithMassPruneAck sets the mass-revocation circuit breaker's acknowledgement
 // timestamp (see massPruneAckValid) — sourced from Config.GetMassPruneAck (the
 // mass_prune_ack config field). A zero Time (the field left unset) never
@@ -467,20 +559,56 @@ func NewEngine(fetcher Fetcher, sink Sink, opts ...Option) *Engine {
 //     silently drop — nor overwrite with a partial result — a key from an
 //     otherwise-complete Secret. The caller skips this target entirely for the
 //     pass in that case.
-func (e *Engine) buildDesired(ctx context.Context, mappings []SecretMapping) (desired map[string][]byte, revoked []string, err error) {
+func (e *Engine) buildDesired(ctx context.Context, mappings []SecretMapping) (desired map[string][]byte, revoked []string, rep sourceReport, err error) {
 	desired = make(map[string][]byte, len(mappings))
+	expiryF, hasExpiry := e.fetcher.(ExpiryFetcher)
 	for _, m := range mappings {
-		val, ferr := e.fetcher.Fetch(ctx, m.Ref)
+		var val []byte
+		var exp *time.Time
+		var ferr error
+		if hasExpiry {
+			val, exp, ferr = expiryF.FetchWithExpiry(ctx, m.Ref)
+		} else {
+			val, ferr = e.fetcher.Fetch(ctx, m.Ref)
+		}
 		if ferr != nil {
-			if errors.Is(ferr, ErrUpstreamGone) {
+			switch {
+			case errors.Is(ferr, ErrSourceSuspended):
+				rep.suspended = append(rep.suspended, heldRef{ref: m.Ref, key: m.Key})
+				continue
+			case errors.Is(ferr, ErrSourceExpired):
+				rep.expired = append(rep.expired, heldRef{ref: m.Ref, key: m.Key})
+				continue
+			case errors.Is(ferr, ErrUpstreamGone):
 				revoked = append(revoked, m.Ref)
 				continue
 			}
-			return nil, nil, fmt.Errorf("fetch %q: %w", m.Ref, ferr)
+			return nil, nil, sourceReport{}, fmt.Errorf("fetch %q: %w", m.Ref, ferr)
 		}
+		rep.noteExpiry(m.Ref, exp, e.clockNow())
 		desired[m.Key] = val
 	}
-	return desired, revoked, nil
+	return desired, revoked, rep, nil
+}
+
+// carryOverHeld copies the current value of every retained key (an expired source, or a
+// suspended one under on_suspend retain) into desired, so applying a target that also has
+// a revoked ref leaves the retained keys as they were instead of pruning them.
+func (e *Engine) carryOverHeld(ctx context.Context, t target, rep sourceReport, desired map[string][]byte) error {
+	keys := rep.heldKeys(e.clearOnSuspend)
+	if len(keys) == 0 {
+		return nil
+	}
+	current, err := e.sink.Get(ctx, t.namespace, t.name)
+	if err != nil {
+		return err
+	}
+	for _, k := range keys {
+		if v, ok := current[k]; ok {
+			desired[k] = v
+		}
+	}
+	return nil
 }
 
 // groupByTarget buckets mappings by their target Secret, validating each and

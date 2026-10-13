@@ -229,7 +229,7 @@ func (c *KeyorixCore) commitStagedSecretRead(ctx context.Context, s *stagedSecre
 			return fmt.Errorf("max-reads enforcement failed: %w", err)
 		}
 		if !ok {
-			return fmt.Errorf("%s", i18n.T("ErrorMaxReadsExceeded", nil))
+			return errSecretMaxReadsExhausted()
 		}
 		// Best-effort per-version read_count (CLI/gRPC display only, not the
 		// enforcement mechanism above): a failure here must not block an

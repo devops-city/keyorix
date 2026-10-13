@@ -26,16 +26,71 @@ sets a `Ready` condition and requeues after `refreshInterval`.
 
 A fetch failure is handled differently depending on what it means:
 
-- **Transient failure** (network error, timeout, 5xx from Keyorix): the target Secret is
-  left completely untouched — no partial write, no wipe. `Ready` goes `False` with
-  reason `SyncError` and the cause in the message; the controller backs off and retries.
+- **Keyorix cannot answer** (server unreachable, timeout, 5xx): the target Secret is left
+  completely untouched — no partial write, no wipe. `Ready` goes `False` with its
+  historical reason `SyncError` (unchanged, so existing alerts keep firing); the detail is
+  in the message, which starts with `KeyorixUnreachable:`; one Warning Event
+  `KeyorixUnreachable` is raised when the state is entered (not on every retry),
+  `keyorix_operator_fetch_errors_total{reason="unreachable|timeout|server_error"}` counts
+  each failed reconcile, and the controller backs off and retries. The first successful
+  read raises a Normal Event `KeyorixRecovered` and `Ready` returns to `True`. Other
+  failures (token Secret missing or unlabelled, server not in `allowedServers`, a
+  Kubernetes API error while applying) are also `SyncError`: `Ready=False`, no
+  `KeyorixUnreachable` message prefix, no Event, no dedicated counter.
+- **The operator's own credential is rejected** (Keyorix returns **401**: the token in
+  `tokenSecretRef` is invalid, expired or rotated): every synced Secret is **kept
+  untouched**, whatever `spec.prunePolicy` says. A 401 is about the operator's credential,
+  not about this workload's grant, so it is never grounds to wipe. `Ready` goes `False`
+  with reason `UpstreamAccessRevoked` (the reason this path has always used, kept so
+  existing alerts keep firing even though the Secret is no longer wiped) and a message that
+  starts with `KeyorixAuthFailed:`; one Warning Event `KeyorixAuthFailed` is raised when the
+  state is entered, `keyorix_operator_auth_failures_total` counts each failed reconcile, and
+  the controller retries with backoff. Fix or rotate the token Secret and the next retry
+  syncs normally.
 - **Affirmatively gone or revoked** (Keyorix returns 404/403 — the referenced secret no
-  longer exists or is no longer accessible — or 401, which in practice means the
-  machine-identity token was revoked or rotated): the target Secret is **wiped** (`Ready`
-  goes `False` with reason `UpstreamSecretGone` or `UpstreamAccessRevoked`
-  respectively), not just left stale. This is deliberate — leaving a previously-synced
-  plaintext value sitting in the cluster indefinitely after access was deliberately cut
-  would be a worse outcome than a workload losing the Secret it depends on.
+  longer exists, or this workload's access to it was removed): the target Secret is
+  **wiped** per `spec.prunePolicy` (`Ready` goes `False` with reason
+  `UpstreamSecretGone`), subject to the mass-revocation circuit breaker. This is
+  deliberate — leaving a previously-synced plaintext value sitting in the cluster
+  indefinitely after access was deliberately cut would be a worse outcome than a workload
+  losing the Secret it depends on.
+
+## Suspended and expired secrets
+
+A Keyorix secret can be *suspended* (an operator's "block value reads" switch; the
+server answers `409 SecretSuspended`) or *expire* (`409 SecretExpired`). Neither is a
+revoked grant, so neither deletes the target Secret. What happens, by cause:
+
+| Cause | Target Secret | `Ready` | Also raised |
+| --- | --- | --- | --- |
+| Server **unreachable, timeout, 5xx** | **Never modified or deleted.** Retried with backoff; syncs normally once Keyorix answers | `False`, reason `SyncError` (unchanged), message `KeyorixUnreachable: …` | Warning Event `KeyorixUnreachable` (once on entry), counter `keyorix_operator_fetch_errors_total{reason="unreachable\|timeout\|server_error"}`, Normal Event `KeyorixRecovered` on recovery |
+| Token Secret missing / unlabelled, apply error | **Never modified or deleted.** Retried with backoff | `False`, reason `SyncError` | — |
+| **401** — the operator's own credential rejected | **Kept** (never wiped, whatever `prunePolicy` is). Retried with backoff; syncs normally once the token is fixed | `False`, reason `UpstreamAccessRevoked` (historical reason, kept for alerts), message `KeyorixAuthFailed: …` | Warning Event `KeyorixAuthFailed`, counter `keyorix_operator_auth_failures_total` |
+| **403 / 404** — grant revoked / secret deleted | **Pruned per `spec.prunePolicy`** (Delete by default; Keep leaves it), behind the mass-revocation circuit breaker | `False`, reason `UpstreamSecretGone` | — |
+| Referenced secret **expired** | **Only that ref's keys are retained** (last value kept, never overwritten or deleted); the other refs' keys in the same Secret keep syncing in the same single update. When every ref is held nothing is written | `False`, reason `SourceSecretExpired` (the message names the held keys) | `SourceSecretHealthy=False`, Warning Event `SourceSecretExpired`, gauge `expired` |
+| Referenced secret **suspended**, `spec.onSuspend: Retain` (default) | **Only that ref's keys are retained**, as above | `False`, reason `SourceSecretSuspended` | `SourceSecretHealthy=False`, Warning Event `SourceSecretSuspended`, gauge `suspended` |
+| Referenced secret **suspended**, `spec.onSuspend: Clear` | The keys of suspended refs are **emptied** (also while another ref of the same target is expired: that one's keys are held, only the suspended ref's keys are cleared); keys of readable refs stay current. The Secret object is never deleted, and a Secret the operator does not own is never touched | `True` (the rest synced) | as above |
+| Within **30, 7 or 1 days** of expiring | Syncs normally | `True` | `SourceSecretHealthy=False` reason `SourceSecretExpiring`, Warning Event when each window is first entered, gauge `expiring` |
+| Resumed / extended | Next reconcile (within `spec.refreshInterval`) **restores** the data under the same name, labels and owner | `True` | condition removed, Normal Event `SourceSecretRecovered`, gauge back down |
+
+A confirmed 404/403 is a different signal and still follows `spec.prunePolicy` (see
+"How it works"); a 401 never wipes. The state-based reconcile above does not back off: it requeues at
+`refreshInterval`, so a resume is picked up within one interval.
+
+**What running workloads see.** The operator only changes the Secret object:
+
+- Pods that took the value as **environment variables** keep what they started with until
+  they restart — the environment of a running container never changes.
+- Pods that **mount the Secret as a volume** follow the Secret: with `Retain` the files
+  stay; with `Clear` the files disappear (after the kubelet's sync delay, typically up to a
+  minute) and reappear after the resume. Mounts with `subPath` never update.
+- **New pods** that need a key `Clear` removed fail with `CreateContainerConfigError`
+  (a `secretKeyRef` to a missing key, or a Secret volume without `optional: true` whose
+  Secret has no such item) until the secret is resumed. With `Retain`, new pods start with
+  the retained value.
+
+Metric: `keyorix_operator_source_secrets{state="suspended|expired|expiring"}` is the number
+of `KeyorixSecret`s currently in each state.
 
 ## Install
 
@@ -184,15 +239,19 @@ Deleting the `KeyorixSecret` removes the `db-creds` Secret it created (owner ref
 | `spec.tokenSecretRef.name` / `.key` | Secret holding the machine token (`key` defaults to `token`). |
 | `spec.refreshInterval` | Re-read cadence (default `5m`). |
 | `spec.target.name` / `.type` | Target Secret name (defaults to the CR name) and type (default `Opaque`). |
-| `spec.data[].secretKey` | Key to set in the target Secret. |
+| `spec.data[].secretKey` | Key to set in the target Secret. Must be unique across entries: the CRD rejects duplicates, and a stored CR that still has one is refused by the controller (`Ready=False`, reason `InvalidSpec`, Warning Event `InvalidSpec`, nothing read or written) until it is fixed. |
 | `spec.data[].ref` | Keyorix `project/environment/name` reference to read. |
 
 ## Status & observability
 
 - `status.conditions[Ready]` — `True` when the target Secret is up to date; `False` on
-  failure, with the cause in the message and one of three reasons: `SyncError`
-  (transient — target Secret untouched), `UpstreamSecretGone`, or
-  `UpstreamAccessRevoked` (both wipe the target Secret — see "How it works" above).
+  failure, with the cause in the message and one of these reasons: `SyncError`
+  (any other failure, and also unreachable / timeout / 5xx, where the message starts with
+  `KeyorixUnreachable:` — target Secret kept), `InvalidSpec` (duplicate `spec.data[].secretKey`
+  — nothing read or written), `UpstreamAccessRevoked` (401 — target Secret kept; the message starts with
+  `KeyorixAuthFailed:`), `SourceSecretExpired` / `SourceSecretSuspended` (held keys kept, the
+  other keys synced), or `UpstreamSecretGone` (404/403 — wipes the target Secret per `prunePolicy`, see "How
+  it works" above).
 - `status.lastSyncTime`, `status.syncedHash`, `status.observedGeneration`.
 - The manager serves Prometheus metrics on `:8080/metrics` and health probes on
   `:8081/healthz`,`/readyz` (the chart wires both).

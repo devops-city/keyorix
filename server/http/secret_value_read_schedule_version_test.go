@@ -369,15 +369,18 @@ type svCase struct {
 
 // svExpectedDenials is the observed behaviour of the code BEFORE PERF-FIX-4,
 // per path/principal (status + normalized error), recorded by running this
-// test with the change reverted. The test passes unchanged on both.
+// test with the change reverted. The test passes unchanged on both. ERRMAP-1
+// then deliberately changed the outside-schedule and max-reads rows from
+// 500/Internal to 403/PermissionDenied and 409/FailedPrecondition with a
+// stable code (secret_value_read_refusal_family_test.go).
 var svExpectedDenials = map[string]map[string]svOutcome{
 	"outside-schedule": {
-		"rest-include-value/machine": {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"rest-include-value/human":   {Status: 403, Err: "code=403;error=Forbidden;message=secret access is not permitted outside the configured time window;success=false;"},
-		"rest-ref/machine":           {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"rest-ref/human":             {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"grpc/machine":               {Status: 13, Err: "secret operation failed"},
-		"grpc/human":                 {Status: 13, Err: "secret operation failed"},
+		"rest-include-value/machine": {Status: 403, Err: "code=403;error=SecretAccessOutsideSchedule;message=secret access is not permitted outside the configured time window;success=false;"},
+		"rest-include-value/human":   {Status: 403, Err: "code=403;error=SecretAccessOutsideSchedule;message=secret access is not permitted outside the configured time window;success=false;"},
+		"rest-ref/machine":           {Status: 403, Err: "code=403;error=SecretAccessOutsideSchedule;message=secret access is not permitted outside the configured time window;success=false;"},
+		"rest-ref/human":             {Status: 403, Err: "code=403;error=SecretAccessOutsideSchedule;message=secret access is not permitted outside the configured time window;success=false;"},
+		"grpc/machine":               {Status: 7, Err: "secret access is not permitted outside the configured time window"},
+		"grpc/human":                 {Status: 7, Err: "secret access is not permitted outside the configured time window"},
 	},
 	"deleted-secret": {
 		"rest-include-value/machine": {Status: 403, Err: "code=403;error=Forbidden;message=Insufficient permissions;"},
@@ -396,12 +399,12 @@ var svExpectedDenials = map[string]map[string]svOutcome{
 		"grpc/human":                 {Status: 5, Err: "secret not found"},
 	},
 	"max-reads": {
-		"rest-include-value/machine": {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"rest-include-value/human":   {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"rest-ref/machine":           {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"rest-ref/human":             {Status: 500, Err: "code=500;error=InternalError;message=Failed to get secret value;success=false;"},
-		"grpc/machine":               {Status: 13, Err: "secret operation failed"},
-		"grpc/human":                 {Status: 13, Err: "secret operation failed"},
+		"rest-include-value/machine": {Status: 409, Err: "code=409;error=SecretMaxReadsExhausted;message=secret has reached its maximum number of reads;success=false;"},
+		"rest-include-value/human":   {Status: 409, Err: "code=409;error=SecretMaxReadsExhausted;message=secret has reached its maximum number of reads;success=false;"},
+		"rest-ref/machine":           {Status: 409, Err: "code=409;error=SecretMaxReadsExhausted;message=secret has reached its maximum number of reads;success=false;"},
+		"rest-ref/human":             {Status: 409, Err: "code=409;error=SecretMaxReadsExhausted;message=secret has reached its maximum number of reads;success=false;"},
+		"grpc/machine":               {Status: 9, Err: "secret has reached its maximum number of reads"},
+		"grpc/human":                 {Status: 9, Err: "secret has reached its maximum number of reads"},
 	},
 }
 

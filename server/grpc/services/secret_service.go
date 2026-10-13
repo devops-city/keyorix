@@ -11,6 +11,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/server/grpc/interceptors"
 	pb "github.com/keyorixhq/keyorix/server/proto/pb"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -119,7 +120,7 @@ func (s *SecretGRPCService) GetSecret(ctx context.Context, req *pb.GetSecretRequ
 		secret, err = s.core.GetSecretWithPermissionCheck(ctx, uint(req.GetId()), user.UserID)
 	}
 	if err != nil {
-		return nil, mapSecretError(err)
+		return nil, mapSecretReadError(err)
 	}
 	out := secretNodeToProto(secret)
 	// Opt-in: the count is O(reads) over the access log (same default as REST).
@@ -205,7 +206,7 @@ func (s *SecretGRPCService) GetSecretValue(ctx context.Context, req *pb.GetSecre
 		}
 	}
 	if err != nil {
-		return nil, mapSecretError(err)
+		return nil, mapSecretReadError(err)
 	}
 	var value []byte
 	if isMachine {
@@ -214,7 +215,7 @@ func (s *SecretGRPCService) GetSecretValue(ctx context.Context, req *pb.GetSecre
 		value, err = s.core.GetPermittedSecretValue(ctx, permitted)
 	}
 	if err != nil {
-		return nil, mapSecretError(err)
+		return nil, mapSecretReadError(err)
 	}
 	// Record the read in the audit trail and secret-access log — the same call the
 	// HTTP reveal handler fires. Without it, a secret read over gRPC left no
@@ -652,6 +653,34 @@ func authorizeSecretScoped(ctx context.Context, cs *core.KeyorixCore, actor *int
 	}
 	return enforceProjectMFA(ctx, cs, actor, secret.ProjectID)
 }
+
+// mapSecretReadError is mapSecretError for a secret read whose authorization
+// (authorizeSecretScoped, then the per-user check for a human) already passed:
+// a refusal by the secret's own state gets its own code and fixed message
+// (ERRMAP-1) instead of Internal — PermissionDenied for the access schedule,
+// FailedPrecondition for expired, suspended and max-reads exhausted. The
+// stable code the REST twin (server/http/handlers' sendSecretReadRefusal) puts
+// in the `error` field rides here as an ErrorInfo detail's Reason. Never use it
+// before authorization: a refusal names the secret's state, which would
+// confirm the secret exists to a caller who cannot see it.
+func mapSecretReadError(err error) error {
+	refusal, ok := core.ClassifySecretReadRefusal(err)
+	if !ok {
+		return mapSecretError(err)
+	}
+	code := codes.FailedPrecondition
+	if refusal.Kind == core.SecretReadRefusalDenied {
+		code = codes.PermissionDenied
+	}
+	st := status.New(code, refusal.Message)
+	if withInfo, derr := st.WithDetails(&errdetails.ErrorInfo{Reason: refusal.Code, Domain: SecretReadRefusalDomain}); derr == nil {
+		st = withInfo
+	}
+	return st.Err()
+}
+
+// SecretReadRefusalDomain is the ErrorInfo.Domain of a secret-read refusal.
+const SecretReadRefusalDomain = "keyorix.secrets"
 
 // mapSecretError translates core errors into gRPC status codes.
 func mapSecretError(err error) error {

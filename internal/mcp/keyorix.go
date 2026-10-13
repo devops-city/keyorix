@@ -146,6 +146,26 @@ func (c *KeyorixClient) ListSecrets(ctx context.Context, environment string) ([]
 }
 
 // getJSON performs an authenticated GET and decodes the {"data": …} envelope into out.
+// secretStateRefusal returns a fixed description of a 403/409 whose envelope names a
+// secret-state refusal of a value read (server/http/handlers/openapi.yaml,
+// SecretReadRefused; ERRMAP-1), or "" for any other body. The token is fine in these
+// cases, so "not authorized" would send the assistant after the wrong fix. The text
+// is local, never the server's.
+func secretStateRefusal(resp *http.Response) string {
+	var env struct {
+		Error string `json:"error"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&env) != nil {
+		return ""
+	}
+	return map[string]string{
+		"SecretAccessOutsideSchedule": "the secret is outside its access schedule (SecretAccessOutsideSchedule)",
+		"SecretExpired":               "the secret has expired (SecretExpired)",
+		"SecretSuspended":             "the secret is suspended (SecretSuspended)",
+		"SecretMaxReadsExhausted":     "the secret has reached its maximum number of reads (SecretMaxReadsExhausted)",
+	}[env.Error]
+}
+
 func (c *KeyorixClient) getJSON(ctx context.Context, path string, out interface{}) error {
 	// c.hc (built in NewKeyorixClient above) already sets CheckRedirect to
 	// refuseRedirect, and c.baseURL is scheme-validated by validateKeyorixClientURL in
@@ -164,6 +184,11 @@ func (c *KeyorixClient) getJSON(ctx context.Context, path string, out interface{
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusConflict {
+		if reason := secretStateRefusal(resp); reason != "" {
+			return fmt.Errorf("%s (HTTP %d)", reason, resp.StatusCode)
+		}
+	}
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
 		return fmt.Errorf("not authorized (HTTP %d) — check the token and its secrets.read permission", resp.StatusCode)

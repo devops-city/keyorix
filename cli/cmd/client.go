@@ -220,14 +220,38 @@ func apiError(action string, statusCode int, body []byte) error {
 // the caller has no MFA enrolled (server/middleware/auth.go).
 const errCodeMFAEnrollmentRequired = "MFAEnrollmentRequired"
 
+// Codes the server sends when a secret's own state refuses a value read
+// (ERRMAP-1, server/http/handlers/openapi.yaml's SecretReadRefused): 403 for the
+// schedule, 409 for the others.
+const (
+	errCodeSecretOutsideSchedule   = "SecretAccessOutsideSchedule"
+	errCodeSecretExpired           = "SecretExpired"
+	errCodeSecretSuspended         = "SecretSuspended"
+	errCodeSecretMaxReadsExhausted = "SecretMaxReadsExhausted"
+)
+
 // nextStepHint returns a " Next step: ..." suffix for server error codes that
-// have one fixed remedy, or "". Today only MFA enrolment: without it a fresh
-// admin logs in successfully and then every command fails (#2937).
+// have one fixed remedy, or "". MFA enrolment: without it a fresh admin logs in
+// successfully and then every command fails (#2937). The secret read refusals:
+// each names the command that lifts it (run by someone allowed to).
 func nextStepHint(eb apiErrorBody) string {
-	if eb.Error == errCodeMFAEnrollmentRequired {
+	switch eb.Error {
+	case errCodeMFAEnrollmentRequired:
 		return " Next step: this server requires multi-factor authentication. " +
 			"Enrol MFA with `keyorix mfa enroll`, then `keyorix mfa activate`, " +
 			"then log in again with `keyorix login` (it prompts for the code)."
+	case errCodeSecretOutsideSchedule:
+		return " Next step: read it inside its access window " +
+			"(`keyorix secret get-schedule <secret-id>` shows it)."
+	case errCodeSecretExpired:
+		return " Next step: someone with secrets.write can extend the expiration " +
+			"(`keyorix secret update --id <secret-id> --expires <RFC3339>` or `--clear-expiration`)."
+	case errCodeSecretSuspended:
+		return " Next step: someone with secrets.write can resume it " +
+			"(`keyorix secret resume --id <secret-id>`)."
+	case errCodeSecretMaxReadsExhausted:
+		return " Next step: someone with secrets.write can raise the limit " +
+			"(`keyorix secret update --id <secret-id> --max-reads <n>`, n above the reads already made)."
 	}
 	return ""
 }

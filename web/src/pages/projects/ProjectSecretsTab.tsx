@@ -229,6 +229,7 @@ const SecretsTableContent: React.FC<SecretsTableContentProps> = ({
                             copyingId={reveal.copyingSecretId}
                             copiedId={reveal.copiedSecretId}
                             copyErrorId={reveal.copyErrorId}
+                            copyError={reveal.copyError}
                         />
                     ))}
                 </tbody>

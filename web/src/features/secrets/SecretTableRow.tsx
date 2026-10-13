@@ -31,6 +31,8 @@ interface SecretTableRowProps {
     copyingId: number | null;
     copiedId: number | null;
     copyErrorId: number | null;
+    // Why the copy failed (the server's reason), shown while copyErrorId is this row.
+    copyError?: string | null;
 }
 
 import { useUIStore } from '../../store/uiStore';
@@ -110,6 +112,7 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
     copyingId,
     copiedId,
     copyErrorId,
+    copyError,
 }) => {
     const can = useCan();
     // Update value/metadata and rotate: the role union, or a write share on this one secret
@@ -236,7 +239,8 @@ export const SecretTableRow: React.FC<SecretTableRowProps> = ({
                     <button
                         type="button"
                         onClick={() => onCopy(secret)}
-                        title="Copy value"
+                        title={copyErrorId === secret.id && copyError ? copyError : 'Copy value'}
+                        aria-label={copyErrorId === secret.id && copyError ? copyError : 'Copy value'}
                         disabled={copyingId === secret.id}
                         className={`p-1 transition-colors ${copyErrorId === secret.id ? 'text-red-500' : 'text-base-muted hover:text-base-primary'}`}
                     >

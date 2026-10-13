@@ -7,17 +7,22 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -40,9 +45,14 @@ type fakeFetcher struct {
 	failRefs         map[string]bool
 	goneRefs         map[string]bool
 	unauthorizedRefs map[string]bool
+	// errRefs returns the given error for a ref (e.g. one wrapping keyorix.ErrTimeout).
+	errRefs map[string]error
 }
 
 func (f *fakeFetcher) FetchValue(_ context.Context, ref string) ([]byte, error) {
+	if err := f.errRefs[ref]; err != nil {
+		return nil, err
+	}
 	if f.goneRefs[ref] {
 		return nil, fmt.Errorf("ref %q gone: %w", ref, keyorix.ErrSecretGone)
 	}
@@ -57,6 +67,14 @@ func (f *fakeFetcher) FetchValue(_ context.Context, ref string) ([]byte, error) 
 		return nil, errors.New("not found")
 	}
 	return v, nil
+}
+
+func counterValue(c prometheus.Counter) float64 {
+	var m dto.Metric
+	if err := c.Write(&m); err != nil {
+		panic(err)
+	}
+	return m.GetCounter().GetValue()
 }
 
 func testScheme(t *testing.T) *runtime.Scheme {
@@ -289,9 +307,9 @@ func TestReconcile_UpstreamGoneWipesTargetSecret(t *testing.T) {
 // half: a genuinely transient/ambiguous failure (network error, timeout, 5xx — anything
 // that is neither ErrSecretGone nor ErrUnauthorized) must NOT touch a previously synced
 // target Secret. Wiping it on every hiccup would cause unnecessary outages for every
-// workload depending on it. (A 401/ErrUnauthorized is deliberately NOT exercised here
-// any more — see TestReconcile_UnauthorizedWipesTargetSecretWithDistinctReason below,
-// which now DOES wipe on 401, since it's treated as a revoked/rotated credential.)
+// workload depending on it. (A 401/ErrUnauthorized is covered by
+// TestReconcile_Unauthorized_KeepsTargetSecretThenRecovers: it keeps the Secret too, but
+// reports KeyorixAuthFailed.)
 func TestReconcile_TransientFetchFailureLeavesTargetSecretUntouched(t *testing.T) {
 	fetcher := &fakeFetcher{values: map[string][]byte{
 		"app/production/db-password": []byte("p4ss"),
@@ -323,45 +341,314 @@ func TestReconcile_TransientFetchFailureLeavesTargetSecretUntouched(t *testing.T
 	assert.Equal(t, "SyncError", ks.Status.Conditions[0].Reason, "a transient failure keeps the generic SyncError reason")
 }
 
-// TestReconcile_UnauthorizedWipesTargetSecretWithDistinctReason pins the fix for the
-// bug where only a confirmed-gone 404/403 wiped the target Secret: revoking or rotating
-// the machine-identity credential (the overwhelmingly common real-world way an admin
-// cuts a workload's access) surfaces as a 401, not a 404/403, and a 401 was previously
-// routed into the generic r.fail() branch that leaves the previously-synced target
-// Secret untouched — so every Pod mounting it kept reading the revoked value
-// indefinitely. A 401 (keyorix.ErrUnauthorized) must now wipe the target Secret the same
-// way ErrSecretGone does, with a status reason ("UpstreamAccessRevoked") that is still
-// distinguishable from a confirmed-gone secret ("UpstreamSecretGone").
-func TestReconcile_UnauthorizedWipesTargetSecretWithDistinctReason(t *testing.T) {
+// TestReconcile_Unauthorized_KeepsTargetSecretThenRecovers pins Andrei's 2026-10-13
+// decision: a 401 means the operator's OWN credential was rejected (invalid, expired,
+// rotated), not that this workload's grant was cut, so it never wipes the target Secret,
+// whatever prunePolicy says. It reports KeyorixAuthFailed (condition + Warning Event +
+// metric), still returns the error so the workqueue backs off, and once the credential
+// is fixed the next reconcile syncs normally.
+func TestReconcile_Unauthorized_KeepsTargetSecretThenRecovers(t *testing.T) {
+	for _, pol := range []secretsv1alpha1.PrunePolicy{secretsv1alpha1.PrunePolicyDelete, secretsv1alpha1.PrunePolicyKeep} {
+		t.Run(string(pol), func(t *testing.T) {
+			fetcher := &fakeFetcher{values: map[string][]byte{
+				"app/production/db-password": []byte("p4ss"),
+				"app/production/api-key":     []byte("k3y"),
+			}}
+			ks := ksFixture()
+			ks.Spec.PrunePolicy = pol
+			r, c := newReconciler(t, fetcher, ks, tokenSecret())
+			rec := events.NewFakeRecorder(32)
+			r.Recorder = rec
+			_, err := reconcile(t, r)
+			require.NoError(t, err)
+
+			var before corev1.Secret
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &before))
+
+			fetcher.unauthorizedRefs = map[string]bool{"app/production/db-password": true}
+			metricBefore := counterValue(authFailuresTotal)
+
+			for i := 0; i < 2; i++ {
+				_, err = reconcile(t, r)
+				require.Error(t, err, "a 401 still requeues with error for backoff")
+				assert.True(t, errors.Is(err, keyorix.ErrUnauthorized))
+			}
+
+			var after corev1.Secret
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &after),
+				"a 401 must never wipe the target Secret")
+			assert.Equal(t, before.Data, after.Data)
+			assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "the Secret must not even be rewritten")
+
+			var got secretsv1alpha1.KeyorixSecret
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &got))
+			require.Len(t, got.Status.Conditions, 1)
+			assert.Equal(t, metav1.ConditionFalse, got.Status.Conditions[0].Status)
+			assert.Equal(t, "UpstreamAccessRevoked", got.Status.Conditions[0].Reason,
+				"the Ready reason existing alerts match on is kept (REVIEW-3175B c)")
+			assert.Contains(t, got.Status.Conditions[0].Message, "KeyorixAuthFailed:", "the precise cause is in the message")
+			assert.Contains(t, got.Status.Conditions[0].Message, "left unchanged")
+			assert.Equal(t, metricBefore+2, counterValue(authFailuresTotal), "one count per failed reconcile")
+			evs := drainEvents(rec)
+			require.Len(t, evs, 1, "one Warning Event per entry into the state, not per retry")
+			assert.Contains(t, evs[0], corev1.EventTypeWarning)
+			assert.Contains(t, evs[0], "KeyorixAuthFailed")
+
+			// The credential is fixed: the next reconcile syncs normally.
+			fetcher.unauthorizedRefs = nil
+			fetcher.values["app/production/db-password"] = []byte("n3w")
+			_, err = reconcile(t, r)
+			require.NoError(t, err)
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &after))
+			assert.Equal(t, []byte("n3w"), after.Data["DB_PASSWORD"])
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &got))
+			assert.Equal(t, metav1.ConditionTrue, got.Status.Conditions[0].Status)
+			assert.Equal(t, "Synced", got.Status.Conditions[0].Reason)
+		})
+	}
+}
+
+func fetchErrorCounter(reason string) float64 {
+	return counterValue(fetchErrorsTotal.WithLabelValues(reason))
+}
+
+// TestReconcile_FetchUnavailable_KeepsTargetSecretThenRecovers pins Andrei's 2026-10-13
+// decision for "Keyorix could not answer" (unreachable, timeout, 5xx): the target Secret
+// is kept byte-for-byte, Ready keeps reason SyncError with a KeyorixUnreachable message, ONE Warning Event is raised on
+// entry (not per retry), keyorix_operator_fetch_errors_total{reason} counts every failed
+// reconcile, the error is still returned for backoff, and the first successful read
+// clears the state with a Normal KeyorixRecovered Event.
+func TestReconcile_FetchUnavailable_KeepsTargetSecretThenRecovers(t *testing.T) {
+	cases := []struct {
+		reason string
+		err    error
+	}{
+		{"unreachable", fmt.Errorf("request failed: dial tcp: connection refused: %w", keyorix.ErrUnreachable)},
+		{"timeout", fmt.Errorf("request failed: context deadline exceeded: %w", keyorix.ErrTimeout)},
+		{"server_error", fmt.Errorf("server returned HTTP 503: %w", keyorix.ErrServerError)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.reason, func(t *testing.T) {
+			fetcher := &fakeFetcher{values: map[string][]byte{
+				"app/production/db-password": []byte("p4ss"),
+				"app/production/api-key":     []byte("k3y"),
+			}}
+			r, c := newReconciler(t, fetcher, ksFixture(), tokenSecret())
+			rec := events.NewFakeRecorder(32)
+			r.Recorder = rec
+			_, err := reconcile(t, r)
+			require.NoError(t, err)
+			require.Empty(t, drainEvents(rec), "a healthy first sync raises no Event")
+
+			var before corev1.Secret
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &before))
+
+			fetcher.errRefs = map[string]error{"app/production/db-password": tc.err}
+			metricBefore := fetchErrorCounter(tc.reason)
+			othersBefore := map[string]float64{}
+			for _, o := range []string{"unreachable", "timeout", "server_error"} {
+				if o != tc.reason {
+					othersBefore[o] = fetchErrorCounter(o)
+				}
+			}
+
+			for i := 0; i < 2; i++ {
+				_, err = reconcile(t, r)
+				require.Error(t, err, "still requeues with error for backoff")
+				assert.False(t, errors.Is(err, keyorix.ErrSecretGone), "never classified as gone")
+			}
+
+			var after corev1.Secret
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &after))
+			assert.Equal(t, before.Data, after.Data)
+			assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "the Secret must not even be rewritten")
+
+			var got secretsv1alpha1.KeyorixSecret
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &got))
+			require.Len(t, got.Status.Conditions, 1)
+			assert.Equal(t, metav1.ConditionFalse, got.Status.Conditions[0].Status)
+			assert.Equal(t, "SyncError", got.Status.Conditions[0].Reason, "the Ready reason is unchanged from before #3175")
+			assert.True(t, strings.HasPrefix(got.Status.Conditions[0].Message, "KeyorixUnreachable: "), "the detail leads the message")
+			assert.Contains(t, got.Status.Conditions[0].Message, "left unchanged")
+			assert.Contains(t, got.Status.Conditions[0].Message, tc.reason)
+			assert.Equal(t, metricBefore+2, fetchErrorCounter(tc.reason), "one count per failed reconcile")
+			for o, v := range othersBefore {
+				assert.Equal(t, v, fetchErrorCounter(o), "only reason=%s moves", tc.reason)
+			}
+			evs := drainEvents(rec)
+			require.Len(t, evs, 1, "one Warning Event per entry into the state, not per retry")
+			assert.Contains(t, evs[0], corev1.EventTypeWarning)
+			assert.Contains(t, evs[0], "KeyorixUnreachable")
+
+			// Keyorix answers again: syncs, Ready=True, exactly one Normal recovery Event.
+			fetcher.errRefs = nil
+			fetcher.values["app/production/db-password"] = []byte("n3w")
+			_, err = reconcile(t, r)
+			require.NoError(t, err)
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &after))
+			assert.Equal(t, []byte("n3w"), after.Data["DB_PASSWORD"])
+			require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &got))
+			assert.Equal(t, metav1.ConditionTrue, got.Status.Conditions[0].Status)
+			assert.Equal(t, "Synced", got.Status.Conditions[0].Reason)
+			evs = drainEvents(rec)
+			require.Len(t, evs, 1)
+			assert.Contains(t, evs[0], corev1.EventTypeNormal)
+			assert.Contains(t, evs[0], "KeyorixRecovered")
+
+			// A later outage is a new entry: a new Warning Event; a further healthy pass is quiet.
+			fetcher.errRefs = map[string]error{"app/production/db-password": tc.err}
+			_, err = reconcile(t, r)
+			require.Error(t, err)
+			require.Len(t, drainEvents(rec), 1, "re-entry raises a fresh Warning Event")
+		})
+	}
+}
+
+// TestReconcile_FetchUnavailable_PlainErrorsStaySyncError: only classified Keyorix
+// could-not-answer errors get KeyorixUnreachable; anything else (here an unclassified
+// error, and a 4xx) stays the generic SyncError with no Event and no fetch_errors count.
+func TestReconcile_FetchUnavailable_PlainErrorsStaySyncError(t *testing.T) {
+	fetcher := &fakeFetcher{
+		values:   map[string][]byte{"app/production/db-password": []byte("p4ss"), "app/production/api-key": []byte("k3y")},
+		failRefs: map[string]bool{"app/production/db-password": true},
+	}
+	r, c := newReconciler(t, fetcher, ksFixture(), tokenSecret())
+	rec := events.NewFakeRecorder(32)
+	r.Recorder = rec
+	before := map[string]float64{}
+	for _, o := range []string{"unreachable", "timeout", "server_error"} {
+		before[o] = fetchErrorCounter(o)
+	}
+	_, err := reconcile(t, r)
+	require.Error(t, err)
+	var got secretsv1alpha1.KeyorixSecret
+	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &got))
+	assert.Equal(t, "SyncError", got.Status.Conditions[0].Reason)
+	assert.Empty(t, drainEvents(rec))
+	for o, v := range before {
+		assert.Equal(t, v, fetchErrorCounter(o))
+	}
+}
+
+// TestReconcile_DuplicateSecretKey_RejectedNothingWritten: a spec.data with two entries
+// sharing a secretKey (a CR stored before the CRD enforced uniqueness) is refused with
+// Ready=False/InvalidSpec and a Warning Event; no value is read, no Secret is created or
+// changed, and no error is returned (retrying cannot help). Fixing the spec syncs normally.
+func TestReconcile_DuplicateSecretKey_RejectedNothingWritten(t *testing.T) {
+	values := map[string][]byte{"app/production/db-password": []byte("p4ss"), "app/production/api-key": []byte("k3y")}
+	dupData := []secretsv1alpha1.KeyorixSecretData{
+		{SecretKey: "DB_PASSWORD", Ref: "app/production/db-password"},
+		{SecretKey: "DB_PASSWORD", Ref: "app/production/api-key"},
+	}
+	nn := types.NamespacedName{Name: "db", Namespace: "app"}
+	target := types.NamespacedName{Name: "db-creds", Namespace: "app"}
+
+	t.Run("fresh CR creates nothing", func(t *testing.T) {
+		ks := ksFixture()
+		ks.Spec.Data = dupData
+		fetcher := &fakeFetcher{values: values}
+		r, c := newReconciler(t, fetcher, ks, tokenSecret())
+		rec := events.NewFakeRecorder(32)
+		r.Recorder = rec
+		for i := 0; i < 2; i++ {
+			_, err := reconcile(t, r)
+			require.NoError(t, err)
+		}
+		var s corev1.Secret
+		assert.True(t, apierrors.IsNotFound(c.Get(context.Background(), target, &s)), "no Secret may be created")
+		var got secretsv1alpha1.KeyorixSecret
+		require.NoError(t, c.Get(context.Background(), nn, &got))
+		require.Len(t, got.Status.Conditions, 1)
+		assert.Equal(t, metav1.ConditionFalse, got.Status.Conditions[0].Status)
+		assert.Equal(t, "InvalidSpec", got.Status.Conditions[0].Reason)
+		assert.Contains(t, got.Status.Conditions[0].Message, "DB_PASSWORD")
+		evs := drainEvents(rec)
+		require.Len(t, evs, 1, "one Warning Event per entry, not per reconcile")
+		assert.Contains(t, evs[0], "InvalidSpec")
+	})
+
+	t.Run("existing Secret is left untouched, fixing the spec recovers", func(t *testing.T) {
+		fetcher := &fakeFetcher{values: values}
+		r, c := newReconciler(t, fetcher, ksFixture(), tokenSecret())
+		_, err := reconcile(t, r)
+		require.NoError(t, err)
+		var before corev1.Secret
+		require.NoError(t, c.Get(context.Background(), target, &before))
+
+		var ks secretsv1alpha1.KeyorixSecret
+		require.NoError(t, c.Get(context.Background(), nn, &ks))
+		ks.Spec.Data = dupData
+		require.NoError(t, c.Update(context.Background(), &ks))
+		_, err = reconcile(t, r)
+		require.NoError(t, err)
+
+		var after corev1.Secret
+		require.NoError(t, c.Get(context.Background(), target, &after))
+		assert.Equal(t, before.Data, after.Data)
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion, "the Secret must not be rewritten")
+		require.NoError(t, c.Get(context.Background(), nn, &ks))
+		assert.Equal(t, "InvalidSpec", ks.Status.Conditions[0].Reason)
+
+		// Unique keys again: syncs normally.
+		ks.Spec.Data = ksFixture().Spec.Data
+		require.NoError(t, c.Update(context.Background(), &ks))
+		_, err = reconcile(t, r)
+		require.NoError(t, err)
+		require.NoError(t, c.Get(context.Background(), nn, &ks))
+		assert.Equal(t, metav1.ConditionTrue, ks.Status.Conditions[0].Status)
+		assert.Equal(t, "Synced", ks.Status.Conditions[0].Reason)
+	})
+}
+
+// TestDuplicateSecretKey covers the helper directly: unique keys (including a single
+// entry) are fine, the first repeated key is returned.
+func TestDuplicateSecretKey(t *testing.T) {
+	d := func(keys ...string) []secretsv1alpha1.KeyorixSecretData {
+		var out []secretsv1alpha1.KeyorixSecretData
+		for _, k := range keys {
+			out = append(out, secretsv1alpha1.KeyorixSecretData{SecretKey: k})
+		}
+		return out
+	}
+	assert.Equal(t, "", duplicateSecretKey(d("A")))
+	assert.Equal(t, "", duplicateSecretKey(d("A", "B", "C")))
+	assert.Equal(t, "B", duplicateSecretKey(d("A", "B", "C", "B")))
+	assert.Equal(t, "A", duplicateSecretKey(d("A", "A")))
+}
+
+// TestReconcile_Unauthorized_SharedTokenNeverWipesAnyTarget: a rotated shared credential
+// 401s every CR built on it; none of their Secrets is touched, and (unlike 403/404) the
+// mass-revocation breaker is not even involved because nothing would be wiped.
+func TestReconcile_Unauthorized_SharedTokenNeverWipesAnyTarget(t *testing.T) {
+	ksA, ksB := sharedTokenFixtures()
 	fetcher := &fakeFetcher{values: map[string][]byte{
 		"app/production/db-password": []byte("p4ss"),
 		"app/production/api-key":     []byte("k3y"),
+		"app/production/other-token": []byte("t0k"),
 	}}
-	r, c := newReconciler(t, fetcher, ksFixture(), tokenSecret())
-	_, err := reconcile(t, r)
+	r, c := newReconciler(t, fetcher, ksA, ksB, tokenSecret())
+	req := func(name string) ctrl.Request {
+		return ctrl.Request{NamespacedName: types.NamespacedName{Name: name, Namespace: "app"}}
+	}
+	_, err := r.Reconcile(context.Background(), req("db"))
+	require.NoError(t, err)
+	_, err = r.Reconcile(context.Background(), req("api"))
 	require.NoError(t, err)
 
-	var got corev1.Secret
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &got),
-		"precondition: the target Secret exists after a successful sync")
-
-	// The bearer token is now rejected (401) — e.g. the machine-identity credential was
-	// revoked or rotated by an admin.
-	fetcher.unauthorizedRefs = map[string]bool{"app/production/db-password": true}
-
-	_, err = reconcile(t, r)
-	require.Error(t, err, "a 401 still requeues with error for backoff")
-	assert.True(t, errors.Is(err, keyorix.ErrUnauthorized))
-
-	err = c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &got)
-	assert.Error(t, err, "a 401 must wipe the target Secret the same way a confirmed-gone 404/403 does")
-
-	var ks secretsv1alpha1.KeyorixSecret
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &ks))
-	require.Len(t, ks.Status.Conditions, 1)
-	assert.Equal(t, metav1.ConditionFalse, ks.Status.Conditions[0].Status)
-	assert.Equal(t, "UpstreamAccessRevoked", ks.Status.Conditions[0].Reason,
-		"a 401 gets a status reason distinct from a confirmed-gone 404/403")
+	fetcher.unauthorizedRefs = map[string]bool{
+		"app/production/db-password": true,
+		"app/production/api-key":     true,
+		"app/production/other-token": true,
+	}
+	for _, name := range []string{"db", "api"} {
+		_, rerr := r.Reconcile(context.Background(), req(name))
+		assert.True(t, errors.Is(rerr, keyorix.ErrUnauthorized), name)
+		var ks secretsv1alpha1.KeyorixSecret
+		require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: name, Namespace: "app"}, &ks))
+		assert.Equal(t, "UpstreamAccessRevoked", ks.Status.Conditions[len(ks.Status.Conditions)-1].Reason, name)
+	}
+	assert.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &corev1.Secret{}))
+	assert.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "api-creds", Namespace: "app"}, &corev1.Secret{}))
 }
 
 // PrunePolicy Keep (ksFixtureKeep, an explicit opt-out — see
@@ -403,31 +690,6 @@ func TestReconcile_Keep_UpstreamGoneLeavesTargetSecretUntouched(t *testing.T) {
 		"the message must say explicitly that the Secret was left untouched, not silently wiped")
 }
 
-func TestReconcile_Keep_UnauthorizedLeavesTargetSecretUntouched(t *testing.T) {
-	fetcher := &fakeFetcher{values: map[string][]byte{
-		"app/production/db-password": []byte("p4ss"),
-		"app/production/api-key":     []byte("k3y"),
-	}}
-	r, c := newReconciler(t, fetcher, ksFixtureKeep(), tokenSecret())
-	_, err := reconcile(t, r)
-	require.NoError(t, err)
-
-	fetcher.unauthorizedRefs = map[string]bool{"app/production/db-password": true}
-
-	_, err = reconcile(t, r)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, keyorix.ErrUnauthorized))
-
-	var after corev1.Secret
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &after),
-		"prunePolicy is Keep: the target Secret must NOT be wiped on a 401 either")
-
-	var ks secretsv1alpha1.KeyorixSecret
-	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &ks))
-	assert.Equal(t, "UpstreamAccessRevoked", ks.Status.Conditions[0].Reason)
-	assert.Contains(t, ks.Status.Conditions[0].Message, "prunePolicy is Keep")
-}
-
 // TestReconcile_Keep_SharedTokenRevocationDoesNotMassDeleteAllTargets: with
 // PrunePolicy explicitly Keep, reconciling every CR sharing a revoked token must NOT
 // delete any target Secret — the explicit opt-out is unconditional, independent of
@@ -459,16 +721,16 @@ func TestReconcile_Keep_SharedTokenRevocationDoesNotMassDeleteAllTargets(t *test
 	require.NoError(t, err)
 
 	// The shared credential is now revoked -- every ref behind it fails identically.
-	fetcher.unauthorizedRefs = map[string]bool{
+	fetcher.goneRefs = map[string]bool{
 		"app/production/db-password": true,
 		"app/production/api-key":     true,
 		"app/production/other-token": true,
 	}
 
 	_, errA := r.Reconcile(context.Background(), req("db"))
-	assert.True(t, errors.Is(errA, keyorix.ErrUnauthorized))
+	assert.True(t, errors.Is(errA, keyorix.ErrSecretGone))
 	_, errB := r.Reconcile(context.Background(), req("api"))
-	assert.True(t, errors.Is(errB, keyorix.ErrUnauthorized))
+	assert.True(t, errors.Is(errB, keyorix.ErrSecretGone))
 
 	var dbCreds, apiCreds corev1.Secret
 	assert.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &dbCreds),
@@ -519,16 +781,16 @@ func TestReconcile_Delete_SharedTokenMassRevocationTripsCircuitBreaker(t *testin
 	require.NoError(t, err)
 
 	// The shared credential is now revoked -- every ref behind it fails identically.
-	fetcher.unauthorizedRefs = map[string]bool{
+	fetcher.goneRefs = map[string]bool{
 		"app/production/db-password": true,
 		"app/production/api-key":     true,
 		"app/production/other-token": true,
 	}
 
 	_, errA := r.Reconcile(context.Background(), req("db"))
-	assert.True(t, errors.Is(errA, keyorix.ErrUnauthorized))
+	assert.True(t, errors.Is(errA, keyorix.ErrSecretGone))
 	_, errB := r.Reconcile(context.Background(), req("api"))
-	assert.True(t, errors.Is(errB, keyorix.ErrUnauthorized))
+	assert.True(t, errors.Is(errB, keyorix.ErrSecretGone))
 
 	var dbCreds, apiCreds corev1.Secret
 	assert.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &dbCreds),
@@ -569,14 +831,14 @@ func TestReconcile_Delete_SharedTokenMassRevocationProceedsWithAck(t *testing.T)
 	_, err = r.Reconcile(context.Background(), req("api"))
 	require.NoError(t, err)
 
-	fetcher.unauthorizedRefs = map[string]bool{
+	fetcher.goneRefs = map[string]bool{
 		"app/production/db-password": true,
 		"app/production/api-key":     true,
 		"app/production/other-token": true,
 	}
 
 	_, errA := r.Reconcile(context.Background(), req("db"))
-	assert.True(t, errors.Is(errA, keyorix.ErrUnauthorized))
+	assert.True(t, errors.Is(errA, keyorix.ErrSecretGone))
 
 	err = c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &corev1.Secret{})
 	assert.Error(t, err, "a fresh ack on this CR proceeds with the wipe despite the breaker's own threshold being crossed")
@@ -584,7 +846,7 @@ func TestReconcile_Delete_SharedTokenMassRevocationProceedsWithAck(t *testing.T)
 	var ks secretsv1alpha1.KeyorixSecret
 	require.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db", Namespace: "app"}, &ks))
 	last := ks.Status.Conditions[len(ks.Status.Conditions)-1]
-	assert.Equal(t, "UpstreamAccessRevoked", last.Reason, "an acked wipe still records the underlying cause, not a generic success or the Suspected reason")
+	assert.Equal(t, "UpstreamSecretGone", last.Reason, "an acked wipe still records the underlying cause, not a generic success or the Suspected reason")
 }
 
 // TestReconcile_Delete_SharedTokenMassRevocationIgnoresStaleAck confirms
@@ -611,14 +873,14 @@ func TestReconcile_Delete_SharedTokenMassRevocationIgnoresStaleAck(t *testing.T)
 	_, err = r.Reconcile(context.Background(), req("api"))
 	require.NoError(t, err)
 
-	fetcher.unauthorizedRefs = map[string]bool{
+	fetcher.goneRefs = map[string]bool{
 		"app/production/db-password": true,
 		"app/production/api-key":     true,
 		"app/production/other-token": true,
 	}
 
 	_, errA := r.Reconcile(context.Background(), req("db"))
-	assert.True(t, errors.Is(errA, keyorix.ErrUnauthorized))
+	assert.True(t, errors.Is(errA, keyorix.ErrSecretGone))
 
 	var dbCreds corev1.Secret
 	assert.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "db-creds", Namespace: "app"}, &dbCreds),

@@ -193,7 +193,11 @@ func fetchSecretValuesForExport(ctx context.Context, client *apiclient.ClientWit
 	trueVal := true
 	for _, s := range list {
 		resp, err := client.GetSecretWithResponse(ctx, s.ID, &apiclient.GetSecretParams{IncludeValue: &trueVal})
-		if err != nil || resp.StatusCode() != 200 {
+		if err == nil && resp.StatusCode() != 200 {
+			// The server's reason, e.g. a secret that is expired or suspended (ERRMAP-1).
+			err = httpStatusError("read refused", resp.StatusCode(), resp.Body)
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: skipping %q (id=%d): %v\n", s.Name, s.ID, err)
 			continue
 		}

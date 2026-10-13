@@ -480,13 +480,13 @@ func rrEquivalence(t *testing.T, backend string) {
 			row.Expiration = &past
 			require.NoError(t, r.db.Save(&row).Error)
 		}, func(*models.SecretNode) rrOutcome {
-			return rrDenied(http.StatusInternalServerError, "InternalError", "Failed to get secret")
+			return rrDenied(http.StatusConflict, "SecretExpired", "secret has expired; its value can no longer be read")
 		}},
 		{"schedule denies", "dev", rrGetMeta, func(s *models.SecretNode) {
 			_, err := c.SetSecretSchedule(ctx, s.ID, rrNotTodayOrTomorrow(), 0, 24, "UTC")
 			require.NoError(t, err)
 		}, func(*models.SecretNode) rrOutcome {
-			return rrDenied(http.StatusForbidden, "Forbidden", core.ErrAccessOutsideSchedule.Error())
+			return rrDenied(http.StatusForbidden, "SecretAccessOutsideSchedule", core.ErrAccessOutsideSchedule.Error())
 		}},
 		// By reference: the gate resolves by name (ResolveSecretRef) and the decision
 		// reuses that row.

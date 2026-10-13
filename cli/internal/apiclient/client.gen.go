@@ -19973,6 +19973,7 @@ type RenderSecretTemplateResponse struct {
 	JSON401 *Error
 	JSON403 *Error
 	JSON404 *Error
+	JSON409 *SecretReadRefused
 }
 
 // Status returns HTTPResponse.Status
@@ -20880,6 +20881,7 @@ type GetSecretValueByRefResponse struct {
 	JSON401 *Error
 	JSON403 *Error
 	JSON404 *Error
+	JSON409 *SecretReadRefused
 }
 
 // Status returns HTTPResponse.Status
@@ -20934,6 +20936,7 @@ type GetSecretResponse struct {
 	JSON401 *Error
 	JSON403 *Error
 	JSON404 *Error
+	JSON409 *SecretReadRefused
 }
 
 // Status returns HTTPResponse.Status
@@ -31674,6 +31677,13 @@ func ParseRenderSecretTemplateResponse(rsp *http.Response) (*RenderSecretTemplat
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest SecretReadRefused
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -33170,6 +33180,13 @@ func ParseGetSecretValueByRefResponse(rsp *http.Response) (*GetSecretValueByRefR
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest SecretReadRefused
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
 	}
 
 	return response, nil
@@ -33273,6 +33290,13 @@ func ParseGetSecretResponse(rsp *http.Response) (*GetSecretResponse, error) {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest SecretReadRefused
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

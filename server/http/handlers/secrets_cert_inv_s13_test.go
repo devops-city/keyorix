@@ -87,7 +87,10 @@ func TestGetSecretCertificate_Suspended_S13(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.GetSecretCertificate(w, req)
 
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	// ERRMAP-1 follow-up: a suspended secret is 409 SecretSuspended, as on the
+	// value routes (it was 400 by string matching).
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Equal(t, "SecretSuspended", wireOf(t, w).Error)
 }
 
 // ── GetSecretCertificate: non-parseable value → 400 ─────────────────────────

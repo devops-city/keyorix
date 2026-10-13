@@ -3,6 +3,7 @@ package keyorix
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -129,10 +130,8 @@ func TestClient_FetchValueNetworkErrorIsNotGone(t *testing.T) {
 
 // TestClient_FetchValueUnauthorizedWrapsErrUnauthorized pins the 401 classification the
 // operator controller relies on: a 401 must wrap ErrUnauthorized (distinct from
-// ErrSecretGone, which stays reserved for a confirmed 404/403) so the controller can
-// treat a revoked/rotated bearer token as an access-cut signal worth wiping the target
-// Secret for, while still recording a status reason distinct from a confirmed-gone
-// secret.
+// ErrSecretGone, which stays reserved for a confirmed 404/403) so the controller keeps
+// the target Secret and reports KeyorixAuthFailed instead of wiping it.
 func TestClient_FetchValueUnauthorizedWrapsErrUnauthorized(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
@@ -143,6 +142,112 @@ func TestClient_FetchValueUnauthorizedWrapsErrUnauthorized(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrUnauthorized), "a 401 must wrap ErrUnauthorized")
 	assert.False(t, errors.Is(err, ErrSecretGone), "a 401 must NOT wrap ErrSecretGone — it says nothing about the referenced secret's own fate")
+}
+
+// TestClient_StatusDecidesClassification: the 401 / 403 / 404 split comes from the HTTP
+// status alone, never from message text. A 401 whose body says "not found" is still
+// ErrUnauthorized; a 404 or 403 whose body says "unauthorized" is still ErrSecretGone.
+func TestClient_StatusDecidesClassification(t *testing.T) {
+	cases := []struct {
+		status   int
+		body     string
+		wantAuth bool
+		wantGone bool
+	}{
+		{http.StatusUnauthorized, `{"error":"not found","message":"secret revoked, access forbidden"}`, true, false},
+		{http.StatusNotFound, `{"error":"unauthorized","message":"bearer token rejected"}`, false, true},
+		{http.StatusForbidden, `{"error":"unauthorized","message":"401 invalid token"}`, false, true},
+	}
+	for _, tc := range cases {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		_, err := New(srv.URL, "tok").FetchValue(context.Background(), "a/b/c")
+		srv.Close()
+		require.Error(t, err)
+		assert.Equal(t, tc.wantAuth, errors.Is(err, ErrUnauthorized), "status %d", tc.status)
+		assert.Equal(t, tc.wantGone, errors.Is(err, ErrSecretGone), "status %d", tc.status)
+	}
+}
+
+// TestClient_CouldNotAnswerClassification: connection refused, a timed-out request and a
+// 5xx are classified ErrUnreachable / ErrTimeout / ErrServerError from the transport error
+// and the status alone, each exclusive of the others and never gone/unauthorized. A
+// cancelled context and a plain 4xx are none of them.
+func TestClient_CouldNotAnswerClassification(t *testing.T) {
+	sentinels := []error{ErrUnreachable, ErrTimeout, ErrServerError}
+	check := func(t *testing.T, err error, want error) {
+		t.Helper()
+		require.Error(t, err)
+		for _, s := range sentinels {
+			assert.Equal(t, s == want, errors.Is(err, s), "%v vs %v", err, s)
+		}
+		assert.False(t, errors.Is(err, ErrSecretGone))
+		assert.False(t, errors.Is(err, ErrUnauthorized))
+	}
+
+	t.Run("unreachable", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		url := srv.URL
+		srv.Close()
+		_, err := New(url, "tok").FetchValue(context.Background(), "a/b/c")
+		check(t, err, ErrUnreachable)
+	})
+
+	t.Run("client timeout", func(t *testing.T) {
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+		defer srv.Close()
+		defer close(release)
+		c := New(srv.URL, "tok")
+		c.hc.Timeout = 50 * time.Millisecond
+		_, err := c.FetchValue(context.Background(), "a/b/c")
+		check(t, err, ErrTimeout)
+	})
+
+	t.Run("context deadline", func(t *testing.T) {
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+		defer srv.Close()
+		defer close(release)
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		_, err := New(srv.URL, "tok").FetchValue(ctx, "a/b/c")
+		check(t, err, ErrTimeout)
+	})
+
+	for _, status := range []int{500, 502, 503, 504} {
+		t.Run(fmt.Sprintf("http %d", status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":"not found","message":"unauthorized"}`))
+			}))
+			defer srv.Close()
+			_, err := New(srv.URL, "tok").FetchValue(context.Background(), "a/b/c")
+			check(t, err, ErrServerError)
+		})
+	}
+
+	t.Run("plain 4xx is none of them", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+		}))
+		defer srv.Close()
+		_, err := New(srv.URL, "tok").FetchValue(context.Background(), "a/b/c")
+		check(t, err, nil)
+	})
+
+	t.Run("cancelled context is none of them", func(t *testing.T) {
+		release := make(chan struct{})
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+		defer srv.Close()
+		defer close(release)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := New(srv.URL, "tok").FetchValue(ctx, "a/b/c")
+		check(t, err, nil)
+	})
 }
 
 // TestClient_RefusesRedirect pins the fix for a bearer-token-leak-on-downgrade bug: Go's
@@ -246,6 +351,70 @@ func TestIsLoopbackHost(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.host, func(t *testing.T) {
 			assert.Equal(t, tc.want, isLoopbackHost(tc.host))
+		})
+	}
+}
+
+// ERRMAP-1: the server names a secret-state refusal with a code. None of them is an
+// access-cut signal: outside the access schedule and max-reads exhausted are
+// ErrSecretUnavailable, suspended is ErrSecretSuspended and expired is ErrSecretExpired
+// (FIX-3175B: the controller retains the target Secret for all of them and never wipes).
+// A bare 403 without a code stays ErrSecretGone, and an unrelated 409 is none of them.
+func TestClient_FetchValueSecretStateRefusals(t *testing.T) {
+	cases := []struct {
+		status                                int
+		code                                  string
+		gone, unavailable, suspended, expired bool
+	}{
+		{http.StatusForbidden, "SecretAccessOutsideSchedule", false, true, false, false},
+		{http.StatusConflict, "SecretMaxReadsExhausted", false, true, false, false},
+		{http.StatusConflict, "SecretSuspended", false, false, true, false},
+		{http.StatusConflict, "SecretExpired", false, false, false, true},
+		{http.StatusForbidden, "Forbidden", true, false, false, false},
+		{http.StatusConflict, "ConflictError", false, false, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.code, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = fmt.Fprintf(w, `{"success":false,"code":%d,"error":%q,"message":"refused"}`, tc.status, tc.code)
+			}))
+			defer srv.Close()
+			_, err := New(srv.URL, "tok").FetchValue(context.Background(), "a/b/c")
+			require.Error(t, err)
+			assert.Equal(t, tc.gone, errors.Is(err, ErrSecretGone), "ErrSecretGone for %d %s: %v", tc.status, tc.code, err)
+			assert.Equal(t, tc.unavailable, errors.Is(err, ErrSecretUnavailable), "ErrSecretUnavailable for %d %s: %v", tc.status, tc.code, err)
+			assert.Equal(t, tc.suspended, errors.Is(err, ErrSecretSuspended), "ErrSecretSuspended for %d %s: %v", tc.status, tc.code, err)
+			assert.Equal(t, tc.expired, errors.Is(err, ErrSecretExpired), "ErrSecretExpired for %d %s: %v", tc.status, tc.code, err)
+		})
+	}
+}
+
+// FetchValueInfo reports the source secret's expiration alongside the value.
+func TestClient_FetchValueInfo_Expiration(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		wantExp    string
+	}{
+		{"with expiration", `{"data":{"value":"v","secret":{"expiration":"2030-01-02T03:04:05Z"}}}`, "2030-01-02T03:04:05Z"},
+		{"null expiration", `{"data":{"value":"v","secret":{"expiration":null}}}`, ""},
+		{"no secret block", `{"data":{"value":"v"}}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+			v, err := New(srv.URL, "tok").FetchValueInfo(context.Background(), "a/b/c")
+			require.NoError(t, err)
+			assert.Equal(t, "v", string(v.Data))
+			if tc.wantExp == "" {
+				assert.Nil(t, v.Expiration)
+				return
+			}
+			require.NotNil(t, v.Expiration)
+			assert.Equal(t, tc.wantExp, v.Expiration.UTC().Format("2006-01-02T15:04:05Z"))
 		})
 	}
 }
