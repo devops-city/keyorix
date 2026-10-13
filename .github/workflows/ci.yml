@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   pull_request:
     # `labeled` added (on top of the implicit opened/synchronize/reopened
     # default) so adding the ci:full label actually fires a new run -- a
@@ -16,7 +16,9 @@ on:
     # chains (each PR in a stack targets its predecessor's branch, not main
     # directly, until it's that PR's turn to land) — without these, a PR
     # based on a sibling feature branch never triggers CI at all.
-    branches: [main, 'adr082/**', 'feat/**', 'fix/**']
+    # release/** (2026-10-13, Andrei approved): patch releases are cut from
+    # release/vX.Y.x branches at the tag commit, and their PRs need CI too.
+    branches: [main, 'release/**', 'adr082/**', 'feat/**', 'fix/**']
   # Merge queue. Every REQUIRED status check must also report on the
   # merge_group event or the queue never merges anything -- a check that
   # simply does not run is indistinguishable from one still pending, and it
@@ -469,6 +471,14 @@ jobs:
             echo "ok: base is main"
             exit 0
           fi
+          # Release branches (release/vX.Y.x) are long-lived targets of their own,
+          # not stacked feature branches: a PR into one lands there by design.
+          case "$BASE_REF" in
+            release/*)
+              echo "ok: base is release branch '$BASE_REF'"
+              exit 0
+              ;;
+          esac
           case ",$LABELS," in
             *,stacked-pr,*)
               echo "ok: base is '$BASE_REF', but PR is labeled stacked-pr -- allowed"
