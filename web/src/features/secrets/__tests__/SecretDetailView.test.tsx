@@ -364,6 +364,30 @@ describe('SecretDetailView recent access', () => {
         expect(screen.getByText(/10\.0\.0\.7/)).toBeInTheDocument();
     });
 
+    it('lists only read rows: create/rotate rows belong to History, not "Reads of this secret" (#3141)', () => {
+        mockAccessLog = [
+            { accessed_by: 'alice', access_time: '2026-06-18T10:00:00Z', action: 'read', ip_address: '10.0.0.7' },
+            {
+                accessed_by: 'zed-creator',
+                access_time: '2026-06-18T09:00:00Z',
+                action: 'create',
+                ip_address: '10.0.0.9',
+            },
+        ];
+        render(<SecretDetailView secret={makeSecret()} />);
+        expect(screen.getByText(/10\.0\.0\.7/)).toBeInTheDocument();
+        expect(screen.queryByText('zed-creator')).not.toBeInTheDocument();
+        expect(screen.queryByText(/10\.0\.0\.9/)).not.toBeInTheDocument();
+    });
+
+    it('omits the panel when the log holds no read rows (#3141)', () => {
+        mockAccessLog = [
+            { accessed_by: 'zed-creator', access_time: '2026-06-18T09:00:00Z', action: 'create', ip_address: '' },
+        ];
+        render(<SecretDetailView secret={makeSecret()} />);
+        expect(screen.queryByText('Recent access')).not.toBeInTheDocument();
+    });
+
     it('omits the panel when there is no access log', () => {
         mockAccessLog = [];
         render(<SecretDetailView secret={makeSecret()} />);

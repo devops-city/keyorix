@@ -39,7 +39,9 @@ func toSecretAccessLogEntry(l models.SecretAccessLog, includeIPAndUA bool) secre
 		AccessTime:      l.AccessTime,
 	}
 	if includeIPAndUA {
-		e.IPAddress = l.IPAddress
+		// Rows written before #3141 stored r.RemoteAddr as ip:port; show the
+		// bare IP for those too (the stored row and the export stay untouched).
+		e.IPAddress = core.CanonicalIP(l.IPAddress)
 		e.UserAgent = l.UserAgent
 	}
 	return e

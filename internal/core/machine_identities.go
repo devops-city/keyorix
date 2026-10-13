@@ -378,5 +378,37 @@ func (c *KeyorixCore) logMachineEvent(ctx context.Context, eventType string, m *
 func (c *KeyorixCore) logMachineEventOn(ctx context.Context, tgt auditTarget, eventType string, m *models.MachineIdentity, actorID uint) {
 	aid, pid := actorID, m.ProjectID
 	c.writeAuditEventFullOn(ctx, tgt, eventType, &aid, nil, &pid, "",
-		fmt.Sprintf("machine identity %q (%s) in project %d → %s", m.Name, m.IdentityType, m.ProjectID, m.State))
+		machineEventDescription(eventType, m))
+}
+
+// machineEventDescription words the audit description for what happened
+// (the event), then appends the identity's name, type, project and current
+// state so no field of the earlier "machine identity … → state" text is lost.
+func machineEventDescription(eventType string, m *models.MachineIdentity) string {
+	what := "machine identity event " + eventType
+	switch eventType {
+	case "machine_identity.created":
+		what = "created machine identity"
+	case "machine_identity.token_issued":
+		what = "issued token for machine identity"
+	case "machine_identity.token_rotated":
+		what = "rotated token for machine identity"
+	case "machine_identity.token_revoked":
+		what = "revoked token of machine identity"
+	case "machine_identity.role_granted":
+		what = "granted role to machine identity"
+	case "machine_identity.role_removed":
+		what = "removed role from machine identity"
+	case "machine_identity.oidc_bound":
+		what = "bound OIDC trust to machine identity"
+	case "machine_identity.oidc_unbound":
+		what = "unbound OIDC trust from machine identity"
+	case "machine_identity.activated":
+		what = "activated machine identity"
+	case "machine_identity.suspended":
+		what = "suspended machine identity"
+	case "machine_identity.revoked":
+		what = "revoked machine identity"
+	}
+	return fmt.Sprintf("%s %q (%s) in project %d (state: %s)", what, m.Name, m.IdentityType, m.ProjectID, m.State)
 }

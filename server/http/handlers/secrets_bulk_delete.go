@@ -38,7 +38,7 @@ func (h *SecretHandler) BulkDeleteSecrets(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ip, ua := r.RemoteAddr, r.Header.Get("User-Agent")
+	ip, ua := clientIP(r), r.Header.Get("User-Agent")
 	result, err := h.coreService.BulkDeleteSecrets(r.Context(), req, uint(projectID), userCtx.Username, userCtx.UserID, ip, ua)
 	if err != nil {
 		status := http.StatusInternalServerError

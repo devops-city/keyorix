@@ -394,7 +394,7 @@ func (h *SecretHandler) updateSecretViaDiff(w http.ResponseWriter, r *http.Reque
 	}
 
 	uid, sID, uname, sname := userCtx.UserID, id, userCtx.Username, response.Name
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	auditDiff := core.BuildSecretUpdateDiff(authoritative, req, false)
 	auditCtx := core.DetachedAuditContext(ctx)
 	goSafe(func() {

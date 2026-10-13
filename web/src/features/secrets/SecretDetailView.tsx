@@ -523,13 +523,17 @@ interface RecentAccessPanelProps {
 }
 
 const RecentAccessPanel: React.FC<RecentAccessPanelProps> = ({ accessLog }) => {
-    if (!accessLog || accessLog.length === 0) return null;
+    // The access-log endpoint also carries create/rotate/etc. rows; this panel is
+    // titled "Reads of this secret", so only read rows belong here (the rest are
+    // in History).
+    const reads = (accessLog ?? []).filter((e) => e.action === 'read');
+    if (reads.length === 0) return null;
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">Recent access</h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Reads of this secret in the last 30 days.</p>
             <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                {accessLog.slice(0, 25).map((e) => (
+                {reads.slice(0, 25).map((e) => (
                     <div
                         key={`${e.accessed_by}-${e.access_time}-${e.action}`}
                         className="flex items-center justify-between py-2 text-sm"
@@ -553,8 +557,8 @@ const RecentAccessPanel: React.FC<RecentAccessPanelProps> = ({ accessLog }) => {
                     </div>
                 ))}
             </div>
-            {accessLog.length > 25 && (
-                <p className="text-xs text-gray-400 mt-3">Showing the 25 most recent of {accessLog.length}.</p>
+            {reads.length > 25 && (
+                <p className="text-xs text-gray-400 mt-3">Showing the 25 most recent of {reads.length}.</p>
             )}
         </div>
     );

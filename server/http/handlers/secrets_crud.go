@@ -126,7 +126,7 @@ func (h *SecretHandler) CreateSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid, sID, uname, sname := userCtx.UserID, response.ID, userCtx.Username, response.Name
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	// #2545: a client-asserted origin (e.g. keyorix-migrate's source path) is recorded as a
 	// labelled note on the audit event — never as attribution; see core.ClientOriginHeader.
 	auditCtx := core.WithClientOrigin(core.DetachedAuditContext(r.Context()), r.Header.Get(core.ClientOriginHeader))
@@ -330,7 +330,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 		// never reaches this branch at all — it doesn't expose the sensitive payload
 		// and must not be conflated with a value read in the audit trail.
 		uid, sID, uname, sname := userCtx.UserID, uint(id), userCtx.Username, secret.Name
-		ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+		ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 		auditCtx := core.DetachedAuditContext(r.Context())
 		if auditErr := h.coreService.LogSecretReadWithProject(auditCtx, uid, sID, secret.ProjectID, uname, sname, ip, ua); auditErr != nil {
 			log.Printf("SECURITY: audit write failed for secret read (secret=%d): %v -- failing closed, value NOT returned", sID, auditErr)
@@ -445,7 +445,7 @@ func (h *SecretHandler) GetSecretByName(w http.ResponseWriter, r *http.Request) 
 	// silently discarded, but as secret.metadata_read, not secret.read: secret.read
 	// means a value disclosure (AUDIT-UX-3).
 	uid, sID, uname, sname := userCtx.UserID, secret.ID, userCtx.Username, secret.Name
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	auditCtx := core.DetachedAuditContext(r.Context())
 	goSafe(func() {
 		if auditErr := h.coreService.LogSecretMetadataRead(auditCtx, uid, sID, secret.ProjectID, uname, sname, ip, ua); auditErr != nil {
@@ -509,7 +509,7 @@ func (h *SecretHandler) GetSecretValueByRef(w http.ResponseWriter, r *http.Reque
 	// SESSION-PERF #2403 follow-up (item 3, audit-before-disclosure): the value is
 	// only sent below AFTER its audit entry has been durably committed.
 	uid, sID, uname, sname := userCtx.UserID, secret.ID, userCtx.Username, secret.Name
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	auditCtx := core.DetachedAuditContext(r.Context())
 	if auditErr := h.coreService.LogSecretReadWithProject(auditCtx, uid, sID, secret.ProjectID, uname, sname, ip, ua); auditErr != nil {
 		log.Printf("SECURITY: audit write failed for secret read by ref (secret=%d): %v -- failing closed, value NOT returned", sID, auditErr)
@@ -650,7 +650,7 @@ func (h *SecretHandler) UpdateSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid, sID, uname, sname := userCtx.UserID, uint(id), userCtx.Username, response.Name
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	diff := core.BuildSecretUpdateDiff(oldSecret, req, reqBody.Value != "")
 	auditCtx := core.WithClientOrigin(core.DetachedAuditContext(r.Context()), r.Header.Get(core.ClientOriginHeader)) // #2545, see CreateSecret
 	goSafe(func() {
@@ -719,7 +719,7 @@ func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid, sID, uname := userCtx.UserID, uint(id), userCtx.Username
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	auditCtx := core.DetachedAuditContext(r.Context())
 	goSafe(func() {
 		h.coreService.LogSecretDeletedWithProject(auditCtx, uid, sID, secretProjectID, uname, secretName, ip, ua)

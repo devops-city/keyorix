@@ -37,7 +37,7 @@ func (h *SecretHandler) RenderTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rendered, err := h.coreService.RenderSecretTemplate(r.Context(), reqBody.Template, uint(id), userCtx.UserID, userCtx.Username, r.RemoteAddr, r.Header.Get("User-Agent"))
+	rendered, err := h.coreService.RenderSecretTemplate(r.Context(), reqBody.Template, uint(id), userCtx.UserID, userCtx.Username, clientIP(r), r.Header.Get("User-Agent"))
 	if err != nil {
 		h.sendRenderTemplateError(w, r, userCtx, err)
 		return

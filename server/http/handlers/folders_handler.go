@@ -221,7 +221,7 @@ func (h *FolderHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 	// afterward, and folders (IsSecret=false SecretNode rows deleted via the
 	// same core call) need the identical call (F3, audit-completeness campaign).
 	uid, fID, uname := userCtx.UserID, uint(id), userCtx.Username
-	ip, ua := r.RemoteAddr, r.Header.Get(hdrUserAgent)
+	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
 	auditCtx := core.DetachedAuditContext(r.Context())
 	goSafe(func() {
 		h.coreService.LogSecretDeletedWithProject(auditCtx, uid, fID, node.ProjectID, uname, node.Name, ip, ua)

@@ -39,7 +39,7 @@ func (h *SecretHandler) BulkRenameSecrets(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ip, ua := r.RemoteAddr, r.Header.Get("User-Agent")
+	ip, ua := clientIP(r), r.Header.Get("User-Agent")
 	report, err := h.coreService.BulkRenameSecrets(r.Context(), uint(id), reqBody.Renames, reqBody.DryRun, userCtx.Username, userCtx.UserID, ip, ua)
 	if err != nil {
 		status := http.StatusInternalServerError

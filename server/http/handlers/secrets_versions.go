@@ -68,7 +68,7 @@ func (h *SecretHandler) GetSecretVersions(w http.ResponseWriter, r *http.Request
 	// only sent below AFTER its audit entry has been durably committed.
 	secret, sErr := h.coreService.GetSecret(r.Context(), uint(id))
 	if sErr == nil && secret != nil {
-		ip, ua := r.RemoteAddr, r.Header.Get("User-Agent")
+		ip, ua := clientIP(r), r.Header.Get("User-Agent")
 		auditCtx := core.DetachedAuditContext(r.Context())
 		if auditErr := h.coreService.LogSecretVersionsListed(auditCtx, userCtx.UserID, uint(id), secret.ProjectID, userCtx.Username, secret.Name, ip, ua); auditErr != nil {
 			log.Printf("SECURITY: audit write failed for secret versions listing (secret=%d): %v -- failing closed", id, auditErr)
@@ -158,7 +158,7 @@ func (h *SecretHandler) RotateSecret(w http.ResponseWriter, r *http.Request) {
 
 	// Audit the rotation (async, detached) so the rotation inspector and the
 	// activity feed have an attributable secret.rotated event.
-	ip, ua := r.RemoteAddr, r.Header.Get("User-Agent")
+	ip, ua := clientIP(r), r.Header.Get("User-Agent")
 	auditCtx := core.DetachedAuditContext(r.Context())
 	goSafe(func() {
 		h.coreService.LogSecretRotatedWithProject(auditCtx, userCtx.UserID, uint(id), secret.ProjectID, userCtx.Username, secret.Name, ip, ua)

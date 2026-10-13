@@ -282,12 +282,69 @@ test('secret detail History and Recent access update after rotate and reveal, wi
     const recent = page
         .locator('div', { has: page.getByRole('heading', { name: 'Recent access', exact: true }) })
         .last();
-    await expect(recent.getByText(/^Rotated/)).toBeVisible({ timeout: 10_000 });
+    // #3141: Recent access lists reads only; the rotation is in History (asserted above).
+    await expect(recent.getByText(/^Rotated/)).toHaveCount(0);
+    // (A row reads "Read · <ip>"; the panel subtitle "Reads of this secret…" must not count as a row.)
     // Opening the view may already log reads; what matters is that Reveal adds one without a refresh.
-    const readsBefore = await recent.getByText(/^Read/).count();
+    const readsBefore = await recent.getByText(/^Read( ·|$)/).count();
     const historyReadsBefore = await history.getByText('Read', { exact: true }).count();
     await page.getByRole('button', { name: 'Reveal', exact: true }).click();
     await expect(page.getByText(`rotated-${unique}`, { exact: true })).toBeVisible({ timeout: 10_000 });
-    await expect(recent.getByText(/^Read/)).toHaveCount(readsBefore + 1, { timeout: 10_000 });
+    await expect(recent.getByText(/^Read( ·|$)/)).toHaveCount(readsBefore + 1, { timeout: 10_000 });
     await expect(history.getByText('Read', { exact: true })).toHaveCount(historyReadsBefore + 1, { timeout: 10_000 });
+});
+
+// #3141 (from #2977 item 7): one click on Reveal must write exactly ONE secret.read audit
+// event. The server writes one per GET /secrets/{id}?include_value=true, so this counts
+// both the include_value requests the web sends and the secret.read rows the server stored.
+// secret.read is logged by a detached goroutine, so the count is polled until it holds
+// steady rather than read once.
+test('one Reveal click writes exactly one secret.read audit event (#3141)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 2600 });
+
+    const unique = Date.now();
+    const secretName = `e2e-secret-${unique}`;
+    await realLogin(page);
+    await createProjectEnvAndSecret(page, {
+        projectName: `e2e-one-read-${unique}`,
+        envName: `e2eenv${unique}`,
+        secretName,
+        value: `value-${unique}`,
+    });
+
+    const idSeen = page.waitForRequest(/\/api\/v1\/secrets\/\d+\/access-log/);
+    await page
+        .getByRole('row', { name: new RegExp(secretName) })
+        .getByTitle('View')
+        .click();
+    const secretId = (await idSeen).url().match(/\/secrets\/(\d+)\/access-log/)![1];
+    await expect(page.getByRole('heading', { name: 'Secret Value' })).toBeVisible();
+
+    const countReads = async (): Promise<number> => {
+        const res = await page.context().request.get(`/api/v1/audit/logs?action=secret.read&secret_id=${secretId}`);
+        expect(res.ok()).toBeTruthy();
+        return (await res.json()).data.total as number;
+    };
+    // Let anything opening the view triggered settle, then take the baseline.
+    await page.waitForTimeout(2_000);
+    const before = await countReads();
+
+    let valueRequests = 0;
+    page.on('request', (req) => {
+        if (req.method() === 'GET' && /\/secrets\/\d+\?.*include_value=true/.test(req.url())) valueRequests++;
+    });
+    await page.getByRole('button', { name: 'Reveal', exact: true }).click();
+    await expect(page.locator('body')).toContainText(`value-${unique}`, { timeout: 10_000 });
+
+    // Poll until the count has held steady for 3 consecutive seconds (max 20s).
+    let last = -1;
+    let steady = 0;
+    for (let i = 0; i < 20 && steady < 3; i++) {
+        await page.waitForTimeout(1_000);
+        const n = await countReads();
+        steady = n === last ? steady + 1 : 0;
+        last = n;
+    }
+    expect(valueRequests, 'the web must send exactly one include_value GET per Reveal click').toBe(1);
+    expect(last - before, 'one Reveal click must write exactly one secret.read').toBe(1);
 });
