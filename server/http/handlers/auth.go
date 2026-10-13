@@ -114,9 +114,10 @@ func (h *AuthHandler) returnLoginSlot(ctx context.Context, s loginSlot) {
 // AuthHandler handles authentication HTTP requests.
 type AuthHandler struct {
 	coreService *core.KeyorixCore
-	// tlsEnabled gates the Secure attribute on the session/CSRF cookies, same
-	// signal SecurityHeaders uses for HSTS — set only when this process itself
-	// terminates TLS (a proxy-terminated deployment sets it there instead).
+	// tlsEnabled gates the Secure attribute on the session/CSRF cookies — set only
+	// when this process itself terminates TLS (a proxy-terminated deployment sets it
+	// there instead). SecurityHeaders' HSTS additionally honors a trusted proxy's
+	// X-Forwarded-Proto: https; these cookies do not.
 	tlsEnabled bool
 }
 

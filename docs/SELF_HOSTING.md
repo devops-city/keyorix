@@ -476,9 +476,22 @@ The `web` nginx itself only speaks plain HTTP, and `Strict-Transport-Security`
 over `http://` is wrong, so it sends HSTS **only** when the request came through
 a trusted proxy that says `X-Forwarded-Proto: https`. The header is never
 trusted from any other client, and never sent for direct HTTP. (The bundled
-Caddy profile adds its own HSTS; the backend adds it only when it serves TLS
-itself. API responses keep the backend's API CSP and every other security
-header exactly as before; only the `Strict-Transport-Security` decision is new.)
+Caddy profile adds its own HSTS. API responses keep the backend's API CSP and
+every other security header exactly as before; only the
+`Strict-Transport-Security` decision is made here, and the backend's own HSTS
+header is stripped from proxied responses.)
+
+**The backend** (`keyorix-server`, reached directly by your load balancer rather
+than through `web`) follows the same rule: it sends HSTS when it serves TLS
+itself, or when the TCP peer is in `server.http.trusted_proxies` and says
+`X-Forwarded-Proto: https`. Set `server.http.trusted_proxies` in the server
+config to the load balancer's address as the server sees it; no other setting
+is needed. Value and options: [CONFIGURATION.md](CONFIGURATION.md#server)
+("Strict-Transport-Security"). Same check, against the server port:
+
+```sh
+curl -sI -H 'X-Forwarded-Proto: https' http://server-host:8080/health | grep -i strict
+```
 
 | Setting (`.env`, passed to `web`) | Default | Meaning |
 |---|---|---|
@@ -492,7 +505,10 @@ Invalid values (anything that is not an IP/CIDR, a bad mode, a non-numeric
 These variables need a `web` image that contains this feature (releases after
 0.95.3); older images ignore them and send no HSTS.
 
-Helm: `web.trustedProxies` (list of CIDRs; the address the web pod sees, i.e.
+Helm: the chart's Ingress routes every path to `web`, so browsers only ever see
+the web nginx's HSTS decision (the backend's header is stripped from proxied API
+responses). The chart does not set the server's `trusted_proxies`. For the web
+tier: `web.trustedProxies` (list of CIDRs; the address the web pod sees, i.e.
 the ingress-controller pods for an in-cluster ingress, not the cloud LB's public
 address), `web.hsts.mode` (`auto`|`on`|`off`; `on` without `web.trustedProxies`
 fails the render), `web.hsts.maxAge`, `web.hsts.includeSubDomains`. All default to

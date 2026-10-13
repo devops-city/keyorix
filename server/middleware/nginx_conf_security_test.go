@@ -78,8 +78,8 @@ func TestNginxConfSecurityHeadersMatchGoMiddleware(t *testing.T) {
 //
 //  1. HSTS is never sent over plain http by this nginx. HSTS over http:// is
 //     wrong; it is sent only for a trusted TLS-terminating proxy (#3058, via
-//     $keyorix_hsts), by the Caddyfile, or by the backend when it serves TLS
-//     (SecurityHeaders(tlsEnabled)).
+//     $keyorix_hsts), by the Caddyfile, or by the backend when it serves TLS or
+//     a trusted proxy says X-Forwarded-Proto=https (SecurityHeaders).
 //  2. Every security header nginx adds at server scope is hidden from the
 //     proxied backend response with proxy_hide_header, so API responses carry
 //     each header exactly once (the backend adds the same set itself).

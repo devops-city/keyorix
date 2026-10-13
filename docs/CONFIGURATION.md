@@ -158,6 +158,8 @@ server:
       cert_cache_dir: "certs"     # ACME only: where autocert persists certs between restarts
       allowed_ciphers: []         # optional allowlist of TLS 1.2 cipher suite names; leave empty for the built-in secure default
     tls_mode: ""                  # "" (default: TLS 1.2 floor, forward-secret AEAD only) | "strict" (TLS 1.3 only)
+    trusted_proxies: []           # IPs/CIDRs of your TLS-terminating proxy/LB; their X-Forwarded-For/-Proto are honored
+    hsts_preload: false           # add "preload" to Strict-Transport-Security (see below)
     ratelimit:
       enabled: true
       requests_per_second: 50
@@ -208,6 +210,33 @@ while planning 1.2's phase-out, and OT/legacy clients still commonly need
 every client can be required to speak 1.3. `tls.allowed_ciphers` has no
 effect under strict mode (TLS 1.3 negotiates its own, always-AEAD suite set)
 and logs a warning if both are set.
+
+**Strict-Transport-Security (HSTS).** The backend sends
+`Strict-Transport-Security: max-age=31536000; includeSubDomains` only on a request
+that reached the client over TLS:
+
+- the listener serves TLS itself (`server.http.tls.enabled`), or
+- the TCP peer is listed in `server.http.trusted_proxies` and its
+  `X-Forwarded-Proto` is `https` (TLS terminated at your load balancer).
+
+It is never sent for plain http, and `X-Forwarded-Proto` from any peer not in
+`trusted_proxies` is ignored, so a client cannot turn HSTS on by forging the
+header. If the header has several values, the last one counts (the one your proxy
+added); your proxy must set or overwrite `X-Forwarded-Proto`, not pass a
+client's value through. `trusted_proxies` is the same list that governs
+`X-Forwarded-For` for client IPs, rate limits and audit.
+
+- `max-age` is one year, the web nginx's default too.
+- `includeSubDomains` is always sent. A secrets manager's session cookies should
+  not share a domain with a sibling host left on plain http. If some subdomains
+  of yours cannot do https, have your proxy replace the header.
+- `preload` is off unless you set `hsts_preload: true`. Preload-list submission
+  covers the whole registrable domain and is slow to undo, so only the domain's
+  owner should opt in.
+
+The web container's nginx makes its own HSTS decision and strips the backend's
+header from proxied API responses ([SELF_HOSTING.md](SELF_HOSTING.md), "HSTS
+behind a TLS-terminating load balancer").
 
 ## storage
 

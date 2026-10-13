@@ -153,8 +153,9 @@ Format: `INV-MW-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
 
 - **INV-MW-19** `SecurityHeaders` sets a fixed hardening set unconditionally on every response
   (nosniff, DENY framing, no-referrer, a CSP without an `unsafe-inline`-bypassing `script-src
-  'self'`, strict CORP/COEP/COOP, no Adobe cross-domain policy), with HSTS gated strictly on
-  `tlsEnabled` — never sent over plain HTTP. Guard: `security_headers.go` lines ~21-71;
+  'self'`, strict CORP/COEP/COOP, no Adobe cross-domain policy), with HSTS gated on the
+  request having reached the client over TLS — never sent over plain HTTP (exact rule:
+  INV-MW-hsts-only-over-tls-or-trusted-proxy). Guard: `security_headers.go` lines ~21-71;
   `security_headers_test.go` (`TestSecurityHeaders_AlwaysSet`, `_CSPAlwaysSet`,
   `_HSTSOnlyWithTLS`, `_CORPAlwaysSet`, `_CrossOriginHeadersAlwaysSet`).
 

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strings"
@@ -23,10 +24,19 @@ import (
 // the X-Forwarded-For chain from the right and take the first hop that is not itself a
 // trusted proxy (the address the trusted edge actually saw), so an attacker cannot
 // prepend a spoofed entry to claim an arbitrary client IP.
+//
+// The same trust decision also governs X-Forwarded-Proto: when the TCP peer is a
+// trusted proxy that says the client connected over https, the request is marked
+// (ForwardedHTTPSFromTrustedProxy) so SecurityHeaders can send HSTS behind a
+// TLS-terminating load balancer. The mark is taken here, before r.RemoteAddr is
+// rewritten to the client, because afterwards the proxy's address is gone.
 func ClientIP(trustedProxies []string) func(http.Handler) http.Handler {
 	nets := parseCIDRs(trustedProxies)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if peerIsTrustedProxy(r, nets) && forwardedProtoIsHTTPS(r) {
+				r = r.WithContext(context.WithValue(r.Context(), forwardedHTTPSKey{}, true))
+			}
 			if ip := clientIPFromRequest(r, nets); ip != "" {
 				r.RemoteAddr = ip
 			}
@@ -35,11 +45,44 @@ func ClientIP(trustedProxies []string) func(http.Handler) http.Handler {
 	}
 }
 
+type forwardedHTTPSKey struct{}
+
+// ForwardedHTTPSFromTrustedProxy reports whether ClientIP saw this request arrive
+// from a configured trusted proxy carrying X-Forwarded-Proto: https. It is false
+// when ClientIP is not in the chain, when no trusted proxies are configured, when
+// the peer is not trusted (a client forging the header directly), and when the
+// trusted proxy says http.
+func ForwardedHTTPSFromTrustedProxy(r *http.Request) bool {
+	v, _ := r.Context().Value(forwardedHTTPSKey{}).(bool)
+	return v
+}
+
+// forwardedProtoIsHTTPS reads the scheme the immediate (trusted) proxy reported.
+// Like X-Real-IP below, it takes the LAST value: a proxy that appends its own
+// X-Forwarded-Proto (a second header line or a ", https" suffix) rather than
+// overwriting a client-supplied one leaves the client's value first and its own
+// last. Anything other than exactly "https" (case-insensitive) is not https, so a
+// chain whose inner hop reports http fails closed to no HSTS.
+func forwardedProtoIsHTTPS(r *http.Request) bool {
+	parts := strings.Split(strings.Join(r.Header.Values("X-Forwarded-Proto"), ","), ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		if p := strings.TrimSpace(parts[i]); p != "" {
+			return strings.EqualFold(p, "https")
+		}
+	}
+	return false
+}
+
+// peerIsTrustedProxy reports whether the request's immediate TCP peer is one of the
+// configured trusted proxies. With none configured, nothing is trusted.
+func peerIsTrustedProxy(r *http.Request, trusted []*net.IPNet) bool {
+	return len(trusted) > 0 && ipInAny(hostOnly(r.RemoteAddr), trusted)
+}
+
 // clientIPFromRequest returns the IP to attribute the request to, or "" to leave
 // r.RemoteAddr unchanged. It trusts forwarding headers only when the peer is trusted.
 func clientIPFromRequest(r *http.Request, trusted []*net.IPNet) string {
-	peer := hostOnly(r.RemoteAddr)
-	if len(trusted) == 0 || !ipInAny(peer, trusted) {
+	if !peerIsTrustedProxy(r, trusted) {
 		return "" // no trusted proxy in front (or none configured) → keep the TCP peer
 	}
 	// Prefer X-Forwarded-For: walk it right→left and return the first address that is NOT

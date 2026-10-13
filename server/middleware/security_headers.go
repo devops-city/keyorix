@@ -43,13 +43,20 @@ const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 
 //     honored (a legacy Flash/PDF data-exfiltration channel); also a header web security
 //     scanners expect to see set.
 //
-// HSTS is sent only when this process terminates TLS (tlsEnabled); deployments that
-// terminate TLS at a proxy add HSTS there, and sending it over plain HTTP is wrong.
+// Strict-Transport-Security is sent only for a request that reached the client over
+// TLS: either this process terminates TLS (tlsEnabled, or r.TLS set), or ClientIP
+// marked the request as coming from a configured trusted proxy that says
+// X-Forwarded-Proto: https (ForwardedHTTPSFromTrustedProxy). It is never sent for
+// plain http, and never on the word of an untrusted peer forging the header. The
+// value is HSTSValue(hstsPreload): one year, includeSubDomains, and preload only
+// when the operator opts in (server.http.hsts_preload) — preload-list submission is
+// a decision about the whole registrable domain that only its owner can make.
 //
 // Headers are set before the handler runs, so they apply to every response — including
 // errors, panics (the recovery middleware runs after this), and static assets — not just
 // the handlers that set nosniff themselves today.
-func SecurityHeaders(tlsEnabled bool) func(http.Handler) http.Handler {
+func SecurityHeaders(tlsEnabled, hstsPreload bool) func(http.Handler) http.Handler {
+	hsts := HSTSValue(hstsPreload)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := w.Header()
@@ -62,10 +69,27 @@ func SecurityHeaders(tlsEnabled bool) func(http.Handler) http.Handler {
 			h.Set("Cross-Origin-Opener-Policy", "same-origin")
 			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()")
 			h.Set("X-Permitted-Cross-Domain-Policies", "none")
-			if tlsEnabled {
-				h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+			if tlsEnabled || r.TLS != nil || ForwardedHTTPSFromTrustedProxy(r) {
+				h.Set("Strict-Transport-Security", hsts)
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// hstsMaxAge is one year, the same default as the web nginx (KEYORIX_WEB_HSTS_MAX_AGE,
+// web.hsts.maxAge) and the minimum the browser preload lists accept.
+const hstsMaxAge = "31536000"
+
+// HSTSValue is the Strict-Transport-Security value the backend sends.
+// includeSubDomains is always on, matching the web nginx default: Keyorix serves
+// secrets and session cookies, and a sibling host left on plain http could set a
+// cookie for the parent domain or be used to strip TLS. An operator whose subdomains
+// cannot all do https terminates TLS at their own proxy and sets HSTS there.
+func HSTSValue(preload bool) string {
+	v := "max-age=" + hstsMaxAge + "; includeSubDomains"
+	if preload {
+		v += "; preload"
+	}
+	return v
 }

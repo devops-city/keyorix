@@ -402,6 +402,12 @@ type ServerInstanceConfig struct {
 	// login/MFA rate limiter) unless it actually connects from a trusted proxy. Set this
 	// to your ingress/LB CIDR(s) when running behind a proxy. (HTTP only.)
 	TrustedProxies []string `yaml:"trusted_proxies,omitempty"`
+	// HSTSPreload adds the "preload" directive to the Strict-Transport-Security header
+	// (sent when this listener serves TLS, or a trusted proxy reports
+	// X-Forwarded-Proto: https). Off by default: submitting a domain to the browser
+	// preload lists covers every subdomain and is slow to undo, so only the domain's
+	// owner opts in. (HTTP only.)
+	HSTSPreload bool `yaml:"hsts_preload,omitempty"`
 	// Web dashboard specific settings (HTTP only)
 	WebAssetsPath  string   `yaml:"web_assets_path,omitempty"`
 	AllowedOrigins []string `yaml:"allowed_origins,omitempty"`

@@ -1,0 +1,5 @@
+### Security
+- **The backend sends HSTS behind a trusted TLS-terminating load balancer.** `keyorix-server` now sends `Strict-Transport-Security` when the request's TCP peer is in `server.http.trusted_proxies` and says `X-Forwarded-Proto: https`, as well as when it serves TLS itself. It reuses the trust check that already governs `X-Forwarded-For`. It never sends HSTS for plain http, and a client outside `trusted_proxies` cannot turn it on by forging the header. The web nginx is unchanged: it keeps its own HSTS decision and strips the backend's header. See docs/CONFIGURATION.md ("Strict-Transport-Security"). Guarded by `INV-MW-hsts-only-over-tls-or-trusted-proxy`.
+
+### Changed
+- **The backend's HSTS header no longer includes `preload` by default.** The value is now `max-age=31536000; includeSubDomains`, the same as the web nginx's default. Preload-list submission covers the whole registrable domain, so only the domain's owner should opt in. If your domain is on the browser preload lists and the backend serves TLS directly, set `server.http.hsts_preload: true` to keep sending `preload`.

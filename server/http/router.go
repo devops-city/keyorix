@@ -90,7 +90,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// per-IP login/MFA brute-force rate limiter.
 	r.Use(customMiddleware.ClientIP(cfg.Server.HTTP.TrustedProxies))
 	r.Use(customMiddleware.Logger())
-	r.Use(customMiddleware.SecurityHeaders(cfg.Server.HTTP.TLS.Enabled))
+	r.Use(customMiddleware.SecurityHeaders(cfg.Server.HTTP.TLS.Enabled, cfg.Server.HTTP.HSTSPreload))
 	// Global default: no-store on every response (#433). This is a secrets manager — a
 	// browser or intermediate proxy must never be allowed to cache anything by default,
 	// including routes registered outside the auth/SCIM/API groups (health/status/metrics,

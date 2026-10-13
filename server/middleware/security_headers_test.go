@@ -10,7 +10,7 @@ import (
 
 func serve(t *testing.T, tlsEnabled bool) http.Header {
 	t.Helper()
-	h := SecurityHeaders(tlsEnabled)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := SecurityHeaders(tlsEnabled, false)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	rec := httptest.NewRecorder()
@@ -48,7 +48,8 @@ func TestSecurityHeaders_CSPAlwaysSet(t *testing.T) {
 
 func TestSecurityHeaders_HSTSOnlyWithTLS(t *testing.T) {
 	hdr := serve(t, true)
-	assert.Equal(t, "max-age=31536000; includeSubDomains; preload", hdr.Get("Strict-Transport-Security"))
+	// No preload unless the operator opts in (TestSecurityHeaders_HSTSPreloadOptIn).
+	assert.Equal(t, "max-age=31536000; includeSubDomains", hdr.Get("Strict-Transport-Security"))
 }
 
 // DAST #1209 (ZAP/90004): Cross-Origin-Resource-Policy must be set on every response
