@@ -621,7 +621,28 @@ interface AuditHealthPanelProps {
     stats: Stats;
 }
 
-const AuditHealthPanel: React.FC<AuditHealthPanelProps> = ({ navigate, stats }) => (
+// The four numbers are deployment-wide audit aggregates: the server sends zeros to a caller
+// without audit.read. A "0" there reads as "nothing happened", so say they are not visible (#3155).
+const AuditHealthPanel: React.FC<AuditHealthPanelProps> = ({ navigate, stats }) => {
+    const can = useCan();
+    if (!can.readAudit) {
+        return (
+            <div className="bg-surface border border-base rounded-xl shadow-xs">
+                <div className="px-5 py-4 border-b border-base">
+                    <h2 className="text-sm font-semibold text-base-primary uppercase tracking-widest">Audit (30d)</h2>
+                </div>
+                <div className="px-5 py-4">
+                    <p className="text-sm text-base-muted" data-testid="audit-panel-not-visible">
+                        {NOT_VISIBLE}
+                    </p>
+                </div>
+            </div>
+        );
+    }
+    return <AuditHealthCounts navigate={navigate} stats={stats} />;
+};
+
+const AuditHealthCounts: React.FC<AuditHealthPanelProps> = ({ navigate, stats }) => (
     <div className="bg-surface border border-base rounded-xl shadow-xs">
         <div className="px-5 py-4 border-b border-base flex items-center justify-between">
             <h2 className="text-sm font-semibold text-base-primary uppercase tracking-widest">Audit (30d)</h2>

@@ -65,6 +65,24 @@ func (c *KeyorixCore) logSecurityPostureSettingChanged(ctx context.Context, chan
 	})
 }
 
+// EventSecurityPostureBaselineRecorded is the single audit event written on the
+// first start, carrying every registry setting's initial value in its Diff.
+const EventSecurityPostureBaselineRecorded = "security.posture_baseline_recorded" // #nosec G101 -- audit event type, not a credential
+
+// logSecurityPostureBaseline records the first start's complete settings snapshot.
+func (c *KeyorixCore) logSecurityPostureBaseline(ctx context.Context, snapshot map[string]string) {
+	ok := true
+	diff, _ := json.Marshal(snapshot)
+	c.emitAudit(ctx, &models.AuditEvent{
+		EventType:   EventSecurityPostureBaselineRecorded,
+		Description: fmt.Sprintf("security posture baseline recorded at first start: %d security-relevant settings", len(snapshot)),
+		Diff:        string(diff),
+		Success:     &ok,
+		ActorType:   "system",
+		EventTime:   time.Now(),
+	})
+}
+
 // ReconcileSecurityPostureSnapshot compares snapshot (this boot's security-
 // relevant setting values, keyed by internal/config.InsecureSetting.Name) to
 // the snapshot persisted at the end of the previous boot, writes a
@@ -81,6 +99,9 @@ func (c *KeyorixCore) logSecurityPostureSettingChanged(ctx context.Context, chan
 // not take an otherwise-healthy server back down.
 func (c *KeyorixCore) ReconcileSecurityPostureSnapshot(ctx context.Context, snapshot map[string]string) {
 	raw, found, err := c.storage.GetSystemMetadata(ctx, securityPostureSnapshotMetadataKey)
+	// firstStart is only true when the read SUCCEEDED and found nothing: a failed
+	// read must keep the old behaviour (every setting reported), never a quiet baseline.
+	firstStart := err == nil && !found
 	if err != nil {
 		log.Printf("security posture snapshot: failed to read the previous start's snapshot (continuing without diffing): %v", err)
 		found = false
@@ -94,9 +115,25 @@ func (c *KeyorixCore) ReconcileSecurityPostureSnapshot(ctx context.Context, snap
 	}
 
 	changedKeys := make(map[string]bool, len(snapshot)+len(previous))
-	for k, newVal := range snapshot {
-		if oldVal, ok := previous[k]; !ok || oldVal != newVal {
-			changedKeys[k] = true
+	if firstStart {
+		// First start ever (the read succeeded and no snapshot exists): there is
+		// no previous start to differ from, so one baseline
+		// event carries the whole snapshot instead of one "" -> "false" row per
+		// setting at the head of the audit trail (#3155). Only a setting that does
+		// not read as off ("false") still gets its own change event, so a deployment
+		// that boots with a weakening already in effect (or a non-boolean mode) is as
+		// visible as before.
+		c.logSecurityPostureBaseline(ctx, snapshot)
+		for k, newVal := range snapshot {
+			if newVal != "false" {
+				changedKeys[k] = true
+			}
+		}
+	} else {
+		for k, newVal := range snapshot {
+			if oldVal, ok := previous[k]; !ok || oldVal != newVal {
+				changedKeys[k] = true
+			}
 		}
 	}
 	for k := range previous {

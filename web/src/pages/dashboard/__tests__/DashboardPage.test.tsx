@@ -601,6 +601,10 @@ describe('DashboardPage — tiles the user cannot see (DEMO-UI-1)', () => {
             expect(within(card).getByText('Not visible to you'), label).toBeInTheDocument();
             expect(within(card).getByText('—'), label).toBeInTheDocument();
         }
+        // The Audit (30d) side panel does not list zeros for numbers the user cannot see (#3155).
+        expect(screen.getByTestId('audit-panel-not-visible')).toHaveTextContent('Not visible to you');
+        expect(screen.queryByText('Total events')).not.toBeInTheDocument();
+        expect(screen.queryByText('Secret reads')).not.toBeInTheDocument();
         // A tile the user can see still shows its number.
         expect(screen.getByText('120')).toBeInTheDocument();
         // Nothing claims "No anomaly or expiry alerts" about data the user cannot see.
@@ -610,5 +614,8 @@ describe('DashboardPage — tiles the user cannot see (DEMO-UI-1)', () => {
     it('shows real numbers to a user who can read audit and the user directory', () => {
         render(<DashboardPage />);
         expect(screen.queryByText('Not visible to you')).not.toBeInTheDocument();
+        // ...and the Audit (30d) panel lists its real counts.
+        expect(screen.getByText('Total events')).toBeInTheDocument();
+        expect(screen.queryByTestId('audit-panel-not-visible')).not.toBeInTheDocument();
     });
 });

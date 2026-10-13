@@ -10,10 +10,75 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-// First boot: no previous snapshot exists. Every setting the caller passes
-// in counts as "changed" (added), so one audit event fires per entry, and
-// the snapshot is persisted for the next boot to diff against.
-func TestReconcileSecurityPostureSnapshot_FirstBootAuditsEveryEntryAndPersists(t *testing.T) {
+// First boot (#3155): no previous snapshot exists, so there is no "change". One
+// baseline event carries EVERY setting (nothing is dropped from the record), and
+// a setting that does not read as off ("true", or a non-boolean mode) still gets
+// its own change event, so a weakening in effect at first start stays visible.
+// Settings that are simply off ("false") do not each get a "" -> "false" row.
+func TestReconcileSecurityPostureSnapshot_FirstBootRecordsBaselineAndFlagsNonOffSettings(t *testing.T) {
+	ms := new(MockStorage)
+	ms.On("GetSystemMetadata", mock.Anything, securityPostureSnapshotMetadataKey).Return("", false, nil)
+
+	var captured []*models.AuditEvent
+	ms.On("LogAuditEvent", mock.Anything, mock.AnythingOfType("*models.AuditEvent")).
+		Run(func(args mock.Arguments) {
+			captured = append(captured, args.Get(1).(*models.AuditEvent))
+		}).Return(nil)
+	ms.On("SetSystemMetadata", mock.Anything, securityPostureSnapshotMetadataKey, mock.AnythingOfType("string")).Return(nil)
+
+	snapshot := map[string]string{
+		"security.insecure_allow_unsafe_file_permissions":      "false",
+		"audit_checkpoints.insecure_disable_audit_checkpoints": "true",
+		"security.insecure_startup_validation_mode":            "warn",
+	}
+	NewKeyorixCore(ms).ReconcileSecurityPostureSnapshot(context.Background(), snapshot)
+
+	var baselines, changes int
+	changedSettings := map[string]bool{}
+	for _, e := range captured {
+		assert.Equal(t, "system", e.ActorType)
+		switch e.EventType {
+		case EventSecurityPostureBaselineRecorded:
+			baselines++
+			var got map[string]string
+			assert.NoError(t, json.Unmarshal([]byte(e.Diff), &got))
+			assert.Equal(t, snapshot, got, "the baseline event must record every setting")
+		case EventSecurityPostureSettingChanged:
+			changes++
+			var ch securityPostureSettingChange
+			assert.NoError(t, json.Unmarshal([]byte(e.Diff), &ch))
+			changedSettings[ch.Setting] = true
+		}
+	}
+	assert.Equal(t, 1, baselines)
+	assert.Equal(t, 2, changes, "only the two settings that do not read as off keep their own event")
+	assert.True(t, changedSettings["audit_checkpoints.insecure_disable_audit_checkpoints"])
+	assert.True(t, changedSettings["security.insecure_startup_validation_mode"])
+}
+
+// A FAILED read of the previous snapshot is not a first start: it keeps the
+// per-setting reporting, so a flip is never hidden behind a quiet baseline.
+func TestReconcileSecurityPostureSnapshot_FailedReadIsNotAQuietBaseline(t *testing.T) {
+	ms := new(MockStorage)
+	ms.On("GetSystemMetadata", mock.Anything, securityPostureSnapshotMetadataKey).Return("", false, assert.AnError)
+	var captured []*models.AuditEvent
+	ms.On("LogAuditEvent", mock.Anything, mock.AnythingOfType("*models.AuditEvent")).
+		Run(func(args mock.Arguments) {
+			captured = append(captured, args.Get(1).(*models.AuditEvent))
+		}).Return(nil)
+	ms.On("SetSystemMetadata", mock.Anything, securityPostureSnapshotMetadataKey, mock.AnythingOfType("string")).Return(nil)
+
+	NewKeyorixCore(ms).ReconcileSecurityPostureSnapshot(context.Background(), map[string]string{
+		"security.insecure_allow_unsafe_file_permissions": "false",
+	})
+
+	assert.Len(t, captured, 1)
+	assert.Equal(t, EventSecurityPostureSettingChanged, captured[0].EventType)
+}
+
+// Kept from before #3155 for the persistence half: the snapshot is stored for the
+// next boot to diff against.
+func TestReconcileSecurityPostureSnapshot_FirstBootPersistsSnapshot(t *testing.T) {
 	ms := new(MockStorage)
 	ms.On("GetSystemMetadata", mock.Anything, securityPostureSnapshotMetadataKey).Return("", false, nil)
 
@@ -33,11 +98,8 @@ func TestReconcileSecurityPostureSnapshot_FirstBootAuditsEveryEntryAndPersists(t
 		"audit_checkpoints.insecure_disable_audit_checkpoints": "false",
 	})
 
-	assert.Len(t, captured, 2, "one audit event per setting on first boot")
-	for _, e := range captured {
-		assert.Equal(t, EventSecurityPostureSettingChanged, e.EventType)
-		assert.Equal(t, "system", e.ActorType)
-	}
+	assert.Len(t, captured, 1, "all-off first boot: just the baseline event")
+	assert.Equal(t, EventSecurityPostureBaselineRecorded, captured[0].EventType)
 
 	var snap map[string]string
 	assert.NoError(t, json.Unmarshal([]byte(persisted), &snap))

@@ -31,6 +31,10 @@ const (
 // evidence stays under actor_type=user and is not mixed into scheduler events.
 var auditPrincipalEventPrefixes = []string{"auth.", "mfa.", "webauthn."}
 
+// AuditAdminCLIType is the stored actor_type of events written by the
+// keyorix-server admin commands (server/admin uses this constant).
+const AuditAdminCLIType = "admin_cli"
+
 // AuditActorKind returns the kind shown for an audit row. A row is "system" when
 // it stores "system", or when it stores the default "user" (or the legacy "")
 // and NOTHING on it identifies a principal:
@@ -111,9 +115,16 @@ func AuditSystemActorWhere() (string, []interface{}) {
 // AuditActorName returns the actor shown beside AuditActorKind: the acting
 // user's name from names (core.ResolveUsernames), "system" for a kind-system
 // row, the machine identity's name from machineNames (core.ResolveMachineNames)
-// for a machine-actor row (#3150), and "unknown" for any other row with no acting
-// principal (a failed login), so a row is never shown as actor "system" with
-// another kind.
+// for a machine-actor row (#3150), "admin_cli" for a host-admin command that
+// names no user, and "unknown" for any other row with no acting principal (a
+// failed login), so a row is never shown as actor "system" with another kind.
+//
+// "system" is only for genuine server-internal events (kind system). A
+// `keyorix-server admin ...` command (backup, restore, key rotation, checkpoint
+// export, ...) is a deliberate action by whoever holds the host, so it stays
+// attributed as the admin CLI: the same value as its kind and as the
+// actor_type=admin_cli filter (AuditActorKindWhere), and never the "system" that
+// a search for "system" would not find (#2951).
 func AuditActorName(e *models.AuditEvent, names, machineNames map[uint]string) string {
 	if e.UserID != nil && *e.UserID != 0 {
 		if n := names[*e.UserID]; n != "" {
@@ -129,6 +140,9 @@ func AuditActorName(e *models.AuditEvent, names, machineNames map[uint]string) s
 	}
 	if AuditActorKind(e) == auditKindSystem {
 		return auditKindSystem
+	}
+	if e.ActorType == AuditAdminCLIType {
+		return AuditAdminCLIType
 	}
 	return "unknown"
 }

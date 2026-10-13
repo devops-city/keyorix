@@ -62,11 +62,34 @@ func TestAuditActorName_MatchesKind(t *testing.T) {
 		// #3150: a machine read is attributed to the machine, not "unknown".
 		{models.AuditEvent{EventType: "secret.read", ActorType: "machine_identity", MachineIdentityID: &mid}, "ci-app"},
 		{models.AuditEvent{EventType: "secret.read", ActorType: "machine_identity", MachineIdentityID: &goneMid}, "unknown"},
+		// Host admin commands stay attributed as the admin CLI, never "system"
+		// (deliberate human actions on the host; "system" search excludes them).
+		{models.AuditEvent{EventType: "admin.migrate", ActorType: "admin_cli"}, "admin_cli"},
+		{models.AuditEvent{EventType: "admin.restore_completed", ActorType: "admin_cli"}, "admin_cli"},
+		{models.AuditEvent{EventType: "admin.rotate_kek", ActorType: "admin_cli"}, "admin_cli"},
+		{models.AuditEvent{EventType: "audit_checkpoint_key_exported", ActorType: "admin_cli"}, "admin_cli"},
+		// A genuine server-internal boot event (stored kind system) is "system".
+		{models.AuditEvent{EventType: "security.posture_baseline", ActorType: "system"}, "system"},
+		// ...but an admin_cli row that does name a user keeps that user.
+		{models.AuditEvent{EventType: "admin.recover_admin", ActorType: "admin_cli", UserID: &uid}, "alice"},
 	}
 	for _, c := range cases {
 		e := c.e
 		if got := AuditActorName(&e, names, machineNames); got != c.want {
 			t.Errorf("%s/%s: AuditActorName = %q, want %q", e.EventType, e.ActorType, got, c.want)
 		}
+	}
+}
+
+// An admin_cli row is shown as "admin_cli", agrees with its kind (so
+// actor_type=admin_cli finds it), and is not matched by the "system" kind.
+func TestAuditActorName_AdminCLINeverSystem(t *testing.T) {
+	e := models.AuditEvent{EventType: "admin.restore_completed", ActorType: "admin_cli"}
+	if got := AuditActorName(&e, nil, nil); got == "system" || got != AuditActorKind(&e) {
+		t.Fatalf("admin_cli row: actor %q, kind %q; want actor == kind == admin_cli", got, AuditActorKind(&e))
+	}
+	boot := models.AuditEvent{EventType: "security.posture_baseline", ActorType: "system"}
+	if got := AuditActorName(&boot, nil, nil); got != "system" {
+		t.Fatalf("boot event actor = %q, want system", got)
 	}
 }

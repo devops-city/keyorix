@@ -80,6 +80,9 @@ test.describe('least-privilege user (alice)', () => {
             await expect(card, label).toContainText('Not visible to you');
         }
         await expect(main).not.toContainText('No anomaly or expiry alerts');
+        // The "Audit (30d)" side panel lists no zero counts for numbers she cannot see (#3155).
+        await expect(page.getByTestId('audit-panel-not-visible')).toContainText('Not visible to you');
+        await expect(main.getByText('Total events', { exact: true })).toHaveCount(0);
         // The tile she can read keeps its real number.
         await expect(page.getByTestId('stat-card-total-secrets-value')).toHaveText('5');
     });

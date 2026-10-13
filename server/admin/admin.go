@@ -26,7 +26,7 @@ import (
 // adminActorType tags every audit event an admin command writes, so a reader
 // can tell a host-side `keyorix-server admin` action apart from an ordinary
 // "system" (scheduler/startup) event or a "user"/"machine_identity" one.
-const adminActorType = "admin_cli"
+const adminActorType = corestorage.AuditAdminCLIType
 
 var rootCmd = &cobra.Command{
 	Use:   "admin",
