@@ -179,7 +179,8 @@ bring_up_postgres() {
     echo "==> building keyorix-demo:airgap (shared with the SQLite path)"
     command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required to build the web UI (see web/package.json)"; return 1; }
     make -C "$REPO_ROOT" populate-webui-dist >/dev/null || { echo "make populate-webui-dist failed"; return 1; }
-    docker build -f "$REPO_ROOT/server/Dockerfile" --build-arg BUILD_TAGS=noaws,noazure,nogcp -t keyorix-demo:airgap "$REPO_ROOT" >"$SCRATCH/image-build.log" 2>&1 || {
+    demo_stamp_build_args "$REPO_ROOT"
+    docker build -f "$REPO_ROOT/server/Dockerfile" --build-arg BUILD_TAGS=noaws,noazure,nogcp ${DEMO_STAMP_ARGS[@]+"${DEMO_STAMP_ARGS[@]}"} -t keyorix-demo:airgap "$REPO_ROOT" >"$SCRATCH/image-build.log" 2>&1 || {
       cat "$SCRATCH/image-build.log"; echo "docker build failed"; return 1
     }
     git -C "$REPO_ROOT" checkout -- server/webui/dist/index.html 2>/dev/null || true

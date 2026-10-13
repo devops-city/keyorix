@@ -45,9 +45,15 @@ function buildSecurityCardData(
         sub:
             alertCount > 0
                 ? `${anomalyCount} anomal${plural} · ${expiredCount} expired · ${expiringCount} expiring`
-                : 'No active alerts',
+                : 'No anomaly or expiry alerts',
         accent: alertCount > 0 ? 'bg-red-500' : 'bg-emerald-500',
     };
+}
+
+// A pool of 0 means the server does not report connection stats (the counters are not
+// instrumented), not that nothing is connected: say n/a rather than "0 active".
+function formatDbConnections(active: number | null | undefined): string {
+    return active != null && active > 0 ? `${active} active` : 'n/a';
 }
 
 function buildAuditSub(logins: number | null | undefined, reads: number | null | undefined): string {
@@ -495,7 +501,7 @@ const SystemHealthPanel: React.FC<SystemHealthPanelProps> = ({ metrics, sysInfo,
                 <div className="flex items-center justify-between">
                     <span className="text-sm text-base-muted">DB connections</span>
                     <span className="text-sm font-medium text-base-primary">
-                        {dbMetrics.connections_active != null ? `${dbMetrics.connections_active} active` : '—'}
+                        {formatDbConnections(dbMetrics.connections_active)}
                     </span>
                 </div>
                 <div className="flex items-center justify-between">

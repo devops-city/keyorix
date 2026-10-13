@@ -198,7 +198,7 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 
 		systemInfo := SystemInfo{
 			Version:     version.Version,
-			BuildTime:   "unknown", // not injected — release builds stay byte-reproducible (commit identifies the source)
+			BuildTime:   version.BuildDate, // the commit date, not wall clock, so release builds stay reproducible
 			GitCommit:   version.Commit,
 			GoVersion:   runtime.Version(),
 			OS:          runtime.GOOS,

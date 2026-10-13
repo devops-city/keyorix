@@ -13,3 +13,18 @@ export function appVersionLabel(version: string | undefined = import.meta.env.VI
     if (!isKnownBuildValue(version)) return 'Keyorix';
     return `Keyorix ${/^\d/.test(version) ? 'v' : ''}${version}`;
 }
+
+/**
+ * The footer label. The server's version (from GET /system/info) is what is actually running, so it
+ * leads; the web bundle's own build version is a secondary detail, shown only when it is stamped and
+ * differs. Without a stamped server version it falls back to the web build label.
+ */
+export function footerVersionLabel(
+    serverVersion: string | null | undefined,
+    webVersion: string | undefined = import.meta.env.VITE_APP_VERSION
+): string {
+    if (!isKnownBuildValue(serverVersion)) return appVersionLabel(webVersion);
+    const label = appVersionLabel(serverVersion);
+    if (!isKnownBuildValue(webVersion) || webVersion.trim() === serverVersion.trim()) return label;
+    return `${label} · web ${/^\d/.test(webVersion) ? 'v' : ''}${webVersion}`;
+}

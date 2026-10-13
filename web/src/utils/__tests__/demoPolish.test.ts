@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { eventLabel, accessActionLabel, humanizeEventName } from '../eventLabels';
 import { formatDateTime, formatAgo, formatGoDuration } from '../datetime';
-import { isKnownBuildValue, appVersionLabel } from '../buildInfo';
+import { isKnownBuildValue, appVersionLabel, footerVersionLabel } from '../buildInfo';
 import { paletteShortcutLabel, isMacPlatform, isPaletteShortcut } from '../platform';
 
 describe('eventLabel', () => {
@@ -113,5 +113,19 @@ describe('platform shortcut', () => {
         expect(isPaletteShortcut({ key: 'K', ctrlKey: true, metaKey: false })).toBe(true);
         expect(isPaletteShortcut({ key: 'k', ctrlKey: false, metaKey: true })).toBe(true);
         expect(isPaletteShortcut({ key: 'k', ctrlKey: false, metaKey: false })).toBe(false);
+    });
+});
+
+describe('footerVersionLabel', () => {
+    it('leads with the stamped server version', () => {
+        expect(footerVersionLabel('1.4.0', undefined)).toBe('Keyorix v1.4.0');
+    });
+    it('adds the web build version only when it differs', () => {
+        expect(footerVersionLabel('1.4.0', '1.4.0')).toBe('Keyorix v1.4.0');
+        expect(footerVersionLabel('1.4.0', '1.3.0')).toBe('Keyorix v1.4.0 · web v1.3.0');
+    });
+    it('falls back to the web label when the server is unstamped or unknown', () => {
+        expect(footerVersionLabel('dev', '1.3.0')).toBe('Keyorix v1.3.0');
+        expect(footerVersionLabel(undefined, undefined)).toBe('Keyorix');
     });
 });

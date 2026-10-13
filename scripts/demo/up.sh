@@ -174,7 +174,9 @@ if [ -n "$BUILD_REASON" ]; then
     make -C "$REPO_ROOT" populate-webui-dist >/dev/null
     LABEL_ARGS=()
     [ -z "$CHECKOUT_FP" ] || LABEL_ARGS=(--label "$DEMO_IMAGE_LABEL=$CHECKOUT_FP")
+    demo_stamp_build_args "$REPO_ROOT"
     docker build -f server/Dockerfile --build-arg BUILD_TAGS=noaws,noazure,nogcp \
+      ${DEMO_STAMP_ARGS[@]+"${DEMO_STAMP_ARGS[@]}"} \
       ${LABEL_ARGS[@]+"${LABEL_ARGS[@]}"} -t "$IMAGE_TAG" "$REPO_ROOT" >/dev/null
     git -C "$REPO_ROOT" checkout -- server/webui/dist/index.html 2>/dev/null || true
     IMAGE_FP="$CHECKOUT_FP"

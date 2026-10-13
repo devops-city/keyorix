@@ -79,7 +79,7 @@ test.describe('least-privilege user (alice)', () => {
                 .locator('xpath=ancestor::*[contains(@class,"rounded")][1]');
             await expect(card, label).toContainText('Not visible to you');
         }
-        await expect(main).not.toContainText('No active alerts');
+        await expect(main).not.toContainText('No anomaly or expiry alerts');
         // The tile she can read keeps its real number.
         await expect(page.getByTestId('stat-card-total-secrets-value')).toHaveText('5');
     });

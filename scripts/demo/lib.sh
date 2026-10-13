@@ -185,3 +185,18 @@ demo_enroll_mfa() {
   # Activation signs the pre-MFA session out and consumed this 30 s step.
   demo_login_mfa "$base" "$user" "$password" "$DEMO_MFA_SECRET"
 }
+
+# demo_stamp_build_args sets DEMO_STAMP_ARGS to the docker build args that stamp the image
+# with the real build identity (internal/version: Version, Commit, BuildDate), so /health,
+# /system/info, `keyorix system info` and the web footer do not report dev/none/unknown.
+# Same sources as the Makefile: the nearest tag, the short commit and the COMMIT date (never
+# wall clock, so a rebuild of the same commit is reproducible). Outside a git checkout the
+# Dockerfile defaults apply and the UI/CLI show the build as not stamped.
+demo_stamp_build_args() {
+  local root="${1:-$REPO_ROOT}" ver commit bdate
+  DEMO_STAMP_ARGS=()
+  ver="$(git -C "$root" describe --tags --always --dirty 2>/dev/null)" || return 0
+  commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null)" || return 0
+  bdate="$(TZ=UTC git -C "$root" log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" || return 0
+  DEMO_STAMP_ARGS=(--build-arg "VERSION=$ver" --build-arg "GIT_COMMIT=$commit" --build-arg "BUILD_DATE=$bdate")
+}

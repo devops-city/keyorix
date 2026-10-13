@@ -18,9 +18,27 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/keyorix/cli/internal/cliversion"
 )
+
+// buildValue renders a build-stamp field for humans. Go's ldflags defaults ("dev", "none",
+// "unknown") and an empty value all mean "this binary was not stamped"; printing them raw
+// makes a demo look unfinished and misreports what is running.
+func buildValue(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "":
+		return "n/a"
+	case "none", "unknown":
+		return "n/a (not stamped)"
+	case "dev":
+		return "dev (not stamped)"
+	}
+	return v
+}
 
 var systemCmd = &cobra.Command{
 	Use:   "system",
@@ -36,6 +54,7 @@ func init() {
 type systemInfoView struct {
 	Version     string          `json:"version"`
 	GitCommit   string          `json:"git_commit"`
+	BuildTime   string          `json:"build_time"`
 	GoVersion   string          `json:"go_version"`
 	OS          string          `json:"os"`
 	Arch        string          `json:"arch"`
@@ -79,8 +98,10 @@ Requires a connection to a server and system.read.`,
 			return err
 		}
 
-		fmt.Printf("Version:     %s\n", info.Version)
-		fmt.Printf("Commit:      %s\n", info.GitCommit)
+		fmt.Printf("Version:     %s\n", buildValue(info.Version))
+		fmt.Printf("Commit:      %s\n", buildValue(info.GitCommit))
+		fmt.Printf("Built:       %s\n", buildValue(info.BuildTime))
+		fmt.Printf("CLI:         %s\n", buildValue(cliversion.Version))
 		fmt.Printf("Go:          %s\n", info.GoVersion)
 		fmt.Printf("Platform:    %s/%s\n", info.OS, info.Arch)
 		fmt.Printf("Uptime:      %s\n", info.Uptime)

@@ -1,8 +1,27 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '../../../test/test-utils';
 import { Footer } from '../Footer';
 
+let serverVersion: string | undefined;
+vi.mock('../../../features/dashboard/api', () => ({
+    useSystemInfo: () => ({ data: serverVersion === undefined ? undefined : { version: serverVersion } }),
+}));
+
 describe('Footer', () => {
+    it('shows the server version from the API when it is stamped', () => {
+        serverVersion = 'v1.2.3';
+        render(<Footer />);
+        expect(screen.getByText(/^Keyorix v1\.2\.3/)).toBeInTheDocument();
+        serverVersion = undefined;
+    });
+
+    it('never shows an unstamped server value', () => {
+        serverVersion = 'dev';
+        render(<Footer />);
+        expect(screen.getByText('Keyorix')).toBeInTheDocument();
+        serverVersion = undefined;
+    });
+
     it('renders the version label', () => {
         render(<Footer />);
         expect(screen.getByText('Keyorix')).toBeInTheDocument();
