@@ -802,32 +802,6 @@ func (d *DatabaseConfig) AuditDurableSyncStatus(storageType string) AuditDurable
 	}
 }
 
-// BuildPostgresDSN returns a ready-to-use PostgreSQL DSN.
-// If DSN is set directly it is returned as-is; otherwise it is built from individual fields.
-func BuildPostgresDSN(d *DatabaseConfig) string {
-	if d.DSN != "" {
-		return d.DSN
-	}
-	host := d.Host
-	if host == "" {
-		host = "localhost"
-	}
-	port := d.Port
-	if port == "" {
-		port = "5432"
-	}
-	sslMode := d.SSLMode
-	if sslMode == "" {
-		sslMode = "require"
-	}
-	dsn := fmt.Sprintf("host=%s port=%s dbname=%s user=%s sslmode=%s",
-		host, port, d.Name, d.User, sslMode)
-	if pw := d.GetPassword(); pw != "" {
-		dsn += " password=" + pw
-	}
-	return dsn
-}
-
 // BoolPtr returns a pointer to b — for setting optional *bool config fields.
 func BoolPtr(b bool) *bool { return &b }
 
@@ -2662,6 +2636,11 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	// confusing connection failure (or, worse, an unauthenticated feature).
 	if err := c.ValidateSecretSources(); err != nil {
 		return err
+	}
+	if st := c.Storage.Type; st == "postgres" || st == "postgresql" {
+		if _, err := ResolvePostgresDSN(&c.Storage.Database); err != nil {
+			return err
+		}
 	}
 	if err := validateTLSMode("server.http.tls_mode", c.Server.HTTP.TLSMode); err != nil {
 		return err

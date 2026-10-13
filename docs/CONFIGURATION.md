@@ -223,7 +223,8 @@ storage:
     #   "Refusing to vivify a missing database" below.
     # PostgreSQL (recommended for production) — set type: postgres above:
     # dsn: "host=db user=keyorix dbname=keyorix port=5432 sslmode=require"
-    # password: ""                # prefer KEYORIX_DB_PASSWORD
+    # password: ""                # prefer KEYORIX_DB_PASSWORD (or KEYORIX_DB_PASSWORD_FILE);
+    #   see "PostgreSQL password precedence" below
     # max_open_conns: 8          # default: 8 for SQLite, 25 for Postgres (see below)
     # max_idle_conns: 8          # default: the effective max_open_conns
     conn_max_lifetime_minutes: 30
@@ -247,6 +248,29 @@ storage:
     #   the most recent audit entries on an OS or database-server crash.
     #   Config file only -- no API, CLI flag or env var can set it.
 ```
+
+### PostgreSQL password precedence
+
+The database password comes from `KEYORIX_DB_PASSWORD`, or the file named by
+`KEYORIX_DB_PASSWORD_FILE` (setting both is refused, as for every `<NAME>_FILE`
+secret), or `storage.database.password` -- see
+[Secrets from files](#secrets-from-files-name_file). How it combines with the
+connection settings:
+
+| `storage.database.dsn` | A password source is set | Result |
+|---|---|---|
+| empty (host/port/name/user fields) | yes | password added to the connection string |
+| set, **no** password in it | yes | the password is added to the DSN |
+| set, no password in it | no | DSN used as written (e.g. trust auth, `.pgpass`) |
+| set, **with** a password (`password=...` or `postgres://user:pw@...`) | no | DSN used as written |
+| set, **with** a password | **yes** | **refused at startup** |
+
+The last row is an error, not a silent choice: the server and every command that
+opens the database (`admin migrate`, `admin validate`, `admin restore`, ...) stop
+with `storage.database.dsn already contains a password and KEYORIX_DB_PASSWORD is
+also set; ... remove the password from storage.database.dsn ... or unset
+KEYORIX_DB_PASSWORD`. Fix it by keeping the password in one place only. The
+message names the setting and never prints either password or the DSN.
 
 ### Refusing to vivify a missing database
 

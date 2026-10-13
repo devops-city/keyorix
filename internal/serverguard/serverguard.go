@@ -287,7 +287,10 @@ func acquireSQLiteExclusive(cfg *config.Config) (*Exclusive, error) {
 // guard (or, for AcquireExclusive, held open for the caller's entire
 // operation).
 func pgConn(cfg *config.Config) (*sql.DB, *sql.Conn, error) {
-	dsn := config.BuildPostgresDSN(&cfg.Storage.Database)
+	dsn, err := config.ResolvePostgresDSN(&cfg.Storage.Database)
+	if err != nil {
+		return nil, nil, err
+	}
 	if dsn == "" {
 		return nil, nil, fmt.Errorf("postgres storage requires a DSN or host/name/user fields")
 	}
