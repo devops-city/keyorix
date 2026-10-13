@@ -1,2 +1,0 @@
-### Security
-- **A panic after the credential check keeps the per-IP login slot counted (#3048, #3064).** Previously a panic in a login, MFA or passkey step that ran after the credential had been judged released the per-IP reservation, so a correct-credential request that crashed cost nothing against the budget. Post-verdict panics are now charged like a wrong credential, matching the rule for post-verdict storage errors; pre-verdict panics still release the slot.

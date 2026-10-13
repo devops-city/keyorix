@@ -91,7 +91,7 @@ func TestHelmSecureBaselineGenerated_StillRenderedWithoutExistingSecret(t *testi
 // Silently ignoring the value would leave the operator believing their
 // certificates are in use while the baseline is off.
 func TestHelmSecureBaselineExistingSecret_RequiresEnabled(t *testing.T) {
-	out, err := helmTemplateRaw(t, "secureBaseline.existingSecret="+byoSecretName)
+	out, err := helmTemplateRaw(t, "secureBaseline.enabled=false", "secureBaseline.existingSecret="+byoSecretName)
 	if err == nil {
 		t.Fatal("helm template succeeded with existingSecret set and secureBaseline.enabled=false")
 	}

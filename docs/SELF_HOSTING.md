@@ -239,7 +239,7 @@ docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
 > **Version note.** The live (beside-the-server) Postgres backup below is not in
 > the published `0.95.3` images that `docker-compose.yml` pins: there the same
 > command fails with `failed to acquire the encryption key lock (another process
-> is using it)`. With those images stop `backend` first and use
+> is using it)`. With those images (a stack still pinned to them) stop `backend` first and use
 > `docker compose run --rm -v "$PWD/backups:/out" backend ./keyorix-server admin backup --output /out/keyorix-backup.tar.gz`
 > (`mkdir -m 777 backups` first: the container user is uid 1001).
 
@@ -379,7 +379,7 @@ path.
 ## 6. Upgrades
 
 ```sh
-# docker-compose.yml pins both images to one release tag (e.g. :0.95.3, no
+# docker-compose.yml pins both images to one release tag (e.g. :0.96.0, no
 # leading "v"). `pull` alone fetches nothing new: first edit the `backend` and
 # `web` tags to the release you are moving to, then:
 docker compose pull          # fetch the published images for those tags
@@ -395,16 +395,17 @@ grace period).
 
 ## 7. TLS
 
-**Secure baseline (from the release after v0.95.3).** `docker compose -f
-docker-compose.yml -f docker-compose.secure.yml up -d` runs the backend on TLS
-with a certificate its entrypoint generates on first start, has nginx verify
-it, turns on rate limiting and the `/metrics` token, and copies the config to a
-private 0600 file (so the host file's owner and mode no longer matter, #2922).
-`admin validate --posture` then reports no deviations. It needs a backend image
-newer than the pinned v0.95.3: until that release, build the backend from this
-checkout (`build:` in docker-compose.secure.yml). With the next release it
-becomes the default compose file. For Helm, the same baseline is
-`secureBaseline.enabled=true` (see `deploy/helm/keyorix/README.md`).
+**Secure baseline (the default since v0.96.0).** `docker compose up -d` runs the
+backend on TLS with a certificate its entrypoint generates on first start (the
+`keyorix_tls` volume), has nginx verify it, turns on rate limiting and the
+`/metrics` token, and copies the config to a private 0600 file (so the host
+file's owner and mode no longer matter, #2922). `admin validate --posture` then
+reports no deviations. The former opt-in `docker-compose.secure.yml` and
+`keyorix.docker.secure.yaml` were folded into `docker-compose.yml` and
+`keyorix.docker.yaml` and removed: drop `-f docker-compose.secure.yml` from any
+command or script of yours (see [UPGRADING.md](UPGRADING.md)). For Helm, the
+same baseline is `secureBaseline.enabled`, now `true` by default (see
+`deploy/helm/keyorix/README.md`).
 
 **ArgoCD / GitOps with Helm.** ArgoCD renders charts with `helm template`, which
 cannot look up the cluster, so the baseline's generated certificates and

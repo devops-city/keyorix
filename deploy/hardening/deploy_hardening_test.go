@@ -265,6 +265,20 @@ func secretish(name string) bool {
 	return false
 }
 
+// publicCertFileEnv reports whether an environment variable is one of the two
+// *_FILE variables of the secure baseline that name a PUBLIC certificate (the
+// server's own certificate, used as the CA the in-container client trusts, and
+// the copy handed to the web container). They hold no credential, so they are
+// exempt from the secrets-mount rule, but only while the value is a .crt path:
+// pointing one at a key would be a secret outside a secret mount.
+func publicCertFileEnv(name, val string) bool {
+	switch name {
+	case "KEYORIX_LOCAL_CA_FILE", "KEYORIX_PUBLIC_CA_FILE":
+		return strings.HasSuffix(val, ".crt")
+	}
+	return false
+}
+
 // DEPLOY-2 decision 1: no secret value in any container's environment. Each
 // credential reaches its container as a Docker secrets file named by a *_FILE
 // variable (server: internal/secretenv; postgres: POSTGRES_PASSWORD_FILE;
@@ -300,6 +314,9 @@ func TestCompose_SecretsAreFilesNotEnv(t *testing.T) {
 		for k, val := range asMap(svc["environment"]) {
 			if secretish(k) {
 				t.Errorf("%s: environment variable %s carries a credential; use %s_FILE with a Docker secret", svcName, k, k)
+			}
+			if pv, _ := val.(string); publicCertFileEnv(k, pv) {
+				continue
 			}
 			if strings.HasSuffix(k, "_FILE") {
 				usesFile = true
@@ -680,8 +697,11 @@ func TestHelmChart_SecretsAreMountedFilesNotEnv(t *testing.T) {
 				if !strings.HasSuffix(en, "_FILE") {
 					continue
 				}
-				filesSeen++
 				val, _ := em["value"].(string)
+				if publicCertFileEnv(en, val) {
+					continue
+				}
+				filesSeen++
 				var mount m
 				var mountPath string
 				for p, mm := range mounts {

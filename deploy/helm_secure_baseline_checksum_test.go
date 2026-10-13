@@ -127,10 +127,10 @@ func TestHelmSecureBaseline_PodsCarryTheSecretChecksum(t *testing.T) {
 	}
 }
 
-// The control: with secureBaseline off no pod template carries the annotation,
+// The control: with secureBaseline explicitly off (on by default since v0.96.0) no pod template carries the annotation,
 // so the default render is unchanged.
 func TestHelmDefault_NoSecureBaselineChecksum(t *testing.T) {
-	for _, d := range renderHelmDocs(t) {
+	for _, d := range renderHelmDocs(t, "secureBaseline.enabled=false") {
 		if _, has := d.Spec.Template.Metadata.Annotations[secureBaselineChecksumKey]; has {
 			t.Errorf("%s %s carries %s with secureBaseline off", d.Kind, d.Metadata.Name, secureBaselineChecksumKey)
 		}

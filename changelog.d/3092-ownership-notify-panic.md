@@ -1,2 +1,0 @@
-### Fixed
-- **A failing "you are now the owner" notification no longer turns a committed ownership transfer into an error (#3092).** Transferring a secret's ownership (and the bulk reassignment summary) saved the new owner and the audit event, then answered HTTP 500 if creating the notification panicked. A notification error was already ignored; a panic is now recovered and logged at `SECURITY: WARN` too, and the request returns success.

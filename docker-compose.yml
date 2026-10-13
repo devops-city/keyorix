@@ -10,6 +10,10 @@
 # with images built from the checkout (see docs/demo/GOLDEN-PATH.md, "Which
 # images does what") because a released web UI does not match a main backend.
 #
+# This is the secure baseline (TLS between web and backend, rate limiting, a
+# /metrics token); keyorix.docker.yaml holds its server config. Before v0.96.0 it
+# was an opt-in overlay (docker-compose.secure.yml); see docs/UPGRADING.md.
+#
 # Secrets are Docker secrets FILES under ./secrets (or $KEYORIX_SECRETS_DIR), read by
 # the containers through the *_FILE variables below. They are not in any container's
 # environment (`docker inspect`, /proc/<pid>/environ). There are NO baked-in default
@@ -57,7 +61,7 @@ services:
       retries: 10
 
   backend:
-    image: ghcr.io/keyorixhq/keyorix-server:0.95.3 # pin; bump to match release tag on upgrades
+    image: ghcr.io/keyorixhq/keyorix-server:0.96.0 # pin; bump to match release tag on upgrades
     # To build from source instead of pulling the published image, comment out
     # `image:` above and uncomment:
     # build:
@@ -65,6 +69,21 @@ services:
     #   dockerfile: server/Dockerfile
     restart: unless-stopped
     environment:
+      # Secure baseline (SECURE-DEFAULT-1, ADR-112 §4): `admin validate --posture`
+      # on this stack reports zero deviations, file permissions included (#2922).
+      #   - the backend serves TLS with a certificate its entrypoint generates on
+      #     first start (keyorix_tls volume, 0600), and requires it;
+      #   - nginx (web) proxies to https://backend:8080 and verifies that
+      #     certificate (a 0644 copy on the keyorix_tls_public volume);
+      #   - rate limiting on, /metrics behind a generated token;
+      #   - the bind-mounted config is copied to a private 0600 file at every start.
+      KEYORIX_CONFIG_SOURCE: /app/config/keyorix.docker.yaml
+      KEYORIX_CONFIG_PATH: /app/data/keyorix.yaml
+      KEYORIX_INIT_SECURE_FILES: "true"
+      KEYORIX_TLS_DNS_NAMES: backend
+      KEYORIX_PUBLIC_CA_FILE: /app/tls-public/ca.crt
+      KEYORIX_LOCAL_URL: https://localhost:8080
+      KEYORIX_LOCAL_CA_FILE: /app/tls/server.crt
       # Secrets are files (see the `secrets:` block at the bottom); the server and
       # the entrypoint read them through these *_FILE variables.
       KEYORIX_DB_PASSWORD_FILE: /run/secrets/db_password
@@ -92,6 +111,11 @@ services:
     # you restore a backup larger than this.
     tmpfs:
       - /tmp:mode=1777,size=64m
+      # The private config copy (rewritten from the source at every start) needs a
+      # writable home on this read_only root FS: a small tmpfs owned by the image's
+      # uid 1001, 0700; nothing else lives in /app/data here.
+      # (deploy TestComposeBackend_EntrypointWritesLandOnWritableMounts)
+      - /app/data:mode=0700,uid=1001,gid=1001,size=1m
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
@@ -102,18 +126,33 @@ services:
       - admin_password
       - bootstrap_token
     volumes:
-      - ./keyorix.docker.yaml:/app/keyorix.yaml:ro
+      # The entrypoint copies this to the private 0600 KEYORIX_CONFIG_PATH.
+      - ./keyorix.docker.yaml:/app/config/keyorix.docker.yaml:ro
       # The encryption keys (wrapped DEK + KEK salt) MUST persist across restarts.
       - keyorix_keys:/app/keys
+      # Generated certificate, key and /metrics token (0600), kept across restarts.
+      - keyorix_tls:/app/tls
+      - keyorix_tls_public:/app/tls-public
+    healthcheck:
+      test: ["CMD", "sh", "-c", "SSL_CERT_FILE=/app/tls/server.crt wget -q --spider https://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
 
   web:
     # Published by docker-publish.yml from the same release tag as the server
     # image. Registry tags carry no leading "v" (docker/metadata-action semver
     # pattern): release v0.95.3 -> image tag 0.95.3.
-    image: ghcr.io/keyorixhq/keyorix-web:0.95.3 # pin; bump to match release tag on upgrades
+    image: ghcr.io/keyorixhq/keyorix-web:0.96.0 # pin; bump to match release tag on upgrades
     restart: unless-stopped
     ports:
       - "8088:80"
+    volumes:
+      # Replaces the image's plain-http keyorix-backend.conf: proxy to the TLS
+      # backend and verify its certificate (the public copy mounted below).
+      - ./deploy/compose/keyorix-backend.tls.conf:/etc/nginx/keyorix-backend.conf:ro
+      - keyorix_tls_public:/etc/keyorix/tls:ro
     environment:
       # HSTS behind a TLS-terminating load balancer (docs/SELF_HOSTING.md). This
       # nginx speaks plain http, so it sends Strict-Transport-Security ONLY for a
@@ -127,7 +166,9 @@ services:
       KEYORIX_WEB_HSTS_MAX_AGE: ${KEYORIX_WEB_HSTS_MAX_AGE:-31536000}
       KEYORIX_WEB_HSTS_INCLUDE_SUBDOMAINS: ${KEYORIX_WEB_HSTS_INCLUDE_SUBDOMAINS:-true}
     depends_on:
-      - backend
+      backend:
+        # nginx reads the backend certificate at startup.
+        condition: service_healthy
     # Hardening (DEPLOY-1 audit): image runs as nginx uid 101. nginx's cache, pid
     # and log files go to tmpfs so the root FS can be read-only. NET_BIND_SERVICE
     # mirrors the Helm chart (container port 80 as non-root) and keeps this working
@@ -263,5 +304,7 @@ secrets:
 volumes:
   postgres_data:
   keyorix_keys:
+  keyorix_tls:
+  keyorix_tls_public:
   caddy_data:
   caddy_config:

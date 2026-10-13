@@ -657,8 +657,9 @@ Rate limiting is on (`50`/`100` HTTP, `25`/`50` gRPC, as in
   report then lists `security.insecure_allow_cleartext_transport` if you also set
   `require_transport_tls: false` (it must be false for a cleartext listener to start).
 
-Docker Compose and Helm reach the same baseline with `docker-compose.secure.yml`
-and the chart's `secureBaseline.enabled` (docs/SELF_HOSTING.md §7);
+Docker Compose and Helm reach the same baseline by default since v0.96.0
+(`docker-compose.yml` with `keyorix.docker.yaml`, and the chart's
+`secureBaseline.enabled`; docs/SELF_HOSTING.md §7);
 `keyorix-server admin init --secure-files` is the generation step on its own,
 for a config an orchestrator supplies.
 
@@ -670,8 +671,8 @@ demo and e2e scripts in `scripts/` that talk plain HTTP use it explicitly.
 
 ### Hardening an older config (clearing the posture report)
 
-A config written by an earlier `admin init` (and `keyorix.docker.yaml`) is a dev
-baseline: on it the report lists the three `insecure_*` settings below
+A config written by an earlier `admin init` (or a `keyorix.docker.yaml` from before
+v0.96.0) is a dev baseline: on it the report lists the three `insecure_*` settings below
 (cleartext transport, unauthenticated `/metrics`, no API rate limit), and exits
 1. Upgrading does not change it. Verified on a fresh SQLite install: setting
 exactly these keys makes `admin validate --posture` print `No deviations found.`
@@ -684,11 +685,13 @@ YAML key, so the mapping is:)
 | `server.insecure_allow_unauthenticated_metrics` | `metrics_token: "<long random string>"` or `metrics_token_file: <path to a 0600 file>` on **both** `server.http` and `server.grpc` (the entry checks both listeners); `/metrics` then answers 401 without `Authorization: Bearer <token>` and 200 with it |
 | `server.insecure_disable_api_ratelimit` | `server.http.ratelimit.enabled: true` and `server.grpc.ratelimit.enabled: true` (the entry checks both listeners, even with gRPC off) |
 
-Also keep the key and config files `0600` and owned by the server's user. In
-Docker Compose the bind-mounted `keyorix.docker.yaml` arrives as the host's
-owner/mode (typically `0664`, uid 1000, while the container runs as uid 1001),
-which the report counts as a file-permission deviation until you
-`chmod 600 keyorix.docker.yaml && sudo chown 1001 keyorix.docker.yaml` (tracked in #2922).
+Also keep the key and config files `0600` and owned by the server's user. The
+Docker Compose stack since v0.96.0 does this for you: its entrypoint copies the
+bind-mounted `keyorix.docker.yaml` (which arrives as the host's owner/mode,
+typically `0664`, uid 1000, while the container runs as uid 1001) to a private
+0600 file owned by uid 1001 (#2922). A hand-rolled container setup that mounts the
+config directly needs `chmod 600 keyorix.docker.yaml && sudo chown 1001 keyorix.docker.yaml`,
+or the report counts a file-permission deviation.
 
 The renamed settings, with the deprecated name each still accepts (same
 meaning, a start-up warning when the old name is used; when both are set the

@@ -1,8 +1,15 @@
 package deploy
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"os/exec"
@@ -163,6 +170,34 @@ func TestWebNginxHSTS_ComposeImage(t *testing.T) {
 	}
 }
 
+// writeTestCA generates a throwaway self-signed CA certificate (PEM) in a temp dir and
+// returns its path, readable by the nginx container user.
+func writeTestCA(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "keyorix-hsts-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "ca.crt")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil { //nolint:gosec // public cert, read by the container
+		t.Fatal(err)
+	}
+	return path
+}
+
 // Helm chart: the nginx.conf inside the rendered web ConfigMap.
 func TestWebNginxHSTS_HelmChart(t *testing.T) {
 	needDocker(t)
@@ -170,6 +205,7 @@ func TestWebNginxHSTS_HelmChart(t *testing.T) {
 		t.Skip("helm not installed -- skipping chart web-config check")
 	}
 	chart := filepath.Join("..", "deploy", "helm", "keyorix")
+	caFile := writeTestCA(t)
 	for i, c := range hstsCases {
 		t.Run(c.name, func(t *testing.T) {
 			sets := []string{"--set", "web.enabled=true", "--set", "auth.masterPassword=x", "--set", "postgresql.auth.password=x"}
@@ -197,7 +233,11 @@ func TestWebNginxHSTS_HelmChart(t *testing.T) {
 			base := runNginx(t,
 				"--name", fmt.Sprintf("hsts3058-helm-%d-%d", os.Getpid(), i),
 				"--add-host", "kx-keyorix-server:127.0.0.1", // literal proxy_pass host must resolve; nothing listens (502)
-				"-v", conf+":/etc/nginx/nginx.conf:ro", nginxImage)
+				"-v", conf+":/etc/nginx/nginx.conf:ro",
+				// The secure-baseline web config verifies the backend against this CA
+				// (proxy_ssl_trusted_certificate); nginx will not start without the file.
+				"-v", caFile+":/etc/keyorix/tls/ca.crt:ro",
+				nginxImage)
 			assertHSTS(t, c, base, "/health", "/", "/missing.js", "/api/v1/x") // incl. the proxied (502) API location
 		})
 	}

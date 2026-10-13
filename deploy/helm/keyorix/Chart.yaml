@@ -13,9 +13,9 @@ type: application
 # published tag, 0.89.0, confirmed live against ghcr.io/keyorixhq/keyorix-server,
 # not assumed). See this chart's README "Versioning" section for the policy
 # meant to stop this recurring a third time.
-version: 0.95.1
+version: 0.96.0
 # The Keyorix app version this chart deploys by default (the image tag).
-appVersion: "0.95.1"
+appVersion: "0.96.0"
 home: https://github.com/keyorixhq/keyorix
 sources:
   - https://github.com/keyorixhq/keyorix

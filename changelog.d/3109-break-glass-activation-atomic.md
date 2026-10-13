@@ -1,2 +1,0 @@
-### Fixed
-- **A failed break-glass activation no longer leaves an activation record behind (#3109).** The activation record was committed first and "undone" by a second write when the emergency-role grant failed, so an error response could leave a `revoked` record (and, between the two commits, an `active` record with no role). The record and the grant now run in one transaction under the existing project-admin lock; nothing is visible, audited or notified until it commits, and a failed grant leaves no trace and does not block a retry. Same core path for HTTP and gRPC.

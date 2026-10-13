@@ -103,7 +103,7 @@ COPY --from=builder /app/server/entrypoint.sh .
 # tls/ (0700: generated certificate, key and metrics token) and tls-public/
 # (0755: the certificate copy a proxy container reads) exist in the image so a
 # named volume mounted there starts with this ownership and mode
-# (docker-compose.secure.yml, SECURE-DEFAULT-1).
+# (docker-compose.yml, SECURE-DEFAULT-1).
 RUN chmod +x entrypoint.sh && \
     mkdir -p data keys tls tls-public && chown -R keyorix:keyorix /app && \
     chmod 0700 data keys tls && chmod 755 tls-public

@@ -20,7 +20,7 @@ tag fires three workflows that publish everything a user consumes.
    same PR as the `CHANGELOG.md` entry. `go test ./deploy/` (`TestComposeImagePinsMatchLatestRelease`)
    fails if the pins don't match the newest `## vX.Y.Z` heading in `CHANGELOG.md`.
    The images only exist once the tag is pushed, so tag right after that PR merges.
-   **The first release after v0.95.3 only:** in the same PR, fold
+   **The first release after v0.95.3 only (done in v0.96.0; kept for the guard tests' wording):** in the same PR, fold
    `docker-compose.secure.yml` into `docker-compose.yml` and
    `keyorix.docker.secure.yaml` into `keyorix.docker.yaml`, delete both, and set
    the chart's `secureBaseline.enabled` default to `true` (SECURE-DEFAULT-1: the

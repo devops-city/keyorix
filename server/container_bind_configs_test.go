@@ -17,9 +17,8 @@ import (
 func TestContainerConfigsBindAllInterfaces(t *testing.T) {
 	root := filepath.Join("..")
 	for _, rel := range []string{
-		"keyorix.docker.yaml",            // docker-compose.yml backend
+		"keyorix.docker.yaml",            // docker-compose.yml backend, nginx reaches backend:8080
 		"scripts/dast/keyorix-dast.yaml", // scripts/dast/docker-compose.yml, scanners reach keyorix:8080
-		"keyorix.docker.secure.yaml",     // docker-compose.secure.yml backend, nginx reaches backend:8080
 	} {
 		t.Run(rel, func(t *testing.T) {
 			raw, err := os.ReadFile(filepath.Join(root, rel)) // #nosec G304 -- fixed repo-relative test fixtures

@@ -8,7 +8,295 @@ All notable changes to Keyorix are documented here. This project follows
 `scripts/changelog-assemble.sh`. Do not add new entries to "Unreleased" below;
 that section is the text written before the switch.
 
-## Unreleased
+## v0.96.0 — 2026-10-13
+
+### Security
+- **A crafted passkey user handle no longer counts as a storage error.** On a
+  passwordless login, a user handle above the largest possible user id made
+  Postgres return an error that was taken for a database failure, so the
+  request was audited `auth.login_error` and gave its per-IP login-budget slot
+  back: unlimited attempts, each one recorded as an outage. Such handles (and a
+  zero handle) are now refused before the lookup, audited `webauthn.failed` and
+  counted. The client answer is unchanged.
+- **BREAKING: the HTTP and gRPC listeners now bind `127.0.0.1` by default (#2939).** `server.http.host` / `server.grpc.host` select the bind address; when omitted the server listens on loopback only instead of every interface. **Upgrade note:** installs with their own `keyorix.yaml` (or a mounted container config) and no `host:` line that are reached from another machine, a remote reverse proxy or a published container port must add `host: "0.0.0.0"` (or a specific interface address) under `server.http` / `server.grpc`. The shipped docker-compose config, Helm chart, DAST stack config and demo `up.sh` set it explicitly; `server/config/production.yaml` and `server/config/web-enabled.yaml` carry a commented `host:` line. See `docs/UPGRADING.md` §6a.
+- **Successful logins no longer use up the per-IP login budget** (#2936). The
+  budget (10 attempts per 15 minutes per IP, shared by the password, TOTP,
+  passkey and token-refresh endpoints) was charged for every request, success
+  or not, so a few ordinary MFA logins from one demo laptop, booth or office
+  network locked everyone behind it out with a 429 for 15 minutes, and a
+  restart did not help. A request that delivers a session now returns its slot,
+  and so does every earlier step of the same login (the password step of an MFA
+  login, a passkey `begin`), so a successful MFA or passkey login costs nothing;
+  a failed, expired or abandoned one keeps every slot it took. Failures count
+  exactly as before, including storage faults after a correct credential
+  (#2880), and the slot is still reserved before the credential check, so a
+  concurrent burst cannot outrun the budget. The count still survives a
+  restart. New audited host-side command
+  `keyorix-server admin clear-login-lockout --ip ADDR | --user ID` clears an
+  IP's budget and/or an account's login lockout (docs/SELF_HOSTING.md).
+- **The shipped compose stack and Helm chart no longer put credentials in any
+  container's environment.** Compose uses Docker secrets files under `./secrets`
+  (created by `scripts/selfhost/init-secrets.sh`, which also migrates an existing
+  `.env` with `--from-env`); the chart mounts its Secret as a read-only 0440
+  volume and sets `*_FILE` variables. Requires a server image with `*_FILE`
+  support (#2968). **Upgrade notes in `docs/UPGRADING.md` §5.**
+- The share lists (`GET /api/v1/shares`, `GET /api/v1/shares/owned`, and the embedded-mode
+  core calls) now refuse a list of 10000 or more shares (the storage layer silently cuts
+  unpaginated lists off at 10000) instead of running an unbounded number of user/group
+  lookups or showing a list that may be missing shares. Over the cap the HTTP answer is a
+  typed `422 ShareListOverCap`, not a 500; the list is never truncated. Real pagination is
+  a follow-up.
+- **The access report shows no more than the routes it summarises.** Project role levels and
+  role-only members need `users.read` at the project; per-secret ACL holders and `acl:` grants
+  need `secrets.manage` on the secret (the gate of `GET /secrets/{id}/acl`). Without them that
+  part is left out and the report is flagged `degraded`. A departed owner is not reported as
+  owner. A failed group-membership lookup now degrades the report instead of only being
+  logged. Guarded by `internal/core/secret_access_list_test.go`.
+- **The per-IP login budget no longer fails open on a database error.** It used
+  to stop counting whenever its `login_attempts` storage failed, including when
+  only the count query failed while inserts still worked. It now falls back to
+  a bounded in-memory limiter with the same limit and window, per server
+  process. Each fallback writes an `auth.rate_limit_error` audit event and
+  increments `keyorix_auth_rate_limit_fallback_total{budget="login"}`. Clients see the same 429.
+  An MFA or passkey login whose slot came from that fallback completes as
+  normal: the in-memory slot is never written to the challenge or ceremony row.
+- **A storage error before any credential was checked is no longer recorded as
+  a failed login.** The username lookup on `/auth/login` and the passwordless
+  passkey's user lookup audit it as `auth.login_error` and hand the per-IP slot
+  back; MFA activation's anti-replay write audits `mfa.error`. The client answer
+  is unchanged.
+- **No auth rate limit fails open on a database error any more.** The per-IP
+  login, password-reset and SSO/SAML-begin budgets, and the per-account lockout,
+  used to stop counting whenever their storage failed, including when only the
+  count query failed while inserts still worked. While the database (or
+  just its rate-limit table) was failing, brute-force and email-bombing limits
+  were off. The per-account lockout is the only bound on MFA step-up and
+  recovery-code guessing. Now each budget falls back to a bounded in-memory
+  limiter with the same limits, per server process. Each fallback writes an
+  `auth.rate_limit_error` audit event and increments
+  `keyorix_auth_rate_limit_fallback_total{budget}`, so alert on that metric.
+  `/health` also reports `"auth_rate_limit": "degraded"` while a fallback is in use.
+  During the outage, password reset is tighter: half the per-IP limit, and a cap on
+  reset emails per account. In HA, set the new
+  `security.auth_rate_limit_fallback.replicas` to your replica count so each
+  replica enforces its share. Clients see the same responses as before.
+- **`keyorix-server admin init` writes the secure baseline** (ADR-112 §4):
+  `admin validate --posture` reports zero deviations on a fresh install. TLS is
+  on and required, with a generated self-signed certificate
+  (`certs/server.crt`/`.key`); API rate limiting is on; `/metrics` requires a
+  generated token read from the new `server.http/grpc.metrics_token_file`
+  (`secrets/metrics_token`). All generated files are `0600` and never printed.
+  An existing config is not changed and nothing is generated for it.
+  `admin init --dev` writes the previous relaxed config, labelled DEV-ONLY.
+  Guarded by `server/admin_init_secure_baseline_test.go`.
+- **The CLI can trust a private CA or self-signed server certificate:**
+  `keyorix config set ca_file <path>`, `KEYORIX_CA_FILE`, or `--ca-file`. The
+  CLI then trusts exactly that file's certificates, the same on macOS and Linux
+  (`SSL_CERT_FILE` is ignored on macOS). `login` remembers the CA file it used.
+- **One-time passwords expire.** The one-time password `keyorix-server admin recover-admin` issues is valid for 24h and an admin-created one (`keyorix user create --one-time-password`) for 72h (`security.recovery_one_time_password_ttl`, `security.one_time_password_ttl`; Go durations up to `168h`, a set but invalid or out-of-range value is refused at start-up, empty means the default; there is no "never"). After the expiry the correct password is refused exactly like a wrong one (same response and timing, counted toward `login_lockout`) and audited server-side as `auth.one_time_password_expired`. Choosing a new password clears the expiry. Expiry is a login gate: an already-open session is not cut off by it.
+- **Upgrade effect: every account in `password_reset_required` gets 24 hours from the upgrade.** Before this change nothing recorded which accounts hold a one-time password, so the one-off migration stamps every live `password_reset_required` account, including accounts an admin forced to reset and accounts held by the password max-age gate. Those users who have not changed their password within 24h of the upgrade are refused at login until an admin re-issues access (`recover-admin`, `user resend-setup-link`). The same rule is applied when a pre-upgrade backup is restored (`admin restore` of an archive without the column). During a rolling upgrade, replicas still on the previous version keep accepting an expired one-time password until they are upgraded (the schema epoch is unchanged).
+- **BREAKING: Docker Compose and the Helm chart now run the secure baseline by
+  default.** The baseline (`admin validate --posture`: no deviations, file
+  permissions included, #2922) is no longer a separate opt-in. What changes for
+  operators:
+  - **Compose:** the stock `docker-compose.yml` is the secure stack.
+    `docker-compose.secure.yml` and `keyorix.docker.secure.yaml` no longer exist
+    (drop `-f docker-compose.secure.yml` from your commands). The backend serves
+    TLS on 8080 inside the compose network with a generated certificate that
+    nginx verifies (the published port 8088 is unchanged), `/metrics` needs the
+    generated token, API rate limiting is on, and the server runs from a private
+    0600 config copy. New volumes `keyorix_tls` and `keyorix_tls_public`; the
+    config is mounted at `/app/config/keyorix.docker.yaml`. Anything that spoke
+    plain HTTP to the backend on 8080, or scraped `/metrics` without a token,
+    must switch to HTTPS with the generated CA and send the token.
+  - **Helm:** `secureBaseline.enabled` now defaults to `true`. `helm upgrade`
+    turns on TLS between the pods (Helm-generated certificate, kept across
+    upgrades), the `/metrics` token and rate limiting, switches the bundled
+    Postgres to TLS, and rolls the server, web and Postgres pods. If you pin an
+    older `image.tag` (no secure-baseline support), set
+    `secureBaseline.enabled=false`. With the bundled Postgres the data
+    directory ownership also changes (uid 999 to 70): see
+    `docs/UPGRADING.md` "v0.95.x to v0.96.0".
+  - Both need the 0.96.0 server image; they do not work on v0.95.3 or older.
+
+  Also new: `keyorix-server admin init --secure-files` (generate only the files
+  an existing config references); the server image's entrypoint is now its
+  ENTRYPOINT (`docker run <image> <cmd>` runs `<cmd>` after the config copy).
+  The compose backend mounts a small private tmpfs at `/app/data` for the config
+  copy (its root filesystem is read-only). In the chart, rotating the generated
+  Secret (delete it, `helm upgrade`) rolls the server, web and bundled-Postgres
+  pods through their `checksum/secure-baseline` annotation. The compose config
+  sets `server.http.host: "0.0.0.0"` (the server's default bind is 127.0.0.1
+  since #2939, which left the web container and the health check unable to reach
+  the TLS backend).
+- **A panic after the credential check keeps the per-IP login slot counted (#3048, #3064).** Previously a panic in a login, MFA or passkey step that ran after the credential had been judged released the per-IP reservation, so a correct-credential request that crashed cost nothing against the budget. Post-verdict panics are now charged like a wrong credential, matching the rule for post-verdict storage errors; pre-verdict panics still release the slot.
+- **A storage fault while looking up a session token no longer spends the per-IP
+  login budget on `POST /auth/refresh`** (#2880). When the session lookup itself
+  fails, no token was found or judged, so nothing was guessed and the request
+  returns its slot instead of counting as a failed attempt (a client behind a
+  flaky database could lock its own IP out of logging in). The refusal is the
+  same 401 as before. Every fault after the token matched a live session (the
+  owner read, the rotation, the reuse revocation) still keeps the slot, so a
+  valid token is never cheaper than a wrong one; the rotation and owner-read
+  cases are pinned by-design in the fault-injection oracle.
+- **Root CI-tooling `undici` raised to 7.29.1 and `qs` pinned to 6.16.0** (the ten undici advisories fixed in 7.29.1, and qs GHSA-x5fp-wj9c-mxmx / GHSA-4mjr-xmp4-gh2g). Both arrive transitively through `@cyclonedx/cdxgen` (cheerio, body-parser); the root `package.json` overrides now pin the first patched versions and `npm audit` reports 0 vulnerabilities. CI/release-SBOM tooling only, not shipped in any binary.
+- **`keyorix-server admin clear-login-lockout` now writes its audit event before it
+  clears anything** (#2956 follow-up). It used to clear the IP budget / account
+  lockout first and audit afterwards, so a fault in the audit write left a lifted
+  lockout with no record. Now a failed audit write clears nothing and fails the
+  command, and a clear that faults after the audit event was written appends an
+  `admin.login_lockout_clear_failed` event so the chain never claims a lift that
+  did not happen. The per-run counts ("cleared N attempts") are printed to the
+  operator and no longer part of the audit text.
+- **source-map-js pinned to 1.2.2 in `web/`** (GHSA-68fv-2mgg-jv7q, Dependabot #25). The web build and test toolchain (postcss, tailwind, jsdom) pulled 1.2.1 transitively; `web/pnpm-workspace.yaml` now overrides it to 1.2.2. Dev/build-time dependency only, not shipped in the web bundle.
+- **`admin restore` checks secret references against the right table (#3078).** backupfmt classified
+  the `secret_id` column of `share_records`, `secret_acls`, `access_requests`,
+  `secret_version_comments` and `access_review_items` as a reference to `mfa_secrets`, because there
+  is no `Secret` model and the naming convention also matched a model name that merely *ends* in the
+  field's name. Restore's mandatory dangling-reference check therefore refused a valid backup holding
+  a share, ACL or access request on a real secret (unless an MFA secret had the same id), and accepted
+  a reference to a secret that does not exist whenever an MFA secret had that id. The five columns now
+  reference `secret_nodes`, and the convention only matches a field that ends with a model's full name;
+  anything else must be listed in `referenceOverrides` by hand (the three `ClientID -> APIClient`
+  fields now are). Existing backup archives need no conversion.
+- **A restricted personal access token is refused on every ungated write.** Writes
+  that no permission gate covers (profile, password, MFA and passkey changes, step-up,
+  access requests, marking notifications read, leaving a share, break-glass, PAT
+  creation) now answer a PAT with any scope, project, environment or CIDR restriction
+  with 403 (gRPC `PermissionDenied`). Still allowed: revoking the owner's own tokens
+  and sessions, and creating secrets, folders, rotation policies and dynamic-secret
+  configs inside the token's restriction. Unrestricted PATs, sessions and machine
+  tokens are unchanged. One table for both transports
+  (`internal/core/pat_restriction_writes.go`), guarded family-wide (ADR-042).
+
+### Added
+- **Owner-scoped share list: a project-only owner can see and revoke their shares.**
+  New `GET /api/v1/shares/owned` returns only the shares the caller created, on secrets in
+  projects they are a member of now, within the caller's PAT restriction. The Sharing
+  Management page falls back to it (labelled "Shares you created") when `GET /api/v1/shares`
+  (global `secrets.read`) is refused; a global admin's page is unchanged.
+- **Secret access shows each user's effective level and every grant behind it.**
+  `GET /secrets/{id}/access` / `keyorix secret access` / the secret's Access panel list each
+  user's effective level (max of role, per-secret ACL and active share; owner for a live
+  owner) with a `grants` list such as `role:read, direct_share:write` or `owner:owner`.
+  Every applying share is listed, so a direct read share and a group write share both appear.
+- **An incomplete access list says so.** `keyorix secret access` prints
+  `WARNING: this list is incomplete` with the server's reasons, and the web Access panel shows
+  a "This list is incomplete" banner, whenever the report is `degraded`. The OpenAPI response
+  now declares `total`, `degraded` and `degraded_reasons`.
+- **`keyorix user reissue-one-time-password <user id | email>`** (REST `POST /api/v1/users/{id}/reissue-one-time-password`, gRPC `UserService.ReissueOneTimePassword`). An administrator (`users.write`, within the admin-rank ceiling over the target) issues a new one-time password for an existing user whose first one expired or was lost. The password is shown once, expires after `security.one_time_password_ttl`, and is never stored in clear or audited (`user.one_time_password_reissued`). The account returns to `password_reset_required`, all of its sessions end, and an enrolled second factor is kept. Refused for your own account, SSO/SCIM-managed accounts and suspended or inactive accounts, each with a fixed message; a storage failure returns 500 (gRPC `Internal`), never 404.
+- **Helm: `secureBaseline.existingSecret`** for ArgoCD and other GitOps tools that
+  render with `helm template`. There `lookup` sees no cluster, so the generated
+  certificates and `/metrics` token changed on every sync. With the value set to a
+  pre-created Secret (keys `server.crt`, `server.key`, `metrics_token`, and
+  `postgres.crt`, `postgres.key` for the bundled Postgres) the chart generates
+  nothing, renders no `-secure-baseline` Secret and mounts yours; two renders are
+  byte-identical. A missing key fails `helm install/upgrade` with its name, and
+  setting it without `secureBaseline.enabled=true` fails the render. Unset, the
+  render is unchanged. See `deploy/helm/keyorix/README.md`.
+- **Helm: `secureBaseline.existingSecretRevision`** (optional, default empty). Under
+  ArgoCD the pod annotation `checksum/secure-baseline` is constant, so rotating the
+  existing Secret does not restart the pods. Bumping this value in Git feeds that
+  annotation and rolls the server, web and bundled-Postgres pods on the next sync.
+  Setting it without `existingSecret` fails the render.
+- **`keyorix-server --version` and `keyorix-server admin version`.** Print the version, commit, build date (the commit date, so release builds stay reproducible) and Go version from the same `-X` ldflags the Makefile and `server/Dockerfile` use; no config file or database lock needed. The Dockerfile takes a new `BUILD_DATE` build arg (defaults to `unknown`; the docker-publish workflow should pass the commit date).
+- **`keyorix-server admin audit export-checkpoint-key`.** Writes the KEK-derived audit-checkpoint verification key (hex, `0600`, never printed, refuses to overwrite) for `admin verify-audit --checkpoint-key-file`, so an air-gapped drill can authenticate an exported checkpoint anchor (`external_anchor.authenticated == true`). Documented in `docs/AIRGAP_RUNBOOK.md`; `scripts/airgap-e2e.sh` now asserts it.
+- **`keyorix-server admin generate-secrets`.** Creates the three secrets a host install needs before the server first starts (`master_password`, `bootstrap_token`, `admin_password`) as 0600 files in a 0700 `./secrets` (or `--dir`), never overwriting an existing file and never printing a value: it prints only the `KEYORIX_*_FILE` paths every `keyorix-server` and `keyorix` command already reads. The host-install counterpart of `scripts/selfhost/init-secrets.sh` (whose 0640 compose files the master-passphrase reader refuses on a host), and the first step of the secret-blind "install with an AI assistant" flow. Guarded by `server/admin/generate_secrets_test.go` and the binary-level `TestAdminGenerateSecrets_SecretBlindHostInstall`.
+
+### Changed
+- **The access report reads a secret's shares once**, instead of once or twice per listed
+  user, and evaluates each user's share grants from that list with the same rules as
+  enforcement.
+- **Deleting a secret now shows its real purge date (the restore deadline)** in the CLI,
+  REST and gRPC responses and in the trash listing. The date is frozen when the secret is
+  soft-deleted, so a later change to `soft_delete.retention_days` can neither pull a purge
+  earlier than the date already shown nor silently push it out. New nullable column
+  `secret_nodes.purge_at`, added automatically on upgrade (schema epoch 2). **The
+  compatibility floor rises to 2: binaries from before this release refuse to start against
+  an upgraded database** (they would not clear or re-stamp `purge_at` on restore/re-delete,
+  and a stale date could purge a secret earlier than shown), so upgrade every replica
+  before relying on a rollback. Secrets soft-deleted before the upgrade keep following the
+  current window until purged, and the settings page says so.
+- **OpenAPI lint uses vacuum instead of Spectral.** CI's `openapi-lint` job now runs vacuum (pinned in `devtools/vacuum/go.mod`, checksum-verified via `go.sum`, ruleset in `.vacuum.yaml`) and `@stoplight/spectral-cli` is removed from the root `package.json`, dropping a CI dependency whose `braces` dependency has an unfixed advisory (GHSA-vfj7-8cjw-p6xm). A canary spec guards against an inert ruleset. `make openapi-lint` runs it locally.
+- **An interactive session's auth-cache hit re-checks the account and the session in one database statement.** Every request served from the HTTP auth cache with a session token used to re-read the owning user (active / not suspended, current account state) and the session row (not revoked, rotated or expired) in two statements; they now come from one statement (`storage.GetSessionAuthLiveness`), i.e. one snapshot. Which requests are allowed, refused (401) or restricted (403 for a pending password change), the order of the checks, the degrade-to-cached-snapshot behaviour on a storage error, and the auth-cache invalidation are unchanged. Pinned by `TestSessionCacheHitLiveCheck_*` (SQLite and Postgres, including two Postgres replicas racing a session revoke or a suspension), `TestSessionCacheHitLiveness_*` and `TestGetSessionAuthLiveness_*`.
+- **A fresh demo now shows a healthy Compliance posture with exactly one deliberate finding.** `scripts/demo/up.sh` used to leave "6 gaps across 16 controls" in red (recertification, dormant access, second factor, rotation coverage, classification, independent break-glass reviewer). It now enrols alice and a second administrator (`security-officer`) for TOTP, gives alice one real read, classifies every secret, machine identity and machine token, puts two of the three secrets on a 90-day rotation policy, and runs one completed access-review campaign per project (the product's independent-reviewer rule is honoured: the admin's own grants are attested by `security-officer`). The one gap left is Secret-rotation hygiene, "2 of 3 secrets covered": the Production `payments-webhook-secret` has no policy. `docs/demo/GOLDEN-PATH.md` section 1b is the talking point and the one-command live fix. Only demo seed data and docs changed; no detection logic, threshold or compliance rule.
+- **Demo alice now has a second factor.** The live-enrolment moment of the demo script (section 2) now uses a brand-new user, since a seeded user that is not enrolled would be a second-factor gap. The state file printed by `up.sh` carries the TOTP keys of alice and `security-officer`.
+- `web/scripts/check-api-contract.mjs`: `KNOWN_VIOLATIONS` entries are now keyed by `<file> <METHOD> <path template>` (e.g. `secrets.ts POST /api/v1/secrets/{dyn}/transfer-ownership`) instead of `file:LINE`, so edits above a call in `web/src/services/*` no longer shift the key and conflict with parallel PRs. The same 18 spec gaps are tolerated; a new unlisted call, a second call to a listed key and a stale entry all still fail.
+- **Unreleased changelog entries now live in `changelog.d/`, one fragment file per PR**,
+  instead of in `CHANGELOG.md`'s `## Unreleased` section, so merging one PR no longer
+  conflicts every other open PR. `scripts/changelog-assemble.sh vX.Y.Z` merges them into
+  `CHANGELOG.md` at release time (`RELEASING.md`); `--check` validates them in CI.
+- **`total_reads` on `GET /api/v1/secrets/{id}` is now opt-in.** It was added two days earlier (#2972) and was computed on every request as an O(reads) count over the secret's access log. By default the field is now absent and the count is not run; request it with `?include=total_reads` (comma-separated or repeated `include` values are accepted). Authorization is unchanged. The gRPC `GetSecret` equivalent takes the new `include_total_reads` request field, and `keyorix secret get` (the view that prints "Total Reads") requests it automatically. `GET /api/v1/secrets/{id}/versions` is unchanged.
+- **Audit batches are written with one INSERT per batch.** The audit flusher now inserts a batch's audit events with one multi-row INSERT and its secret access-log rows with another, instead of one INSERT per item. The hash chain, row contents and ids are unchanged, and every caller still returns only after its audit row is committed (same transaction, advisory lock, durability setting and SQLite busy-retry). A row the database rejects still fails only its own caller.
+- **A secret value read checks the caller's read permission once.** `GET /api/v1/secrets/{id}?include_value=true` and gRPC `GetSecretValue` evaluated the same per-secret read-permission check twice for a signed-in user and fetched the secret again in between; the value step now reuses the first check (`core.GetSecretForValueRead` / `GetPermittedSecretValue`), and a gRPC machine read reuses the secret it already resolved. Responses, error codes and audit records are unchanged; the read-time guards (expiry, suspension, classification approval, access schedule, read limit) still run on every value read. Pinned by `TestValueReadAuthorizeOnce_*` (REST, SQLite and Postgres, including a two-replica Postgres case) and `TestGRPCValueReadAuthorizeOnce_Equivalence`.
+- **A secret value read checks the access schedule and the latest version in one database statement.** Every latest-version value read (REST `GET /api/v1/secrets/{id}?include_value=true`, `GET /api/v1/secrets/value?ref=`, gRPC `GetSecretValue`, machine and human callers) read the secret's access schedule and then probed the latest-version cache in a second statement; both now come from one statement (`storage.GetSecretScheduleAndLatestVersion`). Allow/deny decisions, error codes, the order of the read guards and cache invalidation are unchanged. Pinned by `TestValueReadScheduleVersion_*` (SQLite and Postgres, including a two-replica Postgres case) and `TestGetSecretScheduleAndLatestVersion_*`.
+- **A per-secret permission check no longer fetches a secret the request has already read.** For a signed-in user, the per-secret route gate (REST `RequireScopedSecretPermission` / `RequireScopedSecretRefPermission`, gRPC `authorizeSecretScoped`) now passes the secret it resolved to `core.AuthorizeSecretAction`, which used to fetch it again. `GetSecretWithPermissionCheck` now returns the secret its read check fetched instead of fetching it a second time. A human metadata read (`GET /api/v1/secrets/{id}`, gRPC `GetSecret`) fetches the secret twice instead of four times. Decisions, responses, error codes and audit records are unchanged; ownership, shares, ACL grants and roles are still read live. Pinned by `TestResolvedSecretReuse_*` (REST, SQLite and Postgres, including a two-replica Postgres race of a share revoke and a delete against reads), `TestGRPCResolvedSecretReuse_Equivalence` and `TestAuthorizeSecretAction_ReusesOnlyTheSameSecretsResolution`.
+- **A role-based authorization decision reads the principal's roles in one database statement.** Every `Authorize` (users) and machine-principal decision used to read the direct role grants, the group role grants, the admin-bypass flag and the role-permission cache generation in separate statements; they now come from one statement (`storage.ResolveUserPermissionAt` / `ResolveMachinePermissionAt`), and the role-permission cache is checked against the generation read in that same statement. Allow/deny decisions, the admin bypass (never for machines), the cache and its invalidation are unchanged. Pinned by `TestAuthorizeRoleResolution_*` (SQLite and Postgres, including two Postgres replicas racing grants and revocations) and `TestResolvePrincipalPermission_*`.
+
+### Fixed
+- **Demo `up.sh` fails loudly and heals old volumes.** The `host: "0.0.0.0"` insert now runs on every start (so demo volumes created before the default changed work again), is verified after the sed, and aborts with a clear message if it did not land; `up.sh` also reports a container that exits during startup instead of timing out silently.
+- **DAST stack reachable again.** `scripts/dast/keyorix-dast.yaml` sets `server.http.host: "0.0.0.0"` so the scanner containers reach `keyorix:8080` over the compose network.
+- **Login-attempt reservations are identifiable, so a storage hiccup can no longer double-count or lose a login slot (#3050).** Each per-IP login reservation now carries a `reservation_key` (new column on `login_attempts` with a unique index; added by an automatic migration on upgrade). The reservation write is retried idempotently (`ON CONFLICT` on that key), so a write that took effect but reported an error is neither counted twice nor left orphaned, and a delivered login releases exactly its own reservation.
+- **A failed notification no longer turns a committed access-request decision into an error (#3075).** Approving or rejecting an access request (project or secret, single or bulk) used to answer HTTP 500 if creating the follow-up notification panicked, although the role grant and the approval had already been saved. Now a notification failure (error or panic) is logged at `SECURITY: WARN`, recorded as a `notification.failed` audit event in the request's project, and the request returns success. A notification error used to be dropped silently; it is now audited the same way.
+- **`admin restore` no longer refuses a backup taken after a secret purge (#3085).** The retention purge hard-deleted
+  the secret and its versions but left rows that still referenced them, and restore's mandatory
+  dangling-reference check counted every one. The purge now deletes, in the same transaction, the
+  rows of every mutable table that references the secret or a version: access requests (and their
+  approvals), shares, tags, access schedules, metadata history, version comments and notifications.
+  `audit_events.secret_node_id` (append-only), `anomaly_alerts.secret_node_id` (an unacknowledged alert is a
+  live security signal), `secret_access_logs` (append-only, exported) and the `access_review_items`
+  snapshot (its own campaign retention) are historical references the purge keeps and restore's check
+  skips by name; every other reference stays strictly checked. Rows orphaned by purges that ran before
+  this fix are not swept: such a backup is still refused until the orphans are removed by hand. A guard test fails when a new table
+  references a secret without being classified as one or the other.
+- **A failing name lookup in an audit description no longer turns a committed change into an error (#3090).** Revoking a project access-review grant removed the role assignment and then answered HTTP 500 if reading the role's name for the audit text panicked. The name lookup used by every audit description (`auditObjectName`) now recovers a panic, logs it at `SECURITY` level and leaves the name out, exactly as it already did for a failed read.
+- **A failing "you are now the owner" notification no longer turns a committed ownership transfer into an error (#3092).** Transferring a secret's ownership (and the bulk reassignment summary) saved the new owner and the audit event, then answered HTTP 500 if creating the notification panicked. A notification error was already ignored; a panic is now recovered and logged at `SECURITY: WARN` too, and the request returns success.
+- **Creating a dynamic-secret config is now all-or-nothing (#3108, #3095).** The config row was inserted and its encrypted admin DSN written in two separate commits, so a failure of the second write (or of the first one's reply) answered an error but left a config row with no DSN behind. Both writes (and the encryption between them) now run in one transaction, over HTTP and gRPC alike.
+- **A failed break-glass activation no longer leaves an activation record behind (#3109).** The activation record was committed first and "undone" by a second write when the emergency-role grant failed, so an error response could leave a `revoked` record (and, between the two commits, an `active` record with no role). The record and the grant now run in one transaction under the existing project-admin lock; nothing is visible, audited or notified until it commits, and a failed grant leaves no trace and does not block a retry. Same core path for HTTP and gRPC.
+- **`GET /api/v1/audit/search` `success` parameter is a string enum.** The spec declared `enum: [true, false]` (YAML booleans) on a `type: string` parameter, which generated the TypeScript type `true | false`; it is now `"true" | "false"`. The server already parsed the query string, so behaviour is unchanged.
+- **A backup restored on a host whose timezone is not UTC no longer corrupts timestamps (#3088).** The backup row encoder wrote times in the host's local zone, and RFC 3339 cannot carry a seconds-level local-mean-time offset (Europe/Berlin +00:53:28), so pre-1900 instants such as the zero time of an audit row written without an `EventTime` came back shifted. The restored audit row failed its `entry_hash` check and `admin restore` reported verify-audit `BROKEN`. The encoder now writes every time column (all models, `*time.Time`, `gorm.DeletedAt`) as UTC, so the round trip is exact on any host TZ and the archive bytes no longer depend on it.
+- **`scripts/demo/check.sh` no longer leaves its scratch project and secret behind.** Its cleanup deleted the project while it still held the scratch secret, was refused with 409 and ignored, so every `check.sh --keep` demo carried a never-reviewed project and an unclassified secret. It now deletes the secret first and fails the step if either delete is refused.
+- **Audit rows from the secret, version, folder, bulk and copy handlers now store the bare
+  client IP.** They used to store `r.RemoteAddr` raw (`172.17.0.1:56508`) in
+  `audit_events.ip_address` and `secret_access_logs.ip_address`. A direct request now stores
+  `172.17.0.1`; behind a configured trusted proxy the forwarded client IP is stored exactly
+  as before, and `X-Forwarded-For` from an untrusted peer is still ignored. Rows written
+  before this change keep their `ip:port` value in storage and in exports (nothing is
+  rewritten); `GET /api/v1/secrets/{id}/access-log` and the secret detail view show the bare
+  IP for those old rows too. Filters or SIEM rules that matched an exact `ip:port` string
+  must match the bare IP for new rows.
+- **Secret detail "Recent access" lists reads only.** It also listed the `create` row;
+  the other events are in History.
+- **`machine_identity.*` audit descriptions say what happened.** `token_issued` used to read
+  `machine identity "ci-app" (ci) in project 1 → active` (state, not event). It now reads
+  e.g. `issued token for machine identity "ci-app" (ci) in project 1 (state: active)`, with
+  its own wording for created, token rotated/revoked, role granted/removed, OIDC bound/unbound
+  and activated/suspended/revoked. Name, type, project and state are all still in the text.
+  Rows written earlier keep the old wording.
+- A real-backend Playwright spec proves one Reveal click sends one `include_value` GET and
+  writes exactly one `secret.read`.
+- `web/pnpm-lock.yaml`: removed a duplicated `source-map-js@1.2.2` block (packages and snapshots) that made `pnpm install` fail with `ERR_PNPM_BROKEN_LOCKFILE`.
+- **A write share's Edit and Rotate are offered in the web UI.** The permission-aware UI (#3047) hid Edit / Rotate from a project member whose roles lack `secrets.write`, so the elevation a write share grants on that one secret worked at the API but was unreachable in the Secrets table. A project-scoped `GET /secrets?project_id=N` now also returns the caller's own `user_permission` for rows they hold a share on (it used to look up shares only for an unscoped listing), and the row offers Edit and Rotate when it is `write`. Share, Delete and automated rotation stay role-only. A recipient's row reads "Shared with you" instead of "0 shares".
+- **Restore: `knownRemovedColumns` allowance could apply to the wrong table.** `backupfmt.LoadArchive` named each model by indexing the registry-order name list with its restore-order loop index, so a deliberately-removed-column allowance (empty today) would have been applied to a different model's table and the owner's refused. Each model is now looked up by its restore-order name; the schema-delta error also names the model (#3086).
+- **Transferring a secret's ownership now moves its shares to the new owner.** Before, `POST /api/v1/secrets/{id}/transfer-ownership` (and `reassign-owner`) changed only the secret's owner, so the previous owner kept listing the secret's shares in `GET /api/v1/shares/owned` and gRPC `ListUserShares` but got `403` on updating or revoking them, and the new owner could revoke them but not see them in the owner list. The shares are now re-owned in the same transaction as the transfer (live, expired and revoked rows; recipients, permissions and expiries are untouched, so nobody gains or loses access). Visible to API clients: after a transfer a share's `createdBy` is the new owner (the original sharer stays in the `share_created` audit event), the previous owner's owned-share list no longer includes the secret's shares, and the `secret.owner_transferred` audit event's diff gains `shares_reassigned`. A share created by the previous owner at the instant of a transfer is now refused instead of committing with the previous owner's stamp. Guarded by `TestTransferSecretOwnership_ReownsShares` and the cross-replica Postgres tests in `internal/core/cta_review_transfer_ownership_shares_postgres_test.go`. (#3102)
+- **The secret detail page offers Edit and Rotate to a write-share recipient, like the list row.** #3083 made the Secrets list row show Edit and Rotate on a secret the caller holds a `write` share on, but the detail page still gated them by role only, so a recipient could edit from the list and not from the detail page. The detail header now uses the same rule (the role union, or `user_permission === 'write'` on that one secret). Share, Copy, Suspend, Delete, Transfer ownership and classification stay role-only, and a `read` share stays read-only. Nothing changes server-side: the API already authorizes the update.
+
+### Documentation
+- **Install with an AI assistant, secret-blind.** `INSTALL-WITH-AI.md` is one prompt plus guardrails and steps that any AI assistant can follow to install and configure a fresh, secure-by-default server: secrets are generated into 0600 files (`keyorix-server admin generate-secrets`) and passed by path, the assistant never reads them or asks for one, the steps that show a secret (MFA enrolment, an unencrypted recovery key) are the user's own, and the install ends with `keyorix-server admin validate --posture` (which also fails while the admin has no MFA). `docs/install/offline-install.sh` is the same procedure as a script for air-gapped hosts and local models. `llms.txt` and `AGENTS.md` point assistants at both. Every command and flag in the page and the script is checked against the real command trees (`TestInstallWithAICommandsExist`, `TestInstallWithAIAdminCommandsExist`).
+
+### Testing
+- `scripts/demo/check.sh` asserts that a fresh seed has exactly one gap (`secret-rotation`, "2 of 3 secrets covered"), no unknown/partial control and a green anomaly-detection control, and `web/e2e/real/pages.spec.ts` asserts the same on the real Compliance page and that the anomaly view lists no high-severity alert (the two UI tests run only when `check.sh` sets `KEYORIX_E2E_DEMO_SEED=1`).
+- **Registry tables in `server/faultops` and `internal/core` are now one file per entry.** `knownOpenTolerances`, `opScopedBestEffortTables`, `effectThenErrorExtraExclusions`, `bestEffortTables`, `nonLoadBearingAuthzReadExceptions`, `oracleAByDesignErrors`, `mfaStepUpPurposeAllowlist` and the `FuzzCrossReplicaInvariants` seed list no longer live in one shared literal that every security PR appended to (216 merge conflicts in two days). Each row is its own `*_entry_<slug>_test.go` file registering itself from `init()`, kept in deterministic order, and a duplicate name or key panics at package init. Same entries, byte for byte; see `server/faultops/registry_entries_test.go` and `internal/core/registry_entries_test.go`.
+- **`internal/faultstorage/faulty_storage_generated.go`:** the header now says to take main's version and regenerate on a merge conflict, and `.gitattributes` marks it `linguist-generated=true merge=ours` (`TestFaultyStorageGenerated_IsFresh` fails CI on drift).
+- **e2e harness: `RewritePort` now really sets `server.http.port`.** Since #2946 the config template has comment lines between `enabled: true` and `port:`, so the harness's regex matched nothing, every e2e server kept the template's 8080 while the harness polled its own free port, and `e2e-smoke` timed out ("never became healthy"). The match is now anchored on the `server:` / `http:` structure, and a no-match is fatal instead of silent. Guarded by `TestRewriteHTTPPort_RealTemplate`.
+- **`TestConcurrency_LoginAttempts_NoLostRecords` no longer flakes with SQLITE_BUSY (#3087).** The test now opens its database through `storage.OpenGormDB` (production DSN, pool cap and FIFO write gate) instead of a bare SQLite handle, so 100 concurrent `RecordLoginAttempt` writers are served in arrival order as on the server. The assertion (no writer errors, all 100 attempts counted) is unchanged. No product change: a failed record is already counted in memory by the auth-budget fallback.
+- **Storage-fault fuzzer: three by-design tuples no longer turn CI red (#3091, #3093, #3094).** Oracle (d) now accepts an effect-then-error fault on a pure read (`GetUserPermissions`) only when a reviewed error-kind row opts in and the run leaves exactly that row's state (#3091, WebAuthn login finish). gRPC `UserService.CreateUser` `GetUserRoleScopes#1` and `UpdateUser` `GetUserRoleScopes#2` are post-commit project-count enrichment for the target user, so they are now pinned as non-load-bearing authz reads. New gRPC tests prove authorization fails closed before those reads (#3093). The seeds for #3091, #3093, #3094 and #3101 are committed as corpus, each with a counterfactual test showing it fails again without its rule.
+- **Fuzz oracle (d) pure-read rule covers `GetUserRoles` (#3106).** REST `POST /auth/webauthn/login/finish` `GetUserRoles#1/effect-then-error` ends in the same reviewed state as its error kind, exactly as #3091 did for `GetUserPermissions`. The row opts in, the seed is committed, and the per-row guard drives both fault kinds and requires the same response and state.
+
+### Internal
+- Removed the now-unused `resolveOutboundIP` helper from `server/main.go` and its test.
+- **web: js-yaml 4 -> 5.** `web/scripts/check-api-contract.mjs` now uses the named `load` export (v5 has no default export). `load` keeps its safe default schema (no `!!js/*` tags); the OpenAPI spec uses no merge keys, timestamps or binary tags, so parsing is unchanged.
+
 
 ### Security
 - **HSTS behind a TLS-terminating load balancer** (#3058): the web nginx (compose

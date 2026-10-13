@@ -24,7 +24,7 @@ import (
 // the PR. scripts/demo/check.sh --postgres runs the stack this way.
 
 // lastReleaseWithoutSecureBaseline is the newest release whose backend image
-// cannot run keyorix.docker.secure.yaml (no metrics_token_file, no entrypoint
+// cannot run the secure keyorix.docker.yaml (no metrics_token_file, no entrypoint
 // steps).
 const lastReleaseWithoutSecureBaseline = "0.95.3"
 
@@ -71,37 +71,58 @@ func withLocalTokenFile(t *testing.T, repoFile, containerTokenPath string) strin
 }
 
 func TestComposeSecureConfig_NoInsecureSettingInEffect(t *testing.T) {
-	path := withLocalTokenFile(t, "keyorix.docker.secure.yaml", "/app/tls/metrics_token")
+	path := withLocalTokenFile(t, "keyorix.docker.yaml", "/app/tls/metrics_token")
 	if in := insecureInEffect(t, path); len(in) > 0 {
-		t.Fatalf("keyorix.docker.secure.yaml has insecure settings in effect: %v", in)
+		t.Fatalf("keyorix.docker.yaml has insecure settings in effect: %v", in)
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !cfg.Server.HTTP.TLS.Enabled || !cfg.Security.RequireTransportTLS {
-		t.Fatal("keyorix.docker.secure.yaml must serve and require TLS")
+		t.Fatal("keyorix.docker.yaml must serve and require TLS")
 	}
 	if !cfg.Security.EnableFilePermissionCheck || !cfg.Security.EnableFilePermissionCheckImplicitDefault {
-		t.Fatal("keyorix.docker.secure.yaml must leave enable_file_permission_check on its implicit default (see TestShippedComposeConfig_FilePermissionCheckIsOn)")
+		t.Fatal("keyorix.docker.yaml must leave enable_file_permission_check on its implicit default (see TestShippedComposeConfig_FilePermissionCheckIsOn)")
 	}
 }
 
-// The control: the stock compose config (pinned release) still has the three
-// deviations, so the test above is not vacuously green.
-func TestComposeStockConfig_StillHasTheThreeDeviations(t *testing.T) {
-	abs, err := filepath.Abs(filepath.Join("..", "keyorix.docker.yaml")) // config.Load refuses a ".." path
-	if err != nil {
+// The control: the compose config as it was before v0.96.0 (no TLS, no rate
+// limit, open /metrics) still reports the three deviations, so the test above
+// is not vacuously green.
+const preBaselineComposeConfig = `environment: production
+server:
+  http:
+    enabled: true
+    host: "0.0.0.0"
+    port: "8080"
+storage:
+  type: postgres
+  database:
+    host: postgres
+    port: "5432"
+    name: keyorix
+    user: keyorix
+    ssl_mode: prefer
+  encryption:
+    enabled: true
+    dek_path: "/app/keys/data.key"
+    salt_path: "/app/keys/kek.salt"
+`
+
+func TestComposeInsecureConfig_StillHasTheThreeDeviations(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "keyorix.yaml")
+	if err := os.WriteFile(p, []byte(preBaselineComposeConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	in := strings.Join(insecureInEffect(t, abs), " ")
+	in := strings.Join(insecureInEffect(t, p), " ")
 	for _, want := range []string{
 		"security.insecure_allow_cleartext_transport",
 		"server.insecure_allow_unauthenticated_metrics",
 		"server.insecure_disable_api_ratelimit",
 	} {
 		if !strings.Contains(in, want) {
-			t.Errorf("stock keyorix.docker.yaml no longer reports %s; if it was hardened, update this control and TestComposeSecureBaselineFoldedAfterRelease", want)
+			t.Errorf("the pre-baseline compose config no longer reports %s; the insecure-setting registry changed, so the control above proves nothing", want)
 		}
 	}
 }
@@ -193,10 +214,10 @@ func TestHelmSecureConfig_NoInsecureSettingInEffect(t *testing.T) {
 	}
 }
 
-// The control: secureBaseline off (today's default) still has the deviations,
+// The control: secureBaseline explicitly off (the default before v0.96.0) still has the deviations,
 // including the bundled PostgreSQL's ssl_mode: disable.
 func TestHelmDefaultConfig_StillHasTheDeviations(t *testing.T) {
-	in := strings.Join(insecureInEffect(t, renderHelmServerConfig(t)), " ")
+	in := strings.Join(insecureInEffect(t, renderHelmServerConfig(t, "secureBaseline.enabled=false")), " ")
 	for _, want := range []string{
 		"security.insecure_allow_cleartext_transport",
 		"server.insecure_allow_unauthenticated_metrics",
@@ -204,7 +225,7 @@ func TestHelmDefaultConfig_StillHasTheDeviations(t *testing.T) {
 		"storage.database.insecure_disable_database_tls",
 	} {
 		if !strings.Contains(in, want) {
-			t.Errorf("chart default no longer reports %s; if it was hardened, update this control and TestHelmSecureBaselineOnByDefaultAfterRelease", want)
+			t.Errorf("chart default no longer reports %s; if it was hardened, the registry changed, so the control proves nothing", want)
 		}
 	}
 }

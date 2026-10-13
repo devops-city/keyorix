@@ -1907,13 +1907,18 @@ jobs:
       - name: Assert the admin bootstrap actually completed (real login)
         run: |
           pod=$(kubectl get pod -l app.kubernetes.io/instance=kx,app.kubernetes.io/component=server -o name | head -n1)
+          # The server is TLS-only (secure baseline, the chart default). Verify it
+          # against the chart's own certificate (the web pod trusts the same one),
+          # read from the generated Secret; its SANs include "localhost".
+          kubectl get secret kx-keyorix-secure-baseline -o jsonpath='{.data.server\.crt}' | base64 -d > /tmp/kx-ca.crt
+          test -s /tmp/kx-ca.crt
           kubectl port-forward "$pod" 18080:8080 >/tmp/pf.log 2>&1 &
           pf=$!
           trap 'kill $pf 2>/dev/null || true' EXIT
           body=$(jq -n --arg p "$KX_ADMIN_PW" '{username:"admin",password:$p}')
           for i in $(seq 1 30); do
-            code=$(curl -s -o /tmp/login.json -w '%{http_code}' -H 'Content-Type: application/json' \
-              -d "$body" http://127.0.0.1:18080/auth/login || true)
+            code=$(curl -s --cacert /tmp/kx-ca.crt -o /tmp/login.json -w '%{http_code}' -H 'Content-Type: application/json' \
+              -d "$body" https://localhost:18080/auth/login || true)
             if [ "$code" = "200" ]; then echo "admin login OK after ${i} attempt(s)"; exit 0; fi
             sleep 3
           done

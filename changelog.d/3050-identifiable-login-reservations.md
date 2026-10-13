@@ -1,2 +1,0 @@
-### Fixed
-- **Login-attempt reservations are identifiable, so a storage hiccup can no longer double-count or lose a login slot (#3050).** Each per-IP login reservation now carries a `reservation_key` (new column on `login_attempts` with a unique index; added by an automatic migration on upgrade). The reservation write is retried idempotently (`ON CONFLICT` on that key), so a write that took effect but reported an error is neither counted twice nor left orphaned, and a delivered login releases exactly its own reservation.

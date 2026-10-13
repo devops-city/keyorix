@@ -73,9 +73,9 @@ yourself. Scripts that ran `admin init` and then talked plain HTTP need
 CMD). `docker run <image> <command>` and `docker compose run backend <command>`
 still run `<command>`, after the optional config copy (`KEYORIX_CONFIG_SOURCE`);
 only an explicit `--entrypoint` bypasses it. Compose and Helm can opt into the
-secure baseline: `docker-compose.secure.yml` / `secureBaseline.enabled=true`
-(docs/SELF_HOSTING.md §7); turning it on changes `/metrics` (token required)
-and the backend's listener (TLS only).
+secure baseline: from v0.96.0 it is the default in `docker-compose.yml` and the
+chart (`secureBaseline.enabled=true`; docs/SELF_HOSTING.md §7); it changes
+`/metrics` (token required) and the backend's listener (TLS only).
 
 Schema migrations run on boot. If a rolling multi-replica upgrade hits
 `database schema epoch N is newer than this binary's schema epoch M`, that's
@@ -86,6 +86,54 @@ not applicable to the bundled Helm chart, which is pinned to 1 replica.
 SQLite database, stopped, then the v0.95.2 binary migrated and booted that
 same database in place and passed a full API smoke sweep with
 `verify-audit: VALID` afterward.
+
+### Upgrading Docker Compose or Helm from v0.95.x to v0.96.0
+
+Not yet run end to end against a published v0.95.3 stack; the fresh-install path
+was booted on the e2e VM (see the v0.96.0 release PR).
+
+- **Compose: the secure baseline is now `docker-compose.yml`.** `docker-compose.secure.yml`
+  and `keyorix.docker.secure.yaml` no longer exist; remove `-f docker-compose.secure.yml`
+  from your commands. Pull the new `docker-compose.yml`, `keyorix.docker.yaml`,
+  `deploy/compose/keyorix-backend.tls.conf` and `scripts/selfhost/` together and edit
+  nothing else before `docker compose pull && docker compose up -d`. The backend then
+  serves TLS on 8080 inside the compose network (web talks to it over verified
+  HTTPS; the published port 8088 is unchanged), `/metrics` needs the generated token
+  (`keyorix_tls` volume, `metrics_token`) and API rate limiting is on. Anything of
+  yours that called `http://backend:8080` over the compose network must use HTTPS
+  and trust `/app/tls/server.crt`.
+- **Compose secrets stay `*_FILE` files** under `./secrets` (written 0640 by
+  `scripts/selfhost/init-secrets.sh`; the containers join `KEYORIX_SECRETS_GID`).
+  From an `.env`-based install run `./scripts/selfhost/init-secrets.sh --from-env .env`
+  first. The server container runs as uid 1001 and refuses a group-readable secret
+  file that uid 1001 owns: if your host user is uid 1001, hand the files to root
+  (`sudo chown root:<your group> secrets/*`), as `scripts/demo/check.sh` does (#2973).
+- **Helm: `secureBaseline.enabled` now defaults to `true`** (chart 0.96.0). An
+  upgrade of a release that did not set it turns on TLS between pods, the
+  `/metrics` token and rate limiting, and rolls the pods. Pin `image.tag` to
+  v0.95.3 or older? Then set `secureBaseline.enabled=false`: those images cannot run it.
+- **Helm with the bundled PostgreSQL: the data volume must change owner (uid 999 to 70).**
+  The chart now runs the bundled Postgres as uid 70 (`postgresql.runAsUser`, the
+  `postgres:15-alpine` user); v0.95.x charts ran it as 999 and own the existing data
+  directory as 999. **Symptom if you skip this:** after `helm upgrade` the Postgres pod
+  goes into `CrashLoopBackOff` on the existing volume (log:
+  `initdb: could not access directory ".../pgdata": Permission denied`, or
+  `data directory ... has wrong ownership`), and the server stays unready behind it.
+  Run the upgrade with the one-time ownership migration:
+
+  ```sh
+  helm upgrade <release> <chart> --version 0.96.0 --reuse-values \
+    --set postgresql.migrateOwnership=true
+  ```
+
+  The init container chowns the data volume to uid 70 (root with only `CHOWN` and
+  `DAC_READ_SEARCH`, data volume only) and is a no-op on later starts. Once the pod is
+  healthy you may unset it on the next upgrade (`--set postgresql.migrateOwnership=false`
+  or drop it from your values); leaving it on is harmless. Alternatively keep running as the
+  old owner with `--set postgresql.runAsUser=999` (needed for a Debian-based `postgres:*`
+  image). A Pod Security "restricted" namespace rejects the init container. Rolling back
+  to a 0.95.x chart afterwards needs the volume chowned back to 999. Details: §5
+  "Bundled PostgreSQL uid". Compose volumes need nothing.
 
 ## 3. Upgrading from v0.94.x or v0.93.x (version skip)
 

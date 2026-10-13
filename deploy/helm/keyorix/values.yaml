@@ -47,11 +47,11 @@ auth:
 # serves TLS (ssl_mode: require), and an initContainer copies the config,
 # certificate, key and token into a memory emptyDir at 0600 owned by the
 # server's uid (#2922: ConfigMap/Secret files are root-owned).
-# NEEDS A SERVER IMAGE NEWER THAN v0.95.3 (metrics_token_file is new), so it is
-# off by default until the chart's appVersion moves past that release
-# (RELEASING.md; deploy TestHelmSecureBaselineOnByDefaultAfterRelease).
+# On by default since v0.96.0. It NEEDS A SERVER IMAGE NEWER THAN v0.95.3
+# (metrics_token_file is new): when pinning an older image.tag, set
+# secureBaseline.enabled=false (deploy TestHelmSecureBaselineOnByDefaultAfterRelease).
 secureBaseline:
-  enabled: false
+  enabled: true
   # Lifetime of the generated pod-to-pod certificates (server <-> web,
   # server <-> postgresql). Browsers never see them. Rotate by deleting the
   # <fullname>-secure-baseline Secret and running `helm upgrade`.
