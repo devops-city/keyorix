@@ -1,6 +1,6 @@
 # ADR-115: Local append-only audit journal (opt-in alternative durability point)
 
-**Status:** Proposed
+**Status:** Parked (2026-10-13)
 **Date:** 2026-10-05
 **Context:** PERF-4 (performance-parity study, `~/proj/prompts/reports/SESSION-PERF-2.md`).
 Confirmed H1: with audit-before-disclosure enforced (non-negotiable, see below),
@@ -278,8 +278,26 @@ required for correctness, only for operational honesty about the lag window.
   a local fsync — the measured delta is the Prototype's benchmark task
   (PERF-4 item 3), not asserted here.
 
+## Outcome
+
+The prototype (#2758, now closed) was built and measured (PERF-5). Findings:
+
+- The original slowness of the prototype came from syncing a growing file with
+  a full `fsync`. Using `fdatasync` on pre-written (zero-filled) segments
+  fixes that.
+- Even with that fix, the journal only improved **median** latency over the
+  existing group commit (ADR-029 + #2420). It did not change the picture
+  enough to justify what it adds: a second durability component with its own
+  failure modes, and a not-yet-replayed tail (journalled but not yet copied to
+  the database) whose loss is undetectable.
+- Decision: **parked**. Revisit only if group commit becomes the bottleneck.
+
+The design above is kept intact for that case. Nothing in the codebase
+implements it.
+
 ## Status
 
-Proposed. Andrei approved the idea in principle on 2026-10-03 (per PERF-4's
-brief); this document is the first artifact for review before the prototype
-(PERF-4 item 2) lands.
+Parked (2026-10-13). Andrei approved the idea in principle on 2026-10-03 (per
+PERF-4's brief), and approved parking it on 2026-10-13 after PERF-5's findings
+(see Outcome). Originally Proposed; the prototype (PERF-4 item 2) was measured
+and closed rather than adopted.
