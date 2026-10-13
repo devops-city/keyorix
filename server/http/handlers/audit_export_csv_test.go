@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,4 +96,72 @@ func TestExportAuditLogsCSV_FormulaInjection(t *testing.T) {
 	actorTypeCell := records[1][4]
 	assert.True(t, strings.HasPrefix(actorTypeCell, "'"), "formula-injection prefix must be neutralized with a leading quote, got %q", actorTypeCell)
 	assert.Equal(t, "'=cmd|' /C calc'!A1", actorTypeCell)
+}
+
+// #3150 follow-up: a machine identity's row must carry the machine's name in the
+// actor column (and its kind in actor_type) in the CSV download, as the JSON audit
+// list does. No secret material is involved: the name is the identity's label.
+func TestExportAuditLogsCSV_MachineRowCarriesMachineActor(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}, &models.User{}, &models.MachineIdentity{}))
+	require.NoError(t, db.Create(&models.User{ID: 1, Username: "alice", Email: "a@t.com"}).Error)
+	require.NoError(t, db.Create(&models.MachineIdentity{ID: 7, Name: "ci-app"}).Error)
+
+	uid, mid := uint(1), uint(7)
+	tru := true
+	require.NoError(t, db.Create(&models.AuditEvent{
+		EventType: "secret.read", ActorType: core.ActorTypeMachine, MachineIdentityID: &mid, Success: &tru,
+		Description: "Machine identity ci-app read secret", EventTime: time.Now(),
+	}).Error)
+	require.NoError(t, db.Create(&models.AuditEvent{
+		EventType: "secret.created", ActorType: "user", UserID: &uid, Success: &tru, EventTime: time.Now().Add(-time.Minute),
+	}).Error)
+
+	h := NewAuditHandler(core.NewKeyorixCore(store.NewLocalStorage(db)))
+	w := httptest.NewRecorder()
+	h.ExportAuditLogsCSV(w, withUserCtx(httptest.NewRequest(http.MethodGet, "/api/v1/audit/export.csv", nil)))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	records, err := csv.NewReader(strings.NewReader(w.Body.String())).ReadAll()
+	require.NoError(t, err)
+	byType := map[string][]string{}
+	for _, r := range records[1:] {
+		byType[r[2]] = r
+	}
+	require.Contains(t, byType, "secret.read")
+	assert.Equal(t, "ci-app", byType["secret.read"][3], "machine row actor")
+	assert.Equal(t, "machine_identity", byType["secret.read"][4], "machine row actor_type")
+	assert.Equal(t, "alice", byType["secret.created"][3], "user row actor unchanged")
+}
+
+// The JSON export feed (what `keyorix audit export --csv` renders) fills the
+// actor for a machine row the same way (#3150).
+func TestExportAuditLogs_MachineRowCarriesMachineActor(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}, &models.User{}, &models.MachineIdentity{}))
+	require.NoError(t, db.Create(&models.MachineIdentity{ID: 7, Name: "ci-app"}).Error)
+	mid := uint(7)
+	tru := true
+	require.NoError(t, db.Create(&models.AuditEvent{
+		EventType: "secret.read", ActorType: core.ActorTypeMachine, MachineIdentityID: &mid, Success: &tru, EventTime: time.Now(),
+	}).Error)
+
+	h := NewAuditHandler(core.NewKeyorixCore(store.NewLocalStorage(db)))
+	w := httptest.NewRecorder()
+	h.ExportAuditLogs(w, withUserCtx(httptest.NewRequest(http.MethodGet, "/api/v1/audit/export", nil)))
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Data struct {
+			Events []struct {
+				Actor     string `json:"actor"`
+				ActorType string `json:"actor_type"`
+			} `json:"events"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Data.Events, 1)
+	assert.Equal(t, "ci-app", resp.Data.Events[0].Actor)
+	assert.Equal(t, core.ActorTypeMachine, resp.Data.Events[0].ActorType)
 }

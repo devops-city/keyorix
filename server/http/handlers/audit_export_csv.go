@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
@@ -34,6 +35,7 @@ func (h *AuditHandler) ExportAuditLogsCSV(w http.ResponseWriter, r *http.Request
 		return
 	}
 	actorNames := h.coreService.ResolveUsernames(r.Context(), events)
+	machineNames := h.coreService.ResolveMachineNames(r.Context(), events)
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -54,7 +56,7 @@ func (h *AuditHandler) ExportAuditLogsCSV(w http.ResponseWriter, r *http.Request
 			strconv.FormatUint(uint64(e.ID), 10),
 			e.EventTime.UTC().Format(time.RFC3339),
 			csvSafe(e.EventType),
-			csvSafe(auditCSVActorName(actorNames, e.UserID)),
+			csvSafe(auditCSVRowActor(e, actorNames, machineNames)),
 			csvSafe(storage.AuditActorKind(e)),
 			auditCSVUintStr(e.UserID),
 			auditCSVUintStr(e.ProjectID),
@@ -98,6 +100,16 @@ func parseAuditCSVLimit(r *http.Request) int {
 		return l
 	}
 	return 1000
+}
+
+// auditCSVRowActor is the actor column: the acting user's name, or for a machine
+// row (no user, a machine identity) the identity's name, as in the JSON audit list
+// (#3150). A row with neither stays blank. Names only; no secret material.
+func auditCSVRowActor(e *models.AuditEvent, actorNames, machineNames map[uint]string) string {
+	if e.UserID == nil && e.MachineIdentityID != nil {
+		return storage.AuditActorName(e, actorNames, machineNames)
+	}
+	return auditCSVActorName(actorNames, e.UserID)
 }
 
 func auditCSVActorName(actorNames map[uint]string, id *uint) string {
