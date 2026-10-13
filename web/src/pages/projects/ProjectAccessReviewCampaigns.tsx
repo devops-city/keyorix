@@ -123,7 +123,8 @@ export const ProjectAccessReviewCampaigns: React.FC<Props> = ({ projectId }) => 
 
     return (
         <div className="mt-8">
-            <div className="mb-3 flex items-start justify-between gap-3">
+            {/* flex-wrap: on a phone the name field and Open button drop under the text instead of widening the page (#3154). */}
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                 <div>
                     <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
                         Recertification campaigns

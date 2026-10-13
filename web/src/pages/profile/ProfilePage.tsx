@@ -746,7 +746,8 @@ export const ProfilePage: React.FC = () => {
             </div>
 
             <div className="border-b mb-6" style={{ borderColor: 'var(--border)' }}>
-                <nav className="-mb-px flex gap-6">
+                {/* overflow-x-auto: on a phone the four tabs scroll inside the strip instead of widening the page (#3154). */}
+                <nav className="-mb-px flex gap-6 overflow-x-auto">
                     {TABS.map((tab) => {
                         const Icon = tab.icon;
                         const active = activeTab === tab.id;
@@ -755,7 +756,7 @@ export const ProfilePage: React.FC = () => {
                                 type="button"
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className="flex items-center py-3 px-1 border-b-2 font-medium text-sm transition-colors"
+                                className="flex items-center shrink-0 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors"
                                 style={{
                                     borderColor: active ? 'var(--accent)' : 'transparent',
                                     color: active ? 'var(--accent-text)' : 'var(--text-muted)',

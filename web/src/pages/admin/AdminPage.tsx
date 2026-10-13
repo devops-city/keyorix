@@ -670,12 +670,13 @@ const PageHeader: React.FC<PageHeaderProps> = ({
     onInvite,
     onNewUser,
 }) => (
-    <div className="flex items-center justify-between mb-6">
+    // flex-wrap: on a phone the two action buttons drop under the title instead of widening the page (#3154).
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
             <h1 className="text-2xl font-bold text-base-primary">User Management</h1>
             <p className="text-sm text-base-muted mt-1">{userCountLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             {selectedCount > 0 && (
                 <>
                     <span className="text-sm text-base-muted">{selectedCount} selected</span>

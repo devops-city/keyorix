@@ -48,23 +48,28 @@ const TabNav: React.FC<{ projectId: number }> = ({ projectId }) => {
     const isActive = (tab: Tab) => location.pathname.startsWith(`${base}${tab.path}`);
 
     return (
-        <div className="flex gap-1 border-b mb-6" style={{ borderColor: 'var(--border)' }}>
-            {TABS.map((tab) => {
-                const active = isActive(tab);
-                return (
-                    <Link
-                        key={tab.id}
-                        to={`${base}${tab.path}`}
-                        className="px-4 py-2.5 text-sm font-medium -mb-px border-b-2 transition-colors duration-100"
-                        style={{
-                            borderBottomColor: active ? 'var(--accent)' : 'transparent',
-                            color: active ? 'var(--accent-text)' : 'var(--text-secondary)',
-                        }}
-                    >
-                        {tab.label}
-                    </Link>
-                );
-            })}
+        // The border sits on the wrapper and the scrolling happens in the inner nav: on a phone the
+        // five tabs are wider than the screen, so the strip scrolls inside itself instead of widening
+        // the page (#3154). The nav overlaps the wrapper's border by 1px (-mb-px), as ProfilePage does.
+        <div className="border-b mb-6" style={{ borderColor: 'var(--border)' }}>
+            <nav className="-mb-px flex gap-1 overflow-x-auto">
+                {TABS.map((tab) => {
+                    const active = isActive(tab);
+                    return (
+                        <Link
+                            key={tab.id}
+                            to={`${base}${tab.path}`}
+                            className="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors duration-100 shrink-0 whitespace-nowrap"
+                            style={{
+                                borderBottomColor: active ? 'var(--accent)' : 'transparent',
+                                color: active ? 'var(--accent-text)' : 'var(--text-secondary)',
+                            }}
+                        >
+                            {tab.label}
+                        </Link>
+                    );
+                })}
+            </nav>
         </div>
     );
 };

@@ -403,7 +403,8 @@ export function SecretExpiryPage() {
                             />
                         </div>
                         <div className="border-b flex-1" style={{ borderColor: 'var(--border)' }}>
-                            <nav className="-mb-px flex space-x-6">
+                            {/* overflow-x-auto: the tabs scroll inside the strip on a phone instead of widening the page (#3154). */}
+                            <nav className="-mb-px flex space-x-6 overflow-x-auto">
                                 {tabs.map(([key, label]) => (
                                     <button
                                         key={key}
