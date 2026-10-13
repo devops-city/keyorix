@@ -319,6 +319,9 @@ seed_demo_org() {
   get_secret_by_ref "$MACHINE_TOKEN" "default/development/stripe-api-key"
 
   echo "$MACHINE_TOKEN" > "$REPO_ROOT/.demo-2-pg-state"
+  # #3152: same as up.sh -- let the first anomaly pass see only the seed, and acknowledge
+  # what the seed itself caused, before check.sh's own steps add activity.
+  demo_settle_anomalies "$SERVER_URL" "$ADMIN_TOKEN" "$(docker compose -p "$PG_PROJECT" -f "$REPO_ROOT/docker-compose.yml" -f "$SCRATCH/compose-override.yml" --env-file "$PG_ENV_FILE" ps -q backend 2>/dev/null | head -1)"
   return 0
 }
 
@@ -817,6 +820,42 @@ step_ui() {
   )
 }
 
+# #3152: a fresh demo must not grow open anomalies on its own. The first detection pass
+# comes 1-5 minutes after the server starts (server/scheduler_run.go
+# anomalyFirstPassDelay), so this waits until the server has been up for 6 minutes, then
+# requires ZERO unacknowledged anomaly alerts. Every alert a fresh seed can cause is
+# either acknowledged by the seed (scripts/demo/lib.sh demo_settle_anomalies: class
+# "seed activity") or fixed at its source (class "detector false positive"); anything
+# still open here is a new regression, or a real finding (a high-severity alert, a
+# spike) that the demo must explain and the seed must not trigger. check.sh's own
+# scratch secret ("check-secret") is ignored: it is created after the seed's pass.
+step_no_open_anomalies() {
+  local up
+  up="$(demo_uptime_seconds "$SERVER_URL")"
+  [ -n "$up" ] || { echo "could not read the server uptime from GET /health"; return 1; }
+  if [ "$up" -lt 360 ]; then
+    echo "waiting $((360 - up))s: the first anomaly pass runs up to 5 minutes after start" >&2
+  fi
+  while [ "$up" -lt 360 ]; do
+    sleep 5
+    up="$(demo_uptime_seconds "$SERVER_URL")"
+    [ -n "$up" ] || { echo "lost the server while waiting for the first anomaly pass"; return 1; }
+  done
+  local open
+  open="$(demo_open_anomalies "$SERVER_URL" "$ADMIN_TOKEN" | awk '$5 != "check-secret"')"
+  case "$open" in
+    ERROR*) echo "GET /api/v1/audit/anomalies failed (${open#ERROR })"; return 1 ;;
+  esac
+  if [ -n "$open" ]; then
+    echo "open anomaly alerts on a fresh demo after ${up}s (ID TYPE SEVERITY ACCESSED_BY SECRET):"
+    echo "$open"
+    echo "fix the cause: scripts/demo/up.sh seed / scripts/demo/lib.sh demo_settle_anomalies, or the detector (internal/core/anomaly.go); do not acknowledge by hand"
+    return 1
+  fi
+  echo "no open anomaly alerts ${up}s after start"
+  return 0
+}
+
 # GOLDEN-PATH.md section 7 (backup/restore), run as written (#3145). Stops and
 # restarts the demo container, so it goes last. Only meaningful against the
 # up.sh demo (the container/volume/image names the doc uses).
@@ -864,6 +903,7 @@ fi
 if [ "$UI_MODE" != "skip" ]; then
   run_step "UI walk (Playwright, e2e/real)" step_ui
 fi
+run_step "fresh demo: no open anomalies after 6 minutes (#3152)" step_no_open_anomalies
 run_step "GOLDEN-PATH s7: backup, move aside, restore (verify-audit VALID)" step_backup_restore
 
 if [ "$BROUGHT_UP" = true ] && [ "$KEEP" != true ]; then

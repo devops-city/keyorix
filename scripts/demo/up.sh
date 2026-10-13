@@ -507,3 +507,10 @@ cat > "$STATE_FILE" <<EOF
 ======================================================================
 EOF
 cat "$STATE_FILE"
+
+# #3152: the detector's first pass (1-5 minutes after the server started) reports the
+# seed's own first reads/writes as low-severity "first observed access" alerts. Wait for
+# that pass and acknowledge exactly those, so the Alerts tile and the Compliance page are
+# calm when the presenter opens them. The login details above are already printed.
+step "Waiting for the first anomaly-detection pass, then acknowledging what the seed itself caused (up to ~5 min)"
+demo_settle_anomalies "$SERVER_URL" "$KEYORIX_TOKEN" "$CONTAINER_NAME"

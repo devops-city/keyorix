@@ -186,6 +186,106 @@ demo_enroll_mfa() {
   demo_login_mfa "$base" "$user" "$password" "$DEMO_MFA_SECRET"
 }
 
+# demo_duration_seconds GO_DURATION — whole seconds of a Go duration ("2m45s",
+# "10m41.18s", "1h0m0s"); '' when it does not parse.
+demo_duration_seconds() {
+  python3 -c "
+import re, sys
+m = re.fullmatch(r'(?:(\d+)h)?(?:(\d+)m)?(?:([0-9.]+)s)?', sys.argv[1])
+if not m or not any(m.groups()):
+    print('')
+else:
+    h, mi, s = m.groups()
+    print(int(int(h or 0) * 3600 + int(mi or 0) * 60 + float(s or 0)))
+" "$1"
+}
+
+# demo_uptime_seconds BASE_URL — how long the server process has been up (GET /health),
+# '' when it cannot be read.
+demo_uptime_seconds() {
+  local d
+  d="$(curl -s --max-time 5 "$1/health" | python3 -c 'import sys, json
+try:
+    print(json.load(sys.stdin).get("uptime", ""))
+except Exception:
+    print("")')"
+  [ -n "$d" ] && demo_duration_seconds "$d"
+}
+
+# demo_open_anomalies BASE_URL TOKEN — prints one "ID TYPE SEVERITY ACCESSED_BY SECRET" line per
+# UNACKNOWLEDGED anomaly alert, or the single line "ERROR <http code>" when the call fails
+# (it usually runs inside $(...), so a global could not carry the status back).
+demo_open_anomalies() {
+  demo_api GET "$1" "/api/v1/audit/anomalies?unacknowledged=true" "$2"
+  [ "$DEMO_HTTP_CODE" = "200" ] || { echo "ERROR $DEMO_HTTP_CODE"; return 0; }
+  python3 -c "
+import sys, json
+for a in json.loads(sys.argv[1])['data'].get('alerts') or []:
+    print(a['ID'], a['AlertType'], a['Severity'], a.get('AccessedBy') or '-', a.get('SecretName') or '-')
+" "$DEMO_BODY"
+}
+
+# demo_settle_anomalies BASE_URL ADMIN_TOKEN [CONTAINER]   (#3152)
+#
+# Anomaly detection runs in the background: its FIRST pass comes 1-5 minutes after the
+# server starts, and it sees only what the seed script itself did (admin creating and
+# classifying secrets, the one machine read, alice's one read). Every first access to a
+# secret by a principal with no history is reported (low severity, "no prior baseline",
+# internal/core/anomaly.go newIPAlert/newUserAlert) - correct detection, but it made a
+# fresh demo grow a red "Alerts 13" tile a few minutes after the presenter opened it.
+#
+# So the script waits for that first pass and acknowledges exactly what the seed caused:
+# a new_user / new_ip / off_hours alert of low or medium severity whose accessor is one of
+# the seeded demo principals. Acknowledged alerts stay in the list (and in the audit
+# trail); nothing is deleted and detection is untouched, so what the presenter does next
+# (a login from a new place, a read by someone new) still raises a live alert. Anything
+# else the first pass reports (high severity, a spike, an unknown accessor) is left open
+# and check.sh fails on it.
+#
+# Best-effort: returns 0 even when it cannot settle (printing why), so a slow first pass
+# never discards a good seed. CONTAINER (docker) lets it read the exact first-pass delay
+# from the server log; without it the worst case (5 min) is waited.
+demo_settle_anomalies() {
+  local base="$1" token="$2" container="${3:-}" need=320 line d up wait tries=0 acked=0 left=0
+  if [ -n "$container" ]; then
+    line="$(docker logs "$container" 2>&1 | grep -m1 'Anomaly detection: first pass in' || true)"
+    d="$(printf '%s' "$line" | sed -n 's/.*first pass in \([0-9hms.]*\),.*/\1/p')"
+    [ -n "$d" ] && d="$(demo_duration_seconds "$d")"
+    [ -n "$d" ] && need=$((d + 20))
+  fi
+  while :; do
+    up="$(demo_uptime_seconds "$base")"
+    [ -n "$up" ] || { echo "settle: could not read the server uptime; skipping" >&2; return 0; }
+    [ "$up" -ge "$need" ] && break
+    wait=$((need - up)); [ "$wait" -gt 10 ] && wait=10
+    sleep "$wait"
+  done
+  # The pass may still be writing: look up to three times, 10 s apart, before concluding.
+  local alerts=""
+  while [ "$tries" -lt 3 ]; do
+    alerts="$(demo_open_anomalies "$base" "$token")"
+    [ -n "$alerts" ] && break
+    tries=$((tries + 1)); sleep 10
+  done
+  local id type sev who secret
+  while read -r id type sev who secret; do
+    [ -n "$id" ] || continue
+    case "$type:$sev:$who" in
+      new_user:low:admin|new_user:low:alice|new_user:low:security-officer|new_user:low:ci-app|\
+      new_ip:low:admin|new_ip:low:alice|new_ip:low:security-officer|new_ip:low:ci-app|\
+      off_hours:medium:admin|off_hours:medium:alice|off_hours:medium:security-officer|off_hours:medium:ci-app)
+        demo_api POST "$base" "/api/v1/audit/anomalies/$id/acknowledge" "$token" "{}"
+        if [ "$DEMO_HTTP_CODE" = "200" ]; then acked=$((acked + 1)); else left=$((left + 1)); fi
+        ;;
+      *) left=$((left + 1)) ;;
+    esac
+  done <<EOT
+$alerts
+EOT
+  echo "settle: acknowledged $acked first-observation alert(s) caused by the seed itself; $left left open"
+  return 0
+}
+
 # demo_stamp_build_args sets DEMO_STAMP_ARGS to the docker build args that stamp the image
 # with the real build identity (internal/version: Version, Commit, BuildDate), so /health,
 # /system/info, `keyorix system info` and the web footer do not report dev/none/unknown.

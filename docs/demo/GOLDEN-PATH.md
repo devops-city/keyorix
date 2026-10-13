@@ -118,15 +118,19 @@ one command. To get the talking point back, re-seed:
 `./scripts/demo/down.sh --wipe && ./scripts/demo/up.sh`. `make demo-check` fails
 if a fresh demo shows anything other than exactly this one gap.
 
-Anomalies: the **Open anomalies** tile and the Audit -> Anomaly Alerts tab are empty
-until the first detection pass, which runs 1-5 minutes after the server starts and
-then hourly. A day-zero install has no access baseline yet (a user or IP must be
-seen for 24 hours before it counts as "known", so an attacker cannot make
-themselves normal), so that first pass flags the demo's own first accesses as
-low-severity *new user* / *new IP* (and *off hours* outside 06:00-22:00 UTC)
-alerts. Say so rather than hide them: they are informational, none is high
-severity, the "Access-anomaly detection" control stays green (it only turns red on a
-high-severity alert), and Dismiss clears them. See "Known rough edges".
+Anomalies: a fresh demo starts with **no open anomalies**. The detector's first pass
+runs 1-5 minutes after the server starts and flags the seed's own first accesses
+(creating, rotating and revealing a secret as admin, alice's one read, the CI machine
+read) as low-severity *new user* / *new IP* alerts (and *off hours* outside
+06:00-22:00 UTC), because a day-zero install has no access baseline yet (a user or IP
+must be seen for 24 hours before it counts as "known", so an attacker cannot make
+themselves normal). `up.sh` waits for that pass (up to ~5 minutes at the end of the
+run) and acknowledges exactly those alerts, so the Alerts tile and the Compliance
+page are calm when you open them; they stay in Audit -> Anomaly Alerts as
+acknowledged. What you do next is live: log in as alice from a browser and read
+`db-password`, and a fresh *new IP* alert appears at the next pass (hourly), which is
+a good "the detector is on" moment. `make demo-check` fails if a fresh demo still has
+open anomalies 6 minutes after start. See "Known rough edges".
 
 ## 2. MFA enrollment, live (~1.5 min)
 
@@ -405,16 +409,16 @@ soft-delete confirmation text (#2568), stale docker-compose image pins
   flagged on the issue for the coordinator to confirm. Stop the server (or
   `docker stop keyorix-demo`) first if you want to demo it live.
 
-**Open anomalies on a day-zero install (found DEMO-SEED-1, 2026-10-12):** the
-first detection pass, 1-5 minutes after the server starts, flags the seed's own
-accesses — creating, rotating and revealing a secret as admin — as *new user* and
-*new IP* (low) and, between 22:00 and 06:00 UTC, *off hours* (medium) on the secret
-they touch: 24 alerts for the untouched seed (measured at 22:19 UTC, so including the
-off-hours ones; fewer in the daytime), none high. This is the detector
-working as designed on an install with no baseline (the baseline-quarantine rule,
-#101), not a seed problem, so the seed does not suppress it and the product's
-thresholds were not changed; whether the creator's own first access to a brand-new
-secret should count as "new" is a product question, not a demo one.
+**Open anomalies on a day-zero install (found DEMO-SEED-1, 2026-10-12; handled by
+DEMO-FIX-12, #3152):** the first detection pass, 1-5 minutes after the server starts,
+flags the seed's own accesses as *new user* / *new IP* (low) and, between 22:00 and
+06:00 UTC, *off hours* (medium). This is the detector working as designed on an
+install with no baseline (the baseline-quarantine rule, #101), so the thresholds were
+not changed. `up.sh` now waits for that first pass and acknowledges only alerts of
+those three types, low/medium severity, whose accessor is a seeded demo principal
+(`scripts/demo/lib.sh` `demo_settle_anomalies`); anything else the pass reports stays
+open and fails `check.sh`. Whether the creator's own first access to a brand-new
+secret should count as "new" remains a product question, not a demo one.
 
 **Polish, safe to demo through:** none currently open that affect this
 script's own steps.
