@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # scripts/demo/up.sh — one-command air-gapped Keyorix demo.
 #
-# Builds (once) a local air-gapped server image WITH the web UI embedded —
-# the published ghcr.io/keyorixhq/keyorix-server-airgap image does NOT embed
-# it (see #2752); this script works around that by running
-# populate-webui-dist before the docker build itself, exactly as `make
-# release`'s binary-tarball path already does. Then starts a single
+# Builds (once) a local air-gapped server image WITH the web UI embedded, from
+# THIS checkout, so the demo always matches the code you are about to show (the
+# published airgap image embeds the UI since v0.96.0, #2752, but may differ from the
+# checkout). It runs populate-webui-dist before the docker build itself, exactly as
+# `make release`'s binary-tarball path does. Then starts a single
 # SQLite-backed container (no Postgres dependency — matches the air-gapped
 # edition's single-binary pitch), seeds a realistic org through the public
 # API/CLI only (never the database directly), and prints the URL + demo

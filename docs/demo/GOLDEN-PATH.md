@@ -307,16 +307,33 @@ on explicitly in the demo's `keyorix.yaml` (`break_glass.enabled: true`,
 emergency role `project_developer`); on any other install add that block yourself
 (see `docs/CONFIGURATION.md#break_glass`) and restart. A user must be a **member
 of the project** (a role scoped to it, e.g. `project_viewer`) to activate; it then
-lifts them to the emergency role for a limited time:
+lifts them to the emergency role for a limited time.
+
+In the seed, **alice** is `project_viewer` on **backend-api, which is project 2**
+(project 1 is `default`, where she has no role, so activating there is refused with
+`break-glass is available only to members of the project`). Alice activates; an
+administrator (`admin`, or the independent reviewer `security-officer`) lists and
+ends it. Each block runs as the user in its first comment line, and `<id>` is the
+activation id the first command prints:
 
 ```bash
-keyorix break-glass activate --project-id 1 --justification "prod incident INC-123" --ttl 1h
-keyorix break-glass list --project-id 1        # the member sees their own activation
-keyorix break-glass revoke --project-id 1 --activation-id <id>   # as an admin (roles.assign)
+# as alice
+keyorix break-glass activate --project-id 2 --justification "prod incident INC-123" --ttl 1h
 ```
 
-`list` run by the member shows only their own activations; run by an admin
-(`roles.read` at the project) it shows everyone's.
+```bash
+# as an administrator (admin or security-officer)
+keyorix break-glass list --project-id 2
+keyorix break-glass revoke --project-id 2 --activation-id <id>
+```
+
+`scripts/demo/check.sh` runs exactly these blocks (`scripts/demo/golden-path-breakglass.sh`
+extracts them from this section, so the doc cannot drift from what works): the
+activation shows as `active` in the list, the revoke ends it, and the audit log
+records `break_glass.activated`, `break_glass.revoked`, `role.assigned` and `role.removed`.
+Alice can also list her own activations (#3184): `keyorix break-glass list --project-id 2`
+run as alice shows only hers; run by an administrator (`roles.read` at the project) it
+shows everyone's.
 
 If it is not enabled the command now says so (`break-glass is not enabled on this
 server; set break_glass.enabled`) instead of a bare `permission denied`.
@@ -354,10 +371,12 @@ soft-delete confirmation text (#2568), stale docker-compose image pins
   shown) after one rejected attempt (e.g. password instead of a code), and
   survives closing/reopening — only a full page reload clears it —
   [#2738](https://github.com/keyorixhq/keyorix/issues/2738).
-- Neither published Docker image (full or `-airgap`) embeds the web UI —
-  only the GitHub Release tarballs do. `scripts/demo/up.sh` works around
-  this by building its own image locally first —
-  [#2752](https://github.com/keyorixhq/keyorix/issues/2752).
+- Fixed since: the published images embed the web UI as of v0.96.0
+  (`ghcr.io/keyorixhq/keyorix-server:0.96.0-airgap` serves it; `check.sh`'s
+  "web UI served" step is green on it) —
+  [#2752](https://github.com/keyorixhq/keyorix/issues/2752). `scripts/demo/up.sh`
+  still builds its own image from the checkout, so the demo always matches the
+  code you are about to show.
 - `admin recovery-key rotate`, like every admin command except a live Postgres
   backup, needs the server stopped. That is by design: it holds the exclusive
   admin lock for the whole rotation

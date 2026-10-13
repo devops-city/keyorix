@@ -579,6 +579,42 @@ step_acl_cannot_read() {
   return 0
 }
 
+# GOLDEN-PATH "Optional: emergency access (break-glass)" (#3202), run as written:
+# scripts/demo/golden-path-breakglass.sh extracts the doc's commands and runs them
+# with the host CLI (alice activates on project 2, an administrator lists and
+# revokes). ALICE_TOKEN is the MFA-enrolled stand-in with alice's exact grant
+# (project_viewer on backend-api; see step_mfa). Only up.sh enables break-glass
+# (the --postgres compose stack does not), so that is the only backend checked.
+audit_total() { # audit_total ACTION -> prints the number of audit events with that action
+  req GET "/api/v1/audit/logs?action=$1&page_size=1" "$ADMIN_TOKEN"
+  [ "$HTTP_CODE" = "200" ] || { echo "GET /api/v1/audit/logs?action=$1 returned $HTTP_CODE: $RESP_BODY" >&2; return 1; }
+  jget 'd["data"]["total"]'
+}
+step_breakglass() {
+  if [ "$BACKEND" != "sqlite" ]; then
+    echo "SKIP: break-glass is enabled by scripts/demo/up.sh only; the --postgres compose stack leaves it off"
+    return 0
+  fi
+  [ -n "$ALICE_TOKEN" ] || { echo "no viewer session (the mfa step must pass first)"; return 1; }
+  [ -x "$REPO_ROOT/bin/keyorix" ] || { echo "bin/keyorix not found (make build-cli); scripts/demo/up.sh builds it"; return 1; }
+  local actions="break_glass.activated break_glass.revoked role.assigned role.removed" a
+  local before_file="$SCRATCH/bg-audit-before"
+  : > "$before_file"
+  for a in $actions; do
+    echo "$a $(audit_total "$a")" >> "$before_file"
+  done
+  KEYORIX_BG_SERVER="$SERVER_URL" KEYORIX_BG_ALICE_TOKEN="$ALICE_TOKEN" KEYORIX_BG_ADMIN_TOKEN="$ADMIN_TOKEN" \
+    "$SCRIPT_DIR/golden-path-breakglass.sh" || return 1
+  local was now
+  for a in $actions; do
+    was="$(awk -v a="$a" '$1 == a { print $2 }' "$before_file")"
+    now="$(audit_total "$a")"
+    [ "${now:-0}" -gt "${was:-0}" ] 2>/dev/null || { echo "audit: no new $a event after the break-glass section (was $was, now $now) -- docs/demo/GOLDEN-PATH.md says it records one"; return 1; }
+  done
+  echo "break-glass section ran as written; audit recorded $actions"
+  return 0
+}
+
 step_machine_read_by_ref() {
   [ -n "$MACHINE_TOKEN" ] || { echo "no machine token found (.demo-2-state / .demo-2-pg-state missing) -- was this instance brought up via scripts/demo/up.sh or this script?"; return 1; }
   get_secret_by_ref "$MACHINE_TOKEN" "default/development/stripe-api-key"
@@ -814,6 +850,7 @@ run_step "verify-write: rotate"               step_verify_rotate
 run_step "verify-write: version history"      step_verify_history
 run_step "acl: alice can read backend-api secret"   step_acl_can_read
 run_step "acl: alice cannot read default secret"    step_acl_cannot_read
+run_step "break-glass: GOLDEN-PATH section as written (alice activates, admin lists/revokes)" step_breakglass
 run_step "machine identity: read secret by ref"     step_machine_read_by_ref
 run_step "audit: log shows actions"   step_audit_logs
 run_step "audit: machine value read is attributed to ci-app" step_machine_read_audited

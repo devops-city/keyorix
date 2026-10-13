@@ -1,0 +1,5 @@
+### Documentation
+- **The GOLDEN-PATH break-glass example now works as written (#3202).** It used `--project-id 1` (`default`), where the seeded user alice has no role, so the first command was refused with `break-glass is available only to members of the project`. The example uses project 2 (backend-api, alice's `project_viewer` grant), says who runs what (alice activates; `admin` or `security-officer` lists and revokes), and the stale "published images do not embed the web UI" note (#2752) is corrected.
+
+### Testing
+- **`scripts/demo/check.sh` runs the documented break-glass commands.** `scripts/demo/golden-path-breakglass.sh` extracts them from `docs/demo/GOLDEN-PATH.md` (like the section 7 backup/restore guard), runs them with the CLI as the right user, and requires the list to show the activation, the revoke to end it, and the audit trail to record `break_glass.activated`, `break_glass.revoked`, `role.assigned` and `role.removed`, so the doc and the test cannot drift. It fails if the section drops the commands or goes back to project 1.
