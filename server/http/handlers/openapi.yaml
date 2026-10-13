@@ -4947,6 +4947,9 @@ paths:
                             expiresAt: {type: string, format: date-time, description: Absent for a permanent share.}
                             createdAt: {type: string, format: date-time}
                             createdBy: {type: string, description: Username of the share's creator (always the caller here).}
+                            secretName: {type: string, description: "The secret's name. Absent when the caller may not read the secret (#3153)."}
+                            projectId: {type: integer, format: uint32, description: "The secret's project. Absent with secretName."}
+                            projectName: {type: string, description: "The secret's project name. Absent with secretName."}
                       total: {type: integer}
                       page: {type: integer}
                       pageSize: {type: integer}

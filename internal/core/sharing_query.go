@@ -213,6 +213,11 @@ type ShareView struct {
 	ExpiresAt     *time.Time `json:"expiresAt,omitempty"` // nil = permanent (time-bound shares)
 	CreatedAt     time.Time  `json:"createdAt"`
 	CreatedBy     string     `json:"createdBy"` // username of the share's owner
+	// SecretName, ProjectID and ProjectName are set only when the caller may read the
+	// secret (annotateShareViewSecrets, #3153); otherwise they are omitted.
+	SecretName  string `json:"secretName,omitempty"`
+	ProjectID   uint   `json:"projectId,omitempty"`
+	ProjectName string `json:"projectName,omitempty"`
 }
 
 // ListUserShareViews returns the user's shares (received + owned) as enriched views
@@ -225,7 +230,12 @@ func (c *KeyorixCore) ListUserShareViews(ctx context.Context, userID uint) ([]Sh
 	if shareFetchMayBeTruncated(received) || shareFetchMayBeTruncated(owned) {
 		return nil, ErrShareListOverCap
 	}
-	return c.shareViews(ctx, mergeSharesByID(received, owned))
+	views, err := c.shareViews(ctx, mergeSharesByID(received, owned))
+	if err != nil {
+		return nil, err
+	}
+	c.annotateShareViewSecrets(ctx, userID, views)
+	return views, nil
 }
 
 // shareFetchMayBeTruncated: storage list queries without pagination return at most

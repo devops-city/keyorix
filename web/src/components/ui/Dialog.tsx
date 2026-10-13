@@ -95,9 +95,9 @@ const Dialog: React.FC<DialogProps> = ({
                     <Icon className={clsx('h-6 w-6', config.iconColor)} aria-hidden="true" />
                 </div>
                 <div className="ml-4 text-left">
-                    <h3 className="text-lg font-medium text-gray-900">{title}</h3>
+                    <h3 className="text-lg font-medium text-base-primary">{title}</h3>
                     <div className="mt-2">
-                        <p className="text-sm text-gray-500">{message}</p>
+                        <p className="text-sm text-base-secondary">{message}</p>
                     </div>
                 </div>
             </div>

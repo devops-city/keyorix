@@ -461,6 +461,21 @@ describe('SharingManagementPage — bulk selection and bulk revoke', () => {
     });
 });
 
+describe('SharingManagementPage — secret column (#3153)', () => {
+    it('shows the secret name and project from the API, and "Secret #id" only when the API withholds the name', () => {
+        sharesState.data = makeResponse([
+            { ...shareAlice, secretName: 'db-password', projectName: 'Payments' } as typeof shareAlice,
+            shareCarol,
+        ]);
+        render(<SharingManagementPage />);
+        expect(within(rowFor('Alice Anderson')).getByTestId('share-secret-name')).toHaveTextContent('db-password');
+        expect(within(rowFor('Alice Anderson')).getByTestId('share-secret-project')).toHaveTextContent('Payments');
+        expect(within(rowFor('Alice Anderson')).queryByText('Secret #101')).not.toBeInTheDocument();
+        expect(within(rowFor('Carol Smith')).getByTestId('share-secret-name')).toHaveTextContent('Secret #103');
+        expect(within(rowFor('Carol Smith')).queryByTestId('share-secret-project')).not.toBeInTheDocument();
+    });
+});
+
 describe('SharingManagementPage — per-row actions', () => {
     it('View secret opens the view-secret modal request', () => {
         render(<SharingManagementPage />);

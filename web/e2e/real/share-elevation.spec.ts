@@ -446,9 +446,11 @@ test('owner revokes the share from Sharing Management: it leaves the list and th
     await expect(ownerPage.getByRole('heading', { name: 'Shares you created' })).toBeVisible({ timeout: 15_000 });
     await expect(ownerPage.getByText('Failed to load shares')).toHaveCount(0);
 
-    // The row for the share to the viewer, on secret A, created by the owner.
-    const row = ownerPage.getByRole('row', { name: new RegExp(`Secret #${secretA}\\b.*${viewer.username}`) });
+    // The row for the share to the viewer, on secret A, created by the owner. The Secret
+    // column shows the secret's name (#3153), not "Secret #<id>".
+    const row = ownerPage.getByRole('row', { name: new RegExp(`${secretAName}\\b.*${viewer.username}`) });
     await expect(row).toBeVisible();
+    await expect(row.getByTestId('share-secret-name')).toHaveText(secretAName);
     await expect(row).toContainText(owner.username);
     // The API agrees: only the owner's shares, and this one is among them.
     const owned = await bearer(ownerToken, 'GET', '/api/v1/shares/owned');

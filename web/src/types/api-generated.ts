@@ -11620,6 +11620,15 @@ export interface operations {
                                 createdAt: string;
                                 /** @description Username of the share's creator (always the caller here). */
                                 createdBy: string;
+                                /** @description The secret's name. Absent when the caller may not read the secret (#3153). */
+                                secretName?: string;
+                                /**
+                                 * Format: uint32
+                                 * @description The secret's project. Absent with secretName.
+                                 */
+                                projectId?: number;
+                                /** @description The secret's project name. Absent with secretName. */
+                                projectName?: string;
                             }[];
                             total: number;
                             page: number;

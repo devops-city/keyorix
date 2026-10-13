@@ -84,6 +84,11 @@ export interface ShareRecord {
     // expiresAt (ISO 8601), when present, is when this time-bound share lapses;
     // absent/undefined = a permanent share.
     expiresAt?: string;
+    // secretName / projectId / projectName are set only when the caller may read the
+    // secret; otherwise the UI falls back to "Secret #<secretId>".
+    secretName?: string;
+    projectId?: number;
+    projectName?: string;
 }
 
 export interface ShareFormData {

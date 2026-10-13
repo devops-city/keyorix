@@ -1,0 +1,3 @@
+### Fixed
+- **Sharing page names the secret.** The Secret column showed "Secret #2"; `GET /api/v1/shares` and `GET /api/v1/shares/owned` now return `secretName`, `projectId` and `projectName` for each share, and the page shows them (#3153). The name is returned only for a secret the caller may read (`AuthorizeSecret`, `secrets.read`: ACL, role, share, PAT restriction); otherwise the fields are omitted and the page keeps "Secret #id".
+- **Revoke dialog title readable in both themes.** The confirm dialog's title and message used fixed grey text colours that vanished on the dark dialog background; they now use the theme tokens (#3153).

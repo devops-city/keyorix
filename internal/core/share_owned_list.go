@@ -63,7 +63,12 @@ func (c *KeyorixCore) ListOwnedShareViews(ctx context.Context, actorType string,
 		return nil, err
 	}
 	sort.Slice(visible, func(i, j int) bool { return visible[i].ID < visible[j].ID })
-	return c.shareViews(ctx, visible)
+	views, err := c.shareViews(ctx, visible)
+	if err != nil {
+		return nil, err
+	}
+	c.annotateShareViewSecrets(ctx, actorID, views)
+	return views, nil
 }
 
 // sharesInMemberProjects keeps the shares whose secret resolves, lies in a project

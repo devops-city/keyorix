@@ -826,6 +826,8 @@ func TestListUserShareViews_UserShare(t *testing.T) {
 	ms.On("ListSharesByOwner", mock.Anything, uint(1)).Return([]*models.ShareRecord{}, nil)
 	ms.On("GetUser", mock.Anything, uint(1)).Return(&models.User{ID: 1, Username: "owner"}, nil)
 	ms.On("GetUser", mock.Anything, uint(2)).Return(&models.User{ID: 2, Username: "recipient"}, nil)
+	// The secret no longer resolves, so the view carries no name (#3153).
+	ms.On("GetSecretsByIDs", mock.Anything, []uint{10}).Return([]*models.SecretNode{}, nil)
 	c := NewKeyorixCore(ms)
 	views, err := c.ListUserShareViews(context.Background(), 1)
 	require.NoError(t, err)
@@ -850,6 +852,7 @@ func TestListUserShareViews_GroupShare(t *testing.T) {
 	ms.On("ListSharesByOwner", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
 	ms.On("GetUser", mock.Anything, uint(1)).Return(&models.User{ID: 1, Username: "owner"}, nil)
 	ms.On("GetGroup", mock.Anything, uint(99)).Return(&models.Group{ID: 99, Name: "ops-team"}, nil)
+	ms.On("GetSecretsByIDs", mock.Anything, []uint{10}).Return([]*models.SecretNode{}, nil)
 	c := NewKeyorixCore(ms)
 	views, err := c.ListUserShareViews(context.Background(), 1)
 	require.NoError(t, err)

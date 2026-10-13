@@ -341,9 +341,21 @@ export const SharingManagementPage: React.FC = () => {
                                     </td>
                                 )}
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-base-primary dark:text-white">
-                                        Secret #{share.secretId}
+                                    {/* The API names the secret only when the caller may read it (#3153). */}
+                                    <div
+                                        className="text-sm font-medium text-base-primary dark:text-white"
+                                        data-testid="share-secret-name"
+                                    >
+                                        {share.secretName || `Secret #${share.secretId}`}
                                     </div>
+                                    {share.secretName && share.projectName && (
+                                        <div
+                                            className="text-xs text-base-muted dark:text-base-muted"
+                                            data-testid="share-secret-project"
+                                        >
+                                            {share.projectName}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center">
