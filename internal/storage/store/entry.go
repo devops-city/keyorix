@@ -19,6 +19,7 @@
 package store
 
 import (
+	"database/sql"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -344,6 +345,21 @@ func (ls *LocalStorage) SetAuditFlusherLingerWindow(d time.Duration) {
 // construction-time-only field on this type.
 func (ls *LocalStorage) SetAuditSkipDurableSync(skip bool) {
 	ls.auditSkipDurableSync = skip
+}
+
+// PoolStats returns the live connection-pool statistics of the underlying
+// *sql.DB (database/sql's DBStats: MaxOpenConnections as applied by the storage
+// factory, InUse, Idle). ok is false if the pool cannot be reached. Read-only and
+// issues no query, so it never touches the database itself.
+func (ls *LocalStorage) PoolStats() (stats sql.DBStats, ok bool) {
+	if ls == nil || ls.db == nil {
+		return sql.DBStats{}, false
+	}
+	sqlDB, err := ls.db.DB()
+	if err != nil || sqlDB == nil {
+		return sql.DBStats{}, false
+	}
+	return sqlDB.Stats(), true
 }
 
 // DB returns the underlying *gorm.DB. Exposed for test helpers that need direct

@@ -169,6 +169,24 @@ var startTime = time.Now()
 
 // Note: HealthCheck is implemented in health.go
 
+// poolInfo reports the live connection pool of the running server: the cap the storage
+// factory actually applied (config value, or the dialect default when unset), and the
+// connections in use / idle right now. It used to echo the raw config values (0 when unset,
+// which is the common case on compose and Helm installs) and a hard-coded "2 active".
+// When the backend keeps no local pool the numbers are not available and stay 0, which the
+// clients render as "not reported" (a max of 0 is never a real pool).
+func poolInfo(coreService *core.KeyorixCore) PoolInfo {
+	stats, ok := coreService.DBPoolStats()
+	if !ok {
+		return PoolInfo{}
+	}
+	return PoolInfo{
+		MaxConnections:    stats.MaxOpenConnections,
+		ActiveConnections: stats.InUse,
+		IdleConnections:   stats.Idle,
+	}
+}
+
 // MakeSystemInfoHandler returns a handler that serves real system info from config.
 func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -218,11 +236,7 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				Type:      cfg.Storage.Type,
 				Connected: true,
 				Version:   "",
-				Pool: PoolInfo{
-					MaxConnections:    cfg.Storage.Database.MaxOpenConns,
-					ActiveConnections: 2,
-					IdleConnections:   cfg.Storage.Database.MaxIdleConns,
-				},
+				Pool:      poolInfo(coreService),
 			},
 			Security: SecurityInfo{
 				TLSEnabled:          tlsEnabled,

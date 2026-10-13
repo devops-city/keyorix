@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"crypto/x509"
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -1177,6 +1178,23 @@ func (c *KeyorixCore) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("storage not initialized")
 	}
 	return c.storage.HealthCheck(ctx)
+}
+
+// DBPoolStats returns the live connection-pool statistics of the storage backend
+// (database/sql DBStats), for the system-info surfaces. ok is false when the
+// backend keeps no local pool (a wrapper or test double) -- callers must report
+// "not available", never zeros dressed up as measurements.
+func (c *KeyorixCore) DBPoolStats() (stats sql.DBStats, ok bool) {
+	if c == nil || c.storage == nil {
+		return sql.DBStats{}, false
+	}
+	p, isPooled := c.storage.(interface {
+		PoolStats() (sql.DBStats, bool)
+	})
+	if !isPooled {
+		return sql.DBStats{}, false
+	}
+	return p.PoolStats()
 }
 
 // ResolveUsernames maps UserID → username for a slice of audit events.

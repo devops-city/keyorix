@@ -313,7 +313,23 @@ func groupAdminAndSystem(ctx *smokeCtx) {
 
 	c.callExpect("GET", "GET /api/v1/system/auth-config", "/api/v1/system/auth-config", nil, 200)
 	c.callExpect("GET", "GET /api/v1/system/encryption-config", "/api/v1/system/encryption-config", nil, 200)
-	c.callExpect("GET", "GET /api/v1/system/info", "/api/v1/system/info", nil, 200)
+	sysInfo := c.callExpect("GET", "GET /api/v1/system/info", "/api/v1/system/info", nil, 200)
+	// #3037: the pool numbers are the live pool of the running server. A max of 0 is the old
+	// "config echo" (every install that leaves max_open_conns unset); this driver's own
+	// requests have just used connections, so a pool that never opened any is also wrong.
+	var sysInfoData struct {
+		Database struct {
+			Pool struct {
+				Max    int `json:"max_connections"`
+				Active int `json:"active_connections"`
+				Idle   int `json:"idle_connections"`
+			} `json:"pool"`
+		} `json:"database"`
+	}
+	c.unmarshalData(sysInfo, &sysInfoData, "GET /api/v1/system/info")
+	if pool := sysInfoData.Database.Pool; pool.Max <= 0 || pool.Active < 0 || pool.Idle < 0 || pool.Active+pool.Idle > pool.Max {
+		c.t.Errorf("GET /api/v1/system/info: database.pool must be the live pool (max>0, active+idle<=max), got %+v", pool)
+	}
 	c.callExpect("GET", "GET /api/v1/system/metrics", "/api/v1/system/metrics", nil, 200)
 
 	c.callExpect("GET", "GET /api/v1/hygiene", "/api/v1/hygiene", nil, 200)
