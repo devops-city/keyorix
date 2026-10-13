@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -639,6 +640,12 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (stora
 	ls := store.NewLocalStorage(db)
 	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
 	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
+	lockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
+	if err != nil {
+		return nil, err
+	}
+	applySchedulerLockPoolSettings(lockDB, &cfg.Storage.Database)
+	ls.SetSchedulerLockDB(lockDB)
 	// ADR-112 Amendment 1: read the computed status rather than the raw bool,
 	// so "configured" and "actually in effect" cannot drift apart between
 	// here and the surfaces that report it (start-up log, posture, API). This
@@ -676,6 +683,33 @@ func applyPoolSettings(db *gorm.DB, dbCfg *config.DatabaseConfig) error {
 	return nil
 }
 
+// SchedulerLockPoolSize caps the separate Postgres pool that holds scheduler
+// advisory-lock sessions (store.LocalStorage.SetSchedulerLockDB). A scheduler job
+// pins one lock session for its whole run while its own queries use the request
+// pool; with both on one pool, enough jobs ticking at once (about 20 start
+// together at boot) pinned every connection and each waited for one more, a
+// permanent hang (POOL-HANG-1, Detected-by: PERF-6). On its own pool a job
+// waiting for a lock session holds nothing, so nothing can deadlock; jobs beyond
+// this cap queue for a session and run a little later. It is not configurable:
+// the request pool is the knob operators size, and this one only bounds how many
+// jobs run their lock-held section at the same time.
+const SchedulerLockPoolSize = 4
+
+// schedulerLockPoolMaxIdleTime closes lock sessions left idle between ticks, so
+// the lock pool does not keep Postgres backends open between scheduler intervals.
+const schedulerLockPoolMaxIdleTime = time.Minute
+
+// applySchedulerLockPoolSettings sizes the scheduler lock pool and applies the
+// operator's connection lifetime to it, like applyPoolSettings for the request pool.
+func applySchedulerLockPoolSettings(lockDB *sql.DB, dbCfg *config.DatabaseConfig) {
+	lockDB.SetMaxOpenConns(SchedulerLockPoolSize)
+	lockDB.SetMaxIdleConns(SchedulerLockPoolSize)
+	lockDB.SetConnMaxIdleTime(schedulerLockPoolMaxIdleTime)
+	if dbCfg.ConnMaxLifetimeMinutes > 0 {
+		lockDB.SetConnMaxLifetime(time.Duration(dbCfg.ConnMaxLifetimeMinutes) * time.Minute)
+	}
+}
+
 // warnPostgresPoolHeadroom logs a startup warning when this process's pool alone
 // can exceed the Postgres server's usable connection slots (max_connections minus
 // superuser_reserved_connections). Past that point requests fail with SQLSTATE
@@ -699,16 +733,18 @@ func warnPostgresPoolHeadroom(db *gorm.DB, dbCfg *config.DatabaseConfig) {
 
 // postgresPoolHeadroomWarning is warnPostgresPoolHeadroom's decision, separated so
 // it is testable without a server. Empty means no warning.
+// The process opens maxOpen plus SchedulerLockPoolSize connections at most.
 func postgresPoolHeadroomWarning(maxOpen, maxConnections, reserved int) string {
 	usable := maxConnections - reserved
-	if maxConnections <= 0 || maxOpen <= usable {
+	if maxConnections <= 0 || maxOpen+SchedulerLockPoolSize <= usable {
 		return ""
 	}
-	return fmt.Sprintf("WARNING: storage.database.max_open_conns is %d but the Postgres server allows only %d "+
-		"non-superuser connections (max_connections=%d minus superuser_reserved_connections=%d). Under load, "+
-		"requests past that fail with SQLSTATE 53300 \"too many clients\" instead of queueing. Lower "+
-		"max_open_conns so that (replicas x max_open_conns) stays below %d, or raise max_connections.",
-		maxOpen, usable, maxConnections, reserved, usable)
+	return fmt.Sprintf("WARNING: storage.database.max_open_conns is %d, plus %d for the scheduler lock pool, but the "+
+		"Postgres server allows only %d non-superuser connections (max_connections=%d minus "+
+		"superuser_reserved_connections=%d). Under load, requests past that fail with SQLSTATE 53300 \"too many "+
+		"clients\" instead of queueing. Lower max_open_conns so that (replicas x (max_open_conns + %d)) stays "+
+		"below %d, or raise max_connections.",
+		maxOpen, SchedulerLockPoolSize, usable, maxConnections, reserved, SchedulerLockPoolSize, usable)
 }
 
 // columnExists reports whether table already has column, branching on the

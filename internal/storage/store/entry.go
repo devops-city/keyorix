@@ -168,6 +168,10 @@ type LocalStorage struct {
 	// construction and meaningless on a clone anyway (auditFlusher is nil
 	// there, so runAuditFlusher never runs for it).
 	auditFlusherLingerWindow time.Duration
+	// schedulerLockDB is the dedicated pool WithSchedulerLock takes its advisory-
+	// lock sessions from (SetSchedulerLockDB). nil means the request pool (ls.db).
+	// Set once at construction, read-only afterwards.
+	schedulerLockDB *sql.DB
 	// rawStmts backs the H3 hand-written prepared-statement fast path
 	// (PERF-3, docs/specs/read-path-caching.md; credential_lookup_raw.go) —
 	// nil on a transaction-scoped LocalStorage (see WithTransaction, which

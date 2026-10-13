@@ -6,6 +6,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"log"
@@ -32,16 +33,24 @@ func runProtected(fn func() error) (err error) {
 // the connection returns to the pool — a session lock would otherwise outlive the
 // tick on the pooled connection.
 //
+// The lock session comes from the dedicated scheduler lock pool when one is set
+// (SetSchedulerLockDB; the storage factory always sets one), never from the
+// request pool fn's own queries use. See SetSchedulerLockDB for why.
+//
 // SQLite / non-Postgres: there is only one instance, so fn always runs.
 func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn func() error) (bool, error) {
 	if ls.db.Dialector.Name() != "postgres" {
 		return true, runProtected(fn)
 	}
-	sqlDB, err := ls.db.DB()
-	if err != nil {
-		return false, err
+	lockDB := ls.schedulerLockDB
+	if lockDB == nil {
+		sqlDB, err := ls.db.DB()
+		if err != nil {
+			return false, err
+		}
+		lockDB = sqlDB
 	}
-	conn, err := sqlDB.Conn(ctx)
+	conn, err := lockDB.Conn(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -69,4 +78,20 @@ func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn fun
 		}
 	}()
 	return true, runProtected(fn)
+}
+
+// SetSchedulerLockDB gives WithSchedulerLock a pool of its own for the advisory-
+// lock sessions, separate from the request pool. A lock session is pinned for the
+// whole job while the job's queries need a connection of their own; on one shared
+// pool, enough jobs ticking together pinned every connection, each waiting for
+// one more, and the server hung for good (hold-and-wait; POOL-HANG-1). With a
+// separate pool, a job never holds a request-pool connection while it waits for
+// anything, so the request pool always drains. The lock semantics are unchanged:
+// still one session advisory lock per job on its own session, in the same
+// database, released before the session is pooled again.
+//
+// Without one (a LocalStorage built directly by tests or examples), the request
+// pool is used as before. Call it before serving traffic.
+func (ls *LocalStorage) SetSchedulerLockDB(db *sql.DB) {
+	ls.schedulerLockDB = db
 }
