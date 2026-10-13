@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("ƈ\xc2")
+[]byte("\xfel\x11̯\xe8\xd0\x0e\xa0\x00\x00")

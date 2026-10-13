@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\t%@22")
+[]byte("\xfeb\x8fB\x91\xb9\xe1/\f\x00\x02")

@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\xba\xfd#220000")
+[]byte("\xfe\xe1/\xb3\x05>\x12\xb27\x00\x02")

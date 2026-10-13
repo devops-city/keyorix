@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\x04\x007\x00\x01")
+[]byte("\xfeCh\xe9\xb1n0\xf2(\x00\x01")

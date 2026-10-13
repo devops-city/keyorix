@@ -100,7 +100,7 @@ func TestOpcatalogCorpusFilesTargetPinnedOps(t *testing.T) {
 		t.Run(p.claimID, func(t *testing.T) {
 			path := filepath.Join("testdata", "fuzz", "FuzzStorageFaultOperations", p.corpusFile)
 			data := readFuzzCorpusFile(t, path)
-			decoded, ok := decodeFuzzOp(data)
+			decoded, ok := decodeFuzzOpAny(data)
 			if !ok {
 				t.Fatalf("decodeFuzzOp could not decode %s -- opCatalog or storageInterfaceMethodNames() is empty", path)
 			}

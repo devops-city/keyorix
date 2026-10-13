@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\xa3y#200000")
+[]byte("\xfe\xf0ee\xbc.8`\xd6\x00\x00")

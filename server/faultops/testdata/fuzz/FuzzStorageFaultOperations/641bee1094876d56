@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\x925")
+[]byte("\xfel\xc8ʏ\xee<\xe2+\x00\x00")

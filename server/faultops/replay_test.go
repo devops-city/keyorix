@@ -33,7 +33,7 @@ import (
 // RULES asks the harness to print on every run so a saved failure is
 // self-describing without re-deriving the decode logic by hand.
 func traceFuzzOp(data []byte) string {
-	decoded, ok := decodeFuzzOp(data)
+	decoded, ok := decodeFuzzOpAny(data)
 	if !ok {
 		return fmt.Sprintf("input=%x -> undecodable (empty catalog/method list)", data)
 	}

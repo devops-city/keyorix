@@ -6,9 +6,10 @@
 //
 //  1. re-encodes every legacy seed under
 //     server/faultops/testdata/fuzz/FuzzStorageFaultOperations/ as v2
-//     (TestReencodeLegacySeedsToV2 with REENCODE_SEEDS_V2=1): each seed keeps
-//     the op/method/nth/kind it decodes to NOW, except the seeds listed in
-//     seedIntent, which are encoded from their recorded intent;
+//     (TestReencodeLegacySeedsToV2 with REENCODE_SEEDS_V2=1): each seed is
+//     encoded from what it was WRITTEN for (server/faultops/testdata/
+//     seed_v1_history, recovered from git history), or from seedIntent where
+//     that table overrides it; a seed with no history row is refused;
 //  2. switches the three decode call sites (the fuzz loop, the REPLAY_HEX
 //     tracer, the corpus pin test) from decodeFuzzOp to decodeFuzzOpAny —
 //     one line each, refusing if a site does not match exactly once;

@@ -604,7 +604,7 @@ func runOneFuzzIterationReporting(t *testing.T, rep fuzzVerdict, data []byte, re
 	t.Helper()
 	rep.Log(traceFuzzOp(data)) // RULES: print the decoded operation/fault as a readable line, every run.
 
-	decoded, ok := decodeFuzzOp(data)
+	decoded, ok := decodeFuzzOpAny(data)
 	if !ok {
 		rep.Skip("empty catalog/method list")
 	}

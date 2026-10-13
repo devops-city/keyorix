@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\x06AX21")
+[]byte("\xfeh'*גx\x13u\x00\x01")

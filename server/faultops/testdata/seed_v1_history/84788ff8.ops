@@ -1,0 +1,217 @@
+REST PUT /api/v1/roles/{id}
+REST POST /api/v1/secrets/
+REST PUT /api/v1/secrets/{id}
+REST DELETE /api/v1/secrets/{id}
+REST POST /api/v1/projects
+REST POST /api/v1/users/
+GRPC keyorix.v1.RoleService.AssignRole
+REST POST /api/v1/groups/
+REST DELETE /api/v1/groups/{id}
+REST POST /api/v1/roles/
+REST DELETE /api/v1/roles/{id}
+GRPC keyorix.v1.GroupService.CreateGroup
+GRPC keyorix.v1.RoleService.DeleteRole
+REST POST /api/v1/groups/{id}/members
+REST DELETE /api/v1/groups/{id}/members/{userId}
+REST POST /api/v1/rotation-policies/
+REST DELETE /api/v1/rotation-policies/{id}
+REST POST /api/v1/projects/{id}/break-glass/{activationId}/revoke
+REST POST /api/v1/secret-access-requests
+REST POST /api/v1/secret-access-requests/{requestId}/withdraw
+REST PUT /api/v1/secret-access-requests/{requestId}
+GRPC keyorix.v1.ProjectService.UpdateProject
+GRPC keyorix.v1.ProjectService.DeleteProject
+GRPC keyorix.v1.UserService.UpdateUser
+GRPC keyorix.v1.UserService.DeleteUser
+GRPC keyorix.v1.GroupService.UpdateGroup
+GRPC keyorix.v1.GroupService.DeleteGroup
+GRPC keyorix.v1.GroupService.RestoreGroup
+GRPC keyorix.v1.GroupService.AddGroupMember
+GRPC keyorix.v1.GroupService.RemoveGroupMember
+GRPC keyorix.v1.RoleService.UpdateRole
+GRPC keyorix.v1.RoleService.RemoveRole
+GRPC keyorix.v1.SecretService.CreateSecret
+GRPC keyorix.v1.SecretService.UpdateSecret
+GRPC keyorix.v1.SecretService.DeleteSecret
+REST PATCH /api/v1/secrets/{id}/classification
+REST PATCH /api/v1/secrets/{id}/description
+REST PATCH /api/v1/secrets/{id}/retention
+REST PUT /api/v1/secrets/{id}/tags
+REST PUT /api/v1/secrets/{id}/schedule
+REST POST /api/v1/admin/jobs/anomaly-alerts
+REST POST /api/v1/admin/jobs/rotation-reminders
+REST POST /api/v1/admin/jobs/expiry-reminders
+REST POST /api/v1/admin/jobs/compliance-digest
+REST POST /api/v1/admin/jobs/record-hygiene-snapshot
+REST POST /api/v1/admin/jobs/role-expiry-check
+REST POST /api/v1/admin/jobs/check-read-quotas
+REST POST /api/v1/admin/jobs/run-alert-escalation
+REST POST /api/v1/admin/jobs/token-expiry-check
+REST POST /api/v1/admin/jobs/suspend-inactive-users
+REST POST /api/v1/admin/jobs/purge-audit-logs
+REST POST /api/v1/admin/impersonate
+REST POST /api/v1/auth/end-impersonation
+REST POST /api/v1/projects/{id}/access-review/campaigns
+REST POST /api/v1/projects/{id}/access-review/campaigns/{campaignId}/close
+REST POST /api/v1/projects/{id}/access-review/campaigns/{campaignId}/items/{itemId}/decide
+REST POST /api/v1/projects/{id}/access-review/attest
+REST POST /api/v1/projects/{id}/access-review/revoke
+REST POST /api/v1/projects/{id}/machine-identities
+REST POST /api/v1/projects/{id}/machine-identities/migrate-from-user
+REST PUT /api/v1/projects/{id}/machine-identities/{machineId}
+REST POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens
+REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}
+REST PATCH /api/v1/projects/{id}/machine-identities/{machineId}/classification
+REST PATCH /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}/classification
+REST POST /api/v1/projects/{id}/machine-identities/{machineId}/roles
+REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/roles/{roleId}
+REST POST /api/v1/projects/{id}/machine-identities/{machineId}/oidc-bindings
+REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/oidc-bindings/{bindingId}
+GRPC keyorix.v1.MachineIdentityService.CreateMachineIdentity
+GRPC keyorix.v1.MachineIdentityService.TransitionMachineIdentity
+GRPC keyorix.v1.MachineIdentityService.ClassifyMachineIdentity
+GRPC keyorix.v1.MachineIdentityService.IssueMachineToken
+GRPC keyorix.v1.MachineIdentityService.RevokeMachineToken
+REST POST /api/v1/projects/{id}/invitations
+REST DELETE /api/v1/projects/{id}/invitations/{invitationId}
+REST POST /api/v1/invitations
+REST POST /api/v1/projects/{id}/access-requests
+REST POST /api/v1/projects/{id}/access-requests/{requestId}/withdraw
+REST PUT /api/v1/projects/{id}/access-requests/{requestId}
+GRPC keyorix.v1.ProjectService.CreateProject
+REST DELETE /api/v1/projects/{id}
+REST POST /api/v1/projects/{id}/restore
+REST POST /api/v1/projects/{id}/environments
+REST DELETE /api/v1/environments/{id}
+REST POST /api/v1/projects/{id}/environments/{envId}/clone
+REST POST /api/v1/projects/{projectId}/environments/{id}/restore
+REST POST /api/v1/projects/{id}/environments/{envId}/copy-secrets
+GRPC keyorix.v1.RoleService.CreateRole
+GRPC keyorix.v1.UserService.CreateUser
+REST POST /api/v1/groups/{id}/roles
+REST DELETE /api/v1/groups/{id}/roles/{roleId}
+REST POST /api/v1/roles/{id}/permissions
+REST DELETE /api/v1/roles/{id}/permissions/{permissionId}
+REST POST /api/v1/groups/{id}/restore
+REST PATCH /scim/v2/Groups/{id}
+REST PUT /scim/v2/Groups/{id}
+REST DELETE /scim/v2/Groups/{id}
+REST DELETE /api/v1/users/{id}
+REST DELETE /api/v1/projects/{id}/members/{userId}
+REST PUT /api/v1/projects/{id}/members/{userId}
+REST POST /api/v1/projects/{id}/memberships
+REST PUT /api/v1/projects/{id}/memberships/{membershipId}
+REST POST /api/v1/user-roles/
+REST DELETE /api/v1/user-roles/
+REST POST /api/v1/projects/{id}/secrets/bulk-delete
+REST POST /api/v1/projects/{id}/secrets/bulk-rename
+REST POST /api/v1/projects/{id}/secrets/bulk-rotate
+REST POST /api/v1/projects/{id}/secrets/extend-expiring
+REST POST /api/v1/projects/{id}/secrets/reassign-owner
+REST POST /api/v1/projects/{id}/secrets/render
+REST POST /api/v1/projects/{id}/secrets/resume-all
+REST POST /api/v1/projects/{id}/secrets/suspend-all
+REST POST /api/v1/secrets/{id}/copy
+REST POST /api/v1/secrets/{id}/dependencies
+REST DELETE /api/v1/secrets/{id}/dependencies/{depId}
+REST POST /api/v1/secrets/{id}/move
+REST POST /api/v1/secrets/{id}/restore
+REST POST /api/v1/secrets/{id}/resume
+REST POST /api/v1/secrets/{id}/rotation/simulate
+REST POST /api/v1/secrets/{id}/suspend
+REST POST /api/v1/secrets/{id}/transfer-ownership
+REST POST /api/v1/secrets/{id}/versions/{versionId}/comments
+REST DELETE /api/v1/secrets/{id}/versions/{versionId}/comments/{commentId}
+REST DELETE /api/v1/secrets/{id}/schedule
+REST POST /api/v1/folders/
+REST DELETE /api/v1/folders/{id}
+REST POST /api/v1/legal-hold
+REST DELETE /api/v1/legal-hold
+REST POST /api/v1/notification-channels
+REST DELETE /api/v1/notification-channels/{id}
+REST PUT /api/v1/notification-channels/{id}
+REST PUT /api/v1/notification-channels/{id}/retry-policy
+REST POST /api/v1/alert-escalation-policies
+REST PUT /api/v1/alert-escalation-policies/{id}
+REST POST /api/v1/rejection-reason-templates
+REST DELETE /api/v1/rejection-reason-templates/{id}
+REST POST /api/v1/risk-exceptions
+REST DELETE /api/v1/risk-exceptions/{id}
+REST POST /api/v1/risk-exceptions/{id}/approve
+REST POST /api/v1/sod/policies
+REST DELETE /api/v1/sod/policies/{id}
+REST PUT /api/v1/rotation-policies/{id}
+REST POST /api/v1/secret-templates/
+REST PUT /api/v1/secret-templates/{id}
+REST DELETE /api/v1/secret-templates/{id}
+REST POST /api/v1/secret-templates/{id}/apply
+REST PUT /api/v1/admin/anomaly-config/
+REST POST /api/v1/access-requests/bulk-approve
+REST POST /api/v1/access-requests/bulk-reject
+REST POST /api/v1/projects/{id}/members
+REST PUT /api/v1/users/{id}
+REST POST /api/v1/users/{id}/restore
+REST POST /api/v1/users/{id}/unlock
+REST POST /api/v1/users/{id}/suspend
+REST POST /api/v1/users/{id}/reactivate
+REST POST /api/v1/users/{id}/require-password-reset
+REST POST /api/v1/users/{id}/revoke-sessions
+REST PUT /api/v1/groups/{id}
+REST PUT /api/v1/projects/{id}
+REST PUT /api/v1/users/{id}/roles
+REST POST /auth/login
+REST POST /auth/logout
+REST POST /auth/refresh
+REST POST /api/v1/auth/change-password
+REST PUT /api/v1/auth/profile
+REST DELETE /api/v1/auth/sessions/{id}
+REST POST /api/v1/auth/tokens
+REST DELETE /api/v1/auth/tokens/{id}
+REST DELETE /api/v1/auth/tokens/expired
+REST POST /api/v1/compliance/digest/send
+REST POST /api/v1/compliance/evidence/verify
+REST POST /api/v1/compliance/snapshots
+REST POST /api/v1/audit/migrate-chain-encoding
+REST POST /auth/password-reset
+REST POST /api/v1/notifications/read-all
+REST POST /api/v1/notifications/{id}/read
+REST DELETE /api/v1/alert-escalation-policies/{id}
+GRPC keyorix.v1.MachineIdentityService.ClassifyMachineToken
+REST POST /api/v1/secrets/{id}/acl
+REST DELETE /api/v1/secrets/{id}/acl/{aclId}
+GRPC keyorix.v1.SecretService.GrantSecretACL
+GRPC keyorix.v1.SecretService.RevokeSecretACL
+REST PATCH /api/v1/secrets/{id}/auto-rotate
+GRPC keyorix.v1.SecretService.SetSecretAutoRotate
+REST POST /api/v1/secrets/{id}/rotate
+REST POST /api/v1/secrets/{id}/rollback
+REST POST /api/v1/secrets/{id}/share
+REST PUT /api/v1/shares/{id}
+REST DELETE /api/v1/shares/{id}
+GRPC keyorix.v1.ShareService.ShareSecret
+GRPC keyorix.v1.ShareService.UpdateSharePermission
+GRPC keyorix.v1.ShareService.RevokeShare
+REST POST /api/v1/projects/{id}/break-glass
+GRPC keyorix.v1.BreakGlassService.ActivateBreakGlass
+GRPC keyorix.v1.BreakGlassService.RevokeBreakGlass
+REST POST /api/v1/auth/mfa/enroll
+REST POST /api/v1/auth/mfa/activate
+REST POST /api/v1/auth/mfa/disable
+REST POST /api/v1/auth/mfa/recovery-codes/regenerate
+REST POST /api/v1/auth/mfa/stepup
+REST POST /auth/mfa/verify
+REST POST /api/v1/dynamic-secrets/configs
+REST PATCH /api/v1/dynamic-secrets/configs/{id}/classification
+REST PATCH /api/v1/dynamic-secrets/configs/{id}/enabled
+REST POST /api/v1/dynamic-secrets/configs/{id}/issue
+REST POST /api/v1/dynamic-secrets/configs/{id}/revoke-all
+REST POST /api/v1/dynamic-secrets/leases/{leaseID}/renew
+REST POST /api/v1/dynamic-secrets/leases/{leaseID}/revoke
+GRPC keyorix.v1.DynamicSecretService.CreateConfig
+GRPC keyorix.v1.DynamicSecretService.ClassifyConfig
+GRPC keyorix.v1.DynamicSecretService.IssueLease
+GRPC keyorix.v1.DynamicSecretService.RenewLease
+GRPC keyorix.v1.DynamicSecretService.RevokeLease
+GRPC keyorix.v1.DynamicSecretService.RevokeAllLeases
+REST POST /api/v1/auth/webauthn/register/finish
+REST POST /auth/webauthn/login/finish

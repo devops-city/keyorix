@@ -1,0 +1,89 @@
+# seed	snapshot	written-at-commit	op	method	nth	kind	legacy-bytes-hex
+0134bc8cffdd0cfe	f6938759	54bdb9cd	REST POST /api/v1/admin/jobs/run-alert-escalation	ListMachineIdentityCredentials	1	panic	ff58003231
+01eafef865da02b1	84788ff8	88357ae1	GRPC keyorix.v1.SecretService.SetSecretAutoRotate	MarkAllNotificationsRead	1	error	b84527
+0515f065abf2c398	a0a069cc	dcc38dca	REST POST /api/v1/projects	CreateEnvironment	1	error	4d00373230303030
+059212c4cda84764	a0a069cc	dcc38dca	REST DELETE /api/v1/secrets/{id}	ListSecretDependenciesForProject	1	panic	0442713231
+0b2369d76a986e0e	55ceaa84	b26ec824	REST PUT /api/v1/projects/{id}/access-requests/{requestId}	CreateNotification	1	panic	4f00413231
+117a0eb7eba843cd	a0a069cc	dcc38dca	REST DELETE /api/v1/secrets/{id}	GetSecretAncestors	2	error	0402583830
+15e7278cacf3036a	f1ba3462	3a1c5c11	REST PUT /api/v1/projects/{id}/memberships/{membershipId}	GetMachineRoles	2	error	6629d438
+182cc020ff3bf4fe	f6938759	5a2679bb	REST POST /api/v1/projects	WithTransaction	4	error	04313730
+1fefa95ddd2b26bb	a0a069cc	567a2fc1	REST PUT /api/v1/secrets/{id}	GetLatestSecretVersion	1	error	930237
+2413_migrateusertomachine_withnamedlock_error	8b9ebe02	bf112702	REST POST /api/v1/projects/{id}/machine-identities/migrate-from-user	WithNamedLock	1	error	3b01a53200
+2428_restoregroup_getgroup_error	8b9ebe02	bf112702	GRPC keyorix.v1.GroupService.RestoreGroup	GetGroup	1	error	1b00913200
+2565_finishwebauthnlogin_consumemfachallenge_error	8b9ebe02	bf112702	REST POST /auth/webauthn/login/finish	ConsumeMFAChallenge	1	error	d800120000
+2565_finishwebauthnlogin_consumewebauthnsession_error	8b9ebe02	bf112702	REST POST /auth/webauthn/login/finish	ConsumeWebAuthnSession	1	error	d800160000
+2565_finishwebauthnlogin_listwebauthncredentials_error	8b9ebe02	bf112702	REST POST /auth/webauthn/login/finish	ListWebAuthnCredentials	1	error	d801390000
+2570_decideaccessreviewitem_listprojectroleassignments_error	84788ff8	e0ea4eab	REST POST /api/v1/projects/{id}/access-review/campaigns/{campaignId}/items/{itemId}/decide	ListProjectRoleAssignments	1	error	3701180000
+2599_createglobalinvitation_countsetuptokenssince_error	84788ff8	5e5bc37a	REST POST /api/v1/invitations	CountSetupTokensSince	1	error	4c00230000
+2599_createglobalinvitation_countsetuptokenssince_nth2_error	84788ff8	5e5bc37a	REST POST /api/v1/invitations	CountSetupTokensSince	2	error	4c00230100
+2599_createprojectinvitation_countsetuptokenssince_error	84788ff8	5e5bc37a	REST POST /api/v1/projects/{id}/invitations	CountSetupTokensSince	1	error	4a00230000
+2c90359149706177	84788ff8	88357ae1	REST PUT /api/v1/projects/{id}/access-requests/{requestId}	SetRecoveryKeyRecord	1	error	4f2930
+3090_accessreview_revoke_getrole_panic	55ceaa84	ef3b8e4e	REST POST /api/v1/projects/{id}/access-review/revoke	GetRole	1	panic	3900b43231
+3091_webauthn_loginfinish_getuserpermissions_effect_then_error	4edbb7a2	12b19acf	REST POST /auth/webauthn/login/finish	GetUserPermissions	1	effect-then-error	d800d80002
+3092_transfer_ownership_createnotification_panic	55ceaa84	ef873fce	REST POST /api/v1/secrets/{id}/transfer-ownership	CreateNotification	1	panic	7900413231
+3093_grpc_createuser_getuserrolescopes_error	4edbb7a2	12b19acf	GRPC keyorix.v1.UserService.CreateUser	GetUserRoleScopes	1	error	5900db0000
+3093_grpc_updateuser_getuserrolescopes_nth2_error	4edbb7a2	12b19acf	GRPC keyorix.v1.UserService.UpdateUser	GetUserRoleScopes	2	error	1700db0100
+3094_recoverycodes_regenerate_marktotpstepused_effect_then_error	4edbb7a2	12b19acf	REST POST /api/v1/auth/mfa/recovery-codes/regenerate	MarkTOTPStepUsed	1	effect-then-error	c7014f0002
+3095_dynamicsecret_createconfig_createconfigrow_effectthenerror	4edbb7a2	dc4b332d	GRPC keyorix.v1.DynamicSecretService.CreateConfig	CreateDynamicSecretConfig	1	effect-then-error	d100370002
+3101_mfa_verify_getuserpermissions_error	4edbb7a2	12b19acf	REST POST /auth/mfa/verify	GetUserPermissions	1	error	c900d80000
+3106_webauthn_loginfinish_getuserroles_effect_then_error	4edbb7a2	8c169239	REST POST /auth/webauthn/login/finish	GetUserRoles	1	effect-then-error	d800dc0002
+3108_dynamicsecret_createconfig_setadmindsn_error	4edbb7a2	dc4b332d	GRPC keyorix.v1.DynamicSecretService.CreateConfig	SetDynamicSecretConfigAdminDSN	1	error	d141d0
+3109_breakglass_activate_assignrolewithexpiry_error	4edbb7a2	e563be4b	GRPC keyorix.v1.BreakGlassService.ActivateBreakGlass	AssignRoleWithExpiry	1	error	c2b4d3
+31fd1db68a395324	f1ba3462	3a1c5c11	REST POST /api/v1/auth/mfa/disable	UpdateRotationPolicy	1	error	c688c2
+3aa56b1ef83d96a8	84788ff8	88357ae1	REST POST /api/v1/projects/{id}/secrets/render	UpdateAccessReviewCampaign	1	panic	6e2e3e3231
+41537cdc5e5c2259	84788ff8	88357ae1	REST PATCH /api/v1/dynamic-secrets/configs/{id}/enabled	CountDynamicSecretConfigsByClassification	1	error	cc79
+51c8af2323e50625	f1ba3462	3a1c5c11	REST POST /api/v1/risk-exceptions	CreateEnvironment	1	error	89631f
+52dd4afe85dd34bb	a0a069cc	94eacad7	REST DELETE /api/v1/secrets/{id}	RoleSetBypassesPermissionChecks	2	error	04374338
+540ce20f8c63a8bd	f1ba3462	3a1c5c11	GRPC keyorix.v1.RoleService.CreateRole	DeleteSecretDependency	1	error	583043
+55da3ebfd512b559	f6938759	5d89bc6e	REST DELETE /api/v1/shares/{id}	DeleteShareRecord	1	effect-then-error	bafd23323230303030
+57a32a29aeb22f38	f1ba3462	3a1c5c11	REST POST /api/v1/auth/mfa/activate	ReconcileExpiredBreakGlassActivation	1	error	c578
+5900200031	c347ca5c	21c3eddf	GRPC keyorix.v1.UserService.CreateUser	CountProjectMembershipsByUsers	1	panic	5900200031
+630357d238f9c51b	df59c0e5	30715c38	REST POST /api/v1/secret-access-requests	ListProjectMembers	1	panic	1901140001
+637f47f4387c3138	27411864	acf696ad	REST POST /api/v1/rotation-policies/	GetAnomalyConfig	2	error	0f21583830
+641bee1094876d56	f1ba3462	3a1c5c11	REST POST /api/v1/secret-templates/{id}/apply	CreateNotificationChannel	1	error	9235
+6df8330fe9fc438d	a0a069cc	dcc38dca	REST POST /api/v1/users/	CreateUser	1	effect-then-error	0600583232
+7c0a2492ee5d1dfa	27411864	acf696ad	REST POST /api/v1/roles/	ListSessionTokenHashesByFamily	1	effect-then-error	0925403232
+8ee52322e0585924	a0a069cc	dcc38dca	REST POST /api/v1/users/	AssignRole	1	panic	0641583231
+911207b4eb0a2dcf	40e9b3e9	b5862ad4	REST POST /auth/webauthn/login/finish	ConsumeMFAChallenge	1	panic	d800123231
+a2c742de3ad6d3d9	a0a069cc	dda3d205	REST PUT /api/v1/roles/{id}	ListPermissions	1	error	30664c
+a506a678b50514c8	a0a069cc	7f5358cb	REST POST /api/v1/users/	GetRoleByName	1	error	0641ff
+a90ada564ac2204c	a0a069cc	2f2f1b88	REST DELETE /api/v1/secrets/{id}	GetUserRoleIDsAt	2	error	3400d33830
+accessreview-decide-listprojectroleassignments-2606	f1ba3462	3a1c5c11	REST POST /api/v1/projects/{id}/access-review/campaigns/{campaignId}/items/{itemId}/decide	ListProjectRoleAssignments	1	error	3701180000
+ad8a1c49b476fc19	27411864	acf696ad	REST POST /api/v1/projects	CreateEnvironment	1	panic	0400370001
+b00e99a74660d26f	a0a069cc	dcc38dca	REST PUT /api/v1/roles/{id}	LogAuditEvent	1	error	3002dd32
+b3657c421acd8a8e	f1ba3462	3a1c5c11	GRPC keyorix.v1.UserService.CreateUser	CountProjectMembershipsByUsers	1	panic	5900203231
+b620a20dc95ed69c	a0a069cc	dcc38dca	REST POST /api/v1/users/	AssignRole	1	error	064158
+b7dc2c8f02e9b560	f6938759	99135282	GRPC keyorix.v1.UserService.CreateUser	CreateUserWithRoleGrants	1	effect-then-error	5900593232
+b8530f22dabe9269	a0a069cc	dcc38dca	REST POST /api/v1/roles/	AddPasswordHistory	1	error	260002
+bdbfad52d4cc7bae	a0a069cc	dcc38dca	REST POST /api/v1/system/machine-identities	RemovePermissionFromRole	1	panic	8001539619a0178cee0000
+bulk-approve-getaccessrequest-audit-2549	f1ba3462	3a1c5c11	REST POST /api/v1/access-requests/bulk-approve	GetAccessRequest	1	error	9400800000
+bulk-approve-getrolepermissions-audit-2549	f1ba3462	3a1c5c11	REST POST /api/v1/access-requests/bulk-approve	GetRolePermissions	1	error	9400b20000
+bulk-approve-rolesetbypass-audit-2549	8b9ebe02	bf112702	REST POST /api/v1/access-requests/bulk-approve	RoleSetBypassesPermissionChecks	4	error	9401660300
+bulk-reject-getaccessrequest-audit-note-2549	f1ba3462	3a1c5c11	REST POST /api/v1/access-requests/bulk-reject	GetAccessRequest	1	error	9500800000
+bulk_delete_getsecret_partial_success_reported	8b9ebe02	bf112702	REST POST /api/v1/projects/{id}/secrets/bulk-delete	GetSecret	4	error	6900b50300
+c3012b444731c557	27411864	acf696ad	REST POST /api/v1/groups/{id}/members	GetEnvironment	1	panic	0d7d403231
+c3b59a66a2d3d8e8	84788ff8	88357ae1	REST POST /api/v1/projects/{id}/machine-identities/migrate-from-user	SaveAnomalyConfig	1	error	3b6321
+c600067cf4d3bb8e	a0a069cc	dcc38dca	REST POST /api/v1/groups/	RoleSetBypassesPermissionChecks	4	error	24254d3030
+ceiling-resolution-fail-closed-1829d438	69228291	4433d082	GRPC keyorix.v1.UserService.DeleteUser	GetUserGroupRoleIDsAt	2	error	1829d438
+cf013c0032	8b9ebe02	570ce185	REST POST /api/v1/dynamic-secrets/leases/{leaseID}/renew	LockWebAuthnCredentialForUpdate	1	effect-then-error	cf013c0032
+classification-createsecretaccesslog-panic-2554	8b9ebe02	bf112702	REST PATCH /api/v1/secrets/{id}/classification	CreateSecretAccessLog	1	panic	23004e3231
+d8a18b028bbc335f	a0a069cc	0d6714df	REST POST /api/v1/projects	CreateProject	1	effect-then-error	4d43373232
+e114805b46ad75ba	a0a069cc	7f5358cb	REST PUT /api/v1/secrets/{id}	UpdateSecret	1	error	935338
+e200b5f8456fd217	a0a069cc	dae68985	REST PUT /api/v1/roles/{id}	ListPermissions	1	error	3001103230
+e7b88443ac7ed948	84788ff8	88357ae1	REST POST /api/v1/dynamic-secrets/leases/{leaseID}/renew	CreateSecretDependencyExclusive	1	error	cf6208
+f0af973e620ca1d8	f1ba3462	3a1c5c11	REST POST /api/v1/projects/{id}/access-review/campaigns	CreateSecretDependencyExclusive	1	error	3577
+fc345daad612100a	a0a069cc	dcc38dca	REST POST /api/v1/system/machine-identities	CreateSecret	1	effect-then-error	38004d3232
+invitations-countsetuptokenssince-audit-2599	8b9ebe02	bf112702	REST POST /api/v1/invitations	CountSetupTokensSince	1	error	4c00230000
+mfa-disable-deletesessionsforuserexcept-accepted	8b9ebe02	bf112702	REST POST /api/v1/auth/mfa/disable	DeleteSessionsForUserExcept	1	error	c6007a0000
+mfa-enroll-secretmeta-oracle-gap-c179	ed432b0a	2780d8c9	REST POST /api/v1/auth/mfa/enroll	LogAuditEvent	1	error	c179
+mfa-stepup-grantfailure-note-2549	f1ba3462	3a1c5c11	REST POST /api/v1/auth/mfa/stepup	CreateMFAStepUpGrant	1	error	c8003c0000
+mfa-verify-createsession-steplost-2567	8b9ebe02	bf112702	REST POST /auth/mfa/verify	CreateSession	1	error	c900540000
+mfa-verify-enforcesessionlimit-panic-2416	f1ba3462	3a1c5c11	REST POST /auth/mfa/verify	EnforceSessionLimit	1	panic	c9007f0001
+mfa-verify-getmfasecret-loginattempt-audit-2548	f1ba3462	3a1c5c11	REST POST /auth/mfa/verify	GetMFASecret	1	error	c900960000
+mfa-verify-getuser-loginattempt-2548	f1ba3462	3a1c5c11	REST POST /auth/mfa/verify	GetUser	1	error	c900cc0000
+refresh_rotatesession_a3792332303030303030	4edbb7a2	d877002c	REST POST /auth/refresh	ListSessionsByUser	1	error	a37923323030303030
+revoke-all-leases-auditfail-reports-success-2406	8b9ebe02	570ce185	REST POST /api/v1/dynamic-secrets/leases/{leaseID}/renew	LockWebAuthnCredentialForUpdate	1	error	cf013c0000
+session-m-project-env-seed-oracle-gap	c347ca5c	16f92ec0	REST POST /api/v1/projects	WithSchedulerLock	4	error	0401a30300
+webauthn-loginfinish-consumemfachallenge-2565	f1ba3462	3a1c5c11	REST POST /auth/webauthn/login/finish	ConsumeMFAChallenge	1	error	d800120000
+webauthn-loginfinish-consumewebauthnsession-2603-covered-by-2565	f1ba3462	3a1c5c11	REST POST /auth/webauthn/login/finish	ConsumeWebAuthnSession	1	error	d800160000
+webauthn-loginfinish-listcredentials-2565	8b9ebe02	bf112702	REST POST /auth/webauthn/login/finish	ListWebAuthnCredentials	1	error	d801390000

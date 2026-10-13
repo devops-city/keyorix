@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\x93S8")
+[]byte("\xfe\xdc\x18}X\x1c\xddX\\\x00\x00")

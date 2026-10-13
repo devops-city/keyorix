@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\r}@21")
+[]byte("\xfe\xea\x1d\x13\x84\xac\xa1[\x86\x00\x01")

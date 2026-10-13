@@ -1,0 +1,24 @@
+REST PUT /api/v1/roles/{id}
+REST PUT /api/v1/system/machine-identities/{id}/transition
+REST POST /api/v1/secrets/
+REST PUT /api/v1/secrets/{id}
+REST DELETE /api/v1/secrets/{id}
+REST POST /api/v1/projects
+REST POST /api/v1/users/
+GRPC keyorix.v1.RoleService.AssignRole
+REST POST /api/v1/system/machine-identities
+REST POST /api/v1/system/groups
+REST DELETE /api/v1/system/groups/{id}
+REST DELETE /api/v1/system/projects/{id}
+REST POST /api/v1/groups/
+REST DELETE /api/v1/groups/{id}
+REST POST /api/v1/roles/
+REST DELETE /api/v1/roles/{id}
+GRPC keyorix.v1.GroupService.CreateGroup
+GRPC keyorix.v1.RoleService.DeleteRole
+REST POST /api/v1/groups/{id}/members
+REST DELETE /api/v1/groups/{id}/members/{userId}
+REST POST /api/v1/rotation-policies/
+REST DELETE /api/v1/rotation-policies/{id}
+REST POST /api/v1/system/break-glass/{id}/revoke
+REST POST /api/v1/system/secret-dependencies/exclusive

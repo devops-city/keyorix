@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte(";c!")
+[]byte("\xfe%+u\xb8\t\x12ϔ\x00\x00")

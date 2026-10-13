@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("MC722")
+[]byte("\xfeCh鱾M{B\x00\x02")

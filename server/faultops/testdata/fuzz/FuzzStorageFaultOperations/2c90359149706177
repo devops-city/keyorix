@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("O)0")
+[]byte("\xfe\xf4o\xf6\xe0e\v\x90\xa2\x00\x00")

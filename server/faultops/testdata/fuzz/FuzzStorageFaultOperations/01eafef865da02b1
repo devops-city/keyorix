@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("\xb8E'")
+[]byte("\xfe\xbd\x88\x85\xbe\x01\b\x01`\x00\x00")

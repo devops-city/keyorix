@@ -30,13 +30,11 @@
 // decode otherwise (so a fuzzer mutation of a v2 seed still decodes to
 // something, exactly like any other legacy input).
 //
-// Wiring: decodeFuzzOp's call in runOneFuzzIterationWithWorlds lives in
-// fuzz_storage_fault_operations_test.go, a serialized hotspot file this change
-// must not edit. Until the coordinator runs scripts/fuzzing/reencode-seeds.go
-// (which switches that one call to decodeFuzzOpAny and re-encodes every legacy
-// seed), the fuzz loop still decodes legacy only — and
-// TestCommittedV2Seeds_RequireV2Decoder fails if a v2 seed is committed before
-// that switch, so a v2 seed can never be silently replayed as legacy.
+// Wiring (FUZZ-SEEDS-1): the fuzz loop, REPLAY_HEX tracer and corpus pin test
+// decode with decodeFuzzOpAny, the whole corpus is v2, and
+// TestCommittedV2Seeds_RequireV2Decoder fails if a v2 seed is ever committed
+// while one of those call sites reverts to the legacy decodeFuzzOp. The
+// migration is proven by seed_v2_migration_test.go.
 package faultops
 
 import (
@@ -80,20 +78,31 @@ func encodeFuzzOpV2(opKey, method string, nth int, kind byte) []byte {
 // decodeFuzzOpV2 decodes a v2 seed; ok is false when data is not a v2 seed
 // or either hash names no current op / storage method.
 func decodeFuzzOpV2(data []byte) (decodedFuzzOp, bool) {
+	opKeys := make([]string, len(opCatalog))
+	for i, op := range opCatalog {
+		opKeys[i] = op.Key
+	}
+	return decodeFuzzOpV2With(data, opKeys, storageInterfaceMethodNames())
+}
+
+// decodeFuzzOpV2With is decodeFuzzOpV2 against explicit op-key and method
+// lists, so a test can decode under a list that differs from the live one
+// (an appended method, a frozen historical list).
+func decodeFuzzOpV2With(data []byte, opKeys, methods []string) (decodedFuzzOp, bool) {
 	if len(data) < seedV2Len || data[0] != seedV2Magic {
 		return decodedFuzzOp{}, false
 	}
 	opH := binary.BigEndian.Uint32(data[1:5])
 	mH := binary.BigEndian.Uint32(data[5:9])
 	opIdx := -1
-	for i, op := range opCatalog {
-		if nameHash4(op.Key) == opH {
+	for i, k := range opKeys {
+		if nameHash4(k) == opH {
 			opIdx = i
 			break
 		}
 	}
 	method := ""
-	for _, m := range storageInterfaceMethodNames() {
+	for _, m := range methods {
 		if nameHash4(m) == mH {
 			method = m
 			break
@@ -149,6 +158,13 @@ var seedIntent = map[string]struct{ op, method string }{
 	"3093_grpc_updateuser_getuserrolescopes_nth2_error":                {"GRPC keyorix.v1.UserService.UpdateUser", "GetUserRoleScopes"},
 	"3094_recoverycodes_regenerate_marktotpstepused_effect_then_error": {"REST POST /api/v1/auth/mfa/recovery-codes/regenerate", "MarkTOTPStepUsed"},
 	"3101_mfa_verify_getuserpermissions_error":                         {"REST POST /auth/mfa/verify", "GetUserPermissions"},
+	// FUZZ-SEEDS-1: these three were already drifted in the commit that added
+	// them (their op and/or method no longer exist), so seedV1History's
+	// "written-at-commit" decode is itself wrong. Intent recovered from the
+	// finding/commit that introduced each; see documentedRetargets.
+	"31fd1db68a395324": {"REST POST /auth/mfa/verify", "GetMFASecret"},
+	"bdbfad52d4cc7bae": {"REST PUT /api/v1/roles/{id}", "RemovePermissionFromRole"},
+	"fc345daad612100a": {"REST POST /api/v1/secrets/", "CreateSecret"},
 }
 
 const fuzzCorpusDir = "testdata/fuzz/FuzzStorageFaultOperations"
@@ -330,9 +346,9 @@ func TestReportSeedIntentDrift(t *testing.T) {
 
 // TestReencodeLegacySeedsToV2 rewrites every legacy seed under fuzzCorpusDir
 // as v2, IN PLACE, when REENCODE_SEEDS_V2=1. Target per seed: seedIntent when
-// listed, otherwise what its legacy bytes decode to right now (so the
-// re-encode is behaviour-preserving for every seed not known to have drifted).
-// nth/kind keep their legacy decoded values. Idempotent: v2 seeds are skipped.
+// listed, otherwise what the seed was written for (testdata/seed_v1_history,
+// see seed_v2_migration_test.go) -- NOT what its bytes decode to right now,
+// which is already drifted for 83 of 88 seeds. nth/kind come from the same row. Idempotent: v2 seeds are skipped.
 func TestReencodeLegacySeedsToV2(t *testing.T) {
 	if os.Getenv("REENCODE_SEEDS_V2") != "1" {
 		t.Skip("set REENCODE_SEEDS_V2=1 (via scripts/fuzzing/reencode-seeds.go) to rewrite the corpus")
@@ -343,20 +359,26 @@ func TestReencodeLegacySeedsToV2(t *testing.T) {
 		if _, ok := decodeFuzzOpV2(data); ok {
 			continue
 		}
-		d, ok := decodeFuzzOp(data)
+		// The target is what the seed was WRITTEN for (seedV1History, recovered
+		// from the commit that last set its bytes), never what its bytes decode
+		// to now: 20+ seeds had already drifted, and re-encoding the live decode
+		// would have frozen the drift in. A seed with no history row cannot be
+		// migrated safely.
+		g, ok := loadSeedV1History(t)[filepath.Base(f)]
 		if !ok {
-			t.Fatalf("%s: legacy decode failed", f)
+			t.Fatalf("%s: no row in %s -- cannot tell what it was written for", f, seedV1HistoryDir)
 		}
-		op, method := opCatalog[d.opIndex].Key, d.methodName
+		op, method := g.op, g.method
 		if in, ok := seedIntent[filepath.Base(f)]; ok {
 			op, method = in.op, in.method
 		}
 		kind := byte(0)
 		for i, k := range faultKinds {
-			if k == d.kind {
+			if k == g.kind {
 				kind = byte(i)
 			}
 		}
+		d := decodedFuzzOp{nthCall: g.nth, kind: g.kind}
 		out := encodeFuzzOpV2(op, method, d.nthCall, kind)
 		body := fmt.Sprintf("go test fuzz v1\n[]byte(%s)\n", strconv.Quote(string(out)))
 		if err := os.WriteFile(f, []byte(body), 0o644); err != nil {

@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("n.>21")
+[]byte("\xfeqK\xa2\xa1H\xdb\tP\x00\x01")

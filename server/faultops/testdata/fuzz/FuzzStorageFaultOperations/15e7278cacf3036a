@@ -1,2 +1,2 @@
 go test fuzz v1
-[]byte("f)\xd48")
+[]byte("\xfe\xc8j3\xd0\xef2\xde\xea\x01\x00")
