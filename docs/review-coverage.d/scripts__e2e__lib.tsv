@@ -1,0 +1,1 @@
+scripts/e2e/lib	none	-	PR #3180: test-only package: scripts/e2e/lib holds the free-port.sh helper for the e2e shell scripts plus its Go wrapper test (free_port_script_test.go); no non-test Go code and nothing imported by the production binaries	test-helper

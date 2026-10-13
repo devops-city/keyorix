@@ -138,40 +138,17 @@ fail() {
     exit 1
 }
 
-# free_port prints the first TCP port at or above $1 that nothing is listening on.
-#
-# 2026-10-05 (#2738): this harness used FIXED ports -- 18189+group for the server and
-# 18190+group for the Vite dev server -- two ranges that INTERLEAVE, so group N+1's
-# server port IS group N's web port. Two failures follow from that, both confirmed live
-# on this machine:
-#
-#   1. A second concurrent run of this script on the same host collides outright. The
-#      colliding server then fails to bind while the /health poll SUCCEEDS, because the
-#      other run's server answers it -- so the script sails past its own
-#      "did-it-start?" gate and sends the rest of the group's setup, including POST
-#      /system/init, to a stranger's server. (Harmless in the event: /system/init on an
-#      already-initialised system is a no-op. The next call, /auth/login with this run's
-#      own password, 401s against that other admin, and the failure looks like a broken
-#      spec.)
-#   2. Any lingering dev server from group N makes group N+1's server fail to bind the
-#      same way. MAX_SPECS_PER_GROUP=1 multiplies the number of groups, so this went
-#      from unlikely to likely.
-#
-# Probing for a free port cannot be atomic (something may grab it between the probe and
-# the bind), but it removes both deterministic collisions. Uses bash's own /dev/tcp
-# rather than nc, so it needs nothing extra installed.
-free_port() {
-    local p=$1
-    while [ "$p" -lt 65000 ]; do
-        if ! (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then
-            echo "$p"
-            return 0
-        fi
-        exec 3<&- 2>/dev/null || true
-        p=$((p + 1))
-    done
-    fail "no free TCP port found at or above $1"
-}
+# Port selection (#3174) lives in lib/free-port.sh so it can be unit-tested
+# (lib/free-port_test.sh). History: #2738 replaced fixed, interleaving ports
+# (18189+group / 18190+group) with a probe; #3174 made the probe check both
+# loopback families (a Vite on [::1] was invisible to a 127.0.0.1-only probe) and
+# the starting point a random high base per run, overridable with
+# KEYORIX_E2E_PORT_BASE (server ports start at BASE+group, web ports at
+# BASE+1000+group), so concurrent runs on one host stop walking the same ports.
+# shellcheck source=lib/free-port.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/free-port.sh"
+PORT_BASE="$(pick_port_base)" || exit 1
+echo "==> port base: $PORT_BASE (override with KEYORIX_E2E_PORT_BASE)"
 
 if [ ! -x "$SERVER_BIN" ]; then
     echo "==> bin/keyorix-server not found, building it"
@@ -336,13 +313,13 @@ run_group() {
     local group_label="$1"
     shift
     local specs=("$@")
-    # Disjoint ranges (server 182xx, web 183xx), each probed for availability -- see
-    # free_port's comment for the interleaved-fixed-ports failures this replaces.
+    # Disjoint ranges (server BASE+n, web BASE+1000+n), each probed on both loopback
+    # families -- see lib/free-port.sh.
     local server_port
-    server_port="$(free_port $((18200 + group_label)))"
+    server_port="$(free_port $((PORT_BASE + group_label)))" || fail "no free server port"
     local server_url="http://127.0.0.1:$server_port"
     local web_port
-    web_port="$(free_port $((18300 + group_label)))"
+    web_port="$(free_port $((PORT_BASE + 1000 + group_label)) "$server_port")" || fail "no free web port"
 
     local smoke_dir
     smoke_dir="$(mktemp -d)"
@@ -452,8 +429,17 @@ run_group() {
 
     for _ in $(seq 1 30); do
         if curl -fs "$server_url/health" >/dev/null 2>&1; then break; fi
+        # Our server died (e.g. EADDRINUSE: another session took the port between
+        # the probe and the bind): stop waiting, so a stranger's /health below
+        # cannot pass for ours.
+        kill -0 "$server_pid" 2>/dev/null || break
         sleep 0.5
     done
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+        echo "keyorix-server exited before becoming healthy (port $server_port taken?) -- see $smoke_dir/server.log" >&2
+        cat "$smoke_dir/server.log" >&2
+        fail "[group $group_label] keyorix-server did not start; re-run, or pin a range with KEYORIX_E2E_PORT_BASE"
+    fi
     if ! curl -fs "$server_url/health" >/dev/null 2>&1; then
         echo "server never became healthy -- see $smoke_dir/server.log" >&2
         cat "$smoke_dir/server.log" >&2
