@@ -1,3 +1,4 @@
+{{- include "keyorix.valuesDefaults" . -}}
 Keyorix has been deployed as release "{{ .Release.Name }}".
 
 1. Wait for the pods to be ready:

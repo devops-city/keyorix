@@ -237,9 +237,9 @@ docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
 ```
 
 > **Version note.** The live (beside-the-server) Postgres backup below is not in
-> the published `0.95.3` images that `docker-compose.yml` pins: there the same
+> the published images before `0.96.0` (`docker-compose.yml` pins `0.96.0`): there the same
 > command fails with `failed to acquire the encryption key lock (another process
-> is using it)`. With those images (a stack still pinned to them) stop `backend` first and use
+> is using it)`. With those older images (a stack still pinned to them) stop `backend` first and use
 > `docker compose run --rm -v "$PWD/backups:/out" backend ./keyorix-server admin backup --output /out/keyorix-backup.tar.gz`
 > (`mkdir -m 777 backups` first: the container user is uid 1001).
 

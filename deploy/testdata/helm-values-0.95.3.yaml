@@ -1,0 +1,213 @@
+# Default values for the Keyorix chart.
+
+# ── Required secrets ──────────────────────────────────────────────────────────
+# The KEK is derived from masterPassword. Changing it after first boot makes
+# every stored secret undecryptable — set it once and keep it. Provide it here,
+# or set auth.existingSecret to bring your own Secret (recommended for prod).
+auth:
+  # The encryption master passphrase. REQUIRED unless existingSecret is set.
+  masterPassword: ""
+  # Optional first-boot admin bootstrap (idempotent). Leave password empty to
+  # run `keyorix system init` manually instead. Must satisfy the server's own
+  # admin-bootstrap password policy: at least 16 characters, with an
+  # uppercase letter, a lowercase letter, a digit, and a special character,
+  # AND must not contain adminUsername/adminEmail/"Administrator" as a
+  # substring (internal/core/rules/password_policy.go +
+  # internal/core/auth_bootstrap.go's CreateUser call -- the substring check
+  # is enforced separately/later than the rest of the policy). The chart
+  # fails the render if it's under 16 characters; the other rules can't be
+  # chart-checked -- get those wrong and first-boot bootstrap fails silently
+  # instead (pod comes up fine, no admin user is ever created), and per a
+  # confirmed bug (FINDINGS-inbox, Session J, 2026-09-28) a rejected password
+  # can leave the install unable to retry bootstrap at all without wiping the
+  # database.
+  adminUsername: "admin"
+  adminEmail: "admin@keyorix.local"
+  adminPassword: ""
+  # Bring your own Secret instead of the values above. It must contain keys:
+  #   KEYORIX_MASTER_PASSWORD, KEYORIX_DB_PASSWORD, and optionally
+  #   KEYORIX_ADMIN_PASSWORD.
+  existingSecret: ""
+
+# ── API server ────────────────────────────────────────────────────────────────
+server:
+  image:
+    repository: ghcr.io/keyorixhq/keyorix-server
+    # Empty defaults to this chart's own appVersion (a pinned `vX.Y.Z`), matching
+    # the keyorix-operator/keyorix-k8s-sync charts. `latest`/`main` are MUTABLE —
+    # the exact same tag can point at a different image tomorrow, defeating "what
+    # did I actually deploy" and any image-scan attestation pinned to this value —
+    # only set this to a floating tag if you understand that tradeoff. A digest
+    # via `digest:` below (strongest pin) takes precedence over either.
+    tag: ""
+    # digest, when set (e.g. "sha256:abc123..."), pins the exact image content —
+    # immune to a tag being retargeted after the fact — and takes precedence over
+    # tag.
+    digest: ""
+    pullPolicy: IfNotPresent
+  # The server holds the encryption keys on a single ReadWriteOnce volume and is
+  # a single logical instance — do not scale beyond 1 replica.
+  replicas: 1
+  service:
+    port: 8080
+  # Persistent volume for the wrapped DEK + KEK salt (/app/keys). MUST persist —
+  # losing it makes every stored secret undecryptable. Back it up.
+  keysPersistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  # requests == limits for both cpu and memory (Guaranteed QoS -- see
+  # docs/adr-100-mlockall-removal-deployment-swap-control.md): under Kubernetes'
+  # NodeSwap, only Burstable-QoS pods are eligible for swap at all -- Guaranteed
+  # (and BestEffort) pods receive zero swap unconditionally
+  # (github.com/kubernetes/enhancements/blob/master/keps/sig-node/2400-node-swap/README.md:
+  # "Swap access is granted only for pods of Burstable QoS"). Since mlockall was
+  # removed, this is now the ONLY control preventing decrypted secret memory from
+  # being swapped to disk on a cluster where a node opts into swap -- a
+  # requests==limits mismatch here silently reopens exactly the gap ADR-100 closed.
+  # ephemeral-storage is NOT part of QoS classification and is left as before.
+  #
+  # memory: 512Mi is unchanged from before mlockall removal, but re-derived from
+  # measurement rather than inherited: the real server binary
+  # (server/Dockerfile, linux/arm64 via this environment's Docker backend --
+  # see ADR-100's own environment caveat) measured VmRSS at rest ~22.5MB, peak
+  # (VmHWM) ~82MB after creating 50 secrets (20 * 500KB + 30 * 2MB payloads) via
+  # the real HTTP API -- 512Mi is ~6.4x that observed peak, headroom for
+  # larger production bulk operations (bigger secret exports, wider audit
+  # queries) this synthetic load didn't exercise.
+  #
+  # cpu: previously 100m request / 1 limit (Burstable). Request raised to match
+  # the existing limit -- the trade-off: every server pod now permanently
+  # reserves a full CPU core from the node's allocatable capacity, even at
+  # idle, instead of bursting into it opportunistically. Not re-derived from
+  # measurement (no CPU load test was run); kept at the existing limit value
+  # rather than picked arbitrarily.
+  resources:
+    requests:
+      cpu: 1
+      memory: 512Mi
+      ephemeral-storage: 64Mi
+    limits:
+      cpu: 1
+      memory: 512Mi
+      ephemeral-storage: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ── Web UI ────────────────────────────────────────────────────────────────────
+web:
+  enabled: true
+  image:
+    repository: ghcr.io/keyorixhq/keyorix-web
+    # See server.image.tag — same appVersion-pinned default, same mutable-tag
+    # caveat if you override it.
+    tag: ""
+    # digest, when set, takes precedence over tag (see server.image.digest).
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+      ephemeral-storage: 32Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+      ephemeral-storage: 128Mi
+  # corsAllowedOrigins allowlists origins (exact scheme+host+port, e.g.
+  # "https://app.example.com") the nginx-proxied /api, /auth, /system endpoints will
+  # accept CREDENTIALED cross-origin requests from. The bundled web UI's own JS calls
+  # these same-origin (served by this same nginx) and needs no entry here. Empty by
+  # default: no cross-origin API access unless explicitly opted in.
+  corsAllowedOrigins: []
+
+# ── Ingress (for the web UI) ──────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: keyorix.local
+  # e.g. [{ secretName: keyorix-tls, hosts: [keyorix.example.com] }]
+  # #479: left empty, the ingress serves plaintext HTTP only — session cookies,
+  # PATs, and the admin/master passwords entered at login would cross the wire
+  # unencrypted. Only leave this empty if TLS already terminates upstream (e.g.
+  # a cloud load balancer or service mesh) before traffic reaches this ingress.
+  tls: []
+
+# ── Bundled PostgreSQL ────────────────────────────────────────────────────────
+# A minimal in-chart Postgres for evaluation. For production, set enabled:false
+# and point externalDatabase at a managed/HA PostgreSQL.
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "15-alpine"
+    pullPolicy: IfNotPresent
+  auth:
+    username: keyorix
+    database: keyorix
+    # Password for the bundled DB. REQUIRED when postgresql.enabled and no
+    # auth.existingSecret is set.
+    password: ""
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+      ephemeral-storage: 64Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+      ephemeral-storage: 512Mi
+
+# Used when postgresql.enabled is false.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: keyorix
+  user: keyorix
+  sslMode: require
+
+# ── Network policy ────────────────────────────────────────────────────────────
+# Scopes the server API and the bundled Postgres to same-namespace traffic —
+# without this both are reachable from any pod in the cluster that can route to
+# their Service. Disable only if your CNI doesn't support NetworkPolicy, or you
+# have an equivalent policy managed elsewhere.
+networkPolicy:
+  enabled: true
+  egress:
+    # Restricts each pod's OUTBOUND traffic to only what it actually needs (DNS,
+    # and its one known in-cluster peer) instead of the cluster-wide-reachable
+    # default every pod has without this. web and postgresql get a fully static,
+    # known egress surface with no further configuration needed. server's real
+    # egress surface is NOT static — SSO/OIDC/SAML identity providers, webhook
+    # notification sinks, secret-rotation backends (Vault/Azure/AWS/etc.), and
+    # externalDatabase.host (when postgresql.enabled is false) are all
+    # admin-configured destinations this chart cannot know ahead of time. Turning
+    # this on WITHOUT also populating extraRules below for whichever of those
+    # features you use will silently break them — a NetworkPolicy drop looks like
+    # a hung/timed-out call, not a clear error. See templates/networkpolicy.yaml
+    # for the full per-component rule set.
+    enabled: true
+    # extraRules: additional egress rules (raw NetworkPolicyEgressRule entries, the
+    # same `to`/`ports` shape Kubernetes itself uses), appended verbatim to the
+    # server pod's egress rules only. Required for SSO/webhook/rotation-backend
+    # destinations and for externalDatabase when postgresql.enabled is false — e.g.:
+    #   extraRules:
+    #     - to:
+    #         - ipBlock: { cidr: 10.0.5.0/32 }
+    #       ports:
+    #         - protocol: TCP
+    #           port: 5432
+    extraRules: []
+
+imagePullSecrets: []

@@ -1,3 +1,4 @@
+{{- include "keyorix.valuesDefaults" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -1,3 +1,39 @@
+{{/*
+Fill in chart values that older releases did not have. `helm upgrade
+--reuse-values` replaces this chart's values.yaml defaults with the OLD
+release's values, so a key added after that release (secureBaseline.*,
+web.hsts.*, web.trustedProxies, postgresql.runAsUser, auth.existingSecretKeys.*)
+is absent and `.Values.secureBaseline.enabled` is a nil-pointer error. Every
+template that reads such a key includes this first (`{{- include
+"keyorix.valuesDefaults" . -}}`; it renders nothing). Only a MISSING (or null)
+key is set, never one the user gave, so `enabled: false` stays false. KEEP IN
+SYNC with values.yaml: deploy/helm_reuse_values_test.go fails if they drift.
+*/}}
+{{- define "keyorix.valuesDefaults" -}}
+{{- $v := .Values -}}
+{{- $defaults := dict
+  "auth" (dict "existingSecretKeys" (dict "adminPassword" false "bootstrapToken" false))
+  "secureBaseline" (dict "enabled" true "certValidityDays" 3650 "existingSecret" "" "existingSecretRevision" "")
+  "web" (dict "trustedProxies" (list) "hsts" (dict "mode" "auto" "maxAge" 31536000 "includeSubDomains" true))
+  "postgresql" (dict "runAsUser" 70 "migrateOwnership" false)
+-}}
+{{- range $top, $sub := $defaults -}}
+{{- if not (kindIs "map" (get $v $top)) -}}{{- $_ := set $v $top (dict) -}}{{- end -}}
+{{- $cur := get $v $top -}}
+{{- range $k, $d := $sub -}}
+{{- if kindIs "map" $d -}}
+{{- if not (kindIs "map" (get $cur $k)) -}}{{- $_ := set $cur $k (dict) -}}{{- end -}}
+{{- $cur2 := get $cur $k -}}
+{{- range $k2, $d2 := $d -}}
+{{- if not (hasKey $cur2 $k2) -}}{{- $_ := set $cur2 $k2 $d2 -}}{{- else if kindIs "invalid" (get $cur2 $k2) -}}{{- $_ := set $cur2 $k2 $d2 -}}{{- end -}}
+{{- end -}}
+{{- else -}}
+{{- if not (hasKey $cur $k) -}}{{- $_ := set $cur $k $d -}}{{- else if kindIs "invalid" (get $cur $k) -}}{{- $_ := set $cur $k $d -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Base name, overridable, truncated to the 63-char DNS limit. */}}
 {{- define "keyorix.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}

@@ -23,7 +23,9 @@ valid, restorable v2 archive.
 
 ## 2. Upgrading from v0.95.x → v0.95.2
 
-(Latest release at the time of writing is v0.95.3; the steps are the same.)
+(The steps are the same for every v0.95.x → v0.95.y upgrade, and for the Compose
+and single-binary part of v0.95.x → v0.96.x; Compose and Helm have extra steps for
+v0.96.0, see "Upgrading Docker Compose or Helm from v0.95.x to v0.96.0" below.)
 
 This is the normal, in-place upgrade path: same major/minor line, schema
 migrations run automatically and are additive.
@@ -43,7 +45,7 @@ admin version`; in Compose, `docker compose run --rm backend ./keyorix-server
 --version`): it prints the version, commit, build date and Go version, and needs no
 config file.
 
-**What you will see when moving a v0.95.3 install to `main`** (verified, SQLite
+**What you will see when moving a v0.95.3 install to v0.96.0 or later** (verified, SQLite
 single binary and Compose + Postgres): a secret written by v0.95.3 reads back
 unchanged, `admin verify-audit` is VALID, and the first start logs
 `ADR-112 grace period: security.require_mfa now defaults to true, but this is an
@@ -122,9 +124,20 @@ was booted on the e2e VM (see the v0.96.0 release PR).
   Run the upgrade with the one-time ownership migration:
 
   ```sh
-  helm upgrade <release> <chart> --version 0.96.0 --reuse-values \
+  helm upgrade <release> <chart> --version 0.96.1 --reset-then-reuse-values \
     --set postgresql.migrateOwnership=true
   ```
+
+  **Which flag.** Use `--reset-then-reuse-values` (Helm 3.14 or newer): it starts from
+  the new chart's defaults, so every value added since your release is present, and
+  then applies your previous values on top. Plain `--reuse-values` replaces the new
+  chart's defaults with the values of your old release, so a value that did not exist
+  then is missing. Chart **0.96.1 and newer** fills those in itself and works with
+  either flag. Chart **0.96.0 does not** work with `--reuse-values` from a 0.95.x
+  release (`nil pointer evaluating interface {}.enabled` at
+  `.Values.secureBaseline.enabled`, and further missing keys behind it): upgrade
+  straight to 0.96.1 or use `--reset-then-reuse-values`. On Helm older than 3.14,
+  pass your values explicitly with `-f values.yaml` (no `--reuse-values`).
 
   The init container chowns the data volume to uid 70 (root with only `CHOWN` and
   `DAC_READ_SEARCH`, data volume only) and is a no-op on later starts. Once the pod is
@@ -241,7 +254,9 @@ skip.
   `KEYORIX_ADMIN_PASSWORD` / `KEYORIX_BOOTSTRAP_TOKEN` keys in the live Secret
   by itself; when rendering with `helm template` or a GitOps tool that cannot
   look the Secret up, set `auth.existingSecretKeys.adminPassword` /
-  `.bootstrapToken` to `true`. `helm upgrade --reuse-values` works.
+  `.bootstrapToken` to `true`. Prefer `helm upgrade --reset-then-reuse-values`;
+plain `--reuse-values` works only from chart 0.96.1 on (it fails on 0.96.0 coming
+from a 0.95.x release, see the v0.96.0 section above).
 - **Docker Compose: credentials moved from `.env` to `./secrets`.** Run
   `./scripts/selfhost/init-secrets.sh --from-env .env` before `docker compose up
   -d` (details in `docs/SELF_HOSTING.md` §3); it keeps the same master and

@@ -20,7 +20,7 @@ binaries, not tarballs: `keyorix-server_linux_amd64` (API server),
 README installs only the CLI. For the server:
 
 ```bash
-V=v0.95.3   # the release you want
+V=v0.96.0   # the release you want (this one has `admin generate-secrets` and `mfa enroll`)
 curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/keyorix-server_linux_amd64
 curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/checksums.txt
 sha256sum -c --ignore-missing checksums.txt && chmod +x keyorix-server_linux_amd64

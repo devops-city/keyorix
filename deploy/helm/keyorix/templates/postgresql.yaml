@@ -1,3 +1,4 @@
+{{- include "keyorix.valuesDefaults" . -}}
 {{- if .Values.postgresql.enabled -}}
 {{- if .Values.postgresql.persistence.enabled }}
 apiVersion: v1

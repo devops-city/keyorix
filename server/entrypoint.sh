@@ -24,6 +24,44 @@ set -e
 # With arguments (`docker compose run --rm backend ./keyorix-server admin ...`)
 # the config copy is made and the arguments are run instead of the server.
 # ---------------------------------------------------------------------------
+# --- BEGIN public_cert (extracted verbatim by server/entrypoint_public_cert_test.go) ---
+# require_regular_file NAME PATH: PATH (the value of env var NAME) must be a regular
+# file (or a symlink to one): refuse a directory, FIFO or device (cp would block or
+# copy something unintended).
+require_regular_file() {
+    if [ ! -f "$2" ] || [ ! -r "$2" ]; then
+        echo "ERROR: $1=$2 is not a readable regular file" >&2
+        return 1
+    fi
+}
+# require_public_cert NAME FILE: FILE (about to be made world-readable) must be a PEM
+# certificate bundle: at least one CERTIFICATE block, only blocks with base64 bodies
+# (blank lines between blocks allowed), nothing else, no PRIVATE KEY block of any kind
+# (RSA/EC/ENCRYPTED/PKCS#8), at most 256 KiB. Never prints file contents.
+require_public_cert() {
+    if [ "$(wc -c < "$2")" -gt 262144 ]; then
+        echo "ERROR: $1 is larger than 256 KiB -- refusing to publish it as a certificate" >&2
+        return 1
+    fi
+    if grep -q 'PRIVATE KEY' "$2"; then
+        echo "ERROR: $1 contains a PRIVATE KEY -- refusing to copy it to a world-readable file (point it at the public certificate)" >&2
+        return 1
+    fi
+    if ! awk '
+        { sub(/\r$/, "") }
+        $0 == "-----BEGIN CERTIFICATE-----" { if (inb) bad = 1; inb = 1; n++; next }
+        $0 == "-----END CERTIFICATE-----" { if (!inb) bad = 1; inb = 0; next }
+        inb && /^[A-Za-z0-9+\/=]+$/ { next }
+        !inb && /^$/ { next }
+        { bad = 1 }
+        END { exit (bad || inb || n == 0) ? 1 : 0 }
+    ' "$2"; then
+        echo "ERROR: $1 is not a PEM certificate bundle (only CERTIFICATE blocks are allowed) -- refusing to copy it to a world-readable file" >&2
+        return 1
+    fi
+}
+# --- END public_cert ---
+
 if [ -n "$KEYORIX_CONFIG_SOURCE" ]; then
     : "${KEYORIX_CONFIG_PATH:?KEYORIX_CONFIG_SOURCE is set, so KEYORIX_CONFIG_PATH must name the private copy}"
     (umask 077 && cp "$KEYORIX_CONFIG_SOURCE" "$KEYORIX_CONFIG_PATH.tmp")
@@ -46,7 +84,15 @@ if [ "$KEYORIX_INIT_SECURE_FILES" = "true" ]; then
     /app/keyorix-server admin init --secure-files "$@"
     if [ -n "$KEYORIX_PUBLIC_CA_FILE" ]; then
         : "${KEYORIX_LOCAL_CA_FILE:?KEYORIX_PUBLIC_CA_FILE needs KEYORIX_LOCAL_CA_FILE (the certificate to copy)}"
-        (umask 022 && cp "$KEYORIX_LOCAL_CA_FILE" "$KEYORIX_PUBLIC_CA_FILE.tmp")
+        # The copy is world-readable on a volume shared with the web container, so
+        # it must be a certificate bundle and nothing else. Copy privately (0600)
+        # first and check the COPY, so the file cannot change between check and use.
+        require_regular_file KEYORIX_LOCAL_CA_FILE "$KEYORIX_LOCAL_CA_FILE" || exit 1
+        (umask 077 && cp "$KEYORIX_LOCAL_CA_FILE" "$KEYORIX_PUBLIC_CA_FILE.tmp")
+        if ! require_public_cert KEYORIX_LOCAL_CA_FILE "$KEYORIX_PUBLIC_CA_FILE.tmp"; then
+            rm -f "$KEYORIX_PUBLIC_CA_FILE.tmp"
+            exit 1
+        fi
         chmod 644 "$KEYORIX_PUBLIC_CA_FILE.tmp"
         mv -f "$KEYORIX_PUBLIC_CA_FILE.tmp" "$KEYORIX_PUBLIC_CA_FILE"
     fi

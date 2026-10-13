@@ -73,8 +73,9 @@ either, so each command below names the files it needs itself.
 
 ### 1. Build the binaries
 
-Releases up to v0.95.3 lack `admin generate-secrets` and `mfa enroll`, so build from
-source until a newer release is out:
+Releases from v0.96.0 on have `admin generate-secrets` and `mfa enroll` (v0.95.3 and
+older do not). This procedure builds from source so it always matches this document;
+to use a release binary instead, take v0.96.0 or newer (see QUICK_START.md):
 
 ```bash
 git clone https://github.com/keyorixhq/keyorix.git ~/keyorix-src
