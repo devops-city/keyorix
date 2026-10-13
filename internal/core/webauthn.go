@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -800,7 +801,18 @@ func (c *KeyorixCore) FinishWebAuthnPasswordlessLoginPending(ctx context.Context
 			// Malformed input: a genuine negative result, still a failed attempt.
 			return nil, fmt.Errorf("unexpected user handle")
 		}
-		uid := uint(binary.BigEndian.Uint64(userHandle))
+		// #2846 review: the handle is attacker-chosen, and no user id we issue is
+		// 0 or above MaxInt64 (ids are int8 in the database). Such a handle names
+		// no user, so it is a failed attempt. It must be refused here, before the
+		// lookup: Postgres's driver cannot encode an id above MaxInt64 and returns
+		// an error that is not ErrUserNotFound, which would otherwise be taken for
+		// a storage failure below (auth.login_error, slot handed back) and give
+		// the caller unlimited unthrottled attempts.
+		raw := binary.BigEndian.Uint64(userHandle)
+		if raw == 0 || raw > math.MaxInt64 {
+			return nil, fmt.Errorf("unexpected user handle")
+		}
+		uid := uint(raw)
 		wu, err := c.loadWebAuthnUser(ctx, uid)
 		if err != nil {
 			// A handle naming no user is a credential guess (no first factor on

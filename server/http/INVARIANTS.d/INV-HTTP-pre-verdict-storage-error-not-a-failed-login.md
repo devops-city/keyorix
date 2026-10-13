@@ -16,3 +16,8 @@
   `internal/core/pre_verdict_storage_error_labelling_test.go` (the class split, plus
   the must-not-change halves: absent account == wrong password, replay stays
   `mfa.failed`, unchanged error texts).
+  An error caused by the attacker's own input is not a storage error: a passkey
+  user handle that cannot name a user (0, or above MaxInt64, which Postgres's
+  driver cannot even encode and answers with a non-not-found error) is refused
+  before the lookup and stays a counted `webauthn.failed` (#2846 review). Guard:
+  `server/http/handlers/passwordless_out_of_range_user_handle_test.go`.
