@@ -18,11 +18,14 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"syscall"
+
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 const maxSecretFileSize = 1 << 20
@@ -58,20 +61,16 @@ func lookupSecretEnv(name string) (value string, found bool, err error) {
 }
 
 func readCheckedSecretFile(path string) (string, error) {
-	// O_NONBLOCK: a plain open(2) of a FIFO blocks until a writer appears, before the
-	// regular-file check below could refuse it; on a regular file it changes nothing.
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 G703 -- the operator's own NAME_FILE setting (process environment), opened read-only and then checked (regular file, mode, size) below
+	// regularfile.Open opens with O_NONBLOCK (a plain open(2) of a FIFO blocks until a
+	// writer appears) and refuses a non-regular file on the opened descriptor.
+	f, info, err := regularfile.Open("secret file", path)
 	if err != nil {
+		if errors.Is(err, regularfile.ErrNotRegular) {
+			return "", err
+		}
 		return "", fmt.Errorf("cannot open secret file: %w", unwrapSecretPathError(err))
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	if err != nil {
-		return "", fmt.Errorf("cannot stat secret file: %w", unwrapSecretPathError(err))
-	}
-	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("secret file is not a regular file")
-	}
 	if err := checkSecretFileMode(info); err != nil {
 		return "", err
 	}

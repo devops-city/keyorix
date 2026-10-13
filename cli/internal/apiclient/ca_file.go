@@ -16,9 +16,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
-	"syscall"
+
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 // maxCAFileBytes bounds how much of a CA file is read. A PEM bundle of every public root
@@ -32,22 +32,17 @@ const maxCAFileBytes = 1 << 20
 // that should not sit in a trust path), or is writable by group or others (anyone who can
 // write it can make this CLI trust their server).
 func LoadCAPool(path string) (*x509.CertPool, error) {
-	// O_NONBLOCK: a plain open(2) of a FIFO blocks until a writer appears, before the
-	// regular-file check below could refuse it. The check runs on this same descriptor
-	// (fstat), so there is no swap window; on a regular file the flag changes nothing.
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 G703 -- the operator names their own CA file (flag/env/config); checked for a regular file below
+	// regularfile.Open opens with O_NONBLOCK (a plain open(2) of a FIFO blocks until a
+	// writer appears) and refuses a non-regular file on the opened descriptor.
+	f, info, err := regularfile.Open("read CA file", path)
 	if err != nil {
+		if errors.Is(err, regularfile.ErrNotRegular) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("read CA file: %w", err)
 	}
 	defer func() { _ = f.Close() }()
 
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("read CA file: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("read CA file %s: not a regular file", path)
-	}
 	if perm := info.Mode().Perm(); perm&0o022 != 0 {
 		return nil, fmt.Errorf("CA file %s has permissions %#o: writable by group or others, refusing to trust it; fix with chmod go-w %s", path, perm, path)
 	}

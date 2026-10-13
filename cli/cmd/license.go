@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 	"github.com/keyorixhq/keyorix/pkg/licenseverify"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 )
@@ -141,7 +142,7 @@ func printLicenseStatus(st licenseverify.Status) {
 }
 
 func readLicenseToken(path string) (string, error) {
-	b, err := os.ReadFile(path) // #nosec G304 -- operator-supplied license path
+	b, err := regularfile.ReadFile("license file", path)
 	if err != nil {
 		return "", fmt.Errorf("read license token: %w", err)
 	}

@@ -14,7 +14,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"os"
+
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 // encryptedExportEnvelope is the JSON shape of an encrypted export file.
@@ -34,7 +35,7 @@ const (
 // encryptExport encrypts plainJSON bytes with the RSA public key at pubKeyPath.
 // Returns the JSON-encoded encryptedExportEnvelope bytes.
 func encryptExport(plainJSON []byte, pubKeyPath string) ([]byte, error) {
-	pemBytes, err := os.ReadFile(pubKeyPath) // #nosec G304 -- operator-supplied CLI path
+	pemBytes, err := regularfile.ReadFile("public key", pubKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read public key %q: %w", pubKeyPath, err)
 	}
@@ -104,7 +105,7 @@ func decryptExport(envelopeBytes []byte, privKeyPath string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected envelope format %q (want %q)", env.Format, encryptedExportFormat)
 	}
 
-	pemBytes, err := os.ReadFile(privKeyPath) // #nosec G304 -- operator-supplied CLI path
+	pemBytes, err := regularfile.ReadFile("private key", privKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read private key %q: %w", privKeyPath, err)
 	}

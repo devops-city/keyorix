@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 	"github.com/keyorixhq/keyorix/pkg/bundleverify"
 	"github.com/keyorixhq/keyorix/pkg/licenseverify"
 	"github.com/keyorixhq/keyorix/pkg/trust"
@@ -101,7 +102,7 @@ func runBundleVerify(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load trusted keys: %w", err)
 	}
 
-	f, err := os.Open(args[0]) // #nosec G304 -- operator-supplied bundle path
+	f, _, err := regularfile.Open("bundle", args[0])
 	if err != nil {
 		return fmt.Errorf("open bundle: %w", err)
 	}
@@ -150,7 +151,7 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	f, err := os.Open(args[0]) // #nosec G304 -- operator-supplied bundle path
+	f, _, err := regularfile.Open("bundle", args[0])
 	if err != nil {
 		return fmt.Errorf("open bundle: %w", err)
 	}
@@ -178,7 +179,7 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 func requireAirgapUpdates(reg *trust.KeyRegistry) error {
 	var token string
 	if bundleImportLicense != "" {
-		b, err := os.ReadFile(bundleImportLicense) // #nosec G304 -- operator-supplied license path
+		b, err := regularfile.ReadFile("license file", bundleImportLicense)
 		if err != nil {
 			return fmt.Errorf("read license: %w", err)
 		}

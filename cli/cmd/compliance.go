@@ -31,6 +31,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/cli/internal/apiclient"
 	"github.com/keyorixhq/keyorix/cli/internal/cliout"
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 	"github.com/keyorixhq/keyorix/cli/internal/securefiles"
 )
 
@@ -361,11 +362,11 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 		if sigPath == "" {
 			sigPath = complianceVerifyFile + ".sig"
 		}
-		data, err := os.ReadFile(complianceVerifyFile) // #nosec G304 -- operator-supplied path
+		data, err := regularfile.ReadFile("evidence pack", complianceVerifyFile)
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", complianceVerifyFile, err)
 		}
-		sigRaw, err := os.ReadFile(sigPath) // #nosec G304 -- operator-supplied path
+		sigRaw, err := regularfile.ReadFile("signature", sigPath)
 		if err != nil {
 			return fmt.Errorf("failed to read signature %s: %w", sigPath, err)
 		}

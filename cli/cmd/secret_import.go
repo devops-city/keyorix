@@ -19,6 +19,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/cli/internal/apiclient"
 	"github.com/keyorixhq/keyorix/cli/internal/cliout"
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 var (
@@ -108,7 +109,7 @@ func collectImportEntries() ([]secretEntry, error) {
 		return nil, fmt.Errorf("cannot open file %q: %w", importFile, err)
 	}
 	if importDecryptWith != "" {
-		fileBytes, err := os.ReadFile(clean) // #nosec G304 -- path already cleaned
+		fileBytes, err := regularfile.ReadFile("import file", clean)
 		if err != nil {
 			return nil, fmt.Errorf("read file %q: %w", clean, err)
 		}

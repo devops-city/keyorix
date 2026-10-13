@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/keyorix/cli/internal/apiclient"
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 var (
@@ -43,7 +44,7 @@ func runSecretRender(_ *cobra.Command, args []string) error {
 	var tmpl []byte
 	var err error
 	if len(args) == 1 && args[0] != "-" {
-		tmpl, err = os.ReadFile(args[0]) // #nosec G304 -- operator-provided template path
+		tmpl, err = regularfile.ReadFile("template", args[0])
 		if err != nil {
 			return fmt.Errorf("read template: %w", err)
 		}

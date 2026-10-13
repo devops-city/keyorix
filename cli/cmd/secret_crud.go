@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/keyorixhq/keyorix/cli/internal/apiclient"
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 // ── create ──────────────────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ func readSecretValueFromFile(path string) ([]byte, error) {
 	if fileInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("symlinks are not allowed: %s", cleanPath)
 	}
-	return os.ReadFile(cleanPath) // #nosec G304 -- cleanPath is relative-only and symlink-checked above
+	return regularfile.ReadFile("secret value file", cleanPath)
 }
 
 // readHiddenValue prompts on stderr and reads a value from stdin with echo

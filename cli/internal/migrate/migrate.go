@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -60,7 +61,7 @@ func DetectOldServerURL() (Candidate, bool) {
 }
 
 func detectFromCWDConfig(path string) (Candidate, bool) {
-	data, err := os.ReadFile(path) // #nosec G304 -- fixed CWD-relative filename, matches the old CLI's own behavior being migrated away from
+	data, err := regularfile.ReadFile("old server config", path) // fixed CWD-relative filename, matches the old CLI's own behavior being migrated away from
 	if err != nil {
 		return Candidate{}, false
 	}
@@ -83,7 +84,7 @@ func detectFromCLIConfig() (Candidate, bool) {
 	if path == "" {
 		return Candidate{}, false
 	}
-	data, err := os.ReadFile(path) // #nosec G304 -- path is derived from XDG/home-dir env vars, not user input
+	data, err := regularfile.ReadFile("old CLI config", path) // path is derived from XDG/home-dir env vars, not user input
 	if err != nil {
 		return Candidate{}, false
 	}

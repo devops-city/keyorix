@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 	"github.com/keyorixhq/keyorix/cli/internal/securefiles"
 	"github.com/spf13/cobra"
 )
@@ -152,7 +153,7 @@ func findAndPlanFix(basePath, envVarName string) ([]fixPlan, error) {
 			return nil
 		}
 
-		content, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 G122 -- path comes from filepath.Walk rooted at operator-supplied absPath; symlink TOCTOU acceptable for a local developer tool
+		content, err := regularfile.ReadFile("scanned file", filepath.Clean(path)) // a non-regular file (FIFO planted in the tree) is skipped, never read
 		if err != nil {
 			return nil
 		}
@@ -186,7 +187,7 @@ func applyFix(basePath string, plan fixPlan) error {
 	// plan.File was recorded by findAndPlanFix relative to basePath (the same --path
 	// the plan was built from), so it must be resolved against that same basePath here.
 	fullPath := filepath.Join(basePath, plan.File)
-	content, err := os.ReadFile(filepath.Clean(fullPath)) // #nosec G304 -- fullPath is basePath (operator-supplied --path) joined with a relative path from filepath.Walk rooted at that same basePath
+	content, err := regularfile.ReadFile("fix target", filepath.Clean(fullPath))
 	if err != nil {
 		return err
 	}

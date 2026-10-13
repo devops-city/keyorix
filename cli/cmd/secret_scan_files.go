@@ -4,13 +4,14 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 func scanEnvFile(path, relPath string) []ScanFinding {
-	content, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path is validated against scan root and comes from filepath.Walk
+	content, err := regularfile.ReadFile("scanned file", filepath.Clean(path)) // a non-regular file (FIFO planted in the tree) is skipped, never read
 	if err != nil {
 		return nil
 	}
@@ -43,7 +44,7 @@ func scanEnvFile(path, relPath string) []ScanFinding {
 }
 
 func scanConfigFile(path, relPath string) []ScanFinding {
-	content, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path is validated against scan root and comes from filepath.Walk
+	content, err := regularfile.ReadFile("scanned file", filepath.Clean(path)) // a non-regular file (FIFO planted in the tree) is skipped, never read
 	if err != nil {
 		return nil
 	}
@@ -82,7 +83,7 @@ func scanConfigFile(path, relPath string) []ScanFinding {
 }
 
 func scanSourceFile(path, relPath string) []ScanFinding {
-	content, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path is validated against scan root and comes from filepath.Walk
+	content, err := regularfile.ReadFile("scanned file", filepath.Clean(path)) // a non-regular file (FIFO planted in the tree) is skipped, never read
 	if err != nil {
 		return nil
 	}

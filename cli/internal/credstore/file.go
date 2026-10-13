@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -89,7 +90,7 @@ func (s *FileStore) Load() (Credentials, error) {
 		return Credentials{}, fmt.Errorf("credentials file %s has permissions %#o, wider than the required 0600 -- refusing to read; fix with chmod 600 %s", s.path, perm, s.path)
 	}
 
-	f, err := os.OpenFile(s.path, os.O_RDONLY|noFollowFlag, 0)
+	f, _, err := regularfile.OpenFlags("credentials file", s.path, noFollowFlag)
 	if err != nil {
 		return Credentials{}, fmt.Errorf("open credentials file: %w", err)
 	}

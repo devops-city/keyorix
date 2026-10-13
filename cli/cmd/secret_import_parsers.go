@@ -13,6 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/keyorixhq/keyorix/cli/internal/cliout"
+	"github.com/keyorixhq/keyorix/cli/internal/regularfile"
 )
 
 // maxImportFileBytes caps how much of an untrusted --file import gets read into memory
@@ -126,7 +127,7 @@ func unquoteDotenvSingleQuoted(inner string) string {
 // parseDotenv reads a standard .env file: '#'-prefixed and blank lines are skipped;
 // KEY=VALUE, value may be quoted with " or '; keys with empty values are skipped.
 func parseDotenv(path string) ([]secretEntry, error) {
-	f, err := os.Open(path) // #nosec G304 -- path already cleaned by caller
+	f, _, err := regularfile.Open("import file", path)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +188,7 @@ func parseVault(path string) ([]secretEntry, error) {
 	if err := checkImportFileSize(path); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path) // #nosec G304
+	data, err := regularfile.ReadFile("import file", path)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +242,7 @@ func parseJSON(path string) ([]secretEntry, error) {
 	if err := checkImportFileSize(path); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path) // #nosec G304
+	data, err := regularfile.ReadFile("import file", path)
 	if err != nil {
 		return nil, err
 	}
