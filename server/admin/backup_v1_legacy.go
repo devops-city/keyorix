@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 )
 
 // backupFormatVersion is v1's format_version value -- restore's format
@@ -73,7 +75,7 @@ func readBackupArchive(path string, maxEntryBytes, maxTotalBytes int64) (backupM
 		maxTotalBytes = defaultMaxRestoreTotalBytes
 	}
 
-	f, err := os.Open(path) // #nosec G304 -- operator-supplied input path, the whole point of this flag
+	f, err := secretenv.OpenRegularNamed("backup archive", path) // operator-supplied input path; a FIFO is refused, not waited on
 	if err != nil {
 		return backupManifest{}, nil, nil, err
 	}

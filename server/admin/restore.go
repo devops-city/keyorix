@@ -32,6 +32,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/crypto"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 	"github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/spf13/cobra"
 	"gorm.io/gorm"
@@ -168,7 +169,7 @@ func runAdminRestore(cmd *cobra.Command, args []string) error {
 // top-level position, so this generic probe works against either without
 // needing to know which one it's looking at yet.
 func peekFormatVersion(path string) (int, error) {
-	f, err := os.Open(path) // #nosec G304 -- operator-supplied input path, the whole point of this flag
+	f, err := secretenv.OpenRegularNamed("backup archive", path) // operator-supplied input path; a FIFO is refused, not waited on
 	if err != nil {
 		return 0, err
 	}
@@ -261,7 +262,7 @@ func runAdminRestoreV2(cfg *config.Config) error { // NOSONAR -- cognitive compl
 	}
 	defer os.RemoveAll(stagingDir) //nolint:errcheck
 
-	archiveFile, err := os.Open(restoreInput) // #nosec G304 -- operator-supplied input path, the whole point of this flag
+	archiveFile, err := secretenv.OpenRegularNamed("backup archive", restoreInput) // operator-supplied input path; a FIFO is refused, not waited on
 	if err != nil {
 		return fmt.Errorf("open %q: %w", restoreInput, err)
 	}
@@ -928,7 +929,7 @@ func verifyRestoredAudit(cfg *config.Config, dbPath string) error {
 func runVerifyRestoredAudit(cfg *config.Config, db *auditverify.DB) error {
 	var opts auditverify.Options
 	if cfg.Audit.OfflineAnchorPath != "" {
-		data, err := os.ReadFile(cfg.Audit.OfflineAnchorPath) // #nosec G304 -- operator-configured path (audit.offline_anchor_path)
+		data, err := secretenv.ReadRegularFile("audit anchor", cfg.Audit.OfflineAnchorPath) // operator-configured path (audit.offline_anchor_path); a FIFO is refused, not waited on
 		if err != nil {
 			return fmt.Errorf("automatic verify-audit: read configured offline anchor %q: %w", cfg.Audit.OfflineAnchorPath, err)
 		}

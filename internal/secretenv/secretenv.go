@@ -142,6 +142,47 @@ func OpenRegular(path string, extraFlags int) (*os.File, os.FileInfo, error) {
 	return f, info, nil
 }
 
+// NotRegularError is returned by OpenRegularNamed and ReadRegularFile for a path
+// that is a FIFO, device, socket or directory. It reads "<what> <path>: not a
+// regular file" and matches ErrNotRegular under errors.Is.
+type NotRegularError struct {
+	What, Path string
+}
+
+func (e *NotRegularError) Error() string {
+	return e.What + " " + e.Path + ": not a regular file"
+}
+
+func (e *NotRegularError) Is(target error) bool { return target == ErrNotRegular }
+
+// OpenRegularNamed is OpenRegular for operator-supplied non-secret input (a CA
+// bundle, a license, a backup archive): it returns only the file, and names the
+// input and its path in the refusal. Any other open error is returned unchanged
+// (an *os.PathError already carries the path). what is the noun the operator
+// knows the input by, e.g. "CA bundle".
+func OpenRegularNamed(what, path string) (*os.File, error) {
+	f, _, err := OpenRegular(path, 0)
+	if err != nil {
+		if errors.Is(err, ErrNotRegular) {
+			return nil, &NotRegularError{What: what, Path: path}
+		}
+		return nil, err
+	}
+	return f, nil
+}
+
+// ReadRegularFile reads a whole operator-supplied file through OpenRegularNamed:
+// a FIFO or device is refused at once instead of blocking in open(2). Symlinks to
+// a regular file are followed.
+func ReadRegularFile(what, path string) ([]byte, error) {
+	f, err := OpenRegularNamed(what, path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
 func readSecretFile(path string, checkPerms bool) (string, error) {
 	f, info, err := OpenRegular(path, 0)
 	if err != nil {

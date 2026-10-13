@@ -10,6 +10,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 	"github.com/keyorixhq/keyorix/internal/securefiles"
 )
 
@@ -529,7 +530,7 @@ func validateDatabase(cfg *config.Config, result *ValidationResult) error {
 		return nil
 	}
 
-	file, err := os.Open(dbPath)
+	file, err := secretenv.OpenRegularNamed("database file", dbPath) // a FIFO is refused, not waited on
 	if err != nil {
 		return fmt.Errorf("cannot open database file %s: %w", dbPath, err)
 	}

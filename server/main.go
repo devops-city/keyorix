@@ -512,7 +512,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 // loadCertPool reads a PEM bundle from path and returns a cert pool of its
 // certificates (the TSA trust anchor for verifying checkpoint anchors).
 func loadCertPool(path string) (*x509.CertPool, error) {
-	pem, err := os.ReadFile(path) // #nosec G304 -- operator-configured trusted CA bundle path
+	pem, err := secretenv.ReadRegularFile("CA bundle", path) // operator-configured trusted CA bundle path; a FIFO is refused, not waited on
 	if err != nil {
 		return nil, err
 	}
@@ -521,6 +521,23 @@ func loadCertPool(path string) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("no PEM certificates found in %s", path)
 	}
 	return pool, nil
+}
+
+// loadLicenseToken reads the operator-configured license file. An unset path, or a
+// file that cannot be read (missing, unreadable, or not a regular file -- a FIFO
+// must not hang the boot), yields "" and a warning: the server runs the community
+// baseline.
+func loadLicenseToken(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return ""
+	}
+	b, err := secretenv.ReadRegularFile("license file", p) // operator-configured license path; a FIFO is refused, not waited on
+	if err != nil {
+		log.Printf("WARNING: license file %q unreadable: %v (running community baseline)", p, err)
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.Service, error) { // NOSONAR -- cognitive complexity 159, suppress go:S3776
@@ -1090,15 +1107,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 		log.Printf("WARNING: trusted-key registry: %v (running community baseline)", terr)
 		reg = nil
 	}
-	var token string
-	if p := strings.TrimSpace(cfg.License.Path); p != "" {
-		b, rerr := os.ReadFile(p) // #nosec G304 -- operator-configured license path
-		if rerr != nil {
-			log.Printf("WARNING: license file %q unreadable: %v (running community baseline)", p, rerr)
-		} else {
-			token = strings.TrimSpace(string(b))
-		}
-	}
+	token := loadLicenseToken(cfg.License.Path)
 	gate := license.NewGate(token, reg, cfg.License.DeploymentID, cfg.LicenseGrace())
 	coreService.SetLicenseGate(gate)
 	st := gate.Status()
@@ -3211,7 +3220,7 @@ func buildSAMLProvider(pc config.SSOProviderConfig) (*samlpkg.Provider, error) {
 	}
 	metaXML := []byte(pc.SAML.IDPMetadataXML)
 	if len(metaXML) == 0 && pc.SAML.IDPMetadataFile != "" {
-		b, err := os.ReadFile(pc.SAML.IDPMetadataFile) // #nosec G304 -- operator-provided metadata path
+		b, err := secretenv.ReadRegularFile("idp_metadata_file", pc.SAML.IDPMetadataFile) // operator-provided metadata path; a FIFO is refused, not waited on
 		if err != nil {
 			return nil, fmt.Errorf("read idp_metadata_file: %w", err)
 		}

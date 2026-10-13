@@ -18,6 +18,8 @@ import (
 	"filippo.io/age/agessh"
 	"filippo.io/age/armor"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 )
 
 // parseRecoveryKeyRecipient accepts either a raw age recipient string
@@ -35,7 +37,7 @@ func parseRecoveryKeyRecipient(spec string) (age.Recipient, error) {
 		}
 		return r, nil
 	}
-	data, err := os.ReadFile(spec) // #nosec G304 -- operator-supplied path, same trust level as --config/--passphrase-file
+	data, err := secretenv.ReadRegularFile("recipient public key file", spec) // operator-supplied path; a FIFO is refused, not waited on
 	if err != nil {
 		return nil, fmt.Errorf("read recipient public key file %q: %w", spec, err)
 	}

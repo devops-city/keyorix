@@ -3,11 +3,12 @@ package k8ssync
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 )
 
 // Config is the Keyorix Kubernetes sync agent's configuration: where the Keyorix
@@ -102,7 +103,7 @@ const defaultSyncInterval = 5 * time.Minute
 
 // LoadConfig reads and validates the agent config at path.
 func LoadConfig(path string) (*Config, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- operator-provided config path
+	raw, err := secretenv.ReadRegularFile("config", path) // operator-provided config path; a FIFO is refused, not waited on
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}

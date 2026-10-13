@@ -76,6 +76,8 @@ var guardedDirs = []string{
 	"internal/secretenv",
 	"server/admin",
 	"server/main.go",
+	"internal/k8ssync",
+	"internal/startup",
 	"cmd",
 }
 
@@ -85,20 +87,12 @@ var guardedDirs = []string{
 // an operator-supplied archive. None holds a KEK, share, passphrase, token or
 // private key. Do NOT add a secret/key reader here: use OpenRegular.
 var nonSecretFileReads = map[string]string{
-	"server/main.go:loadCertPool":                                    "CA bundle: public certificates",
-	"server/main.go:initializeCoreService":                           "license file: signed, public",
-	"server/main.go:buildSAMLProvider":                               "SAML IdP metadata: public",
-	"server/admin/recovery_key_encrypt.go:parseRecoveryKeyRecipient": "recipient PUBLIC key file",
-	"server/admin/audit_verify.go:buildVerifyAuditOptions":           "audit offline anchor: signed public checkpoint",
-	"server/admin/audit_verify.go:readTSARootsFile":                  "TSA root certificates: public",
-	"server/admin/restore.go:peekFormatVersion":                      "operator-supplied backup archive (the restore input itself)",
-	"server/admin/restore.go:runAdminRestoreV2":                      "operator-supplied backup archive; our own staged file, checksum-verified by ExtractArchive",
-	"server/admin/restore.go:stageKeyFilesForKEKUnwrap":              "our own staged file, checksum-verified by ExtractArchive",
-	"server/admin/restore.go:archiveHeadFromStagedAuditEvents":       "our own staged file, checksum-verified by ExtractArchive",
-	"server/admin/restore.go:runVerifyRestoredAudit":                 "audit offline anchor: signed public checkpoint",
-	"server/admin/backup_v1_legacy.go:readBackupArchive":             "operator-supplied legacy backup archive",
-	"internal/securefiles/securefiles.go:SyncDir":                    "directory open for fsync, not a file read",
-	"server/admin/restore.go:fsyncDir":                               "directory open for fsync, not a file read",
+	"server/admin/restore.go:runAdminRestoreV2":                "operator-supplied backup archive; our own staged file, checksum-verified by ExtractArchive",
+	"server/admin/restore.go:stageKeyFilesForKEKUnwrap":        "our own staged file, checksum-verified by ExtractArchive",
+	"server/admin/restore.go:archiveHeadFromStagedAuditEvents": "our own staged file, checksum-verified by ExtractArchive",
+	"internal/k8ssync/rest_sink.go:NewInClusterSink":           "fixed kubelet-mounted ServiceAccount paths (constants), not operator-supplied",
+	"internal/securefiles/securefiles.go:SyncDir":              "directory open for fsync, not a file read",
+	"server/admin/restore.go:fsyncDir":                         "directory open for fsync, not a file read",
 }
 
 type readSite struct {
