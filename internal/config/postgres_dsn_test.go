@@ -4,9 +4,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net/url"
 	"os"
@@ -15,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,53 +49,113 @@ func passwordSources() []passwordSource {
 	}
 }
 
+// clearPGEnv clears the libpq environment variables pgx merges under the
+// DSN, so a developer's shell cannot change what these tests parse.
+func clearPGEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGPASSFILE",
+		"PGSSLMODE", "PGSSLROOTCERT", "PGSSLCERT", "PGSSLKEY", "PGSERVICE", "PGSERVICEFILE", "PGAPPNAME",
+		"PGOPTIONS", "PGSSLNEGOTIATION", "PGSSLSNI", "PGTARGETSESSIONATTRS"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("HOME", t.TempDir()) // no ~/.pgpass, ~/.postgresql/root.crt
+}
+
+// tlsShape is the part of a *tls.Config that decides what a connection
+// verifies: nil means plaintext.
+type tlsShape struct {
+	On, InsecureSkipVerify, CustomVerify bool
+	ServerName                           string
+	RootCAs                              *x509.CertPool
+}
+
+func shapeOf(c *tls.Config) tlsShape {
+	if c == nil {
+		return tlsShape{}
+	}
+	return tlsShape{On: true, InsecureSkipVerify: c.InsecureSkipVerify, CustomVerify: c.VerifyPeerCertificate != nil,
+		ServerName: c.ServerName, RootCAs: c.RootCAs}
+}
+
+// assertSameConnection asserts that got connects exactly where, and exactly
+// as securely as, pgx's own parse of base does -- host, port, database, user,
+// TLS for the primary and every fallback, runtime parameters -- and with
+// password wantPw.
+func assertSameConnection(t *testing.T, base string, got *pgx.ConnConfig, wantPw string) {
+	t.Helper()
+	want, err := pgx.ParseConfig(base)
+	require.NoError(t, err)
+	assert.Equal(t, wantPw, got.Password, "password")
+	assert.Equal(t, want.Host, got.Host, "host")
+	assert.Equal(t, want.Port, got.Port, "port")
+	assert.Equal(t, want.Database, got.Database, "database")
+	assert.Equal(t, want.User, got.User, "user")
+	assert.Equal(t, want.RuntimeParams, got.RuntimeParams, "runtime params")
+	assertSameTLS(t, want.TLSConfig, got.TLSConfig)
+	require.Len(t, got.Fallbacks, len(want.Fallbacks), "fallbacks")
+	for i := range want.Fallbacks {
+		assert.Equal(t, want.Fallbacks[i].Host, got.Fallbacks[i].Host, "fallback host")
+		assert.Equal(t, want.Fallbacks[i].Port, got.Fallbacks[i].Port, "fallback port")
+		assertSameTLS(t, want.Fallbacks[i].TLSConfig, got.Fallbacks[i].TLSConfig)
+	}
+}
+
+func assertSameTLS(t *testing.T, want, got *tls.Config) {
+	t.Helper()
+	w, g := shapeOf(want), shapeOf(got)
+	assert.True(t, w.RootCAs.Equal(g.RootCAs), "TLS root CAs")
+	w.RootCAs, g.RootCAs = nil, nil
+	assert.Equal(t, w, g, "TLS")
+}
+
 // DSN without a password + a password source: the password is applied (the
-// #3151 bug: it was silently ignored).
-func TestResolvePostgresDSN_DSNWithoutPasswordGetsResolvedPassword(t *testing.T) {
+// #3151 bug: it was silently ignored), on the parsed config.
+func TestResolvePostgresConnConfig_DSNWithoutPasswordGetsResolvedPassword(t *testing.T) {
+	clearPGEnv(t)
 	for _, dsn := range []string{dsnNoPwKeyword, dsnNoPwURL} {
 		for _, src := range passwordSources() {
 			t.Run(src.name+"/"+dsn[:8], func(t *testing.T) {
 				d := &DatabaseConfig{DSN: dsn}
 				src.apply(t, d)
-				got, err := ResolvePostgresDSN(d)
+				got, err := ResolvePostgresConnConfig(d)
 				require.NoError(t, err)
-				has, err := dsnHasPassword(got)
-				require.NoError(t, err)
-				assert.True(t, has, "resolved password must be in the DSN")
-				assert.Contains(t, got, "other-secret")
+				assertSameConnection(t, dsn, got, "other-secret")
 			})
 		}
 	}
 }
 
-func TestResolvePostgresDSN_DSNWithoutPasswordNoSourceUnchanged(t *testing.T) {
+func TestResolvePostgresConnConfig_DSNWithoutPasswordNoSourceUnchanged(t *testing.T) {
+	clearPGEnv(t)
 	for _, dsn := range []string{dsnNoPwKeyword, dsnNoPwURL} {
-		got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: dsn})
+		got, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: dsn})
 		require.NoError(t, err)
-		assert.Equal(t, dsn, got)
+		assertSameConnection(t, dsn, got, "")
 	}
 }
 
 // DSN with a password and no other source: used as-is (existing behaviour).
-func TestResolvePostgresDSN_DSNWithPasswordAlone(t *testing.T) {
+func TestResolvePostgresConnConfig_DSNWithPasswordAlone(t *testing.T) {
+	clearPGEnv(t)
 	for _, dsn := range []string{dsnPwKeyword, dsnPwURL, dsnPwURLQuery} {
-		got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: dsn})
+		got, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: dsn})
 		require.NoError(t, err)
-		assert.Equal(t, dsn, got)
+		assertSameConnection(t, dsn, got, "in-dsn-secret")
 	}
 }
 
 // DSN with a password AND a password source: refuse, name the setting and the
 // fix, never print either password or the DSN.
-func TestResolvePostgresDSN_ConflictRefused(t *testing.T) {
+func TestResolvePostgresConnConfig_ConflictRefused(t *testing.T) {
+	clearPGEnv(t)
 	for _, dsn := range []string{dsnPwKeyword, dsnPwURL, dsnPwURLQuery} {
 		for _, src := range passwordSources() {
 			t.Run(src.name+"/"+dsn[:8], func(t *testing.T) {
 				d := &DatabaseConfig{DSN: dsn}
 				src.apply(t, d)
-				got, err := ResolvePostgresDSN(d)
+				got, err := ResolvePostgresConnConfig(d)
 				require.Error(t, err)
-				assert.Empty(t, got)
+				assert.Nil(t, got)
 				msg := err.Error()
 				assert.Contains(t, msg, "storage.database.dsn")
 				assert.Contains(t, msg, src.want)
@@ -101,155 +163,159 @@ func TestResolvePostgresDSN_ConflictRefused(t *testing.T) {
 				assert.NotContains(t, msg, "in-dsn-secret")
 				assert.NotContains(t, msg, "other-secret")
 				assert.NotContains(t, msg, "127.0.0.1")
-				assert.Empty(t, BuildPostgresDSN(d), "BuildPostgresDSN must fail closed")
 			})
 		}
 	}
 }
 
-// Field-by-field form: unchanged behaviour, with quoting for awkward passwords.
-func TestResolvePostgresDSN_Fields(t *testing.T) {
-	t.Setenv("KEYORIX_DB_PASSWORD", "p w'd\\")
-	got, err := ResolvePostgresDSN(&DatabaseConfig{Host: "h", Name: "n", User: "u", SSLMode: "disable"})
+// Field-by-field form: the password goes on the parsed config, never into the
+// field-built string.
+func TestResolvePostgresConnConfig_Fields(t *testing.T) {
+	clearPGEnv(t)
+	const pw = "p w'd\\ sslmode=disable host=evil"
+	t.Setenv("KEYORIX_DB_PASSWORD", pw)
+	d := &DatabaseConfig{Host: "h", Name: "n", User: "u", SSLMode: "disable"}
+	got, err := ResolvePostgresConnConfig(d)
 	require.NoError(t, err)
-	assert.Contains(t, got, `password='p w\'d\\'`)
-	kv := parseKeywordDSN(got)
-	var pw string
-	for _, p := range kv {
-		if p[0] == "password" {
-			pw = p[1]
-		}
+	base := buildPostgresDSNFromFields(d)
+	assert.NotContains(t, base, "password")
+	assertSameConnection(t, base, got, pw)
+	assert.Equal(t, "h", got.Host)
+}
+
+// Without a configured password, valid pgx forms net/url cannot parse
+// (multi-host lists) still work, and a DSN pgx rejects is reported without
+// the password it carries.
+func TestResolvePostgresConnConfig_NoPasswordSource(t *testing.T) {
+	clearPGEnv(t)
+	ok := []string{
+		"postgres://u@[::1]:5432,[::2]:5433/db?sslmode=disable",
+		"postgres://u@h/db?options=-c%20x%3Dy&sslmode=disable",
 	}
-	assert.Equal(t, "p w'd\\", pw, "quoting must round-trip")
-}
-
-func TestResolvePostgresDSN_AppendQuotesKeywordPassword(t *testing.T) {
-	t.Setenv("KEYORIX_DB_PASSWORD", "has space")
-	got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: dsnNoPwKeyword})
-	require.NoError(t, err)
-	assert.Contains(t, got, "password='has space'")
-}
-
-// Without a configured password the DSN is not inspected at all: valid pgx
-// forms net/url cannot parse (multi-host lists) must pass through unchanged,
-// and a malformed one is left for the driver to report.
-func TestResolvePostgresDSN_NoPasswordSourceReturnsDSNUntouched(t *testing.T) {
-	for _, dsn := range []string{
-		"postgres://u@[::1]:5432,[::2]:5433/db",
-		"postgres://u:in-dsn-secret@h:notaport/db",
-		"postgres://u@h/db?options=-c%20x=y&sslrootcert=/x%20y/ca.pem",
-	} {
-		got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: dsn})
+	for _, dsn := range ok {
+		got, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: dsn})
 		require.NoError(t, err, dsn)
-		assert.Equal(t, dsn, got)
+		assertSameConnection(t, dsn, got, "")
+	}
+	_, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: "postgres://u:in-dsn-secret@h:notaport/db"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage.database")
+	assert.NotContains(t, err.Error(), "in-dsn-secret")
+}
+
+// The env password never reaches a parser: an invalid DSN with a password
+// source is reported without it.
+func TestResolvePostgresConnConfig_ParseErrorNeverShowsResolvedPassword(t *testing.T) {
+	clearPGEnv(t)
+	t.Setenv("KEYORIX_DB_PASSWORD", "env-secret-xyz")
+	for _, dsn := range []string{"postgres://u@h:notaport/db", "host=h port=notaport", "host='unterminated"} {
+		_, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: dsn})
+		require.Error(t, err, dsn)
+		assert.NotContains(t, err.Error(), "env-secret-xyz")
 	}
 }
 
-// URL-form DSNs round-trip byte-identically except for the inserted password,
-// and the result is what pgx actually parses.
-func TestResolvePostgresDSN_URLRoundTrip(t *testing.T) {
-	passwords := []string{"plain", "p w", "a+b", "100%", "x@y", "a:b", "a/b", "a?b", "a#b", "@:/?#%", "p w+%@#:/?&=;'\"\\é"}
-	cases := []struct {
-		name               string
-		before, after      string // DSN text around the insertion point
-		sep                string // ":" normally; "" when the DSN already ends userinfo with ':'
-		wantUser, wantHost string
-		noUserinfo         bool
-	}{
-		{"user-only", "postgres://keyorix", "@127.0.0.1:15439/keyorix?sslmode=disable", ":", "keyorix", "127.0.0.1", false},
-		{"postgresql-scheme", "postgresql://keyorix", "@db.example/keyorix", ":", "keyorix", "db.example", false},
-		{"empty-password-colon", "postgres://keyorix:", "@db.example/keyorix", "", "keyorix", "db.example", false},
-		{"no-userinfo", "postgres://", "db.example/keyorix?sslmode=disable", ":", "", "db.example", true},
-		{"no-path", "postgres://keyorix", "@db.example", ":", "keyorix", "db.example", false},
-		{"verify-full-rootcert", "postgres://keyorix", "@db.example:5432/keyorix?sslmode=verify-full&sslrootcert={CA}", ":", "keyorix", "db.example", false},
-		{"param-order-and-plus", "postgres://keyorix", "@db.example/keyorix?sslrootcert={CA}&sslmode=disable&application_name=k%2Bx", ":", "keyorix", "db.example", false},
-		{"options-and-semicolon-pair", "postgres://keyorix", "@db.example/keyorix?options=-c%20search_path%3Dx&sslmode=disable&junk;x=1", ":", "keyorix", "db.example", false},
-	}
+// injectionPasswords are passwords that carry every character that means
+// something to the keyword/value or URL grammar, and the reviewer's
+// keyword-injection payloads.
+var injectionPasswords = []string{
+	"plain", "p w", "q'uote", `b\slash`, `a\`, `\`, "'", `\'`, "x=y", "a?b", "x@y", "a#b", "100%", "%zz", "a&b",
+	"a:b", "a/b", "line\nbreak", "tab\tsep", " lead", "trail ", "a+b", "é",
+	`a sslmode=disable host=evil x=\`,
+	`' sslmode=disable host=evil x='`,
+	`\' sslmode=disable host=evil`,
+	"x' sslmode=disable sslrootcert=system host=evil",
+	"@evil:1/db?sslmode=disable#",
+	"p w+%@#:/?&=;'\"\\é",
+}
+
+// The password, whatever it holds, cannot change where or how the connection
+// goes, for every base DSN shape including those the old splice misread:
+// keyword DSNs ending in a backslash or an escaped trailing space, and URLs
+// with '?', '@' or '#' in the userinfo.
+func TestResolvePostgresConnConfig_PasswordCannotChangeTheConnection(t *testing.T) {
+	clearPGEnv(t)
 	ca := writeTestCA(t)
-	for _, tc := range cases {
-		for _, pw := range passwords {
-			t.Run(tc.name+"/"+pw, func(t *testing.T) {
-				after := strings.ReplaceAll(tc.after, "{CA}", ca)
-				dsn := tc.before + after
+	caKW := strings.ReplaceAll(mustUnescapePath(t, ca), `'`, `\'`)
+	bases := []string{
+		dsnNoPwKeyword,
+		dsnNoPwKeyword + " application_name='a b'",
+		"host=db.internal sslmode=verify-full sslrootcert='" + caKW + "' application_name=x\\",
+		"host=db.internal sslmode=verify-full sslrootcert='" + caKW + "' application_name=x\\ ",
+		"host=db.internal sslmode=verify-full sslrootcert='" + caKW + "' application_name=x\\\t",
+		"host=db.internal sslmode=verify-full sslrootcert='" + caKW + "' application_name=x \n",
+		"host=db.internal sslmode=verify-full sslrootcert='" + caKW + "' application_name='x\\\\'",
+		dsnNoPwURL,
+		"postgres://u?x@db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://u?x@db.internal?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://u#x@db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://u%40x@db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://u:@db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://u@[::1]:5432,[::2]:5433/db?sslmode=verify-full&sslrootcert=" + ca,
+		"postgresql://u@db.internal/k?application_name=a#frag&sslmode=verify-full&sslrootcert=" + ca,
+	}
+	for _, base := range bases {
+		_, err := pgx.ParseConfig(base)
+		require.NoError(t, err, "base DSN must be valid for pgx: %q", base)
+		for _, pw := range injectionPasswords {
+			t.Run(fmt.Sprintf("%q/%q", base, pw), func(t *testing.T) {
 				t.Setenv("KEYORIX_DB_PASSWORD", pw)
-				got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: dsn})
+				got, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: base})
 				require.NoError(t, err)
-
-				esc := url.UserPassword("x", pw).String()[len("x:"):]
-				ins := tc.sep + esc
-				if tc.noUserinfo {
-					ins = ":" + esc + "@"
-				}
-				assert.Equal(t, tc.before+ins+after, got, "only the password may be inserted")
-
-				cfg, err := pgconn.ParseConfig(got)
-				require.NoError(t, err)
-				assert.Equal(t, pw, cfg.Password)
-				if tc.wantUser != "" {
-					assert.Equal(t, tc.wantUser, cfg.User)
-				}
-				assert.Equal(t, tc.wantHost, cfg.Host)
+				assertSameConnection(t, base, got, pw)
 			})
 		}
 	}
 }
 
-// Existing query parameters reach pgx exactly as they would without the
-// password (the net/url Encode() regression: '+' for space, dropped pairs).
-func TestResolvePostgresDSN_URLQueryParamsSurvive(t *testing.T) {
-	base := "postgres://keyorix@db.example:5432/keyorix?sslmode=disable&sslrootcert=" + writeTestCA(t) +
-		"&application_name=a%20b&options=-c%20search_path%3Dx&search_path=a+b"
-	t.Setenv("KEYORIX_DB_PASSWORD", "p w+%@#")
-	got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: base})
-	require.NoError(t, err)
-	want, err := pgconn.ParseConfig(base)
-	require.NoError(t, err)
-	have, err := pgconn.ParseConfig(got)
-	require.NoError(t, err)
-	assert.Equal(t, "p w+%@#", have.Password)
-	assert.Equal(t, want.RuntimeParams, have.RuntimeParams)
-	assert.Equal(t, "a b", have.RuntimeParams["application_name"])
-	assert.Equal(t, "a+b", have.RuntimeParams["search_path"], "'+' must stay literal, as without the password")
-	assert.Equal(t, want.Host, have.Host)
-	assert.Equal(t, want.Port, have.Port)
-	assert.Equal(t, want.Database, have.Database)
-	assert.Equal(t, want.User, have.User)
-}
-
-// Multi-host DSN with a password source: spliced, still parseable by pgx.
-func TestResolvePostgresDSN_MultiHostGetsPassword(t *testing.T) {
-	t.Setenv("KEYORIX_DB_PASSWORD", "p@ss:w/rd#1")
-	got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: "postgres://u@[::1]:5432,[::2]:5433/db?sslmode=disable"})
-	require.NoError(t, err)
-	assert.Equal(t, "postgres://u:p%40ss%3Aw%2Frd%231@[::1]:5432,[::2]:5433/db?sslmode=disable", got)
-	cfg, err := pgconn.ParseConfig(got)
-	require.NoError(t, err)
-	assert.Equal(t, "p@ss:w/rd#1", cfg.Password)
-}
-
-// key=value form: quoted password parses back through pgx.
-func TestResolvePostgresDSN_KeywordRoundTrip(t *testing.T) {
-	for _, pw := range []string{"plain", "p w", "q'uote", `b\slash`, "@:/?#%", "a b'c\\d@:/?#%"} {
-		for _, base := range []string{
-			dsnNoPwKeyword,
-			dsnNoPwKeyword + " sslrootcert=/etc/ssl/ca.pem",
-			dsnNoPwKeyword + " application_name='a b'",
-		} {
-			t.Run(pw, func(t *testing.T) {
-				t.Setenv("KEYORIX_DB_PASSWORD", pw)
-				got, err := ResolvePostgresDSN(&DatabaseConfig{DSN: base})
-				require.NoError(t, err)
-				assert.True(t, strings.HasPrefix(got, base+" password="), "base DSN preserved verbatim")
-				if strings.Contains(base, "sslrootcert") {
-					assert.Contains(t, parseKeywordDSN(got), [2]string{"sslrootcert", "/etc/ssl/ca.pem"})
-					return // pgconn would try to read the cert file
-				}
-				cfg, err := pgconn.ParseConfig(got)
-				require.NoError(t, err)
-				assert.Equal(t, pw, cfg.Password)
-			})
-		}
+// REVIEW-3162B problem 1, verbatim: a '?' in the URL userinfo made the splice
+// put the password before it, and pgx then read host "u" with sslmode=prefer.
+func TestResolvePostgresConnConfig_Review3162B_URLUserinfoQuestionMark(t *testing.T) {
+	clearPGEnv(t)
+	ca := writeTestCA(t)
+	t.Setenv("KEYORIX_DB_PASSWORD", "secret")
+	for _, base := range []string{
+		"postgres://u?x@db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
+		"postgres://u?x@db.internal?sslmode=verify-full&sslrootcert=" + ca,
+	} {
+		got, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: base})
+		require.NoError(t, err)
+		assert.Equal(t, "db.internal", got.Host)
+		assert.Equal(t, "secret", got.Password)
+		require.NotNil(t, got.TLSConfig, "TLS must stay on")
+		assert.False(t, got.TLSConfig.InsecureSkipVerify, "verify-full must stay verify-full")
+		assert.Equal(t, "db.internal", got.TLSConfig.ServerName)
+		assert.Empty(t, got.Fallbacks, "no plaintext fallback")
 	}
+}
+
+// REVIEW-3162B problem 2, verbatim: a keyword DSN ending in '\' swallowed the
+// separator before the appended password, whose contents then became keywords.
+func TestResolvePostgresConnConfig_Review3162B_KeywordTrailingBackslash(t *testing.T) {
+	clearPGEnv(t)
+	ca := mustUnescapePath(t, writeTestCA(t))
+	const pw = `a sslmode=disable host=evil x=\`
+	t.Setenv("KEYORIX_DB_PASSWORD", pw)
+	for _, base := range []string{
+		"host=db.internal sslmode=verify-full sslrootcert='" + ca + "' application_name=x\\",
+		"host=db.internal sslmode=verify-full sslrootcert='" + ca + "' application_name=x\\ ",
+	} {
+		got, err := ResolvePostgresConnConfig(&DatabaseConfig{DSN: base})
+		require.NoError(t, err)
+		assert.Equal(t, "db.internal", got.Host)
+		assert.Equal(t, pw, got.Password)
+		require.NotNil(t, got.TLSConfig, "sslmode=disable must not be injected")
+		assert.False(t, got.TLSConfig.InsecureSkipVerify)
+		assert.Empty(t, got.Fallbacks)
+	}
+}
+
+func mustUnescapePath(t *testing.T, escaped string) string {
+	t.Helper()
+	p, err := url.PathUnescape(escaped)
+	require.NoError(t, err)
+	return p
 }
 
 func TestDSNHasPassword(t *testing.T) {
@@ -266,11 +332,28 @@ func TestDSNHasPassword(t *testing.T) {
 		dsnPwURLQuery:                  true,
 		"postgres://u:@h/db":           false,
 		"postgresql://u:p@h/db":        true,
+		// pgx's userinfo rule: it ends at the first '@' before any '/'.
+		"postgres://u:pa?ss@h/db":           true,
+		"postgres://u?x@h/db":               false,
+		"postgres://u?x:p@h/db":             true,
+		"postgres://u#x:p@h/db":             true,
+		"postgres://u@h/db?x=1&password=p":  true,
+		"postgres://u@[::1?]/db?password=p": true,
+		"postgres://u@[::1?password=x]/db":  false,
+		"postgres://u?password=p@h/db":      false,
+		"postgres://h/db?a=1@b&password=p":  true,
+		"host='unterminated":                false,
+		"host=h password='unterminated":     false, // pgx rejects it before
+		"password=\f":                       false, // \f is whitespace to pgx
+		"password=x password=''":            false, // the last one wins
+		"password='' password=x":            true,
+		"postgres://u:%20@h/db":             true,  // a one-space password
+		"postgres://u: @h/db":               false, // raw spaces are dropped
+		"postgres://u:p@h/db?password=":     false, // the query wins
+		"postgres://u@h/db?pass%77ord=p":    true,
 	}
 	for dsn, want := range cases {
-		got, err := dsnHasPassword(dsn)
-		require.NoError(t, err, dsn)
-		assert.Equal(t, want, got, dsn)
+		assert.Equal(t, want, dsnHasPassword(dsn), dsn)
 	}
 }
 

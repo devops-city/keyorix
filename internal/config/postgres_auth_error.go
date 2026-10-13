@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -74,35 +75,73 @@ func (e *PostgresAuthError) Detail() string { return e.detail }
 //     that names the credentials as the likely cause of a connection the server
 //     dropped at startup; the original error is kept either way.
 func ClassifyPostgresConnectError(err error, dsn string) error {
-	if err == nil {
-		return nil
-	}
-	var closed bool
-	var pgErr *pgconn.PgError
-	switch {
-	case errors.As(err, &pgErr):
-		if pgErr.Code != "28P01" && pgErr.Code != "28000" {
-			return err
-		}
-	case closedDuringStartup(err):
-		closed = true
-	default:
+	closed, ok := isPostgresAuthFailure(err)
+	if !ok {
 		return err
 	}
-
-	out := &PostgresAuthError{ClosedDuringStartup: closed, Host: "the configured host", Port: "5432", cause: err}
+	var host, port, user string
 	var secrets []string
 	if dsn != "" {
 		secrets = append(secrets, dsn)
 	}
 	if pc, perr := pgconn.ParseConfig(dsn); perr == nil {
-		out.Host, out.User = pc.Host, pc.User
+		host, user = pc.Host, pc.User
 		if pc.Port != 0 {
-			out.Port = fmt.Sprint(pc.Port)
+			port = fmt.Sprint(pc.Port)
 		}
 		if pc.Password != "" {
 			secrets = append(secrets, pc.Password)
 		}
+	}
+	return newPostgresAuthError(err, closed, host, port, user, secrets)
+}
+
+// ClassifyPostgresConnectErrorConfig is ClassifyPostgresConnectError for a
+// connection opened from a parsed config (ResolvePostgresConnConfig): host,
+// port and user come from cc, and cc's password is redacted from Detail.
+func ClassifyPostgresConnectErrorConfig(err error, cc *pgx.ConnConfig) error {
+	closed, ok := isPostgresAuthFailure(err)
+	if !ok {
+		return err
+	}
+	var host, port, user string
+	var secrets []string
+	if cc != nil {
+		host, user = cc.Host, cc.User
+		if cc.Port != 0 {
+			port = fmt.Sprint(cc.Port)
+		}
+		if cc.Password != "" {
+			secrets = append(secrets, cc.Password)
+		}
+	}
+	return newPostgresAuthError(err, closed, host, port, user, secrets)
+}
+
+// isPostgresAuthFailure reports whether err is one of the two authentication
+// failure shapes ClassifyPostgresConnectError documents, and which one.
+func isPostgresAuthFailure(err error) (closed, ok bool) {
+	if err == nil {
+		return false, false
+	}
+	var pgErr *pgconn.PgError
+	switch {
+	case errors.As(err, &pgErr):
+		return false, pgErr.Code == "28P01" || pgErr.Code == "28000"
+	case closedDuringStartup(err):
+		return true, true
+	default:
+		return false, false
+	}
+}
+
+func newPostgresAuthError(err error, closed bool, host, port, user string, secrets []string) *PostgresAuthError {
+	out := &PostgresAuthError{ClosedDuringStartup: closed, Host: "the configured host", Port: "5432", User: user, cause: err}
+	if host != "" {
+		out.Host = host
+	}
+	if port != "" {
+		out.Port = port
 	}
 	out.detail = redactSecrets(err.Error(), secrets...)
 	return out

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
@@ -623,17 +622,9 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 
 // createPostgresStorage creates a PostgreSQL-backed local storage instance
 func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (storage.Storage, error) {
-	dsn, err := config.ResolvePostgresDSN(&cfg.Storage.Database)
+	db, err := openPostgresGorm(&cfg.Storage.Database, gormConfig())
 	if err != nil {
 		return nil, err
-	}
-	if dsn == "" {
-		return nil, fmt.Errorf("postgres storage requires a DSN or host/name/user fields")
-	}
-
-	db, err := gorm.Open(postgres.Open(dsn), gormConfig())
-	if err != nil {
-		return nil, postgresConnectError(err, dsn)
 	}
 
 	if err := applyPoolSettings(db, &cfg.Storage.Database); err != nil {

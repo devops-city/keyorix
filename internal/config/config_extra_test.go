@@ -93,18 +93,21 @@ func TestPasswordPolicyConfig_Resolve_ExplicitFalseIsHonored(t *testing.T) {
 	assert.False(t, explicit.Resolve(defaults).RequireSpecial)
 }
 
-// TestBuildPostgresDSN_DSNPassthrough validates that an explicit DSN is
-// returned as-is without modification.
-func TestBuildPostgresDSN_DSNPassthrough(t *testing.T) {
+// TestResolvePostgresConnConfig_DSNPassthrough validates that an explicit DSN
+// is used as pgx parses it.
+func TestResolvePostgresConnConfig_DSNPassthrough(t *testing.T) {
+	clearPGEnv(t)
 	d := &DatabaseConfig{DSN: "host=pg user=kx dbname=keyorix sslmode=require"}
-	assert.Equal(t, d.DSN, BuildPostgresDSN(d))
+	cc, err := ResolvePostgresConnConfig(d)
+	require.NoError(t, err)
+	assertSameConnection(t, d.DSN, cc, "")
 }
 
 // TestBuildPostgresDSN_FieldsDefaults validates that missing host/port/sslmode
 // are filled with their documented defaults.
 func TestBuildPostgresDSN_FieldsDefaults(t *testing.T) {
 	d := &DatabaseConfig{Name: "keyorix", User: "kx"}
-	dsn := BuildPostgresDSN(d)
+	dsn := buildPostgresDSNFromFields(d)
 	assert.Contains(t, dsn, "host=localhost")
 	assert.Contains(t, dsn, "port=5432")
 	assert.Contains(t, dsn, "sslmode=require")
@@ -122,17 +125,21 @@ func TestBuildPostgresDSN_ExplicitFields(t *testing.T) {
 		User:    "admin",
 		SSLMode: "verify-full",
 	}
-	dsn := BuildPostgresDSN(d)
+	dsn := buildPostgresDSNFromFields(d)
 	assert.Contains(t, dsn, "host=pg.prod")
 	assert.Contains(t, dsn, "port=5433")
 	assert.Contains(t, dsn, "sslmode=verify-full")
 }
 
-// TestBuildPostgresDSN_Password validates that a password is appended to the DSN.
-func TestBuildPostgresDSN_Password(t *testing.T) {
+// TestResolvePostgresConnConfig_FieldsPassword validates that the configured
+// password is set on the parsed config and is not part of the field DSN.
+func TestResolvePostgresConnConfig_FieldsPassword(t *testing.T) {
+	clearPGEnv(t)
 	d := &DatabaseConfig{Name: "db", User: "u", Password: "s3cr3t"}
-	dsn := BuildPostgresDSN(d)
-	assert.Contains(t, dsn, "password=s3cr3t")
+	assert.NotContains(t, buildPostgresDSNFromFields(d), "s3cr3t")
+	cc, err := ResolvePostgresConnConfig(d)
+	require.NoError(t, err)
+	assert.Equal(t, "s3cr3t", cc.Password)
 }
 
 // TestDatabaseConfig_GetPassword_EnvVar validates the environment-variable

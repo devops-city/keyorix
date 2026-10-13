@@ -2644,7 +2644,7 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		return err
 	}
 	if st := c.Storage.Type; st == "postgres" || st == "postgresql" {
-		if _, err := ResolvePostgresDSN(&c.Storage.Database); err != nil {
+		if _, err := ResolvePostgresConnConfig(&c.Storage.Database); err != nil {
 			return err
 		}
 	}

@@ -305,11 +305,17 @@ connection settings:
 
 | `storage.database.dsn` | A password source is set | Result |
 |---|---|---|
-| empty (host/port/name/user fields) | yes | password added to the connection string |
-| set, **no** password in it | yes | the password is added to the DSN |
+| empty (host/port/name/user fields) | yes | the password is used for the connection |
+| set, **no** password in it | yes | the password is used with the DSN's settings |
 | set, no password in it | no | DSN used as written (e.g. trust auth, `.pgpass`) |
 | set, **with** a password (`password=...` or `postgres://user:pw@...`) | no | DSN used as written |
 | set, **with** a password | **yes** | **refused at startup** |
+
+The password is never written into the DSN: Keyorix parses the DSN with the
+PostgreSQL driver's own parser and sets the password on the parsed settings, so
+no character in it (quotes, backslashes, spaces, `=`, `?`, `@`, ...) can change
+the host, `sslmode`, `sslrootcert` or any other setting the DSN names. A DSN the
+driver cannot parse is refused at startup.
 
 The last row is an error, not a silent choice: the server and every command that
 opens the database (`admin migrate`, `admin validate`, `admin restore`, ...) stop

@@ -11,7 +11,8 @@ import (
 
 	// Drivers registered directly with database/sql — no GORM, no
 	// storage.Storage, per this package's independence requirement (doc.go).
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
 
@@ -55,6 +56,18 @@ func OpenPostgres(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
+	if err := sqlDB.Ping(); err != nil {
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("open postgres: %w", err)
+	}
+	return &DB{sql: sqlDB, backend: BackendPostgres}, nil
+}
+
+// OpenPostgresConfig is OpenPostgres for an already-parsed connection config
+// (config.ResolvePostgresConnConfig), so a password resolved from the
+// environment reaches the driver without ever being written into a DSN.
+func OpenPostgresConfig(cc *pgx.ConnConfig) (*DB, error) {
+	sqlDB := stdlib.OpenDB(*cc)
 	if err := sqlDB.Ping(); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("open postgres: %w", err)
