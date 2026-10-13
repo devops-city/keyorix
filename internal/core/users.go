@@ -678,6 +678,7 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 	if deactivating {
 		c.invalidateTokenCache(sessionHashes...)
 		c.invalidateTokenCache(patHashes...)
+		purgeStepUpGrants(ctx, c.storage, req.ID)
 	}
 	c.writeAuditEvent(ctx, EventUserUpdated, actorPtr(req.ActorID), nil,
 		fmt.Sprintf("updated user %d (%s)", updated.ID, updated.Username))
@@ -748,6 +749,7 @@ func (c *KeyorixCore) RevokeUserCredentialsForDeactivation(ctx context.Context, 
 	sessionHashes, _ := c.storage.ListSessionTokenHashesForUser(ctx, userID)
 	patHashes, patErr := c.storage.RevokeAllPersonalAccessTokensForUser(ctx, userID)
 	sessionErr := c.storage.DeleteSessionsForUserExcept(ctx, userID, 0)
+	purgeStepUpGrants(ctx, c.storage, userID)
 	c.invalidateTokenCache(sessionHashes...)
 	if patErr == nil {
 		c.invalidateTokenCache(patHashes...)
@@ -825,6 +827,7 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 		}
 		c.invalidateTokenCache(sessionHashes...)
 		c.invalidateTokenCache(patHashes...)
+		purgeStepUpGrants(ctx, c.storage, id)
 		c.writeAuditEvent(ctx, EventUserDeleted, actorPtr(actorID), nil,
 			fmt.Sprintf("deleted user %d (%s)", id, user.Username))
 		return nil

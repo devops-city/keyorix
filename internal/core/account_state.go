@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -328,6 +329,9 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	} else if needsCacheClearSweep {
 		c.clearCachedTokens(sessionHashes...)
 	}
+	if AccountLoginBlocked(userID, state) {
+		purgeStepUpGrants(ctx, c.storage, userID)
+	}
 	aid := adminID
 	c.writeAuditEventFull(ctx, eventType, &aid, nil, nil, "",
 		fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, c.storage, auditKindUser, userID), state))
@@ -407,6 +411,37 @@ func (c *KeyorixCore) setAccountStateInTx(ctx context.Context, tx storage.Storag
 		}
 	}
 	return sessionHashes, nil
+}
+
+// purgeStepUpGrants deletes every MFA step-up grant (re-auth and
+// restricted-secret-read purposes) the user holds. It must be called AFTER the
+// account-disabling write has committed, never inside the transaction:
+// besteffort.Run is post-commit only (a failure there must not be reported as
+// a failure of the already-durable disable, and inside a Postgres transaction a
+// failed statement would instead abort it). A grant a failed delete leaves
+// behind is still refused at use, because requireReauth re-reads the account
+// and refuses a non-active one (userStillActiveForGrant).
+func purgeStepUpGrants(ctx context.Context, s storage.Storage, userID uint) {
+	besteffort.Run(ctx, "account.purgeStepUpGrants", func() error {
+		return s.DeleteMFAStepUpGrantsFor(ctx, userID)
+	})
+}
+
+// userStillActiveForGrant re-reads the account and reports whether it may still
+// spend a step-up grant: active and not login-blocked. It reads fresh state, not
+// the caller's struct, because the race it closes (a suspension landing between a
+// grant's creation and its use) is invisible to a struct loaded before the
+// suspension. A read error fails closed (false) AND is returned, so the caller
+// can audit it as mfa.error instead of a plain failed attempt (#2888).
+func (c *KeyorixCore) userStillActiveForGrant(ctx context.Context, userID uint) (bool, error) {
+	fresh, err := c.storage.GetUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if fresh == nil {
+		return false, nil
+	}
+	return fresh.IsActive && !AccountLoginBlocked(fresh.ID, fresh.AccountState), nil
 }
 
 // activePATHashes returns the token hashes of all non-revoked PATs that have a hash,

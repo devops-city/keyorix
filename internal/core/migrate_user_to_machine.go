@@ -150,6 +150,7 @@ func (c *KeyorixCore) MigrateUserToMachine(ctx context.Context, username string,
 		// AccountSuspended blocks login, so the TOMBSTONING primitive is the
 		// right one here — see accountStateNeedsEvictionSweep.
 		c.invalidateTokenCache(evictHashes...)
+		purgeStepUpGrants(ctx, c.storage, user.ID)
 		c.logMachineEvent(ctx, "machine_identity.created", m, actorID)
 		aid := actorID
 		c.writeAuditEventFull(ctx, "account.suspended", &aid, nil, nil, "",
