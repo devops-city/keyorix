@@ -5099,6 +5099,8 @@ export interface components {
             permissions?: string[];
             password_change_required?: boolean;
             account_state?: string;
+            /** @description Account-setup steps this session still owes (omitted when none). While present the session is confined to those steps' endpoints (account-setup gate, #3024), so a client should route straight to the setup page rather than render protected pages. Informational: it changes nothing about what the session may access. */
+            pending_steps?: ("change_password" | "enroll_mfa")[];
         };
         /** @description The password (or setup token) was correct, but a second factor is required -- core.ErrMFARequired. The client must complete POST /auth/mfa/verify (TOTP/recovery code) with this challenge, or the WebAuthn login ceremony, to get a real session. */
         MFAChallengeData: {
@@ -6409,7 +6411,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Self profile (id, username, email, display_name, role, roles, permissions, last_login_at) */
+            /** @description Self profile (id, username, email, display_name, role, roles, permissions, last_login_at; pending_steps = the account-setup steps this session still owes, omitted when none) */
             200: {
                 headers: {
                     [name: string]: unknown;

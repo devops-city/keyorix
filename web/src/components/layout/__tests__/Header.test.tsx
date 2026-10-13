@@ -30,7 +30,13 @@ vi.mock('../../../features/auth', () => ({
 
 const mockUseAuth = vi.mocked(useAuth);
 
-type MockUser = { displayName?: string; username?: string; email?: string; roles?: string[] } | null;
+type MockUser = {
+    displayName?: string;
+    username?: string;
+    email?: string;
+    roles?: string[];
+    pendingSteps?: string[];
+} | null;
 
 function setUser(user: MockUser) {
     mockUseAuth.mockReturnValue({
@@ -56,6 +62,17 @@ function selectMenuItem(name: string) {
 
 describe('Header', () => {
     const onMenuClick = vi.fn();
+
+    it('shows the notification bell normally, but not under the MFA-enrolment confinement (#3155)', () => {
+        setUser({ username: 'janedoe', pendingSteps: ['enroll_mfa'] });
+        const confined = render(<Header onMenuClick={onMenuClick} />);
+        expect(screen.queryByText('notification bell stub')).toBeNull();
+        confined.unmount();
+
+        setUser({ username: 'janedoe' });
+        render(<Header onMenuClick={onMenuClick} />);
+        expect(screen.getByText('notification bell stub')).toBeInTheDocument();
+    });
 
     beforeEach(() => {
         mockUseAuth.mockReset();

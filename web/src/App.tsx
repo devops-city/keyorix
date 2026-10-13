@@ -1,7 +1,7 @@
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router';
 import { useAuth } from './features/auth';
-import { ProtectedRoute, PublicRoute, AdminRoute, Layout, RequirePasswordChange } from './components/layout';
+import { ProtectedRoute, PublicRoute, AdminRoute, Layout, RequireAccountSetup } from './components/layout';
 import {
     SessionTimeoutWarning,
     AbsoluteSessionExpiryWarning,
@@ -137,7 +137,7 @@ function App() {
                     <Route
                         element={
                             <ProtectedRoute>
-                                <RequirePasswordChange>
+                                <RequireAccountSetup>
                                     <Layout>
                                         <RouteErrorBoundary>
                                             <Routes>
@@ -283,7 +283,7 @@ function App() {
                                             </Routes>
                                         </RouteErrorBoundary>
                                     </Layout>
-                                </RequirePasswordChange>
+                                </RequireAccountSetup>
                             </ProtectedRoute>
                         }
                         path="/*"

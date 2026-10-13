@@ -7,6 +7,8 @@ import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { CmdKSearch } from '../ui/CmdKSearch';
 import { isPaletteShortcut } from '../../utils/platform';
+import { useAuthStore } from '../../store/authStore';
+import { userOwesMfaEnrolment } from '../../features/auth/setup';
 
 export interface LayoutProps {
     children: React.ReactNode;
@@ -18,6 +20,9 @@ export interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = true, className }) => {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [cmdkOpen, setCmdkOpen] = useState(false);
+    // #3155: a session confined to MFA enrolment gets a bare shell: the sidebar's project and
+    // licence queries and the palette's search would all 403 under the confinement.
+    const enrolmentOnly = useAuthStore((s) => userOwesMfaEnrolment(s.user));
 
     // Global Cmd-K / Ctrl-K listener
     useEffect(() => {
@@ -34,10 +39,10 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
     return (
         <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-app)' }}>
             {/* Sidebar */}
-            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+            {!enrolmentOnly && <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />}
 
             {/* Main content area */}
-            <div className="lg:pl-64 flex flex-col min-h-screen">
+            <div className={clsx('flex flex-col min-h-screen', !enrolmentOnly && 'lg:pl-64')}>
                 {/* Impersonation banner + header stick together at the top of the
                     viewport (not just the banner) so the header never scrolls up
                     underneath the sticky banner and clips against it — see
@@ -76,7 +81,7 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
             </div>
 
             {/* Cmd-K global search overlay */}
-            {cmdkOpen && <CmdKSearch onClose={() => setCmdkOpen(false)} />}
+            {cmdkOpen && !enrolmentOnly && <CmdKSearch onClose={() => setCmdkOpen(false)} />}
         </div>
     );
 };

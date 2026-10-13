@@ -77,6 +77,16 @@ func (c *KeyorixCore) pendingSetupStepsFor(u *models.User) []string {
 	return PendingAccountSetupSteps(AccountRestricted(u.AccountState), userHasSecondFactor(u), true, c.deploymentRequiresMFA)
 }
 
+// PendingSetupStepsFor is PendingAccountSetupSteps under this deployment's
+// security.require_mfa policy, for callers (the login and profile responses)
+// that report to the client what its session still owes. Informational only:
+// the enforcing gate is server/middleware.EnforceAccountSetup, which computes
+// the same answer per request. interactiveSession is false for PATs, machine
+// tokens and OIDC, which are exempt from the MFA step (ADR-112).
+func (c *KeyorixCore) PendingSetupStepsFor(restricted, hasSecondFactor, interactiveSession bool) []string {
+	return PendingAccountSetupSteps(restricted, hasSecondFactor, interactiveSession, c.deploymentRequiresMFA)
+}
+
 // needsSetupSession reports whether an interactive login for u must be a
 // setup-only session: both setup steps are owed.
 func (c *KeyorixCore) needsSetupSession(u *models.User) bool {

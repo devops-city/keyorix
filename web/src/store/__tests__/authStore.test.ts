@@ -123,6 +123,14 @@ describe('authStore', () => {
             expect(user?.passwordChangeRequired).toBe(true);
         });
 
+        it('carries pending_steps from the login response so the SPA knows the MFA confinement up front (#3155)', async () => {
+            vi.mocked(authService.login).mockResolvedValueOnce({ ...baseResponse, pending_steps: ['enroll_mfa'] });
+
+            await useAuthStore.getState().login({ username: 'bob', password: 'pw' } as never);
+
+            expect(useAuthStore.getState().user?.pendingSteps).toEqual(['enroll_mfa']);
+        });
+
         it('omits accountState entirely when the response has no account_state', async () => {
             vi.mocked(authService.login).mockResolvedValueOnce(baseResponse);
 
@@ -572,6 +580,19 @@ describe('authStore', () => {
             expect(state.hasCheckedAuth).toBe(true);
             expect(state.user?.username).toBe('erin');
             expect(state.impersonatedBy).toBeNull();
+        });
+
+        it('carries pending_steps from the profile onto the user (#3155) and drops them once cleared', async () => {
+            vi.mocked(authService.getProfile).mockResolvedValueOnce({
+                ...profileFixture(makeUser()),
+                pending_steps: ['enroll_mfa'],
+            });
+            await useAuthStore.getState().checkAuth();
+            expect(useAuthStore.getState().user?.pendingSteps).toEqual(['enroll_mfa']);
+
+            vi.mocked(authService.getProfile).mockResolvedValueOnce(profileFixture(makeUser()));
+            await useAuthStore.getState().checkAuth();
+            expect(useAuthStore.getState().user).not.toHaveProperty('pendingSteps');
         });
 
         it('redirects to /login when the profile fetch fails and the user is elsewhere', async () => {

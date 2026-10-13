@@ -3,6 +3,8 @@ export * from './ProtectedRoute';
 export * from './PublicRoute';
 export * from './AdminRoute';
 export * from './RequirePasswordChange';
+export * from './RequireMfaEnrolment';
+export * from './RequireAccountSetup';
 export * from './ImpersonationBanner';
 export * from './Header';
 export * from './Sidebar';

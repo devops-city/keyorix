@@ -81,6 +81,7 @@ function buildUserFromLoginResponse(response: LoginResponse): User {
         lastLogin: new Date().toISOString(),
         passwordChangeRequired: response.password_change_required || false,
         ...(response.account_state ? { accountState: response.account_state } : {}),
+        ...(response.pending_steps?.length ? { pendingSteps: response.pending_steps } : {}),
     };
 }
 
@@ -328,6 +329,10 @@ export const useAuthStore = create<AuthStore>()(
                             // Carry the server's flag forward on every reload so
                             // RequirePasswordChange stays effective past the first session.
                             passwordChangeRequired: profile.passwordChangeRequired ?? false,
+                            // #3155: the confinement is known from the profile itself, so a
+                            // reload of a setup-only session routes without probing a protected
+                            // endpoint (which would 403).
+                            ...(profile.pending_steps?.length ? { pendingSteps: profile.pending_steps } : {}),
                         };
                         // impersonation is present only while the session is actively
                         // impersonating — server-validated, not a client claim (see

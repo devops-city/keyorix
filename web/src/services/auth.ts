@@ -8,6 +8,7 @@ import {
     User,
     ApiResponse,
     ProfileImpersonation,
+    SetupStep,
 } from '../types';
 import { API_ENDPOINTS } from '../constants';
 import { generateId } from '../utils';
@@ -152,10 +153,11 @@ export const authService = {
      * current session is impersonating another user — server-validated from
      * the session cookie, not a client-supplied claim.
      */
-    async getProfile(): Promise<User & { impersonation?: ProfileImpersonation }> {
+    async getProfile(): Promise<User & { impersonation?: ProfileImpersonation; pending_steps?: SetupStep[] }> {
         try {
-            const response: AxiosResponse<ApiResponse<User & { impersonation?: ProfileImpersonation }>> =
-                await authApi.get(API_ENDPOINTS.AUTH.PROFILE);
+            const response: AxiosResponse<
+                ApiResponse<User & { impersonation?: ProfileImpersonation; pending_steps?: SetupStep[] }>
+            > = await authApi.get(API_ENDPOINTS.AUTH.PROFILE);
 
             if (!response.data.data) {
                 throw new Error(response.data.message || 'Failed to get profile');

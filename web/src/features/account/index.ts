@@ -83,11 +83,17 @@ export const useRevokePersonalToken = () => {
 
 // Recovery-code status doubles as the MFA-enabled signal: total === 0 ⇒ MFA off
 // (no codes), total > 0 ⇒ enabled with `remaining` unused.
-export const useMfaRecoveryStatus = () =>
+//
+// #3155: pass enabled=false while the session is confined to MFA enrolment: the server
+// refuses this endpoint (403) there and the answer is already known (no second factor), so
+// the page does not ask. It flips on once enrolment completes and the profile stops
+// reporting the pending step.
+export const useMfaRecoveryStatus = (enabled = true) =>
     useQuery({
         queryKey: [MFA_RECOVERY_KEY],
         queryFn: () => mfaApi.recoveryCodesStatus(),
         staleTime: 30 * 1000,
+        enabled,
     });
 
 // G28: enroll returns the TOTP setup secret, and activate returns the freshly

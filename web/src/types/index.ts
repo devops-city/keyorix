@@ -1,4 +1,8 @@
 // Core application types
+
+// Account-setup steps a session can still owe (server core.SetupStep*; openapi pending_steps).
+export type SetupStep = 'change_password' | 'enroll_mfa';
+
 export interface User {
     id: number;
     username: string;
@@ -13,6 +17,11 @@ export interface User {
     // app; the RequirePasswordChange guard confines it to the profile page.
     passwordChangeRequired?: boolean;
     accountState?: string;
+    // #3155: account-setup steps this session still owes ("change_password",
+    // "enroll_mfa"), from the login response / GET /auth/profile. While non-empty the
+    // server confines the session to those steps' endpoints, so the SPA must not
+    // render protected pages or fire their queries (RequireAccountSetup, Layout).
+    pendingSteps?: SetupStep[];
 }
 
 export interface UserPreferences {
@@ -343,6 +352,8 @@ export interface LoginResponse {
     permissions?: string[];
     password_change_required?: boolean;
     account_state?: string;
+    // Setup steps the new session still owes (omitted when none); see User.pendingSteps.
+    pending_steps?: SetupStep[];
 
     // mfa_required (and the three fields below) are present INSTEAD of the
     // identity fields above when the account has MFA enabled and a correct

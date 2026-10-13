@@ -1,0 +1,2 @@
+### Fixed
+- **No dashboard flash or background 403s before the MFA enrolment page (#3155).** The login response and `GET /auth/profile` now carry an additive `pending_steps` list (`change_password`, `enroll_mfa`; omitted when nothing is owed), so the web app routes an MFA-pending session straight to enrolment without rendering protected pages or firing their queries. What such a session may access is unchanged: the server-side confinement (`EnforceAccountSetup`) is untouched and still answers everything else with 403.

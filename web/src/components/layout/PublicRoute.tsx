@@ -3,6 +3,8 @@ import { Navigate } from 'react-router';
 import { useAuth } from '../../features/auth';
 import { ROUTES } from '../../constants';
 import { getPostLoginRedirect } from '../../utils/routing';
+import { userOwesMfaEnrolment } from '../../features/auth/setup';
+import { MFA_ENROLMENT_URL } from '../../services/client';
 
 interface PublicRouteProps {
     children: React.ReactNode;
@@ -10,7 +12,7 @@ interface PublicRouteProps {
 }
 
 export const PublicRoute: React.FC<PublicRouteProps> = ({ children, redirectTo = ROUTES.DASHBOARD }) => {
-    const { isAuthenticated, hasCheckedAuth } = useAuth();
+    const { isAuthenticated, hasCheckedAuth, user } = useAuth();
     // const location = useLocation(); // Not needed for current implementation
 
     // Show loading only for the initial auth check — not every subsequent
@@ -29,6 +31,11 @@ export const PublicRoute: React.FC<PublicRouteProps> = ({ children, redirectTo =
 
     // Redirect to dashboard if already authenticated
     if (isAuthenticated) {
+        // #3155: a session confined to MFA enrolment goes straight to the enrolment page,
+        // not via the dashboard (whose queries would all 403).
+        if (userOwesMfaEnrolment(user)) {
+            return <Navigate to={MFA_ENROLMENT_URL} replace />;
+        }
         // Check if there's an intended route to redirect to
         const redirectPath = getPostLoginRedirect(redirectTo);
         return <Navigate to={redirectPath} replace />;

@@ -5,13 +5,15 @@ import { authService } from '../../services/auth';
 import { LoginFormData, PasswordResetRequest } from '../../types';
 import { ROUTES } from '../../constants';
 import { isSafeReturnTo } from '../../utils/routing';
+import { userOwesMfaEnrolment } from '../../features/auth/setup';
+import { MFA_ENROLMENT_URL } from '../../services/client';
 
 type AuthMode = 'login' | 'reset' | 'reset-success' | 'mfa';
 
 export const LoginPage: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const { login, verifyMfa, mfaChallenge, clearMfaChallenge, isAuthenticated, isLoading, error, clearError } =
+    const { login, verifyMfa, mfaChallenge, clearMfaChallenge, isAuthenticated, isLoading, error, clearError, user } =
         useAuth();
 
     const [mode, setMode] = useState<AuthMode>('login');
@@ -50,9 +52,9 @@ export const LoginPage: React.FC = () => {
 
     useEffect(() => {
         if (isAuthenticated) {
-            navigate(safeFrom, { replace: true });
+            navigate(userOwesMfaEnrolment(user) ? MFA_ENROLMENT_URL : safeFrom, { replace: true });
         }
-    }, [isAuthenticated, navigate, safeFrom]);
+    }, [isAuthenticated, navigate, safeFrom, user]);
 
     // #2442: login() returning with a pending mfaChallenge (instead of either
     // throwing or landing an authenticated session) is the signal to show the

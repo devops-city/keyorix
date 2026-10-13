@@ -14,6 +14,8 @@ import { Modal } from '../../components/ui/Modal';
 import { copyToClipboard } from '../../utils';
 import { useMfaRecoveryStatus, useEnrollMfa, useActivateMfa, useDisableMfa, useRegenerateRecoveryCodes } from './index';
 import { useAutoClearOnIdle } from '../../hooks/useAutoClearOnIdle';
+import { useAuthStore } from '../../store/authStore';
+import { userOwesMfaEnrolment } from '../auth/setup';
 
 // LOW_CODES_THRESHOLD is when we nudge the user to regenerate recovery codes.
 const LOW_CODES_THRESHOLD = 3;
@@ -106,8 +108,15 @@ const EnrollModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpe
         activate.reset();
     };
     const close = () => {
+        const enrolled = codes !== null;
         reset();
         onClose();
+        // #3155: enrolling lifts the session's MFA confinement server-side; re-read the profile
+        // (pending_steps) so the app unlocks. Only now, not on activation: the session may be
+        // setup-only and end here, and the recovery codes must stay visible until dismissed.
+        if (enrolled) {
+            void useAuthStore.getState().checkAuth();
+        }
     };
 
     // G28: the recovery codes otherwise stay rendered indefinitely until the user
@@ -370,7 +379,8 @@ const ReauthModal: React.FC<{
 // (security.require_mfa is on and they have no second factor yet). Say why, and don't
 // call the expected 403 on the recovery-code status endpoint "could not load".
 export const MfaSection: React.FC<{ enrolmentRequired?: boolean }> = ({ enrolmentRequired = false }) => {
-    const { data: status, isLoading, isError } = useMfaRecoveryStatus();
+    const { user } = useAuthStore();
+    const { data: status, isLoading, isError } = useMfaRecoveryStatus(!userOwesMfaEnrolment(user));
     const disable = useDisableMfa();
     const regenerate = useRegenerateRecoveryCodes();
     const [enrolling, setEnrolling] = useState(false);

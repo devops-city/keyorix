@@ -13,10 +13,11 @@
 //
 // THE USER JOURNEY (what a human does, and what each step proves):
 //   1. A fresh admin (the group's bootstrap admin: it has no MFA) logs in on /login.
-//      The password is right, so login succeeds and the SPA starts navigating to the
-//      dashboard.
-//   2. The dashboard's first API call is refused by EnforceMFAEnrollment with
-//      403 {"error":"MFAEnrollmentRequired"}. client.ts's handle403 sends the browser to
+//      The password is right, so login succeeds; the response carries pending_steps
+//      ["enroll_mfa"] (#3155), so the SPA goes straight to enrolment: it never renders a
+//      protected page and no request is refused (asserted: zero 403s, no /dashboard visit).
+//   2. (The server still refuses every other endpoint with
+//      403 {"error":"MFAEnrollmentRequired"}; client.ts's handle403 stays as the backstop.) The browser is at
 //      /profile?tab=security&mfa=required (MFA_ENROLMENT_URL, #2933). We assert the URL
 //      and that the Security tab shows the "Set up two-factor authentication to continue"
 //      banner, NOT a generic "no permission" error.
@@ -60,16 +61,40 @@ async function apiProbe(page: Page): Promise<{ status: number; error: string | n
 test('first login under require_mfa lands on enrolment, enrols TOTP, and reaches the dashboard', async ({ page }) => {
     // 1. Log in as the fresh admin. Deliberately NOT realLogin(): that waits for
     //    /dashboard, which this account must not be allowed to stay on.
+    //    #3155: the login response (and GET /auth/profile) report `pending_steps:
+    //    ["enroll_mfa"]`, so the SPA must go straight to enrolment: it never visits a protected
+    //    page route and never fires a request the confinement refuses. Record both from here.
+    const refused: string[] = [];
+    const visited: string[] = [];
+    page.on('response', (res) => {
+        if (res.status() === 403) refused.push(`${res.request().method()} ${new URL(res.url()).pathname}`);
+    });
+    page.on('framenavigated', (frame) => {
+        if (frame === page.mainFrame()) visited.push(new URL(frame.url()).pathname);
+    });
     await page.goto('/login');
     await submitLogin(page, ADMIN_USERNAME as string, ADMIN_PASSWORD as string);
 
-    // 2. The MFAEnrollmentRequired 403 sends the browser to the enrolment route.
+    // 2. The MFA-pending session is routed to the enrolment route.
     await page.waitForURL(/\/profile\?tab=security&mfa=required/, { timeout: 20_000 });
     // getByText is a case-insensitive substring match, so it also hits the enrolment banner
     // ("Set up two-factor authentication to continue") and its message. Target the section heading.
     await expect(page.getByRole('heading', { name: 'Two-Factor Authentication', exact: true })).toBeVisible();
     await expect(page.getByText('Set up two-factor authentication to continue')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('You do not have permission to perform this action.')).toHaveCount(0);
+    // The Security tab's own status read has settled by the time the banner shows; nothing
+    // else is in flight that could still 403, so assert the whole login-to-enrolment run.
+    await page.waitForLoadState('networkidle');
+    expect(visited, 'the SPA must not render any protected page on the way to enrolment').toEqual(
+        expect.not.arrayContaining(['/dashboard'])
+    );
+    expect(
+        visited.filter((p) => p !== '/login' && p !== '/profile'),
+        'only the login and enrolment pages may be visited'
+    ).toEqual([]);
+    expect(refused, 'an MFA-pending login must not fire a single request the confinement refuses').toEqual([]);
+    page.removeAllListeners('response');
+    page.removeAllListeners('framenavigated');
 
     // 3. The server really is enforcing the policy for this session.
     const before = await apiProbe(page);

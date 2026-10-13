@@ -168,6 +168,13 @@ type loginResponseBody struct {
 	// UI should route to change-password.
 	PasswordChangeRequired bool   `json:"password_change_required,omitempty"`
 	AccountState           string `json:"account_state,omitempty"`
+	// PendingSteps lists the account-setup steps this session still owes
+	// (core.SetupStep*: change_password, enroll_mfa). Present only while a step is
+	// owed; the session is then confined to those steps' endpoints by
+	// middleware.EnforceAccountSetup, so a client that sees it can route straight to
+	// the setup page instead of discovering the confinement through 403s. It
+	// reports the gate's state, it does not grant or widen anything.
+	PendingSteps []string `json:"pending_steps,omitempty"`
 }
 
 type passwordResetRequestBody struct {
@@ -349,6 +356,9 @@ func (h *AuthHandler) loginResponseFromIdentity(session *models.Session, user *m
 	// Flag an expired/required password change so the UI can route (ADR-025).
 	resp.AccountState = core.NormalizeAccountState(user.AccountState)
 	resp.PasswordChangeRequired = h.coreService.PasswordExpired(user) || core.AccountRestricted(user.AccountState)
+	// A login always mints an interactive session.
+	resp.PendingSteps = h.coreService.PendingSetupStepsFor(
+		core.AccountRestricted(user.AccountState), user.MFAEnabled || user.WebAuthnEnabled, true)
 	return resp
 }
 
@@ -691,6 +701,13 @@ func (h *AuthHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	profile := userProfileMap(user, h.userIdentity(r, userCtx.UserID))
+	// The setup steps this session still owes, computed from the same inputs as
+	// middleware.EnforceAccountSetup, so a page reload learns the confinement
+	// without probing a protected endpoint. Reporting only: GET /auth/profile is
+	// on the gate's always-allowed list and nothing else is opened by this.
+	if pending := h.coreService.PendingSetupStepsFor(userCtx.Restricted, userCtx.MFAEnabled, userCtx.SessionAuth); len(pending) > 0 {
+		profile["pending_steps"] = pending
+	}
 	// Surface impersonation state from the server-validated session (UserContext.
 	// ImpersonatedBy, resolved by the auth middleware) rather than requiring the
 	// client to track it itself — under cookie auth the client has no token to

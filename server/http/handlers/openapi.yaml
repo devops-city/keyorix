@@ -330,7 +330,7 @@ paths:
       operationId: getAuthProfile
       security: [{bearerAuth: []}]
       responses:
-        '200': {description: "Self profile (id, username, email, display_name, role, roles, permissions, last_login_at)"}
+        '200': {description: "Self profile (id, username, email, display_name, role, roles, permissions, last_login_at; pending_steps = the account-setup steps this session still owes, omitted when none)"}
         '401': {$ref: '#/components/responses/Error'}
     put:
       tags: [Auth]
@@ -7573,6 +7573,14 @@ components:
         permissions: {type: array, items: {type: string}}
         password_change_required: {type: boolean}
         account_state: {type: string}
+        pending_steps:
+          type: array
+          items: {type: string, enum: [change_password, enroll_mfa]}
+          description: >-
+            Account-setup steps this session still owes (omitted when none). While present the session is
+            confined to those steps' endpoints (account-setup gate, #3024), so a client should route
+            straight to the setup page rather than render protected pages. Informational: it changes
+            nothing about what the session may access.
     MFAChallengeData:
       type: object
       description: >-

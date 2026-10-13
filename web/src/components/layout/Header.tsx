@@ -12,6 +12,7 @@ import {
 import { Dropdown, DropdownItem } from '../ui/Dropdown';
 
 import { useAuth } from '../../features/auth';
+import { userOwesMfaEnrolment } from '../../features/auth/setup';
 import { NotificationBell } from '../../features/notifications';
 import { useUIStore } from '../../store/uiStore';
 import { ROUTES } from '../../constants';
@@ -108,7 +109,8 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick, className }) => {
                     {/* Right — theme toggle + notifications + user menu */}
                     <div className="flex items-center space-x-2">
                         {/* Notifications (ADR-024) — unread badge + dropdown. */}
-                        <NotificationBell />
+                        {/* Not under the MFA-enrolment confinement (#3155): its poll would 403. */}
+                        {!userOwesMfaEnrolment(user) && <NotificationBell />}
 
                         {/* Theme toggle — cycles dark → light → system */}
                         <button
