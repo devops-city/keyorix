@@ -125,17 +125,23 @@ fi
 echo "==> GET /metrics (401 without the generated token, 200 with it)"
 METRICS_NOAUTH="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$CA_FILE" "$SERVER_URL/metrics")"
 [ "$METRICS_NOAUTH" = "401" ] || fail "/metrics without the token returned HTTP $METRICS_NOAUTH, want 401"
+bearer_header_file() { # <file> <token>: curl reads it via -H @file, so the token stays out of argv
+    (umask 077 && printf 'Authorization: Bearer %s\n' "$2" >"$1")
+}
+bearer_header_file "$SMOKE_DIR/metrics.hdr" "$(cat "$SMOKE_DIR/secrets/metrics_token")"
 METRICS_AUTH="$(curl -s -o /dev/null -w '%{http_code}' --cacert "$CA_FILE" \
-    -H "Authorization: Bearer $(cat "$SMOKE_DIR/secrets/metrics_token")" "$SERVER_URL/metrics")"
+    -H @"$SMOKE_DIR/metrics.hdr" "$SERVER_URL/metrics")"
 [ "$METRICS_AUTH" = "200" ] || fail "/metrics with the generated token returned HTTP $METRICS_AUTH, want 200"
 
 echo "==> keyorix system init --server (bootstrap admin + default workspace)"
-"$CLI_BIN" system init --server "$SERVER_URL" --admin-username admin \
-    --admin-password "$ADMIN_PASSWORD" --admin-email admin@smoke-test.local \
-    --bootstrap-token "$BOOTSTRAP_TOKEN" || fail "system init --server exited non-zero"
+# Secrets travel in the environment (KEYORIX_ADMIN_PASSWORD, KEYORIX_BOOTSTRAP_TOKEN,
+# KEYORIX_PASSWORD, KEYORIX_MFA_CODE), never on the command line (visible in ps/CI logs).
+KEYORIX_ADMIN_PASSWORD="$ADMIN_PASSWORD" KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    "$CLI_BIN" system init --server "$SERVER_URL" --admin-username admin \
+    --admin-email admin@smoke-test.local || fail "system init --server exited non-zero"
 
 echo "==> keyorix login"
-"$CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" "$CLI_BIN" login --server "$SERVER_URL" --username admin \
     || fail "login exited non-zero"
 
 # ADR-112 item 1: security.require_mfa defaults on, so admin init's generated
@@ -157,7 +163,7 @@ $ENROLL_OUT"
 echo "==> keyorix mfa activate"
 MFA_CODE="$(cd "$REPO_ROOT" && HOME="$REAL_HOME" GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET")" \
     || fail "totpgen exited non-zero"
-"$CLI_BIN" mfa activate --code "$MFA_CODE" --password "$ADMIN_PASSWORD" \
+KEYORIX_MFA_CODE="$MFA_CODE" KEYORIX_PASSWORD="$ADMIN_PASSWORD" "$CLI_BIN" mfa activate \
     || fail "mfa activate exited non-zero"
 
 # ActivateMFA invalidates every OTHER session for this user (the calling session
@@ -173,15 +179,17 @@ echo "==> keyorix login (again, now MFA-enabled)"
 # identical code (same 30s window) and get rejected as a replay.
 MFA_LOGIN_CODE="$(cd "$REPO_ROOT" && HOME="$REAL_HOME" GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET" 30)" \
     || fail "totpgen exited non-zero"
-"$CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
-    --mfa-code "$MFA_LOGIN_CODE" || fail "login (MFA-enabled) exited non-zero"
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" KEYORIX_MFA_CODE="$MFA_LOGIN_CODE" \
+    "$CLI_BIN" login --server "$SERVER_URL" --username admin || fail "login (MFA-enabled) exited non-zero"
 
 echo "==> keyorix project create"
 "$CLI_BIN" project create --name smoke-project || fail "project create exited non-zero"
 
 echo "==> keyorix secret create"
 SECRET_VALUE="smoke-value-$$-${RANDOM}"
-"$CLI_BIN" secret create --name smoke-secret --value "$SECRET_VALUE" \
+# --from-file (relative path, 0600) instead of --value: the value never reaches argv.
+(umask 077 && printf '%s' "$SECRET_VALUE" > ./smoke-secret-value.txt)
+"$CLI_BIN" secret create --name smoke-secret --from-file ./smoke-secret-value.txt \
     --project 1 --environment 1 || fail "secret create exited non-zero"
 
 echo "==> keyorix secret get (value round-trip)"
@@ -237,9 +245,10 @@ APP_TOKEN="$(echo "$TOKEN_OUT" | grep '^Token:' | awk '{print $2}')"
 [ -n "$APP_TOKEN" ] || fail "could not parse machine token from:
 $TOKEN_OUT"
 
+bearer_header_file "$SMOKE_DIR/app.hdr" "$APP_TOKEN"
 echo "==> machine token denied before grant-role"
 DENIED_CODE="$(curl -s --cacert "$CA_FILE" -o /dev/null -w '%{http_code}' "$SERVER_URL/api/v1/secrets/1?include_value=true" \
-    -H "Authorization: Bearer $APP_TOKEN")"
+    -H @"$SMOKE_DIR/app.hdr")"
 [ "$DENIED_CODE" = "403" ] || fail "expected 403 before grant-role, got $DENIED_CODE"
 
 echo "==> keyorix machine grant-role"
@@ -248,7 +257,7 @@ echo "==> keyorix machine grant-role"
 
 echo "==> machine token reads the secret after grant-role"
 READ_OUT="$(curl -s --cacert "$CA_FILE" "$SERVER_URL/api/v1/secrets/1?include_value=true" \
-    -H "Authorization: Bearer $APP_TOKEN")"
+    -H @"$SMOKE_DIR/app.hdr")"
 echo "$READ_OUT" | grep -qF "$SECRET_VALUE" || fail \
     "machine token did not read the secret value after grant-role -- got:
 $READ_OUT"
@@ -259,7 +268,7 @@ echo "==> keyorix machine revoke-role"
 
 echo "==> machine token denied again after revoke-role"
 REVOKED_CODE="$(curl -s --cacert "$CA_FILE" -o /dev/null -w '%{http_code}' "$SERVER_URL/api/v1/secrets/1?include_value=true" \
-    -H "Authorization: Bearer $APP_TOKEN")"
+    -H @"$SMOKE_DIR/app.hdr")"
 [ "$REVOKED_CODE" = "403" ] || fail "expected 403 after revoke-role, got $REVOKED_CODE"
 
 echo ""

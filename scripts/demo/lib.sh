@@ -41,13 +41,20 @@ except Exception:
 demo_api() {
   local method="$1" base="$2" path="$3" token="${4:-}" body="${5:-}"
   local args=(-s --max-time 15 -X "$method" -w '\n%{http_code}' "${base}${path}")
-  [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
+  # The bearer token goes in a 0600 header file read via `-H @file`, never on argv.
+  local hdr=""
+  if [ -n "$token" ]; then
+    hdr="$(mktemp)"
+    ( umask 077; printf 'Authorization: Bearer %s\n' "$token" > "$hdr" )
+    args+=(-H "@${hdr}")
+  fi
   local out
   if [ -n "$body" ]; then
     out="$(printf '%s' "$body" | curl "${args[@]}" -H "Content-Type: application/json" --data-binary @-)"
   else
     out="$(curl "${args[@]}")"
   fi
+  [ -n "$hdr" ] && rm -f "$hdr"
   DEMO_HTTP_CODE="${out##*$'\n'}"
   DEMO_BODY="${out%$'\n'*}"
 }
@@ -103,7 +110,7 @@ demo_totp_last_step() {
 demo_login_mfa() {
   local base="$1" user="$2" password="$3" secret="${4:-}" challenge code
   DEMO_TOKEN=""
-  demo_api POST "$base" /auth/login "" "$(python3 -c 'import json,sys; print(json.dumps({"username":sys.argv[1],"password":sys.argv[2]}))' "$user" "$password")"
+  demo_api POST "$base" /auth/login "" "$(DEMO_U="$user" DEMO_P="$password" python3 -c 'import json,os; print(json.dumps({"username":os.environ["DEMO_U"],"password":os.environ["DEMO_P"]}))')"
   [ "$DEMO_HTTP_CODE" = "200" ] || { echo "login ($user) returned $DEMO_HTTP_CODE: $DEMO_BODY" >&2; return 1; }
   if [ "$(demo_json 'd["data"].get("mfa_required")' "$DEMO_BODY")" = "True" ]; then
     [ -n "$secret" ] || { echo "login ($user) needs a second factor but no TOTP secret is known" >&2; return 1; }
@@ -178,7 +185,7 @@ demo_enroll_mfa() {
   demo_totp_code "$DEMO_MFA_SECRET"
   code="$DEMO_CODE"
   demo_api POST "$base" /api/v1/auth/mfa/activate "$pre_token" \
-    "$(python3 -c 'import json,sys; print(json.dumps({"code":sys.argv[1],"password":sys.argv[2]}))' "$code" "$password")"
+    "$(DEMO_C="$code" DEMO_P="$password" python3 -c 'import json,os; print(json.dumps({"code":os.environ["DEMO_C"],"password":os.environ["DEMO_P"]}))')"
   [ "$DEMO_HTTP_CODE" = "200" ] || { echo "MFA activate returned $DEMO_HTTP_CODE: $DEMO_BODY" >&2; return 1; }
   DEMO_RECOVERY_CODES="$(demo_json '" ".join(d["data"].get("recovery_codes") or [])' "$DEMO_BODY")"
 

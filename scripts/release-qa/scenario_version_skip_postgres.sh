@@ -109,16 +109,17 @@ rm -f "$OLD_CONFIG.bak"
 pass "old: start, bootstrap admin, login"
 KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" start_server "$OLD_SERVER_BIN" "$OLD_CONFIG" "old"
 clear_cli_credentials
-"$OLD_CLI_BIN" system init --server "$SERVER_URL" --admin-username admin \
-    --admin-password "$ADMIN_PASSWORD" --admin-email admin@release-qa.local \
-    --bootstrap-token "$BOOTSTRAP_TOKEN" || fail "old system init --server exited non-zero"
-"$OLD_CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
+KEYORIX_ADMIN_PASSWORD="$ADMIN_PASSWORD" KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    "$OLD_CLI_BIN" system init --server "$SERVER_URL" --admin-username admin \
+    --admin-email admin@release-qa.local || fail "old system init --server exited non-zero"
+printf '%s\n' "$ADMIN_PASSWORD" | "$OLD_CLI_BIN" login --server "$SERVER_URL" --username admin \
     || fail "old login exited non-zero"
 
 pass "old: create project + secret"
 "$OLD_CLI_BIN" project create --name qavs-project || fail "old project create exited non-zero"
 SECRET_VALUE="qavs-secret-value-$$-${RANDOM}"
-"$OLD_CLI_BIN" secret create --name qavs-secret --value "$SECRET_VALUE" \
+(umask 077 && printf '%s' "$SECRET_VALUE" > ./secret-value.txt)
+"$OLD_CLI_BIN" secret create --name qavs-secret --from-file ./secret-value.txt \
     --project 1 --environment 1 || fail "old secret create exited non-zero"
 
 pass "old: machine identity granted project_viewer -- PROBE A (must be ALLOWED)"
@@ -248,7 +249,7 @@ start_server "$NEW_SERVER_BIN" "$NEW_CONFIG" "new"
 
 pass "new: login"
 clear_cli_credentials
-"$NEW_CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" "$NEW_CLI_BIN" login --server "$SERVER_URL" --username admin \
     || fail "new login exited non-zero"
 
 # ADR-112 item 1: security.require_mfa defaults on for the HEAD binary --
@@ -267,14 +268,15 @@ $ENROLL_OUT"
 pass "new: mfa activate"
 MFA_CODE="$(cd "$REPO_ROOT" && HOME="$REAL_HOME" GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET")" \
     || fail "totpgen exited non-zero"
-"$NEW_CLI_BIN" mfa activate --code "$MFA_CODE" --password "$ADMIN_PASSWORD" \
+KEYORIX_MFA_CODE="$MFA_CODE" KEYORIX_PASSWORD="$ADMIN_PASSWORD" \
+    "$NEW_CLI_BIN" mfa activate \
     || fail "new mfa activate exited non-zero"
 
 pass "new: login (again, now MFA-enabled)"
 MFA_LOGIN_CODE="$(cd "$REPO_ROOT" && HOME="$REAL_HOME" GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET" 30)" \
     || fail "totpgen exited non-zero"
-"$NEW_CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
-    --mfa-code "$MFA_LOGIN_CODE" || fail "new login (MFA-enabled) exited non-zero"
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" KEYORIX_MFA_CODE="$MFA_LOGIN_CODE" \
+    "$NEW_CLI_BIN" login --server "$SERVER_URL" --username admin || fail "new login (MFA-enabled) exited non-zero"
 
 pass "new: secret decrypts identically"
 NEW_GET_OUT="$("$NEW_CLI_BIN" secret get --id 1 --show-value)" || fail "new secret get exited non-zero:

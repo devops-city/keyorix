@@ -59,15 +59,20 @@ func TestJourney_CLILoginWithMFA(t *testing.T) {
 	// session it is supposed to be obtaining here.
 	loginEnv := s.CLIEnv()
 
-	t.Run("1. no --mfa-code and no terminal names the flag, never \"HTTP 200\"", func(t *testing.T) {
+	t.Run("1. no MFA code and no terminal names KEYORIX_MFA_CODE, never \"HTTP 200\"", func(t *testing.T) {
 		out := runCLIExpectErr(t, cliBin, loginEnv,
 			"login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw)
 		// The #2737 symptom, verbatim.
 		if strings.Contains(out, "HTTP 200") {
 			t.Fatalf("regression: the login POST's success status is being reported as the failure:\n%s", out)
 		}
-		if !strings.Contains(out, "--mfa-code") {
-			t.Fatalf("expected the error to name --mfa-code (there is no terminal to prompt on here):\n%s", out)
+		if !strings.Contains(out, "KEYORIX_MFA_CODE") {
+			t.Fatalf("expected the error to name KEYORIX_MFA_CODE (there is no terminal to prompt on here):\n%s", out)
+		}
+		// The hint must steer to the env var, not to a secret on the command line, and must
+		// never echo the password it was given.
+		if strings.Contains(out, "--mfa-code") || strings.Contains(out, adminPw) {
+			t.Fatalf("the no-terminal hint must not suggest --mfa-code or echo a secret:\n%s", out)
 		}
 	})
 

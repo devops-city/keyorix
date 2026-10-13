@@ -34,6 +34,11 @@ mkdir -p "$BIN"
 VAULT_NAME=""
 SERVER_PID=""
 
+# Secrets never go on a command line (argv is visible in ps / CI logs): tokens and
+# passwords reach docker via --env-file, curl via `-H @file` / `--data-binary @-`,
+# keyorix / keyorix-migrate via environment variables. Files are 0600 in WORKDIR.
+umask 077
+
 log()  { printf '\n\033[1;36m▶ %s\033[0m\n' "$1"; }
 ok()   { printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
 note() { printf '  %s\n' "$1"; }
@@ -54,6 +59,7 @@ log "Building keyorix-server, keyorix, keyorix-migrate"
 (cd "$ROOT" && go build -o "${BIN}/keyorix-server" ./server)
 (cd "${ROOT}/cli" && GOWORK=off go build -o "${BIN}/keyorix" .)
 (cd "${ROOT}/migrate" && GOWORK=off go build -o "${BIN}/keyorix-migrate" .)
+(cd "$ROOT" && GOWORK=off go build -o "${BIN}/totpgen" scripts/totpgen/main.go)
 ok "binaries in ${BIN}"
 
 # ── 1. Seed a realistic Vault ────────────────────────────────────────────────────
@@ -67,8 +73,10 @@ case "$BACKEND" in
 esac
 VAULT_ROOT_TOKEN="demo-root-token"
 VAULT_NAME="mig3-demo-${BACKEND}-$$"
+VAULT_ENV_FILE="${WORKDIR}/vault.env"
+printf '%s=%s\n%s=%s\n' "$ROOT_TOKEN_VAR" "$VAULT_ROOT_TOKEN" "$LISTEN_VAR" "0.0.0.0:8200" >"$VAULT_ENV_FILE"
 docker run -d --rm --name "$VAULT_NAME" --cap-add=IPC_LOCK -p 127.0.0.1:0:8200 \
-  -e "${ROOT_TOKEN_VAR}=${VAULT_ROOT_TOKEN}" -e "${LISTEN_VAR}=0.0.0.0:8200" \
+  --env-file "$VAULT_ENV_FILE" \
   "$IMAGE" >/dev/null
 VAULT_HOST_PORT="$(docker port "$VAULT_NAME" 8200/tcp | grep 127.0.0.1 | head -1 | cut -d: -f2)"
 VAULT_ADDR="http://127.0.0.1:${VAULT_HOST_PORT}"
@@ -76,8 +84,16 @@ for _ in $(seq 1 30); do curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 
 curl -sf "${VAULT_ADDR}/v1/sys/health" >/dev/null 2>&1 || { echo "${BACKEND} never became healthy" >&2; docker logs "$VAULT_NAME"; exit 1; }
 ok "${BACKEND} healthy at ${VAULT_ADDR}"
 
-VH=(-H "X-Vault-Token: ${VAULT_ROOT_TOKEN}")
-vreq() { curl -sf "${VH[@]}" -X "$1" "${VAULT_ADDR}/v1/$2" ${3:+-d "$3"}; }
+VAULT_ROOT_HDR="${WORKDIR}/vault-root.hdr"
+printf 'X-Vault-Token: %s\n' "$VAULT_ROOT_TOKEN" >"$VAULT_ROOT_HDR"
+# vreq <METHOD> <path> [json-body]: the body goes over stdin, the token via a header file.
+vreq() {
+  if [[ -n "${3:-}" ]]; then
+    printf '%s' "$3" | curl -sf -H "@${VAULT_ROOT_HDR}" -X "$1" --data-binary @- "${VAULT_ADDR}/v1/$2"
+  else
+    curl -sf -H "@${VAULT_ROOT_HDR}" -X "$1" "${VAULT_ADDR}/v1/$2"
+  fi
+}
 
 # KV v2 (the dev-mode default secret/ mount) + a legacy KV v1 mount.
 vreq POST "sys/mounts/kv1-legacy" '{"type":"kv","options":{"version":"1"}}' >/dev/null
@@ -141,40 +157,53 @@ SERVER_PID="$(cat "${WORKDIR}/server.pid")"
 for _ in $(seq 1 30); do curl -sf "http://localhost:${KEYORIX_PORT}/health" >/dev/null 2>&1 && break; sleep 1; done
 curl -sf "http://localhost:${KEYORIX_PORT}/health" >/dev/null 2>&1 || { echo "keyorix-server never became healthy" >&2; cat "${WORKDIR}/server.log"; exit 1; }
 
-CLI_ENV=(HOME="$WORKDIR")
 # The admin password and bootstrap token go by environment variable, not argv.
-# (KEYORIX_BOOTSTRAP_TOKEN is already exported above.)
-KEYORIX_ADMIN_PASSWORD='Demo-Correct-Horse-9' env "${CLI_ENV[@]}" \
+# (KEYORIX_BOOTSTRAP_TOKEN is already exported above.) Assignments are prefixed to the
+# command itself, not passed through `env`, whose own argv would carry them.
+DEMO_ADMIN_PASSWORD='Demo-Correct-Horse-9'
+HOME="$WORKDIR" KEYORIX_ADMIN_PASSWORD="$DEMO_ADMIN_PASSWORD" \
   "${BIN}/keyorix" system init --server http://localhost:"${KEYORIX_PORT}" \
   --admin-username admin --admin-email admin@demo.local >/dev/null
 ok "Keyorix running at http://localhost:${KEYORIX_PORT}, admin bootstrapped"
 
-ADMIN_TOKEN_JSON="$(curl -sf -X POST http://localhost:"${KEYORIX_PORT}"/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"Demo-Correct-Horse-9"}')"
-ADMIN_TOKEN="$(echo "$ADMIN_TOKEN_JSON" | jq -r '.data.token')"
-AUTH=(-H "Authorization: Bearer ${ADMIN_TOKEN}")
+# security.require_mfa is on by default (ADR-112): the bootstrapped admin is confined to
+# MFA enrolment until it enrols TOTP, so enrol through the API (lib.sh, shared with
+# up.sh / check.sh; totpgen stands in for an authenticator app) and use the post-MFA
+# session token below.
+# shellcheck source=scripts/demo/lib.sh
+source "${ROOT}/scripts/demo/lib.sh"
+TOTPGEN_BIN="${BIN}/totpgen"
+DEMO_STEP_DIR="${WORKDIR}/.totp-steps"
+demo_enroll_mfa "http://localhost:${KEYORIX_PORT}" admin "$DEMO_ADMIN_PASSWORD" \
+  || { echo "MFA enrolment for the demo admin failed" >&2; exit 1; }
+ADMIN_TOKEN="$DEMO_TOKEN"
+ADMIN_HDR="${WORKDIR}/admin.hdr"
+printf 'Authorization: Bearer %s\n' "$ADMIN_TOKEN" >"$ADMIN_HDR"
+AUTH=(-H "@${ADMIN_HDR}")
 
-env "${CLI_ENV[@]}" KEYORIX_SERVER=http://localhost:"${KEYORIX_PORT}" KEYORIX_TOKEN="$ADMIN_TOKEN" \
+HOME="$WORKDIR" KEYORIX_SERVER=http://localhost:"${KEYORIX_PORT}" KEYORIX_TOKEN="$ADMIN_TOKEN" \
   "${BIN}/keyorix" project create --name "from-vault" >/dev/null
 PROJECT_ID="$(curl -sf "${AUTH[@]}" http://localhost:"${KEYORIX_PORT}"/api/v1/projects | jq -r '.data.projects[] | select(.name=="from-vault") | .id')"
 ENVIRONMENT_ID="$(curl -sf "${AUTH[@]}" "http://localhost:${KEYORIX_PORT}/api/v1/projects/${PROJECT_ID}/environments" | jq -r '.data.environments[] | select(.name=="production") | .id')"
-PAT_OUT="$(env "${CLI_ENV[@]}" KEYORIX_SERVER=http://localhost:"${KEYORIX_PORT}" KEYORIX_TOKEN="$ADMIN_TOKEN" \
+PAT_OUT="$(HOME="$WORKDIR" KEYORIX_SERVER=http://localhost:"${KEYORIX_PORT}" KEYORIX_TOKEN="$ADMIN_TOKEN" \
   "${BIN}/keyorix" pat create --name demo-migration-pat)"
 PAT="$(echo "$PAT_OUT" | grep -o 'kx_pat_[^[:space:]]*' | head -1)"
 ok "project \"from-vault\" (id ${PROJECT_ID}), environment \"production\" (id ${ENVIRONMENT_ID}), PAT issued"
 
-MIGRATE=("${BIN}/keyorix-migrate" vault --vault-addr "$VAULT_ADDR" --vault-token "$VAULT_ROOT_TOKEN")
+# keyorix-migrate reads the Vault token from $VAULT_TOKEN and the Keyorix PAT from
+# $KEYORIX_TOKEN (never --vault-token / --token: argv is visible in ps).
+kmigrate() { VAULT_TOKEN="$VAULT_ROOT_TOKEN" KEYORIX_TOKEN="$PAT" "${BIN}/keyorix-migrate" "$@"; }
+MIGRATE=(kmigrate vault --vault-addr "$VAULT_ADDR")
 
 # ── 3. Health scan (read-only, safe against production) ────────────────────────
 log "Step 1/6 — vault scan (read-only health check)"
-"${BIN}/keyorix-migrate" vault scan --addr "$VAULT_ADDR" --token "$VAULT_ROOT_TOKEN" --output "${WORKDIR}/scan"
+kmigrate vault scan --addr "$VAULT_ADDR" --output "${WORKDIR}/scan"
 SCAN_SCORE_LINE="$(grep -m1 -i "score" "${WORKDIR}/scan.md" || true)"
 ok "report: ${WORKDIR}/scan.{md,json,html} — ${SCAN_SCORE_LINE:-see scan.md}"
 
 # ── 4. Plan the secret-value migration (dry run) ─────────────────────────────────
 log "Step 2/6 — vault (dry-run plan for secret values)"
-PLAN_OUT="$("${MIGRATE[@]}" --vault-mount secret --vault-path "" --server http://localhost:"${KEYORIX_PORT}" --token "$PAT" --project "$PROJECT_ID" --environment "$ENVIRONMENT_ID")"
+PLAN_OUT="$("${MIGRATE[@]}" --vault-mount secret --vault-path "" --server http://localhost:"${KEYORIX_PORT}" --project "$PROJECT_ID" --environment "$ENVIRONMENT_ID")"
 echo "$PLAN_OUT" | sed 's/^/  /'
 
 # ── 5. Plan the access-model migration (dry run) ─────────────────────────────────
@@ -185,20 +214,20 @@ echo "$PLAN_OUT" | sed 's/^/  /'
 # actually wants to show (deny-overlap, userpass).
 PATH_MAP="secret/data=${PROJECT_ID}:${ENVIRONMENT_ID}"
 log "Step 3/6 — vault plan-access (dry-run plan for roles/grants/machine identities)"
-"${BIN}/keyorix-migrate" vault plan-access --vault-addr "$VAULT_ADDR" --vault-token "$VAULT_ROOT_TOKEN" \
-  --server http://localhost:"${KEYORIX_PORT}" --token "$PAT" --path-map "$PATH_MAP" --k8s-issuer "https://k8s.demo.local" --output "${WORKDIR}/access-plan"
+kmigrate vault plan-access --vault-addr "$VAULT_ADDR" \
+  --server http://localhost:"${KEYORIX_PORT}" --path-map "$PATH_MAP" --k8s-issuer "https://k8s.demo.local" --output "${WORKDIR}/access-plan"
 ok "report: ${WORKDIR}/access-plan.{md,json,html}"
 note "[human review happens here — an operator reads access-plan.md before anything is applied]"
 
 # ── 6. Apply both plans ───────────────────────────────────────────────────────────
 log "Step 4/6 — vault --apply (writes secret values)"
-"${MIGRATE[@]}" --vault-mount secret --vault-path "" --server http://localhost:"${KEYORIX_PORT}" --token "$PAT" \
+"${MIGRATE[@]}" --vault-mount secret --vault-path "" --server http://localhost:"${KEYORIX_PORT}" \
   --project "$PROJECT_ID" --environment "$ENVIRONMENT_ID" --apply | sed 's/^/  /'
 
 log "Step 5/6 — vault apply-access (writes roles, grants, machine identities)"
 CREDS_OUT="${WORKDIR}/migrated-credentials.txt"
-"${BIN}/keyorix-migrate" vault apply-access --vault-addr "$VAULT_ADDR" --vault-token "$VAULT_ROOT_TOKEN" \
-  --server http://localhost:"${KEYORIX_PORT}" --token "$PAT" --path-map "$PATH_MAP" --k8s-issuer "https://k8s.demo.local" \
+kmigrate vault apply-access --vault-addr "$VAULT_ADDR" \
+  --server http://localhost:"${KEYORIX_PORT}" --path-map "$PATH_MAP" --k8s-issuer "https://k8s.demo.local" \
   --plan "${WORKDIR}/access-plan.json" --credentials-out "$CREDS_OUT" | sed 's/^/  /'
 ok "machine credentials written to ${CREDS_OUT} (0600, never printed)"
 
@@ -206,14 +235,16 @@ ok "machine credentials written to ${CREDS_OUT} (0600, never printed)"
 log "Step 6/6 — access-equivalence check (ADR-114's governing rule, proved against THIS run)"
 ROLE_ID="$(vreq GET "auth/approle/role/ci-payments-reader/role-id" | jq -r '.data.role_id')"
 SECRET_ID="$(vreq POST "auth/approle/role/ci-payments-reader/secret-id" '{}' | jq -r '.data.secret_id')"
-MIGRATOR_TOKEN="$(curl -sf -X POST "${VAULT_ADDR}/v1/auth/approle/login" \
-  -d "{\"role_id\":\"${ROLE_ID}\",\"secret_id\":\"${SECRET_ID}\"}" | jq -r '.auth.client_token')"
+MIGRATOR_TOKEN="$(printf '{"role_id":"%s","secret_id":"%s"}' "$ROLE_ID" "$SECRET_ID" \
+  | curl -sf -X POST --data-binary @- "${VAULT_ADDR}/v1/auth/approle/login" | jq -r '.auth.client_token')"
+MIGRATOR_HDR="${WORKDIR}/migrator.hdr"
+printf 'X-Vault-Token: %s\n' "$MIGRATOR_TOKEN" >"$MIGRATOR_HDR"
 
 keyorix_names="$(curl -sf "${AUTH[@]}" "http://localhost:${KEYORIX_PORT}/api/v1/secrets?project_id=${PROJECT_ID}&environment_id=${ENVIRONMENT_ID}" | jq -r '.data.secrets[].name')"
 
 extra_access=0
 for leaf in payments/stripe payments/db mobile-app/firebase; do
-  allowed="$(curl -sf -H "X-Vault-Token: ${MIGRATOR_TOKEN}" -X POST "${VAULT_ADDR}/v1/sys/capabilities-self" \
+  allowed="$(curl -sf -H "@${MIGRATOR_HDR}" -X POST "${VAULT_ADDR}/v1/sys/capabilities-self" \
     -d "{\"paths\":[\"secret/data/${leaf}\"]}" | jq -r '.capabilities[]?' | grep -c '^read$' || true)"
   secret_name="$(basename "$leaf")"
   in_keyorix="$(echo "$keyorix_names" | grep -c "^${secret_name}$" || true)"
@@ -224,7 +255,7 @@ for leaf in payments/stripe payments/db mobile-app/firebase; do
 done
 # Negative control: a path never granted to this role must still be denied, proving
 # the check discriminates rather than passing vacuously.
-denied_check="$(curl -sf -H "X-Vault-Token: ${MIGRATOR_TOKEN}" -X POST "${VAULT_ADDR}/v1/sys/capabilities-self" \
+denied_check="$(curl -sf -H "@${MIGRATOR_HDR}" -X POST "${VAULT_ADDR}/v1/sys/capabilities-self" \
   -d '{"paths":["kv1-legacy/legacy/smtp"]}' | jq -r '.capabilities[]?' | grep -c '^read$' || true)"
 if [[ "$denied_check" -gt 0 ]]; then
   echo "  negative control FAILED: ci-payments-reader should not read kv1-legacy/legacy/smtp" >&2

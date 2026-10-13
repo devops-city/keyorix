@@ -273,15 +273,20 @@ func completeMFAChallenge(ctx context.Context, cmd *cobra.Command, client *apicl
 }
 
 // resolveMFACode resolves the second-factor code: the (insecure, warned) --mfa-code flag,
-// or else an interactive no-echo prompt. With neither — no flag and no terminal to prompt
+// else KEYORIX_MFA_CODE / KEYORIX_MFA_CODE_FILE, else an interactive no-echo prompt. With neither — no flag and no terminal to prompt
 // on — it names the flag instead of blocking on a pipe that will never carry one.
 func resolveMFACode(cmd *cobra.Command) (string, error) {
 	if loginMFACode != "" {
 		warnInsecureFlag(cmd, "mfa-code", "omit it to be prompted instead.")
 		return loginMFACode, nil
 	}
+	if c, found, err := lookupSecretEnv("KEYORIX_MFA_CODE"); err != nil {
+		return "", err
+	} else if found {
+		return strings.TrimSpace(c), nil
+	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("this account requires a second factor and there is no terminal to prompt on: pass --mfa-code <authenticator or recovery code>") // docs-secrets:allow -- single-use code; the only non-interactive path when there is no TTY
+		return "", fmt.Errorf("this account requires a second factor and there is no terminal to prompt on: set KEYORIX_MFA_CODE (or KEYORIX_MFA_CODE_FILE) to an authenticator or recovery code")
 	}
 	code, err := promptPassword("Authenticator code (or an unused recovery code): ")
 	if err != nil {
@@ -351,14 +356,20 @@ func resolveLoginServerURL() (string, error) {
 	return serverURL, nil
 }
 
-// resolveLoginPassword resolves the password: the (insecure, warned) --password flag, or
-// else an interactive no-echo prompt. CLI-LOGIN-001: --password previously carried no
+// resolveLoginPassword resolves the password: the (insecure, warned) --password flag, else
+// KEYORIX_PASSWORD / KEYORIX_PASSWORD_FILE, else an interactive no-echo prompt. CLI-LOGIN-001: --password previously carried no
 // warnInsecureFlag call, unlike every sibling command with a password-bearing flag
 // (systeminit.go's --admin-password, user.go's --password).
 func resolveLoginPassword(cmd *cobra.Command) (string, error) {
 	if loginPassword != "" {
 		warnInsecureFlag(cmd, "password", "omit it to be prompted instead.")
 		return loginPassword, nil
+	}
+	// KEYORIX_PASSWORD / KEYORIX_PASSWORD_FILE: the non-argv, non-TTY path for scripts.
+	if p, found, err := lookupSecretEnv("KEYORIX_PASSWORD"); err != nil {
+		return "", err
+	} else if found {
+		return p, nil
 	}
 	p, err := promptPassword("Password: ")
 	if err != nil {

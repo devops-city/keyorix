@@ -272,18 +272,20 @@ func TestResolveSessionToken_NonOKSurfacesTheServersMessage(t *testing.T) {
 }
 
 // resolveMFACode must not block on a pipe that will never carry a code: with no
-// --mfa-code and no terminal (how `go test`, CI, and scripts run the CLI) it names the
-// flag instead of hanging on stdin.
-func TestResolveMFACode_NoFlagNoTerminalNamesTheFlag(t *testing.T) {
+// --mfa-code, no KEYORIX_MFA_CODE and no terminal (how `go test`, CI, and scripts run the
+// CLI) it names the env var instead of hanging on stdin.
+func TestResolveMFACode_NoFlagNoTerminalNamesTheEnvVar(t *testing.T) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		t.Skip("stdin is a terminal here, so the interactive prompt path would be taken; this test covers the non-TTY path only")
 	}
+	t.Setenv("KEYORIX_MFA_CODE", "")
+	t.Setenv("KEYORIX_MFA_CODE_FILE", "")
 	_, err := resolveMFACode(loginCmd)
 	if err == nil {
 		t.Fatal("expected an error when no code can be obtained")
 	}
-	if !strings.Contains(err.Error(), "--mfa-code") {
-		t.Fatalf("expected the error to name --mfa-code, got: %v", err)
+	if !strings.Contains(err.Error(), "KEYORIX_MFA_CODE") {
+		t.Fatalf("expected the error to name KEYORIX_MFA_CODE, got: %v", err)
 	}
 }
 

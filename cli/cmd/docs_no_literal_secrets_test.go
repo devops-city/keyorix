@@ -16,8 +16,13 @@
 //     prose is not scanned, so "the --password flag" is fine.
 //   - Go and NOTES.txt: any line that is a quoted/$/<..> value after the flag, or
 //     any value on a line that mentions `keyorix`.
-//   - Shell scripts (scripts/**/*.sh) are executed by CI, not shown to users, and
-//     are NOT scanned here.
+//   - Shell scripts (scripts/**/*.sh, deploy/**/*.sh; SCRIPTS-SECRETS-1): an argv
+//     is visible in ps and CI logs whether or not a human reads the script, so any
+//     secretFlags flag followed by a value on a non-comment line is a hit. There is
+//     no allowlist: a script that needs a secret uses KEYORIX_* env vars (the
+//     *_FILE form where a file is natural), --from-file, or a stdin pipe. This
+//     covers flag-style argv only: a secret in curl -H/-d, docker -e, helm --set,
+//     kubectl --from-literal or an interpreter's argv is NOT detected here.
 //   - Only the flags in secretFlags. A new secret-carrying flag must be added.
 //
 // An intentional "don't do this" example opts out per line with the marker
@@ -145,6 +150,22 @@ func scanTextForSecrets(content string) []docsSecretHit {
 	return hits
 }
 
+// scanShellForSecrets flags a secretFlags flag with a value on any non-comment line of a
+// shell script. Comment-only lines are skipped (they document, they do not execute); a
+// trailing comment on a code line is still scanned, and the explicit marker opts a line out.
+func scanShellForSecrets(content string) []docsSecretHit {
+	var hits []docsSecretHit
+	for i, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if f := findSecretOnCommandLine(line, false); f != "" {
+			hits = append(hits, docsSecretHit{i + 1, f, strings.TrimSpace(line)})
+		}
+	}
+	return hits
+}
+
 var docsSecretsSkipDirs = map[string]bool{
 	".git": true, "node_modules": true, "vendor": true, ".scratch": true,
 	"dist": true, "build": true, ".next": true, "target": true,
@@ -168,7 +189,11 @@ func TestDocsShowNoLiteralSecretOnCommandLine(t *testing.T) {
 		isMD := strings.HasSuffix(name, ".md")
 		isNotes := name == "NOTES.txt"
 		isGo := strings.HasSuffix(name, ".go") && !strings.HasSuffix(name, "_test.go")
-		if !isMD && !isNotes && !isGo {
+		relSh, _ := filepath.Rel(root, path)
+		relSh = filepath.ToSlash(relSh)
+		isShell := strings.HasSuffix(name, ".sh") &&
+			(strings.HasPrefix(relSh, "scripts/") || strings.HasPrefix(relSh, "deploy/"))
+		if !isMD && !isNotes && !isGo && !isShell {
 			return nil
 		}
 		b, rerr := os.ReadFile(path) // #nosec G304 -- walk of the repo checkout
@@ -177,9 +202,12 @@ func TestDocsShowNoLiteralSecretOnCommandLine(t *testing.T) {
 		}
 		scanned++
 		var hits []docsSecretHit
-		if isMD {
+		switch {
+		case isMD:
 			hits = scanMarkdownForSecrets(string(b))
-		} else {
+		case isShell:
+			hits = scanShellForSecrets(string(b))
+		default:
 			hits = scanTextForSecrets(string(b))
 		}
 		rel, _ := filepath.Rel(root, path)
@@ -238,6 +266,35 @@ func TestDocsSecretGuardCalibration(t *testing.T) {
 	for name, md := range mustPass {
 		if hits := scanMarkdownForSecrets(md); len(hits) != 0 {
 			t.Errorf("guard false positive (%s): %q -> %+v", name, md, hits)
+		}
+	}
+
+	// Shell scripts: red on the shapes the scripts used to carry, green on the safe forms.
+	for name, sh := range map[string]string{
+		"smoke init":       "\"$CLI_BIN\" system init --server \"$URL\" \\\n    --admin-password \"$ADMIN_PASSWORD\" --admin-email a@b.c",
+		"login password":   `"$CLI" login --server "$URL" --username admin --password "$PW"`,
+		"mfa code":         `"$CLI" login --username admin --mfa-code "$CODE"`,
+		"secret value":     `kx secret create --name x --value 'literal' --project 1`,
+		"vault token":      `keyorix-migrate vault --vault-addr "$A" --vault-token "$T"`,
+		"pat token":        `keyorix-migrate vault plan-access --server "$S" --token "$PAT"`,
+		"equals form":      `"$CLI" login --password="$PW"`,
+		"trailing comment": `"$CLI" login --password "$PW" # not a comment-only line`,
+	} {
+		if len(scanShellForSecrets(sh)) == 0 {
+			t.Errorf("shell guard missed (%s): %q", name, sh)
+		}
+	}
+	for name, sh := range map[string]string{
+		"env prefix":     `KEYORIX_PASSWORD="$PW" "$CLI" login --server "$URL" --username admin`,
+		"from-file":      `"$CLI" secret create --name x --from-file ./v.txt --project 1`,
+		"token-file":     `keyorix-migrate vault --vault-token-file ./t --token-file ./k`,
+		"stdin pipe":     `printf '%s\n' "$PW" | "$CLI" login --server "$URL" --username admin`,
+		"comment only":   `# the old form was --password "$PW" and leaked into ps`,
+		"flag then flag": `"$CLI" secret create --value --name x`,
+		"allow marker":   `"$CLI" login --password "$PW" # docs-secrets:allow (fixture)`,
+	} {
+		if hits := scanShellForSecrets(sh); len(hits) != 0 {
+			t.Errorf("shell guard false positive (%s): %q -> %+v", name, sh, hits)
 		}
 	}
 

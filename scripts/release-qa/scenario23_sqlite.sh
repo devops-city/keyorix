@@ -60,10 +60,10 @@ sed -i.bak -E "s/port: \"8080\"/port: \"$SERVER_PORT\"/" "$CONFIG_PATH"
 
 pass "start #1, bootstrap admin, create a secret"
 KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" start_server "boot1"
-"$CLI_BIN" system init --server "$SERVER_URL" --admin-username admin \
-    --admin-password "$ADMIN_PASSWORD" --admin-email admin@release-qa.local \
-    --bootstrap-token "$BOOTSTRAP_TOKEN" || fail "system init --server exited non-zero"
-"$CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
+KEYORIX_ADMIN_PASSWORD="$ADMIN_PASSWORD" KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    "$CLI_BIN" system init --server "$SERVER_URL" --admin-username admin \
+    --admin-email admin@release-qa.local || fail "system init --server exited non-zero"
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" "$CLI_BIN" login --server "$SERVER_URL" --username admin \
     || fail "login exited non-zero"
 
 # ADR-112 item 1: security.require_mfa defaults on -- enrol for real (see
@@ -77,15 +77,17 @@ MFA_SECRET="$(echo "$ENROLL_OUT" | grep -E '^  [A-Z2-7]+$' | tr -d '[:space:]')"
 $ENROLL_OUT"
 MFA_CODE="$(cd "$REPO_ROOT" && HOME="$REAL_HOME" GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET")" \
     || fail "totpgen exited non-zero"
-"$CLI_BIN" mfa activate --code "$MFA_CODE" --password "$ADMIN_PASSWORD" \
+KEYORIX_MFA_CODE="$MFA_CODE" KEYORIX_PASSWORD="$ADMIN_PASSWORD" \
+    "$CLI_BIN" mfa activate \
     || fail "mfa activate exited non-zero"
 MFA_LOGIN_CODE="$(cd "$REPO_ROOT" && HOME="$REAL_HOME" GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET" 30)" \
     || fail "totpgen exited non-zero"
-"$CLI_BIN" login --server "$SERVER_URL" --username admin --password "$ADMIN_PASSWORD" \
-    --mfa-code "$MFA_LOGIN_CODE" || fail "login (MFA-enabled) exited non-zero"
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" KEYORIX_MFA_CODE="$MFA_LOGIN_CODE" \
+    "$CLI_BIN" login --server "$SERVER_URL" --username admin || fail "login (MFA-enabled) exited non-zero"
 
 SECRET_VALUE="qa23-value-$$-${RANDOM}"
-"$CLI_BIN" secret create --name qa23-secret --value "$SECRET_VALUE" \
+(umask 077 && printf '%s' "$SECRET_VALUE" > ./secret-value.txt)
+"$CLI_BIN" secret create --name qa23-secret --from-file ./secret-value.txt \
     --project 1 --environment 1 || fail "secret create exited non-zero"
 
 pass "SCENARIO 2: restart survives"

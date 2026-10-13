@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -60,9 +61,9 @@ On success, a 15-minute window is opened server-side that allows reading
 func init() {
 	// --code/--password are INSECURE on the command line (visible via ps/proc and saved
 	// in shell history) -- same reasoning as loginCmd's --api-key. Omit to be prompted.
-	mfaActivateCmd.Flags().StringVar(&mfaActivateCode, "code", "", "TOTP code from the authenticator app (INSECURE on the command line -- omit to be prompted)")
-	mfaActivateCmd.Flags().StringVar(&mfaActivatePassword, "password", "", "Account password (INSECURE on the command line -- omit to be prompted)")
-	mfaStepUpCmd.Flags().StringVar(&mfaStepUpCode, "code", "", "TOTP or recovery code (INSECURE on the command line -- omit to be prompted)")
+	mfaActivateCmd.Flags().StringVar(&mfaActivateCode, "code", "", "TOTP code from the authenticator app (INSECURE on the command line -- prefer KEYORIX_MFA_CODE[_FILE], or omit to be prompted)")
+	mfaActivateCmd.Flags().StringVar(&mfaActivatePassword, "password", "", "Account password (INSECURE on the command line -- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted)")
+	mfaStepUpCmd.Flags().StringVar(&mfaStepUpCode, "code", "", "TOTP or recovery code (INSECURE on the command line -- prefer KEYORIX_MFA_CODE[_FILE], or omit to be prompted)")
 	mfaCmd.AddCommand(mfaEnrollCmd)
 	mfaCmd.AddCommand(mfaActivateCmd)
 	mfaCmd.AddCommand(mfaStepUpCmd)
@@ -123,18 +124,34 @@ func runMFAActivate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("MFA activation requires an active session -- run \"keyorix login\" first")
 	}
 
+	// flag (warned) > KEYORIX_MFA_CODE[_FILE] / KEYORIX_PASSWORD[_FILE] > prompt. The env
+	// path matters for scripts: two prompts on one non-TTY stdin lose the second line.
 	code := mfaActivateCode
 	if code == "" {
-		code, err = promptLine("Enter TOTP code from your authenticator app: ")
-		if err != nil || code == "" {
-			return fmt.Errorf("code is required")
+		c, found, eerr := lookupSecretEnv("KEYORIX_MFA_CODE")
+		if eerr != nil {
+			return eerr
+		}
+		code = strings.TrimSpace(c)
+		if !found {
+			code, err = promptLine("Enter TOTP code from your authenticator app: ")
+			if err != nil || code == "" {
+				return fmt.Errorf("code is required")
+			}
 		}
 	}
 	password := mfaActivatePassword
 	if password == "" {
-		password, err = promptPassword("Account password: ")
-		if err != nil || password == "" {
-			return fmt.Errorf("password is required")
+		p, found, eerr := lookupSecretEnv("KEYORIX_PASSWORD")
+		if eerr != nil {
+			return eerr
+		}
+		password = p
+		if !found {
+			password, err = promptPassword("Account password: ")
+			if err != nil || password == "" {
+				return fmt.Errorf("password is required")
+			}
 		}
 	}
 
@@ -188,9 +205,16 @@ func runMFAStepUp(cmd *cobra.Command, args []string) error {
 
 	code := mfaStepUpCode
 	if code == "" {
-		code, err = promptLine("Enter TOTP or recovery code: ")
-		if err != nil || code == "" {
-			return fmt.Errorf("code is required")
+		c, found, eerr := lookupSecretEnv("KEYORIX_MFA_CODE")
+		if eerr != nil {
+			return eerr
+		}
+		code = strings.TrimSpace(c)
+		if !found {
+			code, err = promptLine("Enter TOTP or recovery code: ")
+			if err != nil || code == "" {
+				return fmt.Errorf("code is required")
+			}
 		}
 	}
 

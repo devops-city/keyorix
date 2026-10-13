@@ -108,8 +108,11 @@ func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 
 	// ── 4. a normal MFA login, full access, audited ─────────────────────────────
 	out = runCLIExpectErr(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", newPwA)
-	if !strings.Contains(out, "--mfa-code") {
+	if !strings.Contains(out, "KEYORIX_MFA_CODE") {
 		t.Fatalf("login with only the new password must ask for the second factor, got:\n%s", out)
+	}
+	if strings.Contains(out, "--mfa-code") || strings.Contains(out, newPwA) {
+		t.Fatalf("the no-terminal hint must not suggest --mfa-code or echo a secret, got:\n%s", out)
 	}
 	out = runCLI(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", newPwA,
 		"--mfa-code", totpCodeAfterStep(t, secret, burned))

@@ -47,9 +47,18 @@ fi
 
 echo ""
 demo_step "1. Creating the three demo secrets (names match the demo script)"
-./keyorix secret create --name "prod-db-password" --value "super_secure_db_pass_2024" --type "password"
-./keyorix secret create --name "stripe-api-key" --value "sk_live_demo_51abc123def456" --type "api_key"
-./keyorix secret create --name "jwt-signing-key" --value "$(head -c 32 /dev/urandom | base64)" --type "password"
+# The value goes in via --from-file (a 0600 file under the current directory; the CLI
+# refuses absolute paths), never --value: argv is visible in ps and shell history.
+demo_create_secret() {
+    local name="$1" value="$2" type="$3" vfile
+    vfile="$(mktemp ./.keyorix-demo-value.XXXXXX)"
+    printf '%s' "$value" > "$vfile"
+    ./keyorix secret create --name "$name" --from-file "$vfile" --type "$type" || { rm -f "$vfile"; return 1; }
+    rm -f "$vfile"
+}
+demo_create_secret "prod-db-password" "super_secure_db_pass_2024" "password"
+demo_create_secret "stripe-api-key" "sk_live_demo_51abc123def456" "api_key"
+demo_create_secret "jwt-signing-key" "$(head -c 32 /dev/urandom | base64)" "password"
 
 echo ""
 demo_step "2. Creating a limited-permission demo user (for the RBAC chapter)"

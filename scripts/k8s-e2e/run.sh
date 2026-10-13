@@ -118,12 +118,38 @@ CLI_HOME="$WORK_DIR/cli-home"
 mkdir -p "$CLI_HOME"
 kx() { HOME="$CLI_HOME" "$CLI_BIN" "$@"; }
 
+# No secret goes on a command line (argv is visible in ps and CI logs): the CLI takes
+# passwords / MFA codes from KEYORIX_PASSWORD / KEYORIX_MFA_CODE, secret values from
+# --from-file, helm gets its credentials from a 0600 values file, and kubectl gets
+# tokens from a 0600 file via --from-file.
+#   kx_secret_create <name> <value> [secret create flags...]
+kx_secret_create() {
+    local name="$1" value="$2"
+    shift 2
+    (cd "$CLI_HOME" && umask 077 && printf '%s' "$value" >./secret-value.txt \
+        && HOME="$CLI_HOME" "$CLI_BIN" secret create --name "$name" --from-file ./secret-value.txt "$@")
+}
+#   kubectl_token_secret <namespace> <secret-name> <token>
+kubectl_token_secret() {
+    local tokfile="$WORK_DIR/token-$2.txt"
+    (umask 077 && printf '%s' "$3" >"$tokfile")
+    kubectl -n "$1" create secret generic "$2" --from-file=token="$tokfile" >/dev/null
+}
+
 # Compliant with the server's admin-bootstrap password policy (>=16 chars,
 # upper+lower+digit+special) AND avoids the default admin username as a
 # substring -- both documented pitfalls found live in Session J (PR #2271).
 ADMIN_PASSWORD='K8sE2e-Run-Passw0rd!'
 DB_PASSWORD='k8s-e2e-db-password'
 MASTER_PASSWORD='k8s-e2e-master-password'
+
+# helm values carrying the credentials (written 0600; passed with -f, never --set).
+HELM_SECRET_VALUES="$WORK_DIR/helm-secret-values.yaml"
+(umask 077 && printf 'auth:\n  masterPassword: "%s"\n  adminPassword: "%s"\npostgresql:\n  auth:\n    password: "%s"\n' \
+    "$MASTER_PASSWORD" "$ADMIN_PASSWORD" "$DB_PASSWORD" >"$HELM_SECRET_VALUES")
+HELM_PLACEHOLDER_VALUES="$WORK_DIR/helm-placeholder-values.yaml"
+(umask 077 && printf 'auth:\n  masterPassword: "x"\n  adminPassword: "%s"\npostgresql:\n  auth:\n    password: "x"\n' \
+    "$ADMIN_PASSWORD" >"$HELM_PLACEHOLDER_VALUES")
 
 port_forward() {
     # port_forward <namespace> <svc/name> <local-port>:<remote-port>
@@ -148,9 +174,7 @@ J1_NS="${NS_PREFIX}-j1"
 log "J1: helm install (bundled Postgres) in $J1_NS"
 kubectl delete namespace "$J1_NS" --wait=true --ignore-not-found >/dev/null 2>&1 || true
 helm install keyorix "$REPO_ROOT/deploy/helm/keyorix" -n "$J1_NS" --create-namespace \
-    --set auth.masterPassword="$MASTER_PASSWORD" \
-    --set postgresql.auth.password="$DB_PASSWORD" \
-    --set auth.adminPassword="$ADMIN_PASSWORD" \
+    -f "$HELM_SECRET_VALUES" \
     --set server.image.repository=keyorix-server --set server.image.tag="$IMAGE_TAG" \
     --set web.image.repository=keyorix-web --set web.image.tag="$IMAGE_TAG" \
     --wait --timeout 180s
@@ -167,7 +191,7 @@ kubectl -n "$J1_NS" logs deploy/keyorix-keyorix-server | grep -q "System initial
 # create secrets through this same CLI session) -- registered in
 # PORT_FORWARD_PIDS, killed once by cleanup() on exit, not per-use.
 port_forward "$J1_NS" svc/keyorix-keyorix-web 18080:80
-kx login --server http://localhost:18080 --username admin --password "$ADMIN_PASSWORD" >/dev/null \
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" kx login --server http://localhost:18080 --username admin >/dev/null \
     || fail "CLI login as bootstrapped admin failed"
 
 # ADR-112 item 1: security.require_mfa defaults on, so the bootstrap admin is
@@ -185,16 +209,16 @@ $ENROLL_OUT"
 log "J1: mfa activate"
 MFA_CODE="$(cd "$REPO_ROOT" && GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET")" \
     || fail "totpgen failed"
-kx mfa activate --code "$MFA_CODE" --password "$ADMIN_PASSWORD" >/dev/null \
+KEYORIX_MFA_CODE="$MFA_CODE" KEYORIX_PASSWORD="$ADMIN_PASSWORD" kx mfa activate >/dev/null \
     || fail "CLI mfa activate failed"
 
 log "J1: login (again, now MFA-enabled)"
 MFA_LOGIN_CODE="$(cd "$REPO_ROOT" && GOWORK=off go run scripts/totpgen/main.go "$MFA_SECRET" 30)" \
     || fail "totpgen failed"
-kx login --server http://localhost:18080 --username admin --password "$ADMIN_PASSWORD" \
-    --mfa-code "$MFA_LOGIN_CODE" >/dev/null || fail "CLI login (MFA-enabled) failed"
+KEYORIX_PASSWORD="$ADMIN_PASSWORD" KEYORIX_MFA_CODE="$MFA_LOGIN_CODE" \
+    kx login --server http://localhost:18080 --username admin >/dev/null || fail "CLI login (MFA-enabled) failed"
 
-kx secret create --name k8s-e2e-roundtrip --value 'k8s-e2e-roundtrip-value' --project 1 --environment 1 >/dev/null \
+kx_secret_create k8s-e2e-roundtrip 'k8s-e2e-roundtrip-value' --project 1 --environment 1 >/dev/null \
     || fail "CLI secret create failed"
 GOT_VALUE="$(kx secret get --id 1 --show-value | awk '/^Decrypted Value/{getline; getline; print}')"
 [ "$GOT_VALUE" = "k8s-e2e-roundtrip-value" ] || fail "secret round-trip mismatch: got '$GOT_VALUE'"
@@ -215,11 +239,11 @@ helm lint "$REPO_ROOT/deploy/helm/keyorix-k8s-sync" >/dev/null
 if command -v kubeconform >/dev/null 2>&1; then
     log "J2: kubeconform (default values + airgap image tag)"
     helm template keyorix "$REPO_ROOT/deploy/helm/keyorix" \
-        --set auth.masterPassword=x --set postgresql.auth.password=x --set auth.adminPassword="$ADMIN_PASSWORD" \
+        -f "$HELM_PLACEHOLDER_VALUES" \
         >"$WORK_DIR/rendered-default.yaml"
     kubeconform -strict -summary "$WORK_DIR/rendered-default.yaml" || fail "kubeconform failed on default-values render"
     helm template keyorix "$REPO_ROOT/deploy/helm/keyorix" \
-        --set auth.masterPassword=x --set postgresql.auth.password=x --set auth.adminPassword="$ADMIN_PASSWORD" \
+        -f "$HELM_PLACEHOLDER_VALUES" \
         --set server.image.tag="$(helm show chart "$REPO_ROOT/deploy/helm/keyorix" | awk '/^appVersion:/{print $2}' | tr -d '"')-airgap" \
         >"$WORK_DIR/rendered-airgap.yaml"
     kubeconform -strict -summary "$WORK_DIR/rendered-airgap.yaml" || fail "kubeconform failed on airgap-tag render"
@@ -337,8 +361,8 @@ helm install keyorix-operator "$REPO_ROOT/deploy/helm/keyorix-operator" -n "$J3_
     --wait --timeout 60s
 patch_ca_trust "$J3_NS" "keyorix-operator-keyorix-operator" "manager"
 
-kx secret create --name k8s-e2e-operator-secret --value 'k8s-e2e-operator-value' --project 1 --environment 1 >/dev/null
-kubectl -n "$J3_NS" create secret generic keyorix-token --from-literal=token="$OPERATOR_TOKEN" >/dev/null
+kx_secret_create k8s-e2e-operator-secret 'k8s-e2e-operator-value' --project 1 --environment 1 >/dev/null
+kubectl_token_secret "$J3_NS" keyorix-token "$OPERATOR_TOKEN"
 kubectl -n "$J3_NS" label secret keyorix-token secrets.keyorix.io/token-secret=true >/dev/null
 
 cat >"$WORK_DIR/keyorixsecret.yaml" <<EOF
@@ -376,10 +400,10 @@ kx machine create --name k8s-e2e-sync --project default --type k8s --description
 kx machine grant-role k8s-e2e-sync --project default --role viewer >/dev/null
 SYNC_TOKEN="$(kx machine token issue k8s-e2e-sync --name run-sh --project default | awk '/^Token:/{print $2}')"
 [ -n "$SYNC_TOKEN" ] || fail "issuing the k8s-sync machine token failed"
-kubectl -n "$J4_NS" create secret generic keyorix-sync-token --from-literal=token="$SYNC_TOKEN" >/dev/null
+kubectl_token_secret "$J4_NS" keyorix-sync-token "$SYNC_TOKEN"
 
-kx secret create --name k8s-e2e-sync-a --value 'k8s-e2e-sync-value-a' --project 1 --environment 3 >/dev/null
-kx secret create --name k8s-e2e-sync-b --value 'k8s-e2e-sync-value-b' --project 1 --environment 3 >/dev/null
+kx_secret_create k8s-e2e-sync-a 'k8s-e2e-sync-value-a' --project 1 --environment 3 >/dev/null
+kx_secret_create k8s-e2e-sync-b 'k8s-e2e-sync-value-b' --project 1 --environment 3 >/dev/null
 
 cat >"$WORK_DIR/k8ssync-values.yaml" <<EOF
 image: { repository: keyorix-k8s-sync, tag: ${IMAGE_TAG} }
@@ -444,11 +468,11 @@ kx machine create --name k8s-e2e-eso --project default --type other --descriptio
 kx machine grant-role k8s-e2e-eso --project default --role viewer >/dev/null
 ESO_TOKEN="$(kx machine token issue k8s-e2e-eso --name run-sh --project default | awk '/^Token:/{print $2}')"
 [ -n "$ESO_TOKEN" ] || fail "issuing the ESO machine token failed"
-kubectl -n "$J5_NS" create secret generic keyorix-machine-token --from-literal=token="$ESO_TOKEN" >/dev/null
+kubectl_token_secret "$J5_NS" keyorix-machine-token "$ESO_TOKEN"
 kubectl -n "$J5_NS" label secret keyorix-machine-token external-secrets.io/type=webhook >/dev/null
 kubectl -n "$J5_NS" create secret generic keyorix-ca --from-file=ca.crt="$WORK_DIR/tls.crt" >/dev/null
 
-kx secret create --name k8s-e2e-eso-secret --value 'k8s-e2e-eso-value' --project 1 --environment 3 >/dev/null
+kx_secret_create k8s-e2e-eso-secret 'k8s-e2e-eso-value' --project 1 --environment 3 >/dev/null
 
 sed -e "s|https://keyorix.internal|https://${TLS_HOST}|" \
     -e "s|namespace: external-secrets|namespace: ${J5_NS}|g" \
