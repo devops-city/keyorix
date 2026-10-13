@@ -22,6 +22,17 @@ data:
         # the built-in loopback-only default (#2939) must be widened here.
         host: "0.0.0.0"
         port: "{{ .Values.server.service.port }}"
+        {{- with .Values.server.trustedProxies }}
+        # server.trustedProxies: peers whose X-Forwarded-For / X-Forwarded-Proto the
+        # server honors (client IP; HSTS and the Secure flag of session/CSRF cookies).
+        trusted_proxies:
+          {{- range . }}
+          {{- if not (regexMatch "^[0-9a-fA-F:.]+(/[0-9]{1,3})?$" (toString .)) }}
+          {{- fail (printf "server.trustedProxies: %q is not an IP or CIDR" (toString .)) }}
+          {{- end }}
+          - {{ toString . | quote }}
+          {{- end }}
+        {{- end }}
         {{- if .Values.secureBaseline.enabled }}
         # secureBaseline (SECURE-DEFAULT-1): /app/run is the memory emptyDir the
         # prepare-files initContainer fills from the <fullname>-secure-baseline

@@ -114,10 +114,10 @@ func (h *AuthHandler) returnLoginSlot(ctx context.Context, s loginSlot) {
 // AuthHandler handles authentication HTTP requests.
 type AuthHandler struct {
 	coreService *core.KeyorixCore
-	// tlsEnabled gates the Secure attribute on the session/CSRF cookies — set only
-	// when this process itself terminates TLS (a proxy-terminated deployment sets it
-	// there instead). SecurityHeaders' HSTS additionally honors a trusted proxy's
-	// X-Forwarded-Proto: https; these cookies do not.
+	// tlsEnabled is the configured half of the Secure decision on the session/CSRF
+	// cookies. Handlers never read it directly: they pass it through
+	// middleware.RequestIsHTTPS (also true behind a trusted https proxy), the same
+	// decision SecurityHeaders uses for HSTS.
 	tlsEnabled bool
 }
 
@@ -132,10 +132,11 @@ func NewAuthHandler(coreService *core.KeyorixCore, tlsEnabled bool) *AuthHandler
 // session cookie is what actually matters for authentication; a missing CSRF
 // cookie only blocks this browser's own subsequent state-changing requests
 // until it retries, it doesn't grant an attacker anything.
-func (h *AuthHandler) setSessionCookies(w http.ResponseWriter, session *models.Session) {
-	middleware.SetSessionCookie(w, session.SessionToken, session.ExpiresAt, h.tlsEnabled)
+func (h *AuthHandler) setSessionCookies(w http.ResponseWriter, r *http.Request, session *models.Session) {
+	secure := middleware.RequestIsHTTPS(r, h.tlsEnabled)
+	middleware.SetSessionCookie(w, session.SessionToken, session.ExpiresAt, secure)
 	if csrfToken, err := middleware.GenerateCSRFToken(); err == nil {
-		middleware.SetCSRFCookie(w, csrfToken, h.tlsEnabled)
+		middleware.SetCSRFCookie(w, csrfToken, secure)
 	} else {
 		log.Printf("setSessionCookies: CSRF token generation failed: %v; session issued without CSRF cookie", err)
 	}
@@ -401,7 +402,7 @@ func (h *AuthHandler) completeLogin(w http.ResponseWriter, r *http.Request, sess
 		lc.Failed(r.Context())
 		return loginResponseBody{}, err
 	}
-	h.setSessionCookies(w, session)
+	h.setSessionCookies(w, r, session)
 	lc.Succeeded(r.Context())
 	return resp, nil
 }
@@ -436,7 +437,7 @@ func (h *AuthHandler) revokeUndeliveredLogin(ctx context.Context, session *model
 // core, before the mint, and are already counted there.
 func (h *AuthHandler) completeLoginWithIdentity(w http.ResponseWriter, r *http.Request, session *models.Session, user *models.User, identity core.UserIdentity, lc *core.LoginCompletion) loginResponseBody {
 	resp := h.loginResponseFromIdentity(session, user, identity)
-	h.setSessionCookies(w, session)
+	h.setSessionCookies(w, r, session)
 	lc.Succeeded(r.Context())
 	return resp
 }
@@ -599,8 +600,9 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	// Evict from auth cache immediately so the token is rejected without a DB hit.
 	middleware.InvalidateTokenCache(token)
-	middleware.ClearSessionCookie(w, h.tlsEnabled)
-	middleware.ClearCSRFCookie(w, h.tlsEnabled)
+	secure := middleware.RequestIsHTTPS(r, h.tlsEnabled)
+	middleware.ClearSessionCookie(w, secure)
+	middleware.ClearCSRFCookie(w, secure)
 
 	// Audit log (non-blocking)
 	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
@@ -658,7 +660,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	// session row was deleted — so it stays usable for up to validTokenTTL after being
 	// rotated away.
 	middleware.InvalidateTokenCache(token)
-	h.setSessionCookies(w, session)
+	h.setSessionCookies(w, r, session)
 
 	resp := map[string]interface{}{
 		"token": session.SessionToken,
@@ -840,8 +842,9 @@ func (h *AuthHandler) endSetupSessionIfComplete(w http.ResponseWriter, r *http.R
 		return false
 	}
 	if _, err := r.Cookie(middleware.SessionCookieName); err == nil {
-		middleware.ClearSessionCookie(w, h.tlsEnabled)
-		middleware.ClearCSRFCookie(w, h.tlsEnabled)
+		secure := middleware.RequestIsHTTPS(r, h.tlsEnabled)
+		middleware.ClearSessionCookie(w, secure)
+		middleware.ClearCSRFCookie(w, secure)
 	}
 	return true
 }

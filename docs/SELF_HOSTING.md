@@ -484,13 +484,31 @@ header is stripped from proxied responses.)
 **The backend** (`keyorix-server`, reached directly by your load balancer rather
 than through `web`) follows the same rule: it sends HSTS when it serves TLS
 itself, or when the TCP peer is in `server.http.trusted_proxies` and says
-`X-Forwarded-Proto: https`. Set `server.http.trusted_proxies` in the server
-config to the load balancer's address as the server sees it; no other setting
-is needed. Value and options: [CONFIGURATION.md](CONFIGURATION.md#server)
-("Strict-Transport-Security"). Same check, against the server port:
+`X-Forwarded-Proto: https`. The same decision marks the session and CSRF
+cookies (and the impersonation stash cookie) `Secure`, so they are no longer sent
+without `Secure` behind the load balancer. Set `server.http.trusted_proxies` in
+the server config to the load balancer's address as the server sees it; no other
+setting is needed. It is an HTTP-only key: under `server.grpc` it does nothing and
+logs a warning at start. Value and options:
+[CONFIGURATION.md](CONFIGURATION.md#server) ("Strict-Transport-Security" and
+"Secure cookies").
+
+To check it, request the server port with the forwarded header. The server
+trusts that header only from an address in `trusted_proxies`, so the response
+shows HSTS and `Secure` cookies only when you run `curl` from such an address (or
+through the load balancer itself); from any other address the same command shows
+neither, which is correct:
 
 ```sh
 curl -sI -H 'X-Forwarded-Proto: https' http://server-host:8080/health | grep -i strict
+```
+
+To see the cookie flag, log in the same way and look at `Set-Cookie`
+(`kx_session` and `csrf_token` end in `; Secure` when the request is trusted):
+
+```sh
+curl -si -H 'X-Forwarded-Proto: https' -H 'Content-Type: application/json' \
+  -d '{"username":"USER","password":"PASSWORD"}' http://server-host:8080/auth/login | grep -i set-cookie
 ```
 
 | Setting (`.env`, passed to `web`) | Default | Meaning |
@@ -507,8 +525,11 @@ These variables need a `web` image that contains this feature (releases after
 
 Helm: the chart's Ingress routes every path to `web`, so browsers only ever see
 the web nginx's HSTS decision (the backend's header is stripped from proxied API
-responses). The chart does not set the server's `trusted_proxies`. For the web
-tier: `web.trustedProxies` (list of CIDRs; the address the web pod sees, i.e.
+responses). The server's own `trusted_proxies` is `server.trustedProxies`
+(default empty, validated as IPs/CIDRs). It is needed only if something other
+than the web pod reaches the server through a TLS-terminating load balancer, and
+then it also makes the session and CSRF cookies `Secure` for that traffic. For the
+web tier: `web.trustedProxies` (list of CIDRs; the address the web pod sees, i.e.
 the ingress-controller pods for an in-cluster ingress, not the cloud LB's public
 address), `web.hsts.mode` (`auto`|`on`|`off`; `on` without `web.trustedProxies`
 fails the render), `web.hsts.maxAge`, `web.hsts.includeSubDomains`. All default to

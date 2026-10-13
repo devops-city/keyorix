@@ -151,7 +151,7 @@ func (h *AuthHandler) CompleteSSO(w http.ResponseWriter, r *http.Request) {
 	// via the HttpOnly/Secure cookie; the token is NOT included in the fragment
 	// (#r125-H3: a fragment token is exposed to JS, browser history, and
 	// extensions — the cookie is the correct and sufficient delivery mechanism).
-	h.setSessionCookies(w, session)
+	h.setSessionCookies(w, r, session)
 
 	frag := url.Values{}
 	if session.ExpiresAt != nil {

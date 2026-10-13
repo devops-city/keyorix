@@ -59,6 +59,25 @@ func TestWarnDeprecatedSettingAliases_LogsEachWarning(t *testing.T) {
 	}
 }
 
+// A security setting written under server.grpc that only the HTTP server reads
+// is logged at start-up, never silently accepted.
+func TestWarnHTTPOnlySettingsUnderGRPC_LogsEachKey(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.GRPC.TrustedProxies = []string{"10.0.0.0/8"}
+	cfg.Server.GRPC.HSTSPreload = true
+	logged := captureLogs(func() { warnHTTPOnlySettingsUnderGRPC(cfg) })
+	for _, want := range []string{"WARNING: server.grpc.trusted_proxies", "WARNING: server.grpc.hsts_preload"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("expected logged output to contain %q, got: %q", want, logged)
+		}
+	}
+
+	logged = captureLogs(func() { warnHTTPOnlySettingsUnderGRPC(&config.Config{}) })
+	if logged != "" {
+		t.Errorf("nothing set under grpc must log nothing, got: %q", logged)
+	}
+}
+
 // securityPostureSnapshot must cover every registry entry exactly once --
 // the settings-diff audit depends on this to see the whole picture every
 // boot, not just whichever entries happen to be in effect right now (an

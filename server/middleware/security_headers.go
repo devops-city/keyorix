@@ -69,7 +69,7 @@ func SecurityHeaders(tlsEnabled, hstsPreload bool) func(http.Handler) http.Handl
 			h.Set("Cross-Origin-Opener-Policy", "same-origin")
 			h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()")
 			h.Set("X-Permitted-Cross-Domain-Policies", "none")
-			if tlsEnabled || r.TLS != nil || ForwardedHTTPSFromTrustedProxy(r) {
+			if RequestIsHTTPS(r, tlsEnabled) {
 				h.Set("Strict-Transport-Security", hsts)
 			}
 			next.ServeHTTP(w, r)

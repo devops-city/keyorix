@@ -25,8 +25,8 @@ import (
 // ImpersonationHandler handles admin impersonation requests.
 type ImpersonationHandler struct {
 	coreService *core.KeyorixCore
-	// tlsEnabled gates the Secure attribute on the session/CSRF cookies — see
-	// AuthHandler's field of the same name.
+	// tlsEnabled is the configured half of the Secure decision, always passed
+	// through middleware.RequestIsHTTPS — see AuthHandler's field of the same name.
 	tlsEnabled bool
 }
 
@@ -94,12 +94,13 @@ func (h *ImpersonationHandler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, session.SessionToken, session.ExpiresAt, h.tlsEnabled)
+	secure := middleware.RequestIsHTTPS(r, h.tlsEnabled)
+	middleware.SetSessionCookie(w, session.SessionToken, session.ExpiresAt, secure)
 	if adminToken != "" {
-		middleware.SetAdminSessionCookie(w, adminToken, session.ExpiresAt, h.tlsEnabled)
+		middleware.SetAdminSessionCookie(w, adminToken, session.ExpiresAt, secure)
 	}
 	if csrfToken, cerr := middleware.GenerateCSRFToken(); cerr == nil {
-		middleware.SetCSRFCookie(w, csrfToken, h.tlsEnabled)
+		middleware.SetCSRFCookie(w, csrfToken, secure)
 	}
 
 	resp := impersonationResponse{
@@ -141,6 +142,7 @@ func (h *ImpersonationHandler) End(w http.ResponseWriter, r *http.Request) {
 	// which of the two outcomes happened, since only one of them leaves the
 	// browser still logged in.
 	restored := false
+	secure := middleware.RequestIsHTTPS(r, h.tlsEnabled)
 	if adminCookie, cerr := r.Cookie(middleware.AdminSessionCookieName); cerr == nil && adminCookie.Value != "" {
 		// Validate before trusting it back as the active session — it may have
 		// expired, or the admin's account may have been suspended, while they
@@ -164,19 +166,19 @@ func (h *ImpersonationHandler) End(w http.ResponseWriter, r *http.Request) {
 			// idle and absolute ceilings), like every other SetSessionCookie call
 			// site — nil would make this a browser-session cookie that outlives
 			// the server-side session it points at.
-			middleware.SetSessionCookie(w, adminCookie.Value, h.coreService.SessionEffectiveExpiry(r.Context(), adminCookie.Value), h.tlsEnabled)
+			middleware.SetSessionCookie(w, adminCookie.Value, h.coreService.SessionEffectiveExpiry(r.Context(), adminCookie.Value), secure)
 			if csrfToken, cerr2 := middleware.GenerateCSRFToken(); cerr2 == nil {
-				middleware.SetCSRFCookie(w, csrfToken, h.tlsEnabled)
+				middleware.SetCSRFCookie(w, csrfToken, secure)
 			}
 			restored = true
 		}
 	}
-	middleware.ClearAdminSessionCookie(w, h.tlsEnabled)
+	middleware.ClearAdminSessionCookie(w, secure)
 
 	message := "Impersonation ended"
 	if !restored {
-		middleware.ClearSessionCookie(w, h.tlsEnabled)
-		middleware.ClearCSRFCookie(w, h.tlsEnabled)
+		middleware.ClearSessionCookie(w, secure)
+		middleware.ClearCSRFCookie(w, secure)
 		message = "Impersonation ended, but your admin session had expired — please sign in again"
 	}
 	sendSuccess(w, map[string]interface{}{"admin_session_restored": restored}, message)

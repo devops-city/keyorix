@@ -1,0 +1,6 @@
+### Security
+- **Session and CSRF cookies are `Secure` behind a trusted TLS-terminating proxy.** The `kx_session`, `csrf_token` and `kx_admin_session` cookies (set and cleared) get the `Secure` attribute when the request came from a peer in `server.http.trusted_proxies` that says `X-Forwarded-Proto: https`, as well as when the server serves TLS itself. Before, behind a load balancer they went out without `Secure`. One per-request decision (`middleware.RequestIsHTTPS`) now drives both these cookies and HSTS. A client outside `trusted_proxies` cannot change it by forging the header, and `Secure` is never removed where it is set today. If your load balancer talks to the server directly, list it in `server.http.trusted_proxies`. See docs/CONFIGURATION.md ("Secure cookies") and docs/SELF_HOSTING.md. Guarded by `INV-MW-secure-cookie-follows-effective-https`.
+- **`server.grpc.trusted_proxies` and `server.grpc.hsts_preload` now log a start-up warning.** Both keys are HTTP-only and were silently accepted and ignored under `server.grpc`. Set them under `server.http`.
+
+### Added
+- **Helm: `server.trustedProxies`** (default empty) sets the server's `http.trusted_proxies`. It is needed only if something other than the web pod reaches the server through a TLS-terminating load balancer. Entries are validated as IPs/CIDRs.

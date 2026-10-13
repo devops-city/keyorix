@@ -170,6 +170,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// current insecure_ form) found in this config file gets a warning on EVERY
 	// start — never silent. See warnDeprecatedSettingAliases below.
 	warnDeprecatedSettingAliases(cfg)
+	warnHTTPOnlySettingsUnderGRPC(cfg)
 
 	// ADR-112: decide, once and from the database, whether this boot is an upgraded
 	// deployment still inside the file-permission-check grace period, then warn about
@@ -2359,6 +2360,18 @@ func logWarnOnImplicitRequireMFADefault(cfg *config.Config) {
 func warnDeprecatedSettingAliases(cfg *config.Config) {
 	for _, w := range cfg.DeprecatedSettingWarnings {
 		log.Printf("WARNING: deprecated config key: %s", w)
+	}
+}
+
+// warnHTTPOnlySettingsUnderGRPC logs a start-up warning for every security setting
+// written under server.grpc that only the HTTP server implements (the two
+// listeners share one config struct). The gRPC server has no client-IP rewrite and
+// sends no HSTS, so these keys would otherwise be accepted and silently do nothing.
+// The loader does not reject other HTTP-only keys under grpc either, so this warns
+// rather than failing the boot.
+func warnHTTPOnlySettingsUnderGRPC(cfg *config.Config) {
+	for _, w := range config.HTTPOnlySettingsSetUnderGRPC(cfg) {
+		log.Printf("WARNING: %s", w)
 	}
 }
 

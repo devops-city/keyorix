@@ -3768,7 +3768,7 @@ func TestAuthHandler_setSessionCookies_Direct(t *testing.T) {
 	now := time.Now().Add(time.Hour)
 	session := &models.Session{SessionToken: "cookietoken", ExpiresAt: &now}
 	w := httptest.NewRecorder()
-	h.setSessionCookies(w, session)
+	h.setSessionCookies(w, httptest.NewRequest(http.MethodGet, "/", nil), session)
 	// Should set at least one cookie
 	assert.NotEmpty(t, w.Header().Get("Set-Cookie"))
 }

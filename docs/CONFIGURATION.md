@@ -158,8 +158,8 @@ server:
       cert_cache_dir: "certs"     # ACME only: where autocert persists certs between restarts
       allowed_ciphers: []         # optional allowlist of TLS 1.2 cipher suite names; leave empty for the built-in secure default
     tls_mode: ""                  # "" (default: TLS 1.2 floor, forward-secret AEAD only) | "strict" (TLS 1.3 only)
-    trusted_proxies: []           # IPs/CIDRs of your TLS-terminating proxy/LB; their X-Forwarded-For/-Proto are honored
-    hsts_preload: false           # add "preload" to Strict-Transport-Security (see below)
+    trusted_proxies: []           # IPs/CIDRs of your TLS-terminating proxy/LB; their X-Forwarded-For/-Proto are honored (client IP, HSTS, Secure cookies). HTTP only
+    hsts_preload: false           # add "preload" to Strict-Transport-Security (see below). HTTP only
     ratelimit:
       enabled: true
       requests_per_second: 50
@@ -233,6 +233,23 @@ client's value through. `trusted_proxies` is the same list that governs
 - `preload` is off unless you set `hsts_preload: true`. Preload-list submission
   covers the whole registrable domain and is slow to undo, so only the domain's
   owner should opt in.
+
+**Secure cookies.** The same decision, made once per request, sets the `Secure`
+attribute of every cookie the server sets: the session cookie (`kx_session`), the
+CSRF cookie (`csrf_token`) and the impersonation stash cookie
+(`kx_admin_session`), including the ones that clear them on logout. A cookie is
+`Secure` when the listener serves TLS itself, or when the request came from a peer
+in `server.http.trusted_proxies` with `X-Forwarded-Proto: https`; otherwise it is
+not. So behind a TLS-terminating load balancer, list the balancer in
+`trusted_proxies` and the cookies are `Secure` with no other setting. Without that
+entry they go out without `Secure`, exactly as before. A forged
+`X-Forwarded-Proto: https` from any other peer changes nothing, and `Secure` is
+never removed from a cookie that has it today.
+
+**HTTP only.** `trusted_proxies` and `hsts_preload` are read by the HTTP server
+only. The keys parse under `server.grpc` too (both listeners share one config
+shape) but the gRPC server never reads them, so setting either there logs a
+`WARNING` at every start and has no effect. Set them under `server.http`.
 
 The web container's nginx makes its own HSTS decision and strips the backend's
 header from proxied API responses ([SELF_HOSTING.md](SELF_HOSTING.md), "HSTS

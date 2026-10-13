@@ -57,6 +57,17 @@ func ForwardedHTTPSFromTrustedProxy(r *http.Request) bool {
 	return v
 }
 
+// RequestIsHTTPS is the ONE "this request reached the client over TLS" decision:
+// this process terminates TLS (tlsEnabled, or r.TLS set), or ClientIP marked the
+// request as coming from a configured trusted proxy that says X-Forwarded-Proto:
+// https. It drives both Strict-Transport-Security and the Secure attribute of every
+// cookie the server sets, so the two can never disagree. It reads only the TLS
+// state and the ClientIP mark, never a raw X-Forwarded-Proto header, so an untrusted
+// peer forging the header changes nothing. Handlers call it once per request.
+func RequestIsHTTPS(r *http.Request, tlsEnabled bool) bool {
+	return tlsEnabled || r.TLS != nil || ForwardedHTTPSFromTrustedProxy(r)
+}
+
 // forwardedProtoIsHTTPS reads the scheme the immediate (trusted) proxy reported.
 // Like X-Real-IP below, it takes the LAST value: a proxy that appends its own
 // X-Forwarded-Proto (a second header line or a ", https" suffix) rather than

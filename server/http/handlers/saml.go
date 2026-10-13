@@ -91,7 +91,7 @@ func (h *AuthHandler) CompleteSAML(w http.ResponseWriter, r *http.Request) {
 	// Cookies survive a redirect fine — see the equivalent comment in sso.go's
 	// CompleteSSO. Token is NOT included in the fragment — cookie-only delivery
 	// (#r125-H3, mirrors sso.go's CompleteSSO).
-	h.setSessionCookies(w, session)
+	h.setSessionCookies(w, r, session)
 
 	frag := url.Values{}
 	if session.ExpiresAt != nil {

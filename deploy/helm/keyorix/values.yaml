@@ -105,6 +105,15 @@ server:
   replicas: 1
   service:
     port: 8080
+  # trustedProxies is the server's own server.http.trusted_proxies: IPs/CIDRs of the
+  # proxies whose X-Forwarded-For and X-Forwarded-Proto the SERVER honors, as the
+  # server sees them (the TCP peer). From a listed peer carrying
+  # X-Forwarded-Proto=https the server sends HSTS and marks the session and CSRF
+  # cookies Secure; it never trusts those headers from any other peer. Empty
+  # (default): nothing is trusted. Needed only if something OTHER than the web pod
+  # reaches the server through a TLS-terminating load balancer (the chart's Ingress
+  # routes to web, whose nginx makes its own decision; see web.trustedProxies).
+  trustedProxies: []
   # Persistent volume for the wrapped DEK + KEK salt (/app/keys). MUST persist —
   # losing it makes every stored secret undecryptable. Back it up.
   keysPersistence:
