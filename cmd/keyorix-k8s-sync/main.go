@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/k8ssync"
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 )
 
 func main() {
@@ -32,14 +33,17 @@ func main() {
 	once := flag.Bool("once", false, "run a single reconcile pass and exit (for CI / one-shot Jobs)")
 	dryRun := flag.Bool("dry-run", false, "report what would change without writing any Secret")
 	cleanup := flag.Bool("cleanup", false, "delete orphaned Secrets the agent owns whose mapping was removed")
-	metricsBearerToken := flag.String("metrics-bearer-token", os.Getenv("KEYORIX_METRICS_TOKEN"),
-		"OPTIONAL bearer token required on /metrics' Authorization header (e.g. by a Prometheus scrape "+
+	// Default "", not os.Getenv: flag's usage output prints every non-empty default,
+	// so an env-backed default would put the token in the log on any bad flag.
+	metricsBearerTokenFlag := flag.String("metrics-bearer-token", "",
+		"OPTIONAL bearer token (or set KEYORIX_METRICS_TOKEN) required on /metrics' Authorization header (e.g. by a Prometheus scrape "+
 			"config's authorization.credentials). /healthz, /readyz, and /status stay unauthenticated -- "+
 			"Kubernetes' own kubelet must reach them, and they expose no secret values. When this flag is "+
 			"unset, /metrics itself is left unauthenticated too -- matching this repo's other two "+
 			"Prometheus-scraped endpoints' own defaults -- so set it, or restrict network access with a "+
 			"NetworkPolicy, for internet-reachable or multi-tenant clusters.")
 	flag.Parse()
+	metricsBearerToken := flagOrEnv(flag.CommandLine, "metrics-bearer-token", *metricsBearerTokenFlag, "KEYORIX_METRICS_TOKEN")
 
 	cfg, err := k8ssync.LoadConfig(*configPath)
 	if err != nil {
@@ -56,7 +60,7 @@ func main() {
 		log.Fatalf("k8s-sync: kubernetes: %v", err)
 	}
 	fetcher := k8ssync.NewKeyorixFetcher(cfg.KeyorixURL, token, cfg.ProjectID)
-	os.Exit(runAgent(cfg, fetcher, sink, *once, *dryRun, *cleanup, *metricsBearerToken))
+	os.Exit(runAgent(cfg, fetcher, sink, *once, *dryRun, *cleanup, metricsBearerToken))
 }
 
 // resolveToken resolves the Keyorix machine-identity token: KEYORIX_TOKEN_FILE (a
@@ -70,19 +74,13 @@ func main() {
 // never breaks a deployment that hasn't switched to KEYORIX_TOKEN_FILE yet.
 func resolveToken() (string, error) {
 	if path := strings.TrimSpace(os.Getenv("KEYORIX_TOKEN_FILE")); path != "" {
-		// #nosec G304 G703 -- path comes from KEYORIX_TOKEN_FILE, an
-		// operator-set deployment-time env var (this chart's own
-		// values.yaml), not untrusted request input. Both IDs are needed:
-		// gosec v2.26+ added a taint-analysis path-traversal check (G703)
-		// alongside the classic heuristic (G304) it doesn't replace -- a
-		// bare "G304" comment suppresses only the old one, leaving G703
-		// unsuppressed (confirmed locally: dropping G304 flips CI to
-		// report G304 instead, dropping G703 flips it back).
-		raw, err := os.ReadFile(path)
+		// secretenv.ReadFile: regular file only (a FIFO or device is refused without
+		// blocking), size-capped, and the contents never appear in an error.
+		raw, err := secretenv.ReadFile(path)
 		if err != nil {
 			return "", fmt.Errorf("read KEYORIX_TOKEN_FILE %s: %w", path, err)
 		}
-		token := strings.TrimSpace(string(raw))
+		token := strings.TrimSpace(raw)
 		if token == "" {
 			return "", fmt.Errorf("KEYORIX_TOKEN_FILE %s is empty", path)
 		}
@@ -183,6 +181,24 @@ func runAgent(cfg *k8ssync.Config, fetcher k8ssync.Fetcher, sink k8ssync.Sink, o
 	k8ssync.Run(ctx, engine, cfg.Mappings, cfg.GetInterval(), log.Printf, status)
 	log.Println("k8s-sync: stopped")
 	return 0
+}
+
+// flagOrEnv returns the value of the string flag name when it was given on the
+// command line, otherwise the environment variable envVar. It stands in for an
+// os.Getenv default on flags that carry a secret: flag.PrintDefaults prints every
+// non-empty default verbatim (on -h and on any bad flag), which would copy the
+// secret into the log (semgrep keyorix-secret-env-as-flag-default).
+func flagOrEnv(fs *flag.FlagSet, name, flagValue, envVar string) string {
+	given := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			given = true
+		}
+	})
+	if given {
+		return flagValue
+	}
+	return os.Getenv(envVar)
 }
 
 func envOr(key, def string) string {

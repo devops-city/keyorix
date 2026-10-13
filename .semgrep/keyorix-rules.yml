@@ -353,3 +353,34 @@ rules:
     paths:
       exclude:
         - "**/*_test.go"
+
+  - id: keyorix-secret-env-as-flag-default
+    languages: [go]
+    severity: ERROR
+    message: >-
+      A secret-looking environment variable ($ENV) is used as a command-line
+      flag's registered default. The flag package (and cobra/pflag) prints every
+      non-empty default in its usage text -- on -h and on ANY unknown or
+      malformed flag -- so a typo in a container's args copies the secret into
+      the log. Register the flag with an empty default and read the variable
+      after parsing (flagOrEnv in cmd/keyorix-k8s-sync/main.go and
+      operator/cmd/main.go), or read it through internal/secretenv.
+    metadata:
+      category: security
+      references:
+        - cmd/keyorix-k8s-sync/main.go -metrics-bearer-token default os.Getenv("KEYORIX_METRICS_TOKEN") (fixed, SECRETENV-REVIEW-1)
+        - operator/cmd/main.go -metrics-bearer-token default os.Getenv("KEYORIX_METRICS_TOKEN") (fixed, SECRETENV-REVIEW-1)
+    patterns:
+      - pattern-either:
+          - pattern: flag.String($NAME, os.Getenv($ENV), ...)
+          - pattern: flag.StringVar($PTR, $NAME, os.Getenv($ENV), ...)
+          - pattern: $FS.String($NAME, os.Getenv($ENV), ...)
+          - pattern: $FS.StringVar($PTR, $NAME, os.Getenv($ENV), ...)
+          - pattern: $FS.StringP($NAME, $SHORT, os.Getenv($ENV), ...)
+          - pattern: $FS.StringVarP($PTR, $NAME, $SHORT, os.Getenv($ENV), ...)
+      - metavariable-regex:
+          metavariable: $ENV
+          regex: (?i).*(TOKEN|PASSWORD|PASSWD|SECRET|PASSPHRASE|CREDENTIAL|API_?KEY|PRIVATE_?KEY|DSN).*
+    paths:
+      exclude:
+        - "**/*_test.go"

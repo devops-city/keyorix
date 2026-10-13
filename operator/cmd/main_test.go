@@ -480,3 +480,38 @@ func TestMain_ExitsOnManagerCreationFailure(t *testing.T) {
 	assert.Contains(t, output, "unable to start manager",
 		"main() must log through its own ctrl.NewManager error branch; output:\n%s", output)
 }
+
+// The metrics bearer token from KEYORIX_METRICS_TOKEN must never be a flag's registered
+// default: flag's usage output (on -h and on ANY unknown or malformed flag, e.g. a typo in
+// the Deployment's args) prints every non-empty default verbatim, so the token would land
+// in the pod log.
+func TestMain_UsageNeverPrintsMetricsToken(t *testing.T) {
+	const token = "metrics-token-must-not-leak-7f3a"
+	output, exitCode := runMainSubprocess(t, map[string]string{
+		"KEYORIX_METRICS_TOKEN": token,
+		mainSubprocessArgsEnv:   "-no-such-flag",
+	})
+	assert.Equal(t, 2, exitCode, "an unknown flag must still stop the operator")
+	assert.Contains(t, output, "-metrics-bearer-token", "the usage text is printed (otherwise this test proves nothing)")
+	assert.NotContains(t, output, token)
+}
+
+func TestFlagOrEnv(t *testing.T) {
+	newFS := func() (*flag.FlagSet, *string) {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		return fs, fs.String("tok", "", "")
+	}
+	t.Setenv("KEYORIX_TEST_FLAG_OR_ENV", "from-env")
+
+	fs, v := newFS()
+	require.NoError(t, fs.Parse(nil))
+	assert.Equal(t, "from-env", flagOrEnv(fs, "tok", *v, "KEYORIX_TEST_FLAG_OR_ENV"), "flag not given: the environment variable")
+
+	fs, v = newFS()
+	require.NoError(t, fs.Parse([]string{"-tok", "from-flag"}))
+	assert.Equal(t, "from-flag", flagOrEnv(fs, "tok", *v, "KEYORIX_TEST_FLAG_OR_ENV"), "flag given: the flag wins")
+
+	fs, v = newFS()
+	require.NoError(t, fs.Parse([]string{"-tok="}))
+	assert.Equal(t, "", flagOrEnv(fs, "tok", *v, "KEYORIX_TEST_FLAG_OR_ENV"), "an explicit empty flag still wins (as with the old env-backed default)")
+}

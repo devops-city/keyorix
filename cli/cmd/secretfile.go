@@ -7,8 +7,8 @@
 // cli/internal/depguard). Keep the two in step:
 //   - NAME_FILE set -> read the file, strip ONE trailing "\n", "\r\n" or "\r".
 //   - NAME and NAME_FILE both set -> error (no precedence).
-//   - unreadable / empty / not a regular file / over 1 MiB -> error; never a
-//     fallback to NAME or a prompt.
+//   - unreadable / empty / not a regular file (a FIFO is refused, not waited on) /
+//     over 1 MiB -> error; never a fallback to NAME or a prompt.
 //   - the file's mode is judged on the opened descriptor: 0600/0400, or -- for a
 //     file an orchestrator mounted, i.e. not owned by the running user -- group-read
 //     (0440/0640) when the file's group is one the process holds (fsGroup,
@@ -58,7 +58,9 @@ func lookupSecretEnv(name string) (value string, found bool, err error) {
 }
 
 func readCheckedSecretFile(path string) (string, error) {
-	f, err := os.Open(path) // #nosec G304 G703 -- the operator's own NAME_FILE setting (process environment), opened read-only and then checked (regular file, mode, size) below
+	// O_NONBLOCK: a plain open(2) of a FIFO blocks until a writer appears, before the
+	// regular-file check below could refuse it; on a regular file it changes nothing.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 G703 -- the operator's own NAME_FILE setting (process environment), opened read-only and then checked (regular file, mode, size) below
 	if err != nil {
 		return "", fmt.Errorf("cannot open secret file: %w", unwrapSecretPathError(err))
 	}

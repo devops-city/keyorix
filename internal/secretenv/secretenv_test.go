@@ -6,6 +6,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,6 +111,39 @@ func TestLookup_Directory_Refuses(t *testing.T) {
 	_, _, err := Lookup(testVar)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "regular file")
+}
+
+// A FIFO (or a device that blocks on open) must be refused as "not a regular
+// file", not hang the boot: os.Open on a FIFO blocks until a writer appears, before
+// any Stat could reject it. Covers Lookup, LookupChecked and ReadFile (one reader).
+func TestLookup_FIFO_RefusesWithoutBlocking(t *testing.T) {
+	for name, read := range map[string]func(string) error{
+		"Lookup":        func(string) error { _, _, err := Lookup(testVar); return err },
+		"LookupChecked": func(string) error { _, _, err := LookupChecked(testVar); return err },
+		"ReadFile":      func(p string) error { _, err := ReadFile(p); return err },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "fifo")
+			require.NoError(t, syscall.Mkfifo(p, 0o600))
+			t.Setenv(testVar+"_FILE", p)
+			t.Cleanup(func() {
+				// Pre-fix, the reader is stuck in open(2): a non-blocking writer
+				// open releases it so the goroutine does not leak.
+				if f, err := os.OpenFile(p, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+					_ = f.Close()
+				}
+			})
+			done := make(chan error, 1)
+			go func() { done <- read(p) }()
+			select {
+			case err := <-done:
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "not a regular file")
+			case <-time.After(5 * time.Second):
+				t.Fatal("blocked opening a FIFO instead of refusing it")
+			}
+		})
+	}
 }
 
 func TestLookup_FollowsSymlink(t *testing.T) {

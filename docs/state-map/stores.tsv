@@ -92,6 +92,7 @@ WebAuthnSession	db_table	internal/storage/models	1
 cli/cmd/license.go (os.OpenFile)	file_write	cli/cmd	1
 cli/cmd/rbac_audit.go (os.OpenFile)	file_write	cli/cmd	1
 cli/cmd/secret.go (securefiles.SecureCreateFileHandle)	file_write	cli/cmd	1
+cli/cmd/secretfile.go (os.OpenFile)	file_write	cli/cmd	1
 cli/internal/apiclient/gen/filterspec.go (os.WriteFile)	file_write	cli/internal/apiclient/gen	1
 cli/internal/credstore/file.go (os.OpenFile)	file_write	cli/internal/credstore	2
 cli/internal/securefiles/securefiles.go (os.OpenFile)	file_write	cli/internal/securefiles	1
@@ -112,6 +113,7 @@ internal/encryption/keymanager_lifecycle.go (securefiles.SecureWriteFileSync)	fi
 internal/encryption/keymanager_rotation.go (securefiles.SecureWriteFileSync)	file_write	internal/encryption	1
 internal/encryptionops/shamir_split.go (securefiles.SecureWriteFileSync)	file_write	internal/encryptionops	2
 internal/faultstorage/gen/main.go (os.WriteFile)	file_write	internal/faultstorage/gen	2
+internal/secretenv/secretenv.go (os.OpenFile)	file_write	internal/secretenv	1
 internal/securefiles/securefiles.go (os.OpenFile)	file_write	internal/securefiles	3
 internal/serverguard/serverguard.go (os.OpenFile)	file_write	internal/serverguard	1
 internal/storage/factory.go (os.OpenFile)	file_write	internal/storage	1

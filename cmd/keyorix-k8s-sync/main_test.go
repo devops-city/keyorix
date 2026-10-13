@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -85,6 +86,46 @@ func TestResolveToken_FileEmpty_ReturnsError(t *testing.T) {
 	_, err := resolveToken()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "is empty")
+}
+
+// KEYORIX_TOKEN_FILE is read under internal/secretenv's file rules: a mis-pointed
+// path (a log, a device, a FIFO) is refused instead of being slurped into memory or
+// blocking startup.
+func TestResolveToken_FileTooLarge_ReturnsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(path, bytes.Repeat([]byte("a"), 2<<20), 0600))
+	t.Setenv("KEYORIX_TOKEN_FILE", path)
+	t.Setenv("KEYORIX_TOKEN", "")
+
+	_, err := resolveToken()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too large")
+}
+
+func TestResolveToken_FileIsFIFO_ReturnsErrorWithoutBlocking(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, syscall.Mkfifo(path, 0o600))
+	t.Setenv("KEYORIX_TOKEN_FILE", path)
+	t.Setenv("KEYORIX_TOKEN", "")
+	t.Cleanup(func() { unblockFIFOReader(path) })
+
+	done := make(chan error, 1)
+	go func() { _, err := resolveToken(); done <- err }()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a regular file")
+	case <-time.After(5 * time.Second):
+		t.Fatal("resolveToken blocked on a FIFO instead of refusing it")
+	}
+}
+
+// unblockFIFOReader opens path for writing (non-blocking) and closes it, so a reader
+// stuck opening the FIFO (the pre-fix behaviour) returns instead of leaking.
+func unblockFIFOReader(path string) {
+	if f, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+		_ = f.Close()
+	}
 }
 
 func TestResolveToken_NeitherSet_ReturnsError(t *testing.T) {
@@ -467,3 +508,42 @@ mappings:
     name: "db-secret"
     key: "password"
 `
+
+// The metrics bearer token from KEYORIX_METRICS_TOKEN must never be a flag's
+// registered default: flag's usage output (printed on -h and on ANY unknown or
+// malformed flag, e.g. a typo in the container args) prints every non-empty default
+// verbatim, so the token would land in the container log.
+func TestMainSubprocess_UsageNeverPrintsMetricsToken(t *testing.T) {
+	if os.Getenv("KEYORIX_K8S_SYNC_MAIN_SUBPROCESS") == "1" {
+		os.Args = []string{os.Args[0], "-no-such-flag"}
+		main()
+		return
+	}
+	const token = "metrics-token-must-not-leak-7f3a"
+	stderr, exitCode, runErr := runMainSubprocess(t, "TestMainSubprocess_UsageNeverPrintsMetricsToken",
+		[]string{"KEYORIX_METRICS_TOKEN=" + token})
+	require.Error(t, runErr, "an unknown flag must still stop the agent")
+	assert.Equal(t, 2, exitCode)
+	assert.Contains(t, stderr, "-metrics-bearer-token", "the usage text is printed (otherwise this test proves nothing)")
+	assert.NotContains(t, stderr, token)
+}
+
+func TestFlagOrEnv(t *testing.T) {
+	newFS := func() (*flag.FlagSet, *string) {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		return fs, fs.String("tok", "", "")
+	}
+	t.Setenv("KEYORIX_TEST_FLAG_OR_ENV", "from-env")
+
+	fs, v := newFS()
+	require.NoError(t, fs.Parse(nil))
+	assert.Equal(t, "from-env", flagOrEnv(fs, "tok", *v, "KEYORIX_TEST_FLAG_OR_ENV"), "flag not given: the environment variable")
+
+	fs, v = newFS()
+	require.NoError(t, fs.Parse([]string{"-tok", "from-flag"}))
+	assert.Equal(t, "from-flag", flagOrEnv(fs, "tok", *v, "KEYORIX_TEST_FLAG_OR_ENV"), "flag given: the flag wins")
+
+	fs, v = newFS()
+	require.NoError(t, fs.Parse([]string{"-tok="}))
+	assert.Equal(t, "", flagOrEnv(fs, "tok", *v, "KEYORIX_TEST_FLAG_OR_ENV"), "an explicit empty flag still wins (as with the old env-backed default)")
+}

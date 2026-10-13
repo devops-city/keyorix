@@ -226,8 +226,10 @@ func main() {
 	var enableLeaderElection, allNamespaces bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "address the metric endpoint binds to")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "address the probe endpoint binds to")
-	flag.StringVar(&metricsBearerToken, "metrics-bearer-token", os.Getenv("KEYORIX_METRICS_TOKEN"),
-		"OPTIONAL bearer token required on the metrics endpoint's Authorization header (e.g. by a Prometheus scrape "+
+	// Default "", not os.Getenv: flag's usage output prints every non-empty default,
+	// so an env-backed default would put the token in the log on any bad flag.
+	flag.StringVar(&metricsBearerToken, "metrics-bearer-token", "",
+		"OPTIONAL bearer token (or set KEYORIX_METRICS_TOKEN) required on the metrics endpoint's Authorization header (e.g. by a Prometheus scrape "+
 			"config's authorization.credentials). The metrics endpoint is always served over TLS (a self-signed "+
 			"certificate is generated automatically) regardless of this flag; when this flag is unset the endpoint "+
 			"itself is left unauthenticated -- matching the main Keyorix server's own MetricsToken default -- so set "+
@@ -248,6 +250,7 @@ func main() {
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	metricsBearerToken = flagOrEnv(flag.CommandLine, "metrics-bearer-token", metricsBearerToken, "KEYORIX_METRICS_TOKEN")
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog := ctrl.Log.WithName("setup")
@@ -320,4 +323,22 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// flagOrEnv returns the value of the string flag name when it was given on the
+// command line, otherwise the environment variable envVar. It stands in for an
+// os.Getenv default on flags that carry a secret: flag.PrintDefaults prints every
+// non-empty default verbatim (on -h and on any bad flag), which would copy the
+// secret into the log (semgrep keyorix-secret-env-as-flag-default).
+func flagOrEnv(fs *flag.FlagSet, name, flagValue, envVar string) string {
+	given := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			given = true
+		}
+	})
+	if given {
+		return flagValue
+	}
+	return os.Getenv(envVar)
 }

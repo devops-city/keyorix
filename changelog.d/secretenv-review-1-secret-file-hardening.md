@@ -1,0 +1,3 @@
+### Security
+- **The metrics token no longer appears in k8s-sync / operator usage output.** Both registered `-metrics-bearer-token` with `KEYORIX_METRICS_TOKEN` as its default, and Go's flag usage (printed on `-h` and on any unknown flag) shows defaults, so a typo in the container args wrote the token to the pod log. The variable is now read after flag parsing; behaviour is otherwise unchanged. A Semgrep rule (`keyorix-secret-env-as-flag-default`) blocks the pattern.
+- **A `*_FILE` secret that names a FIFO is refused instead of hanging startup.** Applies to the server (`internal/secretenv`), `keyorix system init` and k8s-sync's `KEYORIX_TOKEN_FILE`, which now also enforces the 1 MiB limit and regular-file rule the other secret files follow.
