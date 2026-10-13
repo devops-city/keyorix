@@ -123,6 +123,42 @@ test.describe('least-privilege user (alice)', () => {
         await expect(page.getByText('Transfer ownership')).toHaveCount(0);
     });
 
+    // #3142. The dependency graph is readable (secrets.read) but declaring/removing an edge is
+    // secrets.write, so the Add form and Remove buttons are not offered. The graph itself stays.
+    test('an open secret shows the dependency graph without the Add form or Remove buttons', async ({ page }) => {
+        const pid = await projectId(page);
+        await page.goto(`/projects/${pid}/secrets`);
+        await settle(page);
+        await page.getByRole('row').filter({ hasText: /e2e-/ }).first().getByTitle('View').click();
+        await expect(page.getByTestId('secret-header')).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Dependencies', exact: true })).toBeVisible();
+        await expect(page.getByTestId('add-dependency-form')).toHaveCount(0);
+        await expect(page.getByText('Add a dependency')).toHaveCount(0);
+        await expect(page.getByRole('button', { name: /^Remove$/ })).toHaveCount(0);
+    });
+
+    // #3142. Check Drift / Rotation Plan are GET /projects/{id}/drift and /rotation-plan, gated on
+    // secrets.read in the project (server/http/router.go), which project_viewer holds: the server
+    // answers 200, so the buttons stay offered and must not end in a refusal.
+    test('Check Drift and Rotation Plan stay offered and the server answers them', async ({ page }) => {
+        const pid = await projectId(page);
+        const statuses: Record<string, number> = {};
+        page.on('response', (r) => {
+            const p = new URL(r.url()).pathname;
+            if (p === `/api/v1/projects/${pid}/drift` || p === `/api/v1/projects/${pid}/rotation-plan`) {
+                statuses[p] = r.status();
+            }
+        });
+        await page.goto(`/projects/${pid}/secrets`);
+        await settle(page);
+        const main = page.locator('main');
+        await main.getByRole('button', { name: 'Check Drift' }).click();
+        await expect.poll(() => statuses[`/api/v1/projects/${pid}/drift`]).toBe(200);
+        await page.keyboard.press('Escape');
+        await main.getByRole('button', { name: 'Rotation Plan' }).click();
+        await expect.poll(() => statuses[`/api/v1/projects/${pid}/rotation-plan`]).toBe(200);
+    });
+
     test('the Members tab lists members without Add / Invite / role / remove controls', async ({ page }) => {
         const pid = await projectId(page);
         const failed: string[] = [];
@@ -175,6 +211,13 @@ test.describe('admin keeps every control (positive control)', () => {
         for (const title of ['View', 'Edit', 'Rotate', 'Share', 'Delete']) {
             await expect(row.getByTitle(title), title).toBeVisible();
         }
+    });
+
+    test('an open secret offers the dependency Add form (positive control, #3142)', async ({ page }) => {
+        await page.goto('/secrets');
+        await settle(page);
+        await page.getByRole('row').filter({ hasText: /e2e-/ }).first().getByTitle('View').click();
+        await expect(page.getByTestId('add-dependency-form')).toBeVisible();
     });
 
     test('Billing is not offered on a community build and nothing 403s while the shell loads', async ({ page }) => {

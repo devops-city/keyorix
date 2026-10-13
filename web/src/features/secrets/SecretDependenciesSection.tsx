@@ -8,6 +8,7 @@ import {
     useSecrets,
 } from './api';
 import { Button } from '../../components/ui/Button';
+import { useCan } from '../auth/useCan';
 
 // SecretDependenciesSection surfaces the secret dependency graph (ADR-052) on the
 // secret detail page: what this secret depends on, what depends on it, the blast
@@ -15,6 +16,10 @@ import { Button } from '../../components/ui/Button';
 // confined to the same project + environment, so the candidate picker is scoped to
 // matching secrets.
 export const SecretDependenciesSection: React.FC<{ secret: Secret }> = ({ secret }) => {
+    // Declaring and removing an edge is secrets.write on the server (POST/DELETE
+    // /secrets/{id}/dependencies); reading the graph is secrets.read. A read-only role
+    // sees the graph without the controls that would end in a 403.
+    const canWrite = useCan().writeSecrets;
     const { data: deps } = useSecretDependencies(secret.id);
     const { data: impact } = useSecretImpact(secret.id);
     const { data: secretList } = useSecrets();
@@ -68,14 +73,16 @@ export const SecretDependenciesSection: React.FC<{ secret: Secret }> = ({ secret
                 <span className="text-sm font-medium text-gray-900 dark:text-white truncate">{label}</span>
                 {edgeNote && <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">— {edgeNote}</span>}
             </div>
-            <button
-                type="button"
-                onClick={() => removeDependency.mutate(edgeId)}
-                disabled={removeDependency.isPending}
-                className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 disabled:opacity-50"
-            >
-                Remove
-            </button>
+            {canWrite && (
+                <button
+                    type="button"
+                    onClick={() => removeDependency.mutate(edgeId)}
+                    disabled={removeDependency.isPending}
+                    className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 disabled:opacity-50"
+                >
+                    Remove
+                </button>
+            )}
         </div>
     );
 
@@ -134,39 +141,44 @@ export const SecretDependenciesSection: React.FC<{ secret: Secret }> = ({ secret
             </div>
 
             {/* Add a dependency */}
-            <div className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700">
-                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Add a dependency</h4>
-                <div className="flex flex-col sm:flex-row gap-2">
-                    <select
-                        value={dependsOnId}
-                        onChange={(e) => setDependsOnId(e.target.value)}
-                        className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                    >
-                        <option value="">This secret depends on…</option>
-                        {candidates.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}
-                            </option>
-                        ))}
-                    </select>
-                    <input
-                        type="text"
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        placeholder="Note (optional)"
-                        className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white"
-                    />
-                    <Button onClick={handleAdd} disabled={addDependency.isPending || !dependsOnId}>
-                        Add
-                    </Button>
+            {canWrite && (
+                <div
+                    data-testid="add-dependency-form"
+                    className="mt-6 pt-5 border-t border-gray-100 dark:border-gray-700"
+                >
+                    <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Add a dependency</h4>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                        <select
+                            value={dependsOnId}
+                            onChange={(e) => setDependsOnId(e.target.value)}
+                            className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                        >
+                            <option value="">This secret depends on…</option>
+                            {candidates.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.name}
+                                </option>
+                            ))}
+                        </select>
+                        <input
+                            type="text"
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
+                            placeholder="Note (optional)"
+                            className="flex-1 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-900 dark:text-white"
+                        />
+                        <Button onClick={handleAdd} disabled={addDependency.isPending || !dependsOnId}>
+                            Add
+                        </Button>
+                    </div>
+                    {candidates.length === 0 && (
+                        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                            No eligible secrets in this project &amp; environment to depend on.
+                        </p>
+                    )}
+                    {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
                 </div>
-                {candidates.length === 0 && (
-                    <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                        No eligible secrets in this project &amp; environment to depend on.
-                    </p>
-                )}
-                {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-            </div>
+            )}
         </div>
     );
 };

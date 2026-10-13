@@ -1,0 +1,2 @@
+### Fixed
+- **Read-only roles no longer see the secret dependency Add form or Remove buttons.** The secret detail's Dependencies section offered "Add a dependency" and per-edge "Remove" to a `project_viewer`, whose POST/DELETE `/secrets/{id}/dependencies` then returned 403. Both are now shown only with `secrets.write` (`useCan().writeSecrets`); the dependency graph and blast radius stay readable. Check Drift / Rotation Plan stay offered because the server allows them for `secrets.read` (#3142; server enforcement unchanged).

@@ -17,6 +17,12 @@ vi.mock('../api', () => ({
     useRemoveSecretDependency: () => ({ mutate: removeMutate, isPending: false }),
 }));
 
+// What the signed-in user may do (see auth/useCan.ts). Existing cases assume a writer.
+const canState = vi.hoisted(() => ({
+    value: { admin: false, writeSecrets: true, deleteSecrets: false, readAudit: false, manageMembers: false },
+}));
+vi.mock('../../auth/useCan', () => ({ useCan: () => canState.value }));
+
 import { SecretDependenciesSection } from '../SecretDependenciesSection';
 
 const makeSecret = (overrides: Partial<Secret> = {}): Secret => ({
@@ -42,6 +48,42 @@ describe('SecretDependenciesSection', () => {
         depsData = { secret_id: 1, depends_on: [], dependents: [] };
         impactData = { secret_id: 1, secret_name: 'app-token', affected: [] };
         listData = { data: [], total: 0, page: 1, pageSize: 20, totalPages: 1 };
+        canState.value = {
+            admin: false,
+            writeSecrets: true,
+            deleteSecrets: false,
+            readAudit: false,
+            manageMembers: false,
+        };
+    });
+
+    it('a read-only user sees the graph but no Add form and no Remove buttons (#3142)', () => {
+        canState.value = { ...canState.value, writeSecrets: false };
+        depsData = {
+            secret_id: 1,
+            depends_on: [{ id: 10, secret_id: 2, secret_name: 'db-password' }],
+            dependents: [{ id: 11, secret_id: 3, secret_name: 'edge-cert' }],
+        };
+        render(<SecretDependenciesSection secret={makeSecret()} />);
+
+        expect(screen.getByText('db-password')).toBeInTheDocument();
+        expect(screen.getByText('edge-cert')).toBeInTheDocument();
+        expect(screen.queryByText('Add a dependency')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('add-dependency-form')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+        expect(screen.queryByText('Remove')).not.toBeInTheDocument();
+    });
+
+    it('a writer sees the Add form and Remove buttons', () => {
+        depsData = {
+            secret_id: 1,
+            depends_on: [{ id: 10, secret_id: 2, secret_name: 'db-password' }],
+            dependents: [],
+        };
+        render(<SecretDependenciesSection secret={makeSecret()} />);
+        expect(screen.getByTestId('add-dependency-form')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+        expect(screen.getByText('Remove')).toBeInTheDocument();
     });
 
     it('shows empty states when there are no dependencies', () => {
