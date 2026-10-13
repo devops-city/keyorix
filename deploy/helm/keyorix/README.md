@@ -80,6 +80,7 @@ existing release or `existingSecret` keeps working on upgrade.
 | `postgresql.enabled` | `true` | Bundled Postgres for evaluation. |
 | `postgresql.auth.password` | — | Required when bundled DB is enabled. |
 | `externalDatabase.*` | — | Used when `postgresql.enabled=false` (managed/HA Postgres). |
+| `externalDatabase.sslRootCert` | `""` | CA for the database's certificate (`storage.database.ssl_root_cert`). **Required** with `externalDatabase.sslMode: verify-full`/`verify-ca`, or the server refuses to start: `system` (OS CA store, for a publicly issued certificate) or the path of a PEM file you mount into the server pod. |
 | `secureBaseline.enabled` | `true` | ADR-112 secure baseline: server TLS (Helm-generated certificate, verified by the web pod), rate limiting, `/metrics` token, bundled Postgres over TLS, runtime files 0600. `admin validate --posture` then reports zero deviations. On by default since v0.96.0. **Needs a server image newer than v0.95.3**: with an older `image.tag`, set it to `false`. See below. |
 
 ## Upgrading: egress NetworkPolicy

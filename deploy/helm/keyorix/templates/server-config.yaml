@@ -70,6 +70,9 @@ data:
         {{- else }}
         ssl_mode: {{ .Values.postgresql.enabled | ternary "disable" .Values.externalDatabase.sslMode }}
         {{- end }}
+        {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.sslRootCert }}
+        ssl_root_cert: {{ .Values.externalDatabase.sslRootCert | quote }}
+        {{- end }}
       encryption:
         enabled: true
         # The wrapped DEK + KEK salt live on the persisted keys volume. These MUST

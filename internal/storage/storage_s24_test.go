@@ -121,14 +121,14 @@ func TestOpenGormDB_S24_EmptyTypeIsRejected(t *testing.T) {
 func TestOpenGormDB_S24_PostgresNoDSN(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Storage.Type = "postgres"
-	// All DSN fields zero — BuildPostgresDSN returns an empty string.
+	// All DSN fields zero — ResolvePostgresConnConfig fills host/port defaults.
 	cfg.Storage.Database.DSN = ""
 	cfg.Storage.Database.Host = ""
 	cfg.Storage.Database.Name = ""
 	cfg.Storage.Database.User = ""
 
 	_, err := OpenGormDB(cfg)
-	// BuildPostgresDSN may return a non-empty default for host/name; we only care
+	// ResolvePostgresConnConfig may fill a non-empty default for host/name; we only care
 	// that the call does NOT return "invalid storage.type".
 	if err != nil {
 		assert.NotContains(t, err.Error(), "invalid storage.type")

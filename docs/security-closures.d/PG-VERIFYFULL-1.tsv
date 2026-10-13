@@ -1,0 +1,1 @@
+PG-VERIFYFULL-1	./internal/config	TestValidate_VerifyingSSLModeWithoutRootCert_RefusesToStart	default-ci	-	-	Postgres verify-full/verify-ca without a named CA (storage.database.ssl_root_cert) refuses to start instead of verifying against the driver's implicit trust store; ResolvePostgresConnConfig enforces it on every connection

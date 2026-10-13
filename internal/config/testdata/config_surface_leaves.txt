@@ -299,6 +299,7 @@ storage.database.path
 storage.database.port
 storage.database.require_existing_path
 storage.database.ssl_mode
+storage.database.ssl_root_cert
 storage.database.user
 storage.encryption.dek_path
 storage.encryption.enabled

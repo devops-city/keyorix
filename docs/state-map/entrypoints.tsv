@@ -252,7 +252,7 @@ cli	keyorix secret comment list	cli/cmd/secret_versions.go	320	<expr>	D	secret_v
 cli	keyorix secret copy	cli/cmd/secret_organize.go	66	<expr>	D	secret_organize.go:66 secretCopyCmd.RunE makes exactly one write call, client.CopySecretWithResponse; the whole copy happens server-side in one request.
 cli	keyorix secret copy-environment	cli/cmd/secret_organize.go	112	<expr>	D	secret_organize.go:112 secretCopyEnvironmentCmd.RunE makes exactly one write call, client.CopyEnvironmentSecretsWithResponse; bulk per-secret copy/skip logic is server-side in a single request, not multiple client writes.
 cli	keyorix secret create	cli/cmd/secret_crud.go	35	runSecretCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix secret delete	cli/cmd/secret_crud.go	515	runSecretDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret delete	cli/cmd/secret_crud.go	564	runSecretDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret deps	cli/cmd/secret_deps.go	17		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix secret deps add	cli/cmd/secret_deps.go	56	<expr>	D	secret_deps.go:56 secretDepsAddCmd.RunE makes exactly one write call, client.AddSecretDependencyWithResponse.
 cli	keyorix secret deps impact	cli/cmd/secret_deps.go	126	<expr>	D	secret_deps.go:121 secretDepsImpactCmd.RunE is read-only: one call to client.GetSecretImpactWithResponse, then formatting.
@@ -268,11 +268,11 @@ cli	keyorix secret folder	cli/cmd/secret_folder.go	17		none	no RunE/Run set on t
 cli	keyorix secret folder create	cli/cmd/secret_folder.go	36	runSecretFolderCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret folder delete	cli/cmd/secret_folder.go	165	runSecretFolderDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret folder list	cli/cmd/secret_folder.go	100	runSecretFolderList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix secret get	cli/cmd/secret_crud.go	182	runSecretGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret get	cli/cmd/secret_crud.go	231	runSecretGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret get-schedule	cli/cmd/secret_schedule.go	93	<expr>	D	secret_schedule.go:92 secretGetScheduleCmd.RunE is read-only: one call to client.GetSecretScheduleWithResponse, then formatting.
 cli	keyorix secret import	cli/cmd/secret_import.go	35	runSecretImport	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret info	cli/cmd/secret_metadata.go	19	<expr>	D	secret_metadata.go:19 secretInfoCmd.RunE is read-only: client.GetSecretWithResponse plus a best-effort client.GetSecretTagsWithResponse (explicitly comment-documented as best-effort, errors ignored); no writes.
-cli	keyorix secret list	cli/cmd/secret_crud.go	768	runSecretList	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret list	cli/cmd/secret_crud.go	817	runSecretList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret move	cli/cmd/secret_organize.go	21	<expr>	D	secret_organize.go:21 secretMoveCmd.RunE makes exactly one write call, client.MoveSecretWithResponse.
 cli	keyorix secret name-conformance	cli/cmd/secret_hygiene.go	125	runSecretNameConformance	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret orphaned	cli/cmd/secret_hygiene.go	79	runSecretOrphaned	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -296,7 +296,7 @@ cli	keyorix secret template delete	cli/cmd/secret_templates.go	132	<expr>	D	secr
 cli	keyorix secret template get	cli/cmd/secret_templates.go	52	<expr>	D	secret_templates.go:52 secretTemplateGetCmd.RunE is read-only: one list call, then a local name match and print; no writes.
 cli	keyorix secret template list	cli/cmd/secret_templates.go	24	<expr>	D	secret_templates.go:24 secretTemplateListCmd.RunE is read-only: one call to client.ListSecretTemplatesWithResponse, then formatting.
 cli	keyorix secret trash	cli/cmd/secret_lifecycle.go	91	<expr>	D	secret_lifecycle.go:90 secretTrashCmd.RunE is read-only: one call to client.ListDeletedSecretsWithResponse, then formatting (soft-delete recycle-bin listing, unrelated to the backup/restore subsystem).
-cli	keyorix secret update	cli/cmd/secret_crud.go	417	runSecretUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret update	cli/cmd/secret_crud.go	466	runSecretUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret versions	cli/cmd/secret_versions.go	24	runSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix share	cli/cmd/share.go	25		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix share create	cli/cmd/share.go	39	runShareCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -347,22 +347,22 @@ grpc	AuditService.WriteAuditCheckpoint	server/proto/keyorix.proto	155	WriteAudit
 grpc	BreakGlassService.ActivateBreakGlass	server/proto/keyorix.proto	178	ActivateBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	BreakGlassService.ListBreakGlassActivations	server/proto/keyorix.proto	183	ListBreakGlassActivations	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	BreakGlassService.RevokeBreakGlass	server/proto/keyorix.proto	186	RevokeBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ComplianceService.GetComplianceControls	server/proto/keyorix.proto	1361	GetComplianceControls	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ComplianceService.GetCompliancePosture	server/proto/keyorix.proto	1358	GetCompliancePosture	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.CreateRefGrant	server/proto/keyorix.proto	1510	CreateRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.DeleteRefGrant	server/proto/keyorix.proto	1512	DeleteRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.ListConnectors	server/proto/keyorix.proto	1504	ListConnectors	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.ListRefGrants	server/proto/keyorix.proto	1508	ListRefGrants	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.ReadSecret	server/proto/keyorix.proto	1506	ReadSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.ClassifyConfig	server/proto/keyorix.proto	1231	ClassifyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.CreateConfig	server/proto/keyorix.proto	1228	CreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.GetConfig	server/proto/keyorix.proto	1225	GetConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.IssueLease	server/proto/keyorix.proto	1234	IssueLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.ListConfigs	server/proto/keyorix.proto	1222	ListConfigs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.ListLeases	server/proto/keyorix.proto	1237	ListLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.RenewLease	server/proto/keyorix.proto	1243	RenewLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.RevokeAllLeases	server/proto/keyorix.proto	1246	RevokeAllLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.RevokeLease	server/proto/keyorix.proto	1240	RevokeLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ComplianceService.GetComplianceControls	server/proto/keyorix.proto	1374	GetComplianceControls	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ComplianceService.GetCompliancePosture	server/proto/keyorix.proto	1371	GetCompliancePosture	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.CreateRefGrant	server/proto/keyorix.proto	1523	CreateRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.DeleteRefGrant	server/proto/keyorix.proto	1525	DeleteRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.ListConnectors	server/proto/keyorix.proto	1517	ListConnectors	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.ListRefGrants	server/proto/keyorix.proto	1521	ListRefGrants	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.ReadSecret	server/proto/keyorix.proto	1519	ReadSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.ClassifyConfig	server/proto/keyorix.proto	1244	ClassifyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.CreateConfig	server/proto/keyorix.proto	1241	CreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.GetConfig	server/proto/keyorix.proto	1238	GetConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.IssueLease	server/proto/keyorix.proto	1247	IssueLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.ListConfigs	server/proto/keyorix.proto	1235	ListConfigs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.ListLeases	server/proto/keyorix.proto	1250	ListLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.RenewLease	server/proto/keyorix.proto	1256	RenewLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.RevokeAllLeases	server/proto/keyorix.proto	1259	RevokeAllLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.RevokeLease	server/proto/keyorix.proto	1253	RevokeLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.AddGroupMember	server/proto/keyorix.proto	207	AddGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.CreateGroup	server/proto/keyorix.proto	196	CreateGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.DeleteGroup	server/proto/keyorix.proto	200	DeleteGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -372,23 +372,23 @@ grpc	GroupService.ListGroups	server/proto/keyorix.proto	192	ListGroups	none	sing
 grpc	GroupService.RemoveGroupMember	server/proto/keyorix.proto	209	RemoveGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.RestoreGroup	server/proto/keyorix.proto	202	RestoreGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.UpdateGroup	server/proto/keyorix.proto	198	UpdateGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.ClassifyMachineIdentity	server/proto/keyorix.proto	1109	ClassifyMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.ClassifyMachineToken	server/proto/keyorix.proto	1121	ClassifyMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.CreateMachineIdentity	server/proto/keyorix.proto	1103	CreateMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.IssueMachineToken	server/proto/keyorix.proto	1112	IssueMachineToken	D	server/grpc/services/machine_identity_service.go:153-184: the scanner's second "write" is time.Time.AddDate (line 166) matching the write-verb regex by accident, not a real write. Only one real state-changing call exists: s.core.IssueMachineToken.
-grpc	MachineIdentityService.ListMachineIdentities	server/proto/keyorix.proto	1100	ListMachineIdentities	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.ListMachineTokens	server/proto/keyorix.proto	1115	ListMachineTokens	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.RevokeMachineToken	server/proto/keyorix.proto	1118	RevokeMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.TransitionMachineIdentity	server/proto/keyorix.proto	1106	TransitionMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.CreateProject	server/proto/keyorix.proto	1021	CreateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.DeleteProject	server/proto/keyorix.proto	1027	DeleteProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetDeploymentRotationPlan	server/proto/keyorix.proto	1038	GetDeploymentRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetProject	server/proto/keyorix.proto	1018	GetProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetProjectRotationOrder	server/proto/keyorix.proto	1031	GetProjectRotationOrder	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetProjectRotationPlan	server/proto/keyorix.proto	1035	GetProjectRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.ListEnvironments	server/proto/keyorix.proto	1041	ListEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.ListProjects	server/proto/keyorix.proto	1015	ListProjects	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.UpdateProject	server/proto/keyorix.proto	1024	UpdateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.ClassifyMachineIdentity	server/proto/keyorix.proto	1122	ClassifyMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.ClassifyMachineToken	server/proto/keyorix.proto	1134	ClassifyMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.CreateMachineIdentity	server/proto/keyorix.proto	1116	CreateMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.IssueMachineToken	server/proto/keyorix.proto	1125	IssueMachineToken	D	server/grpc/services/machine_identity_service.go:153-184: the scanner's second "write" is time.Time.AddDate (line 166) matching the write-verb regex by accident, not a real write. Only one real state-changing call exists: s.core.IssueMachineToken.
+grpc	MachineIdentityService.ListMachineIdentities	server/proto/keyorix.proto	1113	ListMachineIdentities	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.ListMachineTokens	server/proto/keyorix.proto	1128	ListMachineTokens	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.RevokeMachineToken	server/proto/keyorix.proto	1131	RevokeMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.TransitionMachineIdentity	server/proto/keyorix.proto	1119	TransitionMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.CreateProject	server/proto/keyorix.proto	1034	CreateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.DeleteProject	server/proto/keyorix.proto	1040	DeleteProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetDeploymentRotationPlan	server/proto/keyorix.proto	1051	GetDeploymentRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetProject	server/proto/keyorix.proto	1031	GetProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetProjectRotationOrder	server/proto/keyorix.proto	1044	GetProjectRotationOrder	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetProjectRotationPlan	server/proto/keyorix.proto	1048	GetProjectRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.ListEnvironments	server/proto/keyorix.proto	1054	ListEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.ListProjects	server/proto/keyorix.proto	1028	ListProjects	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.UpdateProject	server/proto/keyorix.proto	1037	UpdateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	RoleService.AssignRole	server/proto/keyorix.proto	129	AssignRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	RoleService.CreateRole	server/proto/keyorix.proto	114	CreateRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	RoleService.DeleteRole	server/proto/keyorix.proto	123	DeleteRole	none	single/no write-shaped call found by a 1-hop scan of the handler body

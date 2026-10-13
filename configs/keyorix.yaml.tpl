@@ -123,6 +123,9 @@ storage:
     # user: keyorix
     # password: ""  # use KEYORIX_DB_PASSWORD environment variable instead
     # ssl_mode: require  # always use require or verify-full in production
+    # ssl_root_cert: /etc/keyorix/pg-ca.pem  # CA that signed the database's certificate;
+    #   REQUIRED with verify-full (the server refuses to start without it), or "system"
+    #   for the OS CA store. A relative path is relative to this file's directory.
 
     # Connection pool. Leave max_open_conns unset to get the measured default for
     # your storage.type: 8 for SQLite, 25 for Postgres (#2631; docs/CONFIGURATION.md

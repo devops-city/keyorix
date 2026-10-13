@@ -63,8 +63,10 @@ func FuzzResolvePostgresConnConfig_PasswordCannotChangeConnection(f *testing.F) 
 				t.Fatalf("DSN password plus configured password must be refused (%q)", dsn)
 			}
 			return
+		case err != nil && ValidateDatabaseTLS(&DatabaseConfig{DSN: dsn}) != nil:
+			return // the TLS check refuses the DSN itself (e.g. verify-full with no CA): fails closed
 		case err != nil:
-			t.Fatalf("ResolvePostgresConnConfig failed on a DSN pgx accepts: %v", err)
+			t.Fatalf("ResolvePostgresConnConfig failed on a DSN pgx and the TLS check accept: %v", err)
 		}
 		wantPw := want.Password
 		if pw != "" {

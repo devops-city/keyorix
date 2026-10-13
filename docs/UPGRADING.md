@@ -71,6 +71,21 @@ yourself. Scripts that ran `admin init` and then talked plain HTTP need
 `admin init --dev` (relaxed, labelled DEV-ONLY) or the generated certificate
 (`keyorix config set ca_file <path>`, `--ca-file`, `KEYORIX_CA_FILE`).
 
+**PostgreSQL `ssl_mode: verify-full` (or `verify-ca`) now needs
+`storage.database.ssl_root_cert`.** A config with a verifying mode and no CA
+refuses to start (it used to connect and verify against `PGSSLROOTCERT`,
+`~/.postgresql/root.crt` or the OS store, whichever the driver found). Before
+upgrading, set `ssl_root_cert` to the CA's PEM file, or to `system` if the
+database's certificate is publicly issued; with `dsn:`, add `sslrootcert=` to
+the dsn instead. Helm: `externalDatabase.sslRootCert`. Check with
+`keyorix-server admin validate --posture` (server stopped) after updating the
+binary: a remaining problem is listed as a `database-tls` deviation. See
+[CONFIGURATION.md](CONFIGURATION.md#postgresql-tls). `require` (the default)
+is unchanged. A PostgreSQL connection-service file (`service=` in the dsn, or the
+`PGSERVICE` environment variable) is refused too, because the file could set the
+TLS mode and CA behind this check: move its settings into `storage.database`.
+UNVERIFIED as an upgrade drill; the refusal itself is covered by tests.
+
 **Server image: `entrypoint.sh` is now the image's ENTRYPOINT** (it was its
 CMD). `docker run <image> <command>` and `docker compose run backend <command>`
 still run `<command>`, after the optional config copy (`KEYORIX_CONFIG_SOURCE`);

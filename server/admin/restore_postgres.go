@@ -63,7 +63,7 @@ func postgresTargetIdentityPath(cfg *config.Config) (string, error) {
 func postgresOpenSQL(cfg *config.Config) (*sql.DB, error) {
 	cc, err := config.ResolvePostgresConnConfig(&cfg.Storage.Database)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open postgres: %w", err)
 	}
 	db := stdlib.OpenDB(*cc)
 	if err := db.Ping(); err != nil {
@@ -239,7 +239,7 @@ func quoteIdentPG(ident string) string {
 func verifyRestoredAuditPostgres(cfg *config.Config) error {
 	cc, err := config.ResolvePostgresConnConfig(&cfg.Storage.Database)
 	if err != nil {
-		return err
+		return fmt.Errorf("open restored database for automatic verify-audit: %w", err)
 	}
 	db, err := auditverify.OpenPostgresConfig(cc)
 	if err != nil {

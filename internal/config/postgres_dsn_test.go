@@ -235,7 +235,7 @@ var injectionPasswords = []string{
 // with '?', '@' or '#' in the userinfo.
 func TestResolvePostgresConnConfig_PasswordCannotChangeTheConnection(t *testing.T) {
 	clearPGEnv(t)
-	ca := writeTestCA(t)
+	ca := writePwTestCA(t)
 	caKW := strings.ReplaceAll(mustUnescapePath(t, ca), `'`, `\'`)
 	bases := []string{
 		dsnNoPwKeyword,
@@ -273,7 +273,7 @@ func TestResolvePostgresConnConfig_PasswordCannotChangeTheConnection(t *testing.
 // put the password before it, and pgx then read host "u" with sslmode=prefer.
 func TestResolvePostgresConnConfig_Review3162B_URLUserinfoQuestionMark(t *testing.T) {
 	clearPGEnv(t)
-	ca := writeTestCA(t)
+	ca := writePwTestCA(t)
 	t.Setenv("KEYORIX_DB_PASSWORD", "secret")
 	for _, base := range []string{
 		"postgres://u?x@db.internal/k?sslmode=verify-full&sslrootcert=" + ca,
@@ -294,7 +294,7 @@ func TestResolvePostgresConnConfig_Review3162B_URLUserinfoQuestionMark(t *testin
 // separator before the appended password, whose contents then became keywords.
 func TestResolvePostgresConnConfig_Review3162B_KeywordTrailingBackslash(t *testing.T) {
 	clearPGEnv(t)
-	ca := mustUnescapePath(t, writeTestCA(t))
+	ca := mustUnescapePath(t, writePwTestCA(t))
 	const pw = `a sslmode=disable host=evil x=\`
 	t.Setenv("KEYORIX_DB_PASSWORD", pw)
 	for _, base := range []string{
@@ -379,10 +379,10 @@ func TestValidate_AcceptsPostgresDSNWithEnvPassword(t *testing.T) {
 	assert.NoError(t, cfg.Validate())
 }
 
-// writeTestCA writes a throwaway self-signed CA certificate to a path with a
+// writePwTestCA writes a throwaway self-signed CA certificate to a path with a
 // space in it and returns that path percent-escaped for use in a URL DSN
 // (pgx reads sslrootcert at parse time, even for sslmode=disable).
-func writeTestCA(t *testing.T) string {
+func writePwTestCA(t *testing.T) string {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)

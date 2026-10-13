@@ -36,7 +36,7 @@ func TestCreateStorage_Postgresql(t *testing.T) {
 	cfg.Storage.Database.Host = ""
 	cfg.Storage.Database.Name = ""
 	cfg.Storage.Database.User = ""
-	// With no DSN or host/name/user, BuildPostgresDSN returns a non-empty string
+	// With no DSN or host/name/user, ResolvePostgresConnConfig builds a non-empty field DSN
 	// (it applies defaults). The factory creates the *sql.DB — which may succeed
 	// for sql.Open — but then fails at migration. We only care that the storage-type
 	// routing reaches createPostgresStorage (not the default fallback).

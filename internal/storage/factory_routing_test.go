@@ -105,9 +105,9 @@ func TestCreateStorage_InvalidType(t *testing.T) {
 func TestCreateStorage_PostgresRequiresDSNOrFields(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Storage.Type = "postgres"
-	// DSN, host, name, user all empty → BuildPostgresDSN returns "" for host-only.
+	// DSN, host, name, user all empty → ResolvePostgresConnConfig fills defaults.
 	// The factory checks for empty DSN.
-	// Note: BuildPostgresDSN fills host/port defaults but the factory only checks
+	// Note: ResolvePostgresConnConfig fills host/port defaults but the factory only checks
 	// when DSN is empty and name/user are empty. So we provide a host to still
 	// get an empty Name/User — which our factory rejects.
 	cfg.Storage.Database.DSN = ""
@@ -118,7 +118,7 @@ func TestCreateStorage_PostgresRequiresDSNOrFields(t *testing.T) {
 	_, err := NewStorageFactory().CreateStorage(cfg)
 	require.Error(t, err)
 	// The factory rejects with "requires a DSN or host/name/user fields"
-	// because BuildPostgresDSN still returns a non-empty DSN even with empty fields.
+	// because ResolvePostgresConnConfig still builds a non-empty DSN even with empty fields.
 	// So just verify we can call it without panic.
 	_ = err
 }

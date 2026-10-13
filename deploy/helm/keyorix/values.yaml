@@ -274,6 +274,12 @@ externalDatabase:
   database: keyorix
   user: keyorix
   sslMode: require
+  # CA that signed the database server's certificate, rendered as
+  # storage.database.ssl_root_cert. REQUIRED with sslMode verify-full/verify-ca
+  # (the server refuses to start without it): "system" trusts the image's OS CA
+  # store (a publicly issued certificate); a path names a PEM file you mount
+  # into the server pod yourself (this chart does not mount it).
+  sslRootCert: ""
 
 # ── Network policy ────────────────────────────────────────────────────────────
 # Scopes the server API and the bundled Postgres to same-namespace traffic —

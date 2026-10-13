@@ -103,32 +103,35 @@ func TestResolvePostgresConnConfig_DSNPassthrough(t *testing.T) {
 	assertSameConnection(t, d.DSN, cc, "")
 }
 
-// TestBuildPostgresDSN_FieldsDefaults validates that missing host/port/sslmode
+// TestBuildPostgresDSNFromFields_Defaults validates that missing host/port/sslmode
 // are filled with their documented defaults.
-func TestBuildPostgresDSN_FieldsDefaults(t *testing.T) {
+func TestBuildPostgresDSNFromFields_Defaults(t *testing.T) {
 	d := &DatabaseConfig{Name: "keyorix", User: "kx"}
 	dsn := buildPostgresDSNFromFields(d)
-	assert.Contains(t, dsn, "host=localhost")
-	assert.Contains(t, dsn, "port=5432")
-	assert.Contains(t, dsn, "sslmode=require")
-	assert.Contains(t, dsn, "dbname=keyorix")
-	assert.Contains(t, dsn, "user=kx")
+	assert.Contains(t, dsn, "host='localhost'")
+	assert.Contains(t, dsn, "port='5432'")
+	assert.Contains(t, dsn, "sslmode='require'")
+	assert.Contains(t, dsn, "dbname='keyorix'")
+	assert.Contains(t, dsn, "user='kx'")
 }
 
-// TestBuildPostgresDSN_ExplicitFields validates that explicit host/port/sslmode
+// TestBuildPostgresDSNFromFields_ExplicitFields validates that explicit host/port/sslmode
 // are used when provided.
-func TestBuildPostgresDSN_ExplicitFields(t *testing.T) {
+func TestBuildPostgresDSNFromFields_ExplicitFields(t *testing.T) {
 	d := &DatabaseConfig{
 		Host:    "pg.prod",
 		Port:    "5433",
 		Name:    "mydb",
 		User:    "admin",
 		SSLMode: "verify-full",
+		// verify-full needs a named CA since PG-VERIFYFULL-1 (database_tls_test.go).
+		SSLRootCert: SSLRootCertSystem,
 	}
 	dsn := buildPostgresDSNFromFields(d)
-	assert.Contains(t, dsn, "host=pg.prod")
-	assert.Contains(t, dsn, "port=5433")
-	assert.Contains(t, dsn, "sslmode=verify-full")
+	assert.Contains(t, dsn, "host='pg.prod'")
+	assert.Contains(t, dsn, "port='5433'")
+	assert.Contains(t, dsn, "sslmode='verify-full'")
+	assert.Contains(t, dsn, "sslrootcert='system'")
 }
 
 // TestResolvePostgresConnConfig_FieldsPassword validates that the configured

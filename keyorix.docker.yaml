@@ -57,7 +57,9 @@ storage:
     # prefer: TLS when the postgres server offers it. The bundled postgres
     # container has no server certificate, so this connection is plaintext on
     # the internal compose network; for a managed or external postgres use
-    # verify-full. Never disable.
+    # verify-full with ssl_root_cert (the PEM file of the CA that signed the
+    # database's certificate; the server refuses to start on verify-full
+    # without it). Never disable.
     ssl_mode: prefer
     # Password comes from KEYORIX_DB_PASSWORD_FILE (docker-compose.yml), never committed here.
   encryption:

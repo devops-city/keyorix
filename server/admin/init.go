@@ -277,7 +277,17 @@ func initializeAdminDatabase(cfg *config.Config) error {
 	// is SQLite. For PostgreSQL (or remote) there is nothing to pre-create on
 	// disk, and creating one leaves a stray, unused keyorix.db behind.
 	switch cfg.Storage.Type {
-	case "postgres", "postgresql", "remote":
+	case "postgres", "postgresql":
+		fmt.Printf("Database: storage.type is %q, no local database file to create (run 'keyorix-server admin migrate' to create the schema)\n", cfg.Storage.Type)
+		// PG-VERIFYFULL-1: say how the connection will be protected, and fail
+		// init on a TLS trust setting the server would refuse to boot on.
+		line, err := config.DatabaseTLSPosture(&cfg.Storage.Database)
+		if err != nil {
+			return err
+		}
+		fmt.Println(line)
+		return nil
+	case "remote":
 		fmt.Printf("Database: storage.type is %q, no local database file to create (run 'keyorix-server admin migrate' to create the schema)\n", cfg.Storage.Type)
 		return nil
 	}
