@@ -412,6 +412,20 @@ type nodeStampRead struct {
 	trusted bool
 }
 
+// nodeTriggerExistsExpr is the one-bind (trigger name) boolean expression that
+// proves the cache_epoch trigger is present and firing on THIS connection's
+// secret_nodes, shared by every statement that reads the stamp.
+func nodeTriggerExistsExpr(db *gorm.DB) string {
+	if db.Dialector.Name() == "postgres" {
+		// Same tgrelid + tgenabled qualification as SecretNodeCacheEpochTriggerPresent,
+		// and for the same reason: tgname alone can match a same-named trigger on
+		// a different table (even in a different schema), and a disabled trigger
+		// still appears in pg_trigger without ever firing.
+		return "EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND tgenabled <> 'D')"
+	}
+	return "EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?)"
+}
+
 // readLiveNodeStamp reads secret_nodes.cache_epoch for id AND proves the trigger
 // still exists, in ONE query and therefore at ONE snapshot.
 //
@@ -440,14 +454,7 @@ type nodeStampRead struct {
 // same scope GetSecret itself relies on, so a soft-deleted row reads as
 // not-found here exactly as it does there.
 func readLiveNodeStamp(ctx context.Context, db *gorm.DB, id uint) (nodeStampRead, error) {
-	triggerExists := "EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?)"
-	if db.Dialector.Name() == "postgres" {
-		// Same tgrelid + tgenabled qualification as SecretNodeCacheEpochTriggerPresent,
-		// and for the same reason: tgname alone can match a same-named trigger on
-		// a different table (even in a different schema), and a disabled trigger
-		// still appears in pg_trigger without ever firing.
-		triggerExists = "EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND tgenabled <> 'D')"
-	}
+	triggerExists := nodeTriggerExistsExpr(db)
 	var rows []struct {
 		CacheEpoch     int64
 		TriggerPresent bool

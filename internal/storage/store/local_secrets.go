@@ -660,9 +660,32 @@ func (ls *LocalStorage) getCachedSecret(ctx context.Context, id uint) (*models.S
 	// NOT ls.nodeStampTrusted() here — that answer is per-store and
 	// time-bounded, which is fine for deciding whether to STORE but would leave
 	// a window on the serving path.
-	stamp, err := readLiveNodeStamp(ctx, ls.db, id)
+	//
+	// A request that declared its follow-up reads (storage.ReadPathPrefetch)
+	// gets them answered by this same statement; see local_readpath_prefetch.go.
+	// They are parked only once the hit below is confirmed.
+	var (
+		stamp nodeStampRead
+		err   error
+		perm  *storage.PrefetchedPermission
+		sched *storage.PrefetchedScheduleVersion
+	)
+	pf := storage.ReadPathPrefetchFrom(ctx)
+	if pf != nil {
+		var ok bool
+		stamp, perm, sched, ok = ls.readNodeStampPrefetching(ctx, pf, id, cached.node)
+		if !ok {
+			pf, perm, sched = nil, nil, nil
+			stamp, err = readLiveNodeStamp(ctx, ls.db, id)
+		}
+	} else {
+		stamp, err = readLiveNodeStamp(ctx, ls.db, id)
+	}
 	if err != nil || !stamp.found || !stamp.trusted || stamp.generation != cached.generation {
 		return nil, false
+	}
+	if pf != nil {
+		pf.Park(perm, sched)
 	}
 	cp := *cached.node
 	return &cp, true

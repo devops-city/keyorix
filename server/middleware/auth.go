@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -789,6 +790,16 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 		badRequestResponse(w, "Invalid target")
 		return
 	}
+	// A machine's value read asks storage for the secret, then the machine's roles
+	// at its scope, then (handler) the schedule/version state. Declare that so a
+	// storage that can answers them from the one statement that confirms the
+	// secret (storage.ReadPathPrefetch); storage that cannot ignores it.
+	var prefetch *storage.ReadPathPrefetch
+	if userCtx.ActorKind() == core.ActorTypeMachine && userCtx.MachineIdentityID != nil {
+		wantValue := r.Method == http.MethodGet && permission == "secrets.read" && r.URL.Query().Get("include_value") == "true"
+		r = r.WithContext(storage.NewReadPathPrefetch(r.Context(), *userCtx.MachineIdentityID, wantValue))
+		prefetch = storage.ReadPathPrefetchFrom(r.Context())
+	}
 	secret, err := cs.Storage().GetSecret(r.Context(), secretID)
 	if err != nil {
 		handleScopeResolutionError(w, r, cs, userCtx, permission, errTargetNotFound, defaultDenyMessage)
@@ -806,6 +817,9 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 	// AuthorizeSecretPrincipalForSecretAction reuses the secret already fetched above
 	// instead of AuthorizeSecretPrincipal's own internal re-fetch of the same row.
 	decision, err := cs.AuthorizeSecretPrincipalForSecretAction(r.Context(), userCtx.ActorKind(), userCtx.PrincipalID(), secret, permission, action)
+	if prefetch != nil {
+		prefetch.DropPermission()
+	}
 	if err == nil && decision.ShareNotElevated {
 		forbiddenResponse(w, core.ShareActionNotElevatedMessage)
 		return

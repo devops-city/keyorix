@@ -73,9 +73,15 @@ func readScheduleAndVersionsGeneration(ctx context.Context, db *gorm.DB, secretN
 		// than read a zero generation and a "no schedule" out of nothing.
 		return nil, versionsGeneration{}, fmt.Errorf("schedule/version snapshot returned %d rows", res.RowsAffected)
 	}
+	sched, gen := scheduleAndVersionsFromRow(row)
+	return sched, gen, nil
+}
+
+// scheduleAndVersionsFromRow decodes one scheduleAndVersionsSQL-shaped row.
+func scheduleAndVersionsFromRow(row scheduleAndVersionsRow) (*models.SecretAccessSchedule, versionsGeneration) {
 	gen := versionsGeneration{count: row.Cnt, maxVersionNumber: row.MaxVer, sumReadCount: row.SumRc}
 	if row.SchedID == nil {
-		return nil, gen, nil
+		return nil, gen
 	}
 	sched := &models.SecretAccessSchedule{ID: *row.SchedID}
 	if row.SchedSecretNodeID != nil {
@@ -99,13 +105,36 @@ func readScheduleAndVersionsGeneration(ctx context.Context, db *gorm.DB, secretN
 	if row.SchedUpdatedAt != nil {
 		sched.UpdatedAt = *row.SchedUpdatedAt
 	}
-	return sched, gen, nil
+	return sched, gen
+}
+
+// prefetchedScheduleState is what the node read parks for
+// GetSecretScheduleAndLatestVersion (see readpath_prefetch.go).
+type prefetchedScheduleState struct {
+	schedule *models.SecretAccessSchedule
+	gen      versionsGeneration
 }
 
 // GetSecretScheduleAndLatestVersion — see the storage.Storage doc comment and
 // this file's header.
 func (ls *LocalStorage) GetSecretScheduleAndLatestVersion(ctx context.Context, secretNodeID uint) (*storage.SecretScheduleAndLatestVersion, error) {
-	sched, liveGen, err := readScheduleAndVersionsGeneration(ctx, ls.db, secretNodeID)
+	var (
+		sched   *models.SecretAccessSchedule
+		liveGen versionsGeneration
+		parked  bool
+		err     error
+	)
+	if pf := storage.ReadPathPrefetchFrom(ctx); pf != nil {
+		if taken := pf.TakeScheduleVersion(secretNodeID); taken != nil {
+			if st, ok := taken.State.(*prefetchedScheduleState); ok {
+				sched, liveGen, parked = st.schedule, st.gen, true
+			}
+		}
+	}
+	if !parked {
+		// Nothing parked for this secret: the statement this method always ran.
+		sched, liveGen, err = readScheduleAndVersionsGeneration(ctx, ls.db, secretNodeID)
+	}
 	if err != nil {
 		// GetSecretAccessSchedule's error shape: the schedule is judged first,
 		// so a failure of the shared statement is a schedule-read failure.

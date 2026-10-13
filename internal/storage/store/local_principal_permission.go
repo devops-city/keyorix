@@ -110,6 +110,15 @@ func (ls *LocalStorage) ResolveUserPermissionAt(ctx context.Context, userID uint
 // ResolveMachinePermissionAt: see the storage.Storage interface doc and this
 // file's header.
 func (ls *LocalStorage) ResolveMachinePermissionAt(ctx context.Context, machineID uint, scope storage.Scope, permission string) (*storage.PrincipalPermission, error) {
+	// The node read may already have read this machine's roles at this scope in
+	// the statement that validated the node cache entry (readpath_prefetch.go).
+	if pf := storage.ReadPathPrefetchFrom(ctx); pf != nil {
+		if taken := pf.TakePermission(machineID, scope); taken != nil {
+			if rows, ok := taken.Rows.([]principalPermissionRow); ok {
+				return ls.resolvePrincipalPermission(ctx, rows, permission, false)
+			}
+		}
+	}
 	var rows []principalPermissionRow
 	if err := ls.db.WithContext(ctx).Raw(machinePrincipalPermissionSQL,
 		machineID, scope.ProjectID, scope.EnvironmentID,
