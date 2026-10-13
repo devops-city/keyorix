@@ -338,6 +338,23 @@ shows everyone's.
 If it is not enabled the command now says so (`break-glass is not enabled on this
 server; set break_glass.enabled`) instead of a bare `permission denied`.
 
+**The same path in the web UI** (project → **Break-glass** tab; same server rules,
+same audit trail):
+
+1. As the member (e.g. a `project_viewer`): open the project's **Break-glass** tab,
+   write the justification (at least 10 characters), pick how long (the server
+   shortens anything above its `break_glass.max_ttl`) and press **Request
+   emergency access**. The row under *Your activations* turns **Active** and counts
+   down to expiry; when it reaches zero it shows **Expired**.
+2. As the admin (`roles.read` at the project): the same tab now lists
+   *All activations on this project*, with who, when, the justification and the status.
+3. With `roles.assign`, press **Revoke** on an active row and confirm in the dialog.
+   The row turns **Revoked**; the member's own list shows it revoked too.
+
+If break-glass is off, the tab says "Break-glass is not enabled on this server"; if the
+project requires MFA and the session has no second factor, it says so and links to
+enrolment. Someone who is not a member of the project sees a refusal, not a list.
+
 ## 8. Footprint (~30 sec) — close on the koi-pond pitch
 
 Measured 2026-10-05, one Docker build, arm64, indicative (not a repeated

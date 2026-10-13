@@ -21,6 +21,9 @@ vi.mock('../ProjectActivityTab', () => ({
 vi.mock('../ProjectAccessReviewTab', () => ({
     ProjectAccessReviewTab: ({ projectId }: { projectId: number }) => <div>access review tab stub ({projectId})</div>,
 }));
+vi.mock('../ProjectBreakGlassTab', () => ({
+    ProjectBreakGlassTab: ({ projectId }: { projectId: number }) => <div>break-glass tab stub ({projectId})</div>,
+}));
 vi.mock('../ProjectSettingsTab', () => ({
     ProjectSettingsTab: ({ projectId }: { projectId: number }) => <div>settings tab stub ({projectId})</div>,
 }));
@@ -183,7 +186,7 @@ describe('ProjectDetailPage — tab routing', () => {
         const nav = screen.getByRole('link', { name: 'Secrets' }).closest('div');
         expect(nav).not.toBeNull();
         const scoped = within(nav as HTMLElement);
-        ['Secrets', 'Members', 'Activity', 'Access Review', 'Settings'].forEach((label) => {
+        ['Secrets', 'Members', 'Activity', 'Access Review', 'Break-glass', 'Settings'].forEach((label) => {
             expect(scoped.getByRole('link', { name: label })).toBeInTheDocument();
         });
     });

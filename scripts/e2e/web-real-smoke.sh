@@ -410,6 +410,24 @@ run_group() {
     grep -q "^  require_mfa: $want_mfa\$" "$config_path" ||
         fail "[group $group_label] security.require_mfa is not $want_mfa in $config_path"
 
+    # Break-glass is off by default (secure default). A spec that drives it declares so with a
+    # line starting `// e2e-server: break_glass=true` in its own file; its group then boots with
+    # the feature on (the emergency role is the contained project_developer, as in the demo).
+    # Every other group is untouched. The template carries only a commented example, so this
+    # appends the one and only `break_glass:` key.
+    local spec_wants_break_glass=false
+    for spec in "${specs[@]}"; do
+        if grep -q '^// e2e-server: break_glass=true' "$WEB_DIR/$spec"; then
+            spec_wants_break_glass=true
+        fi
+    done
+    if [ "$spec_wants_break_glass" = true ]; then
+        echo "==> [group $group_label] ${specs[*]} asks for break_glass.enabled=true"
+        [ "$(grep -c '^break_glass:' "$config_path")" = 0 ] ||
+            fail "[group $group_label] $config_path already has a break_glass: section"
+        printf '\nbreak_glass:\n  enabled: true\n  emergency_role: project_developer\n  default_ttl: 4h\n  max_ttl: 24h\n' >>"$config_path"
+    fi
+
     echo "==> [group $group_label] keyorix-server admin encryption init"
     (cd "$smoke_dir" && "$SERVER_BIN" admin encryption init --config "$config_rel") ||
         fail "admin encryption init exited non-zero"
