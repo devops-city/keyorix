@@ -1,0 +1,2 @@
+### Added
+- **gRPC `UpdateSecret` can now remove a secret's expiry and read limit.** `UpdateSecretRequest` gains additive `clear_expiration` (field 7) and `clear_max_reads` (field 8), matching REST. Each is mutually exclusive with the value it clears (`InvalidArgument`), an absent field keeps the stored value, and clearing an existing expiry or limit stays a lifecycle-permission action, so a write share does not elevate it (#3172).

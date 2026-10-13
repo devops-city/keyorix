@@ -252,14 +252,25 @@ func (s *SecretGRPCService) UpdateSecret(ctx context.Context, req *pb.UpdateSecr
 		return nil, err
 	}
 
+	// Same contract as REST: an explicit clear and a new value for the same field
+	// are mutually exclusive (checked before any core call, after authorization).
+	if req.GetClearExpiration() && req.GetExpiration() != nil {
+		return nil, status.Error(codes.InvalidArgument, "expiration and clear_expiration are mutually exclusive")
+	}
+	if req.GetClearMaxReads() && req.MaxReads != nil {
+		return nil, status.Error(codes.InvalidArgument, "max_reads and clear_max_reads are mutually exclusive")
+	}
+
 	updateReq := &core.UpdateSecretRequest{
-		ID:         uint(req.GetId()),
-		MaxReads:   int32PtrToIntPtr(req.MaxReads),
-		Expiration: tsToTimePtr(req.GetExpiration()),
-		Metadata:   req.GetMetadata(),
-		Tags:       req.GetTags(),
-		UpdatedBy:  user.Username,
-		UserID:     user.UserID,
+		ID:              uint(req.GetId()),
+		MaxReads:        int32PtrToIntPtr(req.MaxReads),
+		Expiration:      tsToTimePtr(req.GetExpiration()),
+		ClearExpiration: req.GetClearExpiration(),
+		ClearMaxReads:   req.GetClearMaxReads(),
+		Metadata:        req.GetMetadata(),
+		Tags:            req.GetTags(),
+		UpdatedBy:       user.Username,
+		UserID:          user.UserID,
 	}
 	if v := req.GetValue(); v != "" {
 		updateReq.Value = []byte(v)

@@ -289,6 +289,13 @@ message UpdateSecretRequest {
   optional google.protobuf.Timestamp expiration = 4;
   map<string, string> metadata = 5;
   repeated string tags = 6;
+  // Remove an existing expiration (mirrors REST clear_expiration). Mutually
+  // exclusive with expiration. Absent/false keeps the current expiration.
+  bool clear_expiration = 7;
+  // Remove the read limit (mirrors REST clear_max_reads, #3172). max_reads keeps
+  // its minimum of 1, so 0 does not mean "clear". Mutually exclusive with
+  // max_reads. Absent/false keeps the current limit.
+  bool clear_max_reads = 8;
 }
 
 message DeleteSecretRequest {
