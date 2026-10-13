@@ -48,7 +48,11 @@ func walkTable(db *gorm.DB, model any, fn func(row any) error) (rowCount int64, 
 		orderCols[i] = f.DBName + " ASC"
 	}
 
-	rows, err := db.Model(model).Order(strings.Join(orderCols, ", ")).Rows()
+	// Unscoped: a backup is every row, including soft-deleted ones (deleted_at
+	// set). The default scope's `deleted_at IS NULL` dropped them, and restore
+	// then refused the archive because append-only audit_events still named the
+	// dropped project (#3164).
+	rows, err := db.Unscoped().Model(model).Order(strings.Join(orderCols, ", ")).Rows()
 	if err != nil {
 		return 0, fmt.Errorf("query %s: %w", s.Table, err)
 	}

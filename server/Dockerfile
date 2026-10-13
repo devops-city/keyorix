@@ -115,5 +115,8 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD ["sh", "-c", "if [ -n \"$KEYORIX_LOCAL_CA_FILE\" ]; then SSL_CERT_FILE=\"$KEYORIX_LOCAL_CA_FILE\"; export SSL_CERT_FILE; fi; wget --no-verbose --tries=1 --spider \"${KEYORIX_LOCAL_URL:-http://localhost:8080}/health\" || exit 1"]
 # ENTRYPOINT (not CMD) so `docker compose run --rm backend ./keyorix-server
 # admin ...` also gets entrypoint.sh's config preparation; with arguments it
-# runs them instead of the server.
-ENTRYPOINT ["./entrypoint.sh"]
+# runs them instead of the server. Absolute, not "./entrypoint.sh": a relative
+# ENTRYPOINT resolves against the working directory, so `docker run -w
+# /app/data ...` (docs/demo/GOLDEN-PATH.md section 7) failed before the command
+# started (#3145). Guarded by scripts/demo/golden-path-s7.sh.
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -43,7 +43,7 @@ if [ "$KEYORIX_INIT_SECURE_FILES" = "true" ]; then
     for name in $KEYORIX_TLS_DNS_NAMES; do
         set -- "$@" --tls-dns-name "$name"
     done
-    ./keyorix-server admin init --secure-files "$@"
+    /app/keyorix-server admin init --secure-files "$@"
     if [ -n "$KEYORIX_PUBLIC_CA_FILE" ]; then
         : "${KEYORIX_LOCAL_CA_FILE:?KEYORIX_PUBLIC_CA_FILE needs KEYORIX_LOCAL_CA_FILE (the certificate to copy)}"
         (umask 022 && cp "$KEYORIX_LOCAL_CA_FILE" "$KEYORIX_PUBLIC_CA_FILE.tmp")
@@ -156,7 +156,7 @@ resolve_secret KEYORIX_BOOTSTRAP_TOKEN _kx_bootstrap_token || exit 1
 
 # Run the server in the background so we can perform an optional first-boot admin
 # bootstrap once it is healthy, then hand the process the foreground.
-./keyorix-server &
+/app/keyorix-server &
 SERVER_PID=$!
 
 # Always re-foreground the server on exit so signals propagate to it.

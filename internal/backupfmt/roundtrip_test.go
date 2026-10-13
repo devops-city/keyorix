@@ -180,3 +180,40 @@ func stageEmptyTableFile(t *testing.T, stagingDir, name string) error {
 	t.Helper()
 	return stageFile(stagingDir, name, nil)
 }
+
+// TestRoundTrip_PreservesSoftDeletedRows: a soft-deleted row (deleted_at set) is
+// still a row. walkTable once used db.Model(model), whose default scope adds
+// `deleted_at IS NULL`, so a backup silently dropped every soft-deleted
+// project/environment/secret, and a restore then refused the archive because
+// audit_events (append-only) still named the dropped project (#3164: the demo's
+// GOLDEN-PATH s7 backup/restore failed with "dangling reference ... references
+// missing projects.id=4" after check.sh deleted its scratch project).
+func TestRoundTrip_PreservesSoftDeletedRows(t *testing.T) {
+	src := openTestDB(t)
+	require.NoError(t, src.Create(&models.Project{Name: "live"}).Error)
+	gone := models.Project{Name: "soft-deleted"}
+	require.NoError(t, src.Create(&gone).Error)
+	require.NoError(t, src.Delete(&gone).Error)
+
+	testModels := []any{&models.Project{}, &models.Environment{}}
+	key := testManifestKey()
+	var archive bytes.Buffer
+	_, err := writeBackupModels(src, testModels, 5, "", key, nil, nil, &archive)
+	require.NoError(t, err)
+
+	stagingDir := t.TempDir()
+	extracted, err := ExtractArchive(&archive, stagingDir, 0, 0)
+	require.NoError(t, err)
+
+	dst := openTestDB(t)
+	require.NoError(t, dst.Transaction(func(tx *gorm.DB) error {
+		return LoadArchive(tx, extracted, stagingDir)
+	}))
+
+	var all []models.Project
+	require.NoError(t, dst.Unscoped().Order("id ASC").Find(&all).Error)
+	require.Len(t, all, 2, "the soft-deleted project must survive backup/restore")
+	require.False(t, all[0].DeletedAt.Valid)
+	require.True(t, all[1].DeletedAt.Valid, "deleted_at must be preserved, not cleared")
+	require.Equal(t, gone.ID, all[1].ID)
+}
