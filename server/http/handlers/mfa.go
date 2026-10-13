@@ -306,7 +306,21 @@ func (h *AuthHandler) writeMFAErr(w http.ResponseWriter, err error) {
 	msg := err.Error()
 	if !mfaSafeMessages[msg] {
 		log.Printf("MFA error: %v", err)
-		msg = clientSafe(err)
+		msg = reauthFaultMessage(err)
 	}
 	sendError(w, "Error", msg, http.StatusBadRequest, nil)
+}
+
+// reauthFaultMessage is the client text for a non-safe error from a re-auth
+// endpoint. A storage fault that kept the code or password from being evaluated
+// (core.ErrMFAVerificationStorageFailure, from requireReauth) answers exactly like
+// a wrong one, as POST /auth/login does for ErrLoginNotEvaluated: a distinct
+// "internal error" text would tell the caller which step failed. Core still
+// audits it as mfa.error and does not count it toward the lockout. Everything
+// else keeps clientSafe's generic text.
+func reauthFaultMessage(err error) string {
+	if errors.Is(err, core.ErrMFAVerificationStorageFailure) {
+		return "invalid code or password"
+	}
+	return clientSafe(err)
 }

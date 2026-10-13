@@ -486,7 +486,7 @@ func (h *AuthHandler) writeWebAuthnErr(w http.ResponseWriter, err error) {
 	msg := err.Error()
 	if !webauthnSafeMessages[msg] {
 		log.Printf("WebAuthn error: %v", err)
-		msg = clientSafe(err)
+		msg = reauthFaultMessage(err)
 	}
 	sendError(w, "Error", msg, http.StatusBadRequest, nil)
 }
