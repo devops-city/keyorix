@@ -93,7 +93,16 @@ func repoRoot(t *testing.T) string {
 // code block in QUICK_START.md, excluding `./bin/keyorix-server` lines.
 func quickStartInvocations(t *testing.T) [][]string {
 	t.Helper()
-	path := filepath.Join(repoRoot(t), "QUICK_START.md")
+	return binInvocations(t, "QUICK_START.md", true)
+}
+
+// binInvocations extracts every `./bin/keyorix ...` invocation (excluding
+// `./bin/keyorix-server`) from the repo-relative file rel: from fenced code blocks
+// only when fencedOnly (Markdown, including fences inside a `> ` blockquote), or
+// from every line (a shell script).
+func binInvocations(t *testing.T, rel string, fencedOnly bool) [][]string {
+	t.Helper()
+	path := filepath.Join(repoRoot(t), rel)
 	b, err := os.ReadFile(path) // #nosec G304 -- fixed repo-relative path
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
@@ -106,11 +115,12 @@ func quickStartInvocations(t *testing.T) [][]string {
 	inFence := false
 	for _, line := range strings.Split(joined, "\n") {
 		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(line, ">")) // a fence inside a blockquote
 		if strings.HasPrefix(line, "```") {
 			inFence = !inFence
 			continue
 		}
-		if !inFence {
+		if fencedOnly && !inFence {
 			continue
 		}
 		if i := strings.Index(line, "#"); i >= 0 {
@@ -246,6 +256,29 @@ func TestQuickStartCommandsExist(t *testing.T) {
 			"has drifted and this guard is no longer checking anything", len(invocations))
 	}
 	assertInvocationsResolve(t, rootCmd, invocations, "QUICK_START.md")
+}
+
+// TestInstallWithAICommandsExist is the same check for the secret-blind install
+// procedure (INSTALL-WITH-AI.md, including its HUMAN STEP blockquotes) and its
+// script form (docs/install/offline-install.sh): an assistant follows these
+// literally, so a renamed command or flag must fail here, not on a user's host.
+// Deliberately NOT t.Parallel() -- see TestQuickStartCommandsExist's comment.
+func TestInstallWithAICommandsExist(t *testing.T) {
+	for _, src := range []struct {
+		rel        string
+		fencedOnly bool
+		min        int // config set, system init, login, mfa enroll, mfa activate
+	}{
+		{"INSTALL-WITH-AI.md", true, 5},
+		{"docs/install/offline-install.sh", false, 5},
+	} {
+		invocations := binInvocations(t, src.rel, src.fencedOnly)
+		if len(invocations) < src.min {
+			t.Fatalf("extracted only %d ./bin/keyorix invocations from %s; expected at least %d "+
+				"(the extractor has drifted, or the steps were removed)", len(invocations), src.rel, src.min)
+		}
+		assertInvocationsResolve(t, rootCmd, invocations, src.rel)
+	}
 }
 
 // TestDeploymentDocsReferenceRealCommands is decision #1's guard (Phase 5 switch,

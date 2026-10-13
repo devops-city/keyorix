@@ -6,6 +6,11 @@ command below is checked against the CLI's own flag definitions by
 `cli/cmd/quickstart_commands_test.go`; every `keyorix-server admin ...` command is
 checked the same way by `server/admin/quickstart_commands_test.go`.
 
+Installing with an AI assistant, or want no secret ever typed or shown? Follow
+[INSTALL-WITH-AI.md](INSTALL-WITH-AI.md) instead: the same install, with every
+secret generated into a 0600 file (`keyorix-server admin generate-secrets`) and
+passed by path.
+
 ## Get the binaries
 
 **From a release (no toolchain needed).** Each GitHub release publishes bare

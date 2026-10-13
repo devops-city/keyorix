@@ -1,0 +1,26 @@
+# Keyorix
+
+> Keyorix is a self-hosted secrets manager: an API server (`keyorix-server`, Go, SQLite or PostgreSQL, secrets encrypted at rest) and a REST-only CLI (`keyorix`). It runs on one host, in an air-gapped network, or on Kubernetes. Licensed AGPL-3.0.
+
+To install it with an AI assistant, follow INSTALL-WITH-AI.md exactly. The install is secret-blind: secrets are generated into 0600 files and passed by path (`KEYORIX_*_FILE`); an assistant never reads those files, never prints a secret, and never asks the user to paste one. Steps that show a secret (MFA enrolment, an unencrypted recovery key) are run by the user in their own terminal.
+
+## Install
+
+- [INSTALL-WITH-AI.md](https://github.com/keyorixhq/keyorix/blob/main/INSTALL-WITH-AI.md): prompt and steps for an AI assistant installing a secure-by-default server; ends with `keyorix-server admin validate --posture`
+- [docs/install/offline-install.sh](https://github.com/keyorixhq/keyorix/blob/main/docs/install/offline-install.sh): the same procedure as a script, for air-gapped hosts and local models
+- [QUICK_START.md](https://github.com/keyorixhq/keyorix/blob/main/QUICK_START.md): manual install and first secret
+- [docs/SELF_HOSTING.md](https://github.com/keyorixhq/keyorix/blob/main/docs/SELF_HOSTING.md): Docker Compose, TLS, backups, operations
+- [docs/AIRGAP_RUNBOOK.md](https://github.com/keyorixhq/keyorix/blob/main/docs/AIRGAP_RUNBOOK.md): air-gapped deployment
+- [deploy/helm/keyorix/README.md](https://github.com/keyorixhq/keyorix/blob/main/deploy/helm/keyorix/README.md): Kubernetes (Helm)
+
+## Reference
+
+- [docs/CONFIGURATION.md](https://github.com/keyorixhq/keyorix/blob/main/docs/CONFIGURATION.md): every configuration key and the secure baseline
+- [docs/API_REFERENCE.md](https://github.com/keyorixhq/keyorix/blob/main/docs/API_REFERENCE.md): REST API
+- [SECURITY.md](https://github.com/keyorixhq/keyorix/blob/main/SECURITY.md): security model and vulnerability reporting
+- [docs/UPGRADING.md](https://github.com/keyorixhq/keyorix/blob/main/docs/UPGRADING.md): upgrades
+
+## Development
+
+- [AGENTS.md](https://github.com/keyorixhq/keyorix/blob/main/AGENTS.md): rules for AI agents installing Keyorix or changing this repository
+- [CONTRIBUTING.md](https://github.com/keyorixhq/keyorix/blob/main/CONTRIBUTING.md): contributing

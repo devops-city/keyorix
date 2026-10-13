@@ -76,7 +76,16 @@ const adminBin = "./bin/keyorix-server admin"
 // invocation from a fenced code block in QUICK_START.md.
 func quickStartAdminInvocations(t *testing.T) [][]string {
 	t.Helper()
-	path := filepath.Join(adminDocRepoRoot(t), "QUICK_START.md")
+	return adminBinInvocations(t, "QUICK_START.md", true)
+}
+
+// adminBinInvocations extracts every `./bin/keyorix-server admin ...` invocation
+// from the repo-relative file rel: from fenced code blocks only when fencedOnly
+// (Markdown, including fences inside a `> ` blockquote), or from every line (a
+// shell script).
+func adminBinInvocations(t *testing.T, rel string, fencedOnly bool) [][]string {
+	t.Helper()
+	path := filepath.Join(adminDocRepoRoot(t), rel)
 	b, err := os.ReadFile(path) // #nosec G304 -- fixed repo-relative path
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
@@ -88,11 +97,12 @@ func quickStartAdminInvocations(t *testing.T) [][]string {
 	inFence := false
 	for _, line := range strings.Split(joined, "\n") {
 		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(strings.TrimPrefix(line, ">")) // a fence inside a blockquote
 		if strings.HasPrefix(line, "```") {
 			inFence = !inFence
 			continue
 		}
-		if !inFence {
+		if fencedOnly && !inFence {
 			continue
 		}
 		if i := strings.Index(line, "#"); i >= 0 {
@@ -242,4 +252,27 @@ func adminLookupFlag(cmd *cobra.Command, name string) *pflag.Flag {
 		}
 	}
 	return nil
+}
+
+// TestInstallWithAIAdminCommandsExist is TestQuickStartAdminCommandsExist for the
+// secret-blind install procedure (INSTALL-WITH-AI.md, including its HUMAN STEP
+// blockquotes) and its script form (docs/install/offline-install.sh): an assistant
+// follows these literally, so a renamed command or flag must fail here.
+// Deliberately NOT t.Parallel() -- see TestQuickStartAdminCommandsExist.
+func TestInstallWithAIAdminCommandsExist(t *testing.T) {
+	for _, src := range []struct {
+		rel        string
+		fencedOnly bool
+		min        int // generate-secrets, init, encryption init, migrate, recovery-key rotate x2, validate x2
+	}{
+		{"INSTALL-WITH-AI.md", true, 8},
+		{"docs/install/offline-install.sh", false, 8},
+	} {
+		invocations := adminBinInvocations(t, src.rel, src.fencedOnly)
+		if len(invocations) < src.min {
+			t.Fatalf("extracted only %d ./bin/keyorix-server admin invocations from %s; expected at least %d "+
+				"(the extractor has drifted, or the steps were removed)", len(invocations), src.rel, src.min)
+		}
+		assertAdminInvocationsResolve(t, rootCmd, invocations, src.rel)
+	}
 }
