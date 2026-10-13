@@ -93,6 +93,7 @@ cli/cmd/license.go (os.OpenFile)	file_write	cli/cmd	1
 cli/cmd/rbac_audit.go (os.OpenFile)	file_write	cli/cmd	1
 cli/cmd/secret.go (securefiles.SecureCreateFileHandle)	file_write	cli/cmd	1
 cli/cmd/secretfile.go (os.OpenFile)	file_write	cli/cmd	1
+cli/internal/apiclient/ca_file.go (os.OpenFile)	file_write	cli/internal/apiclient	1
 cli/internal/apiclient/gen/filterspec.go (os.WriteFile)	file_write	cli/internal/apiclient/gen	1
 cli/internal/credstore/file.go (os.OpenFile)	file_write	cli/internal/credstore	2
 cli/internal/securefiles/securefiles.go (os.OpenFile)	file_write	cli/internal/securefiles	1

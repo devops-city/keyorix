@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"syscall"
 )
 
 // maxCAFileBytes bounds how much of a CA file is read. A PEM bundle of every public root
@@ -31,7 +32,10 @@ const maxCAFileBytes = 1 << 20
 // that should not sit in a trust path), or is writable by group or others (anyone who can
 // write it can make this CLI trust their server).
 func LoadCAPool(path string) (*x509.CertPool, error) {
-	f, err := os.Open(path) // #nosec G304 -- the operator names their own CA file (flag/env/config)
+	// O_NONBLOCK: a plain open(2) of a FIFO blocks until a writer appears, before the
+	// regular-file check below could refuse it. The check runs on this same descriptor
+	// (fstat), so there is no swap window; on a regular file the flag changes nothing.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 G703 -- the operator names their own CA file (flag/env/config); checked for a regular file below
 	if err != nil {
 		return nil, fmt.Errorf("read CA file: %w", err)
 	}
