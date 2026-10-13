@@ -29,6 +29,8 @@ set -euo pipefail
 export LC_ALL=C
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/closure-pkg.sh
+. "$REPO_ROOT/scripts/closure-pkg.sh"
 CLOSURES_D="${CLOSURES_D:-$REPO_ROOT/docs/security-closures.d}"
 OUT="$REPO_ROOT/docs/security-closures.tsv"
 HEADER="$CLOSURES_D/HEADER.txt"
@@ -59,6 +61,14 @@ for f in "${frags[@]}"; do
         cols="$(awk -F'\t' '{print NF}' <<<"$row")"
         claim="$(cut -f1 <<<"$row")"
         [ "$cols" -ge 6 ] || bad "$f: claim '$claim' has $cols tab-separated columns, want at least 6 (claim_id package proving_test verification landed_commit issue [note])"
+        # A row that runs a test must name a package check-closures.sh can run:
+        # ./<dir> in the root module or ./cli/<dir> in the cli module.
+        verification="$(cut -f4 <<<"$row")"
+        if [ "$verification" = "default-ci" ] || [ "$verification" = "pg-gated" ]; then
+            if ! closure_pkg_resolve "$REPO_ROOT" "$(cut -f2 <<<"$row")"; then
+                bad "$f: claim '$claim': $CLOSURE_PKG_ERR"
+            fi
+        fi
         case "$seen" in
             *$'\n'"$claim"$'\n'*) bad "duplicate claim_id '$claim' (second occurrence in $f)" ;;
         esac

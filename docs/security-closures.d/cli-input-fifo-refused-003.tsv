@@ -1,0 +1,1 @@
+cli-input-fifo-refused-003	./cli/internal/regularfile	TestOpenAndReadFile_RefuseFIFOAndDirectory	default-ci	pending-merge	-	The shared helper itself: regularfile.Open and ReadFile refuse a FIFO and a directory with "not a regular file" and do not block. PR #3186.

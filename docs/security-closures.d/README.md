@@ -9,6 +9,23 @@ and what `verification` values are valid.
 `docs/security-closures.tsv` is a **generated, gitignored build artifact**, not
 a committed file: this directory is the only source of truth.
 
+## The `package` column
+
+For `default-ci` and `pg-gated` rows the package is written `./<dir>` relative to
+the repo root, and the checker runs `go test` in the module that owns it
+(`scripts/closure-pkg.sh`):
+
+- `./internal/core`, `./server/http`, ... — the root module, run from the repo root.
+- `./cli/internal/apiclient`, `./cli/cmd`, ... — the `cli` module (its own `go.mod`),
+  run inside `cli/` with `GOWORK=off`. Keep the `./cli/` prefix: the path is relative
+  to the repo root, not to `cli/`.
+
+Anything else fails `gen-security-closures-tsv.sh --check` and `check-closures.sh`
+instead of being skipped: a bare path (`internal/core`, which Go resolves inside
+GOROOT), a wildcard or `..` segment, a directory that does not exist, or a package in
+a module the checker has no runner for (`operator/`, `migrate/`, `devtools/*`; add
+the module to `CLOSURE_KNOWN_MODULES` together with a `--self-test` case).
+
 ## Adding a closure
 
 Add a new `<claim_id>.tsv` file here and commit just that file. Nothing needs

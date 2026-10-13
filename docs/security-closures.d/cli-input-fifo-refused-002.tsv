@@ -1,0 +1,1 @@
+cli-input-fifo-refused-002	./cli/cmd	TestCLIInputPaths_FIFOSkippedWithoutBlocking	default-ci	pending-merge	-	Paths with no error return: files found by secret scan / secret fix in a scanned tree and the legacy keyorix.yaml / cli.yaml detection at login must skip a planted FIFO within 1s instead of hanging (secret fix apply refuses it). PR #3186.
