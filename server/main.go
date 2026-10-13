@@ -1995,30 +1995,11 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 // safe default instead of collapsing to the Go zero value (#G37). config.PasswordPolicyConfig
 // can't return a core.PasswordPolicy directly (internal/config can't import internal/core —
 // it would cycle back through internal/encryption), so the conversion happens here instead.
+//
+// The conversion itself lives in admin.ResolvePasswordPolicy so that
+// `admin check-admin-password` (#3201) applies the very same policy.
 func resolvePasswordPolicy(pp config.PasswordPolicyConfig) core.PasswordPolicy {
-	d := core.DefaultPasswordPolicy()
-	resolved := pp.Resolve(config.PasswordPolicyValues{
-		MinLength:             d.MinLength,
-		RequireUppercase:      d.RequireUppercase,
-		RequireLowercase:      d.RequireLowercase,
-		RequireDigit:          d.RequireDigit,
-		RequireSpecial:        d.RequireSpecial,
-		RejectPersonalInfo:    d.RejectPersonalInfo,
-		RejectCommonPasswords: d.RejectCommonPasswords,
-		HistoryCount:          d.HistoryCount,
-		MaxAgeDays:            d.MaxAgeDays,
-	})
-	return core.PasswordPolicy{
-		MinLength:             resolved.MinLength,
-		RequireUppercase:      resolved.RequireUppercase,
-		RequireLowercase:      resolved.RequireLowercase,
-		RequireDigit:          resolved.RequireDigit,
-		RequireSpecial:        resolved.RequireSpecial,
-		RejectPersonalInfo:    resolved.RejectPersonalInfo,
-		RejectCommonPasswords: resolved.RejectCommonPasswords,
-		HistoryCount:          resolved.HistoryCount,
-		MaxAgeDays:            resolved.MaxAgeDays,
-	}
+	return admin.ResolvePasswordPolicy(pp)
 }
 
 // checkTransportTLSPosture guards against silently serving credentials/secret values in

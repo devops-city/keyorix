@@ -20,6 +20,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
 // repoRootForHelmChartTest locates the repository root relative to this
@@ -81,4 +83,67 @@ func TestHelmChart_AdminPasswordMinLength_MatchesServerPolicy(t *testing.T) {
 			t.Fatalf("`helm template` succeeded but the rendered Secret has no KEYORIX_ADMIN_PASSWORD key:\n%s", out)
 		}
 	})
+}
+
+// renderKeyorixChartAdmin renders the chart with an admin identity as well as a
+// password (#3201).
+func renderKeyorixChartAdmin(adminPassword, username, email string) (string, error) {
+	chartPath := filepath.Join(repoRootForHelmChartTest(), "deploy", "helm", "keyorix")
+	cmd := exec.Command("helm", "template", "kx", chartPath, //nolint:gosec // fixed binary name, fixed chart path derived from this file's own location, not external input
+		"--set", "auth.masterPassword=x",
+		"--set", "postgresql.auth.password=x",
+		"--set-string", "auth.adminPassword="+adminPassword,
+		"--set-string", "auth.adminUsername="+username,
+		"--set-string", "auth.adminEmail="+email,
+	)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// #3201: a first-admin password that embeds the admin's identity is refused by
+// the server at first boot (crash-looping pod). The chart must refuse it at
+// render time, and the chart's verdict must agree with the server's policy for
+// every case, so the two cannot drift: each case is checked against
+// DefaultPasswordPolicy().Validate (the personal-info rule) as well as the chart.
+func TestHelmChart_AdminPasswordContainingIdentity_MatchesServerPolicy(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not installed -- skipping chart-vs-server admin-password identity conformance check")
+	}
+	policy := DefaultPasswordPolicy()
+	cases := []struct {
+		name, password, username, email string
+		wantRefused                     bool
+	}{
+		{"issue repro: contains the default username", "Dw5-Admin-Passphrase#2026", "admin", "admin@keyorix.local", true},
+		{"case-insensitive", "Dw5-ADMIN-Passphrase#2026", "admin", "admin@keyorix.local", true},
+		{"contains a custom username", "Correct-Horse-Boss-2026", "boss", "b@keyorix.local", true},
+		{"contains the email local part", "Correct-Horse-ops.team-2026", "root", "ops.team@keyorix.local", true},
+		{"contains the display name", "Dw5-Administrator-Pass#2026", "root", "r@keyorix.local", true},
+		{"valid password still renders", "Correct-Horse-Battery-2026", "admin", "admin@keyorix.local", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			serverErr := policy.Validate(tc.password, &models.User{Username: tc.username, Email: tc.email, DisplayName: "Administrator"})
+			serverRefuses := serverErr != nil && strings.Contains(serverErr.Error(), "username, email, or display name")
+			if serverRefuses != tc.wantRefused {
+				t.Fatalf("test case disagrees with the server policy: server refusal=%v (err=%v), case wants %v", serverRefuses, serverErr, tc.wantRefused)
+			}
+			out, err := renderKeyorixChartAdmin(tc.password, tc.username, tc.email)
+			if tc.wantRefused {
+				if err == nil {
+					t.Fatalf("chart rendered a password the server refuses:\n%s", out)
+				}
+				if !strings.Contains(out, "auth.adminPassword must not contain") {
+					t.Fatalf("chart failed, but not with the identity message:\n%s", out)
+				}
+				if strings.Contains(out, tc.password) {
+					t.Fatalf("the chart error echoes the password:\n%s", out)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("chart refused a password the server accepts: %v\n%s", err, out)
+			}
+		})
+	}
 }

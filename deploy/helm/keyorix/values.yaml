@@ -15,12 +15,12 @@ auth:
   # substring (internal/core/rules/password_policy.go +
   # internal/core/auth_bootstrap.go's CreateUser call -- the substring check
   # is enforced separately/later than the rest of the policy). The chart
-  # fails the render if it's under 16 characters; the other rules can't be
-  # chart-checked -- get those wrong and first-boot bootstrap fails silently
-  # instead (pod comes up fine, no admin user is ever created), and per a
-  # confirmed bug (FINDINGS-inbox, Session J, 2026-09-28) a rejected password
-  # can leave the install unable to retry bootstrap at all without wiping the
-  # database.
+  # fails the render if it's under 16 characters or contains the username,
+  # the email's local part or "Administrator" (case-insensitively); the
+  # other rules can't be chart-checked -- get those wrong and the server pod
+  # exits non-zero at first boot (crash-loop, #3025) after printing the
+  # policy's reason in its log. A rejected password writes nothing, so
+  # `helm upgrade` with a compliant one completes the install.
   adminUsername: "admin"
   adminEmail: "admin@keyorix.local"
   adminPassword: ""

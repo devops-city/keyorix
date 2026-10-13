@@ -61,6 +61,7 @@ cli	keyorix bundle	cli/cmd/bundle.go	33		none	no RunE/Run set on this cobra.Comm
 cli	keyorix bundle import	cli/cmd/bundle.go	68	runBundleImport	D	bundle.go:135-176 runBundleImport: license/install-state checks are read-only, then exactly one state-changing call, bundleverify.ExtractAllowingStateReset, itself documented fail-closed ("nothing staged on a verify failure").
 cli	keyorix bundle verify	cli/cmd/bundle.go	60	runBundleVerify	D	bundle.go:98-133 runBundleVerify is fully read-only (open file, verify signature/digests, print); no writes anywhere in the function.
 cli	keyorix change-password	cli/cmd/change_password.go	26	runChangePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix check-admin-password	server/admin/check_admin_password.go	40	runCheckAdminPassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix clear-login-lockout	server/admin/login_lockout.go	38	runClearLoginLockout	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix compliance	cli/cmd/compliance.go	38		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix compliance controls	cli/cmd/compliance.go	470	<expr>	D	compliance.go:469-518: if/else on --csv is a single mutually-exclusive branch, each branch makes exactly one HTTP GET call; no writes.

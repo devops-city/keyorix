@@ -203,3 +203,122 @@ func TestInitSecrets_RefusesToOverwriteWithDifferentFromEnvValue(t *testing.T) {
 		t.Errorf("existing master_password overwritten: %q", got)
 	}
 }
+
+// #3201: the server refuses a first-admin password that embeds the admin's username
+// (or the email's local part, or "Administrator"), and an admin that cannot be
+// bootstrapped crash-loops the backend. init-secrets.sh must therefore never GENERATE
+// such a password, and must warn (not refuse: --from-env is an upgrade path and an
+// install that already has its admin boots fine) about a supplied one.
+
+// runInitWithEnv is runInit with extra environment entries and a stub directory first on PATH.
+func runInitWithEnv(t *testing.T, dir, stubDir string, extraEnv []string, args ...string) (string, error) {
+	t.Helper()
+	script := filepath.Join(repoRoot(), "scripts", "selfhost", "init-secrets.sh")
+	cmd := exec.Command("sh", append([]string{script}, args...)...) //nolint:gosec // repo script, test-controlled args
+	cmd.Dir = dir
+	path := os.Getenv("PATH")
+	if stubDir != "" {
+		path = stubDir + string(os.PathListSeparator) + path
+	}
+	cmd.Env = append([]string{"PATH=" + path, "HOME=" + dir, "INIT_SECRETS_SERVER_UID=" + notTheProcessUID()}, extraEnv...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestInitSecrets_GeneratedAdminPasswordNeverEmbedsTheUsername(t *testing.T) {
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(stub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// A deterministic `openssl rand`: calls 1-2 (db, master) are benign, call 3 is the
+	// first admin draw and embeds the username, calls 4+ are clean.
+	counter := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\n" +
+		"n=$(cat '" + counter + "' 2>/dev/null || echo 0)\n" +
+		"n=$((n + 1))\n" +
+		"echo $n > '" + counter + "'\n" +
+		"if [ \"$n\" = 3 ]; then echo 'ZZZZZZZZZZZZadminZZZZZZZZZZZZZZZZZZZZZZZZ'; else echo \"qWeRtYuIoPaSdFgHjKlZxCvBnM$n\"; fi\n"
+	if err := os.WriteFile(filepath.Join(stub, "openssl"), []byte(script), 0o700); err != nil { //nolint:gosec // executable test stub
+		t.Fatal(err)
+	}
+	sec := filepath.Join(dir, "secrets")
+	out, err := runInitWithEnv(t, dir, stub, nil, "--dir", sec, "--env-file", filepath.Join(dir, ".env"))
+	if err != nil {
+		t.Fatalf("init-secrets: %v\n%s", err, out)
+	}
+	pw := readTrim(t, filepath.Join(sec, "admin_password"))
+	if strings.Contains(strings.ToLower(pw), "admin") {
+		t.Fatalf("generated admin password embeds the username: %q", pw)
+	}
+	if n := readTrim(t, counter); n != "5" {
+		t.Errorf("expected the embedding draw to be discarded and redrawn (5 random draws in total), got %s", n)
+	}
+}
+
+func TestInitSecrets_GeneratedAdminPasswordAvoidsACustomUsernameFromEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	stub := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(stub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	counter := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\n" +
+		"n=$(cat '" + counter + "' 2>/dev/null || echo 0)\n" +
+		"n=$((n + 1))\n" +
+		"echo $n > '" + counter + "'\n" +
+		"if [ \"$n\" = 3 ]; then echo 'ZZZZZZZZZZZZBossZZZZZZZZZZZZZZZZZZZZZZZZ'; else echo \"qWeRtYuIoPaSdFgHjKlZxCvBnM$n\"; fi\n"
+	if err := os.WriteFile(filepath.Join(stub, "openssl"), []byte(script), 0o700); err != nil { //nolint:gosec // executable test stub
+		t.Fatal(err)
+	}
+	envFile := filepath.Join(dir, ".env")
+	if err := os.WriteFile(envFile, []byte("KEYORIX_ADMIN_USERNAME=boss\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sec := filepath.Join(dir, "secrets")
+	out, err := runInitWithEnv(t, dir, stub, nil, "--dir", sec, "--env-file", envFile)
+	if err != nil {
+		t.Fatalf("init-secrets: %v\n%s", err, out)
+	}
+	if pw := readTrim(t, filepath.Join(sec, "admin_password")); strings.Contains(strings.ToLower(pw), "boss") {
+		t.Fatalf("generated admin password embeds the .env username: %q", pw)
+	}
+}
+
+func TestInitSecrets_FromEnvAdminPasswordContainingTheUsernameWarnsButMigrates(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	const pw = "Dw5-Admin-Passphrase#2026"
+	if err := os.WriteFile(envFile, []byte("KEYORIX_ADMIN_PASSWORD="+pw+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sec := filepath.Join(dir, "secrets")
+	out, err := runInit(t, dir, "--dir", sec, "--env-file", envFile, "--from-env", envFile)
+	if err != nil {
+		t.Fatalf("an upgrade must not be blocked: %v\n%s", err, out)
+	}
+	if got := readTrim(t, filepath.Join(sec, "admin_password")); got != pw {
+		t.Errorf("the supplied password was changed: %q", got)
+	}
+	if !strings.Contains(out, `contains the username "admin"`) || !strings.Contains(out, "will not bootstrap") {
+		t.Errorf("no clear warning about the embedded username:\n%s", out)
+	}
+	if strings.Contains(out, pw) {
+		t.Errorf("the script printed the password:\n%s", out)
+	}
+}
+
+func TestInitSecrets_FromEnvCompliantAdminPasswordDoesNotWarn(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	if err := os.WriteFile(envFile, []byte("KEYORIX_ADMIN_PASSWORD=Correct-Horse-Battery-2026\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runInit(t, dir, "--dir", filepath.Join(dir, "secrets"), "--env-file", envFile, "--from-env", envFile)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if strings.Contains(out, "WARNING") {
+		t.Errorf("a compliant password produced a warning:\n%s", out)
+	}
+}

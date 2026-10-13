@@ -10,7 +10,9 @@ auth:
   masterPassword: ci-maximal
   adminUsername: admin
   adminEmail: admin@example.com
-  adminPassword: ci-maximal-admin
+  # Render-only value; must not embed adminUsername/adminEmail's local part or
+  # "administrator" (the chart refuses that, #3201).
+  adminPassword: ci-maximal-pw-2026
 
 server:
   image:

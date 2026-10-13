@@ -22,10 +22,12 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/keyorixhq/keyorix/internal/core/rules"
 	"github.com/keyorixhq/keyorix/internal/secretenv"
+	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/spf13/cobra"
 )
 
@@ -129,17 +131,37 @@ func randomInstallToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
+// adminPasswordAttempts bounds the retries for a random password that happens to
+// embed the admin's username (about one in a million for "admin").
+const adminPasswordAttempts = 20
+
 func randomAdminPassword() (string, error) {
-	tok, err := randomInstallToken()
-	if err != nil {
-		return "", err
+	// The first admin's identity is the one the entrypoint bootstraps with
+	// (KEYORIX_ADMIN_USERNAME / _EMAIL, "Administrator"); a random password that
+	// embeds it is regenerated rather than left to fail the bootstrap (#3201).
+	user := &models.User{
+		Username:    envOr("KEYORIX_ADMIN_USERNAME", "admin"),
+		Email:       envOr("KEYORIX_ADMIN_EMAIL", "admin@keyorix.local"),
+		DisplayName: "Administrator",
 	}
-	pw := tok + adminPasswordClassSuffix
-	// Personal-info checks need the user, which is chosen later; the class,
-	// length and common-password rules are checked here so a generated
-	// password can never be the reason the bootstrap fails.
-	if err := rules.DefaultPasswordPolicy().Validate(pw, nil); err != nil {
-		return "", fmt.Errorf("generated admin password does not meet the default policy: %w", err)
+	policy := rules.DefaultPasswordPolicy()
+	var lastErr error
+	for i := 0; i < adminPasswordAttempts; i++ {
+		tok, err := randomInstallToken()
+		if err != nil {
+			return "", err
+		}
+		pw := tok + adminPasswordClassSuffix
+		if lastErr = policy.Validate(pw, user); lastErr == nil {
+			return pw, nil
+		}
 	}
-	return pw, nil
+	return "", fmt.Errorf("generated admin password does not meet the default policy: %w", lastErr)
+}
+
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
 }

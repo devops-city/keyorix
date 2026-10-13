@@ -236,6 +236,119 @@ else
     bad "admin password without bootstrap token did not fail (rc=$rc)"
 fi
 
+# --- #3201: when the bootstrap POST is refused, the entrypoint must say WHY. A
+# password the policy refuses (e.g. one containing the username) used to look
+# identical to a wrong bootstrap token (BusyBox wget drops the 403 body) and
+# crash-looped with a hint about the token. The stub server binary stands in for
+# `keyorix-server admin check-admin-password` (its real decisions are covered by
+# the Go tests in server/admin); this proves the entrypoint's wiring: stdin, exit
+# status, message, a single failure, and no password in any argv. The check runs
+# only AFTER a failed POST, so an already-initialised install (POST succeeds as
+# already_initialized) keeps booting whatever the configured password is. ---
+policy_bin="$work_dir/policybin"
+mkdir -p "$policy_bin"
+cp "$stub_bin/mktemp" "$policy_bin/mktemp"
+policy_argv="$work_dir/policy_argv.log"
+wget_calls="$work_dir/policy_wget_calls.log"
+server_stub=$'#!/bin/sh\n'
+server_stub+=$'printf \'%s\\n\' "$@" >>"$POLICY_ARGV_LOG"\n'
+server_stub+=$'pw=$(cat)\n'
+server_stub+=$'user=""\n'
+server_stub+=$'while [ $# -gt 0 ]; do [ "$1" = "--username" ] && user="$2"; shift; done\n'
+server_stub+=$'if printf \'%s\' "$pw" | tr A-Z a-z | grep -qF -- "$user"; then\n'
+server_stub+=$'    echo "Error: admin password rejected: password must not contain your username, email, or display name" >&2\n'
+server_stub+=$'    exit 2\n'
+server_stub+=$'fi\n'
+server_stub+=$'echo "admin password accepted by the password policy"\n'
+printf '%s' "$server_stub" >"$policy_bin/keyorix-server"
+# wget stub: records the call and exits POLICY_WGET_RC (1 = the server refused the POST).
+# shellcheck disable=SC2016 -- the stub's own variables must stay unexpanded here
+# POLICY_WGET_FAILS=N makes only the first N calls fail (a transient outage).
+printf '#!/bin/sh\necho called >>"$POLICY_WGET_CALLS"\nif [ -n "$POLICY_WGET_FAILS" ]; then\n    [ "$(wc -l <"$POLICY_WGET_CALLS" | tr -d " ")" -le "$POLICY_WGET_FAILS" ] && exit 1\n    exit 0\nfi\nexit "${POLICY_WGET_RC:-0}"\n' >"$policy_bin/wget"
+# A binary that fails with exit 1 (stdin/flag error): no verdict on the password.
+printf '#!/bin/sh\ncat >/dev/null\necho "Error: read password from stdin: boom" >&2\nexit 1\n' >"$policy_bin/keyorix-server-err"
+printf '#!/bin/sh\nexit 0\n' >"$policy_bin/sleep"
+chmod +x "$policy_bin/keyorix-server" "$policy_bin/keyorix-server-err" "$policy_bin/wget" "$policy_bin/sleep"
+
+# run_policy_case OUT_FILE WGET_RC PASSWORD: runs the real bootstrap block; rc in $rc.
+run_policy_case() {
+    : >"$policy_argv"
+    : >"$wget_calls"
+    set +e
+    env -i PATH="$policy_bin:/usr/bin:/bin" TMPDIR="${TMPDIR:-/tmp}" \
+        POLICY_ARGV_LOG="$policy_argv" POLICY_WGET_CALLS="$wget_calls" POLICY_WGET_RC="$2" \
+        POLICY_WGET_FAILS="${POLICY_FAILS:-}" \
+        _kx_server_bin="$policy_bin/${POLICY_BIN:-keyorix-server}" KEYORIX_BOOTSTRAP_ATTEMPTS=3 \
+        _kx_admin_password="$3" _kx_bootstrap_token="test-bootstrap-token" \
+        sh -c "$block" >"$1" 2>&1
+    rc=$?
+    set -e
+}
+
+bad_password='Dw5-Admin-Passphrase#2026'
+run_policy_case "$work_dir/policy_out.txt" 1 "$bad_password"
+if [[ "$rc" -ne 0 ]] \
+   && grep -q "admin password rejected: password must not contain your username" "$work_dir/policy_out.txt" \
+   && grep -q "rejected by the" "$work_dir/policy_out.txt" \
+   && ! grep -q "BOOTSTRAP_TOKEN" "$work_dir/policy_out.txt" \
+   && [[ "$(wc -l <"$wget_calls" | tr -d ' ')" = "3" ]]; then
+    note "rejected password (exit 2): retries, then a non-zero exit with the real reason, no token hint (rc=$rc)"
+else
+    bad "rejected password did not fail once with the real reason (rc=$rc)"
+    sed 's/^/    /' "$work_dir/policy_out.txt"
+fi
+if grep -qF -- "$bad_password" "$policy_argv"; then
+    bad "admin password found in the check-admin-password argv"
+else
+    note "admin password absent from the check-admin-password argv"
+fi
+
+# Transient outage on an install whose configured password is non-compliant (the
+# reviewer's case): the POST fails once, then succeeds (already_initialised). The
+# verdict must not stop the boot.
+POLICY_FAILS=1 run_policy_case "$work_dir/policy_transient_out.txt" 1 "$bad_password"
+if [[ "$rc" -eq 0 ]] && grep -q "Admin bootstrap complete" "$work_dir/policy_transient_out.txt"; then
+    note "transient first-POST failure + non-compliant password: retries and boots"
+else
+    bad "transient first-POST failure did not recover (rc=$rc)"
+    sed 's/^/    /' "$work_dir/policy_transient_out.txt"
+fi
+
+# Exit 1 from the check (stdin/flag error) is no verdict: the usual retries and
+# the bootstrap-token hint, never the "rejected by the password policy" message.
+POLICY_BIN=keyorix-server-err run_policy_case "$work_dir/policy_err_out.txt" 1 "$bad_password"
+if [[ "$rc" -ne 0 ]] \
+   && ! grep -q "rejected by the" "$work_dir/policy_err_out.txt" \
+   && grep -q "KEYORIX_BOOTSTRAP_TOKEN that does not match" "$work_dir/policy_err_out.txt"; then
+    note "check exit 1 (not a verdict): treated as no verdict, token hint kept"
+else
+    bad "check exit 1 was treated as a policy verdict (rc=$rc)"
+    sed 's/^/    /' "$work_dir/policy_err_out.txt"
+fi
+
+# A compliant password refused by the server (wrong token) keeps the retries and
+# the token hint, which is the right pointer in that case.
+run_policy_case "$work_dir/policy_token_out.txt" 1 "Correct-Horse-Battery-2026"
+if [[ "$rc" -ne 0 ]] \
+   && grep -q "Bootstrap attempt 3/3 failed" "$work_dir/policy_token_out.txt" \
+   && grep -q "KEYORIX_BOOTSTRAP_TOKEN that does not match" "$work_dir/policy_token_out.txt"; then
+    note "compliant password + refused POST: retries, then points at the bootstrap token"
+else
+    bad "compliant password + refused POST did not retry and point at the token (rc=$rc)"
+    sed 's/^/    /' "$work_dir/policy_token_out.txt"
+fi
+
+# An already-initialised install: the POST succeeds (already_initialized), so a
+# configured password that would be refused today must NOT stop the boot, and the
+# policy check must not even run.
+run_policy_case "$work_dir/policy_init_out.txt" 0 "$bad_password"
+if [[ "$rc" -eq 0 ]] && [[ ! -s "$policy_argv" ]] && grep -q "Admin bootstrap complete" "$work_dir/policy_init_out.txt"; then
+    note "already-initialised install with a non-compliant configured password still boots"
+else
+    bad "already-initialised install did not boot (rc=$rc)"
+    sed 's/^/    /' "$work_dir/policy_init_out.txt"
+fi
+
 # --- The credentials may come from KEYORIX_ADMIN_PASSWORD_FILE /
 # KEYORIX_BOOTSTRAP_TOKEN_FILE (Docker secrets, Kubernetes Secret volumes): the
 # entrypoint must resolve them before the bootstrap, not only look at the plain

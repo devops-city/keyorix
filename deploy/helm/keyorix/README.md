@@ -24,10 +24,14 @@ helm install keyorix oci://ghcr.io/keyorixhq/charts/keyorix \
 > (the default username is literally `admin`, so a password like
 > `Admin-Something123!` fails this even though it looks strong). The chart
 > fails the render early (a clear `helm install`/`template` error) if it's
-> under 16 characters; the other rules aren't chart-checkable — get those
-> wrong and the first-boot bootstrap fails instead (the pod comes up,
-> `helm install`/`helm test` succeed, but no admin user is ever created —
-> see `kubectl logs` for the server pod for the actual reason). First-boot
+> under 16 characters or contains the username, the email's local part or
+> `Administrator` (case-insensitively); the character-class and
+> common-password rules aren't chart-checkable — get those wrong and the
+> first-boot bootstrap fails instead: the server pod exits non-zero and
+> crash-loops (since #3025, so a broken login never looks healthy), and
+> `kubectl logs` for the server pod prints the policy's actual reason (for
+> example `admin password rejected: password must not contain your username,
+> email, or display name`). First-boot
 > bootstrap is atomic and retryable: a rejected password writes nothing, so
 > simply retrying `keyorix system init` (or `helm upgrade` with a corrected
 > `auth.adminPassword`, since bootstrap re-runs on every restart until the

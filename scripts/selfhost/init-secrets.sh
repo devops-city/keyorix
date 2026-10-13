@@ -65,20 +65,75 @@ if [ "$gid" = "0" ]; then
     echo "init-secrets: the root group to read the files. Run this as a regular user instead." >&2
 fi
 
+# The first admin's identity as the compose stack will pass it to the server
+# (KEYORIX_ADMIN_USERNAME / KEYORIX_ADMIN_EMAIL: the shell, then $env_file, then the
+# compose defaults). The server refuses a first-admin password that embeds the
+# username, the email's local part or the display name "Administrator", compared
+# case-insensitively (rules.containsPersonalInfo), and an admin that cannot be
+# bootstrapped crash-loops the backend (#3201).
+identity_value() { # KEY default
+    eval "_iv=\${$1:-}"
+    if [ -z "$_iv" ] && [ -f "$env_file" ]; then
+        _line=$(grep -E "^[[:space:]]*$1=" "$env_file" | tail -n 1) || _line=""
+        _iv=${_line#*=}
+        case $_iv in
+            \"*\") _iv=${_iv#\"}; _iv=${_iv%\"} ;;
+            \'*\') _iv=${_iv#\'}; _iv=${_iv%\'} ;;
+        esac
+    fi
+    printf '%s' "${_iv:-$2}"
+}
+admin_user=$(identity_value KEYORIX_ADMIN_USERNAME admin)
+admin_email=$(identity_value KEYORIX_ADMIN_EMAIL admin@keyorix.local)
+
+# embedded_identity PASSWORD: prints what the password embeds and returns 0, or
+# returns 1 when it embeds none of the admin's identity. Never prints the password.
+embedded_identity() {
+    _pw=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    _local=""
+    case $admin_email in *@*) _local=${admin_email%%@*} ;; esac
+    for _what in "username:$admin_user" "email local part:$_local" "display name:Administrator"; do
+        _cand=$(printf '%s' "${_what#*:}" | tr '[:upper:]' '[:lower:]')
+        [ "${#_cand}" -ge 3 ] || continue
+        case $_pw in *"$_cand"*) printf 'the %s "%s"' "${_what%%:*}" "${_what#*:}"; return 0 ;; esac
+    done
+    return 1
+}
+
 write_secret() { # file_name ENV_NAME kind
     _path="$dir/$1"
     if [ -e "$_path" ]; then
         echo "kept     $_path (already exists; not overwritten)"
+        if [ "$3" = "admin" ]; then
+            _kept=$(head -n 1 "$_path" 2>/dev/null) || _kept=""
+            if [ -n "$_kept" ] && _emb=$(embedded_identity "$_kept"); then
+                echo "init-secrets: WARNING: $_path contains $_emb; the server refuses such a first-admin" >&2
+                echo "init-secrets: password, so a NEW install (no admin yet) will not bootstrap. Replace the file's content first." >&2
+            fi
+        fi
         return 0
     fi
     _val=$(env_value "$2")
     _src="generated"
     if [ -n "$_val" ]; then
         _src="from $from_env"
+        if [ "$3" = "admin" ] && _emb=$(embedded_identity "$_val"); then
+            # Not an error: an install that already has its admin boots fine with it
+            # (--from-env is an upgrade path). A fresh one would crash-loop.
+            echo "init-secrets: WARNING: $2 in $from_env contains $_emb; the server refuses such a first-admin" >&2
+            echo "init-secrets: password, so a NEW install (no admin yet) will not bootstrap. Set a different one before 'docker compose up'." >&2
+        fi
     elif [ "$3" = "admin" ]; then
         # Satisfies the server's admin-password policy (16+ chars, upper, lower, digit,
-        # special) whatever the random part contains.
-        _val="$(random_token)-Aa1!"
+        # special) whatever the random part contains, and is drawn again in the rare
+        # case that the random part embeds the admin's username (#3201).
+        _n=0
+        while :; do
+            _val="$(random_token)-Aa1!"
+            embedded_identity "$_val" >/dev/null || break
+            _n=$((_n + 1))
+            [ "$_n" -lt 20 ] || { echo "init-secrets: ERROR: could not generate an admin password that avoids the username '$admin_user'" >&2; exit 1; }
+        done
     else
         _val=$(random_token)
     fi
