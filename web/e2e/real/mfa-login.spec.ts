@@ -187,6 +187,15 @@ test('logging in with MFA enabled completes via the code-entry step (fixes known
     // once mfaChallenge is set, and verifyMfa() calls the real VerifyMFA
     // endpoint with the challenge + code.
 
+    // waitForFreshTotpCode below waits, by design, for the NEXT 30s TOTP step
+    // (0..30s of wall time, uniform) so the login's code is not refused by the
+    // per-account anti-replay counter that enableMfaViaApi's activation already
+    // advanced. That wait plus setup plus the UI login does not fit the 30s
+    // default test timeout (it timed out ~1/3 of runs, #2442 follow-up). Size the
+    // budget for one full period plus setup and the UI steps; the anti-replay
+    // behaviour itself is untouched.
+    test.setTimeout(90_000);
+
     const user = await createDedicatedUser('mfalogin');
     const { secret: totpSecret, activatedStep } = await enableMfaViaApi(user.username, user.password);
 
