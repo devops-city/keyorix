@@ -100,10 +100,22 @@ const (
 // config or any request, so there is no injection surface here (SET does not
 // accept bind parameters in any case).
 func applyAuditCommitDurability(tx *gorm.DB, skip bool) error {
-	if !skip {
+	stmt := auditCommitDurabilityStatement(skip)
+	if stmt == "" {
 		return nil
 	}
-	return tx.Exec("SET LOCAL synchronous_commit = off").Error
+	return tx.Exec(stmt).Error
+}
+
+// auditCommitDurabilityStatement is the statement applyAuditCommitDurability
+// runs, for the pipelined Postgres commit (commitBatchAttemptPipelined), which
+// queues it in its first flight instead of running it through GORM: "" when
+// skip is false (no statement at all), the SET LOCAL above when it is true.
+func auditCommitDurabilityStatement(skip bool) string {
+	if !skip {
+		return ""
+	}
+	return "SET LOCAL synchronous_commit = off"
 }
 
 // isSQLiteBusyErr reports whether err is a SQLite writer-lock contention
@@ -633,6 +645,12 @@ func checkAuditInsertIDOrder(events []*models.AuditEvent) error {
 // current chain head, assigns/recomputes prev_hash+entry_hash for every
 // item in order, and inserts them all — one fsync for the whole attempt.
 //
+// On Postgres the transaction is sent as two pipelined flights rather than one
+// round trip per statement (PERF-FIX-1, commitBatchAttemptPipelined in
+// local_audit_chain_pipeline.go), with the event ids allocated under the lock
+// before the INSERT so the id-order check below still runs before COMMIT.
+// SQLite, and a Postgres pool that is not pgx, use commitBatchAttemptTx.
+//
 // The rows go in with one INSERT for all the events and one for all the
 // non-nil access logs (PERF-FIX-2), not one statement per item. The hashes
 // are still computed first, item by item, exactly as the per-item version
@@ -671,6 +689,20 @@ func checkAuditInsertIDOrder(events []*models.AuditEvent) error {
 // hazard: that stale ID may not even be the one the sequence would hand out
 // next.
 func (ls *LocalStorage) commitBatchAttempt(ctx context.Context, batch []*auditBatchItem) error {
+	if ls.db.Dialector.Name() == "postgres" {
+		err := ls.commitBatchAttemptPipelined(ctx, batch)
+		if !errors.Is(err, errAuditPipelineUnavailable) {
+			return err
+		}
+	}
+	return ls.commitBatchAttemptTx(ctx, batch)
+}
+
+// commitBatchAttemptTx is commitBatchAttempt through a GORM transaction, one
+// round trip per statement: SQLite's path (in-process, so a statement costs no
+// network flight), and Postgres' only when the pool is not a pgx one (see
+// commitBatchAttemptPipelined).
+func (ls *LocalStorage) commitBatchAttemptTx(ctx context.Context, batch []*auditBatchItem) error {
 	return ls.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if tx.Dialector.Name() == "postgres" {
 			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(auditAdvisoryLockKey)).Error; err != nil {
@@ -688,23 +720,7 @@ func (ls *LocalStorage) commitBatchAttempt(ctx context.Context, batch []*auditBa
 			Scan(&head).Error; err != nil {
 			return err
 		}
-		prev := head.EntryHash
-		if prev == "" {
-			prev = auditGenesisHash
-		}
-		events := make([]*models.AuditEvent, 0, len(batch))
-		var accessLogs []*models.SecretAccessLog
-		for _, item := range batch {
-			item.event.ID = 0
-			if item.accessLog != nil {
-				item.accessLog.ID = 0
-				accessLogs = append(accessLogs, item.accessLog)
-			}
-			item.event.PrevHash = prev
-			item.event.EntryHash = computeAuditEntryHash(item.event, prev)
-			prev = item.event.EntryHash
-			events = append(events, item.event)
-		}
+		events, accessLogs := chainAuditBatch(batch, head.EntryHash)
 		if err := createAuditRowsMultiRow(tx, events); err != nil {
 			return err
 		}
@@ -713,6 +729,31 @@ func (ls *LocalStorage) commitBatchAttempt(ctx context.Context, batch []*auditBa
 		}
 		return createAuditRowsMultiRow(tx, accessLogs)
 	})
+}
+
+// chainAuditBatch links batch onto the chain head headHash (genesis when
+// empty): it zeros every ID, sets each event's prev_hash and entry_hash in
+// batch order, and returns the events and the non-nil access logs in that
+// order. Both commit paths call it, so they hash identically.
+func chainAuditBatch(batch []*auditBatchItem, headHash string) ([]*models.AuditEvent, []*models.SecretAccessLog) {
+	prev := headHash
+	if prev == "" {
+		prev = auditGenesisHash
+	}
+	events := make([]*models.AuditEvent, 0, len(batch))
+	var accessLogs []*models.SecretAccessLog
+	for _, item := range batch {
+		item.event.ID = 0
+		if item.accessLog != nil {
+			item.accessLog.ID = 0
+			accessLogs = append(accessLogs, item.accessLog)
+		}
+		item.event.PrevHash = prev
+		item.event.EntryHash = computeAuditEntryHash(item.event, prev)
+		prev = item.event.EntryHash
+		events = append(events, item.event)
+	}
+	return events, accessLogs
 }
 
 // commitBatchWithBusyRetry attempts batch repeatedly, retrying ONLY on a

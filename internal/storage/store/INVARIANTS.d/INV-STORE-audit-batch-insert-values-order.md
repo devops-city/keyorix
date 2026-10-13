@@ -2,7 +2,8 @@
   (`commitBatchAttempt`) stores a batch exactly as the per-item path would: hashes are
   computed item by item before the insert, each item's row gets an id greater than the
   previous item's (VALUES order), the id GORM writes back onto each item is that item's own
-  row, and the id-DESC chain head is the batch's last item. `checkAuditInsertIDOrder` re-checks
+  row (on Postgres the event ids are assigned before the INSERT instead, see
+  `INV-STORE-audit-pipelined-commit`), and the id-DESC chain head is the batch's last item. `checkAuditInsertIDOrder` re-checks
   the returned ids on every attempt and fails the attempt closed (into `commitAuditBatch`'s
   bisection) if they do not ascend. A bad row fails the whole statement, and the bisection
   still confines the error to its own caller; every other caller gets nil only after its
