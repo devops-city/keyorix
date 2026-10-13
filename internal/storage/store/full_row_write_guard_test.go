@@ -523,10 +523,24 @@ func loadFullRowExempt(t *testing.T) []fullRowExemptRow {
 	return rows
 }
 
+// fullRowCallerModelPrefix marks a ledger row (Model column) as a CALLER row of the
+// caller-chain scan (see fullRowCallerHits): "calls:<LocalStorage method>". Rows
+// without the prefix are direct-write rows of fullRowWriteHits.
+const fullRowCallerModelPrefix = "calls:"
+
+func isFullRowCallerRow(r fullRowExemptRow) bool {
+	return strings.HasPrefix(r.Model, fullRowCallerModelPrefix)
+}
+
 // TestFullRowWriteGuard_NoStaleFullRowWriteOnSecurityStateModels is the guard.
 func TestFullRowWriteGuard_NoStaleFullRowWriteOnSecurityStateModels(t *testing.T) {
 	hits, _ := fullRowWriteHits(t, fullRowWriteRoots)
-	rows := loadFullRowExempt(t)
+	var rows []fullRowExemptRow
+	for _, r := range loadFullRowExempt(t) {
+		if !isFullRowCallerRow(r) { // caller rows belong to the caller-chain guard
+			rows = append(rows, r)
+		}
+	}
 	exempt := map[string]fullRowExemptRow{}
 	for _, r := range rows {
 		_, dup := exempt[r.key()]
