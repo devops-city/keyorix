@@ -21,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
@@ -1567,12 +1568,22 @@ func TestSetupWithManager_PropagatesBuildError(t *testing.T) {
 // struct), this reads it via reflection on the concrete value — a legitimate technique
 // here since we only need runtime reflection, not a compile-time import of the internal
 // package.
+//
+// controller-runtime keeps controller names in a process-global registry, so under
+// -count>1 (or any second build of the "keyorixsecret" controller in this binary) the
+// second build fails with "controller with name keyorixsecret already exists". This test
+// is about the built controller's configuration, not about the registry, so it opts out
+// of name validation on its own manager (Options.Controller.SkipNameValidation). That is
+// a test-only setting: production wiring (SetupWithManager, cmd/main.go) is unchanged and
+// still validates names.
 func TestSetupController_SetsMaxConcurrentReconciles(t *testing.T) {
 	s := testScheme(t)
+	skipNameValidation := true
 	mgr, err := ctrl.NewManager(&rest.Config{Host: "https://127.0.0.1:1"}, ctrl.Options{
 		Scheme:                 s,
 		Metrics:                metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress: "0",
+		Controller:             ctrlconfig.Controller{SkipNameValidation: &skipNameValidation},
 	})
 	require.NoError(t, err, "manager construction must not require a live API server connection")
 

@@ -359,8 +359,14 @@ e2e-smoke-all: e2e-smoke e2e-smoke-upgrade e2e-web-smoke
 # live). Build tag e2e (same as e2e-smoke) plus the shared
 # scripts/e2e/harness package -- see docs/TESTING_GUIDE.md's "Customer
 # journeys" section for the full picture, including N4/N5 below.
+#
+# -timeout 600s: the suite takes ~285s on a CI runner (the e2e-smoke job's "Customer
+# journeys" step, measured 2026-10-13: 4m46s), which left 15s of headroom under the old
+# 300s. A timeout detects a hang, it does not enforce speed, so it needs room for runner
+# jitter; this is headroom, not a tolerance for slow or failing tests. The e2e-smoke job's
+# own timeout-minutes (15) still bounds the whole job (smoke ~2m + journeys <= 10m).
 e2e-journeys:
-	go test -tags e2e ./scripts/e2e/journeys/... -v -timeout 300s
+	go test -tags e2e ./scripts/e2e/journeys/... -v -timeout 600s
 
 # e2e-journeys-containers: N4-N6 -- migrate from Vault/OpenBao, SSO login via
 # a real Keycloak, and disaster recovery (backup/restore/KEK rotation) --

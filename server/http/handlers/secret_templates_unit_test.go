@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -82,7 +83,10 @@ func newFailingSTHandler(t *testing.T, flags failingSecretTemplateStore) *Secret
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
 	stUnitCounter++
-	dsn := "file:stunit" + string(rune('0'+stUnitCounter)) + "?mode=memory&cache=private"
+	// %d, not a rune offset from '0': past 9 (repeated tests or -count>1) that built
+	// "file:stunit?" / "file:stunit@" ..., which drops mode=memory and makes SQLite write
+	// a real file named stunit into the package directory.
+	dsn := fmt.Sprintf("file:stunit%d?mode=memory&cache=private", stUnitCounter)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	sqlDB, err := db.DB()
