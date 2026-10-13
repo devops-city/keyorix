@@ -86,7 +86,10 @@ jobs:
         with:
           context: .
           file: server/Dockerfile
-          push: true
+          # Push by DIGEST ONLY (no tag): the image is scanned, attested and signed
+          # below and only then tagged (last step), so a failing scan can never leave
+          # a tagged, unattested image behind (v0.96.0 incident, REL-0961).
+          outputs: type=image,name=ghcr.io/keyorixhq/keyorix-server,push-by-digest=true,name-canonical=true,push=true
           # docker-compose.yml has no per-arch image variants -- a single tag
           # must resolve on both Apple Silicon/arm64 hosts and amd64 servers.
           platforms: linux/amd64,linux/arm64
@@ -98,7 +101,6 @@ jobs:
             VERSION=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ steps.build_date.outputs.value }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # GitHub Actions cache backend, scoped per image so the 5 images in
           # this workflow don't evict each other's layers under a shared
@@ -155,6 +157,21 @@ jobs:
 
       - name: Sign image (keyless)
         run: cosign sign --yes "ghcr.io/keyorixhq/keyorix-server@${{ steps.build.outputs.digest }}"
+
+      # Tags (version, sha, branch, latest) are added LAST, by digest, once the
+      # scan, provenance attestation and signature above have all succeeded.
+      # Consumers pull by tag, so nothing is reachable by tag before it is cleared.
+      - name: Tag image (after scan, attestation and signature)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/keyorixhq/keyorix-server
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(-t "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
 
   # The AIR-GAPPED keyorix-server image variant (ADR-109 step 6, B3/S4):
   # -tags noaws,noazure,nogcp (Vault and Kubernetes stay -- ADR-109's
@@ -221,7 +238,10 @@ jobs:
         with:
           context: .
           file: server/Dockerfile
-          push: true
+          # Push by DIGEST ONLY (no tag): the image is scanned, attested and signed
+          # below and only then tagged (last step), so a failing scan can never leave
+          # a tagged, unattested image behind (v0.96.0 incident, REL-0961).
+          outputs: type=image,name=ghcr.io/keyorixhq/keyorix-server,push-by-digest=true,name-canonical=true,push=true
           platforms: linux/amd64,linux/arm64
           provenance: mode=max
           sbom: true
@@ -230,7 +250,6 @@ jobs:
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ steps.build_date.outputs.value }}
             BUILD_TAGS=noaws,noazure,nogcp
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Own cache scope: a different BUILD_TAGS arg produces a different
           # compiled binary layer than build-and-push's full build, so sharing
@@ -272,6 +291,21 @@ jobs:
 
       - name: Sign image (keyless)
         run: cosign sign --yes "ghcr.io/keyorixhq/keyorix-server@${{ steps.build.outputs.digest }}"
+
+      # Tags (version, sha, branch, latest) are added LAST, by digest, once the
+      # scan, provenance attestation and signature above have all succeeded.
+      # Consumers pull by tag, so nothing is reachable by tag before it is cleared.
+      - name: Tag image (after scan, attestation and signature)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/keyorixhq/keyorix-server
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(-t "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
 
   # The Kubernetes sync agent image (keyorix-k8s-sync), published alongside the server.
   build-and-push-k8s-sync:
@@ -315,13 +349,15 @@ jobs:
         with:
           context: .
           file: cmd/keyorix-k8s-sync/Dockerfile
-          push: true
+          # Push by DIGEST ONLY (no tag): the image is scanned, attested and signed
+          # below and only then tagged (last step), so a failing scan can never leave
+          # a tagged, unattested image behind (v0.96.0 incident, REL-0961).
+          outputs: type=image,name=ghcr.io/keyorixhq/keyorix-k8s-sync,push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
           build-args: |
             VERSION=${{ github.ref_name }}
             GIT_COMMIT=${{ github.sha }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=keyorix-k8s-sync
           cache-to: type=gha,mode=max,scope=keyorix-k8s-sync
@@ -356,6 +392,21 @@ jobs:
 
       - name: Sign image (keyless)
         run: cosign sign --yes "ghcr.io/keyorixhq/keyorix-k8s-sync@${{ steps.build.outputs.digest }}"
+
+      # Tags (version, sha, branch, latest) are added LAST, by digest, once the
+      # scan, provenance attestation and signature above have all succeeded.
+      # Consumers pull by tag, so nothing is reachable by tag before it is cleared.
+      - name: Tag image (after scan, attestation and signature)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/keyorixhq/keyorix-k8s-sync
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(-t "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
 
   # The Kubernetes operator image (keyorix-operator). It is a separate Go module, so its
   # build context is the operator/ directory (not the repo root).
@@ -400,10 +451,12 @@ jobs:
         with:
           context: operator
           file: operator/Dockerfile
-          push: true
+          # Push by DIGEST ONLY (no tag): the image is scanned, attested and signed
+          # below and only then tagged (last step), so a failing scan can never leave
+          # a tagged, unattested image behind (v0.96.0 incident, REL-0961).
+          outputs: type=image,name=ghcr.io/keyorixhq/keyorix-operator,push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=keyorix-operator
           cache-to: type=gha,mode=max,scope=keyorix-operator
@@ -438,6 +491,21 @@ jobs:
 
       - name: Sign image (keyless)
         run: cosign sign --yes "ghcr.io/keyorixhq/keyorix-operator@${{ steps.build.outputs.digest }}"
+
+      # Tags (version, sha, branch, latest) are added LAST, by digest, once the
+      # scan, provenance attestation and signature above have all succeeded.
+      # Consumers pull by tag, so nothing is reachable by tag before it is cleared.
+      - name: Tag image (after scan, attestation and signature)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/keyorixhq/keyorix-operator
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(-t "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
 
   # The MCP server image (keyorix-mcp) — read-only Keyorix access for AI agents over
   # stdio. Published alongside the server.
@@ -482,12 +550,14 @@ jobs:
         with:
           context: .
           file: cmd/keyorix-mcp/Dockerfile
-          push: true
+          # Push by DIGEST ONLY (no tag): the image is scanned, attested and signed
+          # below and only then tagged (last step), so a failing scan can never leave
+          # a tagged, unattested image behind (v0.96.0 incident, REL-0961).
+          outputs: type=image,name=ghcr.io/keyorixhq/keyorix-mcp,push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
           build-args: |
             VERSION=${{ github.ref_name }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=keyorix-mcp
           cache-to: type=gha,mode=max,scope=keyorix-mcp
@@ -522,6 +592,21 @@ jobs:
 
       - name: Sign image (keyless)
         run: cosign sign --yes "ghcr.io/keyorixhq/keyorix-mcp@${{ steps.build.outputs.digest }}"
+
+      # Tags (version, sha, branch, latest) are added LAST, by digest, once the
+      # scan, provenance attestation and signature above have all succeeded.
+      # Consumers pull by tag, so nothing is reachable by tag before it is cleared.
+      - name: Tag image (after scan, attestation and signature)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/keyorixhq/keyorix-mcp
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(-t "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
 
   # The web dashboard image (keyorix-web) -- folded in from web/'s own
   # (now-superseded) docker-publish.yml (ADR-070). Same trigger as every job
@@ -586,7 +671,10 @@ jobs:
         with:
           context: web
           file: web/Dockerfile
-          push: true
+          # Push by DIGEST ONLY (no tag): the image is scanned, attested and signed
+          # below and only then tagged (last step), so a failing scan can never leave
+          # a tagged, unattested image behind (v0.96.0 incident, REL-0961).
+          outputs: type=image,name=ghcr.io/keyorixhq/keyorix-web,push-by-digest=true,name-canonical=true,push=true
           # docker-compose.yml has no per-arch image variants -- a single tag
           # must resolve on both Apple Silicon/arm64 hosts and amd64 servers.
           platforms: linux/amd64,linux/arm64
@@ -594,7 +682,6 @@ jobs:
           sbom: true
           build-args: |
             BUILD_DATE=${{ steps.build_date.outputs.value }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=keyorix-web
           cache-to: type=gha,mode=max,scope=keyorix-web
@@ -632,3 +719,18 @@ jobs:
 
       - name: Sign image (keyless)
         run: cosign sign --yes "ghcr.io/keyorixhq/keyorix-web@${{ steps.build.outputs.digest }}"
+
+      # Tags (version, sha, branch, latest) are added LAST, by digest, once the
+      # scan, provenance attestation and signature above have all succeeded.
+      # Consumers pull by tag, so nothing is reachable by tag before it is cleared.
+      - name: Tag image (after scan, attestation and signature)
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE: ghcr.io/keyorixhq/keyorix-web
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          args=()
+          while IFS= read -r t; do
+            [ -n "$t" ] && args+=(-t "$t")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
