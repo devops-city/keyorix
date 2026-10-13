@@ -1,0 +1,5 @@
+### Fixed
+- **A wrong Postgres password now fails startup with one clear message instead of the driver's `connection reset by peer`.** When Postgres rejects the credentials (SQLSTATE `28P01` / `28000`), or the server or a proxy in front of it closes the connection during the login exchange, the server and the admin commands report `postgres authentication failed for user "..." at host:port` and name what to check (the database user and the password source: `KEYORIX_DB_PASSWORD`, `KEYORIX_DB_PASSWORD_FILE`, `storage.database.password`, or the DSN). The message never contains the password or the DSN; the server logs the driver's text with both redacted on a second line. Documented in `docs/CONFIGURATION.md`.
+
+### Added
+- **`keyorix-server admin init --storage-type postgres`** writes the config for PostgreSQL from the start (`storage.type: postgres`, no SQLite path), so a PostgreSQL deployment no longer gets an empty SQLite file from `admin init`. Default behaviour (SQLite) is unchanged; with an existing config of a different type init refuses and changes nothing.

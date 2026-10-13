@@ -296,6 +296,9 @@ func pgConn(cfg *config.Config) (*sql.DB, *sql.Conn, error) {
 	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
+		if classified := config.ClassifyPostgresConnectError(err, dsn); classified != err {
+			return nil, nil, classified
+		}
 		return nil, nil, fmt.Errorf("connect to postgres for server-presence check: %w", err)
 	}
 	sqlDB, err := db.DB()
@@ -307,6 +310,9 @@ func pgConn(cfg *config.Config) (*sql.DB, *sql.Conn, error) {
 	conn, err := sqlDB.Conn(ctx)
 	if err != nil {
 		_ = sqlDB.Close()
+		if classified := config.ClassifyPostgresConnectError(err, dsn); classified != err {
+			return nil, nil, classified
+		}
 		return nil, nil, fmt.Errorf("acquire dedicated connection for server-presence check: %w", err)
 	}
 	return sqlDB, conn, nil

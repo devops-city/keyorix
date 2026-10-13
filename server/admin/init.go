@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/configs"
@@ -27,6 +28,7 @@ var (
 	initDev            bool
 	initSecureFiles    bool
 	initTLSDNSNames    []string
+	initStorageType    string
 )
 
 var initCmd = &cobra.Command{
@@ -55,6 +57,13 @@ metrics token files that config references if they are missing, keeps any
 that exist, and changes nothing else. --tls-dns-name adds a DNS name to a
 generated certificate (e.g. the compose service name "backend").
 
+--storage-type postgres writes the new config with storage.type: postgres and
+no SQLite path, so init never creates a SQLite file for a PostgreSQL
+deployment. Set storage.database.dsn (or host/name/user plus
+KEYORIX_DB_PASSWORD) in the config, then run init again to finish. It applies
+only to a config init writes: with an existing config whose storage.type
+differs, init refuses instead of changing it.
+
 Exit codes: 0 on success, 1 on any failure (see the printed error message).`,
 	RunE: runAdminInit,
 }
@@ -67,6 +76,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initOverwrite, "overwrite-existing", false, "Overwrite an existing config file (dangerous)")
 	initCmd.Flags().BoolVar(&initSecureFiles, "secure-files", false, "Only generate the TLS certificate/key and metrics token files an existing config references, if missing; never writes the config")
 	initCmd.Flags().StringSliceVar(&initTLSDNSNames, "tls-dns-name", nil, "Extra DNS name for a generated TLS certificate (repeatable)")
+	initCmd.Flags().StringVar(&initStorageType, "storage-type", "", "Storage backend for a newly written config: sqlite (default) or postgres (no SQLite file is created)")
 	initCmd.Flags().BoolVar(&initDev, "dev", false, "Write the relaxed DEV-ONLY config (no TLS, no rate limit, unauthenticated /metrics) for a local demo; never for production")
 }
 
@@ -91,6 +101,10 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 		setupAll = false
 	}
 
+	if err := validateInitStorageType(initStorageType); err != nil {
+		return err
+	}
+
 	wroteConfig, err := generateAdminConfigFile(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to generate config file: %w", err)
@@ -100,6 +114,9 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	if err := checkInitStorageType(cfg, initStorageType); err != nil {
+		return err
+	}
 	// Only for the config this run wrote: an existing install is never changed.
 	if wroteConfig && !initDev {
 		if err := generateSecureBaselineFiles(cfg, initTLSDNSNames); err != nil {
@@ -108,6 +125,11 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 	}
 	if cfg.Storage.Type == "" {
 		cfg.Storage.Type = "local"
+	}
+	if wroteConfig && initStorageType == "postgres" && cfg.Storage.Database.DSN == "" && cfg.Storage.Database.Host == "" {
+		// Nothing to connect to yet, and the lock below needs a connection.
+		fmt.Printf("\nConfig written with storage.type: postgres and no SQLite file. Set storage.database.dsn (or host/name/user and KEYORIX_DB_PASSWORD) in %s, then run 'keyorix-server admin init' again to finish.\n", configPath)
+		return nil
 	}
 
 	lock, err := acquireDatabaseLock(cfg)
@@ -137,7 +159,7 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 	fmt.Println("\nKeyorix system initialization completed successfully.")
 	fmt.Printf("Config file: %s\n", configPath)
 	if cfg.Storage.Type == "local" || cfg.Storage.Type == "sqlite" {
-		fmt.Println("Using PostgreSQL instead? Set storage.type: postgres (and storage.database.dsn) in the config BEFORE the steps below; the SQLite file created here is then unused and can be deleted.")
+		fmt.Println("Using PostgreSQL instead? Delete the SQLite file created here and run 'keyorix-server admin init --storage-type postgres' in a fresh directory (or set storage.type: postgres and storage.database.dsn in the config BEFORE the steps below).")
 	}
 	fmt.Println("Run 'keyorix-server admin encryption init' to generate encryption keys (required before the server can start)")
 	fmt.Println("Run 'keyorix-server admin validate' to check the setup")
@@ -188,6 +210,13 @@ func generateAdminConfigFile(configPath string) (bool, error) {
 		}
 		tpl = dev
 	}
+	if initStorageType == "postgres" {
+		pg, err := templateForPostgres(tpl)
+		if err != nil {
+			return false, err
+		}
+		tpl = pg
+	}
 
 	if err := os.MkdirAll(filepath.Dir(configPath), 0750); err != nil {
 		return false, fmt.Errorf("failed to create config directory: %w", err)
@@ -203,6 +232,44 @@ func generateAdminConfigFile(configPath string) (bool, error) {
 		fmt.Printf("Config file created: %s (secure baseline)\n", configPath)
 	}
 	return true, nil
+}
+
+var (
+	templateTypeLine = regexp.MustCompile(`(?m)^  type: sqlite\b.*$`)
+	templatePathLine = regexp.MustCompile(`(?m)^    path: "keyorix\.db"\n`)
+)
+
+// templateForPostgres makes the storage choice in the config text itself, before
+// anything is written or opened: storage.type: postgres and no SQLite path. It
+// fails closed when the template no longer has the lines it edits.
+func templateForPostgres(tpl []byte) ([]byte, error) {
+	if !templateTypeLine.Match(tpl) || !templatePathLine.Match(tpl) {
+		return nil, fmt.Errorf("config template has no storage.type / storage.database.path line to switch to postgres")
+	}
+	tpl = templateTypeLine.ReplaceAll(tpl, []byte("  type: postgres  # chosen with `admin init --storage-type postgres`: set storage.database.dsn (Option A) or host/name/user (Option B) below; the password comes from KEYORIX_DB_PASSWORD or KEYORIX_DB_PASSWORD_FILE"))
+	return templatePathLine.ReplaceAll(tpl, nil), nil
+}
+
+func validateInitStorageType(typ string) error {
+	switch typ {
+	case "", "sqlite", "postgres":
+		return nil
+	}
+	return fmt.Errorf("--storage-type must be sqlite or postgres, got %q", typ)
+}
+
+// checkInitStorageType refuses a --storage-type that disagrees with the config
+// init is about to use (an existing config is never changed), before init
+// creates any database file for the wrong backend.
+func checkInitStorageType(cfg *config.Config, typ string) error {
+	if typ == "" {
+		return nil
+	}
+	isPG := cfg.Storage.Type == "postgres" || cfg.Storage.Type == "postgresql"
+	if (typ == "postgres") != isPG {
+		return fmt.Errorf("--storage-type %s does not match the existing config (storage.type: %q); init never changes an existing config: edit storage.type yourself or init in a fresh directory", typ, cfg.Storage.Type)
+	}
+	return nil
 }
 
 func initializeAdminDatabase(cfg *config.Config) error {

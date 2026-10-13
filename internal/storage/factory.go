@@ -633,7 +633,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (stora
 
 	db, err := gorm.Open(postgres.Open(dsn), gormConfig())
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to postgres: %w", err)
+		return nil, postgresConnectError(err, dsn)
 	}
 
 	if err := applyPoolSettings(db, &cfg.Storage.Database); err != nil {

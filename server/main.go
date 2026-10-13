@@ -271,6 +271,10 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// this does not re-wrap it in a generic "failed to acquire..." prefix.
 	presence, err := serverguard.AcquirePresence(cfg)
 	if err != nil {
+		var authErr *config.PostgresAuthError
+		if errors.As(err, &authErr) {
+			log.Fatalf("%v\n(driver detail, secrets redacted: %s)", err, authErr.Detail())
+		}
 		log.Fatalf("%v", err)
 	}
 	defer presence.Release() //nolint:errcheck

@@ -301,6 +301,27 @@ also set; ... remove the password from storage.database.dsn ... or unset
 KEYORIX_DB_PASSWORD`. Fix it by keeping the password in one place only. The
 message names the setting and never prints either password or the DSN.
 
+If Postgres rejects the credentials (SQLSTATE `28P01` or `28000`), or the server
+(or a proxy/pooler in front of it) drops the connection while authenticating, the
+server and the admin commands stop with one message: `postgres authentication failed
+for user "..." at host:port ... Check the database user ... and the password source:
+KEYORIX_DB_PASSWORD, KEYORIX_DB_PASSWORD_FILE, storage.database.password, or the
+password in storage.database.dsn`. It never contains the password or the DSN; the
+server also prints the driver's own text on a second line with the password and DSN
+redacted. A connection reset during the login exchange is treated as an
+authentication failure only when it happens after the TCP connection was
+established; a refused or timed-out connection is reported as before.
+
+### Starting with PostgreSQL: `admin init --storage-type postgres`
+
+`keyorix-server admin init` writes a SQLite config by default and creates the
+SQLite file. For a PostgreSQL deployment run `admin init --storage-type postgres`
+in a fresh directory: the config is written with `storage.type: postgres` and no
+SQLite path, and nothing SQLite is created. Set `storage.database.dsn` (or the
+host/name/user fields plus `KEYORIX_DB_PASSWORD`) and run `admin init` again to
+finish. `--storage-type` only applies to a config init writes; with an existing
+config of a different type init refuses and changes nothing.
+
 ### Refusing to vivify a missing database
 
 `require_existing_path` (SQLite only, default `false`).
