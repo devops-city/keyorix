@@ -230,10 +230,10 @@ jobs:
       # mocked web/e2e suite, this one would catch a contract break there),
       # or ci.yml itself (same self-skip-proofing reasoning as every other
       # positive-match output above). Always true for a non-pull_request run
-      # (there is no PR file list to check, and QA-2's own item 5 restricts
-      # web-e2e-real-smoke to pull_request only anyway, so this value is
-      # moot for push/merge_group/dispatch today -- computed the same way
-      # regardless, so it stays correct if that restriction is ever lifted).
+      # (there is no PR file list to check). web-e2e-real-smoke runs on
+      # pull_request and merge_group; for merge_group this is always true, so
+      # a non-docs, non-operator-only group always runs it. push/dispatch do
+      # not run it, so the value is moot there.
       web_e2e_relevant: ${{ steps.filter.outputs.web_e2e_relevant }}
       # True (POSITIVE match, same shape as boot_smoke_relevant) when this run
       # could plausibly affect scripts/demo/up.sh|down.sh or what they build
@@ -1439,12 +1439,17 @@ jobs:
   # break (the exact #2441/#2442/#2450 bug class) could sit on main for up
   # to a day before anything caught it. This runs the SAME script on every
   # PR that touches web/ or server/http/ instead of waiting for nightly.
-  # Deliberately pull_request ONLY, not merge_group: CI runner capacity is
-  # tight (per COMMON-RULES/this session's own brief), and this is strictly
-  # additional signal on top of e2e-nightly's existing, more thorough
-  # (Postgres + upgrade-path + containers) nightly coverage -- a merge_group
-  # re-run of the identical SQLite-only check the PR already passed adds
-  # cost without adding confidence.
+  # Runs on pull_request AND merge_group (Andrei 2026-10-13, CI-E2E-MQ-1).
+  # It used to be pull_request only to save runner capacity, but a spec that
+  # went red through a PR-vs-main interaction (#3080) was never run against the
+  # merged tree and sat on main for a day. In the queue the group commit is
+  # the PR merged onto the current main plus the groups ahead of it, so this
+  # is the only point where web specs see that combination. Not a required
+  # check (branch protection lists neither this job nor its shards), so it
+  # cannot stall the queue; it gates a group only through the queue's own
+  # all-checks-green rule. Both shards run in parallel with the ~30 min
+  # test-suite matrix, so they add runner minutes (~12 per group) but not
+  # wall-clock time. Docs-only and operator-only groups still skip it.
   #
   # Runtime budget. 2026-10-05 (#2738): scripts/e2e/web-real-smoke.sh moved to
   # MAX_SPECS_PER_GROUP=1 (one spec file per freshly-booted server, so no
@@ -1468,7 +1473,7 @@ jobs:
   # is the aggregate under the original name.
   web-e2e-real-smoke-shard:
     needs: [changes]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
     name: web-e2e-real-smoke-shard (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1532,7 +1537,7 @@ jobs:
   # skipped exactly when the shards are (same gate as the shards).
   web-e2e-real-smoke:
     needs: [changes, web-e2e-real-smoke-shard]
-    if: always() && github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
