@@ -225,6 +225,32 @@ jobs:
         run: sed -i 's|^SF:|SF:web/|' web/coverage/lcov.info
         if: hashFiles('web/coverage/lcov.info') != ''
 
+      # Race fix (2026-10-13). "Analyze with SonarCloud" intermittently died with
+      #   java.io.UncheckedIOException: java.nio.file.NoSuchFileException:
+      #   .../keyorix/.git/.probe-<uuid>   (e.g. run 38369244285, attempt 1)
+      # and passed on re-run. Two threads inside the scanner JVM collide:
+      #   * the SCM stage opens the repo with JGit, whose
+      #     FS.FileStoreAttributes measures the filesystem timestamp
+      #     resolution on a background thread by creating and deleting
+      #     `.git/.probe-<uuid>` (a fresh runner has no cached measurement, so
+      #     this happens on every run);
+      #   * SonarPython's PackageRootResolver.findBuildConfigFiles does an
+      #     unfiltered Files.walk() of the whole project base dir (sonar
+      #     exclusions are not consulted), which lists `.git` and then stats
+      #     each entry. If the probe is deleted between listing and stat, the
+      #     walk throws UncheckedIOException and the engine dies.
+      # Neither side has a setting to avoid it, and analysis scope must not
+      # change. JGit only measures when it can write to the git dir ("cannot
+      # measure resolution in a read-only directory" -> fixed fallback), so make
+      # the top-level `.git` directory non-writable for the duration of the
+      # scan: no probe file is ever created, and the scanner only reads the
+      # repository. (Moving the git dir out with --separate-git-dir was tried
+      # and rejected: it made the scanner's SCM-ignore check drop the changed
+      # files from the analysis.) Permissions are restored right after, always,
+      # because actions/checkout's post step writes .git/config.
+      - name: Make .git read-only for the scan
+        run: chmod a-w .git
+
       # Was SonarSource/sonarcloud-github-action, which is itself deprecated (its
       # own action.yml prints a warning on every run: "This action is deprecated
       # ... Please use the sonarqube-scan-action action instead") and was already
@@ -249,3 +275,7 @@ jobs:
             -Dsonar.sourceEncoding=UTF-8
             -Dsonar.qualitygate.wait=false
           projectBaseDir: .
+
+      - name: Restore .git permissions
+        if: always()
+        run: chmod u+w .git
