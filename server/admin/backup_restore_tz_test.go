@@ -6,14 +6,19 @@
 // and so restored 44 seconds off, which broke the row's entry_hash and made the
 // automatic post-restore verify-audit report BROKEN.
 //
-// The host TZ is switched in-process by assigning time.Local (what the runtime
-// derives from $TZ at start-up); every database read after that returns
-// Local-located times exactly as it would on such a host.
+// The host TZ is a real one: each zone's round trip runs in a subprocess of the
+// test binary started with TZ=<zone>, so the runtime derives time.Local from the
+// environment exactly as on such a host and every database read returns
+// Local-located times. No test assigns time.Local: it is a package global, and
+// writing it races with any goroutine calling time.Now (timers, servers, earlier
+// subtests' background workers).
 package admin
 
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -35,13 +40,51 @@ import (
 
 var backupRestoreHostTZs = []string{"UTC", "Europe/Berlin", "America/Los_Angeles", "Asia/Kolkata"}
 
-func setHostTZ(t *testing.T, name string) {
+// hostTZChildEnv selects helper mode: the value is the zone this process was
+// started under (TZ=<zone>) and must run the test body once.
+const hostTZChildEnv = "KEYORIX_TEST_HOST_TZ_CHILD"
+
+// hostTZChild returns the zone when this process is a host-TZ subprocess, after
+// checking that the runtime really adopted it as time.Local.
+func hostTZChild(t *testing.T) (string, bool) {
 	t.Helper()
-	loc, err := time.LoadLocation(name)
+	tz := os.Getenv(hostTZChildEnv)
+	if tz == "" {
+		return "", false
+	}
+	want, err := time.LoadLocation(tz)
 	require.NoError(t, err)
-	old := time.Local
-	time.Local = loc
-	t.Cleanup(func() { time.Local = old })
+	for _, ref := range []time.Time{
+		time.Date(1850, 6, 1, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC),
+		time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC),
+	} {
+		_, gotOff := ref.In(time.Local).Zone()
+		_, wantOff := ref.In(want).Zone()
+		require.Equal(t, wantOff, gotOff, "subprocess time.Local does not match TZ=%s at %v", tz, ref)
+	}
+	return tz, true
+}
+
+// runInHostTZ re-executes this test binary (same flags, so -race is kept) for
+// test `name` with TZ=tz and requires that exactly that test ran and passed.
+func runInHostTZ(t *testing.T, name, tz string) {
+	t.Helper()
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "TZ=") && !strings.HasPrefix(kv, hostTZChildEnv+"=") {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, "TZ="+tz, hostTZChildEnv+"="+tz)
+	cmd := exec.Command(exe, "-test.run=^"+name+"$", "-test.v", "-test.count=1")
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "subprocess TZ=%s failed:\n%s", tz, out)
+	require.Contains(t, string(out), "--- PASS: "+name+" ", "subprocess TZ=%s did not run %s:\n%s", tz, name, out)
+	require.NotContains(t, string(out), "--- SKIP", "subprocess TZ=%s skipped:\n%s", tz, out)
 }
 
 // seedAuditEventsForTZ logs the events whose times are the hard cases: the
@@ -138,100 +181,114 @@ func requireSameRows(t *testing.T, src, dst map[string][]string) {
 }
 
 func TestAdminBackupRestore_SQLite_RoundTripAcrossHostTZ(t *testing.T) {
+	if _, child := hostTZChild(t); child {
+		sqliteRoundTripOnThisHost(t)
+		return
+	}
 	for _, tz := range backupRestoreHostTZs {
 		t.Run(tz, func(t *testing.T) {
-			resetBackupRestoreFlags(t)
-			require.NoError(t, i18n.InitializeForTesting())
-			t.Setenv("KEYORIX_MASTER_PASSWORD", "test-passphrase-1234")
-			setHostTZ(t, tz)
-
-			srcDir := t.TempDir()
-			chdirTest(t, srcDir)
-			encCfg := &config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}
-			require.NoError(t, encryption.NewService(encCfg, srcDir).Initialize("test-passphrase-1234"))
-			configPathFlag = writeBackupRestoreTestConfig(t, srcDir, filepath.Join(srcDir, "secrets.db"))
-			srcCfg, err := loadConfig()
-			require.NoError(t, err)
-			st, err := kstorage.NewStorageFactory().CreateStorage(srcCfg)
-			require.NoError(t, err)
-			seedAuditEventsForTZ(t, st)
-
-			archivePath := filepath.Join(t.TempDir(), "backup.tar.gz")
-			backupOutput = archivePath
-			require.NoError(t, runAdminBackup(nil, nil))
-
-			dstDir := t.TempDir()
-			chdirTest(t, dstDir)
-			dstDBPath := filepath.Join(dstDir, "secrets.db")
-			configPathFlag = writeBackupRestoreTestConfig(t, dstDir, dstDBPath)
-			restoreInput = archivePath
-			restoreOverwriteExisting = false
-			restoreMaxEntryBytes = 0
-			restoreMaxTotalBytes = 0
-			out, err := captureStdout(t, func() error { return runAdminRestore(nil, nil) })
-			require.NoError(t, err, "output was:\n%s", out)
-			require.Contains(t, out, "verify-audit on the restored database: VALID")
-
-			srcDB := sqliteRawOpenForTZTest(t, filepath.Join(srcDir, "secrets.db"))
-			dstDB := sqliteRawOpenForTZTest(t, dstDBPath)
-			requireSameRows(t, dumpAllTables(t, srcDB), dumpAllTables(t, dstDB))
+			runInHostTZ(t, "TestAdminBackupRestore_SQLite_RoundTripAcrossHostTZ", tz)
 		})
 	}
+}
+
+func sqliteRoundTripOnThisHost(t *testing.T) {
+	resetBackupRestoreFlags(t)
+	require.NoError(t, i18n.InitializeForTesting())
+	t.Setenv("KEYORIX_MASTER_PASSWORD", "test-passphrase-1234")
+
+	srcDir := t.TempDir()
+	chdirTest(t, srcDir)
+	encCfg := &config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}
+	require.NoError(t, encryption.NewService(encCfg, srcDir).Initialize("test-passphrase-1234"))
+	configPathFlag = writeBackupRestoreTestConfig(t, srcDir, filepath.Join(srcDir, "secrets.db"))
+	srcCfg, err := loadConfig()
+	require.NoError(t, err)
+	st, err := kstorage.NewStorageFactory().CreateStorage(srcCfg)
+	require.NoError(t, err)
+	seedAuditEventsForTZ(t, st)
+
+	archivePath := filepath.Join(t.TempDir(), "backup.tar.gz")
+	backupOutput = archivePath
+	require.NoError(t, runAdminBackup(nil, nil))
+
+	dstDir := t.TempDir()
+	chdirTest(t, dstDir)
+	dstDBPath := filepath.Join(dstDir, "secrets.db")
+	configPathFlag = writeBackupRestoreTestConfig(t, dstDir, dstDBPath)
+	restoreInput = archivePath
+	restoreOverwriteExisting = false
+	restoreMaxEntryBytes = 0
+	restoreMaxTotalBytes = 0
+	out, err := captureStdout(t, func() error { return runAdminRestore(nil, nil) })
+	require.NoError(t, err, "output was:\n%s", out)
+	require.Contains(t, out, "verify-audit on the restored database: VALID")
+
+	srcDB := sqliteRawOpenForTZTest(t, filepath.Join(srcDir, "secrets.db"))
+	dstDB := sqliteRawOpenForTZTest(t, dstDBPath)
+	requireSameRows(t, dumpAllTables(t, srcDB), dumpAllTables(t, dstDB))
 }
 
 // TestAdminBackupRestore_Postgres_RoundTripAcrossHostTZ is the FIX-3088
 // reproduction: red on main for every non-UTC zone, green with the codec fix.
 func TestAdminBackupRestore_Postgres_RoundTripAcrossHostTZ(t *testing.T) {
 	base := pgAdminTestDSN(t)
+	if _, child := hostTZChild(t); child {
+		postgresRoundTripOnThisHost(t, base)
+		return
+	}
 	for _, tz := range backupRestoreHostTZs {
 		t.Run(tz, func(t *testing.T) {
-			resetBackupRestoreFlags(t)
-			require.NoError(t, i18n.InitializeForTesting())
-			t.Setenv("KEYORIX_MASTER_PASSWORD", "test-passphrase-1234")
-			setHostTZ(t, tz)
-
-			srcDSN := pgAdminIsolatedDatabaseDSN(t, base)
-			dstDSN := pgAdminIsolatedDatabaseDSN(t, base)
-
-			srcDir := t.TempDir()
-			chdirTest(t, srcDir)
-			encCfg := &config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}
-			require.NoError(t, encryption.NewService(encCfg, srcDir).Initialize("test-passphrase-1234"))
-			configPathFlag = writePostgresBackupRestoreTestConfig(t, srcDir, srcDSN)
-			srcCfg, err := loadConfig()
-			require.NoError(t, err)
-			st, err := kstorage.NewStorageFactory().CreateStorage(srcCfg)
-			require.NoError(t, err)
-			seedAuditEventsForTZ(t, st)
-
-			archivePath := filepath.Join(t.TempDir(), "pg-backup.tar.gz")
-			backupOutput = archivePath
-			backupExclusive = false
-			out, err := captureStdout(t, func() error { return runAdminBackup(nil, nil) })
-			require.NoError(t, err, "output was:\n%s", out)
-
-			dstDir := t.TempDir()
-			chdirTest(t, dstDir)
-			configPathFlag = writePostgresBackupRestoreTestConfig(t, dstDir, dstDSN)
-			restoreInput = archivePath
-			restoreOverwriteExisting = false
-			restoreMaxEntryBytes = 0
-			restoreMaxTotalBytes = 0
-			out, err = captureStdout(t, func() error { return runAdminRestore(nil, nil) })
-			require.NoError(t, err, "output was:\n%s", out)
-			require.Contains(t, out, "verify-audit on the restored database: VALID")
-
-			srcDB := pgAdminRawOpen(t, srcDSN)
-			dstDB := pgAdminRawOpen(t, dstDSN)
-			requireSameRows(t, dumpAllTables(t, srcDB), dumpAllTables(t, dstDB))
-
-			// Row 1 specifically: stored instant is the zero time, in both.
-			for name, db := range map[string]*gorm.DB{"source": srcDB, "restored": dstDB} {
-				var first models.AuditEvent
-				require.NoError(t, db.Order("id ASC").First(&first).Error, name)
-				require.True(t, first.EventTime.IsZero(), "%s audit row 1 event_time = %v", name, first.EventTime)
-			}
+			runInHostTZ(t, "TestAdminBackupRestore_Postgres_RoundTripAcrossHostTZ", tz)
 		})
+	}
+}
+
+func postgresRoundTripOnThisHost(t *testing.T, base string) {
+	resetBackupRestoreFlags(t)
+	require.NoError(t, i18n.InitializeForTesting())
+	t.Setenv("KEYORIX_MASTER_PASSWORD", "test-passphrase-1234")
+
+	srcDSN := pgAdminIsolatedDatabaseDSN(t, base)
+	dstDSN := pgAdminIsolatedDatabaseDSN(t, base)
+
+	srcDir := t.TempDir()
+	chdirTest(t, srcDir)
+	encCfg := &config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}
+	require.NoError(t, encryption.NewService(encCfg, srcDir).Initialize("test-passphrase-1234"))
+	configPathFlag = writePostgresBackupRestoreTestConfig(t, srcDir, srcDSN)
+	srcCfg, err := loadConfig()
+	require.NoError(t, err)
+	st, err := kstorage.NewStorageFactory().CreateStorage(srcCfg)
+	require.NoError(t, err)
+	seedAuditEventsForTZ(t, st)
+
+	archivePath := filepath.Join(t.TempDir(), "pg-backup.tar.gz")
+	backupOutput = archivePath
+	backupExclusive = false
+	out, err := captureStdout(t, func() error { return runAdminBackup(nil, nil) })
+	require.NoError(t, err, "output was:\n%s", out)
+
+	dstDir := t.TempDir()
+	chdirTest(t, dstDir)
+	configPathFlag = writePostgresBackupRestoreTestConfig(t, dstDir, dstDSN)
+	restoreInput = archivePath
+	restoreOverwriteExisting = false
+	restoreMaxEntryBytes = 0
+	restoreMaxTotalBytes = 0
+	out, err = captureStdout(t, func() error { return runAdminRestore(nil, nil) })
+	require.NoError(t, err, "output was:\n%s", out)
+	require.Contains(t, out, "verify-audit on the restored database: VALID")
+
+	srcDB := pgAdminRawOpen(t, srcDSN)
+	dstDB := pgAdminRawOpen(t, dstDSN)
+	requireSameRows(t, dumpAllTables(t, srcDB), dumpAllTables(t, dstDB))
+
+	// Row 1 specifically: stored instant is the zero time, in both.
+	for name, db := range map[string]*gorm.DB{"source": srcDB, "restored": dstDB} {
+		var first models.AuditEvent
+		require.NoError(t, db.Order("id ASC").First(&first).Error, name)
+		require.True(t, first.EventTime.IsZero(), "%s audit row 1 event_time = %v", name, first.EventTime)
 	}
 }
 

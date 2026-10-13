@@ -18,15 +18,15 @@ import (
 // json.Marshal of that Local-located time does not decode back to the same
 // instant. The codec must therefore write every time as UTC.
 
-// withLocalTZ points time.Local at name for the duration of the test, the
-// in-process equivalent of starting the host with TZ=name.
+// withLocalTZ loads the zone name. It deliberately does NOT assign time.Local
+// (a package global: writing it races with every goroutine that calls
+// time.Now). The codec never reads time.Local; it is handed values already
+// located in the host zone, which is exactly what a driver on such a host
+// returns, so every input below is built with .In(loc) instead.
 func withLocalTZ(t *testing.T, name string) *time.Location {
 	t.Helper()
 	loc, err := time.LoadLocation(name)
 	require.NoError(t, err)
-	old := time.Local
-	time.Local = loc
-	t.Cleanup(func() { time.Local = old })
 	return loc
 }
 
