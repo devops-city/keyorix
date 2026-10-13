@@ -8,6 +8,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -138,7 +139,9 @@ var secretClearScheduleCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if resp.StatusCode() != 204 {
+		// The server answers 200 with a {deleted:true} envelope (#3173); 204 is
+		// accepted too, so a proxy or a future server that sends no body still works.
+		if sc := resp.StatusCode(); sc != http.StatusOK && sc != http.StatusNoContent {
 			return httpStatusError("clear secret schedule", resp.StatusCode(), resp.Body)
 		}
 		fmt.Printf("Schedule cleared for secret %d.\n", id)

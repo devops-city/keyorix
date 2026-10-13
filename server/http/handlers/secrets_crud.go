@@ -579,6 +579,9 @@ func (h *SecretHandler) UpdateSecret(w http.ResponseWriter, r *http.Request) {
 		// one. They are mutually exclusive.
 		Expiration      string `json:"expiration,omitempty"`
 		ClearExpiration bool   `json:"clear_expiration,omitempty"`
+		// ClearMaxReads removes the read limit (#3172); max_reads keeps min=1, so 0 is not
+		// "unlimited". Mutually exclusive with max_reads.
+		ClearMaxReads bool `json:"clear_max_reads,omitempty"`
 		// Secret, when present, is the now-deleted RemoteStorage's full desired
 		// SecretNode state (G80 Phase 0) — it takes over the whole request and every
 		// other field above is ignored. See updateSecretViaDiff / secret_update_diff.go
@@ -613,11 +616,17 @@ func (h *SecretHandler) UpdateSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if reqBody.MaxReads != nil && reqBody.ClearMaxReads {
+		h.sendError(w, "ValidationError", "max_reads and clear_max_reads are mutually exclusive", http.StatusBadRequest, nil)
+		return
+	}
+
 	req := &core.UpdateSecretRequest{
 		ID:              uint(id),
 		Type:            reqBody.Type,
 		MaxReads:        reqBody.MaxReads,
 		ClearExpiration: reqBody.ClearExpiration,
+		ClearMaxReads:   reqBody.ClearMaxReads,
 		UpdatedBy:       userCtx.Username,
 		UserID:          userCtx.UserID,
 	}

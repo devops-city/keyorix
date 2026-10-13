@@ -9576,6 +9576,8 @@ export interface operations {
                 "application/json": {
                     value?: string;
                     max_reads?: number | null;
+                    /** @description Remove the read limit (the secret becomes unlimited). The read counter is kept. */
+                    clear_max_reads?: boolean;
                     /** Format: date-time */
                     expiration?: string;
                     clear_expiration?: boolean;
@@ -10374,8 +10376,8 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Schedule removed. */
-            204: {
+            /** @description Schedule removed (or none was set). Envelope `{data: {deleted: true}, message: "schedule removed"}`; the handler has always answered 200, not 204 (#3173). */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

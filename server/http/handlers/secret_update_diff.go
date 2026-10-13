@@ -366,7 +366,11 @@ func (h *SecretHandler) updateSecretViaDiff(w http.ResponseWriter, r *http.Reque
 		req.Description = &diff.Description
 	}
 	if diff.MaxReadsChanged {
-		req.MaxReads = diff.MaxReads
+		if diff.MaxReads == nil {
+			req.ClearMaxReads = true
+		} else {
+			req.MaxReads = diff.MaxReads
+		}
 	}
 	if diff.ExpirationChanged {
 		if diff.Expiration == nil {

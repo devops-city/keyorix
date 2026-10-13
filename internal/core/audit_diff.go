@@ -43,7 +43,12 @@ func BuildSecretUpdateDiff(old *models.SecretNode, req *UpdateSecretRequest, val
 	if req.Description != nil && *req.Description != old.Description {
 		diff["description"] = fieldChange{Before: old.Description, After: *req.Description}
 	}
-	if req.MaxReads != nil && !eqIntPtr(old.MaxReads, req.MaxReads) {
+	if req.ClearMaxReads {
+		// Explicit clear: record it although the "after" side is nil (as ClearExpiration).
+		if old.MaxReads != nil {
+			diff["max_reads"] = fieldChange{Before: intPtrVal(old.MaxReads), After: nil}
+		}
+	} else if req.MaxReads != nil && !eqIntPtr(old.MaxReads, req.MaxReads) {
 		diff["max_reads"] = fieldChange{Before: intPtrVal(old.MaxReads), After: intPtrVal(req.MaxReads)}
 	}
 	switch {

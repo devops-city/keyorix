@@ -3129,10 +3129,13 @@ paths:
               type: object
               description: >-
                 `expiration` (RFC3339) and `clear_expiration` are mutually
-                exclusive.
+                exclusive; so are `max_reads` and `clear_max_reads`.
+                `max_reads: 0` is rejected (400): to remove an existing read
+                limit send `clear_max_reads: true`.
               properties:
                 value: {type: string}
                 max_reads: {type: integer, minimum: 1, nullable: true}
+                clear_max_reads: {type: boolean, description: "Remove the read limit (the secret becomes unlimited). The read counter is kept."}
                 expiration: {type: string, format: date-time}
                 clear_expiration: {type: boolean}
       responses:
@@ -3840,7 +3843,7 @@ paths:
       operationId: deleteSecretSchedule
       security: [{bearerAuth: []}]
       responses:
-        '204': {description: Schedule removed.}
+        '200': {description: 'Schedule removed (or none was set). Envelope `{data: {deleted: true}, message: "schedule removed"}`; the handler has always answered 200, not 204 (#3173).'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
   /api/v1/secrets/{id}/suspend:

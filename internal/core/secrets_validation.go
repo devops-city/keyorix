@@ -38,5 +38,8 @@ func (c *KeyorixCore) validateUpdateSecretRequest(req *UpdateSecretRequest) erro
 	if req.UpdatedBy == "" {
 		return fmt.Errorf("%s", i18n.T("ErrorRequiredField", nil))
 	}
+	if req.ClearMaxReads && req.MaxReads != nil {
+		return fmt.Errorf("max_reads and clear_max_reads are mutually exclusive")
+	}
 	return nil
 }

@@ -107,9 +107,13 @@ type UpdateSecretRequest struct {
 	// ClearExpiration removes an existing expiration. It is distinct from leaving
 	// Expiration nil (which means "leave unchanged"): without this flag there is no
 	// way to make an expiring secret non-expiring.
-	ClearExpiration bool              `json:"clear_expiration,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	Tags            []string          `json:"tags,omitempty"`
+	ClearExpiration bool `json:"clear_expiration,omitempty"`
+	// ClearMaxReads removes the read limit (#3172). MaxReads keeps its min=1 rule, so
+	// "0 = unlimited" is not expressible through it; this is the explicit clear, mutually
+	// exclusive with MaxReads. The read counter is left as it is.
+	ClearMaxReads bool              `json:"clear_max_reads,omitempty"`
+	Metadata      map[string]string `json:"metadata,omitempty"`
+	Tags          []string          `json:"tags,omitempty"`
 	// Description, when non-nil, replaces the secret's description ("" clears it). A nil
 	// pointer means "leave unchanged" — matching Metadata's nil-means-unchanged
 	// convention, since "" is itself a meaningful value here (SetSecretDescription has
@@ -508,7 +512,9 @@ func secretFieldUpdateFromRequest(req *UpdateSecretRequest) (storage.SecretField
 	if req.Description != nil {
 		f.Description = req.Description
 	}
-	if req.MaxReads != nil {
+	if req.ClearMaxReads {
+		f.SetMaxReads, f.MaxReads = true, nil
+	} else if req.MaxReads != nil {
 		f.SetMaxReads, f.MaxReads = true, req.MaxReads
 	}
 	if req.ClearExpiration {
@@ -536,7 +542,9 @@ func applyUpdateSecretFields(secret *models.SecretNode, req *UpdateSecretRequest
 	if req.Description != nil {
 		secret.Description = *req.Description
 	}
-	if req.MaxReads != nil {
+	if req.ClearMaxReads {
+		secret.MaxReads = nil
+	} else if req.MaxReads != nil {
 		secret.MaxReads = req.MaxReads
 	}
 	if req.ClearExpiration {
@@ -579,6 +587,7 @@ func (c *KeyorixCore) updateSecretAction(ctx context.Context, req *UpdateSecretR
 	switch {
 	case req.ClearExpiration && cur.Expiration != nil,
 		req.Expiration != nil && (cur.Expiration == nil || !req.Expiration.Equal(*cur.Expiration)),
+		req.ClearMaxReads && cur.MaxReads != nil,
 		req.MaxReads != nil && (cur.MaxReads == nil || *req.MaxReads != *cur.MaxReads):
 		return SecretActionUpdateLifecycle
 	}

@@ -2116,10 +2116,13 @@ type GetSecretParams struct {
 
 // UpdateSecretJSONBody defines parameters for UpdateSecret.
 type UpdateSecretJSONBody struct {
-	ClearExpiration *bool      `json:"clear_expiration,omitempty"`
-	Expiration      *time.Time `json:"expiration,omitempty"`
-	MaxReads        *int       `json:"max_reads"`
-	Value           *string    `json:"value,omitempty"`
+	ClearExpiration *bool `json:"clear_expiration,omitempty"`
+
+	// ClearMaxReads Remove the read limit (the secret becomes unlimited). The read counter is kept.
+	ClearMaxReads *bool      `json:"clear_max_reads,omitempty"`
+	Expiration    *time.Time `json:"expiration,omitempty"`
+	MaxReads      *int       `json:"max_reads"`
+	Value         *string    `json:"value,omitempty"`
 }
 
 // GetSecretAccessLogParams defines parameters for GetSecretAccessLog.
