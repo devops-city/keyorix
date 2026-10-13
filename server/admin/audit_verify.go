@@ -273,7 +273,7 @@ func resolveOfflineAnchor(cs configLoadState) (path, source string, err error) {
 // (design Q1: the derived key itself, never the KEK or passphrase), accepted
 // as hex or base64 per the design's own documented flag contract.
 func readCheckpointKeyFile(path string) ([]byte, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- operator-supplied path, the whole point of this flag
+	raw, err := readKeyFile(path) // secret: non-blocking open, FIFO refused (secretenv.OpenRegular)
 	if err != nil {
 		return nil, fmt.Errorf("read %q: %w", path, err)
 	}

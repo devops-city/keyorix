@@ -103,7 +103,6 @@ internal/config/config.go (securefiles.SecureWriteFileSync)	file_write	internal/
 internal/config/roundtrip.go (securefiles.SecureWriteFileSync)	file_write	internal/config	1
 internal/core/evidence_export.go (securefiles.SecureWriteFileSync)	file_write	internal/core	2
 internal/crypto/kms_provider.go (securefiles.SecureWriteFileSync)	file_write	internal/crypto	1
-internal/crypto/passphrase.go (os.OpenFile)	file_write	internal/crypto	1
 internal/crypto/password_provider.go (securefiles.SecureWriteFileSync)	file_write	internal/crypto	1
 internal/crypto/tpm_provider.go (securefiles.SecureWriteFileSync)	file_write	internal/crypto	1
 internal/encryption/fault_hooks.go (os.OpenFile)	file_write	internal/encryption	2
@@ -114,7 +113,7 @@ internal/encryption/keymanager_rotation.go (securefiles.SecureWriteFileSync)	fil
 internal/encryptionops/shamir_split.go (securefiles.SecureWriteFileSync)	file_write	internal/encryptionops	2
 internal/faultstorage/gen/main.go (os.WriteFile)	file_write	internal/faultstorage/gen	2
 internal/secretenv/secretenv.go (os.OpenFile)	file_write	internal/secretenv	1
-internal/securefiles/securefiles.go (os.OpenFile)	file_write	internal/securefiles	3
+internal/securefiles/securefiles.go (os.OpenFile)	file_write	internal/securefiles	2
 internal/serverguard/serverguard.go (os.OpenFile)	file_write	internal/serverguard	1
 internal/storage/factory.go (os.OpenFile)	file_write	internal/storage	1
 internal/storage/factory_sqlite_migration_lock.go (os.OpenFile)	file_write	internal/storage	1

@@ -118,16 +118,14 @@ func readPassphraseFD(fd int) ([]byte, error) {
 // there is no window between the permission check and the read for the file
 // to be swapped out from under it.
 func readPassphraseFile(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0) // #nosec G304 -- operator-configured trusted path (--passphrase-file), O_NOFOLLOW + permission-checked below
+	// OpenRegular adds O_NONBLOCK and refuses a non-regular file on the same fd: a
+	// 0600 FIFO would otherwise pass the mode check below and hang in open(2)/read.
+	f, info, err := secretenv.OpenRegular(path, syscall.O_NOFOLLOW)
 	if err != nil {
 		return nil, fmt.Errorf("opening --passphrase-file %q: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 
-	info, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat --passphrase-file %q: %w", path, err)
-	}
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("--passphrase-file %q is group- or world-readable (mode %04o) -- refusing to read it; chmod 600 the file", path, info.Mode().Perm())
 	}

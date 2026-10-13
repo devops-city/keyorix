@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/secretenv"
@@ -58,14 +58,19 @@ func (p *FileKeyProvider) KEK() ([]byte, error) {
 	// that check — which only warns by default — the KEK is the root of the encryption
 	// key hierarchy, so a bad permission here fails closed unconditionally: an
 	// operator-fixable chmod, not a runtime toggle, is the correct remedy.
-	info, err := os.Stat(p.path)
+	//
+	// Opened non-blocking and fstat'ed on the same descriptor that is read: a FIFO
+	// (which passes the mode check at 0600) is refused instead of hanging the boot,
+	// and the path cannot be swapped between the check and the read.
+	f, info, err := secretenv.OpenRegular(p.path, 0)
 	if err != nil {
-		return nil, fmt.Errorf("file key provider: failed to stat %s: %w", p.path, err)
+		return nil, fmt.Errorf("file key provider: failed to read %s: %w", p.path, err)
 	}
+	defer func() { _ = f.Close() }()
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("file key provider: %s is readable/writable beyond its owner (mode %o) — refusing to trust it as key material; chmod it to 0600 (or 0400)", p.path, info.Mode().Perm())
 	}
-	data, err := os.ReadFile(p.path) // #nosec G304 -- operator-configured trusted KEK path, permission-checked above
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, fmt.Errorf("file key provider: failed to read %s: %w", p.path, err)
 	}

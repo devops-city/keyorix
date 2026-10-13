@@ -23,6 +23,7 @@
 package secretenv
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -102,31 +103,55 @@ func ReadFile(path string) (string, error) {
 	return readSecretFile(path, false)
 }
 
-func readSecretFile(path string, checkPerms bool) (string, error) {
-	// Symlinks are followed on purpose: a Kubernetes Secret volume exposes each
-	// key as a symlink into the kubelet's ..data/ directory. The permission
-	// check (CheckPermissions) stats the target, so a symlink cannot be used to
-	// launder a loose file.
-	//
-	// O_NONBLOCK: a plain open(2) of a FIFO (or of some devices) blocks until a
-	// writer appears, before the regular-file check below could refuse it -- a
-	// mis-pointed X_FILE would hang the boot silently. Non-blocking open returns at
-	// once; on a regular file the flag changes nothing.
-	// #nosec G304 G703 -- path is the operator's own X_FILE setting (process environment,
-	// not network input); the file must be a regular file and is size-capped below.
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+// ErrNotRegular is returned (wrapped) by OpenRegular for a FIFO, device, socket
+// or directory.
+var ErrNotRegular = errors.New("secret file is not a regular file")
+
+// OpenRegular is the one way to open a secret or key file for reading. It opens
+// read-only with O_NONBLOCK, fstats the SAME descriptor and refuses anything that
+// is not a regular file, returning the open file and its fstat info so the caller
+// can judge the mode on the descriptor it then reads (no swap window).
+//
+// O_NONBLOCK: a plain open(2) of a FIFO (or of some devices) blocks until a
+// writer appears, before any regular-file check could refuse it -- a mis-pointed
+// path would hang the boot silently, and a 0600 FIFO passes a mode check. A
+// non-blocking open returns at once; on a regular file the flag changes nothing.
+//
+// extraFlags is OR-ed into the open flags (e.g. syscall.O_NOFOLLOW for callers
+// that refuse a symlink). Symlinks are followed by default: a Kubernetes Secret
+// volume exposes each key as a symlink into the kubelet's ..data/ directory.
+//
+// Guard: internal/secretenv's TestSecretFileReadsGoThroughOpenRegular fails when
+// a secret/key read in the scanned packages bypasses this function.
+func OpenRegular(path string, extraFlags int) (*os.File, os.FileInfo, error) {
+	// #nosec G304 G703 -- path is operator configuration (environment, config file or
+	// flag), not network input; the file must be a regular file, checked below.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK|extraFlags, 0)
 	if err != nil {
+		return nil, nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, nil, ErrNotRegular
+	}
+	return f, info, nil
+}
+
+func readSecretFile(path string, checkPerms bool) (string, error) {
+	f, info, err := OpenRegular(path, 0)
+	if err != nil {
+		if errors.Is(err, ErrNotRegular) {
+			return "", err
+		}
 		return "", fmt.Errorf("cannot open secret file: %w", unwrapPathError(err))
 	}
 	defer func() { _ = f.Close() }()
 
-	info, err := f.Stat()
-	if err != nil {
-		return "", fmt.Errorf("cannot stat secret file: %w", unwrapPathError(err))
-	}
-	if !info.Mode().IsRegular() {
-		return "", fmt.Errorf("secret file is not a regular file")
-	}
 	if checkPerms {
 		if err := checkInfo(info); err != nil {
 			return "", err

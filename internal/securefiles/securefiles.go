@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
@@ -100,11 +101,22 @@ func SafeReadFile(baseDir, filePath string) ([]byte, error) {
 	// ancestor, so it cannot see a symlink an attacker plants at a not-yet-existing (or
 	// racily-replaced) intermediate component between this check and the open below.
 	// SecureOpenBeneath closes that gap by walking every component with O_NOFOLLOW.
-	f, err := SecureOpenBeneath(baseDir, filePath, unix.O_RDONLY, 0)
+	//
+	// O_NONBLOCK + a regular-file check on the opened fd: this reads the DEK, salt,
+	// wrapped KEK and TPM blob, and a plain open of a FIFO planted at one of those
+	// paths would block in open(2) until a writer appears, hanging boot or the CLI.
+	f, err := SecureOpenBeneath(baseDir, filePath, unix.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat %q: %w", filePath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%q: %w", filePath, secretenv.ErrNotRegular)
+	}
 	return io.ReadAll(f)
 }
 
@@ -498,7 +510,10 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 		// path-based) closes that window: the fd stays bound to the exact inode
 		// opened here, immune to the path being swapped out from under us afterward —
 		// mirrors SecureWriteFile/SecureWriteFileSync in this file.
-		file, err := os.OpenFile(f.Path, os.O_RDONLY|syscall.O_NOFOLLOW, 0) // #nosec G304 -- caller-controlled key-file list, not network input
+		//
+		// secretenv.OpenRegular adds O_NONBLOCK and refuses a non-regular file on the
+		// opened fd: a FIFO planted at a key-file path must not hang startup here.
+		file, info, err := secretenv.OpenRegular(f.Path, syscall.O_NOFOLLOW)
 		if err != nil {
 			if errors.Is(err, syscall.ELOOP) {
 				fmt.Printf("[WARN] Refusing to fix %s: it is a symlink (won't follow it to an arbitrary target)\n", f.Path)
@@ -507,15 +522,6 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 			}
 			hasWarnings = true
 			unresolved = true
-			continue
-		}
-
-		info, err := file.Stat()
-		if err != nil {
-			fmt.Printf("[WARN] Cannot stat file %s: %v\n", f.Path, err)
-			hasWarnings = true
-			unresolved = true
-			_ = file.Close()
 			continue
 		}
 

@@ -7,8 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/secretenv"
@@ -143,13 +143,25 @@ func NewShamirKeyProvider(shareFiles, shareEnv []string, commitmentHex string) *
 
 func (p *ShamirKeyProvider) Name() string { return "shamir" }
 
+// readShareFile reads an operator-configured share file through
+// secretenv.OpenRegular, so a FIFO or device is refused instead of blocking the
+// boot in open(2).
+func readShareFile(path string) ([]byte, error) {
+	f, _, err := secretenv.OpenRegular(path, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
 func (p *ShamirKeyProvider) KEK() ([]byte, error) { // NOSONAR -- cognitive complexity 20, suppress go:S3776
 	var shares [][]byte
 	for _, path := range p.shareFiles {
 		if path == "" {
 			continue
 		}
-		data, err := os.ReadFile(path) // #nosec G304 -- operator-configured trusted share path
+		data, err := readShareFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("shamir key provider: read share %s: %w", path, err)
 		}

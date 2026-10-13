@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -35,6 +36,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/crypto"
 	"github.com/keyorixhq/keyorix/internal/encryption"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
+	"github.com/keyorixhq/keyorix/internal/secretenv"
 	"github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/spf13/cobra"
@@ -394,6 +396,17 @@ func postgresDatabaseSize(cfg *config.Config) (int64, error) {
 	return size, nil
 }
 
+// readKeyFile reads one key file through secretenv.OpenRegular, so a FIFO planted
+// at a key-file path fails the backup instead of hanging it in open(2).
+func readKeyFile(path string) ([]byte, error) {
+	f, _, err := secretenv.OpenRegular(path, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
+}
+
 // readKeyFilesForBackup reads every file internal/keyfiles.Registry
 // enumerates and computes its checksum -- unchanged from v1 (design §1: no
 // new subcommands or UX for key-material handling).
@@ -405,7 +418,7 @@ func readKeyFilesForBackup(cfg *config.Config) ([]backupfmt.KeyFileEntry, [][]by
 	entries := make([]backupfmt.KeyFileEntry, len(specs))
 	blobs := make([][]byte, len(specs))
 	for i, spec := range specs {
-		data, rerr := os.ReadFile(spec.Path) // #nosec G304 -- config-driven path, sanitized by keyfiles.SafePath
+		data, rerr := readKeyFile(spec.Path)
 		if rerr != nil {
 			return nil, nil, fmt.Errorf("read key file %q: %w", spec.Path, rerr)
 		}
