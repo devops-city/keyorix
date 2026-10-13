@@ -1375,7 +1375,9 @@ paths:
         time-bound (default + capped by server config), with a required written
         justification. NOT RBAC-gated — the controls are config-enablement, the
         justification, a loud audit (break_glass.activated) + admin alert, and
-        auto-expiry. Returns 403 when break-glass is disabled, and always when the
+        auto-expiry. Returns 403 when break-glass is disabled (the error field is the
+        code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo
+        reason BreakGlassDisabled), and always when the
         caller authenticated with a restricted personal access token (ADR-042).
       operationId: activateBreakGlass
       security: [{bearerAuth: []}]
@@ -1419,7 +1421,10 @@ paths:
         count. A non-member (the same 403 for every project id), a machine identity
         without roles.read, or a restricted personal access
         token whose restriction does not allow roles.read at the project, is refused
-        with 403. The per-project MFA policy applies to both views.
+        with 403. The per-project MFA policy applies to both views. The answer also
+        carries the server's break-glass limits (settings) so a client offers only
+        lifetimes the server will honour; they are returned only to a caller this
+        list allowed, and hold no secret.
       operationId: listBreakGlassActivations
       security: [{bearerAuth: []}]
       parameters:
@@ -1445,6 +1450,7 @@ paths:
                         description: >-
                           "project": every activation of the project (caller holds
                           roles.read). "own": only the caller's own activations.
+                      settings: {$ref: '#/components/schemas/BreakGlassSettings'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -8544,6 +8550,16 @@ components:
         # rendering would not byte-match the server's original RFC3339 text.
         expires_at: {type: string}
         created_at: {type: string}
+    BreakGlassSettings:
+      type: object
+      description: >-
+        The server's effective break-glass limits, returned with the activations list
+        to a caller it allowed. Deployment limits only: no secret, no admin-only data.
+      properties:
+        enabled: {type: boolean, description: "break_glass.enabled; false means activation is refused with BreakGlassDisabled"}
+        emergency_role: {type: string, description: "Name of the role an activation grants"}
+        default_ttl_seconds: {type: integer, format: int64, description: "Lifetime granted when none is requested (already capped at max_ttl_seconds)"}
+        max_ttl_seconds: {type: integer, format: int64, description: "Ceiling a requested lifetime is capped at"}
     RotationPolicy:
       type: object
       description: >-

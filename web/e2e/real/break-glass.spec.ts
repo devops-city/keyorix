@@ -11,7 +11,8 @@
 //   3. the admin revokes it through the confirm dialog (no browser alert/confirm): the row
 //      turns Revoked and loses its Revoke action.
 //   4. alice reloads: her activation reads Revoked, no countdown, no Revoke control.
-//   5. an outsider (not a member) sees none of it: the server's 403 is handled in place and
+//   5. an outsider (not a member) sees only the project-level "Failed to load project."
+//      refusal (the project itself is a 403 for them, so the tab never mounts) and
 //      alice's justification never reaches that browser.
 //
 // Login budget (see web-real-smoke.sh): 1 API login (admin) + 3 UI logins (alice, admin,
@@ -143,6 +144,10 @@ test('alice requests emergency access and sees her own activation count down', a
     // A member's view has no admin columns and no Revoke.
     await expect(alicePage.getByRole('columnheader', { name: 'Who' })).toHaveCount(0);
 
+    // The picker is built from the limits the server sends (e2e config: default 4h, max 24h).
+    await expect(alicePage.getByRole('option', { name: 'Server default (4 hours)' })).toBeAttached();
+    await expect(alicePage.getByRole('option', { name: '24 hours' })).toBeAttached();
+
     await alicePage.getByLabel('Justification').fill(justification);
     await alicePage.getByLabel('How long').selectOption('1h');
     await alicePage.getByRole('button', { name: 'Request emergency access' }).click();
@@ -201,7 +206,7 @@ test('alice sees her activation as revoked', async () => {
     await expect(row.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
 });
 
-test('an outsider sees nothing: the server’s 403 is handled in place', async () => {
+test('an outsider sees only the project-level refusal, never the break-glass tab', async () => {
     // The server refuses the list outright (not a member, no roles.read).
     expect(
         (
@@ -216,9 +221,13 @@ test('an outsider sees nothing: the server’s 403 is handled in place', async (
     await outsiderPage.goto(`/projects/${projectId}/break-glass`);
     await outsiderPage.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => undefined);
     const main = outsiderPage.locator('main');
-    // Either the project itself is refused to them, or the tab shows its refusal: never alice's
-    // justification, never the request form, never a crash.
-    await expect(main.getByText(/Not allowed|Failed to load project/)).toBeVisible({ timeout: 15_000 });
+    // The project itself is refused to them (GET /projects/{id} needs secrets.read there), so
+    // the page shows the project-level refusal and the break-glass tab never mounts: exactly
+    // that, not the tab's own "Not allowed", and none of alice's data, form or tab navigation.
+    await expect(main.getByText(/Failed to load project\./)).toBeVisible({ timeout: 15_000 });
+    await expect(main.getByText('Not allowed')).toHaveCount(0);
+    await expect(main.getByRole('link', { name: 'Break-glass' })).toHaveCount(0);
+    await expect(main.getByRole('heading', { name: /activations/i })).toHaveCount(0);
     await expect(main).not.toContainText(justification);
     await expect(outsiderPage.getByLabel('Justification')).toHaveCount(0);
 });

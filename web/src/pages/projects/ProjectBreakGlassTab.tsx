@@ -10,7 +10,12 @@ import {
 } from '../../features/projects/breakGlass';
 import { useProjectMembers } from '../../features/projects/api';
 import { useCan } from '../../features/auth/useCan';
-import { BreakGlassActivation, BreakGlassRefusal, classifyBreakGlassError } from '../../services/breakGlass';
+import {
+    BreakGlassActivation,
+    BreakGlassRefusal,
+    BreakGlassSettings,
+    classifyBreakGlassError,
+} from '../../services/breakGlass';
 import { apiErrorMessage, MFA_ENROLMENT_URL } from '../../services/client';
 import { Dialog } from '../../components/ui/Dialog';
 
@@ -18,19 +23,46 @@ interface ProjectBreakGlassTabProps {
     projectId: number;
 }
 
-// Lifetimes the picker offers. The server's ceiling (break_glass.max_ttl) is not exposed to
-// the web app, so the picker cannot know it: a longer pick is shortened by the server, and the
-// expiry actually granted is what the list below shows. "Server default" sends no ttl at all.
-const TTL_CHOICES: { value: string; label: string }[] = [
-    { value: '', label: 'Server default' },
-    { value: '15m', label: '15 minutes' },
-    { value: '30m', label: '30 minutes' },
-    { value: '1h', label: '1 hour' },
-    { value: '2h', label: '2 hours' },
-    { value: '4h', label: '4 hours' },
-    { value: '8h', label: '8 hours' },
-    { value: '24h', label: '24 hours' },
+// Lifetimes the picker can offer, as Go durations with their length. The server sends its
+// ceiling (break_glass.max_ttl) with the list, and the picker offers only the entries within
+// it (plus the ceiling itself). Against an older server that sends none, every entry is
+// offered and a longer pick is shortened by the server; the expiry actually granted is what
+// the list below shows. "Server default" sends no ttl at all.
+const TTL_CANDIDATES: { value: string; seconds: number }[] = [
+    { value: '15m', seconds: 15 * 60 },
+    { value: '30m', seconds: 30 * 60 },
+    { value: '1h', seconds: 60 * 60 },
+    { value: '2h', seconds: 2 * 60 * 60 },
+    { value: '4h', seconds: 4 * 60 * 60 },
+    { value: '8h', seconds: 8 * 60 * 60 },
+    { value: '24h', seconds: 24 * 60 * 60 },
 ];
+
+const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? '' : 's'}`;
+
+export const formatTtl = (seconds: number): string => {
+    if (seconds % 3600 === 0) return plural(seconds / 3600, 'hour');
+    if (seconds % 60 === 0) {
+        const m = seconds / 60;
+        return m >= 60 ? `${plural(Math.floor(m / 60), 'hour')} ${plural(m % 60, 'minute')}` : plural(m, 'minute');
+    }
+    return plural(seconds, 'second');
+};
+
+export const ttlChoices = (settings?: BreakGlassSettings): { value: string; label: string }[] => {
+    const defaultLabel =
+        settings && settings.defaultTtlSeconds > 0
+            ? `Server default (${formatTtl(settings.defaultTtlSeconds)})`
+            : 'Server default';
+    const choices = [{ value: '', label: defaultLabel }];
+    const max = settings?.maxTtlSeconds;
+    const within = TTL_CANDIDATES.filter((c) => max === undefined || c.seconds <= max);
+    within.forEach((c) => choices.push({ value: c.value, label: formatTtl(c.seconds) }));
+    if (max !== undefined && !within.some((c) => c.seconds === max)) {
+        choices.push({ value: `${max}s`, label: `${formatTtl(max)} (server maximum)` });
+    }
+    return choices;
+};
 
 // The server requires a justification of at least this many characters (trimmed). Mirrored
 // only to explain the refusal early; the server is the authority.
@@ -122,8 +154,13 @@ const RefusalNotice: React.FC<{ refusal: BreakGlassRefusal; fallback?: string }>
 
 // ── Request form ─────────────────────────────────────────────────────────────
 
-const RequestForm: React.FC<{ projectId: number; onDisabled: () => void }> = ({ projectId, onDisabled }) => {
+const RequestForm: React.FC<{
+    projectId: number;
+    settings?: BreakGlassSettings | undefined;
+    onDisabled: () => void;
+}> = ({ projectId, settings, onDisabled }) => {
     const activate = useActivateBreakGlass(projectId);
+    const choices = ttlChoices(settings);
     const [justification, setJustification] = useState('');
     const [ttl, setTtl] = useState('');
     const [refusal, setRefusal] = useState<{ kind: BreakGlassRefusal; message: string } | null>(null);
@@ -205,14 +242,16 @@ const RequestForm: React.FC<{ projectId: number; onDisabled: () => void }> = ({ 
                         color: 'var(--text-primary)',
                     }}
                 >
-                    {TTL_CHOICES.map((c) => (
+                    {choices.map((c) => (
                         <option key={c.value} value={c.value}>
                             {c.label}
                         </option>
                     ))}
                 </select>
                 <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                    The server caps the lifetime at its configured maximum; the expiry you actually get is shown below.
+                    {settings
+                        ? `The server allows at most ${formatTtl(settings.maxTtlSeconds)}; the expiry you actually get is shown below.`
+                        : 'The server caps the lifetime at its configured maximum; the expiry you actually get is shown below.'}
                 </p>
             </div>
 
@@ -448,13 +487,17 @@ export const ProjectBreakGlassTab: React.FC<ProjectBreakGlassTabProps> = ({ proj
 
     const scope = data?.scope ?? 'own';
     const activations = data?.activations ?? [];
+    const settings = data?.settings;
+    // The server says up front whether the feature is on; a refusal on submit is the fallback
+    // for an older server that does not send its limits.
+    const off = disabled || settings?.enabled === false;
 
     return (
         <div className="space-y-6">
-            {disabled ? (
+            {off ? (
                 <RefusalNotice refusal="disabled" />
             ) : (
-                <RequestForm projectId={projectId} onDisabled={() => setDisabled(true)} />
+                <RequestForm projectId={projectId} settings={settings} onDisabled={() => setDisabled(true)} />
             )}
 
             <section aria-label="Activations">

@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -52,10 +53,16 @@ func (h *CatalogHandler) ActivateBreakGlass(w http.ResponseWriter, r *http.Reque
 		}
 		status := http.StatusInternalServerError
 		msg := err.Error()
+		// A typed code for "disabled" (same 403, same message, same position in the
+		// order of checks as before): clients switch on the code, not on the text.
+		if errors.Is(err, core.ErrBreakGlassDisabled) {
+			sendError(w, core.BreakGlassDisabledCode, msg, http.StatusForbidden, nil)
+			return
+		}
 		// #2905: mapped by sentinel (errors.Is), not by matching text that
 		// embeds i18n.T's locale-dependent output.
 		switch {
-		case errors.Is(err, core.ErrBreakGlassDisabled), errors.Is(err, core.ErrBreakGlassNotProjectMember):
+		case errors.Is(err, core.ErrBreakGlassNotProjectMember):
 			status = http.StatusForbidden
 		case errors.Is(err, core.ErrBreakGlassInvalidRequest):
 			status = http.StatusBadRequest
@@ -109,7 +116,18 @@ func (h *CatalogHandler) ListBreakGlassActivations(w http.ResponseWriter, r *htt
 		middleware.WriteProjectMFARequired(w)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"activations": activations, "count": len(activations), "scope": scope}, "")
+	s := h.coreService.BreakGlassSettings()
+	sendSuccess(w, map[string]interface{}{
+		"activations": activations, "count": len(activations), "scope": scope,
+		// Only reached for a caller the list authorization allowed (a project member or a
+		// roles.read holder) and after the MFA policy: deployment limits, no secrets.
+		"settings": map[string]interface{}{
+			"enabled":             s.Enabled,
+			"emergency_role":      s.EmergencyRole,
+			"default_ttl_seconds": int64(s.DefaultTTL / time.Second),
+			"max_ttl_seconds":     int64(s.MaxTTL / time.Second),
+		},
+	}, "")
 }
 
 // RevokeBreakGlass handles POST /api/v1/projects/{id}/break-glass/{activationId}/revoke.

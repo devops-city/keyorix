@@ -90,6 +90,18 @@ describe('ProjectDetailPage — error state', () => {
         expect(screen.getByRole('button', { name: 'Back to Projects' })).toBeInTheDocument();
     });
 
+    // An outsider's GET /projects/{id} is refused (403), so the refusal is the project-level
+    // one on every tab URL, including a direct link to the break-glass tab: the tab (and its
+    // own "Not allowed" notice) never mounts.
+    it('shows only the project-level refusal on a direct break-glass link: no tab, no tab nav', () => {
+        projectQuery = { data: undefined, isLoading: false, isError: true };
+        renderPage('/projects/5/break-glass');
+        expect(screen.getByText(/Failed to load project\./)).toBeInTheDocument();
+        expect(screen.queryByText(/break-glass tab stub/)).not.toBeInTheDocument();
+        expect(screen.queryByText('Not allowed')).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Break-glass' })).not.toBeInTheDocument();
+    });
+
     it('navigates to the projects list when Back to Projects is clicked', () => {
         projectQuery = { data: undefined, isLoading: false, isError: true };
         renderPage();

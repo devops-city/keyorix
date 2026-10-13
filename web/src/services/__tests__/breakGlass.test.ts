@@ -46,6 +46,38 @@ describe('breakGlassApi', () => {
         expect(list.activations[0]).toMatchObject({ id: 4, userId: 9, state: 'revoked', revokedBy: 2 });
     });
 
+    it('maps the server’s limits that come with the list', async () => {
+        getMock.mockResolvedValue({
+            data: {
+                data: {
+                    activations: [],
+                    scope: 'own',
+                    settings: {
+                        enabled: true,
+                        emergency_role: 'project_developer',
+                        default_ttl_seconds: 5400,
+                        max_ttl_seconds: 21600,
+                    },
+                },
+            },
+        });
+        expect((await breakGlassApi.list(5)).settings).toEqual({
+            enabled: true,
+            emergencyRole: 'project_developer',
+            defaultTtlSeconds: 5400,
+            maxTtlSeconds: 21600,
+        });
+    });
+
+    it('has no settings when an older server sends none, or a block without a usable ceiling', async () => {
+        getMock.mockResolvedValue({ data: { data: { activations: [], scope: 'own' } } });
+        expect((await breakGlassApi.list(5)).settings).toBeUndefined();
+        getMock.mockResolvedValue({ data: { data: { activations: [], settings: { enabled: true } } } });
+        expect((await breakGlassApi.list(5)).settings).toBeUndefined();
+        getMock.mockResolvedValue({ data: { data: { activations: [], settings: { max_ttl_seconds: 0 } } } });
+        expect((await breakGlassApi.list(5)).settings).toBeUndefined();
+    });
+
     it('treats anything but an explicit "project" scope as the caller’s own view', async () => {
         getMock.mockResolvedValue({ data: { data: { activations: [] } } });
         expect((await breakGlassApi.list(5)).scope).toBe('own');
@@ -84,6 +116,24 @@ describe('classifyBreakGlassError', () => {
             'forbidden'
         );
         expect(classifyBreakGlassError(refusal(403, undefined))).toBe('forbidden');
+    });
+
+    it('switches on the BreakGlassDisabled code, whatever the message says', () => {
+        expect(
+            classifyBreakGlassError(
+                refusal(403, { error: 'BreakGlassDisabled', message: 'доступ запрещён: выключено' })
+            )
+        ).toBe('disabled');
+        expect(classifyBreakGlassError(refusal(403, { error: 'BreakGlassDisabled' }))).toBe('disabled');
+    });
+
+    it('matches the older servers’ "Error" + text only when no other code is present', () => {
+        const text = 'permission denied: break-glass is not enabled on this server';
+        expect(classifyBreakGlassError(refusal(403, { error: 'Error', message: text }))).toBe('disabled');
+        expect(classifyBreakGlassError(refusal(403, { error: 'Forbidden', message: text }))).toBe('forbidden');
+        expect(classifyBreakGlassError(refusal(403, { error: 'Error', message: 'caller is not a member' }))).toBe(
+            'forbidden'
+        );
     });
 
     it('does not mistake other statuses or non-HTTP errors for a refusal', () => {

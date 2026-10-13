@@ -28,10 +28,36 @@ export interface BreakGlassActivation {
 /** "project": every activation of the project (caller holds roles.read). "own": only the caller's. */
 export type BreakGlassScope = 'project' | 'own';
 
+/** The server's break-glass limits, sent with the list (no secrets). */
+export interface BreakGlassSettings {
+    enabled: boolean;
+    emergencyRole: string;
+    /** Lifetime granted when none is requested (already capped at the maximum). */
+    defaultTtlSeconds: number;
+    /** Ceiling a requested lifetime is capped at. */
+    maxTtlSeconds: number;
+}
+
 export interface BreakGlassList {
     activations: BreakGlassActivation[];
     scope: BreakGlassScope;
+    /** Absent when talking to an older server that does not send its limits. */
+    settings?: BreakGlassSettings | undefined;
 }
+
+type WireSettings = components['schemas']['BreakGlassSettings'];
+
+// Fail soft on a missing or malformed block (an older server): no settings means the page
+// falls back to its fixed picker and lets the server cap the lifetime, as before.
+const normalizeSettings = (s: WireSettings | undefined): BreakGlassSettings | undefined => {
+    if (!s || typeof s.max_ttl_seconds !== 'number' || s.max_ttl_seconds <= 0) return undefined;
+    return {
+        enabled: s.enabled !== false,
+        emergencyRole: s.emergency_role ?? '',
+        defaultTtlSeconds: typeof s.default_ttl_seconds === 'number' ? s.default_ttl_seconds : 0,
+        maxTtlSeconds: s.max_ttl_seconds,
+    };
+};
 
 type WireActivation = components['schemas']['BreakGlassActivation'] & {
     revoked_by?: number;
@@ -64,6 +90,7 @@ export const breakGlassApi = {
             activations: ((data.activations ?? []) as WireActivation[]).map(normalize),
             // Fail closed on the view: anything but an explicit "project" is the caller's own.
             scope: data.scope === 'project' ? 'project' : 'own',
+            settings: normalizeSettings(data.settings as WireSettings | undefined),
         };
     },
 
@@ -92,15 +119,18 @@ export type BreakGlassRefusal =
     | 'forbidden'
     | 'other';
 
-// The server has no distinct error code for "disabled": it answers 403 with error "Error" and
-// a message that says so (internal/core/break_glass.go errBreakGlassDisabled). The MFA
-// refusal does have its own code, ProjectMFARequired. Anything else 403 is a plain refusal.
+// Each refusal has its own code in the 403's `error` field: BreakGlassDisabled when the feature
+// is off, ProjectMFARequired for the per-project MFA policy. Servers older than the typed code
+// answered "Error" with a message that says so (internal/core/break_glass.go
+// errBreakGlassDisabled), so that text is matched only as a fallback when no code is present.
+// Anything else 403 is a plain refusal.
 const DISABLED_MESSAGE = /break-glass is not enabled/i;
 
 export const classifyBreakGlassError = (error: unknown): BreakGlassRefusal => {
     if (!isAxiosError(error) || error.response?.status !== 403) return 'other';
     const data = error.response.data as { error?: string; message?: string } | undefined;
     if (data?.error === 'ProjectMFARequired') return 'mfa';
-    if (data?.message && DISABLED_MESSAGE.test(data.message)) return 'disabled';
+    if (data?.error === 'BreakGlassDisabled') return 'disabled';
+    if (data?.error === 'Error' && data.message && DISABLED_MESSAGE.test(data.message)) return 'disabled';
     return 'forbidden';
 };

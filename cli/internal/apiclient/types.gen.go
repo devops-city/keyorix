@@ -374,6 +374,21 @@ type BreakGlassActivation struct {
 // BreakGlassActivationState defines model for BreakGlassActivation.State.
 type BreakGlassActivationState string
 
+// BreakGlassSettings The server's effective break-glass limits, returned with the activations list to a caller it allowed. Deployment limits only: no secret, no admin-only data.
+type BreakGlassSettings struct {
+	// DefaultTtlSeconds Lifetime granted when none is requested (already capped at max_ttl_seconds)
+	DefaultTtlSeconds *int64 `json:"default_ttl_seconds,omitempty"`
+
+	// EmergencyRole Name of the role an activation grants
+	EmergencyRole *string `json:"emergency_role,omitempty"`
+
+	// Enabled break_glass.enabled; false means activation is refused with BreakGlassDisabled
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MaxTtlSeconds Ceiling a requested lifetime is capped at
+	MaxTtlSeconds *int64 `json:"max_ttl_seconds,omitempty"`
+}
+
 // BulkDeleteResult defines model for BulkDeleteResult.
 type BulkDeleteResult struct {
 	Deleted *[]int         `json:"deleted,omitempty"`

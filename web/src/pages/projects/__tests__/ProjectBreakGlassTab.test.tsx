@@ -3,7 +3,7 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import { act } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '../../../test/test-utils';
 import { ProjectBreakGlassTab, formatRemaining } from '../ProjectBreakGlassTab';
-import type { BreakGlassActivation, BreakGlassList } from '../../../services/breakGlass';
+import type { BreakGlassActivation, BreakGlassList, BreakGlassSettings } from '../../../services/breakGlass';
 
 const { listMock, activateMock, revokeMock } = vi.hoisted(() => ({
     listMock: vi.fn(),
@@ -59,7 +59,22 @@ const refusal = (status: number, data: Record<string, unknown>) =>
         config: { headers: new AxiosHeaders() },
     });
 
-const own = (activations: BreakGlassActivation[]): BreakGlassList => ({ activations, scope: 'own' });
+const own = (activations: BreakGlassActivation[], settings?: BreakGlassSettings): BreakGlassList => ({
+    activations,
+    scope: 'own',
+    settings,
+});
+const limits = (over: Partial<BreakGlassSettings> = {}): BreakGlassSettings => ({
+    enabled: true,
+    emergencyRole: 'project_developer',
+    defaultTtlSeconds: 4 * 3600,
+    maxTtlSeconds: 8 * 3600,
+    ...over,
+});
+const pickerValues = () =>
+    within(screen.getByLabelText('How long'))
+        .getAllByRole('option')
+        .map((o) => (o as HTMLOptionElement).value);
 const project = (activations: BreakGlassActivation[]): BreakGlassList => ({ activations, scope: 'project' });
 
 const renderTab = () => render(<ProjectBreakGlassTab projectId={5} />);
@@ -162,7 +177,69 @@ describe('ProjectBreakGlassTab — member view', () => {
         await waitFor(() => expect(activateMock).toHaveBeenCalledWith(5, 'prod outage INC-123', undefined));
     });
 
-    it('says break-glass is not enabled when the server refuses with its disabled message, and drops the form', async () => {
+    it('offers only lifetimes within the server’s maximum and shows the server default', async () => {
+        listMock.mockResolvedValue(own([], limits({ defaultTtlSeconds: 2 * 3600, maxTtlSeconds: 2 * 3600 })));
+        renderTab();
+        await screen.findByLabelText('How long');
+        expect(pickerValues()).toEqual(['', '15m', '30m', '1h', '2h']);
+        expect(screen.getByRole('option', { name: 'Server default (2 hours)' })).toBeInTheDocument();
+        expect(screen.getByText(/The server allows at most 2 hours/)).toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: '4 hours' })).not.toBeInTheDocument();
+        expect(screen.queryByRole('option', { name: '24 hours' })).not.toBeInTheDocument();
+    });
+
+    it('adds the server maximum as a choice when it is not one of the usual lifetimes', async () => {
+        listMock.mockResolvedValue(own([], limits({ defaultTtlSeconds: 3600, maxTtlSeconds: 5400 })));
+        activateMock.mockResolvedValue(activation());
+        renderTab();
+        await screen.findByLabelText('How long');
+        expect(pickerValues()).toEqual(['', '15m', '30m', '1h', '5400s']);
+        expect(screen.getByRole('option', { name: '1 hour 30 minutes (server maximum)' })).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Justification'), { target: { value: 'prod outage INC-123' } });
+        fireEvent.change(screen.getByLabelText('How long'), { target: { value: '5400s' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Request emergency access' }));
+        await waitFor(() => expect(activateMock).toHaveBeenCalledWith(5, 'prod outage INC-123', '5400s'));
+    });
+
+    it('offers a ceiling below the shortest usual lifetime as the only timed choice', async () => {
+        listMock.mockResolvedValue(own([], limits({ defaultTtlSeconds: 600, maxTtlSeconds: 600 })));
+        renderTab();
+        await screen.findByLabelText('How long');
+        expect(pickerValues()).toEqual(['', '600s']);
+    });
+
+    it('keeps the full picker and the generic note against a server that sends no limits', async () => {
+        listMock.mockResolvedValue(own([]));
+        renderTab();
+        await screen.findByLabelText('How long');
+        expect(pickerValues()).toEqual(['', '15m', '30m', '1h', '2h', '4h', '8h', '24h']);
+        expect(screen.getByRole('option', { name: 'Server default' })).toBeInTheDocument();
+        expect(screen.getByText(/The server caps the lifetime/)).toBeInTheDocument();
+    });
+
+    it('says so up front, without a request form, when the server reports break-glass off', async () => {
+        listMock.mockResolvedValue(own([activation()], limits({ enabled: false })));
+        renderTab();
+        expect(await screen.findByText('Break-glass is not enabled on this server')).toBeInTheDocument();
+        expect(screen.queryByLabelText('Justification')).not.toBeInTheDocument();
+        expect(activateMock).not.toHaveBeenCalled();
+        // The member's own history is still theirs to see.
+        expect(screen.getByText('database is down, paging oncall')).toBeInTheDocument();
+    });
+
+    it('recognises the BreakGlassDisabled code even when the message is in another language', async () => {
+        listMock.mockResolvedValue(own([]));
+        activateMock.mockRejectedValue(
+            refusal(403, { error: 'BreakGlassDisabled', message: 'доступ запрещён: функция выключена', code: 403 })
+        );
+        renderTab();
+        fireEvent.change(await screen.findByLabelText('Justification'), { target: { value: 'prod outage INC-123' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Request emergency access' }));
+        expect(await screen.findByText('Break-glass is not enabled on this server')).toBeInTheDocument();
+        expect(screen.queryByLabelText('Justification')).not.toBeInTheDocument();
+    });
+
+    it('still reads an older server’s disabled message (no code) as disabled', async () => {
         listMock.mockResolvedValue(own([]));
         activateMock.mockRejectedValue(
             refusal(403, {

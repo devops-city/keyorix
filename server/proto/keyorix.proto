@@ -795,6 +795,19 @@ message ListBreakGlassActivationsResponse {
   // "project": every activation of the project (the caller holds roles.read there).
   // "own": only the caller's own activations (a user without roles.read).
   string scope = 2;
+  // The server's break-glass limits, for whoever the list answer was allowed to (a project
+  // member, or a roles.read holder). Deployment limits only: no secrets.
+  BreakGlassSettings settings = 3;
+}
+
+// BreakGlassSettings is the effective break-glass policy a client may show: whether the
+// feature is on, the lifetime granted when none is requested, and the ceiling a requested
+// lifetime is capped at (default_ttl_seconds is already capped at max_ttl_seconds).
+message BreakGlassSettings {
+  bool enabled = 1;
+  string emergency_role = 2;
+  int64 default_ttl_seconds = 3;
+  int64 max_ttl_seconds = 4;
 }
 
 message RevokeBreakGlassRequest {

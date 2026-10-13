@@ -18927,6 +18927,9 @@ type ListBreakGlassActivationsResponse struct {
 
 			// Scope "project": every activation of the project (caller holds roles.read). "own": only the caller's own activations.
 			Scope *ListBreakGlassActivations200DataScope `json:"scope,omitempty"`
+
+			// Settings The server's effective break-glass limits, returned with the activations list to a caller it allowed. Deployment limits only: no secret, no admin-only data.
+			Settings *BreakGlassSettings `json:"settings,omitempty"`
 		} `json:"data,omitempty"`
 	}
 	JSON400 *Error
@@ -29783,6 +29786,9 @@ func ParseListBreakGlassActivationsResponse(rsp *http.Response) (*ListBreakGlass
 
 				// Scope "project": every activation of the project (caller holds roles.read). "own": only the caller's own activations.
 				Scope *ListBreakGlassActivations200DataScope `json:"scope,omitempty"`
+
+				// Settings The server's effective break-glass limits, returned with the activations list to a caller it allowed. Deployment limits only: no secret, no admin-only data.
+				Settings *BreakGlassSettings `json:"settings,omitempty"`
 			} `json:"data,omitempty"`
 		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

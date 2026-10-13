@@ -1061,13 +1061,13 @@ export interface paths {
         };
         /**
          * List break-glass activations (all for review, or your own)
-         * @description Emergency-access activations, newest first (an active grant past its expiry reads as expired). A caller holding roles.read at the project gets every activation of the project (scope "project"). Any other current member of the project (a role scoped to it, as for activation) gets only their OWN activations in the project, active, expired and revoked, with the same fields (scope "own"); nothing about other users' activations, not even a count. A non-member (the same 403 for every project id), a machine identity without roles.read, or a restricted personal access token whose restriction does not allow roles.read at the project, is refused with 403. The per-project MFA policy applies to both views.
+         * @description Emergency-access activations, newest first (an active grant past its expiry reads as expired). A caller holding roles.read at the project gets every activation of the project (scope "project"). Any other current member of the project (a role scoped to it, as for activation) gets only their OWN activations in the project, active, expired and revoked, with the same fields (scope "own"); nothing about other users' activations, not even a count. A non-member (the same 403 for every project id), a machine identity without roles.read, or a restricted personal access token whose restriction does not allow roles.read at the project, is refused with 403. The per-project MFA policy applies to both views. The answer also carries the server's break-glass limits (settings) so a client offers only lifetimes the server will honour; they are returned only to a caller this list allowed, and hold no secret.
          */
         get: operations["listBreakGlassActivations"];
         put?: never;
         /**
          * Activate break-glass emergency access (self-service)
-         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled, and always when the caller authenticated with a restricted personal access token (ADR-042).
+         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled (the error field is the code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo reason BreakGlassDisabled), and always when the caller authenticated with a restricted personal access token (ADR-042).
          */
         post: operations["activateBreakGlass"];
         delete?: never;
@@ -5924,6 +5924,23 @@ export interface components {
             expires_at?: string;
             created_at?: string;
         };
+        /** @description The server's effective break-glass limits, returned with the activations list to a caller it allowed. Deployment limits only: no secret, no admin-only data. */
+        BreakGlassSettings: {
+            /** @description break_glass.enabled; false means activation is refused with BreakGlassDisabled */
+            enabled?: boolean;
+            /** @description Name of the role an activation grants */
+            emergency_role?: string;
+            /**
+             * Format: int64
+             * @description Lifetime granted when none is requested (already capped at max_ttl_seconds)
+             */
+            default_ttl_seconds?: number;
+            /**
+             * Format: int64
+             * @description Ceiling a requested lifetime is capped at
+             */
+            max_ttl_seconds?: number;
+        };
         /** @description A secret-rotation policy (ADR-108 PR 1 addition). Snake_case, matching this spec's usual convention and the model's real wire format: models.RotationPolicy (internal/storage/models/models.go) previously had no `json:` tags on most fields, so encoding/json's default marshaling emitted the bare Go field names verbatim (ID, Name, ProjectID, IntervalDays, ...) instead -- a PascalCase wire format silently decoded by any snake_case-tagged consumer (Go's case-insensitive JSON fallback matches "ID"~"id" but not "ProjectID"~"project_id", an extra underscore is not a case difference) as the zero value for every multi-word field. Fixed at the source (the model itself now carries these exact tags) rather than documented here as a PascalCase exception -- see the model's own doc comment for the full writeup, and docs/cli-split-inventory.md §7 PR 1's closure note for how this was found. */
         RotationPolicy: {
             /** Format: uint32 */
@@ -7692,6 +7709,7 @@ export interface operations {
                              * @enum {string}
                              */
                             scope?: "project" | "own";
+                            settings?: components["schemas"]["BreakGlassSettings"];
                         };
                     };
                 };

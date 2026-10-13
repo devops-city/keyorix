@@ -162,6 +162,60 @@ func (c *KeyorixCore) SetBreakGlassPolicy(p BreakGlassPolicy) {
 	c.breakGlassPolicy = p
 }
 
+// BreakGlassDisabledCode is the machine-readable code of the refusal ActivateBreakGlass
+// gives while break_glass.enabled is false: the REST error field and the gRPC
+// ErrorInfo reason. Clients switch on it instead of on the (localised) message.
+const BreakGlassDisabledCode = "BreakGlassDisabled"
+
+// defaultBreakGlassTTL is the grant lifetime when the policy sets none.
+const defaultBreakGlassTTL = 4 * time.Hour
+
+// breakGlassTTLs returns the effective default grant lifetime and the ceiling a requested
+// lifetime is capped at. Always bound: when MaxTTL is unconfigured the ceiling falls back
+// to the default TTL, so an override can only ever SHORTEN the grant, never exceed the
+// default. The core enforces "break-glass is time-bound" itself rather than trusting the
+// config layer to have supplied a ceiling; a policy built with MaxTTL=0 (e.g. by a future
+// or non-startup caller) can't yield an unbounded emergency grant.
+func (c *KeyorixCore) breakGlassTTLs() (defaultTTL, ceiling time.Duration) {
+	defaultTTL = c.breakGlassPolicy.DefaultTTL
+	if defaultTTL <= 0 {
+		defaultTTL = defaultBreakGlassTTL
+	}
+	ceiling = c.breakGlassPolicy.MaxTTL
+	if ceiling <= 0 {
+		ceiling = defaultTTL
+	}
+	return defaultTTL, ceiling
+}
+
+// BreakGlassSettings is what a project member may learn about the server's break-glass
+// limits so a client can offer only lifetimes the server will honour. Deployment limits
+// only: no credential, no admin-only data (the emergency role's name is also on every
+// activation the member gets back).
+type BreakGlassSettings struct {
+	Enabled       bool
+	EmergencyRole string
+	DefaultTTL    time.Duration
+	// MaxTTL is the effective ceiling: a longer requested lifetime is capped to it.
+	MaxTTL time.Duration
+}
+
+// BreakGlassSettings reports the effective policy. It does no authorization: callers
+// return it only alongside a list answer ListBreakGlassActivationsForCaller allowed.
+func (c *KeyorixCore) BreakGlassSettings() BreakGlassSettings {
+	def, ceiling := c.breakGlassTTLs()
+	if def > ceiling {
+		// A default above the ceiling is capped at activation; report what is granted.
+		def = ceiling
+	}
+	return BreakGlassSettings{
+		Enabled:       c.breakGlassPolicy.Enabled,
+		EmergencyRole: c.breakGlassPolicy.EmergencyRole,
+		DefaultTTL:    def,
+		MaxTTL:        ceiling,
+	}
+}
+
 // ActivateBreakGlass immediately grants the requesting user the configured emergency
 // role at the project scope, time-bound (default or a capped requested TTL), records
 // the justified activation, audits it loudly, and alerts the project's admins.
@@ -257,10 +311,7 @@ func (c *KeyorixCore) ActivateBreakGlass(ctx context.Context, projectID, userID 
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "the configured emergency role can assign roles or issue credentials and cannot be used for break-glass (it would let an emergency grant create permanent access); configure a contained role such as project_developer")
 	}
 
-	defaultTTL := c.breakGlassPolicy.DefaultTTL
-	if defaultTTL <= 0 {
-		defaultTTL = 4 * time.Hour
-	}
+	defaultTTL, ceiling := c.breakGlassTTLs()
 	ttl := defaultTTL
 	if ttlOverride != "" {
 		d, perr := time.ParseDuration(ttlOverride)
@@ -269,15 +320,7 @@ func (c *KeyorixCore) ActivateBreakGlass(ctx context.Context, projectID, userID 
 		}
 		ttl = d
 	}
-	// Always bound the grant. When MaxTTL is unconfigured the ceiling falls back to the
-	// default TTL — so an override can only ever SHORTEN the grant, never exceed the
-	// default. The core enforces "break-glass is time-bound" itself rather than trusting
-	// the config layer to have supplied a ceiling; a policy built with MaxTTL=0 (e.g. by
-	// a future or non-startup caller) can't yield an unbounded emergency grant.
-	ceiling := c.breakGlassPolicy.MaxTTL
-	if ceiling <= 0 {
-		ceiling = defaultTTL
-	}
+	// ceiling (breakGlassTTLs) always bounds the grant: an override can only be capped.
 	if ttl > ceiling {
 		ttl = ceiling // cap a requested TTL at the effective ceiling
 	}
