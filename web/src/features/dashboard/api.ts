@@ -30,11 +30,12 @@ export const useDashboardActivity = (params?: { page?: number; pageSize?: number
 
 // ── System ─────────────────────────────────────────────────────────────────
 
-export const useSystemInfo = () => {
+export const useSystemInfo = (options: { enabled?: boolean } = {}) => {
     return useQuery({
         queryKey: ['systemInfo'],
         queryFn: () => systemApi.getInfo(),
         staleTime: 5 * 60 * 1000,
+        enabled: options.enabled ?? true,
     });
 };
 
