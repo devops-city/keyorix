@@ -18924,12 +18924,16 @@ type ListBreakGlassActivationsResponse struct {
 		Data *struct {
 			Activations *[]BreakGlassActivation `json:"activations,omitempty"`
 			Count       *int                    `json:"count,omitempty"`
+
+			// Scope "project": every activation of the project (caller holds roles.read). "own": only the caller's own activations.
+			Scope *ListBreakGlassActivations200DataScope `json:"scope,omitempty"`
 		} `json:"data,omitempty"`
 	}
 	JSON400 *Error
 	JSON401 *Error
 	JSON403 *Error
 }
+type ListBreakGlassActivations200DataScope string
 
 // Status returns HTTPResponse.Status
 func (r ListBreakGlassActivationsResponse) Status() string {
@@ -29773,6 +29777,9 @@ func ParseListBreakGlassActivationsResponse(rsp *http.Response) (*ListBreakGlass
 			Data *struct {
 				Activations *[]BreakGlassActivation `json:"activations,omitempty"`
 				Count       *int                    `json:"count,omitempty"`
+
+				// Scope "project": every activation of the project (caller holds roles.read). "own": only the caller's own activations.
+				Scope *ListBreakGlassActivations200DataScope `json:"scope,omitempty"`
 			} `json:"data,omitempty"`
 		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {

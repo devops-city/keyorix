@@ -145,3 +145,76 @@ func TestRunBGRevoke_MatchesOldCLIOutputShape(t *testing.T) {
 		t.Fatalf("output = %q", out)
 	}
 }
+
+// BREAKGLASS-OWN-1: a member without roles.read gets scope "own"; the CLI must say the
+// list is theirs only, so neither the table nor "none" reads as the whole project.
+func TestRunBGList_OwnScopeSaysOnlyYourOwn(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"success":true,"data":{"activations":[{"id":42,"user_id":7,"role_name":"proj-dev","justification":"incident INC-1","state":"active","expires_at":"2026-01-02T00:00:00Z","created_at":"2026-01-01T20:00:00Z"}],"count":1,"scope":"own"}}`)
+	}))
+	defer srv.Close()
+	setBGCreds(t, srv)
+	bgProject = 1
+	defer func() { bgProject = 0 }()
+
+	out := captureStdout(t, func() {
+		if err := runBGList(bgListCmd, nil); err != nil {
+			t.Fatalf("runBGList: %v", err)
+		}
+	})
+	if !containsAll(out, "Your break-glass activations — project 1 (only your own", "42", "proj-dev", "incident INC-1") {
+		t.Fatalf("output = %q, want the own-scope heading and the row", out)
+	}
+	if strings.Contains(out, "Break-glass activations — project 1:") {
+		t.Fatalf("output = %q, must not use the whole-project heading for an own-scope list", out)
+	}
+}
+
+func TestRunBGList_OwnScopeEmptySaysYouHaveNone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"success":true,"data":{"activations":[],"count":0,"scope":"own"}}`)
+	}))
+	defer srv.Close()
+	setBGCreds(t, srv)
+	bgProject = 1
+	defer func() { bgProject = 0 }()
+
+	out := captureStdout(t, func() {
+		if err := runBGList(bgListCmd, nil); err != nil {
+			t.Fatalf("runBGList: %v", err)
+		}
+	})
+	if out != "You have no break-glass activations on project 1 (listing other users' activations needs roles.read).\n" {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+// FIX-3184: the own view omits the reviewer's note and the reviewer/revoker ids on
+// the server; the CLI must not print them either, even if a server (or a stale one)
+// still sent them for scope "own".
+func TestRunBGList_OwnScopeNeverPrintsReviewNoteOrAdminIdentities(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"success":true,"data":{"activations":[{"id":42,"user_id":7,"role_name":"proj-dev","justification":"incident INC-1","state":"revoked","expires_at":"2026-01-02T00:00:00Z","created_at":"2026-01-01T20:00:00Z","revoked_at":"2026-01-01T21:00:00Z","reviewed_at":"2026-01-02T09:00:00Z","revoked_by":991,"reviewed_by":992,"review_note":"SECRET-REVIEW-NOTE"}],"count":1,"scope":"own"}}`)
+	}))
+	defer srv.Close()
+	setBGCreds(t, srv)
+	bgProject = 1
+	defer func() { bgProject = 0 }()
+
+	out := captureStdout(t, func() {
+		if err := runBGList(bgListCmd, nil); err != nil {
+			t.Fatalf("runBGList: %v", err)
+		}
+	})
+	if !containsAll(out, "revoked", "42", "incident INC-1") {
+		t.Fatalf("output = %q, want the revoked row", out)
+	}
+	for _, leak := range []string{"SECRET-REVIEW-NOTE", "991", "992"} {
+		if strings.Contains(out, leak) {
+			t.Fatalf("output = %q, must not print %q for scope own", out, leak)
+		}
+	}
+}

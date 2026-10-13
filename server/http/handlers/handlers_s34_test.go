@@ -42,13 +42,32 @@ func TestListAccessReviewCampaigns_DBError_S34(t *testing.T) {
 
 // ── CatalogHandler / break_glass.go ───────────────────────────────────────────
 
+// TestListBreakGlassActivations_DBError_S34: with the whole store down, the first
+// read is now the handler's own authorization (BREAKGLASS-OWN-1: the route has no
+// permission gate), and a failed authorization read fails CLOSED with the 403 the old
+// roles.read gate gave, never a downgrade to the caller's own rows. The list-read
+// failure's 500 is TestListBreakGlassActivations_ListReadError_S34 below.
 func TestListBreakGlassActivations_DBError_S34(t *testing.T) {
 	t.Parallel()
 	h := NewCatalogHandler(freshCoreBrokenS34(t))
-	r := withChiParamS7(httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/break-glass", nil), "id", "1")
+	r := withUserCtxS7(withChiParamS7(httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/break-glass", nil), "id", "1"))
+	w := httptest.NewRecorder()
+	h.ListBreakGlassActivations(w, r)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.NotContains(t, w.Body.String(), "activations")
+}
+
+// TestListBreakGlassActivations_ListReadError_S34: authorization succeeds (user 1 is
+// the fixture's admin) but the activations read fails: a 500 with a client-safe body.
+func TestListBreakGlassActivations_ListReadError_S34(t *testing.T) {
+	cs, db := freshCoreS24WithAdmin(t)
+	require.NoError(t, db.Migrator().DropTable(&models.BreakGlassActivation{}))
+	h := NewCatalogHandler(cs)
+	r := withUserCtxS7(withChiParamS7(httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/break-glass", nil), "id", "1"))
 	w := httptest.NewRecorder()
 	h.ListBreakGlassActivations(w, r)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.NotContains(t, w.Body.String(), "break_glass_activations")
 }
 
 // ── CatalogHandler / catalog.go ───────────────────────────────────────────────

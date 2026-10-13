@@ -1060,8 +1060,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List break-glass activations (for review)
-         * @description The project's emergency-access activations, newest first (an active grant past its expiry reads as expired). Requires roles.read.
+         * List break-glass activations (all for review, or your own)
+         * @description Emergency-access activations, newest first (an active grant past its expiry reads as expired). A caller holding roles.read at the project gets every activation of the project (scope "project"). Any other current member of the project (a role scoped to it, as for activation) gets only their OWN activations in the project, active, expired and revoked, with the same fields (scope "own"); nothing about other users' activations, not even a count. A non-member (the same 403 for every project id), a machine identity without roles.read, or a restricted personal access token whose restriction does not allow roles.read at the project, is refused with 403. The per-project MFA policy applies to both views.
          */
         get: operations["listBreakGlassActivations"];
         put?: never;
@@ -7656,7 +7656,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data}. data: {activations[] of {id, user_id, role_name, justification, state, expires_at, created_at}, count}. */
+            /** @description Envelope {data}. data: {activations[] of {id, user_id, role_name, justification, state, expires_at, created_at}, count, scope}. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7666,6 +7666,11 @@ export interface operations {
                         data?: {
                             activations?: components["schemas"]["BreakGlassActivation"][];
                             count?: number;
+                            /**
+                             * @description "project": every activation of the project (caller holds roles.read). "own": only the caller's own activations.
+                             * @enum {string}
+                             */
+                            scope?: "project" | "own";
                         };
                     };
                 };

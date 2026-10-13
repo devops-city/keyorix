@@ -315,7 +315,7 @@ in PR 1 (split/pr1-cli-dynamic-rotation-breakglass, §7).**
 | Command | File:line | REST route | Permission | Class |
 |---|---|---|---|---|
 | `break-glass activate` | breakglass.go:52-78 | `POST /projects/{id}/break-glass` | un-gated by design (justification + audit + auto-expiry instead), `BlockWhenImpersonating` | API |
-| `break-glass list` | breakglass.go:80-110 | `GET /projects/{id}/break-glass` | `roles.read` (project) | API |
+| `break-glass list` | breakglass.go:80-110 | `GET /projects/{id}/break-glass` | `roles.read` (project) for all; a project member for their own (BREAKGLASS-OWN-1) | API |
 | `break-glass revoke` | breakglass.go:112-132 | `POST /projects/{id}/break-glass/{activationId}/revoke` | `roles.assign` (project) | API |
 
 Not ADR-108 §B.2 ("recover-admin") — break-glass is project-scoped, self-service, and requires an

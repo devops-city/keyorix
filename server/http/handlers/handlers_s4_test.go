@@ -4048,8 +4048,11 @@ func TestListBreakGlassActivations_BadID(t *testing.T) {
 }
 
 func TestListBreakGlassActivations_HappyPath(t *testing.T) {
-	h := newCatalogHandlerS4(t)
-	req := withChiParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "1")
+	// BREAKGLASS-OWN-1: authorized in the handler now, so the caller is an admin
+	// (user 1 of freshCoreS24WithAdmin), not the shared S4 core's role-less user.
+	cs, _ := freshCoreS24WithAdmin(t)
+	h := NewCatalogHandler(cs)
+	req := withUserCtxS7(withChiParam(httptest.NewRequest(http.MethodGet, "/", nil), "id", "1"))
 	w := httptest.NewRecorder()
 	h.ListBreakGlassActivations(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)

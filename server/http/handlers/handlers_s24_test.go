@@ -772,13 +772,16 @@ func TestListBreakGlassActivations_HappyPath_S24(t *testing.T) {
 	proj := &models.Project{Name: "bg-list-proj-s24"}
 	require.NoError(t, db.Create(proj).Error)
 
-	req := withChiParam_S24(
+	// BREAKGLASS-OWN-1: the handler authorizes the caller itself; user 1 is the
+	// fixture's admin, so this is the project view.
+	req := withUserCtxS7(withChiParam_S24(
 		httptest.NewRequest(http.MethodGet, "/api/v1/projects/1/break-glass", nil),
 		"id", fmt.Sprintf("%d", proj.ID),
-	)
+	))
 	w := httptest.NewRecorder()
 	h.ListBreakGlassActivations(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"scope":"project"`)
 }
 
 // ── access_review_campaigns.go ───────────────────────────────────────────────

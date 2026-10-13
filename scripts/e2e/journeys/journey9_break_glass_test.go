@@ -9,7 +9,9 @@
 // notification subsystem, not a stand-in) -> `break-glass list` shows the
 // activation -> `break-glass revoke` -> access really reverts (re-attempted,
 // not inferred from the CLI's exit code -- the "assert the effect, not the
-// return value" lesson).
+// return value" lesson). The activating member's own `break-glass list` shows their
+// activation (active, then revoked) and a peer member's shows none of it
+// (BREAKGLASS-OWN-1).
 package journeys
 
 import (
@@ -33,6 +35,8 @@ const (
 	n9SecretValue   = "n9-secret-value-7f3a21"
 	n9OncallUser    = "n9-oncall"
 	n9OncallEmail   = "n9-oncall@example.invalid"
+	n9PeerUser      = "n9-peer"
+	n9PeerEmail     = "n9-peer@example.invalid"
 	n9UserPass      = "Harbor-Quartz-19-Delta!"
 	n9NoAccessRole  = "n9-no-secret-access"
 	n9Justification = "sev1 incident: need read access to rotate the leaked DB credential"
@@ -85,9 +89,18 @@ func TestJourney_BreakGlass(t *testing.T) {
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", "smoketestadmin@example.invalid",
 		"--role", "project_admin", "--project", n9ProjectName)
 
+	// A second member of the same project who never activates anything: their own
+	// `break-glass list` must not show the oncall engineer's activation
+	// (BREAKGLASS-OWN-1: a member lists only their OWN activations).
+	runCLI(t, cliBin, aEnv, "user", "create", "--username", n9PeerUser,
+		"--email", n9PeerEmail, "--password", n9UserPass)
+	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n9PeerEmail,
+		"--role", n9NoAccessRole, "--project", n9ProjectName)
+
 	// require_mfa covers every interactive user, not just admins: the oncall
 	// engineer enrols too before break-glass is reachable at all.
 	oncallToken := enrolTOTPAndLogin(t, s, n9OncallUser, n9UserPass)
+	peerToken := enrolTOTPAndLogin(t, s, n9PeerUser, n9UserPass)
 
 	// ── Before: the oncall user genuinely cannot read the secret ───────────
 	assertSecretReadDenied(t, s, oncallToken, secID)
@@ -131,6 +144,18 @@ func TestJourney_BreakGlass(t *testing.T) {
 		t.Fatalf("`break-glass list` does not show the activation as active:\n%s", listOut)
 	}
 
+	// ── BREAKGLASS-OWN-1: the activating member (no roles.read) lists their OWN
+	// activation; a peer member sees nothing of it. ─────────────────────────
+	ownOut := runCLI(t, cliBin, tokenEnv(s, oncallToken), "break-glass", "list", "--project-id", strconv.Itoa(projID))
+	if !strings.Contains(ownOut, "Your break-glass activations") || !strings.Contains(ownOut, strconv.Itoa(activationID)) ||
+		!strings.Contains(ownOut, n9Justification) {
+		t.Fatalf("the activating member's own `break-glass list` does not show their activation %d:\n%s", activationID, ownOut)
+	}
+	peerOut := runCLI(t, cliBin, tokenEnv(s, peerToken), "break-glass", "list", "--project-id", strconv.Itoa(projID))
+	if !strings.Contains(peerOut, "You have no break-glass activations") || strings.Contains(peerOut, n9Justification) {
+		t.Fatalf("a peer member's `break-glass list` must show none of the oncall engineer's activations:\n%s", peerOut)
+	}
+
 	// ── Revoke (by the admin, who holds roles.assign at project scope --
 	// the emergency role itself deliberately cannot revoke its own grant). ──
 	runCLI(t, cliBin, aEnv, "break-glass", "revoke",
@@ -140,6 +165,12 @@ func TestJourney_BreakGlass(t *testing.T) {
 	// exit code alone (the "assert the effect, not the return value" lesson:
 	// a revoke call that silently no-ops would still exit 0 here). ─────────
 	assertSecretReadDenied(t, s, oncallToken, secID)
+
+	// The member's own list now shows the activation as revoked.
+	ownOut = runCLI(t, cliBin, tokenEnv(s, oncallToken), "break-glass", "list", "--project-id", strconv.Itoa(projID))
+	if !strings.Contains(ownOut, strconv.Itoa(activationID)) || !strings.Contains(ownOut, "revoked") {
+		t.Fatalf("after revoke, the member's own `break-glass list` does not show activation %d as revoked:\n%s", activationID, ownOut)
+	}
 }
 
 // startServerWithBreakGlass is harness.StartServer's own sequence, with one

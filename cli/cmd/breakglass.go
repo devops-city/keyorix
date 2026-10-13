@@ -43,7 +43,7 @@ var bgActivateCmd = &cobra.Command{
 
 var bgListCmd = &cobra.Command{
 	Use:          "list",
-	Short:        "List a project's break-glass activations (for review)",
+	Short:        "List a project's break-glass activations (all with roles.read, else your own as a member)",
 	SilenceUsage: true,
 	RunE:         runBGList,
 }
@@ -154,18 +154,29 @@ func runBGList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	// #2981: a refusal (e.g. listing needs roles.read, which a project member may not
-	// hold) used to fall into "No break-glass activations" below, telling alice there
-	// were none while the admin's own list showed hers. Only a successful empty list
-	// may say that.
+	// #2981: a refusal (e.g. a machine identity without roles.read) used to fall into
+	// "No break-glass activations" below, telling alice there were none while the
+	// admin's own list showed hers. Only a successful empty list may say that.
 	if resp.StatusCode() != 200 {
 		return httpStatusError("list break-glass activations failed", resp.StatusCode(), resp.Body)
 	}
+	// BREAKGLASS-OWN-1: a caller without roles.read gets only their own activations
+	// (scope "own"); say so, so "none" never reads as "none in the project".
+	own := resp.JSON200 != nil && resp.JSON200.Data != nil && resp.JSON200.Data.Scope != nil &&
+		*resp.JSON200.Data.Scope == "own"
 	if resp.JSON200 == nil || resp.JSON200.Data == nil || derefInt(resp.JSON200.Data.Count) == 0 {
+		if own {
+			fmt.Printf("You have no break-glass activations on project %d (listing other users' activations needs roles.read).\n", bgProject)
+			return nil
+		}
 		fmt.Printf("No break-glass activations for project %d.\n", bgProject)
 		return nil
 	}
-	fmt.Printf("Break-glass activations — project %d:\n\n", bgProject)
+	if own {
+		fmt.Printf("Your break-glass activations — project %d (only your own; other users' need roles.read):\n\n", bgProject)
+	} else {
+		fmt.Printf("Break-glass activations — project %d:\n\n", bgProject)
+	}
 	var activations []apiclient.BreakGlassActivation
 	if resp.JSON200.Data.Activations != nil {
 		activations = *resp.JSON200.Data.Activations

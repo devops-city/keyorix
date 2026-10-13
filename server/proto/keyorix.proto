@@ -177,7 +177,9 @@ service BreakGlassService {
   // may break the glass (it must work in an emergency); every activation is audited.
   rpc ActivateBreakGlass(ActivateBreakGlassRequest) returns (BreakGlassActivation);
 
-  // List a project's break-glass activations. Requires scoped roles.read.
+  // List a project's break-glass activations: all of them with scoped roles.read,
+  // otherwise, for a project member, only their own (scope says which). A machine identity
+  // without roles.read is refused.
   rpc ListBreakGlassActivations(ListBreakGlassActivationsRequest) returns (ListBreakGlassActivationsResponse);
 
   // Revoke an active break-glass activation early. Requires scoped roles.assign.
@@ -774,7 +776,7 @@ message BreakGlassActivation {
   string state = 7; // active | expired | revoked
   optional google.protobuf.Timestamp expires_at = 8;
   google.protobuf.Timestamp created_at = 9;
-  optional uint32 revoked_by = 10; // set on early revoke
+  optional uint32 revoked_by = 10; // set on early revoke; unset when the response scope is "own"
   optional google.protobuf.Timestamp revoked_at = 11;
 }
 
@@ -790,6 +792,9 @@ message ListBreakGlassActivationsRequest {
 
 message ListBreakGlassActivationsResponse {
   repeated BreakGlassActivation activations = 1;
+  // "project": every activation of the project (the caller holds roles.read there).
+  // "own": only the caller's own activations (a user without roles.read).
+  string scope = 2;
 }
 
 message RevokeBreakGlassRequest {

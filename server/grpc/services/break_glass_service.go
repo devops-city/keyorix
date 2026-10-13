@@ -16,8 +16,9 @@ import (
 
 // BreakGlassGRPCService implements pb.BreakGlassServiceServer over the shared core. It
 // enforces the SAME authorization as the HTTP routes: activate is self-service (any
-// authenticated member — it must work in an emergency), list → scoped roles.read,
-// revoke → scoped roles.assign. core audits every activation and revoke.
+// authenticated member — it must work in an emergency), list → scoped roles.read for
+// the whole project or the caller's own activations otherwise, revoke → scoped
+// roles.assign. core audits every activation and revoke.
 type BreakGlassGRPCService struct {
 	pb.UnimplementedBreakGlassServiceServer
 	core *core.KeyorixCore
@@ -46,7 +47,11 @@ func (s *BreakGlassGRPCService) ActivateBreakGlass(ctx context.Context, req *pb.
 	return breakGlassToProto(a), nil
 }
 
-// ListBreakGlassActivations lists a project's activations. Requires scoped roles.read.
+// ListBreakGlassActivations lists a project's activations. Same decision as the HTTP
+// route (core.ListBreakGlassActivationsForCaller): scoped roles.read lists them all,
+// any other project member only their own, anyone else is refused PermissionDenied exactly as
+// the roles.read check used to refuse them. The per-project MFA policy applies to
+// both views.
 func (s *BreakGlassGRPCService) ListBreakGlassActivations(ctx context.Context, req *pb.ListBreakGlassActivationsRequest) (*pb.ListBreakGlassActivationsResponse, error) {
 	actor, err := requireUser(ctx)
 	if err != nil {
@@ -55,18 +60,21 @@ func (s *BreakGlassGRPCService) ListBreakGlassActivations(ctx context.Context, r
 	if req.GetProjectId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "project_id is required")
 	}
-	if err := authorizeScoped(ctx, s.core, actor, "roles.read", core.Scope{ProjectID: uint(req.GetProjectId())}); err != nil {
-		return nil, err
-	}
-	acts, err := s.core.ListBreakGlassActivations(ctx, uint(req.GetProjectId()))
+	acts, scope, err := s.core.ListBreakGlassActivationsForCaller(ctx, actor.ActorKind(), actor.PrincipalID(), actor.UserID, uint(req.GetProjectId()))
 	if err != nil {
+		if errors.Is(err, core.ErrBreakGlassListForbidden) {
+			return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
+		}
 		return nil, breakGlassError(err)
+	}
+	if err := enforceProjectMFA(ctx, s.core, actor, uint(req.GetProjectId())); err != nil {
+		return nil, err
 	}
 	out := make([]*pb.BreakGlassActivation, 0, len(acts))
 	for _, a := range acts {
 		out = append(out, breakGlassToProto(a))
 	}
-	return &pb.ListBreakGlassActivationsResponse{Activations: out}, nil
+	return &pb.ListBreakGlassActivationsResponse{Activations: out, Scope: scope}, nil
 }
 
 // RevokeBreakGlass ends an active activation early. Requires scoped roles.assign.

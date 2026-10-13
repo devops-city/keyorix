@@ -454,6 +454,112 @@ func (c *KeyorixCore) ListBreakGlassActivations(ctx context.Context, projectID u
 	return rows, nil
 }
 
+// What ListBreakGlassActivationsForCaller returned (BREAKGLASS-OWN-1): the whole
+// project's activations, or only the caller's own.
+const (
+	BreakGlassListScopeProject = "project"
+	BreakGlassListScopeOwn     = "own"
+)
+
+// ErrBreakGlassListForbidden: the caller may list neither the project's
+// activations nor its own. Both transports answer it with the same refusal the
+// old roles.read route gate gave (HTTP 403 "Insufficient permissions", gRPC
+// PermissionDenied "insufficient permissions").
+var ErrBreakGlassListForbidden = errors.New("break-glass: listing not permitted")
+
+// ListBreakGlassActivationsForCaller is the one authorization decision behind
+// GET /projects/{id}/break-glass and BreakGlassService.ListBreakGlassActivations
+// (BREAKGLASS-OWN-1, Andrei 2026-10-13: a member lists their OWN activations):
+//
+//   - roles.read at the project (AuthorizePrincipal, so PAT restriction, admin
+//     bypass and machine roles apply exactly as at the old route gate): every
+//     activation of the project, scope "project". Unchanged.
+//   - otherwise a USER (never a machine identity, which keeps today's refusal)
+//     who is a member of the project NOW (IsProjectMember, the definition
+//     activation uses) and whose PAT restriction, if any, allows roles.read at the
+//     project: only the rows whose UserID is the caller, scope "own", with the same
+//     fields. Nothing about anyone else's rows (not even how many) reaches the answer.
+//   - anything else, including a failed authorization or membership lookup (fail
+//     closed, never a silent downgrade to the own view): ErrBreakGlassListForbidden.
+//
+// Membership keeps a non-member's answer exactly what it was before: the same 403
+// for every project id, existing or not. Without it a non-member would reach the
+// transport's MFA check, whose ProjectMFARequired answer (only for a project that
+// exists and requires MFA) would tell them which projects exist and how they are
+// configured.
+//
+// userID is the authenticated user's id. The own view requires principalID ==
+// userID so a context whose actor kind and principal disagree can never filter by
+// someone else's id. The per-project MFA policy (ADR-037) is a transport check
+// and stays with the caller, applied to both views.
+//
+// No audit event, for either view: listing was never audited, and this keeps it so.
+func (c *KeyorixCore) ListBreakGlassActivationsForCaller(ctx context.Context, actorType string, principalID, userID, projectID uint) ([]*models.BreakGlassActivation, string, error) {
+	if projectID == 0 {
+		return nil, "", refuseBreakGlass(fmt.Sprintf("%s: %s", i18n.T("ErrorValidation", nil), "project ID is required"), ErrBreakGlassInvalidRequest)
+	}
+	scope := Scope{ProjectID: projectID}
+	allowed, err := c.AuthorizePrincipal(ctx, actorType, principalID, permRolesRead, scope)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %w", ErrBreakGlassListForbidden, err)
+	}
+	if allowed {
+		rows, lerr := c.ListBreakGlassActivations(ctx, projectID)
+		if lerr != nil {
+			return nil, "", lerr
+		}
+		return rows, BreakGlassListScopeProject, nil
+	}
+	if actorType != ActorTypeUser || userID == 0 || principalID != userID {
+		return nil, "", ErrBreakGlassListForbidden
+	}
+	// A restricted PAT sees its owner's rows only where it could have been granted
+	// the project view: the same check AuthorizePrincipal made above, minus the role.
+	if !patRestrictionFromContext(ctx).Allows(permRolesRead, scope) {
+		return nil, "", ErrBreakGlassListForbidden
+	}
+	member, err := c.IsProjectMember(ctx, userID, projectID)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %w", ErrBreakGlassListForbidden, err)
+	}
+	if !member {
+		return nil, "", ErrBreakGlassListForbidden
+	}
+	rows, err := c.ListBreakGlassActivations(ctx, projectID)
+	if err != nil {
+		return nil, "", err
+	}
+	own := make([]*models.BreakGlassActivation, 0, len(rows))
+	for _, a := range rows {
+		if a != nil && a.UserID == userID && a.ProjectID == projectID {
+			own = append(own, redactBreakGlassForOwnView(a))
+		}
+	}
+	return own, BreakGlassListScopeOwn, nil
+}
+
+// redactBreakGlassForOwnView is the single place the own view (scope "own", a
+// caller without roles.read) loses the admin-side fields (FIX-3184, Andrei
+// 2026-10-13): the reviewer's note and identity, and who revoked it (user or
+// machine identity). Both transports render the rows this function returns, so
+// neither can leak what it removed; the scope that triggers it comes from
+// ListBreakGlassActivationsForCaller's own authorization, never from the client.
+//
+// State, CreatedAt, ExpiresAt, Justification, RevokedAt and ReviewedAt stay:
+// State == "revoked" / RevokedAt != nil say "revoked", ReviewedAt != nil says
+// "reviewed". The fields are zeroed (json omitempty / unset proto optional), not
+// replaced with placeholders. It returns a copy, never mutating the storage row.
+// Any new reviewer/revoker identity or note field on BreakGlassActivation must be
+// cleared here (TestBreakGlassOwnView_RedactsEveryAdminField fails otherwise).
+func redactBreakGlassForOwnView(a *models.BreakGlassActivation) *models.BreakGlassActivation {
+	cp := *a
+	cp.ReviewNote = ""
+	cp.ReviewedBy = 0
+	cp.RevokedBy = 0
+	cp.RevokedByMachineIdentityID = 0
+	return &cp
+}
+
 // RevokeBreakGlass ends an active emergency grant early: removes the role assignment
 // (best-effort — it may already have auto-expired) and marks the record revoked.
 // actorID is the admin performing the revoke.

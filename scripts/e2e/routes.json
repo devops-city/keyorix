@@ -1737,13 +1737,7 @@
     "method": "GET",
     "pattern": "/api/v1/projects/{id}/break-glass",
     "feature_group": "projects",
-    "gated": true,
-    "gate_fns": [
-      "RequireScopedPermission"
-    ],
-    "gate_perms": [
-      "permRolesRead"
-    ],
+    "gated": false,
     "router_go_line": 586
   },
   {

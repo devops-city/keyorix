@@ -1523,7 +1523,17 @@ permissions (printed by `activate`), not new read access. The activation is **ti
 auto-expires via the JIT mechanism, so it stops authorizing on its own), requires a
 **written justification**, is **loudly audited** (`break_glass.activated`), and
 **alerts the project's admins**. Each activation is a queryable record for post-hoc
-review (`GET …/break-glass`, `keyorix break-glass list`).
+review (`GET …/break-glass`, `keyorix break-glass list`): a caller with `roles.read` at
+the project lists every activation (`"scope": "project"`); any other current member of
+the project lists only their own, active, expired and revoked (`"scope": "own"`), and
+learns nothing about anyone else's. The own view shows state, timestamps, justification,
+expiry, and whether it was reviewed (`reviewed_at`) and revoked (`state`, `revoked_at`),
+but omits the reviewer's note and the reviewer's and revoker's identities (`review_note`,
+`reviewed_by`, `revoked_by`, `revoked_by_machine_identity_id`); `"scope": "project"`
+carries them. A non-member, a machine
+identity without `roles.read`, and a restricted personal access token whose restriction
+does not allow `roles.read` at the project are refused with 403. Listing is not audited
+(it never was).
 
 Deliberately not RBAC-gated on the *emergency* permissions — the point is access the
 caller does *not* have — but gated on project membership, so the controls are: it
@@ -1532,9 +1542,9 @@ justified + audited + alerted, the grant expires, and an admin can revoke it ear
 
 Operating it from the CLI (verified end to end with a `project_viewer` user):
 `keyorix break-glass activate --project-id N --justification "..." --ttl 1h`,
-then an admin runs `keyorix break-glass list --project-id N` (in the test the
-activating user's own `list` printed "No break-glass activations", only the admin's
-did show it) and `keyorix break-glass revoke
+then the activating user's own `keyorix break-glass list --project-id N` shows it
+under "Your break-glass activations", an admin's `list` shows every activation of the
+project, and the admin can `keyorix break-glass revoke
 --project-id N --activation-id ID`. There is no CLI command for the review below:
 call `POST /api/v1/projects/N/break-glass/ID/review` with `{"note": "..."}` and a
 bearer token (response `Break-glass activation reviewed`).

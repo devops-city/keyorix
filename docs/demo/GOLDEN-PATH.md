@@ -311,9 +311,12 @@ lifts them to the emergency role for a limited time:
 
 ```bash
 keyorix break-glass activate --project-id 1 --justification "prod incident INC-123" --ttl 1h
-keyorix break-glass list --project-id 1
-keyorix break-glass revoke --project-id 1 --activation-id <id>
+keyorix break-glass list --project-id 1        # the member sees their own activation
+keyorix break-glass revoke --project-id 1 --activation-id <id>   # as an admin (roles.assign)
 ```
+
+`list` run by the member shows only their own activations; run by an admin
+(`roles.read` at the project) it shows everyone's.
 
 If it is not enabled the command now says so (`break-glass is not enabled on this
 server; set break_glass.enabled`) instead of a bare `permission denied`.

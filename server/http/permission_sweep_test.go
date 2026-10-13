@@ -536,6 +536,15 @@ var noPermissionGateAllowlist = map[string]string{
 		"so an admin acting as a user cannot mint a durable emergency role grant attributed to the " +
 		"target. A restricted PAT is refused in core (ErrRestrictedPATCannotBreakGlass, ADR-042 " +
 		"addendum of 2026-10-11). See router.go's own adjacent comment.",
+	"GET /api/v1/projects/{id}/break-glass": "Authorized INSIDE core.ListBreakGlassActivationsForCaller " +
+		"(BREAKGLASS-OWN-1, Andrei 2026-10-13: a member lists their OWN activations): roles.read at the " +
+		"project through AuthorizePrincipal (PAT restriction, admin bypass and machine roles exactly as " +
+		"the old RequireScopedPermission(roles.read) gate) returns every activation, unchanged; any other " +
+		"USER who is a current project member (IsProjectMember) and whose PAT restriction allows " +
+		"roles.read there gets only rows whose user_id is theirs; a non-member (same 403 for every " +
+		"project id), a machine identity without roles.read, a restricted PAT outside the project, or a failed " +
+		"authorization read is refused with the gate's old 403. The handler applies ProjectMFABlocked to " +
+		"both views, as the gate did. Guard: server/http/break_glass_own_list_test.go.",
 
 	"GET /api/v1/projects": "GET /projects (ListProjects) performs its own authorization INSIDE the handler " +
 		"(#2780), exactly like GET /secrets below and for the same reason: the route used to require " +
