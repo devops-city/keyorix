@@ -17,6 +17,9 @@
 2599_createglobalinvitation_countsetuptokenssince_error	84788ff8	5e5bc37a	REST POST /api/v1/invitations	CountSetupTokensSince	1	error	4c00230000
 2599_createglobalinvitation_countsetuptokenssince_nth2_error	84788ff8	5e5bc37a	REST POST /api/v1/invitations	CountSetupTokensSince	2	error	4c00230100
 2599_createprojectinvitation_countsetuptokenssince_error	84788ff8	5e5bc37a	REST POST /api/v1/projects/{id}/invitations	CountSetupTokensSince	1	error	4a00230000
+2837_passwordreset_recordloginattempt_error	d53ebf0b	d53ebf0b	REST POST /auth/password-reset	RecordLoginAttempt	1	error	ae01600000
+2837_passwordreset_reserveloginattempt_effect_then_error	d53ebf0b	d53ebf0b	REST POST /auth/password-reset	ReserveLoginAttempt	1	effect-then-error	ae016b0002
+2837_passwordreset_reserveloginattempt_error	d53ebf0b	d53ebf0b	REST POST /auth/password-reset	ReserveLoginAttempt	1	error	ae016b0000
 2c90359149706177	84788ff8	88357ae1	REST PUT /api/v1/projects/{id}/access-requests/{requestId}	SetRecoveryKeyRecord	1	error	4f2930
 3090_accessreview_revoke_getrole_panic	55ceaa84	ef3b8e4e	REST POST /api/v1/projects/{id}/access-review/revoke	GetRole	1	panic	3900b43231
 3091_webauthn_loginfinish_getuserpermissions_effect_then_error	4edbb7a2	12b19acf	REST POST /auth/webauthn/login/finish	GetUserPermissions	1	effect-then-error	d800d80002

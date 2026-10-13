@@ -221,8 +221,18 @@ func (c *KeyorixCore) budgetLimited(ctx context.Context, b authBudget, key strin
 }
 
 // budgetRecord counts one attempt against key, in memory when storage fails.
+//
+// The stored write is budgetReserve's keyed, once-retried one, with the handle
+// discarded (#2837 shape 2): it used to be a single plain RecordLoginAttempt,
+// so one transient error sent the attempt to the per-process fallback (no
+// stored row, an auth.rate_limit_error audit event, and an attempt the other
+// replicas never see), and a plain retry would have counted a lost
+// acknowledgement twice. Keyed, a write that failed once lands on the retry
+// and a write that landed but reported an error is found again, so the
+// attempt is stored exactly once; only a write that fails both times falls
+// back, as before.
 func (c *KeyorixCore) budgetRecord(ctx context.Context, b authBudget, key string) {
-	if err := c.storage.RecordLoginAttempt(ctx, b.prefix+key, c.now()); err != nil {
+	if _, err := c.budgetWriteKeyed(ctx, b, key); err != nil {
 		c.budgetRecordFallback(ctx, b, key, nil, err)
 		return
 	}
@@ -231,32 +241,41 @@ func (c *KeyorixCore) budgetRecord(ctx context.Context, b authBudget, key string
 
 // budgetReserve is budgetRecord returning a handle budgetRelease can refund.
 //
-// The stored reservation is identified by a key generated here, before the
-// write (#3050): a write that landed but reported an error is retried ONCE
-// with the same key, and the idempotent store returns the row that landed (or
-// writes it if the first attempt did not). So a lost acknowledgement neither
-// loses the handle nor counts the attempt twice. Only a write that fails both
-// times falls back to memory, and only then is the budget marked degraded, so
-// a retry that recovers adds no mirror entry.
+// The stored reservation is identified by a key generated before the write
+// (#3050, budgetWriteKeyed), so a lost acknowledgement neither loses the
+// handle nor counts the attempt twice. Only a write that fails both times
+// falls back to memory, and only then is the budget marked degraded, so a
+// retry that recovers adds no mirror entry.
 func (c *KeyorixCore) budgetReserve(ctx context.Context, b authBudget, key string) uint {
-	resKey, err := generateSecureToken()
-	if err != nil {
-		// No key, so no idempotent storage write: the in-memory fallback still
-		// counts the attempt (never fail open).
-		c.noteAuthBudgetFallback(ctx, b, "reserve", key, nil, err)
-		return c.authBudgetFallback(b).reserve(key, c.now(), b.window, 4*b.limit)
-	}
-	now := c.now()
-	id, err := c.storage.ReserveLoginAttempt(ctx, b.prefix+key, now, resKey)
-	if err != nil {
-		id, err = c.storage.ReserveLoginAttempt(ctx, b.prefix+key, now, resKey)
-	}
+	id, err := c.budgetWriteKeyed(ctx, b, key)
 	if err != nil {
 		c.noteAuthBudgetFallback(ctx, b, "reserve", key, nil, err)
 		return c.authBudgetFallback(b).reserve(key, c.now(), b.window, 4*b.limit)
 	}
 	c.budgetMirrorIfDegraded(b, key, id)
 	return id
+}
+
+// budgetWriteKeyed stores one attempt against key under a reservation key
+// generated here, before the write, and retries a failed write ONCE with the
+// same key. The store is idempotent per reservation key, so the retry returns
+// the row that landed or writes it if the first attempt did not: the attempt
+// is stored exactly once either way. Every login_attempts budget write goes
+// through here (TestAuthBudget_EveryStoredWriteIsKeyed); an error means
+// nothing is known to be stored and the caller must count the attempt in
+// memory (never fail open). A key that cannot be generated is such an error:
+// without one there is no idempotent write to retry.
+func (c *KeyorixCore) budgetWriteKeyed(ctx context.Context, b authBudget, key string) (uint, error) {
+	resKey, err := generateSecureToken()
+	if err != nil {
+		return 0, err
+	}
+	now := c.now()
+	id, err := c.storage.ReserveLoginAttempt(ctx, b.prefix+key, now, resKey)
+	if err != nil {
+		id, err = c.storage.ReserveLoginAttempt(ctx, b.prefix+key, now, resKey)
+	}
+	return id, err
 }
 
 // budgetMirrorIfDegraded notes a SUCCESSFUL stored write in memory too while

@@ -39,10 +39,10 @@ type Storage interface {
 	// check runs (closing the concurrent-burst race RecordLoginAttempt's own
 	// callers rely on — see core.ReserveLoginAttempt) can undo the write via
 	// ReleaseLoginAttempt if that check turns out not to be a confirmed negative
-	// result. Every other rate-limit call site stays on the fire-and-forget
-	// RecordLoginAttempt; only /auth/mfa/verify needs this pair today.
-	// RecordLoginAttempt; only /auth/mfa/verify and /auth/webauthn/login/finish
-	// need this pair today.
+	// result. Every auth budget write goes through it, releasable or not (core
+	// budgetWriteKeyed, #2837): the per-key idempotence is what makes a failed
+	// write safe to retry. RecordLoginAttempt is left to the relay
+	// (core.RecordLoginAttemptRelay), which returns the error to its caller.
 	//
 	// key is a caller-generated reservation identifier, unique per reservation
 	// (#2956 follow-up). The write is idempotent per key: reserving the same key
