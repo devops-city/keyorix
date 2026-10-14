@@ -85,6 +85,9 @@ func ResolvePostgresConnConfig(d *DatabaseConfig) (*pgx.ConnConfig, error) {
 	if setup := soleWriterAfterConnect(); setup != nil {
 		cc.AfterConnect = setup
 	}
+	if tr := soleWriterQueryTracer(); tr != nil {
+		cc.Tracer = tr
+	}
 	return cc, nil
 }
 

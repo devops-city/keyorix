@@ -121,6 +121,7 @@ FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &
 		g.state, g.reason = StateAuthoritative, ""
 	}
 	changed := epoch != g.epoch
+	g.canaryLocked(changed)
 	g.epoch = epoch
 	g.lastGoodMono = now
 	g.lastGoodWall = now.Round(0)
@@ -135,6 +136,51 @@ FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &
 		}
 	}
 }
+
+// canaryLocked accounts an epoch move to this process's own fenced commits.
+// The epoch is bumped inside a writer's commit and the tracker counts the
+// commit right after it returns, so a move is only called unattributed when
+// the following poll still finds no commit (and none in flight) to explain it.
+// Every in-process write is supposed to be seen by the tracker and every
+// foreign one refused by the fence, so an unattributed move means one of the
+// two missed a write: flush every entry and say so loudly.
+func (g *Guard) canaryLocked(changed bool) {
+	if g.tracker == nil {
+		return
+	}
+	commits := g.tracker.commits.Load()
+	explained := commits != g.lastCommits || g.tracker.Inflight() > 0
+	g.lastCommits = commits
+	switch {
+	case changed && !explained:
+		if g.unexplained {
+			g.recordUnattributedLocked()
+		}
+		g.unexplained = true
+	case g.unexplained && !explained:
+		g.recordUnattributedLocked()
+		g.unexplained = false
+	default:
+		g.unexplained = false
+	}
+}
+
+func (g *Guard) recordUnattributedLocked() {
+	g.unattributedBumps++
+	g.tracker.Flush()
+	logf("ERROR: the write epoch moved without a write this server accounts for (%d so far); every cache entry was flushed. "+
+		"A write reached a security table outside the tracker (see internal/solewriter/tracker.go)", g.unattributedBumps)
+}
+
+// UnattributedBumps is the canary's count (tests: must stay 0).
+func (g *Guard) UnattributedBumps() int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.unattributedBumps
+}
+
+// Tracker is the guard's in-process write tracker.
+func (g *Guard) Tracker() *Tracker { return g.tracker }
 
 // leave moves the guard out of the authoritative state until restart.
 func (g *Guard) leave(reason string) {
@@ -198,8 +244,10 @@ type Status struct {
 	Epoch         int64    `json:"epoch"`
 	LastPollAgeMS int64    `json:"last_poll_age_ms"`
 	LastPollError string   `json:"last_poll_error,omitempty"`
-	Authoritative bool     `json:"authoritative"`
-	Emergency     string   `json:"emergency_sql"`
+	// UnattributedBumps counts epoch moves no in-process write accounted for.
+	UnattributedBumps int64  `json:"unattributed_bumps"`
+	Authoritative     bool   `json:"authoritative"`
+	Emergency         string `json:"emergency_sql"`
 }
 
 // EmergencySQL is the documented two-step for an emergency change made
@@ -214,7 +262,8 @@ func (g *Guard) Status() Status {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st := Status{Enabled: true, State: g.state, Reason: g.reason, HolderPID: g.pid, Since: g.since.Format(time.RFC3339),
-		FencedTables: FencedTableNames(), Epoch: g.epoch, LastPollError: g.lastErr, Authoritative: auth, Emergency: EmergencySQL}
+		FencedTables: FencedTableNames(), Epoch: g.epoch, LastPollError: g.lastErr, Authoritative: auth, Emergency: EmergencySQL,
+		UnattributedBumps: g.unattributedBumps}
 	if !g.lastGoodMono.IsZero() {
 		st.LastPollAgeMS = now.Sub(g.lastGoodMono).Milliseconds()
 	}

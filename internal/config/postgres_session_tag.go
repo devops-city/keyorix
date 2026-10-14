@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -37,8 +38,28 @@ func SetSoleWriterSessionTag(tag string) error {
 	return nil
 }
 
-// ClearSoleWriterSessionTagForTest undoes SetSoleWriterSessionTag.
-func ClearSoleWriterSessionTagForTest() { soleWriterSessionTag.Store(nil) }
+// ClearSoleWriterSessionTagForTest undoes SetSoleWriterSessionTag and
+// SetSoleWriterQueryTracer.
+func ClearSoleWriterSessionTagForTest() {
+	soleWriterSessionTag.Store(nil)
+	soleWriterTracer.Store(nil)
+}
+
+// soleWriterTracer watches every statement of a single-writer server's
+// connections (internal/solewriter's Tracker); nil otherwise.
+var soleWriterTracer atomic.Pointer[pgx.QueryTracer]
+
+// SetSoleWriterQueryTracer installs tr on every PostgreSQL connection opened
+// from ResolvePostgresConnConfig after this call. A single-writer server's
+// boot, before it opens any pool.
+func SetSoleWriterQueryTracer(tr pgx.QueryTracer) { soleWriterTracer.Store(&tr) }
+
+func soleWriterQueryTracer() pgx.QueryTracer {
+	if tr := soleWriterTracer.Load(); tr != nil {
+		return *tr
+	}
+	return nil
+}
 
 // soleWriterAfterConnect returns the connection set-up that stamps the tag, or
 // nil when no tag is set. A session-level SET: it lasts as long as the

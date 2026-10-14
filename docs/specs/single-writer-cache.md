@@ -38,6 +38,17 @@ derived from, and so lets it skip that statement.
   `confirming` until restart. The lease alone already stops authoritative answers.
 - **Mode off**: every PostgreSQL boot without the setting refuses while a holder is live and removes a
   fence an earlier single-writer boot left (`solewriter.CheckOff`).
+- **In-process invalidation (PR 2) is a pgx QueryTracer, not a generated storage wrapper.** Every
+  connection a single-writer server opens reports its statements (`config.SetSoleWriterQueryTracer`,
+  `solewriter.Tracker`). A statement that can write and names a fenced table marks its connection's
+  transaction; at COMMIT/ROLLBACK (or at the statement's end outside a transaction) the tracker's
+  generation moves. It uses the same exclusions as the triggers: bookkeeping-only UPDATE, system_metadata
+  rows other than the fenced key. This sees raw SQL and every storage method alike with no per-method
+  classification to keep in sync. The trigger is the oracle (`TestTracker_EveryEpochMoveIsAWriteTheTrackerSaw`:
+  the epoch moved means the generation moved, per storage write path), and the poller's unattributed-bump
+  canary flushes and reports any write the tracker missed. Not seen, stated: pgx batches (only the audit
+  pipeline, which writes no fenced table). A cascading FK from an unfenced parent into a fenced table is
+  forbidden by `TestFencedTables_NoCascadeFromUnfencedParent`.
 - **PgBouncer**: `storage.database.pooler: pgbouncer-transaction` (#3254) is refused at config
   validation; `pgbouncer-session` is allowed. The Helm `fail` guard is a follow-up.
 

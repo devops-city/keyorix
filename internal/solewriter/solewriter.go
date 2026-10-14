@@ -141,6 +141,14 @@ type Guard struct {
 	lastGoodWall time.Time // wall clock only (Round(0))
 	lastErr      string
 
+	tracker *Tracker
+	// The unattributed-bump canary (pollOnce): the tracker's commit count at
+	// the last poll, whether the epoch moved without one, and how often that
+	// was confirmed on the following poll.
+	lastCommits       uint64
+	unexplained       bool
+	unattributedBumps int64
+
 	onEpochChange atomic.Pointer[func(int64)]
 	onReenter     atomic.Pointer[func()]
 
@@ -184,7 +192,12 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*Guard, error
 	if err := config.SetSoleWriterSessionTag(nonce); err != nil {
 		return nil, err
 	}
-	g := &Guard{opts: opts, nonce: nonce, bootID: bootID, state: StateSettling, reason: "starting",
+	// Every connection opened from here on reports its statements to the
+	// tracker (tracker.go), so in-process writes invalidate synchronously.
+	tr := NewTracker()
+	activeTracker.Store(tr)
+	config.SetSoleWriterQueryTracer(tr)
+	g := &Guard{opts: opts, nonce: nonce, bootID: bootID, state: StateSettling, reason: "starting", tracker: tr,
 		stop: make(chan struct{}), done: make(chan struct{})}
 	cc, err := config.ResolvePostgresConnConfig(&cfg.Storage.Database)
 	if err != nil {

@@ -19,6 +19,7 @@ export interface SystemSingleWriterStatus {
     epoch: number;
     last_poll_age_ms: number;
     last_poll_error?: string;
+    unattributed_bumps: number;
     authoritative: boolean;
     emergency_sql: string;
 }
