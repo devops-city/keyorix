@@ -17,7 +17,11 @@
   on the wire; red on the GORM path), `TestAuditChain_GoldenBytes_SQLite`/`_Postgres`
   (digest recorded on main), `TestCommitBatchAttempt_PostgresFailureBetweenFlightsRollsBack`
   (lock checked from another session), `TestCommitAuditBatch_PostgresBackendDiesMidBatch`,
-  `TestCommitBatchAttempt_PostgresFastModeAppliesToTheInsert`, plus the
+  `TestCommitBatchAttempt_PostgresFastModeAppliesToTheInsert`,
+  `TestCommitBatchAttempt_PostgresHeadReadReusesItsPlan` (the head read's LIMIT is in its text,
+  so its cached plan is reused instead of re-planned per flight),
+  `TestAuditAllocateIDsSQL_PostgresLooksUpTheSequenceOnce` (one pg_depend scan per allocation,
+  not one per id), plus the
   `INV-STORE-audit-batch-insert-values-order` guards (all pg-gated on the Postgres side).
   **Not covered**: a COMMIT whose acknowledgement is lost with the connection is reported as
   an error although it may have committed (unchanged from the GORM path).

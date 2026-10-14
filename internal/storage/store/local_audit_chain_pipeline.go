@@ -46,6 +46,12 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// auditAllocateIDsSQL allocates $2 ids from table $1's id sequence. The
+// sequence is looked up once per statement: OFFSET 0 keeps Postgres from
+// pulling the subquery up into the outer query, where pg_get_serial_sequence
+// (a pg_depend scan) would run once per allocated id.
+const auditAllocateIDsSQL = "SELECT nextval(q.seq) FROM (SELECT pg_get_serial_sequence($1, 'id')::regclass AS seq OFFSET 0) q, generate_series(1, $2::int)"
+
 // errAuditPipelineUnavailable means the pool is not a database/sql pool over
 // pgx, so commitBatchAttempt uses the GORM transaction instead. Every
 // production Postgres pool is one (storage.openPostgresGorm, and
@@ -225,10 +231,13 @@ func (f *auditFlight) close(err error) error {
 }
 
 func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batch []*auditBatchItem) error {
+	// The head read's LIMIT is written into the text rather than bound (GORM's
+	// Limit(1) binds it): Postgres cannot know a bound LIMIT is 1 when it
+	// costs the cached statement's generic plan, so it re-plans the statement
+	// on every flight instead of reusing that plan.
 	headStmt := ls.auditDryRun(ctx).Model(&models.AuditEvent{}).
 		Select("id", "entry_hash").
 		Order("id DESC").
-		Limit(1).
 		Find(&[]models.AuditEvent{})
 	if headStmt.Error != nil {
 		return headStmt.Error
@@ -243,8 +252,8 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		open.queue(durability)
 	}
 	open.queue("SELECT pg_advisory_xact_lock($1)", int64(auditAdvisoryLockKey))
-	open.queue(headStmt.Statement.SQL.String(), headStmt.Statement.Vars...)
-	open.queue("SELECT nextval(pg_get_serial_sequence($1, 'id')) FROM generate_series(1, $2::int)", table, len(batch))
+	open.queue(headStmt.Statement.SQL.String()+" LIMIT 1", headStmt.Statement.Vars...)
+	open.queue(auditAllocateIDsSQL, table, len(batch))
 
 	var (
 		headID   uint
