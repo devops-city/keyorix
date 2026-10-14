@@ -167,7 +167,7 @@ var actorSentinelAllowlist = map[string]actorSentinelEntry{
 		class: classPerActorCeiling, status: statusEnforced,
 		note: "rejects actorID==0 outright as invalid input.",
 	},
-	"secret_suspend.go:SuspendProjectSecrets": {
+	"secret_suspend.go:SuspendProjectSecretsWithOptions": {
 		class: classPerActorCeiling, status: statusEnforced,
 		note: "rejects actorID==0 outright as invalid input.",
 	},

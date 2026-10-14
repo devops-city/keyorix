@@ -12,5 +12,7 @@
   and is audited with the suspension. Why: SUSPEND-PURGE-1 (a state oracle would leak that a
   secret is compromised). Guard: `server/http/secret_suspend_clear_copies_test.go`
   (`TestSuspendSecret_ClearSyncedCopies_OverTheRouter`: stored, audited, permission, outsider
-  sees nothing, resume removes it), `secret_value_read_refusal_family_test.go` (outsider answers
+  sees nothing, resume removes it), `project_suspend_clear_copies_test.go`
+  (`TestSuspendProjectSecrets_ClearSyncedCopies_OverTheRouter`: the project-wide suspend takes the
+  same flag under the same permission), `secret_value_read_refusal_family_test.go` (outsider answers
   unchanged), `handlers/secret_update_diff_test.go` (`TestDiffSecretUpdate_EveryFieldBehavesAsClassified`).

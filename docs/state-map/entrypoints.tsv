@@ -185,7 +185,9 @@ cli	keyorix project environments	cli/cmd/project.go	652	runProjectEnvironments	n
 cli	keyorix project health	cli/cmd/project.go	552	runProjectHealth	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix project hygiene	cli/cmd/project.go	479	runProjectHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix project list	cli/cmd/project.go	152	runProjectList	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project resume-secrets	cli/cmd/project_freeze.go	74	<expr>	D	project_freeze.go projectResumeSecretsCmd.RunE makes exactly one write call, client.ResumeProjectSecretsWithResponse; the fan-out is server-side.
 cli	keyorix project stats	cli/cmd/project.go	376	runProjectStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project suspend-secrets	cli/cmd/project_freeze.go	22	<expr>	D	project_freeze.go projectSuspendSecretsCmd.RunE makes exactly one write call, client.SuspendProjectSecretsWithResponse; the per-secret fan-out and its single audit event are server-side (the REST row for POST /projects/{id}/secrets/suspend-all).
 cli	keyorix project use	cli/cmd/project.go	209	runProjectUse	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac	cli/cmd/rbac.go	30		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix rbac assign-role	cli/cmd/rbac.go	216	runRBACAssignRole	D	rbac.go:251-308: four read helpers build one request body; exactly one mutating call, AssignUserRoleWithResponse.

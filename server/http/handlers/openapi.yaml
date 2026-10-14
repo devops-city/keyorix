@@ -2967,6 +2967,88 @@ paths:
                   data: {$ref: '#/components/schemas/BulkDeleteResult'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
+  /api/v1/projects/{id}/secrets/suspend-all:
+    post:
+      tags: [Secrets]
+      summary: Suspend every secret in a project
+      description: >-
+        Incident-response "freeze the project": blocks value reads of every active secret
+        in the project the caller may write. Secrets the caller has no write authority over,
+        and secrets already suspended, are skipped. Requires secrets.write on the project
+        (the same permission as suspending one secret).
+      operationId: suspendProjectSecrets
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: {type: string, description: "Optional reason recorded in the audit events."}
+                clear_synced_copies:
+                  type: boolean
+                  description: >-
+                    The same per-suspension choice as on `POST /secrets/{id}/suspend`,
+                    applied to every secret this request suspends: the operator and
+                    k8s-sync empty the copies synced to Kubernetes clusters for THIS
+                    suspension, whatever each resource's `onSuspend` says. A secret that
+                    is already suspended without the choice is upgraded in place; one that
+                    already has it is left alone. Resuming (`resume-all` or per secret)
+                    removes it. Needs no permission beyond suspending. One
+                    `secret.bulk_suspend_attempted` audit event records the choice
+                    (`clear_synced_copies=true`) and the number of secrets targeted
+                    BEFORE any secret is touched; if that event cannot be recorded
+                    the request fails and nothing is suspended.
+      responses:
+        '200':
+          description: Envelope `{data, message}`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      suspended:
+                        type: integer
+                        description: Secrets suspended (or upgraded to carry the choice) by this request.
+                      clear_synced_copies:
+                        type: boolean
+                        description: Present and true only when the request carried the choice.
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
+  /api/v1/projects/{id}/secrets/resume-all:
+    post:
+      tags: [Secrets]
+      summary: Resume every suspended secret in a project
+      description: >-
+        Restores value reads of every suspended secret in the project the caller may write
+        and removes any per-suspension clear_synced_copies choice. Requires secrets.write
+        on the project.
+      operationId: resumeProjectSecrets
+      security: [{bearerAuth: []}]
+      parameters:
+        - {name: id, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Envelope `{data, message}`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      resumed: {type: integer}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/projects/{id}/secrets/render:
     post:
       tags: [Secrets]

@@ -1990,6 +1990,15 @@ type RenderSecretTemplateJSONBody struct {
 	Template string `json:"template"`
 }
 
+// SuspendProjectSecretsJSONBody defines parameters for SuspendProjectSecrets.
+type SuspendProjectSecretsJSONBody struct {
+	// ClearSyncedCopies The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended.
+	ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
+
+	// Reason Optional reason recorded in the audit events.
+	Reason *string `json:"reason,omitempty"`
+}
+
 // GetPermissionMatrixParams defines parameters for GetPermissionMatrix.
 type GetPermissionMatrixParams struct {
 	// ProjectId Filter to one project (0/omit = every project, including global grants).
@@ -2584,6 +2593,9 @@ type ReassignSecretOwnerJSONRequestBody ReassignSecretOwnerJSONBody
 
 // RenderSecretTemplateJSONRequestBody defines body for RenderSecretTemplate for application/json ContentType.
 type RenderSecretTemplateJSONRequestBody RenderSecretTemplateJSONBody
+
+// SuspendProjectSecretsJSONRequestBody defines body for SuspendProjectSecrets for application/json ContentType.
+type SuspendProjectSecretsJSONRequestBody SuspendProjectSecretsJSONBody
 
 // CreateRejectionReasonTemplateJSONRequestBody defines body for CreateRejectionReasonTemplate for application/json ContentType.
 type CreateRejectionReasonTemplateJSONRequestBody CreateRejectionReasonTemplateJSONBody

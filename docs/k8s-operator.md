@@ -94,6 +94,19 @@ field ignores the detail and follows `spec.onSuspend` (the safe direction: it ne
 more than the resource allows). Keyorix does not record which clusters hold copies, so the
 dialog offers the option without listing them.
 
+The project-wide freeze takes the same choice: *Freeze all secrets* in the project's
+Settings tab (checkbox in the dialog), `keyorix project suspend-secrets --id N
+--clear-synced-copies`, or `clear_synced_copies: true` on
+`POST /api/v1/projects/{id}/secrets/suspend-all`. It needs the same permission as the
+project freeze (`secrets.write` on the project, plus write authority over each secret) and
+marks every secret it suspends exactly as a single-secret suspend would, so the operator
+sees the same `details.clear_synced_copies` per secret. One `secret.bulk_suspend_attempted`
+audit event records the choice and how many secrets were targeted before any secret is
+touched (if it cannot be recorded, nothing is suspended); each secret also gets its own
+`secret.suspended` event, committed in the same transaction as that secret's status change
+and marker (a secret whose event cannot be recorded stays active and is not counted).
+`resume-all` removes the choice from every secret it resumes.
+
 A confirmed 404/403 is a different signal and still follows `spec.prunePolicy` (see
 "How it works"); a 401 never wipes. The state-based reconcile above does not back off: it requeues at
 `refreshInterval`, so a resume is picked up within one interval.

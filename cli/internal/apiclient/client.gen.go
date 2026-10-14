@@ -599,6 +599,14 @@ type ClientInterface interface {
 
 	RenderSecretTemplate(ctx context.Context, id int, body RenderSecretTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ResumeProjectSecrets request
+	ResumeProjectSecrets(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SuspendProjectSecretsWithBody request with any body
+	SuspendProjectSecretsWithBody(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	SuspendProjectSecrets(ctx context.Context, id int, body SuspendProjectSecretsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetProjectStats request
 	GetProjectStats(ctx context.Context, id uint32, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -3210,6 +3218,42 @@ func (c *Client) RenderSecretTemplateWithBody(ctx context.Context, id int, conte
 
 func (c *Client) RenderSecretTemplate(ctx context.Context, id int, body RenderSecretTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRenderSecretTemplateRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ResumeProjectSecrets(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeProjectSecretsRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SuspendProjectSecretsWithBody(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSuspendProjectSecretsRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) SuspendProjectSecrets(ctx context.Context, id int, body SuspendProjectSecretsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSuspendProjectSecretsRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11024,6 +11068,87 @@ func NewRenderSecretTemplateRequestWithBody(server string, id int, contentType s
 	return req, nil
 }
 
+// NewResumeProjectSecretsRequest generates requests for ResumeProjectSecrets
+func NewResumeProjectSecretsRequest(server string, id int) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/projects/%s/secrets/resume-all", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSuspendProjectSecretsRequest calls the generic SuspendProjectSecrets builder with application/json body
+func NewSuspendProjectSecretsRequest(server string, id int, body SuspendProjectSecretsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSuspendProjectSecretsRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewSuspendProjectSecretsRequestWithBody generates requests for SuspendProjectSecrets with any type of body
+func NewSuspendProjectSecretsRequestWithBody(server string, id int, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/projects/%s/secrets/suspend-all", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetProjectStatsRequest generates requests for GetProjectStats
 func NewGetProjectStatsRequest(server string, id uint32) (*http.Request, error) {
 	var err error
@@ -16005,6 +16130,14 @@ type ClientWithResponsesInterface interface {
 
 	RenderSecretTemplateWithResponse(ctx context.Context, id int, body RenderSecretTemplateJSONRequestBody, reqEditors ...RequestEditorFn) (*RenderSecretTemplateResponse, error)
 
+	// ResumeProjectSecretsWithResponse request
+	ResumeProjectSecretsWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*ResumeProjectSecretsResponse, error)
+
+	// SuspendProjectSecretsWithBodyWithResponse request with any body
+	SuspendProjectSecretsWithBodyWithResponse(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SuspendProjectSecretsResponse, error)
+
+	SuspendProjectSecretsWithResponse(ctx context.Context, id int, body SuspendProjectSecretsJSONRequestBody, reqEditors ...RequestEditorFn) (*SuspendProjectSecretsResponse, error)
+
 	// GetProjectStatsWithResponse request
 	GetProjectStatsWithResponse(ctx context.Context, id uint32, reqEditors ...RequestEditorFn) (*GetProjectStatsResponse, error)
 
@@ -19989,6 +20122,69 @@ func (r RenderSecretTemplateResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r RenderSecretTemplateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ResumeProjectSecretsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *struct {
+		Data *struct {
+			Resumed *int `json:"resumed,omitempty"`
+		} `json:"data,omitempty"`
+	}
+	JSON400 *Error
+	JSON401 *Error
+	JSON403 *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r ResumeProjectSecretsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResumeProjectSecretsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type SuspendProjectSecretsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *struct {
+		Data *struct {
+			// ClearSyncedCopies Present and true only when the request carried the choice.
+			ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
+
+			// Suspended Secrets suspended (or upgraded to carry the choice) by this request.
+			Suspended *int `json:"suspended,omitempty"`
+		} `json:"data,omitempty"`
+	}
+	JSON400 *Error
+	JSON401 *Error
+	JSON403 *Error
+	JSON500 *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r SuspendProjectSecretsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SuspendProjectSecretsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -24493,6 +24689,32 @@ func (c *ClientWithResponses) RenderSecretTemplateWithResponse(ctx context.Conte
 		return nil, err
 	}
 	return ParseRenderSecretTemplateResponse(rsp)
+}
+
+// ResumeProjectSecretsWithResponse request returning *ResumeProjectSecretsResponse
+func (c *ClientWithResponses) ResumeProjectSecretsWithResponse(ctx context.Context, id int, reqEditors ...RequestEditorFn) (*ResumeProjectSecretsResponse, error) {
+	rsp, err := c.ResumeProjectSecrets(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeProjectSecretsResponse(rsp)
+}
+
+// SuspendProjectSecretsWithBodyWithResponse request with arbitrary body returning *SuspendProjectSecretsResponse
+func (c *ClientWithResponses) SuspendProjectSecretsWithBodyWithResponse(ctx context.Context, id int, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SuspendProjectSecretsResponse, error) {
+	rsp, err := c.SuspendProjectSecretsWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSuspendProjectSecretsResponse(rsp)
+}
+
+func (c *ClientWithResponses) SuspendProjectSecretsWithResponse(ctx context.Context, id int, body SuspendProjectSecretsJSONRequestBody, reqEditors ...RequestEditorFn) (*SuspendProjectSecretsResponse, error) {
+	rsp, err := c.SuspendProjectSecrets(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSuspendProjectSecretsResponse(rsp)
 }
 
 // GetProjectStatsWithResponse request returning *GetProjectStatsResponse
@@ -31692,6 +31914,119 @@ func ParseRenderSecretTemplateResponse(rsp *http.Response) (*RenderSecretTemplat
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResumeProjectSecretsResponse parses an HTTP response from a ResumeProjectSecretsWithResponse call
+func ParseResumeProjectSecretsResponse(rsp *http.Response) (*ResumeProjectSecretsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResumeProjectSecretsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Data *struct {
+				Resumed *int `json:"resumed,omitempty"`
+			} `json:"data,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSuspendProjectSecretsResponse parses an HTTP response from a SuspendProjectSecretsWithResponse call
+func ParseSuspendProjectSecretsResponse(rsp *http.Response) (*SuspendProjectSecretsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SuspendProjectSecretsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Data *struct {
+				// ClearSyncedCopies Present and true only when the request carried the choice.
+				ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
+
+				// Suspended Secrets suspended (or upgraded to carry the choice) by this request.
+				Suspended *int `json:"suspended,omitempty"`
+			} `json:"data,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
 
 	}
 

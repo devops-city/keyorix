@@ -4,15 +4,20 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
 // SuspendProjectSecrets handles POST /api/v1/projects/{id}/secrets/suspend-all with an
-// optional {"reason": "..."}. Scoped secrets.write (project) is enforced by the router.
+// optional {"reason": "...", "clear_synced_copies": true}. clear_synced_copies is the same
+// per-suspension choice POST /secrets/{id}/suspend takes, applied to every secret the
+// request suspends. Scoped secrets.write (project) is enforced by the router, as for a
+// single-secret suspend; the flag needs no further permission.
 func (h *SecretHandler) SuspendProjectSecrets(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
@@ -25,16 +30,38 @@ func (h *SecretHandler) SuspendProjectSecrets(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var reqBody struct {
-		Reason string `json:"reason"`
+		Reason            string `json:"reason"`
+		ClearSyncedCopies bool   `json:"clear_synced_copies"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&reqBody) // optional
 
-	n, err := h.coreService.SuspendProjectSecrets(r.Context(), uint(id), userCtx.UserID, reqBody.Reason)
+	n, err := h.coreService.SuspendProjectSecretsWithOptions(r.Context(), uint(id), userCtx.UserID, reqBody.Reason,
+		core.SuspendOptions{ClearSyncedCopies: reqBody.ClearSyncedCopies})
 	if err != nil {
+		if errors.Is(err, core.ErrBulkSuspendAuditUnavailable) {
+			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; no secret was suspended", http.StatusInternalServerError, nil)
+			return
+		}
+		var partial *core.BulkSuspendPartialError
+		if errors.As(err, &partial) {
+			// Already-suspended secrets stay suspended; the counts let the operator retry.
+			msg := "Some secrets could not be suspended and are still readable; retry"
+			if partial.AuditRefused {
+				msg = "An audit event could not be recorded; the suspension stopped early, retry"
+			}
+			h.sendError(w, "InternalError", msg,
+				http.StatusInternalServerError,
+				map[string]int{"suspended": partial.Suspended, "failed": partial.Failed})
+			return
+		}
 		h.sendError(w, "InternalError", "Failed to suspend project secrets", http.StatusInternalServerError, nil)
 		return
 	}
-	h.sendSuccess(w, map[string]interface{}{"suspended": n}, "")
+	data := map[string]interface{}{"suspended": n}
+	if reqBody.ClearSyncedCopies {
+		data["clear_synced_copies"] = true
+	}
+	h.sendSuccess(w, data, "")
 }
 
 // ResumeProjectSecrets handles POST /api/v1/projects/{id}/secrets/resume-all.

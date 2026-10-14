@@ -24,6 +24,8 @@ vi.mock('../../../services/client', () => ({
         put: (...args: any[]) => mockPut(...args),
         delete: (...args: any[]) => mockDelete(...args),
     },
+    // Used by the freeze dialog to word a failed request.
+    apiErrorMessage: (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback),
 }));
 
 const navigateMock = vi.fn();
@@ -838,24 +840,69 @@ describe('ProjectSettingsTab — Incident response', () => {
         mockGet.mockResolvedValue({ data: { data: {} } });
     });
 
-    it('freezes all secrets after the confirm dialog is accepted', async () => {
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // The section button opens the freeze dialog; the dialog's confirm button carries the same label.
+    const openFreezeDialog = () => {
+        fireEvent.click(screen.getByRole('button', { name: /freeze all secrets/i }));
+        return screen.getByTestId('freeze-clear-synced-copies');
+    };
+    const confirmFreeze = () => {
+        const buttons = screen.getAllByRole('button', { name: /freeze all secrets/i });
+        fireEvent.click(buttons[buttons.length - 1]);
+    };
+
+    it('freezes all secrets after the freeze dialog is confirmed', async () => {
         mockPost.mockResolvedValue({ data: { data: { suspended: 7 } } });
 
         render(<ProjectSettingsTab projectId={1} />);
-        fireEvent.click(screen.getByRole('button', { name: /freeze all secrets/i }));
+        openFreezeDialog();
+        expect(mockPost).not.toHaveBeenCalled();
+        confirmFreeze();
 
         await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/api/v1/projects/1/secrets/suspend-all', {}));
         expect(await screen.findByText(/froze 7 secret\(s\)/i)).toBeInTheDocument();
+        expect(screen.queryByText(/synced to kubernetes clusters will be cleared/i)).not.toBeInTheDocument();
     });
 
-    it('does not freeze secrets when the confirm dialog is declined', () => {
-        vi.spyOn(window, 'confirm').mockReturnValue(false);
-
+    it('does not freeze secrets when the freeze dialog is cancelled', () => {
         render(<ProjectSettingsTab projectId={1} />);
-        fireEvent.click(screen.getByRole('button', { name: /freeze all secrets/i }));
+        openFreezeDialog();
+        fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
 
         expect(mockPost).not.toHaveBeenCalled();
+    });
+
+    it('sends clear_synced_copies only when the checkbox is ticked, and says to rotate', async () => {
+        mockPost.mockResolvedValue({ data: { data: { suspended: 4, clear_synced_copies: true } } });
+
+        render(<ProjectSettingsTab projectId={1} />);
+        const checkbox = openFreezeDialog();
+        expect(checkbox).not.toBeChecked();
+        expect(screen.getByText(/rotate the secrets if they may be compromised/i)).toBeInTheDocument();
+        fireEvent.click(checkbox);
+        confirmFreeze();
+
+        await waitFor(() =>
+            expect(mockPost).toHaveBeenCalledWith('/api/v1/projects/1/secrets/suspend-all', {
+                clear_synced_copies: true,
+            })
+        );
+        expect(await screen.findByText(/froze 4 secret\(s\)/i)).toBeInTheDocument();
+        expect(
+            screen.getByText(/synced to kubernetes clusters will be cleared on their next sync/i)
+        ).toBeInTheDocument();
+        expect(screen.getByText(/rotate these secrets/i)).toBeInTheDocument();
+    });
+
+    it('starts every freeze dialog unchecked: the choice is never remembered', async () => {
+        mockPost.mockResolvedValue({ data: { data: { suspended: 1 } } });
+
+        render(<ProjectSettingsTab projectId={1} />);
+        fireEvent.click(openFreezeDialog());
+        confirmFreeze();
+        await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1));
+        await screen.findByText(/froze 1 secret\(s\)/i);
+
+        expect(openFreezeDialog()).not.toBeChecked();
     });
 
     it('resumes all secrets without a confirm dialog', async () => {
@@ -869,11 +916,11 @@ describe('ProjectSettingsTab — Incident response', () => {
     });
 
     it('defaults the frozen count to 0 when the server omits it', async () => {
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockPost.mockResolvedValue({ data: {} });
 
         render(<ProjectSettingsTab projectId={1} />);
-        fireEvent.click(screen.getByRole('button', { name: /freeze all secrets/i }));
+        openFreezeDialog();
+        confirmFreeze();
 
         expect(await screen.findByText(/froze 0 secret\(s\)/i)).toBeInTheDocument();
     });
@@ -887,14 +934,16 @@ describe('ProjectSettingsTab — Incident response', () => {
         expect(await screen.findByText(/resumed 0 secret\(s\)/i)).toBeInTheDocument();
     });
 
-    it('shows a generic error alert when freezing secrets fails', async () => {
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('shows a generic error alert when freezing secrets fails, and keeps the dialog open', async () => {
         mockPost.mockRejectedValue(new Error('network down'));
 
         render(<ProjectSettingsTab projectId={1} />);
-        fireEvent.click(screen.getByRole('button', { name: /freeze all secrets/i }));
+        openFreezeDialog();
+        confirmFreeze();
 
         expect(await screen.findByText('The action failed. Please try again.')).toBeInTheDocument();
+        expect(await screen.findByText('Freeze failed')).toBeInTheDocument();
+        expect(screen.getByTestId('freeze-clear-synced-copies')).toBeInTheDocument();
     });
 });
 

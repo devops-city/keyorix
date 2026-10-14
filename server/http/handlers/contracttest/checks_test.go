@@ -273,6 +273,11 @@ func TestEnforcedSetMatchesADR074(t *testing.T) {
 		// setup-only session ends when the password change finishes setup) --
 		// openapi_contract_recover1_test.go.
 		"changePassword": true,
+
+		// Project-wide suspend/resume gained OpenAPI entries (with response schemas) when
+		// suspend-all took clear_synced_copies -- openapi_contract_project_suspend_test.go.
+		"suspendProjectSecrets": true,
+		"resumeProjectSecrets":  true,
 	}
 
 	loadSpec()

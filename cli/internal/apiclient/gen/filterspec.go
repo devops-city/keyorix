@@ -248,6 +248,8 @@ var keptPaths = []string{
 	"/api/v1/projects/{id}/secrets/bulk-rotate",
 	"/api/v1/projects/{id}/secrets/bulk-rename",
 	"/api/v1/projects/{id}/secrets/bulk-delete",
+	"/api/v1/projects/{id}/secrets/suspend-all",
+	"/api/v1/projects/{id}/secrets/resume-all",
 	"/api/v1/projects/{id}/secrets/render",
 	// FINISH-SPLIT census-gaps batch (docs/cli-split-inventory-census.md) -- the last 3
 	// command-census gaps: billing report, usage show, migrate user-to-machine.

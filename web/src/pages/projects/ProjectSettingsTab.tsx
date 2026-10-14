@@ -9,6 +9,7 @@ import {
     ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline';
 import { useProject, useProjectEnvironments, useRestoreEnvironment, PROJECT_KEYS } from '../../features/projects/api';
+import { FreezeProjectModal } from '../../features/projects/FreezeProjectModal';
 import { apiClient } from '../../services/client';
 import { triggerBlobDownload } from '../../utils';
 import { Button } from '../../components/ui/Button';
@@ -952,10 +953,11 @@ function renderComplianceSection({
 }
 
 interface RenderIncidentResponseSectionProps {
-    suspendAllMutation: { isPending: boolean; isError: boolean; mutate: () => void };
+    suspendAllMutation: { isPending: boolean; isError: boolean };
     resumeAllMutation: { isPending: boolean; isError: boolean; mutate: () => void };
     freezeMsg: string;
     setFreezeMsg: (v: string) => void;
+    onOpenFreeze: () => void;
 }
 
 function renderIncidentResponseSection({
@@ -963,6 +965,7 @@ function renderIncidentResponseSection({
     resumeAllMutation,
     freezeMsg,
     setFreezeMsg,
+    onOpenFreeze,
 }: RenderIncidentResponseSectionProps): React.ReactNode {
     return (
         <section>
@@ -986,14 +989,8 @@ function renderIncidentResponseSection({
                         variant="outline"
                         disabled={suspendAllMutation.isPending}
                         onClick={() => {
-                            if (
-                                window.confirm(
-                                    'Freeze ALL secrets in this project? Value reads will be blocked until you resume them.'
-                                )
-                            ) {
-                                setFreezeMsg('');
-                                suspendAllMutation.mutate();
-                            }
+                            setFreezeMsg('');
+                            onOpenFreeze();
                         }}
                     >
                         {suspendAllMutation.isPending ? 'Freezing…' : 'Freeze all secrets'}
@@ -1261,10 +1258,22 @@ export const ProjectSettingsTab: React.FC<ProjectSettingsTabProps> = ({ projectI
 
     // Incident-response: freeze / thaw every secret in the project (server #317).
     const [freezeMsg, setFreezeMsg] = useState('');
+    const [freezeOpen, setFreezeOpen] = useState(false);
     const suspendAllMutation = useMutation({
-        mutationFn: () => apiClient.post(`/api/v1/projects/${projectId}/secrets/suspend-all`, {}),
-        onSuccess: (res: any) => {
-            setFreezeMsg(`Froze ${res?.data?.data?.suspended ?? 0} secret(s) — value reads are blocked.`);
+        // clear_synced_copies is the per-freeze choice from the dialog; the body stays {} without it.
+        mutationFn: (clearSyncedCopies: boolean) =>
+            apiClient.post(
+                `/api/v1/projects/${projectId}/secrets/suspend-all`,
+                clearSyncedCopies ? { clear_synced_copies: true } : {}
+            ),
+        onSuccess: (res: any, clearSyncedCopies: boolean) => {
+            setFreezeOpen(false);
+            setFreezeMsg(
+                `Froze ${res?.data?.data?.suspended ?? 0} secret(s) — value reads are blocked.` +
+                    (clearSyncedCopies
+                        ? ' Copies synced to Kubernetes clusters will be cleared on their next sync. Rotate these secrets if they may be compromised.'
+                        : '')
+            );
             queryClient.invalidateQueries({ queryKey: ['project-secrets', projectId] });
         },
     });
@@ -1441,7 +1450,23 @@ export const ProjectSettingsTab: React.FC<ProjectSettingsTabProps> = ({ projectI
             {renderComplianceSection({ inventoryMsg, inventoryBusy, handleExportInventory })}
 
             {/* ── Incident response ── */}
-            {renderIncidentResponseSection({ suspendAllMutation, resumeAllMutation, freezeMsg, setFreezeMsg })}
+            {renderIncidentResponseSection({
+                suspendAllMutation,
+                resumeAllMutation,
+                freezeMsg,
+                setFreezeMsg,
+                onOpenFreeze: () => {
+                    suspendAllMutation.reset();
+                    setFreezeOpen(true);
+                },
+            })}
+            <FreezeProjectModal
+                isOpen={freezeOpen}
+                pending={suspendAllMutation.isPending}
+                error={suspendAllMutation.error}
+                onClose={() => setFreezeOpen(false)}
+                onConfirm={(clear) => suspendAllMutation.mutate(clear)}
+            />
 
             {/* ── Orphaned secrets ── (only when present; it's an alert) */}
             {renderOrphanedSecretsSection({

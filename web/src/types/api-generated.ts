@@ -1988,6 +1988,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/secrets/suspend-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Suspend every secret in a project
+         * @description Incident-response "freeze the project": blocks value reads of every active secret in the project the caller may write. Secrets the caller has no write authority over, and secrets already suspended, are skipped. Requires secrets.write on the project (the same permission as suspending one secret).
+         */
+        post: operations["suspendProjectSecrets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/secrets/resume-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resume every suspended secret in a project
+         * @description Restores value reads of every suspended secret in the project the caller may write and removes any per-suspension clear_synced_copies choice. Requires secrets.write on the project.
+         */
+        post: operations["resumeProjectSecrets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{id}/secrets/render": {
         parameters: {
             query?: never;
@@ -9445,6 +9485,77 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+        };
+    };
+    suspendProjectSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Optional reason recorded in the audit events. */
+                    reason?: string;
+                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. */
+                    clear_synced_copies?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Envelope `{data, message}`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: {
+                            /** @description Secrets suspended (or upgraded to carry the choice) by this request. */
+                            suspended?: number;
+                            /** @description Present and true only when the request carried the choice. */
+                            clear_synced_copies?: boolean;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    resumeProjectSecrets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Envelope `{data, message}`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data?: {
+                            resumed?: number;
+                        };
+                    };
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
         };
     };
     renderSecretTemplate: {
