@@ -79,6 +79,14 @@ type SecurityInfo struct {
 	// AuditDurableSyncSkipNotInEffectReason below, so the two states stay
 	// distinguishable from this response alone.
 	AuditDurableSyncSkipped bool `json:"audit_durable_sync_skipped"`
+	// AccessLogOnSinkStall is the effective server.access_log.on_sink_stall:
+	// "block" (default; no access-log line is ever lost, requests wait for a
+	// stalled sink) or "drop" (keeps serving; lines past the 1 MiB queue are
+	// dropped and counted). The audit trail is unaffected either way.
+	AccessLogOnSinkStall string `json:"access_log_on_sink_stall"`
+	// AccessLogDropped is how many access-log lines this process has dropped
+	// since start because the sink stalled. Always 0 in block mode.
+	AccessLogDropped uint64 `json:"access_log_dropped"`
 	// AuditDurableSyncSkipNotInEffectReason is non-empty ONLY when
 	// insecure_audit_skip_durable_sync is present in the config but is not in
 	// effect on this backend -- so a non-empty value always means "the
@@ -250,6 +258,8 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				// config-file-only (ADR-112 Amendment 1; the guard is
 				// TestInsecureAuditSkipDurableSync_NoWriteAssignment).
 				AuditDurableSyncSkipped:               fastAuditStatus.InEffect,
+				AccessLogOnSinkStall:                  cfg.Server.AccessLog.EffectiveOnSinkStall(),
+				AccessLogDropped:                      middleware.AccessLogDropped(),
 				AuditDurableSyncSkipNotInEffectReason: fastAuditStatus.NotInEffectReason,
 				RecoveryKey:                           recoveryKeyStatus,
 			},

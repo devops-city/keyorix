@@ -198,6 +198,7 @@ security.recover_admin.insecure_keyless_admin_recovery
 security.recovery_one_time_password_ttl
 security.require_mfa
 security.require_transport_tls
+server.access_log.on_sink_stall
 server.grpc.allowed_origins
 server.grpc.domain
 server.grpc.enabled

@@ -16,6 +16,14 @@ data:
     # refuse to start. deploy TestShippedHelmConfig_FilePermissionCheckIsOn
     # pins this.
     server:
+      {{- with (.Values.server.accessLog | default dict).onSinkStall }}
+      {{- if not (has . (list "block" "drop")) }}
+      {{- fail (printf "server.accessLog.onSinkStall: %q must be block or drop" (toString .)) }}
+      {{- end }}
+      # server.accessLog.onSinkStall: what a request does when the log sink stalls.
+      access_log:
+        on_sink_stall: {{ . | quote }}
+      {{- end }}
       http:
         enabled: true
         # Pod networking: the kubelet probes and Service reach the pod IP, so

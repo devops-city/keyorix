@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -83,8 +82,19 @@ func logSafeRequestURI(r *http.Request) string {
 // token remains live (the describe GET does not consume it) — a log reader could
 // use it for account takeover.
 func Logger() func(next http.Handler) http.Handler {
+	return LoggerDropOnSinkStall(false)
+}
+
+// LoggerDropOnSinkStall is Logger with the access-log stall mode chosen:
+// drop=false is server.access_log.on_sink_stall "block" (the default: a full
+// queue makes the request wait, no line is lost), drop=true is "drop" (the
+// request proceeds, the line is counted and reported; see accessLogWriter).
+func LoggerDropOnSinkStall(drop bool) func(next http.Handler) http.Handler {
 	formatter := &middleware.DefaultLogFormatter{
-		Logger: log.Default(),
+		// Not log.Default(): its mutex is held across the write syscall, which
+		// serialised every request at high concurrency. Same destination, prefix
+		// and line format; see accessLogWriter.
+		Logger: newAccessLogWriter(drop),
 		// #G29: server access logs are captured non-interactively (container
 		// logs, a log-aggregation SaaS) where ANSI color codes are noise at
 		// best and an unnecessary terminal-control byte stream at worst if

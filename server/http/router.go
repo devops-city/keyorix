@@ -89,7 +89,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// the header unconditionally, which lets any client spoof its source IP and defeat the
 	// per-IP login/MFA brute-force rate limiter.
 	r.Use(customMiddleware.ClientIP(cfg.Server.HTTP.TrustedProxies))
-	r.Use(customMiddleware.Logger())
+	r.Use(customMiddleware.LoggerDropOnSinkStall(cfg.Server.AccessLog.EffectiveOnSinkStall() == config.AccessLogOnSinkStallDrop))
 	r.Use(customMiddleware.SecurityHeaders(cfg.Server.HTTP.TLS.Enabled, cfg.Server.HTTP.HSTSPreload))
 	// Global default: no-store on every response (#433). This is a secrets manager — a
 	// browser or intermediate proxy must never be allowed to cache anything by default,

@@ -111,6 +111,14 @@ server:
       burst: 50
     metrics_token_file: "secrets/metrics_token"
 
+  # What a request does when the access-log sink (stdout / a log collector) stalls
+  # and the 1 MiB in-memory queue is full. "block" (default): wait, so no access-log
+  # line is ever lost. "drop": keep serving secrets; lines past the queue are dropped
+  # and reported (warning log, GET /api/v1/system/info access_log_dropped); the audit
+  # trail is unaffected.
+  # access_log:
+  #   on_sink_stall: block
+
 storage:
   type: sqlite  # options: sqlite, postgres. For PostgreSQL change THIS line to "type: postgres" (the backend selector is storage.type, not a key under database:)
 

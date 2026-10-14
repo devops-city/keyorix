@@ -166,6 +166,8 @@ server:
       burst: 100
     metrics_token: ""             # GET /metrics then requires "Authorization: Bearer <token>"
     metrics_token_file: ""        # or read the token from this file (secret-file rules, see below); set one, not both
+  access_log:
+    on_sink_stall: block          # block (default) | drop — what a request does when the access-log sink stalls (see below)
   grpc:
     # Partial surface, off by default. HTTP is the complete interface; enable this
     # only if you need it, and read docs/adr-105-grpc-scope-and-parity.md first —
@@ -493,6 +495,28 @@ healthy battery-backed RAID write cache, or replicated cloud block storage.
 what you give up, the measured before/after, and the four places the setting is
 surfaced once it is on (startup warning, an audit event in the hash chain at
 every boot, `admin validate`, and `GET /api/v1/system/info`).
+### Access log when the sink stalls (`server.access_log.on_sink_stall`)
+
+The HTTP access log is written through a 1 MiB in-memory queue to the process
+log (stdout, a pipe to a log collector). If that sink stalls and the queue fills:
+
+| `on_sink_stall` | Behaviour |
+|---|---|
+| `block` (default) | Requests wait for the sink. No access-log line is ever lost; every request stalls while the sink does. |
+| `drop` | Keeps serving secrets when the log sink stalls; access-log lines past the 1 MiB queue are dropped and reported; the audit trail is unaffected. |
+
+`drop` is opt-in, config-file only, and never silent:
+
+- a counter, `access_log_dropped`, plus the effective mode `access_log_on_sink_stall`,
+  in `GET /api/v1/system/info` (`security`);
+- a warning line at most once per 10 s while drops happen (with the count since the
+  previous warning), and one `access log sink recovered, N lines dropped in total`
+  line when the sink catches up;
+- the mode at startup and, when `drop`, in `keyorix-server admin validate` (posture).
+
+Any other value is rejected at startup. The Helm chart sets it with
+`server.accessLog.onSinkStall`.
+
 ## Encryption & KEK providers
 
 Envelope encryption (ADR-004): a per-process **DEK** encrypts secrets/tokens and

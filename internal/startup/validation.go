@@ -180,8 +180,38 @@ func validateStartup(configPath string, forceAutoFix bool, tolerateUnprovisioned
 	// deviation goes here, both as a human-readable Warnings line and as a
 	// structured InsecureSettings entry.
 	appendFastAuditPosture(cfg, result)
+	appendAccessLogPosture(cfg, result)
 
 	return result, nil
+}
+
+// AccessLogOnSinkStallSettingName is the dotted config path of the access-log
+// stall mode.
+const AccessLogOnSinkStallSettingName = "server.access_log.on_sink_stall"
+
+const accessLogDropDescribe = "when the log sink stalls, access-log lines past the 1 MiB queue are " +
+	"dropped (counted in /api/v1/system/info access_log_dropped) instead of making requests wait"
+
+// AccessLogDropModeWarning is the startup and posture line when
+// server.access_log.on_sink_stall is "drop". The default "block" is not a
+// deviation and records nothing, so a default install still shows zero.
+const AccessLogDropModeWarning = "Access log stall mode is DROP (server.access_log.on_sink_stall): " +
+	"keeps serving secrets when the log sink stalls; access-log lines past the 1 MiB queue are dropped " +
+	"and reported; the audit trail is unaffected"
+
+// appendAccessLogPosture records the drop mode in result, like the fast audit
+// mode. It is always in effect when configured.
+func appendAccessLogPosture(cfg *config.Config, result *ValidationResult) {
+	if cfg.Server.AccessLog.EffectiveOnSinkStall() != config.AccessLogOnSinkStallDrop {
+		return
+	}
+	result.InsecureSettings = append(result.InsecureSettings, InsecureSettingStatus{
+		Name:       AccessLogOnSinkStallSettingName,
+		Configured: true,
+		InEffect:   true,
+		Describe:   accessLogDropDescribe,
+	})
+	result.Warnings = append(result.Warnings, AccessLogDropModeWarning)
 }
 
 // AuditSkipDurableSyncSettingName is the canonical dotted config path of the

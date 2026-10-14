@@ -622,6 +622,14 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 		}
 	}
 
+	// Access-log stall mode (server.access_log.on_sink_stall): always reported at
+	// startup so the effective mode is visible; "drop" is a WARNING.
+	if mode := cfg.Server.AccessLog.EffectiveOnSinkStall(); mode == config.AccessLogOnSinkStallDrop {
+		log.Printf("WARNING: %s", startup.AccessLogDropModeWarning)
+	} else {
+		log.Printf("access log: server.access_log.on_sink_stall=%s (no line is dropped; requests wait for a stalled sink)", mode)
+	}
+
 	// Top up the canonical RBAC permission catalog (ADR-044): adds any permission
 	// introduced in a later release to an already-initialised install, granting it to
 	// its baseline roles. No-op pre-bootstrap and best-effort (never blocks startup).

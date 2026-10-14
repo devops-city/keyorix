@@ -356,8 +356,54 @@ func (c *Config) LocaleSettings() (language, fallbackLanguage string) {
 }
 
 type ServerConfig struct {
-	HTTP ServerInstanceConfig `yaml:"http"`
-	GRPC ServerInstanceConfig `yaml:"grpc"`
+	HTTP      ServerInstanceConfig `yaml:"http"`
+	GRPC      ServerInstanceConfig `yaml:"grpc"`
+	AccessLog AccessLogConfig      `yaml:"access_log,omitempty"`
+}
+
+// Values of server.access_log.on_sink_stall.
+const (
+	// AccessLogOnSinkStallBlock (the default) makes a request wait when the
+	// access-log queue is full because the log sink has stalled: no line is ever
+	// lost, but every request stalls with the sink.
+	AccessLogOnSinkStallBlock = "block"
+	// AccessLogOnSinkStallDrop keeps serving when the sink stalls; lines past the
+	// 1 MiB queue are dropped, counted, and reported.
+	AccessLogOnSinkStallDrop = "drop"
+)
+
+// AccessLogConfig configures the HTTP access log (not the audit trail).
+type AccessLogConfig struct {
+	// OnSinkStall is what a request does when the access-log sink (stdout, a
+	// pipe to a log collector) has stalled and the 1 MiB in-memory queue is full.
+	//
+	//   - "" or "block" (default): wait for the sink. No access-log line is ever
+	//     lost; requests stall while the sink does.
+	//   - "drop": keep serving secrets. Lines past the queue are dropped, counted
+	//     (GET /api/v1/system/info security.access_log_dropped), and reported by a
+	//     rate-limited warning plus a recovery line. The audit trail is unaffected:
+	//     it is written separately and never dropped.
+	//
+	// Config file only, like the fast audit mode, since "drop" trades log
+	// completeness for availability. Any other value is rejected by Validate.
+	OnSinkStall string `yaml:"on_sink_stall,omitempty"`
+}
+
+// EffectiveOnSinkStall returns the mode in effect: "block" when unset.
+func (a AccessLogConfig) EffectiveOnSinkStall() string {
+	if a.OnSinkStall == "" {
+		return AccessLogOnSinkStallBlock
+	}
+	return a.OnSinkStall
+}
+
+func validateAccessLogOnSinkStall(v string) error {
+	switch v {
+	case "", AccessLogOnSinkStallBlock, AccessLogOnSinkStallDrop:
+		return nil
+	}
+	return fmt.Errorf("server.access_log.on_sink_stall: unknown value %q (want %q or %q)",
+		v, AccessLogOnSinkStallBlock, AccessLogOnSinkStallDrop)
 }
 
 // DefaultBindHost is the listen address used when server.http.host /
@@ -2671,6 +2717,9 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		return err
 	}
 	if err := validateTLSMode("server.grpc.tls_mode", c.Server.GRPC.TLSMode); err != nil {
+		return err
+	}
+	if err := validateAccessLogOnSinkStall(c.Server.AccessLog.OnSinkStall); err != nil {
 		return err
 	}
 	if err := validateBindHost("server.http.host", c.Server.HTTP.Host); err != nil {

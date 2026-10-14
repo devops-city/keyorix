@@ -114,6 +114,14 @@ server:
   # reaches the server through a TLS-terminating load balancer (the chart's Ingress
   # routes to web, whose nginx makes its own decision; see web.trustedProxies).
   trustedProxies: []
+  # accessLog.onSinkStall is the server's server.access_log.on_sink_stall: what a
+  # request does when the access-log sink (the container's stdout/log collector)
+  # stalls and the 1 MiB queue is full. "block" (default, same as empty): wait, so
+  # no access-log line is ever lost. "drop": keeps serving secrets when the log sink
+  # stalls; access-log lines past the 1 MiB queue are dropped and reported (warning
+  # log, GET /api/v1/system/info access_log_dropped); the audit trail is unaffected.
+  accessLog:
+    onSinkStall: ""
   # Persistent volume for the wrapped DEK + KEK salt (/app/keys). MUST persist —
   # losing it makes every stored secret undecryptable. Back it up.
   keysPersistence:
