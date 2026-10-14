@@ -162,4 +162,3 @@ func TestSingleWriter_Postgres_OperatorJourney(t *testing.T) {
 	require.NoError(t, db.Raw("SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'trg\\_ksw\\_%'").Scan(&n).Error)
 	require.Zero(t, n)
 }
-
