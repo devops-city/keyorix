@@ -27,6 +27,8 @@ tag fires three workflows that publish everything a user consumes.
    secure baseline needs an image newer than v0.95.3). `go test ./deploy/`
    (`TestComposeSecureBaselineFoldedAfterRelease`, `TestHelmSecureBaselineOnByDefaultAfterRelease`)
    fails until that is done.
+   Also refresh `server/default.pgo` for the release (`docs/pgo.md`,
+   `scripts/pgo/refresh.sh`); it is the server's profile-guided-optimisation input.
 4. Tag and push:
 
    ```sh

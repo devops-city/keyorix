@@ -1,0 +1,20 @@
+// Profiling-build-only hook, installed by scripts/pgo/refresh.sh hook and removed by
+// `unhook`. NEVER commit it: it opens an unauthenticated pprof listener.
+package main
+
+import (
+	"log"
+	"net/http"
+	_ "net/http/pprof" // #nosec G108 -- profiling build only, never committed
+	"os"
+)
+
+func init() {
+	if os.Getenv("KEYORIX_PGO_CAPTURE") == "" {
+		return
+	}
+	go func() {
+		// #nosec G114 -- profiling build only, never committed
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
+}
