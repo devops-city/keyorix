@@ -22,7 +22,8 @@ Format: `INV-MW-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
 - **INV-MW-02** On a cache hit, a machine token's restriction/revoked/expired/active-state is
   re-checked live (`CurrentMachineTokenRestriction`), including a CIDR-allowlist refresh. Guard:
   `g18_cache_hit_revocation_test.go` (`TestAuthentication_MachineTokenCIDR_RefreshesOnCacheHit`,
-  `_MachineTokenRevokedAfterCache_DeniedOnCacheHit`).
+  `_MachineTokenRevokedAfterCache_DeniedOnCacheHit`); with the read-path fold armed
+  (`credential_read_fold.go`): `server/http/folded_credential_test.go`.
 - **INV-MW-03** On a session cache hit, account usability (`AccountUsabilityAndState`) is
   re-checked live; an outright-unusable account denies AND evicts, while a usable-but-newly-
   `Restricted` state (pending_first_login/password_reset_required) is cloned onto the effective

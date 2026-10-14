@@ -568,6 +568,15 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 				effective = cloneUserContextWithRestriction(entry.userCtx, fresh)
 			}
 		case strings.HasPrefix(token, machineTokenPrefix):
+			// PERF-LEVER2: the same re-check, asked to read the requested
+			// secret's node in its statement too (credential_read_fold.go).
+			// The verdict below is unchanged.
+			if mid := entry.userCtx.MachineIdentityID; mid != nil {
+				if id, ok := credentialReadFoldTarget(r, *mid); ok {
+					wantValue := r.URL.Query().Get("include_value") == "true"
+					r = r.WithContext(storage.NewReadPathPrefetchFolding(r.Context(), *mid, wantValue, id))
+				}
+			}
 			fresh, err := coreService.CurrentMachineTokenRestriction(r.Context(), token)
 			switch {
 			// #2518: ErrMachineIdentityNotActive belongs with the other two.
@@ -626,6 +635,12 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 	if !tokenNetworkAllowed(r, effective) {
 		forbiddenResponse(w, "token not permitted from this network")
 		return
+	}
+	if mid := effective.MachineIdentityID; mid != nil && strings.HasPrefix(token, machineTokenPrefix) {
+		if id, ok := secretReadPathID(r); ok {
+			serveMarkingSecretRead(next, w, r.WithContext(buildRequestContext(r.Context(), effective, coreService)), *mid, id)
+			return
+		}
 	}
 	next.ServeHTTP(w, r.WithContext(buildRequestContext(r.Context(), effective, coreService)))
 }
@@ -797,8 +812,15 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 	var prefetch *storage.ReadPathPrefetch
 	if userCtx.ActorKind() == core.ActorTypeMachine && userCtx.MachineIdentityID != nil {
 		wantValue := r.Method == http.MethodGet && permission == "secrets.read" && r.URL.Query().Get("include_value") == "true"
-		r = r.WithContext(storage.NewReadPathPrefetch(r.Context(), *userCtx.MachineIdentityID, wantValue))
-		prefetch = storage.ReadPathPrefetchFrom(r.Context())
+		if p := storage.ReadPathPrefetchFrom(r.Context()); p != nil && p.MachineID == *userCtx.MachineIdentityID && p.WantScheduleVersion == wantValue {
+			// The carrier the credential re-check already filled for this
+			// request (credential_read_fold.go). GetSecret takes its node read
+			// only for this secret and machine.
+			prefetch = p
+		} else {
+			r = r.WithContext(storage.NewReadPathPrefetch(r.Context(), *userCtx.MachineIdentityID, wantValue))
+			prefetch = storage.ReadPathPrefetchFrom(r.Context())
+		}
 	}
 	secret, err := cs.Storage().GetSecret(r.Context(), secretID)
 	if err != nil {

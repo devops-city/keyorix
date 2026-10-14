@@ -12,6 +12,15 @@
 // answers exactly as before, so the carrier is purely an optimisation: it never
 // changes what is asked, only how many statements it takes.
 //
+// Folding into the credential statement (PERF-LEVER2): on a machine-token
+// cache hit for one secret's read, the auth middleware creates the carrier with
+// a fold target (NewReadPathPrefetchFolding). The live credential re-check then
+// reads that secret's node stamp and the same answers in its own statement, and
+// parks them as a PrefetchedNodeStamp. The credential is judged exactly as
+// without the fold; the node answers are used only by GetSecret for that
+// secret and that machine, once, and only if the stamp still confirms the
+// cached node.
+//
 // Freshness: the parked answers were read in the statement that validated the
 // node cache entry, i.e. during this request and immediately before the
 // decisions that use them. They are taken at most once (Take*), never kept past
@@ -42,6 +51,16 @@ type PrefetchedScheduleVersion struct {
 	State any
 }
 
+// PrefetchedNodeStamp is the node read parked by the credential statement:
+// the stamp and trigger proof of SecretID plus the answers above, for the
+// machine whose credential was read.
+type PrefetchedNodeStamp struct {
+	SecretID  uint
+	MachineID uint
+	// State is opaque to everything but the implementation that parked it.
+	State any
+}
+
 // ReadPathPrefetch is the per-request carrier. The zero value is not usable;
 // build it with NewReadPathPrefetch.
 type ReadPathPrefetch struct {
@@ -52,6 +71,8 @@ type ReadPathPrefetch struct {
 	WantScheduleVersion bool
 
 	mu         sync.Mutex
+	foldSecret uint
+	node       *PrefetchedNodeStamp
 	permission *PrefetchedPermission
 	schedule   *PrefetchedScheduleVersion
 }
@@ -62,6 +83,15 @@ type readPathPrefetchKey struct{}
 func NewReadPathPrefetch(ctx context.Context, machineID uint, wantScheduleVersion bool) context.Context {
 	return context.WithValue(ctx, readPathPrefetchKey{}, &ReadPathPrefetch{
 		MachineID: machineID, WantScheduleVersion: wantScheduleVersion,
+	})
+}
+
+// NewReadPathPrefetchFolding is NewReadPathPrefetch plus a fold target: the
+// request's machine-credential lookup may read secretID's node in the same
+// statement (see the file header).
+func NewReadPathPrefetchFolding(ctx context.Context, machineID uint, wantScheduleVersion bool, secretID uint) context.Context {
+	return context.WithValue(ctx, readPathPrefetchKey{}, &ReadPathPrefetch{
+		MachineID: machineID, WantScheduleVersion: wantScheduleVersion, foldSecret: secretID,
 	})
 }
 
@@ -110,5 +140,36 @@ func (p *ReadPathPrefetch) TakeScheduleVersion(secretID uint) *PrefetchedSchedul
 		return nil
 	}
 	p.schedule = nil
+	return got
+}
+
+// TakeFoldTarget returns the fold target and clears it: at most one
+// credential lookup per request is folded.
+func (p *ReadPathPrefetch) TakeFoldTarget() uint {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	id := p.foldSecret
+	p.foldSecret = 0
+	return id
+}
+
+// ParkNodeStamp stores the node read made by the credential statement.
+func (p *ReadPathPrefetch) ParkNodeStamp(ns *PrefetchedNodeStamp) {
+	p.mu.Lock()
+	p.node = ns
+	p.mu.Unlock()
+}
+
+// TakeNodeStamp returns the parked node read if it was read for secretID and
+// machineID, otherwise nil. Either way it is cleared: the first secret read of
+// the request uses it or discards it.
+func (p *ReadPathPrefetch) TakeNodeStamp(secretID, machineID uint) *PrefetchedNodeStamp {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	got := p.node
+	p.node = nil
+	if got == nil || got.SecretID != secretID || got.MachineID != machineID {
+		return nil
+	}
 	return got
 }

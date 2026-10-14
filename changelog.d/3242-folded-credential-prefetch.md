@@ -1,0 +1,2 @@
+### Changed
+- **Fewer round trips on a repeated machine secret read.** On a machine-token cache hit for `GET /api/v1/secrets/{id}`, the live credential re-check also reads the secret's node stamp, roles and schedule state in the same statement once this server has already served that machine that secret. The credential is judged by the same code at the same point; refusals, eviction and the network allowlist are unchanged.

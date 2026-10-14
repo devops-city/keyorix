@@ -81,6 +81,7 @@ type svReplica struct {
 
 type svWorld struct {
 	a, b    *svReplica // b is nil unless two replicas were asked for
+	c       *svReplica // nil unless three replicas were asked for
 	backend string
 	adminID uint
 	projID  uint
@@ -104,6 +105,9 @@ func svStorageConfig(t *testing.T, backend string) *config.Config {
 		require.NoError(t, err)
 		require.NoError(t, admin.Exec("DROP SCHEMA IF EXISTS "+schema+" CASCADE").Error)
 		require.NoError(t, admin.Exec("CREATE SCHEMA "+schema).Error)
+		if sqlDB, err := admin.DB(); err == nil {
+			t.Cleanup(func() { _ = sqlDB.Close() }) // runs after the DROP below
+		}
 		t.Cleanup(func() { _ = admin.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error })
 		return &config.Config{Storage: config.StorageConfig{Type: "postgres", Database: config.DatabaseConfig{DSN: pgdsn.PGSearchPathDSN(pgDSN, schema)}}}
 	}
@@ -120,6 +124,9 @@ func newSVReplica(t *testing.T, cfg *config.Config) *svReplica {
 	ls, ok := st.(*store.LocalStorage)
 	require.True(t, ok, "%T", st)
 	r := &svReplica{c: core.NewKeyorixCore(st), db: ls.DB()}
+	if sqlDB, err := r.db.DB(); err == nil {
+		t.Cleanup(func() { _ = sqlDB.Close() })
+	}
 	record := func(db *gorm.DB) {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -158,8 +165,11 @@ func newSVWorld(t *testing.T, backend string, replicas int) *svWorld {
 	t.Cleanup(i18n.ResetForTesting)
 	cfg := svStorageConfig(t, backend)
 	w := &svWorld{backend: backend, a: newSVReplica(t, cfg)}
-	if replicas == 2 {
+	if replicas >= 2 {
 		w.b = newSVReplica(t, cfg)
+	}
+	if replicas >= 3 {
+		w.c = newSVReplica(t, cfg)
 	}
 	c, db, ctx := w.a.c, w.a.db, context.Background()
 

@@ -110,7 +110,10 @@ func rrInStorageGetSecret() bool {
 	frames := runtime.CallersFrames(pcs[:runtime.Callers(3, pcs)])
 	for {
 		f, more := frames.Next()
-		if strings.HasSuffix(f.Function, "store.(*LocalStorage).GetSecret") {
+		// The folded machine-credential statement (PERF-LEVER2) reads the
+		// node that GetSecret then takes, so it counts as that fetch.
+		if strings.HasSuffix(f.Function, "store.(*LocalStorage).GetSecret") ||
+			strings.HasSuffix(f.Function, "store.(*LocalStorage).getMachineCredentialFolded") {
 			return true
 		}
 		if !more {

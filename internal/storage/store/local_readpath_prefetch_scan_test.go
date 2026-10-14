@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,4 +119,47 @@ func TestReadPathPrefetchSQL_OneTextPerShape(t *testing.T) {
 	require.NotEqual(t, a, readPathPrefetchSQL("EXISTS (SELECT 2)", true))
 	require.Contains(t, a, "sched_updated_at")
 	require.NotContains(t, b, "sched_updated_at")
+}
+
+// Both read-path statements share one text cache: each shape of each
+// statement has its own text, and the folded one never answers for the
+// node-stamp one (or the reverse).
+func TestFoldedCredentialSQL_OneTextPerShape(t *testing.T) {
+	for _, want := range []bool{true, false} {
+		f := foldedCredentialSQL("EXISTS (SELECT 1)", want)
+		require.Equal(t, f, foldedCredentialSQL("EXISTS (SELECT 1)", want))
+		require.NotEqual(t, f, readPathPrefetchSQL("EXISTS (SELECT 1)", want))
+		require.NotEqual(t, f, foldedCredentialSQL("EXISTS (SELECT 1)", !want))
+		require.Equal(t, want, strings.Contains(f, "sched_updated_at"))
+		// The credential columns are the plain statement's, in its order.
+		plain := strings.TrimSpace(credentialLookupRawQuery)
+		require.True(t, strings.HasPrefix(f, plain[:strings.Index(plain, "\nFROM")]+", "), f)
+	}
+}
+
+// Each statement's binds are built in the order its text expects: one bind
+// per placeholder, the node-stamp binds exactly the golden scan test's
+// documented order, and the folded statement the same node binds with the
+// LEFT JOIN's secret id after the trigger name and the token hash last.
+func TestReadPathSQL_BindOrder(t *testing.T) {
+	for _, backend := range principalPermBackends(t) {
+		t.Run(backend, func(t *testing.T) {
+			w := newPrefetchWorld(t, backend)
+			expr := nodeTriggerExistsExpr(w.ls.db)
+			node := &models.SecretNode{ProjectID: w.scope.ProjectID, EnvironmentID: w.scope.EnvironmentID}
+			for _, want := range []bool{true, false} {
+				pf := storage.ReadPathPrefetchFrom(storage.NewReadPathPrefetch(context.Background(), w.machine, want))
+				c := prefetchScanCase{trigger: SecretNodeCacheEpochTrigger, machine: w.machine, scope: w.scope, secret: w.secret.ID, want: want}
+
+				nodeArgs := readPathPrefetchArgs(pf, w.secret.ID, node)
+				require.Equal(t, c.args(), nodeArgs)
+				require.Equal(t, strings.Count(readPathPrefetchSQL(expr, want), "?"), len(nodeArgs))
+
+				folded := foldedCredentialArgs(pf, w.secret.ID, node, "hash")
+				require.Equal(t, strings.Count(foldedCredentialSQL(expr, want), "?"), len(folded))
+				wantFolded := append([]any{SecretNodeCacheEpochTrigger, w.secret.ID}, nodeArgs[1:len(nodeArgs)-1]...)
+				require.Equal(t, append(wantFolded, "hash"), folded)
+			}
+		})
+	}
 }

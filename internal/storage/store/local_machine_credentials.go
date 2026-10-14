@@ -51,7 +51,14 @@ type credentialWithIdentityState struct {
 // agree. Falls back to the original GORM query unchanged whenever the raw
 // path isn't available (transaction-scoped LocalStorage, or a prepare
 // failure) — this method's observable behavior is identical either way.
+//
+// A request that asked for the read-path fold (PERF-LEVER2) gets the same
+// credential from a statement that also reads one secret's node; see
+// local_folded_credential.go. Whenever that cannot answer, this runs as before.
 func (ls *LocalStorage) GetMachineIdentityCredentialWithIdentityStateByHash(ctx context.Context, hash string) (*models.MachineIdentityCredential, string, error) {
+	if cred, state, handled := ls.foldedCredentialLookup(ctx, hash); handled {
+		return cred, state, nil
+	}
 	if cred, state, handled, err := ls.getMachineIdentityCredentialWithIdentityStateByHashRaw(ctx, hash); handled {
 		return cred, state, err
 	}

@@ -671,6 +671,12 @@ func (ls *LocalStorage) getCachedSecret(ctx context.Context, id uint) (*models.S
 		sched *storage.PrefetchedScheduleVersion
 	)
 	pf := storage.ReadPathPrefetchFrom(ctx)
+	if pf != nil && takeFoldedNodeHit(pf, id, cached) {
+		// Confirmed by the node read the credential statement made for this
+		// secret and machine (local_folded_credential.go).
+		cp := *cached.node
+		return &cp, true
+	}
 	if pf != nil {
 		var ok bool
 		stamp, perm, sched, ok = ls.readNodeStampPrefetching(ctx, pf, id, cached.node)
