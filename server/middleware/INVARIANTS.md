@@ -58,6 +58,13 @@ Format: `INV-MW-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   load-bearing there (their callers deny on any error) but kept in step, since a sibling
   returning a differently-typed error for the same condition is exactly how this one went
   unseen.
+  Closed 2026-10-14 (CRED-CACHE-REVOKE-1): a machine credential / PAT row that no longer
+  exists (or a machine credential whose owning identity row is gone) is definitive too:
+  `CurrentMachineTokenRestriction`/`CurrentPATRestriction` map a no-row lookup
+  (`gorm.ErrRecordNotFound` / `sql.ErrNoRows`) to `ErrMachineTokenRevoked`/`ErrPATRevoked`
+  instead of passing it through as indeterminate. Guard:
+  `server/http/credential_gone_cache_hit_test.go` (two replicas, every end-of-credential
+  path, sqlite + Postgres), `internal/core/credential_row_gone_sentinel_test.go`.
 - **INV-MW-06** The network allowlist is enforced per-request even on a cache hit, using the
   freshly-refreshed restriction, never the stale cached one. Guard: `auth.go` lines ~571-577.
   UNGUARDED as an isolated assertion (#issue: no test isolates "allowlist checked against

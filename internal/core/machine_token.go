@@ -9,6 +9,7 @@ package core
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"gorm.io/gorm"
 )
 
 const (
@@ -421,6 +423,13 @@ func (c *KeyorixCore) TouchMachineTokenLastUsed(ctx context.Context, credID uint
 func (c *KeyorixCore) CurrentMachineTokenRestriction(ctx context.Context, raw string) (*MachineTokenRestriction, error) {
 	cred, identityState, err := c.storage.GetMachineIdentityCredentialWithIdentityStateByHash(ctx, sha256Hex(raw))
 	if err != nil {
+		if credentialRowGone(err) {
+			// CRED-CACHE-REVOKE-1: the credential (or its owning identity) row
+			// no longer exists. That is as definitive as revoked, so the
+			// cache-hit caller must deny and evict, not degrade to the cached
+			// snapshot until validTokenTTL runs out.
+			return nil, fmt.Errorf("%w: credential not found", ErrMachineTokenRevoked)
+		}
 		return nil, err
 	}
 	if cred.Revoked {
@@ -440,6 +449,16 @@ func (c *KeyorixCore) CurrentMachineTokenRestriction(ctx context.Context, raw st
 		return nil, fmt.Errorf("%w: %s", ErrMachineIdentityNotActive, identityState)
 	}
 	return machineRestrictionFrom(cred), nil
+}
+
+// credentialRowGone reports whether a by-hash credential lookup failed because
+// no row matched: gorm.ErrRecordNotFound on the GORM path, sql.ErrNoRows on the
+// prepared-statement path (credential_lookup_raw.go). Both storage methods wrap
+// every failure in the same "not found" text, so only the wrapped cause tells a
+// vanished row apart from a transient storage error, which must keep degrading
+// (INV-MW-05).
+func credentialRowGone(err error) bool {
+	return errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows)
 }
 
 // machineTokenCIDRCorrupted is returned by machineRestrictionFrom when the stored

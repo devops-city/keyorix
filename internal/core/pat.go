@@ -239,6 +239,11 @@ func (c *KeyorixCore) TouchPATLastUsed(ctx context.Context, patID uint) {
 func (c *KeyorixCore) CurrentPATRestriction(ctx context.Context, raw string) (*PATRestriction, error) {
 	pat, err := c.storage.GetPersonalAccessTokenByHash(ctx, sha256Hex(raw))
 	if err != nil {
+		if credentialRowGone(err) {
+			// CRED-CACHE-REVOKE-1: a deleted PAT row (the retention purge, or
+			// any out-of-band delete) is a definitive deny, like revoked.
+			return nil, fmt.Errorf("%w: token not found", ErrPATRevoked)
+		}
 		return nil, err
 	}
 	if pat.Revoked {
