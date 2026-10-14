@@ -380,6 +380,22 @@ The shipped `docker-compose.yml` / `keyorix.docker.yaml`, the Helm chart and
 yourself need the line. The startup log prints the bound address, with a note
 when it is reachable from the network.
 
+## 6b. `environment:` in generated configs
+
+`keyorix-server admin init` now writes `environment: production`, and
+`admin init --dev` writes `environment: local` (#3217). **An existing config is
+never rewritten** (`admin init` leaves it alone unless you pass
+`--overwrite-existing`), so an upgrade changes nothing by itself. A config made
+by an older `admin init` has no `environment:` line, and system info shows no
+environment for it; add `environment: production` if you want the label.
+
+Check one thing in configs you wrote yourself: the exact value
+`environment: development` is not only a label. It replaces
+`server.http.allowed_origins` with the localhost dev origins
+(`http://localhost:3000`, `:5173` and the `127.0.0.1` equivalents). If a real
+install says `development`, change it to `production` (or `staging`, `local`, …)
+and restart.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

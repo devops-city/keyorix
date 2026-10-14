@@ -21,7 +21,7 @@ import (
 )
 
 type Config struct {
-	Environment string           `yaml:"environment"` // development, staging, production
+	Environment string           `yaml:"environment"` // label: production (admin init), local (admin init --dev), staging; "development" also enables the localhost CORS origins
 	Locale      LocaleConfig     `yaml:"locale"`
 	Server      ServerConfig     `yaml:"server"`
 	Storage     StorageConfig    `yaml:"storage"`

@@ -124,8 +124,14 @@ stored this way; use `key_provider.type: file` for raw keys.
 ## environment
 
 ```yaml
-environment: production   # development | staging | production
+environment: production   # production | staging | local | ...
 ```
+
+A deployment label shown in system info. `keyorix-server admin init` writes
+`production`; `admin init --dev` writes `local`. The exact value `development`
+is not a pure label: it replaces `server.http.allowed_origins` with the
+localhost dev origins (`http://localhost:3000`, `:5173`, and the `127.0.0.1`
+equivalents), so no generated config uses it.
 
 ## locale
 

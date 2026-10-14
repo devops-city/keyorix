@@ -22,6 +22,12 @@
 #   KEYORIX_API_KEY        - API key for client authentication
 #   KEYORIX_REMOTE_API_KEY - API key for remote storage backend
 
+# Deployment label shown in system info. The value "development" is NOT a pure
+# label: it makes the HTTP server replace server.http.allowed_origins with the
+# localhost dev origins (server/http getAllowedOrigins). Leave it "production"
+# for any real install.
+environment: production
+
 locale:
   # Primary language for the application interface
   # Supported languages: en (English), ru (Russian), es (Spanish), fr (French), de (German)

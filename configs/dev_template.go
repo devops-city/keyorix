@@ -39,6 +39,14 @@ var devReplacements = []devReplacement{
 		count: 1,
 	},
 	{
+		// A label only. It must NOT be "development": that exact value switches the
+		// HTTP server to the localhost CORS origins, a relaxation the banner does
+		// not name (TestDevConfigTemplate_EnvironmentIsALabelNotARelaxation).
+		from:  "environment: production\n",
+		to:    "environment: local  # DEV-ONLY label; deliberately not \"development\" (that value turns on the localhost CORS origins)\n",
+		count: 1,
+	},
+	{
 		from:  "      enabled: true\n      cert_file: \"certs/server.crt\"",
 		to:    "      enabled: false  # DEV-ONLY: cleartext\n      cert_file: \"certs/server.crt\"",
 		count: 2, // server.http.tls, server.grpc.tls

@@ -1,0 +1,2 @@
+### Changed
+- **Generated configs now set `environment:`.** `keyorix-server admin init` writes `environment: production`, so System Health, the dashboard and `keyorix system info` show the environment on source-built installs too (compose and Helm already did). `admin init --dev` writes `environment: local`, not `development`: the exact value `development` also replaces `server.http.allowed_origins` with the localhost dev origins, a relaxation the `--dev` banner does not name. The new tests pin that neither template turns on any dev relaxation.
