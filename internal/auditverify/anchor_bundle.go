@@ -75,11 +75,16 @@ func crossCheckExternalAnchor(ctx context.Context, db *DB, opts Options, result 
 	}
 	result.ExternalAnchor.Authenticated = true
 
-	if result.ChainedEvents < b.ChainedEvents {
+	// result.PurgedEvents is non-zero only when the retention anchor
+	// authenticated under the supplied key (#3257): a bundle checked with TSA
+	// roots alone gets no purge credit, so a purge after its export still reads
+	// BROKEN there (fail closed).
+	if result.ChainedEvents+result.PurgedEvents < b.ChainedEvents {
 		result.escalate(VerdictBroken, fmt.Sprintf(
 			"audit trail truncated below an externally-held anchor: it certified %d chained events (a copy this "+
-				"host does not control), only %d remain — caught even if this database's own local "+
-				"checkpoint/high-water rows were also deleted or forged", b.ChainedEvents, result.ChainedEvents))
+				"host does not control), only %s — caught even if this database's own local "+
+				"checkpoint/high-water rows were also deleted or forged", b.ChainedEvents,
+			describeCount(result.ChainedEvents, result.PurgedEvents, "remain")))
 		return nil
 	}
 	if b.HeadID != 0 {

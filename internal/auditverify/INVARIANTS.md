@@ -23,7 +23,13 @@ Format: `INV-AUDITVERIFY-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#i
 - **INV-AUDITVERIFY-03** `auditRetentionAnchorCanonical` must byte-for-byte match
   `internal/core.auditRetentionAnchorCanonical`, domain-separated from `checkpointCanonical` by
   its `"retanchor-v1"` prefix. Why: retention.go. Guard:
-  `TestRetentionAnchorCanonical_ExactByteFormat`.
+  `TestRetentionAnchorCanonical_ExactByteFormat`. The v2 layout with the signed purged count
+  (#3257) likewise matches `internal/core.auditRetentionAnchorCanonicalV2` (`"retanchor-v2"`,
+  domain-separated from v1 both ways); only an anchor that authenticates under the supplied key
+  credits `purged_events` to the checkpoint/high-water/`--anchor` comparisons. Guard:
+  `TestRetentionAnchorCanonicalV2_ExactByteFormat` (both packages),
+  `TestParseRetentionAnchorValue_LayoutsDomainSeparated`,
+  `TestDifferential_PurgeAfterCheckpoint_InflatedPurgedCount_Broken`.
 - **INV-AUDITVERIFY-04** The high-water-mark and retention-anchor separator byte is `\x1f`
   (ASCII unit separator), never `\x00` — a Postgres text/varchar column rejects an embedded NUL
   outright, and this value is persisted as a plain string via `SetSystemMetadata`. Why:

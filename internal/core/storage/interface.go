@@ -1601,7 +1601,8 @@ type Storage interface {
 	// surviving row's id/prev_hash/entry_hash, for the caller to authenticate
 	// (HMAC, checkpoint signing key) and persist as the retention anchor BEFORE
 	// VerifyAuditChain can walk the surviving chain again — nil when nothing
-	// chained was deleted (nothing to re-anchor). See AuditChainAnchor.
+	// chained was deleted (nothing to re-anchor). The candidate's PurgedEvents
+	// is the number of chained rows this delete removed. See AuditChainAnchor.
 	DeleteAuditLogsBefore(ctx context.Context, cutoff time.Time) (int64, *AuditChainAnchor, error)
 	// VerifyAuditChain re-walks the tamper-evidence hash chain (ADR-029) over
 	// audit_events and reports whether it is intact. The first divergence —
@@ -2555,6 +2556,15 @@ type AuditChainAnchor struct {
 	RowID     uint
 	PrevHash  string
 	EntryHash string
+	// PurgedEvents counts CHAINED rows removed by sanctioned retention purges
+	// (#3257); legacy unchained rows are never counted, because the
+	// checkpoint/high-water counts they are compared with never included them.
+	// On a candidate returned by DeleteAuditLogsBefore it is the chained rows
+	// THAT delete removed. On an anchor the core layer loaded and authenticated
+	// it is the cumulative total, covered by the anchor's HMAC, so a DB-level
+	// actor cannot raise it to excuse a truncation. Checkpoint and high-water
+	// checks compare chained + PurgedEvents against the certified count.
+	PurgedEvents int64
 }
 
 // AuditChainMigrationResult reports the outcome of MigrateAuditChainEncoding.

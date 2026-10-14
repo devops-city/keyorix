@@ -408,6 +408,8 @@ func (ls *LocalStorage) CountUnusedSecretsByProject(ctx context.Context, project
 // candidate is nil when nothing was deleted, the table is now empty, or the
 // new earliest surviving row already legitimately starts at genesis (the
 // purge only removed the unchained legacy prefix) — nothing to re-anchor.
+// Otherwise its PurgedEvents is the number of chained rows this delete
+// removed (#3257).
 func (ls *LocalStorage) DeleteAuditLogsBefore(ctx context.Context, cutoff time.Time) (int64, *storage.AuditChainAnchor, error) {
 	var (
 		deleted int64
@@ -436,11 +438,24 @@ func (ls *LocalStorage) DeleteAuditLogsBefore(ctx context.Context, cutoff time.T
 			return err
 		}
 
-		del := tx.Where("event_time < ?", cutoff)
-		if len(boundary) > 0 {
-			del = del.Where("id < ?", boundary[0])
+		prefix := func(q *gorm.DB) *gorm.DB {
+			q = q.Where("event_time < ?", cutoff)
+			if len(boundary) > 0 {
+				q = q.Where("id < ?", boundary[0])
+			}
+			return q
 		}
-		result := del.Delete(&models.AuditEvent{})
+		// #3257: count the CHAINED rows about to go (legacy rows carry an empty
+		// entry_hash and were never part of a certified count), under the same
+		// lock and predicate as the delete, so the caller can sign the
+		// cumulative purged count into the anchor.
+		var chainedDeleted int64
+		if err := prefix(tx.Model(&models.AuditEvent{})).
+			Where("entry_hash IS NOT NULL AND entry_hash <> ''").
+			Count(&chainedDeleted).Error; err != nil {
+			return err
+		}
+		result := prefix(tx).Delete(&models.AuditEvent{})
 		deleted = result.RowsAffected
 		if result.Error != nil || result.RowsAffected == 0 {
 			return result.Error
@@ -466,9 +481,10 @@ func (ls *LocalStorage) DeleteAuditLogsBefore(ctx context.Context, cutoff time.T
 			return nil
 		}
 		anchor = &storage.AuditChainAnchor{
-			RowID:     head.ID,
-			PrevHash:  head.PrevHash,
-			EntryHash: head.EntryHash,
+			RowID:        head.ID,
+			PrevHash:     head.PrevHash,
+			EntryHash:    head.EntryHash,
+			PurgedEvents: chainedDeleted,
 		}
 		return nil
 	})

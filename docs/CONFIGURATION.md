@@ -1564,6 +1564,30 @@ audit_checkpoints:
   insecure_disable_audit_checkpoints: false   # deprecated alias: disabled
 ```
 
+**Retention purges and checkpoints work together** (#3257). An audit retention
+purge (`POST /api/v1/admin/jobs/purge-audit-logs`) may
+remove events a checkpoint already certified. In the same transaction as the
+delete, the purge records the cumulative number of chained events it has removed
+in the signed retention anchor (`audit_retention_anchor`, HMAC under the same
+checkpoint key). A checkpoint certifies **chained events present + chained events
+removed by signed purges**, and `audit verify` compares the same sum, so a purge
+below a certified count verifies and checkpointing continues. Anything the signed
+anchor does not account for — a raw `DELETE`, a forged or inflated count, an
+anchor rewritten without the key — still reads as truncation. Consequences worth
+knowing:
+
+- `chained_events` on a checkpoint written after a purge is larger than
+  `chained_events` from `audit verify` (which counts rows present); the
+  difference is the signed purged count.
+- A purge that removes the latest checkpoint's head event still fails the
+  head-row check until a newer checkpoint exists; keep `audit_checkpoints.schedule`
+  well inside the retention window (the default 24h is).
+- A purge that empties the audit table entirely leaves no row to anchor on, so
+  its count is not recorded.
+- Anchors written by older versions carry no count and are read as 0 removed
+  (the previous behaviour). Do not downgrade below this version after a purge:
+  older versions cannot read the new anchor layout and report the chain broken.
+
 **External-notary anchoring** (`audit.checkpoint_notary`, opt-in). The checkpoint
 HMAC is keyed by a DEK-derived key the running server holds — which detects
 truncation/rewrite by a *database* actor, but an attacker who also obtains the DEK

@@ -65,8 +65,21 @@ func (c *KeyorixCore) PurgeAuditLogs(ctx context.Context, cfg AuditLogRetentionC
 		// indistinguishable from real tampering. Persist it in the SAME
 		// transaction as the delete so the two can never be observed apart (a
 		// crash between them would otherwise leave a purge with no re-anchor).
+		//
+		// #3257: the anchor also carries the cumulative count of chained rows
+		// removed by sanctioned purges (previous authenticated anchor's count +
+		// this delete's), so a checkpoint certified before this purge still
+		// verifies (chained + purged >= certified). Read through tx, after the
+		// delete and under its lock, so no concurrent purge can interleave. A
+		// previous anchor that does not authenticate contributes 0: the count can
+		// only be under-stated, never inflated by an unauthenticated value.
 		if anchor != nil {
-			if err := c.persistAuditRetentionAnchor(ctx, tx, anchor.RowID, anchor.PrevHash, anchor.EntryHash); err != nil {
+			prev, err := c.loadAuditRetentionAnchorFrom(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("failed to load the previous audit chain re-anchor: %w", err)
+			}
+			purged := anchorPurgedEvents(prev) + anchor.PurgedEvents
+			if err := c.persistAuditRetentionAnchor(ctx, tx, anchor.RowID, anchor.PrevHash, anchor.EntryHash, purged); err != nil {
 				return fmt.Errorf("failed to persist audit chain re-anchor: %w", err)
 			}
 		}
@@ -166,7 +179,7 @@ func (c *KeyorixCore) VerifyAuditChain(ctx context.Context) (*storage.AuditChain
 	if err != nil {
 		return nil, fmt.Errorf("failed to verify audit chain: %w", err)
 	}
-	if err := c.enforceAuditCheckpoint(ctx, v); err != nil {
+	if err := c.enforceAuditCheckpoint(ctx, v, anchorPurgedEvents(anchor)); err != nil {
 		return nil, fmt.Errorf("failed to verify audit checkpoint: %w", err)
 	}
 	return v, nil

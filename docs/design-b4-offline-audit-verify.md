@@ -133,6 +133,16 @@ paying for; everywhere else in this codebase the default is the opposite
 
 ## 5. Retention gaps
 
+> **Purged count (#3257).** Since #3257 the anchor (layout `v2`,
+> `retanchor-v2` canonical bytes) also carries the cumulative number of
+> chained events removed by sanctioned purges, covered by its HMAC.
+> Checkpoints certify chained + purged, and the checkpoint, high-water and
+> external `--anchor` comparisons use `chained_events + purged_events`. Only an
+> anchor that authenticates under the supplied key contributes a count
+> (`purged_events` in the report); without the key, or with a TSA-only
+> `--anchor`, no purge credit is given and a purge after the anchor was taken
+> still reads BROKEN for that bundle (fail closed). A `v1` anchor is read as 0.
+
 A retention purge (`PurgeAuditLogs`) that reaches into the chained region
 persists a signed re-anchor (`audit_retention_anchor.go`) recording the new
 earliest surviving row. The online walk trusts it once its HMAC verifies

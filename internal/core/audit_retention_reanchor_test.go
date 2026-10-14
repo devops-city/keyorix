@@ -131,7 +131,9 @@ func TestWriteAuditCheckpoint_SucceedsAfterPurge(t *testing.T) {
 	require.NoError(t, err, "checkpointing must recover after a sanctioned purge, not stay permanently refused")
 	require.True(t, written)
 	require.NotNil(t, cp)
-	assert.Equal(t, int64(3), cp.ChainedEvents, "2 surviving user events + the system.audit_purge event")
+	// #3257: a checkpoint certifies chained + purged — 2 surviving user events +
+	// the system.audit_purge event, plus the 4 chained events the purge removed.
+	assert.Equal(t, int64(3+4), cp.ChainedEvents, "3 chained events + 4 removed by the signed purge")
 }
 
 // TestPurgeAuditLogs_AttackerDeletesAnchoredRow_StillDetected proves the fix

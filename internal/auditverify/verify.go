@@ -107,8 +107,14 @@ type Result struct {
 	Verdict Verdict `json:"verdict"`
 	Reason  string  `json:"reason,omitempty"`
 
-	Range                 Range   `json:"range"`
-	ChainedEvents         int64   `json:"chained_events"`
+	Range         Range `json:"range"`
+	ChainedEvents int64 `json:"chained_events"`
+	// PurgedEvents is the cumulative count of chained events removed by
+	// sanctioned retention purges, taken from the retention anchor only when it
+	// authenticated under the supplied key (#3257); 0 otherwise. Checkpoint,
+	// high-water and external-anchor counts are compared against
+	// ChainedEvents + PurgedEvents.
+	PurgedEvents          int64   `json:"purged_events"`
 	UnchainedLegacyEvents int64   `json:"unchained_legacy_events"`
 	FirstBrokenID         *uint64 `json:"first_broken_id,omitempty"`
 
@@ -224,10 +230,12 @@ func Verify(ctx context.Context, db *DB, opts Options) (*Result, error) {
 	if rawVal, found, err := db.GetSystemMetadata(ctx, auditRetentionAnchorKey); err != nil {
 		return nil, err
 	} else if found {
-		if rowID, prevHash, entryHash, keyVersion, sig, ok := ParseRetentionAnchor(rawVal); ok {
-			if len(opts.CheckpointKey) > 0 && RetentionAnchorSigMatches(rowID, prevHash, entryHash, keyVersion, sig, opts.CheckpointKey) {
-				anchor = &RetentionAnchor{RowID: rowID, PrevHash: prevHash, EntryHash: entryHash}
+		if a, ok := ParseRetentionAnchorValue(rawVal); ok {
+			if len(opts.CheckpointKey) > 0 && a.SigMatches(opts.CheckpointKey) {
+				anchor = &RetentionAnchor{RowID: a.RowID, PrevHash: a.PrevHash, EntryHash: a.EntryHash, PurgedEvents: a.PurgedEvents}
 				anchorAuthenticated = true
+				// Only an authenticated count is ever credited (#3257).
+				result.PurgedEvents = a.PurgedEvents
 			}
 		}
 	}
@@ -446,10 +454,10 @@ func enforceCheckpoint(ctx context.Context, db *DB, opts Options, result *Result
 			"audit high-water mark is missing or malformed although a signed checkpoint exists — "+
 				"the anti-rollback mark was deleted or tampered with")
 	}
-	if result.Verdict != VerdictBroken && result.ChainedEvents < floor {
+	if result.Verdict != VerdictBroken && result.ChainedEvents+result.PurgedEvents < floor {
 		result.escalate(VerdictBroken, fmt.Sprintf(
-			"audit trail truncated below the certified high-water mark: %d events were previously certified, only %d remain",
-			floor, result.ChainedEvents))
+			"audit trail truncated below the certified high-water mark: %d events were previously certified, only %s",
+			floor, describeCount(result.ChainedEvents, result.PurgedEvents, "remain")))
 	}
 
 	if cp == nil || result.Verdict == VerdictBroken {
@@ -467,10 +475,10 @@ func enforceCheckpoint(ctx context.Context, db *DB, opts Options, result *Result
 	}
 	result.Checkpoint.Authenticated = true
 
-	if result.ChainedEvents < cp.ChainedEvents {
+	if result.ChainedEvents+result.PurgedEvents < cp.ChainedEvents {
 		result.escalate(VerdictBroken, fmt.Sprintf(
-			"audit trail truncated below signed checkpoint #%d: it certified %d chained events, only %d remain",
-			cp.ID, cp.ChainedEvents, result.ChainedEvents))
+			"audit trail truncated below signed checkpoint #%d: it certified %d chained events, only %s",
+			cp.ID, cp.ChainedEvents, describeCount(result.ChainedEvents, result.PurgedEvents, "remain")))
 		return nil
 	}
 	if cp.HeadID != 0 {
@@ -504,6 +512,15 @@ func enforceCheckpoint(ctx context.Context, db *DB, opts Options, result *Result
 	}
 
 	return nil
+}
+
+// describeCount mirrors internal/core.describeAuditCount: with purged == 0 the
+// text is exactly the pre-#3257 "<n> <suffix>".
+func describeCount(chained, purged int64, suffix string) string {
+	if purged == 0 {
+		return fmt.Sprintf("%d %s", chained, suffix)
+	}
+	return fmt.Sprintf("%d %s plus %d removed by signed retention purges", chained, suffix, purged)
 }
 
 // buildNotProven states, in plain language and derived purely from what

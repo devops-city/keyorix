@@ -11,6 +11,15 @@
 // chain against the latest signed checkpoint then detects a drop below the
 // certified length or a rewrite of the certified head — tampering a DB-level
 // actor cannot hide without the signing key.
+//
+// Retention purges (#3257): a checkpoint certifies chained + purged — the live
+// chained count plus the cumulative chained rows removed by sanctioned purges,
+// as signed into the retention anchor (audit_retention_anchor.go) — and every
+// count check here compares that same sum. A sanctioned purge therefore leaves
+// the certified count reachable, while any removal the signed anchor does not
+// cover still shows as a shortfall. Checkpoints written before any v2 anchor
+// existed certified a plain chained count, which is the same number (purged
+// was 0 then). The certified head row checks are unchanged.
 package core
 
 import (
@@ -210,6 +219,9 @@ func (c *KeyorixCore) writeAuditCheckpointLocked(ctx context.Context) (*models.A
 	if !raw.Valid {
 		return nil, fmt.Errorf("%w a chain that does not verify: %s", ErrAuditCheckpointRefused, raw.Reason)
 	}
+	// #3257: chained rows removed by sanctioned purges, from the anchor the walk
+	// was just seeded from (authenticated, or nil → 0).
+	purged := anchorPurgedEvents(anchor)
 	// Refuse to re-baseline over a truncation that an AUTHENTICATED prior checkpoint
 	// proves — otherwise a scheduled write would silently bless a shortened chain and
 	// erase the evidence. An unverifiable prior checkpoint (a stale one after a
@@ -222,7 +234,7 @@ func (c *KeyorixCore) writeAuditCheckpointLocked(ctx context.Context) (*models.A
 	}
 	if cp != nil {
 		if c.checkpointSignatureValid(cp) {
-			if reason, tampered, err := c.checkpointTruncation(ctx, raw.ChainedEvents, cp); err != nil {
+			if reason, tampered, err := c.checkpointTruncationPurged(ctx, raw.ChainedEvents, purged, cp); err != nil {
 				return nil, err
 			} else if tampered {
 				return nil, fmt.Errorf("%w: %s", ErrAuditCheckpointRefused, reason)
@@ -252,11 +264,12 @@ func (c *KeyorixCore) writeAuditCheckpointLocked(ctx context.Context) (*models.A
 	if hwTampered {
 		return nil, fmt.Errorf("%w: %s", ErrAuditCheckpointRefused, hwReason)
 	}
-	if raw.ChainedEvents < floor {
-		return nil, fmt.Errorf("%w: the audit trail (%d events) is below the certified high-water mark (%d) — a truncation must be investigated, not re-baselined", ErrAuditCheckpointRefused, raw.ChainedEvents, floor)
+	if raw.ChainedEvents+purged < floor {
+		return nil, fmt.Errorf("%w: the audit trail (%s) is below the certified high-water mark (%d) — a truncation must be investigated, not re-baselined", ErrAuditCheckpointRefused, describeAuditCount(raw.ChainedEvents, purged, "events"), floor)
 	}
 	newCP := &models.AuditCheckpoint{
-		ChainedEvents: raw.ChainedEvents,
+		// Certifies chained + purged (#3257), the unit every count check compares.
+		ChainedEvents: raw.ChainedEvents + purged,
 		HeadID:        raw.HeadID,
 		HeadHash:      raw.HeadHash,
 		KeyVersion:    c.auditCkptKeyVersion,
@@ -289,7 +302,10 @@ func (c *KeyorixCore) writeAuditCheckpointLocked(ctx context.Context) (*models.A
 // the unauthenticated key_version field would reopen the bypass. WriteAuditCheckpoint
 // re-baselines under the new key (it does not block on an unverifiable checkpoint),
 // clearing the state on the next checkpoint write.
-func (c *KeyorixCore) enforceAuditCheckpoint(ctx context.Context, v *storage.AuditChainVerification) error {
+//
+// purged is the authenticated cumulative purged count from the retention anchor
+// the walk was seeded from (0 without one); see the package comment (#3257).
+func (c *KeyorixCore) enforceAuditCheckpoint(ctx context.Context, v *storage.AuditChainVerification, purged int64) error {
 	if !c.AuditCheckpointsAvailable() {
 		return nil
 	}
@@ -297,7 +313,7 @@ func (c *KeyorixCore) enforceAuditCheckpoint(ctx context.Context, v *storage.Aud
 	// This runs even when every checkpoint row has been deleted (the high-water is a
 	// separate, single, signed row), so deleting newer checkpoints to surface an older
 	// authentic one no longer hides a tail-truncation.
-	if err := c.enforceAuditHighWater(ctx, v); err != nil {
+	if err := c.enforceAuditHighWater(ctx, v, purged); err != nil {
 		return err
 	}
 	cp, err := c.storage.LatestAuditCheckpoint(ctx)
@@ -334,7 +350,7 @@ func (c *KeyorixCore) enforceAuditCheckpoint(ctx context.Context, v *storage.Aud
 			fmt.Sprintf("audit checkpoint #%d does not verify under the current signing key — the checkpoint was tampered, or a KEK-provider migration occurred and no fresh checkpoint has been written yet", cp.ID))
 		return nil
 	}
-	reason, tampered, err := c.checkpointTruncation(ctx, v.ChainedEvents, cp)
+	reason, tampered, err := c.checkpointTruncationPurged(ctx, v.ChainedEvents, purged, cp)
 	if err != nil {
 		return err
 	}
@@ -365,9 +381,18 @@ func (c *KeyorixCore) enforceAuditCheckpoint(ctx context.Context, v *storage.Aud
 // been truncated below it or its certified head row was removed/rewritten. The
 // caller MUST have validated cp's signature first.
 func (c *KeyorixCore) checkpointTruncation(ctx context.Context, chainedEvents int64, cp *models.AuditCheckpoint) (string, bool, error) {
-	if chainedEvents < cp.ChainedEvents {
-		return fmt.Sprintf("audit trail truncated below signed checkpoint #%d: it certified %d chained events, only %d remain",
-			cp.ID, cp.ChainedEvents, chainedEvents), true, nil
+	return c.checkpointTruncationPurged(ctx, chainedEvents, 0, cp)
+}
+
+// checkpointTruncationPurged is checkpointTruncation for a trail from which
+// sanctioned retention purges removed purged chained rows (the authenticated
+// count from the retention anchor, #3257): the count check compares
+// chainedEvents + purged with the certified count. The head row checks are
+// unchanged.
+func (c *KeyorixCore) checkpointTruncationPurged(ctx context.Context, chainedEvents, purged int64, cp *models.AuditCheckpoint) (string, bool, error) {
+	if chainedEvents+purged < cp.ChainedEvents {
+		return fmt.Sprintf("audit trail truncated below signed checkpoint #%d: it certified %d chained events, only %s",
+			cp.ID, cp.ChainedEvents, describeAuditCount(chainedEvents, purged, "remain")), true, nil
 	}
 	if cp.HeadID == 0 {
 		// The checkpoint certified the empty/genesis chain (no chained events yet);
@@ -558,7 +583,10 @@ func (c *KeyorixCore) auditHighWaterFloor(ctx context.Context, strict bool) (flo
 // certified high-water mark (the anti-rollback check that catches deletion of newer
 // checkpoints + tail-truncation, which the latest-checkpoint comparison alone misses),
 // then raises the in-memory watermark to the just-verified length.
-func (c *KeyorixCore) enforceAuditHighWater(ctx context.Context, v *storage.AuditChainVerification) error {
+//
+// The comparison and the watermark are in chained + purged units (#3257), the
+// unit the high-water mark certifies; purged is the authenticated anchor count.
+func (c *KeyorixCore) enforceAuditHighWater(ctx context.Context, v *storage.AuditChainVerification, purged int64) error {
 	// strict=true (#110): the read path must not excuse an unverifiable mark just
 	// because it CLAIMS a superseded key_version — that field is unauthenticated
 	// once the signature fails, so trusting it lets a forged mark bypass the
@@ -586,12 +614,22 @@ func (c *KeyorixCore) enforceAuditHighWater(ctx context.Context, v *storage.Audi
 	switch {
 	case tampered:
 		c.failCheckpoint(v, nil, reason)
-	case v.ChainedEvents < floor:
+	case v.ChainedEvents+purged < floor:
 		c.failCheckpoint(v, nil,
-			fmt.Sprintf("audit trail truncated below the certified high-water mark: %d events were previously certified, only %d remain", floor, v.ChainedEvents))
+			fmt.Sprintf("audit trail truncated below the certified high-water mark: %d events were previously certified, only %s", floor, describeAuditCount(v.ChainedEvents, purged, "remain")))
 	}
-	c.bumpWatermark(v.ChainedEvents)
+	c.bumpWatermark(v.ChainedEvents + purged)
 	return nil
+}
+
+// describeAuditCount renders a live chained count for a truncation message,
+// naming the signed purged count when there is one. With purged == 0 the text
+// is exactly the pre-#3257 "<n> <suffix>".
+func describeAuditCount(chained, purged int64, suffix string) string {
+	if purged == 0 {
+		return fmt.Sprintf("%d %s", chained, suffix)
+	}
+	return fmt.Sprintf("%d %s plus %d removed by signed retention purges", chained, suffix, purged)
 }
 
 // advanceAuditHighWater persists (and bumps the in-memory) high-water mark to cp after a

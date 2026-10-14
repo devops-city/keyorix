@@ -54,7 +54,7 @@ func (c *KeyorixCore) MigrateAuditChainEncoding(ctx context.Context, actorID uin
 	}
 
 	if result.AnchorRowID != 0 {
-		if err := c.persistAuditRetentionAnchor(ctx, c.storage, result.AnchorRowID, anchor.PrevHash, result.AnchorNewEntryHash); err != nil {
+		if err := c.persistAuditRetentionAnchor(ctx, c.storage, result.AnchorRowID, anchor.PrevHash, result.AnchorNewEntryHash, anchor.PurgedEvents); err != nil {
 			return nil, fmt.Errorf(
 				"audit chain rows were migrated successfully, but re-signing the retention anchor failed (%w) — "+
 					"re-run the migration to retry; row hashes are already correct and re-running is safe", err)
