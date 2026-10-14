@@ -5,8 +5,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"sync"
 )
 
@@ -245,32 +247,42 @@ func heldNamedLockConn(ctx context.Context) *sql.Conn {
 // context is cancelled or times out while queued returns that error instead of
 // waiting indefinitely, and does so without ever having taken a connection.
 //
-// # Connection budget (#2853, and why layer 1 exists)
+// # Connection budget (#2853, NAMEDLOCK-POOL-1)
 //
-// The bound is TWO pooled connections per contended key PER PROCESS — one for
-// the advisory-lock session, one for the work inside fn — no matter how many
-// callers are contending. It is NOT two per caller.
+// A lock holder needs at most ONE request-pool connection at a time: the one
+// fn's own queries use. The advisory-lock session comes from the dedicated
+// named-lock pool (SetNamedLockDB, wired by the storage factory), never from the
+// request pool, so the request pool always drains whatever the number of keys
+// held at once. A caller waiting for a lock session holds nothing, so nothing
+// can deadlock on it; callers beyond that pool's cap queue and run a little
+// later. Two layers keep the lock pool's own use bounded:
 //
-// That ordering is the whole point. Taking the advisory lock requires a pooled
-// connection, and pg_advisory_lock BLOCKS while holding it; fn then needs a
-// further connection to do the caller's actual work. Before layer 1 existed,
-// every waiter checked out a connection and parked it for the entire wait, so
-// with max_open_conns = M (internal/config; configs/test.yaml sets 10) M
-// concurrent callers on one key exhausted the pool and the HOLDER could not get
-// a connection to finish — a permanent deadlock, not contention, taking down
-// unrelated traffic sharing the pool. Reproduced on a pool of 2 with two
-// callers: the holder failed inside its own critical section.
+//   - Layer 1: at most one goroutine per key per process is ever past the
+//     queue, so at most one lock session per key is ever parked on
+//     pg_advisory_lock. Waiters hold nothing; a cancelled waiter leaves the
+//     queue having touched no connection at all. (Before layer 1, every waiter
+//     parked a connection for its whole wait; M callers on one key exhausted a
+//     pool of M and the holder could not finish.)
+//   - A nested call under a different key reuses the outer call's lock session
+//     (namedLockConnCtxKey), so a call chain needs one lock session however
+//     many keys it nests.
 //
-// Layer 1 fixes it by construction: at most one goroutine per key per process
-// is ever past the queue, so at most one connection per key is ever parked on
-// pg_advisory_lock. Waiters hold nothing. A cancelled waiter leaves the queue
-// having touched no connection at all.
+// Before NAMEDLOCK-POOL-1 the lock session came from the request pool: one key
+// held per pool connection, each holder's fn waiting for one more, a permanent
+// hang. Without SetNamedLockDB (tests building a LocalStorage directly) that is
+// still the shape: two request-pool connections per held key.
 //
-// Guards: TestWithNamedLock_ManyWaitersOnOneKey_DoNotExhaustPool and
-// TestWithNamedLock_HolderCompletesUnderPoolSmallerThanWaiters (both wedge
-// without layer 1), TestWithNamedLock_CancelledWhileQueued_ReleasesAndTakesNoConnection.
+// Guards: TestWithNamedLock_Postgres_SmallPool_DistinctKeysAndReadsComplete
+// (internal/storage, factory-built), TestWithNamedLock_LockPool_HolderRunsOnAOneConnectionRequestPool,
+// TestWithNamedLock_ManyWaitersOnOneKey_DoNotExhaustPool,
+// TestWithNamedLock_HolderCompletesUnderPoolSmallerThanWaiters,
+// TestWithNamedLock_CancelledWhileQueued_ReleasesAndTakesNoConnection.
 //
-// Nothing inside fn may ask the pool for a connection beyond that second one.
+// Never call WithNamedLock while holding a request-pool connection (inside a
+// WithTransaction or other pinned session): that caller would hold one request
+// connection while it waits for a lock session, and holders of lock sessions
+// wait for request connections. Run the transaction inside fn instead.
+// Nothing inside fn may hold one request-pool connection while asking for another.
 // Lock ordering across DIFFERENT keys is unchanged and still the caller's
 // responsibility: two call chains taking keys A then B and B then A deadlock,
 // exactly as they did when both layers were advisory locks — layer 1 just makes
@@ -313,25 +325,30 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 
 	key := namedLockKey(lockKey)
 
-	// Reuse an outer call's already-checked-out connection if this call chain
+	// Reuse an outer call's already-checked-out lock session if this call chain
 	// has one (see namedLockConnCtxKey) -- a nested call under a different key
 	// must still acquire its OWN advisory lock, but never needs a SECOND
-	// pooled connection to do it.
+	// lock session to do it.
 	if conn := heldNamedLockConn(ctx); conn != nil {
 		if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", key); err != nil {
 			return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
 		}
-		defer func() {
-			_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", key)
-		}()
+		defer releaseNamedAdvisoryLock(ctx, conn, key)
 		return fn(ctx)
 	}
 
-	sqlDB, err := ls.db.DB()
-	if err != nil {
-		return err
+	// The lock session comes from the dedicated named-lock pool (SetNamedLockDB),
+	// never from the request pool fn's own queries use: see the connection
+	// budget note above.
+	lockDB := ls.namedLockDB
+	if lockDB == nil {
+		sqlDB, err := ls.db.DB()
+		if err != nil {
+			return err
+		}
+		lockDB = sqlDB
 	}
-	conn, err := sqlDB.Conn(ctx)
+	conn, err := lockDB.Conn(ctx)
 	if err != nil {
 		return err
 	}
@@ -341,12 +358,42 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 		return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
 	}
 	// Release before the deferred Close so the pooled connection carries no lock.
-	defer func() {
-		_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", key)
-	}()
+	defer releaseNamedAdvisoryLock(ctx, conn, key)
 
 	// Make this connection available to any nested WithNamedLock call under a
 	// different key, for the remainder of this call chain.
 	ctx = context.WithValue(ctx, namedLockConnCtxKey{}, conn)
 	return fn(ctx)
+}
+
+// releaseNamedAdvisoryLock unlocks key on conn. It ignores ctx's cancellation:
+// a caller whose request was cancelled inside fn must still unlock, or the
+// session would go back to the pool still holding the lock and every later
+// caller for that key, on any replica, would block on it. If the unlock fails
+// anyway, the session must not be pooled again: marking it bad makes
+// database/sql close it, which ends the Postgres backend and every advisory
+// lock it held (same rule as WithSchedulerLock).
+func releaseNamedAdvisoryLock(ctx context.Context, conn *sql.Conn, key int64) {
+	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", key); err != nil {
+		log.Printf("named lock: pg_advisory_unlock(%d) failed, discarding the connection instead of pooling it: %v", key, err)
+		_ = conn.Raw(func(_ any) error { return driver.ErrBadConn })
+	}
+}
+
+// SetNamedLockDB gives WithNamedLock a pool of its own for the advisory-lock
+// sessions, separate from the request pool and from the scheduler lock pool. A
+// lock session is pinned for the whole critical section while fn's queries need
+// a connection of their own; on the request pool, as many distinct keys held at
+// once as the pool has connections pinned every connection, each waiting for one
+// more (hold-and-wait; NAMEDLOCK-POOL-1). It is not the scheduler lock pool
+// because scheduler jobs call WithNamedLock from inside their own lock-held
+// section: on one capped pool, enough jobs doing that at once would pin every
+// session and wait for one more. Lock semantics are unchanged: one session
+// advisory lock per key, in the same database, released before the session is
+// pooled again.
+//
+// Without one (a LocalStorage built directly by tests or examples), the request
+// pool is used as before. Call it before serving traffic.
+func (ls *LocalStorage) SetNamedLockDB(db *sql.DB) {
+	ls.namedLockDB = db
 }

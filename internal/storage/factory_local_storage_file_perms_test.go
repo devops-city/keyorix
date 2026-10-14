@@ -34,14 +34,17 @@ func TestCreateLocalStorage_FreshDatabase_AlwaysSecureModeRegardlessOfUmask(t *t
 			dbPath := filepath.Join(dir, "secrets.db")
 			cfg := &config.Config{Storage: config.StorageConfig{Database: config.DatabaseConfig{Path: dbPath}}}
 
+			var storageInstance any
 			withUmask(t, mask, func() {
 				f := &DefaultStorageFactory{}
-				storageInstance, err := f.createLocalStorage(cfg)
+				var err error
+				storageInstance, err = f.createLocalStorage(cfg)
 				require.NoError(t, err)
-				if closer, ok := storageInstance.(interface{ Close() error }); ok {
-					defer func() { _ = closer.Close() }()
-				}
 			})
+			// Close only after the asserts: closing SQLite checkpoints and removes -wal.
+			if closer, ok := storageInstance.(interface{ Close() error }); ok {
+				defer func() { _ = closer.Close() }()
+			}
 
 			assertMode(t, dbPath, 0o600)
 			// -wal is created eagerly by the journal_mode=WAL pragma during Open; -shm may

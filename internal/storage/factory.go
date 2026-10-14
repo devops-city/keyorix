@@ -622,11 +622,24 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 }
 
 // createPostgresStorage creates a PostgreSQL-backed local storage instance
-func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (storage.Storage, error) {
+func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ storage.Storage, err error) {
 	db, err := openPostgresGorm(&cfg.Storage.Database, gormConfig())
 	if err != nil {
 		return nil, err
 	}
+	// Every pool opened here is closed again if the factory fails, so a failed
+	// start leaks no Postgres connections. On success LocalStorage.Close owns them.
+	var opened []*sql.DB
+	if sqlDB, dbErr := db.DB(); dbErr == nil {
+		opened = append(opened, sqlDB)
+	}
+	defer func() {
+		if err != nil {
+			for _, p := range opened {
+				_ = p.Close()
+			}
+		}
+	}()
 
 	if err := applyPoolSettings(db, &cfg.Storage.Database); err != nil {
 		return nil, err
@@ -637,15 +650,24 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (stora
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
-	ls := store.NewLocalStorage(db)
-	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
-	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
-	lockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
+	schedulerLockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
 	if err != nil {
 		return nil, err
 	}
-	applySchedulerLockPoolSettings(lockDB, &cfg.Storage.Database)
-	ls.SetSchedulerLockDB(lockDB)
+	opened = append(opened, schedulerLockDB)
+	applyLockPoolSettings(schedulerLockDB, SchedulerLockPoolSize, &cfg.Storage.Database)
+	namedLockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
+	if err != nil {
+		return nil, err
+	}
+	opened = append(opened, namedLockDB)
+	applyLockPoolSettings(namedLockDB, NamedLockPoolSize, &cfg.Storage.Database)
+
+	ls := store.NewLocalStorage(db)
+	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
+	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
+	ls.SetSchedulerLockDB(schedulerLockDB)
+	ls.SetNamedLockDB(namedLockDB)
 	// ADR-112 Amendment 1: read the computed status rather than the raw bool,
 	// so "configured" and "actually in effect" cannot drift apart between
 	// here and the surfaces that report it (start-up log, posture, API). This
@@ -695,16 +717,28 @@ func applyPoolSettings(db *gorm.DB, dbCfg *config.DatabaseConfig) error {
 // jobs run their lock-held section at the same time.
 const SchedulerLockPoolSize = 4
 
-// schedulerLockPoolMaxIdleTime closes lock sessions left idle between ticks, so
-// the lock pool does not keep Postgres backends open between scheduler intervals.
-const schedulerLockPoolMaxIdleTime = time.Minute
+// NamedLockPoolSize caps the separate Postgres pool that holds WithNamedLock's
+// advisory-lock sessions (store.LocalStorage.SetNamedLockDB). A holder pins one
+// lock session for its critical section while fn's queries use the request
+// pool; with both on one pool, as many distinct keys held at once as the pool
+// had connections hung the server for good (NAMEDLOCK-POOL-1, the same
+// hold-and-wait as POOL-HANG-1). It is a pool of its own, not the scheduler
+// lock pool, because scheduler jobs take named locks inside their own
+// lock-held section. It bounds how many distinct keys one process holds at
+// once; callers beyond it queue for a session holding no connection. Not
+// configurable, like SchedulerLockPoolSize.
+const NamedLockPoolSize = 8
 
-// applySchedulerLockPoolSettings sizes the scheduler lock pool and applies the
-// operator's connection lifetime to it, like applyPoolSettings for the request pool.
-func applySchedulerLockPoolSettings(lockDB *sql.DB, dbCfg *config.DatabaseConfig) {
-	lockDB.SetMaxOpenConns(SchedulerLockPoolSize)
-	lockDB.SetMaxIdleConns(SchedulerLockPoolSize)
-	lockDB.SetConnMaxIdleTime(schedulerLockPoolMaxIdleTime)
+// lockPoolMaxIdleTime closes lock sessions left idle, so the lock pools do not
+// keep Postgres backends open between scheduler intervals or bursts of writes.
+const lockPoolMaxIdleTime = time.Minute
+
+// applyLockPoolSettings sizes a lock pool and applies the operator's connection
+// lifetime to it, like applyPoolSettings for the request pool.
+func applyLockPoolSettings(lockDB *sql.DB, size int, dbCfg *config.DatabaseConfig) {
+	lockDB.SetMaxOpenConns(size)
+	lockDB.SetMaxIdleConns(size)
+	lockDB.SetConnMaxIdleTime(lockPoolMaxIdleTime)
 	if dbCfg.ConnMaxLifetimeMinutes > 0 {
 		lockDB.SetConnMaxLifetime(time.Duration(dbCfg.ConnMaxLifetimeMinutes) * time.Minute)
 	}
@@ -733,19 +767,22 @@ func warnPostgresPoolHeadroom(db *gorm.DB, dbCfg *config.DatabaseConfig) {
 
 // postgresPoolHeadroomWarning is warnPostgresPoolHeadroom's decision, separated so
 // it is testable without a server. Empty means no warning.
-// The process opens maxOpen plus SchedulerLockPoolSize connections at most.
+// The process opens maxOpen plus lockPoolsSize connections at most.
 func postgresPoolHeadroomWarning(maxOpen, maxConnections, reserved int) string {
 	usable := maxConnections - reserved
-	if maxConnections <= 0 || maxOpen+SchedulerLockPoolSize <= usable {
+	if maxConnections <= 0 || maxOpen+lockPoolsSize <= usable {
 		return ""
 	}
-	return fmt.Sprintf("WARNING: storage.database.max_open_conns is %d, plus %d for the scheduler lock pool, but the "+
+	return fmt.Sprintf("WARNING: storage.database.max_open_conns is %d, plus %d for the lock pools, but the "+
 		"Postgres server allows only %d non-superuser connections (max_connections=%d minus "+
 		"superuser_reserved_connections=%d). Under load, requests past that fail with SQLSTATE 53300 \"too many "+
 		"clients\" instead of queueing. Lower max_open_conns so that (replicas x (max_open_conns + %d)) stays "+
 		"below %d, or raise max_connections.",
-		maxOpen, SchedulerLockPoolSize, usable, maxConnections, reserved, SchedulerLockPoolSize, usable)
+		maxOpen, lockPoolsSize, usable, maxConnections, reserved, lockPoolsSize, usable)
 }
+
+// lockPoolsSize is the most connections the scheduler and named lock pools open together.
+const lockPoolsSize = SchedulerLockPoolSize + NamedLockPoolSize
 
 // columnExists reports whether table already has column, branching on the
 // dialect like indexExists below: information_schema on Postgres, but SQLite

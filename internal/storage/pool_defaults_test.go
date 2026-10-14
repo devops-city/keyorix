@@ -65,8 +65,8 @@ func TestPostgresPoolHeadroomWarning(t *testing.T) {
 		warn                       bool
 	}{
 		{DefaultPostgresMaxOpenConns, 100, 3, false},
-		{97 - SchedulerLockPoolSize, 100, 3, false}, // with the lock pool, exactly the usable slots
-		{98 - SchedulerLockPoolSize, 100, 3, true},
+		{97 - lockPoolsSize, 100, 3, false}, // with the lock pools, exactly the usable slots
+		{98 - lockPoolsSize, 100, 3, true},
 		{100, 100, 3, true}, // the measured SQLSTATE 53300 case
 		{100, 0, 0, false},  // setting unreadable/zero: never warn on garbage
 	}
