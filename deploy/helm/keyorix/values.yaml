@@ -164,6 +164,14 @@ server:
       cpu: 1
       memory: 512Mi
       ephemeral-storage: 256Mi
+  # GOMEMLIMIT (Go's soft heap limit) for the server container. By default it is
+  # goMemLimitPercent of resources.limits.memory (rounded down), leaving the rest
+  # for stacks, the runtime's own overhead and non-heap memory. Set goMemLimit to
+  # a Go size ("400MiB") to override it verbatim, or goMemLimitPercent: 0 to leave
+  # GOMEMLIMIT unset. GOGC is left at the Go default. GOMAXPROCS needs nothing:
+  # Go >= 1.25 sets it from the cgroup CPU limit.
+  goMemLimit: ""
+  goMemLimitPercent: 85
   nodeSelector: {}
   tolerations: []
   affinity: {}

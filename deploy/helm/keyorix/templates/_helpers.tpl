@@ -376,3 +376,33 @@ bundled PostgreSQL. Keys must be plain setting names.
 - {{ printf "%s=%s" $k (include "keyorix.postgresql.settings.value" $v) | quote }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+GOMEMLIMIT for the server container, or "" for none. server.goMemLimit wins
+verbatim when set (a Go size such as "400MiB"); otherwise it is
+server.goMemLimitPercent of server.resources.limits.memory, rounded down to
+KiB. Without a memory limit (or a quantity this parser doesn't know) nothing is
+set and the Go default (no soft limit) applies; a percent of 0 turns the
+default off.
+*/}}
+{{- define "keyorix.server.goMemLimit" -}}
+{{- $s := .Values.server -}}
+{{- if $s.goMemLimit -}}
+{{- $s.goMemLimit -}}
+{{- else -}}
+{{- $lim := "" -}}
+{{- if $s.resources -}}{{- if $s.resources.limits -}}{{- $lim = toString (default "" $s.resources.limits.memory) -}}{{- end -}}{{- else -}}{{- $lim = "512Mi" -}}{{- end -}}
+{{- /* Absent (values reused from a release before this key) means the chart default, 85; an explicit 0 turns it off. */ -}}
+{{- $pct := 85 -}}
+{{- if hasKey $s "goMemLimitPercent" -}}{{- $pct = int $s.goMemLimitPercent -}}{{- end -}}
+{{- if and $lim $pct -}}
+{{- $num := regexFind "^[0-9]*\\.?[0-9]+" $lim -}}
+{{- $unit := regexFind "[A-Za-z]+$" $lim -}}
+{{- $mult := dict "" 1.0 "Ki" 1024.0 "Mi" 1048576.0 "Gi" 1073741824.0 "Ti" 1099511627776.0 "k" 1000.0 "K" 1000.0 "M" 1000000.0 "G" 1000000000.0 "T" 1000000000000.0 -}}
+{{- if and $num (hasKey $mult $unit) -}}
+{{- $kib := div (int64 (mulf (float64 $num) (get $mult $unit) (divf (float64 $pct) 100.0))) 1024 -}}
+{{- if gt $kib 0 -}}{{ $kib }}KiB{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

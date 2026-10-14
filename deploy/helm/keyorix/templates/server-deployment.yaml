@@ -149,6 +149,12 @@ spec:
             - name: KEYORIX_BOOTSTRAP_TOKEN_FILE
               value: /run/secrets/keyorix/bootstrap-token
             {{- end }}
+            {{- with include "keyorix.server.goMemLimit" . }}
+            # Soft heap limit derived from the container memory limit (server.goMemLimitPercent),
+            # so the GC works harder before the kernel OOM-kills the pod. Not a hard cap.
+            - name: GOMEMLIMIT
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.secureBaseline.enabled }}
             # The private copy prepare-files made, and how entrypoint.sh reaches
             # this server for its first-boot bootstrap (verified TLS).

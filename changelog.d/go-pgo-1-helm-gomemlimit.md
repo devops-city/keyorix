@@ -1,0 +1,2 @@
+### Added
+- **Helm: `GOMEMLIMIT` for the server from its memory limit.** The server container now gets a soft heap limit of `server.goMemLimitPercent` (default 85) of `server.resources.limits.memory`, so the garbage collector works harder before the pod is OOM-killed. Override with `server.goMemLimit` or turn off with `goMemLimitPercent: 0`. Compose and systemd settings are in `docs/runtime-tuning.md`.
