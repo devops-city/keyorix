@@ -129,11 +129,15 @@ func (ls *LocalStorage) getMachineIdentityCredentialWithIdentityStateByHashRaw(c
 	}
 	var c models.MachineIdentityCredential
 	var identityState string
+	var lastUsedAt, expiresAt, createdAt sql.NullTime
 	err := ls.rawStmts.credentialLookup.QueryRowContext(ctx, hash).Scan(
 		&c.ID, &c.MachineIdentityID, &c.Name, &c.TokenHash, &c.TokenPrefix,
-		&c.AllowedCIDRs, &c.LastUsedAt, &c.ExpiresAt, &c.Revoked, &c.CreatedAt,
+		&c.AllowedCIDRs, &lastUsedAt, &expiresAt, &c.Revoked, &createdAt,
 		&c.Classification, &identityState,
 	)
+	if err == nil {
+		err = assignCredentialTimes(&c, lastUsedAt, expiresAt, createdAt)
+	}
 	if err != nil {
 		// Mirrors GetMachineIdentityCredentialWithIdentityStateByHash's own
 		// unconditional ErrorNotFound wrap (both sql.ErrNoRows and any other
@@ -144,3 +148,26 @@ func (ls *LocalStorage) getMachineIdentityCredentialWithIdentityStateByHashRaw(c
 	}
 	return &c, identityState, true, nil
 }
+
+// assignCredentialTimes copies the scanned times into c. The scan goes through
+// sql.NullTime rather than straight into *time.Time / **time.Time: database/sql
+// converts the value exactly the same way either way, but with Go 1.27's
+// column scanner the pgx driver checks every destination type against three
+// interfaces by reflection on each row, and that check walks time.Time's whole
+// method set. sql.NullTime answers the first check at once. created_at is NOT
+// NULL; a NULL there is an error, as scanning it into a time.Time was.
+func assignCredentialTimes(c *models.MachineIdentityCredential, lastUsedAt, expiresAt, createdAt sql.NullTime) error {
+	if !createdAt.Valid {
+		return errCredentialCreatedAtNull
+	}
+	c.CreatedAt = createdAt.Time
+	if lastUsedAt.Valid {
+		c.LastUsedAt = &lastUsedAt.Time
+	}
+	if expiresAt.Valid {
+		c.ExpiresAt = &expiresAt.Time
+	}
+	return nil
+}
+
+var errCredentialCreatedAtNull = errors.New("machine_identity_credentials.created_at is NULL")
