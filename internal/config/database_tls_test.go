@@ -167,6 +167,7 @@ func TestValidate_RootCertContradictions_Refuse(t *testing.T) {
 
 func TestValidate_DSN_VerifyingModeNeedsSSLRootCert(t *testing.T) {
 	t.Setenv("PGSSLMODE", "")
+	t.Setenv("PGSERVICE", "") // a service names an sslmode source the check refuses to guess (PG-TLS-2)
 	ca := writeTestCA(t, t.TempDir(), "pg-ca.pem")
 	refused := []string{
 		"host=db dbname=k user=k password=hunter2 sslmode=verify-full",
@@ -279,6 +280,7 @@ func TestLoad_SSLRootCert_AnchoredToConfigDir(t *testing.T) {
 
 func TestDatabaseTLSPosture_DescribesWhatIsVerified(t *testing.T) {
 	t.Setenv("PGSSLMODE", "")
+	t.Setenv("PGSERVICE", "") // a service names an sslmode source the check refuses to guess (PG-TLS-2)
 	ca := writeTestCA(t, t.TempDir(), "pg-ca.pem")
 	cases := []struct {
 		d    *DatabaseConfig

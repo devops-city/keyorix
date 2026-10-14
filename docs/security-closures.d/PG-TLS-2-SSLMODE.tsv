@@ -1,0 +1,1 @@
+PG-TLS-2-SSLMODE	./internal/config	TestValidate_SSLModeWithDSN_MustAgree	default-ci	-	-	Postgres ssl_mode next to a dsn must equal the dsn sslmode (it was silently ignored, so ssl_mode verify-full + dsn sslmode=disable ran plaintext); unknown sslmodes are refused; registry and posture read the effective sslmode

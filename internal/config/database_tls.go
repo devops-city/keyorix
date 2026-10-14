@@ -63,6 +63,124 @@ func sslModeVerifies(mode string) bool {
 	return mode == "verify-full" || mode == "verify-ca"
 }
 
+// validSSLModes is every sslmode pgx (and libpq) accepts, weakest first. pgx
+// refuses any other value only when it connects ("sslmode is invalid");
+// PG-TLS-2 refuses it at config validation instead, with this list in the
+// message, so a typo never reaches the insecure-settings registry or the
+// posture report as an unknown mode they cannot classify.
+var validSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
+func sslModeValid(mode string) bool {
+	for _, m := range validSSLModes {
+		if mode == m {
+			return true
+		}
+	}
+	return false
+}
+
+// sslModeMayBePlaintext reports whether the driver can run the connection
+// unencrypted under mode: disable never encrypts, allow tries plaintext
+// first, prefer falls back to plaintext whenever the TLS attempt fails --
+// including when anyone on the network path answers the SSLRequest with "no".
+func sslModeMayBePlaintext(mode string) bool {
+	return mode == "disable" || mode == "allow" || mode == "prefer"
+}
+
+func invalidSSLModeError(field string) error {
+	return fmt.Errorf("%s is not a valid sslmode; use one of: %s", field, strings.Join(validSSLModes, ", "))
+}
+
+// databaseTLS is the TLS setting a PostgreSQL connection built from a
+// DatabaseConfig actually runs with, resolved the way pgx resolves it.
+type databaseTLS struct {
+	// written is the sslmode as configured: ssl_mode (or its "require"
+	// default), or the dsn's sslmode, PGSSLMODE, or pgx's "prefer" default.
+	written string
+	// mode is written after pgx's sslrootcert=system upgrade to verify-full:
+	// what the connection really does.
+	mode     string
+	rootCert string
+	fromDSN  bool
+}
+
+// resolveDatabaseTLS works out the sslmode and sslrootcert d's connection
+// uses, the single reading shared by ValidateDatabaseTLS, DatabaseTLSPosture
+// and the insecure-settings registry, so the three cannot disagree on what
+// the connection does (before PG-TLS-2 the registry read ssl_mode even when
+// a dsn was set, and the dsn is what pgx uses). It refuses:
+//
+//   - an sslmode outside validSSLModes, from ssl_mode, the dsn or PGSSLMODE;
+//   - ssl_mode together with a dsn whose sslmode differs or is absent (the
+//     dsn is used as-is, so ssl_mode would be silently ignored);
+//   - a connection service (refuseConnectionService): pgx would take settings
+//     from a service file Keyorix does not read.
+//
+// With a dsn and no sslmode in it, the mode is PGSSLMODE, else pgx's default
+// "prefer" -- the same order pgx applies.
+func resolveDatabaseTLS(d *DatabaseConfig) (databaseTLS, error) {
+	var t databaseTLS
+	if err := refuseConnectionService(d); err != nil {
+		return t, err
+	}
+	if d.DSN == "" {
+		t.written, t.rootCert = d.effectiveSSLMode(), d.SSLRootCert
+		if !sslModeValid(t.written) {
+			return t, invalidSSLModeError(fmt.Sprintf("storage.database.ssl_mode %q", d.SSLMode))
+		}
+	} else {
+		t.fromDSN = true
+		s, err := parseDSNTLS(d.DSN)
+		if err != nil {
+			// Never echo the DSN: it may carry a password.
+			return t, fmt.Errorf("storage.database.dsn: %w", err)
+		}
+		t.written, t.rootCert = s.sslmode, s.sslrootcert
+		if d.SSLMode != "" {
+			if !sslModeValid(d.SSLMode) {
+				return t, invalidSSLModeError(fmt.Sprintf("storage.database.ssl_mode %q", d.SSLMode))
+			}
+			if s.sslmode != d.SSLMode {
+				dsnSays := "has no sslmode"
+				if s.sslmode != "" {
+					dsnSays = "has a different sslmode"
+				}
+				return t, fmt.Errorf("storage.database.ssl_mode is %s but storage.database.dsn %s: when dsn is set "+
+					"it is used as-is and ssl_mode is ignored, so the connection would not use the mode ssl_mode "+
+					"names -- refusing to start. Put sslmode=%s in the dsn, or remove ssl_mode", d.SSLMode, dsnSays, d.SSLMode)
+			}
+		}
+		if t.written == "" {
+			t.written = os.Getenv("PGSSLMODE")
+			if t.written != "" && !sslModeValid(t.written) {
+				return t, invalidSSLModeError("PGSSLMODE (used because storage.database.dsn has no sslmode)")
+			}
+			if t.written == "" {
+				t.written = "prefer" // pgx's (and libpq's) default
+			}
+		} else if !sslModeValid(t.written) {
+			// The dsn's value is not echoed: an operator who pasted a
+			// password into the wrong key would see it in the log.
+			return t, invalidSSLModeError("the sslmode in storage.database.dsn")
+		}
+	}
+	t.mode = t.written
+	if t.rootCert == SSLRootCertSystem {
+		// pgx (like libpq) upgrades any sslmode to verify-full when
+		// sslrootcert=system.
+		t.mode = "verify-full"
+	}
+	return t, nil
+}
+
+// EffectiveDatabaseSSLMode is the sslmode d's PostgreSQL connection runs with
+// (see resolveDatabaseTLS), or an error when ValidateDatabaseTLS would refuse
+// the setting. The insecure-settings registry reads it.
+func EffectiveDatabaseSSLMode(d *DatabaseConfig) (string, error) {
+	t, err := resolveDatabaseTLS(d)
+	return t.mode, err
+}
+
 // LoadDatabaseCAPool reads the PEM CA bundle path names into a new
 // x509.CertPool holding only that file's certificates, and returns how many it
 // holds. Same rules as the CLI's --ca-file (cli/internal/apiclient.LoadCAPool):
@@ -158,6 +276,8 @@ func missingRootCertError(modeField, mode, fix string) error {
 //   - a dsn whose sslmode (or PGSSLMODE, when the dsn has none) is
 //     verify-full/verify-ca: its sslrootcert must be set and pass the same
 //     file checks.
+//   - everything resolveDatabaseTLS refuses (PG-TLS-2): an sslmode outside
+//     validSSLModes, ssl_mode disagreeing with the dsn's sslmode.
 //
 // Run by Config.Validate at startup and by ResolvePostgresConnConfig on every
 // connection a process opens, so an entry point that never calls Validate
@@ -166,23 +286,39 @@ func ValidateDatabaseTLS(d *DatabaseConfig) error {
 	if err := refuseConnectionService(d); err != nil {
 		return err
 	}
-	if d.DSN != "" {
-		return validateDSNTLS(d)
+	if d.DSN != "" && d.SSLRootCert != "" {
+		return fmt.Errorf("storage.database.ssl_root_cert cannot be combined with storage.database.dsn: the dsn is " +
+			"used as-is, so the key would be ignored; put sslrootcert=<path> in the dsn, or use host/name/user " +
+			"fields instead of dsn")
 	}
-	mode := d.effectiveSSLMode()
-	if d.SSLRootCert == "" {
-		if sslModeVerifies(mode) {
-			return missingRootCertError("storage.database.ssl_mode", mode,
-				"Set storage.database.ssl_root_cert to the PEM file of the CA that signed the database "+
-					"server's certificate, or to \"system\" to trust the OS CA store.")
+	t, err := resolveDatabaseTLS(d)
+	if err != nil {
+		return err
+	}
+	if !t.fromDSN {
+		if t.rootCert == "" {
+			if sslModeVerifies(t.mode) {
+				return missingRootCertError("storage.database.ssl_mode", t.mode,
+					"Set storage.database.ssl_root_cert to the PEM file of the CA that signed the database "+
+						"server's certificate, or to \"system\" to trust the OS CA store.")
+			}
+			return nil
+		}
+		if t.written == "disable" {
+			return fmt.Errorf("storage.database.ssl_root_cert is set but storage.database.ssl_mode is disable, " +
+				"so the connection is neither encrypted nor verified; set ssl_mode to verify-full (or remove ssl_root_cert)")
+		}
+		return checkRootCert("storage.database.ssl_root_cert", t.rootCert)
+	}
+	if t.rootCert == "" {
+		if sslModeVerifies(t.mode) {
+			return missingRootCertError("the sslmode in storage.database.dsn", t.mode,
+				"Add sslrootcert=<path to the PEM file of the CA that signed the database server's "+
+					"certificate> (or sslrootcert=system to trust the OS CA store) to the dsn.")
 		}
 		return nil
 	}
-	if mode == "disable" {
-		return fmt.Errorf("storage.database.ssl_root_cert is set but storage.database.ssl_mode is disable, " +
-			"so the connection is neither encrypted nor verified; set ssl_mode to verify-full (or remove ssl_root_cert)")
-	}
-	return checkRootCert("storage.database.ssl_root_cert", d.SSLRootCert)
+	return checkRootCert("sslrootcert in storage.database.dsn", t.rootCert)
 }
 
 // refuseConnectionService refuses a PostgreSQL connection that would take
@@ -217,50 +353,36 @@ func refuseConnectionService(d *DatabaseConfig) error {
 	return nil
 }
 
-func validateDSNTLS(d *DatabaseConfig) error {
-	if d.SSLRootCert != "" {
-		return fmt.Errorf("storage.database.ssl_root_cert cannot be combined with storage.database.dsn: the dsn is " +
-			"used as-is, so the key would be ignored; put sslrootcert=<path> in the dsn, or use host/name/user " +
-			"fields instead of dsn")
-	}
-	mode, rootCert, err := dsnTLSSettings(d.DSN)
-	if err != nil {
-		// Never echo the DSN: it may carry a password.
-		return fmt.Errorf("storage.database.dsn: %w", err)
-	}
-	if mode == "" {
-		mode = os.Getenv("PGSSLMODE")
-	}
-	if rootCert == "" {
-		if sslModeVerifies(mode) {
-			return missingRootCertError("the sslmode in storage.database.dsn", mode,
-				"Add sslrootcert=<path to the PEM file of the CA that signed the database server's "+
-					"certificate> (or sslrootcert=system to trust the OS CA store) to the dsn.")
-		}
-		return nil
-	}
-	return checkRootCert("sslrootcert in storage.database.dsn", rootCert)
+// dsnTLS is what parseDSNTLS reads from a connection string.
+type dsnTLS struct {
+	sslmode, sslrootcert string
 }
 
-// dsnTLSSettings extracts sslmode and sslrootcert from a PostgreSQL
-// connection string in either form pgx accepts: a postgres:// or
-// postgresql:// URL, or libpq keyword/value pairs. The keyword/value grammar
-// follows pgx's parseKeywordValueSettings (pgconn/config.go): whitespace
-// separated key=value, values optionally single-quoted, backslash escapes.
-// A string pgx itself would reject is reported as an error here too.
+// dsnTLSSettings is parseDSNTLS's sslmode and sslrootcert.
+func dsnTLSSettings(dsn string) (sslmode, sslrootcert string, err error) {
+	s, err := parseDSNTLS(dsn)
+	return s.sslmode, s.sslrootcert, err
+}
+
+// parseDSNTLS extracts sslmode and sslrootcert from a PostgreSQL connection string in either form pgx accepts: a
+// postgres:// or postgresql:// URL, or libpq keyword/value pairs. The
+// keyword/value grammar follows pgx's parseKeywordValueSettings
+// (pgconn/config.go): whitespace separated key=value, values optionally
+// single-quoted, backslash escapes. A string pgx itself would reject is
+// reported as an error here too.
 //
 // Guarded against drift from pgx by TestDSNTLSSettings_AgreesWithPgx
 // (database_tls_pgx_test.go), which runs the same connection strings through
 // pgconn.ParseConfig; only that test links the driver into this package.
-func dsnTLSSettings(dsn string) (sslmode, sslrootcert string, err error) {
+func parseDSNTLS(dsn string) (dsnTLS, error) {
 	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
 		return urlTLSSettings(dsn)
 	}
 	settings, err := parseKeywordValueDSN(dsn)
 	if err != nil {
-		return "", "", err
+		return dsnTLS{}, err
 	}
-	return settings["sslmode"], settings["sslrootcert"], nil
+	return dsnTLS{sslmode: settings["sslmode"], sslrootcert: settings["sslrootcert"]}, nil
 }
 
 // urlTLSSettings reads sslmode/sslrootcert from a connection URL's query the
@@ -268,15 +390,36 @@ func dsnTLSSettings(dsn string) (sslmode, sslrootcert string, err error) {
 // '&'-separated key=value pairs, both halves percent-decoded with '+' kept
 // literal, the LAST occurrence of a key winning. net/url's Query() keeps the
 // first one, which would let "?sslmode=require&sslmode=verify-full" pass as
-// require while pgx connects with verify-full. A later "ssl=true" (the
-// URI-only alias for sslmode=require) only weakens the mode, so reading it as
-// the explicit sslmode is stricter, never looser.
-func urlTLSSettings(dsn string) (sslmode, sslrootcert string, err error) {
-	params, err := urlParams(dsn)
+// require while pgx connects with verify-full.
+//
+// "ssl=true" is pgx's URI-only alias for sslmode=require, applied when the
+// final ssl value is "true" and no sslmode key came after the last ssl key
+// (parse_url.go's sslWasLast). It is modelled exactly rather than ignored:
+// ignored, "?ssl=true" would read as no sslmode (prefer) and
+// "?sslmode=verify-full&ssl=true" as verify-full, while pgx runs require.
+func urlTLSSettings(dsn string) (dsnTLS, error) {
+	var s dsnTLS
+	pairs, err := urlParamPairs(dsn)
 	if err != nil {
-		return "", "", err
+		return s, err
 	}
-	return params["sslmode"], params["sslrootcert"], nil
+	ssl, sslWasLast := "", false
+	for _, kv := range pairs {
+		switch kv[0] {
+		case "sslmode":
+			s.sslmode = kv[1]
+			sslWasLast = false
+		case "ssl":
+			ssl = kv[1]
+			sslWasLast = true
+		case "sslrootcert":
+			s.sslrootcert = kv[1]
+		}
+	}
+	if ssl == "true" && sslWasLast {
+		s.sslmode = "require"
+	}
+	return s, nil
 }
 
 // urlParams returns every key of a connection URL's query, read as described
@@ -284,11 +427,26 @@ func urlTLSSettings(dsn string) (sslmode, sslrootcert string, err error) {
 // space-trimmed). A key present with an empty value is present in the map, as
 // it is to pgx.
 func urlParams(dsn string) (map[string]string, error) {
-	params, err := urlQuery(dsn)
+	pairs, err := urlParamPairs(dsn)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]string{}
+	for _, kv := range pairs {
+		out[kv[0]] = kv[1]
+	}
+	return out, nil
+}
+
+// urlParamPairs returns a connection URL's query as decoded (key, value)
+// pairs in order, for urlParams and urlTLSSettings (which needs the order for
+// pgx's ssl/sslmode precedence).
+func urlParamPairs(dsn string) ([][2]string, error) {
+	params, err := urlQuery(dsn)
+	if err != nil {
+		return nil, err
+	}
+	var out [][2]string
 	// No '#' fragment is cut off: pgx has none, so "?#=&sslmode=verify-full"
 	// is a verify-full connection to pgx and must be one here.
 	for _, pair := range strings.Split(params, "&") {
@@ -308,7 +466,7 @@ func urlParams(dsn string) (map[string]string, error) {
 		// "sslrootcert\r" is a runtime parameter to pgx, not sslrootcert
 		// (fuzz-found by FuzzResolvePostgresConnConfig_PasswordCannotChangeConnection
 		// through checkFinalPostgresTLS).
-		out[strings.Trim(key, " ")] = strings.Trim(value, " ")
+		out = append(out, [2]string{strings.Trim(key, " "), strings.Trim(value, " ")})
 	}
 	return out, nil
 }
@@ -487,25 +645,14 @@ func DatabaseTLSPosture(d *DatabaseConfig) (string, error) {
 	if err := ValidateDatabaseTLS(d); err != nil {
 		return "", err
 	}
-	mode, rootCert := d.effectiveSSLMode(), d.SSLRootCert
-	source := "storage.database.ssl_mode"
-	if d.DSN != "" {
-		source = "the dsn's sslmode"
-		var err error
-		if mode, rootCert, err = dsnTLSSettings(d.DSN); err != nil {
-			return "", fmt.Errorf("storage.database.dsn: %w", err)
-		}
-		if mode == "" {
-			mode = os.Getenv("PGSSLMODE")
-		}
-		if mode == "" {
-			mode = "prefer"
-		}
+	t, err := resolveDatabaseTLS(d)
+	if err != nil {
+		return "", err
 	}
-	if rootCert == SSLRootCertSystem {
-		// pgx (like libpq) upgrades any sslmode to verify-full when
-		// sslrootcert=system.
-		mode = "verify-full"
+	mode, rootCert := t.mode, t.rootCert
+	source := "storage.database.ssl_mode"
+	if t.fromDSN {
+		source = "the dsn's sslmode"
 	}
 	trust := func() string {
 		if rootCert == SSLRootCertSystem {

@@ -270,7 +270,8 @@ storage:
     # PostgreSQL (recommended for production) — set type: postgres above:
     # dsn: "host=db user=keyorix dbname=keyorix port=5432 sslmode=require"
     # ...or field by field: host, port, name, user, and
-    # ssl_mode: require           # disable | require | verify-ca | verify-full (default require)
+    # ssl_mode: require           # disable | allow | prefer | require | verify-ca | verify-full
+    #   (default require; any other value is refused at start-up)
     # ssl_root_cert: pg-ca.pem    # CA that signed the database's certificate; REQUIRED
     #   with verify-full/verify-ca, or "system" for the OS CA store. See
     #   "PostgreSQL TLS" below.
@@ -304,10 +305,19 @@ storage:
 
 `ssl_mode` sets how the server's connection to PostgreSQL is protected, and
 `ssl_root_cert` names the CA that signed the database server's certificate.
+`ssl_mode` takes only the six values below (the PostgreSQL driver's own set,
+case-sensitive). Any other value is refused at start-up with the list of valid
+ones, instead of failing later at the first connection:
+
+```
+storage.database.ssl_mode "verify_full" is not a valid sslmode; use one of: disable, allow, prefer, require, verify-ca, verify-full
+```
 
 | `ssl_mode` | Encrypted | Server certificate checked |
 |---|---|---|
 | `disable` | no | no (reported by `admin validate --posture` as `storage.database.insecure_disable_database_tls`) |
+| `allow` | only if the server insists | no. Tries plaintext first |
+| `prefer` | only if the TLS attempt succeeds | no. Falls back to plaintext whenever TLS fails, including when anything on the network path answers "no TLS" |
 | `require` (default) | yes | no. With `ssl_root_cert` set, the chain is checked against it (libpq/pgx behaviour), but the host name is not |
 | `verify-ca` | yes | chain against `ssl_root_cert`, not the host name |
 | `verify-full` | yes | chain against `ssl_root_cert` **and** the host name in `host` |
@@ -351,6 +361,20 @@ With `dsn:` instead of fields, put the CA in the connection string
 because the dsn is used as-is and the key would be ignored. `ssl_root_cert`
 with `ssl_mode: disable` is refused too: the connection would be neither
 encrypted nor verified.
+
+**`ssl_mode` together with `dsn`.** The dsn is used as-is, so `ssl_mode` used
+to be silently ignored next to it: `ssl_mode: verify-full` with a dsn saying
+`sslmode=disable` connected in plaintext. Now, when both are set, the dsn must
+state `sslmode` itself and it must equal `ssl_mode`, or the server refuses to
+start (`ssl=true` in a URL dsn is the driver's alias for `sslmode=require`).
+Leaving `ssl_mode` out next to a `dsn` is fine.
+
+**The effective sslmode.** With a `dsn`, the sslmode is the dsn's own; when
+the dsn has none, `PGSSLMODE`; otherwise the driver's default, `prefer`. With
+`sslrootcert=system` the driver always runs `verify-full`. Start-up
+validation, the insecure-settings warnings and `admin validate --posture` all
+read this effective value, so a dsn with `sslmode=disable` is reported as
+`storage.database.insecure_disable_database_tls` whatever `ssl_mode` says.
 
 **Connection-service files are refused.** `service=` or `servicefile=` in the
 `dsn`, or the `PGSERVICE` environment variable, make the PostgreSQL driver read

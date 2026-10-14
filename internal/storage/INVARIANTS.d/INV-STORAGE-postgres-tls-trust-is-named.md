@@ -41,6 +41,11 @@
   `ValidateDatabaseTLS` refuses them (`TestValidateDatabaseTLS_ConnectionServiceIsRefused`;
   `TestConnectionService_PgxVerifiesWhatTheConfigNeverNamed` shows the bypass; the fuzz target
   above carries a verify-full service file). `PGSERVICEFILE` alone is inert (pgx reads it only when
-  a service is selected) and is not refused. **Not covered**: the CA file is re-read by pgx at
+  a service is selected) and is not refused. PG-TLS-2: the sslmode is one pgx accepts
+  (`validSSLModes`), `ssl_mode` next to a `dsn` must equal the dsn's own `sslmode`, and every
+  reader (validation, the insecure-settings registry, the posture line) shares one resolution,
+  `resolveDatabaseTLS`: `internal/config/database_sslmode_test.go`, and against pgx's real
+  plaintext fallback `TestDSNTLSSettings_AgreesWithPgx` (plaintext comparison) and
+  `FuzzEffectiveSSLMode_NeverMissesPgxPlaintext`. **Not covered**: the CA file is re-read by pgx at
   connect time, so a CA replaced between the check and the connection is what pgx uses (only the
   owner/root can replace it, since a group/world-writable file is refused).

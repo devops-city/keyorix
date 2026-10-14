@@ -99,6 +99,24 @@ func boolStr(b bool) string {
 	return "false"
 }
 
+// databaseSSLModeIs reports whether the sslmode the PostgreSQL connection
+// really runs with (EffectiveDatabaseSSLMode: the dsn's when a dsn is set,
+// after pgx's sslrootcert=system upgrade) is one of modes. A setting
+// EffectiveDatabaseSSLMode cannot resolve is refused at boot by
+// ValidateDatabaseTLS; here it is not claimed to be any particular mode.
+func databaseSSLModeIs(c *Config, modes ...string) bool {
+	mode, err := EffectiveDatabaseSSLMode(&c.Storage.Database)
+	if err != nil {
+		return false
+	}
+	for _, m := range modes {
+		if mode == m {
+			return true
+		}
+	}
+	return false
+}
+
 // keyProviderChain returns enc's primary key provider followed by its
 // Fallbacks, in try-order -- the same list buildKeyProvider (internal/
 // encryption/service.go) actually constructs a provider for. Settings on
@@ -441,12 +459,14 @@ var InsecureSettingsRegistry = []InsecureSetting{
 			return boolStr(c.Server.HTTP.MaxRequestBodyBytes < 0 || c.Server.GRPC.MaxRequestBodyBytes < 0)
 		},
 	},
+	// The EFFECTIVE sslmode (PG-TLS-2): the dsn's when a dsn is set, since pgx
+	// uses the dsn as-is and ssl_mode then only has to agree with it.
 	{
 		Name:        "storage.database.insecure_disable_database_tls",
-		SourcePaths: []string{"storage.database.ssl_mode"},
+		SourcePaths: []string{"storage.database.ssl_mode", "storage.database.dsn"},
 		Describe:    "Postgres connection unencrypted",
-		InEffect:    func(c *Config) bool { return c.Storage.Database.SSLMode == "disable" },
-		Value:       func(c *Config) string { return boolStr(c.Storage.Database.SSLMode == "disable") },
+		InEffect:    func(c *Config) bool { return databaseSSLModeIs(c, "disable") },
+		Value:       func(c *Config) string { return boolStr(databaseSSLModeIs(c, "disable")) },
 	},
 	{
 		Name:        "server.insecure_disable_api_ratelimit",

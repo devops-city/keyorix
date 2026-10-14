@@ -27,10 +27,20 @@ import (
 // supply a CA. Covers quoting, escapes, spacing around '=', repeated keys
 // (last wins in both forms), percent-encoded URL keys and "+" in URL values,
 // and sslrootcert=system (which pgx turns into verify-full).
+//
+// PG-TLS-2 adds a third comparison, the insecure-settings registry's oracle:
+//
+//   - plaintext: pgx can run the connection unencrypted (no TLS config, or a
+//     plaintext entry among its fallbacks), exactly when the resolved
+//     effective sslmode is disable, allow or prefer;
+//
+// and the URI-only ssl=true alias, which pgx reads as sslmode=require when no
+// sslmode key follows it.
 func TestDSNTLSSettings_AgreesWithPgx(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PGSSLMODE", "")
 	t.Setenv("PGSSLROOTCERT", "")
+	t.Setenv("PGSERVICE", "")
 
 	dir := filepath.Join(t.TempDir(), "ca dir+x")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
@@ -77,6 +87,18 @@ func TestDSNTLSSettings_AgreesWithPgx(t *testing.T) {
 		// pgx has no URL fragment: '#' is query text like any other byte.
 		"postgres://u@db/k?#=&sslmode=verify-full",
 		"postgres://0?#0=&sslrootcert=system",
+		// pgx's ssl=true alias (PG-TLS-2): require, unless an sslmode key
+		// comes after the last ssl key; any other ssl value is no alias.
+		"postgres://u@db/k?ssl=true",
+		"postgres://u@db/k?sslmode=verify-full&ssl=true",
+		"postgres://u@db/k?ssl=true&sslmode=disable",
+		"postgres://u@db/k?sslmode=disable&ssl=true",
+		"postgres://u@db/k?sslmode=disable&ssl=true&ssl=false",
+		"postgres://u@db/k?ssl=true&sslmode=verify-full&sslrootcert=" + urlCA,
+		"postgres://u@db/k?sslmode=allow",
+		"postgres://u@db/k?sslmode=prefer&sslrootcert=" + urlCA,
+		"host=db sslmode=allow",
+		"host=db ssl=true",
 	}
 	for _, dsn := range dsns {
 		t.Run(dsn, func(t *testing.T) {
@@ -96,8 +118,30 @@ func TestDSNTLSSettings_AgreesWithPgx(t *testing.T) {
 			if root != "" && root != SSLRootCertSystem {
 				assert.True(t, root == ca || root == plainCA, "sslrootcert must read back as the exact path, got %q", root)
 			}
+
+			effective, err := EffectiveDatabaseSSLMode(&DatabaseConfig{DSN: dsn})
+			require.NoError(t, err)
+			assert.Equal(t, pgxMayBePlaintext(pc), sslModeMayBePlaintext(effective),
+				"plaintext possible: effective sslmode %q", effective)
 		})
 	}
+}
+
+// pgxMayBePlaintext reports whether pgx can run a connection built from pc
+// over the network without TLS: no TLS config on the primary attempt
+// (disable, allow), or a plaintext fallback (prefer). A Unix-socket host
+// (a path; pgx's default when no host is named) has no TLS config in any
+// mode and never leaves the machine, so it is not counted.
+func pgxMayBePlaintext(pc *pgconn.Config) bool {
+	if pc.TLSConfig == nil && !strings.HasPrefix(pc.Host, "/") {
+		return true
+	}
+	for _, fb := range pc.Fallbacks {
+		if fb.TLSConfig == nil && !strings.HasPrefix(fb.Host, "/") {
+			return true
+		}
+	}
+	return false
 }
 
 // A connection string pgx refuses is refused here too, rather than parsed
