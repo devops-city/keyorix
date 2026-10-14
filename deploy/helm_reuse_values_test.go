@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -101,6 +102,9 @@ func TestHelmReuseValues_RendersWithOnly095Values(t *testing.T) {
 	for _, mode := range [][]string{
 		nil, // what `--reuse-values` / `--reset-then-reuse-values` leave: no flags.
 		{"postgresql.migrateOwnership=true"},
+		// An external database: externalDatabase.caSecret (PG-TLS-2) is absent
+		// from 0.95.3/0.96.x values and is read by server-deployment.yaml.
+		{"postgresql.enabled=false", "externalDatabase.host=db.example", "externalDatabase.password=x"},
 	} {
 		oldDocs := helmTemplateDocs(t, old, mode...)
 		curDocs := helmTemplateDocs(t, cur, mode...)
@@ -116,6 +120,9 @@ func TestHelmReuseValues_RendersWithOnly095Values(t *testing.T) {
 					t.Errorf("document %s differs:\n got %v\nwant %v", k, g, w)
 				}
 			}
+		}
+		if slices.Contains(mode, "postgresql.enabled=false") {
+			continue // no bundled Postgres, no secure-baseline Secret to check
 		}
 		// Secure baseline is on by default and Postgres runs as the alpine uid.
 		if _, ok := got["Secret/kx-keyorix-secure-baseline"]; !ok {

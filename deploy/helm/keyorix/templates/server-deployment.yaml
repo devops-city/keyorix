@@ -176,6 +176,14 @@ spec:
               mountPath: /app/run
               readOnly: true
             {{- end }}
+            {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.caSecret.name }}
+            # externalDatabase.caSecret: the CA storage.database.ssl_root_cert
+            # names. A directory mount, not subPath, so a rotated Secret reaches the pod
+            # (the server reads it at pool open: restart after rotating).
+            - name: db-ca
+              mountPath: {{ include "keyorix.externalDatabase.caDir" . }}
+              readOnly: true
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health
@@ -245,6 +253,17 @@ spec:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.caSecret.name }}
+        # 0440 + the pod's fsGroup, as for `secrets` above: the server's CA check
+        # (config.LoadDatabaseCAPool) refuses a group/world-writable CA file.
+        - name: db-ca
+          secret:
+            secretName: {{ .Values.externalDatabase.caSecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.externalDatabase.caSecret.key }}
+                path: ca.crt
+        {{- end }}
         {{- if .Values.secureBaseline.enabled }}
         - name: run
           emptyDir:

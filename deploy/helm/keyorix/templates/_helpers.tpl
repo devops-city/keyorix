@@ -2,7 +2,8 @@
 Fill in chart values that older releases did not have. `helm upgrade
 --reuse-values` replaces this chart's values.yaml defaults with the OLD
 release's values, so a key added after that release (secureBaseline.*,
-web.hsts.*, web.trustedProxies, postgresql.runAsUser, auth.existingSecretKeys.*)
+web.hsts.*, web.trustedProxies, postgresql.runAsUser, auth.existingSecretKeys.*,
+externalDatabase.caSecret.*)
 is absent and `.Values.secureBaseline.enabled` is a nil-pointer error. Every
 template that reads such a key includes this first (`{{- include
 "keyorix.valuesDefaults" . -}}`; it renders nothing). Only a MISSING (or null)
@@ -16,6 +17,7 @@ SYNC with values.yaml: deploy/helm_reuse_values_test.go fails if they drift.
   "secureBaseline" (dict "enabled" true "certValidityDays" 3650 "existingSecret" "" "existingSecretRevision" "")
   "web" (dict "trustedProxies" (list) "hsts" (dict "mode" "auto" "maxAge" 31536000 "includeSubDomains" true))
   "postgresql" (dict "runAsUser" 70 "migrateOwnership" false)
+  "externalDatabase" (dict "caSecret" (dict "name" "" "key" "ca.crt"))
 -}}
 {{- range $top, $sub := $defaults -}}
 {{- if not (kindIs "map" (get $v $top)) -}}{{- $_ := set $v $top (dict) -}}{{- end -}}
@@ -295,3 +297,41 @@ after the operator rotated the Secret. Empty (default): the checksum is unchange
 {{- end -}}
 {{- sha256sum $s -}}
 {{- end -}}
+
+{{/*
+storage.database.ssl_root_cert for an external database (PG-TLS-2): the mounted
+externalDatabase.caSecret, or externalDatabase.sslRootCert, or "". Fails the
+render on the shapes the server would refuse at boot (a verifying sslMode with
+no CA, a CA with sslMode disable) and on ambiguous ones (both set, caSecret
+with the bundled PostgreSQL, which has no CA to name).
+*/}}
+{{- define "keyorix.externalDatabase.sslRootCert" -}}
+{{- $db := .Values.externalDatabase -}}
+{{- $ca := $db.caSecret | default dict -}}
+{{- if .Values.postgresql.enabled -}}
+{{- if $ca.name -}}
+{{- fail "externalDatabase.caSecret applies to an external database only: set postgresql.enabled=false, or remove externalDatabase.caSecret.name" -}}
+{{- end -}}
+{{- else -}}
+{{- if and $ca.name $db.sslRootCert -}}
+{{- fail "set externalDatabase.caSecret.name OR externalDatabase.sslRootCert, not both: the server can trust only one CA source" -}}
+{{- end -}}
+{{- if $ca.name -}}
+{{- if not $ca.key -}}
+{{- fail "externalDatabase.caSecret.key must name the Secret key holding the CA's PEM (default ca.crt)" -}}
+{{- end -}}
+{{- if not (has $db.sslMode (list "require" "verify-ca" "verify-full")) -}}
+{{- fail (printf "externalDatabase.caSecret needs externalDatabase.sslMode verify-full (or verify-ca/require), got %q: with %q the CA is never used to protect the connection" (toString $db.sslMode) (toString $db.sslMode)) -}}
+{{- end -}}
+{{- include "keyorix.externalDatabase.caFile" . -}}
+{{- else if $db.sslRootCert -}}
+{{- $db.sslRootCert -}}
+{{- else if has $db.sslMode (list "verify-ca" "verify-full") -}}
+{{- fail (printf "externalDatabase.sslMode is %s but no CA is configured: set externalDatabase.caSecret.name (a Secret holding the CA's PEM) or externalDatabase.sslRootCert (\"system\" or a path you mount); the server refuses to start without one" $db.sslMode) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Where the server pod mounts externalDatabase.caSecret. */}}
+{{- define "keyorix.externalDatabase.caDir" -}}/app/db-ca{{- end -}}
+{{- define "keyorix.externalDatabase.caFile" -}}{{ include "keyorix.externalDatabase.caDir" . }}/ca.crt{{- end -}}

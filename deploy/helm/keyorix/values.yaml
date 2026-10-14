@@ -276,10 +276,20 @@ externalDatabase:
   sslMode: require
   # CA that signed the database server's certificate, rendered as
   # storage.database.ssl_root_cert. REQUIRED with sslMode verify-full/verify-ca
-  # (the server refuses to start without it): "system" trusts the image's OS CA
-  # store (a publicly issued certificate); a path names a PEM file you mount
-  # into the server pod yourself (this chart does not mount it).
+  # (the server refuses to start without it, and so does `helm template`). Set
+  # ONE of:
+  #   caSecret.name: a Secret in the release namespace holding the CA's PEM
+  #     under caSecret.key. The chart mounts it read-only (0440, group = the
+  #     pod's fsGroup) at /app/db-ca/ca.crt and points ssl_root_cert there. The
+  #     server reads the CA once, when it opens its database pool: after
+  #     rotating the Secret, restart it (kubectl rollout restart).
+  #   sslRootCert: "system" trusts the image's OS CA store (a publicly issued
+  #     certificate); a path names a PEM file you mount into the server pod
+  #     yourself.
   sslRootCert: ""
+  caSecret:
+    name: ""
+    key: ca.crt
 
 # ── Network policy ────────────────────────────────────────────────────────────
 # Scopes the server API and the bundled Postgres to same-namespace traffic —
