@@ -63,6 +63,7 @@ import (
 	samlpkg "github.com/keyorixhq/keyorix/internal/saml"
 	"github.com/keyorixhq/keyorix/internal/secretenv"
 	"github.com/keyorixhq/keyorix/internal/serverguard"
+	"github.com/keyorixhq/keyorix/internal/solewriter"
 	"github.com/keyorixhq/keyorix/internal/startup"
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -290,6 +291,22 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	}
 	defer presence.Release() //nolint:errcheck
 
+	// storage.database.single_writer (docs/specs/single-writer-cache.md):
+	// take the holder lock and record this boot as the only writer BEFORE any
+	// pool opens, so every connection the server makes carries the session tag
+	// the write fence checks. Without the setting, refuse while a single-writer
+	// server holds the database and remove a fence an earlier one left.
+	var swGuard *solewriter.Guard
+	if cfg.Storage.Database.SingleWriter {
+		swGuard, err = solewriter.Start(ctx, cfg, solewriter.Options{ExpectOwnPresence: true})
+		if err != nil {
+			log.Fatalf("single_writer: %v", err)
+		}
+		defer swGuard.Close()
+	} else if err := solewriter.CheckOff(ctx, cfg); err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	// #G12: construct the core service (and its owned singletons — encryption
 	// Service + exclusive DEK flock, SIEM Forwarder + spool, dynamic-secrets-sweep
 	// flag) exactly ONCE for the whole process, shared by both the HTTP and gRPC
@@ -316,6 +333,19 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// nothing would otherwise call Close() to drain that queue before the process
 	// exits, silently losing whatever was in flight at SIGTERM.
 	defer closeAuditForwarder(coreService)
+
+	// single_writer: the fence goes on once the security tables exist
+	// (migrations ran in initializeCoreService). No fence, no server.
+	if swGuard != nil {
+		if err := swGuard.InstallFence(ctx); err != nil {
+			log.Fatalf("%v (storage.database.single_writer never runs without its write fence)", err)
+		}
+		if err := swGuard.Settle(ctx); err != nil {
+			log.Fatalf("%v", err)
+		}
+		swGuard.Run(ctx)
+		log.Println(swGuard.StartupLine())
+	}
 
 	// Record the evaluated license state once at startup (ADR-065), so the
 	// entitlement (and any degrade reason) is on the audit record.

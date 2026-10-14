@@ -476,6 +476,15 @@ pre-exist. The Postgres backend is unaffected too.
 on by default would break every first boot that does not run `keyorix system init --database`
 first. Turn it on once your deployment creates the file explicitly — which is exactly the point:
 after that, a missing file can only mean something went wrong.
+### Single-writer mode (`single_writer`)
+
+`storage.database.single_writer` (default `false`, PostgreSQL only) declares this server the only writer
+of its database. A second server, an admin command with `--force`, or any SQL session that writes to a
+security table is refused while it runs; revocations made through the server stay immediate. The server
+refuses to start if the database-side write fence cannot be installed and verified. Not supported with
+more than one replica, with SQLite, or behind PgBouncer transaction pooling. Operations, the emergency
+two-step for a direct database change, and where the state is shown: [single-writer.md](single-writer.md).
+
 ### Audit commit durability (`insecure_audit_skip_durable_sync`)
 
 By default Keyorix will not return a secret value until that read's audit

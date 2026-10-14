@@ -8,11 +8,27 @@ export interface SystemPoolInfo {
     idle_connections: number;
 }
 
+// Mirrors internal/solewriter's Status; present only when storage.database.single_writer is on.
+export interface SystemSingleWriterStatus {
+    enabled: boolean;
+    state: 'settling' | 'authoritative' | 'confirming';
+    reason?: string;
+    holder_pid: number;
+    since: string;
+    fenced_tables: string[];
+    epoch: number;
+    last_poll_age_ms: number;
+    last_poll_error?: string;
+    authoritative: boolean;
+    emergency_sql: string;
+}
+
 export interface SystemDatabaseInfo {
     type: string;
     connected: boolean;
     version: string;
     pool: SystemPoolInfo;
+    single_writer?: SystemSingleWriterStatus;
 }
 
 export interface SystemSecurityInfo {

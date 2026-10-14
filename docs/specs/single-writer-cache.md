@@ -38,9 +38,8 @@ derived from, and so lets it skip that statement.
   `confirming` until restart. The lease alone already stops authoritative answers.
 - **Mode off**: every PostgreSQL boot without the setting refuses while a holder is live and removes a
   fence an earlier single-writer boot left (`solewriter.CheckOff`).
-- **Not yet**: the `pgbouncer-transaction` refusal waits for `storage.database.pooler` (#3254). Until
-  then, the server's own writes would be refused by the fence behind transaction pooling (the session
-  tag does not survive), which is fail-closed, not silent. The Helm `fail` guard is a follow-up.
+- **PgBouncer**: `storage.database.pooler: pgbouncer-transaction` (#3254) is refused at config
+  validation; `pgbouncer-session` is allowed. The Helm `fail` guard is a follow-up.
 
 ## 0. What the request path pays today, and what the mode removes
 

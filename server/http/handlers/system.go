@@ -7,6 +7,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/solewriter"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
@@ -38,6 +39,9 @@ type DatabaseInfo struct {
 	Connected bool     `json:"connected"`
 	Version   string   `json:"version"`
 	Pool      PoolInfo `json:"pool"`
+	// SingleWriter is storage.database.single_writer's live state; absent when
+	// the setting is off.
+	SingleWriter *solewriter.Status `json:"single_writer,omitempty"`
 }
 
 // PoolInfo represents database connection pool information
@@ -263,6 +267,11 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				AuditDurableSyncSkipNotInEffectReason: fastAuditStatus.NotInEffectReason,
 				RecoveryKey:                           recoveryKeyStatus,
 			},
+		}
+
+		if g := solewriter.Current(); g != nil {
+			st := g.Status()
+			systemInfo.Database.SingleWriter = &st
 		}
 
 		sendSuccess(w, systemInfo, "")
