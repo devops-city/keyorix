@@ -71,9 +71,71 @@ database:
   # of "the audit entry was written" and "the audit entry survives a host
   # crash" staying the same claim.
 
-  # PostgreSQL — tuning is done server-side (postgresql.conf):
-  # max_connections, shared_buffers, work_mem, effective_cache_size
+  # PostgreSQL — tuning is done server-side (postgresql.conf): see
+  # "Production PostgreSQL profile" below.
 ```
+
+### Production PostgreSQL profile
+
+Server-side settings for a PostgreSQL that serves Keyorix in production. They
+size memory and WAL for the database; they do **not** touch durability. With
+the Helm chart's bundled database, set them under `postgresql.settings` (the
+chart renders each as `postgres -c key=value`). With an external database, use
+`postgresql.conf` / `ALTER SYSTEM` or your provider's parameter group.
+
+```ini
+# Memory: size to the database host / container, not to these numbers.
+shared_buffers = 256MB          # ~25% of the memory available to PostgreSQL
+effective_cache_size = 768MB    # ~75% of it (a planner hint, allocates nothing)
+# WAL volume: every secret read writes an audit row, so WAL is the steady load.
+wal_buffers = 16MB
+wal_compression = lz4           # PostgreSQL 15+; 'pglz' on older servers
+checkpoint_timeout = 15min      # fewer checkpoints = fewer full-page images
+max_wal_size = 2GB              # keep well under the volume size
+# Durability: leave the defaults. Required, not tunable:
+synchronous_commit = on
+fsync = on
+full_page_writes = on
+# commit_delay / commit_siblings: leave at 0 / 5 (see below).
+```
+
+What these do and do not buy, measured under secret-read load at low and high
+concurrency on PostgreSQL 15:
+
+- **Throughput and latency: no change** from the memory/WAL settings, or from
+  adding `commit_delay = 100`. The working set of a secrets database is small
+  and stays cached at the defaults. Keyorix's audit commits go through one
+  serialized writer per replica, so there are rarely enough concurrent commits
+  for `commit_delay` to group them.
+- **Less WAL per secret read** (`wal_compression = lz4` with longer checkpoint
+  spacing), mostly from fewer and smaller full-page images.
+  That means less disk I/O, smaller WAL archives and lighter replication.
+- Raise `shared_buffers` and `effective_cache_size` with the database's memory
+  when the audit tables grow beyond it (audit search and export read them).
+
+Durability is not part of the profile. The audit entry for a secret read is
+committed before the secret is returned. `synchronous_commit = off`,
+`fsync = off` or `full_page_writes = off` would let a committed audit entry be
+lost in a crash. The Helm chart accepts only durable values for these three (an
+allow-list, so prefixes such as `of` are refused too), and refuses settings that
+would override its TLS baseline (`ssl`, `ssl_*`, `hba_file`, `listen_addresses`,
+`password_encryption`, and others) or run commands (`archive_command`). ADR-112's fast
+audit mode is a Keyorix server option
+(`storage.database.insecure_audit_skip_durable_sync`), scoped to the audit
+transaction alone. It is not a database setting.
+
+Prepared statements need no setting: the server's PostgreSQL driver caches a
+prepared statement per connection by default, and the hot statements run from
+cached plans.
+
+### SQLite settings
+
+The server sets `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`,
+`busy_timeout=10s` and `BEGIN IMMEDIATE` on every connection; there is nothing
+to add for performance. A larger page cache, `mmap_size` or
+`temp_store=MEMORY` made no measurable difference to secret reads at any
+concurrency tested; the cost per request is the per-commit fsync and the server's own
+work, not page I/O.
 
 ### Server Optimization
 ```yaml
@@ -202,23 +264,13 @@ alerts:
 
 ### Database Tuning
 ```sql
--- SQLite performance optimizations (journal_mode/synchronous/busy_timeout/
--- foreign_keys are already set by this codebase's factory.go on every
--- connection -- don't re-apply these by hand against a running deployment):
-PRAGMA cache_size = 10000;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = FULL;  -- NOT NORMAL: this DB carries the audit hash-chain,
-                            -- and NORMAL in WAL mode only fsyncs at checkpoint
-                            -- boundaries, not every COMMIT -- a committed audit
-                            -- entry could be lost on an OS crash/power loss.
-PRAGMA temp_store = MEMORY;
-PRAGMA mmap_size = 268435456;
+-- SQLite: the server already sets journal_mode=WAL, synchronous=FULL,
+-- foreign_keys and busy_timeout on every connection; see "SQLite settings"
+-- above. Never set synchronous = NORMAL: this DB carries the audit hash-chain,
+-- and NORMAL in WAL mode only fsyncs at checkpoint boundaries, not every
+-- COMMIT -- a committed audit entry could be lost on an OS crash/power loss.
 
--- PostgreSQL performance optimizations (postgresql.conf / ALTER SYSTEM)
--- shared_buffers = 256MB
--- work_mem = 16MB
--- effective_cache_size = 1GB
--- wal_compression = on
+-- PostgreSQL: see "Production PostgreSQL profile" above.
 
 -- Index optimization (both backends)
 CREATE INDEX idx_secrets_name ON secret_nodes(name);

@@ -171,19 +171,26 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          {{- if .Values.secureBaseline.enabled }}
-          # secureBaseline (SECURE-DEFAULT-1): TLS with the chart's self-signed
-          # certificate (the server connects with ssl_mode: require). The key is
-          # root-owned 0440 (group = fsGroup 999), which PostgreSQL accepts.
+          {{- $pgSettings := include "keyorix.postgresql.settings" . }}
+          {{- if or .Values.secureBaseline.enabled $pgSettings }}
           # `postgres` first: args replace the image's CMD.
           args:
             - postgres
+            {{- if .Values.secureBaseline.enabled }}
+            # secureBaseline (SECURE-DEFAULT-1): TLS with the chart's self-signed
+            # certificate (the server connects with ssl_mode: require). The key is
+            # root-owned 0440 (group = fsGroup 999), which PostgreSQL accepts.
             - -c
             - ssl=on
             - -c
             - ssl_cert_file=/etc/postgresql/tls/tls.crt
             - -c
             - ssl_key_file=/etc/postgresql/tls/tls.key
+            {{- end }}
+            {{- with $pgSettings }}
+            # postgresql.settings (see values.yaml and docs/PERFORMANCE.md).
+            {{- . | trim | nindent 12 }}
+            {{- end }}
           {{- end }}
           ports:
             - name: postgres

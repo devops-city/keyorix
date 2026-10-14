@@ -335,3 +335,44 @@ with the bundled PostgreSQL, which has no CA to name).
 {{/* Where the server pod mounts externalDatabase.caSecret. */}}
 {{- define "keyorix.externalDatabase.caDir" -}}/app/db-ca{{- end -}}
 {{- define "keyorix.externalDatabase.caFile" -}}{{ include "keyorix.externalDatabase.caDir" . }}/ca.crt{{- end -}}
+
+{{/*
+postgresql.settings (DB-TUNE-1): extra `postgres -c key=value` settings for the
+bundled PostgreSQL. Keys must be plain setting names.
+- Durability is not tunable here: the audit row is committed before a secret is
+  returned, so synchronous_commit, fsync and full_page_writes accept only values
+  that keep commits durable (an allow-list: PostgreSQL also accepts boolean
+  prefixes such as "of" or "f", which a deny-list would miss).
+- Settings that would override the secure baseline or run commands are refused:
+  ssl and every ssl_* setting, hba_file, ident_file, listen_addresses, port,
+  password_encryption, data_directory, config_file, archive_command,
+  archive_library, restore_command.
+- Whole-number values are printed as integers (a values file's 10000000 is a
+  float to Helm and would otherwise render as 1e+07).
+*/}}
+{{- define "keyorix.postgresql.settings.value" -}}
+{{- $v := . -}}
+{{- if and (kindIs "float64" $v) (eq (floor $v) $v) -}}{{ int64 $v }}{{- else -}}{{ $v }}{{- end -}}
+{{- end -}}
+{{- define "keyorix.postgresql.settings" -}}
+{{- $settings := .Values.postgresql.settings | default dict -}}
+{{- $denied := list "ssl" "hba_file" "ident_file" "listen_addresses" "port" "password_encryption" "data_directory" "config_file" "archive_command" "archive_library" "restore_command" -}}
+{{- $durable := dict "synchronous_commit" (list "on" "true" "yes" "1" "local" "remote_write" "remote_apply") "fsync" (list "on" "true" "yes" "1") "full_page_writes" (list "on" "true" "yes" "1") -}}
+{{- range $k, $v := $settings -}}
+{{- if not (regexMatch "^[a-z][a-z0-9_.]*$" $k) -}}
+{{- fail (printf "postgresql.settings: %q is not a PostgreSQL setting name" $k) -}}
+{{- end -}}
+{{- if or (has $k $denied) (hasPrefix "ssl_" $k) -}}
+{{- fail (printf "postgresql.settings.%s is not settable here: it would override the chart's secure baseline (TLS, authentication, listen address) or run a command" $k) -}}
+{{- end -}}
+{{- if hasKey $durable $k -}}
+{{- if not (has (toString $v) (get $durable $k)) -}}
+{{- fail (printf "postgresql.settings.%s=%q is refused: only %s keep a committed audit entry (or any write) safe on a crash" $k (toString $v) (join ", " (get $durable $k))) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- range $k, $v := $settings }}
+- -c
+- {{ printf "%s=%s" $k (include "keyorix.postgresql.settings.value" $v) | quote }}
+{{- end -}}
+{{- end -}}
