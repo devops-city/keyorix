@@ -96,8 +96,9 @@ func TestWithNamedLock_Postgres_SmallPool_DistinctKeysAndReadsComplete(t *testin
 }
 
 // TestPostgresStorage_Close_ReleasesEveryPool: Close on a factory-built
-// Postgres storage closes the request pool and both lock pools. After using all
-// three (a scheduler job and a named lock whose fn queries), no backend is left
+// Postgres storage closes the request pool, both lock pools and the native read
+// pool. After using all four (a scheduler job, a named lock whose fn queries, a
+// credential lookup), no backend is left
 // connected to the database.
 func TestPostgresStorage_Close_ReleasesEveryPool(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
@@ -120,6 +121,9 @@ func TestPostgresStorage_Close_ReleasesEveryPool(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, ran)
+	// The credential lookup runs on the native read pool: a session there too.
+	_, _, err = st.GetMachineIdentityCredentialWithIdentityStateByHash(ctx, "no-such-hash")
+	require.Error(t, err)
 
 	// Counted from a connection of its own to the same database, excluding itself.
 	observer := pgRawOpen(t, dsn)
@@ -129,7 +133,7 @@ func TestPostgresStorage_Close_ReleasesEveryPool(t *testing.T) {
 			"WHERE datname = current_database() AND pid <> pg_backend_pid()").Scan(&n).Error)
 		return n
 	}
-	require.GreaterOrEqual(t, backends(), 3, "the request pool and both lock pools should each have a session open")
+	require.GreaterOrEqual(t, backends(), 4, "the request pool, both lock pools and the native read pool should each have a session open")
 
 	closer, ok := st.(interface{ Close() error })
 	require.True(t, ok, "Postgres storage must be closable")

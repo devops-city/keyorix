@@ -513,10 +513,10 @@ func FuzzUpgradeMigrationPostgres(f *testing.F) {
 		// burst without this close hit "sorry, too many clients already"
 		// (Postgres' max_connections) after ~99 iterations -- one leaked
 		// connection per iteration, never released.
-		if ls, ok := st.(interface{ DB() *gorm.DB }); ok {
-			if sqlDB, e := ls.DB().DB(); e == nil {
-				defer func() { _ = sqlDB.Close() }()
-			}
+		// Close releases every pool the factory opened (request, lock and
+		// native read pools), not only the request pool.
+		if closer, ok := st.(interface{ Close() error }); ok {
+			defer func() { _ = closer.Close() }()
 		}
 
 		enc := encryption.NewService(&cfg.Storage.Encryption, workDir)

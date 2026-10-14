@@ -191,7 +191,7 @@ func (t *readPathPrefetchTail) finish(r *readPathPrefetchRow) {
 // which on every call re-rendered the whole statement with its arguments
 // inlined (a regexp pass, for a log line nobody reads) and matched columns to
 // fields by reflection.
-func scanReadPathPrefetchRows(rows *sql.Rows, wantScheduleVersion bool) ([]readPathPrefetchRow, error) {
+func scanReadPathPrefetchRows(rows rowScanner, wantScheduleVersion bool) ([]readPathPrefetchRow, error) {
 	var out []readPathPrefetchRow
 	for rows.Next() {
 		var r readPathPrefetchRow
@@ -258,8 +258,17 @@ func readPathPrefetchFromRows(pf *storage.ReadPathPrefetch, id uint, node *model
 
 // readPathPrefetchRows runs the node-stamp statement through gorm (so its
 // callbacks, the statement counters and fault injection included, still see it)
-// and scans the result with scanReadPathPrefetchRows.
+// and scans the result with scanReadPathPrefetchRows. On Postgres it runs on the
+// native pool, after the same callbacks (native_reads.go).
 func (ls *LocalStorage) readPathPrefetchRows(ctx context.Context, q string, args []any, wantScheduleVersion bool) (_ []readPathPrefetchRow, err error) {
+	if ls.nativeReads != nil {
+		nrows, err := ls.queryNative(ctx, q, args)
+		if err != nil {
+			return nil, err
+		}
+		defer nrows.Close()
+		return scanReadPathPrefetchRows(nrows, wantScheduleVersion)
+	}
 	rows, err := ls.db.WithContext(ctx).Raw(q, args...).Rows()
 	if err != nil {
 		return nil, err

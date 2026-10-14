@@ -85,11 +85,41 @@ func (ls *LocalStorage) getMachineCredentialFolded(ctx context.Context, hash str
 		return nil, "", nil, false
 	}
 	q := foldedCredentialSQL(nodeTriggerExistsExpr(ls.db), pf.WantScheduleVersion)
-	rows, err := ls.db.WithContext(ctx).Raw(q, foldedCredentialArgs(pf, secretID, cached.node, hash)...).Rows()
-	if err != nil {
+	args := foldedCredentialArgs(pf, secretID, cached.node, hash)
+	var rows rowScanner
+	if ls.nativeReads != nil {
+		// Postgres: the same statement on the native pool (native_reads.go).
+		nrows, err := ls.queryNative(ctx, q, args)
+		if err != nil {
+			return nil, "", nil, false
+		}
+		defer nrows.Close()
+		rows = nrows
+	} else {
+		srows, err := ls.db.WithContext(ctx).Raw(q, args...).Rows()
+		if err != nil {
+			return nil, "", nil, false
+		}
+		defer func() { _ = srows.Close() }()
+		rows = srows
+	}
+	c, identityState, nodeRows, ok := scanFoldedCredentialRows(rows, pf.WantScheduleVersion)
+	if !ok {
+		// No credential row (or a failure): the plain statement answers, with
+		// its own error.
 		return nil, "", nil, false
 	}
-	defer func() { _ = rows.Close() }()
+	if nodeRows == nil {
+		return c, identityState, nil, true
+	}
+	stamp, perm, sched := readPathPrefetchFromRows(pf, secretID, cached.node, nodeRows)
+	return c, identityState, &foldedNodeState{stamp: stamp, entryGeneration: cached.generation, perm: perm, sched: sched}, true
+}
+
+// scanFoldedCredentialRows reads every row of the folded statement: the
+// credential (the same on every row) and the node rows, nil when the LEFT JOIN
+// found no node. ok is false on a scan failure or when there was no row.
+func scanFoldedCredentialRows(rows rowScanner, wantScheduleVersion bool) (*models.MachineIdentityCredential, string, []readPathPrefetchRow, bool) {
 	var (
 		c             models.MachineIdentityCredential
 		identityState string
@@ -111,7 +141,7 @@ func (ls *LocalStorage) getMachineCredentialFolded(ctx context.Context, hash str
 			&c.AllowedCIDRs, &lastUsedAt, &expiresAt, &c.Revoked, &createdAt,
 			&c.Classification, &identityState,
 			&cacheEpoch, &trigger,
-		}, &r, pf.WantScheduleVersion)
+		}, &r, wantScheduleVersion)
 		if err := rows.Scan(dest...); err != nil {
 			return nil, "", nil, false
 		}
@@ -128,15 +158,12 @@ func (ls *LocalStorage) getMachineCredentialFolded(ctx context.Context, hash str
 		}
 	}
 	if rows.Err() != nil || n == 0 {
-		// No credential row (or a failure): the plain statement answers, with
-		// its own error.
 		return nil, "", nil, false
 	}
 	if !nodeFound {
 		return &c, identityState, nil, true
 	}
-	stamp, perm, sched := readPathPrefetchFromRows(pf, secretID, cached.node, nodeRows)
-	return &c, identityState, &foldedNodeState{stamp: stamp, entryGeneration: cached.generation, perm: perm, sched: sched}, true
+	return &c, identityState, nodeRows, true
 }
 
 // foldedCredentialLookup runs the fold the request asked for, if any. handled

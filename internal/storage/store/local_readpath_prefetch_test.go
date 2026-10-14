@@ -27,9 +27,18 @@ type prefetchWorld struct {
 }
 
 func newPrefetchWorld(t *testing.T, backend string) prefetchWorld {
+	return newPrefetchWorldWith(t, backend, nil)
+}
+
+// newPrefetchWorldWith runs prep on the migrated store before the world's rows
+// are created.
+func newPrefetchWorldWith(t *testing.T, backend string, prep func(*LocalStorage)) prefetchWorld {
 	t.Helper()
 	ls, _ := newPrincipalPermStorage(t, backend)
 	require.NoError(t, ls.db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}))
+	if prep != nil {
+		prep(ls)
+	}
 	require.NoError(t, EnsureSecretNodeCacheEpoch(ls.db))
 	w := ppWorld{t: t, ls: ls}
 	ctx := context.Background()

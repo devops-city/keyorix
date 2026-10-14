@@ -123,10 +123,8 @@ func newSVReplica(t *testing.T, cfg *config.Config) *svReplica {
 	require.NoError(t, err)
 	ls, ok := st.(*store.LocalStorage)
 	require.True(t, ok, "%T", st)
+	t.Cleanup(func() { _ = ls.Close() }) // every pool it opened, the native read pool included
 	r := &svReplica{c: core.NewKeyorixCore(st), db: ls.DB()}
-	if sqlDB, err := r.db.DB(); err == nil {
-		t.Cleanup(func() { _ = sqlDB.Close() })
-	}
 	record := func(db *gorm.DB) {
 		r.mu.Lock()
 		defer r.mu.Unlock()

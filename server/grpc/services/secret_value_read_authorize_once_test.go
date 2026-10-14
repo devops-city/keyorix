@@ -84,6 +84,7 @@ func newGVOWorld(t *testing.T, backend string) *gvoWorld {
 	require.NoError(t, err)
 	ls, ok := st.(*store.LocalStorage)
 	require.True(t, ok, "%T", st)
+	t.Cleanup(func() { _ = ls.Close() }) // every pool it opened, the native read pool included
 	w := &gvoWorld{c: core.NewKeyorixCore(st), db: ls.DB(), users: map[string]uint{}}
 	w.svc = NewSecretService(w.c)
 	require.NoError(t, w.db.Callback().Query().After("gorm:query").Register("perffix3:gvo_share", func(db *gorm.DB) {

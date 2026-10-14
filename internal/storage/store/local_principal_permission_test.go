@@ -59,7 +59,16 @@ func newPrincipalPermStorage(t *testing.T, backend string) (*LocalStorage, func(
 	}
 	db := open()
 	require.NoError(t, db.AutoMigrate(principalPermModels...))
-	return NewLocalStorage(db), func() *LocalStorage { return NewLocalStorage(open()) }
+	// On Postgres the stores read their hot statements on a native pool, as the
+	// factory-built storage does (native_reads.go).
+	mk := func(db *gorm.DB) *LocalStorage {
+		ls := NewLocalStorage(db)
+		if backend != "sqlite" {
+			attachNativeReadPool(t, ls)
+		}
+		return ls
+	}
+	return mk(db), func() *LocalStorage { return mk(open()) }
 }
 
 func principalPermBackends(t *testing.T) []string {

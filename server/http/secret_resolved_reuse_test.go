@@ -156,6 +156,7 @@ func newRRWorld(t *testing.T, backend string, twoReplicas bool) *rrWorld {
 	require.NoError(t, err)
 	ls, ok := st.(*store.LocalStorage)
 	require.True(t, ok, "%T", st)
+	t.Cleanup(func() { _ = ls.Close() }) // every pool it opened, the native read pool included
 	w := &rrWorld{a: rrNewReplica(t, ls), users: map[string]uint{}, tokens: map[string]string{}}
 	if twoReplicas {
 		require.NotEmpty(t, pgTarget, "two replicas need Postgres")

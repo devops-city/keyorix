@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/keyorixhq/keyorix/internal/config"
 	"gorm.io/driver/postgres"
@@ -45,21 +46,60 @@ func openPostgresSQLDB(d *config.DatabaseConfig) (*sql.DB, *pgx.ConnConfig, erro
 		return nil, nil, err
 	}
 	var opts []stdlib.OptionOpenDB
-	if tz := postgresTimeZone(cc); tz != "" {
-		opts = append(opts, stdlib.OptionAfterConnect(func(_ context.Context, conn *pgx.Conn) error {
-			loc, err := time.LoadLocation(tz)
-			if err != nil {
-				return err
-			}
-			conn.TypeMap().RegisterType(&pgtype.Type{
-				Name:  "timestamp",
-				OID:   pgtype.TimestampOID,
-				Codec: &pgtype.TimestampCodec{ScanLocation: loc},
-			})
-			return nil
-		}))
+	if afterConnect := postgresAfterConnect(cc); afterConnect != nil {
+		opts = append(opts, stdlib.OptionAfterConnect(afterConnect))
 	}
 	return stdlib.OpenDB(*cc, opts...), cc, nil
+}
+
+// postgresAfterConnect is the per-connection setup every pool opened from cc
+// runs: the timestamp scan location for a DSN time zone setting. nil when
+// there is nothing to set up.
+func postgresAfterConnect(cc *pgx.ConnConfig) func(context.Context, *pgx.Conn) error {
+	tz := postgresTimeZone(cc)
+	if tz == "" {
+		return nil
+	}
+	return func(_ context.Context, conn *pgx.Conn) error {
+		loc, err := time.LoadLocation(tz)
+		if err != nil {
+			return err
+		}
+		conn.TypeMap().RegisterType(&pgtype.Type{
+			Name:  "timestamp",
+			OID:   pgtype.TimestampOID,
+			Codec: &pgtype.TimestampCodec{ScanLocation: loc},
+		})
+		return nil
+	}
+}
+
+// openPostgresNativeReadPool opens the pgxpool the storage layer runs its
+// hottest read statements on (store.LocalStorage.SetNativeReadPool). Same
+// connection config as every other pool here (config.ResolvePostgresConnConfig:
+// the parsed DSN, the password set on it, the TLS check), the same
+// per-connection setup, and pgx's default statement cache, as the request pool
+// uses. It does not connect: pgxpool dials on first use.
+func openPostgresNativeReadPool(d *config.DatabaseConfig, maxConns int) (*pgxpool.Pool, error) {
+	cc, err := config.ResolvePostgresConnConfig(d)
+	if err != nil {
+		return nil, err
+	}
+	// pgxpool only accepts a config made by its own ParseConfig. The parsed
+	// string is a placeholder that loads no TLS files; its ConnConfig is
+	// replaced by the resolved one below, so nothing of it reaches a connection.
+	pc, err := pgxpool.ParseConfig("sslmode=disable")
+	if err != nil {
+		return nil, err
+	}
+	pc.ConnConfig = cc
+	pc.AfterConnect = postgresAfterConnect(cc)
+	pc.MaxConns = int32(maxConns) // #nosec G115 -- at most NativeReadPoolMaxSize (nativeReadPoolSize)
+	pc.MinConns = 0
+	if d.ConnMaxLifetimeMinutes > 0 {
+		pc.MaxConnLifetime = time.Duration(d.ConnMaxLifetimeMinutes) * time.Minute
+	}
+	return pgxpool.NewWithConfig(context.Background(), pc)
 }
 
 // postgresTimeZone returns the time zone a DSN sets under one of the keys

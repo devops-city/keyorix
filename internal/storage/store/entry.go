@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"gorm.io/gorm"
 )
 
@@ -184,6 +185,16 @@ type LocalStorage struct {
 	// back to the always-correct GORM path" pattern as auditFlusher above.
 	// Only the root LocalStorage returned by NewLocalStorage gets a real one.
 	rawStmts *rawStatements
+	// nativeReads is the pgxpool the hottest read-path statements run on, on
+	// Postgres (SetNativeReadPool; native_reads.go). nil on SQLite, on a store
+	// built without the factory, and on every transaction-scoped or derived
+	// LocalStorage, which then use ls.db as before: a statement inside a
+	// transaction must read that transaction's snapshot.
+	nativeReads *pgxpool.Pool
+	// nativeRowChain is ls.db's Row callback chain when nativeReads was set
+	// (rowCallbackChain); nativeRowChainKnown is false if it could not be read.
+	nativeRowChain      uintptr
+	nativeRowChainKnown bool
 	// auditSkipDurableSync, when true, makes the audit-commit transaction skip
 	// the WAIT for a disk sync — nothing else (ADR-112 Amendment 1,
 	// FASTAUDIT-1, docs/specs/fast-audit-mode.md). Set once at construction
@@ -378,10 +389,14 @@ func (ls *LocalStorage) DB() *gorm.DB {
 	return ls.db
 }
 
-// Close closes the lock pools (SetSchedulerLockDB, SetNamedLockDB) and the
-// request pool, releasing every Postgres connection this storage opened. Call it
-// once, after everything using the storage (requests, schedulers) has stopped.
+// Close closes the native read pool (SetNativeReadPool), the lock pools
+// (SetSchedulerLockDB, SetNamedLockDB) and the request pool, releasing every
+// Postgres connection this storage opened. Call it once, after everything using
+// the storage (requests, schedulers) has stopped.
 func (ls *LocalStorage) Close() error {
+	if ls.nativeReads != nil {
+		ls.nativeReads.Close()
+	}
 	var errs []error
 	for _, lockDB := range []*sql.DB{ls.schedulerLockDB, ls.namedLockDB} {
 		if lockDB != nil {

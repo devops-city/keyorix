@@ -4,7 +4,8 @@
   (or the field-built DSN, which carries no password) with `pgx.ParseConfig` — the driver's own
   parser — sets the password on the parsed config, and every connection
   (`createPostgresStorage`, `OpenGormDB`, `serverguard`, admin restore and verify-audit) is
-  opened from that config with `stdlib.OpenDB`. So host, port, sslmode, sslrootcert and every
+  opened from that config with `stdlib.OpenDB` (the native read pool with `pgxpool`, from the same
+  config). So host, port, sslmode, sslrootcert and every
   other setting are exactly what pgx reads from the configured DSN, whatever bytes the password
   holds, and whatever DSN shape a hand-written splice would have misread. Why: #3159 spliced the
   password into the DSN; a keyword DSN ending in `\` let the password inject

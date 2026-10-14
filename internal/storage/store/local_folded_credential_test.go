@@ -25,8 +25,12 @@ type foldWorld struct {
 }
 
 func newFoldWorld(t *testing.T, backend string) foldWorld {
+	return newFoldWorldWith(t, backend, nil)
+}
+
+func newFoldWorldWith(t *testing.T, backend string, prep func(*LocalStorage)) foldWorld {
 	t.Helper()
-	w := newPrefetchWorld(t, backend)
+	w := newPrefetchWorldWith(t, backend, prep)
 	require.NoError(t, w.ls.db.AutoMigrate(&models.MachineIdentityCredential{}))
 	hash := w.name("fold-hash")
 	exp := time.Now().Add(time.Hour).UTC().Truncate(time.Second)

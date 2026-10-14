@@ -1,0 +1,2 @@
+### Changed
+- **Less CPU per machine secret read on PostgreSQL.** The credential re-check and the secret's node read now run on a native pgx connection pool owned by the storage layer, with the same statements, binds and results. The pool uses the same connection settings as the main pool (DSN, password, TLS), holds at most 8 connections (never more than `storage.database.max_open_conns`), and is counted in the start-up connection headroom warning. SQLite is unchanged.

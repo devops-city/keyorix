@@ -101,6 +101,7 @@ func newGRRWorld(t *testing.T, backend string) *grrWorld {
 	require.NoError(t, err)
 	ls, ok := st.(*store.LocalStorage)
 	require.True(t, ok, "%T", st)
+	t.Cleanup(func() { _ = ls.Close() }) // every pool it opened, the native read pool included
 	w := &grrWorld{c: core.NewKeyorixCore(st), db: ls.DB(), users: map[string]uint{}}
 	w.svc = NewSecretService(w.c)
 	count := func(*gorm.DB) {

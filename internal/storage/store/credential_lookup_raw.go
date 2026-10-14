@@ -36,6 +36,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -124,19 +126,22 @@ func (ls *LocalStorage) getMachineIdentityCredentialWithIdentityStateByHashRaw(c
 	if ls.rawStmts == nil {
 		return nil, "", false, nil
 	}
-	if err := ls.prepareRawStatements(); err != nil {
-		return nil, "", false, nil //nolint:nilerr // prepare failure -> caller falls back to GORM, not a user-facing error
-	}
-	var c models.MachineIdentityCredential
-	var identityState string
-	var lastUsedAt, expiresAt, createdAt sql.NullTime
-	err := ls.rawStmts.credentialLookup.QueryRowContext(ctx, hash).Scan(
-		&c.ID, &c.MachineIdentityID, &c.Name, &c.TokenHash, &c.TokenPrefix,
-		&c.AllowedCIDRs, &lastUsedAt, &expiresAt, &c.Revoked, &createdAt,
-		&c.Classification, &identityState,
+	var (
+		c             *models.MachineIdentityCredential
+		identityState string
+		err           error
 	)
-	if err == nil {
-		err = assignCredentialTimes(&c, lastUsedAt, expiresAt, createdAt)
+	if ls.nativeReads != nil {
+		// Postgres: the same statement on the native pool (native_reads.go).
+		c, identityState, err = scanCredentialRow(ls.nativeReads.QueryRow(ctx, credentialLookupRawQuery, hash))
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = sql.ErrNoRows
+		}
+	} else {
+		if err := ls.prepareRawStatements(); err != nil {
+			return nil, "", false, nil //nolint:nilerr // prepare failure -> caller falls back to GORM, not a user-facing error
+		}
+		c, identityState, err = scanCredentialRow(ls.rawStmts.credentialLookup.QueryRowContext(ctx, hash))
 	}
 	if err != nil {
 		// Mirrors GetMachineIdentityCredentialWithIdentityStateByHash's own
@@ -146,7 +151,24 @@ func (ls *LocalStorage) getMachineIdentityCredentialWithIdentityStateByHashRaw(c
 		// not just the success case.
 		return nil, "", true, fmt.Errorf("%s: %w", i18n.T("ErrorNotFound", nil), err)
 	}
-	return &c, identityState, true, nil
+	return c, identityState, true, nil
+}
+
+// scanCredentialRow scans one row of credentialLookupRawQuery, from either
+// driver, into the credential and its identity state.
+func scanCredentialRow(row interface{ Scan(dest ...any) error }) (*models.MachineIdentityCredential, string, error) {
+	var c models.MachineIdentityCredential
+	var identityState string
+	var lastUsedAt, expiresAt, createdAt sql.NullTime
+	err := row.Scan(
+		&c.ID, &c.MachineIdentityID, &c.Name, &c.TokenHash, &c.TokenPrefix,
+		&c.AllowedCIDRs, &lastUsedAt, &expiresAt, &c.Revoked, &createdAt,
+		&c.Classification, &identityState,
+	)
+	if err == nil {
+		err = assignCredentialTimes(&c, lastUsedAt, expiresAt, createdAt)
+	}
+	return &c, identityState, err
 }
 
 // assignCredentialTimes copies the scanned times into c. The scan goes through

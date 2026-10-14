@@ -65,8 +65,12 @@ func TestPostgresPoolHeadroomWarning(t *testing.T) {
 		warn                       bool
 	}{
 		{DefaultPostgresMaxOpenConns, 100, 3, false},
-		{97 - lockPoolsSize, 100, 3, false}, // with the lock pools, exactly the usable slots
-		{98 - lockPoolsSize, 100, 3, true},
+		// with the lock pools and the native read pool, exactly the usable slots
+		{97 - lockPoolsSize - NativeReadPoolMaxSize, 100, 3, false},
+		{98 - lockPoolsSize - NativeReadPoolMaxSize, 100, 3, true},
+		// a request pool smaller than the native pool's cap caps it
+		{3, 3 + lockPoolsSize + 3 + 1, 1, false},
+		{3, 3 + lockPoolsSize + 3, 1, true},
 		{100, 100, 3, true}, // the measured SQLSTATE 53300 case
 		{100, 0, 0, false},  // setting unreadable/zero: never warn on garbage
 	}
