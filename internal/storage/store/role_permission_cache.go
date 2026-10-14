@@ -28,7 +28,10 @@
 // bumpRolePermissionsGenerationTx's doc comment for the three reasons,
 // including the fuzz-oracle failure a nondeterministic value caused on this
 // PR's own CI. The only property a reader needs is "did this change since I
-// last looked," never "by how much."
+// last looked," never "by how much." Database triggers on role_permissions and
+// permissions bump it too, so a direct database change is seen as well, and a
+// read that cannot prove the triggers exist bypasses the cache (#3259,
+// role_permission_generation_trigger.go).
 //
 // Same per-LocalStorage-instance-not-package-global design as
 // secret_metadata_cache.go, for the identical reason (see that file's
@@ -97,15 +100,23 @@ func (c *rolePermissionCache) set(key string, e rolePermCacheEntry) {
 }
 
 // liveRolePermissionsGeneration reads the current global generation value.
-// A never-bumped install reads as ("", nil) — "" is a perfectly valid
+// A never-bumped install reads as ("", true, nil) — "" is a perfectly valid
 // generation value (every cache entry recorded before the first-ever bump
-// shares it), not a sentinel error.
-func liveRolePermissionsGeneration(ctx context.Context, ls *LocalStorage) (string, error) {
-	val, _, err := ls.GetSystemMetadata(ctx, rolePermissionsGenerationKey)
-	if err != nil {
-		return "", err
+// shares it), not a sentinel error. trusted is false when the triggers that
+// keep the generation moving on direct database writes are missing or
+// disabled (#3259, role_permission_generation_trigger.go): the value can't
+// validate anything then, and callers neither hit nor fill the cache.
+func liveRolePermissionsGeneration(ctx context.Context, ls *LocalStorage) (gen string, trusted bool, err error) {
+	var rows []struct{ Generation *string }
+	q := "SELECT " + rolePermGenerationExpr(ls.db, "gen") +
+		" AS generation FROM (SELECT 1 AS one) one LEFT JOIN system_metadata gen ON gen.key = ?"
+	if err := ls.db.WithContext(ctx).Raw(q, rolePermissionsGenerationKey).Scan(&rows).Error; err != nil {
+		return "", false, err
 	}
-	return val, nil
+	if len(rows) == 0 || rows[0].Generation == nil {
+		return "", false, nil
+	}
+	return *rows[0].Generation, true, nil
 }
 
 // bumpRolePermissionsGenerationTx advances the global generation using tx, so

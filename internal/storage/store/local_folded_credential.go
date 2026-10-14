@@ -55,8 +55,8 @@ type foldedNodeState struct {
 // order is: the trigger name, the secret id (the LEFT JOIN), the machine id,
 // the node's project and environment, the generation key, the secret id
 // (schedule/version only) and the token hash.
-func foldedCredentialSQL(triggerExpr string, wantScheduleVersion bool) string {
-	key := readPathPrefetchSQLKey{folded: true, triggerExpr: triggerExpr, wantScheduleVersion: wantScheduleVersion}
+func foldedCredentialSQL(triggerExpr, genExpr string, wantScheduleVersion bool) string {
+	key := readPathPrefetchSQLKey{folded: true, triggerExpr: triggerExpr, genExpr: genExpr, wantScheduleVersion: wantScheduleVersion}
 	return cachedReadPathSQL(key, func(p readPathPrefetchParts) string {
 		return `SELECT c.id, c.machine_identity_id, c.name, c.token_hash, c.token_prefix,
        c.allowed_c_id_rs, c.last_used_at, c.expires_at, c.revoked, c.created_at,
@@ -84,7 +84,7 @@ func (ls *LocalStorage) getMachineCredentialFolded(ctx context.Context, hash str
 	if !ok || cached.node == nil {
 		return nil, "", nil, false
 	}
-	q := foldedCredentialSQL(nodeTriggerExistsExpr(ls.db), pf.WantScheduleVersion)
+	q := foldedCredentialSQL(nodeTriggerExistsExpr(ls.db), rolePermGenerationExpr(ls.db, "gen"), pf.WantScheduleVersion)
 	args := foldedCredentialArgs(pf, secretID, cached.node, hash)
 	var rows rowScanner
 	if ls.nativeReads != nil {
