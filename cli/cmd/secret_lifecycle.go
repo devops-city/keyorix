@@ -14,16 +14,24 @@ import (
 // ── suspend / resume ────────────────────────────────────────────────────────────
 
 var (
-	secretSuspendID     int
-	secretSuspendReason string
-	secretResumeID      int
+	secretSuspendID          int
+	secretSuspendReason      string
+	secretSuspendClearCopies bool
+	secretResumeID           int
 )
 
 var secretSuspendCmd = &cobra.Command{
 	Use:   "suspend",
 	Short: "Suspend a secret -- block value reads without deleting it",
 	Long: `Freeze a secret: value reads are refused until it is resumed. Versions,
-shares, and the audit trail are preserved. Requires secrets.write.`,
+shares, and the audit trail are preserved. Requires secrets.write.
+
+With --clear-synced-copies the copies of this secret synced to Kubernetes clusters
+(by the operator or keyorix-k8s-sync) are also emptied for the duration of THIS
+suspension, whatever the resource's own onSuspend setting says. Use it when the
+secret is compromised, and rotate it afterwards. Resuming removes the request and
+the next sync restores the copies. Running suspend again with the flag on a secret
+that is already suspended adds the request.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretSuspendID == 0 {
@@ -37,6 +45,9 @@ shares, and the audit trail are preserved. Requires secrets.write.`,
 		if secretSuspendReason != "" {
 			body.Reason = &secretSuspendReason
 		}
+		if secretSuspendClearCopies {
+			body.ClearSyncedCopies = &secretSuspendClearCopies
+		}
 		resp, err := client.SuspendSecretWithResponse(context.Background(), secretSuspendID, body)
 		if err != nil {
 			return err
@@ -45,6 +56,10 @@ shares, and the audit trail are preserved. Requires secrets.write.`,
 			return httpStatusError("suspend secret", resp.StatusCode(), resp.Body)
 		}
 		fmt.Printf("Secret %d suspended -- value reads are now blocked.\n", secretSuspendID)
+		if secretSuspendClearCopies {
+			fmt.Println("Copies synced to Kubernetes clusters will be cleared on their next sync.")
+			fmt.Println("If the secret is compromised, rotate it too: `keyorix secret rotate`.")
+		}
 		return nil
 	},
 }
@@ -76,6 +91,7 @@ var secretResumeCmd = &cobra.Command{
 func init() {
 	secretSuspendCmd.Flags().IntVar(&secretSuspendID, "id", 0, "Secret ID (required)")
 	secretSuspendCmd.Flags().StringVar(&secretSuspendReason, "reason", "", "Optional reason recorded in the audit event")
+	secretSuspendCmd.Flags().BoolVar(&secretSuspendClearCopies, "clear-synced-copies", false, "Also clear the copies synced to Kubernetes clusters for this suspension (compromise response; rotate the secret afterwards)")
 	secretResumeCmd.Flags().IntVar(&secretResumeID, "id", 0, "Secret ID (required)")
 	SecretCmd.AddCommand(secretSuspendCmd, secretResumeCmd)
 }

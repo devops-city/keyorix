@@ -61,7 +61,10 @@ helm install keyorix-operator deploy/helm/keyorix-operator -n keyorix-system --c
   (`spec.onSuspend: Retain`, never overwritten or deleted) while the other keys of
   the same Secret keep syncing; with `spec.onSuspend: Clear` the suspended
   reference's keys are emptied (also while a sibling is expired) and the Secret
-  itself stays. An expired source's keys are always retained. Either way the
+  itself stays. A suspension can also ask, for itself, to clear the synced copies
+  (the "Also clear copies synced to Kubernetes clusters" choice, a compromise
+  response): that reference is then cleared whatever `spec.onSuspend` says, until
+  the secret is resumed. An expired source's keys are always retained. Either way the
   `SourceSecretHealthy` condition goes `False` (reason `SourceSecretSuspended` /
   `SourceSecretExpired`), a Warning Event is emitted, and the
   `keyorix_operator_source_secrets{state}` gauge counts it; resuming restores

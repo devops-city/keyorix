@@ -13,6 +13,10 @@ package controller
 //     Clear empties them (also while a sibling is expired) in a Secret the operator owns;
 //     it never deletes the Secret and never touches one it does not own. Resuming
 //     restores the data on the next reconcile.
+//   - A suspension can ask, for itself, to clear the synced copies (a compromise
+//     response: the server's 409 SecretSuspended carries details.clear_synced_copies).
+//     That makes the ref Clear whatever spec.onSuspend says, with the same semantics;
+//     resuming removes the request and the next reconcile restores the data.
 //   - A held key is never overwritten or deleted. Only when EVERY ref is held (and none
 //     is being cleared) is nothing written at all.
 //   - Always: a SourceSecretHealthy=False condition, a Warning Event
@@ -94,6 +98,14 @@ type sourceReport struct {
 	// heldKeys are the target Secret keys whose refs are held this reconcile: expired, or
 	// suspended with onSuspend=Retain. Their live values are carried over untouched.
 	heldKeys []string
+	// clearing is true when some suspended ref's key is being emptied this reconcile:
+	// spec.onSuspend=Clear, or the suspension itself asked for the synced copies to be
+	// cleared (clearRequested).
+	clearing bool
+	// clearRequested are the suspended refs whose suspension asked to clear the synced
+	// copies (409 SecretSuspended with details.clear_synced_copies), whatever
+	// spec.onSuspend says.
+	clearRequested []string
 }
 
 // heldReason is the reason of a hold: expired wins over suspended.
@@ -144,6 +156,9 @@ func (rp *sourceReport) summary() (reason, state, msg string, ok bool) {
 	var parts []string
 	if len(rp.suspended) > 0 {
 		parts = append(parts, "suspended: "+joinSorted(rp.suspended))
+		if len(rp.clearRequested) > 0 {
+			parts = append(parts, "synced copies cleared at the suspension's request: "+joinSorted(rp.clearRequested))
+		}
 		reason, state = reasonSourceSuspended, "suspended"
 	}
 	if len(rp.expired) > 0 {

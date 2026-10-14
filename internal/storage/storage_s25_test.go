@@ -404,6 +404,8 @@ func TestMigrateDatabase_S25_SecretNodesColumns_ElseBranch(t *testing.T) {
 	assert.True(t, columnExists(db, "secret_nodes", "rotation_backend"))
 	assert.True(t, columnExists(db, "secret_nodes", "rotation_ref"))
 	assert.True(t, columnExists(db, "secret_nodes", "cert_not_after"))
+	// SUSPEND-PURGE-1: the per-suspension "also clear synced copies" marker, false by default.
+	assert.True(t, columnExists(db, "secret_nodes", "suspend_clear_synced_copies"))
 	assert.True(t, indexExists(db, "idx_secret_nodes_classification"))
 	assert.True(t, indexExists(db, "idx_secret_nodes_cert_not_after"))
 }

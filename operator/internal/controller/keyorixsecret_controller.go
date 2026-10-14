@@ -442,8 +442,8 @@ func (r *KeyorixSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.recordSourceState(&ks, rep)
 
 	if len(desired) == 0 {
-		// onSuspend=Clear and every referenced secret is suspended: there is nothing to
-		// write. Empty the keys in a Secret we own, but never create an empty one.
+		// Clear (onSuspend, or the suspension's own request) and every referenced secret is
+		// suspended: there is nothing to write. Empty the keys in a Secret we own, but never create an empty one.
 		if err := r.emptyManagedSecret(ctx, &ks, secretName, rep.heldKeys); err != nil {
 			logger.Error(err, "failed to clear the target Secret")
 			return r.fail(ctx, &ks, err)
@@ -575,7 +575,16 @@ func (r *KeyorixSecretReconciler) buildDesired(ctx context.Context, ks *secretsv
 			// Reads are switched off, not gone: never a reason to remove anything.
 			// What the target holds meanwhile is decided below by spec.onSuspend.
 			rep.suspended = append(rep.suspended, d.Ref)
-			if ks.Spec.OnSuspend != secretsv1alpha1.OnSuspendClear {
+			// The person who suspended the secret may have asked, for THIS suspension, to
+			// clear the synced copies too (a compromise response). That overrides
+			// spec.onSuspend=Retain for this ref, with the same Clear semantics.
+			requested := errors.Is(ferr, keyorix.ErrClearSyncedCopies)
+			if requested {
+				rep.clearRequested = append(rep.clearRequested, d.Ref)
+			}
+			if requested || ks.Spec.OnSuspend == secretsv1alpha1.OnSuspendClear {
+				rep.clearing = true
+			} else {
 				rep.heldKeys = append(rep.heldKeys, d.SecretKey)
 			}
 			continue
@@ -593,13 +602,13 @@ func (r *KeyorixSecretReconciler) buildDesired(ctx context.Context, ks *secretsv
 	// keys keep syncing in the same single update and applySecret carries the held keys
 	// over from the live Secret. Only when nothing at all would change (every ref is held
 	// and no ref is being cleared) does the reconcile skip the write altogether.
-	clearing := len(rep.suspended) > 0 && ks.Spec.OnSuspend == secretsv1alpha1.OnSuspendClear
-	if len(rep.heldKeys) > 0 && len(desired) == 0 && !clearing {
+	if len(rep.heldKeys) > 0 && len(desired) == 0 && !rep.clearing {
 		_, _, msg, _ := rep.summary()
 		return nil, token, rep, &sourceHeldError{reason: rep.heldReason(), msg: msg}
 	}
-	// onSuspend=Clear: the suspended refs' keys are simply absent from desired, so the
-	// applied Secret no longer carries them; keys of readable refs stay current.
+	// Clear (spec.onSuspend, or the suspension's own request): the suspended refs' keys are
+	// simply absent from desired, so the applied Secret no longer carries them; keys of
+	// readable refs stay current.
 	return desired, token, rep, nil
 }
 

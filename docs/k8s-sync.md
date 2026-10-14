@@ -138,8 +138,14 @@ agent's config file. By cause:
 | Source **expired** | **Only that mapping's key is retained** (never overwritten or deleted); the target's other keys keep syncing in the same Apply. When every mapping is held nothing is written | `WARNING SourceSecretExpired`, outcome `source_expired` |
 | Source **suspended**, `onSuspend: retain` (default) | **Only that mapping's key is retained**, as above | `WARNING SourceSecretSuspended`, outcome `source_suspended` |
 | Source **suspended**, `onSuspend: clear` | The suspended mapping's key is **emptied** (also while another mapping of the same target is expired: that key is held); other keys stay current. The Secret is never deleted, and a Secret the agent does not own is never touched | as above |
+| Source **suspended with "also clear copies synced to Kubernetes clusters"** (chosen by whoever suspended it), any `onSuspend` | Treated as `onSuspend: clear` **for that mapping and that suspension**, even under `retain`: its key is **emptied** with exactly the clear semantics above (the Secret is never deleted, a Secret the agent does not own is never touched) | `WARNING SourceSecretSuspended ... requests clearing the synced copies`, outcome `source_suspended` |
 | Within **30, 7 or 1 days** of expiring | Syncs normally | `WARNING SourceSecretExpiring` when each window is first entered, outcome `source_expiring` |
 | Resumed / extended | The next pass **restores** the data: same name, labels and values | "readable again" line |
+
+The per-suspension row is the same override the operator honours (`docs/k8s-operator.md`,
+"Clearing copies for one suspension"): the server's `409 SecretSuspended` carries
+`details.clear_synced_copies=true`, the agent empties that mapping's key on its next pass,
+and resuming restores it. An agent that predates the field follows `onSuspend`.
 
 The lines are logged when a source *enters or leaves* a state, not every pass; the
 `keyorix_k8s_sync_secrets_total{outcome=…}` counters (and `/status`) count the targets

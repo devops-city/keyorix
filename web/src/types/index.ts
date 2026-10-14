@@ -63,6 +63,8 @@ export interface Secret {
     classification?: SecretClassification | '';
     // Lifecycle status: 'active' or 'suspended' (value reads blocked while suspended).
     status?: string;
+    // True while suspended with "also clear copies synced to Kubernetes clusters".
+    clearSyncedCopies?: boolean;
 }
 
 export type SecretType = 'text' | 'password' | 'api_key' | 'certificate' | 'json';

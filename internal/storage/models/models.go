@@ -981,8 +981,16 @@ type SecretNode struct {
 	// any differently at read time than a "public" one.
 	Classification string `gorm:"index"`
 	Status         string `gorm:"default:'active'"`
-	CreatedBy      string
-	OwnerID        uint `gorm:"index"`
+	// SuspendClearSyncedCopies marks THIS suspension as "also clear the copies synced to
+	// Kubernetes clusters" (a compromise response chosen by whoever suspended the
+	// secret). It is meaningful only while Status is "suspended": set by the suspend
+	// request together with the status, cleared by resume. The operator and k8s-sync
+	// learn of it from the SecretSuspended refusal and treat it as onSuspend: Clear for
+	// that secret whatever the resource's own setting says. Written only through
+	// TransitionSecretStatus (never by UpdateSecret; see secret_update_diff.go).
+	SuspendClearSyncedCopies bool `gorm:"not null;default:false"`
+	CreatedBy                string
+	OwnerID                  uint `gorm:"index"`
 	// OwnerMachineIdentityID (#1573) records which machine identity created (and
 	// so owns) this secret, when OwnerID is 0 because the creator was a machine
 	// caller (ADR-030) rather than a human. Plain uint, 0 = none. Only set at

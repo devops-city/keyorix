@@ -56,7 +56,7 @@ func (c *KeyorixCore) checkSecretExpiryClockNotRegressed(now time.Time) error {
 		// succeed," matching how every other guard in this bundle refuses.
 		// The same sentinel too (ERRMAP-1), so every transport answers it with
 		// the identical SecretExpired status and code, never a distinct one.
-		return errSecretExpired()
+		return errSecretExpired(false)
 	}
 	if now.After(c.secretExpiryWatermark) {
 		c.secretExpiryWatermark = now
@@ -216,10 +216,13 @@ func (c *KeyorixCore) enforceSecretReadGuardsWith(ctx context.Context, secret *m
 		return err
 	}
 	if secret.Expiration != nil && now.After(*secret.Expiration) {
-		return errSecretExpired()
+		// Expiry is judged first, but a secret that is ALSO suspended with the
+		// clear-synced-copies marker still has to tell the operator and k8s-sync to
+		// clear (not keep) its copies (#3215): carry the marker, only when suspended.
+		return errSecretExpired(secret.Status == SecretStatusSuspended && secret.SuspendClearSyncedCopies)
 	}
 	if secret.Status == SecretStatusSuspended {
-		return errSecretSuspended()
+		return errSecretSuspended(secret.SuspendClearSyncedCopies)
 	}
 	if err := c.checkRestrictedSecretReadApproval(ctx, secret, userID); err != nil {
 		return err

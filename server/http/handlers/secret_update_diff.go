@@ -111,15 +111,16 @@ var updateSecretAllowlist = map[string]secretUpdateFieldClass{
 	// client may propose a value and no Go write can apply one, so a caller
 	// supplying it is rejected rather than ignored: silently dropping it would
 	// hide a client that believes it controls cache invalidation.
-	"CacheEpoch":            secretFieldRejected,
-	"Status":                secretFieldRejected, // TransitionSecretStatus's own primitive (G79)
-	"CreatedBy":             secretFieldRejected,
-	"IsShared":              secretFieldRejected,
-	"CreatedAt":             secretFieldRejected,
-	"CertNotAfter":          secretFieldRejected, // SetSecretCertNotAfter's own primitive
-	"DeletedAt":             secretFieldRejected, // soft-delete/restore's own path
-	"RetentionOverrideDays": secretFieldRejected,
-	"PurgeAt":               secretFieldRejected, // frozen by soft-delete, cleared by restore; never client-writable
+	"CacheEpoch":               secretFieldRejected,
+	"Status":                   secretFieldRejected, // TransitionSecretStatus's own primitive (G79)
+	"SuspendClearSyncedCopies": secretFieldRejected, // travels with Status: the suspend/resume transition only
+	"CreatedBy":                secretFieldRejected,
+	"IsShared":                 secretFieldRejected,
+	"CreatedAt":                secretFieldRejected,
+	"CertNotAfter":             secretFieldRejected, // SetSecretCertNotAfter's own primitive
+	"DeletedAt":                secretFieldRejected, // soft-delete/restore's own path
+	"RetentionOverrideDays":    secretFieldRejected,
+	"PurgeAt":                  secretFieldRejected, // frozen by soft-delete, cleared by restore; never client-writable
 
 	// -- rejected: gated by an authorization check this endpoint cannot run --
 	"OwnerID":                secretFieldRejected, // TransferSecretOwnership: current-owner + SoD check
@@ -231,6 +232,9 @@ func diffSecretUpdate(authoritative, desired *models.SecretNode) secretUpdateDif
 	}
 	if authoritative.Status != desired.Status {
 		d.Rejected = append(d.Rejected, "status")
+	}
+	if authoritative.SuspendClearSyncedCopies != desired.SuspendClearSyncedCopies {
+		d.Rejected = append(d.Rejected, "clear_synced_copies") // wire name; set only via suspend
 	}
 	if authoritative.CreatedBy != desired.CreatedBy {
 		d.Rejected = append(d.Rejected, "created_by")

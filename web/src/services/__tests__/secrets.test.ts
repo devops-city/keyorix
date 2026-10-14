@@ -315,6 +315,35 @@ describe('secretsApi.suspend', () => {
     });
 });
 
+describe('secretsApi.suspend: clear synced copies (SUSPEND-PURGE-1)', () => {
+    it('POSTs clear_synced_copies:true alongside the reason when the choice was made', async () => {
+        mocked.post.mockResolvedValue({ data: { message: 'Suspended' } });
+
+        await secretsApi.suspend(1, 'leaked', true);
+
+        expect(mocked.post).toHaveBeenCalledWith('/api/v1/secrets/1/suspend', {
+            reason: 'leaked',
+            clear_synced_copies: true,
+        });
+    });
+
+    it('POSTs clear_synced_copies:true with no reason', async () => {
+        mocked.post.mockResolvedValue({ data: { message: 'Suspended' } });
+
+        await secretsApi.suspend(1, undefined, true);
+
+        expect(mocked.post).toHaveBeenCalledWith('/api/v1/secrets/1/suspend', { clear_synced_copies: true });
+    });
+
+    it('never sends the member when the choice was not made (false or omitted)', async () => {
+        mocked.post.mockResolvedValue({ data: { message: 'Suspended' } });
+
+        await secretsApi.suspend(1, 'x', false);
+
+        expect(mocked.post).toHaveBeenCalledWith('/api/v1/secrets/1/suspend', { reason: 'x' });
+    });
+});
+
 describe('secretsApi.resume', () => {
     it('POSTs an empty body to the resume endpoint', async () => {
         mocked.post.mockResolvedValue({ data: { message: 'Resumed' } });

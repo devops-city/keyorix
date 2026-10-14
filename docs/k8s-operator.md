@@ -70,8 +70,29 @@ revoked grant, so neither deletes the target Secret. What happens, by cause:
 | Referenced secret **expired** | **Only that ref's keys are retained** (last value kept, never overwritten or deleted); the other refs' keys in the same Secret keep syncing in the same single update. When every ref is held nothing is written | `False`, reason `SourceSecretExpired` (the message names the held keys) | `SourceSecretHealthy=False`, Warning Event `SourceSecretExpired`, gauge `expired` |
 | Referenced secret **suspended**, `spec.onSuspend: Retain` (default) | **Only that ref's keys are retained**, as above | `False`, reason `SourceSecretSuspended` | `SourceSecretHealthy=False`, Warning Event `SourceSecretSuspended`, gauge `suspended` |
 | Referenced secret **suspended**, `spec.onSuspend: Clear` | The keys of suspended refs are **emptied** (also while another ref of the same target is expired: that one's keys are held, only the suspended ref's keys are cleared); keys of readable refs stay current. The Secret object is never deleted, and a Secret the operator does not own is never touched | `True` (the rest synced) | as above |
+| Referenced secret **suspended with "also clear copies synced to Kubernetes clusters"** (chosen by whoever suspended it), any `spec.onSuspend` | Treated as `onSuspend: Clear` **for that ref and that suspension**, even when the resource says `Retain`: its keys are **emptied** with exactly the Clear semantics above (the Secret object is never deleted, a Secret the operator does not own is never touched, other refs' keys follow their own state) | `True` (the rest synced) | as above; the condition message adds `synced copies cleared at the suspension's request: <refs>` |
 | Within **30, 7 or 1 days** of expiring | Syncs normally | `True` | `SourceSecretHealthy=False` reason `SourceSecretExpiring`, Warning Event when each window is first entered, gauge `expiring` |
 | Resumed / extended | Next reconcile (within `spec.refreshInterval`) **restores** the data under the same name, labels and owner | `True` | condition removed, Normal Event `SourceSecretRecovered`, gauge back down |
+
+**Clearing copies for one suspension (a compromise response).** `spec.onSuspend` is the
+resource's standing policy. The person suspending a secret can override it for that one
+suspension by choosing *Also clear copies synced to Kubernetes clusters* (web dialog,
+`keyorix secret suspend --id N --clear-synced-copies`, or `clear_synced_copies: true` on
+`POST /api/v1/secrets/{id}/suspend`). The server then answers the operator's read with
+`409 SecretSuspended` plus `details: {"clear_synced_copies": true}`, and the operator
+empties that reference's keys on its next reconcile, whatever `spec.onSuspend` says. This
+also holds when the secret has expired as well: the server checks expiry first and answers
+`409 SecretExpired` carrying the same `details`, which the operator and `keyorix-k8s-sync`
+treat as suspended-with-clear (an expired secret that is *not* suspended with the choice
+still keeps its copies). The
+choice lives only as long as the suspension: resuming removes it and the next reconcile
+restores the data. It needs the same permission as suspending and is recorded in the
+`secret.suspended` audit event (`clear_synced_copies=true`). Suspending only blocks reads
+from Keyorix: a copy already in a cluster, a log or a build stays valid until the secret
+is rotated at its source, so rotate after a compromise. An operator that predates this
+field ignores the detail and follows `spec.onSuspend` (the safe direction: it never clears
+more than the resource allows). Keyorix does not record which clusters hold copies, so the
+dialog offers the option without listing them.
 
 A confirmed 404/403 is a different signal and still follows `spec.prunePolicy` (see
 "How it works"); a 401 never wipes. The state-based reconcile above does not back off: it requeues at

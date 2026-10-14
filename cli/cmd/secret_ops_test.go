@@ -6,6 +6,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -411,6 +412,53 @@ func TestSecretSuspend_RequiresID(t *testing.T) {
 	secretSuspendID = 0
 	if err := secretSuspendCmd.RunE(secretSuspendCmd, nil); err == nil {
 		t.Fatal("expected an error when --id is omitted")
+	}
+}
+
+// SUSPEND-PURGE-1: --clear-synced-copies puts clear_synced_copies:true in the request and
+// tells the person to rotate; without the flag the body has no such member and the output
+// does not mention synced copies.
+func TestSecretSuspend_ClearSyncedCopiesFlag(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		flag        bool
+		wantInBody  bool
+		wantInPrint []string
+		notInPrint  string
+	}{
+		{"flag set", true, true, []string{"suspended", "cleared on their next sync", "secret rotate"}, ""},
+		{"flag unset", false, false, []string{"suspended"}, "synced"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody string
+			srv := secretOpsServer(t, secretOpsRoute{http.MethodPost, "/api/v1/secrets/7/suspend", func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				gotBody = string(b)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprint(w, `{"data":{}}`)
+			}})
+			setPATCreds(t, srv)
+			secretSuspendID, secretSuspendReason, secretSuspendClearCopies = 7, "leaked", tc.flag
+			defer func() { secretSuspendID, secretSuspendReason, secretSuspendClearCopies = 0, "", false }()
+
+			out := captureStdout(t, func() {
+				if err := secretSuspendCmd.RunE(secretSuspendCmd, nil); err != nil {
+					t.Fatalf("secretSuspendCmd: %v", err)
+				}
+			})
+			if has := strings.Contains(gotBody, `"clear_synced_copies":true`); has != tc.wantInBody {
+				t.Fatalf("request body %q: clear_synced_copies present=%v, want %v", gotBody, has, tc.wantInBody)
+			}
+			if !strings.Contains(gotBody, `"reason":"leaked"`) {
+				t.Fatalf("the reason must still be sent: %q", gotBody)
+			}
+			if !containsAll(out, tc.wantInPrint...) {
+				t.Fatalf("output missing %v, got: %q", tc.wantInPrint, out)
+			}
+			if tc.notInPrint != "" && strings.Contains(out, tc.notInPrint) {
+				t.Fatalf("output must not mention %q, got: %q", tc.notInPrint, out)
+			}
+		})
 	}
 }
 

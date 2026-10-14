@@ -83,6 +83,14 @@ var (
 	ErrSourceExpired   = errors.New("k8ssync: source secret has expired")
 )
 
+// ErrSourceClearRequested is wrapped together with ErrSourceSuspended when the 409
+// SecretSuspended envelope carries details.clear_synced_copies=true: whoever suspended the
+// secret asked, for this suspension, that the synced copies be cleared (a compromise
+// response). The engine then treats that mapping as on_suspend: clear whatever the config
+// says, with exactly the clear semantics (empty only that key in a Secret the agent owns).
+// It is never set on any other refusal.
+var ErrSourceClearRequested = errors.New("k8ssync: the suspension requests clearing the synced copies")
+
 // secretStateRefusal classifies a 403/409 whose envelope names a secret-state
 // refusal of a value read (server/http/handlers/openapi.yaml, SecretReadRefused;
 // ERRMAP-1), or returns nil for any other body. Suspended and expired wrap their own
@@ -91,15 +99,40 @@ var (
 // value stays. It reads at most maxResponseBodyBytes of the body.
 func secretStateRefusal(resp *http.Response) error {
 	var env struct {
-		Error string `json:"error"`
+		Error   string          `json:"error"`
+		Details json.RawMessage `json:"details"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&env) != nil {
 		return nil
 	}
 	switch env.Error {
 	case "SecretSuspended":
+		// details is decoded on its own: a shape this agent does not know drops only the
+		// request marker (the config's own on_suspend then decides), never the code.
+		var details struct {
+			ClearSyncedCopies bool `json:"clear_synced_copies"`
+		}
+		if len(env.Details) > 0 {
+			_ = json.Unmarshal(env.Details, &details)
+		}
+		if details.ClearSyncedCopies {
+			return fmt.Errorf("%s (HTTP %d, clear_synced_copies): %w: %w", env.Error, resp.StatusCode, ErrSourceSuspended, ErrSourceClearRequested)
+		}
 		return fmt.Errorf("%s (HTTP %d): %w", env.Error, resp.StatusCode, ErrSourceSuspended)
 	case "SecretExpired":
+		// An expired secret that is also suspended with the clear marker answers
+		// SecretExpired carrying details.clear_synced_copies (#3215): clear, not retain.
+		// Wrapped as suspended+clear (the engine tests suspended first); ErrSourceExpired
+		// stays in the chain. An expired secret without the marker is unchanged.
+		var details struct {
+			ClearSyncedCopies bool `json:"clear_synced_copies"`
+		}
+		if len(env.Details) > 0 {
+			_ = json.Unmarshal(env.Details, &details)
+		}
+		if details.ClearSyncedCopies {
+			return fmt.Errorf("%s (HTTP %d, clear_synced_copies): %w: %w: %w", env.Error, resp.StatusCode, ErrSourceSuspended, ErrSourceClearRequested, ErrSourceExpired)
+		}
 		return fmt.Errorf("%s (HTTP %d): %w", env.Error, resp.StatusCode, ErrSourceExpired)
 	case "SecretAccessOutsideSchedule", "SecretMaxReadsExhausted":
 		return fmt.Errorf("value read refused: %s (HTTP %d)", env.Error, resp.StatusCode)

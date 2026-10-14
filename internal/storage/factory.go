@@ -1404,6 +1404,13 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 				return err
 			}
 		}
+		// SUSPEND-PURGE-1: per-suspension "also clear synced Kubernetes copies"
+		// marker. Additive (false = the resource's own onSuspend setting decides).
+		if !columnExists(db, "secret_nodes", "suspend_clear_synced_copies") {
+			if err := exec("ALTER TABLE secret_nodes ADD COLUMN suspend_clear_synced_copies BOOLEAN NOT NULL DEFAULT false"); err != nil {
+				return err
+			}
+		}
 		// ADR-056: cached certificate expiry. Additive (nil = not yet evaluated).
 		if !columnExists(db, "secret_nodes", "cert_not_after") {
 			if err := exec("ALTER TABLE secret_nodes ADD COLUMN cert_not_after TIMESTAMP WITH TIME ZONE"); err != nil {

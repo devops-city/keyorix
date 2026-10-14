@@ -119,6 +119,10 @@ type fakeKeyorix struct {
 	state      string // "", "SecretSuspended", "SecretExpired", "unavailable" (HTTP 503)
 	value      string
 	expiration *time.Time
+	// clearRequested adds details.clear_synced_copies=true to a SecretSuspended refusal
+	// (SUSPEND-PURGE-1); details is a different shape when detailsRaw is set.
+	clearRequested bool
+	detailsRaw     string
 }
 
 func (f *fakeKeyorix) set(state string) {
@@ -130,6 +134,13 @@ func (f *fakeKeyorix) set(state string) {
 func (f *fakeKeyorix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	state, value, exp := f.state, f.value, f.expiration
+	details := ""
+	switch {
+	case f.detailsRaw != "":
+		details = `,"details":` + f.detailsRaw
+	case f.clearRequested:
+		details = `,"details":{"clear_synced_copies":true}`
+	}
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	switch r.URL.Path {
@@ -147,7 +158,12 @@ func (f *fakeKeyorix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}})
 		default:
 			w.WriteHeader(http.StatusConflict)
-			_, _ = fmt.Fprintf(w, `{"success":false,"code":409,"error":%q,"message":"refused"}`, state)
+			// The server carries the marker on a SecretExpired refusal too, when the
+			// secret is also suspended with it (#3215).
+			if state != "SecretSuspended" && state != "SecretExpired" {
+				details = ""
+			}
+			_, _ = fmt.Fprintf(w, `{"success":false,"code":409,"error":%q,"message":"refused"%s}`, state, details)
 		}
 	default:
 		http.NotFound(w, r)

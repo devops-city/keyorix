@@ -961,14 +961,17 @@ type RotationPolicyEvaluation struct {
 
 // Secret A secret or folder node (internal/storage/models.SecretNode), metadata only -- never a value. Wire keys are snake_case, via the handler-level secretNodeWire type (server/http/handlers/secrets_wire.go) -- fixed from the previous bare-Go-field-name leak (ADR-108 PR 4/5) as part of the API-hygiene casing campaign.
 type Secret struct {
-	AutoRotate     *bool      `json:"auto_rotate,omitempty"`
-	Classification *string    `json:"classification,omitempty"`
-	CreatedAt      *time.Time `json:"created_at,omitempty"`
-	CreatedBy      *string    `json:"created_by,omitempty"`
-	Description    *string    `json:"description,omitempty"`
-	EnvironmentId  *int       `json:"environment_id,omitempty"`
-	Expiration     *time.Time `json:"expiration"`
-	Id             *int       `json:"id,omitempty"`
+	AutoRotate     *bool   `json:"auto_rotate,omitempty"`
+	Classification *string `json:"classification,omitempty"`
+
+	// ClearSyncedCopies True while the secret is suspended with the choice to also clear its copies synced to Kubernetes clusters; omitted otherwise. Resume removes it.
+	ClearSyncedCopies *bool      `json:"clear_synced_copies,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
+	CreatedBy         *string    `json:"created_by,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	EnvironmentId     *int       `json:"environment_id,omitempty"`
+	Expiration        *time.Time `json:"expiration"`
+	Id                *int       `json:"id,omitempty"`
 
 	// IsSecret false = this node is a folder.
 	IsSecret               *bool      `json:"is_secret,omitempty"`
@@ -1128,17 +1131,20 @@ type SecretImpactedSecret struct {
 
 // SecretListEntry One row of GET /api/v1/secrets's data.secrets[], via the handler-level secretWithSharingInfoWire type (server/http/handlers/secrets_wire.go). Flat, all snake_case: the embedded secret-node fields promote using their own correct tags, and is_shared is the sharing-computed value (it correctly shadows the embedded node's raw stored one, matching Go's shallower-field-wins collision rule) -- fixed from the previous mixed-case duplicate-key leak as part of the API-hygiene casing campaign.
 type SecretListEntry struct {
-	AutoRotate      *bool      `json:"auto_rotate,omitempty"`
-	Classification  *string    `json:"classification,omitempty"`
-	CreatedAt       *time.Time `json:"created_at,omitempty"`
-	CreatedBy       *string    `json:"created_by,omitempty"`
-	Description     *string    `json:"description,omitempty"`
-	EnvironmentId   *int       `json:"environment_id,omitempty"`
-	EnvironmentName *string    `json:"environment_name,omitempty"`
-	Expiration      *time.Time `json:"expiration"`
-	Id              *int       `json:"id,omitempty"`
-	IsOwnedByUser   *bool      `json:"is_owned_by_user,omitempty"`
-	IsSecret        *bool      `json:"is_secret,omitempty"`
+	AutoRotate     *bool   `json:"auto_rotate,omitempty"`
+	Classification *string `json:"classification,omitempty"`
+
+	// ClearSyncedCopies True while the secret is suspended with the choice to also clear its copies synced to Kubernetes clusters; omitted otherwise. Resume removes it.
+	ClearSyncedCopies *bool      `json:"clear_synced_copies,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
+	CreatedBy         *string    `json:"created_by,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	EnvironmentId     *int       `json:"environment_id,omitempty"`
+	EnvironmentName   *string    `json:"environment_name,omitempty"`
+	Expiration        *time.Time `json:"expiration"`
+	Id                *int       `json:"id,omitempty"`
+	IsOwnedByUser     *bool      `json:"is_owned_by_user,omitempty"`
+	IsSecret          *bool      `json:"is_secret,omitempty"`
 
 	// IsShared Sharing-computed, not the raw stored node flag.
 	IsShared               *bool      `json:"is_shared,omitempty"`
@@ -1331,6 +1337,11 @@ type Error struct {
 // SecretReadRefused defines model for SecretReadRefused.
 type SecretReadRefused struct {
 	Code *int `json:"code,omitempty"`
+
+	// Details Present only on SecretSuspended when the suspension asked to clear synced Kubernetes copies.
+	Details *struct {
+		ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
+	} `json:"details,omitempty"`
 
 	// Error Stable code of a 409 secret-state read refusal (see the SecretReadRefused response).
 	Error   *SecretReadRefusalCode `json:"error,omitempty"`
@@ -2270,6 +2281,9 @@ type ShareSecretJSONBodyPermission string
 
 // SuspendSecretJSONBody defines parameters for SuspendSecret.
 type SuspendSecretJSONBody struct {
+	// ClearSyncedCopies Also clear the copies of this secret synced to Kubernetes clusters, for THIS suspension only: the operator and k8s-sync treat the secret as `onSuspend: Clear` whatever the resource's own setting says (they empty only the keys Keyorix manages and never delete a Secret they do not own). Meant as a compromise response; rotate the secret afterwards. Resuming removes the request and the next sync restores the copies. Needs the same permission as suspending and is recorded in the `secret.suspended` audit event (`clear_synced_copies=true`). On a secret that is already suspended without it, the flag upgrades the suspension in place; an existing request is never downgraded by a suspend.
+	ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
+
 	// Reason Optional reason recorded in the audit event.
 	Reason *string `json:"reason,omitempty"`
 }

@@ -13,6 +13,10 @@ package k8ssync
 //     like an expiry. Clear empties that ref's key (also while a sibling is expired); it
 //     never deletes the Secret and never touches one the agent does not own. Resuming
 //     restores the data on the next pass.
+//   - A suspension can ask, for itself, to clear the synced copies (a compromise response:
+//     the server's 409 SecretSuspended carries details.clear_synced_copies). That makes the
+//     mapping clear whatever on_suspend says, with the same semantics; resuming removes the
+//     request and the next pass restores the data.
 //   - Always: a log line when a source enters or leaves a state, and the outcome labels
 //     source_suspended / source_expired / source_expiring on keyorix_k8s_sync_secrets_total
 //     (targets observed in that state during a pass). Ahead of an expiry the line is
@@ -43,8 +47,17 @@ var expiryWarnWindows = []struct {
 	{"1d", 24 * time.Hour},
 }
 
-// heldRef is a mapping whose source is suspended or expired this pass.
-type heldRef struct{ ref, key string }
+// heldRef is a mapping whose source is suspended or expired this pass. clearRequested is
+// set on a suspended mapping whose suspension asked to clear the synced copies
+// (ErrSourceClearRequested): it is cleared even under on_suspend: retain.
+type heldRef struct {
+	ref, key       string
+	clearRequested bool
+}
+
+// cleared reports whether this suspended mapping's key is emptied rather than retained:
+// on_suspend is clear, or the suspension itself asked for it.
+func (h heldRef) cleared(clearOnSuspend bool) bool { return clearOnSuspend || h.clearRequested }
 
 // sourceReport is what one target's fetches learned about its sources' state.
 type sourceReport struct {
@@ -78,7 +91,25 @@ func (rp *sourceReport) noteExpiry(ref string, exp *time.Time, now time.Time) {
 // one while on_suspend is retain. Only the held keys are frozen (carryOverHeld); the
 // target's other keys keep syncing.
 func (rp *sourceReport) hold(clearOnSuspend bool) bool {
-	return len(rp.expired) > 0 || (len(rp.suspended) > 0 && !clearOnSuspend)
+	if len(rp.expired) > 0 {
+		return true
+	}
+	for _, h := range rp.suspended {
+		if !h.cleared(clearOnSuspend) {
+			return true
+		}
+	}
+	return false
+}
+
+// clearing reports whether some suspended mapping's key is being emptied this pass.
+func (rp *sourceReport) clearing(clearOnSuspend bool) bool {
+	for _, h := range rp.suspended {
+		if h.cleared(clearOnSuspend) {
+			return true
+		}
+	}
+	return false
 }
 
 // heldKeys returns the Secret keys whose sources are retained this pass.
@@ -87,8 +118,8 @@ func (rp *sourceReport) heldKeys(clearOnSuspend bool) []string {
 	for _, h := range rp.expired {
 		keys = append(keys, h.key)
 	}
-	if !clearOnSuspend {
-		for _, h := range rp.suspended {
+	for _, h := range rp.suspended {
+		if !h.cleared(clearOnSuspend) {
 			keys = append(keys, h.key)
 		}
 	}
@@ -112,6 +143,9 @@ func (e *Engine) recordSourceStates(res *Result, t target, rp sourceReport, refs
 	now := map[string]string{} // ref -> state this pass ("" = healthy)
 	for _, h := range rp.suspended {
 		now[h.ref] = "suspended"
+		if h.clearRequested {
+			now[h.ref] = "suspended (clear requested)"
+		}
 	}
 	for _, h := range rp.expired {
 		now[h.ref] = "expired"
@@ -135,13 +169,16 @@ func (e *Engine) recordSourceStates(res *Result, t target, rp sourceReport, refs
 			continue
 		}
 		e.sourceSeen[t.String()+"|"+ref] = st
-		reason := map[string]string{"suspended": ReasonSourceSecretSuspended, "expired": ReasonSourceSecretExpired}[st]
+		reason := map[string]string{"suspended": ReasonSourceSecretSuspended, "suspended (clear requested)": ReasonSourceSecretSuspended, "expired": ReasonSourceSecretExpired}[st]
 		if reason == "" {
 			reason = ReasonSourceSecretExpiring
 		}
 		action := "its key is left unchanged in the target Secret; the other keys keep syncing"
 		if st == "suspended" && e.clearOnSuspend {
 			action = "on_suspend is clear: its key is emptied in the target Secret"
+		}
+		if st == "suspended (clear requested)" {
+			action = "the suspension requests clearing the synced copies: its key is emptied in the target Secret"
 		}
 		if strings.HasPrefix(st, "expires") {
 			action = "the target Secret keeps syncing until then"

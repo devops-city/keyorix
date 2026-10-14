@@ -35,6 +35,7 @@ import {
     useResumeSecret,
 } from './api';
 import { TransferOwnership } from './TransferOwnership';
+import { SuspendSecretModal } from './SuspendSecretModal';
 import { SecretDependenciesSection } from './SecretDependenciesSection';
 import { CertificatePanel } from './CertificatePanel';
 import { CLASSIFICATION_LEVELS, classificationMeta } from './classification';
@@ -999,13 +1000,30 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
         );
     };
     const suspended = status === 'suspended';
+    const [showSuspend, setShowSuspend] = useState(false);
+    // Set after a suspension that also asked to clear the synced Kubernetes copies, so the
+    // rotate prompt stays visible after the dialog closes. Cleared on resume.
+    const [clearedCopiesNote, setClearedCopiesNote] = useState(secret.clearSyncedCopies ?? false);
     const handleToggleSuspend = () => {
         if (suspended) {
-            resumeMutation.mutate(undefined, { onSuccess: () => setStatus('active') });
+            resumeMutation.mutate(undefined, {
+                onSuccess: () => {
+                    setStatus('active');
+                    setClearedCopiesNote(false);
+                },
+            });
         } else {
-            if (!window.confirm('Suspend this secret? Value reads will be blocked until you resume it.')) return;
-            suspendMutation.mutate(undefined, { onSuccess: () => setStatus('suspended') });
+            setShowSuspend(true);
         }
+    };
+    const handleConfirmSuspend = (clearSyncedCopies: boolean) => {
+        suspendMutation.mutate(clearSyncedCopies ? { clearSyncedCopies: true } : undefined, {
+            onSuccess: () => {
+                setStatus('suspended');
+                setClearedCopiesNote(clearSyncedCopies);
+                setShowSuspend(false);
+            },
+        });
     };
 
     const { data: versions } = useSecretVersions(secret.id, showValue);
@@ -1137,6 +1155,14 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
                 </p>
             )}
 
+            {suspended && clearedCopiesNote && (
+                <Alert
+                    type="warning"
+                    title="Synced Kubernetes copies will be cleared"
+                    message="The operator and keyorix-k8s-sync empty their copies of this secret on their next sync. Rotate the secret if it may be compromised; resuming restores the copies."
+                />
+            )}
+
             <SecretValuePanel
                 showValue={showValue}
                 isLoading={isLoading}
@@ -1200,6 +1226,15 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
                     Close
                 </Button>
             </div>
+
+            <SuspendSecretModal
+                isOpen={showSuspend}
+                secretName={secret.name}
+                pending={suspendMutation.isPending}
+                error={suspendMutation.error}
+                onClose={() => setShowSuspend(false)}
+                onConfirm={handleConfirmSuspend}
+            />
 
             <RotateSecretModal
                 isOpen={showRotate}

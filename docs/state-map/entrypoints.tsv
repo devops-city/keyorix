@@ -280,22 +280,22 @@ cli	keyorix secret ownership-history	cli/cmd/secret_hygiene.go	263	runSecretOwne
 cli	keyorix secret quota-report	cli/cmd/secret_hygiene.go	216	runSecretQuotaReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret reassign-owner	cli/cmd/secret_hygiene.go	317	runSecretReassignOwner	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret render	cli/cmd/secret_render.go	21	runSecretRender	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix secret restore	cli/cmd/secret_lifecycle.go	139	<expr>	D	secret_lifecycle.go:129 secretRestoreCmd.RunE makes exactly one write call, client.RestoreSecretWithResponse (soft-delete recovery flag flip, not the backup/restore subsystem).
-cli	keyorix secret resume	cli/cmd/secret_lifecycle.go	52	<expr>	D	secret_lifecycle.go:51 secretResumeCmd.RunE makes exactly one write call, client.ResumeSecretWithResponse.
+cli	keyorix secret restore	cli/cmd/secret_lifecycle.go	155	<expr>	D	secret_lifecycle.go:129 secretRestoreCmd.RunE makes exactly one write call, client.RestoreSecretWithResponse (soft-delete recovery flag flip, not the backup/restore subsystem).
+cli	keyorix secret resume	cli/cmd/secret_lifecycle.go	67	<expr>	D	secret_lifecycle.go:51 secretResumeCmd.RunE makes exactly one write call, client.ResumeSecretWithResponse.
 cli	keyorix secret rollback	cli/cmd/secret_versions.go	416	<expr>	D	secret_versions.go:404 secretRollbackCmd.RunE makes exactly one write call, client.RollbackSecretWithResponse; old-value-as-new-version semantics are implemented server-side in that single request.
 cli	keyorix secret rotate	cli/cmd/secret_rotation.go	20	runSecretRotate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret rotation-simulate	cli/cmd/secret_rotation.go	72	runSecretRotationSimulate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret scan	cli/cmd/secret_scan.go	18	runSecretScan	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret score	cli/cmd/secret_risk.go	19	runSecretScore	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret set-schedule	cli/cmd/secret_schedule.go	51	<expr>	D	secret_schedule.go:50 secretSetScheduleCmd.RunE makes exactly one write call, client.SetSecretScheduleWithResponse; convertSecretDayNames is pure local string parsing before it.
-cli	keyorix secret suspend	cli/cmd/secret_lifecycle.go	22	<expr>	D	secret_lifecycle.go:21 secretSuspendCmd.RunE makes exactly one write call, client.SuspendSecretWithResponse.
+cli	keyorix secret suspend	cli/cmd/secret_lifecycle.go	23	<expr>	D	secret_lifecycle.go:21 secretSuspendCmd.RunE makes exactly one write call, client.SuspendSecretWithResponse.
 cli	keyorix secret tags	cli/cmd/secret_metadata.go	106	<expr>	D	secret_metadata.go:106 secretTagsCmd.RunE branches mutually exclusively on cmd.Flags().Changed("set"): either one write or one read; never both in the same invocation.
 cli	keyorix secret template	cli/cmd/secret_templates.go	14		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix secret template create	cli/cmd/secret_templates.go	92	<expr>	D	secret_templates.go:92 secretTemplateCreateCmd.RunE makes exactly one write call, client.CreateSecretTemplateWithResponse.
 cli	keyorix secret template delete	cli/cmd/secret_templates.go	132	<expr>	D	secret_templates.go:132 secretTemplateDeleteCmd.RunE does a read (resolve name->id) followed by exactly one write (client.DeleteSecretTemplateWithResponse); a crash before it just means nothing was deleted.
 cli	keyorix secret template get	cli/cmd/secret_templates.go	52	<expr>	D	secret_templates.go:52 secretTemplateGetCmd.RunE is read-only: one list call, then a local name match and print; no writes.
 cli	keyorix secret template list	cli/cmd/secret_templates.go	24	<expr>	D	secret_templates.go:24 secretTemplateListCmd.RunE is read-only: one call to client.ListSecretTemplatesWithResponse, then formatting.
-cli	keyorix secret trash	cli/cmd/secret_lifecycle.go	91	<expr>	D	secret_lifecycle.go:90 secretTrashCmd.RunE is read-only: one call to client.ListDeletedSecretsWithResponse, then formatting (soft-delete recycle-bin listing, unrelated to the backup/restore subsystem).
+cli	keyorix secret trash	cli/cmd/secret_lifecycle.go	107	<expr>	D	secret_lifecycle.go:90 secretTrashCmd.RunE is read-only: one call to client.ListDeletedSecretsWithResponse, then formatting (soft-delete recycle-bin listing, unrelated to the backup/restore subsystem).
 cli	keyorix secret update	cli/cmd/secret_crud.go	466	runSecretUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret versions	cli/cmd/secret_versions.go	24	runSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix share	cli/cmd/share.go	25		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)

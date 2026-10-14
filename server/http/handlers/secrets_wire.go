@@ -36,6 +36,7 @@ type SecretNodeWire struct {
 	Metadata               models.JSON `json:"metadata,omitempty"`
 	Classification         string      `json:"classification,omitempty"`
 	Status                 string      `json:"status"`
+	ClearSyncedCopies      bool        `json:"clear_synced_copies,omitempty"` // suspended with "also clear synced Kubernetes copies"
 	CreatedBy              string      `json:"created_by"`
 	OwnerID                uint        `json:"owner_id"`
 	OwnerMachineIdentityID uint        `json:"owner_machine_identity_id,omitempty"`
@@ -71,7 +72,7 @@ func newSecretNodeWire(s *models.SecretNode) SecretNodeWire {
 		ID: s.ID, ParentID: s.ParentID, ProjectID: s.ProjectID, EnvironmentID: s.EnvironmentID,
 		Name: s.Name, IsSecret: s.IsSecret, Type: s.Type, Description: s.Description,
 		MaxReads: s.MaxReads, ReadCount: s.ReadCount, Expiration: s.Expiration, Metadata: s.Metadata,
-		Classification: s.Classification, Status: s.Status, CreatedBy: s.CreatedBy, OwnerID: s.OwnerID,
+		Classification: s.Classification, Status: s.Status, ClearSyncedCopies: s.SuspendClearSyncedCopies, CreatedBy: s.CreatedBy, OwnerID: s.OwnerID,
 		OwnerMachineIdentityID: s.OwnerMachineIdentityID, IsShared: s.IsShared,
 		CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt, LastRotatedAt: s.LastRotatedAt,
 		AutoRotate: s.AutoRotate, RotationLength: s.RotationLength, RotationCharset: s.RotationCharset,

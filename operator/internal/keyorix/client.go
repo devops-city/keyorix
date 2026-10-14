@@ -67,6 +67,14 @@ var ErrSecretUnavailable = errors.New("secret is temporarily unavailable for rea
 // meanwhile from spec.onSuspend (Retain by default, or Clear) and reports it.
 var ErrSecretSuspended = errors.New("secret is suspended")
 
+// ErrClearSyncedCopies is wrapped (together with ErrSecretSuspended) into the error
+// FetchValue returns when the suspension asked for the synced Kubernetes copies to be
+// cleared: the 409 SecretSuspended envelope carries details.clear_synced_copies=true. The
+// controller then treats that reference as onSuspend=Clear whatever spec.onSuspend says,
+// with exactly the Clear semantics (empty only the keys it manages, never delete a Secret
+// or touch one it does not own). It is set only on a suspended refusal.
+var ErrClearSyncedCopies = errors.New("suspension requests clearing the synced copies")
+
 // ErrSecretExpired is wrapped into the error FetchValue returns on 409 SecretExpired.
 // The target Secret keeps its last value (Retain); the controller flags the state with
 // a condition, a Warning Event and a metric, as it does ahead of the expiry.
@@ -95,16 +103,27 @@ const (
 	codeMaxReadsExhausted = "SecretMaxReadsExhausted"
 )
 
-// errorCode reads the "error" code from an error response's envelope, or "" when the
-// body is not that shape. It reads at most maxResponseBodyBytes.
-func errorCode(resp *http.Response) string {
+// errorEnvelope reads the "error" code from an error response's envelope, plus whether
+// its details say the suspension asks for the synced copies to be cleared. It returns
+// "" when the body is not that shape. It reads at most maxResponseBodyBytes.
+func errorEnvelope(resp *http.Response) (code string, clearSyncedCopies bool) {
 	var env struct {
-		Error string `json:"error"`
+		Error   string          `json:"error"`
+		Details json.RawMessage `json:"details"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&env); err != nil {
-		return ""
+		return "", false
 	}
-	return env.Error
+	// details is decoded on its own so a shape this client does not know drops only the
+	// request marker (the safe direction: the resource's own onSuspend decides), never the
+	// error code.
+	var details struct {
+		ClearSyncedCopies bool `json:"clear_synced_copies"`
+	}
+	if len(env.Details) > 0 {
+		_ = json.Unmarshal(env.Details, &details)
+	}
+	return env.Error, details.ClearSyncedCopies
 }
 
 // Client reads secret values from a Keyorix server with a bearer (machine-identity)
@@ -247,15 +266,24 @@ func (c *Client) FetchValueInfo(ctx context.Context, ref string) (Value, error) 
 	}
 	defer drainAndClose(resp)
 
-	code := ""
+	code, clearCopies := "", false
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusConflict {
-		code = errorCode(resp)
+		code, clearCopies = errorEnvelope(resp)
 	}
 	switch {
 	case code == codeOutsideSchedule || code == codeMaxReadsExhausted:
 		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d): %w", ref, code, resp.StatusCode, ErrSecretUnavailable)
+	case code == codeSuspended && clearCopies:
+		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d, clear_synced_copies): %w: %w", ref, code, resp.StatusCode, ErrSecretSuspended, ErrClearSyncedCopies)
 	case code == codeSuspended:
 		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d): %w", ref, code, resp.StatusCode, ErrSecretSuspended)
+	case code == codeExpired && clearCopies:
+		// The server judges expiry before suspension, so a secret that is both expired and
+		// suspended with the clear marker answers SecretExpired carrying the marker (#3215).
+		// It is classified as suspended-with-clear (the suspended branch is tested first by the
+		// controller), so the copies are cleared, not retained; ErrSecretExpired stays in the
+		// chain so the state is still discoverable.
+		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d, clear_synced_copies): %w: %w: %w", ref, code, resp.StatusCode, ErrSecretSuspended, ErrClearSyncedCopies, ErrSecretExpired)
 	case code == codeExpired:
 		return Value{}, fmt.Errorf("secret reference %q: %s (HTTP %d): %w", ref, code, resp.StatusCode, ErrSecretExpired)
 	case resp.StatusCode == http.StatusNotFound:

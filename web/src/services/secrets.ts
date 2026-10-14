@@ -97,6 +97,7 @@ export const secretsApi = {
             lastRotatedAt: s.last_rotated_at ?? null,
             classification: s.classification ?? '',
             status: s.status ?? 'active',
+            clearSyncedCopies: s.clear_synced_copies ?? false,
         }));
         return {
             data: mappedSecrets,
@@ -167,8 +168,13 @@ export const secretsApi = {
     },
 
     // suspend freezes value reads of the secret (incident response); resume restores.
-    async suspend(id: number, reason?: string) {
-        const response = await apiClient.post(`/api/v1/secrets/${id}/suspend`, reason !== undefined ? { reason } : {});
+    // clearSyncedCopies also asks the operator and k8s-sync to empty the copies synced to
+    // Kubernetes clusters for THIS suspension (a compromise response); resume removes it.
+    async suspend(id: number, reason?: string, clearSyncedCopies?: boolean) {
+        const body: { reason?: string; clear_synced_copies?: true } = {};
+        if (reason !== undefined) body.reason = reason;
+        if (clearSyncedCopies) body.clear_synced_copies = true;
+        const response = await apiClient.post(`/api/v1/secrets/${id}/suspend`, body);
         return response.data;
     },
     async resume(id: number) {

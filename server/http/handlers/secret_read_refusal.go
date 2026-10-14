@@ -27,6 +27,13 @@ func (h *SecretHandler) sendSecretReadRefusal(w http.ResponseWriter, err error) 
 	if !ok {
 		return false
 	}
-	h.sendError(w, refusal.Code, refusal.Message, secretReadRefusalStatus(refusal.Kind), nil)
+	var details interface{}
+	if refusal.ClearSyncedCopies {
+		// The suspension asked for synced Kubernetes copies to be cleared; the operator
+		// and k8s-sync read this to treat the secret as onSuspend: Clear. Additive:
+		// a client that ignores `details` still sees the same status, code and message.
+		details = map[string]bool{"clear_synced_copies": true}
+	}
+	h.sendError(w, refusal.Code, refusal.Message, secretReadRefusalStatus(refusal.Kind), details)
 	return true
 }

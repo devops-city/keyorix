@@ -302,12 +302,13 @@ describe('SecretDetailView suspend/resume', () => {
     });
 
     it('shows Suspend for an active secret and calls suspend on confirm', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
         render(<SecretDetailView secret={makeSecret({ status: 'active' })} />);
         expect(screen.queryByTestId('suspended-badge')).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', { name: /^Suspend$/i }));
+        // The click only opens the dialog; nothing is suspended until it is confirmed.
+        expect(mockSuspendMutate).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend secret$/i }));
         expect(mockSuspendMutate).toHaveBeenCalled();
-        confirmSpy.mockRestore();
     });
 
     it('shows a Suspended badge and a Resume action for a suspended secret', () => {
@@ -317,24 +318,23 @@ describe('SecretDetailView suspend/resume', () => {
         expect(mockResumeMutate).toHaveBeenCalled();
     });
 
-    it('does not suspend when the confirmation is declined', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    it('does not suspend when the dialog is cancelled', () => {
         render(<SecretDetailView secret={makeSecret({ status: 'active' })} />);
         fireEvent.click(screen.getByRole('button', { name: /^Suspend$/i }));
+        fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
         expect(mockSuspendMutate).not.toHaveBeenCalled();
-        confirmSpy.mockRestore();
+        expect(screen.queryByTestId('suspended-badge')).not.toBeInTheDocument();
     });
 
     it('flips to the Suspended badge after the suspend mutation succeeds', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
         mockSuspendMutate.mockImplementationOnce((_payload: unknown, opts?: { onSuccess?: () => void }) => {
             opts?.onSuccess?.();
         });
         render(<SecretDetailView secret={makeSecret({ status: 'active' })} />);
         fireEvent.click(screen.getByRole('button', { name: /^Suspend$/i }));
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend secret$/i }));
         expect(screen.getByTestId('suspended-badge')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^Resume$/i })).toBeInTheDocument();
-        confirmSpy.mockRestore();
     });
 
     it('flips back to active after the resume mutation succeeds', () => {
@@ -345,6 +345,81 @@ describe('SecretDetailView suspend/resume', () => {
         fireEvent.click(screen.getByRole('button', { name: /^Resume$/i }));
         expect(screen.queryByTestId('suspended-badge')).not.toBeInTheDocument();
         expect(screen.getByRole('button', { name: /^Suspend$/i })).toBeInTheDocument();
+    });
+});
+
+// SUSPEND-PURGE-1: the suspend dialog's "also clear copies synced to Kubernetes clusters"
+// choice, per suspension, with a rotation recommendation.
+describe('SecretDetailView suspend dialog: clear synced copies', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockVersions = [];
+        mockAccessors = [];
+    });
+
+    const openDialog = () => {
+        render(<SecretDetailView secret={makeSecret({ status: 'active' })} />);
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend$/i }));
+    };
+
+    it('offers the checkbox, unchecked, with a note recommending rotation', () => {
+        openDialog();
+        const box = screen.getByLabelText(/Also clear copies synced to Kubernetes clusters/i);
+        expect(box).not.toBeChecked();
+        expect(screen.getByText(/Rotate the secret if it may be compromised/i)).toBeInTheDocument();
+    });
+
+    it('a plain confirm sends no clearing request', () => {
+        openDialog();
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend secret$/i }));
+        expect(mockSuspendMutate).toHaveBeenCalledTimes(1);
+        expect(mockSuspendMutate.mock.calls[0][0]).toBeUndefined();
+    });
+
+    it('a checked confirm asks to clear the synced copies', () => {
+        openDialog();
+        fireEvent.click(screen.getByLabelText(/Also clear copies synced to Kubernetes clusters/i));
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend secret$/i }));
+        expect(mockSuspendMutate).toHaveBeenCalledTimes(1);
+        expect(mockSuspendMutate.mock.calls[0][0]).toEqual({ clearSyncedCopies: true });
+    });
+
+    it('the choice is not remembered: a reopened dialog starts unchecked', () => {
+        openDialog();
+        fireEvent.click(screen.getByLabelText(/Also clear copies synced to Kubernetes clusters/i));
+        fireEvent.click(screen.getByRole('button', { name: /^Cancel$/i }));
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend$/i }));
+        expect(screen.getByLabelText(/Also clear copies synced to Kubernetes clusters/i)).not.toBeChecked();
+    });
+
+    it('after a clearing suspension the page keeps the rotate prompt, and resume drops it', () => {
+        mockSuspendMutate.mockImplementationOnce((_payload: unknown, opts?: { onSuccess?: () => void }) => {
+            opts?.onSuccess?.();
+        });
+        mockResumeMutate.mockImplementationOnce((_payload: unknown, opts?: { onSuccess?: () => void }) => {
+            opts?.onSuccess?.();
+        });
+        openDialog();
+        fireEvent.click(screen.getByLabelText(/Also clear copies synced to Kubernetes clusters/i));
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend secret$/i }));
+        expect(screen.getByText(/Synced Kubernetes copies will be cleared/i)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', { name: /^Resume$/i }));
+        expect(screen.queryByText(/Synced Kubernetes copies will be cleared/i)).not.toBeInTheDocument();
+    });
+
+    it('a plain suspension shows no clearing note', () => {
+        mockSuspendMutate.mockImplementationOnce((_payload: unknown, opts?: { onSuccess?: () => void }) => {
+            opts?.onSuccess?.();
+        });
+        openDialog();
+        fireEvent.click(screen.getByRole('button', { name: /^Suspend secret$/i }));
+        expect(screen.getByTestId('suspended-badge')).toBeInTheDocument();
+        expect(screen.queryByText(/Synced Kubernetes copies will be cleared/i)).not.toBeInTheDocument();
+    });
+
+    it('a secret already suspended with the choice shows the note on open', () => {
+        render(<SecretDetailView secret={makeSecret({ status: 'suspended', clearSyncedCopies: true })} />);
+        expect(screen.getByText(/Synced Kubernetes copies will be cleared/i)).toBeInTheDocument();
     });
 });
 

@@ -412,6 +412,23 @@ describe('useSuspendSecret / useResumeSecret', () => {
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.secrets.lists() });
     });
 
+    it('passes the clear-synced-copies choice through, and only when it was made', async () => {
+        mock.suspend!.mockResolvedValue(undefined);
+        const { result } = renderHook(() => useSuspendSecret(1), { wrapper });
+
+        act(() => {
+            result.current.mutate({ reason: 'leaked', clearSyncedCopies: true });
+        });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(mock.suspend).toHaveBeenLastCalledWith(1, 'leaked', true);
+
+        act(() => {
+            result.current.mutate({ reason: 'maintenance' });
+        });
+        await waitFor(() => expect(mock.suspend).toHaveBeenCalledTimes(2));
+        expect(mock.suspend).toHaveBeenLastCalledWith(1, 'maintenance');
+    });
+
     it('resumes a secret and invalidates detail and lists', async () => {
         mock.resume!.mockResolvedValueOnce(undefined);
         const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');

@@ -106,6 +106,7 @@ func TestDiffSecretUpdate_EveryFieldBehavesAsClassified(t *testing.T) {
 		{"CacheEpoch", secretFieldRejected, func(s *models.SecretNode) { s.CacheEpoch = 99 }},
 		{"Classification", secretFieldRejected, func(s *models.SecretNode) { s.Classification = "restricted" }},
 		{"Status", secretFieldRejected, func(s *models.SecretNode) { s.Status = "suspended" }},
+		{"SuspendClearSyncedCopies", secretFieldRejected, func(s *models.SecretNode) { s.SuspendClearSyncedCopies = true }},
 		{"CreatedBy", secretFieldRejected, func(s *models.SecretNode) { s.CreatedBy = "someone-else" }},
 		{"OwnerID", secretFieldRejected, func(s *models.SecretNode) { s.OwnerID = 999 }},
 		{"OwnerMachineIdentityID", secretFieldRejected, func(s *models.SecretNode) { s.OwnerMachineIdentityID = 999 }},

@@ -272,9 +272,19 @@ export const useRemoveSecretDependency = (id: number) => {
     });
 };
 
+export interface SuspendSecretInput {
+    reason?: string;
+    // Also clear the copies synced to Kubernetes clusters for this suspension.
+    clearSyncedCopies?: boolean;
+}
+
 export const useSuspendSecret = (id: number) => {
     return useMutation({
-        mutationFn: (reason?: string) => secretsApi.suspend(id, reason),
+        // A bare string is the reason (the original signature).
+        mutationFn: (input?: string | SuspendSecretInput) => {
+            const { reason, clearSyncedCopies } = typeof input === 'string' ? { reason: input } : (input ?? {});
+            return clearSyncedCopies ? secretsApi.suspend(id, reason, true) : secretsApi.suspend(id, reason);
+        },
         onSuccess: () => {
             invalidateQueries.secrets.detail(id);
             invalidateSecretActivity(id);

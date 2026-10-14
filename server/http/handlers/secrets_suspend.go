@@ -9,11 +9,15 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
 // SuspendSecret handles POST /api/v1/secrets/{id}/suspend with an optional body
-// {"reason": "..."}. Scoped secrets.write is enforced by the router.
+// {"reason": "...", "clear_synced_copies": true}. clear_synced_copies asks the operator
+// and k8s-sync to also empty the copies synced to Kubernetes clusters for this suspension
+// (a compromise response; resume removes the request). Scoped secrets.write is enforced
+// by the router; the flag needs no further permission.
 func (h *SecretHandler) SuspendSecret(w http.ResponseWriter, r *http.Request) {
 	userCtx := middleware.GetUserFromContext(r.Context())
 	if userCtx == nil {
@@ -26,11 +30,13 @@ func (h *SecretHandler) SuspendSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var reqBody struct {
-		Reason string `json:"reason"`
+		Reason            string `json:"reason"`
+		ClearSyncedCopies bool   `json:"clear_synced_copies"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&reqBody) // body is optional
 
-	secret, err := h.coreService.SuspendSecret(r.Context(), uint(id), userCtx.UserID, reqBody.Reason)
+	secret, err := h.coreService.SuspendSecretWithOptions(r.Context(), uint(id), userCtx.UserID, reqBody.Reason,
+		core.SuspendOptions{ClearSyncedCopies: reqBody.ClearSyncedCopies})
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			h.sendError(w, "NotFound", "Secret not found", http.StatusNotFound, nil)

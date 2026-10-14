@@ -894,7 +894,7 @@ func (ls *LocalStorage) TransitionSecretStatus(ctx context.Context, secret *mode
 		// caller's stale read_count and refund reads against MaxReads. A status
 		// transition has no business moving a read counter.
 		Omit(secretNodeSQLOwnedColumns...).
-		Select("Status", "UpdatedAt").
+		Select("Status", "SuspendClearSyncedCopies", "UpdatedAt").
 		Updates(secret)
 	if res.Error != nil {
 		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)

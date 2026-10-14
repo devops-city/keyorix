@@ -391,6 +391,45 @@ func TestClient_FetchValueSecretStateRefusals(t *testing.T) {
 	}
 }
 
+// SUSPEND-PURGE-1: a 409 SecretSuspended whose details say clear_synced_copies=true also
+// wraps ErrClearSyncedCopies; every other shape (no details, false, the flag on a
+// different code, unparsable details) never does, so the override cannot be triggered by
+// anything but the server's own suspended refusal.
+func TestClient_FetchValue_ClearSyncedCopiesOnlyOnSuspendedRefusal(t *testing.T) {
+	cases := []struct {
+		name       string
+		status     int
+		body       string
+		suspended  bool
+		clearAsked bool
+	}{
+		{"suspended with the request", http.StatusConflict, `{"success":false,"code":409,"error":"SecretSuspended","message":"m","details":{"clear_synced_copies":true}}`, true, true},
+		{"suspended without details", http.StatusConflict, `{"success":false,"code":409,"error":"SecretSuspended","message":"m"}`, true, false},
+		{"suspended, flag false", http.StatusConflict, `{"error":"SecretSuspended","details":{"clear_synced_copies":false}}`, true, false},
+		{"suspended, details of another shape", http.StatusConflict, `{"error":"SecretSuspended","details":"clear_synced_copies"}`, true, false},
+		// #3215: expired AND suspended with the request: classified suspended + clear (so the
+		// copies are cleared); without the marker an expired refusal is plain expired.
+		{"expired with the request", http.StatusConflict, `{"error":"SecretExpired","details":{"clear_synced_copies":true}}`, true, true},
+		{"expired without details", http.StatusConflict, `{"error":"SecretExpired"}`, false, false},
+		{"expired, flag false", http.StatusConflict, `{"error":"SecretExpired","details":{"clear_synced_copies":false}}`, false, false},
+		{"flag on a 403", http.StatusForbidden, `{"error":"Forbidden","details":{"clear_synced_copies":true}}`, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+			_, err := New(srv.URL, "tok").FetchValue(context.Background(), "a/b/c")
+			require.Error(t, err)
+			assert.Equal(t, tc.suspended, errors.Is(err, ErrSecretSuspended), "%v", err)
+			assert.Equal(t, tc.clearAsked, errors.Is(err, ErrClearSyncedCopies), "%v", err)
+		})
+	}
+}
+
 // FetchValueInfo reports the source secret's expiration alongside the value.
 func TestClient_FetchValueInfo_Expiration(t *testing.T) {
 	for _, tc := range []struct {

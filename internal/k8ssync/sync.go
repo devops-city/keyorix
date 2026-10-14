@@ -199,7 +199,7 @@ func (e *Engine) Reconcile(ctx context.Context, mappings []SecretMapping) (Resul
 		// outright. A revoked ref in the same target takes the revoked path below.
 		e.recordSourceStates(&res, st.t, st.rep, st.refs)
 		held := st.rep.hold(e.clearOnSuspend)
-		clearing := len(st.rep.suspended) > 0 && e.clearOnSuspend
+		clearing := st.rep.clearing(e.clearOnSuspend)
 		if held && len(revokedRefs) == 0 && len(desired) == 0 && !clearing {
 			continue
 		}
@@ -574,7 +574,7 @@ func (e *Engine) buildDesired(ctx context.Context, mappings []SecretMapping) (de
 		if ferr != nil {
 			switch {
 			case errors.Is(ferr, ErrSourceSuspended):
-				rep.suspended = append(rep.suspended, heldRef{ref: m.Ref, key: m.Key})
+				rep.suspended = append(rep.suspended, heldRef{ref: m.Ref, key: m.Key, clearRequested: errors.Is(ferr, ErrSourceClearRequested)})
 				continue
 			case errors.Is(ferr, ErrSourceExpired):
 				rep.expired = append(rep.expired, heldRef{ref: m.Ref, key: m.Key})
