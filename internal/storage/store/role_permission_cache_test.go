@@ -28,6 +28,9 @@ func newRolePermCacheTestStorage(t testing.TB) *LocalStorage {
 		&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.SystemMetadata{},
 		&models.UserRole{}, &models.GroupRole{}, &models.MachineIdentityRole{}, &models.ConnectRefGrant{},
 	))
+	// The generation triggers (#3259): without them the cache is bypassed by
+	// design, and every hit-path test here would pass vacuously.
+	require.NoError(t, EnsureRolePermissionsGenerationTriggers(db))
 	return NewLocalStorage(db)
 }
 

@@ -1483,6 +1483,13 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 			return err
 		}
 	}
+	// #3259: the triggers that move role_permissions_generation on every write to
+	// role_permissions/permissions, direct SQL included. The UPGRADE call site,
+	// for the same reason as cache_epoch's above (the tail below only runs on a
+	// fresh or half-migrated install); a no-op until the tables exist.
+	if err := store.EnsureRolePermissionsGenerationTriggers(db); err != nil {
+		return err
+	}
 	// Anomaly alerting: additive `alerted` flag (false = not yet pushed out).
 	if tableExists(db, "anomaly_alerts") && !columnExists(db, "anomaly_alerts", "alerted") {
 		if err := exec("ALTER TABLE anomaly_alerts ADD COLUMN alerted BOOLEAN DEFAULT FALSE"); err != nil {
@@ -2852,6 +2859,11 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// could drift — and so they fail loudly instead of running against a
 		// trigger-less schema, i.e. a stamp that never moves, passing vacuously.
 		if err := store.EnsureSecretNodeCacheEpoch(tx); err != nil {
+			return err
+		}
+		// #3259: the role->permission cache generation triggers (fresh-install
+		// call site; see the upgrade one above).
+		if err := store.EnsureRolePermissionsGenerationTriggers(tx); err != nil {
 			return err
 		}
 		// ADR-097: only after every migration step above has succeeded -- a crash
