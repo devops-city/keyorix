@@ -1,0 +1,5 @@
+### Added
+
+- `storage.database.pooler` (`none`, `pgbouncer-session`, `pgbouncer-transaction`; Helm `externalDatabase.pooler`): run the server behind PgBouncer. In transaction mode every PostgreSQL connection runs statements unprepared and every advisory lock held across statements (named, scheduler, bootstrap, audit-checkpoint, migration and server-presence locks) is a transaction-scoped lock inside a transaction held for the critical section, so locks keep excluding across replicas. A server behind transaction pooling without the setting refuses to start when it can detect it. See docs/postgresql-poolers.md.
+
+In transaction mode the lock transactions also set `transaction_timeout = 0` (PostgreSQL 17+, alongside `idle_in_transaction_session_timeout = 0`) for themselves only, so a database-wide timeout no longer drops a held lock silently, and the transaction-pooler check now runs before the server takes its presence lock. docs/postgresql-poolers.md lists what the server cannot protect against (PgBouncer's own timeouts, `idle_session_timeout` in session modes).

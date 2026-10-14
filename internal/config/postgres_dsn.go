@@ -79,6 +79,7 @@ func ResolvePostgresConnConfig(d *DatabaseConfig) (*pgx.ConnConfig, error) {
 	if err := checkFinalPostgresTLS(d, cc); err != nil {
 		return nil, err
 	}
+	applyPoolerConnConfig(d, cc)
 	return cc, nil
 }
 

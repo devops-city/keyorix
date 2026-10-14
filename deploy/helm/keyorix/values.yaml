@@ -326,6 +326,11 @@ externalDatabase:
   caSecret:
     name: ""
     key: ca.crt
+  # Connection pooler between the server and this database, rendered as
+  # storage.database.pooler: "" (none), pgbouncer-session or
+  # pgbouncer-transaction. Point host/port at the pooler. Transaction mode
+  # needs settings on the PgBouncer side too: docs/postgresql-poolers.md.
+  pooler: ""
 
 # ── Network policy ────────────────────────────────────────────────────────────
 # Scopes the server API and the bundled Postgres to same-namespace traffic —

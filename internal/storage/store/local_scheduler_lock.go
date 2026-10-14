@@ -7,9 +7,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"fmt"
-	"log"
 )
 
 // runProtected runs a scheduler job, converting a panic into an error so a single
@@ -56,8 +54,13 @@ func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn fun
 	}
 	defer func() { _ = conn.Close() }() // returns the conn to the pool (after the unlock below)
 
-	var locked bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&locked); err != nil {
+	sess, err := openAdvisoryLockSession(ctx, conn, ls.transactionPooling)
+	if err != nil {
+		return false, err
+	}
+	defer sess.close(ctx)
+	locked, err := sess.tryLock(ctx, key)
+	if err != nil {
 		return false, err
 	}
 	if !locked {
@@ -71,12 +74,7 @@ func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn fun
 	// wide until that connection happens to be evicted. Marking it bad via conn.Raw
 	// forces database/sql to physically close it instead of pooling it, which
 	// terminates the Postgres backend and releases every advisory lock it held.
-	defer func() {
-		if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", key); err != nil {
-			log.Printf("scheduler: pg_advisory_unlock(%d) failed, discarding the connection instead of pooling it: %v", key, err)
-			_ = conn.Raw(func(_ any) error { return driver.ErrBadConn })
-		}
-	}()
+	defer sess.unlock(ctx, key, "scheduler")
 	return true, runProtected(fn)
 }
 

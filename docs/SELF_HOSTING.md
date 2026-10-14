@@ -171,6 +171,12 @@ Server configuration (storage, encryption paths, ports) lives in
 `keyorix.docker.yaml`, mounted read-only into the `backend` container. The full,
 annotated reference is `configs/keyorix.yaml.tpl`.
 
+**PgBouncer in front of PostgreSQL.** Point `storage.database.host`/`port` in
+`keyorix.docker.yaml` at PgBouncer and set `storage.database.pooler`
+(`pgbouncer-session` or `pgbouncer-transaction`). Transaction mode needs PgBouncer
+settings as well, and a server that is behind transaction pooling without the setting
+refuses to start: see [postgresql-poolers.md](postgresql-poolers.md).
+
 ## 4. ⚠️ The master password and encryption keys — read this
 
 Secrets are encrypted with a Data Encryption Key (DEK) that is itself wrapped by

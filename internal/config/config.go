@@ -737,6 +737,12 @@ type DatabaseConfig struct {
 	// guaranteed: a UPS, a battery-backed RAID write cache, or replicated cloud
 	// block storage. See docs/security/hardening-guide.md.
 	InsecureAuditSkipDurableSync bool `yaml:"insecure_audit_skip_durable_sync"`
+
+	// Pooler names the connection pooler between Keyorix and PostgreSQL:
+	// "none" (the default, also when empty), "pgbouncer-session" or
+	// "pgbouncer-transaction". Only pgbouncer-transaction changes behaviour;
+	// see TransactionPooling and docs/postgresql-poolers.md.
+	Pooler string `yaml:"pooler"`
 }
 
 // GetPassword returns the resolved DB password, preferring the environment variable.
@@ -2762,6 +2768,10 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		if c.Server.GRPC.TLS.CertFile == "" || c.Server.GRPC.TLS.KeyFile == "" {
 			return fmt.Errorf("gRPC TLS is enabled but cert_file or key_file is missing")
 		}
+	}
+
+	if err := validatePooler(c.Storage.Type, &c.Storage.Database); err != nil {
+		return err
 	}
 
 	switch c.Storage.Type {

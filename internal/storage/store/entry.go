@@ -178,6 +178,9 @@ type LocalStorage struct {
 	// sessions from (SetNamedLockDB). nil means the request pool (ls.db). Set once
 	// at construction, read-only afterwards.
 	namedLockDB *sql.DB
+	// transactionPooling selects the transaction shape of advisoryLockSession
+	// (storage.database.pooler: pgbouncer-transaction; SetTransactionPooling).
+	transactionPooling bool
 	// rawStmts backs the H3 hand-written prepared-statement fast path
 	// (PERF-3, docs/specs/read-path-caching.md; credential_lookup_raw.go) —
 	// nil on a transaction-scoped LocalStorage (see WithTransaction, which

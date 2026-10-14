@@ -53,13 +53,16 @@ func (ls *LocalStorage) WithBootstrapLock(ctx context.Context, fn func() error) 
 	}
 	defer func() { _ = conn.Close() }() // returns the conn to the pool (after the unlock below)
 
-	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", int64(bootstrapAdvisoryLockKey)); err != nil {
+	sess, err := openAdvisoryLockSession(ctx, conn, ls.transactionPooling)
+	if err != nil {
+		return fmt.Errorf("failed to acquire bootstrap advisory lock: %w", err)
+	}
+	defer sess.close(ctx)
+	if err := sess.lock(ctx, int64(bootstrapAdvisoryLockKey)); err != nil {
 		return fmt.Errorf("failed to acquire bootstrap advisory lock: %w", err)
 	}
 	// Release before the deferred Close so the pooled connection carries no lock.
-	defer func() {
-		_, _ = conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", int64(bootstrapAdvisoryLockKey))
-	}()
+	defer sess.unlock(ctx, int64(bootstrapAdvisoryLockKey), "bootstrap lock")
 
 	return fn()
 }

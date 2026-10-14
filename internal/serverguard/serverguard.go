@@ -327,8 +327,16 @@ func acquirePostgresPresence(cfg *config.Config) (*Presence, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	xact := cfg.Storage.Database.TransactionPooling()
+	if xact {
+		if err := beginPinnedLockTx(ctx, conn); err != nil {
+			_ = conn.Close()
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("acquire shared server-presence advisory lock: %w", err)
+		}
+	}
 	var acquired bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock_shared($1)", serverPresenceLockKey).Scan(&acquired); err != nil {
+	if err := conn.QueryRowContext(ctx, pgLockSQL("pg_try_advisory_lock_shared", xact), serverPresenceLockKey).Scan(&acquired); err != nil {
 		_ = conn.Close()
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("acquire shared server-presence advisory lock: %w", err)
@@ -350,7 +358,9 @@ func acquirePostgresPresence(cfg *config.Config) (*Presence, error) {
 		// after, so release still eventually happens via that fallback --
 		// but silently, with no signal that the fast path didn't fire. Log
 		// it so that's visible rather than invisible.
-		if _, err := conn.ExecContext(relCtx, "SELECT pg_advisory_unlock_shared($1)", serverPresenceLockKey); err != nil {
+		if xact {
+			endPinnedLockTx(relCtx, conn)
+		} else if _, err := conn.ExecContext(relCtx, "SELECT pg_advisory_unlock_shared($1)", serverPresenceLockKey); err != nil {
 			log.Printf("serverguard: explicit pg_advisory_unlock_shared(%d) failed, falling back to connection-close release: %v", serverPresenceLockKey, err)
 		}
 		_ = conn.Close()
@@ -365,8 +375,16 @@ func acquirePostgresExclusive(cfg *config.Config) (*Exclusive, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	xact := cfg.Storage.Database.TransactionPooling()
+	if xact {
+		if err := beginPinnedLockTx(ctx, conn); err != nil {
+			_ = conn.Close()
+			_ = sqlDB.Close()
+			return nil, fmt.Errorf("probe server-presence advisory lock: %w", err)
+		}
+	}
 	var acquired bool
-	if err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", serverPresenceLockKey).Scan(&acquired); err != nil {
+	if err := conn.QueryRowContext(ctx, pgLockSQL("pg_try_advisory_lock", xact), serverPresenceLockKey).Scan(&acquired); err != nil {
 		_ = conn.Close()
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("probe server-presence advisory lock: %w", err)
@@ -385,10 +403,51 @@ func acquirePostgresExclusive(cfg *config.Config) (*Exclusive, error) {
 		// detection) is exactly the kind of availability gap a server
 		// startup racing the release would notice as "still refused" for
 		// longer than expected.
-		if _, err := conn.ExecContext(relCtx, "SELECT pg_advisory_unlock($1)", serverPresenceLockKey); err != nil {
+		if xact {
+			endPinnedLockTx(relCtx, conn)
+		} else if _, err := conn.ExecContext(relCtx, "SELECT pg_advisory_unlock($1)", serverPresenceLockKey); err != nil {
 			log.Printf("serverguard: explicit pg_advisory_unlock(%d) failed, falling back to connection-close release: %v", serverPresenceLockKey, err)
 		}
 		_ = conn.Close()
 		return sqlDB.Close()
 	}}, nil
+}
+
+// pgLockSQL is the try-lock statement for fn ("pg_try_advisory_lock" or
+// "pg_try_advisory_lock_shared"), in its transaction-scoped form when xact.
+//
+// storage.database.pooler: pgbouncer-transaction makes every lock here
+// transaction-scoped, inside a transaction held open for the lock's whole life
+// (beginPinnedLockTx). A transaction-mode pooler keeps a client on one server
+// connection only while a transaction is open: a session lock taken in
+// autocommit would stay on a server connection the pooler then hands to other
+// clients, the unlock could run on another one, and closing this client would
+// not end the backend, so "a killed holder's lock is released" would no longer
+// hold. Inside the open transaction it does: the pooler closes the server
+// connection when its client disconnects mid-transaction. Holding a
+// transaction open for the server's lifetime keeps one server connection per
+// replica (docs/postgresql-poolers.md).
+func pgLockSQL(fn string, xact bool) string {
+	if xact {
+		fn = strings.Replace(fn, "advisory_lock", "advisory_xact_lock", 1)
+	}
+	return "SELECT " + fn + "($1)"
+}
+
+// beginPinnedLockTx opens the transaction a transaction-scoped presence lock
+// lives in. It is idle for the whole hold, so idle_in_transaction_session_timeout
+// and (PostgreSQL 17+) transaction_timeout are 0 for it alone: a server-side
+// timeout ending it would silently drop the lock (config.PinnedLockTxSetupSQL).
+func beginPinnedLockTx(ctx context.Context, conn *sql.Conn) error {
+	return config.BeginPinnedLockTx(ctx, conn)
+}
+
+// endPinnedLockTx ends the lock transaction, releasing the lock. If that fails
+// the connection is closed right after by the caller, which ends the
+// transaction too (the pooler closes the server connection of a client that
+// disconnects mid-transaction).
+func endPinnedLockTx(ctx context.Context, conn *sql.Conn) {
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		log.Printf("serverguard: ending the presence lock transaction failed, falling back to connection-close release: %v", err)
+	}
 }

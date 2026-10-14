@@ -5,10 +5,8 @@ package store
 import (
 	"context"
 	"database/sql"
-	"database/sql/driver"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"sync"
 )
 
@@ -202,7 +200,7 @@ func heldNamedLockKeys(ctx context.Context) map[string]bool {
 	return held
 }
 
-// namedLockConnCtxKey carries the *sql.Conn an outer WithNamedLock call
+// namedLockConnCtxKey carries the lock session (advisoryLockSession) an outer WithNamedLock call
 // checked out of the pool, so a nested call under a DIFFERENT key (Postgres
 // path only) reuses it instead of checking out a second connection.
 //
@@ -223,9 +221,9 @@ func heldNamedLockKeys(ctx context.Context) map[string]bool {
 // of distinct keys still needs only ONE pooled connection.
 type namedLockConnCtxKey struct{}
 
-func heldNamedLockConn(ctx context.Context) *sql.Conn {
-	conn, _ := ctx.Value(namedLockConnCtxKey{}).(*sql.Conn)
-	return conn
+func heldNamedLockSession(ctx context.Context) *advisoryLockSession {
+	sess, _ := ctx.Value(namedLockConnCtxKey{}).(*advisoryLockSession)
+	return sess
 }
 
 // WithNamedLock runs fn with every OTHER caller using the identical lockKey
@@ -329,11 +327,11 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 	// has one (see namedLockConnCtxKey) -- a nested call under a different key
 	// must still acquire its OWN advisory lock, but never needs a SECOND
 	// lock session to do it.
-	if conn := heldNamedLockConn(ctx); conn != nil {
-		if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", key); err != nil {
+	if sess := heldNamedLockSession(ctx); sess != nil {
+		if err := sess.lock(ctx, key); err != nil {
 			return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
 		}
-		defer releaseNamedAdvisoryLock(ctx, conn, key)
+		defer sess.unlock(ctx, key, "named lock")
 		return fn(ctx)
 	}
 
@@ -354,30 +352,27 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 	}
 	defer func() { _ = conn.Close() }() // returns the conn to the pool (after the unlock below)
 
-	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", key); err != nil {
+	sess, err := openAdvisoryLockSession(ctx, conn, ls.transactionPooling)
+	if err != nil {
 		return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
 	}
-	// Release before the deferred Close so the pooled connection carries no lock.
-	defer releaseNamedAdvisoryLock(ctx, conn, key)
-
-	// Make this connection available to any nested WithNamedLock call under a
-	// different key, for the remainder of this call chain.
-	ctx = context.WithValue(ctx, namedLockConnCtxKey{}, conn)
-	return fn(ctx)
-}
-
-// releaseNamedAdvisoryLock unlocks key on conn. It ignores ctx's cancellation:
-// a caller whose request was cancelled inside fn must still unlock, or the
-// session would go back to the pool still holding the lock and every later
-// caller for that key, on any replica, would block on it. If the unlock fails
-// anyway, the session must not be pooled again: marking it bad makes
-// database/sql close it, which ends the Postgres backend and every advisory
-// lock it held (same rule as WithSchedulerLock).
-func releaseNamedAdvisoryLock(ctx context.Context, conn *sql.Conn, key int64) {
-	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", key); err != nil {
-		log.Printf("named lock: pg_advisory_unlock(%d) failed, discarding the connection instead of pooling it: %v", key, err)
-		_ = conn.Raw(func(_ any) error { return driver.ErrBadConn })
+	defer sess.close(ctx)
+	if err := sess.lock(ctx, key); err != nil {
+		return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
 	}
+	// Release before the deferred Close so the pooled connection carries no
+	// lock. The unlock ignores ctx's cancellation: a caller whose request was
+	// cancelled inside fn must still unlock, or the session would go back to
+	// the pool still holding the lock and every later caller for that key, on
+	// any replica, would block on it. If the unlock fails anyway, the session
+	// is discarded, which ends the Postgres backend and every advisory lock it
+	// held (same rule as WithSchedulerLock).
+	defer sess.unlock(ctx, key, "named lock")
+
+	// Make this lock session available to any nested WithNamedLock call under
+	// a different key, for the remainder of this call chain.
+	ctx = context.WithValue(ctx, namedLockConnCtxKey{}, sess)
+	return fn(ctx)
 }
 
 // SetNamedLockDB gives WithNamedLock a pool of its own for the advisory-lock

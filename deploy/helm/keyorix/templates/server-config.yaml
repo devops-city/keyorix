@@ -81,6 +81,9 @@ data:
         {{- with include "keyorix.externalDatabase.sslRootCert" . }}
         ssl_root_cert: {{ . | quote }}
         {{- end }}
+        {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.pooler }}
+        pooler: {{ .Values.externalDatabase.pooler | quote }}
+        {{- end }}
       encryption:
         enabled: true
         # The wrapped DEK + KEK salt live on the persisted keys volume. These MUST

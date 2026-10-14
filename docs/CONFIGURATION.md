@@ -301,6 +301,10 @@ storage:
     #   request). Buys Vault-equivalent read latency; costs the durability of
     #   the most recent audit entries on an OS or database-server crash.
     #   Config file only -- no API, CLI flag or env var can set it.
+    # pooler: none                # none (default) | pgbouncer-session | pgbouncer-transaction.
+    #   POSTGRES ONLY. Names the connection pooler in front of PostgreSQL;
+    #   pgbouncer-transaction changes how statements and advisory locks are
+    #   run. See docs/postgresql-poolers.md.
 ```
 
 ### PostgreSQL TLS

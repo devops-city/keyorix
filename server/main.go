@@ -270,6 +270,17 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// returns (already specific -- "an admin operation is running against
 	// this database; retry when it finishes" -- when that is the cause);
 	// this does not re-wrap it in a generic "failed to acquire..." prefix.
+	//
+	// The transaction-pooler tripwire runs first: with an undeclared
+	// transaction-mode pooler the presence lock would be a session lock left
+	// on a server connection the pooler shares, and refusing afterwards (in
+	// the storage factory) would not release it.
+	if err := appstorage.RefuseUndeclaredTransactionPooler(cfg); err != nil {
+		if authErr, ok := errors.AsType[*config.PostgresAuthError](err); ok {
+			log.Fatalf("%v\n(driver detail, secrets redacted: %s)", err, authErr.Detail())
+		}
+		log.Fatalf("%v", err)
+	}
 	presence, err := serverguard.AcquirePresence(cfg)
 	if err != nil {
 		if authErr, ok := errors.AsType[*config.PostgresAuthError](err); ok {

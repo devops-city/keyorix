@@ -147,6 +147,19 @@ func migrationCheckpointHook(label string) {
 //     serializing them) would spuriously fail one against the other rather
 //     than against a genuinely separate OS process.
 func withMigrationLock(db *gorm.DB, isPostgres bool, dbPath string, fn func(*gorm.DB) error) error {
+	return withMigrationLockPooled(db, isPostgres, false, dbPath, fn)
+}
+
+// withMigrationLockPooled is withMigrationLock with the Postgres lock's scope
+// chosen by storage.database.pooler. xactLock (pooler: pgbouncer-transaction)
+// takes pg_advisory_xact_lock instead of the session lock: it ends with the
+// migration transaction however that transaction ends. The session lock's
+// explicit unlock cannot run after a failed migration statement (the
+// transaction is aborted), so a session lock would stay on the server
+// connection; on a direct connection that connection ends with the process,
+// but a transaction-mode pooler hands the server connection, lock included,
+// to its next client.
+func withMigrationLockPooled(db *gorm.DB, isPostgres, xactLock bool, dbPath string, fn func(*gorm.DB) error) error {
 	migrationMu.Lock()
 	defer migrationMu.Unlock()
 
@@ -159,6 +172,12 @@ func withMigrationLock(db *gorm.DB, isPostgres bool, dbPath string, fn func(*gor
 
 	if isPostgres {
 		return db.Transaction(func(tx *gorm.DB) error {
+			if xactLock {
+				if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", postgresMigrationLockKey).Error; err != nil {
+					return fmt.Errorf("acquire migration advisory lock: %w", err)
+				}
+				return run(tx)
+			}
 			if err := tx.Exec("SELECT pg_advisory_lock(?)", postgresMigrationLockKey).Error; err != nil {
 				return fmt.Errorf("acquire migration advisory lock: %w", err)
 			}
@@ -645,8 +664,11 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 		return nil, err
 	}
 	warnPostgresPoolHeadroom(db, &cfg.Storage.Database)
+	if err := refuseUndeclaredTransactionPooler(&cfg.Storage.Database); err != nil {
+		return nil, err
+	}
 
-	if err := withMigrationLock(db, true, "", f.migrateDatabase); err != nil {
+	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migrateDatabase); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
@@ -674,6 +696,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	ls.SetSchedulerLockDB(schedulerLockDB)
 	ls.SetNamedLockDB(namedLockDB)
 	ls.SetNativeReadPool(nativeReads)
+	ls.SetTransactionPooling(cfg.Storage.Database.TransactionPooling())
 	// ADR-112 Amendment 1: read the computed status rather than the raw bool,
 	// so "configured" and "actually in effect" cannot drift apart between
 	// here and the surfaces that report it (start-up log, posture, API). This

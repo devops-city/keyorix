@@ -45,6 +45,7 @@ func runLockHolderHelper(mode string) {
 			Type:     "postgres",
 			Database: config.DatabaseConfig{DSN: os.Getenv("SERVERGUARD_HELPER_DSN")},
 		}}
+		setTestPooler(&cfg.Storage.Database, os.Getenv("SERVERGUARD_HELPER_POOLER"))
 	default:
 		fmt.Fprintln(os.Stderr, "serverguard test helper: unknown SERVERGUARD_HELPER_MODE", mode)
 		os.Exit(2)

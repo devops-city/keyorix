@@ -297,6 +297,7 @@ storage.database.max_open_conns
 storage.database.name
 storage.database.password
 storage.database.path
+storage.database.pooler
 storage.database.port
 storage.database.require_existing_path
 storage.database.ssl_mode

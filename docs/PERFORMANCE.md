@@ -128,6 +128,14 @@ Prepared statements need no setting: the server's PostgreSQL driver caches a
 prepared statement per connection by default, and the hot statements run from
 cached plans.
 
+Behind PgBouncer, set `storage.database.pooler`. In transaction mode
+(`pgbouncer-transaction`) the server stops caching prepared statements and
+holds each advisory lock inside a transaction, so every statement is planned
+again and each lock holder keeps one PgBouncer server connection: expect lower
+throughput than a direct or session-mode connection. Supported modes, the
+PgBouncer settings they need and what changes:
+[postgresql-poolers.md](postgresql-poolers.md).
+
 ### SQLite settings
 
 The server sets `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`,
