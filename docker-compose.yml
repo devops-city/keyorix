@@ -50,8 +50,30 @@ services:
     security_opt:
       - no-new-privileges:true
     group_add: ["${KEYORIX_SECRETS_GID:?KEYORIX_SECRETS_GID is required: run ./scripts/selfhost/init-secrets.sh}"]
+    # TLS (ssl=on) with the certificate and key init-secrets.sh generates next to
+    # the other secrets; the backend connects with ssl_mode: verify-full against
+    # that certificate (keyorix.docker.yaml). The server refuses to start on a
+    # key file that is group- or world-readable or not owned by its own user, and
+    # a bind-mounted secret keeps the host's owner and mode, so the key is copied
+    # to the (RAM, per-start) /tmp as this container's uid 70, 0600, and used from
+    # there. The certificate is public and read in place. The copy happens before
+    # the image's entrypoint, so the data volume is never touched by this step
+    # (an existing volume upgrades with no data change).
+    command:
+      - sh
+      - -c
+      - >-
+        umask 077 &&
+        cp /run/secrets/postgres_tls_key /tmp/postgres_tls.key &&
+        exec docker-entrypoint.sh postgres
+        -c ssl=on
+        -c ssl_cert_file=/run/secrets/postgres_tls_cert
+        -c ssl_key_file=/tmp/postgres_tls.key
+        -c ssl_min_protocol_version=TLSv1.2
     secrets:
       - db_password
+      - postgres_tls_cert
+      - postgres_tls_key
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -125,6 +147,9 @@ services:
       - master_password
       - admin_password
       - bootstrap_token
+      # The postgres server's certificate: storage.database.ssl_root_cert in
+      # keyorix.docker.yaml (ssl_mode: verify-full, host "postgres" is its name).
+      - postgres_tls_cert
     volumes:
       # The entrypoint copies this to the private 0600 KEYORIX_CONFIG_PATH.
       - ./keyorix.docker.yaml:/app/config/keyorix.docker.yaml:ro
@@ -300,6 +325,10 @@ secrets:
     file: ${KEYORIX_SECRETS_DIR:-./secrets}/admin_password
   bootstrap_token:
     file: ${KEYORIX_SECRETS_DIR:-./secrets}/bootstrap_token
+  postgres_tls_cert:
+    file: ${KEYORIX_SECRETS_DIR:-./secrets}/postgres_tls.crt
+  postgres_tls_key:
+    file: ${KEYORIX_SECRETS_DIR:-./secrets}/postgres_tls.key
 
 volumes:
   postgres_data:

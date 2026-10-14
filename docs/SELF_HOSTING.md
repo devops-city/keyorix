@@ -126,6 +126,7 @@ strong values, never overwrites an existing file, and never prints a value.
 | `master_password`    | `KEYORIX_MASTER_PASSWORD_FILE` | Passphrase the encryption KEK is derived from. **See the warning below.** |
 | `admin_password`     | `KEYORIX_ADMIN_PASSWORD_FILE` | The first admin is created on first boot (idempotent). To initialise manually with `keyorix-server admin init` instead, delete the `KEYORIX_ADMIN_PASSWORD_FILE` and `KEYORIX_BOOTSTRAP_TOKEN_FILE` lines from the `backend` service. |
 | `bootstrap_token`    | `KEYORIX_BOOTSTRAP_TOKEN_FILE` | `/system/init` always requires a matching bootstrap token; the admin bootstrap needs both. Setting the admin password file without this makes the backend exit at startup with an `ERROR:` message. |
+| `postgres_tls.crt`, `postgres_tls.key` | `postgres`: `ssl_cert_file` and (copied to the container's RAM `/tmp`, 0600) `ssl_key_file`; `backend`: `storage.database.ssl_root_cert` | The bundled PostgreSQL serves TLS and the server connects with `ssl_mode: verify-full`, trusting this one self-signed certificate (named `postgres`, valid ~10 years; needs `openssl` on the host). `docker compose up` fails if the pair is missing. Rotate: delete both files, re-run `init-secrets.sh`, `docker compose up -d --force-recreate postgres backend`. See "PostgreSQL TLS" in CONFIGURATION.md. |
 
 Non-secret settings stay in `.env`: `KEYORIX_ADMIN_USERNAME` (default `admin`),
 `KEYORIX_ADMIN_EMAIL` (default `admin@keyorix.local`), `KEYORIX_DOMAIN`, and
@@ -631,6 +632,7 @@ dropping or failing audit events is a compliance gap.
 |---------|-------------|
 | `KEYORIX_SECRETS_GID is required` on `up` | `./scripts/selfhost/init-secrets.sh` has not been run (it creates `./secrets/*` and writes the gid to `.env`). |
 | `bind source path does not exist: .../secrets/...` on `up` | Same: run `./scripts/selfhost/init-secrets.sh`, or point `KEYORIX_SECRETS_DIR` at your secrets directory. |
+| Backend exits with `tls error: server refused TLS connection` (or an `x509:` error) at start-up | The server connects to the bundled Postgres with `ssl_mode: verify-full` and never falls back to plaintext. Postgres is not serving TLS (the `postgres` service was changed, or started from an older `docker-compose.yml`), or presents a certificate other than `secrets/postgres_tls.crt`. Re-run `./scripts/selfhost/init-secrets.sh`, then `docker compose up -d --force-recreate postgres backend`. |
 | Backend exits with `KEYORIX_MASTER_PASSWORD_FILE ... permission denied` | `KEYORIX_SECRETS_GID` in `.env` is not the group of the files in `./secrets`. Re-run `init-secrets.sh` (it fixes the gid in `.env` and keeps your files). |
 | Backend logs `password authentication failed` | The `postgres_data` volume was initialised with a different password. For a *new* install, `docker compose down -v` and start fresh (this wipes data — only for a clean install). |
 | Backend can't decrypt secrets after a change | `KEYORIX_MASTER_PASSWORD` changed or the `keyorix_keys` volume was lost. Restore both from backup (section 5). |

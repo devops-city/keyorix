@@ -6,6 +6,7 @@
 #
 # Creates, under ./secrets (or --dir DIR / $KEYORIX_SECRETS_DIR):
 #   db_password  master_password  admin_password  bootstrap_token
+#   postgres_tls.crt  postgres_tls.key   (the compose Postgres' TLS certificate; needs openssl)
 # and records KEYORIX_SECRETS_GID in .env (or --env-file FILE).
 #
 # - Files are written 0640 owned by you and your primary group. Compose bind-mounts a
@@ -29,7 +30,7 @@ while [ $# -gt 0 ]; do
         --dir) dir="$2"; shift 2 ;;
         --env-file) env_file="$2"; shift 2 ;;
         --from-env) from_env="$2"; shift 2 ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *) echo "init-secrets: unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -146,6 +147,61 @@ write_secret db_password KEYORIX_DB_PASSWORD plain
 write_secret master_password KEYORIX_MASTER_PASSWORD plain
 write_secret admin_password KEYORIX_ADMIN_PASSWORD admin
 write_secret bootstrap_token KEYORIX_BOOTSTRAP_TOKEN plain
+
+# The Postgres server certificate and key (the compose postgres serves TLS with
+# them; keyorix.docker.yaml connects with ssl_mode: verify-full and uses the
+# certificate itself as ssl_root_cert, exactly as the web container trusts the
+# backend's self-signed certificate: one self-signed certificate per link, no CA
+# hierarchy). Generated only when both are missing, so an upgrade from a v0.96.0
+# install adds them next to the existing secrets and changes nothing else; the
+# postgres data volume is not touched. The certificate's name is the compose
+# service host the server connects to (verify-full checks it). Valid ~10 years:
+# it never leaves the compose network, and an expired pinned certificate would
+# take the stack down. To rotate: delete both files, re-run this script, then
+# `docker compose up -d --force-recreate postgres backend`.
+pg_tls_cert="$dir/postgres_tls.crt"
+pg_tls_key="$dir/postgres_tls.key"
+if [ -e "$pg_tls_cert" ] && [ -e "$pg_tls_key" ]; then
+    echo "kept     $pg_tls_cert, $pg_tls_key (already exist; not overwritten)"
+elif [ -e "$pg_tls_cert" ] || [ -e "$pg_tls_key" ]; then
+    echo "init-secrets: ERROR: only one of $pg_tls_cert and $pg_tls_key exists; a certificate and key" >&2
+    echo "init-secrets: from different generations can never work together. Delete the remaining one and re-run." >&2
+    exit 1
+else
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "init-secrets: ERROR: openssl is required to generate the Postgres TLS certificate; install it and re-run." >&2
+        exit 1
+    fi
+    _pgtls_tmp=$(mktemp -d "$dir/.pgtls.XXXXXX")
+    trap 'rm -rf "$_pgtls_tmp"' EXIT
+    cat > "$_pgtls_tmp/openssl.cnf" <<'EOF'
+[req]
+distinguished_name = dn
+prompt = no
+x509_extensions = ext
+[dn]
+CN = keyorix-postgres (self-signed by init-secrets.sh)
+[ext]
+subjectAltName = DNS:postgres
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = serverAuth
+EOF
+    ( umask 077
+      openssl ecparam -name prime256v1 -genkey -noout -out "$_pgtls_tmp/key" 2>/dev/null &&
+      openssl req -x509 -new -sha256 -days 3650 -config "$_pgtls_tmp/openssl.cnf" \
+          -key "$_pgtls_tmp/key" -out "$_pgtls_tmp/crt" 2>/dev/null ) || {
+        echo "init-secrets: ERROR: openssl could not generate the Postgres TLS certificate" >&2
+        exit 1
+    }
+    # Key first: a crash between the two leaves one file, which the next run reports.
+    chmod 640 "$_pgtls_tmp/key" "$_pgtls_tmp/crt"
+    mv "$_pgtls_tmp/key" "$pg_tls_key"
+    mv "$_pgtls_tmp/crt" "$pg_tls_cert"
+    rm -rf "$_pgtls_tmp"
+    trap - EXIT
+    echo "created  $pg_tls_cert, $pg_tls_key (self-signed, valid 10 years, name: postgres)"
+fi
 
 # Record the group the containers must join. Replace an existing line in place.
 touch "$env_file"

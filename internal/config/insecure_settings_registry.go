@@ -468,6 +468,17 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		InEffect:    func(c *Config) bool { return databaseSSLModeIs(c, "disable") },
 		Value:       func(c *Config) string { return boolStr(databaseSSLModeIs(c, "disable")) },
 	},
+	// prefer and allow encrypt only when the TLS attempt succeeds: anyone on
+	// the network path who answers PostgreSQL's SSLRequest with "no" gets a
+	// plaintext connection, password exchange included (PG-TLS-2). pgx's
+	// default for a dsn with no sslmode is prefer, so that counts too.
+	{
+		Name:        "storage.database.insecure_allow_plaintext_database_fallback",
+		SourcePaths: []string{"storage.database.ssl_mode", "storage.database.dsn"},
+		Describe:    "Postgres connection may fall back to unencrypted (sslmode prefer/allow)",
+		InEffect:    func(c *Config) bool { return databaseSSLModeIs(c, "prefer", "allow") },
+		Value:       func(c *Config) string { return boolStr(databaseSSLModeIs(c, "prefer", "allow")) },
+	},
 	{
 		Name:        "server.insecure_disable_api_ratelimit",
 		SourcePaths: []string{"server.http.ratelimit.enabled", "server.grpc.ratelimit.enabled"},

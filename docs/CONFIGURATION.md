@@ -124,14 +124,8 @@ stored this way; use `key_provider.type: file` for raw keys.
 ## environment
 
 ```yaml
-environment: production   # production | staging | local | ...
+environment: production   # development | staging | production
 ```
-
-A deployment label shown in system info. `keyorix-server admin init` writes
-`production`; `admin init --dev` writes `local`. The exact value `development`
-is not a pure label: it replaces `server.http.allowed_origins` with the
-localhost dev origins (`http://localhost:3000`, `:5173`, and the `127.0.0.1`
-equivalents), so no generated config uses it.
 
 ## locale
 
@@ -322,8 +316,8 @@ storage.database.ssl_mode "verify_full" is not a valid sslmode; use one of: disa
 | `ssl_mode` | Encrypted | Server certificate checked |
 |---|---|---|
 | `disable` | no | no (reported by `admin validate --posture` as `storage.database.insecure_disable_database_tls`) |
-| `allow` | only if the server insists | no. Tries plaintext first |
-| `prefer` | only if the TLS attempt succeeds | no. Falls back to plaintext whenever TLS fails, including when anything on the network path answers "no TLS" |
+| `allow` | only if the server insists | no. Tries plaintext first. Reported by `admin validate --posture` as `storage.database.insecure_allow_plaintext_database_fallback` |
+| `prefer` | only if the TLS attempt succeeds | no. Falls back to plaintext whenever TLS fails, including when anything on the network path answers "no TLS". Reported by `admin validate --posture` as `storage.database.insecure_allow_plaintext_database_fallback` (a `dsn` with no `sslmode` is `prefer` too) |
 | `require` (default) | yes | no. With `ssl_root_cert` set, the chain is checked against it (libpq/pgx behaviour), but the host name is not |
 | `verify-ca` | yes | chain against `ssl_root_cert`, not the host name |
 | `verify-full` | yes | chain against `ssl_root_cert` **and** the host name in `host` |
@@ -391,11 +385,9 @@ not inspect, which would sidestep the CA requirement above. The server and the
 nothing (the driver reads a service file only when a service is selected) and
 is not refused.
 
-Helm: put the CA's PEM in a Secret and set `externalDatabase.caSecret.name`
-(and `.key`, default `ca.crt`); the chart mounts it read-only at
-`/app/db-ca/ca.crt` and renders that as `ssl_root_cert`. Or set
-`externalDatabase.sslRootCert` (`system`, or a path you mount yourself). With
-`sslMode: verify-full`/`verify-ca` and neither, the chart refuses to render. `admin validate --posture` prints one informational line saying
+The Helm chart passes `externalDatabase.sslRootCert` through as
+`ssl_root_cert` (it does not mount the file; mount it yourself, or use
+`system`). `admin validate --posture` prints one informational line saying
 what is encrypted and what is verified against which CA.
 
 ### PostgreSQL password precedence

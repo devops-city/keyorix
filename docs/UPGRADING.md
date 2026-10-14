@@ -173,6 +173,59 @@ was booted on the e2e VM (see the v0.96.0 release PR).
   to a 0.95.x chart afterwards needs the volume chowned back to 999. Details: §5
   "Bundled PostgreSQL uid". Compose volumes need nothing.
 
+### Upgrading Docker Compose from v0.96.x to the next release: Postgres over TLS
+
+**VERIFIED** on the e2e VM: a real v0.96.0 Compose stack (ghcr.io images, existing
+Postgres volume) was moved to this change in place. The Postgres data, the admin
+and every table were unchanged, and `pg_stat_ssl` showed the server's connections
+on TLSv1.3 afterwards (before: all plaintext).
+
+The bundled Postgres now serves TLS, and the server connects to it with
+`ssl_mode: verify-full`. `ssl_mode: prefer` (the v0.96.0 `keyorix.docker.yaml`) fell
+back to plaintext whenever the TLS attempt failed, and `admin validate --posture`
+now counts that as a deviation (`storage.database.insecure_allow_plaintext_database_fallback`).
+The stack's certificate is generated next to the other secrets, so the upgrade is
+one extra command:
+
+1. Back up first (section 1).
+2. Pull the new `docker-compose.yml`, `keyorix.docker.yaml` and `scripts/selfhost/`
+   together, and bump the image pins to the release that ships this change (the
+   v0.96.0 server image does not know `storage.database.ssl_root_cert` and refuses
+   the new `keyorix.docker.yaml`).
+3. **Generate the Postgres certificate:** `./scripts/selfhost/init-secrets.sh`. It
+   keeps every existing file (the database and master passwords must not change)
+   and adds `secrets/postgres_tls.crt` and `secrets/postgres_tls.key`. It needs
+   `openssl` on the host. If your host user is uid 1001, hand the two new files to
+   root as for the others (`sudo chown root:<your group> secrets/*`).
+4. `docker compose pull && docker compose up -d`. Postgres restarts once with
+   `ssl=on`; the data volume is not touched, nothing is migrated, and the server
+   reconnects over TLS.
+
+Check it: `docker compose exec postgres psql -U keyorix -d keyorix -c "select ssl,
+version from pg_stat_ssl s join pg_stat_activity a using (pid) where a.usename='keyorix'"`
+shows `t` / `TLSv1.3` for the server's connections, and `docker compose run --rm backend
+./keyorix-server admin validate --posture` (backend stopped) prints the database TLS
+line `ssl_mode=verify-full -- encrypted; certificate chain and host name verified`.
+
+Things to know:
+
+- **No silent fallback.** If you skip step 3, `docker compose up` fails at once (a
+  secret file is missing). If Postgres is started without TLS, or presents any other
+  certificate, the server refuses to start (`tls error: server refused TLS
+  connection`, or an x509 error) instead of connecting in plaintext.
+- **The certificate is self-signed and pinned**: the server trusts that one file as
+  its `ssl_root_cert` and checks that it names the host `postgres`, the same way the
+  web container trusts the backend's generated certificate. There is no CA hierarchy.
+  It is valid for about ten years and never leaves the compose network. To rotate it:
+  delete both files, run `init-secrets.sh`, then
+  `docker compose up -d --force-recreate postgres backend`.
+- **Your own Postgres** (not the bundled one): keep your `keyorix.docker.yaml` edits.
+  `ssl_mode: prefer` or `allow` is now reported by `admin validate --posture`; use
+  `verify-full` with `ssl_root_cert` pointing at your CA (CONFIGURATION.md, "PostgreSQL TLS").
+- Anything that connected to the bundled Postgres directly from another container
+  (`psql` over the network, a backup job) still works: the server accepts both
+  plaintext and TLS clients, and only the Keyorix server insists on TLS.
+
 ## 3. Upgrading from v0.94.x or v0.93.x (version skip)
 
 **What's actually been proven, and what hasn't:** an end-to-end harness

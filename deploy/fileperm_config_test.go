@@ -36,11 +36,7 @@ func effectivePermissionCheck(t *testing.T, path string) (on, implicit bool) {
 }
 
 func TestShippedComposeConfig_FilePermissionCheckIsOn(t *testing.T) {
-	abs, err := filepath.Abs(filepath.Join("..", "keyorix.docker.yaml")) // config.Load refuses a ".." path
-	if err != nil {
-		t.Fatal(err)
-	}
-	on, implicit := effectivePermissionCheck(t, abs)
+	on, implicit := effectivePermissionCheck(t, withLocalTokenFile(t, "keyorix.docker.yaml", "/app/tls/metrics_token"))
 	if !on {
 		t.Error("keyorix.docker.yaml: effective security.enable_file_permission_check is false -- remove the `false`; the key must be omitted (implicit true) so that the bind-mounted config only warns")
 	}

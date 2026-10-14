@@ -1,0 +1,1 @@
+PG-TLS-3-SSLMODE-PREFER	./internal/config	TestInsecureRegistry_DatabasePlaintextFallback_PreferAndAllow	default-ci	-	-	sslmode prefer/allow (and a dsn with no sslmode) can fall back to plaintext and are a registered insecure setting, counted by admin validate --posture

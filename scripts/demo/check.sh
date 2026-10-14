@@ -149,7 +149,12 @@ run_step() { # run_step "name" fn_name
 # bring-up / teardown
 # ---------------------------------------------------------------------------
 BROUGHT_UP=false
-PG_PROJECT="keyorix-demo-check-pg"
+PG_PROJECT="${KEYORIX_DEMO_CHECK_PG_PROJECT:-keyorix-demo-check-pg}"
+# Overridable so a session on a shared Docker host (the e2e VM) never touches
+# another run's project, published port or images.
+PG_WEB_PORT="${KEYORIX_DEMO_CHECK_PG_PORT:-8088}"
+PG_BACKEND_IMAGE="${KEYORIX_DEMO_IMAGE:-keyorix-demo:airgap}"
+PG_WEB_IMAGE="${KEYORIX_DEMO_CHECK_PG_WEB_IMAGE:-keyorix-demo-web:local}"
 PG_ENV_FILE="$SCRATCH/.env.demo-check"
 
 bring_up_sqlite() {
@@ -175,12 +180,12 @@ bring_up_postgres() {
   # the SAME locally-built, web-UI-embedded image up.sh uses for SQLite and
   # override backend to use it via an extra compose file -- the stock
   # docker-compose.yml itself is never modified.
-  if ! docker image inspect keyorix-demo:airgap >/dev/null 2>&1; then
-    echo "==> building keyorix-demo:airgap (shared with the SQLite path)"
+  if ! docker image inspect "$PG_BACKEND_IMAGE" >/dev/null 2>&1; then
+    echo "==> building $PG_BACKEND_IMAGE (shared with the SQLite path)"
     command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required to build the web UI (see web/package.json)"; return 1; }
     make -C "$REPO_ROOT" populate-webui-dist >/dev/null || { echo "make populate-webui-dist failed"; return 1; }
     demo_stamp_build_args "$REPO_ROOT"
-    docker build -f "$REPO_ROOT/server/Dockerfile" --build-arg BUILD_TAGS=noaws,noazure,nogcp ${DEMO_STAMP_ARGS[@]+"${DEMO_STAMP_ARGS[@]}"} -t keyorix-demo:airgap "$REPO_ROOT" >"$SCRATCH/image-build.log" 2>&1 || {
+    docker build -f "$REPO_ROOT/server/Dockerfile" --build-arg BUILD_TAGS=noaws,noazure,nogcp ${DEMO_STAMP_ARGS[@]+"${DEMO_STAMP_ARGS[@]}"} -t "$PG_BACKEND_IMAGE" "$REPO_ROOT" >"$SCRATCH/image-build.log" 2>&1 || {
       cat "$SCRATCH/image-build.log"; echo "docker build failed"; return 1
     }
     git -C "$REPO_ROOT" checkout -- server/webui/dist/index.html 2>/dev/null || true
@@ -202,12 +207,19 @@ bring_up_postgres() {
     printf '%s\n' "demo-check-bootstrap-token" > "$secrets_dir/bootstrap_token"
   )
   chmod 750 "$secrets_dir"
+  # The Postgres TLS certificate and key (docker-compose.yml: the bundled postgres
+  # serves TLS and the server connects with verify-full against that certificate)
+  # come from the REAL generator, init-secrets.sh, which keeps the four files above
+  # (it never overwrites). INIT_SECRETS_SERVER_UID is set to a uid nobody has here:
+  # that script's "files owned by the server uid" refusal is handled by the chown below.
+  INIT_SECRETS_SERVER_UID=65534 "$REPO_ROOT/scripts/selfhost/init-secrets.sh" --dir "$secrets_dir" --env-file "$SCRATCH/.env.init-secrets" >"$SCRATCH/init-secrets.log" 2>&1 \
+    || { cat "$SCRATCH/init-secrets.log"; echo "scripts/selfhost/init-secrets.sh failed"; return 1; }
   # The server container runs as uid 1001 and refuses a group-readable secret file
   # it owns. A host user that is also uid 1001 (the GitHub-hosted runner) hands the
   # files to root, keeping the group bit the container joins; deleting them later
   # needs only write access to the directory, which we keep.
   if [ "$(id -u)" = "1001" ]; then
-    sudo -n chown root:"$(id -g)" "$secrets_dir"/db_password "$secrets_dir"/master_password "$secrets_dir"/admin_password "$secrets_dir"/bootstrap_token \
+    sudo -n chown root:"$(id -g)" "$secrets_dir"/db_password "$secrets_dir"/master_password "$secrets_dir"/admin_password "$secrets_dir"/bootstrap_token "$secrets_dir"/postgres_tls.crt "$secrets_dir"/postgres_tls.key \
       || { echo "uid 1001 needs passwordless sudo to hand the demo secrets files to root (the server refuses group-readable files it owns)"; return 1; }
   fi
   cat > "$PG_ENV_FILE" <<EOF
@@ -224,12 +236,15 @@ EOF
   cat > "$override_file" <<EOF
 services:
   backend:
-    image: keyorix-demo:airgap
+    image: $PG_BACKEND_IMAGE
   web:
-    image: keyorix-demo-web:local
+    image: $PG_WEB_IMAGE
     build:
       context: $REPO_ROOT/web
 EOF
+  if [ "$PG_WEB_PORT" != "8088" ]; then
+    printf '    ports: !override\n      - "%s:80"\n' "$PG_WEB_PORT" >> "$override_file"
+  fi
   # docker-compose.yml is the secure baseline (TLS backend behind a verifying
   # nginx, rate limiting, /metrics token, private config copy; SECURE-DEFAULT-1).
   # Before the v0.96.0 tag exists the pinned images are not pullable, so the
@@ -239,7 +254,7 @@ EOF
   cat "$SCRATCH/compose-up.log"
   [ "$rc" -eq 0 ] || return 1
 
-  SERVER_URL="http://localhost:8088"
+  SERVER_URL="http://localhost:$PG_WEB_PORT"
   # /health is nginx's own static liveness check (passes before the backend
   # upstream is actually reachable through it); /api/v1/version genuinely
   # round-trips through nginx to the backend, so wait on that instead.
@@ -785,7 +800,7 @@ step_latency() {
 }
 
 step_offline() {
-  KEYORIX_AIRGAP_E2E_IMAGE=keyorix-demo:airgap "$REPO_ROOT/scripts/airgap-e2e.sh"
+  KEYORIX_AIRGAP_E2E_IMAGE="$PG_BACKEND_IMAGE" "$REPO_ROOT/scripts/airgap-e2e.sh"
 }
 
 step_ui() {

@@ -225,6 +225,18 @@ func runInitWithEnv(t *testing.T, dir, stubDir string, extraEnv []string, args .
 	return string(out), err
 }
 
+// realOpenSSLUnlessRand is the first line of an `openssl` stub that only fakes
+// `openssl rand`: every other call (the Postgres TLS pair, PG-TLS-3) runs the
+// real openssl.
+func realOpenSSLUnlessRand(t *testing.T) string {
+	t.Helper()
+	real, err := exec.LookPath("openssl")
+	if err != nil {
+		t.Skip("openssl not installed")
+	}
+	return "if [ \"$1\" != rand ]; then exec '" + real + "' \"$@\"; fi\n"
+}
+
 func TestInitSecrets_GeneratedAdminPasswordNeverEmbedsTheUsername(t *testing.T) {
 	dir := t.TempDir()
 	stub := filepath.Join(dir, "bin")
@@ -234,7 +246,7 @@ func TestInitSecrets_GeneratedAdminPasswordNeverEmbedsTheUsername(t *testing.T) 
 	// A deterministic `openssl rand`: calls 1-2 (db, master) are benign, call 3 is the
 	// first admin draw and embeds the username, calls 4+ are clean.
 	counter := filepath.Join(dir, "calls")
-	script := "#!/bin/sh\n" +
+	script := "#!/bin/sh\n" + realOpenSSLUnlessRand(t) +
 		"n=$(cat '" + counter + "' 2>/dev/null || echo 0)\n" +
 		"n=$((n + 1))\n" +
 		"echo $n > '" + counter + "'\n" +
@@ -263,7 +275,7 @@ func TestInitSecrets_GeneratedAdminPasswordAvoidsACustomUsernameFromEnvFile(t *t
 		t.Fatal(err)
 	}
 	counter := filepath.Join(dir, "calls")
-	script := "#!/bin/sh\n" +
+	script := "#!/bin/sh\n" + realOpenSSLUnlessRand(t) +
 		"n=$(cat '" + counter + "' 2>/dev/null || echo 0)\n" +
 		"n=$((n + 1))\n" +
 		"echo $n > '" + counter + "'\n" +
@@ -320,5 +332,79 @@ func TestInitSecrets_FromEnvCompliantAdminPasswordDoesNotWarn(t *testing.T) {
 	}
 	if strings.Contains(out, "WARNING") {
 		t.Errorf("a compliant password produced a warning:\n%s", out)
+	}
+}
+
+// PG-TLS-3: the compose Postgres' certificate and key live next to the other
+// secrets. An install from v0.96.0 has the four old files and no certificate:
+// the script must add the pair and change nothing else (the database password
+// must keep matching the existing postgres volume).
+func TestInitSecrets_UpgradeFromV096AddsOnlyThePostgresTLSPair(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	sec := filepath.Join(dir, "secrets")
+	if err := os.MkdirAll(sec, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	old := map[string]string{"db_password": "db-pw-v096", "master_password": "master-v096", "admin_password": "Admin-v096-Aa1!xxxxxx", "bootstrap_token": "tok-v096"}
+	for name, v := range old {
+		if err := os.WriteFile(filepath.Join(sec, name), []byte(v+"\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runInit(t, dir, "--dir", sec, "--env-file", envFile)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	for name, v := range old {
+		if got := readTrim(t, filepath.Join(sec, name)); got != v {
+			t.Errorf("%s changed on upgrade: %q", name, got)
+		}
+	}
+	for _, name := range []string{"postgres_tls.crt", "postgres_tls.key"} {
+		info, err := os.Stat(filepath.Join(sec, name))
+		if err != nil {
+			t.Fatalf("%s not created on upgrade: %v\n%s", name, err, out)
+		}
+		if info.Mode().Perm() != 0o640 {
+			t.Errorf("%s: mode %04o, want 0640", name, info.Mode().Perm())
+		}
+	}
+	// A second run keeps the pair byte for byte.
+	crt, key := readTrim(t, filepath.Join(sec, "postgres_tls.crt")), readTrim(t, filepath.Join(sec, "postgres_tls.key"))
+	if out, err := runInit(t, dir, "--dir", sec, "--env-file", envFile); err != nil {
+		t.Fatalf("second run: %v\n%s", err, out)
+	}
+	if readTrim(t, filepath.Join(sec, "postgres_tls.crt")) != crt || readTrim(t, filepath.Join(sec, "postgres_tls.key")) != key {
+		t.Error("a second run regenerated the Postgres certificate: the running stack would be pinned to the old one")
+	}
+	if strings.Contains(out, "BEGIN") {
+		t.Errorf("the script printed key or certificate material: %q", out)
+	}
+}
+
+// A certificate without its key (or the reverse) can never work together: the
+// script refuses instead of generating a pair that silently replaces the one
+// that is there.
+func TestInitSecrets_RefusesHalfAPostgresTLSPair(t *testing.T) {
+	for _, existing := range []string{"postgres_tls.crt", "postgres_tls.key"} {
+		dir := t.TempDir()
+		sec := filepath.Join(dir, "secrets")
+		if err := os.MkdirAll(sec, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sec, existing), []byte("operator-provided\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		out, err := runInit(t, dir, "--dir", sec, "--env-file", filepath.Join(dir, ".env"))
+		if err == nil {
+			t.Fatalf("%s alone: the script must refuse, got success:\n%s", existing, out)
+		}
+		if !strings.Contains(out, "only one of") {
+			t.Errorf("%s alone: error should explain the half pair: %q", existing, out)
+		}
+		if got := readTrim(t, filepath.Join(sec, existing)); got != "operator-provided" {
+			t.Errorf("%s was overwritten: %q", existing, got)
+		}
 	}
 }

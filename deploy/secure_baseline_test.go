@@ -63,8 +63,14 @@ func withLocalTokenFile(t *testing.T, repoFile, containerTokenPath string) strin
 	if err := os.WriteFile(token, []byte("test-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	body := strings.ReplaceAll(string(raw), containerTokenPath, token)
+	// ssl_root_cert is read (and its PEM checked) when the config loads: point it
+	// at the certificate scripts/selfhost/init-secrets.sh really generates.
+	if strings.Contains(body, composeDBCertContainerPath) {
+		body = strings.ReplaceAll(body, composeDBCertContainerPath, generatePostgresTLS(t).cert)
+	}
 	out := filepath.Join(dir, "keyorix.yaml")
-	if err := os.WriteFile(out, []byte(strings.ReplaceAll(string(raw), containerTokenPath, token)), 0o600); err != nil {
+	if err := os.WriteFile(out, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return out

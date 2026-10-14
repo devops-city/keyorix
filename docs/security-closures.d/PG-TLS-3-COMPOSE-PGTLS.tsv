@@ -1,0 +1,1 @@
+PG-TLS-3-COMPOSE-PGTLS	./deploy	TestComposeConfig_DatabaseIsVerifyFullWithRootCert	default-ci	-	-	the Compose stack connects to its bundled Postgres with ssl_mode verify-full and a named ssl_root_cert (the certificate init-secrets.sh generates, named for the compose service host); prefer would be a registered insecure setting
