@@ -49,6 +49,17 @@ derived from, and so lets it skip that statement.
   canary flushes and reports any write the tracker missed. Not seen, stated: pgx batches (only the audit
   pipeline, which writes no fenced table). A cascading FK from an unfenced parent into a fenced table is
   forbidden by `TestFencedTables_NoCascadeFromUnfencedParent`.
+- **Authoritative caches (PR 3) are one memo, not four cache changes.** On a warm machine-token
+  secret read the only confirming statement is the folded credential statement (credential, identity
+  state, node stamp, the machine's roles at the node's scope, the role->permission generation,
+  schedule/versions). While the guard vouches for it (`swstate`: authoritative, lease fresh, no fenced
+  write in flight or finished since the fill), the store serves that statement's last answer for the
+  same text and binds (`local_folded_credential_memo.go`). Every decision is still made by the same
+  code on the same rows. Revocation, expiry against the request's clock, identity state, node stamp,
+  roles and the schedule window are all judged per request. The middleware and core are unchanged. Every
+  table the statement reads is fenced (`TestFoldedCredentialSQL_ReadsOnlyFencedTables`). The cold and
+  first-hit paths (slow-path validation, the plain credential re-check before a (machine, secret) pair is
+  folded) are not memoized: steady state is what is measured. Sessions and PATs are untouched.
 - **PgBouncer**: `storage.database.pooler: pgbouncer-transaction` (#3254) is refused at config
   validation; `pgbouncer-session` is allowed. The Helm `fail` guard is a follow-up.
 

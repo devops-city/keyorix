@@ -159,9 +159,15 @@ func newSVReplica(t *testing.T, cfg *config.Config) *svReplica {
 
 func newSVWorld(t *testing.T, backend string, replicas int) *svWorld {
 	t.Helper()
+	return newSVWorldFromConfig(t, backend, replicas, svStorageConfig(t, backend))
+}
+
+// newSVWorldFromConfig is newSVWorld on a given storage config (the
+// single_writer tests start their guard between the two).
+func newSVWorldFromConfig(t *testing.T, backend string, replicas int, cfg *config.Config) *svWorld {
+	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
 	t.Cleanup(i18n.ResetForTesting)
-	cfg := svStorageConfig(t, backend)
 	w := &svWorld{backend: backend, a: newSVReplica(t, cfg)}
 	if replicas >= 2 {
 		w.b = newSVReplica(t, cfg)

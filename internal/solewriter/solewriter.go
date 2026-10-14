@@ -51,6 +51,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/solewriter/swstate"
 )
 
 // LockKey is the first key of the two-key holder advisory lock; the second is
@@ -336,6 +337,9 @@ func (g *Guard) PID() int { return g.pid }
 
 // Close releases the lock (by closing its connection) and stops the poller.
 func (g *Guard) Close() {
+	if a := swstate.Get(); a == swstate.Authority(g) {
+		swstate.Set(nil)
+	}
 	g.stopOnce.Do(func() { close(g.stop) })
 	g.close()
 }

@@ -28,6 +28,12 @@ The server declares itself the only writer of its database:
 If the fence cannot be installed and verified, the server **refuses to start**: the mode never runs
 without it.
 
+**What it buys:** a warm machine-token secret read runs no confirming database statement; the audit write
+is the only one left on the request path. Every check is still made on every request, against the last
+answer the database gave. Any write this server makes to a security table invalidates that answer before
+the call that made it returns. Sessions and personal access tokens are not affected: they confirm every
+read as before.
+
 Not supported, refused at start-up: SQLite, `security.auth_rate_limit_fallback.replicas` above 1,
 `storage.database.pooler: pgbouncer-transaction`. PgBouncer in session pooling mode is supported.
 

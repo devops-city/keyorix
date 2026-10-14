@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/keyorixhq/keyorix/internal/solewriter/swstate"
 )
 
 // Settle waits until every transaction that was in progress when it was
@@ -53,6 +55,9 @@ func (g *Guard) Settle(ctx context.Context) error {
 // in its own goroutine.
 func (g *Guard) Run(ctx context.Context) {
 	current.Store(g)
+	// From here on the storage layer may skip a confirming read when the
+	// guard vouches for it (swstate, local_folded_credential_memo.go).
+	swstate.Set(g)
 	go func() {
 		defer close(g.done)
 		t := time.NewTicker(PollInterval)
@@ -131,6 +136,8 @@ FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &
 		}
 	}
 	if reenter {
+		// Back from a lapse: nothing filled before it is trusted.
+		g.tracker.Flush()
 		if f := g.onReenter.Load(); f != nil {
 			(*f)()
 		}
@@ -217,6 +224,13 @@ func (g *Guard) Authoritative() bool {
 	wall := now.Round(0).Sub(g.lastGoodWall)
 	return mono >= 0 && mono < LeaseDuration && wall > -LeaseDuration && wall < LeaseDuration
 }
+
+// BeginFill implements swstate.Authority.
+func (g *Guard) BeginFill() swstate.Fill { return g.tracker.BeginFill() }
+
+// Valid implements swstate.Authority: authoritative now, no fenced write in
+// flight, and none finished since gen.
+func (g *Guard) Valid(gen uint64) bool { return g.Authoritative() && g.tracker.Valid(gen) }
 
 // Epoch is the last polled write epoch.
 func (g *Guard) Epoch() int64 {
