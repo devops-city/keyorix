@@ -1643,17 +1643,19 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 				return err
 			}
 		}
-		// Companion indexes (models.AuditEvent.PrevHash/EntryHash are both
-		// `gorm:"index"`). VerifyAuditChain walks this hash chain as a security
-		// control; without these an upgraded install's audit_events table degrades
-		// to a full table scan on every chain verification as it grows, risking the
-		// check being skipped operationally once it gets too slow to run regularly.
-		// Gated on the table only, not the ALTERs above — see the
-		// secret_nodes.classification companion-index comment for why.
-		if err := exec("CREATE INDEX IF NOT EXISTS idx_audit_events_prev_hash ON audit_events (prev_hash)"); err != nil {
+		// DB-TUNE-1: drop the prev_hash/entry_hash indexes earlier releases
+		// created (models.AuditEvent once tagged both `gorm:"index"`). No query
+		// looks a row up by either hash: VerifyAuditChain, internal/auditverify,
+		// the chain-head read and the checkpoint/anchor code all walk or fetch
+		// audit_events by id, and the links are compared in memory. The two
+		// indexes held random 64-hex keys, most of the table's index storage,
+		// and every audit INSERT paid for both. An older binary booted against
+		// this database recreates them (CREATE INDEX IF NOT EXISTS), which is
+		// harmless. Guard: TestAuditEventHashIndexes_DroppedOnUpgrade.
+		if err := exec("DROP INDEX IF EXISTS idx_audit_events_prev_hash"); err != nil {
 			return err
 		}
-		if err := exec("CREATE INDEX IF NOT EXISTS idx_audit_events_entry_hash ON audit_events (entry_hash)"); err != nil {
+		if err := exec("DROP INDEX IF EXISTS idx_audit_events_entry_hash"); err != nil {
 			return err
 		}
 	}

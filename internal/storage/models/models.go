@@ -1625,8 +1625,11 @@ type AuditEvent struct {
 	// Each entry binds its predecessor, so any modification/deletion/insertion
 	// is detectable by re-walking the chain (see VerifyAuditChain). Both are
 	// empty on legacy rows written before ADR-029 (an unchained prefix).
-	PrevHash  string `gorm:"index"`
-	EntryHash string `gorm:"index"`
+	// Deliberately not indexed: nothing looks a row up by either hash (the
+	// chain is walked by id), and each index cost every audit INSERT
+	// (DB-TUNE-1; migrateDatabase drops the ones older releases created).
+	PrevHash  string
+	EntryHash string
 }
 
 // BeforeSave normalises EventTime to UTC so SQLite string comparisons are

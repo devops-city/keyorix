@@ -46,12 +46,6 @@ func TestCompanionIndexes_CreatedOnUpgrade(t *testing.T) {
 		{"secret_access_logs.access_time", "idx_secret_access_logs_access_time"},
 		// total_reads: a secret's lifetime read count, answered from the index alone.
 		{"secret_access_logs (secret_node_id, action)", "idx_secret_access_logs_secret_action"},
-		// ADR-029 tamper-evidence hash chain — the highest-stakes case: VerifyAuditChain
-		// is a security control, and an unindexed prev_hash/entry_hash lookup degrading
-		// to a full table scan as audit_events grows risks the check being skipped
-		// operationally once it's too slow to run regularly.
-		{"audit_events.prev_hash", "idx_audit_events_prev_hash"},
-		{"audit_events.entry_hash", "idx_audit_events_entry_hash"},
 	}
 
 	dbPath := filepath.Join(t.TempDir(), "companion-index.db")
