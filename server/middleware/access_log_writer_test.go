@@ -38,6 +38,26 @@ func TestLogger_AccessLineKeepsFields(t *testing.T) {
 	assert.Regexp(t, re, line)
 }
 
+// TestLogger_FollowsSetOutputAfterConstruction: the router (and so Logger()) is
+// built before a process or a test calls log.SetOutput/SetPrefix/SetFlags; the
+// access log must still go to the std logger's CURRENT destination, prefix and
+// flags. A construction-time snapshot blinded the canary log-leak fuzzers.
+func TestLogger_FollowsSetOutputAfterConstruction(t *testing.T) {
+	origW, origP, origF := log.Writer(), log.Prefix(), log.Flags()
+	defer func() { log.SetOutput(origW); log.SetPrefix(origP); log.SetFlags(origF) }()
+
+	mw := Logger() // constructed BEFORE the std logger is redirected
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	log.SetPrefix("late: ")
+	log.SetFlags(0)
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mw(h).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/ping", nil))
+
+	assert.Regexp(t, `^late: "GET http://example\.com/api/v1/ping HTTP/1\.1" from \S+ - 200 0B in \S+\n$`, buf.String())
+}
+
 // TestAccessLogWriter_FormatMatchesStdLogger compares our line formatting with
 // log.Logger for the flag combinations a process can set.
 func TestAccessLogWriter_FormatMatchesStdLogger(t *testing.T) {
@@ -158,8 +178,13 @@ func TestAccessLogWriter_BlockModeLosesNothing(t *testing.T) {
 	for i := 0; i < lines; i++ {
 		go func() { w.Print(big); returned <- struct{}{} }()
 	}
-	// Some callers must still be waiting while the sink is stalled.
-	time.Sleep(200 * time.Millisecond)
+	// Wait until the queue is full: from then on, with the sink stalled, no
+	// further caller can return, so some must still be waiting.
+	require.Eventually(t, func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return len(w.pending) >= maxPendingAccessLogBytes
+	}, 10*time.Second, time.Millisecond)
 	assert.Less(t, len(returned), lines, "a full queue must make callers wait in block mode")
 	assert.Zero(t, w.Dropped())
 
@@ -255,10 +280,14 @@ func TestAccessLogWriter_DropModeReportsRateLimitedAndRecovers(t *testing.T) {
 	first := waitLines(1)
 	assert.Contains(t, first[0], "1 access-log lines dropped since the last warning, 1 in total")
 
-	for i := 0; i < 5; i++ { // same instant: counted, no new warning
+	require.Eventually(t, func() bool { // the first warning goroutine has finished
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return !w.warnInFlight
+	}, 5*time.Second, time.Millisecond)
+	for i := 0; i < 5; i++ { // same instant: counted, no new warning (decided inside Print)
 		w.Print(big)
 	}
-	time.Sleep(50 * time.Millisecond)
 	assert.Len(t, capt.snapshot(), 1, "no second warning inside the interval")
 
 	advance(accessLogWarnInterval + time.Second)
@@ -272,6 +301,6 @@ func TestAccessLogWriter_DropModeReportsRateLimitedAndRecovers(t *testing.T) {
 	<-done
 	last := waitLines(3)
 	assert.Contains(t, last[2], "recovered, 7 lines dropped in total")
-	time.Sleep(50 * time.Millisecond)
+	// <-done: the flusher has returned, so the single recovery goroutine exists.
 	assert.Len(t, capt.snapshot(), 3, "exactly one recovery line")
 }

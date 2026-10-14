@@ -40,6 +40,12 @@ func AccessLogDropped() uint64 { return accessLogDroppedTotal.Load() }
 // they were appended, in the same "prefix + timestamp + message" format, and an
 // uncontended Print has written its line to the sink before it returns.
 type accessLogWriter struct {
+	// useStd makes the destination, prefix and flags follow the std logger as it
+	// is NOW: log.Writer() is read once per flushed batch, log.Prefix() and
+	// log.Flags() (atomic loads) once per line. A later log.SetOutput, SetPrefix
+	// or SetFlags therefore takes effect, as it would for log.Default(). When
+	// false (tests), out, prefix and flags are used as given.
+	useStd bool
 	out    io.Writer
 	prefix string
 	flags  int
@@ -66,11 +72,29 @@ type accessLogWriter struct {
 	dropped atomic.Uint64
 }
 
-// newAccessLogWriter snapshots the std logger's destination, prefix and flags,
-// so output goes where log.Default() would have sent it. drop selects
-// server.access_log.on_sink_stall: "drop" (true) or "block" (false).
+// newAccessLogWriter returns a writer that follows the std logger's destination,
+// prefix and flags at write time, so output goes where log.Default() would send
+// it right now (not where it pointed at construction: the router is usually built
+// before log.SetOutput). drop selects server.access_log.on_sink_stall: "drop"
+// (true) or "block" (false).
 func newAccessLogWriter(drop bool) *accessLogWriter {
-	return &accessLogWriter{out: log.Writer(), prefix: log.Prefix(), flags: log.Flags(), drop: drop}
+	return &accessLogWriter{useStd: true, drop: drop}
+}
+
+// sink is the destination for the batch about to be flushed.
+func (w *accessLogWriter) sink() io.Writer {
+	if w.useStd {
+		return log.Writer()
+	}
+	return w.out
+}
+
+// layout is the prefix and flags for the line about to be formatted.
+func (w *accessLogWriter) layout() (prefix string, flags int) {
+	if w.useStd {
+		return log.Prefix(), log.Flags()
+	}
+	return w.prefix, w.flags
 }
 
 // Dropped reports how many lines were discarded because the sink fell behind.
@@ -104,7 +128,7 @@ func (w *accessLogWriter) Print(v ...interface{}) {
 		w.pending = w.spare[:0]
 		w.condLocked().Broadcast() // the queue just emptied: wake blocked callers
 		w.mu.Unlock()
-		_, _ = w.out.Write(batch) // a failing sink loses lines, as with log.Logger
+		_, _ = w.sink().Write(batch) // a failing sink loses lines, as with log.Logger
 		w.mu.Lock()
 		w.spare = batch[:0]
 	}
@@ -184,15 +208,16 @@ func (w *accessLogWriter) recoveredLocked() (total uint64, recovered bool) {
 
 // format renders one line the way log.Logger does for the flags in use.
 func (w *accessLogWriter) format(t time.Time, msg string) []byte {
-	b := make([]byte, 0, len(w.prefix)+len(msg)+32)
-	if w.flags&log.Lmsgprefix == 0 {
-		b = append(b, w.prefix...)
+	prefix, flags := w.layout()
+	b := make([]byte, 0, len(prefix)+len(msg)+32)
+	if flags&log.Lmsgprefix == 0 {
+		b = append(b, prefix...)
 	}
-	if w.flags&(log.Ldate|log.Ltime|log.Lmicroseconds) != 0 {
-		if w.flags&log.LUTC != 0 {
+	if flags&(log.Ldate|log.Ltime|log.Lmicroseconds) != 0 {
+		if flags&log.LUTC != 0 {
 			t = t.UTC()
 		}
-		if w.flags&log.Ldate != 0 {
+		if flags&log.Ldate != 0 {
 			y, m, d := t.Date()
 			b = appendPadded(b, y, 4)
 			b = append(b, '/')
@@ -201,22 +226,22 @@ func (w *accessLogWriter) format(t time.Time, msg string) []byte {
 			b = appendPadded(b, d, 2)
 			b = append(b, ' ')
 		}
-		if w.flags&(log.Ltime|log.Lmicroseconds) != 0 {
+		if flags&(log.Ltime|log.Lmicroseconds) != 0 {
 			h, mi, s := t.Clock()
 			b = appendPadded(b, h, 2)
 			b = append(b, ':')
 			b = appendPadded(b, mi, 2)
 			b = append(b, ':')
 			b = appendPadded(b, s, 2)
-			if w.flags&log.Lmicroseconds != 0 {
+			if flags&log.Lmicroseconds != 0 {
 				b = append(b, '.')
 				b = appendPadded(b, t.Nanosecond()/1e3, 6)
 			}
 			b = append(b, ' ')
 		}
 	}
-	if w.flags&log.Lmsgprefix != 0 {
-		b = append(b, w.prefix...)
+	if flags&log.Lmsgprefix != 0 {
+		b = append(b, prefix...)
 	}
 	b = append(b, msg...)
 	if len(msg) == 0 || msg[len(msg)-1] != '\n' {
