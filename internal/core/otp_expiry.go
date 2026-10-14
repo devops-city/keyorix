@@ -14,17 +14,17 @@ import (
 // the refusal is audited server-side. A new password (SetPasswordHash) clears the
 // expiry.
 const (
-	// DefaultRecoveryOneTimePasswordTTL is the default life of the one-time password
+	// DefaultRecoveryOneTimePasswordExpiry is the default life of the one-time password
 	// `keyorix-server admin recover-admin` issues: an admin credential issued
 	// out-of-band should be used the same day.
-	DefaultRecoveryOneTimePasswordTTL = 24 * time.Hour
+	DefaultRecoveryOneTimePasswordExpiry = 24 * time.Hour
 
-	// DefaultOneTimePasswordTTL is the default life of an admin-created
+	// DefaultOneTimePasswordExpiry is the default life of an admin-created
 	// (`user create --one-time-password`) one-time password. Longer than recovery's
 	// because the recipient is a new colleague who may not log in until the next
 	// working day, and 72h still covers a weekend; the cost of expiry is only that
 	// the admin issues another.
-	DefaultOneTimePasswordTTL = 72 * time.Hour
+	DefaultOneTimePasswordExpiry = 72 * time.Hour
 )
 
 // EventOneTimePasswordExpired audits a login attempt that presented the correct but
@@ -32,18 +32,18 @@ const (
 // ordinary "invalid credentials" response.
 const EventOneTimePasswordExpired = "auth.one_time_password_expired" // #nosec G101 -- audit event type, not a credential
 
-// SetOneTimePasswordTTL sets the life of admin-created one-time passwords
+// SetOneTimePasswordExpiry sets the life of admin-created one-time passwords
 // (security.one_time_password_ttl). A non-positive value restores the default:
 // there is deliberately no way to configure "never expires".
-func (c *KeyorixCore) SetOneTimePasswordTTL(d time.Duration) {
-	c.oneTimePasswordTTL = d
+func (c *KeyorixCore) SetOneTimePasswordExpiry(d time.Duration) {
+	c.oneTimePasswordExpiry = d
 }
 
-func (c *KeyorixCore) effectiveOneTimePasswordTTL() time.Duration {
-	if c.oneTimePasswordTTL > 0 {
-		return c.oneTimePasswordTTL
+func (c *KeyorixCore) effectiveOneTimePasswordExpiry() time.Duration {
+	if c.oneTimePasswordExpiry > 0 {
+		return c.oneTimePasswordExpiry
 	}
-	return DefaultOneTimePasswordTTL
+	return DefaultOneTimePasswordExpiry
 }
 
 // oneTimePasswordExpired reports whether u's one-time password has expired at now.

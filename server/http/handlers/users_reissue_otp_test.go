@@ -64,7 +64,7 @@ func TestReissueOneTimePassword_Success_ReturnsPasswordOnceWithExpiry(t *testing
 	exp, err := time.Parse(time.RFC3339, otp.ExpiresAt)
 	require.NoError(t, err, "expires_at is RFC 3339")
 	assert.Equal(t, time.UTC, exp.Location())
-	assert.False(t, exp.Before(before.Add(core.DefaultOneTimePasswordTTL).Add(-time.Second)))
+	assert.False(t, exp.Before(before.Add(core.DefaultOneTimePasswordExpiry).Add(-time.Second)))
 
 	// Audited with actor and target, and the password is in no audit row.
 	var logs []models.AuditEvent

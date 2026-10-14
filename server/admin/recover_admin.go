@@ -116,7 +116,7 @@ func runRecoverAdmin(cmd *cobra.Command, args []string) error {
 	var summary *recoverAdminSummary
 	err = withUsableStorage(cfg, func(store corestorage.Storage) error {
 		s, err := performRecoverAdminWithTTL(context.Background(), store, recoverAdminUser, rawKey, keyless,
-			cfg.Security.GetRecoveryOneTimePasswordTTL())
+			cfg.Security.GetRecoveryOneTimePasswordExpiry())
 		summary = s
 		return err
 	})

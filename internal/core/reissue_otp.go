@@ -99,7 +99,7 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 	defer c.accountStateMu.Unlock()
 
 	now := c.now()
-	expiresAt := now.Add(c.effectiveOneTimePasswordTTL()).UTC()
+	expiresAt := now.Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	var target *models.User
 	var evict []string
 	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {

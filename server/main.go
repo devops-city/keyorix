@@ -794,7 +794,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 
 	// Admin-created one-time passwords expire (OTP-EXPIRY-1); the recover-admin
 	// password's lifetime is read by that command itself, from the same section.
-	coreService.SetOneTimePasswordTTL(cfg.Security.GetOneTimePasswordTTL())
+	coreService.SetOneTimePasswordExpiry(cfg.Security.GetOneTimePasswordExpiry())
 
 	// Apply per-account login lockout (brute-force protection, distinct from and
 	// complementary to the per-IP rate limiter, which distributed guessing can evade).

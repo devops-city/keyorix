@@ -9,7 +9,7 @@ import (
 
 // OTP-EXPIRY-1: a one-time-password TTL that is set but unusable is a startup error,
 // not a silent fall-back to the default (a "7d" typo would otherwise become 72h).
-func TestValidate_OneTimePasswordTTLs(t *testing.T) {
+func TestValidate_OneTimePasswordExpiries(t *testing.T) {
 	cases := map[string]struct {
 		recovery, otp string
 		wantErr       string // "" = valid
@@ -27,8 +27,8 @@ func TestValidate_OneTimePasswordTTLs(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			c := validLocalConfig()
-			c.Security.RecoveryOneTimePasswordTTL = tc.recovery
-			c.Security.OneTimePasswordTTL = tc.otp
+			c.Security.RecoveryOneTimePasswordExpiry = tc.recovery
+			c.Security.OneTimePasswordExpiry = tc.otp
 			err := c.Validate()
 			if tc.wantErr == "" {
 				require.NoError(t, err)

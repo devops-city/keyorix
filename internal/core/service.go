@@ -366,10 +366,10 @@ type KeyorixCore struct {
 	// config value that configures the setup gate.
 	deploymentRequiresMFA bool
 
-	// oneTimePasswordTTL is how long an admin-created one-time password
-	// (CreateUserWithOneTimePassword) stays valid; zero means DefaultOneTimePasswordTTL
+	// oneTimePasswordExpiry is how long an admin-created one-time password
+	// (CreateUserWithOneTimePassword) stays valid; zero means DefaultOneTimePasswordExpiry
 	// (never "no expiry"). See otp_expiry.go.
-	oneTimePasswordTTL time.Duration
+	oneTimePasswordExpiry time.Duration
 	// credentialDelivery transports setup links (ADR-028). nil = out-of-band: the
 	// link is returned to the caller. Set from config via SetCredentialDelivery.
 	credentialDelivery ports.CredentialDelivery

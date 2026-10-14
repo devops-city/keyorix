@@ -52,7 +52,7 @@ type recoverAdminSummary struct {
 // regardless of whether the audit chain was already broken (design §4: a
 // broken chain does not block recovery, it's recorded alongside it).
 func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIdentifier, rawRecoveryKey string, keyless bool) (*recoverAdminSummary, error) {
-	return performRecoverAdminWithTTL(ctx, store, userIdentifier, rawRecoveryKey, keyless, core.DefaultRecoveryOneTimePasswordTTL)
+	return performRecoverAdminWithTTL(ctx, store, userIdentifier, rawRecoveryKey, keyless, core.DefaultRecoveryOneTimePasswordExpiry)
 }
 
 // performRecoverAdminWithTTL is performRecoverAdmin with the lifetime of the
@@ -61,7 +61,7 @@ func performRecoverAdmin(ctx context.Context, store corestorage.Storage, userIde
 // gets an expiry.
 func performRecoverAdminWithTTL(ctx context.Context, store corestorage.Storage, userIdentifier, rawRecoveryKey string, keyless bool, otpTTL time.Duration) (*recoverAdminSummary, error) {
 	if otpTTL <= 0 {
-		otpTTL = core.DefaultRecoveryOneTimePasswordTTL
+		otpTTL = core.DefaultRecoveryOneTimePasswordExpiry
 	}
 	user, err := resolveTargetUser(ctx, store, userIdentifier)
 	if err != nil {

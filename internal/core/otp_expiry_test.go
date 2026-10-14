@@ -154,7 +154,7 @@ func TestCreateUserWithOneTimePassword_RecordsExpiry(t *testing.T) {
 			fixed := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 			c.now = func() time.Time { return fixed }
 			if tc.ttl != 0 {
-				c.SetOneTimePasswordTTL(tc.ttl)
+				c.SetOneTimePasswordExpiry(tc.ttl)
 			}
 			anyAudit(ms)
 			ms.On("GetUserByUsername", ctx, "dana").Return(nil, assertNotFoundErr())

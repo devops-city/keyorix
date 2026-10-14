@@ -67,7 +67,7 @@ func TestReissueOneTimePassword_IssuesAUsableExpiringRestrictedCredential(t *tes
 	ctx := context.Background()
 	fixed := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
 	f.c.now = func() time.Time { return fixed }
-	f.c.SetOneTimePasswordTTL(6 * time.Hour)
+	f.c.SetOneTimePasswordExpiry(6 * time.Hour)
 
 	res, err := f.c.ReissueOneTimePassword(ctx, f.admin.ID, f.target.ID)
 	require.NoError(t, err)
@@ -97,9 +97,9 @@ func TestReissueOneTimePassword_ExpiredAfterTTL(t *testing.T) {
 
 	res, err := f.c.ReissueOneTimePassword(ctx, f.admin.ID, f.target.ID)
 	require.NoError(t, err)
-	assert.True(t, res.ExpiresAt.Equal(now.Add(DefaultOneTimePasswordTTL)), "default TTL when none is configured")
+	assert.True(t, res.ExpiresAt.Equal(now.Add(DefaultOneTimePasswordExpiry)), "default TTL when none is configured")
 
-	now = now.Add(DefaultOneTimePasswordTTL + time.Second)
+	now = now.Add(DefaultOneTimePasswordExpiry + time.Second)
 	_, _, err = f.c.Login(ctx, &LoginRequest{Username: "reissue-target", Password: res.OTPValue})
 	require.EqualError(t, err, "invalid credentials", "an expired reissued password is refused like a wrong one")
 }

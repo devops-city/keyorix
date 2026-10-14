@@ -227,7 +227,7 @@ func (c *KeyorixCore) CreateUserWithOneTimePassword(ctx context.Context, req *Cr
 	reqCopy.Password = otp
 	reqCopy.AccountState = AccountPasswordResetRequired
 	// The expiry is written by the same insert as the password (OTP-EXPIRY-1).
-	expiresAt := c.now().Add(c.effectiveOneTimePasswordTTL()).UTC()
+	expiresAt := c.now().Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	reqCopy.OneTimePasswordExpiresAt = &expiresAt
 	user, err := c.CreateUser(ctx, &reqCopy)
 	if err != nil {

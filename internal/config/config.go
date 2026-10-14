@@ -1175,36 +1175,36 @@ type SecurityConfig struct {
 	// RecoverAdmin configures `keyorix-server admin recover-admin`
 	// (docs/design-b2-recover-admin.md §5).
 	RecoverAdmin RecoverAdminConfig `yaml:"recover_admin"`
-	// RecoveryOneTimePasswordTTL is how long the one-time password printed by
+	// RecoveryOneTimePasswordExpiry is how long the one-time password printed by
 	// `keyorix-server admin recover-admin` stays valid, as a Go duration (e.g.
 	// "24h", "90m"). Empty means the 24h default; a set value must be a duration
-	// in (0, MaxOneTimePasswordTTL] or Validate refuses it. There is no way to
+	// in (0, MaxOneTimePasswordExpiry] or Validate refuses it. There is no way to
 	// configure "never expires" (OTP-EXPIRY-1).
-	RecoveryOneTimePasswordTTL string `yaml:"recovery_one_time_password_ttl"`
-	// OneTimePasswordTTL is the same for admin-created one-time passwords
+	RecoveryOneTimePasswordExpiry string `yaml:"recovery_one_time_password_ttl"`
+	// OneTimePasswordExpiry is the same for admin-created one-time passwords
 	// (`keyorix user create --one-time-password`). Empty means the 72h default;
 	// the same range check applies.
-	OneTimePasswordTTL string `yaml:"one_time_password_ttl"`
+	OneTimePasswordExpiry string `yaml:"one_time_password_ttl"`
 }
 
 // Defaults for the one-time-password lifetimes (see SecurityConfig). They mirror
-// core.DefaultRecoveryOneTimePasswordTTL / core.DefaultOneTimePasswordTTL, which
+// core.DefaultRecoveryOneTimePasswordExpiry / core.DefaultOneTimePasswordExpiry, which
 // internal/config cannot import; config_test.go keeps the two in step.
 const (
-	DefaultRecoveryOneTimePasswordTTL = 24 * time.Hour
-	DefaultOneTimePasswordTTL         = 72 * time.Hour
+	DefaultRecoveryOneTimePasswordExpiry = 24 * time.Hour
+	DefaultOneTimePasswordExpiry         = 72 * time.Hour
 )
 
-// GetRecoveryOneTimePasswordTTL returns the validity of a recover-admin one-time
+// GetRecoveryOneTimePasswordExpiry returns the validity of a recover-admin one-time
 // password, falling back to the default for an empty or invalid value.
-func (s *SecurityConfig) GetRecoveryOneTimePasswordTTL() time.Duration {
-	return parseDurationDefault(s.RecoveryOneTimePasswordTTL, DefaultRecoveryOneTimePasswordTTL)
+func (s *SecurityConfig) GetRecoveryOneTimePasswordExpiry() time.Duration {
+	return parseDurationDefault(s.RecoveryOneTimePasswordExpiry, DefaultRecoveryOneTimePasswordExpiry)
 }
 
-// GetOneTimePasswordTTL returns the validity of an admin-created one-time
+// GetOneTimePasswordExpiry returns the validity of an admin-created one-time
 // password, falling back to the default for an empty or invalid value.
-func (s *SecurityConfig) GetOneTimePasswordTTL() time.Duration {
-	return parseDurationDefault(s.OneTimePasswordTTL, DefaultOneTimePasswordTTL)
+func (s *SecurityConfig) GetOneTimePasswordExpiry() time.Duration {
+	return parseDurationDefault(s.OneTimePasswordExpiry, DefaultOneTimePasswordExpiry)
 }
 
 // RecoverAdminConfig configures `keyorix-server admin recover-admin`
@@ -2873,26 +2873,26 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		return err
 	}
 
-	if err := validateOneTimePasswordTTLs(c.Security); err != nil {
+	if err := validateOneTimePasswordExpiries(c.Security); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// MaxOneTimePasswordTTL is the longest life a one-time password may be configured
+// MaxOneTimePasswordExpiry is the longest life a one-time password may be configured
 // with. A credential issued out-of-band that stays valid for longer is a standing
 // secret, which is what expiry exists to prevent.
-const MaxOneTimePasswordTTL = 7 * 24 * time.Hour
+const MaxOneTimePasswordExpiry = 7 * 24 * time.Hour
 
-// validateOneTimePasswordTTLs rejects a security.one_time_password_ttl /
+// validateOneTimePasswordExpiries rejects a security.one_time_password_ttl /
 // security.recovery_one_time_password_ttl that is set but unusable, instead of
 // letting the getters fall back to the default and hide the typo (a "7d" is not a Go
 // duration: say "168h"). Empty is valid and means the default.
-func validateOneTimePasswordTTLs(s SecurityConfig) error {
+func validateOneTimePasswordExpiries(s SecurityConfig) error {
 	for _, f := range []struct{ key, raw string }{
-		{"security.one_time_password_ttl", s.OneTimePasswordTTL},
-		{"security.recovery_one_time_password_ttl", s.RecoveryOneTimePasswordTTL},
+		{"security.one_time_password_ttl", s.OneTimePasswordExpiry},
+		{"security.recovery_one_time_password_ttl", s.RecoveryOneTimePasswordExpiry},
 	} {
 		if f.raw == "" {
 			continue
@@ -2901,8 +2901,8 @@ func validateOneTimePasswordTTLs(s SecurityConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s: %q is not a Go duration (use e.g. \"24h\" or \"90m\"; days are written in hours, \"168h\" for 7 days)", f.key, f.raw)
 		}
-		if d <= 0 || d > MaxOneTimePasswordTTL {
-			return fmt.Errorf("%s: %q is outside the allowed range (greater than 0, at most %s)", f.key, f.raw, MaxOneTimePasswordTTL)
+		if d <= 0 || d > MaxOneTimePasswordExpiry {
+			return fmt.Errorf("%s: %q is outside the allowed range (greater than 0, at most %s)", f.key, f.raw, MaxOneTimePasswordExpiry)
 		}
 	}
 	return nil
