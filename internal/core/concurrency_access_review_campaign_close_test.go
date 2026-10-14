@@ -62,7 +62,7 @@ func TestConcurrency_DecideAccessReviewItem_RejectsWhenRacingClose(t *testing.T)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 
-	for i := 0; i < reviewers; i++ {
+	for i := range reviewers {
 		wg.Add(1)
 		actorID := uint(100 + i) // distinct attributable human reviewers, none is the item's principal
 		go func(actorID uint) {
@@ -83,9 +83,7 @@ func TestConcurrency_DecideAccessReviewItem_RejectsWhenRacingClose(t *testing.T)
 	}
 
 	// One racer force-closes the campaign at the same instant.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		_, closeErr := c.CloseAccessReviewCampaign(ctx, 1, 0, proj, campaign.ID, true)
 		switch {
@@ -96,7 +94,7 @@ func TestConcurrency_DecideAccessReviewItem_RejectsWhenRacingClose(t *testing.T)
 		default:
 			unexpected <- closeErr
 		}
-	}()
+	})
 
 	close(start) // release every racer at once
 	wg.Wait()

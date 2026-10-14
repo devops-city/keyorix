@@ -50,9 +50,9 @@ func TestListGroupSharedSecretsHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 		data := decodeData(t, w)
-		secrets := data["secrets"].([]interface{})
+		secrets := data["secrets"].([]any)
 		require.Len(t, secrets, 1, "only the live (non-expired) share surfaces")
-		assert.Equal(t, "alpha", secrets[0].(map[string]interface{})["name"])
+		assert.Equal(t, "alpha", secrets[0].(map[string]any)["name"])
 	})
 
 	t.Run("requires a user context", func(t *testing.T) {
@@ -68,6 +68,6 @@ func TestListGroupSharedSecretsHandler(t *testing.T) {
 		h.ListGroupSharedSecrets(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Empty(t, decodeData(t, w)["secrets"].([]interface{}))
+		assert.Empty(t, decodeData(t, w)["secrets"].([]any))
 	})
 }

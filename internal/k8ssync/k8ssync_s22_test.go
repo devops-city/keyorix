@@ -20,7 +20,7 @@ func TestRun_S22_ExecutesOnePassAndCancelStops(t *testing.T) {
 	e := NewEngine(f, s)
 
 	var logged []string
-	logf := func(format string, args ...interface{}) {
+	logf := func(format string, args ...any) {
 		logged = append(logged, format)
 	}
 
@@ -67,7 +67,7 @@ func TestRun_S22_NilStatusIsOK(t *testing.T) {
 	s := newFakeSink()
 	e := NewEngine(f, s)
 
-	logf := func(string, ...interface{}) {}
+	logf := func(string, ...any) {}
 	mappings := []SecretMapping{
 		{Ref: "e/n", Namespace: "ns", Name: "sec", Key: "K"},
 	}
@@ -87,7 +87,7 @@ func TestRun_S22_RecordsResultInStatus(t *testing.T) {
 	s := newFakeSink()
 	e := NewEngine(f, s)
 
-	logf := func(string, ...interface{}) {}
+	logf := func(string, ...any) {}
 	mappings := []SecretMapping{
 		{Ref: "e/n", Namespace: "ns", Name: "sec", Key: "K"},
 	}
@@ -292,7 +292,7 @@ func TestStatus_S22_StatusEndpointDeletedField(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/status", nil))
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.EqualValues(t, 3, body["deleted"])
 }

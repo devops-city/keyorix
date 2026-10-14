@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strings"
 
@@ -283,7 +284,7 @@ func (c *KeyorixCore) planSecret(e *RotationStatusEntry, deps []uint, candidates
 		pr.Reasons = append(pr.Reasons, "self-rotating")
 	}
 	if len(deps) > 0 {
-		sort.Slice(deps, func(i, j int) bool { return deps[i] < deps[j] })
+		slices.Sort(deps)
 		pr.AfterSecretIDs = deps
 		names := make([]string, 0, len(deps))
 		for _, d := range deps {
@@ -321,10 +322,7 @@ func rotationUrgency(status string, daysOverdue, riskScore int) int {
 	switch status {
 	case RotationStatusOverdue:
 		// 1000 + days past due (capped so a single ancient secret can't dominate).
-		over := daysOverdue
-		if over > 365 {
-			over = 365
-		}
+		over := min(daysOverdue, 365)
 		base = 1000 + over
 	case RotationStatusDueSoon:
 		// 500 + (negative days-remaining) → closer to due ranks higher.
@@ -367,7 +365,7 @@ func rotationWaves(edges []*models.SecretDependency, candidates map[uint]bool) (
 			current = append(current, id)
 		}
 	}
-	sort.Slice(current, func(i, j int) bool { return current[i] < current[j] })
+	slices.Sort(current)
 
 	placed := 0
 	for len(current) > 0 {
@@ -388,7 +386,7 @@ func bfsNextWave(adj map[uint][]uint, current []uint, indeg map[uint]int) []uint
 			}
 		}
 	}
-	sort.Slice(next, func(i, j int) bool { return next[i] < next[j] })
+	slices.Sort(next)
 	return next
 }
 

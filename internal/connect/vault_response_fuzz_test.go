@@ -59,15 +59,15 @@ func FuzzVaultConnectorResponse(f *testing.F) {
 	f.Fuzz(func(t *testing.T, mountIsV2 bool, status int, body []byte) {
 		code := clampHTTPStatus(status)
 
-		var attackerHits int32
+		var attackerHits atomic.Int32
 		attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			atomic.AddInt32(&attackerHits, 1)
+			attackerHits.Add(1)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"data":{"data":{"password":"ATTACKER-CONTROLLED"}}}`))
 		}))
 		defer attacker.Close()
 
-		var secretGetHits int32
+		var secretGetHits atomic.Int32
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.Contains(r.URL.Path, "sys/internal/ui/mounts") {
 				v := "1"
@@ -78,7 +78,7 @@ func FuzzVaultConnectorResponse(f *testing.F) {
 				_, _ = fmt.Fprintf(w, `{"data":{"path":"secret/","options":{"version":%q}}}`, v)
 				return
 			}
-			atomic.AddInt32(&secretGetHits, 1)
+			secretGetHits.Add(1)
 			if code >= 300 && code < 400 {
 				w.Header().Set("Location", attacker.URL)
 			}
@@ -94,7 +94,7 @@ func FuzzVaultConnectorResponse(f *testing.F) {
 		fuzzutil.Guard(t.Fatalf, "VaultConnector.GetSecret", func() {
 			val, err = c.GetSecret(context.Background(), "secret/data/fuzz")
 		})
-		hitsAfterFirst := atomic.LoadInt32(&secretGetHits)
+		hitsAfterFirst := secretGetHits.Load()
 
 		// Oracle (b): fail-closed, two ways --
 		//  1. vault.go's GetSecret requires EXACTLY 200 (resp.StatusCode !=
@@ -135,7 +135,7 @@ func FuzzVaultConnectorResponse(f *testing.F) {
 		// Oracle (e): redirect refusal. VaultConnector's http.Client always refuses
 		// to follow a redirect (CheckRedirect returns http.ErrUseLastResponse) --
 		// the attacker-controlled Location target must never receive a request.
-		if atomic.LoadInt32(&attackerHits) != 0 {
+		if attackerHits.Load() != 0 {
 			t.Fatalf("REDIRECT FOLLOWED: connector dialed the redirect target instead of refusing")
 		}
 
@@ -195,7 +195,7 @@ func FuzzVaultConnectorResponse(f *testing.F) {
 			fuzzutil.Guard(t.Fatalf, "VaultConnector.GetSecret (second call, mount-cache path)", func() {
 				val2, err2 = c.GetSecret(context.Background(), "secret/data/fuzz")
 			})
-			hitsAfterSecond := atomic.LoadInt32(&secretGetHits)
+			hitsAfterSecond := secretGetHits.Load()
 			if delta := hitsAfterSecond - hitsAfterFirst; delta > 1 {
 				t.Fatalf("RETRY STORM: second GetSecret call (mount-cache path) hit secret-GET %d times, expected at most 1", delta)
 			}

@@ -130,7 +130,7 @@ func TestReconcile_FetchUnavailable_KeepsSecretsThenRecovers(t *testing.T) {
 			require.Equal(t, 2, res.Created)
 
 			f.err = tc.err
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				res, err = e.Reconcile(context.Background(), maps)
 				require.NoError(t, err)
 				assert.Equal(t, 2, res.KeyorixUnreachable)
@@ -176,7 +176,7 @@ func TestRun_FetchUnavailableBacksOffAndLogs(t *testing.T) {
 	s.owned["app/creds"] = true
 	e := NewEngine(f, s)
 	var lines []string
-	logf := func(format string, args ...interface{}) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	logf := func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
 	res := Sync(context.Background(), e, []SecretMapping{{Ref: "prod/db", Namespace: "app", Name: "creds", Key: "DB_PASSWORD"}}, logf)
 	assert.Equal(t, 1, res.KeyorixUnreachable)
 	joined := strings.Join(lines, "\n")

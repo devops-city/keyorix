@@ -64,7 +64,7 @@ func TestScan_PlantedFixtureIsFlagged(t *testing.T) {
 		t.Fatalf("reading planted fixture: %v", err)
 	}
 	var wantFlagged, wantClean []string
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		name, ok := plantedFuncName(line)
 		if !ok {
 			continue

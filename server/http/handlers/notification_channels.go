@@ -32,8 +32,8 @@ func NewNotificationChannelHandler(coreService *core.KeyorixCore) *NotificationC
 }
 
 // channelToAPI converts a NotificationChannel model to the API wire shape.
-func channelToAPI(ch *models.NotificationChannel) map[string]interface{} {
-	return map[string]interface{}{
+func channelToAPI(ch *models.NotificationChannel) map[string]any {
+	return map[string]any{
 		"id":         ch.ID,
 		"name":       ch.Name,
 		"type":       ch.Type,
@@ -55,11 +55,11 @@ func (h *NotificationChannelHandler) List(w http.ResponseWriter, r *http.Request
 		sendError(w, "InternalError", "Failed to list notification channels", http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(channels))
+	out := make([]map[string]any, 0, len(channels))
 	for _, ch := range channels {
 		out = append(out, channelToAPI(ch))
 	}
-	sendSuccess(w, map[string]interface{}{"channels": out}, "")
+	sendSuccess(w, map[string]any{"channels": out}, "")
 }
 
 // Create handles POST /api/v1/notification-channels.
@@ -140,7 +140,7 @@ func (h *NotificationChannelHandler) Update(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	var body map[string]interface{}
+	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		sendError(w, "BadRequest", errInvalidRequestBody, http.StatusBadRequest, nil)
 		return
@@ -182,7 +182,7 @@ func (h *NotificationChannelHandler) Delete(w http.ResponseWriter, r *http.Reque
 		sendError(w, "InternalError", "Failed to delete notification channel", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"id": id, "deleted": true}, "")
+	sendSuccess(w, map[string]any{"id": id, "deleted": true}, "")
 }
 
 // SetRetryPolicy handles PUT /api/v1/notification-channels/{id}/retry-policy.
@@ -223,7 +223,7 @@ func (h *NotificationChannelHandler) SetRetryPolicy(w http.ResponseWriter, r *ht
 		sendError(w, "InternalError", "Failed to set retry policy", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"channel_id":       id,
 		"max_retries":      body.MaxRetries,
 		"retry_backoff_ms": body.RetryBackoffMs,
@@ -247,7 +247,7 @@ func (h *NotificationChannelHandler) GetRetryPolicy(w http.ResponseWriter, r *ht
 		sendError(w, "InternalError", "Failed to get retry policy", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"channel_id":       id,
 		"max_retries":      policy.MaxRetries,
 		"retry_backoff_ms": policy.RetryBackoffMs,

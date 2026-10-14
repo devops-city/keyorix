@@ -102,7 +102,7 @@ func isVersionConflict(err error) bool {
 // uses updateSecretWithNewVersion below instead, which makes the two writes atomic.
 func (c *KeyorixCore) storeNextSecretVersion(ctx context.Context, secret *models.SecretNode, value []byte) error {
 	var lastErr error
-	for attempt := 0; attempt < maxRotateVersionAttempts; attempt++ {
+	for range maxRotateVersionAttempts {
 		latestVersion, err := c.storage.GetLatestSecretVersion(ctx, secret.ID)
 		nextVersionNumber := 1
 		switch {
@@ -153,7 +153,7 @@ func (c *KeyorixCore) storeNextSecretVersion(ctx context.Context, secret *models
 func (c *KeyorixCore) updateSecretWithNewVersion(ctx context.Context, secret *models.SecretNode, value []byte, fields storage.SecretFieldUpdate) (*models.SecretNode, error) {
 	var updated *models.SecretNode
 	var lastErr error
-	for attempt := 0; attempt < maxRotateVersionAttempts; attempt++ {
+	for range maxRotateVersionAttempts {
 		latestVersion, err := c.storage.GetLatestSecretVersion(ctx, secret.ID)
 		nextVersionNumber := 1
 		switch {

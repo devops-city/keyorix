@@ -90,7 +90,7 @@ func refusalCases() []refusalCase {
 			"secret is suspended; its value cannot be read until it is resumed", codes.FailedPrecondition},
 		{core.ErrSecretMaxReadsExhausted, "max reads exhausted", func(t *testing.T, w *guardParityWorld, sec *models.SecretNode) {
 			require.NoError(t, w.db.Model(&models.SecretNode{}).Where("id = ?", sec.ID).
-				Updates(map[string]interface{}{"max_reads": 1, "read_count": 1}).Error)
+				Updates(map[string]any{"max_reads": 1, "read_count": 1}).Error)
 		}, http.StatusConflict, "SecretMaxReadsExhausted",
 			"secret has reached its maximum number of reads", codes.FailedPrecondition},
 	}

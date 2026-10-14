@@ -12,7 +12,6 @@ func fakeServer(t *testing.T, handlers map[string]string) (*Client, *httptest.Se
 	t.Helper()
 	mux := http.NewServeMux()
 	for path, body := range handlers {
-		body := body
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(body))
 		})
@@ -30,7 +29,6 @@ func newCanaryMux(t *testing.T, handlers map[string]string, forbiddenPrefix stri
 	t.Helper()
 	mux := http.NewServeMux()
 	for path, body := range handlers {
-		body := body
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(r.URL.Path, forbiddenPrefix) {
 				t.Fatalf("forbidden path requested: %s", r.URL.Path)

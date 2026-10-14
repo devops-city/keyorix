@@ -232,7 +232,7 @@ func init() {
 func computeB64AlignmentPatterns(s string) [][]byte {
 	var patterns [][]byte
 	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.URLEncoding} {
-		for a := 0; a < 3; a++ {
+		for a := range 3 {
 			padded := append(make([]byte, a), []byte(s)...)
 			full := enc.EncodeToString(padded)
 			groupStart := ((a + 2) / 3) * 3
@@ -497,14 +497,8 @@ func fixedValueVariants(v string) [][]byte {
 }
 
 func snippetAround(haystack []byte, idx, matchLen int) string {
-	start := idx - 12
-	if start < 0 {
-		start = 0
-	}
-	end := idx + matchLen + 12
-	if end > len(haystack) {
-		end = len(haystack)
-	}
+	start := max(idx-12, 0)
+	end := min(idx+matchLen+12, len(haystack))
 	return fmt.Sprintf("context=%q", string(haystack[start:end]))
 }
 
@@ -740,10 +734,7 @@ func scanWebhookCanaryLeaks(t *testing.T, channel string, opIdx int, principal s
 			pos = start + 1
 			continue
 		}
-		end := start + webhookCanaryTokenLen
-		if end > len(haystack) {
-			end = len(haystack)
-		}
+		end := min(start+webhookCanaryTokenLen, len(haystack))
 		t.Fatalf("CANARY LEAK [%s:hook] op #%d principal=%s: webhook-canary-prefixed content on a non-exempted channel -- %s",
 			channel, opIdx, principal, snippetAround(haystack, start, end-start))
 	}
@@ -937,7 +928,7 @@ func checkValueEndpoint(t *testing.T, w *canaryWorld, opIdx int, channel, princi
 
 var canaryTableNameRe = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
 
-func cellBytes(v interface{}) []byte {
+func cellBytes(v any) []byte {
 	switch x := v.(type) {
 	case nil:
 		return nil
@@ -1018,7 +1009,7 @@ func scanDBGeneric(t *testing.T, sqlDB *sql.DB, known map[string]struct{}, fixed
 			var cid int
 			var name, ctype string
 			var notnull, pk int
-			var dflt interface{}
+			var dflt any
 			if err := colRows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
 				_ = colRows.Close()
 				t.Fatalf("db scan: table_info scan %s: %v", tbl, err)
@@ -1042,8 +1033,8 @@ func scanDBGeneric(t *testing.T, sqlDB *sql.DB, known map[string]struct{}, fixed
 		if err != nil {
 			t.Fatalf("db scan: select %s: %v", tbl, err)
 		}
-		dest := make([]interface{}, len(cols)+1) // [0] = rowid
-		ptrs := make([]interface{}, len(cols)+1)
+		dest := make([]any, len(cols)+1) // [0] = rowid
+		ptrs := make([]any, len(cols)+1)
 		for i := range dest {
 			ptrs[i] = &dest[i]
 		}

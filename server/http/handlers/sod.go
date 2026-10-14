@@ -26,7 +26,7 @@ func (h *CatalogHandler) ListSoDPolicies(w http.ResponseWriter, r *http.Request)
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"policies": policies, "count": len(policies)}, "")
+	sendSuccess(w, map[string]any{"policies": policies, "count": len(policies)}, "")
 }
 
 // CreateSoDPolicy handles POST /api/v1/sod/policies.
@@ -62,7 +62,7 @@ func (h *CatalogHandler) CreateSoDPolicy(w http.ResponseWriter, r *http.Request)
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"policy": policy}, "Policy created")
+	sendCreated(w, map[string]any{"policy": policy}, "Policy created")
 }
 
 // DeleteSoDPolicy handles DELETE /api/v1/sod/policies/{id}.
@@ -106,7 +106,7 @@ func (h *CatalogHandler) ListSoDViolations(w http.ResponseWriter, r *http.Reques
 	// #420: degraded/degraded_reasons must reach API consumers — a scan that silently
 	// skipped a principal whose permissions couldn't be read would otherwise look
 	// identical to one that scanned everyone and found nothing for them.
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"violations":       report.Violations,
 		"count":            len(report.Violations),
 		"degraded":         report.Degraded,

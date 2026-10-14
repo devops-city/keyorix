@@ -42,7 +42,7 @@ import (
 
 // newS18Store opens a fresh in-memory SQLite DB, migrates the supplied models,
 // and returns the LocalStorage. Use closeDB(t, ls) to force error paths.
-func newS18Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS18Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

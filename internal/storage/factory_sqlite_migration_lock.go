@@ -125,15 +125,15 @@ func (c sqliteExclusiveTxConn) PrepareContext(ctx context.Context, query string)
 	return c.conn.PrepareContext(ctx, query)
 }
 
-func (c sqliteExclusiveTxConn) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (c sqliteExclusiveTxConn) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	return c.conn.ExecContext(ctx, query, args...)
 }
 
-func (c sqliteExclusiveTxConn) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (c sqliteExclusiveTxConn) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	return c.conn.QueryContext(ctx, query, args...)
 }
 
-func (c sqliteExclusiveTxConn) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+func (c sqliteExclusiveTxConn) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return c.conn.QueryRowContext(ctx, query, args...)
 }
 

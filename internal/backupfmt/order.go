@@ -139,8 +139,7 @@ func isUnsignedIntKind(k reflect.Kind) bool {
 func idShapedFields(m any) []string {
 	t := reflect.TypeOf(m).Elem()
 	var out []string
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		if !f.IsExported() {
 			continue
 		}

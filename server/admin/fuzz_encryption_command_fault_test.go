@@ -231,7 +231,7 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 
 func FuzzAdminEncryptionCommandFaultHandling(f *testing.F) {
 	for cmdSel := range adminFuzzCommands {
-		for faultSel := 0; faultSel < int(numAdminFaults); faultSel++ {
+		for faultSel := range int(numAdminFaults) {
 			f.Add(byte(cmdSel), byte(faultSel))
 		}
 	}
@@ -361,7 +361,7 @@ func runAdminEncFaultHandlingCase(t *testing.T, cmdSel, faultSel byte) {
 func TestFuzzAdminEncryptionCommandFaultHandlingSeedsReachEveryCase(t *testing.T) {
 	resetAdminEncFaultHandlingReach()
 	readOnlyDirFaultSel := -1
-	for faultSel := 0; faultSel < int(numAdminFaults); faultSel++ {
+	for faultSel := range int(numAdminFaults) {
 		if adminFuzzFault(faultSel) == adminFaultReadOnlyDir {
 			readOnlyDirFaultSel = faultSel
 		}
@@ -371,7 +371,7 @@ func TestFuzzAdminEncryptionCommandFaultHandlingSeedsReachEveryCase(t *testing.T
 	}
 
 	for cmdSel := range adminFuzzCommands {
-		for faultSel := 0; faultSel < int(numAdminFaults); faultSel++ {
+		for faultSel := range int(numAdminFaults) {
 			cmdCase := adminFuzzCommands[cmdSel]
 			fault := adminFuzzFault(faultSel)
 			t.Run(fmt.Sprintf("%s/fault=%d", cmdCase.label, fault), func(t *testing.T) {

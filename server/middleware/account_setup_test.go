@@ -34,9 +34,9 @@ func TestEnforceAccountSetup(t *testing.T) {
 		h.ServeHTTP(rr, req)
 		return rr
 	}
-	body := func(t *testing.T, rr *httptest.ResponseRecorder) map[string]interface{} {
+	body := func(t *testing.T, rr *httptest.ResponseRecorder) map[string]any {
 		t.Helper()
-		var out map[string]interface{}
+		var out map[string]any
 		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &out))
 		return out
 	}
@@ -65,7 +65,7 @@ func TestEnforceAccountSetup(t *testing.T) {
 		assert.False(t, nextCalled)
 		b := body(t, rr)
 		assert.Equal(t, "PasswordChangeRequired", b["error"])
-		assert.Equal(t, []interface{}{core.SetupStepChangePassword}, b["pending_steps"])
+		assert.Equal(t, []any{core.SetupStepChangePassword}, b["pending_steps"])
 		assert.Equal(t, http.StatusForbidden, run(true, restricted, http.MethodPost, "/api/v1/auth/mfa/enroll").Code,
 			"MFA enrolment is not a setup step for an account that already has a factor")
 	})
@@ -85,7 +85,7 @@ func TestEnforceAccountSetup(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, rr.Code)
 		b := body(t, rr)
 		assert.Equal(t, "MFAEnrollmentRequired", b["error"])
-		assert.Equal(t, []interface{}{core.SetupStepEnrollMFA}, b["pending_steps"])
+		assert.Equal(t, []any{core.SetupStepEnrollMFA}, b["pending_steps"])
 	})
 
 	t.Run("both pending in a setup-only session: either step, nothing else", func(t *testing.T) {
@@ -96,7 +96,7 @@ func TestEnforceAccountSetup(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, rr.Code)
 		b := body(t, rr)
 		assert.Equal(t, "PasswordChangeRequired", b["error"], "existing clients route a password-owing account to change-password first")
-		assert.Equal(t, []interface{}{core.SetupStepChangePassword, core.SetupStepEnrollMFA}, b["pending_steps"])
+		assert.Equal(t, []any{core.SetupStepChangePassword, core.SetupStepEnrollMFA}, b["pending_steps"])
 	})
 
 	t.Run("matching is exact on method and full path", func(t *testing.T) {
@@ -144,7 +144,7 @@ func TestEnforceAccountSetup(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, run(true, pat, http.MethodPost, "/api/v1/auth/mfa/enroll").Code)
 		rr := run(true, pat, http.MethodGet, "/api/v1/secrets")
 		assert.Equal(t, http.StatusForbidden, rr.Code)
-		assert.Equal(t, []interface{}{core.SetupStepChangePassword}, body(t, rr)["pending_steps"])
+		assert.Equal(t, []any{core.SetupStepChangePassword}, body(t, rr)["pending_steps"])
 		unrestricted := &UserContext{UserID: 1, ActorType: core.ActorTypeUser, SessionAuth: false}
 		assert.Equal(t, http.StatusOK, run(true, unrestricted, http.MethodGet, "/api/v1/secrets").Code,
 			"PAT/automation must not be confined by the MFA policy")

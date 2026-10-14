@@ -132,7 +132,7 @@ func withChiParam3_S28(r *http.Request, k1, v1, k2, v2, k3, v3 string) *http.Req
 }
 
 // jsonBodyS28 serialises v to a JSON bytes.Reader.
-func jsonBodyS28(t *testing.T, v interface{}) *bytes.Reader {
+func jsonBodyS28(t *testing.T, v any) *bytes.Reader {
 	t.Helper()
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
@@ -378,7 +378,7 @@ func TestAddProjectMember_UnknownRole_S28(t *testing.T) {
 
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPost, "/",
-			jsonBodyS28(t, map[string]interface{}{
+			jsonBodyS28(t, map[string]any{
 				"user_id": targetUser.ID,
 				"role":    "nonexistent_role_xyz",
 			})),
@@ -406,7 +406,7 @@ func TestAddProjectMember_HappyPath_S28(t *testing.T) {
 
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPost, "/",
-			jsonBodyS28(t, map[string]interface{}{
+			jsonBodyS28(t, map[string]any{
 				"user_id": targetUser.ID,
 				"role":    "viewer",
 			})),

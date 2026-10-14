@@ -193,7 +193,7 @@ type errPrinter struct {
 	err error
 }
 
-func (p *errPrinter) f(format string, args ...interface{}) {
+func (p *errPrinter) f(format string, args ...any) {
 	if p.err != nil {
 		return
 	}

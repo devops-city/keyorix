@@ -459,7 +459,7 @@ func TestValidateRoleDescription_Empty_S22(t *testing.T) {
 func TestValidateRoleDescription_TooLong_S22(t *testing.T) {
 	// roleDescriptionMaxLen is 200; a 201-char description must fail.
 	var longDesc string
-	for i := 0; i < 201; i++ {
+	for range 201 {
 		longDesc += "a"
 	}
 	err := validateRoleDescription(longDesc)

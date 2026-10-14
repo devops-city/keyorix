@@ -204,7 +204,7 @@ func actualActorSentinelSites(t *testing.T) map[string]bool {
 			t.Fatalf("reading %s: %v", name, err)
 		}
 		currentFunc := ""
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			if m := actorSentinelFuncRe.FindStringSubmatch(line); m != nil {
 				currentFunc = m[1]
 			}

@@ -172,15 +172,15 @@ func TestReviewBreakGlass_RefusesWhileStillActive(t *testing.T) {
 // later fails HERE and forces the co-approver exclusion to be written, rather
 // than silently leaving a second self-review path open.
 func TestBreakGlassActivation_HasNoApproverField(t *testing.T) {
-	rt := reflect.TypeOf(models.BreakGlassActivation{})
-	for i := 0; i < rt.NumField(); i++ {
-		name := strings.ToLower(rt.Field(i).Name)
+	rt := reflect.TypeFor[models.BreakGlassActivation]()
+	for field := range rt.Fields() {
+		name := strings.ToLower(field.Name)
 		// "ReviewedBy" is the reviewer, not an approver of the activation.
 		if strings.HasPrefix(name, "review") {
 			continue
 		}
 		assert.NotContains(t, name, "approv",
-			"BreakGlassActivation grew field %q: break-glass has acquired an approver/co-approver concept, so ReviewBreakGlass's self-review refusal (actorID == activation.UserID) is no longer exhaustive -- it must also refuse a reviewer who approved the activation. See ADR-112 and ReviewBreakGlass's doc comment.", rt.Field(i).Name)
+			"BreakGlassActivation grew field %q: break-glass has acquired an approver/co-approver concept, so ReviewBreakGlass's self-review refusal (actorID == activation.UserID) is no longer exhaustive -- it must also refuse a reviewer who approved the activation. See ADR-112 and ReviewBreakGlass's doc comment.", field.Name)
 	}
 }
 

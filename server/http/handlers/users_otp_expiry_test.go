@@ -16,7 +16,7 @@ import (
 // expiry (UTC, RFC 3339) next to the password so the admin can tell the user.
 func TestCreateUserWithOTP_ReportsExpiry(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-expiry",
 		"email":                      "otp-expiry@x.com",
 		"display_name":               "OTP Expiry",

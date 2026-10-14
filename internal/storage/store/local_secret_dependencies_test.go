@@ -125,7 +125,7 @@ func TestConcurrency_CreateSecretDependencyExclusive_NoCycleUnderRealContention(
 	ctx := context.Background()
 
 	const iterations = 20
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		a := uint(1000 + i*2)
 		b := uint(1000 + i*2 + 1)
 

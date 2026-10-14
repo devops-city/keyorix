@@ -35,7 +35,7 @@ func TestAdminClearLoginLockout_RealBinary_SQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	for i := 0; i < core.LoginMaxAttempts; i++ {
+	for range core.LoginMaxAttempts {
 		if err := db.Create(&models.LoginAttempt{IP: "127.0.0.1", AttemptedAt: time.Now()}).Error; err != nil {
 			t.Fatalf("seed attempt: %v", err)
 		}

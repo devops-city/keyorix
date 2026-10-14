@@ -178,7 +178,7 @@ func fileContains(t *testing.T, path, substr string) bool {
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)
 	}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "//") {
 			continue
 		}

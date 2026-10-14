@@ -44,7 +44,7 @@ func TestNotificationHandler_ListMarkReadMarkAll(t *testing.T) {
 	h.List(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
-	assert.Len(t, data["notifications"].([]interface{}), 2)
+	assert.Len(t, data["notifications"].([]any), 2)
 	assert.Equal(t, float64(1), data["unread_count"])
 
 	// List unread only → 1 item.
@@ -52,7 +52,7 @@ func TestNotificationHandler_ListMarkReadMarkAll(t *testing.T) {
 	wu := httptest.NewRecorder()
 	h.List(wu, reqU)
 	require.Equal(t, http.StatusOK, wu.Code)
-	assert.Len(t, decodeData(t, wu)["notifications"].([]interface{}), 1)
+	assert.Len(t, decodeData(t, wu)["notifications"].([]any), 1)
 
 	// Mark the unread one read → unread_count drops to 0.
 	var unread models.Notification

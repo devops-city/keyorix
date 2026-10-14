@@ -39,7 +39,7 @@ package store
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,7 +72,7 @@ func newRolePermissionCache() *rolePermissionCache {
 func rolePermKey(roleIDs []uint, permission string) string {
 	ids := make([]uint, len(roleIDs))
 	copy(ids, roleIDs)
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	var b strings.Builder
 	for _, id := range ids {
 		b.WriteString(strconv.FormatUint(uint64(id), 10))

@@ -230,7 +230,7 @@ func (e *lockoutOracleEnv) postLogin(t *testing.T, password string) *httptest.Re
 // counted failure locks the account. Returns with the account unlocked.
 func (e *lockoutOracleEnv) driveToThresholdMinusOne(t *testing.T) {
 	t.Helper()
-	for i := 0; i < lockoutOracleMaxAttempts-1; i++ {
+	for i := range lockoutOracleMaxAttempts - 1 {
 		w := e.postLogin(t, "definitely-not-her-password")
 		require.Equal(t, http.StatusUnauthorized, w.Code, "setup attempt %d", i)
 	}
@@ -458,7 +458,7 @@ func (e *lockoutOracleEnv) postVerify(t *testing.T, challenge, code string) *htt
 // driveMFAToThresholdMinusOne spends MaxAttempts-1 wrong TOTP codes.
 func (e *lockoutOracleEnv) driveMFAToThresholdMinusOne(t *testing.T) {
 	t.Helper()
-	for i := 0; i < lockoutOracleMaxAttempts-1; i++ {
+	for i := range lockoutOracleMaxAttempts - 1 {
 		ch, err := e.h.coreService.CreateMFAChallenge(context.Background(), 1)
 		require.NoError(t, err)
 		w := e.postVerify(t, ch, "000000")

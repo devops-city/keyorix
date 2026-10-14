@@ -63,7 +63,7 @@ func FuzzPaginationBounds(f *testing.F) {
 		f.Fatalf("seed env: %v", err)
 	}
 	const seededRows = 7
-	for i := 0; i < seededRows; i++ {
+	for i := range seededRows {
 		if err := db.Create(&models.SecretNode{
 			ProjectID: 1, EnvironmentID: 1, Name: fmt.Sprintf("secret-%d", i),
 			IsSecret: true, Type: "api_key", Status: "active",

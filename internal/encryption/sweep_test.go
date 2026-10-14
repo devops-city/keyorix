@@ -38,7 +38,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("failed to open test DB: %v", err)
 	}
-	tables := []interface{}{
+	tables := []any{
 		&models.SecretNode{},
 		&models.SecretVersion{},
 		&models.Session{},

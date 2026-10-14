@@ -124,7 +124,7 @@ func TestGetComplianceDigestHandler_Idempotent(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	h := NewDashboardHandler(core.NewKeyorixCore(store.NewLocalStorage(newComplianceDigestDB(t))))
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/compliance/digest", nil)
 		w := httptest.NewRecorder()
 		h.GetComplianceDigest(w, req)

@@ -64,7 +64,7 @@ func TestTopRisks_OrdersBySeverityThenID(t *testing.T) {
 
 func TestTopRisks_LimitsToN(t *testing.T) {
 	var findings []Finding
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		findings = append(findings, Finding{ID: string(rune('a' + i)), Severity: SeverityHigh})
 	}
 	got := TopRisks(findings, 5)

@@ -10,7 +10,7 @@ package core
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -446,7 +446,7 @@ func (c *KeyorixCore) withGroupProjectAdminGuardLocks(ctx context.Context, group
 		for pid := range projectIDs {
 			sorted = append(sorted, pid)
 		}
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		slices.Sort(sorted)
 		return c.lockProjectAdminGuardsInOrder(ctx, sorted, fn)
 	})
 }

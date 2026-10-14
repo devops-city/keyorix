@@ -213,7 +213,7 @@ func TestGetPermissionChangeAudit_LimitApplied(t *testing.T) {
 	ctx := context.Background()
 
 	now := time.Now()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		at := now.Add(-time.Duration(i) * time.Second)
 		seedAuditEvent(t, db, EventRoleAssigned, nil, `{"role_id":1}`, at)
 	}
@@ -236,7 +236,7 @@ func TestGetPermissionChangeAudit_LimitExceedsMax(t *testing.T) {
 
 	now := time.Now()
 	// Seed 3 events; request limit=9999 (should clamp to 1000 without error).
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		at := now.Add(-time.Duration(i) * time.Second)
 		seedAuditEvent(t, db, EventRoleRemoved, nil, `{"role_id":1}`, at)
 	}

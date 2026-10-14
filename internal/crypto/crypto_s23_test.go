@@ -186,7 +186,7 @@ func TestGFInv_S23_OneIsItsOwnInverse(t *testing.T) {
 // TestGFMul_S23_ZeroOperand verifies that multiplying anything by zero in GF(2^8)
 // always yields zero (the zero element is an absorbing element for multiplication).
 func TestGFMul_S23_ZeroOperand(t *testing.T) {
-	for a := 0; a < 256; a++ {
+	for a := range 256 {
 		assert.Equal(t, byte(0), gfMul(byte(a), 0), "a*0==0 for a=%d", a)
 		assert.Equal(t, byte(0), gfMul(0, byte(a)), "0*a==0 for a=%d", a)
 	}

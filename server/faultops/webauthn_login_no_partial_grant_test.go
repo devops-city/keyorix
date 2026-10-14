@@ -72,7 +72,6 @@ var webauthnLoginGrantLeakCases = []struct {
 // regression guard.
 func TestWebAuthnLogin_ReportedFailureLeavesNoSessionOrStepUpGrant(t *testing.T) {
 	for _, c := range webauthnLoginGrantLeakCases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			in, outcome, reason := driveFaultCase(t, c.op, c.method, 1, faultstorage.KindError)
 			if outcome == driveNotInCatalog {
@@ -121,7 +120,6 @@ func TestWebAuthnLogin_ReportedFailureLeavesNoSessionOrStepUpGrant(t *testing.T)
 // a silent security-posture change in the other direction.
 func TestWebAuthnLogin_SuccessfulLoginStillMintsItsStepUpGrant(t *testing.T) {
 	for _, c := range webauthnLoginGrantLeakCases {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			// No fault armed: drive the op clean and inspect the reference run,
 			// which is the fault-free execution the oracles compare against.

@@ -189,8 +189,7 @@ func (w *typeWalker) canHoldTime(t types.Type, depth int) bool {
 	case *types.Map:
 		return w.canHoldTime(u.Elem(), depth+1)
 	case *types.Struct:
-		for i := 0; i < u.NumFields(); i++ {
-			f := u.Field(i)
+		for f := range u.Fields() {
 			if (f.Exported() || f.Embedded()) && w.canHoldTime(f.Type(), depth+1) {
 				return true
 			}
@@ -228,8 +227,7 @@ func (w *typeWalker) walk(t types.Type, where string) {
 	case *types.Map:
 		w.walk(u.Elem(), where)
 	case *types.Struct:
-		for i := 0; i < u.NumFields(); i++ {
-			f := u.Field(i)
+		for f := range u.Fields() {
 			if f.Embedded() && !f.Exported() && w.canHoldTime(f.Type(), 0) {
 				outer := t.String()
 				w.embedded[outer+" embeds unexported "+f.Type().String()] = where

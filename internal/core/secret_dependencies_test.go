@@ -80,7 +80,7 @@ func TestTransitiveDependents_NodeCapped(t *testing.T) {
 	t.Parallel()
 	const fanOut = maxDependencyBFSNodes + 500
 	edges := make([]*models.SecretDependency, 0, fanOut)
-	for i := uint(0); i < fanOut; i++ {
+	for i := range uint(fanOut) {
 		// Each of these directly depends on secret 1 -- all at depth 1.
 		edges = append(edges, edge(i+2, 1))
 	}
@@ -424,7 +424,7 @@ func TestAddSecretDependency_ConcurrentRaceCannotPersistACycle(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 
 	const iterations = 50
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		a := mkSecret(t, db, 1, fmt.Sprintf("a-%d", i))
 		b := mkSecret(t, db, 1, fmt.Sprintf("b-%d", i))
 

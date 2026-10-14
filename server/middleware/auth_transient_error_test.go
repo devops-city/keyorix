@@ -78,7 +78,7 @@ func TestHandleAuthRequest_TransientError_SkipsNegativeCacheAndRateLimit(t *test
 	// Must NOT have consumed the per-IP brute-force budget: every one of
 	// tokenAuthFailureBurst allowances should still be available for this IP,
 	// proving the request above did not call recordTokenAuthFailure.
-	for i := 0; i < tokenAuthFailureBurst; i++ {
+	for i := range tokenAuthFailureBurst {
 		assert.True(t, recordTokenAuthFailure(ip),
 			"budget slot %d should still be available — a transient error must not consume the per-IP failure budget", i)
 	}
@@ -118,7 +118,7 @@ func TestHandleAuthRequest_InvalidCredential_StillNegativeCachesAndRateLimits(t 
 
 	// Must have consumed exactly one unit of the per-IP brute-force budget: only
 	// tokenAuthFailureBurst-1 further allowances should remain for this IP.
-	for i := 0; i < tokenAuthFailureBurst-1; i++ {
+	for i := range tokenAuthFailureBurst - 1 {
 		assert.True(t, recordTokenAuthFailure(ip),
 			"remaining budget slot %d should still be available", i)
 	}

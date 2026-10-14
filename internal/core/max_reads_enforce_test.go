@@ -51,7 +51,7 @@ func TestMaxReads_SequentialStopsAtCap(t *testing.T) {
 	id := seedMaxReadsSecret(t, c, 3)
 	ctx := context.Background()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := c.GetSecretValue(ctx, id)
 		require.NoError(t, err, "read %d should be within the cap", i+1)
 	}
@@ -73,15 +73,13 @@ func TestMaxReads_ConcurrentNeverExceedsCap(t *testing.T) {
 	var success int64
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
 			if _, err := c.GetSecretValue(context.Background(), id); err == nil {
 				atomic.AddInt64(&success, 1)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()
@@ -102,7 +100,7 @@ func TestMaxReads_ByVersionStopsAtCap(t *testing.T) {
 	id := seedMaxReadsSecret(t, c, 2)
 	ctx := context.Background()
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err := c.GetSecretValueByVersion(ctx, id, 1)
 		require.NoError(t, err, "by-version read %d should be within the cap", i+1)
 	}

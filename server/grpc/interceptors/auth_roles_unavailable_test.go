@@ -36,13 +36,13 @@ func TestAuthInterceptor_PATRoleResolutionUnavailable_IsRetryable(t *testing.T) 
 	interceptor := AuthInterceptor(h.CoreService, false)
 	_, err = interceptor(bearerCtxFromIP(res.PlainToken, ip), nil,
 		&grpc.UnaryServerInfo{FullMethod: secretMethod},
-		func(context.Context, interface{}) (interface{}, error) { reached = true; return "ok", nil })
+		func(context.Context, any) (any, error) { reached = true; return "ok", nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.Unavailable, status.Code(err),
 		"a role-resolution storage failure is retryable, not a bad credential")
 	assert.False(t, reached)
 
-	for i := 0; i < grpcTokenAuthFailureBurst; i++ {
+	for i := range grpcTokenAuthFailureBurst {
 		assert.True(t, recordGRPCTokenAuthFailure(ip),
 			"budget slot %d must still be available — this was not a bad-credential attempt", i)
 	}

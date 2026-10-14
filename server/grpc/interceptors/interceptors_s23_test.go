@@ -56,7 +56,7 @@ func TestStreamAuthInterceptor_S23_InvalidMachineTokenRejected(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: secretMethod}
 
 	err := interceptor(nil, &fakeStream{ctx: streamBearerCtx("kx_machine_totally_bogus_token")}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err),
@@ -122,7 +122,7 @@ func TestStreamAuthInterceptor_S23_GetUserIdentityFailureReturnsInternal(t *test
 	info := &grpc.StreamServerInfo{FullMethod: secretMethod}
 
 	err := interceptor(nil, &fakeStream{ctx: streamBearerCtx("stream-identity-fail-token")}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err),

@@ -99,7 +99,7 @@ func TestHandleAuthRequest_RoleResolutionUnavailable_Is503AndUncached(t *testing
 			_, found := cacheGet(tokenKey(tc.token))
 			assert.False(t, found, "neither a negative nor a positive cache entry may be written")
 
-			for i := 0; i < tokenAuthFailureBurst; i++ {
+			for i := range tokenAuthFailureBurst {
 				assert.True(t, recordTokenAuthFailure(tc.ip),
 					"budget slot %d must still be available — this is not a bad-credential attempt", i)
 			}

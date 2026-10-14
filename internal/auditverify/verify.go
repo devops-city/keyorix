@@ -85,7 +85,7 @@ type AnchorStatus struct {
 	Present    bool      `json:"present"`
 	Verified   bool      `json:"verified"`
 	Provider   string    `json:"provider,omitempty"`
-	AnchoredAt time.Time `json:"anchored_at,omitempty"`
+	AnchoredAt time.Time `json:"anchored_at"`
 }
 
 // ExternalAnchorStatus reports what this run did with an Options.

@@ -110,9 +110,9 @@ type purityViolation struct {
 // a parser. The `inBlock` tracking below covers the ordinary multi-line case.
 func stripGoLineComment(line string, inBlock *bool) string {
 	if *inBlock {
-		if i := strings.Index(line, "*/"); i >= 0 {
+		if _, after, ok := strings.Cut(line, "*/"); ok {
 			*inBlock = false
-			return line[i+2:]
+			return after
 		}
 		return ""
 	}
@@ -123,8 +123,8 @@ func stripGoLineComment(line string, inBlock *bool) string {
 		*inBlock = true
 		return line[:i]
 	}
-	if i := strings.Index(line, "//"); i >= 0 {
-		return line[:i]
+	if before, _, ok := strings.Cut(line, "//"); ok {
+		return before
 	}
 	return line
 }
@@ -298,7 +298,7 @@ func TestInterleaveSyncPointIdentsCoverTheDriver(t *testing.T) {
 
 	var missing []string
 	inConstOrVar := false
-	for _, line := range strings.Split(string(src), "\n") {
+	for line := range strings.SplitSeq(string(src), "\n") {
 		switch line {
 		case "const (", "var (":
 			inConstOrVar = true

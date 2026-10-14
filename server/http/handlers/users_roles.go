@@ -66,7 +66,7 @@ func (h *UsersRolesHandler) GetUserRolesForUser(w http.ResponseWriter, r *http.R
 	for _, role := range roles {
 		apiRoles = append(apiRoles, apiRole{ID: role.ID, Name: role.Name})
 	}
-	sendSuccess(w, map[string]interface{}{"roles": apiRoles}, "")
+	sendSuccess(w, map[string]any{"roles": apiRoles}, "")
 }
 
 // canReadRBACStateFor reports whether actor may view TARGET user's RBAC state
@@ -138,7 +138,7 @@ func (h *UsersRolesHandler) GetUserPermissionsForUser(w http.ResponseWriter, r *
 	for _, p := range perms {
 		apiPerms = append(apiPerms, apiPermission{Name: p.Name, Description: p.Description, Resource: p.Resource, Action: p.Action})
 	}
-	sendSuccess(w, map[string]interface{}{"permissions": apiPerms}, "")
+	sendSuccess(w, map[string]any{"permissions": apiPerms}, "")
 }
 
 // apiUserMembership is one row of a user's project-assignments view.
@@ -258,7 +258,7 @@ func (h *UsersRolesHandler) GetUserMembershipsForUser(w http.ResponseWriter, r *
 			ProjectDeleted: m.ProjectDeleted,
 		})
 	}
-	sendSuccess(w, map[string]interface{}{"memberships": out}, "")
+	sendSuccess(w, map[string]any{"memberships": out}, "")
 }
 
 // UpdateUserRoles handles PUT /api/v1/users/{id}/roles — full role replacement.
@@ -325,5 +325,5 @@ func (h *UsersRolesHandler) UpdateUserRoles(w http.ResponseWriter, r *http.Reque
 	for _, role := range roles {
 		apiRoles = append(apiRoles, apiRole{ID: role.ID, Name: role.Name})
 	}
-	sendSuccess(w, map[string]interface{}{"roles": apiRoles}, "Roles updated successfully")
+	sendSuccess(w, map[string]any{"roles": apiRoles}, "Roles updated successfully")
 }

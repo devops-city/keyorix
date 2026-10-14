@@ -36,7 +36,7 @@ import (
 // viaShareAudit runs fn behind the real ShareElevationAuditInterceptor.
 func viaShareAudit(c *core.KeyorixCore, ctx context.Context, fn func(context.Context) error) error {
 	_, err := interceptors.ShareElevationAuditInterceptor(c)(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test"},
-		func(ctx context.Context, _ interface{}) (interface{}, error) { return nil, fn(ctx) })
+		func(ctx context.Context, _ any) (any, error) { return nil, fn(ctx) })
 	return err
 }
 

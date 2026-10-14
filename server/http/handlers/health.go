@@ -45,7 +45,7 @@ func writeHealth(w http.ResponseWriter, authRateLimitDegraded func() bool) {
 	// Deliberately omit version/commit: /health is unauthenticated, and disclosing the
 	// exact build aids CVE targeting. The precise version is available on the
 	// system.read-gated /api/v1/system/info instead.
-	health := map[string]interface{}{
+	health := map[string]any{
 		"status":    "healthy",
 		"timestamp": time.Now().UTC(),
 		"uptime":    time.Since(processStart).String(),

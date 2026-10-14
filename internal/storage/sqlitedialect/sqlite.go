@@ -171,7 +171,7 @@ func (dialector Dialector) Migrator(db *gorm.DB) gorm.Migrator {
 	}}}
 }
 
-func (dialector Dialector) BindVarTo(writer clause.Writer, stmt *gorm.Statement, v interface{}) {
+func (dialector Dialector) BindVarTo(writer clause.Writer, stmt *gorm.Statement, v any) {
 	_ = writer.WriteByte('?')
 }
 
@@ -223,7 +223,7 @@ func (dialector Dialector) QuoteTo(writer clause.Writer, str string) {
 	_, _ = writer.WriteString("`")
 }
 
-func (dialector Dialector) Explain(sql string, vars ...interface{}) string {
+func (dialector Dialector) Explain(sql string, vars ...any) string {
 	return logger.ExplainSQL(sql, nil, `"`, vars...)
 }
 

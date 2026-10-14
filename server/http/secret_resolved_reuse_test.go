@@ -603,7 +603,7 @@ func TestResolvedSecretReuse_CrossReplicaRace(t *testing.T) {
 		}, []rrOutcome{handlerRefused, rrDenied(http.StatusNotFound, "NotFound", "Secret not found")}},
 	} {
 		t.Run(race.name, func(t *testing.T) {
-			for round := 0; round < 3; round++ {
+			for round := range 3 {
 				s := w.newSecret(t)
 				rec, err := a.c.ShareSecret(ctx, &core.ShareSecretRequest{
 					SecretID: s.ID, RecipientID: w.users["sharee"], Permission: "read", SharedBy: w.users["owner"],

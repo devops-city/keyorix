@@ -53,7 +53,7 @@ func ParseDSNHosts(dsn string) []string {
 // the ordinary single-host case: it just comes back as a one-element list.
 func SplitDSNHostList(field string) []string {
 	var hosts []string
-	for _, part := range strings.Split(field, ",") {
+	for part := range strings.SplitSeq(field, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -138,11 +138,11 @@ func ParseDSNHostsFromURL(dsn string) ([]string, bool) {
 // unresolvable/malformed one is skipped exactly like any other unresolvable
 // host); extracting too FEW hosts is not.
 func ManualAuthorityHosts(dsn string) ([]string, bool) {
-	schemeIdx := strings.Index(dsn, "://")
-	if schemeIdx == -1 {
+	_, after, ok := strings.Cut(dsn, "://")
+	if !ok {
 		return nil, false
 	}
-	rest := dsn[schemeIdx+3:]
+	rest := after
 	end := len(rest)
 	for i, c := range rest {
 		if c == '/' || c == '?' || c == '#' {

@@ -41,7 +41,7 @@ func (h *SecretHandler) ListAccessors(w http.ResponseWriter, r *http.Request) {
 	// #417: degraded/degraded_reasons must reach API consumers — a report that
 	// silently dropped a group's members would look identical to a fully-resolved
 	// one otherwise.
-	h.sendSuccess(w, map[string]interface{}{
+	h.sendSuccess(w, map[string]any{
 		"accessors":        result.Accessors,
 		"total":            len(result.Accessors),
 		"degraded":         result.Degraded,

@@ -124,10 +124,7 @@ const (
 // anomalyFirstPassDelay returns the jittered delay before the first anomaly pass.
 // randN is rand.N in production; tests pass a deterministic stand-in.
 func anomalyFirstPassDelay(interval time.Duration, randN func(time.Duration) time.Duration) time.Duration {
-	jitter := anomalyFirstPassMaxJitter
-	if interval < jitter {
-		jitter = interval
-	}
+	jitter := min(interval, anomalyFirstPassMaxJitter)
 	if jitter <= 0 {
 		return anomalyFirstPassBaseDelay
 	}

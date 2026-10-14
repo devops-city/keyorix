@@ -106,7 +106,7 @@ func crsRefWithinPrefixIndependent(p, ref string) bool {
 // path segment" -- deliberately NOT calling ports.RefHasDotSegment, the implementation
 // under test.
 func crsHasDotSegmentIndependent(ref string) bool {
-	for _, seg := range strings.Split(ref, "/") {
+	for seg := range strings.SplitSeq(ref, "/") {
 		if seg == "." || seg == ".." {
 			return true
 		}

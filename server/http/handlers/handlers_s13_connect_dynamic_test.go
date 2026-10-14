@@ -337,7 +337,7 @@ func TestDynamic_SetConfigEnabled_StorageError_G50(t *testing.T) {
 		END;
 	`).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"enabled": false})
+	body, _ := json.Marshal(map[string]any{"enabled": false})
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader(body)),
 		"id", uintToStrS13(cfgID),
@@ -369,7 +369,7 @@ func TestDynamic_SetConfigEnabled_BadBody_S13(t *testing.T) {
 // CreateConfig — no user context
 func TestDynamic_CreateConfig_NoUserCtx_S13(t *testing.T) {
 	h := newDynamicSecretHandlerS13(t)
-	body, _ := json.Marshal(map[string]interface{}{"name": "x", "project_id": 1, "backend_type": "postgres"})
+	body, _ := json.Marshal(map[string]any{"name": "x", "project_id": 1, "backend_type": "postgres"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/dynamic-secrets/configs", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -392,7 +392,7 @@ func TestDynamic_CreateConfig_AuthzDenied_S13(t *testing.T) {
 	// Use a core with NO admin seeded — so authorize always fails
 	cs := freshCoreS12(t)
 	h := NewDynamicSecretHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name": "cfg-authz-test", "project_id": 1, "backend_type": "postgres",
 	})
 	req := withUserCtx(httptest.NewRequest(http.MethodPost, "/api/v1/dynamic-secrets/configs", bytes.NewReader(body)))
@@ -491,7 +491,7 @@ func TestConnect_ReadSecret_RefNotInQueryString_S13(t *testing.T) {
 // CreateRefGrant — no user context
 func TestConnect_CreateRefGrant_NoUserCtx_S13(t *testing.T) {
 	h := newConnectHandlerS13(t)
-	body, _ := json.Marshal(map[string]interface{}{"role_id": 1, "connector": "vault", "ref_prefix": "/prod/"})
+	body, _ := json.Marshal(map[string]any{"role_id": 1, "connector": "vault", "ref_prefix": "/prod/"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/connect/ref-grants", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -513,7 +513,7 @@ func TestConnect_CreateRefGrant_BadBody_S13(t *testing.T) {
 func TestConnect_CreateRefGrant_UnknownConnector_S13(t *testing.T) {
 	h := newConnectHandlerS13(t)
 	// role_id=0 triggers "a role is required" safe error from core
-	body, _ := json.Marshal(map[string]interface{}{"role_id": 0, "connector": "vault", "ref_prefix": "/prod/"})
+	body, _ := json.Marshal(map[string]any{"role_id": 0, "connector": "vault", "ref_prefix": "/prod/"})
 	req := withUserCtx(httptest.NewRequest(http.MethodPost, "/api/v1/connect/ref-grants", bytes.NewReader(body)))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

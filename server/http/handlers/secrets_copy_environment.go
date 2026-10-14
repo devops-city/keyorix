@@ -58,5 +58,5 @@ func (h *SecretHandler) CopyEnvironmentSecrets(w http.ResponseWriter, r *http.Re
 		h.sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.sendSuccess(w, map[string]interface{}{"copied": copied, "skipped": skipped}, "")
+	h.sendSuccess(w, map[string]any{"copied": copied, "skipped": skipped}, "")
 }

@@ -33,9 +33,9 @@ func createTestEnvironment(t *testing.T, client *http.Client, baseURL, token str
 	defer func() { _ = resp.Body.Close() }()
 	require.Equalf(t, http.StatusCreated, resp.StatusCode, "createTestEnvironment: unexpected status for %q", name)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "createTestEnvironment: response missing data object")
 	id, ok := data["id"].(float64)
 	require.True(t, ok, "createTestEnvironment: data.id missing or not a number")
@@ -45,7 +45,7 @@ func createTestEnvironment(t *testing.T, client *http.Client, baseURL, token str
 // createTestSecret POSTs to POST /api/v1/secrets and returns the new secret ID.
 func createTestSecret(t *testing.T, client *http.Client, baseURL, token string, projectID, envID uint, name string) uint {
 	t.Helper()
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":           name,
 		"value":          "test-value",
 		"project_id":     projectID,
@@ -65,9 +65,9 @@ func createTestSecret(t *testing.T, client *http.Client, baseURL, token string, 
 	defer func() { _ = resp.Body.Close() }()
 	require.Equalf(t, http.StatusCreated, resp.StatusCode, "createTestSecret: unexpected status for %q", name)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "createTestSecret: response missing data object")
 	id, ok := data["id"].(float64)
 	require.True(t, ok, "createTestSecret: data.id missing or not a number")
@@ -113,9 +113,9 @@ func TestCloneEnvironment_EmptySource(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "response must contain a data object")
 	assert.EqualValues(t, 0, data["secrets_cloned"])
 }
@@ -143,9 +143,9 @@ func TestCloneEnvironment_WithSecrets(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "response must contain a data object")
 	assert.EqualValues(t, 2, data["secrets_cloned"])
 }
@@ -175,9 +175,9 @@ func TestCloneEnvironment_SkipsExisting(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "response must contain a data object")
 	skipped, _ := data["secrets_skipped"].(float64)
 	assert.GreaterOrEqual(t, int(skipped), 1, "at least one secret must be skipped")

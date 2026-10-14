@@ -145,7 +145,7 @@ func jsonDecodeCases() []jsonDecodeCase {
 			routeCap: globalBodyCap,
 			boundCap: globalBodyCap,
 			decode: func(r *http.Request) error {
-				var body map[string]interface{}
+				var body map[string]any
 				return json.NewDecoder(r.Body).Decode(&body)
 			},
 		},
@@ -158,7 +158,7 @@ func jsonDecodeCases() []jsonDecodeCase {
 			routeCap: globalBodyCap,
 			boundCap: globalBodyCap,
 			decode: func(r *http.Request) error {
-				var body map[string]interface{}
+				var body map[string]any
 				return json.NewDecoder(r.Body).Decode(&body)
 			},
 		},
@@ -202,10 +202,10 @@ func boundedWorkLimit(caseName string, bodyLen int, cap int64) uint64 {
 func depthArray(depth int) []byte {
 	var b strings.Builder
 	b.Grow(depth * 2)
-	for i := 0; i < depth; i++ {
+	for range depth {
 		b.WriteByte('[')
 	}
-	for i := 0; i < depth; i++ {
+	for range depth {
 		b.WriteByte(']')
 	}
 	return []byte(b.String())
@@ -214,11 +214,11 @@ func depthArray(depth int) []byte {
 func depthObject(depth int) []byte {
 	var b strings.Builder
 	b.Grow(depth*6 + 4)
-	for i := 0; i < depth; i++ {
+	for range depth {
 		b.WriteString(`{"a":`)
 	}
 	b.WriteString("0")
-	for i := 0; i < depth; i++ {
+	for range depth {
 		b.WriteByte('}')
 	}
 	return []byte(b.String())
@@ -277,7 +277,7 @@ func jsonBracketDepth(data []byte) int {
 func manyKeysObject(n int) []byte {
 	var b strings.Builder
 	b.WriteByte('{')
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i > 0 {
 			b.WriteByte(',')
 		}

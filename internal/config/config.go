@@ -2575,7 +2575,7 @@ func Load(path string) (*Config, error) {
 // already rejected a truly malformed document before this ever runs.
 func explicitSecurityKeys(data []byte) (map[string]bool, error) {
 	var raw struct {
-		Security map[string]interface{} `yaml:"security"`
+		Security map[string]any `yaml:"security"`
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {

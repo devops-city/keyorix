@@ -347,11 +347,11 @@ func TestSCIMGroups_PatchGroup_InvalidBody_S16(t *testing.T) {
 func TestSCIMGroups_PatchGroup_TooManyOps_S16(t *testing.T) {
 	h := setupSCIMTestS16(t)
 	// Build an Operations array exceeding scimMaxPatchOps (1000).
-	ops := make([]map[string]interface{}, scimMaxPatchOps+1)
+	ops := make([]map[string]any, scimMaxPatchOps+1)
 	for i := range ops {
-		ops[i] = map[string]interface{}{"op": "add", "path": "members", "value": []map[string]string{{"value": "1"}}}
+		ops[i] = map[string]any{"op": "add", "path": "members", "value": []map[string]string{{"value": "1"}}}
 	}
-	b, err := json.Marshal(map[string]interface{}{"Operations": ops})
+	b, err := json.Marshal(map[string]any{"Operations": ops})
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	h.PatchGroup(w, withID(httptest.NewRequest(http.MethodPatch, "/scim/v2/Groups/1", bytes.NewReader(b)), "1"))
@@ -485,8 +485,8 @@ func TestSCIMGroups_PatchGroup_TooManyAccumulatedMembers_S16(t *testing.T) {
 	for i := range vals {
 		vals[i] = map[string]string{"value": fmt.Sprintf("%d", i+1)}
 	}
-	b, err := json.Marshal(map[string]interface{}{
-		"Operations": []map[string]interface{}{
+	b, err := json.Marshal(map[string]any{
+		"Operations": []map[string]any{
 			{"op": "add", "path": "members", "value": vals},
 		},
 	})

@@ -234,7 +234,7 @@ func TestIsOffHours_S35(t *testing.T) {
 // TestRandomSeed_S35 confirms randomSeed always returns a positive value.
 func TestRandomSeed_S35(t *testing.T) {
 	t.Parallel()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		s := randomSeed()
 		assert.Positive(t, s, "randomSeed must return a positive int64")
 	}

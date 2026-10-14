@@ -46,11 +46,11 @@ func setupUserEnhancementTest(t *testing.T) (*UserHandler, *UsersRolesHandler, *
 	return uh, NewUsersRolesHandler(coreService), db
 }
 
-func decodeData(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{} {
+func decodeData(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "response has a data object")
 	return data
 }
@@ -82,9 +82,9 @@ func TestStaleAccountsHandler(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
-	users := data["users"].([]interface{})
+	users := data["users"].([]any)
 	require.Len(t, users, 1, "only the >7d pending account")
-	assert.Equal(t, "stale-bot", users[0].(map[string]interface{})["username"])
+	assert.Equal(t, "stale-bot", users[0].(map[string]any)["username"])
 	assert.Equal(t, core.AccountPendingFirstLogin, data["state"])
 
 	// Unsupported state is a 400.
@@ -140,9 +140,9 @@ func TestListUsers_MergesProjectCounts(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
-	users := data["users"].([]interface{})
+	users := data["users"].([]any)
 	require.Len(t, users, 1)
-	u := users[0].(map[string]interface{})
+	u := users[0].(map[string]any)
 	assert.Equal(t, float64(2), u["active_project_count"],
 		"two live project-scoped grants = member of two projects")
 	assert.Equal(t, float64(3), u["project_count"],
@@ -178,9 +178,9 @@ func TestGetUserMembershipsHandler(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	data := decodeData(t, w)
-	memberships := data["memberships"].([]interface{})
+	memberships := data["memberships"].([]any)
 	require.Len(t, memberships, 1)
-	m := memberships[0].(map[string]interface{})
+	m := memberships[0].(map[string]any)
 	assert.Equal(t, "payments", m["project_name"])
 	assert.Equal(t, "project_developer", m["role"])
 	assert.Equal(t, "active", m["state"])

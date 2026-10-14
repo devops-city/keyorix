@@ -147,7 +147,7 @@ func (l *Localizer) SetLanguage(lang string) {
 }
 
 // Localize translates a message ID with optional template data
-func (l *Localizer) Localize(messageID string, templateData map[string]interface{}) string {
+func (l *Localizer) Localize(messageID string, templateData map[string]any) string {
 	l.mutex.RLock()
 	defer l.mutex.RUnlock()
 
@@ -165,7 +165,7 @@ func (l *Localizer) Localize(messageID string, templateData map[string]interface
 }
 
 // MustLocalize is like Localize but panics if the message is not found
-func (l *Localizer) MustLocalize(messageID string, templateData map[string]interface{}) string {
+func (l *Localizer) MustLocalize(messageID string, templateData map[string]any) string {
 	l.mutex.RLock()
 	defer l.mutex.RUnlock()
 
@@ -182,12 +182,12 @@ func (l *Localizer) MustLocalize(messageID string, templateData map[string]inter
 }
 
 // T is a shorthand for Localize
-func T(messageID string, templateData map[string]interface{}) string {
+func T(messageID string, templateData map[string]any) string {
 	return GetLocalizer().Localize(messageID, templateData)
 }
 
 // MustT is a shorthand for MustLocalize
-func MustT(messageID string, templateData map[string]interface{}) string {
+func MustT(messageID string, templateData map[string]any) string {
 	return GetLocalizer().MustLocalize(messageID, templateData)
 }
 

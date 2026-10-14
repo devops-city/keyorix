@@ -81,7 +81,7 @@ func (e *RedisEngine) Issue(ctx context.Context, adminDSN, creationTemplate stri
 	// ACL SETUSER <user> on >password <rules...>. Each element is a discrete arg —
 	// the generated username/password are typed bulk strings, never concatenated
 	// into a command, so they cannot break out into ACL tokens.
-	args := make([]interface{}, 0, len(rules)+5)
+	args := make([]any, 0, len(rules)+5)
 	args = append(args, "ACL", "SETUSER", user, "on", ">"+password)
 	for _, r := range rules {
 		args = append(args, r)

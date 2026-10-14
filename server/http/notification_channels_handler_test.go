@@ -133,14 +133,14 @@ func TestNotificationChannelList_Empty(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Contains(t, body, "data")
 
 	// The handler wraps the list as {"channels": [...]} inside "data".
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "data must be an object")
-	channels, ok := data["channels"].([]interface{})
+	channels, ok := data["channels"].([]any)
 	require.True(t, ok, "data.channels must be an array")
 	assert.Empty(t, channels)
 }
@@ -150,7 +150,7 @@ func TestNotificationChannelList_Empty(t *testing.T) {
 func TestNotificationChannelCreate_Webhook(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":   "ops-hook",
 		"type":   "webhook",
 		"url":    "https://hook.example.com",
@@ -170,10 +170,10 @@ func TestNotificationChannelCreate_Webhook(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var respBody map[string]interface{}
+	var respBody map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respBody))
 
-	data, ok := respBody["data"].(map[string]interface{})
+	data, ok := respBody["data"].(map[string]any)
 	require.True(t, ok, "data must be an object")
 	assert.NotNil(t, data["id"], "created channel must have an id")
 	assert.Equal(t, "ops-hook", data["name"])
@@ -187,7 +187,7 @@ func TestNotificationChannelCreate_Webhook(t *testing.T) {
 func TestNotificationChannelCreate_InvalidType(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name": "fax-channel",
 		"type": "fax",
 		"url":  "https://fax.example.com",
@@ -212,7 +212,7 @@ func TestNotificationChannelCreate_InvalidType(t *testing.T) {
 func TestNotificationChannelCreate_WebhookMissingURL(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name": "no-url-hook",
 		"type": "webhook",
 	}
@@ -237,7 +237,7 @@ func TestNotificationChannelDelete(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
 	// Create a channel to delete.
-	createPayload, err := json.Marshal(map[string]interface{}{
+	createPayload, err := json.Marshal(map[string]any{
 		"name":   "to-delete",
 		"type":   "webhook",
 		"url":    "https://delete.example.com",
@@ -255,9 +255,9 @@ func TestNotificationChannelDelete(t *testing.T) {
 	defer func() { _ = createResp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, createResp.StatusCode)
 
-	var createBody map[string]interface{}
+	var createBody map[string]any
 	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createBody))
-	data, ok := createBody["data"].(map[string]interface{})
+	data, ok := createBody["data"].(map[string]any)
 	require.True(t, ok)
 	// id comes back as a JSON number (float64 when decoded into interface{}).
 	idFloat, ok := data["id"].(float64)
@@ -322,7 +322,7 @@ func TestNotificationChannelCreate_BadJSON(t *testing.T) {
 func TestNotificationChannelList_WithChannels(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	createPayload, err := json.Marshal(map[string]interface{}{
+	createPayload, err := json.Marshal(map[string]any{
 		"name": "list-test", "type": "slack", "url": "https://hooks.slack.com/test",
 	})
 	require.NoError(t, err)
@@ -344,10 +344,10 @@ func TestNotificationChannelList_WithChannels(t *testing.T) {
 	defer func() { _ = listResp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, listResp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
-	channels := data["channels"].([]interface{})
+	data := body["data"].(map[string]any)
+	channels := data["channels"].([]any)
 	assert.Len(t, channels, 1)
 }
 
@@ -355,7 +355,7 @@ func TestNotificationChannelList_WithChannels(t *testing.T) {
 func TestNotificationChannelGet_Found(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	createPayload, err := json.Marshal(map[string]interface{}{
+	createPayload, err := json.Marshal(map[string]any{
 		"name": "get-test", "type": "webhook", "url": "https://hook.example.com",
 	})
 	require.NoError(t, err)
@@ -366,10 +366,10 @@ func TestNotificationChannelGet_Found(t *testing.T) {
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
-	var createBody map[string]interface{}
+	var createBody map[string]any
 	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createBody))
 	_ = createResp.Body.Close()
-	id := int(createBody["data"].(map[string]interface{})["id"].(float64))
+	id := int(createBody["data"].(map[string]any)["id"].(float64))
 
 	getReq, err := http.NewRequest(http.MethodGet,
 		srv.URL+"/api/v1/notification-channels/"+itoa(id), nil)
@@ -385,7 +385,7 @@ func TestNotificationChannelGet_Found(t *testing.T) {
 func TestNotificationChannelUpdate_Success(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	createPayload, err := json.Marshal(map[string]interface{}{
+	createPayload, err := json.Marshal(map[string]any{
 		"name": "upd-test", "type": "webhook", "url": "https://original.example.com",
 	})
 	require.NoError(t, err)
@@ -396,12 +396,12 @@ func TestNotificationChannelUpdate_Success(t *testing.T) {
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
-	var createBody map[string]interface{}
+	var createBody map[string]any
 	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createBody))
 	_ = createResp.Body.Close()
-	id := int(createBody["data"].(map[string]interface{})["id"].(float64))
+	id := int(createBody["data"].(map[string]any)["id"].(float64))
 
-	updatePayload, err := json.Marshal(map[string]interface{}{"events": "secret.rotated"})
+	updatePayload, err := json.Marshal(map[string]any{"events": "secret.rotated"})
 	require.NoError(t, err)
 	updateReq, err := http.NewRequest(http.MethodPut,
 		srv.URL+"/api/v1/notification-channels/"+itoa(id),
@@ -419,7 +419,7 @@ func TestNotificationChannelUpdate_Success(t *testing.T) {
 func TestNotificationChannelUpdate_NotFound(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	updatePayload, err := json.Marshal(map[string]interface{}{"events": "anomaly.detected"})
+	updatePayload, err := json.Marshal(map[string]any{"events": "anomaly.detected"})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPut,
 		srv.URL+"/api/v1/notification-channels/9999",
@@ -604,7 +604,7 @@ func TestNotificationChannelList_StorageError(t *testing.T) {
 func TestNotificationChannelCreate_StorageError(t *testing.T) {
 	srv, token := notificationChannelBrokenDBSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"name": "hook",
 		"type": "webhook",
 		"url":  "https://hook.example.com",
@@ -629,7 +629,7 @@ func TestNotificationChannelCreate_EnabledDefaultsTrue(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
 	// Explicitly omit the "enabled" key.
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"name":   "no-enabled-field",
 		"type":   "webhook",
 		"url":    "https://hook.example.com",
@@ -648,9 +648,9 @@ func TestNotificationChannelCreate_EnabledDefaultsTrue(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.Equal(t, true, data["enabled"], "enabled must default to true when omitted from request")
 }
 
@@ -675,7 +675,7 @@ func TestNotificationChannelUpdate_ValidationError(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
 	// First create a valid channel.
-	createPayload, err := json.Marshal(map[string]interface{}{
+	createPayload, err := json.Marshal(map[string]any{
 		"name": "valid-hook",
 		"type": "webhook",
 		"url":  "https://hook.example.com",
@@ -688,13 +688,13 @@ func TestNotificationChannelUpdate_ValidationError(t *testing.T) {
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
-	var createBody map[string]interface{}
+	var createBody map[string]any
 	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createBody))
 	_ = createResp.Body.Close()
-	id := int(createBody["data"].(map[string]interface{})["id"].(float64))
+	id := int(createBody["data"].(map[string]any)["id"].(float64))
 
 	// Update with an invalid type — triggers core validation error → 400.
-	updatePayload, err := json.Marshal(map[string]interface{}{"type": "fax"})
+	updatePayload, err := json.Marshal(map[string]any{"type": "fax"})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPut,
 		srv.URL+"/api/v1/notification-channels/"+itoa(id),
@@ -714,7 +714,7 @@ func TestNotificationChannelUpdate_ValidationError(t *testing.T) {
 func TestNotificationChannelUpdate_StorageError(t *testing.T) {
 	srv, token := notificationChannelBrokenDBSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{"events": "anomaly.detected"})
+	payload, err := json.Marshal(map[string]any{"events": "anomaly.detected"})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPut, srv.URL+"/api/v1/notification-channels/1",
 		bytes.NewReader(payload))
@@ -763,7 +763,7 @@ func TestNotificationChannelGet_NotFound(t *testing.T) {
 func TestNotificationChannelCreate_Email(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"name":  "email-ops",
 		"type":  "email",
 		"email": "ops@example.com",
@@ -780,9 +780,9 @@ func TestNotificationChannelCreate_Email(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.Equal(t, "email", data["type"])
 	assert.Equal(t, "ops@example.com", data["email"])
 }
@@ -791,7 +791,7 @@ func TestNotificationChannelCreate_Email(t *testing.T) {
 func TestNotificationChannelCreate_Teams(t *testing.T) {
 	srv, token := notificationChannelTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"name": "teams-alerts",
 		"type": "teams",
 		"url":  "https://outlook.office.com/webhook/abc",

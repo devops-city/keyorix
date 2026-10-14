@@ -117,7 +117,6 @@ func FuzzDEKSweepCrashConsistency(f *testing.F) {
 		rows := int(nRows%8) + 1 // 1..8 seeded rows
 
 		for _, w := range worlds {
-			w := w
 
 			// t.TempDir() must run on the test goroutine, not inside the guard goroutine.
 			// A fresh dir PER WORLD PER ITERATION — the key-directory/file layer stays
@@ -196,7 +195,7 @@ func runSweepCrashCase(w *fuzzworld.World, dir, pass, valPrefix string, rows int
 
 	// Seed secret rows under the ORIGINAL DEK, each with a distinct plaintext + AAD.
 	seeds := make([]sweepSeededRow, 0, rows)
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		projID := uint(i + 1)
 		node := &models.SecretNode{ProjectID: projID, Name: fmt.Sprintf("node-%d", i), IsSecret: true}
 		if e := db.Create(node).Error; e != nil {

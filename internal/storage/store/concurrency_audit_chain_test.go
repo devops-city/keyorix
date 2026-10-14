@@ -50,7 +50,7 @@ func TestConcurrency_AuditChain_StaysWellFormed(t *testing.T) {
 	errs := make(chan error, writers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

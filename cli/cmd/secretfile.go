@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -120,10 +121,8 @@ func checkSecretFileMode(info os.FileInfo) error {
 	if int(st.Uid) == secretFileProcessUID() {
 		return bad("group-readable but owned by the running user")
 	}
-	for _, g := range secretFileProcessGroups() {
-		if int(st.Gid) == g {
-			return nil
-		}
+	if slices.Contains(secretFileProcessGroups(), int(st.Gid)) {
+		return nil
 	}
 	return bad("group-readable by a group the process does not belong to")
 }

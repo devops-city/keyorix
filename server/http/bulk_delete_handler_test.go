@@ -26,9 +26,9 @@ func createBulkDelTestSecret(t *testing.T, client *http.Client, baseURL, token, 
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "createBulkDelTestSecret: unexpected status")
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data := out["data"].(map[string]interface{})
+	data := out["data"].(map[string]any)
 	return uint(data["id"].(float64))
 }
 
@@ -58,14 +58,14 @@ func TestBulkDeleteSecrets_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data := out["data"].(map[string]interface{})
+	data := out["data"].(map[string]any)
 
-	deleted := data["deleted"].([]interface{})
+	deleted := data["deleted"].([]any)
 	assert.Len(t, deleted, 2)
 
-	failed, ok := data["failed"].([]interface{})
+	failed, ok := data["failed"].([]any)
 	if ok {
 		assert.Empty(t, failed)
 	}
@@ -132,16 +132,16 @@ func TestBulkDeleteSecrets_NonExistentID(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data := out["data"].(map[string]interface{})
+	data := out["data"].(map[string]any)
 
-	failed := data["failed"].([]interface{})
+	failed := data["failed"].([]any)
 	require.NotEmpty(t, failed, "expected 999999 to appear in failed list")
 
 	found := false
 	for _, f := range failed {
-		entry := f.(map[string]interface{})
+		entry := f.(map[string]any)
 		if uint(entry["secret_id"].(float64)) == 999999 {
 			found = true
 			break

@@ -166,7 +166,7 @@ func secretStateRefusal(resp *http.Response) string {
 	}[env.Error]
 }
 
-func (c *KeyorixClient) getJSON(ctx context.Context, path string, out interface{}) error {
+func (c *KeyorixClient) getJSON(ctx context.Context, path string, out any) error {
 	// c.hc (built in NewKeyorixClient above) already sets CheckRedirect to
 	// refuseRedirect, and c.baseURL is scheme-validated by validateKeyorixClientURL in
 	// NewKeyorixClient (both the constructor parameter AND a direct c.baseURL

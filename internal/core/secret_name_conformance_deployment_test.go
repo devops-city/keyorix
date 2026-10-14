@@ -114,7 +114,7 @@ func TestDeploymentSecretNameConformance_QueryCostDoesNotScaleWithProjectCount(t
 		now := time.Now()
 		require.NoError(t, c.SetSecretNamePolicy(SecretNamePolicy{Enabled: true, Pattern: "^[A-Z][A-Z0-9_]*$"}))
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			p, err := c.storage.CreateProject(ctx, &models.Project{Name: fmt.Sprintf("p%d", i)})
 			require.NoError(t, err)
 			e, err := c.storage.CreateEnvironment(ctx, &models.Environment{Name: "production", ProjectID: p.ID})

@@ -527,7 +527,7 @@ func (ls *LocalStorage) SupersedeActiveSetupTokens(ctx context.Context, purpose,
 func (ls *LocalStorage) MarkSetupTokenConsumed(ctx context.Context, id uint, consumedAt time.Time) (bool, error) {
 	result := ls.db.WithContext(ctx).Model(&models.SetupToken{}).
 		Where("id = ? AND state = ?", id, "active").
-		Updates(map[string]interface{}{"state": "consumed", "consumed_at": consumedAt})
+		Updates(map[string]any{"state": "consumed", "consumed_at": consumedAt})
 	if result.Error != nil {
 		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), result.Error)
 	}

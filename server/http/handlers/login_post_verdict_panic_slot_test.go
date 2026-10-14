@@ -30,7 +30,7 @@ import (
 // The panic must still reach the caller unchanged either way.
 
 // recoverPanic runs f and returns what it panicked with, or nil.
-func recoverPanic(f func()) (rec interface{}) {
+func recoverPanic(f func()) (rec any) {
 	defer func() { rec = recover() }()
 	f()
 	return nil
@@ -61,7 +61,6 @@ func TestVerifyMFA_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) {
 		{"GetUserPermissions", true},
 		{"CreateSession", true},
 	} {
-		c := c
 		t.Run(c.method, func(t *testing.T) {
 			h, fs, secret, fixed, db := newIdentityFailClosedTestHandler(t)
 			ch, err := h.coreService.CreateMFAChallenge(context.Background(), 1)
@@ -101,7 +100,6 @@ func TestFinishWebAuthnLogin_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) 
 		{"GetUserPermissions", true},
 		{"CreateSession", true},
 	} {
-		c := c
 		t.Run(c.method, func(t *testing.T) {
 			h, fs, db := newWebAuthnCompletionEnv(t)
 			ch, err := h.coreService.CreateMFAChallenge(context.Background(), 1)

@@ -106,7 +106,7 @@ func TestListSecrets_Pagination(t *testing.T) {
 	ls := newSecretScopeTestStore(t)
 	ctx := context.Background()
 	require.NoError(t, ls.db.Create(&models.Environment{ID: 1, ProjectID: 5, Name: "dev"}).Error)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, ls.db.Create(&models.SecretNode{
 			ProjectID: 5, EnvironmentID: 1, Name: "s" + string(rune('a'+i)), IsSecret: true, Type: "api_key", Status: "active",
 		}).Error)

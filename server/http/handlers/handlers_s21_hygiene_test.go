@@ -153,9 +153,9 @@ func TestMachineTokenHygiene_WithEntries_S21(t *testing.T) {
 	assert.NotContains(t, body, "deadbeef01234567890abcdef0000001")
 	assert.NotContains(t, body, "deadbeef01234567890abcdef0000002")
 	// total should be at least 2.
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "expected data envelope")
 	total, ok := data["total"].(float64)
 	require.True(t, ok, "expected numeric total")
@@ -198,7 +198,7 @@ func TestCreateUserWithOTP_CoreValidationError_S21(t *testing.T) {
 	// display_name passes the HTTP body validator (omitempty allows empty strings
 	// at the body-decode layer) but the core validator rejects it as too short.
 	// We send an empty display_name to trigger a core-level validation failure.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-valtest-s21",
 		"email":                      "otp-valtest-s21@x.com",
 		"display_name":               "", // empty — rejected by core
@@ -228,7 +228,7 @@ func TestCreateUserWithOTP_InternalError_S21(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-internal-s21",
 		"email":                      "otp-internal-s21@x.com",
 		"display_name":               "OTP Internal S21",

@@ -29,7 +29,7 @@ const writeContentionMessage = "The service is temporarily busy. Please retry sh
 // PermissionDenied, ...) is left alone. gRPC exposes no login/credential RPC, so
 // there is no credential surface to exempt.
 func WriteContentionInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		ctx, sig := corestorage.WithContentionSignal(ctx)
 		resp, err := handler(ctx, req)
 		if err == nil {

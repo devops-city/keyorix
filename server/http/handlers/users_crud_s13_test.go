@@ -55,7 +55,7 @@ func TestUpdateUserLegacy_InvalidJSON_S13(t *testing.T) {
 // request body fails struct validation (malformed email).
 func TestUpdateUserLegacy_ValidationError_S13(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
-	body, _ := json.Marshal(map[string]interface{}{"email": "not-an-email"})
+	body, _ := json.Marshal(map[string]any{"email": "not-an-email"})
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(body)),
 		"id", "1",
@@ -70,7 +70,7 @@ func TestUpdateUserLegacy_ValidationError_S13(t *testing.T) {
 // TestCreateUserLegacy_ValidationError_S13 verifies the 400 branch when the
 // legacy body fails validation (username too short, min=3).
 func TestCreateUserLegacy_ValidationError_S13(t *testing.T) {
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":     "ab",
 		"email":        "valid@example.com",
 		"display_name": "Valid Name",
@@ -100,7 +100,7 @@ func TestCreateUser_InvalidJSON_S13(t *testing.T) {
 // fails struct validation (email not a valid address).
 func TestCreateUser_ValidationError_S13(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":     "valtest-s13",
 		"email":        "not-an-email",
 		"display_name": "Val Test S13",
@@ -119,7 +119,7 @@ func TestCreateUser_ValidationError_S13(t *testing.T) {
 // createUserWithOTP (covers the sendCreated path with one_time_password).
 func TestCreateUserWithOTP_Success_S13(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-success-s13",
 		"email":                      "otp-success-s13@x.com",
 		"display_name":               "OTP Success S13",
@@ -139,7 +139,7 @@ func TestCreateUserWithOTP_Success_S13(t *testing.T) {
 // createUserClassic (admin-set password, no role assignments).
 func TestCreateUserClassic_Success_S13(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":     "classic-success-s13",
 		"email":        "classic-success-s13@x.com",
 		"display_name": "Classic Success S13",
@@ -170,7 +170,7 @@ func TestCreateUserWithSetupLink_ConflictError_S13(t *testing.T) {
 		AccountState:   core.AccountActive,
 	}).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-conflict-s13",
 		"email":              "setup-conflict-s13@x.com",
 		"display_name":       "Setup Conflict S13",
@@ -304,7 +304,7 @@ func TestUpdateUser_ConflictError_S13(t *testing.T) {
 	var target models.User
 	require.NoError(t, db.Where("username = ?", "target-user-s13").First(&target).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username": "existing-user-s13",
 	})
 	req := withUserCtx(withChiParam(
@@ -328,7 +328,7 @@ func TestUpdateUser_Success_S13(t *testing.T) {
 	var u models.User
 	require.NoError(t, db.Where("username = ?", "updateme-s13").First(&u).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"display_name": "Updated S13"})
+	body, _ := json.Marshal(map[string]any{"display_name": "Updated S13"})
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/999", bytes.NewReader(body)),
 		"id", itoa(u.ID),
@@ -480,9 +480,9 @@ func TestStaleAccounts_PasswordResetRequired_S13(t *testing.T) {
 	uh.StaleAccounts(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, core.AccountPasswordResetRequired, data["state"])
 }
@@ -512,7 +512,7 @@ func TestPackageLevel_CreateUser_RealHandler_S13(t *testing.T) {
 	defaultUserHandler = uh
 	defer func() { defaultUserHandler = saved }()
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":     "pkg-create-s13",
 		"email":        "pkg-create-s13@x.com",
 		"display_name": "Pkg Create S13",

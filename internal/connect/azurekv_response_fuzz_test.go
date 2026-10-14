@@ -115,9 +115,9 @@ func FuzzAzureKVConnectorResponse(f *testing.F) {
 		// EVERY redirect, same-host or not -- but the genuinely-cross-host setup
 		// is kept so this test would still catch a future regression that only
 		// reintroduced cross-host-specific following.
-		var attackerHits int32
+		var attackerHits atomic.Int32
 		attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			atomic.AddInt32(&attackerHits, 1)
+			attackerHits.Add(1)
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"value":"ATTACKER-CONTROLLED"}`))
 		}))
@@ -238,7 +238,7 @@ func FuzzAzureKVConnectorResponse(f *testing.F) {
 		// hardened_client.go) -- the attacker-controlled Location target must
 		// never receive a request. Was previously a confirmed-open gap (see this
 		// file's own header comment); now the fix's regression guard.
-		if atomic.LoadInt32(&attackerHits) != 0 {
+		if attackerHits.Load() != 0 {
 			t.Fatalf("REDIRECT FOLLOWED: connector dialed the redirect target instead of refusing")
 		}
 

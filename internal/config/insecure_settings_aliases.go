@@ -119,8 +119,8 @@ func walkToParents(root *yaml.Node, path []string, fn func(parent *yaml.Node)) {
 			fn(cur)
 			return
 		}
-		if strings.HasSuffix(seg, "[]") {
-			_, seq := mapGet(cur, strings.TrimSuffix(seg, "[]"))
+		if before, ok := strings.CutSuffix(seg, "[]"); ok {
+			_, seq := mapGet(cur, before)
 			if seq == nil || seq.Kind != yaml.SequenceNode {
 				return
 			}

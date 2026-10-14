@@ -48,7 +48,7 @@ func TestHandleAuthRequest_TooManyInvalidAttempts_Returns429(t *testing.T) {
 
 	// Burn through the failure budget with distinct invalid tokens (a repeated
 	// token would hit the negative cache instead of re-entering the slow path).
-	for i := 0; i < tokenAuthFailureBurst; i++ {
+	for i := range tokenAuthFailureBurst {
 		rr := doRequest("s25-burst-token-" + string(rune('a'+i)))
 		require.Equal(t, http.StatusUnauthorized, rr.Code, "attempt %d should still be an ordinary 401", i)
 	}

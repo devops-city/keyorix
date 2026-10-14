@@ -203,7 +203,7 @@ func TestLogin_ExhaustedBudgetRefusesWhileChecksStillInFlight(t *testing.T) {
 	h := NewAuthHandler(core.NewKeyorixCore(parked), false)
 
 	codes := make(chan int, budget)
-	for i := 0; i < budget; i++ {
+	for i := range budget {
 		go func(i int) {
 			w := httptest.NewRecorder()
 			h.Login(w, loginRequest(t, ip, 42000+i))
@@ -249,7 +249,7 @@ func TestLogin_ExhaustedBudgetRefusesWhileChecksStillInFlight(t *testing.T) {
 	}
 
 	parked.releaseAll()
-	for i := 0; i < budget; i++ {
+	for i := range budget {
 		select {
 		case code := <-codes:
 			require.Equal(t, http.StatusUnauthorized, code,

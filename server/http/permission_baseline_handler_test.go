@@ -45,21 +45,21 @@ func TestPermissionBaseline_JSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, true, resp["success"])
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "expected data object in response")
 
-	rows, ok := data["rows"].([]interface{})
+	rows, ok := data["rows"].([]any)
 	require.True(t, ok, "expected rows array in data")
 	assert.NotEmpty(t, rows, "admin user should have at least one permission row")
 
 	// Confirm at least one row belongs to "testadmin".
 	found := false
 	for _, r := range rows {
-		row := r.(map[string]interface{})
+		row := r.(map[string]any)
 		if row["username"] == "testadmin" {
 			found = true
 			break
@@ -147,15 +147,15 @@ func TestPermissionBaseline_SecondUser(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	data := resp["data"].(map[string]interface{})
-	rows := data["rows"].([]interface{})
+	data := resp["data"].(map[string]any)
+	rows := data["rows"].([]any)
 
 	foundAdmin := false
 	foundSecond := false
 	for _, row := range rows {
-		r := row.(map[string]interface{})
+		r := row.(map[string]any)
 		switch r["username"] {
 		case "testadmin":
 			foundAdmin = true

@@ -60,7 +60,7 @@ func TestConcurrency_RotateSecret_NoDuplicateVersionNumbers(t *testing.T) {
 	start := make(chan struct{})
 	errs := make([]error, rotators)
 	var wg sync.WaitGroup
-	for i := 0; i < rotators; i++ {
+	for i := range rotators {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

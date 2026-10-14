@@ -63,10 +63,8 @@ func TestConcurrency_ConsumeSSOLoginState_OnlyOneWins(t *testing.T) {
 	errs := make(chan error, racers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < racers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range racers {
+		wg.Go(func() {
 			<-start
 			_, err := ls.ConsumeSSOLoginState(context.Background(), "race-state")
 			if err == nil {
@@ -74,7 +72,7 @@ func TestConcurrency_ConsumeSSOLoginState_OnlyOneWins(t *testing.T) {
 				return
 			}
 			errs <- err
-		}()
+		})
 	}
 	close(start) // release every racer at once
 	wg.Wait()

@@ -81,7 +81,7 @@ func TestAccessHistory_NonPrivilegedReader_NeverSeesIPOrUserAgent(t *testing.T) 
 
 	var decoded struct {
 		Data struct {
-			AccessLog []map[string]interface{} `json:"access_log"`
+			AccessLog []map[string]any `json:"access_log"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &decoded))
@@ -118,7 +118,7 @@ func TestAccessHistory_AuditReadCallerSeesIPAndUserAgent(t *testing.T) {
 
 	var decoded struct {
 		Data struct {
-			AccessLog []map[string]interface{} `json:"access_log"`
+			AccessLog []map[string]any `json:"access_log"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &decoded))

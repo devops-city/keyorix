@@ -125,7 +125,7 @@ func semverAtLeast(v, floor string) bool {
 	if !ok1 || !ok2 {
 		return false
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got[i] != want[i] {
 			return got[i] > want[i]
 		}

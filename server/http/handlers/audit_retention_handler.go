@@ -53,7 +53,7 @@ func (h *AdminJobsHandler) PurgeAuditLogsJob(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"deleted_count": result.DeletedCount,
 		"cutoff_time":   result.CutoffTime,
 	}, "")

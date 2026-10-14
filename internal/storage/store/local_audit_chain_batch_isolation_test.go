@@ -57,7 +57,7 @@ func TestCommitAuditBatch_PoisonedItemIsolatedFromRest(t *testing.T) {
 	const n = 5
 	const poisonedIndex = 2
 	batch := make([]*auditBatchItem, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tr := true
 		desc := "ok"
 		if i == poisonedIndex {
@@ -106,7 +106,7 @@ func TestCommitAuditBatch_AllItemsSucceedWhenNonePoisoned(t *testing.T) {
 	base := time.Now().UTC()
 	const n = 5
 	batch := make([]*auditBatchItem, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tr := true
 		batch[i] = &auditBatchItem{
 			event: &models.AuditEvent{

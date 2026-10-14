@@ -37,7 +37,7 @@ func TestI18nAndConfigStayLight(t *testing.T) {
 		if err != nil {
 			t.Fatalf("go list -deps %s: %v", pkg, err)
 		}
-		for _, dep := range strings.Fields(string(out)) {
+		for dep := range strings.FieldsSeq(string(out)) {
 			for _, bad := range forbiddenDepPrefixes {
 				// connecttypes and core/ports are each independently guarded
 				// to stay stdlib-only/integration-free (see

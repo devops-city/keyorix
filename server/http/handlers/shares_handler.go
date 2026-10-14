@@ -28,7 +28,7 @@ func NewShareHandler(coreService *core.KeyorixCore) (*ShareHandler, error) {
 	}, nil
 }
 
-func (h *ShareHandler) sendSuccess(w http.ResponseWriter, data interface{}, message string) {
+func (h *ShareHandler) sendSuccess(w http.ResponseWriter, data any, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := encodeJSONResponse(w, SuccessResponse{Success: true, Data: data, Message: message}); err != nil {
@@ -37,7 +37,7 @@ func (h *ShareHandler) sendSuccess(w http.ResponseWriter, data interface{}, mess
 	}
 }
 
-func (h *ShareHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details interface{}) {
+func (h *ShareHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)

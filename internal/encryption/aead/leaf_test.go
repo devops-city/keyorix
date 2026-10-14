@@ -35,7 +35,7 @@ func TestAEADStaysALeaf(t *testing.T) {
 		checked++
 		for _, imp := range af.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
-			first := strings.SplitN(p, "/", 2)[0]
+			first, _, _ := strings.Cut(p, "/")
 			if !strings.Contains(first, ".") {
 				continue
 			}

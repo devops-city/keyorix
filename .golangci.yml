@@ -18,10 +18,24 @@ linters:
     - staticcheck
     - unused
     - ineffassign
+    - modernize
   # goconst (500+ repeated-string-literal hits, never adopted) and gosec (run
   # separately by the dedicated gosec job in CI, with the repo's own config) are
   # intentionally not enabled here — keeping the linters that catch real bugs.
   settings:
+    modernize:
+      # The one-time modernize pass (GO-MODERNIZE-1) left these three off on
+      # purpose; keep them off here so the linter matches what was applied.
+      #   embedlit       -- rewrites literals via promoted fields of embedded
+      #                     structs, which older tooling cannot parse
+      #   stringsbuilder -- readability churn, touches the semgrep-annotated
+      #                     SQL string build in server/admin/restore_postgres.go
+      #   newexpr        -- rewrites pointer helpers into new(x) plus
+      #                     //go:fix inline, which trips govet's inline check
+      disable:
+        - embedlit
+        - stringsbuilder
+        - newexpr
     staticcheck:
       # Keep the SA (bug) and S (simplification) checks. Mirror golangci-lint's
       # default ST* exclusions (the repo uses per-file `// name.go — …` comments,

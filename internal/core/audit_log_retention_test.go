@@ -47,11 +47,11 @@ func TestPurgeAuditLogs_HappyPath(t *testing.T) {
 	ctx := context.Background()
 
 	// Five events older than 30 days.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		seedRetentionAuditEvent(t, db, fixed.AddDate(0, 0, -(31+i)))
 	}
 	// Three recent events within the retention window.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		seedRetentionAuditEvent(t, db, fixed.AddDate(0, 0, -(i+1)))
 	}
 

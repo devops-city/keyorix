@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"runtime/debug"
+	"slices"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -66,12 +67,7 @@ var machineTransitions = map[string][]string{
 }
 
 func canTransitionMachine(from, to string) bool {
-	for _, next := range machineTransitions[from] {
-		if next == to {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(machineTransitions[from], to)
 }
 
 // IsValidMachineTransition reports whether from->to is a legal machine-identity

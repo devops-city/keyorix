@@ -41,7 +41,7 @@ func TestMigrateDatabase_SessionI_SixMissingTables_FreshInstall(t *testing.T) {
 
 	for _, tc := range []struct {
 		table string
-		row   interface{}
+		row   any
 	}{
 		{"secret_version_comments", &models.SecretVersionComment{VersionID: 1, SecretID: 1, UserID: 1, Username: "u", Comment: "c"}},
 		{"notification_channels", &models.NotificationChannel{Name: "n", Type: "webhook", CreatedBy: "u"}},

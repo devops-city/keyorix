@@ -205,7 +205,7 @@ func buildSingleProviderCaseDispatch(t *testing.T) map[string]map[string]bool {
 			constructors[m[1]] = true
 		}
 
-		for _, label := range strings.Split(caseLabels, ",") {
+		for label := range strings.SplitSeq(caseLabels, ",") {
 			label = strings.TrimSpace(label)
 			label = strings.Trim(label, `"`)
 			result[label] = constructors

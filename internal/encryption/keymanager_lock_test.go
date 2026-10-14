@@ -49,13 +49,13 @@ func TestAcquireExclusiveKeyLock_MutualExclusion(t *testing.T) {
 
 	const goroutines = 16
 	var (
-		current int32
-		maxSeen int32
+		current atomic.Int32
+		maxSeen atomic.Int32
 		wg      sync.WaitGroup
 	)
 
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
 
@@ -66,24 +66,24 @@ func TestAcquireExclusiveKeyLock_MutualExclusion(t *testing.T) {
 				return
 			}
 
-			n := atomic.AddInt32(&current, 1)
+			n := current.Add(1)
 			for {
-				m := atomic.LoadInt32(&maxSeen)
-				if n <= m || atomic.CompareAndSwapInt32(&maxSeen, m, n) {
+				m := maxSeen.Load()
+				if n <= m || maxSeen.CompareAndSwap(m, n) {
 					break
 				}
 			}
 			// Hold the lock briefly to widen the window in which a broken
 			// implementation would let a second holder in.
 			time.Sleep(5 * time.Millisecond)
-			atomic.AddInt32(&current, -1)
+			current.Add(-1)
 
 			lock.release()
 		}()
 	}
 	wg.Wait()
 
-	if got := atomic.LoadInt32(&maxSeen); got != 1 {
+	if got := maxSeen.Load(); got != 1 {
 		t.Fatalf("exclusive lock allowed %d concurrent holders, want at most 1", got)
 	}
 }

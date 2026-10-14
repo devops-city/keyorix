@@ -39,7 +39,7 @@ func TestConcurrency_AuditChain_MultiInstancePostgres_StaysWellFormed(t *testing
 	const writers = instances * writersPerInstance
 
 	stores := make([]*LocalStorage, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		db := pgOpen(t, dsn)
 		require.NoError(t, db.AutoMigrate(&models.AuditEvent{}))
 		stores[i] = NewLocalStorage(db)
@@ -50,9 +50,9 @@ func TestConcurrency_AuditChain_MultiInstancePostgres_StaysWellFormed(t *testing
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	n := 0
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		ls := stores[i]
-		for j := 0; j < writersPerInstance; j++ {
+		for range writersPerInstance {
 			wg.Add(1)
 			idx := n
 			n++

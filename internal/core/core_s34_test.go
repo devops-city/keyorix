@@ -27,7 +27,7 @@ import (
 
 // ── sso.go — extractTokenStringList ──────────────────────────────────────
 
-func makeJWT(claims map[string]interface{}) string {
+func makeJWT(claims map[string]any) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none"}`))
 	payload, _ := json.Marshal(claims)
 	b64payload := base64.RawURLEncoding.EncodeToString(payload)
@@ -58,7 +58,7 @@ func TestExtractTokenStringList_InvalidJSONPayload(t *testing.T) {
 
 func TestExtractTokenStringList_ClaimNotFound(t *testing.T) {
 	t.Parallel()
-	tok := makeJWT(map[string]interface{}{"other": "val"})
+	tok := makeJWT(map[string]any{"other": "val"})
 	result, ok := extractTokenStringList(tok, "groups")
 	assert.False(t, ok)
 	assert.Nil(t, result)
@@ -66,7 +66,7 @@ func TestExtractTokenStringList_ClaimNotFound(t *testing.T) {
 
 func TestExtractTokenStringList_StringSliceClaim(t *testing.T) {
 	t.Parallel()
-	tok := makeJWT(map[string]interface{}{"groups": []string{"a", "b"}})
+	tok := makeJWT(map[string]any{"groups": []string{"a", "b"}})
 	result, ok := extractTokenStringList(tok, "groups")
 	assert.True(t, ok)
 	assert.Equal(t, []string{"a", "b"}, result)
@@ -75,7 +75,7 @@ func TestExtractTokenStringList_StringSliceClaim(t *testing.T) {
 func TestExtractTokenStringList_AnySliceClaim(t *testing.T) {
 	t.Parallel()
 	// JSON with mixed types (numeric → skipped, string → kept)
-	tok := makeJWT(map[string]interface{}{"groups": []interface{}{"x", 42}})
+	tok := makeJWT(map[string]any{"groups": []any{"x", 42}})
 	result, ok := extractTokenStringList(tok, "groups")
 	assert.True(t, ok)
 	assert.Equal(t, []string{"x"}, result)
@@ -83,7 +83,7 @@ func TestExtractTokenStringList_AnySliceClaim(t *testing.T) {
 
 func TestExtractTokenStringList_SingleStringClaim(t *testing.T) {
 	t.Parallel()
-	tok := makeJWT(map[string]interface{}{"role": "admin"})
+	tok := makeJWT(map[string]any{"role": "admin"})
 	result, ok := extractTokenStringList(tok, "role")
 	assert.True(t, ok)
 	assert.Equal(t, []string{"admin"}, result)
@@ -92,7 +92,7 @@ func TestExtractTokenStringList_SingleStringClaim(t *testing.T) {
 func TestExtractTokenStringList_UnrecognizedShape(t *testing.T) {
 	t.Parallel()
 	// A number — not a string, not a slice → return nil, true (present but unrecognized)
-	tok := makeJWT(map[string]interface{}{"count": 42})
+	tok := makeJWT(map[string]any{"count": 42})
 	result, ok := extractTokenStringList(tok, "count")
 	assert.True(t, ok)
 	assert.Nil(t, result)

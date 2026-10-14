@@ -115,7 +115,7 @@ func TestGetProjectHealthSummary_Counts(t *testing.T) {
 		CreatedAt: oldCreated, UpdatedAt: oldCreated,
 	})
 	require.NoError(t, err)
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		require.NoError(t, c.storage.CreateSecretAccessLog(ctx, &models.SecretAccessLog{
 			SecretNodeID: medS.ID, AccessedBy: "owner", Action: "read", AccessTime: now,
 		}))
@@ -131,7 +131,7 @@ func TestGetProjectHealthSummary_Counts(t *testing.T) {
 		CreatedAt:  now, UpdatedAt: now,
 	})
 	require.NoError(t, err)
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		require.NoError(t, c.storage.CreateSecretAccessLog(ctx, &models.SecretAccessLog{
 			SecretNodeID: lowS.ID, AccessedBy: "owner", Action: "read", AccessTime: now,
 		}))
@@ -169,7 +169,7 @@ func TestGetProjectHealthSummary_Limit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create 5 secrets.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		makeHealthSecret(t, c, fmt.Sprintf("s%d", i), p.ID, e.ID, 1)
 	}
 
@@ -223,7 +223,7 @@ func TestGetProjectHealthSummary_LimitClamping(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create 25 secrets so we can verify the clamp to defaultHealthLimit (20).
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		makeHealthSecret(t, c, fmt.Sprintf("clamp-s%d", i), p.ID, e.ID, 1)
 	}
 

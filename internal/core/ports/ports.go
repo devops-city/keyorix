@@ -62,7 +62,7 @@ type ConnectorResolver interface {
 // internal/connect/connect.go's own doc comment on RefHasDotSegment for the
 // full rationale.
 func RefHasDotSegment(ref string) bool {
-	for _, seg := range strings.Split(ref, "/") {
+	for seg := range strings.SplitSeq(ref, "/") {
 		if seg == "." || seg == ".." {
 			return true
 		}

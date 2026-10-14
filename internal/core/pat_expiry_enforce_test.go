@@ -203,7 +203,7 @@ func TestValidatePATToken_ExpiredPAT_RepeatedPresentation_OnlyFirstNotifies(t *t
 	// Five rapid-fire presentations of the same expired token, as an attacker
 	// replaying a captured (now-worthless-for-access, but still notification-
 	// triggering) token string would do.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, _, _, _, err := c.ValidatePATToken(ctx, raw)
 		require.ErrorIs(t, err, ErrPATExpired)
 	}

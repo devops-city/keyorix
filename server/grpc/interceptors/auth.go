@@ -89,7 +89,7 @@ const (
 // the deployment-wide security.require_mfa policy so the gRPC transport enforces
 // the same MFA-enrolment gate as the HTTP API.
 func AuthInterceptor(coreService *core.KeyorixCore, requireMFA bool) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		// Skip authentication for certain methods
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
@@ -133,7 +133,7 @@ func AuthInterceptor(coreService *core.KeyorixCore, requireMFA bool) grpc.UnaryS
 // each stream against a real session token via the core service. requireMFA
 // mirrors the deployment-wide security.require_mfa policy (see AuthInterceptor).
 func StreamAuthInterceptor(coreService *core.KeyorixCore, requireMFA bool) grpc.StreamServerInterceptor {
-	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		// Skip authentication for certain methods
 		if isPublicMethod(info.FullMethod) {
 			return handler(srv, stream)

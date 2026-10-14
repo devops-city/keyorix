@@ -16,7 +16,7 @@ import (
 // accessReviewCampaignModels is the AutoMigrate set for the access-review
 // reproduction: bootstrap's RBAC seed plus the campaign tables
 // access_review_campaign_external_test.go's migrateCampaignTables adds.
-var accessReviewCampaignModels = []interface{}{
+var accessReviewCampaignModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 	&models.Project{}, &models.Environment{}, &models.SystemMetadata{},

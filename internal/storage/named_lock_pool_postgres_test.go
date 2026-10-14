@@ -54,7 +54,7 @@ func TestWithNamedLock_Postgres_SmallPool_DistinctKeysAndReadsComplete(t *testin
 	var wg sync.WaitGroup
 	errs := make(chan error, holders+readers)
 	start := make(chan struct{})
-	for i := 0; i < holders; i++ {
+	for i := range holders {
 		wg.Add(1)
 		go func(key string) {
 			defer wg.Done()
@@ -68,19 +68,17 @@ func TestWithNamedLock_Postgres_SmallPool_DistinctKeysAndReadsComplete(t *testin
 			})
 		}(fmt.Sprintf("namedlock-pool-%d", i))
 	}
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
-			for j := 0; j < 20; j++ {
+			for range 20 {
 				if _, _, err := st.GetSystemMetadata(ctx, "schema_epoch"); err != nil {
 					errs <- err
 					return
 				}
 			}
 			errs <- nil
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

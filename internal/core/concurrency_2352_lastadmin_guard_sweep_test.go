@@ -133,7 +133,7 @@ func newTwoGlobalAdminGroupMembershipFixture(t *testing.T, name string) (*core.K
 func TestConcurrency_RemoveUserFromGroup_GlobalScope_ExactlyOneOfTwoAdminRoutesRemoved(t *testing.T) {
 	t.Parallel()
 	var bothGone, neitherGone, badErr int
-	for trial := 0; trial < lastAdminSweepTrials; trial++ {
+	for range lastAdminSweepTrials {
 		c, db := newTwoGlobalAdminGroupMembershipFixture(t, "remove_user_from_group.db")
 		ctx := context.Background()
 		errA, errB := raceTwoOps(
@@ -183,7 +183,7 @@ func newTwoGlobalAdminGroupRoleFixture(t *testing.T, name string) (*core.Keyorix
 func TestConcurrency_RemoveRoleFromGroup_GlobalScope_ExactlyOneOfTwoAdminRoutesRemoved(t *testing.T) {
 	t.Parallel()
 	var bothGone, neitherGone, badErr int
-	for trial := 0; trial < lastAdminSweepTrials; trial++ {
+	for range lastAdminSweepTrials {
 		c, db := newTwoGlobalAdminGroupRoleFixture(t, "remove_role_from_group_global.db")
 		ctx := context.Background()
 		errA, errB := raceTwoOps(
@@ -308,7 +308,7 @@ func TestConcurrency_RemoveRoleFromGroup_ProjectScope_TOCTOU_Deterministic(t *te
 func TestConcurrency_PatchSCIMGroup_ExactlyOneOfTwoAdminRoutesRemoved(t *testing.T) {
 	t.Parallel()
 	var bothGone, neitherGone int
-	for trial := 0; trial < lastAdminSweepTrials; trial++ {
+	for range lastAdminSweepTrials {
 		c, db := newTwoGlobalAdminGroupMembershipFixture(t, "patch_scim_group.db")
 		ctx := context.Background()
 		_, _ = raceTwoOps(
@@ -332,7 +332,7 @@ func TestConcurrency_PatchSCIMGroup_ExactlyOneOfTwoAdminRoutesRemoved(t *testing
 func TestConcurrency_DeprovisionSCIMGroup_ExactlyOneOfTwoAdminGroupsRemoved(t *testing.T) {
 	t.Parallel()
 	var bothGone, neitherGone int
-	for trial := 0; trial < lastAdminSweepTrials; trial++ {
+	for range lastAdminSweepTrials {
 		c, db := newTwoGlobalAdminGroupMembershipFixture(t, "deprovision_scim_group.db")
 		ctx := context.Background()
 		_, _ = raceTwoOps(
@@ -392,7 +392,7 @@ func projectHasNoAdmin(db *gorm.DB, groupID uint) bool {
 func TestConcurrency_DeleteGroup_RemoveProjectMember_CrossPath_NeverStripsBothAdminRoutes(t *testing.T) {
 	t.Parallel()
 	var bothGone int
-	for trial := 0; trial < lastAdminSweepTrials; trial++ {
+	for range lastAdminSweepTrials {
 		c, db := newGroupVsDirectProjectAdminFixture(t, "deletegroup_vs_removeprojectmember.db")
 		ctx := context.Background()
 		_, _ = raceTwoOps(
@@ -512,7 +512,7 @@ func newGroupVsDirectGlobalAdminFixture(t *testing.T, name string) (*core.Keyori
 func TestConcurrency_RemoveUserFromGroup_DeleteUser_CrossPath_NeverStripsBothAdminRoutes(t *testing.T) {
 	t.Parallel()
 	var bothGone int
-	for trial := 0; trial < lastAdminSweepTrials; trial++ {
+	for range lastAdminSweepTrials {
 		c, db := newGroupVsDirectGlobalAdminFixture(t, "removeuserfromgroup_vs_deleteuser.db")
 		ctx := context.Background()
 		_, _ = raceTwoOps(

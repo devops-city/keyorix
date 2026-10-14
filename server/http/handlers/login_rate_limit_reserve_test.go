@@ -55,7 +55,7 @@ func runLoginBurst(t *testing.T, h *AuthHandler, ip string, burst int) (unauthor
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < burst; i++ {
+	for i := range burst {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -116,7 +116,7 @@ func TestLogin_ConcurrentBurst_RateLimitBoundsCredentialChecks(t *testing.T) {
 	h.Login(httptest.NewRecorder(), warmReq)
 
 	var totalUnauthorized, totalTooMany, totalOther int64
-	for round := 0; round < rounds; round++ {
+	for round := range rounds {
 		ip := fmt.Sprintf("203.0.113.%d", 100+round)
 		unauthorized, tooMany, other := runLoginBurst(t, h, ip, burst)
 		t.Logf("round=%d ip=%s unauthorized(reached credential check)=%d too_many_requests=%d other=%d",

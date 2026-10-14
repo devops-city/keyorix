@@ -13,6 +13,7 @@ package faultops
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 )
@@ -207,8 +208,8 @@ func TestWorldReuseSoundness(t *testing.T) {
 	t.Run("reversed", func(t *testing.T) {
 		ref := buildReusableFaultWorld(t, nil)
 		w := buildReusableFaultWorld(t, nil)
-		for i := len(inputs) - 1; i >= 0; i-- {
-			got := captureVerdict(t, "reused", inputs[i], ref, w)
+		for i, input := range slices.Backward(inputs) {
+			got := captureVerdict(t, "reused", input, ref, w)
 			want := baseline[i]
 			assertVerdictsMatch(t, i, "reversed", got, want)
 		}
@@ -320,13 +321,7 @@ func TestWorldReuseSoundness_CatchesPlantedStateLeak(t *testing.T) {
 		Scan(&sqliteTables).Error; err != nil {
 		t.Fatalf("list tables to verify the plant target exists: %v", err)
 	}
-	found := false
-	for _, tbl := range sqliteTables {
-		if tbl == "secret_versions" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(sqliteTables, "secret_versions")
 	if !found {
 		t.Fatalf("plant target table %q not found among real tables %v -- leakTableForTest would be a silent "+
 			"no-op, making this red-proof vacuous", "secret_versions", sqliteTables)

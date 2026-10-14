@@ -60,7 +60,7 @@ func (ls *LocalStorage) ListSecretTemplates(ctx context.Context) ([]*models.Secr
 // an Updates against a missing row matches nothing, where Save would upsert.
 func (ls *LocalStorage) UpdateSecretTemplateFields(ctx context.Context, id uint, f storage.SecretTemplateFieldUpdate, updatedAt time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.SecretTemplate{}).Where(sqlWhereID, id).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"name":                   f.Name,
 			"description":            f.Description,
 			"default_classification": f.DefaultClassification,

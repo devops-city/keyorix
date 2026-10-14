@@ -68,7 +68,7 @@ func bulkMachineWorld(t *testing.T, suffix, machineRole string) (*core.KeyorixCo
 func postBulkApproveAsMachine(t *testing.T, cs *core.KeyorixCore, machineID, requestID uint) *httptest.ResponseRecorder {
 	t.Helper()
 	h := NewCatalogHandler(cs)
-	body, err := json.Marshal(map[string]interface{}{"request_ids": []uint{requestID}})
+	body, err := json.Marshal(map[string]any{"request_ids": []uint{requestID}})
 	require.NoError(t, err)
 	req := httptest.NewRequest("POST", "/api/v1/access-requests/bulk-approve", bytes.NewReader(body))
 	req = req.WithContext(context.WithValue(req.Context(), middleware.GetUserContextKey(), &middleware.UserContext{
@@ -83,13 +83,13 @@ func postBulkApproveAsMachine(t *testing.T, cs *core.KeyorixCore, machineID, req
 
 // decodeBulkApproveFailures pulls the per-item errors out of the envelope the
 // handler returns, so an assertion can distinguish WHICH refusal happened.
-func decodeBulkApproveFailures(t *testing.T, w *httptest.ResponseRecorder) (approved []interface{}, failed []map[string]interface{}) {
+func decodeBulkApproveFailures(t *testing.T, w *httptest.ResponseRecorder) (approved []any, failed []map[string]any) {
 	t.Helper()
 	var env struct {
 		Data struct {
 			Result struct {
-				Approved []interface{}            `json:"approved"`
-				Failed   []map[string]interface{} `json:"failed"`
+				Approved []any            `json:"approved"`
+				Failed   []map[string]any `json:"failed"`
 			} `json:"result"`
 		} `json:"data"`
 	}

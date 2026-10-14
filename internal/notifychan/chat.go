@@ -169,14 +169,14 @@ func chatText(ev core.NotificationEvent) string {
 // user-controllable data (Title, Message) is mrkdwn-escaped (via chatText/
 // escapeMrkdwn) before it reaches either payload shape — Link is excluded because it
 // is always a server-generated path (e.g. "/secrets/%d"), never user input.
-func chatPayload(kind ChatKind, ev core.NotificationEvent) interface{} {
+func chatPayload(kind ChatKind, ev core.NotificationEvent) any {
 	text := chatText(ev)
 	if kind == ChatTeams {
 		title := ev.Title
 		if title == "" {
 			title = "Keyorix notification"
 		}
-		return map[string]interface{}{
+		return map[string]any{
 			"@type":    "MessageCard",
 			"@context": "https://schema.org/extensions",
 			"summary":  escapeMrkdwn(title),

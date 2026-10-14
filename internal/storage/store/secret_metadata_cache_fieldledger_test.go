@@ -61,11 +61,10 @@ func TestCacheEpochTrigger_FiresForEveryPersistedColumn(t *testing.T) {
 	ls := newCacheEpochTestStorage(t)
 	ctx := context.Background()
 
-	modelType := reflect.TypeOf(models.SecretNode{})
+	modelType := reflect.TypeFor[models.SecretNode]()
 	var skipped, checked []string
 
-	for i := 0; i < modelType.NumField(); i++ {
-		f := modelType.Field(i)
+	for f := range modelType.Fields() {
 		if reason, ok := nonUpdatableSecretNodeFields[f.Name]; ok {
 			require.NotEmpty(t, reason, "exclusion for %s needs a reason", f.Name)
 			skipped = append(skipped, f.Name)
@@ -150,7 +149,7 @@ func TestCacheEpochTrigger_FiresOncePerRowOnAMultiRowUpdate(t *testing.T) {
 	ctx := context.Background()
 
 	ids := make([]uint, 0, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		created, err := ls.CreateSecret(ctx, &models.SecretNode{
 			Name: fmt.Sprintf("multi-%d", i), ProjectID: 7, EnvironmentID: 1,
 			Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -217,18 +216,17 @@ var scheduleGenerationExcludedFields = map[string]string{
 
 func TestScheduleGeneration_CoversEveryPersistedScheduleField(t *testing.T) {
 	t.Parallel()
-	modelType := reflect.TypeOf(models.SecretAccessSchedule{})
-	genType := reflect.TypeOf(scheduleGeneration{})
+	modelType := reflect.TypeFor[models.SecretAccessSchedule]()
+	genType := reflect.TypeFor[scheduleGeneration]()
 
 	genNames := map[string]bool{}
-	for i := 0; i < genType.NumField(); i++ {
-		genNames[strings.TrimSuffix(strings.ToLower(genType.Field(i).Name), "unixnano")] = true
+	for field := range genType.Fields() {
+		genNames[strings.TrimSuffix(strings.ToLower(field.Name), "unixnano")] = true
 	}
 
 	var uncovered []string
 	seen := map[string]bool{}
-	for i := 0; i < modelType.NumField(); i++ {
-		f := modelType.Field(i)
+	for f := range modelType.Fields() {
 		seen[f.Name] = true
 		if reason, ok := scheduleGenerationExcludedFields[f.Name]; ok {
 			require.NotEmpty(t, reason, "exclusion for %s needs a reason", f.Name)
@@ -495,9 +493,7 @@ func TestSecretNodeCacheEpoch_ConcurrentEnsureNeverLeavesTheTableTriggerless(t *
 	errs := make(chan error, runners)
 
 	for range observers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -508,16 +504,14 @@ func TestSecretNodeCacheEpoch_ConcurrentEnsureNeverLeavesTheTableTriggerless(t *
 					absent.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	for range runners {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := EnsureSecretNodeCacheEpoch(db); err != nil {
 				errs <- err
 			}
-		}()
+		})
 	}
 	// The runners finish on their own; the observers run until told to stop.
 	wgRunnersDone := make(chan struct{})

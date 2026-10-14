@@ -85,11 +85,9 @@ func (f *ctaReview) sweepInInsertWindow(table string, sweep func()) (wait func()
 				sweep()
 				return
 			}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				sweep()
-			}()
+			})
 		})
 	}
 	require.NoError(f.t, f.dbA.Callback().Create().Before("gorm:begin_transaction").Register("cred-2701:before-create-"+table, fn))

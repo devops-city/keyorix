@@ -27,9 +27,9 @@ func TestMakeSystemInfoHandler_AccessLogStallModeReflectsConfig(t *testing.T) {
 			userCtxForTest(httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)))
 		require.Equal(t, http.StatusOK, rr.Code)
 
-		var resp map[string]interface{}
+		var resp map[string]any
 		require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-		security := resp["data"].(map[string]interface{})["security"].(map[string]interface{})
+		security := resp["data"].(map[string]any)["security"].(map[string]any)
 		assert.Equal(t, tc.want, security["access_log_on_sink_stall"], "configured %q", tc.configured)
 		dropped, present := security["access_log_dropped"]
 		require.True(t, present, "access_log_dropped must always be present")

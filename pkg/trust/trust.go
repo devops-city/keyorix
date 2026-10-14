@@ -156,7 +156,7 @@ func EncodePublicKeyBase64(pub ed25519.PublicKey) string {
 // format) into a key-id → public-key map. An empty spec yields an empty map (no trust).
 func parseKeySpec(spec string) (map[string]ed25519.PublicKey, error) {
 	out := make(map[string]ed25519.PublicKey)
-	for _, part := range strings.Split(spec, ",") {
+	for part := range strings.SplitSeq(spec, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue

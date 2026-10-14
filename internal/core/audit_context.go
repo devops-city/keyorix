@@ -239,10 +239,8 @@ func DrainBackgroundGoroutines() {
 }
 
 func goSafe(fn func()) {
-	goSafeWG.Add(1)
-	go func() {
-		defer goSafeWG.Done()
+	goSafeWG.Go(func() {
 		defer besteffort.RunRecover("core.goSafe")()
 		fn()
-	}()
+	})
 }

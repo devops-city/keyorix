@@ -108,8 +108,8 @@ func Classify(repoRoot string, entries []Entry) ([]Entry, error) {
 }
 
 func lastSegment(handler string) string {
-	if i := strings.LastIndex(handler, "."); i >= 0 {
-		return handler[i+1:]
+	if _, after, ok := strings.CutLast(handler, "."); ok {
+		return after
 	}
 	return handler
 }

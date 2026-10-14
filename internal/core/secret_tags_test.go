@@ -81,7 +81,7 @@ func TestSecretTags(t *testing.T) {
 
 	t.Run("too many tags are rejected", func(t *testing.T) {
 		many := make([]string, 0, 21)
-		for i := 0; i < 21; i++ {
+		for i := range 21 {
 			many = append(many, "tag-"+string(rune('a'+i)))
 		}
 		_, err := c.SetSecretTags(ctx, secret.ID, 1, many)

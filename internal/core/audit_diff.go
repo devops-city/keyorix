@@ -16,8 +16,8 @@ import (
 
 // fieldChange is one field's before→after in an audit diff.
 type fieldChange struct {
-	Before interface{} `json:"before,omitempty"`
-	After  interface{} `json:"after,omitempty"`
+	Before any `json:"before,omitempty"`
+	After  any `json:"after,omitempty"`
 	// Changed marks a sensitive field (the secret value) as modified without
 	// disclosing either side. Only set for the "value" entry.
 	Changed bool `json:"changed,omitempty"`
@@ -83,7 +83,7 @@ func eqIntPtr(a, b *int) bool {
 	return *a == *b
 }
 
-func intPtrVal(p *int) interface{} {
+func intPtrVal(p *int) any {
 	if p == nil {
 		return nil
 	}
@@ -97,7 +97,7 @@ func eqTimePtr(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-func timePtrVal(p *time.Time) interface{} {
+func timePtrVal(p *time.Time) any {
 	if p == nil {
 		return nil
 	}
@@ -123,6 +123,6 @@ func metadataMap(old models.JSON) map[string]string {
 }
 
 // metadataVal returns the "before" side of a metadata diff entry.
-func metadataVal(old models.JSON) interface{} {
+func metadataVal(old models.JSON) any {
 	return metadataMap(old)
 }

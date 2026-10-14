@@ -63,7 +63,7 @@ type namespaceScope struct {
 //     reads, at the call site, as correctly namespace-scoped.
 func resolveScope(watchNamespacesFlag string, allNamespacesFlag bool, podNamespaceEnv string) (namespaceScope, error) {
 	var watchNS []string
-	for _, ns := range strings.Split(watchNamespacesFlag, ",") {
+	for ns := range strings.SplitSeq(watchNamespacesFlag, ",") {
 		if ns = strings.TrimSpace(ns); ns != "" {
 			watchNS = append(watchNS, ns)
 		}
@@ -290,7 +290,7 @@ func main() {
 	}
 
 	var allowed []string
-	for _, s := range strings.Split(allowedServers, ",") {
+	for s := range strings.SplitSeq(allowedServers, ",") {
 		if s = strings.TrimSpace(s); s != "" {
 			allowed = append(allowed, s)
 		}

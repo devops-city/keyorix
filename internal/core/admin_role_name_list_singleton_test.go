@@ -178,7 +178,7 @@ func actualAdminRoleNameLiteralSites(t *testing.T) map[string]bool {
 			t.Fatalf("reading %s: %v", name, err)
 		}
 		currentDecl := ""
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			if m := adminNameDeclRe.FindStringSubmatch(line); m != nil {
 				currentDecl = m[1]
 			}

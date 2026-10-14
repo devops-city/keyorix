@@ -47,7 +47,7 @@ func relegacyChain(t *testing.T, db *gorm.DB) {
 		e.PrevHash = prev
 		entry := store.ComputeAuditEntryHashPre1452(&e, prev)
 		require.NoError(t, db.Model(&models.AuditEvent{}).Where("id = ?", e.ID).
-			Updates(map[string]interface{}{"prev_hash": prev, "entry_hash": entry}).Error)
+			Updates(map[string]any{"prev_hash": prev, "entry_hash": entry}).Error)
 		prev = entry
 	}
 	require.True(t, started, "fixture must contain at least one chained event to re-encode")
@@ -122,10 +122,10 @@ func TestMigrateAuditChainEncoding_Core_ReSignsAnchorAfterPurge(t *testing.T) {
 	ctx := context.Background()
 	c, db, fixed := newReanchorTestCore(t)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		logChainedEvent(t, c, "secret.read", fixed.AddDate(0, 0, -(40+i)))
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		logChainedEvent(t, c, "secret.updated", fixed.AddDate(0, 0, -1))
 	}
 

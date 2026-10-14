@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var sodMachineGrantModels = append(append([]interface{}{}, sodGrantModels...),
+var sodMachineGrantModels = append(append([]any{}, sodGrantModels...),
 	&models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.MachineIdentityCredential{})
 
 // TestConcurrency_AssignMachineRole_CrossReplicaPostgres_SoDBypass is GUARD-2's

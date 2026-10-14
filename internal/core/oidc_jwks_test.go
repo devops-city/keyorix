@@ -29,7 +29,7 @@ func TestHTTPJWKSResolver_FetchAndCache(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits++
 		eBytes := big.NewInt(int64(pub.E)).Bytes()
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{{
 				"kty": "RSA", "kid": "k1", "use": "sig",
 				"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
@@ -77,7 +77,7 @@ func TestHTTPJWKSResolver_StaleFallbackBounded(t *testing.T) {
 	seedCache := func(age time.Duration) {
 		r.mu.Lock()
 		r.cache["https://iss"] = &jwksEntry{
-			keys:      map[string]interface{}{"k1": &key.PublicKey},
+			keys:      map[string]any{"k1": &key.PublicKey},
 			fetchedAt: time.Now().Add(-age),
 		}
 		r.mu.Unlock()
@@ -106,7 +106,7 @@ func TestHTTPJWKSResolver_UnknownKidRefetchRateLimited(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits++
 		eBytes := big.NewInt(int64(pub.E)).Bytes()
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{{
 				"kty": "RSA", "kid": "k1", "use": "sig",
 				"n": base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
@@ -126,7 +126,7 @@ func TestHTTPJWKSResolver_UnknownKidRefetchRateLimited(t *testing.T) {
 	// A flood of distinct unknown kids on the now-fresh cache: the first one is
 	// allowed to refetch (rotation), the rest within the interval are rejected
 	// without any outbound fetch.
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		_, _ = r.Key(context.Background(), "https://iss", "bogus-kid")
 	}
 	assert.LessOrEqual(t, hits, 2, "bogus-kid flood must not amplify into a fetch storm")
@@ -157,7 +157,7 @@ func TestHTTPJWKSResolver_StaleRefetchRateLimited(t *testing.T) {
 	seedStaleCache := func() {
 		r.mu.Lock()
 		r.cache["https://iss"] = &jwksEntry{
-			keys:      map[string]interface{}{"k1": &key.PublicKey},
+			keys:      map[string]any{"k1": &key.PublicKey},
 			fetchedAt: time.Now().Add(-(jwksCacheTTL + time.Minute)), // stale, still within grace
 		}
 		r.mu.Unlock()
@@ -173,7 +173,7 @@ func TestHTTPJWKSResolver_StaleRefetchRateLimited(t *testing.T) {
 
 	// A flood of further calls immediately after: all within jwksMinRefetchInterval
 	// of the first attempt, so none should reach the server again.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		_, _ = r.Key(context.Background(), "https://iss", "k1")
 	}
 	assert.Equal(t, 1, hits, "repeated calls on a still-rate-limited stale cache must not amplify into a fetch storm")
@@ -216,7 +216,7 @@ func TestHTTPJWKSResolver_ColdCacheRefetchRateLimited(t *testing.T) {
 	// populated: all within jwksMinRefetchInterval of the first attempt, so none
 	// should reach the server again. This is exactly the bug: entry stays nil
 	// forever here, so the old `entry != nil` gate condition never engaged.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		_, err := r.Key(context.Background(), "https://iss", "k1")
 		require.Error(t, err, "a rate-limited cold cache must fail closed, never return a bypassed result")
 	}
@@ -244,7 +244,7 @@ func TestHTTPJWKSResolver_CapsKeyCount(t *testing.T) {
 	// populated), observed as an intermittent flake. Precomputing removes the
 	// timing dependency: the handler now does pure, fast JSON encoding.
 	keys := make([]map[string]string, 0, maxJWKSKeys+20)
-	for i := 0; i < maxJWKSKeys+20; i++ {
+	for i := range maxJWKSKeys + 20 {
 		k, err := rsa.GenerateKey(rand.Reader, 2048)
 		require.NoError(t, err)
 		pub := &k.PublicKey
@@ -255,7 +255,7 @@ func TestHTTPJWKSResolver_CapsKeyCount(t *testing.T) {
 		})
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"keys": keys})
+		_ = json.NewEncoder(w).Encode(map[string]any{"keys": keys})
 	}))
 	defer srv.Close()
 	r, err := NewHTTPJWKSResolver(map[string]string{"https://iss": srv.URL})
@@ -308,7 +308,7 @@ func TestHTTPJWKSResolver_RejectsOversizedRSAKeyInJWKS(t *testing.T) {
 	nBytes[0] |= 0x80
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{{
 				"kty": "RSA", "kid": "oversized", "use": "sig",
 				"n": base64.RawURLEncoding.EncodeToString(nBytes),
@@ -382,7 +382,7 @@ func TestHTTPJWKSResolver_RejectsOversizedRSAKey(t *testing.T) {
 	t.Parallel()
 	huge := syntheticRSAModulus(1 << 20) // ~1M bits
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{{
 				"kty": "RSA", "kid": "huge", "use": "sig",
 				"n": base64.RawURLEncoding.EncodeToString(huge.Bytes()),
@@ -442,7 +442,7 @@ func TestHTTPJWKSResolver_RejectsOversizedRSAExponentInJWKS(t *testing.T) {
 	hugeE := new(big.Int).Lsh(big.NewInt(1), 62)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"keys": []map[string]string{{
 				"kty": "RSA", "kid": "huge-exponent", "use": "sig",
 				"n": base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes()),

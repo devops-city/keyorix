@@ -119,7 +119,7 @@ func buildPATLifecycleFixture(t *testing.T) (*KeyorixCore, []patLifecycleFixture
 	ls := store.NewLocalStorage(db)
 	ctx := context.Background()
 
-	mustCreate := func(v interface{}) {
+	mustCreate := func(v any) {
 		if err := db.Create(v).Error; err != nil {
 			t.Fatalf("seed %T: %v", v, err)
 		}

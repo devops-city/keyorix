@@ -674,7 +674,7 @@ func TestAuthenticationConcurrency(t *testing.T) {
 	const numGoroutines = 100
 	results := make(chan int, numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		go func() {
 			req := httptest.NewRequest(http.MethodGet, "/test", nil)
 			req.Header.Set("Authorization", "Bearer valid-token")
@@ -685,7 +685,7 @@ func TestAuthenticationConcurrency(t *testing.T) {
 	}
 
 	successCount := 0
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		code := <-results
 		if code == http.StatusOK {
 			successCount++
@@ -992,7 +992,7 @@ func TestPruneLocked_EnforcesSizeCap(t *testing.T) {
 		delete(tokenCache, k)
 	}
 	far := time.Now().Add(time.Hour)
-	for i := 0; i < maxTokenCacheEntries+1000; i++ {
+	for i := range maxTokenCacheEntries + 1000 {
 		tokenCache[tokenKey(string(rune(i))+"-x-"+time.Now().String()+string(rune(i)))] = tokenCacheEntry{expiresAt: far}
 	}
 	pruneLocked()

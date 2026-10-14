@@ -88,7 +88,7 @@ func TestGetProject_DBErrorSanitizedInResponseButLoggedForOperators(t *testing.T
 
 	// --- Client-facing half: the raw DB error must NOT reach the response. ---
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	msg, _ := resp["message"].(string)
 	assert.NotEmpty(t, msg)

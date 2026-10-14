@@ -28,7 +28,7 @@ import (
 // signWithHeaderOverride signs claims normally (RS256, trustedKid) and then
 // sets one extra/overridden JOSE header field — used to probe typ/crit, which
 // signJWTViolation has no notion of (those aren't claim or alg/kid concerns).
-func signWithHeaderOverride(t *testing.T, claims jwt.MapClaims, rsaKey *rsa.PrivateKey, trustedKid, headerKey string, headerVal interface{}) string {
+func signWithHeaderOverride(t *testing.T, claims jwt.MapClaims, rsaKey *rsa.PrivateKey, trustedKid, headerKey string, headerVal any) string {
 	t.Helper()
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	tok.Header["kid"] = trustedKid

@@ -77,7 +77,7 @@ func (ls *LocalStorage) UpdateDynamicSecretConfig(ctx context.Context, c *models
 // (DeleteProject's #369 disabled=true above all) are never overwritten.
 func (ls *LocalStorage) SetDynamicSecretConfigAdminDSN(ctx context.Context, id uint, enc, meta []byte) error {
 	res := ls.db.WithContext(ctx).Model(&models.DynamicSecretConfig{}).Where("id = ?", id).
-		Updates(map[string]interface{}{"admin_dsn_enc": enc, "admin_dsn_meta": meta, "updated_at": time.Now()})
+		Updates(map[string]any{"admin_dsn_enc": enc, "admin_dsn_meta": meta, "updated_at": time.Now()})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -98,7 +98,7 @@ func (ls *LocalStorage) SetDynamicSecretConfigAdminDSN(ctx context.Context, id u
 func (ls *LocalStorage) SetDynamicSecretConfigClassification(ctx context.Context, id uint, fromClassification, toClassification string, updatedAt time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.DynamicSecretConfig{}).
 		Where("id = ? AND COALESCE(classification, '') = ?", id, fromClassification).
-		Updates(map[string]interface{}{"classification": toClassification, "updated_at": updatedAt})
+		Updates(map[string]any{"classification": toClassification, "updated_at": updatedAt})
 	if res.Error != nil {
 		return false, res.Error
 	}
@@ -119,7 +119,7 @@ func (ls *LocalStorage) SetDynamicSecretConfigClassification(ctx context.Context
 func (ls *LocalStorage) ExtendDynamicSecretLeaseExpiry(ctx context.Context, leaseID string, newExpiry time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.DynamicSecretLease{}).
 		Where("lease_id = ? AND status = ?", leaseID, "active").
-		Updates(map[string]interface{}{"expires_at": newExpiry.UTC()})
+		Updates(map[string]any{"expires_at": newExpiry.UTC()})
 	if res.Error != nil {
 		return false, res.Error
 	}
@@ -141,7 +141,7 @@ func (ls *LocalStorage) ExtendDynamicSecretLeaseExpiry(ctx context.Context, leas
 func (ls *LocalStorage) RecordDynamicSecretLeaseRevocation(ctx context.Context, leaseID, status, revokeReason, revokeError string, revokedAt *time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.DynamicSecretLease{}).
 		Where("lease_id = ?", leaseID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"status":        status,
 			"revoke_reason": revokeReason,
 			"revoke_error":  revokeError,

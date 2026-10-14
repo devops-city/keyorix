@@ -28,7 +28,7 @@ func newAuditRetentionHandler(t *testing.T) *AdminJobsHandler {
 }
 
 // postPurgeAuditLogs sends a POST request directly to PurgeAuditLogsJob.
-func postPurgeAuditLogs(h http.HandlerFunc, body interface{}, auth bool) *httptest.ResponseRecorder {
+func postPurgeAuditLogs(h http.HandlerFunc, body any, auth bool) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
 		_ = json.NewEncoder(&buf).Encode(body)
@@ -47,7 +47,7 @@ func postPurgeAuditLogs(h http.HandlerFunc, body interface{}, auth bool) *httpte
 func TestPurgeAuditLogsHandler_HappyPath(t *testing.T) {
 	h := newAuditRetentionHandler(t)
 	w := postPurgeAuditLogs(h.PurgeAuditLogsJob,
-		map[string]interface{}{"retention_days": 30}, true)
+		map[string]any{"retention_days": 30}, true)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
@@ -61,7 +61,7 @@ func TestPurgeAuditLogsHandler_BelowMinimum(t *testing.T) {
 
 	for _, days := range []int{0, 1, 6} {
 		w := postPurgeAuditLogs(h.PurgeAuditLogsJob,
-			map[string]interface{}{"retention_days": days}, true)
+			map[string]any{"retention_days": days}, true)
 		assert.Equal(t, http.StatusBadRequest, w.Code, "days=%d should return 400", days)
 	}
 }
@@ -70,7 +70,7 @@ func TestPurgeAuditLogsHandler_BelowMinimum(t *testing.T) {
 func TestPurgeAuditLogsHandler_RequiresAuth(t *testing.T) {
 	h := newAuditRetentionHandler(t)
 	w := postPurgeAuditLogs(h.PurgeAuditLogsJob,
-		map[string]interface{}{"retention_days": 30}, false)
+		map[string]any{"retention_days": 30}, false)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
@@ -100,6 +100,6 @@ func TestPurgeAuditLogsHandler_StorageError(t *testing.T) {
 	require.NoError(t, sqlDB.Close())
 
 	w := postPurgeAuditLogs(h.PurgeAuditLogsJob,
-		map[string]interface{}{"retention_days": 30}, true)
+		map[string]any{"retention_days": 30}, true)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

@@ -169,17 +169,15 @@ func TestFixFilePerms_TOCTOUSymlinkSwapNeverFollowed(t *testing.T) {
 	spec := FilePermSpec{Path: path, Mode: 0600}
 
 	const iterations = 500
-	var stop int32
+	var stop atomic.Int32
 
 	// require/assert's fatal ("FailNow") helpers are documented as unsafe to call
 	// from a goroutine other than the test's own, so this goroutine reports setup
 	// failures via plain t.Errorf (safe for concurrent use) instead of require.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer atomic.StoreInt32(&stop, 1)
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		defer stop.Store(1)
+		for range iterations {
 			// Swing path to a regular (wrong-mode) file via an atomic rename.
 			tmp := path + ".regular"
 			if err := os.WriteFile(tmp, []byte("x"), 0644); err != nil {
@@ -205,9 +203,9 @@ func TestFixFilePerms_TOCTOUSymlinkSwapNeverFollowed(t *testing.T) {
 				return
 			}
 		}
-	}()
+	})
 
-	for atomic.LoadInt32(&stop) == 0 {
+	for stop.Load() == 0 {
 		_ = FixFilePerms([]FilePermSpec{spec}, true) // result ignored — either outcome (fixed regular file, or refused symlink) is valid
 	}
 	wg.Wait()

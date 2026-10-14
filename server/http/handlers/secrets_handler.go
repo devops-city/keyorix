@@ -44,11 +44,11 @@ func NewSecretHandler(coreService *core.KeyorixCore) (*SecretHandler, error) {
 // parse-failure fallback (see helpers.go's sendError doc comment) to end up
 // correct.
 type ErrorResponse struct {
-	Success bool        `json:"success"`
-	Error   string      `json:"error"`
-	Message string      `json:"message"`
-	Code    int         `json:"code"`
-	Details interface{} `json:"details,omitempty"`
+	Success bool   `json:"success"`
+	Error   string `json:"error"`
+	Message string `json:"message"`
+	Code    int    `json:"code"`
+	Details any    `json:"details,omitempty"`
 }
 
 // SuccessResponse is the standard success envelope returned on 2xx responses.
@@ -60,13 +60,13 @@ type ErrorResponse struct {
 // for every genuinely successful response, misreporting every proxied
 // read/write as a failure.
 type SuccessResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data"`
-	Message string      `json:"message,omitempty"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data"`
+	Message string `json:"message,omitempty"`
 }
 
 // sendSuccess writes a 200 JSON response with the SuccessResponse envelope.
-func (h *SecretHandler) sendSuccess(w http.ResponseWriter, data interface{}, message string) {
+func (h *SecretHandler) sendSuccess(w http.ResponseWriter, data any, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := encodeJSONResponse(w, SuccessResponse{Success: true, Data: data, Message: message}); err != nil {
@@ -76,7 +76,7 @@ func (h *SecretHandler) sendSuccess(w http.ResponseWriter, data interface{}, mes
 }
 
 // sendError writes an error JSON response with the given status code.
-func (h *SecretHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details interface{}) {
+func (h *SecretHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)

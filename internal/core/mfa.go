@@ -906,7 +906,7 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 // generateRecoveryCodes returns n human-friendly codes and their SHA-256 hashes.
 func generateRecoveryCodes(n int) (codes, hashes []string, err error) {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no ambiguous 0/O/1/I
-	for i := 0; i < n; i++ {
+	for range n {
 		b := make([]byte, 10)
 		if _, err := rand.Read(b); err != nil {
 			return nil, nil, err

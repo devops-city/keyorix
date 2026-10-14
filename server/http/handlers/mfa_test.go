@@ -52,7 +52,7 @@ func assertNoRawDBLeak(t *testing.T, w *httptest.ResponseRecorder, logBuf *bytes
 	assert.NotContains(t, body, "no such table")
 	assert.NotContains(t, body, droppedTable)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	msg, _ := resp["message"].(string)
 	assert.NotEmpty(t, msg)

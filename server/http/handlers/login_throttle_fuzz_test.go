@@ -370,7 +370,7 @@ func checkLTAccountLockoutNeverBypassed(t *testing.T, h *AuthHandler, c *core.Ke
 	const ip = "203.0.113.77" // dedicated -- never touched by the op-sequence loop's IPs
 
 	tripLockout := func(username string, portBase int) {
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			body := fmt.Sprintf(`{"username":%q,"password":"definitely-wrong"}`, username)
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
 			req.RemoteAddr = fmt.Sprintf("%s:%d", ip, portBase+i)

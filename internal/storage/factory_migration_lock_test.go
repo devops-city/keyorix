@@ -30,7 +30,7 @@ func TestConcurrentCreateStorage_NoMigrationRace(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make([]error, n)
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

@@ -26,7 +26,7 @@ func TestMetricsInterceptor_CountsSuccessAndError(t *testing.T) {
 
 	// A successful call.
 	_, err := interceptor(context.Background(), nil, info,
-		func(_ context.Context, _ interface{}) (interface{}, error) {
+		func(_ context.Context, _ any) (any, error) {
 			time.Sleep(time.Millisecond) // #2927: keep duration above clock resolution
 			return "ok", nil
 		})
@@ -36,7 +36,7 @@ func TestMetricsInterceptor_CountsSuccessAndError(t *testing.T) {
 
 	// A failing call.
 	_, err = interceptor(context.Background(), nil, info,
-		func(_ context.Context, _ interface{}) (interface{}, error) {
+		func(_ context.Context, _ any) (any, error) {
 			return nil, errors.New("fail")
 		})
 	if err == nil {
@@ -77,7 +77,7 @@ func TestMetricsInterceptor_UsesSharedGlobalSingleton(t *testing.T) {
 	// in the interceptor, and not shared state: the delta arithmetic here is
 	// already immune to other tests' writes.
 	_, err := interceptor(context.Background(), nil, info,
-		func(_ context.Context, _ interface{}) (interface{}, error) {
+		func(_ context.Context, _ any) (any, error) {
 			time.Sleep(time.Millisecond)
 			return "ok", nil
 		})
@@ -85,7 +85,7 @@ func TestMetricsInterceptor_UsesSharedGlobalSingleton(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	_, err = interceptor(context.Background(), nil, info,
-		func(_ context.Context, _ interface{}) (interface{}, error) {
+		func(_ context.Context, _ any) (any, error) {
 			time.Sleep(time.Millisecond)
 			return nil, errors.New("fail")
 		})

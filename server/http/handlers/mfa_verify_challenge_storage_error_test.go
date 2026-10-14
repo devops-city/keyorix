@@ -50,7 +50,7 @@ func TestVerifyMFA_ChallengeConsumeStorageError_DoesNotSpendTheIPAttemptBudget(t
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code,
 		"a storage error before the code was ever checked must be a retryable 503, not a 401 claiming the credential was wrong")
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, errMFAVerificationUnavailable, body["message"],
 		"the client must get the fixed retry message, never the underlying storage error")

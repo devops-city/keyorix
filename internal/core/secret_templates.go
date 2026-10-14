@@ -253,8 +253,8 @@ func (c *KeyorixCore) ApplyTemplate(ctx context.Context, templateID uint, classi
 		result.Description = tmpl.DescriptionPattern
 	}
 	if len(result.Tags) == 0 && tmpl.DefaultTags != "" {
-		parts := strings.Split(tmpl.DefaultTags, ",")
-		for _, p := range parts {
+		parts := strings.SplitSeq(tmpl.DefaultTags, ",")
+		for p := range parts {
 			p = strings.TrimSpace(p)
 			if p != "" {
 				result.Tags = append(result.Tags, p)

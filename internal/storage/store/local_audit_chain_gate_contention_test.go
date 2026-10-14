@@ -122,7 +122,7 @@ func TestCommitAuditBatch_GateContentionFailsTheBatchWithoutBisecting(t *testing
 	base := time.Now().UTC()
 	const n = 5
 	batch := make([]*auditBatchItem, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tr := true
 		// A ctx with a LIVE deadline, which is the premise that makes the
 		// amplification possible: the old doc comment's "every leaf fails
@@ -192,7 +192,7 @@ func TestCommitAuditBatch_StillBisectsAPoisonedItemUnderContentionsSibling(t *te
 	const n = 4
 	const poisoned = 1
 	batch := make([]*auditBatchItem, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tr := true
 		desc := "ok"
 		if i == poisoned {
@@ -251,7 +251,7 @@ func TestCommitAuditBatch_GateWaitEndedByCtxDeadlineIsAlsoBatchGlobal(t *testing
 	base := time.Now().UTC()
 	const n = 5
 	batch := make([]*auditBatchItem, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		tr := true
 		itemCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Minute))
 		t.Cleanup(cancel)

@@ -170,7 +170,7 @@ func TestCTAReview_BreakGlassActivate_vs_Revoke_CrossReplicaPostgres(t *testing.
 	// for a reason unrelated to the race.
 	const iterations = 12
 	asserted := 0
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		u := f.user(breakGlassIterUser(i), breakGlassMemberRole)
 
 		var wg sync.WaitGroup

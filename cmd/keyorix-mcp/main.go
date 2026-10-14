@@ -83,7 +83,7 @@ func resolveAllowedRefs(raw string) ([]string, error) {
 		return nil, nil
 	}
 	var patterns []string
-	for _, p := range strings.Split(raw, ",") {
+	for p := range strings.SplitSeq(raw, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			patterns = append(patterns, p)
 		}

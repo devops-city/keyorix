@@ -23,7 +23,7 @@ func (h *CatalogHandler) ListProjectMembers(w http.ResponseWriter, r *http.Reque
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"members": members}, "")
+	sendSuccess(w, map[string]any{"members": members}, "")
 }
 
 // GetProjectAccessReview handles GET /api/v1/projects/{id}/access-review — the
@@ -43,7 +43,7 @@ func (h *CatalogHandler) GetProjectAccessReview(w http.ResponseWriter, r *http.R
 	// #453: degraded/degraded_reasons must reach API consumers — a report whose
 	// dormant-access annotation silently failed would otherwise look identical to
 	// one where every entry genuinely has no recorded access.
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"entries":          report.Entries,
 		"count":            len(report.Entries),
 		"degraded":         report.Degraded,

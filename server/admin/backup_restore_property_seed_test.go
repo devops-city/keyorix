@@ -34,7 +34,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage"
 )
 
-var propertySeedCounter int64
+var propertySeedCounter atomic.Int64
 
 // propertySeedBaseTime anchors every seeded CreatedAt/UpdatedAt -- fixed
 // rather than time.Now() so a test failure is reproducible byte-for-byte,
@@ -63,8 +63,8 @@ func propertySeedOverrideValue(model, field string, n int64) (any, bool) {
 	return nil, false
 }
 
-var deletedAtType = reflect.TypeOf(gorm.DeletedAt{})
-var timeTimeType = reflect.TypeOf(time.Time{})
+var deletedAtType = reflect.TypeFor[gorm.DeletedAt]()
+var timeTimeType = reflect.TypeFor[time.Time]()
 
 // setIntLikeField sets fv (a uint/int kind, or pointer to one) to id --
 // used both for FK columns (id = the referenced parent's real primary key)
@@ -167,7 +167,7 @@ func seedOneRowPerModel(t *testing.T, db *gorm.DB) map[string]int64 {
 				continue // zero value = not soft-deleted, the correct default
 			}
 
-			n := atomic.AddInt64(&propertySeedCounter, 1)
+			n := propertySeedCounter.Add(1)
 
 			if ov, ok := propertySeedOverrideValue(modelName, f.Name, n); ok {
 				v.Field(i).Set(reflect.ValueOf(ov))

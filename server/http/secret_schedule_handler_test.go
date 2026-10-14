@@ -18,7 +18,7 @@ import (
 // createScheduleTestSecret POSTs to /api/v1/secrets and returns the created secret's ID.
 func createScheduleTestSecret(t *testing.T, client *http.Client, baseURL, token string) uint {
 	t.Helper()
-	secretData := map[string]interface{}{
+	secretData := map[string]any{
 		"name":           "schedule-test-secret",
 		"value":          "secret-value",
 		"project_id":     1,
@@ -38,10 +38,10 @@ func createScheduleTestSecret(t *testing.T, client *http.Client, baseURL, token 
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "createScheduleTestSecret: POST /api/v1/secrets must return 201")
 
-	var response map[string]interface{}
+	var response map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&response))
 	require.NotNil(t, response["data"], "createScheduleTestSecret: response must contain data")
-	data := response["data"].(map[string]interface{})
+	data := response["data"].(map[string]any)
 	return uint(data["id"].(float64))
 }
 
@@ -92,10 +92,10 @@ func TestSecretSchedule_SetAndGet(t *testing.T) {
 	defer func() { _ = resp2.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp2.StatusCode, "GET schedule must return 200 after PUT")
 
-	var getResp map[string]interface{}
+	var getResp map[string]any
 	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&getResp))
 	require.NotNil(t, getResp["data"], "GET schedule response must contain data")
-	data := getResp["data"].(map[string]interface{})
+	data := getResp["data"].(map[string]any)
 	assert.Equal(t, "1,2,3,4,5", data["allowed_days"])
 	assert.Equal(t, float64(9), data["start_hour"])
 	assert.Equal(t, float64(17), data["end_hour"])

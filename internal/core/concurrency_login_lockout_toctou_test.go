@@ -44,7 +44,7 @@ func (s *raceInjectingStorage) GetUserByUsername(ctx context.Context, username s
 	if !s.injected {
 		s.injected = true
 		if err := s.db.Model(&models.User{}).Where("id = ?", user.ID).
-			Updates(map[string]interface{}{
+			Updates(map[string]any{
 				"login_locked_until":  s.lockUntil,
 				"login_lockout_count": 1,
 			}).Error; err != nil {
@@ -139,17 +139,13 @@ func TestConcurrency_LoginLockout_MixedBurstCorrectPasswordAmongLockedNeverMints
 	var successCount int32
 	var mu sync.Mutex
 
-	for i := 0; i < wrongAttackers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range wrongAttackers {
+		wg.Go(func() {
 			<-start
 			_, _, _ = c.Login(context.Background(), &core.LoginRequest{Username: "alice", Password: "wrong"})
-		}()
+		})
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		session, _, err := c.Login(context.Background(), &core.LoginRequest{Username: "alice", Password: password})
 		if err == nil {
@@ -161,7 +157,7 @@ func TestConcurrency_LoginLockout_MixedBurstCorrectPasswordAmongLockedNeverMints
 			assert.Contains(t, err.Error(), "locked",
 				"the only way the correct password can fail here is the lockout gate")
 		}
-	}()
+	})
 	close(start)
 	wg.Wait()
 

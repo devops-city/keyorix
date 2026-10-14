@@ -52,7 +52,7 @@ func seedReadableProject(t *testing.T, db *gorm.DB, projectID uint, name, prefix
 	envID := projectID * 100
 	require.NoError(t, db.Create(&models.Environment{ID: envID, ProjectID: projectID, Name: "prod"}).Error)
 	require.NoError(t, db.Create(&models.UserRole{UserID: 1, RoleID: 1, ProjectID: projectID}).Error)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		require.NoError(t, db.Create(&models.SecretNode{
 			Name: fmt.Sprintf("%s-%02d", prefix, i), ProjectID: projectID, EnvironmentID: envID,
 			IsSecret: true, CreatedBy: "someone-else", OwnerID: 999,

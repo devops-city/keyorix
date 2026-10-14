@@ -19,7 +19,7 @@ import (
 // return 201 or the response cannot be decoded.
 func createIntegrationTestSecret(t *testing.T, client *http.Client, baseURL, token, name string) uint {
 	t.Helper()
-	secretData := map[string]interface{}{
+	secretData := map[string]any{
 		"name":           name,
 		"value":          "secret-value-for-" + name,
 		"project_id":     1,
@@ -44,10 +44,10 @@ func createIntegrationTestSecret(t *testing.T, client *http.Client, baseURL, tok
 
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "expected 201 from POST /api/v1/secrets")
 
-	var response map[string]interface{}
+	var response map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&response))
 
-	data, ok := response["data"].(map[string]interface{})
+	data, ok := response["data"].(map[string]any)
 	require.True(t, ok, "response.data must be an object")
 
 	id, ok := data["id"].(float64)
@@ -59,7 +59,7 @@ func createIntegrationTestSecret(t *testing.T, client *http.Client, baseURL, tok
 // version. It fails the test immediately if the update does not return 200.
 func updateIntegrationTestSecret(t *testing.T, client *http.Client, baseURL, token string, secretID uint, newValue string) {
 	t.Helper()
-	updateData := map[string]interface{}{
+	updateData := map[string]any{
 		"value": newValue,
 	}
 	body, err := json.Marshal(updateData)
@@ -137,10 +137,10 @@ func TestDiffSecretVersions_AfterUpdate(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response.data must be an object")
 
 	assert.Equal(t, float64(1), data["from_version"])
@@ -238,10 +238,10 @@ func TestDiffSecretVersions_ResponseShape(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response.data must be an object")
 
 	assert.Contains(t, data, "secret_id", "response.data must contain secret_id")
@@ -252,7 +252,7 @@ func TestDiffSecretVersions_ResponseShape(t *testing.T) {
 	// encoding/json with no omitempty tag). Both nil and []interface{} are valid.
 	changesRaw := data["changes"]
 	if changesRaw != nil {
-		_, ok = changesRaw.([]interface{})
+		_, ok = changesRaw.([]any)
 		assert.True(t, ok, "response.data.changes must be an array when non-null")
 	}
 

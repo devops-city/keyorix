@@ -3,6 +3,7 @@ package accessplan
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/migrate/internal/healthscan"
@@ -175,12 +176,7 @@ func BuildKubernetesItems(roles []healthscan.KubernetesAuthRoleConfig, allPolici
 }
 
 func containsLiteral(values []string, want string) bool {
-	for _, v := range values {
-		if v == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 // BuildUserpassItems always reports Unmappable (ADR-114: userpass passwords are never

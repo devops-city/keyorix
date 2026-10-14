@@ -21,22 +21,18 @@ func TestSetBcryptCostForTesting_ConcurrentWithReads(t *testing.T) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			<-start
 			SetBcryptCostForTesting(bcrypt.MinCost)
-		}()
+		})
 	}
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			<-start
 			_, _ = bcrypt.GenerateFromPassword([]byte("probe"), int(bcryptCost.Load()))
 			_ = bcrypt.CompareHashAndPassword(*dummyBcryptHash.Load(), []byte("probe"))
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

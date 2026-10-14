@@ -95,7 +95,7 @@ func adminBinInvocations(t *testing.T, rel string, fencedOnly bool) [][]string {
 
 	var out [][]string
 	inFence := false
-	for _, line := range strings.Split(joined, "\n") {
+	for line := range strings.SplitSeq(joined, "\n") {
 		line = strings.TrimSpace(line)
 		line = strings.TrimSpace(strings.TrimPrefix(line, ">")) // a fence inside a blockquote
 		if strings.HasPrefix(line, "```") {

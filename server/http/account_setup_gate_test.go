@@ -79,12 +79,12 @@ func newSetupGateEnvWrapped(t *testing.T, wrap func(storage.Storage) storage.Sto
 
 type setupGateResp struct {
 	status int
-	body   map[string]interface{}
+	body   map[string]any
 	raw    string
 	header http.Header
 }
 
-func (e *setupGateEnv) do(method, path, token string, body interface{}) setupGateResp {
+func (e *setupGateEnv) do(method, path, token string, body any) setupGateResp {
 	e.t.Helper()
 	var rd *bytes.Reader
 	if body != nil {
@@ -110,13 +110,13 @@ func (e *setupGateEnv) do(method, path, token string, body interface{}) setupGat
 	return out
 }
 
-func (r setupGateResp) data() map[string]interface{} {
-	d, _ := r.body["data"].(map[string]interface{})
+func (r setupGateResp) data() map[string]any {
+	d, _ := r.body["data"].(map[string]any)
 	return d
 }
 
 func (r setupGateResp) pendingSteps() []string {
-	raw, _ := r.body["pending_steps"].([]interface{})
+	raw, _ := r.body["pending_steps"].([]any)
 	out := make([]string, 0, len(raw))
 	for _, s := range raw {
 		if str, ok := s.(string); ok {
@@ -150,7 +150,7 @@ func (e *setupGateEnv) enrolTOTP(token, password string) (recoveryCode string, a
 	require.NoError(e.t, err)
 	activate = e.do(http.MethodPost, "/api/v1/auth/mfa/activate", token, map[string]string{"code": code, "password": password})
 	require.Equal(e.t, http.StatusOK, activate.status, "mfa activate: %s", activate.raw)
-	codes, _ := activate.data()["recovery_codes"].([]interface{})
+	codes, _ := activate.data()["recovery_codes"].([]any)
 	require.NotEmpty(e.t, codes)
 	recoveryCode, _ = codes[0].(string)
 	return recoveryCode, activate

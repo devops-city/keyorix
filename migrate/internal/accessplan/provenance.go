@@ -24,7 +24,7 @@ func FormatProvenanceLine(key string) string {
 // provenance line at all, or the migration tool never wrote one, both of which Reconcile treats
 // identically: "something this tool did not create."
 func ParseProvenanceKey(description string) (key string, found bool) {
-	for _, line := range strings.Split(description, "\n") {
+	for line := range strings.SplitSeq(description, "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, provenanceLinePrefix); ok {
 			return strings.TrimSpace(rest), true

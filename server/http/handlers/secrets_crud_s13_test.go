@@ -189,7 +189,7 @@ func TestUpdateSecret_NoUserCtx_S13(t *testing.T) {
 func TestUpdateSecret_ValidationError_S13(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS13(t)
 	zero := 0
-	body, _ := json.Marshal(map[string]interface{}{"max_reads": zero})
+	body, _ := json.Marshal(map[string]any{"max_reads": zero})
 	r := withAdminCtxS13(withChiParam(
 		httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/secrets/%d", secret.ID), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", secret.ID),
@@ -206,7 +206,7 @@ func TestUpdateSecret_ValidationError_S13(t *testing.T) {
 // clear_expiration are set (mutually exclusive).
 func TestUpdateSecret_ExpirationConflict_S13(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS13(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"expiration":       "2030-01-01T00:00:00Z",
 		"clear_expiration": true,
 	})
@@ -226,7 +226,7 @@ func TestUpdateSecret_ExpirationConflict_S13(t *testing.T) {
 // string is not RFC3339.
 func TestUpdateSecret_BadExpirationFormat_S13(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS13(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"expiration": "not-a-date",
 	})
 	r := withAdminCtxS13(withChiParam(
@@ -245,7 +245,7 @@ func TestUpdateSecret_BadExpirationFormat_S13(t *testing.T) {
 // covering the goSafe audit call and sendSuccess.
 func TestUpdateSecret_Success_S13(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS13(t)
-	body, _ := json.Marshal(map[string]interface{}{"value": "updated-value-s13"})
+	body, _ := json.Marshal(map[string]any{"value": "updated-value-s13"})
 	r := withAdminCtxS13(withChiParam(
 		httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/secrets/%d", secret.ID), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", secret.ID),
@@ -262,7 +262,7 @@ func TestUpdateSecret_Success_S13(t *testing.T) {
 // branch (404) by targeting a non-existent secret ID.
 func TestUpdateSecret_NotFound_S13(t *testing.T) {
 	h, _, _, _ := freshSecretFixtureS13(t)
-	body, _ := json.Marshal(map[string]interface{}{"value": "v"})
+	body, _ := json.Marshal(map[string]any{"value": "v"})
 	r := withAdminCtxS13(withChiParam(
 		httptest.NewRequest(http.MethodPut, "/api/v1/secrets/99999", bytes.NewReader(body)),
 		"id", "99999",
@@ -347,7 +347,7 @@ func TestSetAutoRotate_BadID_S13(t *testing.T) {
 // with enabled=false (disabling auto-rotate always succeeds regardless of backend).
 func TestSetAutoRotate_Success_S13(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS13(t)
-	body, _ := json.Marshal(map[string]interface{}{"enabled": false})
+	body, _ := json.Marshal(map[string]any{"enabled": false})
 	r := withAdminCtxS13(withChiParam(
 		httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/secrets/%d/auto-rotate", secret.ID), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", secret.ID),

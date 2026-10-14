@@ -112,7 +112,7 @@ func TestRevokeAllLeases_Valid_S21(t *testing.T) {
 
 	// With no active leases the call should succeed (0 revoked, 0 failed).
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }

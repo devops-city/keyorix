@@ -489,8 +489,7 @@ func TestBuildSSOProviders_S22_DefaultScopes(t *testing.T) {
 // not crash and must continue ticking.
 func TestRunScheduler_S22_SkippedOutcome(t *testing.T) {
 	var ticks atomic.Int32
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	runScheduler(ctx, "test-skipped-outcome", 10*time.Millisecond, func() middleware.SchedulerOutcome {
 		ticks.Add(1)

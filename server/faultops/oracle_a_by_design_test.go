@@ -67,6 +67,7 @@ package faultops
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -331,7 +332,6 @@ func TestOracleAByDesign_RowsAreFullyAttributed(t *testing.T) {
 // oracle still flags that case.
 func TestOracleAByDesign_RowsAreLoadBearing(t *testing.T) {
 	for _, e := range oracleAByDesignErrors {
-		e := e
 		label := fmt.Sprintf("%s/%s/%s", e.op, e.method, e.kind)
 		t.Run(label, func(t *testing.T) {
 			in, outcome, reason := driveFaultCase(t, e.op, e.method, e.nth, e.kind)
@@ -734,12 +734,7 @@ var toleranceStalenessUndrivable = map[string]bool{}
 
 // isOutcomeLogTable reports whether t is one of outcomeLogTables.
 func isOutcomeLogTable(t string) bool {
-	for _, o := range outcomeLogTables {
-		if t == o {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(outcomeLogTables, t)
 }
 
 // driveFaultCase runs ONE (op, method, nth, kind) case through the real harness
@@ -866,7 +861,6 @@ func TestOracleAErrorBranch_BulkAccessRequestAuditDiffIsAcceptedWithoutAToleranc
 		{"REST POST /api/v1/access-requests/bulk-approve", "ResolveUserPermissionAt"},
 		{"REST POST /api/v1/access-requests/bulk-approve", "GetRolePermissions"},
 	} {
-		c := c
 		t.Run(strings.ReplaceAll(c.op+"/"+c.method, "/", "_"), func(t *testing.T) {
 			nth := 1
 			if c.method == "ResolveUserPermissionAt" {

@@ -121,7 +121,7 @@ func (ls *LocalStorage) MigrateNotificationChannelURLsToEncrypted(ctx context.Co
 		if err != nil {
 			return migrated, err
 		}
-		updates := map[string]interface{}{"url_enc": urlEnc, "url_meta": urlMeta}
+		updates := map[string]any{"url_enc": urlEnc, "url_meta": urlMeta}
 		if hasLegacyColumn {
 			// Clear the legacy plaintext once its replacement is durable, so
 			// the bytes don't linger in the ROW.

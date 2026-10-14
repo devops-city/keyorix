@@ -11,6 +11,7 @@ package main
 import (
 	"crypto/tls"
 	"net"
+	"slices"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/config"
@@ -92,13 +93,7 @@ func TestTLSHandshake_DefaultMode_AcceptsTLS12WithAHardenedCipher(t *testing.T) 
 	defer conn.Close() //nolint:errcheck
 
 	negotiated := conn.ConnectionState().CipherSuite
-	found := false
-	for _, want := range hardenedCipherSuites {
-		if negotiated == want {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(hardenedCipherSuites, negotiated)
 	if !found {
 		t.Errorf("negotiated cipher suite %#04x is not in hardenedCipherSuites (not forward-secret AEAD)", negotiated)
 	}

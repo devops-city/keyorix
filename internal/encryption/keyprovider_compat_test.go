@@ -96,7 +96,7 @@ func TestKeyProvider_ShamirRoundTrip(t *testing.T) {
 	shares, err := crypto.SplitKEK(kek, 5, 3)
 	require.NoError(t, err)
 	var files []string
-	for i := 0; i < 3; i++ { // write the threshold-many shares
+	for i := range 3 { // write the threshold-many shares
 		p := filepath.Join(dir, "share-"+string(rune('a'+i)))
 		require.NoError(t, os.WriteFile(p, []byte(hex.EncodeToString(shares[i])), 0600))
 		files = append(files, p)

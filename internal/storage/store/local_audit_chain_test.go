@@ -169,11 +169,11 @@ func TestLogAuditEvent_ConcurrentAppendsStayChained(t *testing.T) {
 	const perWriter = 25
 	var wg sync.WaitGroup
 	wg.Add(writers)
-	for w := 0; w < writers; w++ {
+	for w := range writers {
 		go func(w int) {
 			defer wg.Done()
 			tr := true
-			for i := 0; i < perWriter; i++ {
+			for i := range perWriter {
 				e := &models.AuditEvent{
 					EventType: "secret.read", Description: "concurrent", Success: &tr,
 					EventTime: base.Add(time.Duration(w*perWriter+i) * time.Millisecond),

@@ -11,7 +11,7 @@ import (
 
 // LoggingInterceptor returns a unary server interceptor for logging
 func LoggingInterceptor() grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
 		// Get client info
@@ -60,7 +60,7 @@ func isSlowRequest(duration time.Duration) bool {
 
 // StreamLoggingInterceptor returns a stream server interceptor for logging
 func StreamLoggingInterceptor() grpc.StreamServerInterceptor {
-	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		start := time.Now()
 
 		// Get client info

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -344,10 +345,5 @@ func anyEligible(runFilter *regexp.Regexp, names []string) bool {
 	if runFilter == nil {
 		return true
 	}
-	for _, name := range names {
-		if runFilter.MatchString(name) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(names, runFilter.MatchString)
 }

@@ -109,7 +109,7 @@ func loginAttemptsFor(t *testing.T, db *gorm.DB) int64 {
 func TestLoginBudget_SuccessfulLoginsDoNotConsumeTheBudget(t *testing.T) {
 	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxloginbudget%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
 	h := newLoginBudgetHandler(db)
-	for i := 0; i < core.LoginMaxAttempts+1; i++ {
+	for i := range core.LoginMaxAttempts + 1 {
 		w := postLoginAs(t, h, lockoutOracleTestPassword)
 		require.Equal(t, http.StatusOK, w.Code,
 			"successful login %d of %d from one IP was refused (%s) -- successful logins must not spend the brute-force budget (#2936)",
@@ -125,7 +125,7 @@ func TestLoginBudget_SuccessfulLoginsDoNotConsumeTheBudget(t *testing.T) {
 func TestLoginBudget_FailuresStillLockAtTheThreshold(t *testing.T) {
 	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxloginbudget%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
 	h := newLoginBudgetHandler(db)
-	for i := 0; i < core.LoginMaxAttempts-1; i++ {
+	for i := range core.LoginMaxAttempts - 1 {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, h, "wrong-password").Code, "failure %d", i+1)
 	}
 	require.Equal(t, http.StatusOK, postLoginAs(t, h, lockoutOracleTestPassword).Code,
@@ -146,7 +146,7 @@ func TestLoginBudget_FailureCountSurvivesRestart(t *testing.T) {
 	dsn := "file:" + filepath.Join(t.TempDir(), "keyorix.db")
 	db := openLoginBudgetDB(t, dsn)
 	h := newLoginBudgetHandler(db)
-	for i := 0; i < core.LoginMaxAttempts; i++ {
+	for i := range core.LoginMaxAttempts {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, h, "wrong-password").Code, "failure %d", i+1)
 	}
 	sqlDB, err := db.DB()
@@ -209,7 +209,7 @@ func TestLoginBudget_SuccessfulRefreshesDoNotConsumeTheBudget(t *testing.T) {
 	token := resp.Data.Token
 	require.NotEmpty(t, token)
 
-	for i := 0; i < core.LoginMaxAttempts+1; i++ {
+	for i := range core.LoginMaxAttempts + 1 {
 		r := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
 		r.Header.Set("Authorization", "Bearer "+token)
 		rw := httptest.NewRecorder()

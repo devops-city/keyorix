@@ -50,7 +50,7 @@ func TestWithSchedulerLock_Postgres_SmallPool_JobsAndReadsComplete(t *testing.T)
 	var wg sync.WaitGroup
 	errs := make(chan error, jobs+readers)
 	start := make(chan struct{})
-	for i := 0; i < jobs; i++ {
+	for i := range jobs {
 		wg.Add(1)
 		go func(key int64) {
 			defer wg.Done()
@@ -65,19 +65,17 @@ func TestWithSchedulerLock_Postgres_SmallPool_JobsAndReadsComplete(t *testing.T)
 			errs <- err
 		}(0x504f4f4c0000 + int64(i)) // distinct keys, like the real schedulers
 	}
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
-			for j := 0; j < 20; j++ {
+			for range 20 {
 				if _, _, err := st.GetSystemMetadata(ctx, "schema_epoch"); err != nil {
 					errs <- err
 					return
 				}
 			}
 			errs <- nil
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

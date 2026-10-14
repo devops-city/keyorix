@@ -29,7 +29,7 @@ func (h *DashboardHandler) ListRiskExceptions(w http.ResponseWriter, r *http.Req
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"exceptions": exceptions}, "")
+	sendSuccess(w, map[string]any{"exceptions": exceptions}, "")
 }
 
 // CreateRiskException handles POST /api/v1/risk-exceptions — accept a control gap for
@@ -70,7 +70,7 @@ func (h *DashboardHandler) CreateRiskException(w http.ResponseWriter, r *http.Re
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"exception": exc}, "Risk exception recorded")
+	sendCreated(w, map[string]any{"exception": exc}, "Risk exception recorded")
 }
 
 // ApproveRiskException handles POST /api/v1/risk-exceptions/{id}/approve — dual

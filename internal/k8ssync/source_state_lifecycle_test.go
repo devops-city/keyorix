@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,12 +55,8 @@ func (k *fakeKubeAPI) snapshot(key string) (fakeKubeSecret, bool) {
 		return fakeKubeSecret{}, false
 	}
 	cp := fakeKubeSecret{Labels: map[string]string{}, Data: map[string]string{}}
-	for a, b := range s.Labels {
-		cp.Labels[a] = b
-	}
-	for a, b := range s.Data {
-		cp.Data[a] = b
-	}
+	maps.Copy(cp.Labels, s.Labels)
+	maps.Copy(cp.Data, s.Data)
 	return cp, true
 }
 
@@ -94,8 +91,8 @@ func (k *fakeKubeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"metadata": map[string]interface{}{"uid": "u-" + name, "resourceVersion": "1", "labels": s.Labels},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"metadata": map[string]any{"uid": "u-" + name, "resourceVersion": "1", "labels": s.Labels},
 			"data":     s.Data,
 		})
 	case http.MethodPost:
@@ -153,8 +150,8 @@ func (f *fakeKeyorix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case "unavailable":
 			w.WriteHeader(http.StatusServiceUnavailable)
 		case "":
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{
-				"value": value, "secret": map[string]interface{}{"expiration": exp},
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+				"value": value, "secret": map[string]any{"expiration": exp},
 			}})
 		default:
 			w.WriteHeader(http.StatusConflict)
@@ -198,7 +195,7 @@ func newLifecycleWorld(t *testing.T, opts ...Option) *lifecycleWorld {
 func (w *lifecycleWorld) pass(t *testing.T) (Result, []string) {
 	t.Helper()
 	var logged []string
-	res := Sync(context.Background(), w.eng, w.maps, func(f string, a ...interface{}) { logged = append(logged, fmt.Sprintf(f, a...)) })
+	res := Sync(context.Background(), w.eng, w.maps, func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) })
 	return res, logged
 }
 

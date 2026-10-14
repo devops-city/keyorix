@@ -146,7 +146,7 @@ func randomAdminPassword() (string, error) {
 	}
 	policy := rules.DefaultPasswordPolicy()
 	var lastErr error
-	for i := 0; i < adminPasswordAttempts; i++ {
+	for range adminPasswordAttempts {
 		tok, err := randomInstallToken()
 		if err != nil {
 			return "", err

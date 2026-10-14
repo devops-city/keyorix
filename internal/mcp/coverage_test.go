@@ -344,7 +344,7 @@ func TestToolListSecrets_MaxListCallsCapReached(t *testing.T) {
 	res := s.toolListSecrets(context.Background(), json.RawMessage(`{}`))
 
 	assert.Equal(t, true, res["isError"], "the call must be refused once the cap is reached")
-	content := res["content"].([]map[string]interface{})
+	content := res["content"].([]map[string]any)
 	assert.Equal(t, genericListError, content[0]["text"], "must return the generic list error, not leak detail")
 	assert.False(t, fr.listCalled, "the reader must never be consulted once the cap has refused the call")
 }

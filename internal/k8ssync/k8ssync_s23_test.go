@@ -407,7 +407,7 @@ func TestSync_S23_ReconcileErrorBranchViaWrapper(t *testing.T) {
 	e := NewEngine(f, s)
 
 	var logLines []string
-	logf := func(format string, args ...interface{}) {
+	logf := func(format string, args ...any) {
 		logLines = append(logLines, fmt.Sprintf(format, args...))
 	}
 
@@ -539,7 +539,7 @@ func TestRun_S23_TickerFiresAtLeastOnce(t *testing.T) {
 	s := newFakeSink()
 	e := NewEngine(f, s)
 
-	logf := func(string, ...interface{}) {}
+	logf := func(string, ...any) {}
 
 	mappings := []SecretMapping{
 		{Ref: "e/n", Namespace: "ns", Name: "sec", Key: "K"},

@@ -74,7 +74,7 @@ import (
 // newS25Store opens a fresh in-memory SQLite DB, runs AutoMigrate on the
 // supplied model types, and returns the LocalStorage. Using a "_s25" DSN
 // suffix prevents collisions with other sweeps' test-name-keyed DSNs.
-func newS25Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS25Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores25_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -164,7 +164,7 @@ func TestEnforceSessionLimit_S25_UnderCapIsNoop(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert 2 sessions for user 1.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		require.NoError(t, ls.db.Create(&models.Session{
 			UserID:       1,
 			SessionToken: "tok" + string(rune('a'+i)),

@@ -215,7 +215,7 @@ func updateSecretGuardRepoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
 	require.NoError(t, err)
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if _, serr := os.Stat(filepath.Join(dir, "go.mod")); serr == nil {
 			return dir
 		}

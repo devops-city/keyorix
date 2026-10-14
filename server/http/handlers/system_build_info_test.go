@@ -26,7 +26,7 @@ func TestMakeSystemInfoHandler_ReportsStampedBuildIdentity(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	var resp struct {
-		Data map[string]interface{} `json:"data"`
+		Data map[string]any `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.Equal(t, "v9.9.9", resp.Data["version"])

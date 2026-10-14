@@ -385,7 +385,7 @@ func TestGenerateDeploymentRotationPlan_RiskScoringQueryCostDoesNotScaleWithCand
 			require.NoError(t, db.Create(&models.RotationPolicy{
 				Name: fmt.Sprintf("90d-%d", p), Scope: "project", ProjectID: &p, IntervalDays: 90, AlertDaysBefore: 14, IsActive: true,
 			}).Error)
-			for i := 0; i < perProject; i++ {
+			for i := range perProject {
 				require.NoError(t, db.Create(&models.SecretNode{
 					ID: secretID, Name: fmt.Sprintf("s-%d", secretID), ProjectID: p, EnvironmentID: p,
 					IsSecret: true, Status: "active", OwnerID: 1, LastRotatedAt: &overdue,

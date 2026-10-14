@@ -25,7 +25,7 @@ func TestGenerate_IsDeterministic(t *testing.T) {
 	if n == 0 {
 		t.Fatal("generate emitted zero methods; the fixture is not exercising the generator")
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		again, _, _, _, err := generate(root)
 		if err != nil {
 			t.Fatalf("generate (run %d): %v", i+2, err)

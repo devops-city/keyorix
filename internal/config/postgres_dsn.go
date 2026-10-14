@@ -163,7 +163,7 @@ func urlDSNPassword(dsn string) string {
 	if err != nil {
 		return pw
 	}
-	for _, pair := range strings.Split(query, "&") {
+	for pair := range strings.SplitSeq(query, "&") {
 		k, v, _ := strings.Cut(pair, "=")
 		if uriDecodeLoose(k) == "password" {
 			pw = uriDecodeLoose(v)

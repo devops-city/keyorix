@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -44,12 +45,7 @@ func IsValidClassification(level string) bool {
 	if level == "" {
 		return true
 	}
-	for _, l := range ClassificationLevels {
-		if l == level {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ClassificationLevels, level)
 }
 
 // ClassifySecret sets (or clears, with "") a secret's data-classification label and

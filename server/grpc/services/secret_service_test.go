@@ -541,7 +541,7 @@ func TestSecretService_TotalReads_GetSecretAndVersions(t *testing.T) {
 	require.NotNil(t, before.TotalReads, "total_reads is reported on GetSecret (0 before any read)")
 	assert.Equal(t, int64(0), before.GetTotalReads())
 
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, err = r.svc.GetSecretValue(ctx, &pb.GetSecretRequest{Id: created.GetId()})
 		require.NoError(t, err)
 	}
@@ -589,7 +589,7 @@ func TestSecretService_GetSecret_TotalReadsIsOptIn(t *testing.T) {
 	r.svc = NewSecretService(core.NewKeyorixCore(counter))
 	ctx := authCtx(1, "owner", "secrets.write", "secrets.read")
 	created := r.createSecret(t, ctx, "opt-in", "the-value")
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, err := r.svc.GetSecretValue(ctx, &pb.GetSecretRequest{Id: created.GetId()})
 		require.NoError(t, err)
 	}

@@ -298,15 +298,15 @@ type boolRegOp struct {
 }
 
 var boolRegModel = porcupine.Model{
-	Init: func() interface{} { return true }, // overridden per-history via a wrapper below when needed
-	Step: func(state, input, output interface{}) (bool, interface{}) {
+	Init: func() any { return true }, // overridden per-history via a wrapper below when needed
+	Step: func(state, input, output any) (bool, any) {
 		in := input.(boolRegOp)
 		if in.write {
 			return true, in.setTo
 		}
 		return output.(bool) == state.(bool), state
 	},
-	DescribeOperation: func(input, output interface{}) string {
+	DescribeOperation: func(input, output any) string {
 		in := input.(boolRegOp)
 		if in.write {
 			return fmt.Sprintf("set(%v)", in.setTo)
@@ -320,7 +320,7 @@ var boolRegModel = porcupine.Model{
 // starts true (freshly minted, positive-control-verified session).
 func boolRegModelWithInit(initial bool) porcupine.Model {
 	m := boolRegModel
-	m.Init = func() interface{} { return initial }
+	m.Init = func() any { return initial }
 	return m
 }
 
@@ -333,15 +333,15 @@ type stringRegOp struct {
 }
 
 var stringRegModel = porcupine.Model{
-	Init: func() interface{} { return "" },
-	Step: func(state, input, output interface{}) (bool, interface{}) {
+	Init: func() any { return "" },
+	Step: func(state, input, output any) (bool, any) {
 		in := input.(stringRegOp)
 		if in.write {
 			return true, in.value
 		}
 		return output.(string) == state.(string), state
 	},
-	DescribeOperation: func(input, output interface{}) string {
+	DescribeOperation: func(input, output any) string {
 		in := input.(stringRegOp)
 		if in.write {
 			return fmt.Sprintf("write(%q)", in.value)
@@ -357,7 +357,7 @@ var stringRegModel = porcupine.Model{
 // "write" op in the history; the register's Init must reflect it directly.
 func stringRegModelWithInit(initial string) porcupine.Model {
 	m := stringRegModel
-	m.Init = func() interface{} { return initial }
+	m.Init = func() any { return initial }
 	return m
 }
 

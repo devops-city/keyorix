@@ -8,7 +8,7 @@ import (
 
 // Logf is a minimal logging sink (satisfied by log.Printf). The agent never logs
 // secret values — only counts, target identities, and error reasons.
-type Logf func(format string, args ...interface{})
+type Logf func(format string, args ...any)
 
 // Sync runs one reconcile pass and logs a one-line summary plus any per-target
 // errors. Returns the Result for callers/tests.
@@ -54,10 +54,8 @@ func nextDelay(interval time.Duration, consecutiveUnhealthy int, randFloat func(
 	if consecutiveUnhealthy <= 0 || interval <= 0 {
 		return interval
 	}
-	multiple := int64(1) << consecutiveUnhealthy // 2, 4, 8, 16, ... (consecutiveUnhealthy=1 already doubles)
-	if multiple > backoffCapMultiple {
-		multiple = backoffCapMultiple
-	}
+	// 2, 4, 8, 16, ... (consecutiveUnhealthy=1 already doubles)
+	multiple := min(int64(1)<<consecutiveUnhealthy, backoffCapMultiple)
 	base := interval * time.Duration(multiple)
 	// jitter in [1-jitterFraction, 1+jitterFraction]
 	jitter := 1 + (randFloat()*2-1)*jitterFraction

@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/secretenv"
@@ -71,12 +72,7 @@ func sslModeVerifies(mode string) bool {
 var validSSLModes = []string{"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
 
 func sslModeValid(mode string) bool {
-	for _, m := range validSSLModes {
-		if mode == m {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(validSSLModes, mode)
 }
 
 // sslModeMayBePlaintext reports whether the driver can run the connection
@@ -449,7 +445,7 @@ func urlParamPairs(dsn string) ([][2]string, error) {
 	var out [][2]string
 	// No '#' fragment is cut off: pgx has none, so "?#=&sslmode=verify-full"
 	// is a verify-full connection to pgx and must be one here.
-	for _, pair := range strings.Split(params, "&") {
+	for pair := range strings.SplitSeq(params, "&") {
 		if pair == "" {
 			continue
 		}

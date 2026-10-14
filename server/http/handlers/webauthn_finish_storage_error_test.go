@@ -112,7 +112,7 @@ func TestFinishWebAuthnLogin_StorageErrorBeforeVerdict_IsNotAFailedAttempt(t *te
 		t.Run(method, func(t *testing.T) {
 			h, fs, db := setupWebAuthnFinishStorageErrorTest(t)
 			const attempts = 5 // > MaxAttempts (3)
-			for i := 0; i < attempts; i++ {
+			for i := range attempts {
 				challenge, token := seedWebAuthnLoginCeremony(t, h, db)
 				fs.Arm(&faultstorage.FaultSpec{Method: method, NthCall: 1, Kind: faultstorage.KindError, Err: assert.AnError})
 				code := finishWebAuthnLoginHTTP(t, h, challenge, token)

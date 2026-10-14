@@ -211,7 +211,7 @@ func TestGenerateSecrets_AbsoluteDir(t *testing.T) {
 
 func TestGenerateSecrets_AdminPasswordAlwaysMeetsDefaultPolicy(t *testing.T) {
 	policy := rules.DefaultPasswordPolicy()
-	for i := 0; i < 500; i++ {
+	for range 500 {
 		pw, err := randomAdminPassword()
 		if err != nil {
 			t.Fatal(err)

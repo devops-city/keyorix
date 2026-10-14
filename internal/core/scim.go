@@ -48,7 +48,7 @@ func (c *KeyorixCore) deriveSCIMUsername(ctx context.Context, userName string) (
 	if len(base) > 40 {
 		base = base[:40]
 	}
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		candidate := base
 		if i > 0 {
 			candidate = fmt.Sprintf("%s%d", base, i)
@@ -739,10 +739,7 @@ func (c *KeyorixCore) ListSCIMUsersPage(ctx context.Context, startIndex, count i
 		return []*models.User{}, total, nil
 	}
 	lo := startIndex - 1
-	hi := lo + count
-	if hi > total {
-		hi = total
-	}
+	hi := min(lo+count, total)
 	return managed[lo:hi], total, nil
 }
 

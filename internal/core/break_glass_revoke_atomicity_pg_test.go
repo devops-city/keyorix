@@ -43,7 +43,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var breakGlassAtomicityPgModels = []interface{}{
+var breakGlassAtomicityPgModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.BreakGlassActivation{}, &models.AuditEvent{},
 }

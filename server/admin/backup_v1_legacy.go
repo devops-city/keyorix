@@ -97,14 +97,8 @@ func readBackupArchive(path string, maxEntryBytes, maxTotalBytes int64) (backupM
 	first := true
 
 	readCapped := func(name string, limit int64) ([]byte, error) {
-		remaining := maxTotalBytes - totalRead
-		if remaining < 0 {
-			remaining = 0
-		}
-		effLimit := limit
-		if remaining < effLimit {
-			effLimit = remaining
-		}
+		remaining := max(maxTotalBytes-totalRead, 0)
+		effLimit := min(remaining, limit)
 		data, err := io.ReadAll(io.LimitReader(tr, effLimit+1))
 		if err != nil {
 			return nil, fmt.Errorf("read tar entry %q: %w", name, err)

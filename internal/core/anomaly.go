@@ -340,10 +340,7 @@ type accessBaseline struct {
 // when the pass had no storage failures.
 func (d *AnomalyDetector) RunDetection(ctx context.Context, secrets []models.SecretNode) error {
 	now := time.Now().UTC()
-	lookback := d.lookback
-	if lookback < minDetectionLookback {
-		lookback = minDetectionLookback
-	}
+	lookback := max(d.lookback, minDetectionLookback)
 	lookbackStart := now.Add(-lookback)
 	window := d.scanWindowStart(ctx, now, lookbackStart)
 	baselineWindow := now.Add(-30 * 24 * time.Hour)

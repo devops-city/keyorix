@@ -119,7 +119,7 @@ func craftManyEntriesUnderPerEntryCapOverTotalCap(t testing.TB) []byte {
 	)
 	var keyFiles []KeyFileEntry
 	var blobs [][]byte
-	for i := 0; i < numEntries; i++ {
+	for i := range numEntries {
 		blob := bytes.Repeat([]byte{byte('a' + i%26)}, perEntry)
 		sum := sha256.Sum256(blob)
 		keyFiles = append(keyFiles, KeyFileEntry{

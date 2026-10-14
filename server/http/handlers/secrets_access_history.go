@@ -104,5 +104,5 @@ func (h *SecretHandler) AccessHistory(w http.ResponseWriter, r *http.Request) {
 	for _, l := range logs {
 		entries = append(entries, toSecretAccessLogEntry(l, includeIPAndUA))
 	}
-	h.sendSuccess(w, map[string]interface{}{"access_log": entries, "total": len(entries)}, "")
+	h.sendSuccess(w, map[string]any{"access_log": entries, "total": len(entries)}, "")
 }

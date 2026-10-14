@@ -28,20 +28,20 @@ const (
 	scimMaxPatchOps          = 1000
 )
 
-func toSCIMGroup(g *models.Group, members []*models.User) map[string]interface{} {
-	mem := make([]map[string]interface{}, 0, len(members))
+func toSCIMGroup(g *models.Group, members []*models.User) map[string]any {
+	mem := make([]map[string]any, 0, len(members))
 	for _, u := range members {
-		mem = append(mem, map[string]interface{}{
+		mem = append(mem, map[string]any{
 			"value":   strconv.FormatUint(uint64(u.ID), 10),
 			"display": u.Email,
 		})
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"schemas":     []string{scimGroupSchema},
 		"id":          strconv.FormatUint(uint64(g.ID), 10),
 		"displayName": g.Name,
 		"members":     mem,
-		"meta": map[string]interface{}{
+		"meta": map[string]any{
 			"resourceType": "Group",
 			"location":     fmt.Sprintf("/scim/v2/Groups/%d", g.ID),
 		},
@@ -125,7 +125,7 @@ func (h *SCIMHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 	// Members are fetched ONLY for the groups on the returned page, so the
 	// per-group GetGroupMembers query (an N+1) is capped at the page size instead
 	// of running across the whole directory.
-	resources := make([]map[string]interface{}, 0, len(page))
+	resources := make([]map[string]any, 0, len(page))
 	for _, g := range page {
 		members, _ := h.coreService.GetGroupMembers(r.Context(), g.ID)
 		resources = append(resources, toSCIMGroup(g, members))
@@ -136,17 +136,11 @@ func (h *SCIMHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 // pageSlice returns the [startIndex, startIndex+count) window of items (startIndex is
 // 1-based), clamped to the slice bounds.
 func pageSlice[T any](items []T, startIndex, count int) []T {
-	lo := startIndex - 1
-	if lo < 0 {
-		lo = 0
-	}
+	lo := max(startIndex-1, 0)
 	if lo >= len(items) || count <= 0 {
 		return nil
 	}
-	hi := lo + count
-	if hi > len(items) {
-		hi = len(items)
-	}
+	hi := min(lo+count, len(items))
 	return items[lo:hi]
 }
 

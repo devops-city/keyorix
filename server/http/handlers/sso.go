@@ -83,7 +83,7 @@ func isSafeSSOError(msg string) bool {
 // ListSSOProviders handles GET /auth/sso/providers — the enabled provider names, so
 // the login page can render the right "Sign in with …" buttons.
 func (h *AuthHandler) ListSSOProviders(w http.ResponseWriter, _ *http.Request) {
-	sendSuccess(w, map[string]interface{}{"providers": h.coreService.SSOProviderNames()}, "")
+	sendSuccess(w, map[string]any{"providers": h.coreService.SSOProviderNames()}, "")
 }
 
 // BeginSSO handles GET /auth/sso/{provider}/login — redirects the browser to the IdP

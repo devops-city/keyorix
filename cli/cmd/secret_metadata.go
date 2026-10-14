@@ -158,7 +158,7 @@ func printSecretTags(tags []string) {
 
 func splitSecretTags(v string) []string {
 	out := []string{}
-	for _, part := range strings.Split(v, ",") {
+	for part := range strings.SplitSeq(v, ",") {
 		if t := strings.TrimSpace(part); t != "" {
 			out = append(out, t)
 		}

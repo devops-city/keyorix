@@ -43,7 +43,7 @@ func (h *SecretHandler) RenderTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"rendered": rendered}, "")
+	h.sendSuccess(w, map[string]any{"rendered": rendered}, "")
 }
 
 // sendRenderTemplateError dispatches the correct HTTP error for a RenderSecretTemplate

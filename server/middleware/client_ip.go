@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -76,8 +77,8 @@ func RequestIsHTTPS(r *http.Request, tlsEnabled bool) bool {
 // chain whose inner hop reports http fails closed to no HSTS.
 func forwardedProtoIsHTTPS(r *http.Request) bool {
 	parts := strings.Split(strings.Join(r.Header.Values("X-Forwarded-Proto"), ","), ",")
-	for i := len(parts) - 1; i >= 0; i-- {
-		if p := strings.TrimSpace(parts[i]); p != "" {
+	for _, part := range slices.Backward(parts) {
+		if p := strings.TrimSpace(part); p != "" {
 			return strings.EqualFold(p, "https")
 		}
 	}
@@ -110,8 +111,8 @@ func clientIPFromRequest(r *http.Request, trusted []*net.IPNet) string {
 	// always sees the full chain regardless of how the proxy emitted it.
 	if xff := strings.TrimSpace(strings.Join(r.Header.Values("X-Forwarded-For"), ",")); xff != "" {
 		parts := strings.Split(xff, ",")
-		for i := len(parts) - 1; i >= 0; i-- {
-			hop := strings.TrimSpace(parts[i])
+		for _, part := range slices.Backward(parts) {
+			hop := strings.TrimSpace(part)
 			if hop == "" || net.ParseIP(hop) == nil {
 				continue
 			}
@@ -134,8 +135,8 @@ func clientIPFromRequest(r *http.Request, trusted []*net.IPNet) string {
 	// occurrences from the last back to the first and take the first one that parses as a
 	// valid IP, so the proxy-appended hop wins over anything the client sent.
 	xriValues := r.Header.Values("X-Real-IP")
-	for i := len(xriValues) - 1; i >= 0; i-- {
-		if xri := strings.TrimSpace(xriValues[i]); xri != "" && net.ParseIP(xri) != nil {
+	for _, xriValue := range slices.Backward(xriValues) {
+		if xri := strings.TrimSpace(xriValue); xri != "" && net.ParseIP(xri) != nil {
 			return xri
 		}
 	}

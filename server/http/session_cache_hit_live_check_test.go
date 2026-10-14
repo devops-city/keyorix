@@ -369,7 +369,7 @@ func TestSessionCacheHitLiveCheck_CrossReplicaRace(t *testing.T) {
 			return w.b.db.Delete(lcSessionRow(t, w.b.db, token)).Error
 		}},
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		for _, wr := range writes {
 			t.Run(fmt.Sprintf("%s/%d", wr.name, i), func(t *testing.T) {
 				u, token := w.user(t)
@@ -384,10 +384,8 @@ func TestSessionCacheHitLiveCheck_CrossReplicaRace(t *testing.T) {
 					stop    atomic.Bool
 					wg      sync.WaitGroup
 				)
-				for g := 0; g < 4; g++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
+				for range 4 {
+					wg.Go(func() {
 						for !stop.Load() {
 							start := time.Now()
 							got := lcGet(w.a, token)
@@ -395,7 +393,7 @@ func TestSessionCacheHitLiveCheck_CrossReplicaRace(t *testing.T) {
 							samples = append(samples, sample{start, got})
 							mu.Unlock()
 						}
-					}()
+					})
 				}
 				time.Sleep(20 * time.Millisecond)
 				require.NoError(t, wr.write(u, token))

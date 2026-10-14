@@ -95,7 +95,7 @@ func TestConcurrency_UpdateAccessReviewCampaign_OnlyOneCloseWins(t *testing.T) {
 	errs := make(chan error, racers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		closerID := uint(200 + i)
 		go func(closerID uint) {

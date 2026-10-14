@@ -254,6 +254,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -917,12 +918,7 @@ func expectedRewrapVia(seam string, ff *fileFault) (want []string, skip bool) {
 }
 
 func containsString(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // ── KEK rotation ──────────────────────────────────────────────────────────
@@ -1302,7 +1298,7 @@ func migratePasswordResetTokensForTest(db *gorm.DB, svc *Service) error {
 		if err != nil {
 			return fmt.Errorf("failed to encrypt password reset token %d: %w", reset.ID, err)
 		}
-		if err := db.Model(&reset).Updates(map[string]interface{}{
+		if err := db.Model(&reset).Updates(map[string]any{
 			"encrypted_token": enc,
 			"token_metadata":  meta,
 			"token":           nil,
@@ -1557,9 +1553,9 @@ type faultSeedTriple struct {
 // so the two cannot drift apart.
 func allFaultInjectedSeedTriples() []faultSeedTriple {
 	var triples []faultSeedTriple
-	for opSel := 0; opSel < int(numOps); opSel++ {
+	for opSel := range int(numOps) {
 		for seamSel := range opSeams[opID(opSel)] {
-			for kindSel := 0; kindSel < 2; kindSel++ {
+			for kindSel := range 2 {
 				triples = append(triples, faultSeedTriple{byte(opSel), byte(seamSel), byte(kindSel)})
 			}
 		}

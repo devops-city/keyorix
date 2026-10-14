@@ -31,7 +31,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
-var pgContentionSchemaCounter int64
+var pgContentionSchemaCounter atomic.Int64
 
 // pgTestDSN returns the KEYORIX_TEST_PG_DSN base DSN, skipping the test (not
 // failing it) when unset — the same opt-in shape as every other Postgres-gated
@@ -52,7 +52,7 @@ func pgTestDSN(t *testing.T) string {
 // connections comparable to separate replica processes racing one database.
 func pgIsolatedSchemaDSN(t *testing.T, base string) string {
 	t.Helper()
-	n := atomic.AddInt64(&pgContentionSchemaCounter, 1)
+	n := pgContentionSchemaCounter.Add(1)
 	schema := fmt.Sprintf("contend_%d_%d", os.Getpid(), n)
 
 	admin := pgOpen(t, base)

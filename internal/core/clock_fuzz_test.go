@@ -179,13 +179,13 @@ func decodeClockFuzzInput(data []byte) (credSel int, boundaryMode int, arbitrary
 	credSel = int(data[0]) % 3
 	boundaryMode = int(data[1]) % 4
 	var raw uint64
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		raw = raw<<8 | uint64(data[2+i])
 	}
 	arbitraryDelta = int64(raw)
 	doStepBack = data[10]&1 == 1
 	var raw2 uint64
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		raw2 = raw2<<8 | uint64(data[11+i])
 	}
 	stepBackDelta = int64(raw2)

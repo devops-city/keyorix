@@ -631,7 +631,7 @@ func shareReportFixture(t *testing.T, n int, wrap func(*store.LocalStorage) *cou
 	require.NoError(t, db.Create(&models.UserRole{UserID: 1, RoleID: 3, ProjectID: 1}).Error)
 	require.NoError(t, db.Create(&models.Group{ID: 10, Name: "platform"}).Error)
 	require.NoError(t, db.Create(&models.GroupRole{GroupID: 10, RoleID: 4, ProjectID: 1}).Error)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		id := uint(2 + i)
 		require.NoError(t, db.Create(&models.User{ID: id, Username: fmt.Sprintf("u%02d", id), Email: fmt.Sprintf("u%d@t.com", id)}).Error)
 		require.NoError(t, db.Create(&models.UserRole{UserID: id, RoleID: 4, ProjectID: 1}).Error)

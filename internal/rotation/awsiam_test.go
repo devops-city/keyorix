@@ -28,7 +28,6 @@ type fakeIAM struct {
 func (f *fakeIAM) ListAccessKeys(_ context.Context, in *iam.ListAccessKeysInput, _ ...func(*iam.Options)) (*iam.ListAccessKeysOutput, error) {
 	md := make([]iamtypes.AccessKeyMetadata, 0, len(f.existing))
 	for _, id := range f.existing {
-		id := id
 		md = append(md, iamtypes.AccessKeyMetadata{AccessKeyId: &id, UserName: in.UserName})
 	}
 	return &iam.ListAccessKeysOutput{AccessKeyMetadata: md}, nil

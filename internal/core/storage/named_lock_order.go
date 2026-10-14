@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -91,7 +92,7 @@ func namedLockFamilyOf(key string) (int, []uint64) {
 			continue
 		}
 		var ids []uint64
-		for _, p := range strings.Split(rest, ":") {
+		for p := range strings.SplitSeq(rest, ":") {
 			n, err := strconv.ParseUint(p, 10, 64)
 			if err != nil {
 				return -1, nil
@@ -122,10 +123,8 @@ func CheckNamedLockOrder(held []string, next string) error {
 	if nr < 0 {
 		return fmt.Errorf("named lock %q matches no family in storage.NamedLockOrder — declare its family there", next)
 	}
-	for _, h := range held {
-		if h == next {
-			return nil
-		}
+	if slices.Contains(held, next) {
+		return nil
 	}
 	for _, h := range held {
 		hr, hids := namedLockFamilyOf(h)

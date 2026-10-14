@@ -1192,7 +1192,7 @@ func accountSetupRequiredResponse(w http.ResponseWriter, pending []string) {
 	}
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":         code,
 		"message":       message,
 		"code":          http.StatusForbidden,
@@ -1207,7 +1207,7 @@ func reauthenticationRequiredResponse(w http.ResponseWriter, setupDone bool) {
 	}
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":   "ReauthenticationRequired",
 		"message": message,
 		"code":    http.StatusUnauthorized,
@@ -1732,7 +1732,7 @@ func clientIP(r *http.Request) string {
 func unauthorizedResponse(w http.ResponseWriter, message string) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "Unauthorized", "message": message, "code": http.StatusUnauthorized,
 	})
 }
@@ -1741,7 +1741,7 @@ func tooManyRequestsResponse(w http.ResponseWriter, message string) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.Header().Set("Retry-After", "60")
 	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "RateLimited", "message": message, "code": http.StatusTooManyRequests,
 	})
 }
@@ -1755,7 +1755,7 @@ func serviceUnavailableResponse(w http.ResponseWriter, message string) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.Header().Set("Retry-After", "2")
 	w.WriteHeader(http.StatusServiceUnavailable)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "ServiceUnavailable", "message": message, "code": http.StatusServiceUnavailable,
 	})
 }
@@ -1780,7 +1780,7 @@ func BlockWhenImpersonating(next http.Handler) http.Handler {
 func forbiddenResponse(w http.ResponseWriter, message string) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "Forbidden", "message": message, "code": http.StatusForbidden,
 	})
 }
@@ -1856,7 +1856,7 @@ func WriteProjectMFARequired(w http.ResponseWriter) { projectMFARequiredResponse
 func projectMFARequiredResponse(w http.ResponseWriter) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":   "ProjectMFARequired",
 		"message": "This project requires multi-factor authentication. Enrol a second factor to access it.",
 		"code":    http.StatusForbidden,
@@ -1867,7 +1867,7 @@ func projectMFARequiredResponse(w http.ResponseWriter) {
 func notFoundResponse(w http.ResponseWriter, message string) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusNotFound)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "NotFound", "message": message, "code": http.StatusNotFound,
 	})
 }
@@ -1876,7 +1876,7 @@ func notFoundResponse(w http.ResponseWriter, message string) {
 func badRequestResponse(w http.ResponseWriter, message string) {
 	w.Header().Set(hdrContentType, mimeJSON)
 	w.WriteHeader(http.StatusBadRequest)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "BadRequest", "message": message, "code": http.StatusBadRequest,
 	})
 }

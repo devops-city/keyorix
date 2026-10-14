@@ -67,7 +67,7 @@ func TestLoginRateLimit_DefaultConfig_IgnoresSpoofedForwardedFor(t *testing.T) {
 	// Exhaust the budget: 10 failed attempts, each claiming a DIFFERENT spoofed
 	// source IP. If the header were honored, each would land under its own
 	// synthetic-IP bucket and never trip the limiter (the pre-fix bypass).
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		status := attemptLoginSpoofed(t, client, server.URL, "10.0.0.1")
 		require.NotEqual(t, http.StatusTooManyRequests, status,
 			"attempt %d: budget should not be exhausted yet", i+1)
@@ -111,7 +111,7 @@ func TestLoginRateLimit_TrustedProxy_HonorsForwardedFor(t *testing.T) {
 	// 10 failed attempts, each with a DISTINCT forwarded client IP: because the
 	// peer (127.0.0.1) is a configured trusted proxy, each is correctly attributed
 	// to its own distinct client and none of them should exhaust any single budget.
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		status := attemptLoginSpoofed(t, client, server.URL, "203.0.113.50")
 		require.NotEqual(t, http.StatusTooManyRequests, status,
 			"attempt %d for distinct forwarded client 203.0.113.50 should not yet be limited", i+1)

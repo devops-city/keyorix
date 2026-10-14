@@ -221,7 +221,7 @@ func (w *grrWorld) audit(t *testing.T, secretID uint) []string {
 func (w *grrWorld) call(t *testing.T, who string, s *models.SecretNode, rpc string) grrOutcome {
 	t.Helper()
 	before := w.audit(t, s.ID)
-	handler := func(ctx context.Context, _ interface{}) (interface{}, error) {
+	handler := func(ctx context.Context, _ any) (any, error) {
 		switch rpc {
 		case "GetSecret":
 			return w.svc.GetSecret(ctx, &pb.GetSecretRequest{Id: uint32(s.ID)})

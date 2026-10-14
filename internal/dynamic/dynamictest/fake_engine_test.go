@@ -112,14 +112,14 @@ func TestFakeEngine_MultipleConcurrentIssues(t *testing.T) {
 	fe := &FakeEngine{}
 	const n = 10
 	done := make(chan struct{}, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		go func() {
 			defer func() { done <- struct{}{} }()
 			_, _, err := fe.Issue(context.Background(), "dsn", "tpl", time.Minute)
 			assert.NoError(t, err)
 		}()
 	}
-	for i := 0; i < n; i++ {
+	for range n {
 		<-done
 	}
 	fe.mu.Lock()
@@ -138,7 +138,7 @@ func TestRandString_Length(t *testing.T) {
 
 // TestRandString_Alphabet validates that randString only uses safe characters.
 func TestRandString_Alphabet(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		s, err := randString(32)
 		require.NoError(t, err)
 		for _, r := range s {

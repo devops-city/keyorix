@@ -206,7 +206,7 @@ func sweepSecretVersions(tx *gorm.DB, oldSvc *EncryptionService, newSvc *Encrypt
 			}
 
 			if !dryRun {
-				if err := tx.Model(&models.SecretVersion{}).Where("id = ?", version.ID).Updates(map[string]interface{}{
+				if err := tx.Model(&models.SecretVersion{}).Where("id = ?", version.ID).Updates(map[string]any{
 					"encrypted_value":     newEncryptedBytes,
 					"encryption_metadata": models.JSON(metadataBytes),
 				}).Error; err != nil {

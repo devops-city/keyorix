@@ -39,7 +39,7 @@ func TestLoginBudget_StorageDownStillRefusesWithTheSame429(t *testing.T) {
 	// Control: the stored budget's 429.
 	cdb := openLoginBudgetDB(t, "file:kxfallbackctl?mode=memory&cache=shared")
 	ch := newLoginBudgetHandler(cdb)
-	for i := 0; i < core.LoginMaxAttempts; i++ {
+	for range core.LoginMaxAttempts {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, ch, "wrong-password").Code)
 	}
 	control := postLoginAs(t, ch, lockoutOracleTestPassword)
@@ -48,7 +48,7 @@ func TestLoginBudget_StorageDownStillRefusesWithTheSame429(t *testing.T) {
 	// Probe: every LoginAttempt call fails.
 	pdb := openLoginBudgetDB(t, "file:kxfallbackprobe?mode=memory&cache=shared")
 	ph := NewAuthHandler(core.NewKeyorixCore(loginAttemptsDownStore{store.NewLocalStorage(pdb)}), false)
-	for i := 0; i < core.LoginMaxAttempts; i++ {
+	for i := range core.LoginMaxAttempts {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, ph, "wrong-password").Code, "failure %d", i+1)
 	}
 	probe := postLoginAs(t, ph, lockoutOracleTestPassword)

@@ -30,7 +30,7 @@ func TestPasswordResetBudget_DuringFallbackHalvesThePerIPLimit(t *testing.T) {
 	ctx := context.Background()
 	stub.down = true
 	half := PasswordResetMaxAttempts / 2
-	for i := 0; i < half; i++ {
+	for i := range half {
 		require.False(t, c.IsPasswordResetRateLimited(ctx, "203.0.113.40"), "attempt %d is still inside half the limit", i+1)
 		c.RecordPasswordResetAttempt(ctx, "203.0.113.40")
 	}
@@ -41,7 +41,7 @@ func TestPasswordResetBudget_DuringFallbackHalvesThePerIPLimit(t *testing.T) {
 func TestPasswordResetBudget_HealthyKeepsTheFullLimit(t *testing.T) {
 	c, _, _, _ := newFallbackCore(t)
 	ctx := context.Background()
-	for i := 0; i < PasswordResetMaxAttempts-1; i++ {
+	for range PasswordResetMaxAttempts - 1 {
 		c.RecordPasswordResetAttempt(ctx, "203.0.113.41")
 	}
 	assert.False(t, c.IsPasswordResetRateLimited(ctx, "203.0.113.41"), "healthy storage: the normal limit is unchanged")
@@ -93,7 +93,7 @@ func TestPasswordReset_DuringFallbackCapsResetsPerAccount(t *testing.T) {
 	// Each request comes from a different address, past the per-email resend
 	// interval, so only the new per-account cap can stop it.
 	const requests = 4
-	for i := 0; i < requests; i++ {
+	for i := range requests {
 		ip := "198.51.100." + itoa(50+i)
 		require.False(t, c.IsPasswordResetRateLimited(ctx, ip))
 		c.RecordPasswordResetAttempt(ctx, ip)
@@ -101,7 +101,7 @@ func TestPasswordReset_DuringFallbackCapsResetsPerAccount(t *testing.T) {
 		nowNanos.Add(int64(resendMinInterval + time.Second))
 	}
 	capped := PasswordResetMaxAttempts / 2
-	for i := 0; i < capped; i++ {
+	for i := range capped {
 		select {
 		case <-d.each:
 		case <-time.After(2 * time.Second):
@@ -124,7 +124,7 @@ func TestAuthBudgetFallback_ReplicaDivisorScalesTheLimit(t *testing.T) {
 	c.SetAuthRateLimitFallbackReplicas(2)
 	stub.down = true
 	perReplica := LoginMaxAttempts / 2
-	for i := 0; i < perReplica; i++ {
+	for i := range perReplica {
 		require.False(t, c.IsLoginRateLimited(ctx, "203.0.113.42"), "failure %d is inside this replica's share", i+1)
 		c.RecordFailedLogin(ctx, "203.0.113.42")
 	}
@@ -146,7 +146,7 @@ func TestAuthBudgetFallback_ReplicaDivisorDoesNotTouchTheStoredLimit(t *testing.
 	c, _, _, _ := newFallbackCore(t)
 	ctx := context.Background()
 	c.SetAuthRateLimitFallbackReplicas(4)
-	for i := 0; i < LoginMaxAttempts-1; i++ {
+	for range LoginMaxAttempts - 1 {
 		c.RecordFailedLogin(ctx, "203.0.113.44")
 	}
 	assert.False(t, c.IsLoginRateLimited(ctx, "203.0.113.44"), "healthy storage is cluster-wide already; the divisor applies only to the fallback")

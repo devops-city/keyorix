@@ -99,7 +99,7 @@ func fuzzOIDCIdP() (*rsa.PrivateKey, *httptest.Server, error) {
 // fuzzOIDCJWKS resolves the fake IdP's one key, as core.JWKSResolver.
 type fuzzOIDCJWKS struct{ key *rsa.PublicKey }
 
-func (j fuzzOIDCJWKS) Key(_ context.Context, _, kid string) (interface{}, error) {
+func (j fuzzOIDCJWKS) Key(_ context.Context, _, kid string) (any, error) {
 	if kid != fuzzOIDCKID {
 		return nil, errors.New("fuzz OIDC JWKS: unknown kid")
 	}

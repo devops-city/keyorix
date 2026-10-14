@@ -106,7 +106,7 @@ func TestTransitionSecretStatus_WritesOnlyStatusAndUpdatedAt(t *testing.T) {
 		// version reverted: a read-count increment (a MaxReads budget being
 		// spent) and an ownership clear (offboarding).
 		require.NoError(t, ls.db.Model(&models.SecretNode{}).Where("id = ?", 1).
-			Updates(map[string]interface{}{"read_count": 3, "owner_id": 0}).Error)
+			Updates(map[string]any{"read_count": 3, "owner_id": 0}).Error)
 
 		// Now the stale struct's suspend lands. It also "clears" two columns it
 		// does not own, which the old Select("*") honoured.

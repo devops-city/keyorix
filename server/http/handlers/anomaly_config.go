@@ -28,7 +28,7 @@ func GetAnomalyConfig(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "InternalError", "Failed to retrieve anomaly config", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"config": cfg}, "")
+	sendSuccess(w, map[string]any{"config": cfg}, "")
 }
 
 // UpdateAnomalyConfig handles PUT /api/v1/admin/anomaly-config.
@@ -71,5 +71,5 @@ func UpdateAnomalyConfig(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "InternalError", "Failed to save anomaly config", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"config": cfg}, "")
+	sendSuccess(w, map[string]any{"config": cfg}, "")
 }

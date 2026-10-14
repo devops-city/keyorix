@@ -40,7 +40,7 @@ func TestCredentialInsertRefusedForUnusableOwner(t *testing.T) {
 	setState := func(state string, active bool) func(*testing.T, *LocalStorage, uint) {
 		return func(t *testing.T, ls *LocalStorage, id uint) {
 			require.NoError(t, ls.db.Model(&models.User{}).Where("id = ?", id).
-				Updates(map[string]interface{}{"account_state": state, "is_active": active}).Error)
+				Updates(map[string]any{"account_state": state, "is_active": active}).Error)
 		}
 	}
 	owners := []owner{
@@ -126,7 +126,7 @@ func freshCredentialStore(t *testing.T) *LocalStorage {
 	return NewLocalStorage(db)
 }
 
-func countRows(t *testing.T, db *gorm.DB, model interface{}, where string, args ...interface{}) int64 {
+func countRows(t *testing.T, db *gorm.DB, model any, where string, args ...any) int64 {
 	t.Helper()
 	var n int64
 	require.NoError(t, db.Unscoped().Model(model).Where(where, args...).Count(&n).Error)

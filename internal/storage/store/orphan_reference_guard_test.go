@@ -145,8 +145,7 @@ func deriveOrphanReferenceCandidates(t *testing.T) []orphanRefCandidate {
 
 	var out []orphanRefCandidate
 	for sourceName, sourceType := range typeByName {
-		for i := 0; i < sourceType.NumField(); i++ {
-			f := sourceType.Field(i)
+		for f := range sourceType.Fields() {
 			if f.Name == "ID" || !strings.HasSuffix(f.Name, "ID") {
 				continue
 			}
@@ -179,7 +178,7 @@ func deriveOrphanReferenceCandidates(t *testing.T) []orphanRefCandidate {
 }
 
 // ctxType/uintType are reused by the method-shape check below.
-var ctxType = reflect.TypeOf((*context.Context)(nil)).Elem()
+var ctxType = reflect.TypeFor[context.Context]()
 
 // singleIDDeleteMethod returns the reflect.Value of targetType's
 // DeleteXxx(ctx, id uint) method on ls, and "", only if that method exists
@@ -226,7 +225,7 @@ func singleIDDeleteMethod(ls *store.LocalStorage, targetModel string) (reflect.V
 	if mt.NumOut() == 0 {
 		return reflect.Value{}, true, fmt.Sprintf("%s returns no values -- out of this guard's scope", methodName)
 	}
-	if !mt.Out(mt.NumOut() - 1).Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+	if !mt.Out(mt.NumOut() - 1).Implements(reflect.TypeFor[error]()) {
 		return reflect.Value{}, true, fmt.Sprintf("%s's last return value is not an error -- out of this guard's scope", methodName)
 	}
 	return m, true, ""

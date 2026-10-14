@@ -65,7 +65,7 @@ func TestSCIMToken_ThrottlesRepeatedFailures(t *testing.T) {
 
 	// Burn through the failure budget (tokenAuthFailureBurst attempts) — each is
 	// just an ordinary 401, exactly like today.
-	for i := 0; i < tokenAuthFailureBurst; i++ {
+	for i := range tokenAuthFailureBurst {
 		assert.Equal(t, http.StatusUnauthorized, call(), "attempt %d should still be a plain 401 within budget", i)
 	}
 

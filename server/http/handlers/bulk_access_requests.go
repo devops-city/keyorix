@@ -39,7 +39,7 @@ func (h *CatalogHandler) BulkApproveAccessRequests(w http.ResponseWriter, r *htt
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"result": result}, "Bulk approve complete")
+	sendSuccess(w, map[string]any{"result": result}, "Bulk approve complete")
 }
 
 // BulkRejectAccessRequests handles
@@ -69,7 +69,7 @@ func (h *CatalogHandler) BulkRejectAccessRequests(w http.ResponseWriter, r *http
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"result": result}, "Bulk reject complete")
+	sendSuccess(w, map[string]any{"result": result}, "Bulk reject complete")
 }
 
 // ── Rejection reason templates ────────────────────────────────────────────────
@@ -102,7 +102,7 @@ func (h *CatalogHandler) CreateRejectionReasonTemplate(w http.ResponseWriter, r 
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"template": t}, "Template created")
+	sendCreated(w, map[string]any{"template": t}, "Template created")
 }
 
 // ListRejectionReasonTemplates handles
@@ -114,7 +114,7 @@ func (h *CatalogHandler) ListRejectionReasonTemplates(w http.ResponseWriter, r *
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"templates": templates}, "")
+	sendSuccess(w, map[string]any{"templates": templates}, "")
 }
 
 // DeleteRejectionReasonTemplate handles

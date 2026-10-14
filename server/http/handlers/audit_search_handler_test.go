@@ -114,7 +114,7 @@ func TestSearchAuditLogs_Handler_SuccessFalse(t *testing.T) {
 
 func TestSearchAuditLogs_Handler_LimitOne(t *testing.T) {
 	cs, db := freshAuditSearchCore(t)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		seedAuditSearchEvent(t, db, "secret.read", "", true)
 	}
 

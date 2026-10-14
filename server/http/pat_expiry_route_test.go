@@ -68,7 +68,7 @@ func TestPATExpiryRoute_ListExpiredPATs_EmptyList_Returns200(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var body struct {
-		Data []interface{} `json:"data"`
+		Data []any `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Empty(t, body.Data)

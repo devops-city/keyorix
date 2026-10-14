@@ -25,7 +25,7 @@ func TestContractAPIHygiene_CreateRole(t *testing.T) {
 	h := NewRBACHandler(cs)
 	// An unknown permission name is silently skipped (resolveAndAuthorizePermissions'
 	// documented convention) -- no permission seeding needed for a 201.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name": "contract-ah-createrole", "description": "d",
 		"permissions": []string{"contract-ah-unknown-permission"},
 	})
@@ -74,7 +74,7 @@ func TestContractAPIHygiene_UpdateRole(t *testing.T) {
 	role := &models.Role{Name: "contract-ah-updaterole", Description: "d"}
 	require.NoError(t, db.Create(role).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"description": "updated"})
+	body, _ := json.Marshal(map[string]any{"description": "updated"})
 	req := withUserCtx(withChiParamsPR2(
 		httptest.NewRequest(http.MethodPut, "/api/v1/roles/1", bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", role.ID),

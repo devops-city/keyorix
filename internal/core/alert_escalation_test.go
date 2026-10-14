@@ -658,7 +658,7 @@ func TestUpdateAlertEscalationPolicy_Success(t *testing.T) {
 	store.On("UpdateAlertEscalationPolicy", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(store)
 
-	updated, err := c.UpdateAlertEscalationPolicy(context.Background(), 3, map[string]interface{}{
+	updated, err := c.UpdateAlertEscalationPolicy(context.Background(), 3, map[string]any{
 		"name":                   "new-name",
 		"min_severity":           "high",
 		"escalate_after_minutes": float64(45),
@@ -685,7 +685,7 @@ func TestUpdateAlertEscalationPolicy_ValidationError(t *testing.T) {
 	store.On("GetAlertEscalationPolicy", mock.Anything, uint(3)).Return(existing, nil)
 	c := NewKeyorixCore(store)
 
-	_, err := c.UpdateAlertEscalationPolicy(context.Background(), 3, map[string]interface{}{
+	_, err := c.UpdateAlertEscalationPolicy(context.Background(), 3, map[string]any{
 		"min_severity": "bogus",
 	})
 	require.Error(t, err)
@@ -835,7 +835,7 @@ func TestUpdateAlertEscalationPolicy_StorageError(t *testing.T) {
 	store.On("UpdateAlertEscalationPolicy", mock.Anything, mock.Anything).Return(fmt.Errorf("storage failure"))
 	c := NewKeyorixCore(store)
 
-	_, err := c.UpdateAlertEscalationPolicy(context.Background(), 1, map[string]interface{}{
+	_, err := c.UpdateAlertEscalationPolicy(context.Background(), 1, map[string]any{
 		"name": "new-name",
 	})
 	require.Error(t, err)
@@ -850,7 +850,7 @@ func TestUpdateAlertEscalationPolicy_GetError(t *testing.T) {
 	store.On("GetAlertEscalationPolicy", mock.Anything, uint(99)).Return((*models.AlertEscalationPolicy)(nil), fmt.Errorf("not found"))
 	c := NewKeyorixCore(store)
 
-	_, err := c.UpdateAlertEscalationPolicy(context.Background(), 99, map[string]interface{}{})
+	_, err := c.UpdateAlertEscalationPolicy(context.Background(), 99, map[string]any{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	store.AssertExpectations(t)

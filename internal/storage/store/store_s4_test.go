@@ -347,7 +347,7 @@ func TestListUsers_OffsetParam(t *testing.T) {
 	ctx := context.Background()
 	ls := newUserS4Store(t)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := ls.CreateUser(ctx, &models.User{
 			Username:       fmt.Sprintf("puser%d", i),
 			UsernameFolded: fmt.Sprintf("puser%d", i),
@@ -494,7 +494,7 @@ func TestListGroupsPage_Offset(t *testing.T) {
 	ctx := context.Background()
 	ls := newUserS4Store(t)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := ls.CreateGroup(ctx, &models.Group{Name: fmt.Sprintf("g%d", i), NameFolded: fmt.Sprintf("g%d", i)})
 		require.NoError(t, err)
 	}
@@ -656,7 +656,7 @@ func TestMarkAllNotificationsRead(t *testing.T) {
 	ls := newNotifS4Store(t)
 
 	projID := uint(1)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := ls.CreateNotification(ctx, &models.Notification{
 			UserID:    10,
 			Type:      "secret.expiry",

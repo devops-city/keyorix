@@ -395,10 +395,7 @@ func (s *SecretGRPCService) ListSecrets(ctx context.Context, req *pb.ListSecrets
 		return nil, err
 	}
 
-	page := int(req.GetPage())
-	if page < 1 {
-		page = 1
-	}
+	page := max(int(req.GetPage()), 1)
 	pageSize := int(req.GetPageSize())
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 20
@@ -692,8 +689,7 @@ func mapSecretError(err error) error {
 	// error instead of ResourceExhausted -- exactly the collision that
 	// branch's own comment already warns a future "exceeds"-containing error
 	// could cause.
-	var tooLarge *core.SecretValueTooLargeError
-	if errors.As(err, &tooLarge) {
+	if tooLarge, ok := errors.AsType[*core.SecretValueTooLargeError](err); ok {
 		return status.Error(codes.ResourceExhausted, tooLarge.Error()) // nosemgrep: keyorix-raw-error-to-client -- SecretValueTooLargeError.Error() is a fixed-format string carrying only the submitted size and configured limit (both already known to the caller), never secret content
 	}
 	// W3 (Session W, 2026-09-29): under sustained heavy concurrent writes to the

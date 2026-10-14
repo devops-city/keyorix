@@ -275,7 +275,7 @@ func TestForward_DropsAndCountsWhenQueueFull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < queueSize+5; i++ {
+	for range queueSize + 5 {
 		f.Forward(sampleEvent())
 	}
 	if got := testutil.ToFloat64(siemForwards.WithLabelValues(outcomeDropped)) - droppedBefore; got < 1 {
@@ -309,7 +309,7 @@ func TestForward_DeliversWithBoundedConcurrency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < numWorkers*3; i++ {
+	for range numWorkers * 3 {
 		f.Forward(sampleEvent())
 	}
 	f.Close()
@@ -340,7 +340,7 @@ func TestForward_DropLogIncludesEventIdentity(t *testing.T) {
 	log.SetOutput(&logBuf)
 	defer log.SetOutput(origOut)
 
-	for i := 0; i < queueSize+numWorkers+5; i++ {
+	for range queueSize + numWorkers + 5 {
 		f.Forward(sampleEvent()) // sampleEvent has ID 42, EventType "secret.updated"
 	}
 

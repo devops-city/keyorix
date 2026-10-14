@@ -58,8 +58,8 @@ func fullRowWriterMethods(hits []fullRowHit) map[string]bool {
 	const prefix = "(*LocalStorage)."
 	out := map[string]bool{}
 	for _, h := range hits {
-		if strings.HasPrefix(h.Func, prefix) {
-			out[strings.TrimPrefix(h.Func, prefix)] = true
+		if after, ok := strings.CutPrefix(h.Func, prefix); ok {
+			out[after] = true
 		}
 	}
 	return out

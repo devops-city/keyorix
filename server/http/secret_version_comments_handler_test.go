@@ -28,17 +28,17 @@ func getFirstVersionID(t *testing.T, client *http.Client, baseURL, token string,
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "expected 200 from GET /versions")
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response.data must be an object")
 
-	versions, ok := data["versions"].([]interface{})
+	versions, ok := data["versions"].([]any)
 	require.True(t, ok, "response.data.versions must be an array")
 	require.NotEmpty(t, versions, "expected at least one version")
 
-	first, ok := versions[0].(map[string]interface{})
+	first, ok := versions[0].(map[string]any)
 	require.True(t, ok, "first version must be an object")
 
 	id, ok := first["ID"].(float64)
@@ -80,13 +80,13 @@ func TestSecretVersionComments_CreateComment(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var respBody map[string]interface{}
+	var respBody map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respBody))
 
-	data, ok := respBody["data"].(map[string]interface{})
+	data, ok := respBody["data"].(map[string]any)
 	require.True(t, ok, "response.data must be an object")
 
-	comment, ok := data["comment"].(map[string]interface{})
+	comment, ok := data["comment"].(map[string]any)
 	require.True(t, ok, "response.data.comment must be an object")
 	assert.Equal(t, "Initial rotation — ticket #42", comment["comment"])
 }
@@ -135,21 +135,21 @@ func TestSecretVersionComments_ListComments(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var respBody map[string]interface{}
+	var respBody map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&respBody))
 
-	data, ok := respBody["data"].(map[string]interface{})
+	data, ok := respBody["data"].(map[string]any)
 	require.True(t, ok, "response.data must be an object")
 
 	total, ok := data["total"].(float64)
 	require.True(t, ok, "response.data.total must be a number")
 	assert.Equal(t, float64(1), total)
 
-	comments, ok := data["comments"].([]interface{})
+	comments, ok := data["comments"].([]any)
 	require.True(t, ok, "response.data.comments must be an array")
 	require.Len(t, comments, 1)
 
-	first, ok := comments[0].(map[string]interface{})
+	first, ok := comments[0].(map[string]any)
 	require.True(t, ok, "first comment must be an object")
 	assert.Equal(t, "Auditor note", first["comment"])
 }
@@ -185,11 +185,11 @@ func TestSecretVersionComments_DeleteComment(t *testing.T) {
 	defer func() { _ = postResp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, postResp.StatusCode)
 
-	var postBody map[string]interface{}
+	var postBody map[string]any
 	require.NoError(t, json.NewDecoder(postResp.Body).Decode(&postBody))
-	postData, ok := postBody["data"].(map[string]interface{})
+	postData, ok := postBody["data"].(map[string]any)
 	require.True(t, ok)
-	commentObj, ok := postData["comment"].(map[string]interface{})
+	commentObj, ok := postData["comment"].(map[string]any)
 	require.True(t, ok)
 	commentID := uint(commentObj["id"].(float64))
 

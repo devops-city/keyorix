@@ -78,7 +78,7 @@ func TestReadinessCheck_CachesWithinTTL(t *testing.T) {
 	// calls here must still return the cached "ready" result, not a fresh
 	// (now-failing) check.
 	require.NoError(t, sqlDB.Close())
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 		w := httptest.NewRecorder()
 		h(w, req)

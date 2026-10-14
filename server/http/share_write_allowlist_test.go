@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -178,11 +179,8 @@ func secretsWriteRoutes(t *testing.T) []routeInventoryEntry {
 	entries := buildRouteInventory(t, filepath.Join(permissionSweepRepoRoot(t), "server", "http", "router.go"))
 	var out []routeInventoryEntry
 	for _, e := range entries {
-		for _, p := range e.GatePerms {
-			if p == "permSecretsWrite" {
-				out = append(out, e)
-				break
-			}
+		if slices.Contains(e.GatePerms, "permSecretsWrite") {
+			out = append(out, e)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -192,7 +190,7 @@ func secretsWriteRoutes(t *testing.T) []routeInventoryEntry {
 }
 
 func messageOf(raw string) string {
-	var out map[string]interface{}
+	var out map[string]any
 	if json.Unmarshal([]byte(raw), &out) != nil {
 		return raw
 	}

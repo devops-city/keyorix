@@ -77,7 +77,7 @@ func seedAnomalyScenario(t testing.TB, db *gorm.DB, now time.Time, idle int) []m
 
 	add(base+3, "spike") // frequency_spike: 15 reads in the window over a ~0/hour baseline
 	known(base + 3)
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		logs = append(logs, accessLog(base+3, "alice", "10.0.0.1", now.Add(-time.Duration(2+i)*time.Minute)))
 	}
 
@@ -85,7 +85,7 @@ func seedAnomalyScenario(t testing.TB, db *gorm.DB, now time.Time, idle int) []m
 	// case a naive "only secrets touched since the last run" filter would drop.
 	add(base+4, "slow-exfil")
 	known(base + 4)
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		logs = append(logs, accessLog(base+4, "alice", "10.0.0.1", now.Add(-2*time.Hour-time.Duration(i)*40*time.Minute)))
 	}
 
@@ -94,7 +94,7 @@ func seedAnomalyScenario(t testing.TB, db *gorm.DB, now time.Time, idle int) []m
 	logs = append(logs, accessLog(base+5, "alice", "10.0.0.1", now.Add(-10*time.Minute)))
 
 	// principal_breadth: eve's first-ever reads of 6 distinct secrets, all in the window.
-	for j := uint(0); j < 6; j++ {
+	for j := range uint(6) {
 		id := base + 10 + j
 		add(id, fmt.Sprintf("breadth-%d", j))
 		known(id)

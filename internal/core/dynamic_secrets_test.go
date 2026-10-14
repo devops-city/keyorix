@@ -357,7 +357,7 @@ func TestDynamicSecrets_AdminDSNTransplantBetweenConfigsFailsToDecrypt(t *testin
 	// Simulate a DB-write attacker: copy config A's encrypted admin DSN onto B's row.
 	rowA, err := c.storage.GetDynamicSecretConfig(ctx, cfgA.ID)
 	require.NoError(t, err)
-	require.NoError(t, db.Model(&models.DynamicSecretConfig{}).Where("id = ?", cfgB.ID).Updates(map[string]interface{}{
+	require.NoError(t, db.Model(&models.DynamicSecretConfig{}).Where("id = ?", cfgB.ID).Updates(map[string]any{
 		"admin_dsn_enc":  rowA.AdminDSNEnc,
 		"admin_dsn_meta": rowA.AdminDSNMeta,
 	}).Error)

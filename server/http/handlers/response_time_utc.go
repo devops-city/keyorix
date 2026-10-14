@@ -26,8 +26,8 @@ import (
 // (including anything hashed, such as audit event_time) changes.
 
 var (
-	timeType      = reflect.TypeOf(time.Time{})
-	marshalerType = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	timeType      = reflect.TypeFor[time.Time]()
+	marshalerType = reflect.TypeFor[json.Marshaler]()
 )
 
 // utcTimesWalkMarshalers are json.Marshaler types whose MarshalJSON renders
@@ -36,13 +36,13 @@ var (
 // structural guard requires every Marshaler a response can reach to be either
 // listed here or reviewed as carrying no local time.
 var utcTimesWalkMarshalers = map[reflect.Type]bool{
-	reflect.TypeOf(gorm.DeletedAt{}): true, // MarshalJSON emits .Time when .Valid
+	reflect.TypeFor[gorm.DeletedAt](): true, // MarshalJSON emits .Time when .Valid
 }
 
 // encodeJSONResponse writes v as the JSON body of w, with every time.Time in it
 // converted to UTC. Every JSON response in this package goes through here
 // (TestUTCStructural_EveryResponseEncoderIsEncodeJSONResponse).
-func encodeJSONResponse(w io.Writer, v interface{}) error {
+func encodeJSONResponse(w io.Writer, v any) error {
 	return json.NewEncoder(w).Encode(utcTimes(v))
 }
 
@@ -52,7 +52,7 @@ const utcTimesMaxDepth = 12
 // exported struct fields, slices, arrays, maps, pointers and interfaces
 // converted to UTC. Values that carry their own json.Marshaler (other than
 // time.Time) are left alone so custom wire formats are not second-guessed.
-func utcTimes(v interface{}) interface{} {
+func utcTimes(v any) any {
 	if v == nil {
 		return nil
 	}
@@ -150,8 +150,8 @@ func canHoldTime(t reflect.Type, depth int) bool {
 	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
 		return canHoldTime(t.Elem(), depth+1)
 	case reflect.Struct:
-		for i := 0; i < t.NumField(); i++ {
-			if t.Field(i).IsExported() && canHoldTime(t.Field(i).Type, depth+1) {
+		for field := range t.Fields() {
+			if field.IsExported() && canHoldTime(field.Type, depth+1) {
 				return true
 			}
 		}

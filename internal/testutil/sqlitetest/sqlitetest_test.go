@@ -53,7 +53,7 @@ func hammer(db *gorm.DB) hammerResult {
 	var sample atomic.Value
 	var wg sync.WaitGroup
 	deadline := time.Now().Add(hammerDuration)
-	for g := 0; g < hammerGoroutines; g++ {
+	for g := range hammerGoroutines {
 		wg.Add(1)
 		go func(g int) {
 			defer wg.Done()

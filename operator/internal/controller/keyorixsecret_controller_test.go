@@ -368,7 +368,7 @@ func TestReconcile_Unauthorized_KeepsTargetSecretThenRecovers(t *testing.T) {
 			fetcher.unauthorizedRefs = map[string]bool{"app/production/db-password": true}
 			metricBefore := counterValue(authFailuresTotal)
 
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				_, err = reconcile(t, r)
 				require.Error(t, err, "a 401 still requeues with error for backoff")
 				assert.True(t, errors.Is(err, keyorix.ErrUnauthorized))
@@ -452,7 +452,7 @@ func TestReconcile_FetchUnavailable_KeepsTargetSecretThenRecovers(t *testing.T) 
 				}
 			}
 
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				_, err = reconcile(t, r)
 				require.Error(t, err, "still requeues with error for backoff")
 				assert.False(t, errors.Is(err, keyorix.ErrSecretGone), "never classified as gone")
@@ -550,7 +550,7 @@ func TestReconcile_DuplicateSecretKey_RejectedNothingWritten(t *testing.T) {
 		r, c := newReconciler(t, fetcher, ks, tokenSecret())
 		rec := events.NewFakeRecorder(32)
 		r.Recorder = rec
-		for i := 0; i < 2; i++ {
+		for range 2 {
 			_, err := reconcile(t, r)
 			require.NoError(t, err)
 		}

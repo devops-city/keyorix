@@ -121,7 +121,7 @@ func TestConcurrency_RotateSession_OnlyOneWinnerPerToken(t *testing.T) {
 	var wins int64
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

@@ -169,12 +169,12 @@ func TestListUsers(t *testing.T) {
 
 			if tt.expectedStatus == http.StatusOK {
 				// Check response structure
-				var response map[string]interface{}
+				var response map[string]any
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 
 				assert.Contains(t, response, "data")
-				data := response["data"].(map[string]interface{})
+				data := response["data"].(map[string]any)
 				assert.Contains(t, data, "users")
 				assert.Contains(t, data, "total")
 			}
@@ -191,14 +191,14 @@ func TestCreateUser(t *testing.T) {
 	tests := []struct {
 		name           string
 		authToken      string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 		expectedError  string
 	}{
 		{
 			name:      "successful user creation",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"username":     "newuser",
 				"email":        "newuser@example.com",
 				"display_name": "New User",
@@ -209,7 +209,7 @@ func TestCreateUser(t *testing.T) {
 		{
 			name:      "missing required fields",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"username": "",
 				"email":    "invalid-email",
 			},
@@ -218,13 +218,13 @@ func TestCreateUser(t *testing.T) {
 		{
 			name:           "unauthorized without token",
 			authToken:      "",
-			requestBody:    map[string]interface{}{},
+			requestBody:    map[string]any{},
 			expectedStatus: http.StatusUnauthorized,
 		},
 		{
 			name:      "insufficient permissions with test token",
 			authToken: "test-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"username":     "newuser",
 				"email":        "newuser@example.com",
 				"display_name": "New User",
@@ -261,7 +261,7 @@ func TestCreateUser(t *testing.T) {
 
 			if tt.expectedStatus == http.StatusCreated {
 				// Check response structure
-				var response map[string]interface{}
+				var response map[string]any
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 
@@ -353,14 +353,14 @@ func TestUpdateUser(t *testing.T) {
 		name           string
 		authToken      string
 		userID         string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 	}{
 		{
 			name:      "successful user update",
 			authToken: "valid-token",
 			userID:    "1",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"email":        "updated@example.com",
 				"display_name": "Updated User",
 			},
@@ -370,7 +370,7 @@ func TestUpdateUser(t *testing.T) {
 			name:      "invalid user ID",
 			authToken: "valid-token",
 			userID:    "invalid",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"email": "updated@example.com",
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -379,7 +379,7 @@ func TestUpdateUser(t *testing.T) {
 			name:           "unauthorized",
 			authToken:      "",
 			userID:         "1",
-			requestBody:    map[string]interface{}{},
+			requestBody:    map[string]any{},
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
@@ -520,12 +520,12 @@ func TestListRoles(t *testing.T) {
 
 			if tt.expectedStatus == http.StatusOK {
 				// Check response structure
-				var response map[string]interface{}
+				var response map[string]any
 				err := json.Unmarshal(w.Body.Bytes(), &response)
 				require.NoError(t, err)
 
 				assert.Contains(t, response, "data")
-				data := response["data"].(map[string]interface{})
+				data := response["data"].(map[string]any)
 				assert.Contains(t, data, "roles")
 			}
 		})
@@ -538,13 +538,13 @@ func TestCreateRole(t *testing.T) {
 	tests := []struct {
 		name           string
 		authToken      string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 	}{
 		{
 			name:      "successful role creation",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"name":        "developer",
 				"description": "Developer role with limited access",
 				"permissions": []string{"secrets.read", "secrets.write"},
@@ -554,7 +554,7 @@ func TestCreateRole(t *testing.T) {
 		{
 			name:      "missing required fields",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"name": "",
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -563,7 +563,7 @@ func TestCreateRole(t *testing.T) {
 			// #189: a zero-width space (U+200B) can't be used to disguise a role name.
 			name:      "name with zero-width space is rejected",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"name":        "dev\u200bteam",
 				"description": "Developer role with limited access",
 				"permissions": []string{"secrets.read", "secrets.write"},
@@ -574,7 +574,7 @@ func TestCreateRole(t *testing.T) {
 			// #189: an RTL override (U+202E) can't be used to disguise a role name.
 			name:      "name with RTL override is rejected",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"name":        "dev\u202eteam",
 				"description": "Developer role with limited access",
 				"permissions": []string{"secrets.read", "secrets.write"},
@@ -584,7 +584,7 @@ func TestCreateRole(t *testing.T) {
 		{
 			name:           "unauthorized",
 			authToken:      "",
-			requestBody:    map[string]interface{}{},
+			requestBody:    map[string]any{},
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
@@ -686,14 +686,14 @@ func TestUpdateRole(t *testing.T) {
 		name           string
 		authToken      string
 		roleID         string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 	}{
 		{
 			name:      "successful role update",
 			authToken: "valid-token",
 			roleID:    "1",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"description": "Updated role description",
 				"permissions": []string{"secrets.read", "secrets.write", "secrets.delete"},
 			},
@@ -703,7 +703,7 @@ func TestUpdateRole(t *testing.T) {
 			name:      "invalid role ID",
 			authToken: "valid-token",
 			roleID:    "invalid",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"description": "Updated description",
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -712,7 +712,7 @@ func TestUpdateRole(t *testing.T) {
 			name:           "unauthorized",
 			authToken:      "",
 			roleID:         "1",
-			requestBody:    map[string]interface{}{},
+			requestBody:    map[string]any{},
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
@@ -816,13 +816,13 @@ func TestAssignRole(t *testing.T) {
 	tests := []struct {
 		name           string
 		authToken      string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 	}{
 		{
 			name:      "successful role assignment",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"user_id": 2,
 				"role_id": 1,
 			},
@@ -831,7 +831,7 @@ func TestAssignRole(t *testing.T) {
 		{
 			name:      "missing required fields",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"user_id": 0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -839,7 +839,7 @@ func TestAssignRole(t *testing.T) {
 		{
 			name:           "unauthorized",
 			authToken:      "",
-			requestBody:    map[string]interface{}{},
+			requestBody:    map[string]any{},
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
@@ -882,13 +882,13 @@ func TestRemoveRole(t *testing.T) {
 	tests := []struct {
 		name           string
 		authToken      string
-		requestBody    interface{}
+		requestBody    any
 		expectedStatus int
 	}{
 		{
 			name:      "successful role removal",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"user_id": 2,
 				"role_id": 1,
 			},
@@ -897,7 +897,7 @@ func TestRemoveRole(t *testing.T) {
 		{
 			name:      "missing required fields",
 			authToken: "valid-token",
-			requestBody: map[string]interface{}{
+			requestBody: map[string]any{
 				"user_id": 0,
 			},
 			expectedStatus: http.StatusBadRequest,
@@ -905,7 +905,7 @@ func TestRemoveRole(t *testing.T) {
 		{
 			name:           "unauthorized",
 			authToken:      "",
-			requestBody:    map[string]interface{}{},
+			requestBody:    map[string]any{},
 			expectedStatus: http.StatusUnauthorized,
 		},
 	}
@@ -1017,7 +1017,7 @@ func BenchmarkListUsers(b *testing.B) {
 func BenchmarkCreateUser(b *testing.B) {
 	_ = NewRBACTestHelper(&testing.T{})
 
-	requestBody := map[string]interface{}{
+	requestBody := map[string]any{
 		"username":     "benchuser",
 		"email":        "bench@example.com",
 		"display_name": "Benchmark User",
@@ -1058,7 +1058,7 @@ func BenchmarkListRoles(b *testing.B) {
 func BenchmarkAssignRole(b *testing.B) {
 	_ = NewRBACTestHelper(&testing.T{})
 
-	requestBody := map[string]interface{}{
+	requestBody := map[string]any{
 		"user_id": 2,
 		"role_id": 1,
 	}

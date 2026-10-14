@@ -59,6 +59,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -421,8 +422,8 @@ func (ws *wipeScan) checkBody(file, fn string, body *ast.BlockStmt, mayFallOff b
 func (ws *wipeScan) checkFrom(src wipeSource, stack []stmtFrame, errVar string, mayFallOff bool, end token.Pos) {
 	c := &wipeChecker{fset: ws.fset, src: src, v: src.v, out: &ws.violations}
 	handled := false
-	for d := len(stack) - 1; d >= 0; d-- {
-		fr := stack[d]
+	for d, fr := range slices.Backward(stack) {
+
 		eg := ""
 		if d == len(stack)-1 {
 			eg = errVar

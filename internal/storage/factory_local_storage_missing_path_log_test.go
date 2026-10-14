@@ -65,7 +65,7 @@ func bootLocalStorageCapturingLog(t *testing.T, path string) []string {
 	require.NotNil(t, st)
 
 	var lines []string
-	for _, l := range bytes.Split(buf.Bytes(), []byte("\n")) {
+	for l := range bytes.SplitSeq(buf.Bytes(), []byte("\n")) {
 		if bytes.Contains(l, []byte(path)) {
 			lines = append(lines, string(l))
 		}

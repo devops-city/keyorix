@@ -3,7 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -40,7 +40,7 @@ func (c *KeyorixCore) ListAdminsWithoutMFA(ctx context.Context) ([]*models.User,
 	for id := range holders {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 
 	var withoutMFA []*models.User
 	for _, id := range ids {

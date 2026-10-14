@@ -90,7 +90,7 @@ func Recovery() func(next http.Handler) http.Handler { // NOSONAR -- cognitive c
 					ww.Header().Set("Content-Type", "application/json")
 					ww.WriteHeader(http.StatusInternalServerError)
 
-					response := map[string]interface{}{
+					response := map[string]any{
 						"error":   "InternalServerError",
 						"message": "An internal server error occurred",
 						"code":    http.StatusInternalServerError,

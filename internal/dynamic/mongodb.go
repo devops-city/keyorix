@@ -149,13 +149,13 @@ var mongoBlockedRoles = map[string]bool{
 // template must be a JSON object carrying a "roles" array; each entry is either a
 // built-in role name (string) or a {role, db} object, passed straight to createUser.
 // Cluster-wide superuser roles (root, clusterAdmin, etc.) are always rejected.
-func parseMongoRoles(template string) ([]interface{}, error) {
+func parseMongoRoles(template string) ([]any, error) {
 	t := strings.TrimSpace(template)
 	if t == "" {
-		return []interface{}{}, nil
+		return []any{}, nil
 	}
 	var doc struct {
-		Roles []interface{} `json:"roles"`
+		Roles []any `json:"roles"`
 	}
 	if err := json.Unmarshal([]byte(t), &doc); err != nil {
 		return nil, fmt.Errorf("mongodb creation template must be JSON like {\"roles\": [...]}: %w", err)
@@ -168,7 +168,7 @@ func parseMongoRoles(template string) ([]interface{}, error) {
 		switch v := entry.(type) {
 		case string:
 			roleName = v
-		case map[string]interface{}:
+		case map[string]any:
 			if r, ok := v["role"].(string); ok {
 				roleName = r
 			}
@@ -259,8 +259,7 @@ func mongoTLSEnabled(u *url.URL) bool {
 // isMongoUserNotFound reports whether err is MongoDB's UserNotFound (code 11),
 // returned by dropUser when the user is already gone — so revoke is idempotent.
 func isMongoUserNotFound(err error) bool {
-	var ce mongo.CommandError
-	if errors.As(err, &ce) {
+	if ce, ok := errors.AsType[mongo.CommandError](err); ok {
 		return ce.Code == 11 || ce.Name == "UserNotFound"
 	}
 	return false

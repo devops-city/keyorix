@@ -80,7 +80,7 @@ func (h *CatalogHandler) ActivateBreakGlass(w http.ResponseWriter, r *http.Reque
 	// (see its sendCreated doc comment for the full writeup). Without a
 	// Content-Type header, ADR-108 PR 1's generated CLI client can't tell this
 	// 201 response apart from a non-JSON one and never populates JSON201.
-	sendCreated(w, map[string]interface{}{"activation": activation}, "Emergency access activated")
+	sendCreated(w, map[string]any{"activation": activation}, "Emergency access activated")
 }
 
 // ListBreakGlassActivations handles GET /api/v1/projects/{id}/break-glass. The route
@@ -117,11 +117,11 @@ func (h *CatalogHandler) ListBreakGlassActivations(w http.ResponseWriter, r *htt
 		return
 	}
 	s := h.coreService.BreakGlassSettings()
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"activations": activations, "count": len(activations), "scope": scope,
 		// Only reached for a caller the list authorization allowed (a project member or a
 		// roles.read holder) and after the MFA policy: deployment limits, no secrets.
-		"settings": map[string]interface{}{
+		"settings": map[string]any{
 			"enabled":             s.Enabled,
 			"emergency_role":      s.EmergencyRole,
 			"default_ttl_seconds": int64(s.DefaultTTL / time.Second),

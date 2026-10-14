@@ -57,5 +57,5 @@ func (h *SecretHandler) ExtendExpiringSecrets(w http.ResponseWriter, r *http.Req
 	// #G24: "truncated" tells the caller more secrets matched the window than the
 	// scan cap covered — the soonest-expiring ones were still renewed first
 	// (storage orders by expiration ascending), but not every matching secret was.
-	h.sendSuccess(w, map[string]interface{}{"extended": n, "truncated": truncated}, "")
+	h.sendSuccess(w, map[string]any{"extended": n, "truncated": truncated}, "")
 }

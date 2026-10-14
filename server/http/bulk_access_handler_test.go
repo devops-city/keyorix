@@ -66,11 +66,11 @@ func TestRejectionReasonTemplates_CreateList(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
-	tmpl, ok := data["template"].(map[string]interface{})
+	tmpl, ok := data["template"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "not-qualified", tmpl["name"])
 
@@ -85,11 +85,11 @@ func TestRejectionReasonTemplates_CreateList(t *testing.T) {
 	defer func() { _ = listResp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, listResp.StatusCode)
 
-	var listBody map[string]interface{}
+	var listBody map[string]any
 	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&listBody))
-	listData, ok := listBody["data"].(map[string]interface{})
+	listData, ok := listBody["data"].(map[string]any)
 	require.True(t, ok)
-	templates, ok := listData["templates"].([]interface{})
+	templates, ok := listData["templates"].([]any)
 	require.True(t, ok)
 	assert.Len(t, templates, 1)
 }
@@ -107,10 +107,10 @@ func TestRejectionReasonTemplates_Delete(t *testing.T) {
 	createReq.Header.Set("Content-Type", "application/json")
 	createResp, err := http.DefaultClient.Do(createReq)
 	require.NoError(t, err)
-	var createBody map[string]interface{}
+	var createBody map[string]any
 	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&createBody))
 	_ = createResp.Body.Close()
-	tmpl := createBody["data"].(map[string]interface{})["template"].(map[string]interface{})
+	tmpl := createBody["data"].(map[string]any)["template"].(map[string]any)
 	id := int(tmpl["id"].(float64))
 
 	// DELETE it.
@@ -215,7 +215,7 @@ func TestRejectionReasonTemplates_Unauthenticated(t *testing.T) {
 func TestBulkApproveAccessRequests_EmptyIDs_Handler(t *testing.T) {
 	srv, _, token := bulkAccessTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{"request_ids": []uint{}})
+	payload, err := json.Marshal(map[string]any{"request_ids": []uint{}})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPost,
 		srv.URL+"/api/v1/access-requests/bulk-approve", bytes.NewReader(payload))
@@ -246,7 +246,7 @@ func TestBulkApproveAccessRequests_BadJSON_Handler(t *testing.T) {
 func TestBulkApproveAccessRequests_Unauthenticated(t *testing.T) {
 	srv, _, _ := bulkAccessTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{"request_ids": []uint{1}})
+	payload, err := json.Marshal(map[string]any{"request_ids": []uint{1}})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPost,
 		srv.URL+"/api/v1/access-requests/bulk-approve", bytes.NewReader(payload))
@@ -261,7 +261,7 @@ func TestBulkApproveAccessRequests_WithIDs_Handler(t *testing.T) {
 	srv, _, token := bulkAccessTestSetup(t)
 
 	// IDs that don't exist → BulkApprove returns a result with failures, not an error.
-	payload, err := json.Marshal(map[string]interface{}{"request_ids": []uint{9999}})
+	payload, err := json.Marshal(map[string]any{"request_ids": []uint{9999}})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPost,
 		srv.URL+"/api/v1/access-requests/bulk-approve", bytes.NewReader(payload))
@@ -273,9 +273,9 @@ func TestBulkApproveAccessRequests_WithIDs_Handler(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, data, "result")
 }
@@ -285,7 +285,7 @@ func TestBulkApproveAccessRequests_WithIDs_Handler(t *testing.T) {
 func TestBulkRejectAccessRequests_EmptyIDs_Handler(t *testing.T) {
 	srv, _, token := bulkAccessTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"request_ids": []uint{},
 		"reason":      "denied",
 	})
@@ -304,7 +304,7 @@ func TestBulkRejectAccessRequests_EmptyIDs_Handler(t *testing.T) {
 func TestBulkRejectAccessRequests_EmptyReason_Handler(t *testing.T) {
 	srv, _, token := bulkAccessTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"request_ids": []uint{1},
 		"reason":      "",
 	})
@@ -338,7 +338,7 @@ func TestBulkRejectAccessRequests_BadJSON_Handler(t *testing.T) {
 func TestBulkRejectAccessRequests_Unauthenticated(t *testing.T) {
 	srv, _, _ := bulkAccessTestSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"request_ids": []uint{1},
 		"reason":      "no",
 	})
@@ -356,7 +356,7 @@ func TestBulkRejectAccessRequests_WithIDs_Handler(t *testing.T) {
 	srv, _, token := bulkAccessTestSetup(t)
 
 	// IDs that don't exist → result has failures but no top-level error.
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"request_ids": []uint{9999},
 		"reason":      "not qualified",
 	})
@@ -371,9 +371,9 @@ func TestBulkRejectAccessRequests_WithIDs_Handler(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, data, "result")
 }
@@ -473,7 +473,7 @@ func bulkAccessBrokenSetup(t *testing.T) (*httptest.Server, string) {
 func TestBulkApproveAccessRequests_StorageError(t *testing.T) {
 	srv, token := bulkAccessBrokenSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{"request_ids": []uint{1}})
+	payload, err := json.Marshal(map[string]any{"request_ids": []uint{1}})
 	require.NoError(t, err)
 	req, err := http.NewRequest(http.MethodPost,
 		srv.URL+"/api/v1/access-requests/bulk-approve", bytes.NewReader(payload))
@@ -489,7 +489,7 @@ func TestBulkApproveAccessRequests_StorageError(t *testing.T) {
 func TestBulkRejectAccessRequests_StorageError(t *testing.T) {
 	srv, token := bulkAccessBrokenSetup(t)
 
-	payload, err := json.Marshal(map[string]interface{}{
+	payload, err := json.Marshal(map[string]any{
 		"request_ids": []uint{1},
 		"reason":      "no",
 	})

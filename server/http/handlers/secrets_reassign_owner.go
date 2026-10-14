@@ -48,5 +48,5 @@ func (h *SecretHandler) ReassignOwner(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, "Error", err.Error(), status, nil)
 		return
 	}
-	h.sendSuccess(w, map[string]interface{}{"reassigned": n}, "")
+	h.sendSuccess(w, map[string]any{"reassigned": n}, "")
 }

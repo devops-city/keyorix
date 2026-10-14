@@ -65,7 +65,7 @@ func (h *ConnectHandler) ListConnectors(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "ConnectError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"connectors": names}, "")
+	sendSuccess(w, map[string]any{"connectors": names}, "")
 }
 
 // ReadSecret proxies a read-through of the named connector. ref is taken from the
@@ -111,7 +111,7 @@ func (h *ConnectHandler) ReadSecret(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "ConnectError", msg, http.StatusBadGateway, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"connector": name,
 		"ref":       ref,
 		"value":     value,
@@ -130,9 +130,9 @@ func (h *ConnectHandler) ListRefGrants(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "ConnectError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(grants))
+	out := make([]map[string]any, 0, len(grants))
 	for _, g := range grants {
-		out = append(out, map[string]interface{}{
+		out = append(out, map[string]any{
 			"id":         g.ID,
 			"role_id":    g.RoleID,
 			"connector":  g.Connector,
@@ -141,7 +141,7 @@ func (h *ConnectHandler) ListRefGrants(w http.ResponseWriter, r *http.Request) {
 			"created_at": g.CreatedAt,
 		})
 	}
-	sendSuccess(w, map[string]interface{}{"grants": out}, "")
+	sendSuccess(w, map[string]any{"grants": out}, "")
 }
 
 // CreateRefGrant adds a per-reference grant (ADR-045). ExpiresAt is optional: omitted
@@ -176,7 +176,7 @@ func (h *ConnectHandler) CreateRefGrant(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "ConnectError", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"id":         g.ID,
 		"role_id":    g.RoleID,
 		"connector":  g.Connector,
@@ -202,5 +202,5 @@ func (h *ConnectHandler) DeleteRefGrant(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "ConnectError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"id": id}, "Connect ref-grant deleted")
+	sendSuccess(w, map[string]any{"id": id}, "Connect ref-grant deleted")
 }

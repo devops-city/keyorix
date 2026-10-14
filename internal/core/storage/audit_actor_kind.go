@@ -93,22 +93,22 @@ func auditNoPrincipalSQL() string {
 
 // AuditActorKindWhere returns the WHERE clause (and args) selecting exactly the
 // audit_events rows AuditActorKind maps to kind.
-func AuditActorKindWhere(kind string) (string, []interface{}) {
+func AuditActorKindWhere(kind string) (string, []any) {
 	defaultKind := "(COALESCE(actor_type, '') IN ('', 'user'))"
 	switch kind {
 	case auditKindSystem:
-		return "(actor_type = ? OR (" + defaultKind + " AND " + auditNoPrincipalSQL() + "))", []interface{}{kind}
+		return "(actor_type = ? OR (" + defaultKind + " AND " + auditNoPrincipalSQL() + "))", []any{kind}
 	case auditKindUser:
 		return "(" + defaultKind + " AND NOT " + auditNoPrincipalSQL() + ")", nil
 	default:
-		return "actor_type = ?", []interface{}{kind}
+		return "actor_type = ?", []any{kind}
 	}
 }
 
 // AuditSystemActorWhere returns the WHERE clause selecting rows whose displayed
 // actor is "system" (kind system). The actor (username) search uses it so a term
 // matching "system" finds the same rows the system kind does.
-func AuditSystemActorWhere() (string, []interface{}) {
+func AuditSystemActorWhere() (string, []any) {
 	return AuditActorKindWhere(auditKindSystem)
 }
 

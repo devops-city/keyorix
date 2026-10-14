@@ -62,15 +62,13 @@ func TestConcurrency_RequestPasswordReset_BurstIsThrottled(t *testing.T) {
 	const burst = 50 // far more than the daily cap (10) and the 60s min interval allows
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < burst; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range burst {
+		wg.Go(func() {
 			<-start
 			// RequestPasswordReset always returns nil (enumeration-safe) regardless of
 			// throttling — the observable effect under test is how many emails went out.
 			_ = c.RequestPasswordReset(context.Background(), email)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

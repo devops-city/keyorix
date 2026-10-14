@@ -2,6 +2,7 @@ package accessplan
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -52,12 +53,7 @@ func mappedPermissions(capabilities []string) []string {
 }
 
 func containsCapability(capabilities []string, want string) bool {
-	for _, c := range capabilities {
-		if c == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(capabilities, want)
 }
 
 // isTemplatedPath reports whether a policy path uses Vault's identity-templating syntax
@@ -82,8 +78,8 @@ func roleName(permissions []string) string {
 // wildcardSplit splits a Vault ACL path into its literal prefix and whether it ends in Vault's
 // one legitimate glob form (a trailing "*"). literal always excludes the "*" itself.
 func wildcardSplit(path string) (literal string, wildcard bool) {
-	if strings.HasSuffix(path, "*") {
-		return strings.TrimSuffix(path, "*"), true
+	if before, ok := strings.CutSuffix(path, "*"); ok {
+		return before, true
 	}
 	return path, false
 }

@@ -79,14 +79,13 @@ var securityStateColumns = map[string]bool{
 
 func securityStateModels() map[string]bool {
 	out := map[string]bool{}
-	deletedAt := reflect.TypeOf(gorm.DeletedAt{})
+	deletedAt := reflect.TypeFor[gorm.DeletedAt]()
 	for _, m := range models.AllTestModels() {
 		t := reflect.TypeOf(m)
 		for t.Kind() == reflect.Pointer {
 			t = t.Elem()
 		}
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
+		for f := range t.Fields() {
 			if securityStateColumns[f.Name] || f.Type == deletedAt {
 				out[t.Name()] = true
 				break

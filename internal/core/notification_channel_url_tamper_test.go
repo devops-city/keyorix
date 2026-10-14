@@ -71,7 +71,7 @@ func newEncryptedChannelWorld(t *testing.T) (*KeyorixCore, *gorm.DB, *encryption
 func setURLEnc(t *testing.T, db *gorm.DB, id uint, urlEnc, urlMeta []byte) {
 	t.Helper()
 	require.NoError(t, db.Model(&models.NotificationChannel{}).Where("id = ?", id).
-		Updates(map[string]interface{}{"url_enc": urlEnc, "url_meta": urlMeta}).Error)
+		Updates(map[string]any{"url_enc": urlEnc, "url_meta": urlMeta}).Error)
 }
 
 // TestGetNotificationChannel_PlaintextTagRefusedWhenEncryptionActive is the

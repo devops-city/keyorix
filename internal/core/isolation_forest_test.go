@@ -27,7 +27,7 @@ func TestIsolationForestSeparatesOutlier(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
 	// 200 normal points clustered tightly around (10,10,10).
 	data := make([][]float64, 0, 201)
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		data = append(data, []float64{
 			10 + rng.Float64(),
 			10 + rng.Float64(),

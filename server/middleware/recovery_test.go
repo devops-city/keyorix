@@ -35,7 +35,7 @@ func TestRecovery_DoesNotLeakInternals(t *testing.T) {
 		assert.NotContains(t, body, leak, "response must not leak internals (%q)", leak)
 	}
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.Equal(t, "InternalServerError", resp["error"])
 	assert.NotContains(t, resp, "details", "no details field is ever returned")

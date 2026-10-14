@@ -27,7 +27,7 @@ func TestRecoveryInterceptor_CatchesPanicInDownstreamInterceptor(t *testing.T) {
 	// before ever delegating to the real handler — handlerCalled staying false is the
 	// evidence the real handler was never reached.
 	handlerCalled := false
-	panickyDownstream := func(_ context.Context, _ interface{}) (interface{}, error) {
+	panickyDownstream := func(_ context.Context, _ any) (any, error) {
 		panic("boom: downstream interceptor panic")
 	}
 
@@ -51,7 +51,7 @@ func TestStreamRecoveryInterceptor_CatchesPanicInDownstreamInterceptor(t *testin
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.AuditService/StreamAuditLogs"}
 
 	handlerCalled := false
-	panickyDownstream := func(_ interface{}, _ grpc.ServerStream) error {
+	panickyDownstream := func(_ any, _ grpc.ServerStream) error {
 		panic("boom: downstream stream interceptor panic")
 	}
 

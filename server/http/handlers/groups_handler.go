@@ -35,8 +35,8 @@ func NewGroupHandler(coreService *core.KeyorixCore) (*GroupHandler, error) {
 	}, nil
 }
 
-func groupToAPIResponse(g *models.Group) map[string]interface{} {
-	return map[string]interface{}{
+func groupToAPIResponse(g *models.Group) map[string]any {
+	return map[string]any{
 		"id":          g.ID,
 		"name":        g.Name,
 		"description": g.Description,
@@ -56,11 +56,11 @@ func (h *GroupHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "InternalError", "Failed to list groups", http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(groups))
+	out := make([]map[string]any, 0, len(groups))
 	for _, g := range groups {
 		out = append(out, groupToAPIResponse(g))
 	}
-	sendSuccess(w, map[string]interface{}{"groups": out, "total": len(out)}, "")
+	sendSuccess(w, map[string]any{"groups": out, "total": len(out)}, "")
 }
 
 // CreateGroup handles POST /api/v1/groups

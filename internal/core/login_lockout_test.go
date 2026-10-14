@@ -60,7 +60,7 @@ func TestLoginLockout_LocksAfterMaxAttempts(t *testing.T) {
 	c, db, _ := newLockoutTestCore(t, true)
 
 	// 3 wrong-password attempts → still "invalid credentials", then locked.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.ErrorContains(t, login(c, "wrong"), "invalid credentials")
 	}
 	u := reloadUser(t, db)
@@ -75,7 +75,7 @@ func TestLoginLockout_ExpiryThenExponentialBackoff(t *testing.T) {
 	t.Parallel()
 	c, db, clock := newLockoutTestCore(t, true)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = login(c, "wrong")
 	}
 	first := reloadUser(t, db)
@@ -96,13 +96,13 @@ func TestLoginLockout_BackoffGrowsAcrossLockouts(t *testing.T) {
 	c, db, clock := newLockoutTestCore(t, true)
 	// Don't let a successful login reset the counter between lockouts: lock, wait out
 	// the cooldown, then lock again — the 2nd cooldown should be 2× the first.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = login(c, "wrong")
 	}
 	assert.Equal(t, (*clock).Add(5*time.Minute), reloadUser(t, db).LoginLockedUntil.UTC())
 
 	*clock = clock.Add(6 * time.Minute) // lock expired, but no successful login
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = login(c, "wrong")
 	}
 	u := reloadUser(t, db)
@@ -135,7 +135,7 @@ func TestLoginLockout_SuccessResetsCounter(t *testing.T) {
 func TestLoginLockout_UnlockUserClearsState(t *testing.T) {
 	t.Parallel()
 	c, db, _ := newLockoutTestCore(t, true)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = login(c, "wrong")
 	}
 	require.NotNil(t, reloadUser(t, db).LoginLockedUntil)
@@ -150,7 +150,7 @@ func TestLoginLockout_UnlockUserClearsState(t *testing.T) {
 func TestLoginLockout_DisabledNeverLocks(t *testing.T) {
 	t.Parallel()
 	c, db, _ := newLockoutTestCore(t, false)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		_ = login(c, "wrong")
 	}
 	assert.Nil(t, reloadUser(t, db).LoginLockedUntil, "no lockout when the policy is disabled")

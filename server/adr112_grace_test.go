@@ -42,7 +42,7 @@ func migrateADR112DB(t *testing.T, cfg *config.Config, nUsers int) {
 	if err := db.AutoMigrate(&models.User{}, &models.SystemMetadata{}); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < nUsers; i++ {
+	for i := range nUsers {
 		u := models.User{Username: "admin" + string(rune('a'+i)), Email: string(rune('a'+i)) + "@example.test"}
 		if err := db.Create(&u).Error; err != nil {
 			t.Fatal(err)

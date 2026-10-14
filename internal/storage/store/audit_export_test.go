@@ -20,7 +20,7 @@ func TestGetAuditLogs_CursorExport(t *testing.T) {
 
 	// Insert 5 events; event_time DESCENDING vs id so we can prove the cursor
 	// orders by id, not by time.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, ls.LogAuditEvent(ctx, &models.AuditEvent{
 			EventType: "secret.read",
 			EventTime: base.Add(time.Duration(-i) * time.Minute),

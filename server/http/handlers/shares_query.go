@@ -53,7 +53,7 @@ func (h *ShareHandler) ListSecretShares(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"shares": newShareRecordWireList(shares)}, "")
+	h.sendSuccess(w, map[string]any{"shares": newShareRecordWireList(shares)}, "")
 }
 
 // ListShares handles GET /api/v1/shares — returns the caller's shares (received +
@@ -165,20 +165,14 @@ func (h *ShareHandler) sendShareViewPage(w http.ResponseWriter, r *http.Request,
 
 	total := len(views)
 	totalPages := (total + pageSize - 1) / pageSize
-	start := (page - 1) * pageSize
-	if start > total {
-		start = total
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
+	start := min((page-1)*pageSize, total)
+	end := min(start+pageSize, total)
 	pageItems := views[start:end]
 	if pageItems == nil {
 		pageItems = []core.ShareView{}
 	}
 
-	h.sendSuccess(w, map[string]interface{}{
+	h.sendSuccess(w, map[string]any{
 		"data":       pageItems,
 		"total":      total,
 		"page":       page,
@@ -265,7 +259,7 @@ func (h *ShareHandler) ListSharedSecrets(w http.ResponseWriter, r *http.Request)
 		secrets = []*models.SecretNode{}
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secrets": newSecretNodeWireList(secrets)}, "")
+	h.sendSuccess(w, map[string]any{"secrets": newSecretNodeWireList(secrets)}, "")
 }
 
 // ListSharedSecretsForUser handles GET /api/v1/users/{id}/shared-secrets — the
@@ -316,7 +310,7 @@ func (h *ShareHandler) ListSharedSecretsForUser(w http.ResponseWriter, r *http.R
 		secrets = []*models.SecretNode{}
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secrets": newSecretNodeWireList(secrets)}, "")
+	h.sendSuccess(w, map[string]any{"secrets": newSecretNodeWireList(secrets)}, "")
 }
 
 // ListGroupSharedSecrets handles GET /api/v1/groups/{id}/shared-secrets — the live
@@ -351,7 +345,7 @@ func (h *ShareHandler) ListGroupSharedSecrets(w http.ResponseWriter, r *http.Req
 		secrets = []*models.SecretNode{}
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secrets": newSecretNodeWireList(secrets)}, "")
+	h.sendSuccess(w, map[string]any{"secrets": newSecretNodeWireList(secrets)}, "")
 }
 
 // ListGroupShares handles GET /api/v1/groups/{id}/shares — the share grants
@@ -389,7 +383,7 @@ func (h *ShareHandler) ListGroupShares(w http.ResponseWriter, r *http.Request) {
 		shares = []*models.ShareRecord{}
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"shares": newShareRecordWireList(shares)}, "")
+	h.sendSuccess(w, map[string]any{"shares": newShareRecordWireList(shares)}, "")
 }
 
 // GetSharingStatusWithIndicators handles GET /api/v1/secrets/{id}/sharing-status

@@ -222,12 +222,12 @@ var bigResponseServiceDesc = grpc.ServiceDesc{
 // succeed".
 const bigResponseSize = 1 << 20 // 1 MiB
 
-func bigResponseHandler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func bigResponseHandler(srv any, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
-	handle := func(ctx context.Context, _ interface{}) (interface{}, error) {
+	handle := func(ctx context.Context, _ any) (any, error) {
 		return &wrapperspb.BytesValue{Value: make([]byte, bigResponseSize)}, nil
 	}
 	if interceptor == nil {

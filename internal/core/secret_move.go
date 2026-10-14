@@ -9,6 +9,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -78,10 +79,8 @@ func (c *KeyorixCore) MoveSecret(ctx context.Context, actorID, secretID uint, ne
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
-		for _, ancestorID := range ancestors {
-			if ancestorID == secretID {
-				return nil, fmt.Errorf("%s: cannot move a node into its own descendant", i18n.T("ErrorValidation", nil))
-			}
+		if slices.Contains(ancestors, secretID) {
+			return nil, fmt.Errorf("%s: cannot move a node into its own descendant", i18n.T("ErrorValidation", nil))
 		}
 		secret.ParentID = newParentID
 	} else {

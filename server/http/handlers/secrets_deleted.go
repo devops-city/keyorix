@@ -74,7 +74,7 @@ func (h *SecretHandler) DeletedSecrets(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, e)
 	}
-	h.sendSuccess(w, map[string]interface{}{"deleted": entries, "total": len(entries)}, "")
+	h.sendSuccess(w, map[string]any{"deleted": entries, "total": len(entries)}, "")
 }
 
 func toDeletedSecretEntry(s *models.SecretNode) deletedSecretEntry {

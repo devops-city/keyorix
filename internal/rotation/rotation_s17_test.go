@@ -462,7 +462,7 @@ type fakeMySQLConn struct {
 	execErr error
 }
 
-func (f *fakeMySQLConn) Exec(_ context.Context, _ string, _ ...interface{}) error {
+func (f *fakeMySQLConn) Exec(_ context.Context, _ string, _ ...any) error {
 	return f.execErr
 }
 func (f *fakeMySQLConn) Close() error { return nil }

@@ -48,9 +48,9 @@ func withID(req *http.Request, id string) *http.Request {
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
-func decodeSCIM(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{} {
+func decodeSCIM(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
-	var m map[string]interface{}
+	var m map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &m))
 	return m
 }
@@ -253,7 +253,7 @@ func TestSCIM_ListFilterDoesNotLeakNativeAccount(t *testing.T) {
 	h.ListUsers(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	resp := decodeSCIM(t, w)
-	resources, _ := resp["Resources"].([]interface{})
+	resources, _ := resp["Resources"].([]any)
 	assert.Empty(t, resources, "a filter match against a native (non-SCIM-managed) account must not be returned")
 }
 
@@ -282,9 +282,9 @@ func TestSCIM_ListUsersOnlyReturnsSCIMManaged(t *testing.T) {
 	assert.Equal(t, float64(1), resp["totalResults"], "totalResults must reflect only the SCIM-managed user, not the full 2-user directory")
 	assert.Equal(t, float64(1), resp["itemsPerPage"])
 
-	resources, _ := resp["Resources"].([]interface{})
+	resources, _ := resp["Resources"].([]any)
 	require.Len(t, resources, 1, "only the SCIM-managed account may be listed")
-	only, _ := resources[0].(map[string]interface{})
+	only, _ := resources[0].(map[string]any)
 	assert.Equal(t, managedID, only["id"], "the returned resource must be the SCIM-managed user, not the native one")
 	assert.NotEqual(t, "native@corp.com", only["userName"], "a native (non-SCIM-managed) account must never appear in a SCIM listing")
 }

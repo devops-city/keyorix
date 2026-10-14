@@ -514,14 +514,14 @@ func TestValidate_ConcurrentCallsAreIsolated(t *testing.T) {
 	const itersPerGoroutine = 20
 
 	var wg sync.WaitGroup
-	var unexpectedNoErr int32 // invalid input that should have failed but did not
-	var unexpectedErr int32   // valid input that should have passed but did not
+	var unexpectedNoErr atomic.Int32 // invalid input that should have failed but did not
+	var unexpectedErr atomic.Int32   // valid input that should have passed but did not
 
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			for i := 0; i < itersPerGoroutine; i++ {
+			for i := range itersPerGoroutine {
 				valid := (id+i)%2 == 0
 
 				var p payload
@@ -534,10 +534,10 @@ func TestValidate_ConcurrentCallsAreIsolated(t *testing.T) {
 				err := v.Validate(&p)
 
 				if valid && err != nil {
-					atomic.AddInt32(&unexpectedErr, 1)
+					unexpectedErr.Add(1)
 				}
 				if !valid && err == nil {
-					atomic.AddInt32(&unexpectedNoErr, 1)
+					unexpectedNoErr.Add(1)
 				}
 			}
 		}(g)
@@ -545,8 +545,8 @@ func TestValidate_ConcurrentCallsAreIsolated(t *testing.T) {
 
 	wg.Wait()
 
-	assert.Equal(t, int32(0), atomic.LoadInt32(&unexpectedErr),
+	assert.Equal(t, int32(0), unexpectedErr.Load(),
 		"a valid input incorrectly failed validation under concurrency (result corrupted by another concurrent call)")
-	assert.Equal(t, int32(0), atomic.LoadInt32(&unexpectedNoErr),
+	assert.Equal(t, int32(0), unexpectedNoErr.Load(),
 		"an invalid input incorrectly passed validation under concurrency (validation bypass)")
 }

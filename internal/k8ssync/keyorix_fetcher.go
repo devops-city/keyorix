@@ -378,7 +378,7 @@ func (f *KeyorixFetcher) fetchValue(ctx context.Context, id uint) ([]byte, *time
 }
 
 // getJSON performs an authenticated GET and decodes the {"data": …} envelope into out.
-func (f *KeyorixFetcher) getJSON(ctx context.Context, path string, out interface{}) error {
+func (f *KeyorixFetcher) getJSON(ctx context.Context, path string, out any) error {
 	// f.baseURL is sourced from Config.KeyorixURL, already validated by
 	// validateKeyorixURL at config-load time (Config.Validate) — but that validated
 	// a different field read (the Config struct's own KeyorixURL), so this direct

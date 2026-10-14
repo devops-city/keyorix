@@ -272,7 +272,7 @@ func TestListSessions_WithExpiryAndLastSeen_S13(t *testing.T) {
 	h.ListSessions(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	data := resp["data"]
 	assert.NotNil(t, data)
@@ -290,9 +290,9 @@ func TestListSSOProviders_Empty_S13(t *testing.T) {
 	h.ListSSOProviders(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	_, hasProviders := data["providers"]
 	assert.True(t, hasProviders)

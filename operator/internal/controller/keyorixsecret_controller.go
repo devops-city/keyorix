@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"sort"
 	"strings"
@@ -697,9 +698,7 @@ func carryOverHeld(desired, live map[string][]byte, held []string) map[string][]
 		return desired
 	}
 	out := make(map[string][]byte, len(desired)+len(held))
-	for k, v := range desired {
-		out[k] = v
-	}
+	maps.Copy(out, desired)
 	for _, k := range held {
 		if _, ok := out[k]; ok {
 			continue

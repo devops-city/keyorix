@@ -57,12 +57,12 @@ func TestListSharedSecretsForUser_HandlerSelfView_HappyPath(t *testing.T) {
 	w := requestSharedSecretsForUser(cs, targetID, targetID, "s6_self_view")
 	require.Equal(t, 200, w.Code, w.Body.String())
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	data := body["data"].(map[string]interface{})
-	secrets := data["secrets"].([]interface{})
+	data := body["data"].(map[string]any)
+	secrets := data["secrets"].([]any)
 	require.Len(t, secrets, 1)
-	assert.Equal(t, float64(secretID), secrets[0].(map[string]interface{})["id"])
+	assert.Equal(t, float64(secretID), secrets[0].(map[string]any)["id"])
 }
 
 // TestListSharedSecretsForUser_HandlerAdminViewsLowerRankedUser_NoSecretValueLeak:
@@ -82,12 +82,12 @@ func TestListSharedSecretsForUser_HandlerAdminViewsLowerRankedUser_NoSecretValue
 	respBody := w.Body.String()
 	assert.NotContains(t, strings.ToLower(respBody), `"value"`, "the response must never carry a secret VALUE, only metadata")
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	data := body["data"].(map[string]interface{})
-	secrets := data["secrets"].([]interface{})
+	data := body["data"].(map[string]any)
+	secrets := data["secrets"].([]any)
 	require.Len(t, secrets, 1)
-	assert.Equal(t, float64(secretID), secrets[0].(map[string]interface{})["id"])
+	assert.Equal(t, float64(secretID), secrets[0].(map[string]any)["id"])
 
 	var event models.AuditEvent
 	require.NoError(t, db.Where("event_type = ?", string(core.ShareAuditEventSharedSecretsAdminViewed)).First(&event).Error)

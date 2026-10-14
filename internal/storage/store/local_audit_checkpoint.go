@@ -29,7 +29,7 @@ func (ls *LocalStorage) UpdateAuditCheckpointAnchor(ctx context.Context, id uint
 	return ls.db.WithContext(ctx).
 		Model(&models.AuditCheckpoint{}).
 		Where(sqlWhereID, id).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"anchor_token":    token,
 			"anchored_at":     anchoredAt,
 			"anchor_provider": provider,

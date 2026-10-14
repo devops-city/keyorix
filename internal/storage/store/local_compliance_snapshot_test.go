@@ -125,7 +125,7 @@ func TestListCompliancePostureSnapshots_RespectsLimit(t *testing.T) {
 	ls := newComplianceSnapshotStore(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		d := time.Date(2026, 7, i+1, 0, 0, 0, 0, time.UTC)
 		require.NoError(t, ls.db.Create(&models.CompliancePostureSnapshot{SnapshotDate: d}).Error)
 	}

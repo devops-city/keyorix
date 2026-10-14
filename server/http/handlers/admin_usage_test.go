@@ -49,11 +49,11 @@ func TestAdminUsage_OK(t *testing.T) {
 	w := getUsage(h.GetUsageReport, "/api/v1/admin/usage")
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.True(t, body["success"].(bool))
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "data field should be an object")
 	assert.EqualValues(t, 30, data["window_days"])
 	assert.NotEmpty(t, data["generated_at"])
@@ -74,9 +74,9 @@ func TestAdminUsage_InvalidDays_DefaultsTo30(t *testing.T) {
 			w := getUsage(h.GetUsageReport, target)
 			require.Equal(t, http.StatusOK, w.Code)
 
-			var body map[string]interface{}
+			var body map[string]any
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-			data := body["data"].(map[string]interface{})
+			data := body["data"].(map[string]any)
 			assert.EqualValues(t, 30, data["window_days"])
 		})
 	}
@@ -89,10 +89,10 @@ func TestAdminUsage_ProjectFilter(t *testing.T) {
 	w := getUsage(h.GetUsageReport, "/api/v1/admin/usage?project_id=1&days=7")
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.True(t, body["success"].(bool))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	// No secrets or events in DB, so projects slice is empty
 	assert.EqualValues(t, 7, data["window_days"])
 }
@@ -104,8 +104,8 @@ func TestAdminUsage_ValidDays(t *testing.T) {
 	w := getUsage(h.GetUsageReport, "/api/v1/admin/usage?days=90")
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.EqualValues(t, 90, data["window_days"])
 }

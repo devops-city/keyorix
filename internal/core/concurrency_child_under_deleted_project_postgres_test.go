@@ -58,7 +58,7 @@ import (
 // working fix (environments: 4 swept rows counted as orphans; the restore test:
 // the still-deleted secret counted as live). Written down because the next
 // helper built on countLive will hit the same thing.
-func (f *ctaReview) liveChildrenOfDeletedProject(model interface{}) int64 {
+func (f *ctaReview) liveChildrenOfDeletedProject(model any) int64 {
 	f.t.Helper()
 	return f.countLive(model, "project_id = ? AND deleted_at IS NULL", f.projectID)
 }

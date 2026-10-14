@@ -407,7 +407,7 @@ func TestBulkDeleteSecrets_AuditLogWriteIsSynchronous(t *testing.T) {
 
 	const n = 3
 	ids := make([]uint, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s, err := real.CreateSecret(ctx, &models.SecretNode{
 			Name: fmt.Sprintf("sync-secret-%d", i), ProjectID: p.ID, EnvironmentID: env.ID,
 			Type: "password", OwnerID: 1, IsSecret: true, CreatedAt: time.Now(), UpdatedAt: time.Now(),

@@ -231,7 +231,7 @@ func TestGetBlastRadius_MaxDepthRespected(t *testing.T) {
 	// Build a chain of 12 nodes; the BFS must stop at depth=10.
 	c, db := newBlastRadiusCore(t)
 	prev := mkBlastSecret(t, db, "root")
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		next := mkBlastSecret(t, db, "link")
 		mkBlastDep(t, db, next, prev)
 		prev = next
@@ -252,7 +252,7 @@ func TestGetBlastRadius_NotTruncatedWhenWithinDepth(t *testing.T) {
 	t.Parallel()
 	c, db := newBlastRadiusCore(t)
 	prev := mkBlastSecret(t, db, "root")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		next := mkBlastSecret(t, db, "link")
 		mkBlastDep(t, db, next, prev)
 		prev = next

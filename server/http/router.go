@@ -1387,7 +1387,7 @@ func isBackendRoute(p string) bool {
 func writeJSONNotFound(w http.ResponseWriter) {
 	w.Header().Set(hdrContentType, "application/json")
 	w.WriteHeader(http.StatusNotFound)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error": "NotFound", "message": "not found", "code": http.StatusNotFound,
 	})
 }

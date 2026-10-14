@@ -52,7 +52,7 @@ func TestRESTSink_GetDecodesData(t *testing.T) {
 // silently claiming/overwriting whatever is there.
 func TestRESTSink_ApplyCreatesNewSecretViaPOST(t *testing.T) {
 	var methods, paths, cts []string
-	var postBody, patchBody map[string]interface{}
+	var postBody, patchBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			// The pre-write ownership check (#139): no pre-existing Secret at this
@@ -88,11 +88,11 @@ func TestRESTSink_ApplyCreatesNewSecretViaPOST(t *testing.T) {
 	// apply), permanently breaking pruning for any key whose value never changes
 	// after creation. The follow-up PATCH below is the only place DB's real value
 	// appears.
-	postData := postBody["data"].(map[string]interface{})
+	postData := postBody["data"].(map[string]any)
 	assert.Empty(t, postData, "the create POST must not carry any data key, so the phantom field manager it registers never claims one")
 	// The Secret is stamped with the managed-by label so cleanup can find it.
-	meta := postBody["metadata"].(map[string]interface{})
-	labels := meta["labels"].(map[string]interface{})
+	meta := postBody["metadata"].(map[string]any)
+	labels := meta["labels"].(map[string]any)
 	assert.Equal(t, "keyorix-sync", labels["app.kubernetes.io/managed-by"])
 	// A fresh create must never carry a resourceVersion precondition — there is
 	// nothing to pin yet.
@@ -105,7 +105,7 @@ func TestRESTSink_ApplyCreatesNewSecretViaPOST(t *testing.T) {
 	assert.Equal(t, "/api/v1/namespaces/app/secrets/creds", paths[1])
 	assert.Equal(t, "application/apply-patch+yaml", cts[1])
 	assert.Equal(t, "Secret", patchBody["kind"])
-	patchData := patchBody["data"].(map[string]interface{})
+	patchData := patchBody["data"].(map[string]any)
 	assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("p4ss")), patchData["DB"])
 }
 
@@ -273,7 +273,7 @@ func TestRESTSink_ApplyRefusesUnownedPreExistingSecret(t *testing.T) {
 func TestRESTSink_ApplyUpdatesAlreadyOwnedSecret(t *testing.T) {
 	var sawPatch bool
 	var gotCT, gotFM, gotForce string
-	var gotBody map[string]interface{}
+	var gotBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPatch {
 			sawPatch = true
@@ -295,7 +295,7 @@ func TestRESTSink_ApplyUpdatesAlreadyOwnedSecret(t *testing.T) {
 	assert.Equal(t, "application/apply-patch+yaml", gotCT)
 	assert.Equal(t, "keyorix-sync", gotFM)
 	assert.Equal(t, "true", gotForce)
-	meta := gotBody["metadata"].(map[string]interface{})
+	meta := gotBody["metadata"].(map[string]any)
 	assert.Equal(t, "rv-1", meta["resourceVersion"], "the PATCH must pin the exact resourceVersion observed by the ownership check")
 }
 

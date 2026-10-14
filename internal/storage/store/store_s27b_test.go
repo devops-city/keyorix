@@ -61,7 +61,7 @@ import (
 // newS27bStore opens a unique in-memory SQLite DB, auto-migrates the supplied
 // model types, and returns a LocalStorage. The "_s27b" suffix avoids DSN
 // collisions with store_s27_test.go's "_s27" suffix.
-func newS27bStore(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS27bStore(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores27b_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -375,7 +375,7 @@ func TestListBreakGlassActivations_S27b_HappyPath(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now()
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		require.NoError(t, ls.db.Create(&models.BreakGlassActivation{
 			ProjectID: 12, UserID: uint(i + 1), State: "active",
 			CreatedAt: now.Add(time.Duration(i) * time.Second),
@@ -546,7 +546,7 @@ func TestRevokeAllPersonalAccessTokensForUser_S27b_RevokesTokens(t *testing.T) {
 	ls := newS27bStore(t, &models.PersonalAccessToken{})
 	ctx := context.Background()
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		require.NoError(t, ls.db.Create(&models.PersonalAccessToken{
 			UserID:    5,
 			TokenHash: "hash-s27b-" + string(rune('a'+i)),

@@ -220,7 +220,7 @@ func TestBreakGlassOwnView_RedactsEveryAdminField(t *testing.T) {
 		"Justification": true, "State": true, "ExpiresAt": true, "CreatedAt": true,
 		"RevokedAt": true, "ReviewedAt": true,
 	}
-	filled := reflect.New(reflect.TypeOf(models.BreakGlassActivation{})).Elem()
+	filled := reflect.New(reflect.TypeFor[models.BreakGlassActivation]()).Elem()
 	now := time.Now()
 	for i := 0; i < filled.NumField(); i++ {
 		f := filled.Field(i)

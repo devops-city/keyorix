@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,12 +123,7 @@ func loadComposeSecrets(t *testing.T) composeSecretsFile {
 }
 
 func has(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // Postgres turns ssl on from the generated files, and the backend gets the

@@ -63,7 +63,7 @@ func checkPATAllowsAlgebra(data []byte) {
 
 	n := int(c.u8() % 9) // 0..8 permission patterns
 	perms := make([]string, 0, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		if c.u8()%4 == 0 {
 			perms = append(perms, c.token())
 		} else {
@@ -177,7 +177,7 @@ func (c *patCursor) u8() byte {
 func (c *patCursor) token() string {
 	ln := int(c.u8() % 7)
 	out := make([]byte, 0, ln)
-	for j := 0; j < ln; j++ {
+	for range ln {
 		out = append(out, c.u8())
 	}
 	return string(out)

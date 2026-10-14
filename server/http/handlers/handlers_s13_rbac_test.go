@@ -144,7 +144,7 @@ func TestRBACHandler_RemoveRole_NotAssigned_S13(t *testing.T) {
 	handler, _, db := setupRBACTestWithDB(t)
 	role := mustCreateRole(t, db, "unassigned-role")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"user_id": 2,
 		"role_id": role.ID,
 	})
@@ -614,7 +614,7 @@ func TestUpdateUserRoles_InvalidRoleID_S13(t *testing.T) {
 	user := &models.User{Username: "roles-update-user", Email: "roleupd@example.com", PasswordHash: "x"}
 	require.NoError(t, db.Create(user).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"role_ids": []uint{99999}, // role does not exist
 	})
 	req := httptest.NewRequest(http.MethodPut,

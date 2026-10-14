@@ -142,7 +142,7 @@ func findDirectLogAuditEventCallers(t *testing.T, root string) map[string]bool {
 		}
 		rel = filepath.ToSlash(rel)
 		currentFunc := ""
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			if m := logAuditEventFuncRe.FindStringSubmatch(line); m != nil {
 				currentFunc = m[1]
 			}

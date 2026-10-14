@@ -68,7 +68,7 @@ import (
 // newS26Store opens a unique in-memory SQLite DB with the requested models
 // auto-migrated. The "_s26" suffix in the DSN prevents collisions with other
 // test files that use the same test-name-keyed DSN pattern.
-func newS26Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS26Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores26_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {

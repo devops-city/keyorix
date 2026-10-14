@@ -161,7 +161,7 @@ func (h *CatalogHandler) ListProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		projects = visible
 	}
-	sendSuccess(w, map[string]interface{}{"projects": projects}, "")
+	sendSuccess(w, map[string]any{"projects": projects}, "")
 }
 
 // RestoreProject handles POST /api/v1/projects/{id}/restore
@@ -325,7 +325,7 @@ func (h *CatalogHandler) ListEnvironments(w http.ResponseWriter, r *http.Request
 		}
 		environments = visible
 	}
-	sendSuccess(w, map[string]interface{}{"environments": newEnvironmentWireList(environments)}, "")
+	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments)}, "")
 }
 
 // UpdateProject handles PUT /api/v1/projects/:id
@@ -506,7 +506,7 @@ func (h *CatalogHandler) ListProjectEnvironments(w http.ResponseWriter, r *http.
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"environments": newEnvironmentWireList(environments)}, "")
+	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments)}, "")
 }
 
 // CloneEnvironment handles POST /api/v1/projects/{id}/environments/{envId}/clone

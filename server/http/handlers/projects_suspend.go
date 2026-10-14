@@ -42,8 +42,7 @@ func (h *SecretHandler) SuspendProjectSecrets(w http.ResponseWriter, r *http.Req
 			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; no secret was suspended", http.StatusInternalServerError, nil)
 			return
 		}
-		var partial *core.BulkSuspendPartialError
-		if errors.As(err, &partial) {
+		if partial, ok := errors.AsType[*core.BulkSuspendPartialError](err); ok {
 			// Already-suspended secrets stay suspended; the counts let the operator retry.
 			msg := "Some secrets could not be suspended and are still readable; retry"
 			if partial.AuditRefused {
@@ -57,7 +56,7 @@ func (h *SecretHandler) SuspendProjectSecrets(w http.ResponseWriter, r *http.Req
 		h.sendError(w, "InternalError", "Failed to suspend project secrets", http.StatusInternalServerError, nil)
 		return
 	}
-	data := map[string]interface{}{"suspended": n}
+	data := map[string]any{"suspended": n}
 	if reqBody.ClearSyncedCopies {
 		data["clear_synced_copies"] = true
 	}
@@ -81,5 +80,5 @@ func (h *SecretHandler) ResumeProjectSecrets(w http.ResponseWriter, r *http.Requ
 		h.sendError(w, "InternalError", "Failed to resume project secrets", http.StatusInternalServerError, nil)
 		return
 	}
-	h.sendSuccess(w, map[string]interface{}{"resumed": n}, "")
+	h.sendSuccess(w, map[string]any{"resumed": n}, "")
 }

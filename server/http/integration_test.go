@@ -180,7 +180,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 
-			var health map[string]interface{}
+			var health map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&health)
 			require.NoError(t, err)
 
@@ -211,7 +211,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
@@ -219,14 +219,14 @@ func TestHTTPServerIntegration(t *testing.T) {
 			if response["data"] == nil {
 				t.Fatalf("expected data in response body, got nil. Full response: %v", response)
 			}
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "secrets")
 			assert.Contains(t, data, "total")
 		})
 
 		// Step 4: Create a new secret
 		t.Run("Create Secret", func(t *testing.T) {
-			secretData := map[string]interface{}{
+			secretData := map[string]any{
 				"name":           "integration-test-secret",
 				"value":          "super-secret-value",
 				"project_id":     1,
@@ -253,7 +253,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
@@ -263,7 +263,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 			if response["data"] == nil {
 				t.Fatalf("expected data in response body, got nil. Full response: %v", response)
 			}
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "id")
 			assert.Equal(t, "integration-test-secret", data["name"])
 
@@ -283,7 +283,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
@@ -291,14 +291,14 @@ func TestHTTPServerIntegration(t *testing.T) {
 			if response["data"] == nil {
 				t.Fatalf("expected data in response body, got nil. Full response: %v", response)
 			}
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Equal(t, float64(secretID), data["id"])
 			assert.Equal(t, "integration-test-secret", data["name"])
 		})
 
 		// Step 6: Update the secret
 		t.Run("Update Secret", func(t *testing.T) {
-			updateData := map[string]interface{}{
+			updateData := map[string]any{
 				"value": "updated-secret-value",
 				"metadata": map[string]string{
 					"test":       "integration",
@@ -321,7 +321,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
@@ -341,12 +341,12 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
 			assert.Contains(t, response, "data")
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "versions")
 		})
 
@@ -396,7 +396,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 			// Create user
-			userData := map[string]interface{}{
+			userData := map[string]any{
 				"username":     "integration-user",
 				"email":        "integration@test.com",
 				"display_name": "Integration Test User",
@@ -432,7 +432,7 @@ func TestHTTPServerIntegration(t *testing.T) {
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 			// Create role
-			roleData := map[string]interface{}{
+			roleData := map[string]any{
 				"name":        "integration-role",
 				"description": "Role created by integration test",
 				"permissions": []string{"secrets.read", "users.read"},
@@ -471,12 +471,12 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
 			assert.Contains(t, response, "data")
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "version")
 			assert.Contains(t, data, "go_version")
 			assert.Contains(t, data, "features")
@@ -494,12 +494,12 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
 			assert.Contains(t, response, "data")
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "memory")
 			assert.Contains(t, data, "goroutines")
 			assert.Contains(t, data, "gc")
@@ -523,12 +523,12 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
 			assert.Contains(t, response, "data")
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "logs")
 			assert.Contains(t, data, "total")
 		})
@@ -545,12 +545,12 @@ func TestHTTPServerIntegration(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-			var response map[string]interface{}
+			var response map[string]any
 			err = json.NewDecoder(resp.Body).Decode(&response)
 			require.NoError(t, err)
 
 			assert.Contains(t, response, "data")
-			data := response["data"].(map[string]interface{})
+			data := response["data"].(map[string]any)
 			assert.Contains(t, data, "logs")
 			assert.Contains(t, data, "total")
 		})
@@ -637,7 +637,7 @@ func TestHTTPServerErrorScenarios(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 
 		// Missing required fields
-		invalidSecret := map[string]interface{}{
+		invalidSecret := map[string]any{
 			"name":  "", // empty name
 			"value": "test",
 		}
@@ -751,10 +751,10 @@ func TestHTTPServerPerformance(t *testing.T) {
 
 		results := make(chan int, numGoroutines*requestsPerGoroutine)
 
-		for i := 0; i < numGoroutines; i++ {
+		for range numGoroutines {
 			go func() {
 				client := &http.Client{Timeout: 10 * time.Second}
-				for j := 0; j < requestsPerGoroutine; j++ {
+				for range requestsPerGoroutine {
 					req, err := http.NewRequest("GET", server.URL+"/health", nil)
 					if err != nil {
 						results <- 0
@@ -773,7 +773,7 @@ func TestHTTPServerPerformance(t *testing.T) {
 		}
 
 		successCount := 0
-		for i := 0; i < numGoroutines*requestsPerGoroutine; i++ {
+		for range numGoroutines * requestsPerGoroutine {
 			code := <-results
 			if code == http.StatusOK {
 				successCount++

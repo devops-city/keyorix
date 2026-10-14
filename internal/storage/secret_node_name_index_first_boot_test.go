@@ -116,7 +116,7 @@ func runConcurrentCreateSecretRace(t *testing.T, db *gorm.DB, concurrency int) {
 
 	var wg sync.WaitGroup
 	successes := make([]bool, concurrency)
-	for i := 0; i < concurrency; i++ {
+	for i := range concurrency {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

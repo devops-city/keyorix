@@ -38,7 +38,7 @@ func FuzzParse(f *testing.F) {
 	f.Add(strings.Repeat("${secret:x}", 5))
 
 	var manyRefs strings.Builder
-	for i := 0; i < MaxDistinctReferences+10; i++ {
+	for i := range MaxDistinctReferences + 10 {
 		manyRefs.WriteString("${secret:ref")
 		manyRefs.WriteString(strconv.Itoa(i))
 		manyRefs.WriteString("}")

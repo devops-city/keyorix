@@ -60,7 +60,7 @@ func FuzzParseJWK(f *testing.F) {
 		if json.Unmarshal(data, &k) != nil {
 			return // only ParseJWK is under test, not the outer JSON decode
 		}
-		var key interface{}
+		var key any
 		var err error
 		fuzzutil.Guard(t.Fatalf, "rules.ParseJWK", func() {
 			key, err = ParseJWK(k)

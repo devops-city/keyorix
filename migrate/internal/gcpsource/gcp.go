@@ -225,20 +225,20 @@ func (c *Client) readSecret(ctx context.Context, cl gcpAPI, name, latestName str
 // gcpShortName extracts NAME from a Secret resource name ("projects/P/secrets/NAME").
 func gcpShortName(resourceName string) string {
 	const marker = "/secrets/"
-	idx := strings.LastIndex(resourceName, marker)
-	if idx == -1 {
+	_, after, ok := strings.CutLast(resourceName, marker)
+	if !ok {
 		return ""
 	}
-	return resourceName[idx+len(marker):]
+	return after
 }
 
 // gcpVersionID extracts the numeric version ID from a resolved SecretVersion resource name
 // ("projects/P/secrets/NAME/versions/N").
 func gcpVersionID(resourceName string) string {
 	const marker = "/versions/"
-	idx := strings.LastIndex(resourceName, marker)
-	if idx == -1 {
+	_, after, ok := strings.CutLast(resourceName, marker)
+	if !ok {
 		return ""
 	}
-	return resourceName[idx+len(marker):]
+	return after
 }

@@ -63,7 +63,6 @@ func newMachineStateWorld(t *testing.T, state string) (*core.KeyorixCore, string
 func TestCurrentMachineTokenRestriction_NonActiveIdentity_ReturnsSentinel(t *testing.T) {
 	t.Parallel()
 	for _, state := range []string{"suspended", "revoked", "deprovisioned", "pending"} {
-		state := state
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			c, raw, _ := newMachineStateWorld(t, state)

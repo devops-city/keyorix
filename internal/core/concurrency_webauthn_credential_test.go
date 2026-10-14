@@ -60,7 +60,7 @@ func TestConcurrency_WebAuthnPersistUpdatedCredential_NoStaleCounterRegression(t
 	// actually wins the race to run first.
 	const trials = 25
 	baseline := uint32(0)
-	for i := 0; i < trials; i++ {
+	for i := range trials {
 		low := baseline + 1
 		high := baseline + 50
 

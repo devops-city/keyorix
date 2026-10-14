@@ -76,7 +76,7 @@ func BenchmarkLocalizeWithTemplateData(b *testing.B) {
 	}
 
 	localizer := GetLocalizer()
-	templateData := map[string]interface{}{
+	templateData := map[string]any{
 		"Name":  "John",
 		"Count": 42,
 	}
@@ -276,8 +276,8 @@ func BenchmarkLargeTemplateData(b *testing.B) {
 	localizer := GetLocalizer()
 
 	// Create large template data
-	templateData := make(map[string]interface{})
-	for i := 0; i < 100; i++ {
+	templateData := make(map[string]any)
+	for i := range 100 {
 		templateData[fmt.Sprintf("Key%d", i)] = fmt.Sprintf("Value%d", i)
 	}
 

@@ -135,9 +135,9 @@ func withChiParam_S24(r *http.Request, key, value string) *http.Request {
 }
 
 // decodeBody_S24 decodes the JSON body from a recorder into an interface{}.
-func decodeBody_S24(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{} {
+func decodeBody_S24(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&out))
 	return out
 }
@@ -275,7 +275,7 @@ func TestUpdateUserRoles_EmptyRoles_S24(t *testing.T) {
 	u := &models.User{Username: "roles-update-s24", Email: "roles-update@example.com", AccountState: "active"}
 	require.NoError(t, db.Create(u).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"role_ids": []uint{}})
+	body, _ := json.Marshal(map[string]any{"role_ids": []uint{}})
 	req := withUserCtx(withChiParam_S24(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/1/roles", bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", u.ID),
@@ -295,7 +295,7 @@ func TestUpdateUserRoles_InvalidRoleID_S24(t *testing.T) {
 	u := &models.User{Username: "roles-invalid-s24", Email: "roles-invalid@example.com", AccountState: "active"}
 	require.NoError(t, db.Create(u).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"role_ids": []uint{99999}})
+	body, _ := json.Marshal(map[string]any{"role_ids": []uint{99999}})
 	req := withUserCtx(withChiParam_S24(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/1/roles", bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", u.ID),
@@ -828,7 +828,7 @@ func TestRunComplianceDigest_HappyPath_S24(t *testing.T) {
 	h.RunComplianceDigest(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	body := decodeBody_S24(t, w)
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "expected data map in response")
 	assert.NotNil(t, data["sent"])
 }
@@ -906,7 +906,7 @@ func TestGetUserMembershipsForUser_BadParam_S24(t *testing.T) {
 func TestUpdateUserRoles_BadParam_S24(t *testing.T) {
 	cs := freshCoreS24(t)
 	h := NewUsersRolesHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{"role_ids": []uint{}})
+	body, _ := json.Marshal(map[string]any{"role_ids": []uint{}})
 	req := withUserCtx(withChiParam_S24(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/notanid/roles", bytes.NewReader(body)),
 		"id", "notanid",

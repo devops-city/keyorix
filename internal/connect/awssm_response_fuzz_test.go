@@ -90,11 +90,11 @@ func FuzzAWSSMConnectorResponse(f *testing.F) {
 		// classification), rather than needing a real non-loopback private IP,
 		// to establish "this target is one Keyorix's own SSRF guard elsewhere
 		// would refuse to dial."
-		var attackerHits int32
+		var attackerHits atomic.Int32
 		var attackerMu sync.Mutex
 		var attackerAuthHeader string
 		attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			atomic.AddInt32(&attackerHits, 1)
+			attackerHits.Add(1)
 			attackerMu.Lock()
 			attackerAuthHeader = r.Header.Get("Authorization")
 			attackerMu.Unlock()
@@ -111,9 +111,9 @@ func FuzzAWSSMConnectorResponse(f *testing.F) {
 			}
 		}
 
-		var hits int32
+		var hits atomic.Int32
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			atomic.AddInt32(&hits, 1)
+			hits.Add(1)
 			// AWS's limitedRedirect (aws/transport/http/client.go) only follows
 			// 307/308 -- any other status/Location combination is refused outright
 			// by the SDK's own CheckRedirect, so only those two codes are worth
@@ -223,7 +223,7 @@ func FuzzAWSSMConnectorResponse(f *testing.F) {
 		// configured bound, not an exact-equality check, so this stays sound
 		// even if the classifier's retryable-status set differs from a naive
 		// reading of it.
-		if h := atomic.LoadInt32(&hits); h > connectRetryCeiling {
+		if h := hits.Load(); h > connectRetryCeiling {
 			t.Fatalf("RETRY STORM: fake server hit %d times for a single GetSecret call (MaxAttempts=3 configured)", h)
 		}
 
@@ -244,7 +244,7 @@ func FuzzAWSSMConnectorResponse(f *testing.F) {
 		// guard. The credential check is kept as defense-in-depth: if this ever
 		// regresses (an SDK update that does start following), the credential
 		// must still never reach the attacker.
-		if h := atomic.LoadInt32(&attackerHits); h > 0 {
+		if h := attackerHits.Load(); h > 0 {
 			attackerMu.Lock()
 			gotAuth := attackerAuthHeader
 			attackerMu.Unlock()

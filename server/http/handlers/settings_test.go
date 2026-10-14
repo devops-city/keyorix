@@ -31,11 +31,11 @@ func TestMakeAuthConfigHandler_Authenticated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool), "response must carry success:true")
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "data field must be a JSON object")
 	assert.Contains(t, data, "session")
 	assert.Contains(t, data, "password_policy")
@@ -60,23 +60,23 @@ func TestMakeAuthConfigHandler_ReflectsConfig(t *testing.T) {
 	MakeAuthConfigHandler(cfg)(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 
-	passwordPolicy := data["password_policy"].(map[string]interface{})
+	passwordPolicy := data["password_policy"].(map[string]any)
 	assert.Equal(t, float64(16), passwordPolicy["min_length"])
 	assert.Equal(t, true, passwordPolicy["require_uppercase"])
 
 	assert.Equal(t, true, data["require_mfa"])
 
-	loginLockout := data["login_lockout"].(map[string]interface{})
+	loginLockout := data["login_lockout"].(map[string]any)
 	assert.Equal(t, false, loginLockout["enabled"], "Disabled: true must resolve to enabled: false")
 
-	session := data["session"].(map[string]interface{})
+	session := data["session"].(map[string]any)
 	assert.Equal(t, "30m0s", session["access_ttl"])
 
-	webauthn := data["webauthn"].(map[string]interface{})
+	webauthn := data["webauthn"].(map[string]any)
 	assert.Equal(t, true, webauthn["enabled"])
 	assert.Equal(t, "keyorix.example.com", webauthn["rp_id"])
 }
@@ -87,10 +87,10 @@ func TestMakeAuthConfigHandler_LoginLockoutDefaultsToEnabled(t *testing.T) {
 	rr := httptest.NewRecorder()
 	MakeAuthConfigHandler(cfg)(rr, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	loginLockout := data["login_lockout"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
+	loginLockout := data["login_lockout"].(map[string]any)
 	assert.Equal(t, true, loginLockout["enabled"])
 	assert.Equal(t, float64(5), loginLockout["max_attempts"], "must reflect the GetMaxAttempts() default")
 }
@@ -149,11 +149,11 @@ func TestMakeEncryptionConfigHandler_Authenticated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, data, "enabled")
 	assert.Contains(t, data, "key_provider")
@@ -171,12 +171,12 @@ func TestMakeEncryptionConfigHandler_ReflectsConfig(t *testing.T) {
 	MakeEncryptionConfigHandler(cfg)(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	assert.Equal(t, true, data["enabled"])
 
-	keyProvider := data["key_provider"].(map[string]interface{})
+	keyProvider := data["key_provider"].(map[string]any)
 	assert.Equal(t, "aws-kms", keyProvider["type"])
 	assert.Equal(t, "deadbeef", keyProvider["shamir_commitment"])
 	assert.Equal(t, float64(1), keyProvider["fallback_count"])

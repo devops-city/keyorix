@@ -32,7 +32,7 @@ func grpcCtxForIP(ip string) context.Context {
 }
 
 func rlHandler() grpc.UnaryHandler {
-	return func(_ context.Context, _ interface{}) (interface{}, error) { return "ok", nil }
+	return func(_ context.Context, _ any) (any, error) { return "ok", nil }
 }
 
 // Disabled (the config zero value, or an explicit Enabled: false) is a
@@ -52,7 +52,7 @@ func TestGRPCRateLimitInterceptor_DisabledIsNoOp(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			interceptor := GRPCRateLimitInterceptor(tc.cfg)
-			for i := 0; i < 50; i++ {
+			for i := range 50 {
 				_, err := interceptor(grpcCtxForUser(1, 0), nil, nil, rlHandler())
 				require.NoError(t, err, "request %d must pass through unlimited", i)
 			}
@@ -67,7 +67,7 @@ func TestGRPCRateLimitInterceptor_DisabledIsNoOp(t *testing.T) {
 func TestGRPCRateLimitInterceptor_EnforcesPerPrincipalBudget(t *testing.T) {
 	interceptor := GRPCRateLimitInterceptor(config.RateLimitConfig{Enabled: true, RequestsPerSecond: 1, Burst: 3})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := interceptor(grpcCtxForUser(1, 0), nil, nil, rlHandler())
 		require.NoError(t, err, "request %d within burst must pass", i)
 	}
@@ -85,7 +85,7 @@ func TestGRPCRateLimitInterceptor_EnforcesPerPrincipalBudget(t *testing.T) {
 func TestGRPCRateLimitInterceptor_BurstDefaultsToRequestsPerSecond(t *testing.T) {
 	interceptor := GRPCRateLimitInterceptor(config.RateLimitConfig{Enabled: true, RequestsPerSecond: 3})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		_, err := interceptor(grpcCtxForUser(1, 0), nil, nil, rlHandler())
 		require.NoError(t, err, "request %d within the defaulted burst of 3 must pass", i)
 	}
@@ -184,7 +184,7 @@ func TestGRPCRateLimiter_SweepsEveryNRequests(t *testing.T) {
 	}
 	rl.limiters["stale"] = &grpcPrincipalBucket{lastSeen: time.Now().Add(-11 * time.Minute)}
 
-	for i := 0; i < grpcPrincipalLimiterSweepEvery-1; i++ {
+	for range grpcPrincipalLimiterSweepEvery - 1 {
 		rl.allow("churn")
 	}
 	rl.mu.Lock()
@@ -232,7 +232,7 @@ func TestGRPCIPFailureLimiter_SweepEvictsOnlyIdleEntries(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func streamRLHandler() grpc.StreamHandler {
-	return func(_ interface{}, _ grpc.ServerStream) error { return nil }
+	return func(_ any, _ grpc.ServerStream) error { return nil }
 }
 
 // Mirrors TestGRPCRateLimitInterceptor_DisabledIsNoOp: disabled config is a
@@ -249,7 +249,7 @@ func TestStreamRateLimitInterceptor_DisabledIsNoOp(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			interceptor := StreamRateLimitInterceptor(tc.cfg)
-			for i := 0; i < 50; i++ {
+			for i := range 50 {
 				stream := &fakeStream{ctx: grpcCtxForUser(1, 0)}
 				err := interceptor(nil, stream, nil, streamRLHandler())
 				require.NoError(t, err, "stream open %d must pass through unlimited", i)
@@ -266,7 +266,7 @@ func TestStreamRateLimitInterceptor_DisabledIsNoOp(t *testing.T) {
 func TestStreamRateLimitInterceptor_EnforcesPerPrincipalBudget(t *testing.T) {
 	interceptor := StreamRateLimitInterceptor(config.RateLimitConfig{Enabled: true, RequestsPerSecond: 1, Burst: 3})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		stream := &fakeStream{ctx: grpcCtxForUser(1, 0)}
 		err := interceptor(nil, stream, nil, streamRLHandler())
 		require.NoError(t, err, "stream open %d within burst must pass", i)
@@ -287,7 +287,7 @@ func TestStreamRateLimitInterceptor_EnforcesPerPrincipalBudget(t *testing.T) {
 func TestStreamRateLimitInterceptor_BurstDefaultsToRequestsPerSecond(t *testing.T) {
 	interceptor := StreamRateLimitInterceptor(config.RateLimitConfig{Enabled: true, RequestsPerSecond: 3})
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		stream := &fakeStream{ctx: grpcCtxForUser(1, 0)}
 		err := interceptor(nil, stream, nil, streamRLHandler())
 		require.NoError(t, err, "stream open %d within the defaulted burst of 3 must pass", i)

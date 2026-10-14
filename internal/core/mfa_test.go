@@ -429,7 +429,7 @@ func TestVerifyMFALogin_FailedCodesFeedAccountLockout(t *testing.T) {
 	require.NoError(t, err)
 
 	// Three wrong codes → the account locks.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		ch, cerr := c.CreateMFAChallenge(ctx, 1)
 		require.NoError(t, cerr)
 		_, _, _, verr := c.VerifyMFALogin(ctx, ch, "000000", "ua", "9.9.9.9")
@@ -563,7 +563,7 @@ func TestDisableMFA_FailedCodesFeedAccountLockout(t *testing.T) {
 	ctx := context.Background()
 	secret, _ := activateMFAForTest(t, c, fixed)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		err := c.DisableMFA(ctx, 1, "000000", "")
 		require.Error(t, err)
 	}
@@ -596,7 +596,7 @@ func TestDisableMFA_SuccessClearsLoginFailures(t *testing.T) {
 	activateMFAForTest(t, c, fixed)
 
 	// Two wrong attempts accrue failures but don't yet reach the lockout threshold.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		require.Error(t, c.DisableMFA(ctx, 1, "000000", ""))
 	}
 	var mid models.User
@@ -626,7 +626,7 @@ func TestRegenerateMFARecoveryCodes_FailedCodesFeedAccountLockout(t *testing.T) 
 	ctx := context.Background()
 	secret, original := activateMFAForTest(t, c, fixed)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := c.RegenerateMFARecoveryCodes(ctx, 1, "000000")
 		require.Error(t, err)
 	}
@@ -681,7 +681,7 @@ func TestMFA_TOTPSecretTransplantBetweenUsersFailsToDecrypt(t *testing.T) {
 	// Simulate a DB-write attacker: copy alice's encrypted TOTP row onto bob's.
 	aliceRow, err := c.storage.GetMFASecret(ctx, 1)
 	require.NoError(t, err)
-	require.NoError(t, db.Model(&models.MFASecret{}).Where("user_id = ?", 2).Updates(map[string]interface{}{
+	require.NoError(t, db.Model(&models.MFASecret{}).Where("user_id = ?", 2).Updates(map[string]any{
 		"secret_enc":  aliceRow.SecretEnc,
 		"secret_meta": aliceRow.SecretMeta,
 	}).Error)

@@ -135,7 +135,7 @@ func TestParseLeafCertificate_AttemptBound(t *testing.T) {
 
 	t.Run("real cert beyond the attempt budget is not found", func(t *testing.T) {
 		var buf bytes.Buffer
-		for i := 0; i < maxCertBlocks; i++ {
+		for range maxCertBlocks {
 			buf.Write(padding)
 		}
 		buf.Write(leafPEM)
@@ -145,7 +145,7 @@ func TestParseLeafCertificate_AttemptBound(t *testing.T) {
 
 	t.Run("real cert within the attempt budget is found", func(t *testing.T) {
 		var buf bytes.Buffer
-		for i := 0; i < maxCertBlocks-1; i++ {
+		for range maxCertBlocks - 1 {
 			buf.Write(padding)
 		}
 		buf.Write(leafPEM)

@@ -22,7 +22,7 @@ import (
 // createBulkTestSecret creates a secret via the API and returns its ID from the response.
 func createBulkTestSecret(t *testing.T, client *http.Client, baseURL, token, name string, projectID, envID uint) uint {
 	t.Helper()
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":           name,
 		"value":          "bulk-rotate-test-value",
 		"project_id":     projectID,
@@ -38,9 +38,9 @@ func createBulkTestSecret(t *testing.T, client *http.Client, baseURL, token, nam
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "expected data object in create-secret response: %v", out)
 	id, ok := data["id"].(float64)
 	require.True(t, ok, "expected numeric id in create-secret response data: %v", data)
@@ -78,7 +78,7 @@ func newBulkRotateTestEnv(t *testing.T) (c *core.KeyorixCore, token string, srv 
 }
 
 // doBulkRotate posts a bulk-rotate request and returns the HTTP status + decoded body.
-func doBulkRotate(t *testing.T, client *http.Client, baseURL, token string, projectID uint, body string) (int, map[string]interface{}) {
+func doBulkRotate(t *testing.T, client *http.Client, baseURL, token string, projectID uint, body string) (int, map[string]any) {
 	t.Helper()
 	url := fmt.Sprintf("%s/api/v1/projects/%d/secrets/bulk-rotate", baseURL, projectID)
 	req, err := http.NewRequest("POST", url, strings.NewReader(body))
@@ -90,7 +90,7 @@ func doBulkRotate(t *testing.T, client *http.Client, baseURL, token string, proj
 	resp, err := client.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
-	var out map[string]interface{}
+	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
 }
@@ -114,7 +114,7 @@ func TestBulkRotate_EmptyIDs(t *testing.T) {
 	code, out := doBulkRotate(t, client, srv.URL, token, projectID, `{"secret_ids":[]}`)
 	assert.Equal(t, http.StatusOK, code)
 
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "expected data object: %v", out)
 	// When secret_ids is empty the core falls through to the project-wide path.
 	// No secrets have been created, so total should be 0.
@@ -138,7 +138,7 @@ func TestBulkRotate_BySecretIDs(t *testing.T) {
 	code, out := doBulkRotate(t, client, srv.URL, token, projectID, bodyJSON)
 	assert.Equal(t, http.StatusOK, code)
 
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "expected data object: %v", out)
 	assert.Contains(t, data, "triggered", "response must contain triggered field")
 	assert.Contains(t, data, "total", "response must contain total field")
@@ -161,7 +161,7 @@ func TestBulkRotate_ByProject(t *testing.T) {
 	code, out := doBulkRotate(t, client, srv.URL, token, projectID, `{}`)
 	assert.Equal(t, http.StatusOK, code)
 
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "expected data object: %v", out)
 	assert.Contains(t, data, "triggered", "response must contain triggered field")
 	assert.Contains(t, data, "total", "response must contain total field")
@@ -192,14 +192,14 @@ func TestBulkRotate_WrongProject(t *testing.T) {
 	code, out := doBulkRotate(t, client, srv.URL, token, otherProject.ID, bodyJSON)
 	assert.Equal(t, http.StatusOK, code)
 
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "expected data object: %v", out)
 
 	// All submitted IDs belong to the first project; rotated under a different
 	// project they must all land in failed.
 	failed, hasFailed := data["failed"]
 	require.True(t, hasFailed, "response must contain failed field when cross-project IDs are submitted: %v", data)
-	failedSlice, ok := failed.([]interface{})
+	failedSlice, ok := failed.([]any)
 	require.True(t, ok, "failed must be an array: %v", failed)
 	assert.Len(t, failedSlice, 2, "both cross-project secrets must appear in failed")
 }

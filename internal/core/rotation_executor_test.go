@@ -256,7 +256,7 @@ func TestRunAutoRotation_UsesSecretSpec(t *testing.T) {
 
 func TestGenerateRotatedValue_UniqueAndCharset(t *testing.T) {
 	seen := map[string]bool{}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		v, err := generateRotatedValue()
 		require.NoError(t, err)
 		assert.Len(t, v, rotatedValueLength)

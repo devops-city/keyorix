@@ -39,11 +39,11 @@ func (h *GroupHandler) GetGroupMembers(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "InternalError", "Failed to list group members", http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(members))
+	out := make([]map[string]any, 0, len(members))
 	for _, u := range members {
 		out = append(out, userToAPIResponse(u))
 	}
-	sendSuccess(w, map[string]interface{}{"members": out, "total": len(out)}, "")
+	sendSuccess(w, map[string]any{"members": out, "total": len(out)}, "")
 }
 
 // AddGroupMember handles POST /api/v1/groups/{id}/members.
@@ -100,7 +100,7 @@ func (h *GroupHandler) AddGroupMember(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"group_id": uint(groupID), "user_id": body.UserID, "project_id": body.ProjectID}, "Member added to group")
+	sendSuccess(w, map[string]any{"group_id": uint(groupID), "user_id": body.UserID, "project_id": body.ProjectID}, "Member added to group")
 }
 
 // RemoveGroupMember handles DELETE /api/v1/groups/{id}/members/{userId}.

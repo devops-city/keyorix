@@ -207,7 +207,6 @@ func TestDriveSink_RecordsVerdictsInsteadOfActingOnThem(t *testing.T) {
 		{"Skipf aborts", func(s *driveSink) { s.Skipf("setup errored: %v", errDriveSinkProbe) }, "harness skipped: "},
 		{"Fatalf aborts", func(s *driveSink) { s.Fatalf("snapshot failed: %v", errDriveSinkProbe) }, "harness error: "},
 	} {
-		c := c
 		t.Run(c.name, func(t *testing.T) {
 			s := &driveSink{t: t}
 			pastTheCall := false
@@ -270,7 +269,6 @@ func TestRethrowUnlessDriveAbort_ReThrowsEverythingElse(t *testing.T) {
 		{"a bare string", "something exploded"},
 		{"a nil-pointer-shaped value", (*driveSink)(nil)},
 	} {
-		c := c
 		t.Run(c.name+" is re-thrown", func(t *testing.T) {
 			var got any
 			func() {

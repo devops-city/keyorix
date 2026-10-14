@@ -44,7 +44,7 @@ func TestRequireReauth_GetMFASecretErrorDoesNotFeedLockout(t *testing.T) {
 	// 5 attempts with the CORRECT code, each failing to even check it because
 	// GetMFASecret errors every time -- more than MaxAttempts (3), so if this
 	// were (wrongly) counted toward the lockout, the account would now be locked.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		derr := c.DisableMFA(ctx, 1, good, "")
 		require.Error(t, derr, "attempt %d: a storage error must still refuse the reauth", i)
 		assert.NotContains(t, derr.Error(), "invalid code or password",
@@ -110,7 +110,7 @@ func TestRequireReauth_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout(
 	faultErr := errors.New("fault-fuzz injected failure")
 	c.storage = &markTOTPStepErrStub{Storage: realStorage, err: faultErr}
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		derr := c.DisableMFA(ctx, 1, good, "")
 		require.Error(t, derr, "attempt %d: a post-match storage error must still refuse the reauth", i)
 	}

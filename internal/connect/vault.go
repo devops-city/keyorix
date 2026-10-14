@@ -82,7 +82,7 @@ func (c *VaultConnector) Type() string { return "vault" }
 // names — it cannot climb out of an allowed_refs prefix or inject a query string.
 func sanitizeVaultRef(ref string) (string, error) {
 	clean := make([]string, 0, 8)
-	for _, seg := range strings.Split(strings.TrimLeft(ref, "/"), "/") {
+	for seg := range strings.SplitSeq(strings.TrimLeft(ref, "/"), "/") {
 		if seg == "" {
 			continue // collapse empty/duplicate slashes
 		}

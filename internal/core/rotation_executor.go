@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -302,7 +303,7 @@ func (c *KeyorixCore) rotateProject(ctx context.Context, pid uint, ids []uint, d
 		// single flat wave with deferral disabled so a malformed graph never blocks rotation.
 		log.Printf("auto-rotation: dependency graph for project %d has a cycle — rotating without dependency ordering", pid)
 		flat := append([]uint(nil), ids...)
-		sort.Slice(flat, func(i, j int) bool { return flat[i] < flat[j] })
+		slices.Sort(flat)
 		waves = [][]uint{flat}
 		edges = nil
 	}

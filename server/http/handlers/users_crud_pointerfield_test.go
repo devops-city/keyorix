@@ -33,7 +33,7 @@ func TestUpdateUser_PointerFieldValidation(t *testing.T) {
 
 	userCtx := &middleware.UserContext{UserID: 1, Username: "alice", ActorType: core.ActorTypeUser, SessionAuth: true}
 
-	put := func(body map[string]interface{}) *httptest.ResponseRecorder {
+	put := func(body map[string]any) *httptest.ResponseRecorder {
 		raw, _ := json.Marshal(body)
 		r := httptest.NewRequest(http.MethodPut, "/api/v1/users/2", bytes.NewReader(raw))
 		r = r.WithContext(context.WithValue(r.Context(), middleware.GetUserContextKey(), userCtx))
@@ -46,19 +46,19 @@ func TestUpdateUser_PointerFieldValidation(t *testing.T) {
 	}
 
 	t.Run("malformed email is rejected", func(t *testing.T) {
-		rr := put(map[string]interface{}{"email": "not-an-email <script>"})
+		rr := put(map[string]any{"email": "not-an-email <script>"})
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		assert.Contains(t, rr.Body.String(), "ValidationError")
 	})
 
 	t.Run("too-short username is rejected", func(t *testing.T) {
-		rr := put(map[string]interface{}{"username": "ab"})
+		rr := put(map[string]any{"username": "ab"})
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		assert.Contains(t, rr.Body.String(), "ValidationError")
 	})
 
 	t.Run("too-long display_name is rejected", func(t *testing.T) {
-		rr := put(map[string]interface{}{"display_name": strings.Repeat("a", 101)})
+		rr := put(map[string]any{"display_name": strings.Repeat("a", 101)})
 		assert.Equal(t, http.StatusBadRequest, rr.Code)
 		assert.Contains(t, rr.Body.String(), "ValidationError")
 	})

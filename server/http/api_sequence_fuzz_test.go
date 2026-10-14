@@ -278,7 +278,7 @@ func decodeOpSubsetHTTP(b byte) []int {
 		return []int{0, 1, 2}
 	}
 	var subset []int
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if b&(1<<uint(i)) != 0 {
 			subset = append(subset, i)
 		}

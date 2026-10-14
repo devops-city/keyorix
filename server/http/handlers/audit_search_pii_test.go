@@ -65,7 +65,7 @@ func TestSearchAuditLogs_NeverLeaksIPOrHashChain(t *testing.T) {
 
 	var decoded struct {
 		Data struct {
-			Events []map[string]interface{} `json:"events"`
+			Events []map[string]any `json:"events"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &decoded))

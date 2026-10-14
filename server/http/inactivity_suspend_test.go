@@ -39,17 +39,17 @@ func newInactiviteSuspendServer(t *testing.T) (*httptest.Server, *core.KeyorixCo
 }
 
 // decodeSuspendResult decodes the suspend-inactive-users response body.
-func decodeSuspendResult(t *testing.T, resp *http.Response) map[string]interface{} {
+func decodeSuspendResult(t *testing.T, resp *http.Response) map[string]any {
 	t.Helper()
 	var out struct {
-		Data map[string]interface{} `json:"data"`
+		Data map[string]any `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
 	return out.Data
 }
 
 // postSuspendInactive sends a POST to the suspend-inactive-users endpoint.
-func postSuspendInactive(t *testing.T, server *httptest.Server, token string, body interface{}) *http.Response {
+func postSuspendInactive(t *testing.T, server *httptest.Server, token string, body any) *http.Response {
 	t.Helper()
 	var bodyBytes []byte
 	if body != nil {
@@ -76,7 +76,7 @@ func postSuspendInactive(t *testing.T, server *httptest.Server, token string, bo
 func TestInactivitySuspend_NoInactiveUsers(t *testing.T) {
 	server, _, adminToken := newInactiviteSuspendServer(t)
 
-	resp := postSuspendInactive(t, server, adminToken, map[string]interface{}{"inactive_days": 90})
+	resp := postSuspendInactive(t, server, adminToken, map[string]any{"inactive_days": 90})
 	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -112,7 +112,7 @@ func TestInactivitySuspend_RecentUserNotSuspended(t *testing.T) {
 
 	// With a 90-day threshold, neither the admin (just logged in) nor the fresh
 	// user (just created) is inactive.
-	resp := postSuspendInactive(t, server, adminToken, map[string]interface{}{"inactive_days": 90})
+	resp := postSuspendInactive(t, server, adminToken, map[string]any{"inactive_days": 90})
 	defer func() { _ = resp.Body.Close() }()
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -127,7 +127,7 @@ func TestInactivitySuspend_RecentUserNotSuspended(t *testing.T) {
 func TestInactivitySuspend_InvalidBody_MissingInactiveDays(t *testing.T) {
 	server, _, adminToken := newInactiviteSuspendServer(t)
 
-	resp := postSuspendInactive(t, server, adminToken, map[string]interface{}{})
+	resp := postSuspendInactive(t, server, adminToken, map[string]any{})
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -136,7 +136,7 @@ func TestInactivitySuspend_InvalidBody_MissingInactiveDays(t *testing.T) {
 func TestInactivitySuspend_InvalidBody_ZeroDays(t *testing.T) {
 	server, _, adminToken := newInactiviteSuspendServer(t)
 
-	resp := postSuspendInactive(t, server, adminToken, map[string]interface{}{"inactive_days": 0})
+	resp := postSuspendInactive(t, server, adminToken, map[string]any{"inactive_days": 0})
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -146,7 +146,7 @@ func TestInactivitySuspend_InvalidBody_ZeroDays(t *testing.T) {
 func TestInactivitySuspend_InvalidBody_NegativeDays(t *testing.T) {
 	server, _, adminToken := newInactiviteSuspendServer(t)
 
-	resp := postSuspendInactive(t, server, adminToken, map[string]interface{}{"inactive_days": -5})
+	resp := postSuspendInactive(t, server, adminToken, map[string]any{"inactive_days": -5})
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 }
@@ -173,7 +173,7 @@ func TestInactivitySuspend_InvalidJSON(t *testing.T) {
 func TestInactivitySuspend_Unauthenticated(t *testing.T) {
 	server, _, _ := newInactiviteSuspendServer(t)
 
-	resp := postSuspendInactive(t, server, "" /* no token */, map[string]interface{}{"inactive_days": 90})
+	resp := postSuspendInactive(t, server, "" /* no token */, map[string]any{"inactive_days": 90})
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
@@ -184,7 +184,7 @@ func TestInactivitySuspend_InsufficientPermissions(t *testing.T) {
 	server, c, _ := newInactiviteSuspendServer(t)
 
 	limitedToken := createLimitedToken(t, c)
-	resp := postSuspendInactive(t, server, limitedToken, map[string]interface{}{"inactive_days": 90})
+	resp := postSuspendInactive(t, server, limitedToken, map[string]any{"inactive_days": 90})
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }

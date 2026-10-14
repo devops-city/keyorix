@@ -402,7 +402,7 @@ func TestKeyorixFetcher_ExactCaseMatch_Bug3(t *testing.T) {
 // mistaken delete of the previously-synced Kubernetes Secret).
 func TestKeyorixFetcher_PaginatesPastServerDefault_Bug2(t *testing.T) {
 	secrets := make([]stubSecret, 0, 250)
-	for i := 0; i < 250; i++ {
+	for i := range 250 {
 		secrets = append(secrets, stubSecret{ID: uint(1000 + i), Name: fmt.Sprintf("filler-%d", i)})
 	}
 	// The target is the very last entry — on page 3 at page_size=100.

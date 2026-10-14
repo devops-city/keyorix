@@ -67,12 +67,10 @@ func DrainBackgroundGoroutines() {
 }
 
 func goSafe(fn func()) {
-	goSafeWG.Add(1)
-	go func() {
-		defer goSafeWG.Done()
+	goSafeWG.Go(func() {
 		defer besteffort.RunRecover("grpc.goSafe")()
 		fn()
-	}()
+	})
 }
 
 // isSafeConnectError mirrors the HTTP handlers' connect.go allowlist: it
@@ -242,10 +240,7 @@ func normalizePage(page, pageSize uint32) (int, int) {
 // avoid a transport-dependent default result-set size for an identical
 // unspecified-page_size request.
 func normalizePageWithDefault(page, pageSize uint32, def int) (int, int) {
-	p := int(page)
-	if p < 1 {
-		p = 1
-	}
+	p := max(int(page), 1)
 	ps := int(pageSize)
 	if ps < 1 || ps > 100 {
 		ps = def

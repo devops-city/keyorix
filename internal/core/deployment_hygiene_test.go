@@ -136,7 +136,7 @@ func TestDeploymentHygieneSummary_QueryCostDoesNotScaleWithProjectCount(t *testi
 		ctx := context.Background()
 		now := time.Now()
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			p, err := c.storage.CreateProject(ctx, &models.Project{Name: fmt.Sprintf("p%d", i)})
 			require.NoError(t, err)
 			e, err := c.storage.CreateEnvironment(ctx, &models.Environment{Name: "production", ProjectID: p.ID})

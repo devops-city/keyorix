@@ -49,9 +49,9 @@ func TestListGroupSharesHandler(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 		data := decodeData(t, w)
-		shares := data["shares"].([]interface{})
+		shares := data["shares"].([]any)
 		require.Len(t, shares, 1)
-		share := shares[0].(map[string]interface{})
+		share := shares[0].(map[string]any)
 		assert.Equal(t, float64(1), share["secret_id"])
 		assert.Equal(t, float64(7), share["recipient_id"])
 	})
@@ -76,7 +76,7 @@ func TestListGroupSharesHandler(t *testing.T) {
 		h.ListGroupShares(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Empty(t, decodeData(t, w)["shares"].([]interface{}))
+		assert.Empty(t, decodeData(t, w)["shares"].([]any))
 	})
 }
 

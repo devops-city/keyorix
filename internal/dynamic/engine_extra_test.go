@@ -55,7 +55,7 @@ func TestRandString_Length(t *testing.T) {
 
 // TestRandString_Alphabet validates that randString only uses safe characters.
 func TestRandString_Alphabet(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		s, err := randString(32)
 		require.NoError(t, err)
 		for _, r := range s {

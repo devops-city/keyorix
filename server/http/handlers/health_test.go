@@ -22,7 +22,7 @@ func TestHealthCheck(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 
 	// Liveness signal + the keys the probe/consumers rely on.

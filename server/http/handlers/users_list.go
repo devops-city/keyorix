@@ -81,7 +81,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) { // NOS
 		return
 	}
 
-	out := make([]map[string]interface{}, 0, len(users))
+	out := make([]map[string]any, 0, len(users))
 	ids := make([]uint, 0, len(users))
 	for _, u := range users {
 		out = append(out, userToAPIResponse(u))
@@ -92,7 +92,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) { // NOS
 	if pageSize > 0 {
 		totalPages = (total + int64(pageSize) - 1) / int64(pageSize)
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"users":       out,
 		"page":        page,
 		"page_size":   pageSize,
@@ -131,14 +131,14 @@ func (h *UserHandler) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	for _, u := range users {
 		results = append(results, userResult{ID: u.ID, Username: u.Username, Email: u.Email})
 	}
-	sendSuccess(w, map[string]interface{}{"users": results}, "")
+	sendSuccess(w, map[string]any{"users": results}, "")
 }
 
 // attachProjectCounts merges each user's project-membership tallies
 // (project_count = non-revoked total, active_project_count = active) into the
 // already-built response maps via one grouped query. Best-effort: on error the
 // counts default to zero so the fields are always present (ADR-025).
-func (h *UserHandler) attachProjectCounts(ctx context.Context, resp []map[string]interface{}, ids []uint) {
+func (h *UserHandler) attachProjectCounts(ctx context.Context, resp []map[string]any, ids []uint) {
 	var counts map[uint]storage.MembershipCounts
 	if len(ids) > 0 {
 		counts = h.projectCountsRecovered(ctx, ids)
@@ -210,9 +210,9 @@ func (h *UserHandler) StaleAccounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := make([]map[string]interface{}, 0, len(users))
+	out := make([]map[string]any, 0, len(users))
 	for _, u := range users {
 		out = append(out, userToAPIResponse(u))
 	}
-	sendSuccess(w, map[string]interface{}{"users": out, "state": state, "days": days}, "")
+	sendSuccess(w, map[string]any{"users": out, "state": state, "days": days}, "")
 }

@@ -480,8 +480,8 @@ func loadAuditExemptions(t *testing.T, path string) map[string]bool {
 		if len(fields) < 3 {
 			t.Fatalf("atomicity guard: %s:%d: expected 3 tab-separated fields (function, class, reason), got %d: %q", path, i+1, len(fields), line)
 		}
-		if strings.HasPrefix(fields[0], "AUDIT:") {
-			out[strings.TrimPrefix(fields[0], "AUDIT:")] = true
+		if after, ok := strings.CutPrefix(fields[0], "AUDIT:"); ok {
+			out[after] = true
 		}
 	}
 	return out

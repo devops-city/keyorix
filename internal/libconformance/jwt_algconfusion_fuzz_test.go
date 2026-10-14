@@ -41,7 +41,7 @@ func FuzzJWTAlgorithmConfusion(f *testing.F) {
 
 	// The correct, safe verifier: algorithm pinned, key is the RSA public key.
 	parser := jwt.NewParser(jwt.WithValidMethods([]string{"RS256"}))
-	keyfunc := func(*jwt.Token) (interface{}, error) { return &priv.PublicKey, nil }
+	keyfunc := func(*jwt.Token) (any, error) { return &priv.PublicKey, nil }
 	verifies := func(s string) bool {
 		tok, e := parser.Parse(s, keyfunc)
 		return e == nil && tok != nil && tok.Valid

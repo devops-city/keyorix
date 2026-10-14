@@ -167,10 +167,7 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 	// exists (nor is one warranted): server.grpc.max_request_body_bytes is documented
 	// as "the max gRPC message size" without a request/response distinction, so the
 	// same configured/defaulted value applies to both directions.
-	maxMsg := cfg.Server.GRPC.EffectiveMaxRequestBodyBytes()
-	if maxMsg > math.MaxInt32 {
-		maxMsg = math.MaxInt32
-	}
+	maxMsg := min(cfg.Server.GRPC.EffectiveMaxRequestBodyBytes(), math.MaxInt32)
 	opts = append(opts,
 		grpc.MaxRecvMsgSize(int(maxMsg)),
 		grpc.MaxSendMsgSize(int(maxMsg)),

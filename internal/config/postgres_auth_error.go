@@ -148,8 +148,7 @@ func newPostgresAuthError(err error, closed bool, host, port, user string, secre
 }
 
 func closedDuringStartup(err error) bool {
-	var ce *pgconn.ConnectError
-	if !errors.As(err, &ce) {
+	if _, ok := errors.AsType[*pgconn.ConnectError](err); !ok {
 		return false
 	}
 	msg := err.Error()

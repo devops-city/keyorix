@@ -94,7 +94,7 @@ func TestCTAReview_SCIM_vs_SuspendUser_WithoutRowLock_CrossReplicaPostgres(t *te
 			t.Parallel()
 			f := newCTAReview(t)
 			target := f.user("cta-scim-"+tc.name, "project_viewer")
-			require.NoError(t, f.setupDB.Model(&models.User{}).Where("id = ?", target.ID).Updates(map[string]interface{}{
+			require.NoError(t, f.setupDB.Model(&models.User{}).Where("id = ?", target.ID).Updates(map[string]any{
 				"external_id": "okta|" + tc.name, "account_state": tc.initState, "is_active": tc.initAct,
 			}).Error)
 

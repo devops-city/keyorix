@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -335,9 +336,7 @@ func buildSubprocessEnv(overrides map[string]string) []string {
 func runMainSubprocess(t *testing.T, env map[string]string) (output string, exitCode int) {
 	t.Helper()
 	overrides := make(map[string]string, len(env)+1)
-	for k, v := range env {
-		overrides[k] = v
-	}
+	maps.Copy(overrides, env)
 	overrides[mainSubprocessEnv] = "1"
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMainSubprocessHelper$")
@@ -347,8 +346,7 @@ func runMainSubprocess(t *testing.T, env map[string]string) (output string, exit
 	if err == nil {
 		return output, 0
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		return output, exitErr.ExitCode()
 	}
 	t.Fatalf("failed to run main() subprocess: %v\noutput:\n%s", err, output)

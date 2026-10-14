@@ -62,7 +62,7 @@ func TestUpdateSecretRotationConfig_RebindFailsClosed(t *testing.T) {
 	ls, snap := rotationConfigFixture(t)
 	// A concurrent admin binds a backend after the snapshot (backend "") was read.
 	require.NoError(t, ls.db.Model(&models.SecretNode{}).Where("id = ?", 1).
-		Updates(map[string]interface{}{"rotation_backend": "aws", "rotation_ref": "iam/user"}).Error)
+		Updates(map[string]any{"rotation_backend": "aws", "rotation_ref": "iam/user"}).Error)
 
 	matched, err := ls.UpdateSecretRotationConfig(context.Background(), snap, "")
 	require.NoError(t, err)

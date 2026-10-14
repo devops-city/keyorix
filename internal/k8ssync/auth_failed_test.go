@@ -90,7 +90,7 @@ func TestReconcile_Unauthorized_KeepsSecretsThenRecovers(t *testing.T) {
 			require.Equal(t, 2, res.Created)
 
 			f.unauthorized = true
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				res, err = e.Reconcile(context.Background(), maps)
 				require.NoError(t, err)
 				assert.Equal(t, 2, res.AuthFailed)
@@ -173,7 +173,7 @@ func TestRun_UnauthorizedBacksOffAndLogs(t *testing.T) {
 	s.owned["app/creds"] = true
 	e := NewEngine(f, s)
 	var lines []string
-	logf := func(format string, args ...interface{}) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	logf := func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
 	res := Sync(context.Background(), e, []SecretMapping{{Ref: "prod/db", Namespace: "app", Name: "creds", Key: "DB_PASSWORD"}}, logf)
 	assert.Equal(t, 1, res.AuthFailed)
 	joined := strings.Join(lines, "\n")

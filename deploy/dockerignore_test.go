@@ -62,7 +62,7 @@ type ignorePattern struct {
 func parseDockerignore(t *testing.T, content string) []ignorePattern {
 	t.Helper()
 	var out []ignorePattern
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

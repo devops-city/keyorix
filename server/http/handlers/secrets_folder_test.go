@@ -123,7 +123,7 @@ func withAdminCtxFolder(r *http.Request) *http.Request {
 func TestCreateSecret_WithParentID(t *testing.T) {
 	h, _, folder, _ := freshSecretFolderFixture(t)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name":           "child-secret",
 		"value":          "topsecret",
 		"project_id":     1,
@@ -161,7 +161,7 @@ func TestCreateSecret_NonFolderParentID(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name":           "child-of-secret",
 		"value":          "topsecret",
 		"project_id":     1,
@@ -183,7 +183,7 @@ func TestCreateSecret_NonFolderParentID(t *testing.T) {
 func TestCreateSecret_NonExistentParentID(t *testing.T) {
 	h, _, _, _ := freshSecretFolderFixture(t)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name":           "orphan-secret",
 		"value":          "val",
 		"project_id":     1,

@@ -191,7 +191,7 @@ func checkInvariantDocs(fsys fs.FS) (violations, legacyDups []string, err error)
 		prefix := fm[1]
 
 		headings := map[string]bool{}
-		for i := 0; i < len(lines); i++ {
+		for i := range lines {
 			if h := invHeadingRE.FindStringSubmatch(lines[i]); h != nil {
 				headings[h[1]] = true
 			}

@@ -136,7 +136,7 @@ func TestGetSecretReadSummary_HappyPath(t *testing.T) {
 	require.NoError(t, db.Create(&models.SecretNode{ID: secretID, Name: "s7", IsSecret: true}).Error)
 
 	// Seed 3 reads for user 1 in the last hour.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		seedReadAuditEvent(t, db, secretID, userID, now.Add(-time.Duration(i+1)*time.Minute))
 	}
 

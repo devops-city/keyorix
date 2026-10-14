@@ -181,7 +181,7 @@ func (h *ImpersonationHandler) End(w http.ResponseWriter, r *http.Request) {
 		middleware.ClearCSRFCookie(w, secure)
 		message = "Impersonation ended, but your admin session had expired — please sign in again"
 	}
-	sendSuccess(w, map[string]interface{}{"admin_session_restored": restored}, message)
+	sendSuccess(w, map[string]any{"admin_session_restored": restored}, message)
 }
 
 // clientIP returns r.RemoteAddr's IP in canonical form, for audit attribution

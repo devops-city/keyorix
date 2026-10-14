@@ -29,6 +29,7 @@ package webui
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -145,7 +146,7 @@ func TestDockerignoreKeepsWebSourcesButNotItsBuildOutputs(t *testing.T) {
 		t.Fatalf("read .dockerignore: %v", err)
 	}
 	var patterns []string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -153,12 +154,7 @@ func TestDockerignoreKeepsWebSourcesButNotItsBuildOutputs(t *testing.T) {
 		patterns = append(patterns, line)
 	}
 	has := func(p string) bool {
-		for _, pat := range patterns {
-			if pat == p {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(patterns, p)
 	}
 	for _, excluded := range []string{"web", "web/", "web/*"} {
 		if has(excluded) {

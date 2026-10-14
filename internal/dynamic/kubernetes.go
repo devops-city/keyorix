@@ -178,10 +178,8 @@ func (e *KubernetesEngine) Issue(ctx context.Context, adminDSN, _ string, ttl ti
 		return Credential{}, "", fmt.Errorf("kubernetes: namespace %q is not in the allowed_namespaces list", cfg.Namespace)
 	}
 
-	expiration := ttl
-	if expiration < k8sMinExpirationSeconds*time.Second {
-		expiration = k8sMinExpirationSeconds * time.Second // K8s rejects/bumps anything lower
-	}
+	// K8s rejects/bumps anything lower than the minimum expiration.
+	expiration := max(ttl, k8sMinExpirationSeconds*time.Second)
 
 	minter := e.minter
 	if minter == nil {
@@ -375,7 +373,7 @@ func drainAndClose(resp *http.Response) {
 
 func (m *realK8sMinter) mintToken(ctx context.Context, namespace, serviceAccount string, audiences []string, expiration time.Duration, bound *boundObjectRef) (string, time.Time, error) {
 	expSeconds := int64(expiration.Seconds())
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"expirationSeconds": expSeconds,
 	}
 	if len(audiences) > 0 {
@@ -385,14 +383,14 @@ func (m *realK8sMinter) mintToken(ctx context.Context, namespace, serviceAccount
 		// Binds the token's validity to this Secret's live existence + UID (see
 		// the file header) — this is what makes Revoke's delete an immediate,
 		// real invalidation instead of local bookkeeping.
-		spec["boundObjectRef"] = map[string]interface{}{
+		spec["boundObjectRef"] = map[string]any{
 			"kind":       "Secret",
 			"apiVersion": "v1",
 			"name":       bound.Name,
 			"uid":        bound.UID,
 		}
 	}
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"apiVersion": "authentication.k8s.io/v1",
 		"kind":       "TokenRequest",
 		"spec":       spec,
@@ -447,12 +445,12 @@ func (m *realK8sMinter) mintToken(ctx context.Context, namespace, serviceAccount
 // boundObjectRef target (see the file header), returning its UID so it can be
 // embedded in that boundObjectRef.
 func (m *realK8sMinter) createBoundSecret(ctx context.Context, namespace, name string) (string, error) {
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Secret",
-		"metadata": map[string]interface{}{
+		"metadata": map[string]any{
 			"name": name,
-			"labels": map[string]interface{}{
+			"labels": map[string]any{
 				"app.kubernetes.io/managed-by": "keyorix",
 				"keyorix.io/purpose":           "dynamic-secret-token-binding",
 			},

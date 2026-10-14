@@ -16,10 +16,10 @@ import (
 // staticResolver returns one fixed RSA public key for a known kid.
 type staticResolver struct {
 	kid string
-	key interface{}
+	key any
 }
 
-func (s staticResolver) Key(_ context.Context, _, kid string) (interface{}, error) {
+func (s staticResolver) Key(_ context.Context, _, kid string) (any, error) {
 	if kid == s.kid {
 		return s.key, nil
 	}

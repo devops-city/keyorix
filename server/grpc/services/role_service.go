@@ -192,14 +192,8 @@ func (s *RoleGRPCService) ListRoles(ctx context.Context, req *pb.ListRolesReques
 	}
 	page, pageSize := normalizePage(req.GetPage(), req.GetPageSize())
 	total := len(all)
-	start := (page - 1) * pageSize
-	if start > total {
-		start = total
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
+	start := min((page-1)*pageSize, total)
+	end := min(start+pageSize, total)
 
 	out := make([]*pb.Role, 0, end-start)
 	for _, rwp := range all[start:end] {

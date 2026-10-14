@@ -135,7 +135,6 @@ func adminJobActorCases() []adminJobActorCase {
 // untagged, on the empty-result path -- the shape common to all of them.
 func TestAdminJobs_AttributeRealActor_EmptyPath(t *testing.T) {
 	for _, tc := range adminJobActorCases() {
-		tc := tc
 		t.Run(tc.name+"/tagged", func(t *testing.T) {
 			const actorID = uint(4242)
 			captured := captureLastAdminJobAuditEvent(t, tc.setup, func(c *KeyorixCore) {

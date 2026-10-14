@@ -42,7 +42,7 @@ func loadSeedV1History(t *testing.T) map[string]seedV1Row {
 		t.Fatal(err)
 	}
 	rows := map[string]seedV1Row{}
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

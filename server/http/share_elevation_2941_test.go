@@ -116,11 +116,11 @@ func (d *shareDemo) makeAdminMember(t *testing.T) {
 	require.NoError(t, d.c.AddProjectMember(context.Background(), d.adminID, d.projectID, d.adminID, "project_admin", false))
 }
 
-func (d *shareDemo) share(t *testing.T, tok string, recipientID uint, permission string) (int, map[string]interface{}) {
+func (d *shareDemo) share(t *testing.T, tok string, recipientID uint, permission string) (int, map[string]any) {
 	t.Helper()
 	body := []byte(fmt.Sprintf(`{"recipient_id":%d,"is_group":false,"permission":%q}`, recipientID, permission))
 	code, raw := doMachineRequest(t, d.srv, tok, http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/share", d.secretID), body)
-	var out map[string]interface{}
+	var out map[string]any
 	_ = json.Unmarshal([]byte(raw), &out)
 	return code, out
 }
@@ -129,7 +129,7 @@ func (d *shareDemo) shareOK(t *testing.T, recipientID uint, permission string) u
 	t.Helper()
 	code, out := d.share(t, d.adminTok, recipientID, permission)
 	require.Equal(t, http.StatusCreated, code, "share must succeed: %v", out)
-	data, ok := out["data"].(map[string]interface{})
+	data, ok := out["data"].(map[string]any)
 	require.True(t, ok, "share response must carry data: %v", out)
 	return uint(data["id"].(float64))
 }

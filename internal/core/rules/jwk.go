@@ -62,7 +62,7 @@ type JWK struct {
 }
 
 // ParseJWK converts a JWK into an *rsa.PublicKey or *ecdsa.PublicKey.
-func ParseJWK(k JWK) (interface{}, error) { // NOSONAR -- cognitive complexity 17, suppress go:S3776
+func ParseJWK(k JWK) (any, error) { // NOSONAR -- cognitive complexity 17, suppress go:S3776
 	switch k.Kty {
 	case "RSA":
 		n, err := b64uBigInt(k.N)

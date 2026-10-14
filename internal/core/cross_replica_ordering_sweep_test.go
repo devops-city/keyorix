@@ -443,7 +443,7 @@ func TestOrderingSweep_CatalogCoversEveryForceableOp(t *testing.T) {
 	}
 
 	var uncovered []int
-	for kind := byte(0); kind < g4NumOpKinds; kind++ {
+	for kind := range byte(g4NumOpKinds) {
 		_, hasSpec := g5OpSyncPoints[kind]
 		switch {
 		case hasSpec && !inFamily[kind]:

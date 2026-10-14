@@ -98,7 +98,7 @@ func scanDERElement(data []byte, depth int, nodes *int) ([]byte, error) {
 		if off+n > len(data) {
 			return nil, fmt.Errorf("notary: truncated DER long-form length")
 		}
-		for i := 0; i < n; i++ {
+		for range n {
 			length = length<<8 | int(data[off])
 			off++
 		}

@@ -75,7 +75,7 @@ func TestConcurrency_AuditCheckpoint_NoOutOfOrderChain(t *testing.T) {
 	errs := make(chan error, writers)
 	var wg sync.WaitGroup
 	base := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

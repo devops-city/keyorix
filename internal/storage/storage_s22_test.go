@@ -910,7 +910,7 @@ func TestApplyPoolSettings_S22_ZeroValuesMaxIdleMatchesMaxOpen(t *testing.T) {
 	const concurrent = DefaultSQLiteMaxOpenConns // > Go's built-in idle default (2), <= the pool cap
 	ctx := context.Background()
 	conns := make([]*sql.Conn, concurrent)
-	for i := 0; i < concurrent; i++ {
+	for i := range concurrent {
 		c, err := sqlDB.Conn(ctx)
 		require.NoError(t, err)
 		var one int

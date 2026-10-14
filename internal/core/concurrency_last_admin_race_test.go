@@ -68,7 +68,7 @@ func userIsGone(db *gorm.DB, userID uint) bool {
 // refusal); exactly one gone is the only correct outcome.
 func runTwoAdminRace(t *testing.T, name string, removeA, removeB func(ctx context.Context, c *core.KeyorixCore)) (bothGone, neitherGone int) {
 	t.Helper()
-	for trial := 0; trial < lastAdminRaceTrials; trial++ {
+	for range lastAdminRaceTrials {
 		c, db := newTwoGlobalAdminFixture(t, filepath.Join(t.TempDir(), name+".db"))
 		ctx := context.Background()
 
@@ -145,7 +145,7 @@ func TestConcurrency_RemoveProjectMember_ExactlyOneOfTwoProjectAdminsRemoved(t *
 	t.Parallel()
 	const trials = 50
 	var bothRemoved, neitherRemoved int
-	for trial := 0; trial < trials; trial++ {
+	for range trials {
 		dsn := "file:" + filepath.Join(t.TempDir(), "project_member.db") + "?_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate"
 		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 		require.NoError(t, err)

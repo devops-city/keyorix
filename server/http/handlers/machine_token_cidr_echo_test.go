@@ -45,7 +45,7 @@ func TestIssueMachineToken_AllowedCIDRs_ReflectsPersistedValue(t *testing.T) {
 	wantPersisted := []string{"10.0.0.1/32", "203.0.113.0/24"}
 	require.NotEqual(t, submitted, wantPersisted, "test fixture must exercise real normalization")
 
-	reqBody, err := json.Marshal(map[string]interface{}{
+	reqBody, err := json.Marshal(map[string]any{
 		"name":          "cidr-echo-token",
 		"allowed_cidrs": submitted,
 	})

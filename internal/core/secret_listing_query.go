@@ -86,10 +86,7 @@ func (c *KeyorixCore) pageScopedSecrets(ctx context.Context, all []*models.Secre
 	c.sortSecrets(all, filter.SortBy, filter.SortOrder)
 
 	total := int64(len(all))
-	page := filter.Page
-	if page < 1 {
-		page = 1
-	}
+	page := max(filter.Page, 1)
 	pageSize := filter.PageSize
 	if pageSize < 1 {
 		pageSize = 20
@@ -367,10 +364,7 @@ func (c *KeyorixCore) ListSecretsWithSharingInfo(ctx context.Context, userID uin
 	total := int64(len(all))
 
 	// Paginate
-	page := filter.Page
-	if page < 1 {
-		page = 1
-	}
+	page := max(filter.Page, 1)
 	pageSize := filter.PageSize
 	if pageSize < 1 {
 		pageSize = 20

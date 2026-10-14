@@ -584,10 +584,8 @@ func TestAuthorizeRoleResolution_CrossReplica(t *testing.T) {
 				stop    atomic.Bool
 				wg      sync.WaitGroup
 			)
-			for i := 0; i < 4; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+			for range 4 {
+				wg.Go(func() {
 					for !stop.Load() {
 						start := time.Now()
 						var got bool
@@ -605,7 +603,7 @@ func TestAuthorizeRoleResolution_CrossReplica(t *testing.T) {
 						samples = append(samples, sample{start, got})
 						mu.Unlock()
 					}
-				}()
+				})
 			}
 			time.Sleep(20 * time.Millisecond)
 			require.NoError(t, write(), name)
@@ -633,7 +631,7 @@ func TestAuthorizeRoleResolution_CrossReplica(t *testing.T) {
 				perm: pRead.Name, scope: at, want: wantAfter}, "after race")
 		}
 
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			race(t, "grant role", false, func() error { return s.AssignRole(ctx, u.ID, rRead.ID, at) }, true)
 			race(t, "remove permission", false, func() error { return s.RemovePermissionFromRole(ctx, rRead.ID, pRead.ID) }, false)
 			race(t, "add permission", false, func() error { return s.AssignPermissionToRole(ctx, rRead.ID, pRead.ID) }, true)
@@ -720,7 +718,7 @@ func TestAuthorizeRoleResolution_OneStatement(t *testing.T) {
 				}},
 			} {
 				// Warm the role->permission cache.
-				for i := 0; i < 2; i++ {
+				for range 2 {
 					ok, err := tc.decide()
 					require.NoError(t, err)
 					require.True(t, ok, tc.name)

@@ -121,7 +121,7 @@ func TestAlertEscalationHandler_List_WithRecords(t *testing.T) {
 	h.List(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	d := decodeData(t, w)
-	pols, ok := d["policies"].([]interface{})
+	pols, ok := d["policies"].([]any)
 	require.True(t, ok)
 	assert.Len(t, pols, 1)
 }
@@ -168,7 +168,7 @@ func TestAlertEscalationHandler_Update_BadJSON(t *testing.T) {
 
 func TestAlertEscalationHandler_Update_NotFound(t *testing.T) {
 	h, _ := newAlertEscalationHandlerDB(t)
-	body, _ := json.Marshal(map[string]interface{}{"name": "new-name"})
+	body, _ := json.Marshal(map[string]any{"name": "new-name"})
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(body))), "id", "999")
 	w := httptest.NewRecorder()
 	h.Update(w, req)
@@ -180,7 +180,7 @@ func TestAlertEscalationHandler_Update_ValidationError(t *testing.T) {
 	pol := &models.AlertEscalationPolicy{Name: "upd-pol", MinSeverity: "medium", EscalateAfterMinutes: 30, Enabled: true}
 	require.NoError(t, db.Create(pol).Error)
 	// min_severity to invalid value → validation error
-	body, _ := json.Marshal(map[string]interface{}{"min_severity": "extreme"})
+	body, _ := json.Marshal(map[string]any{"min_severity": "extreme"})
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(body))), "id", fmt.Sprintf("%d", pol.ID))
 	w := httptest.NewRecorder()
 	h.Update(w, req)
@@ -191,7 +191,7 @@ func TestAlertEscalationHandler_Update_Success(t *testing.T) {
 	h, db := newAlertEscalationHandlerDB(t)
 	pol := &models.AlertEscalationPolicy{Name: "before", MinSeverity: "low", EscalateAfterMinutes: 10, Enabled: true}
 	require.NoError(t, db.Create(pol).Error)
-	body, _ := json.Marshal(map[string]interface{}{"name": "after"})
+	body, _ := json.Marshal(map[string]any{"name": "after"})
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(body))), "id", fmt.Sprintf("%d", pol.ID))
 	w := httptest.NewRecorder()
 	h.Update(w, req)
@@ -297,7 +297,7 @@ func TestAlertEscalationHandler_Get_InternalError(t *testing.T) {
 
 func TestAlertEscalationHandler_Update_InvalidID(t *testing.T) {
 	h, _ := newAlertEscalationHandlerDB(t)
-	body, _ := json.Marshal(map[string]interface{}{"name": "x"})
+	body, _ := json.Marshal(map[string]any{"name": "x"})
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(body))), "id", "abc")
 	w := httptest.NewRecorder()
 	h.Update(w, req)
@@ -306,7 +306,7 @@ func TestAlertEscalationHandler_Update_InvalidID(t *testing.T) {
 
 func TestAlertEscalationHandler_Update_InternalError(t *testing.T) {
 	h := newAlertEscalationHandlerClosedDB(t)
-	body, _ := json.Marshal(map[string]interface{}{"name": "x"})
+	body, _ := json.Marshal(map[string]any{"name": "x"})
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/", bytes.NewReader(body))), "id", "1")
 	w := httptest.NewRecorder()
 	h.Update(w, req)

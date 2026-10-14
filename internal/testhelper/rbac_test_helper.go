@@ -3,6 +3,7 @@ package testhelper
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strings"
 	"testing"
 
@@ -402,12 +403,7 @@ func (h *RBACTestHelper) GetUserPermissions(t *testing.T, userID uint) []string 
 // HasPermission checks if a user has a specific permission
 func (h *RBACTestHelper) HasPermission(t *testing.T, userID uint, permission string) bool {
 	permissions := h.GetUserPermissions(t, userID)
-	for _, p := range permissions {
-		if p == permission {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(permissions, permission)
 }
 
 // CreateTestContext creates a context with user information for testing
@@ -426,13 +422,13 @@ func (h *RBACTestHelper) Cleanup() {
 }
 
 // ExecuteRawSQL executes raw SQL for complex test scenarios
-func (h *RBACTestHelper) ExecuteRawSQL(t *testing.T, query string, args ...interface{}) {
+func (h *RBACTestHelper) ExecuteRawSQL(t *testing.T, query string, args ...any) {
 	_, err := h.SqlDB.Exec(query, args...)
 	require.NoError(t, err)
 }
 
 // QueryRawSQL executes a raw SQL query and returns results
-func (h *RBACTestHelper) QueryRawSQL(t *testing.T, query string, args ...interface{}) *sql.Rows {
+func (h *RBACTestHelper) QueryRawSQL(t *testing.T, query string, args ...any) *sql.Rows {
 	rows, err := h.SqlDB.Query(query, args...)
 	require.NoError(t, err)
 	return rows

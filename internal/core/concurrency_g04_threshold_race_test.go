@@ -76,7 +76,7 @@ func TestConcurrency_AssignUserRole_SoDGrantRace(t *testing.T) {
 	t.Parallel()
 	const trials = 50
 	var bothGranted, neitherGranted int
-	for trial := 0; trial < trials; trial++ {
+	for trial := range trials {
 		c, db, roleAID, roleBID := newSoDGrantFixture(t, fmt.Sprintf("sod_grant_%d", trial))
 		ctx := context.Background()
 
@@ -116,7 +116,7 @@ func TestConcurrency_DecideAccessReviewItem_AttestRevokeRace(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, i18n.InitializeForTesting())
 	const trials = 30
-	for trial := 0; trial < trials; trial++ {
+	for trial := range trials {
 		db := openRaceDB(t, fmt.Sprintf("arc_mixed_%d", trial))
 		require.NoError(t, db.AutoMigrate(&models.AccessReviewCampaign{}, &models.AccessReviewItem{}, &models.AuditEvent{}, &models.UserRole{}, &models.GroupRole{}, &models.Group{}, &models.Permission{}, &models.RolePermission{}))
 
@@ -229,7 +229,7 @@ func newDualControlFixture(t *testing.T, dbFile string) (c *core.KeyorixCore, db
 func TestConcurrency_ApproveAccessRequestWithExpiry_ThresholdRace(t *testing.T) {
 	t.Parallel()
 	const trials = 30
-	for trial := 0; trial < trials; trial++ {
+	for trial := range trials {
 		c, db, requestID := newDualControlFixture(t, fmt.Sprintf("dual_control_%d", trial))
 		ctx := context.Background()
 

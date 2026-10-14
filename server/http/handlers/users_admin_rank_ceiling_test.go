@@ -88,7 +88,7 @@ func TestUpdateUser_UsersWriteHolderCannotRewriteHigherPrivilegedTarget_RealServ
 
 	attackerID := seedUsersWriteOnlyActor(t, db, "s1_attacker_update", "users.write")
 
-	body, err := json.Marshal(map[string]interface{}{"email": "attacker-owned@evil.example"})
+	body, err := json.Marshal(map[string]any{"email": "attacker-owned@evil.example"})
 	require.NoError(t, err)
 	req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(admin.ID)})
 	uc := &middleware.UserContext{UserID: attackerID, Username: "s1_attacker_update", ActorType: core.ActorTypeUser}
@@ -117,7 +117,7 @@ func TestUpdateUser_UsersWriteHolderCanUpdateOrdinaryTarget_RealServer(t *testin
 	targetID := seedOrdinaryUser(t, db, "s1_ordinary_target")
 	attackerID := seedUsersWriteOnlyActor(t, db, "s1_actor_ordinary_ok", "users.write")
 
-	body, err := json.Marshal(map[string]interface{}{"display_name": "Updated Name"})
+	body, err := json.Marshal(map[string]any{"display_name": "Updated Name"})
 	require.NoError(t, err)
 	req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(targetID)})
 	uc := &middleware.UserContext{UserID: attackerID, Username: "s1_actor_ordinary_ok", ActorType: core.ActorTypeUser}
@@ -144,7 +144,7 @@ func TestUpdateUser_EqualPrivilegeTargetAllowed_RealServer(t *testing.T) {
 	targetID := seedUsersWriteOnlyActor(t, db, "s1_equal_target", "users.write")
 	actorID := seedUsersWriteOnlyActor(t, db, "s1_equal_actor", "users.write")
 
-	body, err := json.Marshal(map[string]interface{}{"display_name": "Equal Rank Update"})
+	body, err := json.Marshal(map[string]any{"display_name": "Equal Rank Update"})
 	require.NoError(t, err)
 	req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(targetID)})
 	uc := &middleware.UserContext{UserID: actorID, Username: "s1_equal_actor", ActorType: core.ActorTypeUser}
@@ -170,7 +170,7 @@ func TestUpdateUser_SelfUpdateAllowedEvenAgainstHigherRankCheck_RealServer(t *te
 
 	actorID := seedUsersWriteOnlyActor(t, db, "s1_self_update", "users.write")
 
-	body, err := json.Marshal(map[string]interface{}{"display_name": "Self Updated"})
+	body, err := json.Marshal(map[string]any{"display_name": "Self Updated"})
 	require.NoError(t, err)
 	req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(actorID)})
 	uc := &middleware.UserContext{UserID: actorID, Username: "s1_self_update", ActorType: core.ActorTypeUser}
@@ -197,7 +197,7 @@ func TestUpdateUser_SelfDeactivationRefused_RealServer(t *testing.T) {
 	actorID := seedUsersWriteOnlyActor(t, db, "s1_self_deactivate", "users.write")
 
 	active := false
-	body, err := json.Marshal(map[string]interface{}{"active": active})
+	body, err := json.Marshal(map[string]any{"active": active})
 	require.NoError(t, err)
 	req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(actorID)})
 	uc := &middleware.UserContext{UserID: actorID, Username: "s1_self_deactivate", ActorType: core.ActorTypeUser}
@@ -234,7 +234,7 @@ func TestUpdateUser_PivotDemonstration_ResendSetupLinkNowRefusedToo_RealServer(t
 
 	// Step 1: UpdateUser refuses the identity rewrite (already covered above,
 	// re-asserted here as the setup for the pivot).
-	body, err := json.Marshal(map[string]interface{}{"email": "attacker-owned-pivot@evil.example"})
+	body, err := json.Marshal(map[string]any{"email": "attacker-owned-pivot@evil.example"})
 	require.NoError(t, err)
 	updateReq := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(admin.ID)})
 	uc := &middleware.UserContext{UserID: attackerID, Username: "s1_pivot_attacker", ActorType: core.ActorTypeUser}

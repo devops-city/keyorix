@@ -39,7 +39,7 @@ func ListAnomalyAlerts(w http.ResponseWriter, r *http.Request) {
 	// frequency_spike|ml_outlier|principal_breadth narrow the list server-side (an
 	// empty value is no constraint).
 	alerts = core.FilterAlerts(alerts, r.URL.Query().Get("severity"), r.URL.Query().Get("alertType"))
-	sendSuccess(w, map[string]interface{}{"alerts": alerts, "total": len(alerts)}, "")
+	sendSuccess(w, map[string]any{"alerts": alerts, "total": len(alerts)}, "")
 }
 
 // AcknowledgeAnomalyAlert handles POST /api/v1/anomalies/{id}/acknowledge
@@ -65,5 +65,5 @@ func AcknowledgeAnomalyAlert(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "NotFound", "Anomaly alert not found", http.StatusNotFound, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"acknowledged": true}, "")
+	sendSuccess(w, map[string]any{"acknowledged": true}, "")
 }

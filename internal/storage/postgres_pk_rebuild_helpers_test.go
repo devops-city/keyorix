@@ -24,7 +24,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
-var pkRebuildDBCounter int64
+var pkRebuildDBCounter atomic.Int64
 
 // pgTestDSN returns the KEYORIX_TEST_PG_DSN base DSN, skipping the test (not
 // failing it) when unset.
@@ -41,7 +41,7 @@ func pgTestDSN(t *testing.T) string {
 // server at base, dropped on test cleanup, and returns a DSN pointing at it.
 func pgIsolatedDatabaseDSN(t *testing.T, base string) string {
 	t.Helper()
-	n := atomic.AddInt64(&pkRebuildDBCounter, 1)
+	n := pkRebuildDBCounter.Add(1)
 	dbName := fmt.Sprintf("pk_rebuild_%d_%d", os.Getpid(), n)
 
 	admin := pgRawOpen(t, base)

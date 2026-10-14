@@ -37,7 +37,7 @@ func TestCreateUserWithOTP_Conflict_S18(t *testing.T) {
 		AccountState:   core.AccountActive,
 	}).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-conflict-s18",
 		"email":                      "otp-conflict-s18@x.com",
 		"display_name":               "OTP Conflict S18",
@@ -60,7 +60,7 @@ func TestCreateUserWithSetupLink_NoBaseURL_S18(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
 	// No cs.SetCredentialDelivery call → setupBaseURL stays "".
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-nobase-s18",
 		"email":              "setup-nobase-s18@x.com",
 		"display_name":       "Setup NoBase S18",
@@ -82,7 +82,7 @@ func TestCreateUserWithSetupLink_Success_S18(t *testing.T) {
 	// nil deliverer = out-of-band (link returned to caller, no SMTP).
 	cs.SetCredentialDelivery(nil, "https://test-s18.keyorix.example")
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-success-s18",
 		"email":              "setup-success-s18@x.com",
 		"display_name":       "Setup Success S18",
@@ -255,7 +255,7 @@ func TestCreateUserWithOTP_FieldValidated_S18(t *testing.T) {
 	// A structurally valid body for the OTP path.  The real DB will create it
 	// successfully (201), exercising the success path already covered in S13.
 	// This test confirms the handler parses and routes the request correctly.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-field-s18",
 		"email":                      "otp-field-s18@x.com",
 		"display_name":               "OTP Field S18",

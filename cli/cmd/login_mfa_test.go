@@ -366,10 +366,10 @@ func TestLoginHandlesEveryDocumentedLoginResponseShape(t *testing.T) {
 // either branch's contents. When a generator upgrade changes that, this fails -- and the
 // decoder should then be replaced by the generated accessors.
 func TestGeneratedAuthLoginDataIsAnOpaqueUnion(t *testing.T) {
-	typ := reflect.TypeOf(apiclient.AuthLogin_200_Data{})
-	for i := range typ.NumField() {
-		if typ.Field(i).IsExported() {
-			t.Errorf("apiclient.AuthLogin_200_Data now has an exported field %q -- the generated type may be usable directly; re-check loginEnvelope", typ.Field(i).Name)
+	typ := reflect.TypeFor[apiclient.AuthLogin_200_Data]()
+	for field := range typ.Fields() {
+		if field.IsExported() {
+			t.Errorf("apiclient.AuthLogin_200_Data now has an exported field %q -- the generated type may be usable directly; re-check loginEnvelope", field.Name)
 		}
 	}
 	for _, m := range []string{"AsLoginSuccessData", "AsMFAChallengeData"} {

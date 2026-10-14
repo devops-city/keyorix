@@ -90,8 +90,8 @@ func TestConcurrency_BootstrapSystem_CrossReplicaExactlyOneAdmin(t *testing.T) {
 	}
 	results := make(chan outcome, replicas*callsPerReplica)
 	n := 0
-	for r := 0; r < replicas; r++ {
-		for i := 0; i < callsPerReplica; i++ {
+	for r := range replicas {
+		for range callsPerReplica {
 			n++
 			wg.Add(1)
 			go func(c *KeyorixCore, idx int) {

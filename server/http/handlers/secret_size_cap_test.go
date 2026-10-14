@@ -35,7 +35,7 @@ func TestCreateSecret_SecretSizeCap_ExactlyAtLimit_Accepted(t *testing.T) {
 	h, cs, _, _ := freshSecretFixtureS15(t)
 	cs.SetMaxSecretSize(100)
 
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"name": "at-limit-create", "value": strings.Repeat("a", 100),
 		"project_id": uint(1), "environment_id": uint(10), "type": "static",
 	})
@@ -51,7 +51,7 @@ func TestCreateSecret_SecretSizeCap_OneByteOver_Rejected413(t *testing.T) {
 	h, cs, _, _ := freshSecretFixtureS15(t)
 	cs.SetMaxSecretSize(100)
 
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"name": "over-limit-create", "value": strings.Repeat("a", 101),
 		"project_id": uint(1), "environment_id": uint(10), "type": "static",
 	})
@@ -72,7 +72,7 @@ func TestCreateSecret_SecretSizeCap_BodyTooLarge_MaxBytesReaderTrips413(t *testi
 	// A body far larger than config.DeriveMaxRequestBodySize(100) -- the
 	// wire-level limit must trip during json.Decode, before a Go value with a
 	// decoded length ever exists (distinct code path from the test above).
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"name": "wire-limit-create", "value": strings.Repeat("a", 30_000),
 		"project_id": uint(1), "environment_id": uint(10), "type": "static",
 	})
@@ -109,7 +109,7 @@ func TestCreateSecret_SecretSizeCap_GenuineMaxSizeSecret_ThroughRealMiddleware_A
 	// the real production default end to end rather than a test-only override.
 
 	value := strings.Repeat("a", config.DefaultMaxSecretSize)
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"name": "genuine-max-size-secret", "value": value,
 		"project_id": uint(1), "environment_id": uint(10), "type": "static",
 	})
@@ -141,7 +141,7 @@ func TestUpdateSecret_SecretSizeCap_ExactlyAtLimit_Accepted(t *testing.T) {
 	h, cs, _, _ := freshSecretFixtureS15(t)
 	cs.SetMaxSecretSize(100)
 
-	body, err := json.Marshal(map[string]interface{}{"value": strings.Repeat("b", 100)})
+	body, err := json.Marshal(map[string]any{"value": strings.Repeat("b", 100)})
 	require.NoError(t, err)
 
 	r := withChiIDParam(withAdminCtxS15(httptest.NewRequest(http.MethodPut, "/api/v1/secrets/1", bytes.NewReader(body))), "1")
@@ -154,7 +154,7 @@ func TestUpdateSecret_SecretSizeCap_OneByteOver_Rejected413(t *testing.T) {
 	h, cs, _, _ := freshSecretFixtureS15(t)
 	cs.SetMaxSecretSize(100)
 
-	body, err := json.Marshal(map[string]interface{}{"value": strings.Repeat("b", 101)})
+	body, err := json.Marshal(map[string]any{"value": strings.Repeat("b", 101)})
 	require.NoError(t, err)
 
 	r := withChiIDParam(withAdminCtxS15(httptest.NewRequest(http.MethodPut, "/api/v1/secrets/1", bytes.NewReader(body))), "1")
@@ -168,7 +168,7 @@ func TestRotateSecret_SecretSizeCap_ExactlyAtLimit_Accepted(t *testing.T) {
 	h, cs, _, _ := freshSecretFixtureS15(t)
 	cs.SetMaxSecretSize(100)
 
-	body, err := json.Marshal(map[string]interface{}{"new_value": strings.Repeat("c", 100)})
+	body, err := json.Marshal(map[string]any{"new_value": strings.Repeat("c", 100)})
 	require.NoError(t, err)
 
 	r := withChiIDParam(withAdminCtxS15(httptest.NewRequest(http.MethodPost, "/api/v1/secrets/1/rotate", bytes.NewReader(body))), "1")
@@ -181,7 +181,7 @@ func TestRotateSecret_SecretSizeCap_OneByteOver_Rejected413(t *testing.T) {
 	h, cs, _, _ := freshSecretFixtureS15(t)
 	cs.SetMaxSecretSize(100)
 
-	body, err := json.Marshal(map[string]interface{}{"new_value": strings.Repeat("c", 101)})
+	body, err := json.Marshal(map[string]any{"new_value": strings.Repeat("c", 101)})
 	require.NoError(t, err)
 
 	r := withChiIDParam(withAdminCtxS15(httptest.NewRequest(http.MethodPost, "/api/v1/secrets/1/rotate", bytes.NewReader(body))), "1")

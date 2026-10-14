@@ -111,7 +111,7 @@ func TestEnableAuthEncryptionWithConfig_AlreadyEnabledWhenKeysPreProvisioned(t *
 	db := migrateEncOpsTables(t, testDBFile)
 	closeTestDB(db)
 
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		db := migrateEncOpsTables(t, testDBFile)
 		stdout, err := captureOutput(t, func() error {
 			return EnableAuthEncryptionWithConfig(cfg, false, zeroPassSrc())

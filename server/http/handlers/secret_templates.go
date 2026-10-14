@@ -89,7 +89,7 @@ func (h *SecretTemplateHandler) List(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"templates": templates}, "")
+	sendSuccess(w, map[string]any{"templates": templates}, "")
 }
 
 // Get handles GET /api/v1/secret-templates/{id}.

@@ -39,13 +39,11 @@ func TestConcurrency_LoginRateLimit_TripsAndStaysTripped(t *testing.T) {
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < attempts; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range attempts {
+		wg.Go(func() {
 			<-start
 			c.RecordFailedLogin(ctx, ip)
-		}()
+		})
 	}
 	close(start) // release all attempts at once
 	wg.Wait()

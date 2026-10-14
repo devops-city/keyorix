@@ -105,7 +105,7 @@ func (s *Status) HandlerWithToken(token string) http.Handler {
 	})
 	mux.HandleFunc("/status", func(w http.ResponseWriter, _ *http.Request) {
 		ran, lastRun, last := s.snapshot()
-		body := map[string]interface{}{
+		body := map[string]any{
 			"ran":                 ran,
 			"created":             last.Created,
 			"updated":             last.Updated,

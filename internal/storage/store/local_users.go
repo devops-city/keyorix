@@ -242,7 +242,7 @@ func (ls *LocalStorage) UpdateUser(ctx context.Context, user *models.User) (*mod
 func (ls *LocalStorage) UpdateUserIfActiveStateMatches(ctx context.Context, user *models.User, fromActive bool) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.User{}).
 		Where("id = ? AND is_active = ?", user.ID, fromActive).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"username":        user.Username,
 			"username_folded": user.UsernameFolded,
 			"email":           user.Email,
@@ -279,7 +279,7 @@ func (ls *LocalStorage) UpdateLastLogin(ctx context.Context, userID uint, loginA
 // (#454) for why this narrower primitive exists alongside the generic UpdateUser.
 func (ls *LocalStorage) SetAccountState(ctx context.Context, id uint, state string, updatedAt time.Time) error {
 	result := ls.db.WithContext(ctx).Model(&models.User{}).Where(sqlWhereID, id).
-		Updates(map[string]interface{}{"account_state": state, "updated_at": updatedAt})
+		Updates(map[string]any{"account_state": state, "updated_at": updatedAt})
 	if result.Error != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), result.Error)
 	}
@@ -297,7 +297,7 @@ func (ls *LocalStorage) SetAccountState(ctx context.Context, id uint, state stri
 func (ls *LocalStorage) SetAccountStateIfMatches(ctx context.Context, id uint, fromState, toState string, updatedAt time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.User{}).
 		Where("id = ? AND COALESCE(account_state, '') = ?", id, fromState).
-		Updates(map[string]interface{}{"account_state": toState, "updated_at": updatedAt})
+		Updates(map[string]any{"account_state": toState, "updated_at": updatedAt})
 	if res.Error != nil {
 		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)
 	}
@@ -316,7 +316,7 @@ func (ls *LocalStorage) SetAccountStateIfMatches(ctx context.Context, id uint, f
 func (ls *LocalStorage) ClaimUserExternalIDIfUnset(ctx context.Context, id uint, externalID string, updatedAt time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.User{}).
 		Where("id = ? AND COALESCE(external_id, '') = ''", id).
-		Updates(map[string]interface{}{"external_id": externalID, "updated_at": updatedAt})
+		Updates(map[string]any{"external_id": externalID, "updated_at": updatedAt})
 	if res.Error != nil {
 		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)
 	}
@@ -330,7 +330,7 @@ func (ls *LocalStorage) ClaimUserExternalIDIfUnset(ctx context.Context, id uint,
 // alongside the generic UpdateUser.
 func (ls *LocalStorage) SetPasswordHash(ctx context.Context, id uint, hash string, changedAt time.Time) error {
 	result := ls.db.WithContext(ctx).Model(&models.User{}).Where(sqlWhereID, id).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"password_hash":                hash,
 			"password_changed_at":          changedAt,
 			"one_time_password_expires_at": nil,
@@ -349,7 +349,7 @@ func (ls *LocalStorage) SetPasswordHash(ctx context.Context, id uint, hash strin
 // updated_at) via a direct column update — see the storage.Storage interface doc.
 func (ls *LocalStorage) SetOneTimePasswordExpiry(ctx context.Context, id uint, expiresAt *time.Time, updatedAt time.Time) error {
 	result := ls.db.WithContext(ctx).Model(&models.User{}).Where(sqlWhereID, id).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"one_time_password_expires_at": expiresAt,
 			"updated_at":                   updatedAt,
 		})
@@ -366,7 +366,7 @@ func (ls *LocalStorage) SetOneTimePasswordExpiry(ctx context.Context, id uint, e
 // direct column update — see the storage.Storage interface doc comment (#454).
 func (ls *LocalStorage) UpdateLoginLockoutState(ctx context.Context, id uint, attempts int, lastFailedAt, lockedUntil *time.Time, lockoutCount int) error {
 	result := ls.db.WithContext(ctx).Model(&models.User{}).Where(sqlWhereID, id).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"failed_login_attempts": attempts,
 			"last_failed_login_at":  lastFailedAt,
 			"login_locked_until":    lockedUntil,
@@ -587,7 +587,7 @@ func (ls *LocalStorage) UpdateGroupFields(ctx context.Context, id uint, name, na
 	// updated_at is passed in rather than left to GORM's implicit stamp, matching
 	// SetAccountState/SetPasswordHash/UpdateUserIfActiveStateMatches in this file:
 	// the caller's clock source is the one the rest of core compares against.
-	cols := map[string]interface{}{"updated_at": updatedAt}
+	cols := map[string]any{"updated_at": updatedAt}
 	if name != nil {
 		cols["name"] = *name
 	}

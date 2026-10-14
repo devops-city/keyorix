@@ -136,7 +136,7 @@ func (h *AuditHandler) SearchAuditLogs(w http.ResponseWriter, r *http.Request) {
 	// docs/findings/2026-09-25-FINDING-api-raw-model-exposure.md.
 	entries := h.toAuditLogEntries(r.Context(), result.Events)
 
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"events": entries,
 		"total":  result.Total,
 	}, "")

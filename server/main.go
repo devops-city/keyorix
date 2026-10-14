@@ -272,8 +272,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// this does not re-wrap it in a generic "failed to acquire..." prefix.
 	presence, err := serverguard.AcquirePresence(cfg)
 	if err != nil {
-		var authErr *config.PostgresAuthError
-		if errors.As(err, &authErr) {
+		if authErr, ok := errors.AsType[*config.PostgresAuthError](err); ok {
 			log.Fatalf("%v\n(driver detail, secrets redacted: %s)", err, authErr.Detail())
 		}
 		log.Fatalf("%v", err)
@@ -325,9 +324,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 
 	// Start HTTP server
 	if cfg.Server.HTTP.Enabled {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := startHTTPServer(ctx, cfg, coreService); err != nil {
 				// A startup failure (router/TLS/listener-bind, before this ever served
 				// anything) is fatal: the alternative was logging it and falling through
@@ -342,21 +339,19 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 				}
 				log.Printf("HTTP server error: %v", err)
 			}
-		}()
+		})
 	}
 
 	// Start gRPC server
 	if cfg.Server.GRPC.Enabled {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			// Every error startGRPCServer can return is a genuine startup failure
 			// (its own graceful-shutdown path always returns nil) -- same fatal
 			// reasoning as the HTTP server above, no sentinel needed to disambiguate.
 			if err := startGRPCServer(ctx, cfg, coreService); err != nil {
 				log.Fatalf("gRPC server error: %v", err)
 			}
-		}()
+		})
 	}
 
 	// Wait for shutdown signal

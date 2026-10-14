@@ -42,7 +42,7 @@ func newGroupHandlerWithCoreS13(t *testing.T) (*GroupHandler, *core.KeyorixCore)
 }
 
 // jsonBody encodes v as compact JSON into a *bytes.Reader.
-func jsonBody(t *testing.T, v interface{}) *bytes.Reader {
+func jsonBody(t *testing.T, v any) *bytes.Reader {
 	t.Helper()
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
@@ -352,7 +352,7 @@ func TestAddGroupMember_ProjectScoped_S13(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	body := map[string]interface{}{"user_id": user.ID, "project_id": 42}
+	body := map[string]any{"user_id": user.ID, "project_id": 42}
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPost, "/", jsonBody(t, body)), "id", fmt.Sprintf("%d", grp.ID)))
 	req.Header.Set("Content-Type", "application/json")

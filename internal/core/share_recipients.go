@@ -146,10 +146,7 @@ func (c *KeyorixCore) SearchShareRecipients(ctx context.Context, req ShareRecipi
 	page, pageSize := clampShareRecipientPage(req.Page, req.PageSize)
 	out := &ShareRecipientPage{Recipients: []ShareRecipient{}, Total: len(matches), Page: page, PageSize: pageSize}
 	if start := (page - 1) * pageSize; start < len(matches) {
-		end := start + pageSize
-		if end > len(matches) {
-			end = len(matches)
-		}
+		end := min(start+pageSize, len(matches))
 		out.Recipients = matches[start:end]
 	}
 	return out, nil
@@ -237,7 +234,7 @@ func shareRecipientMatches(u *models.User, query string, matchEmail bool) bool {
 	if strings.HasPrefix(name, query) {
 		return true
 	}
-	for _, word := range strings.Fields(name) {
+	for word := range strings.FieldsSeq(name) {
 		if strings.HasPrefix(word, query) {
 			return true
 		}

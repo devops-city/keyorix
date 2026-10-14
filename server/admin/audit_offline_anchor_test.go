@@ -77,7 +77,7 @@ func seedCheckpointedDB(t *testing.T, dbPath string) {
 	c.SetAuditCheckpointKey(offlineAnchorTestKey, "v1")
 
 	tr := true
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		require.NoError(t, local.LogAuditEvent(t.Context(), &models.AuditEvent{
 			EventType: "secret.read",
 			Success:   &tr,

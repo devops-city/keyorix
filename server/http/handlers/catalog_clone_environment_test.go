@@ -67,7 +67,7 @@ func TestCloneEnvironment_BadJSON(t *testing.T) {
 func TestCloneEnvironment_MissingDestination(t *testing.T) {
 	cs, _ := freshCoreS12WithAdmin(t)
 	h := NewCatalogHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{})
+	body, _ := json.Marshal(map[string]any{})
 	req := withChiParams(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/environments/1/clone",
 		bytes.NewReader(body)), map[string]string{"id": "1", "envId": "1"})
 	req = withUserCtx(req)
@@ -83,7 +83,7 @@ func TestCloneEnvironment_MissingDestination(t *testing.T) {
 func TestCloneEnvironment_CoreValidationError(t *testing.T) {
 	cs, _ := freshCoreS12WithAdmin(t)
 	h := NewCatalogHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{"destination_environment_id": 1})
+	body, _ := json.Marshal(map[string]any{"destination_environment_id": 1})
 	req := withChiParams(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/environments/1/clone",
 		bytes.NewReader(body)), map[string]string{"id": "1", "envId": "1"})
 	req = withUserCtx(req)
@@ -105,7 +105,7 @@ func TestCloneEnvironment_SourceEnvNotFound(t *testing.T) {
 	proj, err := cs.Storage().CreateProject(context.Background(), &models.Project{Name: "clone-notfound-proj"})
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]interface{}{"destination_environment_id": 1})
+	body, _ := json.Marshal(map[string]any{"destination_environment_id": 1})
 	req := withChiParams(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/environments/999999/clone",
 		bytes.NewReader(body)), map[string]string{"id": machineUintToStr(proj.ID), "envId": "999999"})
 	req = withUserCtx(req)
@@ -126,7 +126,7 @@ func TestCloneEnvironment_StorageError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	body, _ := json.Marshal(map[string]interface{}{"destination_environment_id": 2})
+	body, _ := json.Marshal(map[string]any{"destination_environment_id": 2})
 	req := withChiParams(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/environments/1/clone",
 		bytes.NewReader(body)), map[string]string{"id": "1", "envId": "1"})
 	req = withUserCtx(req)
@@ -158,7 +158,7 @@ func TestCloneEnvironment_Success(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	body, _ := json.Marshal(map[string]interface{}{"destination_environment_id": dst.ID})
+	body, _ := json.Marshal(map[string]any{"destination_environment_id": dst.ID})
 	req := withChiParams(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/environments/1/clone",
 		bytes.NewReader(body)), map[string]string{"id": machineUintToStr(proj.ID), "envId": machineUintToStr(src.ID)})
 	req = withUserCtx(req)

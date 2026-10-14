@@ -74,7 +74,7 @@ func TestGetQuotaReport_EmptyState(t *testing.T) {
 	switch v := secrets.(type) {
 	case nil:
 		// ok
-	case []interface{}:
+	case []any:
 		assert.Empty(t, v)
 	}
 }
@@ -124,11 +124,11 @@ func TestGetQuotaReport_WithQuotaSecrets(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	d := decodeData(t, w)
-	secrets, ok := d["secrets"].([]interface{})
+	secrets, ok := d["secrets"].([]any)
 	require.True(t, ok)
 	require.Len(t, secrets, 1)
 
-	row := secrets[0].(map[string]interface{})
+	row := secrets[0].(map[string]any)
 	assert.Equal(t, "test-quota", row["secret_name"])
 	assert.EqualValues(t, 80, row["usage_pct"])
 	assert.Equal(t, "warning", row["status"])

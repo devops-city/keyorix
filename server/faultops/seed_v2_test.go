@@ -202,7 +202,7 @@ func TestSeedV2_RoundTripAndUniqueHashes(t *testing.T) {
 	for i, op := range opCatalog {
 		m := methods[i%len(methods)]
 		for nth := 1; nth <= 5; nth++ {
-			for kind := byte(0); kind < 3; kind++ {
+			for kind := range byte(3) {
 				d, ok := decodeFuzzOpAny(encodeFuzzOpV2(op.Key, m, nth, kind))
 				if !ok || opCatalog[d.opIndex].Key != op.Key || d.methodName != m || d.nthCall != nth || d.kind != faultKinds[kind] {
 					t.Fatalf("v2 round trip of (%q,%q,%d,%d) decoded to %+v ok=%v", op.Key, m, nth, kind, d, ok)

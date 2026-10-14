@@ -53,7 +53,7 @@ import (
 
 // newS22Store opens a unique in-memory SQLite DB, migrates the supplied models
 // and returns the LocalStorage. It mirrors the s21 helper pattern.
-func newS22Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS22Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores22_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -467,7 +467,7 @@ func TestPruneLoginAttempts_S22(t *testing.T) {
 	old := now.Add(-2 * time.Hour)
 
 	// Three old attempts + one recent attempt.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, ls.RecordLoginAttempt(ctx, "1.2.3.4", old))
 	}
 	require.NoError(t, ls.RecordLoginAttempt(ctx, "1.2.3.4", now))

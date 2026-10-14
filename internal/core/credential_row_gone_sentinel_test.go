@@ -36,7 +36,6 @@ func TestCurrentMachineTokenRestriction_RowGone_ReturnsRevokedSentinel(t *testin
 		"credential-row": &models.MachineIdentityCredential{ID: 1},
 		"identity-row":   &models.MachineIdentity{ID: 9},
 	} {
-		gone := gone
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			c, raw, db := newMachineStateWorld(t, "active")

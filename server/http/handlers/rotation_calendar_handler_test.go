@@ -132,7 +132,7 @@ func TestRotationCalendarHandler_EmptyResult(t *testing.T) {
 	rr := doCalendarGet(t, svc, "2026-07-01", "2026-08-31")
 	assert.Equal(t, http.StatusOK, rr.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	assert.True(t, body["success"].(bool))
 }
@@ -169,12 +169,12 @@ func TestRotationCalendarHandler_WithEntries(t *testing.T) {
 	rr := doCalendarGet(t, svc, "2026-07-01", "2026-08-31")
 	assert.Equal(t, http.StatusOK, rr.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
-	data := body["data"].([]interface{})
+	data := body["data"].([]any)
 	require.Len(t, data, 1)
 
-	entry := data[0].(map[string]interface{})
+	entry := data[0].(map[string]any)
 	assert.Equal(t, "api-key", entry["secret_name"])
 	assert.Equal(t, float64(30), entry["interval_days"])
 	assert.NotEmpty(t, entry["next_rotation_at"])
@@ -218,11 +218,11 @@ func TestRotationCalendarHandler_ScopedToProject(t *testing.T) {
 	r.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
-	data := body["data"].([]interface{})
+	data := body["data"].([]any)
 	require.Len(t, data, 1, "only project A's secret, never project B's")
-	entry := data[0].(map[string]interface{})
+	entry := data[0].(map[string]any)
 	assert.Equal(t, "a-key", entry["secret_name"])
 	assert.Equal(t, float64(projA.ID), entry["project_id"])
 }

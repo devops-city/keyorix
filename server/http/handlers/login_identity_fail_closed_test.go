@@ -146,7 +146,7 @@ func TestVerifyMFA_GetUserPermissionsError_FailsClosed(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code, "a GetUserPermissions storage error must fail closed (401, identical to a wrong code), not 200")
 	assert.True(t, fs.Fired(), "the armed fault must actually have fired on GetUserPermissions")
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, false, body["success"], "the response must self-report failure, not success")
 	assert.NotContains(t, body, "data", "no session/identity payload may be handed back when identity resolution failed")
@@ -202,9 +202,9 @@ func TestVerifyMFA_GetUserPermissionsError_FailsClosed_ThenClears(t *testing.T) 
 	w2 := postVerifyMFA(t, h, ch2, code2)
 	require.Equal(t, http.StatusOK, w2.Code, "once the storage fault clears, a fresh correct code must still verify")
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &body))
-	data, _ := body["data"].(map[string]interface{})
+	data, _ := body["data"].(map[string]any)
 	require.NotNil(t, data, "expected a data envelope in the success response")
 	assert.NotEmpty(t, data["token"], "a successful verify must hand back a session token")
 

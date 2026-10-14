@@ -747,7 +747,7 @@ func decodeMixedPrincipalFuzzInput(data []byte) (pIdx, opIdx int, tp uint, ok bo
 // above for the model's sources, v1 scope, and what is deliberately not
 // covered yet.
 func FuzzMixedPrincipalAuthority(f *testing.F) {
-	for p := 0; p < int(numPrincipalKinds); p++ {
+	for p := range int(numPrincipalKinds) {
 		for o := range m1Ops {
 			f.Add([]byte{byte(p), byte(o), 0})
 			f.Add([]byte{byte(p), byte(o), 1})

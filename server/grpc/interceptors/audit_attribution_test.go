@@ -103,7 +103,7 @@ func streamCapture(t *testing.T, h *testhelper.RBACTestHelper, token string) con
 	var captured context.Context
 	err := StreamAuthInterceptor(h.CoreService, false)(nil, &fakeStream{ctx: bearerCtx(token)},
 		&grpc.StreamServerInfo{FullMethod: "/keyorix.v1.AuditService/StreamAuditLogs", IsServerStream: true},
-		func(_ interface{}, s grpc.ServerStream) error {
+		func(_ any, s grpc.ServerStream) error {
 			captured = s.Context()
 			return nil
 		})

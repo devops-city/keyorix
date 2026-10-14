@@ -24,9 +24,9 @@ import (
 // target, not the dial address (which, with a proxy, would be the proxy's
 // own address, not 169.254.169.254 at all).
 func TestConnectHardenedTransport_ProxyDoesNotBypassLinkLocalGuard(t *testing.T) {
-	var proxyHits int32
+	var proxyHits atomic.Int32
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&proxyHits, 1)
+		proxyHits.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer proxy.Close()
@@ -43,7 +43,7 @@ func TestConnectHardenedTransport_ProxyDoesNotBypassLinkLocalGuard(t *testing.T)
 	_, err = cl.Do(req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refusing")
-	assert.Equal(t, int32(0), atomic.LoadInt32(&proxyHits), "the proxy must never be contacted for a link-local target -- if this is nonzero, the guard let the request through to be dialed via the proxy")
+	assert.Equal(t, int32(0), proxyHits.Load(), "the proxy must never be contacted for a link-local target -- if this is nonzero, the guard let the request through to be dialed via the proxy")
 }
 
 // TestConnectHardenedTransport_ProxyStillWorksForLegitimateTarget is the
@@ -51,9 +51,9 @@ func TestConnectHardenedTransport_ProxyDoesNotBypassLinkLocalGuard(t *testing.T)
 // (non-link-local) target -- confirms the fix didn't just refuse everything
 // once a proxy is configured.
 func TestConnectHardenedTransport_ProxyStillWorksForLegitimateTarget(t *testing.T) {
-	var proxyHits int32
+	var proxyHits atomic.Int32
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&proxyHits, 1)
+		proxyHits.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer proxy.Close()
@@ -71,5 +71,5 @@ func TestConnectHardenedTransport_ProxyStillWorksForLegitimateTarget(t *testing.
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Equal(t, int32(1), atomic.LoadInt32(&proxyHits))
+	assert.Equal(t, int32(1), proxyHits.Load())
 }

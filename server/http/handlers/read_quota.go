@@ -55,7 +55,7 @@ func (h *SecretHandler) GetQuotaReport(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secrets": rows}, "")
+	h.sendSuccess(w, map[string]any{"secrets": rows}, "")
 }
 
 // quotaStatus maps a usage percentage to a human-readable status label.

@@ -253,10 +253,7 @@ func (es *EncryptionService) EncryptChunked(plaintext []byte, chunkSize int, key
 	totalChunks := (len(plaintext) + chunkSize - 1) / chunkSize
 
 	for i := 0; i < len(plaintext); i += chunkSize {
-		end := i + chunkSize
-		if end > len(plaintext) {
-			end = len(plaintext)
-		}
+		end := min(i+chunkSize, len(plaintext))
 
 		idx := len(chunks)
 		encryptedChunk, err := es.EncryptWithAAD(plaintext[i:end], keyVersion, chunkAAD(streamID, idx, totalChunks))

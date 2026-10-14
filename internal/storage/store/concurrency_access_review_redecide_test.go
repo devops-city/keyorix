@@ -65,7 +65,7 @@ func TestConcurrency_AccessReviewItem_OnlyOneDecisionWins(t *testing.T) {
 	errs := make(chan error, racers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		decision := "attested"
 		if i%2 == 0 {

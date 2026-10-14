@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -98,12 +99,7 @@ func (s Status) HasFeature(f string) bool {
 	if !s.Grants() {
 		return false
 	}
-	for _, x := range s.Features {
-		if x == f {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.Features, f)
 }
 
 // Issue marshals and signs a license into a compact token. Maintainer-only (`keyorix

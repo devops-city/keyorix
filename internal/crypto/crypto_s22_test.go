@@ -296,7 +296,7 @@ func TestGFPow_S22_ExponentOne(t *testing.T) {
 // TestGFEval_S22_ConstantPolynomial verifies that a single-coefficient (degree 0)
 // polynomial evaluates to its constant term for any x.
 func TestGFEval_S22_ConstantPolynomial(t *testing.T) {
-	for c := 0; c < 256; c++ {
+	for c := range 256 {
 		for x := 1; x < 16; x++ {
 			assert.Equal(t, byte(c), gfEval([]byte{byte(c)}, byte(x)),
 				"constant poly [%d] at x=%d", c, x)

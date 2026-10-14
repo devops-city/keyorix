@@ -60,7 +60,7 @@ func (ls *LocalStorage) ListRotationPolicies(ctx context.Context, projectID *uin
 // last_state_at columns are deliberately absent: UpdateRotationState owns them.
 func (ls *LocalStorage) UpdateRotationPolicyFields(ctx context.Context, id uint, f storage.RotationPolicyFieldUpdate, updatedAt time.Time) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.RotationPolicy{}).Where(sqlWhereID, id).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"name":              f.Name,
 			"description":       f.Description,
 			"interval_days":     f.IntervalDays,
@@ -115,7 +115,7 @@ func (ls *LocalStorage) UpdateRotationState(ctx context.Context, policyID uint, 
 	now := time.Now().UTC()
 	result := ls.db.WithContext(ctx).Model(&models.RotationPolicy{}).
 		Where("id = ?", policyID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"rotation_state":      state,
 			"last_rotation_error": errMsg,
 			"last_state_at":       now,

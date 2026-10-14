@@ -28,10 +28,9 @@ import (
 // the struct without an updateSecretAllowlist entry fails this test immediately,
 // instead of silently defaulting to some behavior nobody decided on.
 func TestSecretUpdateAllowlist_CoversEveryPersistedField(t *testing.T) {
-	typ := reflect.TypeOf(models.SecretNode{})
+	typ := reflect.TypeFor[models.SecretNode]()
 	var unclassified []string
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
+	for f := range typ.Fields() {
 		if gormTag, ok := f.Tag.Lookup("gorm"); ok && gormTag == "-" {
 			continue // ValueStored: transient, never persisted, not part of this contract
 		}
@@ -49,10 +48,10 @@ func TestSecretUpdateAllowlist_CoversEveryPersistedField(t *testing.T) {
 // must name a field that genuinely still exists on SecretNode, so a field rename or
 // removal doesn't leave a dead, misleading entry behind.
 func TestSecretUpdateAllowlist_NoExtraEntries(t *testing.T) {
-	typ := reflect.TypeOf(models.SecretNode{})
+	typ := reflect.TypeFor[models.SecretNode]()
 	fields := map[string]bool{}
-	for i := 0; i < typ.NumField(); i++ {
-		fields[typ.Field(i).Name] = true
+	for field := range typ.Fields() {
+		fields[field.Name] = true
 	}
 	var stale []string
 	for name := range updateSecretAllowlist {

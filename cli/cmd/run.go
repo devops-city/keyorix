@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"strings"
@@ -369,8 +370,7 @@ func execChild(args []string, derived, varMapped map[string]string, cleanEnv boo
 	c.Env = childEnv
 
 	if err := c.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			os.Exit(exitErr.ExitCode())
 		}
 		return fmt.Errorf("command failed: %w", err)
@@ -400,9 +400,8 @@ func buildChildEnv(derived, varMapped map[string]string, cleanEnv bool) []string
 		}
 		env[k] = v
 	}
-	for k, v := range varMapped {
-		env[k] = v // explicit operator intent always wins, replacing any inherited or derived value
-	}
+	// explicit operator intent always wins, replacing any inherited or derived value
+	maps.Copy(env, varMapped)
 
 	childEnv := make([]string, 0, len(env))
 	for k, v := range env {

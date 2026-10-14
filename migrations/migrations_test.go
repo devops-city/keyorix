@@ -27,6 +27,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver with database/sql
@@ -573,13 +574,7 @@ func TestAuditorSeedGrantsAuditAdminBefore009(t *testing.T) {
 	execSQLFile(t, db, "003_rbac_seed_data.up.sql")
 
 	perms := auditorPermissions(t, db)
-	found := false
-	for _, p := range perms {
-		if p == "audit.admin" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(perms, "audit.admin")
 	if !found {
 		t.Fatalf("auditor permissions = %v, want 'audit.admin' present pre-009 (this pins the documented bug, not the fix)", perms)
 	}
@@ -647,13 +642,7 @@ func TestFixAuditorAuditAdminOvergrantDownMigration(t *testing.T) {
 	execSQLFile(t, db, "009_fix_auditor_audit_admin_overgrant.down.sql")
 
 	perms := auditorPermissions(t, db)
-	found := false
-	for _, p := range perms {
-		if p == "audit.admin" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(perms, "audit.admin")
 	if !found {
 		t.Fatalf("auditor permissions after up+down = %v, want 'audit.admin' restored by the down-migration", perms)
 	}

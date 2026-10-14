@@ -134,7 +134,7 @@ func minimalAssertionCredential(t *testing.T) json.RawMessage {
 	sigB64 := base64.RawURLEncoding.EncodeToString([]byte{0x00})
 
 	// id must be a valid base64url string.
-	cred := map[string]interface{}{
+	cred := map[string]any{
 		"id":    "AAAA",
 		"rawId": "AAAA",
 		"type":  "public-key",
@@ -154,7 +154,7 @@ func minimalAssertionCredential(t *testing.T) json.RawMessage {
 // FinishWebAuthnLogin returns an error → handler writes 401.
 func TestFinishWebAuthnLogin_CoreFailure_S17(t *testing.T) {
 	h := NewAuthHandler(freshCoreS17(t), false)
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"mfa_challenge":    "test-challenge",
 		"webauthn_session": "nonexistent-session",
 		"credential":       minimalAssertionCredential(t),
@@ -173,7 +173,7 @@ func TestFinishWebAuthnLogin_CoreFailure_S17(t *testing.T) {
 // passwordless finish path.
 func TestFinishWebAuthnPasswordlessLogin_CoreFailure_S17(t *testing.T) {
 	h := NewAuthHandler(freshCoreS17(t), false)
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"webauthn_session": "nonexistent-session",
 		"credential":       minimalAssertionCredential(t),
 	})

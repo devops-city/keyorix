@@ -61,7 +61,7 @@ func (d *pgDelayedRemoveRoleStorage) RemoveRole(ctx context.Context, userID, rol
 	return d.Storage.RemoveRole(ctx, userID, roleID, scope)
 }
 
-var removeUserRoleProjectModels = []interface{}{
+var removeUserRoleProjectModels = []any{
 	&models.User{}, &models.Session{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 	&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SystemMetadata{},

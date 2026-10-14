@@ -139,10 +139,7 @@ func (c *KeyorixCore) AuditRetentionCoverage(ctx context.Context) (*AuditRetenti
 		NewestEvent:     stats.Newest,
 	}
 	if stats.Oldest != nil {
-		days := int(c.now().Sub(*stats.Oldest).Hours() / 24)
-		if days < 0 {
-			days = 0
-		}
+		days := max(int(c.now().Sub(*stats.Oldest).Hours()/24), 0)
 		cov.CoverageDays = days
 		cov.MeetsNIS2TwelveMonth = days >= nis2RetentionDays
 	}

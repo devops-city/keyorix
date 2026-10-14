@@ -66,7 +66,7 @@ func (h *CatalogHandler) OpenAccessReviewCampaign(w http.ResponseWriter, r *http
 		sendCampaignError(w, "opening access-review campaign", err)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"campaign": result.Campaign, "progress": result.Progress}, "Campaign opened")
+	sendCreated(w, map[string]any{"campaign": result.Campaign, "progress": result.Progress}, "Campaign opened")
 }
 
 // ListAccessReviewCampaigns handles GET /api/v1/projects/{id}/access-review/campaigns.
@@ -82,7 +82,7 @@ func (h *CatalogHandler) ListAccessReviewCampaigns(w http.ResponseWriter, r *htt
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"campaigns": campaigns, "count": len(campaigns)}, "")
+	sendSuccess(w, map[string]any{"campaigns": campaigns, "count": len(campaigns)}, "")
 }
 
 // GetAccessReviewCampaign handles GET /api/v1/projects/{id}/access-review/campaigns/{campaignId}.
@@ -102,7 +102,7 @@ func (h *CatalogHandler) GetAccessReviewCampaign(w http.ResponseWriter, r *http.
 		sendCampaignError(w, "getting access-review campaign", err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"campaign": detail.Campaign, "items": detail.Items, "progress": detail.Progress,
 	}, "")
 }
@@ -176,5 +176,5 @@ func (h *CatalogHandler) CloseAccessReviewCampaign(w http.ResponseWriter, r *htt
 		sendCampaignError(w, "closing access-review campaign", err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"campaign": result.Campaign, "progress": result.Progress}, "Campaign closed")
+	sendSuccess(w, map[string]any{"campaign": result.Campaign, "progress": result.Progress}, "Campaign closed")
 }

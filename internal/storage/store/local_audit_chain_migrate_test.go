@@ -30,7 +30,7 @@ func appendLegacyEncodedEvent(t *testing.T, ls *LocalStorage, desc string, at ti
 	e.PrevHash = prevHash
 	legacyEntryHash := ComputeAuditEntryHashPre1452(e, prevHash)
 	require.NoError(t, ls.db.Model(&models.AuditEvent{}).Where("id = ?", e.ID).
-		Updates(map[string]interface{}{"prev_hash": prevHash, "entry_hash": legacyEntryHash}).Error)
+		Updates(map[string]any{"prev_hash": prevHash, "entry_hash": legacyEntryHash}).Error)
 	e.EntryHash = legacyEntryHash
 	return e
 }

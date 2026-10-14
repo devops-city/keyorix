@@ -253,5 +253,5 @@ func (w *perRefWorld) setSuspended(suspended, clearReq map[string]bool) {
 
 func (w *perRefWorld) pass(t *testing.T) Result {
 	t.Helper()
-	return Sync(context.Background(), w.eng, w.maps, func(string, ...interface{}) {})
+	return Sync(context.Background(), w.eng, w.maps, func(string, ...any) {})
 }

@@ -85,9 +85,9 @@ func TestWebhook_PostsEvidenceWithAuth(t *testing.T) {
 // A cross-host redirect from the configured evidence endpoint must be refused, so the
 // evidence pack (and its bearer token) can't be bounced to an attacker-controlled host.
 func TestWebhook_RefusesCrossHostRedirect(t *testing.T) {
-	var evilHits int32
+	var evilHits atomic.Int32
 	evil := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&evilHits, 1)
+		evilHits.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer evil.Close()
@@ -100,7 +100,7 @@ func TestWebhook_RefusesCrossHostRedirect(t *testing.T) {
 	require.NoError(t, err)
 	err = wh.ForwardEvidence(context.Background(), "pack.json", []byte(`{"x":1}`), "")
 	require.Error(t, err, "a cross-host redirect must not be followed")
-	assert.Equal(t, int32(0), atomic.LoadInt32(&evilHits), "redirect target must never be reached")
+	assert.Equal(t, int32(0), evilHits.Load(), "redirect target must never be reached")
 }
 
 func TestWebhook_ErrorsOnNon2xxAfterRetries(t *testing.T) {

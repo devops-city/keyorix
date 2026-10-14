@@ -505,7 +505,7 @@ func TestSecretTrash_PrintsPurgeDate(t *testing.T) {
 	if !containsAll(out, "PURGE AFTER (UTC)", "2026-02-01T00:00:00Z") {
 		t.Fatalf("trash output missing the purge column / date: %q", out)
 	}
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "legacy") && !strings.HasSuffix(strings.TrimSpace(line), "-") {
 			t.Fatalf("a row without purge_at must show '-', got %q", line)
 		}

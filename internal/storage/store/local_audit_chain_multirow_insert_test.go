@@ -131,7 +131,7 @@ func buildMultiRowBatch(n int, tag string) []*auditBatchItem {
 	zone := time.FixedZone("UTC+5:30", 5*3600+1800)
 	u := func(v int) *uint { x := uint(v); return &x }
 	batch := make([]*auditBatchItem, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		e := &models.AuditEvent{
 			EventType:   fmt.Sprintf("secret.read.%d", i%5),
 			IPAddress:   fmt.Sprintf("203.0.113.%d", i%250),

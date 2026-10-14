@@ -23,6 +23,8 @@
 // the table.
 package core
 
+import "maps"
+
 import "errors"
 
 // ErrRestrictedPATSelfServiceWrite refuses an ungated self-service write
@@ -150,9 +152,7 @@ func RestrictedPATUngatedWritePolicy(key string) (RestrictedPATWritePolicy, bool
 // RestrictedPATUngatedWrites returns a copy of the whole table, for the guards.
 func RestrictedPATUngatedWrites() map[string]RestrictedPATWritePolicy {
 	out := make(map[string]RestrictedPATWritePolicy, len(restrictedPATUngatedWrites))
-	for k, v := range restrictedPATUngatedWrites {
-		out[k] = v
-	}
+	maps.Copy(out, restrictedPATUngatedWrites)
 	return out
 }
 

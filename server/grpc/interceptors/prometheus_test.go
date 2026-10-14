@@ -24,8 +24,8 @@ func TestGRPCPrometheusCollector(t *testing.T) {
 	target := &Metrics{}
 	intercept := metricsInterceptorFor(target)
 	info := &grpc.UnaryServerInfo{FullMethod: "/keyorix.SecretService/Get"}
-	ok := func(context.Context, interface{}) (interface{}, error) { return "ok", nil }
-	fail := func(context.Context, interface{}) (interface{}, error) { return nil, errors.New("boom") }
+	ok := func(context.Context, any) (any, error) { return "ok", nil }
+	fail := func(context.Context, any) (any, error) { return nil, errors.New("boom") }
 
 	_, _ = intercept(context.Background(), nil, info, ok)
 	_, _ = intercept(context.Background(), nil, info, ok)

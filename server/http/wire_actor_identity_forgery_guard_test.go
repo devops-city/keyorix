@@ -96,7 +96,7 @@ func handlerBodyText(t *testing.T, dir, handlerName string) string {
 		inFunc := false
 		depth := 0
 		sawOpenBrace := false
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			if !inFunc && funcRe.MatchString(line) {
 				inFunc = true
 				sawOpenBrace = false
@@ -199,7 +199,7 @@ func actorFieldReadsAgainst(t *testing.T, dir, handlerName string) []string {
 	text := handlerBodyText(t, dir, handlerName)
 	var found []string
 	seen := map[string]bool{}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "//") {
 			continue
 		}

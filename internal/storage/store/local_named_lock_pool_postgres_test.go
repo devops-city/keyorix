@@ -47,13 +47,11 @@ func TestWithNamedLock_LockPool_SameKeySerializesAcrossInstances(t *testing.T) {
 	var inside, maxInside int32
 	var wg sync.WaitGroup
 	errs := make(chan error, instances*perInstance)
-	for i := 0; i < instances; i++ {
+	for range instances {
 		ls := NewLocalStorage(pgOpen(t, dsn))
 		ls.SetNamedLockDB(pgLockPool(t, dsn))
-		for j := 0; j < perInstance; j++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+		for range perInstance {
+			wg.Go(func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 				defer cancel()
 				errs <- ls.WithNamedLock(ctx, "namedlock-pool-same-key", func(ctx context.Context) error {
@@ -68,7 +66,7 @@ func TestWithNamedLock_LockPool_SameKeySerializesAcrossInstances(t *testing.T) {
 					atomic.AddInt32(&inside, -1)
 					return nil
 				})
-			}()
+			})
 		}
 	}
 	wg.Wait()

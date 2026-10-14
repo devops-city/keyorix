@@ -109,9 +109,7 @@ func startFakeTLSPostgres(t *testing.T, cert tls.Certificate) *fakeTLSPostgres {
 	f := &fakeTLSPostgres{addr: ln.Addr().(*net.TCPAddr)}
 	var wg sync.WaitGroup
 	t.Cleanup(func() { _ = ln.Close(); wg.Wait() })
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
@@ -120,9 +118,7 @@ func startFakeTLSPostgres(t *testing.T, cert tls.Certificate) *fakeTLSPostgres {
 			f.mu.Lock()
 			f.conns++
 			f.mu.Unlock()
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				defer func() { _ = c.Close() }()
 				_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 				req := make([]byte, 8) // int32 length 8 + int32 code 80877103
@@ -138,9 +134,9 @@ func startFakeTLSPostgres(t *testing.T, cert tls.Certificate) *fakeTLSPostgres {
 					f.handshakeOK++
 					f.mu.Unlock()
 				}
-			}()
+			})
 		}
-	}()
+	})
 	return f
 }
 

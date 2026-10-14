@@ -363,10 +363,10 @@ func TestConcurrentLanguageSwitching(t *testing.T) {
 	languages := []string{"en", "ru", "es", "fr", "de"}
 	done := make(chan bool)
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		go func(langIndex int) {
 			lang := languages[langIndex]
-			for j := 0; j < 50; j++ {
+			for range 50 {
 				localizer.SetLanguage(lang)
 				result := localizer.Localize("Welcome", nil)
 				if result == "" {
@@ -378,7 +378,7 @@ func TestConcurrentLanguageSwitching(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		<-done
 	}
 }

@@ -57,7 +57,7 @@ func backendMounts(b composeBackend) []writableMount {
 		}
 		m := writableMount{target: parts[1], writable: true}
 		if len(parts) > 2 {
-			for _, opt := range strings.Split(parts[2], ",") {
+			for opt := range strings.SplitSeq(parts[2], ",") {
 				if opt == "ro" {
 					m.writable = false
 				}

@@ -65,7 +65,7 @@ func enforceSchedule(sched *models.SecretAccessSchedule, now time.Time) error {
 			isoDay = 7
 		}
 		allowed := false
-		for _, part := range strings.Split(sched.AllowedDays, ",") {
+		for part := range strings.SplitSeq(sched.AllowedDays, ",") {
 			d, _ := strconv.Atoi(strings.TrimSpace(part))
 			if d == isoDay {
 				allowed = true
@@ -153,7 +153,7 @@ func validateScheduleParams(days string, startHour, endHour int, timezone string
 		if len(days) > maxAllowedDaysLen {
 			return fmt.Errorf("days exceeds the maximum length of %d characters", maxAllowedDaysLen)
 		}
-		for _, part := range strings.Split(days, ",") {
+		for part := range strings.SplitSeq(days, ",") {
 			d, err := strconv.Atoi(strings.TrimSpace(part))
 			if err != nil || d < 1 || d > 7 {
 				return fmt.Errorf("invalid day %q in days %q: must be integers 1–7 or \"*\"", strings.TrimSpace(part), days)

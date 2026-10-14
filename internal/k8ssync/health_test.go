@@ -116,7 +116,7 @@ func TestHealth_StatusReportsCounts(t *testing.T) {
 	h := s.Handler()
 
 	// Before a run.
-	var before map[string]interface{}
+	var before map[string]any
 	require.NoError(t, json.Unmarshal(get(t, h, "/status").Body.Bytes(), &before))
 	assert.Equal(t, false, before["ran"])
 	_, hasLastRun := before["last_run"]
@@ -124,7 +124,7 @@ func TestHealth_StatusReportsCounts(t *testing.T) {
 
 	// After a run with mixed outcomes.
 	s.Record(Result{Created: 1, Updated: 2, Unchanged: 3, Failed: 1, Errors: []string{"app/x: boom"}})
-	var after map[string]interface{}
+	var after map[string]any
 	require.NoError(t, json.Unmarshal(get(t, h, "/status").Body.Bytes(), &after))
 	assert.Equal(t, true, after["ran"])
 	assert.EqualValues(t, 1, after["created"])

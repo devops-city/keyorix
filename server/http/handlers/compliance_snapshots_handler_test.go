@@ -95,8 +95,8 @@ func TestListComplianceSnapshots_HandlerNoLimit(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
-		Success bool        `json:"success"`
-		Data    interface{} `json:"data"`
+		Success bool `json:"success"`
+		Data    any  `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp.Success)

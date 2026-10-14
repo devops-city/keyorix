@@ -58,7 +58,7 @@ func TestConcurrency_UpdateSecret_NoDuplicateVersionNumbers(t *testing.T) {
 	start := make(chan struct{})
 	errs := make([]error, updaters)
 	var wg sync.WaitGroup
-	for i := 0; i < updaters; i++ {
+	for i := range updaters {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

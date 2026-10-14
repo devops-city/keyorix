@@ -56,7 +56,7 @@ func TestClampPageSize_NegativeNeverReachesGORMLimit(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "dev"}).Error)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, db.Create(&models.SecretNode{
 			ProjectID: 1, EnvironmentID: 1, Name: fmt.Sprintf("secret-%d", i),
 			IsSecret: true, Type: "api_key", Status: "active",
@@ -133,7 +133,7 @@ func TestListSecrets_PageSizeClampedAtStorage(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "dev"}).Error)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, db.Create(&models.SecretNode{
 			ProjectID: 1, EnvironmentID: 1, Name: fmt.Sprintf("secret-%d", i),
 			IsSecret: true, Type: "api_key", Status: "active",

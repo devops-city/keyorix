@@ -41,7 +41,7 @@ func TestPortsStaysFree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list -deps internal/core/ports: %v", err)
 	}
-	for _, dep := range strings.Fields(string(out)) {
+	for dep := range strings.FieldsSeq(string(out)) {
 		for _, bad := range forbiddenDepPrefixes {
 			if dep == bad || strings.HasPrefix(dep, bad+"/") || (strings.HasSuffix(bad, "/") && strings.HasPrefix(dep, bad)) {
 				t.Errorf("internal/core/ports depends on %s: this package must stay free of every integration it abstracts (see ports.go)", dep)

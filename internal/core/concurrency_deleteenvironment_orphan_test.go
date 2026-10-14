@@ -100,7 +100,7 @@ func countOrphan(t *testing.T, db *gorm.DB, envID uint) bool {
 // races core.DeleteEnvironment(envID) against core.CreateSecret(environment_id=envID).
 func TestConcurrency_DeleteEnvironment_NeverOrphansAConcurrentlyCreatedSecret(t *testing.T) {
 	var orphaned, wrongErrShape int
-	for trial := 0; trial < deleteEnvironmentOrphanTrials; trial++ {
+	for trial := range deleteEnvironmentOrphanTrials {
 		c, db, projectID, envID := newProjectEnvFixture(t, filepath.Join(t.TempDir(), "delete_env.db"))
 		ctx := context.Background()
 
@@ -135,7 +135,7 @@ func TestConcurrency_DeleteEnvironment_NeverOrphansAConcurrentlyCreatedSecret(t 
 // entirely in the first version of this fix.
 func TestConcurrency_DeleteEnvironment_NeverOrphansAConcurrentlyCreatedFolder(t *testing.T) {
 	var orphaned int
-	for trial := 0; trial < deleteEnvironmentOrphanTrials; trial++ {
+	for range deleteEnvironmentOrphanTrials {
 		c, db, projectID, envID := newProjectEnvFixture(t, filepath.Join(t.TempDir(), "delete_env_folder.db"))
 		ctx := context.Background()
 
@@ -158,7 +158,7 @@ func TestConcurrency_DeleteEnvironment_NeverOrphansAConcurrentlyCreatedFolder(t 
 // (RestoreSecret's own job is to bring it back, not create it fresh).
 func TestConcurrency_DeleteEnvironment_NeverOrphansAConcurrentlyRestoredSecret(t *testing.T) {
 	var orphaned int
-	for trial := 0; trial < deleteEnvironmentOrphanTrials; trial++ {
+	for range deleteEnvironmentOrphanTrials {
 		c, db, projectID, envID := newProjectEnvFixture(t, filepath.Join(t.TempDir(), "delete_env_restore.db"))
 		ctx := context.Background()
 
@@ -216,7 +216,7 @@ func TestConcurrency_DeleteEnvironment_NeverOrphans_Postgres(t *testing.T) {
 
 	t.Run("CreateSecret", func(t *testing.T) {
 		var orphaned int
-		for trial := 0; trial < pgTrials; trial++ {
+		for range pgTrials {
 			dbDelete, dbCreate, projectID, envID := newPgFixture(t)
 			cDelete := NewKeyorixCore(localstore.NewLocalStorage(dbDelete))
 			cCreate := NewKeyorixCore(localstore.NewLocalStorage(dbCreate))

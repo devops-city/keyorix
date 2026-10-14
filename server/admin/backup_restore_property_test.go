@@ -106,7 +106,7 @@ func normalizedNDJSONRows(t *testing.T, path string) []map[string]any {
 	require.NoError(t, err)
 
 	var rows []map[string]any
-	for _, line := range bytes.Split(bytes.TrimRight(raw, "\n"), []byte("\n")) {
+	for line := range bytes.SplitSeq(bytes.TrimRight(raw, "\n"), []byte("\n")) {
 		if len(line) == 0 {
 			continue
 		}

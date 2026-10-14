@@ -56,15 +56,15 @@ func TestGetPermissionMatrixHandler_JSONWithData(t *testing.T) {
 	h.GetPermissionMatrix(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
-	rows, ok := data["rows"].([]interface{})
+	rows, ok := data["rows"].([]any)
 	require.True(t, ok)
 	require.Len(t, rows, 1, "one seeded grant should produce exactly one row")
 
-	row := rows[0].(map[string]interface{})
+	row := rows[0].(map[string]any)
 	assert.Equal(t, "alice", row["username"])
 	assert.Equal(t, "admin", row["role_name"])
 	assert.Equal(t, "global", row["scope"])

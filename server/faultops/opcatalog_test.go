@@ -656,7 +656,7 @@ func enrolMFADirect(ctx context.Context, w *faultWorld) (any, error) {
 	// mfaRecoveryCodeCount is not exported from internal/core, so the count is
 	// spelled out; the oracle never compares the count, only presence.
 	recoveryCodes := make([]*models.MFARecoveryCode, 0, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		// A fixed, obviously-fake hash per index. Deterministic on purpose: the
 		// reference world and the fault world are bootstrapped independently, so
 		// anything random here would have to rely on CodeHash's presenceOnlyFields

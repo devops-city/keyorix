@@ -17,7 +17,7 @@ func TestStreamLoggingInterceptor_SuccessPath(t *testing.T) {
 
 	called := false
 	err := interceptor(nil, &fakeStream{ctx: context.Background()}, info,
-		func(_ interface{}, _ grpc.ServerStream) error {
+		func(_ any, _ grpc.ServerStream) error {
 			called = true
 			return nil
 		})
@@ -37,7 +37,7 @@ func TestStreamLoggingInterceptor_ErrorPath(t *testing.T) {
 	handlerErr := errors.New("stream failure")
 
 	err := interceptor(nil, &fakeStream{ctx: context.Background()}, info,
-		func(_ interface{}, _ grpc.ServerStream) error {
+		func(_ any, _ grpc.ServerStream) error {
 			return handlerErr
 		})
 	if !errors.Is(err, handlerErr) {

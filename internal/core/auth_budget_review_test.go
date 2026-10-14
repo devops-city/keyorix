@@ -89,7 +89,7 @@ func TestAuthBudget_CountOnlyFailureStillBinds(t *testing.T) {
 			stub.down = true
 			const ip = "198.51.100.7"
 			allowed, refused := 0, 0
-			for i := 0; i < 100; i++ {
+			for range 100 {
 				if tc.limited(c, ip) {
 					refused++
 					continue
@@ -116,7 +116,7 @@ func TestAuthBudget_CountOnlyFailure_RecoveryDoesNotDoubleCount(t *testing.T) {
 	c, stub, _ := newCountOnlyDownCore(t)
 	const ip = "198.51.100.8"
 	stub.down = true
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.False(t, c.IsLoginRateLimited(ctx, ip))
 		_, _ = c.ReserveLoginAttempt(ctx, ip)
 	}
@@ -124,7 +124,7 @@ func TestAuthBudget_CountOnlyFailure_RecoveryDoesNotDoubleCount(t *testing.T) {
 	// 3 stored attempts; the normal limit is LoginMaxAttempts. Counted once,
 	// the IP has LoginMaxAttempts-3 attempts left.
 	left := 0
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		if c.IsLoginRateLimited(ctx, ip) {
 			break
 		}
@@ -220,7 +220,7 @@ func TestAuthBudget_CountOnlyFailure_MirrorAgesOutWithTheWindow(t *testing.T) {
 	stub.down = true
 	const ip = "198.51.100.9"
 	base := c.now()
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		require.False(t, c.IsLoginRateLimited(ctx, ip))
 		c.RecordFailedLogin(ctx, ip)
 	}
@@ -239,7 +239,7 @@ func TestAuthBudget_CountOnlyFailure_DeliveredLoginReleasesItsMirror(t *testing.
 	c, stub, db := newCountOnlyDownCore(t)
 	const ip = "198.51.100.10"
 	stub.down = true
-	for i := 0; i < 2*LoginMaxAttempts; i++ {
+	for i := range 2 * LoginMaxAttempts {
 		require.False(t, c.IsLoginRateLimited(ctx, ip), "delivered login %d must not be refused", i+1)
 		id, ok := c.ReserveLoginAttempt(ctx, ip)
 		require.True(t, ok)

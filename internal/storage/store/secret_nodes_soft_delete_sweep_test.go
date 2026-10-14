@@ -72,6 +72,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -292,11 +293,8 @@ func secretNodesSitesInFile(fset *token.FileSet, f *ast.File, rel string) []secr
 						}
 					}
 				} else {
-					for _, v := range stringLiterals(stmt) {
-						if unqualifiedDeletedAt.MatchString(v) {
-							site.Satisfied = true
-							break
-						}
+					if slices.ContainsFunc(stringLiterals(stmt), unqualifiedDeletedAt.MatchString) {
+						site.Satisfied = true
 					}
 				}
 				sites = append(sites, site)

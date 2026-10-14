@@ -283,7 +283,7 @@ type interleaveResult struct {
 	Trace    []string
 }
 
-func (r *interleaveResult) logf(format string, args ...interface{}) {
+func (r *interleaveResult) logf(format string, args ...any) {
 	r.Trace = append(r.Trace, fmt.Sprintf(format, args...))
 }
 

@@ -42,7 +42,7 @@ func TestGetSecretValueByRef(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
 
 	// Seed a secret with a known value via the API (so it has a real encrypted version).
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":           "ref-test",
 		"value":          "v-by-ref",
 		"project_id":     project.ID,
@@ -57,7 +57,7 @@ func TestGetSecretValueByRef(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	_ = resp.Body.Close()
 
-	get := func(t *testing.T, ref, tok string) (int, map[string]interface{}) {
+	get := func(t *testing.T, ref, tok string) (int, map[string]any) {
 		t.Helper()
 		u := server.URL + "/api/v1/secrets/value"
 		if ref != "" {
@@ -70,7 +70,7 @@ func TestGetSecretValueByRef(t *testing.T) {
 		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
-		var out map[string]interface{}
+		var out map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&out)
 		return resp.StatusCode, out
 	}
@@ -80,7 +80,7 @@ func TestGetSecretValueByRef(t *testing.T) {
 	t.Run("resolves value by reference", func(t *testing.T) {
 		code, out := get(t, ref, token)
 		require.Equal(t, http.StatusOK, code)
-		data, ok := out["data"].(map[string]interface{})
+		data, ok := out["data"].(map[string]any)
 		require.True(t, ok, "response: %v", out)
 		assert.Equal(t, "v-by-ref", data["value"], "jsonPath $.data.value carries the secret value")
 	})

@@ -64,7 +64,7 @@ func TestPasswordReset_RateLimitedByIP(t *testing.T) {
 	h := NewAuthHandler(c, false)
 	const ip = "203.0.113.7"
 
-	for i := 0; i < core.PasswordResetMaxAttempts; i++ {
+	for i := range core.PasswordResetMaxAttempts {
 		assert.Equal(t, http.StatusOK, doPasswordReset(h, ip), "request %d should be under the IP budget", i+1)
 	}
 	assert.Equal(t, http.StatusTooManyRequests, doPasswordReset(h, ip),
@@ -77,7 +77,7 @@ func TestPasswordReset_RateLimitIsPerIP(t *testing.T) {
 	c := newPasswordResetTestCore(t)
 	h := NewAuthHandler(c, false)
 
-	for i := 0; i < core.PasswordResetMaxAttempts; i++ {
+	for range core.PasswordResetMaxAttempts {
 		assert.Equal(t, http.StatusOK, doPasswordReset(h, "203.0.113.7"))
 	}
 	assert.Equal(t, http.StatusTooManyRequests, doPasswordReset(h, "203.0.113.7"))

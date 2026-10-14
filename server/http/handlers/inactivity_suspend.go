@@ -58,7 +58,7 @@ func (h *AdminJobsHandler) SuspendInactiveUsers(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"suspended": result.Suspended,
 		"skipped":   result.Skipped,
 		"total":     result.Total,

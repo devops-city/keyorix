@@ -69,6 +69,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -323,9 +324,9 @@ func extractStructTagValue(tag, key string) string {
 // extractGormColumnOverride pulls the column name out of a `column:xxx` gorm
 // tag option, if present.
 func extractGormColumnOverride(gormTag string) string {
-	for _, part := range strings.Split(gormTag, ";") {
-		if strings.HasPrefix(part, "column:") {
-			return strings.TrimPrefix(part, "column:")
+	for part := range strings.SplitSeq(gormTag, ";") {
+		if after, ok := strings.CutPrefix(part, "column:"); ok {
+			return after
 		}
 	}
 	return ""
@@ -366,10 +367,7 @@ func scanFactoryForRuntimeIndexes(t *testing.T, factoryFile string, reg uniqueIn
 	found := 0
 	for idx := strings.Index(src, execMarker); idx != -1; {
 		start := idx + len(execMarker)
-		windowEnd := start + 500
-		if windowEnd > len(src) {
-			windowEnd = len(src)
-		}
+		windowEnd := min(start+500, len(src))
 		window := src[start:windowEnd]
 		// Stop the window at the end of this db.Exec(...) call so we never bleed
 		// into the NEXT statement's unrelated "ON ..." text.
@@ -407,7 +405,7 @@ var sqlColumnRe = regexp.MustCompile(`[a-zA-Z_][a-zA-Z0-9_]*`)
 
 func splitSQLColumns(raw string) []string {
 	var cols []string
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -533,8 +531,8 @@ func findSitesInFile(fset *token.FileSet, f *ast.File, path string) []ctcSite {
 		}
 		calls := collectMethodCalls(fn.Body)
 
-		for ci := len(calls) - 1; ci >= 0; ci-- {
-			create := calls[ci]
+		for ci, create := range slices.Backward(calls) {
+
 			if !isCreateCallName(create.name) {
 				continue
 			}

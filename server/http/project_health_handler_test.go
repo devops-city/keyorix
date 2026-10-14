@@ -20,7 +20,7 @@ import (
 // returns the newly-created secret's ID.
 func createSecret(t *testing.T, srv *httptest.Server, token, name string) uint {
 	t.Helper()
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"name":           name,
 		"value":          "test-value",
 		"project_id":     1,
@@ -39,9 +39,9 @@ func createSecret(t *testing.T, srv *httptest.Server, token, name string) uint {
 	defer resp.Body.Close() //nolint:errcheck
 	require.Equal(t, http.StatusCreated, resp.StatusCode, "createSecret: expected 201")
 
-	var response map[string]interface{}
+	var response map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&response))
-	data, ok := response["data"].(map[string]interface{})
+	data, ok := response["data"].(map[string]any)
 	require.True(t, ok, "createSecret: missing data field")
 	id, ok := data["id"].(float64)
 	require.True(t, ok, "createSecret: missing id field")
@@ -72,9 +72,9 @@ func TestGetProjectHealth_EmptyProject(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body missing 'data' object")
 
 	assert.EqualValues(t, 0, data["total_secrets"])
@@ -108,13 +108,13 @@ func TestGetProjectHealth_WithSecrets(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body missing 'data' object")
 
 	assert.EqualValues(t, 2, data["total_secrets"])
-	secrets, ok := data["secrets"].([]interface{})
+	secrets, ok := data["secrets"].([]any)
 	require.True(t, ok, "'secrets' field must be an array")
 	assert.Len(t, secrets, 2)
 }
@@ -133,7 +133,7 @@ func TestGetProjectHealth_LimitParam(t *testing.T) {
 	srv := httptest.NewServer(router)
 	defer srv.Close()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		createSecret(t, srv, token, fmt.Sprintf("limit-secret-%d", i))
 	}
 
@@ -147,13 +147,13 @@ func TestGetProjectHealth_LimitParam(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body missing 'data' object")
 
 	assert.EqualValues(t, 5, data["total_secrets"])
-	secrets, ok := data["secrets"].([]interface{})
+	secrets, ok := data["secrets"].([]any)
 	require.True(t, ok, "'secrets' field must be an array")
 	assert.LessOrEqual(t, len(secrets), 2)
 }
@@ -207,9 +207,9 @@ func TestGetProjectHealth_NotFound(t *testing.T) {
 	// none exist.
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body missing 'data' object")
 	assert.EqualValues(t, 0, data["total_secrets"])
 }

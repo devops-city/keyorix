@@ -207,7 +207,7 @@ func TestFaultyStorage_Arm_ResetsCountsSoNthCallStartsFromTheArmPoint(t *testing
 	w := NewFaultyStorage(real, nil)
 
 	// Unfaulted prefix: three CreateProject calls with no fault armed.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if _, err := w.CreateProject(ctx, &models.Project{Name: "prefix"}); err != nil {
 			t.Fatalf("prefix CreateProject %d: %v", i, err)
 		}

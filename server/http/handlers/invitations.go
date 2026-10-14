@@ -33,7 +33,7 @@ func (h *CatalogHandler) ListInvitations(w http.ResponseWriter, r *http.Request)
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"invitations": invitations}, "")
+	sendSuccess(w, map[string]any{"invitations": invitations}, "")
 }
 
 // CreateInvitation handles POST /api/v1/projects/{id}/invitations.
@@ -92,11 +92,11 @@ func (h *CatalogHandler) CreateInvitation(w http.ResponseWriter, r *http.Request
 			sendError(w, "Error", msg, status, nil)
 			return
 		}
-		sendCreated(w, map[string]interface{}{"invitation": inv, "delivery_error": err.Error()},
+		sendCreated(w, map[string]any{"invitation": inv, "delivery_error": err.Error()},
 			"Invitation created but the setup link could not be delivered")
 		return
 	}
-	sendCreated(w, map[string]interface{}{"invitation": inv, "setup_link": prov}, "Invitation created")
+	sendCreated(w, map[string]any{"invitation": inv, "setup_link": prov}, "Invitation created")
 }
 
 // CreateGlobalInvitation is the Global-Admin counterpart to CreateInvitation: a
@@ -180,11 +180,11 @@ func (h *CatalogHandler) CreateGlobalInvitation(w http.ResponseWriter, r *http.R
 			sendError(w, "Error", msg, status, nil)
 			return
 		}
-		sendCreated(w, map[string]interface{}{"invitation": inv, "delivery_error": err.Error()},
+		sendCreated(w, map[string]any{"invitation": inv, "delivery_error": err.Error()},
 			"Invitation created but the setup link could not be delivered")
 		return
 	}
-	sendCreated(w, map[string]interface{}{"invitation": inv, "setup_link": prov}, "Invitation created")
+	sendCreated(w, map[string]any{"invitation": inv, "setup_link": prov}, "Invitation created")
 }
 
 // ResendInvitation handles POST /api/v1/projects/{id}/invitations/{invitationId}/resend
@@ -223,7 +223,7 @@ func (h *CatalogHandler) ResendInvitation(w http.ResponseWriter, r *http.Request
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"setup_link": prov}, "Invitation link resent")
+	sendSuccess(w, map[string]any{"setup_link": prov}, "Invitation link resent")
 }
 
 // RevokeInvitation handles DELETE /api/v1/projects/{id}/invitations/{invitationId}.
@@ -273,7 +273,7 @@ func (h *CatalogHandler) ListAccessRequests(w http.ResponseWriter, r *http.Reque
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"access_requests": requests}, "")
+	sendSuccess(w, map[string]any{"access_requests": requests}, "")
 }
 
 // CreateAccessRequest handles POST /api/v1/projects/{id}/access-requests (self-service).
@@ -318,7 +318,7 @@ func (h *CatalogHandler) CreateAccessRequest(w http.ResponseWriter, r *http.Requ
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"access_request": req}, "Access requested")
+	sendCreated(w, map[string]any{"access_request": req}, "Access requested")
 }
 
 // ResolveAccessRequest handles PUT /api/v1/projects/{id}/access-requests/{requestId}

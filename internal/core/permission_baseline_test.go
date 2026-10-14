@@ -22,7 +22,7 @@ func newBaselineCore(store *MockStorage) *KeyorixCore {
 // IncludeDeleted: true (other fields may be zero) — GetPermissionBaseline must
 // request soft-deleted users too (#G25), or a soft-deleted grant holder's row
 // never reaches userByID in the first place.
-func userFilterPageSize(n int) interface{} {
+func userFilterPageSize(n int) any {
 	return mock.MatchedBy(func(f *stg.UserFilter) bool {
 		return f != nil && f.PageSize == n && f.IncludeDeleted
 	})

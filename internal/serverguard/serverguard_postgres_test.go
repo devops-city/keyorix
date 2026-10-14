@@ -87,7 +87,7 @@ func TestPostgres_ProbeRunning_FalseAfterServerReleases(t *testing.T) {
 // KEYORIX_TEST_PG_DSN must use the keyword/value form for it to target the real host/port.
 func parseLibpqDSN(dsn string) map[string]string {
 	out := map[string]string{}
-	for _, tok := range strings.Fields(dsn) {
+	for tok := range strings.FieldsSeq(dsn) {
 		kv := strings.SplitN(tok, "=", 2)
 		if len(kv) == 2 {
 			out[kv[0]] = strings.Trim(kv[1], `'"`)

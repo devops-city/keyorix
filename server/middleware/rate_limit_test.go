@@ -28,7 +28,7 @@ func TestPrincipalRateLimit_DisabledIsNoOp(t *testing.T) {
 	mw := PrincipalRateLimit(config.RateLimitConfig{})
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, newRLRequest(1))
 		require.Equal(t, http.StatusOK, w.Code)
@@ -42,7 +42,7 @@ func TestPrincipalRateLimit_EnforcesPerPrincipalBudget(t *testing.T) {
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
 	// User 1 exhausts their burst of 3.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, newRLRequest(1))
 		require.Equal(t, http.StatusOK, w.Code, "request %d within burst must pass", i)
@@ -66,7 +66,7 @@ func TestPrincipalRateLimit_ZeroBurstFallsBackToRequestsPerSecond(t *testing.T) 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 
 	// Exactly RequestsPerSecond (3) requests must pass as the initial burst.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, newRLRequest(9))
 		require.Equal(t, http.StatusOK, w.Code, "request %d within the fallback burst must pass", i)
@@ -116,7 +116,7 @@ func TestIPFailureLimiter_SweepAmortized(t *testing.T) {
 	// Fewer calls than the amortization interval: the idle entry must survive —
 	// sweepLocked() must not have run yet. Each call uses a distinct IP so the
 	// idle entry itself is never touched/refreshed by allow().
-	for i := 0; i < principalLimiterSweepEvery-1; i++ {
+	for range principalLimiterSweepEvery - 1 {
 		l.allow("10.0.0.1")
 	}
 	l.mu.Lock()
@@ -140,7 +140,7 @@ func TestIPFailureLimiter_SweepAmortized(t *testing.T) {
 func TestIPFailureLimiter_StillEnforcesBudget(t *testing.T) {
 	l := &ipFailureLimiter{limiters: make(map[string]*principalBucket)}
 
-	for i := 0; i < tokenAuthFailureBurst; i++ {
+	for i := range tokenAuthFailureBurst {
 		require.True(t, l.allow("198.51.100.5"), "call %d within the burst must be allowed", i+1)
 	}
 	assert.False(t, l.allow("198.51.100.5"), "a call past the burst must be denied")

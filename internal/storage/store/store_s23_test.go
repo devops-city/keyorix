@@ -36,7 +36,7 @@ import (
 // newS23Store opens a unique in-memory SQLite DB, migrates the supplied models
 // and returns the LocalStorage. Mirrors the s21/s22 helper pattern, using a
 // "_s23" suffix so test-name-based DSNs cannot collide with other sweeps.
-func newS23Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS23Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores23_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -172,7 +172,7 @@ func TestListNotifications_S23_LimitAbove200Clamped(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert 60 notifications for user 42.
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		_, err := ls.CreateNotification(ctx, &models.Notification{
 			UserID: 42, Type: "info", Title: "N", Message: "msg",
 		})
@@ -192,7 +192,7 @@ func TestListNotifications_S23_NegativeLimitClamped(t *testing.T) {
 	ls := newS23Store(t, &models.Notification{})
 	ctx := context.Background()
 
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		_, err := ls.CreateNotification(ctx, &models.Notification{
 			UserID: 43, Type: "info", Title: "N", Message: "msg",
 		})

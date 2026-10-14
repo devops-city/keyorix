@@ -65,7 +65,7 @@ func TestVerifyMFALogin_GetMFASecretErrorDoesNotFeedLockout(t *testing.T) {
 	// 5 attempts with the CORRECT code, each failing to even check it because
 	// GetMFASecret errors every time — more than MaxAttempts (3), so if this
 	// were (wrongly) counted toward the lockout, the account would now be locked.
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		ch, cerr := c.CreateMFAChallenge(ctx, 1)
 		require.NoError(t, cerr)
 		_, _, _, verr := c.VerifyMFALogin(ctx, ch, good, "ua", "9.9.9.9")
@@ -148,7 +148,7 @@ func TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout
 	// (never actually consumed, since MarkTOTPStepUsed never succeeds), but
 	// the write failure must still be treated as costing the account exactly
 	// what a confirmed wrong code would.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ch, cerr := c.CreateMFAChallenge(ctx, 1)
 		require.NoError(t, cerr)
 		_, _, _, verr := c.VerifyMFALogin(ctx, ch, good, "ua", "9.9.9.9")

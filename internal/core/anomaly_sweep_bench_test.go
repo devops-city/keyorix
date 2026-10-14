@@ -114,19 +114,19 @@ func benchSweepSeed(b *testing.B, db *gorm.DB) []models.SecretNode {
 	for i := 1; i <= benchSweepSecrets; i++ {
 		id := uint(i)
 		secrets = append(secrets, models.SecretNode{ID: id, ProjectID: 1, Name: fmt.Sprintf("s-%d", i), Status: "active", IsSecret: true})
-		for h := 0; h < benchSweepHistory; h++ {
+		for h := range benchSweepHistory {
 			at := now.Add(-2*24*time.Hour - time.Duration(h)*30*time.Hour)
 			logs = append(logs, models.SecretAccessLog{SecretNodeID: id, AccessedBy: "svc", IPAddress: "10.0.0.1", Action: "read", AccessTime: at})
 		}
 		if i <= benchSweepActive {
-			for r := 0; r < benchSweepLiveReads; r++ {
+			for r := range benchSweepLiveReads {
 				logs = append(logs, models.SecretAccessLog{SecretNodeID: id, AccessedBy: "loadgen", IPAddress: "10.9.9.9",
 					Action: "read", AccessTime: now.Add(-time.Duration(r+1) * time.Minute)})
 			}
 		}
 	}
 	alerts := make([]models.AnomalyAlert, 0, benchSweepAlerts)
-	for i := 0; i < benchSweepAlerts; i++ {
+	for i := range benchSweepAlerts {
 		alerts = append(alerts, models.AnomalyAlert{SecretNodeID: uint(i%benchSweepSecrets + 1), AlertType: "new_user",
 			AccessedBy: fmt.Sprintf("old-%d", i), IPAddress: "10.0.0.2", DetectedAt: now.Add(-time.Duration(i) * time.Minute)})
 	}

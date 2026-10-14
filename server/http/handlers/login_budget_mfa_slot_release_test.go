@@ -70,7 +70,7 @@ func budgetSlots(t *testing.T, db *gorm.DB) int64 {
 // slot counted.
 func TestLoginBudget_SuccessfulMFALoginsNeverHitTheLimit(t *testing.T) {
 	env := newLockoutOracleEnvWithMFA(t)
-	for i := 0; i < 2*core.LoginMaxAttempts; i++ {
+	for i := range 2 * core.LoginMaxAttempts {
 		ch := env.mfaPasswordStep(t)
 		v := env.postVerify(t, ch, env.nextTOTP(t))
 		require.Equal(t, http.StatusOK, v.Code,
@@ -182,7 +182,7 @@ func beginPasskey(t *testing.T, db *gorm.DB, w *httptest.ResponseRecorder, disco
 func TestLoginBudget_PasskeyMFALoginLeavesNoSlot(t *testing.T) {
 	h, db := newPasskeyBudgetEnv(t)
 	cred, _ := wcAssertionJSON(t, false)
-	for i := 0; i < core.LoginMaxAttempts+2; i++ {
+	for i := range core.LoginMaxAttempts + 2 {
 		lw := postJSONTo(t, h.Login, "/auth/login", map[string]string{"username": "alice", "password": lockoutOracleTestPassword})
 		require.Equal(t, http.StatusOK, lw.Code, "login %d: %s", i+1, lw.Body.String())
 		var lr struct {
@@ -216,7 +216,7 @@ func TestLoginBudget_WebAuthnBeginKeepsItsSlotUntilDelivered(t *testing.T) {
 	require.NoError(t, json.Unmarshal(lw.Body.Bytes(), &lr))
 
 	refused := false
-	for i := 0; i < core.LoginMaxAttempts+1; i++ {
+	for range core.LoginMaxAttempts + 1 {
 		w := postJSONTo(t, h.BeginWebAuthnLogin, "/auth/webauthn/login/begin", map[string]string{"mfa_challenge": lr.Data.MFAChallenge})
 		if w.Code == http.StatusTooManyRequests {
 			refused = true
@@ -233,7 +233,7 @@ func TestLoginBudget_WebAuthnBeginKeepsItsSlotUntilDelivered(t *testing.T) {
 func TestLoginBudget_PasswordlessLoginLeavesNoSlot(t *testing.T) {
 	h, db := newPasskeyBudgetEnv(t)
 	cred, _ := wcAssertionJSONWithUserHandle(t, false)
-	for i := 0; i < core.LoginMaxAttempts+2; i++ {
+	for i := range core.LoginMaxAttempts + 2 {
 		tok := beginPasskey(t, db, postJSONTo(t, h.BeginWebAuthnPasswordlessLogin, "/auth/webauthn/passwordless/begin", map[string]string{}), true)
 		fw := postJSONTo(t, h.FinishWebAuthnPasswordlessLogin, "/auth/webauthn/passwordless/finish",
 			map[string]any{"webauthn_session": tok, "credential": cred})

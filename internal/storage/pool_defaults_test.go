@@ -8,7 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -158,7 +158,7 @@ func runPoolBenchmark(b *testing.B, db *gorm.DB) {
 	require.NoError(b, err)
 	c := core.NewKeyorixCore(st)
 	var ids []uint
-	for i := 0; i < 200; i++ {
+	for i := range 200 {
 		sec, err := c.CreateSecret(ctx, &core.CreateSecretRequest{Name: fmt.Sprintf("seed-%d", i), Value: []byte("seed-value-Zq9!xR"),
 			ProjectID: p.ID, EnvironmentID: e.ID, Type: "password", CreatedBy: "bench", OwnerID: 1})
 		require.NoError(b, err)
@@ -206,11 +206,11 @@ func runPoolBenchmark(b *testing.B, db *gorm.DB) {
 	}
 	b.ResetTimer()
 	start := time.Now()
-	for n := 0; n < readers; n++ {
+	for n := range readers {
 		wg.Add(1)
 		go worker(true, n)
 	}
-	for n := 0; n < writers; n++ {
+	for n := range writers {
 		wg.Add(1)
 		go worker(false, n)
 	}
@@ -221,7 +221,7 @@ func runPoolBenchmark(b *testing.B, db *gorm.DB) {
 	wg.Wait()
 	elapsed := time.Since(start).Seconds()
 	b.StopTimer()
-	sort.Slice(readLat, func(i, j int) bool { return readLat[i] < readLat[j] })
+	slices.Sort(readLat)
 	b.ReportMetric(float64(reads)/elapsed, "reads/s")
 	b.ReportMetric(float64(writes)/elapsed, "writes/s")
 	if len(readLat) > 0 {

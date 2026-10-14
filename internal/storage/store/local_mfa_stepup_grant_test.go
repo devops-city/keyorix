@@ -194,17 +194,15 @@ func TestConcurrency_ConsumeMFAStepUpGrant_OnlyOneWins(t *testing.T) {
 	var succeeded atomic.Int64
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < racers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range racers {
+		wg.Go(func() {
 			<-start
 			consumed, err := ls.ConsumeMFAStepUpGrant(context.Background(), 1, models.MFAStepUpPurposeReauth, now)
 			require.NoError(t, err)
 			if consumed {
 				succeeded.Add(1)
 			}
-		}()
+		})
 	}
 	close(start) // release every racer at once
 	wg.Wait()

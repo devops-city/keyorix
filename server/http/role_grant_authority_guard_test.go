@@ -160,7 +160,7 @@ func packageFuncBodyText(t *testing.T, dir, name string) string {
 			t.Fatalf("reading %s: %v", n, err)
 		}
 		inFunc, depth, sawOpen := false, 0, false
-		for _, line := range strings.Split(string(b), "\n") {
+		for line := range strings.SplitSeq(string(b), "\n") {
 			if !inFunc && funcRe.MatchString(line) {
 				inFunc, depth, sawOpen = true, 0, false
 			}

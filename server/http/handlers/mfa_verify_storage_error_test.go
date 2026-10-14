@@ -122,7 +122,7 @@ func TestVerifyMFA_GetUserStorageError_DoesNotFeedAccountLockout(t *testing.T) {
 	require.NoError(t, err)
 
 	const attempts = 5 // > MaxAttempts (3): if wrongly counted, the account would now be locked.
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		challenge, cerr := h.coreService.CreateMFAChallenge(ctx, 1)
 		require.NoError(t, cerr)
 

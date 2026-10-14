@@ -201,8 +201,7 @@ type sourceHeldError struct {
 func (e *sourceHeldError) Error() string { return e.msg }
 
 func asSourceHeld(err error) (*sourceHeldError, bool) {
-	var h *sourceHeldError
-	if errors.As(err, &h) {
+	if h, ok := errors.AsType[*sourceHeldError](err); ok {
 		return h, true
 	}
 	return nil, false

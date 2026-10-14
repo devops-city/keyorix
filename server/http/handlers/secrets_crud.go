@@ -221,7 +221,7 @@ func (h *SecretHandler) SetAutoRotate(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.sendSuccess(w, map[string]interface{}{
+	h.sendSuccess(w, map[string]any{
 		"id": id, "auto_rotate": reqBody.Enabled, "length": reqBody.Length,
 		"charset": reqBody.Charset, "backend": reqBody.Backend, "ref": reqBody.Ref,
 	}, "Auto-rotation updated")
@@ -310,7 +310,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 		return
 	}
 
-	var response interface{}
+	var response any
 	valueIncluded := r.URL.Query().Get("include_value") == "true" //nolint:goconst
 	if valueIncluded {
 		var value []byte
@@ -347,7 +347,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 			h.sendError(w, "InternalError", "Failed to record audit trail", http.StatusInternalServerError, nil)
 			return
 		}
-		response = map[string]interface{}{"secret": h.secretWireForGet(r, secret), "value": string(value)}
+		response = map[string]any{"secret": h.secretWireForGet(r, secret), "value": string(value)}
 	} else {
 		response = h.secretWireForGet(r, secret)
 	}
@@ -364,7 +364,7 @@ const includeTotalReads = "total_reads"
 // and/or comma-separated) contains total_reads.
 func wantsTotalReads(r *http.Request) bool {
 	for _, v := range r.URL.Query()["include"] {
-		for _, tok := range strings.Split(v, ",") {
+		for tok := range strings.SplitSeq(v, ",") {
 			if strings.TrimSpace(tok) == includeTotalReads {
 				return true
 			}
@@ -531,7 +531,7 @@ func (h *SecretHandler) GetSecretValueByRef(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secret": newSecretNodeWire(secret), "value": string(value)}, "")
+	h.sendSuccess(w, map[string]any{"secret": newSecretNodeWire(secret), "value": string(value)}, "")
 }
 
 // RestoreSecret handles POST /api/v1/secrets/{id}/restore — clears a
@@ -559,7 +559,7 @@ func (h *SecretHandler) RestoreSecret(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.sendSuccess(w, map[string]interface{}{"id": id, "restored": true}, "Secret restored")
+	h.sendSuccess(w, map[string]any{"id": id, "restored": true}, "Secret restored")
 }
 
 // UpdateSecret handles PUT /api/v1/secrets/{id}

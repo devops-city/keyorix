@@ -46,7 +46,6 @@ func TestWriteContention_LeavesEverythingElseAlone(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), "Failed to create group")
 	})
 	for _, code := range []int{http.StatusOK, http.StatusNotFound, http.StatusConflict, http.StatusBadGateway} {
-		code := code
 		t.Run(http.StatusText(code)+" after a swallowed gate timeout", func(t *testing.T) {
 			rec := serveWriteContention("/api/v1/groups", func(w http.ResponseWriter, r *http.Request) {
 				corestorage.NoteWriteContention(r.Context())

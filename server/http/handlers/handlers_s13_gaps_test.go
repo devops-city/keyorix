@@ -42,7 +42,7 @@ func TestSendError_WithDetails_S13(t *testing.T) {
 	sendError(w, "ValidationError", "something failed", http.StatusBadRequest, details)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.Equal(t, false, body["success"])
 	assert.Equal(t, "ValidationError", body["error"])
@@ -56,7 +56,7 @@ func TestSendError_NilDetails_S13(t *testing.T) {
 	sendError(w, "NotFound", "not found", http.StatusNotFound, nil)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.Equal(t, false, body["success"])
 	_, hasDetails := body["details"]
@@ -69,7 +69,7 @@ func TestSendSuccess_WithMessage_S13(t *testing.T) {
 	sendSuccess(w, map[string]string{"key": "val"}, "operation done")
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.Equal(t, true, body["success"])
 	assert.Equal(t, "operation done", body["message"])
@@ -81,7 +81,7 @@ func TestSendCreated_WithMessage_S13(t *testing.T) {
 	sendCreated(w, map[string]string{"id": "1"}, "resource created")
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.Equal(t, true, body["success"])
 	assert.Equal(t, "resource created", body["message"])

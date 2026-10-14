@@ -48,7 +48,7 @@ func TestBulkRotateSecrets_BatchTooLarge(t *testing.T) {
 	for i := range ids {
 		ids[i] = uint(i + 1)
 	}
-	body, _ := json.Marshal(map[string]interface{}{"secret_ids": ids})
+	body, _ := json.Marshal(map[string]any{"secret_ids": ids})
 	req := withChiParam(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/secrets/bulk-rotate",
 		bytes.NewReader(body)), "id", "1")
 	req = withUserCtx(req)
@@ -62,7 +62,7 @@ func TestBulkRotateSecrets_BatchTooLarge(t *testing.T) {
 // empty Triggered/Failed result.
 func TestBulkRotateSecrets_Success(t *testing.T) {
 	h, _ := newProjectHealthHandler(t)
-	body, _ := json.Marshal(map[string]interface{}{})
+	body, _ := json.Marshal(map[string]any{})
 	req := withChiParam(httptest.NewRequest(http.MethodPost, "/api/v1/projects/1/secrets/bulk-rotate",
 		bytes.NewReader(body)), "id", "1")
 	req = withUserCtx(req)

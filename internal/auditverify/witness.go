@@ -79,8 +79,7 @@ func ReadWitness(path string) (cp *Checkpoint, sig string, found bool, err error
 		if os.IsNotExist(err) {
 			return nil, "", false, nil
 		}
-		var nr *notRegularError
-		if errors.As(err, &nr) {
+		if _, ok := errors.AsType[*notRegularError](err); ok {
 			// A FIFO/device/directory where the witness should be is not "no
 			// witness yet": refuse, never treat as absent.
 			return nil, "", false, err

@@ -13,12 +13,13 @@ package crypto
 import (
 	"crypto/rand"
 	"fmt"
+	"slices"
 )
 
 // gfMul multiplies two GF(2^8) elements (Russian-peasant, reducing by 0x11b).
 func gfMul(a, b byte) byte {
 	var p byte
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		if b&1 != 0 {
 			p ^= a
 		}
@@ -54,8 +55,8 @@ func gfInv(a byte) byte { return gfPow(a, 254) }
 // at x, via Horner's method in GF(2^8).
 func gfEval(coeffs []byte, x byte) byte {
 	var r byte
-	for i := len(coeffs) - 1; i >= 0; i-- {
-		r = gfMul(r, x) ^ coeffs[i]
+	for _, coeff := range slices.Backward(coeffs) {
+		r = gfMul(r, x) ^ coeff
 	}
 	return r
 }
@@ -133,7 +134,7 @@ func Combine(shares [][]byte) ([]byte, error) {
 
 	secret := make([]byte, secretLen)
 	ys := make([]byte, len(shares))
-	for bi := 0; bi < secretLen; bi++ {
+	for bi := range secretLen {
 		for i, s := range shares {
 			ys[i] = s[bi]
 		}

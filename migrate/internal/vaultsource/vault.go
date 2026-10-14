@@ -362,7 +362,7 @@ const (
 // isEmptyFieldValue reports whether a decoded KV field value carries no data: the empty string
 // or a JSON null. A null is treated as empty rather than stringified, since fmt's "%v" would
 // otherwise import it as the literal text "<nil>".
-func isEmptyFieldValue(v interface{}) bool {
+func isEmptyFieldValue(v any) bool {
 	if v == nil {
 		return true
 	}
@@ -395,7 +395,7 @@ func (c *Client) list(ctx context.Context, path string) ([]string, error) {
 
 // readResult is what read() found at one KV leaf path.
 type readResult struct {
-	fields    map[string]interface{}
+	fields    map[string]any
 	metadata  map[string]string
 	version   int
 	createdAt string
@@ -432,7 +432,7 @@ func (c *Client) read(ctx context.Context, path string) (readResult, error) {
 			return readResult{}, nil // KV v1 has no version history; 404 always means absent.
 		}
 		var v1 struct {
-			Data map[string]interface{} `json:"data"`
+			Data map[string]any `json:"data"`
 		}
 		if err := json.Unmarshal(raw, &v1); err != nil {
 			return readResult{}, fmt.Errorf("decode vault read %q: %w", path, err)
@@ -476,7 +476,7 @@ func (c *Client) read(ctx context.Context, path string) (readResult, error) {
 		}
 		return readResult{skipReason: reason}, nil
 	}
-	var fields map[string]interface{}
+	var fields map[string]any
 	if err := json.Unmarshal(v2.Data.Data, &fields); err != nil {
 		return readResult{}, fmt.Errorf("decode vault KV v2 fields %q: %w", path, err)
 	}
@@ -569,7 +569,7 @@ func (c *Client) resolveKVMountVersion(ctx context.Context, path string) (int, e
 
 // do issues an authenticated request and decodes a non-404 success body into out (when out is
 // non-nil), returning the HTTP status so callers can treat 404 as "absent."
-func (c *Client) do(ctx context.Context, method, url string, out interface{}) (int, error) {
+func (c *Client) do(ctx context.Context, method, url string, out any) (int, error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, nil)
 	if err != nil {
 		return 0, fmt.Errorf("build request: %w", err)

@@ -120,7 +120,7 @@ func buildAuditChainFixture(path string, n int) error {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	tr := true
 	prevHash := GenesisHash
-	for i := 0; i < n; i++ {
+	for i := range n {
 		row := &AuditEventRow{
 			EventType:   "secret.read",
 			IPAddress:   "10.0.0.1",

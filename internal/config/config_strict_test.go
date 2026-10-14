@@ -79,7 +79,6 @@ func TestLoadEmptyFileIsNotAnError(t *testing.T) {
 		"comment-only": "# nothing but a comment\n",
 	}
 	for name, content := range cases {
-		content := content
 		t.Run(name, func(t *testing.T) {
 			p := filepath.Join(dir, name+".yaml")
 			require.NoError(t, os.WriteFile(p, []byte(content), 0o600))

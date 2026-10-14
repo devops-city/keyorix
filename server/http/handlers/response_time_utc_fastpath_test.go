@@ -24,9 +24,9 @@ func TestUTCTimes_FastPathBytesMatchFullWalk(t *testing.T) {
 		p := utcTimesPayload{Name: "n", LastActivity: ts, DeletedAt: &del, secret: "x"}
 		p.Nested.At = ts
 		p.Items = []utcTimesItem{{ExpiresAt: ts}}
-		p.Any = map[string]interface{}{"t": ts, "ptr": &del, "s": "2026-10-10T03:53:40+02:00"}
-		payloads := map[string]interface{}{
-			"envelope":  map[string]interface{}{"data": p, "list": []*utcTimesPayload{&p}},
+		p.Any = map[string]any{"t": ts, "ptr": &del, "s": "2026-10-10T03:53:40+02:00"}
+		payloads := map[string]any{
+			"envelope":  map[string]any{"data": p, "list": []*utcTimesPayload{&p}},
 			"nil":       nil,
 			"scalar":    "x",
 			"bytes":     []byte("secret"),
@@ -58,7 +58,7 @@ func TestUTCTimes_FastPathBytesMatchFullWalk(t *testing.T) {
 func BenchmarkEncodeJSONResponse_UTCData(b *testing.B) {
 	p := utcTimesPayload{Name: "n", LastActivity: time.Now().UTC()}
 	p.Items = []utcTimesItem{{ExpiresAt: time.Now().UTC()}}
-	v := map[string]interface{}{"success": true, "data": p}
+	v := map[string]any{"success": true, "data": p}
 	var buf bytes.Buffer
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -70,7 +70,7 @@ func BenchmarkEncodeJSONResponse_UTCData(b *testing.B) {
 func BenchmarkEncodeJSONResponse_FullWalkReference(b *testing.B) {
 	p := utcTimesPayload{Name: "n", LastActivity: time.Now().UTC()}
 	p.Items = []utcTimesItem{{ExpiresAt: time.Now().UTC()}}
-	v := map[string]interface{}{"success": true, "data": p}
+	v := map[string]any{"success": true, "data": p}
 	var buf bytes.Buffer
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -79,4 +79,4 @@ func BenchmarkEncodeJSONResponse_FullWalkReference(b *testing.B) {
 	}
 }
 
-func reflectValueOf(v interface{}) reflect.Value { return reflect.ValueOf(v) }
+func reflectValueOf(v any) reflect.Value { return reflect.ValueOf(v) }

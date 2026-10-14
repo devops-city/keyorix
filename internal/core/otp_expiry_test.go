@@ -21,7 +21,7 @@ import (
 func setOTPExpiry(t *testing.T, db *gorm.DB, at time.Time) {
 	t.Helper()
 	require.NoError(t, db.Model(&models.User{}).Where("id = ?", 1).
-		Updates(map[string]interface{}{"one_time_password_expires_at": at, "account_state": AccountPasswordResetRequired}).Error)
+		Updates(map[string]any{"one_time_password_expires_at": at, "account_state": AccountPasswordResetRequired}).Error)
 }
 
 func countAudit(t *testing.T, db *gorm.DB, eventType string) int64 {
@@ -95,7 +95,7 @@ func TestOneTimePassword_ExpiredAttemptsCountTowardLockout(t *testing.T) {
 	setOTPExpiry(t, db, clock.Add(time.Minute))
 	*clock = clock.Add(2 * time.Minute)
 
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.EqualError(t, login(c, lockoutTestPassword), "invalid credentials")
 	}
 	u := reloadUser(t, db)

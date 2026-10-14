@@ -66,6 +66,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -627,12 +628,7 @@ func isProtectingCall(call *ast.CallExpr) bool {
 // recovers any panic in itself" (this function's sole caller, Scan) would
 // have suppressed every real discard finding for the rest of the function.
 func funcHasRunRecoverGuard(body *ast.BlockStmt) bool {
-	for _, ds := range collectTopLevelDefers(body) {
-		if deferIsRunRecoverGuard(ds) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(collectTopLevelDefers(body), deferIsRunRecoverGuard)
 }
 
 // isBlankDiscard reports whether assign is `_ = f(...)` or `_, _ = f(...)`.

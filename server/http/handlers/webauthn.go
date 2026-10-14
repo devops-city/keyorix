@@ -37,7 +37,7 @@ func (h *AuthHandler) BeginWebAuthnRegistration(w http.ResponseWriter, r *http.R
 		h.writeWebAuthnErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"publicKey":        creation.Response,
 		"webauthn_session": sessionToken,
 	}, "Create a passkey, then finish registration.")
@@ -84,7 +84,7 @@ func (h *AuthHandler) FinishWebAuthnRegistration(w http.ResponseWriter, r *http.
 	if ended {
 		message += " Account setup is complete: sign in again with your password and passkey."
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"id":                        cred.ID,
 		"name":                      cred.Name,
 		"created_at":                cred.CreatedAt,
@@ -104,9 +104,9 @@ func (h *AuthHandler) ListWebAuthnCredentials(w http.ResponseWriter, r *http.Req
 		sendError(w, "InternalError", "Failed to list passkeys", http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(creds))
+	out := make([]map[string]any, 0, len(creds))
 	for _, c := range creds {
-		out = append(out, map[string]interface{}{
+		out = append(out, map[string]any{
 			"id":           c.ID,
 			"name":         c.Name,
 			"created_at":   c.CreatedAt,
@@ -150,7 +150,7 @@ func (h *AuthHandler) DeleteWebAuthnCredential(w http.ResponseWriter, r *http.Re
 		h.writeWebAuthnErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"id": id, "deleted": true}, "Passkey removed.")
+	sendSuccess(w, map[string]any{"id": id, "deleted": true}, "Passkey removed.")
 }
 
 // BeginWebAuthnReauth starts a live passkey re-assertion for the authenticated
@@ -170,7 +170,7 @@ func (h *AuthHandler) BeginWebAuthnReauth(w http.ResponseWriter, r *http.Request
 		h.writeWebAuthnErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"publicKey":        assertion.Response,
 		"webauthn_session": sessionToken,
 	}, "Complete the passkey assertion to re-authenticate.")
@@ -240,7 +240,7 @@ func (h *AuthHandler) BeginWebAuthnLogin(w http.ResponseWriter, r *http.Request)
 		h.writeWebAuthnErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"publicKey":        assertion.Response,
 		"webauthn_session": sessionToken,
 	}, "Complete the passkey assertion.")
@@ -394,7 +394,7 @@ func (h *AuthHandler) BeginWebAuthnPasswordlessLogin(w http.ResponseWriter, r *h
 		h.writeWebAuthnErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"publicKey":        assertion.Response,
 		"webauthn_session": sessionToken,
 	}, "Complete the passkey assertion to sign in.")
@@ -492,6 +492,6 @@ func (h *AuthHandler) writeWebAuthnErr(w http.ResponseWriter, err error) {
 }
 
 // decodeJSON decodes a size-capped JSON request body.
-func decodeJSON(r *http.Request, v interface{}) error {
+func decodeJSON(r *http.Request, v any) error {
 	return json.NewDecoder(io.LimitReader(r.Body, maxWebAuthnBody)).Decode(v)
 }

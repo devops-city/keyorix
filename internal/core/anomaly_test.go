@@ -416,7 +416,7 @@ func TestSetBusinessHours_AuditsOnlyOnChange(t *testing.T) {
 
 	// Repeated calls with the SAME config (simulating ApplyAnomalyConfig's
 	// per-scheduler-tick hotload) must NOT audit again.
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		require.NoError(t, d.SetBusinessHours(ctx, "UTC", 20, 7))
 	}
 	assert.Equal(t, 1, store.auditCount, "an unchanged band/timezone must not re-audit on every hotload tick")

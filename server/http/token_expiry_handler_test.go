@@ -51,7 +51,7 @@ func newTokenExpiryEnv(t *testing.T) *tokenExpiryTestEnv {
 
 // postTokenExpiryCheck POSTs to the token-expiry-check endpoint and returns
 // the status code plus the parsed data map.
-func postTokenExpiryCheck(t *testing.T, env *tokenExpiryTestEnv, authHeader string) (int, map[string]interface{}) {
+func postTokenExpiryCheck(t *testing.T, env *tokenExpiryTestEnv, authHeader string) (int, map[string]any) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, env.server.URL+"/api/v1/admin/jobs/token-expiry-check", nil)
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func postTokenExpiryCheck(t *testing.T, env *tokenExpiryTestEnv, authHeader stri
 	require.NoError(t, err)
 
 	var envelope struct {
-		Data map[string]interface{} `json:"data"`
+		Data map[string]any `json:"data"`
 	}
 	if resp.StatusCode == http.StatusOK {
 		require.NoError(t, json.Unmarshal(body, &envelope))

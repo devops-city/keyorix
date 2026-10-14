@@ -56,7 +56,7 @@ func TestConcurrency_DeprovisionSCIMUser_DoesNotRevertConcurrentSuspend(t *testi
 	ctx := context.Background()
 
 	const users = 200 // many concurrent (suspend, SCIM-deprovision) pairs racing at once
-	for i := 0; i < users; i++ {
+	for i := range users {
 		require.NoError(t, db.Create(&models.User{
 			ID: uint(i + 1), Username: fmt.Sprintf("user%d", i), Email: fmt.Sprintf("user%d@x.io", i),
 			IsActive: true, AccountState: core.AccountActive, ExternalID: fmt.Sprintf("okta|user%d", i),
@@ -66,7 +66,7 @@ func TestConcurrency_DeprovisionSCIMUser_DoesNotRevertConcurrentSuspend(t *testi
 	suspendErrs := make([]error, users)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < users; i++ {
+	for i := range users {
 		uid := uint(i + 1)
 		idx := i
 		wg.Add(2)
@@ -85,7 +85,7 @@ func TestConcurrency_DeprovisionSCIMUser_DoesNotRevertConcurrentSuspend(t *testi
 	wg.Wait()
 
 	var reverted []uint
-	for i := 0; i < users; i++ {
+	for i := range users {
 		uid := uint(i + 1)
 		if suspendErrs[i] != nil {
 			// SuspendUser lost the race outright — the row was already soft-deleted

@@ -199,7 +199,7 @@ func TestRegistry_ConcurrentAddAndVerify_NoRace(t *testing.T) {
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -211,14 +211,12 @@ func TestRegistry_ConcurrentAddAndVerify_NoRace(t *testing.T) {
 			_ = r.Add(PurposeUpdate, keyID, pub)
 		}(i)
 	}
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+		wg.Go(func() {
 			<-start
 			_ = r.Verify(PurposeUpdate, "key", msg, sig)
 			_ = r.KeyIDs(PurposeUpdate)
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

@@ -125,10 +125,10 @@ type recipientResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Data    struct {
-		Recipients []map[string]interface{} `json:"recipients"`
-		Total      int                      `json:"total"`
-		Page       int                      `json:"page"`
-		PageSize   int                      `json:"page_size"`
+		Recipients []map[string]any `json:"recipients"`
+		Total      int              `json:"total"`
+		Page       int              `json:"page"`
+		PageSize   int              `json:"page_size"`
 	} `json:"data"`
 }
 
@@ -141,7 +141,7 @@ func (f *recipientFixture) search(t *testing.T, tok string, projectID uint, quer
 	return code, out, raw
 }
 
-func usernames(rs []map[string]interface{}) []string {
+func usernames(rs []map[string]any) []string {
 	out := make([]string, 0, len(rs))
 	for _, r := range rs {
 		out = append(out, fmt.Sprint(r["username"]))

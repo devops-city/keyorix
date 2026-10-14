@@ -111,10 +111,7 @@ func (c *fuzzCursor) floatValue() float64 {
 // as this harness's own size probing.
 func (c *fuzzCursor) sizeProbe(smallMax, largeMax int) int {
 	if c.byte()%16 == 0 {
-		n := int(c.byte())<<8 | int(c.byte())
-		if n > largeMax {
-			n = largeMax
-		}
+		n := min(int(c.byte())<<8|int(c.byte()), largeMax)
 		return n
 	}
 	return int(c.byte()) % (smallMax + 1)
@@ -202,7 +199,7 @@ func setField(msg *dynamicpb.Message, fd protoreflect.FieldDescriptor, c *fuzzCu
 func setListField(msg *dynamicpb.Message, fd protoreflect.FieldDescriptor, c *fuzzCursor, depth int) {
 	lst := msg.Mutable(fd).List()
 	n := c.smallCount()
-	for i := 0; i < n; i++ {
+	for range n {
 		lst.Append(scalarValue(fd, c, depth+1))
 	}
 }
@@ -211,7 +208,7 @@ func setMapField(msg *dynamicpb.Message, fd protoreflect.FieldDescriptor, c *fuz
 	mp := msg.Mutable(fd).Map()
 	n := c.smallCount()
 	keyFd, valFd := fd.MapKey(), fd.MapValue()
-	for i := 0; i < n; i++ {
+	for range n {
 		k := scalarValue(keyFd, c, depth+1).MapKey()
 		v := scalarValue(valFd, c, depth+1)
 		mp.Set(k, v)

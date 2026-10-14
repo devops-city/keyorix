@@ -71,7 +71,7 @@ func (h *SecretHandler) UsageMostAccessed(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secrets": stats, "days": days}, "")
+	h.sendSuccess(w, map[string]any{"secrets": stats, "days": days}, "")
 }
 
 // UsageUnused handles GET /api/v1/secrets/usage/unused
@@ -101,5 +101,5 @@ func (h *SecretHandler) UsageUnused(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendSuccess(w, map[string]interface{}{"secrets": stats, "days": days}, "")
+	h.sendSuccess(w, map[string]any{"secrets": stats, "days": days}, "")
 }

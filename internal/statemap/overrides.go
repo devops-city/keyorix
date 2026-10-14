@@ -33,7 +33,7 @@ func LoadOverrides(path string) (map[string]Override, error) {
 		return nil, err
 	}
 	out := map[string]Override{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

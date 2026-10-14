@@ -59,7 +59,7 @@ func TestCreateSecret_MaxReadsValidation(t *testing.T) {
 	userCtx := &middleware.UserContext{UserID: 1, Username: "alice", ActorType: core.ActorTypeUser, SessionAuth: true, MFAEnabled: true}
 
 	post := func(name string, maxReads *int) *httptest.ResponseRecorder {
-		body := map[string]interface{}{
+		body := map[string]any{
 			"name": name, "value": "v", "project_id": uint(1),
 			"environment_id": uint(10), "type": "static",
 		}
@@ -141,7 +141,7 @@ func TestUpdateSecret_MaxReadsValidation(t *testing.T) {
 	userCtx := &middleware.UserContext{UserID: 1, Username: "alice", ActorType: core.ActorTypeUser, SessionAuth: true, MFAEnabled: true}
 
 	put := func(maxReads int) *httptest.ResponseRecorder {
-		raw, _ := json.Marshal(map[string]interface{}{"max_reads": maxReads})
+		raw, _ := json.Marshal(map[string]any{"max_reads": maxReads})
 		r := httptest.NewRequest(http.MethodPut, "/api/v1/secrets/1", bytes.NewReader(raw))
 		r = r.WithContext(context.WithValue(r.Context(), middleware.GetUserContextKey(), userCtx))
 		rc := chi.NewRouteContext()

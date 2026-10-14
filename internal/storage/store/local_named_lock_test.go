@@ -156,7 +156,7 @@ func TestWithNamedLock_RegistryReclaimsEntriesAfterUse(t *testing.T) {
 	ls := newNamedLockTestStore(t)
 	ctx := context.Background()
 
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		key := fmt.Sprintf("entity-%d", i)
 		require.NoError(t, ls.WithNamedLock(ctx, key, func(ctx context.Context) error {
 			return nil
@@ -188,10 +188,10 @@ func TestWithNamedLock_ConcurrentSameKey_MutualExclusionSurvivesReclamation(t *t
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
+	for range goroutines {
 		go func() {
 			defer wg.Done()
-			for i := 0; i < itersPerGoroutine; i++ {
+			for range itersPerGoroutine {
 				err := ls.WithNamedLock(context.Background(), "shared-key", func(ctx context.Context) error {
 					n := inCriticalSection + 1
 					inCriticalSection = n

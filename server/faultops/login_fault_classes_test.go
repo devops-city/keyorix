@@ -22,6 +22,7 @@ package faultops
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -75,7 +76,7 @@ func totpCodeOutsideWindow(secret string, now time.Time) (string, error) {
 		}
 		valid[c] = true
 	}
-	for d := 0; d < 10; d++ {
+	for d := range 10 {
 		c := strings.Repeat(fmt.Sprint(d), 6)
 		if !valid[c] {
 			return c, nil
@@ -278,9 +279,7 @@ func TestPostVerdictOutcome_Calibration(t *testing.T) {
 // withTable returns a copy of snap with table replaced.
 func withTable(snap dbSnapshot, table string, ts tableSnapshot) dbSnapshot {
 	out := dbSnapshot{Hash: snap.Hash + "+" + table, Tables: make(map[string]tableSnapshot, len(snap.Tables))}
-	for k, v := range snap.Tables {
-		out.Tables[k] = v
-	}
+	maps.Copy(out.Tables, snap.Tables)
 	out.Tables[table] = ts
 	return out
 }
@@ -307,7 +306,6 @@ var classBOracleCases = []struct {
 // proof that the ledger lookup is what accepts them.
 func TestConsumeFirst_ClassBTuplesAreAcceptedOnlyThroughTheLedger(t *testing.T) {
 	for _, c := range classBOracleCases {
-		c := c
 		t.Run(strings.ReplaceAll(fmt.Sprintf("%s/%s/%s", c.op, c.method, c.kind), "/", "_"), func(t *testing.T) {
 			in, outcome, reason := driveFaultCase(t, c.op, c.method, 1, c.kind)
 			if outcome != driveObserved {
@@ -406,10 +404,7 @@ func TestOpScopedBestEffort_PinnedEntriesAreLoadBearing(t *testing.T) {
 		for _, kind := range e.pinnedKinds {
 			pinned++
 			i, e, kind := i, e, kind
-			nth := e.minNthCall
-			if nth < 1 {
-				nth = 1
-			}
+			nth := max(e.minNthCall, 1)
 			t.Run(strings.ReplaceAll(fmt.Sprintf("%s/%s#%d/%s", e.op, e.method, nth, kind), "/", "_"), func(t *testing.T) {
 				in, outcome, reason := driveFaultCase(t, e.op, e.method, nth, kind)
 				if outcome != driveObserved {

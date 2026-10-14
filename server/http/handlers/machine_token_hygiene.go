@@ -65,5 +65,5 @@ func (h *CatalogHandler) MachineTokenHygiene(w http.ResponseWriter, r *http.Requ
 		}
 		out = append(out, row)
 	}
-	sendSuccess(w, map[string]interface{}{"tokens": out, "total": len(out)}, "")
+	sendSuccess(w, map[string]any{"tokens": out, "total": len(out)}, "")
 }

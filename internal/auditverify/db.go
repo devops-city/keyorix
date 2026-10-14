@@ -141,7 +141,7 @@ func (d *DB) StreamAuditEvents(ctx context.Context, afterID uint64, limit int) (
 // FuzzAuditChainRowDecode, so the fuzz target can drive the exact same
 // decode path with adversarial column values without a live database.
 type rowScanner interface {
-	Scan(dest ...interface{}) error
+	Scan(dest ...any) error
 }
 
 // scanAuditEventRow decodes one audit_events row. This is the row decoder

@@ -76,7 +76,7 @@ func TestValidateDERFraming_Limits(t *testing.T) {
 	// One level deeper than maxDERDepth: definite-length SEQUENCEs wrapping a
 	// NULL. Lengths stay well under 128, so the whole thing is a few dozen bytes.
 	deep := []byte{0x05, 0x00}
-	for i := 0; i < maxDERDepth+1; i++ {
+	for range maxDERDepth + 1 {
 		deep = append([]byte{0x30, byte(len(deep))}, deep...)
 	}
 	assert.Error(t, validateDERFraming(deep), "nesting past maxDERDepth must be rejected")
@@ -84,7 +84,7 @@ func TestValidateDERFraming_Limits(t *testing.T) {
 	// A flat SEQUENCE holding more than maxDERNodes empty NULLs: many nodes, two
 	// bytes each, so it trips the node cap rather than any allocation.
 	var kids bytes.Buffer
-	for i := 0; i < maxDERNodes+1; i++ {
+	for range maxDERNodes + 1 {
 		kids.Write([]byte{0x05, 0x00})
 	}
 	body := kids.Bytes()

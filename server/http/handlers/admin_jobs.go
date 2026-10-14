@@ -47,7 +47,7 @@ func (h *AdminJobsHandler) RunAnomalyAlerts(w http.ResponseWriter, r *http.Reque
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"alerted": n}, "")
+	sendSuccess(w, map[string]any{"alerted": n}, "")
 }
 
 // RunRotationReminders handles POST /api/v1/admin/jobs/rotation-reminders — send
@@ -64,7 +64,7 @@ func (h *AdminJobsHandler) RunRotationReminders(w http.ResponseWriter, r *http.R
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"sent": n}, "")
+	sendSuccess(w, map[string]any{"sent": n}, "")
 }
 
 // RunExpiryReminders handles POST /api/v1/admin/jobs/expiry-reminders?lead_days=N —
@@ -88,7 +88,7 @@ func (h *AdminJobsHandler) RunExpiryReminders(w http.ResponseWriter, r *http.Req
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"sent": n}, "")
+	sendSuccess(w, map[string]any{"sent": n}, "")
 }
 
 // RunComplianceDigest handles POST /api/v1/admin/jobs/compliance-digest — broadcast the
@@ -105,7 +105,7 @@ func (h *AdminJobsHandler) RunComplianceDigest(w http.ResponseWriter, r *http.Re
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"sent": sent}, "")
+	sendSuccess(w, map[string]any{"sent": sent}, "")
 }
 
 // RunRoleExpiryCheck handles POST /api/v1/system/admin/jobs/role-expiry-check —
@@ -124,7 +124,7 @@ func (h *AdminJobsHandler) RunRoleExpiryCheck(w http.ResponseWriter, r *http.Req
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"warnings": result.Warnings, "criticals": result.Criticals}, "")
+	sendSuccess(w, map[string]any{"warnings": result.Warnings, "criticals": result.Criticals}, "")
 }
 
 // RunReadQuotaCheck handles POST /api/v1/system/admin/jobs/check-read-quotas —
@@ -143,7 +143,7 @@ func (h *AdminJobsHandler) RunReadQuotaCheck(w http.ResponseWriter, r *http.Requ
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"warnings":  result.Warnings,
 		"criticals": result.Criticals,
 		"exhausted": result.Exhausted,
@@ -168,7 +168,7 @@ func (h *AdminJobsHandler) RunTokenExpiryCheck(w http.ResponseWriter, r *http.Re
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"pat_warnings":      result.PATWarnings,
 		"pat_criticals":     result.PATCriticals,
 		"machine_warnings":  result.MachineWarnings,

@@ -41,13 +41,13 @@ import (
 func raceIndependentInstances(t *testing.T, dsn string, n int, race func(ls *LocalStorage, idx int) error) {
 	t.Helper()
 	stores := make([]*LocalStorage, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		stores[i] = NewLocalStorage(pgOpen(t, dsn))
 	}
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	errs := make(chan error, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(idx int, ls *LocalStorage) {
 			defer wg.Done()

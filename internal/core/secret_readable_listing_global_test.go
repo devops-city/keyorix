@@ -54,7 +54,7 @@ func globalReaderFixture(t *testing.T) (*KeyorixCore, *gorm.DB) {
 	for pid, name := range map[uint]string{1: "alpha", 2: "beta"} {
 		require.NoError(t, db.Create(&models.Project{ID: pid, Name: name}).Error)
 		require.NoError(t, db.Create(&models.Environment{ID: pid * 100, ProjectID: pid, Name: "prod"}).Error)
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			require.NoError(t, db.Create(&models.SecretNode{
 				Name: fmt.Sprintf("%s-%02d", name, i), ProjectID: pid, EnvironmentID: pid * 100,
 				// Owned and authored by user 2, NOT the reader. No share, no ACL.

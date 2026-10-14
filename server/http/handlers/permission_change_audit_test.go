@@ -83,8 +83,8 @@ func TestGetPermissionChangeAudit_OK_Empty(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			Changes []interface{} `json:"changes"`
-			Total   int           `json:"total"`
+			Changes []any `json:"changes"`
+			Total   int   `json:"total"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
@@ -106,8 +106,8 @@ func TestGetPermissionChangeAudit_OK_WithEvents(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			Changes []map[string]interface{} `json:"changes"`
-			Total   int                      `json:"total"`
+			Changes []map[string]any `json:"changes"`
+			Total   int              `json:"total"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
@@ -166,7 +166,7 @@ func TestGetPermissionChangeAudit_InvalidUntil(t *testing.T) {
 func TestGetPermissionChangeAudit_LimitParam(t *testing.T) {
 	h, db := newDashHandler(t)
 	now := time.Now()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		seedPermChangeEvent(t, db, "role.assigned", `{"role_id":1}`, now.Add(-time.Duration(i)*time.Second))
 	}
 
@@ -177,9 +177,9 @@ func TestGetPermissionChangeAudit_LimitParam(t *testing.T) {
 
 	var resp struct {
 		Data struct {
-			Total     int                      `json:"total"`
-			Changes   []map[string]interface{} `json:"changes"`
-			Truncated bool                     `json:"truncated"`
+			Total     int              `json:"total"`
+			Changes   []map[string]any `json:"changes"`
+			Truncated bool             `json:"truncated"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))

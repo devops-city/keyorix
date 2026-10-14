@@ -38,7 +38,7 @@ func TestMLConfigWithDefaults(t *testing.T) {
 // new_user rule never fires for her.
 func buildBaselineLogs(n int, start time.Time) []models.SecretAccessLog {
 	logs := make([]models.SecretAccessLog, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		user, ip := "app", "10.0.0.1"
 		if i%3 == 0 {
 			ip = "10.0.0.2"

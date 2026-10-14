@@ -143,7 +143,7 @@ func TestCreateSecretRequest_HeldFieldNumbers_ProtoSource(t *testing.T) {
 
 	reserved := map[int]bool{}
 	for _, r := range reservedRangeRe.FindAllStringSubmatch(body, -1) {
-		for _, part := range strings.Split(r[1], ",") {
+		for part := range strings.SplitSeq(r[1], ",") {
 			part = strings.TrimSpace(part)
 			if lo, hi, ok := strings.Cut(part, " to "); ok {
 				l, err1 := strconv.Atoi(strings.TrimSpace(lo))
@@ -183,8 +183,8 @@ func TestCreateSecretRequest_HeldFieldNumbers_ProtoSource(t *testing.T) {
 func stripProtoComments(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
-		if j := strings.Index(l, "//"); j >= 0 {
-			lines[i] = l[:j]
+		if before, _, ok := strings.Cut(l, "//"); ok {
+			lines[i] = before
 		}
 	}
 	return strings.Join(lines, "\n")

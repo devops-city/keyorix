@@ -124,7 +124,7 @@ func TestShippedProductionTemplates_ReportOnlyKnownDeviations(t *testing.T) {
 
 			got := map[string]deviationOrigin{}
 			for _, d := range report.deviations {
-				name := strings.SplitN(d.detail, " ", 2)[0]
+				name, _, _ := strings.Cut(d.detail, " ")
 				got[name] = d.origin
 			}
 			assert.Equal(t, want, got,

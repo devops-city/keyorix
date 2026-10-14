@@ -16,7 +16,7 @@ func TestSync_LogsPerTargetErrors(t *testing.T) {
 	e := NewEngine(f, s)
 
 	var logged []string
-	logf := func(format string, args ...interface{}) {
+	logf := func(format string, args ...any) {
 		msg := format
 		// simple string capture for test assertions
 		if len(args) > 0 {
@@ -47,7 +47,7 @@ func TestSync_SuccessLogs(t *testing.T) {
 	e := NewEngine(f, s)
 
 	var logged []string
-	logf := func(format string, args ...interface{}) {
+	logf := func(format string, args ...any) {
 		logged = append(logged, format)
 	}
 
@@ -81,7 +81,7 @@ func TestValidateMapping_InvalidDNS1123Subdomain(t *testing.T) {
 // a name that exceeds 253 characters.
 func TestValidateMapping_TooLongName(t *testing.T) {
 	longName := ""
-	for i := 0; i < 26; i++ {
+	for i := range 26 {
 		if i > 0 {
 			longName += "."
 		}
@@ -178,7 +178,7 @@ func TestSync_WithMixedResults(t *testing.T) {
 	e := NewEngine(f, s)
 
 	var errorLines int
-	logf := func(format string, args ...interface{}) {
+	logf := func(format string, args ...any) {
 		if len(args) > 0 {
 			errorLines++
 		}
@@ -205,7 +205,7 @@ func TestSync_ReturnsResult(t *testing.T) {
 	e := NewEngine(f, s)
 
 	called := false
-	logf := func(format string, args ...interface{}) { called = true }
+	logf := func(format string, args ...any) { called = true }
 
 	res := Sync(context.Background(), e, []SecretMapping{
 		{Ref: "ref", Namespace: "ns", Name: "name", Key: "key"},

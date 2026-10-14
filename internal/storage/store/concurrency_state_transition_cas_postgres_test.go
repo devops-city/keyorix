@@ -26,7 +26,7 @@ func raceTransitions(t *testing.T, dsn string, n int, attempt func(i int, ls *Lo
 	var won int32
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

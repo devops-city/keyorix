@@ -356,7 +356,6 @@ func TestForcedPendingSeeds_Postgres(t *testing.T) {
 	w := buildG4World(t)
 
 	for _, tc := range g5SeedCases {
-		tc := tc
 		t.Run(tc.issue, func(t *testing.T) {
 			seed := g5SeedBytes(t, tc)
 			pairs := decodeG4Pairs(seed)
@@ -443,7 +442,7 @@ func TestG4PairAlwaysSpansBothReplicas(t *testing.T) {
 		"a pair's two ops must run on two different replicas, or it is not a cross-replica race at all")
 	// And the choice must not depend on the op kind in any way: the only
 	// inputs are the pair positions 0 and 1.
-	for kind := 0; kind < g4NumOpKinds; kind++ {
+	for kind := range g4NumOpKinds {
 		require.Same(t, w.c0, g4Replica(w, 0), "position 0 must always be replica c0 (op kind %d)", kind)
 		require.Same(t, w.c1, g4Replica(w, 1), "position 1 must always be replica c1 (op kind %d)", kind)
 	}

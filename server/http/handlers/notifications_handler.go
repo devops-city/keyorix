@@ -27,8 +27,8 @@ func NewNotificationHandler(coreService *core.KeyorixCore) *NotificationHandler 
 	return &NotificationHandler{coreService: coreService}
 }
 
-func notificationToAPI(n *models.Notification) map[string]interface{} {
-	out := map[string]interface{}{
+func notificationToAPI(n *models.Notification) map[string]any {
+	out := map[string]any{
 		"id":         n.ID,
 		"type":       n.Type,
 		"title":      n.Title,
@@ -71,11 +71,11 @@ func (h *NotificationHandler) List(w http.ResponseWriter, r *http.Request) {
 		count = 0
 	}
 
-	out := make([]map[string]interface{}, 0, len(items))
+	out := make([]map[string]any, 0, len(items))
 	for _, n := range items {
 		out = append(out, notificationToAPI(n))
 	}
-	sendSuccess(w, map[string]interface{}{"notifications": out, "unread_count": count}, "")
+	sendSuccess(w, map[string]any{"notifications": out, "unread_count": count}, "")
 }
 
 // MarkRead handles POST /api/v1/notifications/{id}/read.
@@ -98,7 +98,7 @@ func (h *NotificationHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "InternalError", "Failed to mark notification read", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"id": id, "is_read": true}, "")
+	sendSuccess(w, map[string]any{"id": id, "is_read": true}, "")
 }
 
 // MarkAllRead handles POST /api/v1/notifications/read-all.
@@ -113,5 +113,5 @@ func (h *NotificationHandler) MarkAllRead(w http.ResponseWriter, r *http.Request
 		sendError(w, "InternalError", "Failed to mark notifications read", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"all_read": true}, "")
+	sendSuccess(w, map[string]any{"all_read": true}, "")
 }

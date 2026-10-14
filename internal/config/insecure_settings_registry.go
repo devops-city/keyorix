@@ -38,6 +38,8 @@
 // test no matter what the config struct grew next to it.
 package config
 
+import "slices"
+
 // InsecureSetting is one entry in the ADR-112 opt-out-rule registry.
 type InsecureSetting struct {
 	// Name is this setting's canonical insecure_-prefixed dotted path --
@@ -109,12 +111,7 @@ func databaseSSLModeIs(c *Config, modes ...string) bool {
 	if err != nil {
 		return false
 	}
-	for _, m := range modes {
-		if mode == m {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(modes, mode)
 }
 
 // keyProviderChain returns enc's primary key provider followed by its
@@ -138,12 +135,7 @@ func keyProviderChain(enc *EncryptionConfig) []KeyProviderConfig {
 // anyKeyProviderInEffect reports whether pred holds for any provider in cfg's
 // key-provider chain.
 func anyKeyProviderInEffect(cfg *Config, pred func(KeyProviderConfig) bool) bool {
-	for _, kp := range keyProviderChain(&cfg.Storage.Encryption) {
-		if pred(kp) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(keyProviderChain(&cfg.Storage.Encryption), pred)
 }
 
 // anySSOProviderInEffect reports whether pred holds for any configured SSO
@@ -152,12 +144,7 @@ func anyKeyProviderInEffect(cfg *Config, pred func(KeyProviderConfig) bool) bool
 // insecure listener among several makes checkTransportTLSPosture's overall
 // cleartext warning fire.
 func anySSOProviderInEffect(cfg *Config, pred func(SSOProviderConfig) bool) bool {
-	for _, p := range cfg.SSO.Providers {
-		if pred(p) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(cfg.SSO.Providers, pred)
 }
 
 // InsecureSettingsRegistry is the single, shared enumeration every ADR-112

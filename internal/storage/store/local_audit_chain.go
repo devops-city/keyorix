@@ -1014,7 +1014,7 @@ func (ls *LocalStorage) MigrateAuditChainEncoding(ctx context.Context, dryRun bo
 				}
 				if e.PrevHash != prevHash || e.EntryHash != newHash {
 					if err := tx.Model(&models.AuditEvent{}).Where("id = ?", e.ID).
-						Updates(map[string]interface{}{"prev_hash": prevHash, "entry_hash": newHash}).Error; err != nil {
+						Updates(map[string]any{"prev_hash": prevHash, "entry_hash": newHash}).Error; err != nil {
 						return err
 					}
 				}

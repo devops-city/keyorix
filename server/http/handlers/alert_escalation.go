@@ -30,8 +30,8 @@ func NewAlertEscalationHandler(coreService *core.KeyorixCore) *AlertEscalationHa
 }
 
 // policyToAPI converts an AlertEscalationPolicy model to the API wire shape.
-func policyToAPI(p *models.AlertEscalationPolicy) map[string]interface{} {
-	return map[string]interface{}{
+func policyToAPI(p *models.AlertEscalationPolicy) map[string]any {
+	return map[string]any{
 		"id":                     p.ID,
 		"name":                   p.Name,
 		"min_severity":           p.MinSeverity,
@@ -104,11 +104,11 @@ func (h *AlertEscalationHandler) List(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "InternalError", "Failed to list alert escalation policies", http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(policies))
+	out := make([]map[string]any, 0, len(policies))
 	for i := range policies {
 		out = append(out, policyToAPI(&policies[i]))
 	}
-	sendSuccess(w, map[string]interface{}{"policies": out}, "")
+	sendSuccess(w, map[string]any{"policies": out}, "")
 }
 
 // Get handles GET /api/v1/alert-escalation-policies/{id}.
@@ -141,7 +141,7 @@ func (h *AlertEscalationHandler) Update(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	var body map[string]interface{}
+	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		sendError(w, "BadRequest", "Invalid request body", http.StatusBadRequest, nil)
 		return
@@ -207,7 +207,7 @@ func (h *AlertEscalationHandler) RunEscalation(w http.ResponseWriter, r *http.Re
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"evaluated": result.Evaluated,
 		"escalated": result.Escalated,
 		"skipped":   result.Skipped,

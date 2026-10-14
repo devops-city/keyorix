@@ -44,7 +44,7 @@ func TestDeleteSecret_ReportsPurgeAtHeader_AndTrashListingAgrees(t *testing.T) {
 	require.Equal(t, http.StatusOK, lw.Code)
 	var resp struct {
 		Data struct {
-			Deleted []map[string]interface{} `json:"deleted"`
+			Deleted []map[string]any `json:"deleted"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.NewDecoder(lw.Body).Decode(&resp))

@@ -56,7 +56,6 @@ func TestPermissionGranularity_DistinctPermissionsEnforced(t *testing.T) {
 
 	ctx := context.Background()
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ok, err := h.CoreService.Authorize(ctx, tc.userID, tc.permission, core.Scope{ProjectID: 1})
 			require.NoError(t, err)

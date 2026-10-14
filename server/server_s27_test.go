@@ -244,8 +244,7 @@ func TestStartSchedulers_S27_AnomalyOffHoursNumeric(t *testing.T) {
 	}
 	coreService := mustInitCoreService(t, cfg)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	// startSchedulers only wires up the scheduler goroutines and returns
 	// immediately; give the anomaly detector's first (immediate) tick a moment
@@ -612,8 +611,7 @@ func TestStartSchedulers_S27_AnomalyOffHoursEndOnly(t *testing.T) {
 	}
 	coreService := mustInitCoreService(t, cfg)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1255,8 +1253,7 @@ func TestStartSchedulers_S27_LegalHoldBlocksPurge(t *testing.T) {
 	// Run the schedulers against the same DB. The purge scheduler fires
 	// immediately (interval=1ms), finds the active legal hold, and logs the
 	// skip message.
-	ctx2, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx2 := t.Context()
 	startSchedulersForTest(t, ctx2, cfg, coreService)
 	time.Sleep(200 * time.Millisecond)
 }
@@ -1320,8 +1317,7 @@ func TestStartSchedulers_S27_JITExpiredGrantSwept(t *testing.T) {
 	// Run the schedulers. The JIT expiry sweeper fires at once (interval=1ms),
 	// calls RemoveExpiredRoleGrants, finds n=1, and logs the "removed N
 	// expired grant(s)" message.
-	ctx2, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx2 := t.Context()
 	startSchedulersForTest(t, ctx2, cfg, coreService)
 	time.Sleep(300 * time.Millisecond)
 }

@@ -511,7 +511,7 @@ func TestNewKeyProviderFromConfig_File(t *testing.T) {
 	kekPath := filepath.Join(dir, "kek.hex")
 	// Write a valid 32-byte hex key file
 	hexKey := make([]byte, 64)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		const digits = "0123456789abcdef"
 		hexKey[i*2] = digits[(i>>4)&0xf]
 		hexKey[i*2+1] = digits[i&0xf]

@@ -86,7 +86,7 @@ func TestHasUnreadNotification_NotBuriedByVolume(t *testing.T) {
 	require.NoError(t, err)
 
 	// Bury it under 150 newer, unrelated unread notifications for the same user.
-	for i := 0; i < 150; i++ {
+	for range 150 {
 		_, err := ls.CreateNotification(ctx, &models.Notification{
 			UserID: 9, ProjectID: &pid, Type: "access_request.created", Title: "N", Message: "noise",
 		})

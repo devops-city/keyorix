@@ -38,14 +38,14 @@ func NewSCIMHandler(coreService *core.KeyorixCore) *SCIMHandler {
 	return &SCIMHandler{coreService: coreService}
 }
 
-func writeSCIM(w http.ResponseWriter, status int, body interface{}) {
+func writeSCIM(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", scimContentType)
 	w.WriteHeader(status)
 	_ = encodeJSONResponse(w, body)
 }
 
 func scimError(w http.ResponseWriter, status int, detail string) {
-	writeSCIM(w, status, map[string]interface{}{
+	writeSCIM(w, status, map[string]any{
 		"schemas": []string{scimErrorSchema},
 		"status":  strconv.Itoa(status),
 		"detail":  detail,
@@ -54,16 +54,16 @@ func scimError(w http.ResponseWriter, status int, detail string) {
 
 // toSCIMUser maps a Keyorix user to a SCIM User resource. SCIM userName echoes the
 // email (what the IdP sent); the derived Keyorix username is internal.
-func toSCIMUser(u *models.User) map[string]interface{} {
+func toSCIMUser(u *models.User) map[string]any {
 	active := u.IsActive && !core.AccountLoginBlocked(u.ID, u.AccountState)
-	res := map[string]interface{}{
+	res := map[string]any{
 		"schemas":     []string{scimUserSchema},
 		"id":          strconv.FormatUint(uint64(u.ID), 10),
 		"userName":    u.Email,
 		"displayName": u.DisplayName,
 		"active":      active,
-		"emails":      []map[string]interface{}{{"value": u.Email, "primary": true}},
-		"meta": map[string]interface{}{
+		"emails":      []map[string]any{{"value": u.Email, "primary": true}},
+		"meta": map[string]any{
 			"resourceType": "User",
 			"location":     fmt.Sprintf("/scim/v2/Users/%d", u.ID),
 		},
@@ -116,16 +116,16 @@ func (p *scimUserPayload) displayName() string {
 // GetServiceProviderConfig handles GET /scim/v2/ServiceProviderConfig — advertises
 // the SCIM features this server supports.
 func (h *SCIMHandler) GetServiceProviderConfig(w http.ResponseWriter, _ *http.Request) {
-	writeSCIM(w, http.StatusOK, map[string]interface{}{
+	writeSCIM(w, http.StatusOK, map[string]any{
 		"schemas":               []string{"urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"},
 		"documentationUri":      "https://github.com/keyorixhq/keyorix",
 		"patch":                 map[string]bool{"supported": true},
-		"bulk":                  map[string]interface{}{"supported": false, "maxOperations": 0, "maxPayloadSize": 0},
-		"filter":                map[string]interface{}{"supported": true, "maxResults": 200},
+		"bulk":                  map[string]any{"supported": false, "maxOperations": 0, "maxPayloadSize": 0},
+		"filter":                map[string]any{"supported": true, "maxResults": 200},
 		"changePassword":        map[string]bool{"supported": false},
 		"sort":                  map[string]bool{"supported": false},
 		"etag":                  map[string]bool{"supported": false},
-		"authenticationSchemes": []map[string]interface{}{{"type": "oauthbearertoken", "name": "Bearer Token", "description": "Static SCIM bearer token"}},
+		"authenticationSchemes": []map[string]any{{"type": "oauthbearertoken", "name": "Bearer Token", "description": "Static SCIM bearer token"}},
 	})
 }
 
@@ -146,7 +146,7 @@ func (h *SCIMHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 			scimError(w, http.StatusInternalServerError, clientSafe(err))
 			return
 		}
-		resources := []map[string]interface{}{}
+		resources := []map[string]any{}
 		// FindSCIMUser falls back to an email match against ANY user so
 		// ProvisionSCIMUser's create-time dedup can still refuse a colliding email —
 		// but that means a userName-filter query here could otherwise surface (and
@@ -165,7 +165,7 @@ func (h *SCIMHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		scimError(w, http.StatusInternalServerError, clientSafe(err))
 		return
 	}
-	resources := make([]map[string]interface{}, 0, len(users))
+	resources := make([]map[string]any, 0, len(users))
 	for _, u := range users {
 		resources = append(resources, toSCIMUser(u))
 	}
@@ -194,12 +194,12 @@ func scimPaging(r *http.Request) (startIndex, count int) {
 	return startIndex, count
 }
 
-func listResponse(resources []map[string]interface{}) map[string]interface{} {
+func listResponse(resources []map[string]any) map[string]any {
 	return listResponsePaged(resources, len(resources), 1)
 }
 
-func listResponsePaged(resources []map[string]interface{}, total, startIndex int) map[string]interface{} {
-	return map[string]interface{}{
+func listResponsePaged(resources []map[string]any, total, startIndex int) map[string]any {
+	return map[string]any{
 		"schemas":      []string{scimListSchema},
 		"totalResults": total,
 		"startIndex":   startIndex,

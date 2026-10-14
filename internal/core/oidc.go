@@ -40,7 +40,7 @@ type oidcClaims struct {
 // production implementation fetches and caches the issuer's JWKS; tests inject a
 // static key.
 type JWKSResolver interface {
-	Key(ctx context.Context, issuer, kid string) (interface{}, error)
+	Key(ctx context.Context, issuer, kid string) (any, error)
 }
 
 // OIDCTrustedIssuer is one operator-configured issuer the verifier will accept.
@@ -169,7 +169,7 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (issuer, subject 
 		jwt.WithTimeFunc(v.effectiveNow),
 	)
 
-	keyfunc := func(token *jwt.Token) (interface{}, error) {
+	keyfunc := func(token *jwt.Token) (any, error) {
 		iss, ierr := token.Claims.GetIssuer()
 		if ierr != nil || iss == "" {
 			return nil, fmt.Errorf("missing issuer")

@@ -188,7 +188,7 @@ func TestFinishWebAuthnRegistration_BadJSON_S13(t *testing.T) {
 // credential field → 400.
 func TestFinishWebAuthnRegistration_EmptyCredential_S13(t *testing.T) {
 	h, _, _ := setupMFAReauthTest(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"webauthn_session": "some-session",
 		"name":             "laptop",
 		// credential intentionally omitted
@@ -204,7 +204,7 @@ func TestFinishWebAuthnRegistration_EmptyCredential_S13(t *testing.T) {
 // credential blob → 400 "Invalid attestation".
 func TestFinishWebAuthnRegistration_InvalidAttestation_S13(t *testing.T) {
 	h, _, _ := setupMFAReauthTest(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"webauthn_session": "some-session",
 		"name":             "laptop",
 		"credential":       json.RawMessage(`{"type":"public-key","id":"invalid"}`),
@@ -293,7 +293,7 @@ func TestFinishWebAuthnLogin_BadJSON_S13(t *testing.T) {
 // TestFinishWebAuthnLogin_EmptyCredential_S13 — valid JSON, missing credential → 400.
 func TestFinishWebAuthnLogin_EmptyCredential_S13(t *testing.T) {
 	h, _, _ := setupMFAReauthTest(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"mfa_challenge":    "ch",
 		"webauthn_session": "sess",
 		// credential omitted
@@ -308,7 +308,7 @@ func TestFinishWebAuthnLogin_EmptyCredential_S13(t *testing.T) {
 // TestFinishWebAuthnLogin_InvalidAssertion_S13 — structurally invalid credential → 400.
 func TestFinishWebAuthnLogin_InvalidAssertion_S13(t *testing.T) {
 	h, _, _ := setupMFAReauthTest(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"mfa_challenge":    "ch",
 		"webauthn_session": "sess",
 		"credential":       json.RawMessage(`{"type":"public-key","id":"garbage"}`),
@@ -346,7 +346,7 @@ func TestFinishWebAuthnPasswordlessLogin_BadJSON_S13(t *testing.T) {
 // TestFinishWebAuthnPasswordlessLogin_EmptyCredential_S13 — valid JSON, missing credential → 400.
 func TestFinishWebAuthnPasswordlessLogin_EmptyCredential_S13(t *testing.T) {
 	h, _, _ := setupMFAReauthTest(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"webauthn_session": "sess",
 		// credential omitted
 	})
@@ -360,7 +360,7 @@ func TestFinishWebAuthnPasswordlessLogin_EmptyCredential_S13(t *testing.T) {
 // TestFinishWebAuthnPasswordlessLogin_InvalidAssertion_S13 — invalid credential blob → 400.
 func TestFinishWebAuthnPasswordlessLogin_InvalidAssertion_S13(t *testing.T) {
 	h, _, _ := setupMFAReauthTest(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"webauthn_session": "sess",
 		"credential":       json.RawMessage(`{"type":"public-key","id":"garbage"}`),
 	})

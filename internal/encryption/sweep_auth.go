@@ -85,7 +85,7 @@ func sweepAPITokens(tx *gorm.DB, oldSvc *EncryptionService, newSvc *EncryptionSe
 			return swept, legacyUpgraded, fmt.Errorf("failed to marshal api_token metadata id=%d: %w", token.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.APIToken{}).Where(sqlWhereID, token.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.APIToken{}).Where(sqlWhereID, token.ID).Updates(map[string]any{
 				"encrypted_token": newBytes,
 				"token_metadata":  models.JSON(metaBytes),
 			}).Error; err != nil {
@@ -133,7 +133,7 @@ func sweepAPIClients(tx *gorm.DB, oldSvc *EncryptionService, newSvc *EncryptionS
 			return swept, fmt.Errorf("failed to marshal api_client metadata id=%d: %w", client.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.APIClient{}).Where(sqlWhereID, client.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.APIClient{}).Where(sqlWhereID, client.ID).Updates(map[string]any{
 				"encrypted_client_secret": newBytes,
 				"client_secret_metadata":  models.JSON(metaBytes),
 			}).Error; err != nil {
@@ -192,7 +192,7 @@ func sweepMFASecrets(tx *gorm.DB, oldSvc *EncryptionService, newSvc *EncryptionS
 			return swept, legacyUpgraded, fmt.Errorf("failed to marshal mfa_secret metadata id=%d: %w", row.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.MFASecret{}).Where(sqlWhereID, row.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.MFASecret{}).Where(sqlWhereID, row.ID).Updates(map[string]any{
 				"secret_enc":  newBytes,
 				"secret_meta": metaBytes,
 			}).Error; err != nil {
@@ -254,7 +254,7 @@ func sweepDynamicSecretConfigs(tx *gorm.DB, oldSvc *EncryptionService, newSvc *E
 			return swept, legacyUpgraded, fmt.Errorf("failed to marshal dynamic_secret_config metadata id=%d: %w", row.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.DynamicSecretConfig{}).Where(sqlWhereID, row.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.DynamicSecretConfig{}).Where(sqlWhereID, row.ID).Updates(map[string]any{
 				"admin_dsn_enc":  newBytes,
 				"admin_dsn_meta": metaBytes,
 			}).Error; err != nil {
@@ -315,7 +315,7 @@ func sweepDynamicSecretLeases(tx *gorm.DB, oldSvc *EncryptionService, newSvc *En
 			return swept, legacyUpgraded, fmt.Errorf("failed to marshal dynamic_secret_lease metadata id=%d: %w", row.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.DynamicSecretLease{}).Where(sqlWhereID, row.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.DynamicSecretLease{}).Where(sqlWhereID, row.ID).Updates(map[string]any{
 				"credential_enc":  newBytes,
 				"credential_meta": metaBytes,
 			}).Error; err != nil {
@@ -410,7 +410,7 @@ func sweepNotificationChannels(tx *gorm.DB, oldSvc *EncryptionService, newSvc *E
 			return swept, legacyUpgraded, fmt.Errorf("failed to marshal notification_channel metadata id=%d: %w", row.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.NotificationChannel{}).Where(sqlWhereID, row.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.NotificationChannel{}).Where(sqlWhereID, row.ID).Updates(map[string]any{
 				"url_enc":  NotificationChannelURLWrap(NotificationChannelURLTagEncrypted, newBytes),
 				"url_meta": metaBytes,
 			}).Error; err != nil {
@@ -466,7 +466,7 @@ func sweepPasswordResets(tx *gorm.DB, oldSvc *EncryptionService, newSvc *Encrypt
 			return swept, legacyUpgraded, fmt.Errorf("failed to marshal password_reset metadata id=%d: %w", reset.ID, err)
 		}
 		if !dryRun {
-			if err := tx.Model(&models.PasswordReset{}).Where(sqlWhereID, reset.ID).Updates(map[string]interface{}{
+			if err := tx.Model(&models.PasswordReset{}).Where(sqlWhereID, reset.ID).Updates(map[string]any{
 				"encrypted_token": newBytes,
 				"token_metadata":  models.JSON(metaBytes),
 			}).Error; err != nil {

@@ -38,13 +38,13 @@ func (h *CatalogHandler) ListProjectMemberships(w http.ResponseWriter, r *http.R
 			return
 		}
 		// StaleInvites is install-wide; narrow to this project for the endpoint.
-		stale := make([]interface{}, 0, len(all))
+		stale := make([]any, 0, len(all))
 		for _, m := range all {
 			if m.ProjectID == uint(id) {
 				stale = append(stale, m)
 			}
 		}
-		sendSuccess(w, map[string]interface{}{"memberships": stale}, "")
+		sendSuccess(w, map[string]any{"memberships": stale}, "")
 		return
 	}
 	memberships, err := h.coreService.ListProjectMemberships(r.Context(), uint(id))
@@ -53,7 +53,7 @@ func (h *CatalogHandler) ListProjectMemberships(w http.ResponseWriter, r *http.R
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"memberships": memberships}, "")
+	sendSuccess(w, map[string]any{"memberships": memberships}, "")
 }
 
 // InviteMember handles POST /api/v1/projects/{id}/memberships.
@@ -115,7 +115,7 @@ func (h *CatalogHandler) InviteMember(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"membership": m}, "Member invited")
+	sendCreated(w, map[string]any{"membership": m}, "Member invited")
 }
 
 // TransitionMembership handles PUT /api/v1/projects/{id}/memberships/{membershipId}.
@@ -172,7 +172,7 @@ func (h *CatalogHandler) TransitionMembership(w http.ResponseWriter, r *http.Req
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"membership": m}, "Membership updated")
+	sendSuccess(w, map[string]any{"membership": m}, "Membership updated")
 }
 
 // membershipActionState maps a request action verb to its target state.

@@ -35,7 +35,7 @@ func TestLogin_RateLimited_S13(t *testing.T) {
 	ctx := context.Background()
 
 	// Flood the login rate limiter (> 10 attempts within the window).
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.0.0.1")
 	}
 
@@ -58,7 +58,7 @@ func TestRefreshToken_RateLimited_S13(t *testing.T) {
 	ctx := context.Background()
 
 	// Flood the login rate limiter (> 10 attempts within the window).
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.1.2.3")
 	}
 
@@ -173,7 +173,7 @@ func TestPasswordReset_RateLimited_S13(t *testing.T) {
 	h := NewAuthHandler(cs, false)
 	ctx := context.Background()
 
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		cs.RecordPasswordResetAttempt(ctx, "10.1.2.3")
 	}
 

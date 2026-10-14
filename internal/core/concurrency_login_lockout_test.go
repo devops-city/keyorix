@@ -49,15 +49,13 @@ func TestConcurrency_LoginLockout_NoLostIncrements(t *testing.T) {
 	const attackers = 40 // many more than the threshold
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < attackers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range attackers {
+		wg.Go(func() {
 			<-start
 			// Wrong password every time → each call reaches recordFailedLogin (unless the
 			// account is already locked, in which case the gate rejects it first).
 			_, _, _ = c.Login(context.Background(), &core.LoginRequest{Username: "alice", Password: "wrong"})
-		}()
+		})
 	}
 	close(start) // release all attackers at once
 	wg.Wait()

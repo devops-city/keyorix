@@ -37,7 +37,7 @@ func NewRotationPolicyHandler(coreService *core.KeyorixCore) *RotationPolicyHand
 	}
 }
 
-func (h *RotationPolicyHandler) sendSuccess(w http.ResponseWriter, data interface{}, message string) {
+func (h *RotationPolicyHandler) sendSuccess(w http.ResponseWriter, data any, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := encodeJSONResponse(w, SuccessResponse{Success: true, Data: data, Message: message}); err != nil {
@@ -59,7 +59,7 @@ func (h *RotationPolicyHandler) sendSuccess(w http.ResponseWriter, data interfac
 // decoding on the Content-Type header. Found via scripts/cli-parity-check.sh
 // against a real running server, not a unit test -- see docs/cli-split-
 // inventory.md §7 PR 1's test notes.
-func (h *RotationPolicyHandler) sendCreated(w http.ResponseWriter, data interface{}, message string) {
+func (h *RotationPolicyHandler) sendCreated(w http.ResponseWriter, data any, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusCreated)
@@ -68,7 +68,7 @@ func (h *RotationPolicyHandler) sendCreated(w http.ResponseWriter, data interfac
 	}
 }
 
-func (h *RotationPolicyHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details interface{}) {
+func (h *RotationPolicyHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(statusCode)

@@ -57,7 +57,7 @@ func TestConcurrency_PlaceLegalHold_OnlyOneWins(t *testing.T) {
 	unexpected := make(chan error, callers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < callers; i++ {
+	for i := range callers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

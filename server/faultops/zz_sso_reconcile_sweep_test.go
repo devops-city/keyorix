@@ -43,7 +43,7 @@ func TestSSOReconcileFaultSweep(t *testing.T) {
 		fired := 0
 		for mi := range methods {
 			for nth := 1; nth <= 5; nth++ {
-				for kind := 0; kind < 3; kind++ {
+				for kind := range 3 {
 					data := []byte{byte(opIdx), byte(mi >> 8), byte(mi), byte(nth - 1), byte(kind)}
 					t.Run(fmt.Sprintf("%x", data), func(t *testing.T) {
 						runOneFuzzIterationWithWorlds(t, data, ref, w, func(oracleInput) { fired++ })

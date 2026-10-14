@@ -54,5 +54,5 @@ func (h *SecretHandler) OrphanedSecrets(w http.ResponseWriter, r *http.Request) 
 			OwnerID:        s.OwnerID,
 		})
 	}
-	h.sendSuccess(w, map[string]interface{}{"orphaned": entries, "total": len(entries)}, "")
+	h.sendSuccess(w, map[string]any{"orphaned": entries, "total": len(entries)}, "")
 }

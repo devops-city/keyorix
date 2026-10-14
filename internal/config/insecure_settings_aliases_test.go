@@ -126,7 +126,7 @@ func TestResolveDeprecatedAliases_RewritesOldKeyToNewName(t *testing.T) {
 	require.Len(t, warnings, 1)
 
 	var raw struct {
-		Security map[string]interface{} `yaml:"security"`
+		Security map[string]any `yaml:"security"`
 	}
 	require.NoError(t, yaml.Unmarshal(rewritten, &raw))
 	_, oldStillPresent := raw.Security["allow_unsafe_file_permissions"]
@@ -236,7 +236,7 @@ func yamlForPath(path, value string) string {
 // element 0) and returns the bool there.
 func boolAtPath(cfg *Config, path string) (bool, error) {
 	v := reflect.ValueOf(cfg).Elem()
-	for _, seg := range strings.Split(path, ".") {
+	for seg := range strings.SplitSeq(path, ".") {
 		name := strings.TrimSuffix(seg, "[]")
 		for v.Kind() == reflect.Pointer {
 			if v.IsNil() {

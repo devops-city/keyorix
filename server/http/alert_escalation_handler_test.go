@@ -55,7 +55,7 @@ func escalationURL(env *escalationTestEnv, path string) string {
 	return env.server.URL + "/api/v1" + path
 }
 
-func escalationDo(t *testing.T, method, url, token string, body interface{}) (*http.Response, []byte) {
+func escalationDo(t *testing.T, method, url, token string, body any) (*http.Response, []byte) {
 	t.Helper()
 	var reqBody io.Reader
 	if body != nil {
@@ -79,10 +79,10 @@ func escalationDo(t *testing.T, method, url, token string, body interface{}) (*h
 	return resp, respBody
 }
 
-func parseEscalationData(t *testing.T, body []byte) map[string]interface{} {
+func parseEscalationData(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 	var env struct {
-		Data map[string]interface{} `json:"data"`
+		Data map[string]any `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(body, &env))
 	return env.Data
@@ -96,7 +96,7 @@ func TestAlertEscalation_Create_201(t *testing.T) {
 	resp, body := escalationDo(t, http.MethodPost,
 		escalationURL(env, "/alert-escalation-policies"),
 		env.token,
-		map[string]interface{}{
+		map[string]any{
 			"name":                   "on-call-escalation",
 			"min_severity":           "medium",
 			"escalate_after_minutes": 30,
@@ -117,7 +117,7 @@ func TestAlertEscalation_Create_EmptyName_400(t *testing.T) {
 	resp, _ := escalationDo(t, http.MethodPost,
 		escalationURL(env, "/alert-escalation-policies"),
 		env.token,
-		map[string]interface{}{
+		map[string]any{
 			"name":                   "",
 			"min_severity":           "medium",
 			"escalate_after_minutes": 30,
@@ -132,7 +132,7 @@ func TestAlertEscalation_Create_Unauthenticated_401(t *testing.T) {
 	resp, _ := escalationDo(t, http.MethodPost,
 		escalationURL(env, "/alert-escalation-policies"),
 		"", // no token
-		map[string]interface{}{
+		map[string]any{
 			"name":                   "x",
 			"min_severity":           "medium",
 			"escalate_after_minutes": 30,
@@ -151,7 +151,7 @@ func TestAlertEscalation_List_200(t *testing.T) {
 		resp, _ := escalationDo(t, http.MethodPost,
 			escalationURL(env, "/alert-escalation-policies"),
 			env.token,
-			map[string]interface{}{
+			map[string]any{
 				"name":                   name,
 				"min_severity":           "low",
 				"escalate_after_minutes": 15,
@@ -167,7 +167,7 @@ func TestAlertEscalation_List_200(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	data := parseEscalationData(t, body)
-	policies, ok := data["policies"].([]interface{})
+	policies, ok := data["policies"].([]any)
 	require.True(t, ok, "expected 'policies' array in response")
 	assert.Len(t, policies, 2)
 }
@@ -181,7 +181,7 @@ func TestAlertEscalation_GetByID_200(t *testing.T) {
 	_, createBody := escalationDo(t, http.MethodPost,
 		escalationURL(env, "/alert-escalation-policies"),
 		env.token,
-		map[string]interface{}{
+		map[string]any{
 			"name":                   "get-test",
 			"min_severity":           "high",
 			"escalate_after_minutes": 60,
@@ -219,7 +219,7 @@ func TestAlertEscalation_Update_200(t *testing.T) {
 	_, createBody := escalationDo(t, http.MethodPost,
 		escalationURL(env, "/alert-escalation-policies"),
 		env.token,
-		map[string]interface{}{
+		map[string]any{
 			"name":                   "update-me",
 			"min_severity":           "low",
 			"escalate_after_minutes": 10,
@@ -231,7 +231,7 @@ func TestAlertEscalation_Update_200(t *testing.T) {
 	resp, body := escalationDo(t, http.MethodPut,
 		escalationURL(env, fmt.Sprintf("/alert-escalation-policies/%.0f", id)),
 		env.token,
-		map[string]interface{}{
+		map[string]any{
 			"name":         "updated-name",
 			"min_severity": "critical",
 		},
@@ -250,7 +250,7 @@ func TestAlertEscalation_Delete_204(t *testing.T) {
 	_, createBody := escalationDo(t, http.MethodPost,
 		escalationURL(env, "/alert-escalation-policies"),
 		env.token,
-		map[string]interface{}{
+		map[string]any{
 			"name":                   "delete-me",
 			"min_severity":           "medium",
 			"escalate_after_minutes": 30,
@@ -330,7 +330,7 @@ func TestAlertEscalation_UpdateUnauthenticated_401(t *testing.T) {
 	resp, _ := escalationDo(t, http.MethodPut,
 		escalationURL(env, "/alert-escalation-policies/1"),
 		"",
-		map[string]interface{}{"name": "x"})
+		map[string]any{"name": "x"})
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 }
 

@@ -221,7 +221,7 @@ func resolveScanFileSet(absPath string) map[string]bool {
 
 func scanFileListToSet(absPath, out string) map[string]bool {
 	set := map[string]bool{}
-	for _, f := range strings.Split(strings.TrimSpace(out), "\n") {
+	for f := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if f != "" {
 			set[filepath.Join(absPath, f)] = true
 		}

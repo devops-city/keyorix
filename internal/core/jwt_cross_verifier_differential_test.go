@@ -44,7 +44,6 @@ func TestOIDCSSODifferential_SingleConstraintViolation(t *testing.T) {
 	p := &SSOProvider{Name: "okta", Issuer: ssoIss, ClientID: ssoClientID}
 
 	for _, kind := range sharedJWTViolationKinds {
-		kind := kind
 		t.Run("kind="+kind.String(), func(t *testing.T) {
 			// Pin each verifier's clock to this subtest's own `now` — see the
 			// matching comment in jwt_single_constraint_fuzz_test.go's

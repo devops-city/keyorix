@@ -104,14 +104,14 @@ type rpcRequest struct {
 type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
-	Result  interface{}     `json:"result,omitempty"`
+	Result  any             `json:"result,omitempty"`
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
 type rpcError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // JSON-RPC standard error codes used here.
@@ -218,9 +218,9 @@ func (s *Server) handle(ctx context.Context, req *rpcRequest) rpcResponse {
 	case "initialize":
 		resp.Result = s.initialize(req.Params)
 	case "ping":
-		resp.Result = map[string]interface{}{}
+		resp.Result = map[string]any{}
 	case "tools/list":
-		resp.Result = map[string]interface{}{"tools": toolDefinitions()}
+		resp.Result = map[string]any{"tools": toolDefinitions()}
 	case "tools/call":
 		result, err := s.callTool(ctx, req.Params)
 		if err != nil {
@@ -236,7 +236,7 @@ func (s *Server) handle(ctx context.Context, req *rpcRequest) rpcResponse {
 
 // initialize negotiates the protocol version (echoing the client's when present) and
 // advertises the tools capability.
-func (s *Server) initialize(params json.RawMessage) map[string]interface{} {
+func (s *Server) initialize(params json.RawMessage) map[string]any {
 	version := defaultProtocolVersion
 	if len(params) > 0 {
 		var p struct {
@@ -246,9 +246,9 @@ func (s *Server) initialize(params json.RawMessage) map[string]interface{} {
 			version = p.ProtocolVersion
 		}
 	}
-	return map[string]interface{}{
+	return map[string]any{
 		"protocolVersion": version,
-		"capabilities":    map[string]interface{}{"tools": map[string]interface{}{}},
-		"serverInfo":      map[string]interface{}{"name": "keyorix-mcp", "version": s.version},
+		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"serverInfo":      map[string]any{"name": "keyorix-mcp", "version": s.version},
 	}
 }

@@ -139,7 +139,7 @@ func TestRenderSecretTemplate_RecordsReads(t *testing.T) {
 
 	// The read is logged in a detached goroutine — poll briefly for the access-log row.
 	var n int64
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		require.NoError(t, db.Model(&models.SecretAccessLog{}).Where("accessed_by = ?", "owner").Count(&n).Error)
 		if n > 0 {
 			break
@@ -198,7 +198,7 @@ func TestRenderSecretTemplate_RecordsReadPerSecret(t *testing.T) {
 	// Reads are logged in detached goroutines — poll briefly for all three rows.
 	var gotAccessLogIDs []uint
 	var gotAuditSecretIDs []*uint
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		var logs []models.SecretAccessLog
 		require.NoError(t, db.Where("accessed_by = ? AND action = ?", "owner", "read").Find(&logs).Error)
 		gotAccessLogIDs = nil
@@ -250,14 +250,14 @@ func TestRenderSecretTemplate_DedupesRepeatedReference(t *testing.T) {
 	c, db, projectID, _ := newRenderFixture(t)
 
 	var tmpl string
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		tmpl += "${secret:production/db-password}"
 	}
 	out, err := c.RenderSecretTemplate(ctx, tmpl, projectID, 1, "owner", "10.0.0.1", "ua")
 	require.NoError(t, err)
 
 	var want string
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		want += "s3cr3t"
 	}
 	assert.Equal(t, want, out, "every occurrence still substitutes the resolved value")
@@ -265,7 +265,7 @@ func TestRenderSecretTemplate_DedupesRepeatedReference(t *testing.T) {
 	// Reads are logged in a detached goroutine — poll briefly, then assert the count
 	// settles at exactly one (not 50).
 	var n int64
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		require.NoError(t, db.Model(&models.SecretAccessLog{}).Where("accessed_by = ?", "owner").Count(&n).Error)
 		if n > 0 {
 			break
@@ -292,7 +292,7 @@ func TestRenderSecretTemplate_RejectsTooManyDistinctReferences(t *testing.T) {
 	c, db, projectID, _ := newRenderFixture(t)
 
 	var tmpl string
-	for i := 0; i < secrettemplate.MaxDistinctReferences+1; i++ {
+	for i := range secrettemplate.MaxDistinctReferences + 1 {
 		tmpl += fmt.Sprintf("${secret:production/ref-%d}", i)
 	}
 	_, err := c.RenderSecretTemplate(ctx, tmpl, projectID, 1, "owner", "10.0.0.1", "ua")

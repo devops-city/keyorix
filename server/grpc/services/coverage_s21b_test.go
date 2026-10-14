@@ -48,7 +48,7 @@ func TestAcquireStreamSlot_ResourceExhausted_S21b(t *testing.T) {
 	actor := auditActorCtxUser()
 
 	var releases []func()
-	for i := 0; i < auditStreamMaxPerPrincipal; i++ {
+	for i := range auditStreamMaxPerPrincipal {
 		release, err := svc.acquireStreamSlot(actor)
 		require.NoError(t, err, "slot %d should be acquirable", i+1)
 		releases = append(releases, release)
@@ -76,7 +76,7 @@ func TestAcquireStreamSlot_ImpersonationCapsPerAdmin_S21b(t *testing.T) {
 	admin := uint(1)
 
 	var releases []func()
-	for i := 0; i < auditStreamMaxPerPrincipal; i++ {
+	for i := range auditStreamMaxPerPrincipal {
 		target := uint(100 + i) // a DIFFERENT target each time
 		actor := &interceptors.UserContext{UserID: target, ImpersonatedBy: &admin}
 		release, err := svc.acquireStreamSlot(actor)
@@ -112,7 +112,7 @@ func TestAcquireStreamSlot_ReleasedSlotReacquirable_S21b(t *testing.T) {
 
 	// Fill to the cap.
 	var releases []func()
-	for i := 0; i < auditStreamMaxPerPrincipal; i++ {
+	for range auditStreamMaxPerPrincipal {
 		release, err := svc.acquireStreamSlot(actor)
 		require.NoError(t, err)
 		releases = append(releases, release)

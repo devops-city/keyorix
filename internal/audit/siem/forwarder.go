@@ -260,7 +260,7 @@ func newForwarder(cfg Config, baseBackoff time.Duration) (*Forwarder, error) {
 		f.spool = sp
 	}
 	f.wg.Add(numWorkers)
-	for i := 0; i < numWorkers; i++ {
+	for range numWorkers {
 		go f.worker()
 	}
 	return f, nil

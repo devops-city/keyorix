@@ -30,11 +30,11 @@ const (
 // deployment mode misreported every successful proxied read/write as a
 // failure. This is a purely additive JSON key: existing consumers of the
 // "data"/"message" keys are unaffected.
-func sendSuccess(w http.ResponseWriter, data interface{}, message string) {
+func sendSuccess(w http.ResponseWriter, data any, message string) {
 	w.Header().Set(hdrContentType, mimeApplicationJSON)
 	w.Header().Set(hdrXContentTypeOptions, "nosniff")
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"success": true,
 		"data":    utcTimes(data),
 	}
@@ -52,11 +52,11 @@ func sendSuccess(w http.ResponseWriter, data interface{}, message string) {
 // headers. Unlike calling w.WriteHeader(201) before sendSuccess (which causes
 // sendSuccess's Header().Set() calls to be silently ignored), this function sets
 // Content-Type and X-Content-Type-Options before WriteHeader.
-func sendCreated(w http.ResponseWriter, data interface{}, message string) {
+func sendCreated(w http.ResponseWriter, data any, message string) {
 	w.Header().Set(hdrContentType, mimeApplicationJSON)
 	w.Header().Set(hdrXContentTypeOptions, "nosniff")
 	w.WriteHeader(http.StatusCreated)
-	response := map[string]interface{}{
+	response := map[string]any{
 		"success": true,
 		"data":    utcTimes(data),
 	}
@@ -116,12 +116,10 @@ func DrainBackgroundGoroutines() {
 }
 
 func goSafe(fn func()) {
-	goSafeWG.Add(1)
-	go func() {
-		defer goSafeWG.Done()
+	goSafeWG.Go(func() {
 		defer besteffort.RunRecover("http.goSafe")()
 		fn()
-	}()
+	})
 }
 
 // mustParseUintParam parses a named URL parameter as a uint, sending a 400 error on failure.
@@ -157,7 +155,7 @@ func mustGetUser(w http.ResponseWriter, r *http.Request) (*middleware.UserContex
 // mustDecodeBody decodes the JSON request body into v.
 // On failure it writes a 400 response and returns false; the caller should return immediately.
 // Eliminates the repeated 4-line json.NewDecoder+sendError block across handler files.
-func mustDecodeBody(w http.ResponseWriter, r *http.Request, v interface{}) bool {
+func mustDecodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		sendError(w, "InvalidJSON", errInvalidRequestBody, http.StatusBadRequest, nil)
 		return false
@@ -176,12 +174,12 @@ func mustDecodeBody(w http.ResponseWriter, r *http.Request, v interface{}) bool 
 // working the moment this "error" key were ever reshaped into an object to
 // match APIError) — writing the field explicitly here means the error path no
 // longer depends on that coincidence.
-func sendError(w http.ResponseWriter, errorType, message string, statusCode int, details interface{}) {
+func sendError(w http.ResponseWriter, errorType, message string, statusCode int, details any) {
 	w.Header().Set(hdrContentType, mimeApplicationJSON)
 	w.Header().Set(hdrXContentTypeOptions, "nosniff")
 	w.WriteHeader(statusCode)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"success": false,
 		"error":   errorType,
 		"message": message,

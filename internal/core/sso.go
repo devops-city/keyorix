@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1310,7 +1311,7 @@ func (c *KeyorixCore) verifyIDToken(ctx context.Context, p *SSOProvider, expecte
 		// verification's clock testable/injectable like the rest (#1983).
 		jwt.WithTimeFunc(c.authEffectiveNow),
 	)
-	keyfn := func(t *jwt.Token) (interface{}, error) {
+	keyfn := func(t *jwt.Token) (any, error) {
 		iss, ierr := t.Claims.GetIssuer()
 		if ierr != nil || iss != p.Issuer {
 			return nil, fmt.Errorf("issuer mismatch")
@@ -1331,13 +1332,7 @@ func (c *KeyorixCore) verifyIDToken(ctx context.Context, p *SSOProvider, expecte
 	if _, hasCrit := token.Header["crit"]; hasCrit {
 		return "", "", "", false, fmt.Errorf("id_token has an unrecognized crit header")
 	}
-	audOK := false
-	for _, a := range claims.Audience {
-		if a == p.ClientID {
-			audOK = true
-			break
-		}
-	}
+	audOK := slices.Contains(claims.Audience, p.ClientID)
 	if !audOK {
 		return "", "", "", false, fmt.Errorf("id_token audience does not match the client id")
 	}

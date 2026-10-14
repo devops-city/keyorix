@@ -68,7 +68,7 @@ func (h *SecretHandler) AuditTrail(w http.ResponseWriter, r *http.Request) {
 	for _, e := range events {
 		entries = append(entries, toSecretAuditEntry(e))
 	}
-	h.sendSuccess(w, map[string]interface{}{"audit": entries, "total": len(entries)}, "")
+	h.sendSuccess(w, map[string]any{"audit": entries, "total": len(entries)}, "")
 }
 
 func toSecretAuditEntry(e *models.AuditEvent) secretAuditEntry {

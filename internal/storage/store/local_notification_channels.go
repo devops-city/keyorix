@@ -67,7 +67,7 @@ func (ls *LocalStorage) UpdateNotificationChannel(ctx context.Context, ch *model
 	// those fields through explicitly since ch.URL's own gorm:"-" tag means
 	// Model(ch).Updates would otherwise silently skip it AND it must never write
 	// the plaintext URL back into a column.
-	res := ls.db.WithContext(ctx).Model(ch).Updates(map[string]interface{}{
+	res := ls.db.WithContext(ctx).Model(ch).Updates(map[string]any{
 		"name":     ch.Name,
 		"type":     ch.Type,
 		"enabled":  ch.Enabled,
@@ -90,7 +90,7 @@ func (ls *LocalStorage) UpdateNotificationChannel(ctx context.Context, ch *model
 func (ls *LocalStorage) UpdateNotificationRetryPolicy(ctx context.Context, channelID uint, maxRetries, backoffMs int) error {
 	res := ls.db.WithContext(ctx).Model(&models.NotificationChannel{}).
 		Where("id = ?", channelID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"max_retries":      maxRetries,
 			"retry_backoff_ms": backoffMs,
 		})

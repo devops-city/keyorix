@@ -167,7 +167,7 @@ func TestAuthBudgetFallback_BudgetsDoNotEvictEachOther(t *testing.T) {
 		c.authBudgetFallback(acct).reserve(accountBudgetKey(1), now, acct.window, 4*acct.limit)
 	}
 	require.True(t, c.budgetFallbackLimitedWithStored(acct, accountBudgetKey(1), 0))
-	for i := 0; i < authFallbackMaxKeys+10; i++ {
+	for i := range authFallbackMaxKeys + 10 {
 		ip := "10." + itoa(i>>16&255) + "." + itoa(i>>8&255) + "." + itoa(i&255)
 		c.authBudgetFallback(loginBudget).reserve(ip, now, LoginWindow, 4*LoginMaxAttempts)
 	}

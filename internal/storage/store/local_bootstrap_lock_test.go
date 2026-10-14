@@ -62,18 +62,16 @@ func TestWithBootstrapLock_SerializesConcurrentCallers(t *testing.T) {
 	ls := newBootstrapLockStore(t)
 	ctx := context.Background()
 
-	var inside int32
+	var inside atomic.Int32
 	var maxConcurrent int32
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	const racers = 20
-	for i := 0; i < racers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range racers {
+		wg.Go(func() {
 			<-start
 			_ = ls.WithBootstrapLock(ctx, func() error {
-				cur := atomic.AddInt32(&inside, 1)
+				cur := inside.Add(1)
 				for {
 					prev := atomic.LoadInt32(&maxConcurrent)
 					if cur <= prev || atomic.CompareAndSwapInt32(&maxConcurrent, prev, cur) {
@@ -83,10 +81,10 @@ func TestWithBootstrapLock_SerializesConcurrentCallers(t *testing.T) {
 				// Hold the "critical section" briefly so any missing exclusion
 				// would show up as inside > 1 with high probability.
 				time.Sleep(2 * time.Millisecond)
-				atomic.AddInt32(&inside, -1)
+				inside.Add(-1)
 				return nil
 			})
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

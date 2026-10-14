@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -178,14 +179,14 @@ func (s *RESTSink) Apply(ctx context.Context, namespace, name string, data map[s
 	for k, v := range data {
 		encoded[k] = base64.StdEncoding.EncodeToString(v)
 	}
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"name":      name,
 		"namespace": namespace,
 		// Stamp ownership so orphan cleanup can find Secrets this agent created
 		// (and only those) via a label selector.
 		"labels": map[string]string{managedByLabel: managedByValue},
 	}
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"apiVersion": "v1",
 		"kind":       "Secret",
 		"metadata":   metadata,
@@ -226,11 +227,9 @@ func (s *RESTSink) Apply(ctx context.Context, namespace, name string, data map[s
 // SSA apply is always the FIRST and ONLY claimant of every key from creation onward —
 // no co-ownership possible, no special-casing needed for the "value never changed"
 // case.
-func (s *RESTSink) createSecret(ctx context.Context, namespace, name string, payload map[string]interface{}) error {
-	emptyDataPayload := make(map[string]interface{}, len(payload))
-	for k, v := range payload {
-		emptyDataPayload[k] = v
-	}
+func (s *RESTSink) createSecret(ctx context.Context, namespace, name string, payload map[string]any) error {
+	emptyDataPayload := make(map[string]any, len(payload))
+	maps.Copy(emptyDataPayload, payload)
 	emptyDataPayload["data"] = map[string]string{}
 
 	raw, err := json.Marshal(emptyDataPayload)
@@ -256,7 +255,7 @@ func (s *RESTSink) createSecret(ctx context.Context, namespace, name string, pay
 // applyOwnedSecret Server-Side-Applies payload (which must already carry
 // metadata.resourceVersion as an optimistic-concurrency precondition — see Apply) onto
 // a Secret this agent has already verified it owns.
-func (s *RESTSink) applyOwnedSecret(ctx context.Context, namespace, name string, payload map[string]interface{}) error {
+func (s *RESTSink) applyOwnedSecret(ctx context.Context, namespace, name string, payload map[string]any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("marshal secret %s/%s: %w", namespace, name, err)
@@ -334,7 +333,7 @@ func (s *RESTSink) Delete(ctx context.Context, namespace, name string) error {
 	if !owned {
 		return nil // gone, or no longer ours — must not delete
 	}
-	opts := map[string]interface{}{
+	opts := map[string]any{
 		"apiVersion":    "v1",
 		"kind":          "DeleteOptions",
 		"preconditions": map[string]string{"uid": uid, "resourceVersion": rv},

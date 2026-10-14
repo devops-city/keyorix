@@ -78,8 +78,7 @@ func Execute(args []string) int {
 	rootCmd.SetArgs(args)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		var ece *exitCodeError
-		if errors.As(err, &ece) {
+		if ece, ok := errors.AsType[*exitCodeError](err); ok {
 			return ece.code
 		}
 		return 1

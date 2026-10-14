@@ -80,7 +80,7 @@ func (f *pgFixture) logEvents(n int, age time.Duration) {
 	f.t.Helper()
 	base := time.Now().UTC().Add(-age).Truncate(time.Second)
 	tr := true
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f.nextID++
 		require.NoError(f.t, f.local.LogAuditEvent(f.ctx, &models.AuditEvent{
 			EventType:   "secret.read",

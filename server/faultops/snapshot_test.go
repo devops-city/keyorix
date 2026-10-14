@@ -33,8 +33,8 @@ import (
 // knows about" (CLAUDE.md). Excluding by type closes the whole class at once;
 // see timeFieldOverrides below for the (currently empty) escape hatch if a
 // future op ever needs to assert on a specific timestamp's VALUE.
-var timeType = reflect.TypeOf(time.Time{})
-var timePtrType = reflect.TypeOf(&time.Time{})
+var timeType = reflect.TypeFor[time.Time]()
+var timePtrType = reflect.TypeFor[*time.Time]()
 
 // timeFieldOverrides lists time.Time/*time.Time fields that ARE logically
 // meaningful and must NOT be excluded by the structural rule above — empty
@@ -218,14 +218,14 @@ func snapshotDB(db *gorm.DB) (dbSnapshot, error) {
 // unless overridden in timeFieldOverrides), a field in excludedFields is
 // dropped, a field in presenceOnlyFields becomes a boolean, everything else is
 // marshaled as-is.
-func canonicalRow(row interface{}) (string, error) {
+func canonicalRow(row any) (string, error) {
 	rv := reflect.ValueOf(row)
 	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	rt := rv.Type()
 
-	out := make(map[string]interface{}, rt.NumField())
+	out := make(map[string]any, rt.NumField())
 	for i := 0; i < rt.NumField(); i++ {
 		f := rt.Field(i)
 		if f.PkgPath != "" { // unexported

@@ -8,7 +8,7 @@ import (
 	"io"
 	"log"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -99,12 +99,12 @@ func (w *writeWorld) runWrites(t *testing.T, clients, perClient int) []writeOutc
 	var audits sync.WaitGroup
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for c := 0; c < clients; c++ {
+	for c := range clients {
 		wg.Add(1)
 		go func(c int) {
 			defer wg.Done()
 			<-start
-			for i := 0; i < perClient; i++ {
+			for i := range perClient {
 				name := fmt.Sprintf("s-%d-%d", c, i)
 				t0 := time.Now()
 				sec, err := w.c.CreateSecret(ctx, &core.CreateSecretRequest{
@@ -147,7 +147,7 @@ func summarizeOutcomes(os []writeOutcome) (errs int, p99, max time.Duration, fir
 		}
 		durs = append(durs, o.dur)
 	}
-	sort.Slice(durs, func(i, j int) bool { return durs[i] < durs[j] })
+	slices.Sort(durs)
 	return errs, durs[len(durs)*99/100], durs[len(durs)-1], firstErr
 }
 
@@ -309,10 +309,8 @@ func BenchmarkSQLiteConcurrentSecretWrites(b *testing.B) {
 				work := make(chan int)
 				var wg, audits sync.WaitGroup
 				b.ResetTimer()
-				for w := 0; w < clients; w++ {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
+				for range clients {
+					wg.Go(func() {
 						for i := range work {
 							name := fmt.Sprintf("b-%d", i)
 							t0 := time.Now()
@@ -331,7 +329,7 @@ func BenchmarkSQLiteConcurrentSecretWrites(b *testing.B) {
 							_, err = c.UpdateSecret(ctx, &core.UpdateSecretRequest{ID: sec.ID, Value: []byte("v2-" + name + "-Zq9!xR"), UpdatedBy: "bench"})
 							note(time.Since(t0), err)
 						}
-					}()
+					})
 				}
 				for i := 0; i < b.N; i++ {
 					work <- i

@@ -81,7 +81,7 @@ func (h *DashboardHandler) SendComplianceDigest(w http.ResponseWriter, r *http.R
 		sendError(w, "InternalServerError", "Failed to send compliance digest", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"sent": sent}, "")
+	sendSuccess(w, map[string]any{"sent": sent}, "")
 }
 
 // VerifyComplianceEvidence handles POST /api/v1/compliance/evidence/verify — checks
@@ -143,7 +143,7 @@ func (h *DashboardHandler) GetComplianceEvidence(w http.ResponseWriter, r *http.
 		sendError(w, "InternalServerError", "Failed to assemble compliance evidence", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"filename":  filename,
 		"data_b64":  base64.StdEncoding.EncodeToString(data),
 		"signature": signature,

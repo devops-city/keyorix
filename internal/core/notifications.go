@@ -24,7 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"sort"
+	"slices"
 
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -138,7 +138,7 @@ func (c *KeyorixCore) projectAdminRecipients(ctx context.Context, projectID uint
 			ids = append(ids, uid)
 		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return ids, errors.Join(errs...)
 }
 

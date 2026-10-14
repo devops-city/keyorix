@@ -44,5 +44,5 @@ func (h *SecretHandler) OwnershipHistory(w http.ResponseWriter, r *http.Request)
 	if records == nil {
 		records = []core.OwnershipRecord{}
 	}
-	h.sendSuccess(w, map[string]interface{}{"ownership_history": records, "total": len(records)}, "")
+	h.sendSuccess(w, map[string]any{"ownership_history": records, "total": len(records)}, "")
 }

@@ -55,7 +55,7 @@ func TestConcurrency_DecideAccessReviewItem_OnlyOneDecisionWins(t *testing.T) {
 	unexpected := make(chan error, reviewers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < reviewers; i++ {
+	for i := range reviewers {
 		wg.Add(1)
 		actorID := uint(100 + i) // distinct attributable human reviewers, none is the item's principal
 		go func(actorID uint) {

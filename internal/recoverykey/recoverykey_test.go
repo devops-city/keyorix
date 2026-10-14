@@ -21,7 +21,7 @@ func TestGenerate_CanonicalForm(t *testing.T) {
 
 func TestGenerate_NoImmediateCollisions(t *testing.T) {
 	seen := make(map[string]bool, 200)
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		key, err := Generate()
 		if err != nil {
 			t.Fatalf("Generate: %v", err)

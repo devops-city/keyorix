@@ -33,7 +33,7 @@ func TestRateLimit_BlocksAtBudgetAndExpiresWithWindow(t *testing.T) {
 	base := c.now()
 
 	// Below the budget: allowed.
-	for i := 0; i < LoginMaxAttempts-1; i++ {
+	for range LoginMaxAttempts - 1 {
 		c.RecordFailedLogin(ctx, "1.2.3.4")
 	}
 	assert.False(t, c.IsLoginRateLimited(ctx, "1.2.3.4"), "under budget is allowed")
@@ -54,7 +54,7 @@ func TestRateLimit_EmptyIPNeverLimited(t *testing.T) {
 	t.Parallel()
 	c, _ := newRateLimitCore(t)
 	ctx := context.Background()
-	for i := 0; i < LoginMaxAttempts+5; i++ {
+	for range LoginMaxAttempts + 5 {
 		c.RecordFailedLogin(ctx, "")
 	}
 	assert.False(t, c.IsLoginRateLimited(ctx, ""), "an empty IP is never rate-limited")
@@ -93,7 +93,7 @@ func TestRateLimit_CanonicalizesIPBeforeKeying(t *testing.T) {
 	ctx := context.Background()
 
 	// Reach the budget using the host:port form...
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		c.RecordFailedLogin(ctx, "203.0.113.9:5555")
 	}
 	// ...a bare-IP request from the SAME source (identical once canonicalized)
@@ -103,7 +103,7 @@ func TestRateLimit_CanonicalizesIPBeforeKeying(t *testing.T) {
 
 	// Two equivalent IPv6 textual forms must also share one bucket.
 	c2, _ := newRateLimitCore(t)
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		c2.RecordFailedLogin(ctx, "2001:0db8:0000:0000:0000:0000:0000:0001")
 	}
 	assert.True(t, c2.IsLoginRateLimited(ctx, "2001:db8::1"),
@@ -119,7 +119,7 @@ func TestRateLimit_SSOBegin_BlocksAtBudgetAndExpiresWithWindow(t *testing.T) {
 	ctx := context.Background()
 	base := c.now()
 
-	for i := 0; i < SSOBeginMaxAttempts-1; i++ {
+	for range SSOBeginMaxAttempts - 1 {
 		c.RecordSSOBeginAttempt(ctx, "1.2.3.4")
 	}
 	assert.False(t, c.IsSSOBeginRateLimited(ctx, "1.2.3.4"), "under budget is allowed")
@@ -137,7 +137,7 @@ func TestRateLimit_SSOBegin_EmptyIPNeverLimited(t *testing.T) {
 	t.Parallel()
 	c, _ := newRateLimitCore(t)
 	ctx := context.Background()
-	for i := 0; i < SSOBeginMaxAttempts+5; i++ {
+	for range SSOBeginMaxAttempts + 5 {
 		c.RecordSSOBeginAttempt(ctx, "")
 	}
 	assert.False(t, c.IsSSOBeginRateLimited(ctx, ""), "an empty IP is never rate-limited")
@@ -153,7 +153,7 @@ func TestRateLimit_SSOBegin_SharesLoginAttemptTableButOwnBudget(t *testing.T) {
 	c, _ := newRateLimitCore(t)
 	ctx := context.Background()
 
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		c.RecordFailedLogin(ctx, "1.2.3.4")
 	}
 	require.True(t, c.IsLoginRateLimited(ctx, "1.2.3.4"))
@@ -165,7 +165,7 @@ func TestRateLimit_PruneRemovesAgedRows(t *testing.T) {
 	c, setNow := newRateLimitCore(t)
 	ctx := context.Background()
 	base := c.now()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		c.RecordFailedLogin(ctx, "1.2.3.4")
 	}
 	// Move past the window and prune — aged rows are removed.

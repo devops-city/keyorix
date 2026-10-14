@@ -63,7 +63,7 @@ func rowFieldsToMarshal(row any) (map[string]any, error) {
 	return out, nil
 }
 
-var timeType = reflect.TypeOf(time.Time{})
+var timeType = reflect.TypeFor[time.Time]()
 
 // normalizeTimesToUTC returns v with every time.Time reachable through it
 // (directly, behind a pointer, or inside a struct such as sql.NullTime /

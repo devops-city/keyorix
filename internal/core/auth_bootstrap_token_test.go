@@ -113,7 +113,7 @@ func TestBootstrapSystem_ConcurrentCallsProduceExactlyOneAdmin(t *testing.T) {
 	var mu sync.Mutex
 	created := 0
 	errs := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

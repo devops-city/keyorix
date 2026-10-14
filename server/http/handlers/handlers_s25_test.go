@@ -175,7 +175,7 @@ func TestDynamic_ListConfigs_AdminHappyPath_S25(t *testing.T) {
 	h.ListConfigs(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -277,7 +277,7 @@ func TestExpiringSecrets_HappyPath_S25(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ExpiringSecrets(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -365,7 +365,7 @@ func TestOrphanedSecrets_HappyPath_S25(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.OrphanedSecrets(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -467,7 +467,7 @@ func TestListSharedSecrets_HappyPath_S25(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ListSharedSecrets(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -740,7 +740,7 @@ func TestUpdateUserRoles_ValidRole_S25(t *testing.T) {
 	var adminRole models.Role
 	require.NoError(t, db.Where("name = ?", "system_admin").First(&adminRole).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"role_ids": []uint{adminRole.ID}})
+	body, _ := json.Marshal(map[string]any{"role_ids": []uint{adminRole.ID}})
 	req := withUserCtx(withChiParam_S25(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/1/roles", bytes.NewReader(body)),
 		"id", uintStrS25(target.ID),

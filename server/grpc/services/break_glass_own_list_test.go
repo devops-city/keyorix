@@ -7,7 +7,7 @@ package services
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -26,7 +26,7 @@ func bgOwnIDs(resp *pb.ListBreakGlassActivationsResponse) []uint32 {
 	for _, a := range resp.GetActivations() {
 		out = append(out, a.GetId())
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 
@@ -63,7 +63,7 @@ func TestBreakGlassGRPC_OwnList(t *testing.T) {
 	bobP1 := activate(bob, 1, "BREAKGLASS-OWN-1 bob")
 
 	sorted := func(in ...uint32) []uint32 {
-		sort.Slice(in, func(i, j int) bool { return in[i] < in[j] })
+		slices.Sort(in)
 		return in
 	}
 

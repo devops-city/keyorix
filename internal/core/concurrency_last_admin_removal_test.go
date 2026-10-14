@@ -92,8 +92,7 @@ func TestConcurrency_RemoveUserRole_RepeatedPairsNeverStrandInstall(t *testing.T
 	require.NoError(t, i18n.InitializeForTesting())
 
 	const trials = 8
-	for trial := 0; trial < trials; trial++ {
-		trial := trial
+	for trial := range trials {
 		t.Run(fmt.Sprintf("trial-%d", trial), func(t *testing.T) {
 			dsn := "file:" + filepath.Join(t.TempDir(), "c.db") + "?_busy_timeout=10000&_journal_mode=WAL&_txlock=immediate"
 			db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})

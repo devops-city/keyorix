@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"testing"
 
@@ -98,7 +99,7 @@ func shareIDs(views []core.ShareView) []uint {
 	for _, v := range views {
 		out = append(out, v.ID)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 
@@ -169,7 +170,7 @@ func TestOwnedShares_SameShapeAndPagingAsGlobalList(t *testing.T) {
 		assert.Equal(t, 2, out.Data.TotalPages)
 		seen = append(seen, shareIDs(out.Data.Data)...)
 	}
-	sort.Slice(seen, func(i, j int) bool { return seen[i] < seen[j] })
+	slices.Sort(seen)
 	assert.Equal(t, []uint{f.olgaShareP, f.olgaSharePayments}, seen, "pages must partition the result")
 
 	_, out, raw := f.owned(t, f.ownerTok, "?recipientType=group")
@@ -283,7 +284,7 @@ func TestOwnedShares_PATRestrictionNarrowsTheList(t *testing.T) {
 		return res.PlainToken
 	}
 	all := []uint{f.olgaShareP, f.olgaSharePayments, olgaShareStage}
-	sort.Slice(all, func(i, j int) bool { return all[i] < all[j] })
+	slices.Sort(all)
 
 	cases := []struct {
 		name string

@@ -36,7 +36,7 @@ import (
 // regardless of (issuer, kid) -- sufficient for a test with a single signer.
 type staticJWKSResolver struct{ key *rsa.PublicKey }
 
-func (s staticJWKSResolver) Key(_ context.Context, _, _ string) (interface{}, error) {
+func (s staticJWKSResolver) Key(_ context.Context, _, _ string) (any, error) {
 	return s.key, nil
 }
 

@@ -216,7 +216,7 @@ func TestRevokeAllLeases_Success_S20(t *testing.T) {
 func TestCreateUserWithOTP_Success_S20(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-success-s20",
 		"email":                      "otp-success-s20@x.com",
 		"display_name":               "OTP Success S20",
@@ -252,7 +252,7 @@ func TestCreateUserWithSetupLink_Conflict_S20(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now attempt to create the same user via the handler.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-conflict-s20",
 		"email":              "setup-conflict-s20@x.com",
 		"display_name":       "Setup Conflict S20",
@@ -273,7 +273,7 @@ func TestCreateUserWithSetupLink_ValidationError_S20(t *testing.T) {
 	cs.SetCredentialDelivery(nil, "https://test-s20.keyorix.example")
 
 	// Empty username will fail core validation.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "",
 		"email":              "setup-invalid-s20@x.com",
 		"display_name":       "Setup Invalid S20",

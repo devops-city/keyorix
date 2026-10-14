@@ -41,7 +41,7 @@ func secretTemplateTestSetup(t *testing.T) (*httptest.Server, string) {
 }
 
 // stBody marshals v to a JSON reader; panics on error (test helper).
-func stBody(t *testing.T, v interface{}) *bytes.Reader {
+func stBody(t *testing.T, v any) *bytes.Reader {
 	t.Helper()
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func stReq(t *testing.T, method, url, token string, body *bytes.Reader) *http.Re
 // createTestTemplate creates a template via POST and returns its float64 ID.
 func createTestTemplate(t *testing.T, srv *httptest.Server, token string, name string) float64 {
 	t.Helper()
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"name":                   name,
 		"description":            "test template",
 		"default_classification": "internal",
@@ -83,9 +83,9 @@ func createTestTemplate(t *testing.T, srv *httptest.Server, token string, name s
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
 	id, ok := data["id"].(float64)
 	require.True(t, ok)
@@ -98,7 +98,7 @@ func TestSecretTemplateCreate_Success(t *testing.T) {
 	srv, token := secretTemplateTestSetup(t)
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost, srv.URL+"/api/v1/secret-templates", token,
-		stBody(t, map[string]interface{}{
+		stBody(t, map[string]any{
 			"name":                   "db-prod",
 			"description":            "Production DB secrets",
 			"default_classification": "confidential",
@@ -111,9 +111,9 @@ func TestSecretTemplateCreate_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "db-prod", data["name"])
 	assert.Equal(t, "confidential", data["default_classification"])
@@ -124,7 +124,7 @@ func TestSecretTemplateCreate_EmptyName_Returns400(t *testing.T) {
 	srv, token := secretTemplateTestSetup(t)
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost, srv.URL+"/api/v1/secret-templates", token,
-		stBody(t, map[string]interface{}{"name": "  "}),
+		stBody(t, map[string]any{"name": "  "}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -136,7 +136,7 @@ func TestSecretTemplateCreate_InvalidClassification_Returns400(t *testing.T) {
 	srv, token := secretTemplateTestSetup(t)
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost, srv.URL+"/api/v1/secret-templates", token,
-		stBody(t, map[string]interface{}{
+		stBody(t, map[string]any{
 			"name":                   "tpl",
 			"default_classification": "TOPSECRET",
 		}),
@@ -173,11 +173,11 @@ func TestSecretTemplateList_Empty(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok)
-	templates, ok := data["templates"].([]interface{})
+	templates, ok := data["templates"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, templates)
 }
@@ -194,10 +194,10 @@ func TestSecretTemplateList_WithTemplates(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
-	templates := data["templates"].([]interface{})
+	data := body["data"].(map[string]any)
+	templates := data["templates"].([]any)
 	assert.Len(t, templates, 2)
 }
 
@@ -215,9 +215,9 @@ func TestSecretTemplateGet_Found(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.Equal(t, "get-me", data["name"])
 }
 
@@ -252,7 +252,7 @@ func TestSecretTemplateUpdate_Success(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPut,
 		fmt.Sprintf("%s/api/v1/secret-templates/%d", srv.URL, int(id)), token,
-		stBody(t, map[string]interface{}{
+		stBody(t, map[string]any{
 			"name":                   "updated-name",
 			"default_classification": "restricted",
 			"rotation_hint_days":     60,
@@ -263,9 +263,9 @@ func TestSecretTemplateUpdate_Success(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.Equal(t, "updated-name", data["name"])
 	assert.Equal(t, "restricted", data["default_classification"])
 }
@@ -275,7 +275,7 @@ func TestSecretTemplateUpdate_NotFound(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPut,
 		srv.URL+"/api/v1/secret-templates/9999", token,
-		stBody(t, map[string]interface{}{"name": "x"}),
+		stBody(t, map[string]any{"name": "x"}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -303,7 +303,7 @@ func TestSecretTemplateUpdate_InvalidID(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPut,
 		srv.URL+"/api/v1/secret-templates/bad", token,
-		stBody(t, map[string]interface{}{"name": "x"}),
+		stBody(t, map[string]any{"name": "x"}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -318,7 +318,7 @@ func TestSecretTemplateUpdate_InvalidClassification(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPut,
 		fmt.Sprintf("%s/api/v1/secret-templates/%d", srv.URL, int(id)), token,
-		stBody(t, map[string]interface{}{
+		stBody(t, map[string]any{
 			"name":                   "cls-test",
 			"default_classification": "ultra-secret",
 		}),
@@ -380,7 +380,7 @@ func TestSecretTemplateApply_EmptyRequest_GetsDefaults(t *testing.T) {
 
 	// Create template with defaults.
 	resp0, err := http.DefaultClient.Do(stReq(t, http.MethodPost, srv.URL+"/api/v1/secret-templates", token,
-		stBody(t, map[string]interface{}{
+		stBody(t, map[string]any{
 			"name":                   "apply-tpl",
 			"default_classification": "internal",
 			"default_tags":           "db,prod",
@@ -388,24 +388,24 @@ func TestSecretTemplateApply_EmptyRequest_GetsDefaults(t *testing.T) {
 		}),
 	))
 	require.NoError(t, err)
-	var createBody map[string]interface{}
+	var createBody map[string]any
 	require.NoError(t, json.NewDecoder(resp0.Body).Decode(&createBody))
 	_ = resp0.Body.Close()
-	id := int(createBody["data"].(map[string]interface{})["id"].(float64))
+	id := int(createBody["data"].(map[string]any)["id"].(float64))
 
 	// Apply with empty overrides → should receive template defaults.
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost,
 		fmt.Sprintf("%s/api/v1/secret-templates/%d/apply", srv.URL, id), token,
-		stBody(t, map[string]interface{}{}),
+		stBody(t, map[string]any{}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.Equal(t, "internal", data["classification"])
 	assert.Equal(t, "hint text", data["description"])
 }
@@ -417,7 +417,7 @@ func TestSecretTemplateApply_CallerOverridesPreserved(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost,
 		fmt.Sprintf("%s/api/v1/secret-templates/%d/apply", srv.URL, int(id)), token,
-		stBody(t, map[string]interface{}{
+		stBody(t, map[string]any{
 			"classification": "confidential",
 			"description":    "my description",
 			"tags":           []string{"custom"},
@@ -428,9 +428,9 @@ func TestSecretTemplateApply_CallerOverridesPreserved(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.Equal(t, "confidential", data["classification"])
 	assert.Equal(t, "my description", data["description"])
 }
@@ -440,7 +440,7 @@ func TestSecretTemplateApply_NotFound(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost,
 		srv.URL+"/api/v1/secret-templates/9999/apply", token,
-		stBody(t, map[string]interface{}{}),
+		stBody(t, map[string]any{}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -468,7 +468,7 @@ func TestSecretTemplateApply_InvalidID(t *testing.T) {
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost,
 		srv.URL+"/api/v1/secret-templates/bad/apply", token,
-		stBody(t, map[string]interface{}{}),
+		stBody(t, map[string]any{}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -555,7 +555,7 @@ func TestSecretTemplateCreate_StorageError(t *testing.T) {
 	srv, token := secretTemplateBrokenDBSetup(t)
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost, srv.URL+"/api/v1/secret-templates", token,
-		stBody(t, map[string]interface{}{"name": "tpl"}),
+		stBody(t, map[string]any{"name": "tpl"}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -577,7 +577,7 @@ func TestSecretTemplateUpdate_StorageError(t *testing.T) {
 	srv, token := secretTemplateBrokenDBSetup(t)
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPut, srv.URL+"/api/v1/secret-templates/1", token,
-		stBody(t, map[string]interface{}{"name": "x"}),
+		stBody(t, map[string]any{"name": "x"}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
@@ -599,7 +599,7 @@ func TestSecretTemplateApply_StorageError(t *testing.T) {
 	srv, token := secretTemplateBrokenDBSetup(t)
 
 	resp, err := http.DefaultClient.Do(stReq(t, http.MethodPost, srv.URL+"/api/v1/secret-templates/1/apply", token,
-		stBody(t, map[string]interface{}{}),
+		stBody(t, map[string]any{}),
 	))
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()

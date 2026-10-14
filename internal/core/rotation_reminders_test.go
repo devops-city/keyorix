@@ -106,7 +106,7 @@ func TestHasUnreadRotationReminder_NotBuriedByNotificationVolume(t *testing.T) {
 		Severity: models.NotificationSeverityCritical,
 		IsRead:   false, CreatedAt: now.Add(-24 * time.Hour),
 	}).Error)
-	for i := 0; i < 150; i++ {
+	for i := range 150 {
 		require.NoError(t, db.Create(&models.Notification{
 			UserID: 5, ProjectID: &pid, Type: NotificationAccessRequested,
 			Title: "Unrelated", Message: "noise",

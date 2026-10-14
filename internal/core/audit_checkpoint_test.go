@@ -36,7 +36,7 @@ func logEvents(t *testing.T, c *KeyorixCore, n int) {
 	// recomputed entry hash flaky).
 	base := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
 	tr := true
-	for i := 0; i < n; i++ {
+	for i := range n {
 		require.NoError(t, c.storage.LogAuditEvent(context.Background(), &models.AuditEvent{
 			EventType:   "secret.read",
 			Description: fmt.Sprintf("event %d", i),

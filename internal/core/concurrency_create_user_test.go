@@ -50,7 +50,7 @@ func TestConcurrency_CreateUser_NoDuplicateEmail(t *testing.T) {
 	start := make(chan struct{})
 	errs := make([]error, attackers)
 	var wg sync.WaitGroup
-	for i := 0; i < attackers; i++ {
+	for i := range attackers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

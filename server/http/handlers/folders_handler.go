@@ -34,7 +34,7 @@ func NewFolderHandler(coreService *core.KeyorixCore) *FolderHandler {
 	}
 }
 
-func (h *FolderHandler) sendSuccess(w http.ResponseWriter, data interface{}, message string) {
+func (h *FolderHandler) sendSuccess(w http.ResponseWriter, data any, message string) {
 	w.Header().Set(hdrContentType, mimeApplicationJSON)
 	w.Header().Set(hdrXContentTypeOptions, "nosniff")
 	if err := encodeJSONResponse(w, SuccessResponse{Success: true, Data: data, Message: message}); err != nil {
@@ -43,7 +43,7 @@ func (h *FolderHandler) sendSuccess(w http.ResponseWriter, data interface{}, mes
 	}
 }
 
-func (h *FolderHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details interface{}) {
+func (h *FolderHandler) sendError(w http.ResponseWriter, errorType, message string, statusCode int, details any) {
 	w.Header().Set(hdrContentType, mimeApplicationJSON)
 	w.Header().Set(hdrXContentTypeOptions, "nosniff")
 	w.WriteHeader(statusCode)

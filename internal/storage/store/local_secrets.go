@@ -174,7 +174,7 @@ func (ls *LocalStorage) GetProjectByName(ctx context.Context, name string) (*mod
 // GORM adds `deleted_at IS NULL` for this soft-delete model, which is the clause
 // that stops the resurrection.
 func (ls *LocalStorage) UpdateProjectFields(ctx context.Context, id uint, name, description string, requireMFA *bool, updatedAt time.Time) (bool, error) {
-	cols := map[string]interface{}{
+	cols := map[string]any{
 		"name":        name,
 		"description": description,
 		"updated_at":  updatedAt,
@@ -826,7 +826,7 @@ func (ls *LocalStorage) UpdateSecret(ctx context.Context, secret *models.SecretN
 // SecretNode.BeforeSave, which exists precisely to keep that column canonical
 // (G81, INV-STORE-19) for the read paths that range-query it in SQL.
 func (ls *LocalStorage) UpdateSecretFields(ctx context.Context, id uint, f storage.SecretFieldUpdate) (bool, error) {
-	cols := map[string]interface{}{}
+	cols := map[string]any{}
 	if f.Name != nil {
 		cols["name"] = *f.Name
 	}
@@ -927,7 +927,7 @@ func (ls *LocalStorage) TransitionSecretStatus(ctx context.Context, secret *mode
 func (ls *LocalStorage) UpdateSecretRotationConfig(ctx context.Context, secret *models.SecretNode, fromBackend string) (bool, error) {
 	res := ls.db.WithContext(ctx).Model(&models.SecretNode{}).
 		Where("id = ? AND project_id = ? AND rotation_backend = ?", secret.ID, secret.ProjectID, fromBackend).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"auto_rotate":      secret.AutoRotate,
 			"rotation_length":  secret.RotationLength,
 			"rotation_charset": secret.RotationCharset,

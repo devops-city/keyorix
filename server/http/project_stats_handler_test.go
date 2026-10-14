@@ -33,9 +33,9 @@ func TestGetProjectStats_EmptyProject(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "expected data object in response")
 	assert.Contains(t, data, "total_secrets")
 	assert.Contains(t, data, "active_secrets")
@@ -56,7 +56,7 @@ func TestGetProjectStats_WithSecrets(t *testing.T) {
 	client := &http.Client{}
 	createSecret := func(name string) {
 		t.Helper()
-		payload, _ := json.Marshal(map[string]interface{}{
+		payload, _ := json.Marshal(map[string]any{
 			"name":           name,
 			"value":          "secret-value",
 			"project_id":     1,
@@ -85,9 +85,9 @@ func TestGetProjectStats_WithSecrets(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "expected data object in response")
 
 	totalSecrets, ok := data["total_secrets"].(float64)
@@ -115,9 +115,9 @@ func TestGetProjectStats_ResponseShape(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "expected data object in response")
 
 	expectedFields := []string{

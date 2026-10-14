@@ -248,7 +248,7 @@ func TestApplyAnomalyConfig_HotloadDoesNotDuplicateAuditOnUnchangedConfig(t *tes
 
 	// Simulate five consecutive scheduler ticks hot-loading the same persisted
 	// config, as server/main.go's runScheduler loop does every scan interval.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		require.NoError(t, c.ApplyAnomalyConfig(ctx, detector))
 	}
 

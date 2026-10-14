@@ -43,7 +43,7 @@ func TestConcurrency_BootstrapSystem_CrossReplicaPostgres_ExactlyOneAdmin(t *tes
 	const callsPerReplica = 4
 
 	cores := make([]*KeyorixCore, replicas)
-	for i := 0; i < replicas; i++ {
+	for i := range replicas {
 		db := pgOpen(t, dsn)
 		require.NoError(t, db.AutoMigrate(
 			&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
@@ -64,8 +64,8 @@ func TestConcurrency_BootstrapSystem_CrossReplicaPostgres_ExactlyOneAdmin(t *tes
 	}
 	results := make(chan outcome, replicas*callsPerReplica)
 	n := 0
-	for r := 0; r < replicas; r++ {
-		for i := 0; i < callsPerReplica; i++ {
+	for r := range replicas {
+		for range callsPerReplica {
 			n++
 			wg.Add(1)
 			go func(c *KeyorixCore, idx int) {

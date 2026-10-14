@@ -149,7 +149,6 @@ func TestClassificationGate_OnAndApproved_Succeeds(t *testing.T) {
 func TestClassificationGate_LowerTierNeverGated(t *testing.T) {
 	t.Parallel()
 	for _, level := range []string{ClassificationPublic, ClassificationInternal, ClassificationConfidential, ""} {
-		level := level
 		t.Run("classification="+level, func(t *testing.T) {
 			c, st := newBootstrappedCore(t)
 			secretID, requesterID, _, _ := seedClassificationGateFixture(t, st, level)
@@ -336,7 +335,6 @@ func TestClassificationPermissionGate_On_ExplicitGrantAllowed(t *testing.T) {
 func TestClassificationPermissionGate_On_LowerTierUnaffected(t *testing.T) {
 	t.Parallel()
 	for _, level := range []string{ClassificationPublic, ClassificationInternal, ClassificationConfidential, ""} {
-		level := level
 		t.Run("classification="+level, func(t *testing.T) {
 			c, st := newBootstrappedCore(t)
 			secretID, ownerID, _, _ := seedClassificationGateFixture(t, st, level)
@@ -445,7 +443,6 @@ func TestClassificationMFAStepUp_On_ExpiredToken_Denied(t *testing.T) {
 func TestClassificationMFAStepUp_On_LowerTierUnaffected(t *testing.T) {
 	t.Parallel()
 	for _, level := range []string{ClassificationPublic, ClassificationInternal, ClassificationConfidential, ""} {
-		level := level
 		t.Run("classification="+level, func(t *testing.T) {
 			c, st := newBootstrappedCore(t)
 			secretID, ownerID, _, _ := seedClassificationGateFixture(t, st, level)

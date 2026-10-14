@@ -70,8 +70,7 @@ func TestLockedRun_S23_LockAcquisitionError(t *testing.T) {
 // exit or panic.
 func TestRunScheduler_S23_FailureOutcome(t *testing.T) {
 	var ticks atomic.Int32
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	runScheduler(ctx, "test-failure-outcome", 10*time.Millisecond, func() middleware.SchedulerOutcome {
 		ticks.Add(1)

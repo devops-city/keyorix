@@ -91,7 +91,7 @@ func (ls *LocalStorage) GetUnreadNotification(ctx context.Context, userID uint, 
 func (ls *LocalStorage) UpdateNotification(ctx context.Context, n *models.Notification) error {
 	res := ls.db.WithContext(ctx).Model(&models.Notification{}).
 		Where("id = ? AND user_id = ?", n.ID, n.UserID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"title":    n.Title,
 			"message":  n.Message,
 			"severity": n.Severity,

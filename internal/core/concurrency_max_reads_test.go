@@ -49,10 +49,8 @@ func TestConcurrency_MaxReads_FullReadPathEnforcesCap(t *testing.T) {
 	unexpected := make(chan error, readers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
 			val, gerr := c.GetSecretValue(ctx, sec.ID)
 			if gerr != nil {
@@ -64,7 +62,7 @@ func TestConcurrency_MaxReads_FullReadPathEnforcesCap(t *testing.T) {
 				return
 			}
 			succeeded.Add(1)
-		}()
+		})
 	}
 	close(start) // release all readers simultaneously
 	wg.Wait()

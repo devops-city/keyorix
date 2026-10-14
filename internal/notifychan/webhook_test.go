@@ -175,7 +175,7 @@ func TestWebhookSink_DropsAndCountsWhenQueueFull(t *testing.T) {
 
 	// One event wedges the worker; the buffered queue holds webhookQueueSize more;
 	// everything past that is dropped (and counted) rather than blocking the caller.
-	for i := 0; i < webhookQueueSize+5; i++ {
+	for range webhookQueueSize + 5 {
 		sink.Deliver(core.NotificationEvent{UserID: 1, Type: "x"})
 	}
 	dropped := testutil.ToFloat64(notifyDeliveries.WithLabelValues("webhook", outcomeDropped)) - droppedBefore

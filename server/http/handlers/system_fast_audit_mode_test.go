@@ -35,9 +35,9 @@ func TestMakeSystemInfoHandler_AuditDurableSyncSkippedReflectsConfig(t *testing.
 	MakeSystemInfoHandler(cfg, freshCoreS12(t))(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	security := resp["data"].(map[string]interface{})["security"].(map[string]interface{})
+	security := resp["data"].(map[string]any)["security"].(map[string]any)
 	val, present := security["audit_durable_sync_skipped"]
 	require.True(t, present,
 		"GET /system/info's security block must carry audit_durable_sync_skipped -- it is the one place "+
@@ -57,9 +57,9 @@ func TestMakeSystemInfoHandler_AuditDurableSyncSkippedReflectsConfig(t *testing.
 	rr2 := httptest.NewRecorder()
 	MakeSystemInfoHandler(&config.Config{}, freshCoreS12(t))(rr2,
 		userCtxForTest(httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)))
-	var resp2 map[string]interface{}
+	var resp2 map[string]any
 	require.NoError(t, json.NewDecoder(rr2.Body).Decode(&resp2))
-	security2 := resp2["data"].(map[string]interface{})["security"].(map[string]interface{})
+	security2 := resp2["data"].(map[string]any)["security"].(map[string]any)
 	val2, present2 := security2["audit_durable_sync_skipped"]
 	require.True(t, present2, "audit_durable_sync_skipped must always be present, not omitted when false")
 	assert.False(t, val2.(bool), "audit_durable_sync_skipped must default to false")

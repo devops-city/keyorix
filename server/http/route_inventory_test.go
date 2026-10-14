@@ -73,7 +73,7 @@ func routeInventoryFeatureGroup(pattern string) string {
 	if trimmed == "" {
 		return "root"
 	}
-	seg := strings.SplitN(trimmed, "/", 2)[0]
+	seg, _, _ := strings.Cut(trimmed, "/")
 	if seg == "" {
 		return "root"
 	}

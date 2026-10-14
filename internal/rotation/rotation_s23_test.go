@@ -524,7 +524,6 @@ func TestAzure_S23_GenerateUpstream_MetacharRefs(t *testing.T) {
 		{"app-guid%2F", "percent-encoded"},
 	}
 	for _, tc := range metacharRefs {
-		tc := tc
 		t.Run(tc.desc, func(t *testing.T) {
 			e := NewAzureAppSecretExecutor("azure-s23-"+tc.desc, []string{"app-"})
 			e.newClient = func(context.Context) (azureGraphAPI, error) {

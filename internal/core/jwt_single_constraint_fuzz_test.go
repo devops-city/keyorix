@@ -237,7 +237,7 @@ func signJWTViolation(t *testing.T, kind jwtViolationKind, claims jwt.MapClaims,
 	t.Helper()
 	kid := trustedKid
 	var method jwt.SigningMethod = jwt.SigningMethodRS256
-	var signingKey interface{} = rsaKey
+	var signingKey any = rsaKey
 
 	switch kind {
 	case jwtViolationKidMissing:

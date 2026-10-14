@@ -105,7 +105,7 @@ func TestUpdateUser_DeactivatingAnAdminIsSafeWhileAnotherAdminSurvives(t *testin
 	const actorID = uint(9001)
 	seedGlobalBypassActor(t, db, "custom_bypass_role", "bypassactor", actorID)
 
-	body, err := json.Marshal(map[string]interface{}{"active": false})
+	body, err := json.Marshal(map[string]any{"active": false})
 	require.NoError(t, err)
 	req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(target.ID)})
 	req = req.WithContext(context.WithValue(req.Context(), middleware.GetUserContextKey(), actorCtx(actorID, "bypassactor")))
@@ -167,7 +167,7 @@ func TestUpdateUser_CeilingAlreadyGuaranteesASurvivingAdminHolder(t *testing.T) 
 		"of this test's premise is being exercised")
 
 	deactivate := func(actorID uint, username string) *httptest.ResponseRecorder {
-		body, merr := json.Marshal(map[string]interface{}{"active": false})
+		body, merr := json.Marshal(map[string]any{"active": false})
 		require.NoError(t, merr)
 		req := withChiParams(httptest.NewRequest("PUT", "/", bytes.NewReader(body)), map[string]string{"id": machineUintToStr(target.ID)})
 		req = req.WithContext(context.WithValue(req.Context(), middleware.GetUserContextKey(), actorCtx(actorID, username)))

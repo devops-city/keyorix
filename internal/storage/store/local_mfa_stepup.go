@@ -31,7 +31,7 @@ func (ls *LocalStorage) UpsertMFAStepupToken(ctx context.Context, userID uint, e
 	tok := &models.MFAStepupToken{UserID: userID, ExpiresAt: expiresAt}
 	return ls.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{"expires_at": expiresAt}),
+		DoUpdates: clause.Assignments(map[string]any{"expires_at": expiresAt}),
 	}).Create(tok).Error
 }
 

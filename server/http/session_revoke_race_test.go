@@ -177,15 +177,13 @@ func TestSessionRevoke_ConcurrentRevokeDoesNotResurrectCachedAuth(t *testing.T) 
 	t.Cleanup(func() { core.SetTestRevokeUserSessionsPreInvalidateHook(nil) })
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		// Revoke A: lists [T], DELETEs it (commits), then pauses in the hook above
 		// before calling invalidateTokenCache.
 		if _, err := c.RevokeUserSessions(ctx, admin.ID, victim.ID); err != nil {
 			t.Errorf("revoke A: %v", err)
 		}
-	}()
+	})
 
 	<-reachedHook // A's DELETE has committed; A is now paused before its invalidate.
 

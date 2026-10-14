@@ -51,8 +51,7 @@ func TestStartSchedulers_MFAStepUpGrantPrune_RemovesExpiredRow(t *testing.T) {
 		t.Fatalf("seed unexpired grant: %v", err)
 	}
 
-	schedCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	schedCtx := t.Context()
 	startSchedulersForTest(t, schedCtx, cfg, coreService)
 
 	// startSchedulers only wires up the scheduler goroutines and returns

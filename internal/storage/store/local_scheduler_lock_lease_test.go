@@ -131,7 +131,7 @@ func TestTryAcquireSchedulerLock_ConcurrentFirstAcquireHasExactlyOneWinner(t *te
 	var mu sync.Mutex
 	winners := 0
 	start := make(chan struct{})
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

@@ -44,18 +44,16 @@ func TestSecureWriteFileSync_TOCTOUIntermediateComponentSymlinkNeverFollowed(t *
 	relPath := filepath.Join("tenant", "secret.bin")
 
 	const iterations = 4000
-	var stop int32
+	var stop atomic.Int32
 
 	// require/assert's fatal helpers are documented as unsafe from a non-test goroutine;
 	// this goroutine only performs best-effort filesystem toggling, so errors are simply
 	// ignored (a failed Remove/Symlink just means that iteration doesn't hit the race
 	// window, which does not invalidate the test).
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer atomic.StoreInt32(&stop, 1)
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		defer stop.Store(1)
+		for range iterations {
 			// State A: "tenant" does not exist — the precondition the containment
 			// check's "longest existing ancestor" logic requires to pass through the
 			// not-yet-existing tail unresolved.
@@ -66,9 +64,9 @@ func TestSecureWriteFileSync_TOCTOUIntermediateComponentSymlinkNeverFollowed(t *
 			_ = os.Symlink(outside, tenantPath)
 		}
 		_ = os.Remove(tenantPath)
-	}()
+	})
 
-	for atomic.LoadInt32(&stop) == 0 {
+	for stop.Load() == 0 {
 		// Either outcome is acceptable here — ENOENT (tenant absent), access-denied
 		// (tenant existed as a symlink at check time, caught by the pre-check), or a
 		// refused-symlink error from the open walk. The only unacceptable outcome is
@@ -92,21 +90,19 @@ func TestSecureWriteFile_TOCTOUIntermediateComponentSymlinkNeverFollowed(t *test
 	relPath := filepath.Join("tenant", "secret.bin")
 
 	const iterations = 4000
-	var stop int32
+	var stop atomic.Int32
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer atomic.StoreInt32(&stop, 1)
-		for i := 0; i < iterations; i++ {
+	wg.Go(func() {
+		defer stop.Store(1)
+		for range iterations {
 			_ = os.Remove(tenantPath)
 			_ = os.Symlink(outside, tenantPath)
 		}
 		_ = os.Remove(tenantPath)
-	}()
+	})
 
-	for atomic.LoadInt32(&stop) == 0 {
+	for stop.Load() == 0 {
 		_ = SecureWriteFile(base, relPath, []byte("tenant-secret-bytes"), 0600)
 	}
 	wg.Wait()

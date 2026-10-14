@@ -72,6 +72,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -428,12 +429,7 @@ func (e writeExemption) principalAllowed(principal string) bool {
 	if len(e.principals) == 0 {
 		return true
 	}
-	for _, p := range e.principals {
-		if p == principal {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(e.principals, principal)
 }
 
 // allows reports whether this entry exempts event on its own, WITHOUT
@@ -451,12 +447,7 @@ func (e writeExemption) allows(event string) bool {
 	if len(e.events) == 0 {
 		return true
 	}
-	for _, ev := range e.events {
-		if ev == event {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(e.events, event)
 }
 
 // exemptOnlyEvent is a synthetic event name (never a real SQLite statement
@@ -537,11 +528,11 @@ var writeCountEvents = []string{"INSERT", "UPDATE", "DELETE"}
 func counterKey(table, event string) string { return table + ":" + event }
 
 func splitCounterKey(key string) (table, event string) {
-	i := strings.LastIndex(key, ":")
-	if i < 0 {
+	before, after, ok := strings.CutLast(key, ":")
+	if !ok {
 		return key, ""
 	}
-	return key[:i], key[i+1:]
+	return before, after
 }
 
 // discoverAllTables introspects sqlite_master for every real table the live

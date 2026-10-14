@@ -51,7 +51,7 @@ func newRoleExpiryEnv(t *testing.T) *roleExpiryTestEnv {
 
 // postRoleExpiryCheck POSTs to the role-expiry-check endpoint and returns
 // the status code plus the parsed data map.
-func postRoleExpiryCheck(t *testing.T, env *roleExpiryTestEnv, authHeader string) (int, map[string]interface{}) {
+func postRoleExpiryCheck(t *testing.T, env *roleExpiryTestEnv, authHeader string) (int, map[string]any) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, env.server.URL+"/api/v1/admin/jobs/role-expiry-check", nil)
 	require.NoError(t, err)
@@ -66,7 +66,7 @@ func postRoleExpiryCheck(t *testing.T, env *roleExpiryTestEnv, authHeader string
 	require.NoError(t, err)
 
 	var envelope struct {
-		Data map[string]interface{} `json:"data"`
+		Data map[string]any `json:"data"`
 	}
 	if resp.StatusCode == http.StatusOK {
 		require.NoError(t, json.Unmarshal(body, &envelope))

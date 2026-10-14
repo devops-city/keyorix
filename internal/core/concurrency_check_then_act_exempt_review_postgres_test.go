@@ -209,7 +209,7 @@ func (f *ctaReview) afterA(kind, table string, concurrent func()) (fired func() 
 	return func() bool { return hit }
 }
 
-func (f *ctaReview) countLive(model interface{}, where string, args ...interface{}) int64 {
+func (f *ctaReview) countLive(model any, where string, args ...any) int64 {
 	f.t.Helper()
 	var n int64
 	require.NoError(f.t, f.setupDB.Unscoped().Model(model).Where(where, args...).Count(&n).Error)

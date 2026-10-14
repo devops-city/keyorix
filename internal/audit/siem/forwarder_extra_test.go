@@ -40,7 +40,7 @@ func TestForwarder_Dropped(t *testing.T) {
 	fw, err := newForwarder(Config{Enabled: true, Provider: ProviderWebhook, Endpoint: srv.URL}, time.Millisecond)
 	require.NoError(t, err)
 
-	for i := 0; i < queueSize+numWorkers+5; i++ {
+	for range queueSize + numWorkers + 5 {
 		fw.Forward(sampleEvent())
 	}
 	assert.Greater(t, fw.Dropped(), int64(0))
@@ -120,7 +120,7 @@ func TestNewForwarder_WithSpoolDir(t *testing.T) {
 	}, time.Millisecond)
 	require.NoError(t, err)
 
-	for i := 0; i < queueSize+numWorkers+10; i++ {
+	for range queueSize + numWorkers + 10 {
 		f.Forward(sampleEvent())
 	}
 	close(release)

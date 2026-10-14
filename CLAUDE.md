@@ -459,6 +459,26 @@ It is generated: **on a merge conflict take main's version, then run
 `TestFaultyStorageGenerated_IsFresh` (default `go test`, so CI) fails on any drift.
 `.gitattributes` marks it `linguist-generated=true merge=ours`.
 
+## Modern Go
+
+Before editing a Go file, list the modern-Go guidelines that apply to it (no
+truncation of the output):
+
+```
+go run github.com/JetBrains/go-modern-guidelines@v0.1.1 list --file-path <file>
+```
+
+Follow the applicable guidelines unless they would not compile or would change
+behaviour; run `... explain <id>` (same command, `explain` instead of `list`)
+when unsure. Existing code is not rewritten by hand: the `modernize` golangci-lint
+linter (`.golangci.yml`) enforces the mechanical subset. Three modernize
+analyzers are deliberately off there (`embedlit`, `stringsbuilder`, `newexpr`),
+so do not introduce promoted-field literals, `new(x)` pointer-helper rewrites or
+`strings.Builder` churn just because a guideline mentions them. In a sandboxed
+session the Go sum database cache is read-only; run with
+`GOPATH=<workspace>/.gopath GOMODCACHE=$HOME/go/pkg/mod` set. Guidelines:
+JetBrains, Apache-2.0 (github.com/JetBrains/go-modern-guidelines).
+
 ## Code-scanning alerts
 
 A confirmed false positive is **dismissed**, never silenced by editing the

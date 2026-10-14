@@ -32,44 +32,44 @@ func TestConcurrency_WithSchedulerLock_MultiInstancePostgres_ExactlyOneRunsAtOnc
 	const key = 0x5343484544 // arbitrary, namespaced to this test
 
 	stores := make([]*LocalStorage, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		stores[i] = NewLocalStorage(pgOpen(t, dsn))
 	}
 
-	var running int32
-	var maxConcurrent int32
-	var acquiredCount int32
+	var running atomic.Int32
+	var maxConcurrent atomic.Int32
+	var acquiredCount atomic.Int32
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		wg.Add(1)
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
 			acquired, err := ls.WithSchedulerLock(context.Background(), key, func() error {
-				n := atomic.AddInt32(&running, 1)
+				n := running.Add(1)
 				for {
-					m := atomic.LoadInt32(&maxConcurrent)
-					if n <= m || atomic.CompareAndSwapInt32(&maxConcurrent, m, n) {
+					m := maxConcurrent.Load()
+					if n <= m || maxConcurrent.CompareAndSwap(m, n) {
 						break
 					}
 				}
 				time.Sleep(150 * time.Millisecond) // hold the lock long enough for every racer to attempt while it's held
-				atomic.AddInt32(&running, -1)
+				running.Add(-1)
 				return nil
 			})
 			require.NoError(t, err)
 			if acquired {
-				atomic.AddInt32(&acquiredCount, 1)
+				acquiredCount.Add(1)
 			}
 		}(stores[i])
 	}
 	close(start) // release every instance's attempt at once
 	wg.Wait()
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&maxConcurrent), "at most one replica's job may run at a time")
-	assert.Equal(t, int32(1), atomic.LoadInt32(&acquiredCount), "exactly one replica may win the advisory lock for this tick")
+	assert.Equal(t, int32(1), maxConcurrent.Load(), "at most one replica's job may run at a time")
+	assert.Equal(t, int32(1), acquiredCount.Load(), "exactly one replica may win the advisory lock for this tick")
 }
 
 // TestConcurrency_SchedulerLockLease_MultiInstancePostgres exercises the
@@ -107,18 +107,18 @@ func TestConcurrency_SchedulerLockLease_MultiInstancePostgres(t *testing.T) {
 	const key = 0x4C454153450 // arbitrary, namespaced to this test; never acquired before this race
 
 	stores := make([]*LocalStorage, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		stores[i] = NewLocalStorage(pgOpen(t, dsn))
 	}
 
 	// (a) contention: every instance races to be the FIRST-EVER acquirer of
 	// this key, with a distinct holder id. Exactly one may win; every other
 	// attempt must return cleanly (false, nil) — none may error.
-	var wonCount int32
+	var wonCount atomic.Int32
 	var wg sync.WaitGroup
 	start := make(chan struct{})
 	winners := make(chan string, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		wg.Add(1)
 		go func(idx int, ls *LocalStorage) {
 			defer wg.Done()
@@ -127,7 +127,7 @@ func TestConcurrency_SchedulerLockLease_MultiInstancePostgres(t *testing.T) {
 			acquired, err := ls.TryAcquireSchedulerLock(context.Background(), key, holder, 5*time.Second)
 			require.NoError(t, err, "a losing racer on a brand-new key must return (false, nil), never an error")
 			if acquired {
-				atomic.AddInt32(&wonCount, 1)
+				wonCount.Add(1)
 				winners <- holder
 			}
 		}(i, stores[i])
@@ -136,7 +136,7 @@ func TestConcurrency_SchedulerLockLease_MultiInstancePostgres(t *testing.T) {
 	wg.Wait()
 	close(winners)
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&wonCount), "exactly one of the eight racing first-time acquirers may win")
+	assert.Equal(t, int32(1), wonCount.Load(), "exactly one of the eight racing first-time acquirers may win")
 	require.Len(t, winners, 1)
 	winner := <-winners
 
@@ -167,7 +167,7 @@ func TestConcurrency_SchedulerLockLease_MultiInstancePostgres(t *testing.T) {
 
 	// Multiple late claimants race the now-expired lease; exactly one may
 	// reclaim it.
-	var reclaimWon int32
+	var reclaimWon atomic.Int32
 	var wg2 sync.WaitGroup
 	claimants := []*LocalStorage{holderB, NewLocalStorage(pgOpen(t, dsn)), NewLocalStorage(pgOpen(t, dsn))}
 	names := []string{"holder-B", "holder-C", "holder-D"}
@@ -181,7 +181,7 @@ func TestConcurrency_SchedulerLockLease_MultiInstancePostgres(t *testing.T) {
 			ok, err := ls.TryAcquireSchedulerLock(context.Background(), handoverKey, names[idx], 5*time.Second)
 			require.NoError(t, err)
 			if ok {
-				atomic.AddInt32(&reclaimWon, 1)
+				reclaimWon.Add(1)
 				reclaimWinner <- names[idx]
 			}
 		}(i, ls)
@@ -190,7 +190,7 @@ func TestConcurrency_SchedulerLockLease_MultiInstancePostgres(t *testing.T) {
 	wg2.Wait()
 	close(reclaimWinner)
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&reclaimWon), "exactly one late claimant may reclaim an expired lease")
+	assert.Equal(t, int32(1), reclaimWon.Load(), "exactly one late claimant may reclaim an expired lease")
 	newHolder := <-reclaimWinner
 	assertExactlyOneLease(t, verifier, handoverKey, newHolder)
 }

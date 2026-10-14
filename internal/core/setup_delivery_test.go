@@ -306,7 +306,7 @@ func TestGenerateInitialCredential(t *testing.T) {
 	t.Parallel()
 	policy := DefaultPasswordPolicy()
 	seen := map[string]bool{}
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		pw, err := GenerateInitialCredential()
 		require.NoError(t, err)
 		assert.Len(t, pw, otpLength)

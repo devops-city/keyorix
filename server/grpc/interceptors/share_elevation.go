@@ -15,7 +15,7 @@ import (
 // or a failure). Without a recorder on the context, core refuses a write-share
 // elevation outright, so leaving this out of the chain fails closed.
 func ShareElevationAuditInterceptor(cs *core.KeyorixCore) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		ctx, rec := core.WithShareElevationRecorder(ctx)
 		resp, err := handler(ctx, req)
 		if err == nil {

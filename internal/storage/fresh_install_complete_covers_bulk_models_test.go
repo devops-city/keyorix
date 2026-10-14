@@ -177,7 +177,17 @@ func bulkFreshInstallModelsFor2440(t *testing.T, file *ast.File) []string {
 		if !ok {
 			return true
 		}
-		if iface, ok := arr.Elt.(*ast.InterfaceType); !ok || len(iface.Methods.List) != 0 {
+		// The element type is the empty interface, spelled `interface{}` or `any`.
+		switch elt := arr.Elt.(type) {
+		case *ast.InterfaceType:
+			if len(elt.Methods.List) != 0 {
+				return true
+			}
+		case *ast.Ident:
+			if elt.Name != "any" {
+				return true
+			}
+		default:
 			return true
 		}
 		// Confirm this is the AutoMigrate loop, not some other []interface{}
@@ -207,7 +217,7 @@ func bulkFreshInstallModelsFor2440(t *testing.T, file *ast.File) []string {
 		return false
 	})
 	require.True(t, found, "no fresh-install bulk `for _, m := range []interface{}{...}` AutoMigrate loop found in "+
-		"factory.go -- if it was restructured, update this test deliberately")
+		"factory.go (`[]any{...}` is accepted too) -- if it was restructured, update this test deliberately")
 	require.NotEmpty(t, names, "the bulk AutoMigrate loop's model list came back empty")
 	return names
 }

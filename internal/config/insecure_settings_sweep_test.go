@@ -79,12 +79,11 @@ func configSurfaceLeaves() []configLeaf {
 		onPath[t] = true
 		defer delete(onPath, t)
 
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
+		for f := range t.Fields() {
 			if f.PkgPath != "" { // unexported: not YAML-settable
 				continue
 			}
-			name := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 			if name == "-" {
 				continue
 			}
@@ -106,7 +105,7 @@ func configSurfaceLeaves() []configLeaf {
 			leaves = append(leaves, configLeaf{Path: path, Kind: ft.Kind()})
 		}
 	}
-	walk(reflect.TypeOf(Config{}), "", map[reflect.Type]bool{})
+	walk(reflect.TypeFor[Config](), "", map[reflect.Type]bool{})
 	sort.Slice(leaves, func(i, j int) bool { return leaves[i].Path < leaves[j].Path })
 	return leaves
 }
@@ -149,8 +148,8 @@ func registryCoveredPaths() map[string][]string {
 
 func looksLikeOptOut(path string) bool {
 	leaf := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		leaf = path[i+1:]
+	if _, after, ok := strings.CutLast(path, "."); ok {
+		leaf = after
 	}
 	for _, s := range optOutLookingSubstrings {
 		if strings.Contains(leaf, s) {
@@ -219,8 +218,8 @@ func TestConfigSurface_RegistrySourcePathsAllExist(t *testing.T) {
 				// carries a Fallbacks []KeyProviderConfig (one level, as
 				// keyProviderChain reads it).
 				if primary, ok := strings.CutPrefix(p, "storage.encryption.key_provider.fallbacks."); ok {
-					sf, found := reflect.TypeOf(KeyProviderConfig{}).FieldByName("Fallbacks")
-					if !found || sf.Type != reflect.TypeOf([]KeyProviderConfig(nil)) || !strings.HasPrefix(sf.Tag.Get("yaml"), "fallbacks") {
+					sf, found := reflect.TypeFor[KeyProviderConfig]().FieldByName("Fallbacks")
+					if !found || sf.Type != reflect.TypeFor[[]KeyProviderConfig]() || !strings.HasPrefix(sf.Tag.Get("yaml"), "fallbacks") {
 						t.Errorf("SourcePaths entry %q needs KeyProviderConfig.Fallbacks []KeyProviderConfig under yaml key fallbacks", p)
 					}
 					p = "storage.encryption.key_provider." + primary
@@ -303,7 +302,7 @@ func readConfigSurfaceGolden(t *testing.T) []string {
 		t.Fatalf("reading %s: %v", configSurfaceGolden, err)
 	}
 	var paths []string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
 			paths = append(paths, line)
 		}
@@ -413,12 +412,11 @@ func configDerivedFields() []string {
 		}
 		onPath[t] = true
 		defer delete(onPath, t)
-		for i := 0; i < t.NumField(); i++ {
-			f := t.Field(i)
+		for f := range t.Fields() {
 			if f.PkgPath != "" {
 				continue
 			}
-			name := strings.Split(f.Tag.Get("yaml"), ",")[0]
+			name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
 			if name == "-" {
 				p := f.Name
 				if prefix != "" {
@@ -437,7 +435,7 @@ func configDerivedFields() []string {
 			walk(f.Type, path, onPath)
 		}
 	}
-	walk(reflect.TypeOf(Config{}), "", map[reflect.Type]bool{})
+	walk(reflect.TypeFor[Config](), "", map[reflect.Type]bool{})
 	sort.Strings(out)
 	return out
 }

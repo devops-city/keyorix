@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -174,9 +175,7 @@ func completeBaseline() map[string]string {
 
 func without(m map[string]string, drop ...string) map[string]string {
 	out := map[string]string{}
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 	for _, k := range drop {
 		delete(out, k)
 	}
@@ -240,7 +239,7 @@ func TestHelmSecureBaselineExistingSecret_LookupChecksRequiredKeys(t *testing.T)
 			}
 			// Only the error line is inspected: the dump may repeat key names elsewhere.
 			var line string
-			for _, l := range strings.Split(out, "\n") {
+			for l := range strings.SplitSeq(out, "\n") {
 				if strings.Contains(l, "missing required key(s)") {
 					line = l
 				}

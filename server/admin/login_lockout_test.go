@@ -38,10 +38,10 @@ func newClearLockoutTestDB(t *testing.T) (*gorm.DB, *storelib.LocalStorage) {
 	}).Error)
 
 	st := storelib.NewLocalStorage(db)
-	for i := 0; i < core.LoginMaxAttempts; i++ {
+	for range core.LoginMaxAttempts {
 		require.NoError(t, st.RecordLoginAttempt(context.Background(), "203.0.113.9", time.Now()))
 	}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, st.RecordLoginAttempt(context.Background(), "198.51.100.7", time.Now()))
 	}
 	return db, st

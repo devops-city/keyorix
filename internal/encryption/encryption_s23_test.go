@@ -559,7 +559,7 @@ func TestSweepDynamicSecretConfigs_AADBoundRow(t *testing.T) {
 	metaBytes, err := json.Marshal(enc.Metadata)
 	require.NoError(t, err)
 
-	require.NoError(t, db.Model(row).Updates(map[string]interface{}{
+	require.NoError(t, db.Model(row).Updates(map[string]any{
 		"admin_dsn_enc":  encBytes,
 		"admin_dsn_meta": metaBytes,
 	}).Error)
@@ -952,7 +952,7 @@ func TestSweepMFASecrets_AADBoundRow(t *testing.T) {
 	metaBytes, err := json.Marshal(enc.Metadata)
 	require.NoError(t, err)
 
-	require.NoError(t, db.Model(row).Updates(map[string]interface{}{
+	require.NoError(t, db.Model(row).Updates(map[string]any{
 		"secret_enc":  encBytes,
 		"secret_meta": metaBytes,
 	}).Error)

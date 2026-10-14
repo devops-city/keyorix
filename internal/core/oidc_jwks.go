@@ -91,7 +91,7 @@ type HTTPJWKSResolver struct {
 }
 
 type jwksEntry struct {
-	keys      map[string]interface{} // kid -> public key
+	keys      map[string]any // kid -> public key
 	fetchedAt time.Time
 }
 
@@ -167,7 +167,7 @@ func isLoopbackHost(host string) bool {
 
 // Key returns the public key for (issuer, kid), fetching/refreshing the issuer's
 // JWKS as needed. An unknown kid forces one refetch (handles key rotation).
-func (r *HTTPJWKSResolver) Key(ctx context.Context, issuer, kid string) (interface{}, error) { // NOSONAR -- cognitive complexity 20, suppress go:S3776
+func (r *HTTPJWKSResolver) Key(ctx context.Context, issuer, kid string) (any, error) { // NOSONAR -- cognitive complexity 20, suppress go:S3776
 	jwksURI, ok := r.jwksURIs[issuer]
 	if !ok {
 		return nil, fmt.Errorf("no jwks_uri configured for issuer %q", issuer)
@@ -244,8 +244,8 @@ func (r *HTTPJWKSResolver) Key(ctx context.Context, issuer, kid string) (interfa
 
 // fetchAndCache fetches the issuer's JWKS and stores it, collapsing concurrent
 // callers for the same issuer into a single outbound request via singleflight.
-func (r *HTTPJWKSResolver) fetchAndCache(ctx context.Context, issuer, jwksURI string) (map[string]interface{}, error) {
-	v, err, _ := r.group.Do(issuer, func() (interface{}, error) {
+func (r *HTTPJWKSResolver) fetchAndCache(ctx context.Context, issuer, jwksURI string) (map[string]any, error) {
+	v, err, _ := r.group.Do(issuer, func() (any, error) {
 		keys, err := r.fetch(ctx, jwksURI)
 		if err != nil {
 			return nil, err
@@ -258,10 +258,10 @@ func (r *HTTPJWKSResolver) fetchAndCache(ctx context.Context, issuer, jwksURI st
 	if err != nil {
 		return nil, err
 	}
-	return v.(map[string]interface{}), nil
+	return v.(map[string]any), nil
 }
 
-func (r *HTTPJWKSResolver) fetch(ctx context.Context, jwksURI string) (map[string]interface{}, error) {
+func (r *HTTPJWKSResolver) fetch(ctx context.Context, jwksURI string) (map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
 	if err != nil {
 		return nil, fmt.Errorf("jwks request: %w", err)
@@ -284,7 +284,7 @@ func (r *HTTPJWKSResolver) fetch(ctx context.Context, jwksURI string) (map[strin
 		return nil, fmt.Errorf("jwks decode: %w", err)
 	}
 
-	out := make(map[string]interface{}, len(doc.Keys))
+	out := make(map[string]any, len(doc.Keys))
 	for _, k := range doc.Keys {
 		if len(out) >= maxJWKSKeys {
 			break // cap retained keys so a pathological JWKS can't bloat the cache

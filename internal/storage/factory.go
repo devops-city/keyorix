@@ -1042,7 +1042,7 @@ func recordSchemaEpochAs(db *gorm.DB, epoch, floor int) error {
 		"THEN system_metadata.updated_at ELSE excluded.updated_at END")
 	if err := db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{"value": keepHigher, "updated_at": keepHigherTime}),
+		DoUpdates: clause.Assignments(map[string]any{"value": keepHigher, "updated_at": keepHigherTime}),
 	}).Create(&[]models.SystemMetadata{
 		{Key: schemaEpochMetadataKey, Value: strconv.Itoa(epoch), UpdatedAt: now},
 		{Key: schemaMinCompatibleEpochMetadataKey, Value: strconv.Itoa(floor), UpdatedAt: now},
@@ -2722,7 +2722,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// against. Any model already migrated by a dedicated block above (e.g.
 		// AuditCheckpoint, guarded by auditCkptExists) must NOT also appear in this
 		// list, or its re-inspection here will corrupt the cache for later models.
-		for _, m := range []interface{}{
+		for _, m := range []any{
 			&models.Project{},
 			&models.Environment{},
 			&models.User{},

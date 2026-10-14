@@ -25,15 +25,13 @@ import (
 // limit. false means err was something else and the caller should continue
 // with its own error mapping.
 func (h *SecretHandler) trySendSecretSizeError(w http.ResponseWriter, err error) bool {
-	var mbe *http.MaxBytesError
-	if errors.As(err, &mbe) {
+	if mbe, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		h.sendError(w, "PayloadTooLarge",
 			fmt.Sprintf("request body exceeds the %d-byte limit derived from the configured maximum secret size", mbe.Limit),
 			http.StatusRequestEntityTooLarge, nil)
 		return true
 	}
-	var tooLarge *core.SecretValueTooLargeError
-	if errors.As(err, &tooLarge) {
+	if tooLarge, ok := errors.AsType[*core.SecretValueTooLargeError](err); ok {
 		h.sendError(w, "PayloadTooLarge", tooLarge.Error(), http.StatusRequestEntityTooLarge, nil)
 		return true
 	}

@@ -114,7 +114,7 @@ func freshCoreS29WithAdmin(t *testing.T) (*core.KeyorixCore, *gorm.DB) {
 }
 
 // jsonBodyS29 serialises v to a JSON bytes.Reader.
-func jsonBodyS29(t *testing.T, v interface{}) *bytes.Reader {
+func jsonBodyS29(t *testing.T, v any) *bytes.Reader {
 	t.Helper()
 	b, err := json.Marshal(v)
 	require.NoError(t, err)
@@ -226,10 +226,10 @@ func TestDynamic_RevokeAllLeases_HappyPath_S29(t *testing.T) {
 	h.RevokeAllLeases(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, float64(0), data["revoked"])
 	assert.Equal(t, float64(0), data["failed"])
@@ -290,7 +290,7 @@ func TestListInvitations_HappyPath_S29(t *testing.T) {
 	h.ListInvitations(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -331,7 +331,7 @@ func TestListAccessRequests_HappyPath_S29(t *testing.T) {
 	h.ListAccessRequests(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -387,10 +387,10 @@ func TestVerifyAuditChain_HappyPath_S29(t *testing.T) {
 	h.VerifyAuditChain(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	// An empty audit log has a valid (trivially) chain.
 	_, hasValid := data["valid"]
@@ -451,7 +451,7 @@ func TestRBACHandler_GetGroupRoles_HappyPath_S29(t *testing.T) {
 	h.GetGroupRoles(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -483,7 +483,7 @@ func TestRBACHandler_ListRoles_HappyPath_S29(t *testing.T) {
 	h.ListRoles(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -505,7 +505,7 @@ func TestRBACHandler_UpdateRole_ReplacePermissions_S29(t *testing.T) {
 	perm := &models.Permission{Name: "secrets.read", Resource: "secrets", Action: "read", Description: "read secrets"}
 	require.NoError(t, db.Create(perm).Error)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"description": "updated description",
 		"permissions": []string{"secrets.read"},
 	}
@@ -520,7 +520,7 @@ func TestRBACHandler_UpdateRole_ReplacePermissions_S29(t *testing.T) {
 
 	// 200 expected; replaceRolePermissions is exercised along this path.
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }

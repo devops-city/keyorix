@@ -153,7 +153,7 @@ func TestConcurrency_MachineIdentityTransition_MultiInstancePostgres_RevokedAlwa
 	}
 
 	const rounds = 8
-	for i := 0; i < rounds; i++ {
+	for i := range rounds {
 		now := time.Now().UTC()
 		m := &models.MachineIdentity{ProjectID: 1, Name: "ci", IdentityType: "ci", State: "active", CreatedAt: now, UpdatedAt: now}
 		require.NoError(t, setup.Create(m).Error)

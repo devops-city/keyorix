@@ -241,7 +241,7 @@ func (w *acWorld) resetIteration(t *testing.T) *acIterState {
 		t.Fatalf("reset roles: %v", err)
 	}
 	if err := w.db.Model(&models.User{}).Where("id = ?", w.victimID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"password_hash": w.baselinePwHash,
 			"is_active":     true,
 			"account_state": string(core.AccountActive),
@@ -489,11 +489,8 @@ func FuzzAuthCacheDifferential(f *testing.F) {
 			return
 		}
 		st := w.resetIteration(t)
-		maxOps := len(program)
-		if maxOps > 48 {
-			maxOps = 48
-		}
-		for i := 0; i < maxOps; i++ {
+		maxOps := min(len(program), 48)
+		for i := range maxOps {
 			acRunOp(t, w, st, program[i])
 		}
 	})

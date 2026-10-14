@@ -32,9 +32,9 @@ func newShareHandlerS13(t *testing.T) *ShareHandler {
 	return h
 }
 
-func decodeShareResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{} {
+func decodeShareResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	return resp
 }
@@ -404,9 +404,9 @@ func TestListShares_SecretIDFilter_S13(t *testing.T) {
 	// The handler puts pagination info into the payload, so response is:
 	// {"success":true, "data": {"data": [...], "total":0, "page":1, ...}}
 	outer := decodeShareResponse(t, w)
-	inner, ok := outer["data"].(map[string]interface{})
+	inner, ok := outer["data"].(map[string]any)
 	require.True(t, ok, "outer data should be an object")
-	items, ok := inner["data"].([]interface{})
+	items, ok := inner["data"].([]any)
 	require.True(t, ok, "inner data should be an array")
 	assert.Empty(t, items)
 }
@@ -468,7 +468,7 @@ func TestListShares_Pagination_S13(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	outer := decodeShareResponse(t, w)
-	inner, ok := outer["data"].(map[string]interface{})
+	inner, ok := outer["data"].(map[string]any)
 	require.True(t, ok, "outer data should be an object")
 	assert.Equal(t, float64(2), inner["page"])
 	assert.Equal(t, float64(5), inner["pageSize"])
@@ -484,7 +484,7 @@ func TestListShares_PageSizeClamp_S13(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	outer := decodeShareResponse(t, w)
-	inner, ok := outer["data"].(map[string]interface{})
+	inner, ok := outer["data"].(map[string]any)
 	require.True(t, ok, "outer data should be an object")
 	assert.Equal(t, float64(20), inner["pageSize"])
 }
@@ -499,7 +499,7 @@ func TestListShares_PageSizeZero_S13(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	outer := decodeShareResponse(t, w)
-	inner, ok := outer["data"].(map[string]interface{})
+	inner, ok := outer["data"].(map[string]any)
 	require.True(t, ok, "outer data should be an object")
 	assert.Equal(t, float64(20), inner["pageSize"])
 }
@@ -514,7 +514,7 @@ func TestListShares_PageBelowOne_S13(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	outer := decodeShareResponse(t, w)
-	inner, ok := outer["data"].(map[string]interface{})
+	inner, ok := outer["data"].(map[string]any)
 	require.True(t, ok, "outer data should be an object")
 	assert.Equal(t, float64(1), inner["page"])
 }
@@ -543,7 +543,7 @@ func TestListSharedSecrets_EmptyDB_S13(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
-	secrets, ok := data["secrets"].([]interface{})
+	secrets, ok := data["secrets"].([]any)
 	require.True(t, ok, "secrets field should be an array")
 	assert.Empty(t, secrets)
 }
@@ -699,7 +699,7 @@ func TestShareHandler_SendSuccess_EncodesBothFields_S13(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.sendSuccess(w, "payload", "done")
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, true, resp["success"])
 	assert.Equal(t, "payload", resp["data"])
@@ -717,7 +717,7 @@ func TestShareHandler_SendError_SetsStatusCode_S13(t *testing.T) {
 	assert.Equal(t, http.StatusTeapot, w.Code)
 	assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, "TestErr", resp["error"])
 	assert.Equal(t, "something went wrong", resp["message"])
@@ -733,9 +733,9 @@ func TestShareHandler_SendError_WithDetails_S13(t *testing.T) {
 	h.sendError(w, "ValidationError", "bad input", http.StatusBadRequest, details)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	detailsOut, ok := resp["details"].(map[string]interface{})
+	detailsOut, ok := resp["details"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "permission", detailsOut["field"])
 }

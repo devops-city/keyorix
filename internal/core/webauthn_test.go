@@ -442,7 +442,7 @@ func TestWebAuthn_PersistUpdatedCredential_ZeroCounterAuthenticatorAlwaysPersist
 	assert.Nil(t, before.LastUsedAt, "no login yet")
 
 	// Simulate two logins in a row from a zero-counter authenticator.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		c.now = func() time.Time { return time.Date(2026, 6, 12, 10, i, 0, 0, time.UTC) }
 		c.persistUpdatedCredential(ctx, 1, &webauthn.Credential{ID: []byte("cred-1"), Authenticator: webauthn.Authenticator{SignCount: 0}})
 	}

@@ -125,7 +125,7 @@ func TestLocalize(t *testing.T) {
 	tests := []struct {
 		name         string
 		messageID    string
-		templateData map[string]interface{}
+		templateData map[string]any
 		expected     string
 	}{
 		{
@@ -406,9 +406,9 @@ func TestConcurrentAccess(t *testing.T) {
 
 	// Test concurrent access to localization
 	done := make(chan bool)
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
-			for j := 0; j < 100; j++ {
+			for range 100 {
 				result := localizer.Localize("Welcome", nil)
 				if result == "" {
 					t.Errorf("Localize() returned empty string in concurrent access")
@@ -419,7 +419,7 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

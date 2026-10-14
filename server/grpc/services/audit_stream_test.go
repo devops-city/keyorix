@@ -264,7 +264,7 @@ func TestAuditService_StreamAuditLogs_MaxConcurrentPerPrincipal(t *testing.T) {
 	})
 
 	streamKey := fmt.Sprintf("%s:%d", core.ActorTypeUser, 1)
-	for i := 0; i < auditStreamMaxPerPrincipal; i++ {
+	for i := range auditStreamMaxPerPrincipal {
 		ctx, cancel := context.WithCancel(authCtx(1, "admin", "audit.read"))
 		cancels = append(cancels, cancel)
 		stream := &fakeAuditStream{ctx: ctx}

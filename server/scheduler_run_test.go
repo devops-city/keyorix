@@ -18,8 +18,7 @@ import (
 // ordinary operational noise.
 func TestRunScheduler_TickPanicIsRecovered(t *testing.T) {
 	var ticks atomic.Int32
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	runScheduler(ctx, "test-panicking-job", 10*time.Millisecond, func() middleware.SchedulerOutcome {
 		n := ticks.Add(1)
@@ -48,8 +47,7 @@ func TestRunScheduler_TickPanicIsRecovered(t *testing.T) {
 func TestRunSchedulerAfter_DefersFirstTick(t *testing.T) {
 	t.Run("first tick waits for the delay", func(t *testing.T) {
 		var ticks atomic.Int32
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		start := time.Now()
 		var first atomic.Int64
 		runSchedulerAfter(ctx, "test-delayed-first-tick", time.Hour, 150*time.Millisecond, func() middleware.SchedulerOutcome {
@@ -106,7 +104,7 @@ func TestAnomalyFirstPassDelay_Bounds(t *testing.T) {
 			t.Errorf("anomalyFirstPassDelay(%s) = %s, want %s", c.interval, got, c.want)
 		}
 	}
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		d := anomalyFirstPassDelay(time.Hour, defaultRandN)
 		if d < anomalyFirstPassBaseDelay || d >= anomalyFirstPassBaseDelay+anomalyFirstPassMaxJitter {
 			t.Fatalf("delay %s outside [base, base+jitter)", d)

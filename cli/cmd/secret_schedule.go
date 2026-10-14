@@ -26,7 +26,7 @@ func convertSecretDayNames(days string) (string, error) {
 		return "*", nil
 	}
 	var parts []string
-	for _, raw := range strings.Split(days, ",") {
+	for raw := range strings.SplitSeq(days, ",") {
 		s := strings.TrimSpace(strings.ToLower(raw))
 		if iso, ok := secretDayNameToISO[s]; ok {
 			parts = append(parts, strconv.Itoa(iso))

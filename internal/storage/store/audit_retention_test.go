@@ -68,13 +68,13 @@ func TestDeleteAuditLogsBefore_DeletesOldRows(t *testing.T) {
 	cutoff := now.AddDate(0, 0, -30)
 
 	// Three events older than the cutoff.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		require.NoError(t, ls.db.WithContext(ctx).Create(&models.AuditEvent{
 			EventType: "secret.read", EventTime: now.AddDate(0, 0, -(31 + i)),
 		}).Error)
 	}
 	// Two events newer than the cutoff.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		require.NoError(t, ls.db.WithContext(ctx).Create(&models.AuditEvent{
 			EventType: "secret.read", EventTime: now.AddDate(0, 0, -(i + 1)),
 		}).Error)
@@ -108,7 +108,7 @@ func TestDeleteAuditLogsBefore_NoneBeforeCutoff(t *testing.T) {
 
 	now := time.Now().UTC()
 	// All events are 1 day old; cutoff is 30 days ago.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		require.NoError(t, ls.db.WithContext(ctx).Create(&models.AuditEvent{
 			EventType: "secret.read", EventTime: now.AddDate(0, 0, -1),
 		}).Error)

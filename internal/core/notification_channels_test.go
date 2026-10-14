@@ -128,7 +128,7 @@ func TestNotificationChannel_CRUD(t *testing.T) {
 	// Update
 	store.On("GetNotificationChannel", ctx, uint(1)).Return(created, nil).Maybe()
 	store.On("UpdateNotificationChannel", ctx, mock.AnythingOfType("*models.NotificationChannel")).Return(nil)
-	updated, err := c.UpdateNotificationChannel(ctx, 1, map[string]interface{}{
+	updated, err := c.UpdateNotificationChannel(ctx, 1, map[string]any{
 		"events":  "secret.rotated",
 		"enabled": false,
 	}, 42)
@@ -177,7 +177,7 @@ func TestUpdateNotificationChannel_GetError(t *testing.T) {
 	st.On("GetNotificationChannel", ctx, uint(99)).
 		Return(nil, fmt.Errorf("record not found"))
 
-	_, err := c.UpdateNotificationChannel(ctx, 99, map[string]interface{}{"events": "secret.rotated"}, 1)
+	_, err := c.UpdateNotificationChannel(ctx, 99, map[string]any{"events": "secret.rotated"}, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 	st.AssertExpectations(t)
@@ -202,7 +202,7 @@ func TestUpdateNotificationChannel_UpdateStorageError(t *testing.T) {
 	st.On("UpdateNotificationChannel", ctx, mock.AnythingOfType("*models.NotificationChannel")).
 		Return(fmt.Errorf("db: disk full"))
 
-	_, err := c.UpdateNotificationChannel(ctx, 2, map[string]interface{}{"events": "secret.rotated"}, 1)
+	_, err := c.UpdateNotificationChannel(ctx, 2, map[string]any{"events": "secret.rotated"}, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "disk full")
 	st.AssertExpectations(t)
@@ -243,7 +243,7 @@ func TestUpdateNotificationChannel_AllFieldUpdates(t *testing.T) {
 	st.On("UpdateNotificationChannel", ctx, mock.AnythingOfType("*models.NotificationChannel")).Return(nil)
 	st.On("LogAuditEvent", ctx, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
 
-	updated, err := c.UpdateNotificationChannel(ctx, 3, map[string]interface{}{
+	updated, err := c.UpdateNotificationChannel(ctx, 3, map[string]any{
 		"name":    "new-name",
 		"type":    "webhook",
 		"url":     "https://new.example.com",
@@ -277,7 +277,7 @@ func TestUpdateNotificationChannel_ValidationFails(t *testing.T) {
 	st.On("GetNotificationChannel", ctx, uint(4)).Return(existing, nil)
 
 	// Clearing the URL of a webhook should fail validation.
-	_, err := c.UpdateNotificationChannel(ctx, 4, map[string]interface{}{
+	_, err := c.UpdateNotificationChannel(ctx, 4, map[string]any{
 		"url": "",
 	}, 1)
 	require.Error(t, err)

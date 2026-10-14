@@ -19,7 +19,7 @@ import (
 // seedSecretForOwnershipTest creates a secret via the HTTP API and returns its ID.
 func seedSecretForOwnershipTest(t *testing.T, client *http.Client, baseURL, token, name string) uint {
 	t.Helper()
-	body, err := json.Marshal(map[string]interface{}{
+	body, err := json.Marshal(map[string]any{
 		"name": name, "value": "v", "project_id": 1, "environment_id": 1, "type": "password",
 	})
 	require.NoError(t, err)
@@ -31,9 +31,9 @@ func seedSecretForOwnershipTest(t *testing.T, client *http.Client, baseURL, toke
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data := out["data"].(map[string]interface{})
+	data := out["data"].(map[string]any)
 	return uint(data["id"].(float64))
 }
 
@@ -42,8 +42,8 @@ func seedSecretForOwnershipTest(t *testing.T, client *http.Client, baseURL, toke
 type ownershipHistoryResponse struct {
 	Success bool `json:"success"`
 	Data    struct {
-		OwnershipHistory []map[string]interface{} `json:"ownership_history"`
-		Total            float64                  `json:"total"`
+		OwnershipHistory []map[string]any `json:"ownership_history"`
+		Total            float64          `json:"total"`
 	} `json:"data"`
 }
 

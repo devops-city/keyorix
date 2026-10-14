@@ -75,7 +75,7 @@ func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
 		var err error
 		// Generous: a restarted Postgres replays WAL before accepting
 		// connections, and this is deliberately a crash recovery.
-		for i := 0; i < 120; i++ {
+		for range 120 {
 			db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: gormlogger.Default.LogMode(gormlogger.Silent)})
 			if err == nil {
 				var one int

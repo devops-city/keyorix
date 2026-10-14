@@ -71,7 +71,7 @@ const (
 	maxRSAPublicExponent = rules.MaxRSAPublicExponent
 )
 
-func parseJWK(k jwk) (interface{}, error) { return rules.ParseJWK(k) }
+func parseJWK(k jwk) (any, error) { return rules.ParseJWK(k) }
 
 // --- SSO returnTo sanitizer (rules/return_to.go) ---
 

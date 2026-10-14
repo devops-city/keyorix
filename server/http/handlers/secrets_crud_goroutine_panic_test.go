@@ -116,7 +116,7 @@ func TestCreateSecret_PanicInDetachedAuditGoroutineDoesNotCrash(t *testing.T) {
 	done := make(chan struct{})
 	handler.coreService.SetAuditForwarder(&panicAuditForwarder{done: done})
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name": "S1", "value": "v", "project_id": uint(1),
 		"environment_id": uint(10), "type": "static",
 	})
@@ -185,7 +185,7 @@ func TestUpdateSecret_PanicInDetachedAuditGoroutineDoesNotCrash(t *testing.T) {
 	done := make(chan struct{})
 	handler.coreService.SetAuditForwarder(&panicAuditForwarder{done: done})
 
-	body, _ := json.Marshal(map[string]interface{}{"max_reads": 3})
+	body, _ := json.Marshal(map[string]any{"max_reads": 3})
 	r := withIDParam(userReq(http.MethodPut, "/api/v1/secrets/"+strconv.FormatUint(uint64(created.ID), 10), body), created.ID)
 	rr := httptest.NewRecorder()
 	handler.UpdateSecret(rr, r)

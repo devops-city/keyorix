@@ -287,7 +287,7 @@ func TestGetSecretScheduleAndLatestVersion_ReadsEveryScheduleColumn(t *testing.T
 		f := wv.Type().Field(i)
 		w, g := wv.Field(i), gv.Field(i)
 		require.Falsef(t, w.IsZero(), "fixture must set %s to a non-zero value (extend the fixture for a new field)", f.Name)
-		if tw, ok := w.Interface().(time.Time); ok {
+		if tw, ok := reflect.TypeAssert[time.Time](w); ok {
 			require.Truef(t, tw.Equal(g.Interface().(time.Time)), "%s: %v vs %v", f.Name, tw, g.Interface())
 			continue
 		}

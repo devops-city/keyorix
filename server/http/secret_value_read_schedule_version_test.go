@@ -630,10 +630,8 @@ func TestValueReadScheduleVersion_ConcurrentVersionWrites(t *testing.T) {
 			var wg sync.WaitGroup
 			stop := make(chan struct{})
 			var readsDone atomic.Int64
-			for r := 0; r < 4; r++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+			for range 4 {
+				wg.Go(func() {
 					for {
 						select {
 						case <-stop:
@@ -647,7 +645,7 @@ func TestValueReadScheduleVersion_ConcurrentVersionWrites(t *testing.T) {
 						assert.Truef(t, written[o.Value], "concurrent read returned a value never written: %q", o.Value)
 						readsDone.Add(1)
 					}
-				}()
+				})
 			}
 			// One writer: concurrent rotations of one secret are serialized by
 			// RotateSecret itself; what matters here is reads racing writes.

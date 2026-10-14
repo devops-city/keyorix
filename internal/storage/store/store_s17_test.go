@@ -23,7 +23,7 @@ import (
 
 // newS17Store opens an in-memory SQLite DB, optionally running AutoMigrate for
 // the supplied model values, and returns a LocalStorage backed by it.
-func newS17Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS17Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

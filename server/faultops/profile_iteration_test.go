@@ -59,7 +59,7 @@ func TestProfileOneIteration(t *testing.T) {
 // these as separate calls, so this duplicates its body with timers rather
 // than modifying the real one (which stays timer-free for the actual harness).
 func TestProfileNewFaultWorldSubphases(t *testing.T) {
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		t.Run("", func(t *testing.T) {
 			overall := time.Now()
 			w := newFaultWorld(t, nil)
@@ -84,7 +84,7 @@ func TestProfileWorldReuseSpeedup(t *testing.T) {
 	const n = 15
 
 	freshStart := time.Now()
-	for i := 0; i < n; i++ {
+	for range n {
 		w := newFaultWorld(t, nil)
 		_ = w
 	}
@@ -95,7 +95,7 @@ func TestProfileWorldReuseSpeedup(t *testing.T) {
 	w := buildReusableFaultWorld(t, nil)
 	buildTotal := time.Since(reusedStart)
 	resetStart := time.Now()
-	for i := 0; i < n; i++ {
+	for range n {
 		w.resetForReuse(t, nil)
 	}
 	resetTotal := time.Since(resetStart)

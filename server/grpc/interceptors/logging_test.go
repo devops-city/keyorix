@@ -33,7 +33,7 @@ func TestLoggingInterceptor_SuccessPath(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"}
 
 	resp, err := interceptor(context.Background(), "req", info,
-		func(_ context.Context, req interface{}) (interface{}, error) {
+		func(_ context.Context, req any) (any, error) {
 			return "resp-value", nil
 		})
 	if err != nil {
@@ -52,7 +52,7 @@ func TestLoggingInterceptor_ErrorPath(t *testing.T) {
 	handlerErr := errors.New("something went wrong")
 
 	resp, err := interceptor(context.Background(), nil, info,
-		func(_ context.Context, _ interface{}) (interface{}, error) {
+		func(_ context.Context, _ any) (any, error) {
 			return nil, handlerErr
 		})
 	if err == nil {
@@ -77,7 +77,7 @@ func TestLoggingInterceptor_LogsStatusMatchingOutcome(t *testing.T) {
 
 	okLog := captureLog(t, func() {
 		_, _ = interceptor(context.Background(), nil, info,
-			func(_ context.Context, _ interface{}) (interface{}, error) { return "ok", nil })
+			func(_ context.Context, _ any) (any, error) { return "ok", nil })
 	})
 	if !strings.Contains(okLog, " OK ") || strings.Contains(okLog, "ERROR") {
 		t.Fatalf("expected a status of OK, not ERROR, got log line: %q", okLog)
@@ -85,7 +85,7 @@ func TestLoggingInterceptor_LogsStatusMatchingOutcome(t *testing.T) {
 
 	errLog := captureLog(t, func() {
 		_, _ = interceptor(context.Background(), nil, info,
-			func(_ context.Context, _ interface{}) (interface{}, error) { return nil, errors.New("boom") })
+			func(_ context.Context, _ any) (any, error) { return nil, errors.New("boom") })
 	})
 	if !strings.Contains(errLog, " ERROR ") || strings.Contains(errLog, " OK ") {
 		t.Fatalf("expected a status of ERROR, not OK, got log line: %q", errLog)
@@ -101,14 +101,14 @@ func TestStreamLoggingInterceptor_LogsStatusMatchingOutcome(t *testing.T) {
 	stream := &fakeServerStream{ctx: context.Background()}
 
 	okLog := captureLog(t, func() {
-		_ = interceptor(nil, stream, info, func(interface{}, grpc.ServerStream) error { return nil })
+		_ = interceptor(nil, stream, info, func(any, grpc.ServerStream) error { return nil })
 	})
 	if !strings.Contains(okLog, " OK ") || strings.Contains(okLog, "ERROR") {
 		t.Fatalf("expected a status of OK, not ERROR, got log line: %q", okLog)
 	}
 
 	errLog := captureLog(t, func() {
-		_ = interceptor(nil, stream, info, func(interface{}, grpc.ServerStream) error { return errors.New("boom") })
+		_ = interceptor(nil, stream, info, func(any, grpc.ServerStream) error { return errors.New("boom") })
 	})
 	if !strings.Contains(errLog, " ERROR ") || strings.Contains(errLog, " OK ") {
 		t.Fatalf("expected a status of ERROR, not OK, got log line: %q", errLog)
@@ -153,7 +153,7 @@ func TestLoggingInterceptor_FastRequestNotLoggedAsSlow(t *testing.T) {
 
 	fastLog := captureLog(t, func() {
 		_, _ = interceptor(context.Background(), nil, info,
-			func(_ context.Context, _ interface{}) (interface{}, error) { return "ok", nil })
+			func(_ context.Context, _ any) (any, error) { return "ok", nil })
 	})
 	if strings.Contains(fastLog, "SLOW gRPC REQUEST") {
 		t.Fatalf("a fast handler must not be logged as slow, got: %q", fastLog)

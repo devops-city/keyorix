@@ -33,7 +33,7 @@ func TestAuditBroker_SignalsCoalesce(t *testing.T) {
 
 	// Several signals with no drain in between collapse to a single pending tick
 	// (1-slot buffer) — the subscriber re-queries the DB once and catches up.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		b.signal()
 	}
 	<-wake // one pending

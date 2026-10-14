@@ -257,7 +257,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			}
 			// Tell the client which second factors this account can complete, so it
 			// can offer the right step (TOTP code entry vs. a passkey prompt).
-			sendSuccess(w, map[string]interface{}{
+			sendSuccess(w, map[string]any{
 				"mfa_required":       true,
 				"mfa_challenge":      challenge,
 				"totp_available":     user.MFAEnabled,
@@ -537,7 +537,7 @@ func (h *AuthHandler) ConsumeSetup(w http.ResponseWriter, r *http.Request) {
 			sendError(w, "BadRequest", "This setup link could not be completed. It may be invalid or expired — ask your administrator for a new one.", http.StatusBadRequest, nil)
 			return
 		}
-		sendSuccess(w, map[string]interface{}{
+		sendSuccess(w, map[string]any{
 			"mfa_required":       true,
 			"mfa_challenge":      challenge,
 			"totp_available":     result.User.MFAEnabled,
@@ -672,7 +672,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	middleware.InvalidateTokenCache(token)
 	h.setSessionCookies(w, r, session)
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"token": session.SessionToken,
 	}
 	if session.ExpiresAt != nil {
@@ -715,7 +715,7 @@ func (h *AuthHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	// and who is the real admin" (used to render the impersonation banner).
 	if userCtx.ImpersonatedBy != nil {
 		if admin, aerr := h.coreService.GetUser(r.Context(), *userCtx.ImpersonatedBy); aerr == nil {
-			profile["impersonation"] = map[string]interface{}{
+			profile["impersonation"] = map[string]any{
 				"admin_id":           admin.ID,
 				"admin_username":     admin.Username,
 				"admin_display_name": admin.DisplayName,
@@ -736,7 +736,7 @@ func (h *AuthHandler) userIdentity(r *http.Request, userID uint) core.UserIdenti
 }
 
 // userProfileMap is the shared self-profile DTO returned by GET and PUT /auth/profile.
-func userProfileMap(user *models.User, id core.UserIdentity) map[string]interface{} {
+func userProfileMap(user *models.User, id core.UserIdentity) map[string]any {
 	roles, permissions := id.Roles, id.Permissions
 	if roles == nil {
 		roles = []string{}
@@ -744,7 +744,7 @@ func userProfileMap(user *models.User, id core.UserIdentity) map[string]interfac
 	if permissions == nil {
 		permissions = []string{}
 	}
-	profile := map[string]interface{}{
+	profile := map[string]any{
 		"id":            user.ID,
 		"username":      user.Username,
 		"email":         user.Email,
@@ -843,11 +843,11 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// #2978 for MFA activation). A stale restricted entry is only over-restrictive.
 	middleware.ClearTokenCacheForToken(token)
 	if h.endSetupSessionIfComplete(w, r, userCtx.UserID, token) {
-		sendSuccess(w, map[string]interface{}{"reauthentication_required": true},
+		sendSuccess(w, map[string]any{"reauthentication_required": true},
 			"Password changed. Account setup is complete: sign in again with your new password and second factor.")
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"reauthentication_required": false}, "Password changed")
+	sendSuccess(w, map[string]any{"reauthentication_required": false}, "Password changed")
 }
 
 // endSetupSessionIfComplete ends a setup-only session once the step this request
@@ -1015,7 +1015,7 @@ func (h *AuthHandler) InitSystem(w http.ResponseWriter, r *http.Request) {
 	// and the project/environment topology here would be a pre-auth identity/topology
 	// oracle, so the idempotent response carries only the initialized flag.
 	if result.AlreadyInitialized {
-		sendSuccess(w, map[string]interface{}{"already_initialized": true}, "System already initialised")
+		sendSuccess(w, map[string]any{"already_initialized": true}, "System already initialised")
 		return
 	}
 
@@ -1024,12 +1024,12 @@ func (h *AuthHandler) InitSystem(w http.ResponseWriter, r *http.Request) {
 		envNames = append(envNames, e.Name)
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"already_initialized": result.AlreadyInitialized,
 		"environments":        envNames,
 	}
 	if result.User != nil {
-		resp["user"] = map[string]interface{}{
+		resp["user"] = map[string]any{
 			"id":       result.User.ID,
 			"username": result.User.Username,
 			"email":    result.User.Email,

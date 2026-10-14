@@ -19,7 +19,7 @@ import (
 // capped at d. On expiry the handler's context is cancelled and the RPC returns
 // DeadlineExceeded.
 func TimeoutInterceptor(d time.Duration) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		ctx, cancel := context.WithTimeout(ctx, d)
 		defer cancel()
 		return handler(ctx, req)

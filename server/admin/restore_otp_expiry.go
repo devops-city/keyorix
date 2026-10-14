@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -19,12 +20,7 @@ func archiveLacksOTPExpiry(manifest backupfmt.Manifest) bool {
 		if te.Name != "users" {
 			continue
 		}
-		for _, col := range te.Columns {
-			if col == otpExpiryColumn {
-				return false
-			}
-		}
-		return true
+		return !slices.Contains(te.Columns, otpExpiryColumn)
 	}
 	return false
 }

@@ -43,7 +43,7 @@ func (ls *LocalStorage) ListAlertEscalationPolicies(ctx context.Context) ([]mode
 }
 
 func (ls *LocalStorage) UpdateAlertEscalationPolicy(ctx context.Context, p *models.AlertEscalationPolicy) error {
-	res := ls.db.WithContext(ctx).Model(p).Updates(map[string]interface{}{
+	res := ls.db.WithContext(ctx).Model(p).Updates(map[string]any{
 		"name":                   p.Name,
 		"min_severity":           p.MinSeverity,
 		"escalate_after_minutes": p.EscalateAfterMinutes,

@@ -99,13 +99,12 @@ func TestRun_BacksOffOnConsecutiveFailuresThenResetsOnRecovery(t *testing.T) {
 	// the base interval (no jitter noise to account for in the assertion below).
 	noJitter := fixedRand(0.5)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	consecutiveUnhealthy := 0
 	base := 10 * time.Millisecond
 	sync := func() {
-		res := Sync(ctx, e, mappings, func(string, ...interface{}) {})
+		res := Sync(ctx, e, mappings, func(string, ...any) {})
 		if res.Failed > 0 || res.Revoked > 0 {
 			consecutiveUnhealthy++
 		} else {
@@ -117,7 +116,7 @@ func TestRun_BacksOffOnConsecutiveFailuresThenResetsOnRecovery(t *testing.T) {
 	// Drive 4 passes directly through the same sync/backoff bookkeeping `run` uses,
 	// without depending on real wall-clock timer firing (keeps this test instant and
 	// deterministic rather than racing actual timers).
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		sync()
 	}
 
@@ -136,7 +135,7 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 	status := NewStatus()
 	done := make(chan struct{})
 	go func() {
-		run(ctx, e, mappings, time.Hour, func(string, ...interface{}) {}, status, fixedRand(0.5))
+		run(ctx, e, mappings, time.Hour, func(string, ...any) {}, status, fixedRand(0.5))
 		close(done)
 	}()
 

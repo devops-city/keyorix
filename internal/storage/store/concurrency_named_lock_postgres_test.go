@@ -29,43 +29,43 @@ func TestConcurrency_WithNamedLock_MultiInstancePostgres_SameKeySerializes(t *te
 	const lockKey = "concurrency-named-lock-postgres-test"
 
 	stores := make([]*LocalStorage, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		stores[i] = NewLocalStorage(pgOpen(t, dsn))
 	}
 
-	var running int32
-	var maxConcurrent int32
-	var completed int32
+	var running atomic.Int32
+	var maxConcurrent atomic.Int32
+	var completed atomic.Int32
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		wg.Add(1)
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
 			err := ls.WithNamedLock(context.Background(), lockKey, func(_ context.Context) error {
-				n := atomic.AddInt32(&running, 1)
+				n := running.Add(1)
 				for {
-					m := atomic.LoadInt32(&maxConcurrent)
-					if n <= m || atomic.CompareAndSwapInt32(&maxConcurrent, m, n) {
+					m := maxConcurrent.Load()
+					if n <= m || maxConcurrent.CompareAndSwap(m, n) {
 						break
 					}
 				}
 				time.Sleep(75 * time.Millisecond)
-				atomic.AddInt32(&running, -1)
+				running.Add(-1)
 				return nil
 			})
 			require.NoError(t, err)
-			atomic.AddInt32(&completed, 1)
+			completed.Add(1)
 		}(stores[i])
 	}
 	close(start)
 	wg.Wait()
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&maxConcurrent),
+	assert.Equal(t, int32(1), maxConcurrent.Load(),
 		"at most one holder of a given lockKey may run fn at a time, across independent connections")
-	assert.Equal(t, int32(instances), atomic.LoadInt32(&completed),
+	assert.Equal(t, int32(instances), completed.Load(),
 		"WithNamedLock blocks rather than skips, so every racer must eventually run fn")
 }
 

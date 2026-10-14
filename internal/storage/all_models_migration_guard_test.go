@@ -224,7 +224,6 @@ func TestMigrateDatabase_EveryModelGetsATable_Fresh(t *testing.T) {
 	require.NoError(t, f.migrateDatabase(db))
 
 	for _, m := range models.AllTestModels() {
-		m := m
 		t.Run(reflect.TypeOf(m).Elem().Name(), func(t *testing.T) {
 			assertModelMigratedU1(t, db, m)
 		})
@@ -255,7 +254,6 @@ func TestMigrateDatabase_EveryModelGetsATable_UpgradedInstall(t *testing.T) {
 	require.NoError(t, f.migrateDatabase(db), "re-running migrateDatabase against a v0.95.0-vintage database")
 
 	for _, m := range models.AllTestModels() {
-		m := m
 		t.Run(reflect.TypeOf(m).Elem().Name(), func(t *testing.T) {
 			assertModelMigratedU1(t, db, m)
 		})
@@ -286,7 +284,6 @@ func TestMigrateDatabase_EveryModelGetsATable_Postgres_Fresh(t *testing.T) {
 
 	db := pgRawOpen(t, dsn)
 	for _, m := range models.AllTestModels() {
-		m := m
 		t.Run(reflect.TypeOf(m).Elem().Name(), func(t *testing.T) {
 			assertModelMigratedU1(t, db, m)
 		})

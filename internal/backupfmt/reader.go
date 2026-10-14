@@ -174,14 +174,8 @@ func manifestEntryFor(manifest Manifest, tarName string) (size int64, sha256 str
 // running total across the whole archive (tracked in *totalRead) exceed
 // maxTotalBytes.
 func readCapped(tr *tar.Reader, limit, maxTotalBytes int64, totalRead *int64, name string) ([]byte, error) {
-	remaining := maxTotalBytes - *totalRead
-	if remaining < 0 {
-		remaining = 0
-	}
-	effLimit := limit
-	if remaining < effLimit {
-		effLimit = remaining
-	}
+	remaining := max(maxTotalBytes-*totalRead, 0)
+	effLimit := min(remaining, limit)
 	data, err := io.ReadAll(io.LimitReader(tr, effLimit+1))
 	if err != nil {
 		return nil, fmt.Errorf("read tar entry %q: %w", name, err)

@@ -276,7 +276,7 @@ func TestResolvePrincipalPermission_EquivalentToClassicMethods(t *testing.T) {
 				{ProjectID: p1, EnvironmentID: e1}, {ProjectID: p1, EnvironmentID: e2}, {ProjectID: p1, EnvironmentID: eDel}}
 			perms := []string{pR.Name, pW.Name, pO.Name}
 			n := 0
-			for pass := 0; pass < 2; pass++ { // cold, then warm
+			for pass := range 2 { // cold, then warm
 				for _, sc := range scopes {
 					for _, perm := range perms {
 						for _, id := range users {

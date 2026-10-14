@@ -89,7 +89,7 @@ func TestCoreIntegrationDepsMatchADR109Allowlist(t *testing.T) {
 		t.Fatalf("go list -deps internal/core: %v", err)
 	}
 	present := map[string]bool{}
-	for _, dep := range strings.Fields(string(out)) {
+	for dep := range strings.FieldsSeq(string(out)) {
 		if dep == "github.com/keyorixhq/keyorix/internal/connect/connecttypes" {
 			continue
 		}

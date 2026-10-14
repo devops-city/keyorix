@@ -90,7 +90,7 @@ func TestDynamic_CreateConfig_HappyPath_S23(t *testing.T) {
 	env := &models.Environment{Name: "s23-create-cfg-env", ProjectID: proj.ID}
 	require.NoError(t, db.Create(env).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":           "s23-create-cfg",
 		"project_id":     proj.ID,
 		"environment_id": env.ID,
@@ -103,10 +103,10 @@ func TestDynamic_CreateConfig_HappyPath_S23(t *testing.T) {
 	h.CreateConfig(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "s23-create-cfg", data["name"])
 	// admin_dsn must never appear in the response.
@@ -206,7 +206,7 @@ func TestDynamic_ListLeases_HappyPath_S23(t *testing.T) {
 	h.ListLeases(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -222,7 +222,7 @@ func TestConnect_CreateRefGrant_HappyPath_S23(t *testing.T) {
 	role := &models.Role{Name: "s23-connect-role", Description: "test"}
 	require.NoError(t, db.Create(role).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"role_id":    role.ID,
 		"connector":  "vault",
 		"ref_prefix": "/s23/",
@@ -259,11 +259,11 @@ func TestConnect_ListRefGrants_WithSeededGrant_S23(t *testing.T) {
 	h.ListRefGrants(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
-	data := resp["data"].(map[string]interface{})
-	grants := data["grants"].([]interface{})
+	data := resp["data"].(map[string]any)
+	grants := data["grants"].([]any)
 	assert.GreaterOrEqual(t, len(grants), 1, "should see the seeded grant")
 }
 
@@ -291,7 +291,7 @@ func TestConnect_DeleteRefGrant_SeededGrant_S23(t *testing.T) {
 	h.DeleteRefGrant(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -309,7 +309,7 @@ func TestAdminJobs_RunAnomalyAlerts_HappyPath_S23(t *testing.T) {
 	h.RunAnomalyAlerts(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -325,7 +325,7 @@ func TestAdminJobs_RunRotationReminders_HappyPath_S23(t *testing.T) {
 	h.RunRotationReminders(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -344,7 +344,7 @@ func TestAdminJobs_RunExpiryReminders_NoLeadDays_S23(t *testing.T) {
 	h.RunExpiryReminders(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -374,7 +374,7 @@ func TestAdminJobs_RunComplianceDigest_HappyPath_S23(t *testing.T) {
 	h.RunComplianceDigest(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }
@@ -470,10 +470,10 @@ func TestDynamic_RevokeAllLeases_AdminAuth_S23(t *testing.T) {
 	h.RevokeAllLeases(w, req)
 
 	require.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	assert.EqualValues(t, 0, data["revoked"])
 	assert.EqualValues(t, 0, data["failed"])
 }
@@ -491,10 +491,10 @@ func TestConnect_ListConnectors_HappyPath_S23(t *testing.T) {
 	h.ListConnectors(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	_, hasConnectors := data["connectors"]
 	assert.True(t, hasConnectors)
 }
@@ -512,7 +512,7 @@ func TestConnect_ListRefGrants_Empty_S23(t *testing.T) {
 	h.ListRefGrants(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 }

@@ -70,7 +70,7 @@ func groupIsGone(db *gorm.DB, groupID uint) bool {
 func TestConcurrency_DeleteGroup_ExactlyOneOfTwoAdminGroupsRemoved(t *testing.T) {
 	t.Parallel()
 	var bothGone, neitherGone int
-	for trial := 0; trial < deleteGroupRaceTrials; trial++ {
+	for range deleteGroupRaceTrials {
 		c, db := newTwoGlobalAdminGroupFixture(t, filepath.Join(t.TempDir(), "delete_group.db"))
 		ctx := context.Background()
 

@@ -262,8 +262,8 @@ func runMainSubprocess(t *testing.T, testCase string) (string, int) {
 	var cleanEnv []string
 	for _, kv := range os.Environ() {
 		key := kv
-		if idx := strings.Index(kv, "="); idx >= 0 {
-			key = kv[:idx]
+		if before, _, ok := strings.Cut(kv, "="); ok {
+			key = before
 		}
 		// Drop Go coverage infrastructure vars to avoid subprocess coverage conflicts.
 		if key == "GOCOVERDIR" || key == "GOCOVERDIRREPORT" {

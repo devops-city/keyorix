@@ -167,7 +167,7 @@ func TestShareElevationAudit_RecordedThenCommitted(t *testing.T) {
 	}
 
 	ctx, rec := WithShareElevationRecorder(context.Background())
-	for i := 0; i < 2; i++ { // the gate, then the handler's own check
+	for range 2 { // the gate, then the handler's own check
 		d, err := c.AuthorizeSecretAction(ctx, 2, secretID, permSecretsWrite, SecretActionUpdate)
 		require.NoError(t, err)
 		require.True(t, d.Allowed)

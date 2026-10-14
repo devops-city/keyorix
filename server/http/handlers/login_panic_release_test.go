@@ -76,7 +76,7 @@ func TestVerifyMFA_PanicInsideCore_ReleasesTheSlotAndRePanicsUnchanged(t *testin
 		Err: errArmedPanicValue,
 	})
 
-	recovered := func() (rec interface{}) {
+	recovered := func() (rec any) {
 		defer func() { rec = recover() }()
 		postVerifyMFA(t, h, ch, code)
 		return nil
@@ -112,7 +112,7 @@ func TestFinishWebAuthnLogin_PanicInsideCore_ReleasesTheSlotAndRePanicsUnchanged
 		Err: errArmedPanicValue,
 	})
 
-	recovered := func() (rec interface{}) {
+	recovered := func() (rec any) {
 		defer func() { rec = recover() }()
 		finishWebAuthnLoginHTTP(t, h, challenge, token)
 		return nil
@@ -163,12 +163,12 @@ func TestVerifyMFA_WrapperForwardsTheIdentityCoreResolved(t *testing.T) {
 	w := postVerifyMFA(t, h, ch, code)
 	require.Equal(t, http.StatusOK, w.Code, "a correct code with no fault armed must verify")
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	data, _ := body["data"].(map[string]interface{})
+	data, _ := body["data"].(map[string]any)
 	require.NotNil(t, data, "expected a data envelope in the success response")
 
 	assert.Equal(t, "auditor", data["role"], "the primary role core resolved must reach the response")
-	assert.Equal(t, []interface{}{"auditor"}, data["roles"], "the roles core resolved must reach the response, not an empty slice")
-	assert.Equal(t, []interface{}{"secrets.read"}, data["permissions"], "the permissions core resolved must reach the response, not an empty slice")
+	assert.Equal(t, []any{"auditor"}, data["roles"], "the roles core resolved must reach the response, not an empty slice")
+	assert.Equal(t, []any{"secrets.read"}, data["permissions"], "the permissions core resolved must reach the response, not an empty slice")
 }

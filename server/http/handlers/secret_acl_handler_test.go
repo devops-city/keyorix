@@ -157,7 +157,7 @@ func TestGrantSecretACL_BadParam(t *testing.T) {
 	h, err := NewSecretHandler(cs)
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]interface{}{"user_id": 2, "permissions": []string{"secrets.read"}})
+	body, _ := json.Marshal(map[string]any{"user_id": 2, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, "/api/v1/secrets/abc/acl", bytes.NewReader(body)),
 		"id", "abc",
@@ -193,7 +193,7 @@ func TestGrantSecretACL_MissingUserID(t *testing.T) {
 	h, err := NewSecretHandler(cs)
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]interface{}{"permissions": []string{"secrets.read"}})
+	body, _ := json.Marshal(map[string]any{"permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", sid),
@@ -213,7 +213,7 @@ func TestGrantSecretACL_HappyPath(t *testing.T) {
 	h, err := NewSecretHandler(cs)
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]interface{}{"user_id": 77, "permissions": []string{"secrets.read"}})
+	body, _ := json.Marshal(map[string]any{"user_id": 77, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", sid),
@@ -320,7 +320,7 @@ func TestGrantSecretACL_EmptyPermissions(t *testing.T) {
 	h, err := NewSecretHandler(cs)
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]interface{}{"user_id": 55, "permissions": []string{}})
+	body, _ := json.Marshal(map[string]any{"user_id": 55, "permissions": []string{}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", sid),
@@ -340,7 +340,7 @@ func TestGrantSecretACL_InvalidPermission(t *testing.T) {
 	h, err := NewSecretHandler(cs)
 	require.NoError(t, err)
 
-	body, _ := json.Marshal(map[string]interface{}{"user_id": 66, "permissions": []string{"secrets.admin"}})
+	body, _ := json.Marshal(map[string]any{"user_id": 66, "permissions": []string{"secrets.admin"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", sid),
@@ -373,7 +373,7 @@ func TestGrantSecretACL_NonMemberUser(t *testing.T) {
 		Email:    "grant555@example.com",
 	}).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"user_id": 555, "permissions": []string{"secrets.read"}})
+	body, _ := json.Marshal(map[string]any{"user_id": 555, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", sid),
@@ -394,7 +394,7 @@ func TestRevokeSecretACL_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 
 	// Grant first.
-	grantBody, _ := json.Marshal(map[string]interface{}{"user_id": 99, "permissions": []string{"secrets.read"}})
+	grantBody, _ := json.Marshal(map[string]any{"user_id": 99, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(grantBody)),
 		"id", fmt.Sprintf("%d", sid),
@@ -441,7 +441,7 @@ func TestListSecretACLs_WithACLs(t *testing.T) {
 	require.NoError(t, err)
 
 	// Grant first.
-	grantBody, _ := json.Marshal(map[string]interface{}{"user_id": 123, "permissions": []string{"secrets.read"}})
+	grantBody, _ := json.Marshal(map[string]any{"user_id": 123, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(grantBody)),
 		"id", fmt.Sprintf("%d", sid),
@@ -503,7 +503,7 @@ func TestGrantSecretACL_StorageError_G50(t *testing.T) {
 
 	require.NoError(t, db.Exec("DROP TABLE IF EXISTS secret_acls").Error)
 
-	body, _ := json.Marshal(map[string]interface{}{"user_id": 77, "permissions": []string{"secrets.read"}})
+	body, _ := json.Marshal(map[string]any{"user_id": 77, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", sid),
@@ -529,7 +529,7 @@ func TestRevokeSecretACL_StorageError_G50(t *testing.T) {
 
 	// Grant first (before breaking the table) so RevokeSecretACL's own lookup
 	// has something to fail on.
-	grantBody, _ := json.Marshal(map[string]interface{}{"user_id": 99, "permissions": []string{"secrets.read"}})
+	grantBody, _ := json.Marshal(map[string]any{"user_id": 99, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(grantBody)),
 		"id", fmt.Sprintf("%d", sid),
@@ -596,7 +596,7 @@ func TestGrantRevokeACL_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// 1. Grant.
-	grantBody, _ := json.Marshal(map[string]interface{}{"user_id": 88, "permissions": []string{"secrets.read"}})
+	grantBody, _ := json.Marshal(map[string]any{"user_id": 88, "permissions": []string{"secrets.read"}})
 	req := withUserCtxACL(withChiParam(
 		httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/secrets/%d/acl", sid), bytes.NewReader(grantBody)),
 		"id", fmt.Sprintf("%d", sid),
@@ -642,12 +642,12 @@ func TestGrantRevokeACL_RoundTrip(t *testing.T) {
 	h.ListSecretACLs(w4, req4)
 	require.Equal(t, http.StatusOK, w4.Code)
 	var resp4 struct {
-		Data interface{} `json:"data"`
+		Data any `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w4.Body.Bytes(), &resp4))
 	// data should be null or an empty list
 	switch v := resp4.Data.(type) {
-	case []interface{}:
+	case []any:
 		assert.Empty(t, v)
 	case nil:
 		// nil is fine too

@@ -31,7 +31,7 @@ func TestRESTSink_Get_InvalidURL(t *testing.T) {
 }
 
 func TestRESTSink_createSecret_InvalidURL(t *testing.T) {
-	err := invalidHostSink().createSecret(context.Background(), "ns", "name", map[string]interface{}{"kind": "Secret"})
+	err := invalidHostSink().createSecret(context.Background(), "ns", "name", map[string]any{"kind": "Secret"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "build request")
 }
@@ -42,13 +42,13 @@ func TestRESTSink_createSecret_InvalidURL(t *testing.T) {
 // strings/maps.
 func TestRESTSink_createSecret_MarshalError(t *testing.T) {
 	sink := testSinkHost("http://example.invalid")
-	err := sink.createSecret(context.Background(), "ns", "name", map[string]interface{}{"bad": make(chan int)})
+	err := sink.createSecret(context.Background(), "ns", "name", map[string]any{"bad": make(chan int)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "marshal secret")
 }
 
 func TestRESTSink_applyOwnedSecret_InvalidURL(t *testing.T) {
-	err := invalidHostSink().applyOwnedSecret(context.Background(), "ns", "name", map[string]interface{}{"kind": "Secret"})
+	err := invalidHostSink().applyOwnedSecret(context.Background(), "ns", "name", map[string]any{"kind": "Secret"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "build request")
 }
@@ -57,7 +57,7 @@ func TestRESTSink_applyOwnedSecret_InvalidURL(t *testing.T) {
 // TestRESTSink_createSecret_MarshalError for the update path.
 func TestRESTSink_applyOwnedSecret_MarshalError(t *testing.T) {
 	sink := testSinkHost("http://example.invalid")
-	err := sink.applyOwnedSecret(context.Background(), "ns", "name", map[string]interface{}{"bad": make(chan int)})
+	err := sink.applyOwnedSecret(context.Background(), "ns", "name", map[string]any{"bad": make(chan int)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "marshal secret")
 }

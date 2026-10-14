@@ -87,7 +87,7 @@ func TestAuthInterceptor_MachineRoleResolutionUnavailable_IsUnavailableAndUnthro
 	// The peer's brute-force budget must be untouched: a shared NAT/egress IP
 	// whose automation retries through a blip must not end up ResourceExhausted
 	// once storage is healthy again.
-	for i := 0; i < grpcTokenAuthFailureBurst; i++ {
+	for i := range grpcTokenAuthFailureBurst {
 		assert.True(t, recordGRPCTokenAuthFailure(peerIP),
 			"budget slot %d must still be available — this was not a bad-credential attempt", i)
 	}

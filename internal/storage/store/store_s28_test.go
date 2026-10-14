@@ -47,7 +47,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // newS28Store opens a unique in-memory SQLite DB with the requested models auto-migrated.
-func newS28Store(t *testing.T, mods ...interface{}) *store.LocalStorage {
+func newS28Store(t *testing.T, mods ...any) *store.LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores28_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -71,7 +71,7 @@ func brokenS28Store(t *testing.T) *store.LocalStorage {
 // ---------------------------------------------------------------------------
 
 // secretModels lists the models required for local_secrets tests.
-var secretModels = []interface{}{
+var secretModels = []any{
 	&models.Project{},
 	&models.Environment{},
 	&models.SecretNode{},

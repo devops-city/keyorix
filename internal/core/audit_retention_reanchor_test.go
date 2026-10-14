@@ -72,13 +72,13 @@ func TestPurgeAuditLogs_ChainVerifiesAfterPurge(t *testing.T) {
 
 	// 5 events older than the 30-day retention window (will be purged)...
 	var oldIDs []uint
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		e := logChainedEvent(t, c, "secret.read", fixed.AddDate(0, 0, -(40+i)))
 		oldIDs = append(oldIDs, e.ID)
 	}
 	// ...and 3 recent events that must survive.
 	var survivors []*models.AuditEvent
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		survivors = append(survivors, logChainedEvent(t, c, "secret.updated", fixed.AddDate(0, 0, -(1+i))))
 	}
 	require.Len(t, oldIDs, 5)
@@ -117,10 +117,10 @@ func TestWriteAuditCheckpoint_SucceedsAfterPurge(t *testing.T) {
 	ctx := context.Background()
 	c, _, fixed := newReanchorTestCore(t)
 
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		logChainedEvent(t, c, "secret.read", fixed.AddDate(0, 0, -(35+i)))
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		logChainedEvent(t, c, "secret.read", fixed.AddDate(0, 0, -1))
 	}
 
@@ -144,7 +144,7 @@ func TestPurgeAuditLogs_AttackerDeletesAnchoredRow_StillDetected(t *testing.T) {
 	ctx := context.Background()
 	c, db, fixed := newReanchorTestCore(t)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		logChainedEvent(t, c, "secret.read", fixed.AddDate(0, 0, -(40+i)))
 	}
 	survivor1 := logChainedEvent(t, c, "secret.updated", fixed.AddDate(0, 0, -1))
@@ -183,7 +183,7 @@ func TestVerifyAuditChain_ForgedRetentionAnchorRejected(t *testing.T) {
 	c, db, fixed := newReanchorTestCore(t)
 
 	var ids []uint
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		e := logChainedEvent(t, c, "secret.read", fixed.AddDate(0, 0, -i))
 		ids = append(ids, e.ID)
 	}

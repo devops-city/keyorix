@@ -35,7 +35,7 @@ import (
 // a deleted parent. What this does NOT cover: a delete path that sweeps the children
 // before it touches (and so locks) the parent row — every such cascade must lock the
 // parent row first for this to hold.
-func lockLiveParent(tx *gorm.DB, model interface{}, where string, args ...interface{}) (bool, error) {
+func lockLiveParent(tx *gorm.DB, model any, where string, args ...any) (bool, error) {
 	q := tx.Model(model).Where(where, args...)
 	if tx.Dialector.Name() == "postgres" {
 		q = q.Clauses(clause.Locking{Strength: "SHARE"})

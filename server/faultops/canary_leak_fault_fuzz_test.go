@@ -297,7 +297,6 @@ func TestFreshCanarySecretLifecycleUnderFault(t *testing.T) {
 
 	t.Run("create", func(t *testing.T) {
 		for _, tc := range faultVariants("CreateSecret") {
-			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
 				ctx := context.Background()
 				w := newFaultWorld(t, nil)
@@ -324,7 +323,6 @@ func TestFreshCanarySecretLifecycleUnderFault(t *testing.T) {
 
 	t.Run("update", func(t *testing.T) {
 		for _, tc := range faultVariants("UpdateSecret") {
-			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
 				ctx := context.Background()
 				w := newFaultWorld(t, nil)
@@ -355,7 +353,6 @@ func TestFreshCanarySecretLifecycleUnderFault(t *testing.T) {
 
 	t.Run("delete", func(t *testing.T) {
 		for _, tc := range faultVariants("DeleteSecret") {
-			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
 				ctx := context.Background()
 				w := newFaultWorld(t, nil)
@@ -495,7 +492,6 @@ func TestCanaryLeakAcrossSecretOperations(t *testing.T) {
 	logBuf := redirectLog(t)
 
 	for _, op := range ops {
-		op := op
 		t.Run(strings.ReplaceAll(op.Key, " ", "_"), func(t *testing.T) {
 			t.Run("no-fault", func(t *testing.T) {
 				runCanaryLeakCheck(t, op, nil, logBuf)

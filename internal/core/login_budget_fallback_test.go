@@ -86,7 +86,7 @@ func TestLoginBudgetFallback_StorageDownStillEnforcesTheLimit(t *testing.T) {
 	stub.down = true
 	base := c.now()
 
-	for i := 0; i < LoginMaxAttempts-1; i++ {
+	for range LoginMaxAttempts - 1 {
 		c.ReserveLoginAttempt(ctx, "203.0.113.9")
 	}
 	assert.False(t, c.IsLoginRateLimited(ctx, "203.0.113.9"), "under the budget is allowed")
@@ -109,7 +109,7 @@ func TestLoginBudgetFallback_ADeliveredLoginReturnsItsMemorySlot(t *testing.T) {
 	ctx := context.Background()
 	stub.down = true
 
-	for i := 0; i < 3*LoginMaxAttempts; i++ {
+	for range 3 * LoginMaxAttempts {
 		id, ok := c.ReserveLoginAttempt(ctx, "203.0.113.10")
 		require.True(t, ok, "a fallback reservation is a real, releasable reservation")
 		c.ReleaseLoginAttempt(ctx, id)
@@ -137,7 +137,7 @@ func TestLoginBudgetFallback_RecoveredStorageIsAuthoritativeAgain(t *testing.T) 
 	c.ReleaseLoginAttempt(ctx, id)
 	require.NoError(t, db.Model(&models.LoginAttempt{}).Count(&n).Error)
 	assert.Zero(t, n)
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		c.RecordFailedLogin(ctx, "203.0.113.12")
 	}
 	assert.True(t, c.IsLoginRateLimited(ctx, "203.0.113.12"), "the stored budget is enforced as before")
@@ -149,7 +149,7 @@ func TestLoginBudgetFallback_NoFaultNoChange(t *testing.T) {
 	c, _, db, _ := newFallbackCore(t)
 	ctx := context.Background()
 	before := testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("login"))
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		c.RecordFailedLogin(ctx, "203.0.113.13")
 	}
 	assert.True(t, c.IsLoginRateLimited(ctx, "203.0.113.13"))
@@ -184,13 +184,13 @@ func TestLoginBudgetFallback_BoundedUnderManyDistinctIPs(t *testing.T) {
 	t.Parallel()
 	f := newAuthFallbackLimiter(64)
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
-	for i := 0; i < 10_000; i++ {
+	for i := range 10_000 {
 		ip := "10." + itoa(i>>16&255) + "." + itoa(i>>8&255) + "." + itoa(i&255)
 		f.reserve(ip, now, LoginWindow, 4*LoginMaxAttempts)
 	}
 	assert.LessOrEqual(t, f.size(), 64, "the fallback holds at most its capacity of IPs")
 	// The most recent IPs are the ones kept, and they still count.
-	for i := 0; i < LoginMaxAttempts; i++ {
+	for range LoginMaxAttempts {
 		f.reserve("192.0.2.200", now, LoginWindow, 4*LoginMaxAttempts)
 	}
 	assert.GreaterOrEqual(t, f.count("192.0.2.200", now.Add(-LoginWindow), true), LoginMaxAttempts)

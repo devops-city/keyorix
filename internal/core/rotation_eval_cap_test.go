@@ -39,7 +39,7 @@ func TestEvaluateRotationPolicies_NoSilentCap(t *testing.T) {
 	// would drop at least one and fail this test.
 	const n = 1001
 	secrets := make([]*models.SecretNode, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		secrets = append(secrets, &models.SecretNode{
 			ProjectID: 1, EnvironmentID: 1, Name: fmt.Sprintf("s%d", i), Type: "password",
 			CreatedAt: now.AddDate(0, 0, -100),

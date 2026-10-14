@@ -268,7 +268,7 @@ func TestNCList_Empty(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	data := resp["data"].(map[string]any)
-	channels := data["channels"].([]interface{})
+	channels := data["channels"].([]any)
 	assert.Empty(t, channels)
 }
 
@@ -286,7 +286,7 @@ func TestNCList_WithChannel(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	data := resp["data"].(map[string]any)
-	channels := data["channels"].([]interface{})
+	channels := data["channels"].([]any)
 	assert.Len(t, channels, 1)
 }
 

@@ -50,11 +50,11 @@ func TestMakeSystemInfoHandler_Authenticated(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool), "response must carry success:true")
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "data field must be a JSON object")
 	assert.Equal(t, "test", data["environment"])
 	assert.Contains(t, data, "go_version")
@@ -76,10 +76,10 @@ func TestMakeSystemInfoHandler_RecoveryKeyOmittedForNonAdmin(t *testing.T) {
 	MakeSystemInfoHandler(cfg, freshCoreS12(t))(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	security := data["security"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
+	security := data["security"].(map[string]any)
 	assert.NotContains(t, security, "recovery_key", "a non-admin must not see recovery-key status")
 }
 
@@ -94,12 +94,12 @@ func TestMakeSystemInfoHandler_RecoveryKeyVisibleForAdmin(t *testing.T) {
 	MakeSystemInfoHandler(cfg, cs)(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	security := data["security"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
+	security := data["security"].(map[string]any)
 	require.Contains(t, security, "recovery_key", "a global admin must see recovery-key status")
-	recoveryKey := security["recovery_key"].(map[string]interface{})
+	recoveryKey := security["recovery_key"].(map[string]any)
 	assert.Equal(t, false, recoveryKey["configured"], "no key was generated in this fresh core")
 }
 
@@ -115,10 +115,10 @@ func TestMakeSystemInfoHandler_TLSFeaturesReflectConfig(t *testing.T) {
 	MakeSystemInfoHandler(cfg, freshCoreS12(t))(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	features := data["features"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
+	features := data["features"].(map[string]any)
 	assert.True(t, features["tls_enabled"].(bool), "tls_enabled must reflect config")
 	assert.True(t, features["grpc_enabled"].(bool), "grpc_enabled must reflect config")
 }
@@ -136,10 +136,10 @@ func TestMakeSystemInfoHandler_KeylessRecoveryModeReflectsConfig(t *testing.T) {
 	MakeSystemInfoHandler(cfg, freshCoreS12(t))(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	security := data["security"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
+	security := data["security"].(map[string]any)
 	assert.True(t, security["keyless_recovery_mode"].(bool), "keyless_recovery_mode must reflect config when enabled")
 
 	// Default (zero-value config) must be false, never a silent true.
@@ -147,10 +147,10 @@ func TestMakeSystemInfoHandler_KeylessRecoveryModeReflectsConfig(t *testing.T) {
 	req2 := userCtxForTest(httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil))
 	rr2 := httptest.NewRecorder()
 	MakeSystemInfoHandler(cfg2, freshCoreS12(t))(rr2, req2)
-	var resp2 map[string]interface{}
+	var resp2 map[string]any
 	require.NoError(t, json.NewDecoder(rr2.Body).Decode(&resp2))
-	data2 := resp2["data"].(map[string]interface{})
-	security2 := data2["security"].(map[string]interface{})
+	data2 := resp2["data"].(map[string]any)
+	security2 := data2["security"].(map[string]any)
 	assert.False(t, security2["keyless_recovery_mode"].(bool), "keyless_recovery_mode must default to false")
 }
 
@@ -170,11 +170,11 @@ func TestGetMetrics_Authenticated(t *testing.T) {
 	GetMetrics(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
 	assert.True(t, resp["success"].(bool))
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, data, "memory")
 	assert.Contains(t, data, "goroutines")

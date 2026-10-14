@@ -19,7 +19,7 @@ import (
 // mysqlConn is the slice of a MySQL connection the executor uses — an interface seam so
 // the driver stays contained here and tests inject a fake.
 type mysqlConn interface {
-	Exec(ctx context.Context, query string, args ...interface{}) error
+	Exec(ctx context.Context, query string, args ...any) error
 	Close() error
 }
 
@@ -114,7 +114,7 @@ func quoteMySQLString(s string) string { return quote.QuoteMySQLString(s) }
 // mysqlDBConn adapts *sql.DB to the mysqlConn seam.
 type mysqlDBConn struct{ db *sql.DB }
 
-func (m *mysqlDBConn) Exec(ctx context.Context, query string, args ...interface{}) error {
+func (m *mysqlDBConn) Exec(ctx context.Context, query string, args ...any) error {
 	_, err := m.db.ExecContext(ctx, query, args...)
 	return err
 }

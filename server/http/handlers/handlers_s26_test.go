@@ -510,7 +510,7 @@ func TestUpdateUserRoles_NonexistentRoleID_S26(t *testing.T) {
 	cs, _ := freshCoreS26WithAdmin(t)
 	h := NewUsersRolesHandler(cs)
 
-	body, _ := json.Marshal(map[string]interface{}{"role_ids": []uint{99999}})
+	body, _ := json.Marshal(map[string]any{"role_ids": []uint{99999}})
 	req := withUserCtx(withChiParam_S25(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/1/roles", bytes.NewReader(body)),
 		"id", "1",
@@ -1054,7 +1054,7 @@ func TestUpdateRole_ReplacePermissions_S26(t *testing.T) {
 	perm := &models.Permission{Name: "secrets.read", Description: "read secrets"}
 	require.NoError(t, db.Create(perm).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":           "s26-update-role",
 		"description":    "updated description",
 		"permission_ids": []uint{perm.ID},
@@ -1253,7 +1253,7 @@ func TestCreateRole_ReservedName_S26(t *testing.T) {
 	h := NewRBACHandler(cs)
 
 	// CreateRoleRequest requires name, description, and at least one permission.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":        "system_admin",
 		"description": "should be rejected by IsBuiltinRole check",
 		"permissions": []string{"secrets.read"},

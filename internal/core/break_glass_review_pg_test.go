@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var breakGlassReviewPgModels = []interface{}{&models.BreakGlassActivation{}}
+var breakGlassReviewPgModels = []any{&models.BreakGlassActivation{}}
 
 // TestReviewBreakGlassActivation_Postgres_ConcurrentReviewsExactlyOneWins
 // fires N concurrent reviews at the SAME activation, each from its own real
@@ -46,7 +46,7 @@ func TestReviewBreakGlassActivation_Postgres_ConcurrentReviewsExactlyOneWins(t *
 	const racers = 8
 	var wg sync.WaitGroup
 	errs := make([]error, racers)
-	for i := 0; i < racers; i++ {
+	for i := range racers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

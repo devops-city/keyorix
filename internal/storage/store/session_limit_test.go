@@ -24,7 +24,7 @@ func TestEnforceSessionLimit(t *testing.T) {
 	ls := NewLocalStorage(db)
 
 	base := time.Now()
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		require.NoError(t, db.Create(&models.Session{
 			UserID: 1, SessionToken: fmt.Sprintf("t%d", i),
 			CreatedAt: base.Add(time.Duration(i) * time.Minute),

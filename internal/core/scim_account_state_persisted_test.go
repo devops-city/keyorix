@@ -34,7 +34,7 @@ func TestUpdateSCIMUser_ReactivatePersistsActiveAccountState(t *testing.T) {
 	t.Parallel()
 	c, db := newSCIMStateCore(t)
 	require.NoError(t, db.Model(&models.User{}).Where("id = ?", 1).
-		Updates(map[string]interface{}{"account_state": AccountDeprovisioned, "is_active": false}).Error)
+		Updates(map[string]any{"account_state": AccountDeprovisioned, "is_active": false}).Error)
 	yes := true
 
 	_, err := c.UpdateSCIMUser(context.Background(), 2, 1, nil, nil, &yes)

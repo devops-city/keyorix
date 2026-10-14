@@ -152,7 +152,7 @@ mappings:
 
 func TestSync_LogsSummary(t *testing.T) {
 	var lines []string
-	logf := func(format string, args ...interface{}) {
+	logf := func(format string, args ...any) {
 		lines = append(lines, fmt.Sprintf(format, args...))
 	}
 	f := &fakeFetcher{values: map[string][]byte{"e/n": []byte("v")}}

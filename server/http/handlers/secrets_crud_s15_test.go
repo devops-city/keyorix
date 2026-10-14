@@ -101,7 +101,7 @@ func TestCreateSecret_MalformedJSON_S15(t *testing.T) {
 // TestCreateSecret_ValidationError_S15 verifies 400 when required fields are absent.
 func TestCreateSecret_ValidationError_S15(t *testing.T) {
 	h, _, _, _ := freshSecretFixtureS15(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		// "name" intentionally omitted → validate:"required,min=1" fires
 		"value": "v", "project_id": 1, "environment_id": 10, "type": "static",
 	})
@@ -116,7 +116,7 @@ func TestCreateSecret_ValidationError_S15(t *testing.T) {
 // exists in the same project/environment.
 func TestCreateSecret_ConflictError_S15(t *testing.T) {
 	h, _, existing, _ := freshSecretFixtureS15(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name": existing.Name, "value": "v2", "project_id": uint(1),
 		"environment_id": uint(10), "type": "static",
 	})
@@ -134,7 +134,7 @@ func TestCreateSecret_EnvNotBelongError_S15(t *testing.T) {
 	require.NoError(t, db.Create(&models.Project{ID: 2, Name: "other-proj-s15"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 20, ProjectID: 2, Name: "other-env-s15"}).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name": "env-mismatch-s15", "value": "v", "project_id": uint(1),
 		"environment_id": uint(20), "type": "static",
 	})
@@ -280,7 +280,7 @@ func TestSendUpdateSecretError_PermissionDenied_S15(t *testing.T) {
 	require.NoError(t, err)
 
 	user4Ctx := &middleware.UserContext{UserID: 4, Username: "dave-s15", ActorType: core.ActorTypeUser, SessionAuth: true}
-	body, _ := json.Marshal(map[string]interface{}{"value": "new"})
+	body, _ := json.Marshal(map[string]any{"value": "new"})
 	r := httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/secrets/%d", secret.ID), bytes.NewReader(body))
 	r = r.WithContext(context.WithValue(r.Context(), middleware.GetUserContextKey(), user4Ctx))
 	r = withChiParam(r, "id", fmt.Sprintf("%d", secret.ID))
@@ -299,7 +299,7 @@ func TestSendUpdateSecretError_InternalError_S15(t *testing.T) {
 	require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
 	t.Cleanup(func() { _ = db.Exec("PRAGMA query_only = OFF").Error })
 
-	body, _ := json.Marshal(map[string]interface{}{"value": "new"})
+	body, _ := json.Marshal(map[string]any{"value": "new"})
 	r := withAdminCtxS15(withChiParam(
 		httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/secrets/%d", secret.ID), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", secret.ID),
@@ -441,7 +441,7 @@ func TestSetAutoRotate_NotFound_S15(t *testing.T) {
 // TestSetAutoRotate_UnknownCharset_S15 verifies 400 on an unknown charset value.
 func TestSetAutoRotate_UnknownCharset_S15(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS15(t)
-	body, _ := json.Marshal(map[string]interface{}{"enabled": true, "charset": "emoji-only-s15"})
+	body, _ := json.Marshal(map[string]any{"enabled": true, "charset": "emoji-only-s15"})
 	r := withAdminCtxS15(withChiParam(
 		httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/secrets/%d/auto-rotate", secret.ID), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", secret.ID),
@@ -455,7 +455,7 @@ func TestSetAutoRotate_UnknownCharset_S15(t *testing.T) {
 // ref is empty ("must be set together" error).
 func TestSetAutoRotate_BackendWithoutRef_S15(t *testing.T) {
 	h, _, secret, _ := freshSecretFixtureS15(t)
-	body, _ := json.Marshal(map[string]interface{}{"enabled": true, "backend": "aws-secrets-manager", "ref": ""})
+	body, _ := json.Marshal(map[string]any{"enabled": true, "backend": "aws-secrets-manager", "ref": ""})
 	r := withAdminCtxS15(withChiParam(
 		httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/v1/secrets/%d/auto-rotate", secret.ID), bytes.NewReader(body)),
 		"id", fmt.Sprintf("%d", secret.ID),

@@ -40,7 +40,7 @@ func TestNotifChannel_List_Empty(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	d := decodeData(t, w)
-	channels, ok := d["channels"].([]interface{})
+	channels, ok := d["channels"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, channels)
 }
@@ -58,10 +58,10 @@ func TestNotifChannel_List_WithChannels(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	d := decodeData(t, w)
-	channels, ok := d["channels"].([]interface{})
+	channels, ok := d["channels"].([]any)
 	require.True(t, ok)
 	assert.Len(t, channels, 1)
-	ch := channels[0].(map[string]interface{})
+	ch := channels[0].(map[string]any)
 	assert.Equal(t, "slack-alerts", ch["name"])
 	assert.Equal(t, "slack", ch["type"])
 }
@@ -71,7 +71,7 @@ func TestNotifChannel_List_WithChannels(t *testing.T) {
 func TestNotifChannel_Create_Webhook(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name": "pagerduty-wh", "type": "webhook", "url": "https://events.pagerduty.com/x",
 	}
 	b, _ := json.Marshal(body)
@@ -88,7 +88,7 @@ func TestNotifChannel_Create_Webhook(t *testing.T) {
 func TestNotifChannel_Create_Email(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name": "ops-email", "type": "email", "email": "ops@example.com",
 	}
 	b, _ := json.Marshal(body)
@@ -103,7 +103,7 @@ func TestNotifChannel_Create_EnabledDefault(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
 	// enabled field omitted → defaults to true
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name": "teams-ch", "type": "teams", "url": "https://outlook.office.com/webhook/x",
 	}
 	b, _ := json.Marshal(body)
@@ -119,7 +119,7 @@ func TestNotifChannel_Create_EnabledDefault(t *testing.T) {
 func TestNotifChannel_Create_WithEvents(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"name": "events-ch", "type": "slack", "url": "https://hooks.slack.com/y",
 		"events": "secret.rotated,anomaly.detected",
 	}
@@ -136,7 +136,7 @@ func TestNotifChannel_Create_WithEvents(t *testing.T) {
 func TestNotifChannel_Create_Unauthorized(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	b, _ := json.Marshal(map[string]interface{}{"name": "x", "type": "slack", "url": "https://x"})
+	b, _ := json.Marshal(map[string]any{"name": "x", "type": "slack", "url": "https://x"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels", bytes.NewReader(b))
 	w := httptest.NewRecorder()
 	h.Create(w, req)
@@ -158,7 +158,7 @@ func TestNotifChannel_Create_BadJSON(t *testing.T) {
 func TestNotifChannel_Create_ValidationError_NoName(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	body := map[string]interface{}{"name": "", "type": "slack", "url": "https://hooks.slack.com/z"}
+	body := map[string]any{"name": "", "type": "slack", "url": "https://hooks.slack.com/z"}
 	b, _ := json.Marshal(body)
 	req := withUserCtx(httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels", bytes.NewReader(b)))
 	w := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestNotifChannel_Create_ValidationError_NoName(t *testing.T) {
 func TestNotifChannel_Create_ValidationError_InvalidType(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	body := map[string]interface{}{"name": "bad-type", "type": "sms", "url": "https://example.com"}
+	body := map[string]any{"name": "bad-type", "type": "sms", "url": "https://example.com"}
 	b, _ := json.Marshal(body)
 	req := withUserCtx(httptest.NewRequest(http.MethodPost, "/api/v1/notification-channels", bytes.NewReader(b)))
 	w := httptest.NewRecorder()
@@ -224,7 +224,7 @@ func TestNotifChannel_Update_Found(t *testing.T) {
 	ch := models.NotificationChannel{Name: "update-me", Type: "slack", URL: "https://old.url", Enabled: true}
 	require.NoError(t, db.Create(&ch).Error)
 
-	body := map[string]interface{}{"url": "https://new.url", "name": "update-me", "type": "slack"}
+	body := map[string]any{"url": "https://new.url", "name": "update-me", "type": "slack"}
 	b, _ := json.Marshal(body)
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/x", bytes.NewReader(b))), "id", itoa(ch.ID))
 	w := httptest.NewRecorder()
@@ -236,7 +236,7 @@ func TestNotifChannel_Update_Found(t *testing.T) {
 func TestNotifChannel_Update_NotFound(t *testing.T) {
 	h, _ := newNotifChannelHandler(t)
 
-	body := map[string]interface{}{"name": "x", "type": "slack", "url": "https://x"}
+	body := map[string]any{"name": "x", "type": "slack", "url": "https://x"}
 	b, _ := json.Marshal(body)
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/x", bytes.NewReader(b))), "id", "99999")
 	w := httptest.NewRecorder()
@@ -251,7 +251,7 @@ func TestNotifChannel_Update_Unauthorized(t *testing.T) {
 	ch := models.NotificationChannel{Name: "upd-noauth", Type: "webhook", URL: "https://x", Enabled: true}
 	require.NoError(t, db.Create(&ch).Error)
 
-	body := map[string]interface{}{"name": "x"}
+	body := map[string]any{"name": "x"}
 	b, _ := json.Marshal(body)
 	req := withChiParam(httptest.NewRequest(http.MethodPut, "/x", bytes.NewReader(b)), "id", itoa(ch.ID))
 	w := httptest.NewRecorder()
@@ -281,7 +281,7 @@ func TestNotifChannel_Update_ValidationError(t *testing.T) {
 	require.NoError(t, db.Create(&ch).Error)
 
 	// set an invalid type → validation error (non-empty type gets applied, then fails validation)
-	body := map[string]interface{}{"type": "fax"}
+	body := map[string]any{"type": "fax"}
 	b, _ := json.Marshal(body)
 	req := withChiParam(withUserCtx(httptest.NewRequest(http.MethodPut, "/x", bytes.NewReader(b))), "id", itoa(ch.ID))
 	w := httptest.NewRecorder()

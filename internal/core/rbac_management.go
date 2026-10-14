@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"slices"
-	"sort"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -514,7 +513,7 @@ func (c *KeyorixCore) withGroupMemberSoDLocks(ctx context.Context, groupID uint,
 			ids = append(ids, m.ID)
 		}
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	slices.Sort(ids)
 	return c.withOrderedUserSoDLocks(ctx, ids, func(ctx context.Context) error {
 		return fn(ctx, members)
 	})

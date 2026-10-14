@@ -10,7 +10,7 @@ import (
 // branch on the returned status themselves — a 403 (permission denied) and a 404 (the feature
 // doesn't exist on this edition/backend/version) mean different things to different checks, so
 // this helper never collapses either into an error.
-func getJSON(ctx context.Context, c *Client, path string, out interface{}) (status int, err error) {
+func getJSON(ctx context.Context, c *Client, path string, out any) (status int, err error) {
 	status, body, err := c.Get(ctx, path)
 	if err != nil {
 		return status, err
@@ -24,7 +24,7 @@ func getJSON(ctx context.Context, c *Client, path string, out interface{}) (stat
 }
 
 // listJSON is getJSON's LIST counterpart.
-func listJSON(ctx context.Context, c *Client, path string, out interface{}) (status int, err error) {
+func listJSON(ctx context.Context, c *Client, path string, out any) (status int, err error) {
 	status, body, err := c.List(ctx, path)
 	if err != nil {
 		return status, err

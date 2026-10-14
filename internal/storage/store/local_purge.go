@@ -18,7 +18,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
-func (ls *LocalStorage) purgeDeletedBefore(ctx context.Context, model interface{}, before time.Time) (int64, error) {
+func (ls *LocalStorage) purgeDeletedBefore(ctx context.Context, model any, before time.Time) (int64, error) {
 	result := ls.db.WithContext(ctx).Unscoped().
 		Where(sqlWhereDeletedBefore, before).
 		Delete(model)
@@ -367,7 +367,7 @@ func (ls *LocalStorage) DeleteAnomalyAlertsBefore(ctx context.Context, ackBefore
 	// is still IsZero() true (Location doesn't affect the zero check) — order
 	// doesn't matter here, but IsZero is checked first for clarity.
 	var conds []string
-	var args []interface{}
+	var args []any
 	if !ackBefore.IsZero() {
 		conds = append(conds, "(acknowledged = ? AND detected_at < ?)")
 		args = append(args, true, ackBefore.UTC())

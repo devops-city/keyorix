@@ -93,8 +93,8 @@ func (ae *AuthEncryption) Shutdown() {
 }
 
 // GetAuthEncryptionStatus returns the current authentication encryption status.
-func (ae *AuthEncryption) GetAuthEncryptionStatus() map[string]interface{} {
-	status := map[string]interface{}{
+func (ae *AuthEncryption) GetAuthEncryptionStatus() map[string]any {
+	status := map[string]any{
 		"enabled":     ae.service.IsEnabled(),
 		"initialized": ae.service.IsInitialized(),
 	}

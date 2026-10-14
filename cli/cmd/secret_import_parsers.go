@@ -95,7 +95,7 @@ func parseImportFile(path, format string) ([]secretEntry, error) {
 // parseJSONBytes parses a flat key-value JSON object from already-read bytes (the
 // encrypted-json import path, where the bytes have already been decrypted in memory).
 func parseJSONBytes(data []byte) ([]secretEntry, error) {
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
 	}
@@ -193,7 +193,7 @@ func parseVault(path string) ([]secretEntry, error) {
 		return nil, err
 	}
 
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
@@ -205,7 +205,7 @@ func parseVault(path string) ([]secretEntry, error) {
 		if segment == "" {
 			continue
 		}
-		fields, ok := v.(map[string]interface{})
+		fields, ok := v.(map[string]any)
 		if !ok {
 			continue
 		}

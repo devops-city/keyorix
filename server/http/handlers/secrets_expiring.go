@@ -63,5 +63,5 @@ func (h *SecretHandler) ExpiringSecrets(w http.ResponseWriter, r *http.Request) 
 	// count of matching secrets — "truncated" tells the caller/UI whether more
 	// exist beyond expiringScanPageSize (soonest-expiring are still guaranteed
 	// to be included, since storage orders by expiration ascending).
-	h.sendSuccess(w, map[string]interface{}{"expiring": entries, "total": len(entries), "truncated": truncated}, "")
+	h.sendSuccess(w, map[string]any{"expiring": entries, "total": len(entries), "truncated": truncated}, "")
 }

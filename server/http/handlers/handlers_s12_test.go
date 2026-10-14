@@ -197,7 +197,7 @@ func TestRBACHandler_UpdateRole_WithPermissions_S12(t *testing.T) {
 
 	// Call UpdateRole with a permissions list — this hits replaceRolePermissions.
 	perms := []string{"secrets.read.s12"}
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"description": "Updated description",
 		"permissions": perms,
 	})
@@ -226,7 +226,7 @@ func TestRBACHandler_CreateRole_ReservedName_S12(t *testing.T) {
 
 	for _, name := range []string{"admin", "super_admin", "system_admin"} {
 		t.Run(name, func(t *testing.T) {
-			body, _ := json.Marshal(map[string]interface{}{
+			body, _ := json.Marshal(map[string]any{
 				"name":        name,
 				"description": "Should be rejected",
 				"permissions": []string{"roles.write"},
@@ -245,7 +245,7 @@ func TestRBACHandler_CreateRole_ReservedName_S12(t *testing.T) {
 func TestRBACHandler_CreateRole_ValidationError_S12(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewRBACHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":        "ab", // too short (< 3 chars)
 		"description": "desc",
 		"permissions": []string{"secrets.read"},
@@ -300,7 +300,7 @@ func TestRBACHandler_AssignRole_PastExpiry_S12(t *testing.T) {
 	require.NoError(t, db.Create(targetUser).Error)
 
 	past := time.Now().Add(-24 * time.Hour)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"user_id":    targetUser.ID,
 		"role_id":    role.ID,
 		"expires_at": past.Format(time.RFC3339),
@@ -326,7 +326,7 @@ func TestRBACHandler_AssignRoleToGroup_PastExpiry_S12(t *testing.T) {
 	require.NoError(t, db.Create(role).Error)
 
 	past := time.Now().Add(-48 * time.Hour)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"role_id":    role.ID,
 		"expires_at": past.Format(time.RFC3339),
 	})
@@ -365,7 +365,7 @@ func TestRBACHandler_GetUserRoles_NotFound_S12(t *testing.T) {
 func TestRBACHandler_AssignRole_ValidationError_S12(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewRBACHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{}) // missing user_id and role_id
+	body, _ := json.Marshal(map[string]any{}) // missing user_id and role_id
 	req := withUserCtx(httptest.NewRequest(http.MethodPost, "/api/v1/user-roles", bytes.NewReader(body)))
 	w := httptest.NewRecorder()
 	h.AssignRole(w, req)
@@ -390,7 +390,7 @@ func TestRBACHandler_AssignRole_InvalidJSON_S12(t *testing.T) {
 func TestRBACHandler_AssignPermissionToRole_NotFound_S12(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewRBACHandler(cs)
-	body, _ := json.Marshal(map[string]interface{}{"permission_id": uint(9999)})
+	body, _ := json.Marshal(map[string]any{"permission_id": uint(9999)})
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPost, "/api/v1/roles/9999/permissions", bytes.NewReader(body)),
 		"id", "9999",
@@ -420,14 +420,14 @@ func TestRBACHandler_ListPermissions_ResourceFilter_S12(t *testing.T) {
 	h.ListPermissions(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	perms := data["permissions"].([]interface{})
+	data := resp["data"].(map[string]any)
+	perms := data["permissions"].([]any)
 	// Only the s12secrets resource should appear after filtering.
 	assert.GreaterOrEqual(t, len(perms), 1)
 	for _, p := range perms {
-		pm := p.(map[string]interface{})
+		pm := p.(map[string]any)
 		resource, _ := pm["resource"].(string)
 		assert.Equal(t, "s12secrets", resource)
 	}
@@ -448,7 +448,7 @@ func freshUserHandlerS12(t *testing.T) (*UserHandler, *core.KeyorixCore, *gorm.D
 // deliver_setup_link and generate_one_time_password are set simultaneously.
 func TestCreateUser_BothFlagsSet_S12(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "bothflagsuser_s12",
 		"email":                      "bothflags_s12@x.com",
 		"display_name":               "Both Flags",
@@ -467,7 +467,7 @@ func TestCreateUser_BothFlagsSet_S12(t *testing.T) {
 // role/project_assignments are combined with deliver_setup_link.
 func TestCreateUser_AssignmentsWithSetupLink_S12(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setupassign_s12",
 		"email":              "setupassign_s12@x.com",
 		"display_name":       "Setup Assign",
@@ -486,7 +486,7 @@ func TestCreateUser_AssignmentsWithSetupLink_S12(t *testing.T) {
 // role/project_assignments are combined with generate_one_time_password.
 func TestCreateUser_AssignmentsWithOTP_S12(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otpassign_s12",
 		"email":                      "otpassign_s12@x.com",
 		"display_name":               "OTP Assign",
@@ -514,7 +514,7 @@ func TestCreateUserWithOTP_ConflictError_S12(t *testing.T) {
 	}
 	require.NoError(t, db.Create(existing).Error)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-exists-s12",
 		"email":                      "otp-exists-s12@x.com",
 		"display_name":               "OTP Exists S12",
@@ -533,7 +533,7 @@ func TestCreateUserWithOTP_ConflictError_S12(t *testing.T) {
 func TestCreateUserWithSetupLink_BaseURLRequired_S12(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-baseurl-s12",
 		"email":              "setup-baseurl-s12@x.com",
 		"display_name":       "Setup BaseURL S12",
@@ -552,7 +552,7 @@ func TestCreateUserWithSetupLink_BaseURLRequired_S12(t *testing.T) {
 // a password nor a setup-link/OTP flag is provided (createUserClassic guard).
 func TestCreateUserClassic_NoPassword_S12(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":     "nopwuser_s12",
 		"email":        "nopw_s12@x.com",
 		"display_name": "No Password S12",
@@ -659,7 +659,7 @@ func TestUpdateUser_InvalidJSON_S12(t *testing.T) {
 // TestUpdateUser_NotFound_S12 verifies the 404 branch.
 func TestUpdateUser_NotFound_S12(t *testing.T) {
 	uh, _, _ := freshUserHandlerS12(t)
-	body, _ := json.Marshal(map[string]interface{}{"display_name": "New Name"})
+	body, _ := json.Marshal(map[string]any{"display_name": "New Name"})
 	req := withUserCtx(withChiParam(
 		httptest.NewRequest(http.MethodPut, "/api/v1/users/9999", bytes.NewReader(body)),
 		"id", "9999",
@@ -758,7 +758,7 @@ func TestUnlockUser_NotFound_S12(t *testing.T) {
 // TestSendCreated_WithMessage_S12 covers sendCreated's message != "" branch.
 func TestSendCreated_WithMessage_S12(t *testing.T) {
 	w := httptest.NewRecorder()
-	sendCreated(w, map[string]interface{}{"key": "val"}, "item created")
+	sendCreated(w, map[string]any{"key": "val"}, "item created")
 	assert.Equal(t, http.StatusCreated, w.Code)
 	assert.Contains(t, w.Body.String(), "item created")
 	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
@@ -768,7 +768,7 @@ func TestSendCreated_WithMessage_S12(t *testing.T) {
 // message="" branch must omit the "message" key entirely).
 func TestSendSuccess_NoMessage_S12(t *testing.T) {
 	w := httptest.NewRecorder()
-	sendSuccess(w, map[string]interface{}{"k": "v"}, "")
+	sendSuccess(w, map[string]any{"k": "v"}, "")
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.NotContains(t, w.Body.String(), `"message"`)
 }

@@ -202,9 +202,9 @@ func TestGetSecretVersions_Success_S15(t *testing.T) {
 	h.GetSecretVersions(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "response should have a 'data' key")
 	_, hasVersions := data["versions"]
 	assert.True(t, hasVersions, "response data should contain 'versions'")
@@ -373,11 +373,11 @@ func TestDeletedSecrets_WithSeededData_S15(t *testing.T) {
 	h.DeletedSecrets(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "response should have a 'data' key")
-	deleted, ok := data["deleted"].([]interface{})
+	deleted, ok := data["deleted"].([]any)
 	require.True(t, ok, "data.deleted should be an array")
 	assert.GreaterOrEqual(t, len(deleted), 1, "expected at least one deleted secret in response")
 }

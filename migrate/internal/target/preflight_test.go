@@ -35,7 +35,7 @@ func fakePATServer(t *testing.T, statusCode int, tokens []patToken) *httptest.Se
 		if statusCode != http.StatusOK {
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": tokens})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": tokens})
 	}))
 }
 

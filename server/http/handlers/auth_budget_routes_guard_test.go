@@ -348,15 +348,15 @@ func spendBudget(c *core.KeyorixCore, budget string) {
 	ctx := context.Background()
 	switch budget {
 	case "login":
-		for i := 0; i < core.LoginMaxAttempts; i++ {
+		for range core.LoginMaxAttempts {
 			c.RecordFailedLogin(ctx, lockoutOracleTestIP)
 		}
 	case "password_reset":
-		for i := 0; i < core.PasswordResetMaxAttempts; i++ {
+		for range core.PasswordResetMaxAttempts {
 			c.RecordPasswordResetAttempt(ctx, lockoutOracleTestIP)
 		}
 	case "sso_begin":
-		for i := 0; i < core.SSOBeginMaxAttempts; i++ {
+		for range core.SSOBeginMaxAttempts {
 			c.RecordSSOBeginAttempt(ctx, lockoutOracleTestIP)
 		}
 	default:

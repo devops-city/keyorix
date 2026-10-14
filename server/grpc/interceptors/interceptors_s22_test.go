@@ -191,7 +191,7 @@ func TestLoggingInterceptor_S22_WithPeer(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"}
 
 	resp, err := interceptor(ctx, "req", info,
-		func(_ context.Context, req interface{}) (interface{}, error) {
+		func(_ context.Context, req any) (any, error) {
 			return "pong", nil
 		})
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestLoggingInterceptor_S22_WithPeerAndError(t *testing.T) {
 	handlerErr := errors.New("peer error")
 
 	_, err := interceptor(ctx, nil, info,
-		func(_ context.Context, _ interface{}) (interface{}, error) {
+		func(_ context.Context, _ any) (any, error) {
 			return nil, handlerErr
 		})
 	require.Error(t, err)
@@ -230,7 +230,7 @@ func TestLoggingInterceptor_S22_SlowRequestBranch(t *testing.T) {
 	defer cancel()
 
 	_, _ = interceptor(ctx, nil, info,
-		func(innerCtx context.Context, _ interface{}) (interface{}, error) {
+		func(innerCtx context.Context, _ any) (any, error) {
 			// Sleep for slightly over 1 second to cross the slow-request threshold,
 			// then return normally (not an error — the branch is in the logging path,
 			// not the error path).
@@ -261,7 +261,7 @@ func TestStreamLoggingInterceptor_S22_WithPeer(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.AuditService/StreamAuditLogs"}
 
 	err := interceptor(nil, &fakeStream{ctx: ctx}, info,
-		func(_ interface{}, _ grpc.ServerStream) error {
+		func(_ any, _ grpc.ServerStream) error {
 			return nil
 		})
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestStreamAuthInterceptor_S22_PublicMethodBypasses(t *testing.T) {
 
 	called := false
 	err := interceptor(nil, &fakeStream{ctx: context.Background()}, info,
-		func(_ interface{}, _ grpc.ServerStream) error {
+		func(_ any, _ grpc.ServerStream) error {
 			called = true
 			return nil
 		})
@@ -303,7 +303,7 @@ func TestStreamAuthInterceptor_S22_HealthCheckPublic(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.SystemService/HealthCheck"}
 
 	err := interceptor(nil, &fakeStream{ctx: context.Background()}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.NoError(t, err)
 }
 
@@ -314,7 +314,7 @@ func TestStreamAuthInterceptor_S22_NilCoreFailsClosed(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"}
 
 	err := interceptor(nil, &fakeStream{ctx: streamBearerCtx("any")}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err))
 }
@@ -329,7 +329,7 @@ func TestStreamAuthInterceptor_S22_MissingMetadataRejected(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"}
 
 	err := interceptor(nil, &fakeStream{ctx: context.Background()}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 }
@@ -344,7 +344,7 @@ func TestStreamAuthInterceptor_S22_InvalidTokenRejected(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"}
 
 	err := interceptor(nil, &fakeStream{ctx: streamBearerCtx("bogus-token")}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.Unauthenticated, status.Code(err))
 }
@@ -362,7 +362,7 @@ func TestStreamAuthInterceptor_S22_ValidSessionPopulatesContext(t *testing.T) {
 
 	var capturedStreamCtx context.Context
 	err := interceptor(nil, &fakeStream{ctx: streamBearerCtx("stream-live-token")}, info,
-		func(_ interface{}, s grpc.ServerStream) error {
+		func(_ any, s grpc.ServerStream) error {
 			capturedStreamCtx = s.Context()
 			return nil
 		})
@@ -397,7 +397,7 @@ func TestStreamAuthInterceptor_S22_BlocksImpersonatedCredentialMinting(t *testin
 
 	err = interceptor(nil, &fakeStream{ctx: streamBearerCtx("stream-imp-token")},
 		&grpc.StreamServerInfo{FullMethod: machineIssue},
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
@@ -424,7 +424,7 @@ func TestStreamAuthInterceptor_S22_NonCredentialMintingMethodAllowedWhileImperso
 
 	err = interceptor(nil, &fakeStream{ctx: streamBearerCtx("stream-imp-ok-token")},
 		&grpc.StreamServerInfo{FullMethod: "/keyorix.v1.AuditService/StreamAuditLogs"},
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.NoError(t, err, "a non-credential-minting method must proceed even during impersonation")
 }
 
@@ -449,7 +449,7 @@ func TestStreamAuthInterceptor_S22_PATAuthenticatesAndEnforcesScope(t *testing.T
 
 	var capturedStreamCtx context.Context
 	err = interceptor(nil, &fakeStream{ctx: streamBearerCtx(res.PlainToken)}, info,
-		func(_ interface{}, s grpc.ServerStream) error {
+		func(_ any, s grpc.ServerStream) error {
 			capturedStreamCtx = s.Context()
 			return nil
 		})
@@ -485,13 +485,13 @@ func TestStreamAuthInterceptor_S22_MFAGateEnforcedOnStream(t *testing.T) {
 
 	// Session without MFA → refused.
 	err := interceptor(nil, &fakeStream{ctx: streamBearerCtx("stream-nomfa-token")}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	// Session with MFA → allowed.
 	err = interceptor(nil, &fakeStream{ctx: streamBearerCtx("stream-mfa-token")}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.NoError(t, err)
 }
 
@@ -519,7 +519,7 @@ func TestStreamAuthInterceptor_S22_MachineTokenAuthenticates(t *testing.T) {
 
 	var capturedStreamCtx context.Context
 	err = interceptor(nil, &fakeStream{ctx: streamBearerCtx(tok.PlainToken)}, info,
-		func(_ interface{}, s grpc.ServerStream) error {
+		func(_ any, s grpc.ServerStream) error {
 			capturedStreamCtx = s.Context()
 			return nil
 		})

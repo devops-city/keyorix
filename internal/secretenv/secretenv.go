@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -295,10 +296,8 @@ func checkInfo(info os.FileInfo) error {
 	if int(st.Uid) == processUID() {
 		return bad("group-readable but owned by the running user")
 	}
-	for _, g := range processGroups() {
-		if int(st.Gid) == g {
-			return nil
-		}
+	if slices.Contains(processGroups(), int(st.Gid)) {
+		return nil
 	}
 	return bad("group-readable by a group the process does not belong to")
 }

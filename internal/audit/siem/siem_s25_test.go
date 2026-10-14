@@ -284,7 +284,7 @@ func TestBuildRequest_DatadogPayloadFields(t *testing.T) {
 	body := cap.body
 	cap.mu.Unlock()
 
-	var envelope map[string]interface{}
+	var envelope map[string]any
 	require.NoError(t, json.Unmarshal(body, &envelope))
 	assert.Equal(t, "keyorix", envelope["ddsource"])
 	assert.Equal(t, "keyorix", envelope["service"])
@@ -312,7 +312,7 @@ func TestBuildRequest_SplunkPayloadFields(t *testing.T) {
 	body := cap.body
 	cap.mu.Unlock()
 
-	var envelope map[string]interface{}
+	var envelope map[string]any
 	require.NoError(t, json.Unmarshal(body, &envelope))
 	assert.Equal(t, "keyorix", envelope["source"])
 	assert.Equal(t, "keyorix:audit", envelope["sourcetype"])

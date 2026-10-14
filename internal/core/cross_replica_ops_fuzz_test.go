@@ -322,15 +322,15 @@ type crBoolOp struct {
 }
 
 var crBoolRegModel = porcupine.Model{
-	Init: func() interface{} { return true },
-	Step: func(state, input, output interface{}) (bool, interface{}) {
+	Init: func() any { return true },
+	Step: func(state, input, output any) (bool, any) {
 		in := input.(crBoolOp)
 		if in.write {
 			return true, in.setTo
 		}
 		return output.(bool) == state.(bool), state
 	},
-	DescribeOperation: func(input, output interface{}) string {
+	DescribeOperation: func(input, output any) string {
 		in := input.(crBoolOp)
 		if in.write {
 			return fmt.Sprintf("set(%v)", in.setTo)
@@ -390,14 +390,14 @@ func assertNoDuplicateSecretVersions(t *testing.T, w *crWorld, secretID uint) {
 
 type crOrderedWrite struct {
 	returnAt int64
-	value    interface{}
+	value    any
 }
 
 // assertCommitOrderReplay sorts successful writes by their Return timestamp
 // (captured immediately after each write's call returned, i.e. immediately
 // after its commit) and asserts the last writer's value equals actual —
 // the state a serial replay in real commit order would produce.
-func assertCommitOrderReplay(t *testing.T, label string, writes []crOrderedWrite, actual interface{}) {
+func assertCommitOrderReplay(t *testing.T, label string, writes []crOrderedWrite, actual any) {
 	t.Helper()
 	if len(writes) == 0 {
 		return

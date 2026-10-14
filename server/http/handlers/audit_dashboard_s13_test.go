@@ -155,7 +155,7 @@ func TestGetAuditLogs_ExactPageBoundary_S13(t *testing.T) {
 	_, db := freshCoreS13WithDB(t)
 	// Seed exactly 2 events so that pageSize=2 hits the exact-division branch.
 	tru := true
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		require.NoError(t, db.Create(&models.AuditEvent{
 			EventType:   "secret.read",
 			Description: fmt.Sprintf("event %d", i),

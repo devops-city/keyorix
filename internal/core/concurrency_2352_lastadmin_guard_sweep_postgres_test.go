@@ -70,7 +70,7 @@ func isConnectionError(err error) bool {
 
 const lastAdminSweepPGTrials = 15
 
-var lastAdminSweepPGModels = []interface{}{
+var lastAdminSweepPGModels = []any{
 	&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PersonalAccessToken{},
 	&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 	&models.Project{}, &models.Environment{},
@@ -98,7 +98,7 @@ func newPGLastAdminSchemaDSN(t *testing.T) (dsn string, setupDB *gorm.DB) {
 func TestConcurrency_RemoveUserFromGroup_GlobalScope_CrossReplicaPostgres(t *testing.T) {
 	t.Parallel()
 	var bothGone, neitherGone int
-	for trial := 0; trial < lastAdminSweepPGTrials; trial++ {
+	for trial := range lastAdminSweepPGTrials {
 		dsn, setupDB := newPGLastAdminSchemaDSN(t)
 		require.NoError(t, setupDB.Create(&models.Role{Name: "admin", BypassesPermissionChecks: true}).Error)
 		var role models.Role
@@ -173,7 +173,7 @@ func TestConcurrency_RemoveUserFromGroup_GlobalScope_CrossReplicaPostgres(t *tes
 func TestConcurrency_DeleteGroup_RemoveProjectMember_CrossPath_CrossReplicaPostgres(t *testing.T) {
 	t.Parallel()
 	var bothGone int
-	for trial := 0; trial < lastAdminSweepPGTrials; trial++ {
+	for trial := range lastAdminSweepPGTrials {
 		dsn, setupDB := newPGLastAdminSchemaDSN(t)
 		proj := models.Project{Name: "proj"}
 		require.NoError(t, setupDB.Create(&proj).Error)

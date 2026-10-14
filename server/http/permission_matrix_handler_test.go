@@ -36,9 +36,9 @@ func TestGetPermissionMatrix_JSON(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body must contain a 'data' object")
 	assert.Contains(t, data, "rows")
 	assert.Contains(t, data, "total")
@@ -122,9 +122,9 @@ func TestGetPermissionMatrix_ProjectFilter(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body must contain a 'data' object")
 	assert.Contains(t, data, "rows")
 	assert.Contains(t, data, "total")

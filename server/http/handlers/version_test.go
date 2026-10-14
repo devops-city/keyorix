@@ -26,7 +26,7 @@ func TestVersionHandler_ExposesOnlySkewFields(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 
 	assert.Equal(t, float64(1), body["api_version"])
@@ -53,7 +53,7 @@ func TestVersionHandler_EmptyMinimumMeansNoFloor(t *testing.T) {
 
 	contracttest.AssertOpenAPIResponse(t, req, w)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.Equal(t, "", body["minimum_cli_version"])
 }

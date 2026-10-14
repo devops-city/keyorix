@@ -165,10 +165,7 @@ func (c *KeyorixCore) fallbackLimit(b authBudget) int {
 	if r := c.authFallbackReplicas.Load(); r > 1 {
 		div *= r
 	}
-	limit := int64(b.limit) / div
-	if limit < 1 {
-		limit = 1
-	}
+	limit := max(int64(b.limit)/div, 1)
 	return int(limit)
 }
 

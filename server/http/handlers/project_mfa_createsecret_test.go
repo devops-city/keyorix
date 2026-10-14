@@ -53,7 +53,7 @@ func TestCreateSecret_PerProjectMFAGate(t *testing.T) {
 	userCtx := &middleware.UserContext{UserID: 1, ActorType: core.ActorTypeUser, SessionAuth: true, MFAEnabled: false}
 
 	post := func(projectID, environmentID uint) *httptest.ResponseRecorder {
-		body, _ := json.Marshal(map[string]interface{}{
+		body, _ := json.Marshal(map[string]any{
 			"name": "API_KEY", "value": "v", "project_id": projectID,
 			"environment_id": environmentID, "type": "static",
 		})

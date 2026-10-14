@@ -65,7 +65,7 @@ func TestSecretPurgeCandidate_Eligible_Boundary(t *testing.T) {
 func TestSecretPurgeCandidate_NeverEligibleBeforeShownDate_Property(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261010))
 	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < 20000; i++ {
+	for range 20000 {
 		d1 := 1 + rng.Intn(400)
 		override := 0
 		if rng.Intn(3) == 0 {
@@ -132,7 +132,7 @@ func ageDeletion(t *testing.T, ls *LocalStorage, id uint, k int) {
 	t.Helper()
 	var n models.SecretNode
 	require.NoError(t, ls.db.Unscoped().First(&n, id).Error)
-	updates := map[string]interface{}{"deleted_at": n.DeletedAt.Time.AddDate(0, 0, -k)}
+	updates := map[string]any{"deleted_at": n.DeletedAt.Time.AddDate(0, 0, -k)}
 	if n.PurgeAt != nil {
 		updates["purge_at"] = n.PurgeAt.AddDate(0, 0, -k)
 	}

@@ -54,7 +54,7 @@ func TestConcurrency_LoginAttempts_NoLostRecords(t *testing.T) {
 	errs := make(chan error, attempts)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < attempts; i++ {
+	for i := range attempts {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()

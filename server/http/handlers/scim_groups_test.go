@@ -27,11 +27,11 @@ func provisionUser(t *testing.T, h *SCIMHandler, userName string) string {
 	return id
 }
 
-func groupMemberValues(g map[string]interface{}) []string {
+func groupMemberValues(g map[string]any) []string {
 	var out []string
-	members, _ := g["members"].([]interface{})
+	members, _ := g["members"].([]any)
 	for _, m := range members {
-		if mm, ok := m.(map[string]interface{}); ok {
+		if mm, ok := m.(map[string]any); ok {
 			if v, ok := mm["value"].(string); ok {
 				out = append(out, v)
 			}

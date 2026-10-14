@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -135,12 +135,12 @@ func bgIDs(r bgListResponse) []uint {
 	for _, a := range r.Data.Activations {
 		out = append(out, a.ID)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 
 func sortedUints(in ...uint) []uint {
-	sort.Slice(in, func(i, j int) bool { return in[i] < in[j] })
+	slices.Sort(in)
 	return in
 }
 

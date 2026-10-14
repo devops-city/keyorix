@@ -89,11 +89,11 @@ func TestConcurrency_AuditPersist_NeverLostOnContention(t *testing.T) {
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "dev"}).Error)
 
 	const writers = 150
-	var successfulMutations int64
+	var successfulMutations atomic.Int64
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < writers; i++ {
+	for i := range writers {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
@@ -115,7 +115,7 @@ func TestConcurrency_AuditPersist_NeverLostOnContention(t *testing.T) {
 				// if the mutation never happened.
 				return
 			}
-			atomic.AddInt64(&successfulMutations, 1)
+			successfulMutations.Add(1)
 
 			tr := true
 			event := &models.AuditEvent{
@@ -145,7 +145,7 @@ func TestConcurrency_AuditPersist_NeverLostOnContention(t *testing.T) {
 	var persistedAuditCount int64
 	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ?", "secret.created").Count(&persistedAuditCount).Error)
 
-	mutations := atomic.LoadInt64(&successfulMutations)
+	mutations := successfulMutations.Load()
 	t.Logf("successful mutations: %d, persisted audit records: %d, dropped: %d",
 		mutations, persistedAuditCount, mutations-persistedAuditCount)
 

@@ -35,30 +35,30 @@ func TestConcurrency_WithAuditCheckpointLock_MultiInstancePostgres_ExactlyOneRun
 	const instances = 8
 
 	stores := make([]*LocalStorage, instances)
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		stores[i] = NewLocalStorage(pgOpen(t, dsn))
 	}
 
-	var running int32
-	var maxConcurrent int32
+	var running atomic.Int32
+	var maxConcurrent atomic.Int32
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < instances; i++ {
+	for i := range instances {
 		wg.Add(1)
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
 			err := ls.WithAuditCheckpointLock(context.Background(), func() error {
-				n := atomic.AddInt32(&running, 1)
+				n := running.Add(1)
 				for {
-					m := atomic.LoadInt32(&maxConcurrent)
-					if n <= m || atomic.CompareAndSwapInt32(&maxConcurrent, m, n) {
+					m := maxConcurrent.Load()
+					if n <= m || maxConcurrent.CompareAndSwap(m, n) {
 						break
 					}
 				}
 				time.Sleep(150 * time.Millisecond) // hold the lock long enough for every racer to attempt while it's held
-				atomic.AddInt32(&running, -1)
+				running.Add(-1)
 				return nil
 			})
 			require.NoError(t, err)
@@ -67,6 +67,6 @@ func TestConcurrency_WithAuditCheckpointLock_MultiInstancePostgres_ExactlyOneRun
 	close(start) // release every instance's attempt at once
 	wg.Wait()
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&maxConcurrent),
+	assert.Equal(t, int32(1), maxConcurrent.Load(),
 		"at most one replica's checkpoint-write critical section may run at a time")
 }

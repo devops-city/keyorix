@@ -92,7 +92,7 @@ func TestVerifyMFA_RateLimited_S13B(t *testing.T) {
 	h := NewAuthHandler(cs, false)
 	ctx := context.Background()
 	// RecordFailedLogin more than 10 times for the IP to trigger the limit.
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.1.2.3")
 	}
 	body, _ := json.Marshal(map[string]string{
@@ -165,7 +165,7 @@ func TestBeginWebAuthnLogin_RateLimited_S13B(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewAuthHandler(cs, false)
 	ctx := context.Background()
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.5.6.7")
 	}
 	body, _ := json.Marshal(map[string]string{"mfa_challenge": "ch"})
@@ -185,10 +185,10 @@ func TestFinishWebAuthnLogin_RateLimited_S13B(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewAuthHandler(cs, false)
 	ctx := context.Background()
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.7.8.9")
 	}
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"mfa_challenge":    "ch",
 		"webauthn_session": "sess",
 		"credential":       json.RawMessage(`{}`),
@@ -210,7 +210,7 @@ func TestBeginWebAuthnPasswordlessLogin_RateLimited_S13B(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewAuthHandler(cs, false)
 	ctx := context.Background()
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.3.4.5")
 	}
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/webauthn/passwordless/begin", nil)
@@ -228,7 +228,7 @@ func TestFinishWebAuthnPasswordlessLogin_RateLimited_S13B(t *testing.T) {
 	cs := freshCoreS12(t)
 	h := NewAuthHandler(cs, false)
 	ctx := context.Background()
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		cs.RecordFailedLogin(ctx, "10.9.10.11")
 	}
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/webauthn/passwordless/finish", nil)

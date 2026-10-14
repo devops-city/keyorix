@@ -175,7 +175,7 @@ func TestGenerateSecrets_AdminPasswordAvoidsConfiguredUsername(t *testing.T) {
 	// so 5000 draws exercise the regenerate path several times.
 	t.Setenv("KEYORIX_ADMIN_USERNAME", "abc")
 	policy := rules.DefaultPasswordPolicy()
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		pw, err := randomAdminPassword()
 		if err != nil {
 			t.Fatal(err)

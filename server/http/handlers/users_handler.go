@@ -62,12 +62,12 @@ type legacyUpdateUserBody struct {
 	Active      *bool   `json:"active,omitempty"`
 }
 
-func userToAPIResponse(u *models.User) map[string]interface{} {
+func userToAPIResponse(u *models.User) map[string]any {
 	dn := u.DisplayName
 	if dn == "" {
 		dn = u.Username
 	}
-	out := map[string]interface{}{
+	out := map[string]any{
 		"id":            u.ID,
 		"username":      u.Username,
 		"email":         u.Email,
@@ -157,7 +157,7 @@ func listUsersLegacy(w http.ResponseWriter, r *http.Request) {
 		{ID: 1, Username: "admin", Email: testAdminEmail, DisplayName: testSysAdminRole, Active: true, CreatedAt: testTimestamp1, UpdatedAt: testTimestamp1},
 		{ID: 2, Username: "user1", Email: "user1@keyorix.com", DisplayName: "Regular User", Active: true, CreatedAt: "2024-01-02T00:00:00Z", UpdatedAt: "2024-01-02T00:00:00Z"},
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"users": users, "page": page, "page_size": pageSize, "total": len(users), "total_pages": 1,
 	}, "")
 }

@@ -73,9 +73,7 @@ func TestWithNamedLock_HolderCompletesUnderPoolSmallerThanWaiters(t *testing.T) 
 	var holderErr, waiterErr error
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		holderErr = ls.WithNamedLock(ctx, key, func(ctx context.Context) error {
 			close(inside)
 			// Give the waiter time to arrive and (on an unfixed build) park a
@@ -83,14 +81,12 @@ func TestWithNamedLock_HolderCompletesUnderPoolSmallerThanWaiters(t *testing.T) 
 			time.Sleep(500 * time.Millisecond)
 			return probeQuery(ctx, db)
 		})
-	}()
+	})
 
 	<-inside
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		waiterErr = ls.WithNamedLock(ctx, key, func(ctx context.Context) error { return nil })
-	}()
+	})
 
 	wg.Wait()
 	require.NoError(t, holderErr,
@@ -121,9 +117,7 @@ func TestWithNamedLock_ManyWaitersOnOneKey_DoNotExhaustPool(t *testing.T) {
 	errs := make([]error, waiters)
 	var wg sync.WaitGroup
 	for i := range waiters {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = ls.WithNamedLock(ctx, key, func(ctx context.Context) error {
 				mu.Lock()
 				concurrent++
@@ -138,7 +132,7 @@ func TestWithNamedLock_ManyWaitersOnOneKey_DoNotExhaustPool(t *testing.T) {
 				mu.Unlock()
 				return err
 			})
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -174,9 +168,7 @@ func TestWithNamedLock_CancelledWhileQueued_ReleasesAndTakesNoConnection(t *test
 	var holderErr error
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		holderErr = ls.WithNamedLock(outer, key, func(ctx context.Context) error {
 			close(holderInside)
 			<-holderMayFinish
@@ -185,32 +177,28 @@ func TestWithNamedLock_CancelledWhileQueued_ReleasesAndTakesNoConnection(t *test
 			// waiter is holding the other.
 			return probeQuery(ctx, db)
 		})
-	}()
+	})
 	<-holderInside
 
 	// A waiter that will be cancelled while queued.
 	cancelledCtx, cancelWaiter := context.WithCancel(outer)
 	var cancelledErr error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		cancelledErr = ls.WithNamedLock(cancelledCtx, key, func(ctx context.Context) error {
 			t.Error("the cancelled waiter must never enter its critical section")
 			return nil
 		})
-	}()
+	})
 
 	// A second waiter that must still get the lock after the first is cancelled.
 	survivorRan := make(chan struct{})
 	var survivorErr error
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		survivorErr = ls.WithNamedLock(outer, key, func(ctx context.Context) error {
 			close(survivorRan)
 			return probeQuery(ctx, db)
 		})
-	}()
+	})
 
 	// Let both waiters reach the queue, then cancel the first.
 	time.Sleep(300 * time.Millisecond)

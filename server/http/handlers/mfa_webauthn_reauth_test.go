@@ -70,7 +70,7 @@ func withUserContext(r *http.Request, userID uint) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), middleware.GetUserContextKey(), userCtx))
 }
 
-func postJSON(path string, body interface{}, userID uint) *http.Request {
+func postJSON(path string, body any, userID uint) *http.Request {
 	b, _ := json.Marshal(body)
 	r := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(b))
 	return withUserContext(r, userID)
@@ -124,7 +124,7 @@ func TestFinishWebAuthnRegistrationHandler_RequiresReauth(t *testing.T) {
 	_, sessionToken, err := coreService.BeginWebAuthnRegistration(ctx, 1)
 	require.NoError(t, err)
 
-	body := map[string]interface{}{
+	body := map[string]any{
 		"webauthn_session": sessionToken,
 		"name":             "laptop",
 		// Structurally valid so the request clears attestation parsing and
@@ -179,7 +179,7 @@ func TestDeleteWebAuthnCredentialHandler_RequiresReauth(t *testing.T) {
 	require.NoError(t, db.Where("user_id = ?", 1).First(&cred).Error)
 	credIDParam := fmt.Sprint(cred.ID)
 
-	deleteReq := func(body interface{}) *httptest.ResponseRecorder {
+	deleteReq := func(body any) *httptest.ResponseRecorder {
 		var r *http.Request
 		if body == nil {
 			r = httptest.NewRequest(http.MethodDelete, "/api/v1/auth/webauthn/credentials/"+credIDParam, nil)

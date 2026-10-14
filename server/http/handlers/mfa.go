@@ -27,7 +27,7 @@ func (h *AuthHandler) EnrollMFA(w http.ResponseWriter, r *http.Request) {
 		h.writeMFAErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"otpauth_uri": uri,
 		"secret":      secret,
 	}, "Scan the QR code in your authenticator app, then activate with a code.")
@@ -63,7 +63,7 @@ func (h *AuthHandler) ActivateMFA(w http.ResponseWriter, r *http.Request) {
 	if ended {
 		message += " Account setup is complete: sign in again with your password and a code."
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"recovery_codes":            codes,
 		"reauthentication_required": ended,
 	}, message)
@@ -92,7 +92,7 @@ func (h *AuthHandler) DisableMFA(w http.ResponseWriter, r *http.Request) {
 		h.writeMFAErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"mfa_enabled": false}, "MFA disabled")
+	sendSuccess(w, map[string]any{"mfa_enabled": false}, "MFA disabled")
 }
 
 // RegenerateRecoveryCodes issues a fresh set of recovery codes (replacing the old
@@ -121,7 +121,7 @@ func (h *AuthHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *http.Req
 		h.writeMFAErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"recovery_codes": codes,
 	}, "New recovery codes generated. Save them now — they replace your old codes and will not be shown again.")
 }
@@ -139,7 +139,7 @@ func (h *AuthHandler) RecoveryCodesStatus(w http.ResponseWriter, r *http.Request
 		h.writeMFAErr(w, err)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"remaining": remaining,
 		"total":     total,
 	}, "")

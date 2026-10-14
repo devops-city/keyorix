@@ -16,7 +16,7 @@ type utcTimesPayload struct {
 	DeletedAt    *time.Time
 	Nested       struct{ At time.Time }
 	Items        []utcTimesItem
-	Any          map[string]interface{}
+	Any          map[string]any
 	secret       string
 }
 
@@ -35,17 +35,17 @@ func TestSendSuccessAndCreated_EmitEveryTimeInUTC(t *testing.T) {
 		p := utcTimesPayload{Name: look, LastActivity: local, DeletedAt: &del, secret: "x"}
 		p.Nested.At = local
 		p.Items = []utcTimesItem{{ExpiresAt: local}}
-		p.Any = map[string]interface{}{"t": local, "ptr": &del, "s": look}
+		p.Any = map[string]any{"t": local, "ptr": &del, "s": look}
 		return p
 	}
 
-	for name, send := range map[string]func(w *httptest.ResponseRecorder, d interface{}){
-		"sendSuccess": func(w *httptest.ResponseRecorder, d interface{}) { sendSuccess(w, d, "") },
-		"sendCreated": func(w *httptest.ResponseRecorder, d interface{}) { sendCreated(w, d, "") },
+	for name, send := range map[string]func(w *httptest.ResponseRecorder, d any){
+		"sendSuccess": func(w *httptest.ResponseRecorder, d any) { sendSuccess(w, d, "") },
+		"sendCreated": func(w *httptest.ResponseRecorder, d any) { sendCreated(w, d, "") },
 	} {
 		p := build()
 		w := httptest.NewRecorder()
-		send(w, map[string]interface{}{"project": p, "list": []*utcTimesPayload{&p}})
+		send(w, map[string]any{"project": p, "list": []*utcTimesPayload{&p}})
 		body := w.Body.String()
 
 		if strings.Contains(body, "+02:00\"") && strings.Count(body, "+02:00") != strings.Count(body, look) {

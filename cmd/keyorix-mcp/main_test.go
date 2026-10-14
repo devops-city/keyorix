@@ -123,8 +123,7 @@ func runMainSubprocess(t *testing.T, testName string, extraEnv []string, stdin *
 
 	runErr = cmd.Run()
 	exitCode = 0
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 		exitCode = exitErr.ExitCode()
 	}
 	return stderrBuf.String(), exitCode, runErr

@@ -37,7 +37,7 @@ func newRotationBackendTestEnv(t *testing.T) (c *core.KeyorixCore, token string,
 
 // doRotationByBackend sends a GET to /api/v1/compliance/rotation-by-backend and
 // returns the HTTP status code + the decoded JSON body.
-func doRotationByBackend(t *testing.T, srv *httptest.Server, token string) (int, map[string]interface{}) {
+func doRotationByBackend(t *testing.T, srv *httptest.Server, token string) (int, map[string]any) {
 	t.Helper()
 	req, err := http.NewRequest("GET", srv.URL+"/api/v1/compliance/rotation-by-backend", nil)
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func doRotationByBackend(t *testing.T, srv *httptest.Server, token string) (int,
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 
-	var body map[string]interface{}
+	var body map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	return resp.StatusCode, body
 }
@@ -68,7 +68,7 @@ func TestRotationByBackend_AuthenticatedEmpty(t *testing.T) {
 	code, body := doRotationByBackend(t, srv, token)
 	assert.Equal(t, http.StatusOK, code)
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "expected data object: %v", body)
 
 	// backends must be present (empty slice or null is fine here).
@@ -129,10 +129,10 @@ func TestRotationByBackend_WithPolicy(t *testing.T) {
 	code, body := doRotationByBackend(t, srv, token)
 	require.Equal(t, http.StatusOK, code)
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "expected data object: %v", body)
 
-	backends, ok := data["backends"].([]interface{})
+	backends, ok := data["backends"].([]any)
 	require.True(t, ok, "backends must be an array: %v", data)
 	require.NotEmpty(t, backends, "at least one backend must appear when a policy is set")
 
@@ -140,7 +140,7 @@ func TestRotationByBackend_WithPolicy(t *testing.T) {
 	// at least one backend entry exists with total >= 1.
 	found := false
 	for _, raw := range backends {
-		entry, ok := raw.(map[string]interface{})
+		entry, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -162,7 +162,7 @@ func TestRotationByBackend_ResponseEnvelopeShape(t *testing.T) {
 	success, _ := body["success"].(bool)
 	assert.True(t, success, "success must be true: %v", body)
 
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "data must be an object: %v", body)
 	assert.Contains(t, data, "generated_at", "data must contain generated_at")
 	assert.Contains(t, data, "backends", "data must contain backends")

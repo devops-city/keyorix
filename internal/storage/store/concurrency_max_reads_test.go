@@ -47,10 +47,8 @@ func TestConcurrency_MaxReads_NeverExceedsCap(t *testing.T) {
 	errs := make(chan error, readers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
 			ok, err := ls.TryIncrementSecretReadCount(context.Background(), v.ID, maxReads)
 			if err != nil {
@@ -60,7 +58,7 @@ func TestConcurrency_MaxReads_NeverExceedsCap(t *testing.T) {
 			if ok {
 				succeeded.Add(1)
 			}
-		}()
+		})
 	}
 	close(start) // release all readers at once
 	wg.Wait()
@@ -95,10 +93,8 @@ func TestConcurrency_MaxReadsSecretLevel_NeverExceedsCap(t *testing.T) {
 	errs := make(chan error, readers)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < readers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range readers {
+		wg.Go(func() {
 			<-start
 			ok, err := ls.TryIncrementSecretNodeReadCount(context.Background(), s.ID, maxReads)
 			if err != nil {
@@ -108,7 +104,7 @@ func TestConcurrency_MaxReadsSecretLevel_NeverExceedsCap(t *testing.T) {
 			if ok {
 				succeeded.Add(1)
 			}
-		}()
+		})
 	}
 	close(start)
 	wg.Wait()

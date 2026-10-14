@@ -32,7 +32,7 @@ func (h *SecretHandler) GetTags(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []string{}
 	}
-	h.sendSuccess(w, map[string]interface{}{"tags": tags}, "")
+	h.sendSuccess(w, map[string]any{"tags": tags}, "")
 }
 
 // SetTags handles PUT /api/v1/secrets/{id}/tags with {"tags":[...]} — replaces the
@@ -64,7 +64,7 @@ func (h *SecretHandler) SetTags(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []string{}
 	}
-	h.sendSuccess(w, map[string]interface{}{"tags": tags}, "")
+	h.sendSuccess(w, map[string]any{"tags": tags}, "")
 }
 
 // tagError maps a core error to the right status for the tag endpoints.

@@ -84,7 +84,7 @@ func TestSecretNodeCacheEpoch_FreshInstallAndUpgrade_SQLite(t *testing.T) {
 	// and the column the way a deployment that predates this change would have
 	// them — absent.
 	var seeded []uint
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s := models.SecretNode{Name: fmt.Sprintf("legacy-%d", i), ProjectID: 1, EnvironmentID: 1, Status: "active"}
 		require.NoError(t, db.Create(&s).Error)
 		seeded = append(seeded, s.ID)
@@ -152,7 +152,7 @@ func TestSecretNodeCacheEpoch_FreshInstallAndUpgrade_Postgres(t *testing.T) {
 	assertCacheEpochConverged(t, db, "postgres fresh")
 
 	var seeded []uint
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		s := models.SecretNode{Name: fmt.Sprintf("pg-legacy-%d", i), ProjectID: 1, EnvironmentID: 1, Status: "active"}
 		require.NoError(t, db.Create(&s).Error)
 		seeded = append(seeded, s.ID)
@@ -302,9 +302,7 @@ func TestSecretNodeCacheEpoch_ConcurrentEnsureOnPostgres(t *testing.T) {
 	errs := make(chan error, runners)
 
 	for range observers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -315,17 +313,15 @@ func TestSecretNodeCacheEpoch_ConcurrentEnsureOnPostgres(t *testing.T) {
 					absent.Add(1)
 				}
 			}
-		}()
+		})
 	}
 	var runnerWG sync.WaitGroup
 	for range runners {
-		runnerWG.Add(1)
-		go func() {
-			defer runnerWG.Done()
+		runnerWG.Go(func() {
 			if err := store.EnsureSecretNodeCacheEpoch(db); err != nil {
 				errs <- err
 			}
-		}()
+		})
 	}
 	runnerWG.Wait()
 	close(stop)

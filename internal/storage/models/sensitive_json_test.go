@@ -13,7 +13,7 @@ import (
 func TestSensitiveFieldsAreNotJSONSerialized(t *testing.T) {
 	cases := []struct {
 		name    string
-		v       interface{}
+		v       any
 		secrets []string
 	}{
 		{

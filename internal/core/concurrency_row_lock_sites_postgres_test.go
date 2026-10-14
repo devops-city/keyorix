@@ -58,7 +58,7 @@ func TestConcurrency_RecordFailedLogin_MultiInstancePostgres_NoLostUpdates(t *te
 
 	const n = 8
 	cores := make([]*KeyorixCore, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		db := pgOpen(t, dsn)
 		c := NewKeyorixCore(localstore.NewLocalStorage(db))
 		c.SetLoginLockoutPolicy(LoginLockoutPolicy{
@@ -73,7 +73,7 @@ func TestConcurrency_RecordFailedLogin_MultiInstancePostgres_NoLostUpdates(t *te
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(c *KeyorixCore) {
 			defer wg.Done()

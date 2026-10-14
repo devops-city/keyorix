@@ -90,7 +90,6 @@ var byDesignSeedCases = []struct {
 // (by the named oracle) without it.
 func TestByDesignSeeds_AcceptedOnlyThroughTheirRule(t *testing.T) {
 	for _, c := range byDesignSeedCases {
-		c := c
 		t.Run(c.seed, func(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(fuzzCorpusDir, c.seed)); err != nil {
 				t.Fatalf("seed %s is not committed: %v", c.seed, err)

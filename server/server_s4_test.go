@@ -1260,8 +1260,7 @@ func TestStartSchedulers_WithSchedulers(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1288,8 +1287,7 @@ func TestStartSchedulers_AnomalyBadTimezone(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1316,8 +1314,7 @@ func TestStartSchedulers_LicenseExpiryScheduler(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1563,8 +1560,7 @@ func TestStartSchedulers_DataRetention_Unconfigured(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1591,8 +1587,7 @@ func TestStartSchedulers_EvidenceDelivery_NoTarget(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1617,8 +1612,7 @@ func TestStartSchedulers_AuditCheckpointsDisabled(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1643,8 +1637,7 @@ func TestStartSchedulers_AnomalyAlertsEnabled(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1670,8 +1663,7 @@ func TestStartSchedulers_PurgeScheduler(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1697,8 +1689,7 @@ func TestStartSchedulers_DataRetention_Configured(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1727,8 +1718,7 @@ func TestStartSchedulers_JITAndDynamicSecrets(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -1780,8 +1770,7 @@ func TestStartSchedulers_AutoRotationAndRecertification(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -2235,8 +2224,7 @@ func TestStartSchedulers_CertExpiryAndRotationReminder(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -2270,8 +2258,7 @@ func TestStartSchedulers_AnomalyML(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -2304,8 +2291,7 @@ func TestStartSchedulers_EvidenceDelivery_WithTarget(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -2333,8 +2319,7 @@ func TestStartSchedulers_ReadQuotaAlerts(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	startSchedulersForTest(t, ctx, cfg, coreService)
 	time.Sleep(50 * time.Millisecond)
 }

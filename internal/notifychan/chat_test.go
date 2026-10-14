@@ -61,7 +61,7 @@ func TestChatSink_TeamsPayload(t *testing.T) {
 	sink.Deliver(core.NotificationEvent{Title: "Anomaly detected", Message: "off-hours access by ada."})
 	sink.Close()
 
-	var card map[string]interface{}
+	var card map[string]any
 	require.NoError(t, json.Unmarshal(get(), &card))
 	assert.Equal(t, "MessageCard", card["@type"])
 	assert.Equal(t, "Anomaly detected", card["title"])
@@ -105,7 +105,7 @@ func TestChatSink_EscapesMrkdwnInjectionFromSecretName(t *testing.T) {
 		sink.Deliver(core.NotificationEvent{Title: "Secret shared with you", Message: message})
 		sink.Close()
 
-		var card map[string]interface{}
+		var card map[string]any
 		require.NoError(t, json.Unmarshal(get(), &card))
 		text, _ := card["text"].(string)
 		assert.NotContains(t, text, "<!channel>", "must not carry a live @channel mass-ping token")

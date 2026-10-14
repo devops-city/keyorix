@@ -53,6 +53,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -142,7 +143,7 @@ func (c *KeyorixCore) ListProjectMembershipsForUser(ctx context.Context, userID 
 	if len(projectIDs) == 0 {
 		return []UserProjectMembership{}, nil
 	}
-	sort.Slice(projectIDs, func(i, j int) bool { return projectIDs[i] < projectIDs[j] })
+	slices.Sort(projectIDs)
 
 	// The user's groups, so a group-inherited grant can be attributed to them.
 	groupIDs := make(map[uint]struct{})

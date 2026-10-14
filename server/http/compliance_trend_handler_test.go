@@ -129,12 +129,12 @@ func TestGetCompliancePosture_HasTrendField(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body must have a data object")
 	assert.Contains(t, data, "trend")
-	trend, ok := data["trend"].(map[string]interface{})
+	trend, ok := data["trend"].(map[string]any)
 	require.True(t, ok, "data.trend must be an object")
 	assert.Contains(t, trend, "direction")
 }
@@ -161,11 +161,11 @@ func TestGetCompliancePosture_TrendNoData_FirstCall(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body must have a data object")
-	trend, ok := data["trend"].(map[string]interface{})
+	trend, ok := data["trend"].(map[string]any)
 	require.True(t, ok, "data.trend must be an object")
 	assert.Equal(t, "no_data", trend["direction"], "first call must report no_data — no previous snapshot exists")
 }
@@ -232,11 +232,11 @@ func TestGetCompliancePosture_TrendDirection_AfterTwoCalls(t *testing.T) {
 	defer resp.Body.Close() //nolint:errcheck
 
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var body map[string]interface{}
+	var body map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	data, ok := body["data"].(map[string]interface{})
+	data, ok := body["data"].(map[string]any)
 	require.True(t, ok, "response body must have a data object")
-	trend, ok := data["trend"].(map[string]interface{})
+	trend, ok := data["trend"].(map[string]any)
 	require.True(t, ok, "data.trend must be an object")
 	direction, _ := trend["direction"].(string)
 	assert.NotEqual(t, "no_data", direction, "a previous snapshot exists — direction must be a real value, not no_data")

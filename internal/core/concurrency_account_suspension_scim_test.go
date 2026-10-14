@@ -55,7 +55,7 @@ func TestConcurrency_SuspendUser_SurvivesConcurrentSCIMResync(t *testing.T) {
 	ctx := context.Background()
 
 	const users = 200 // many concurrent (suspend, SCIM-resync) pairs racing at once
-	for i := 0; i < users; i++ {
+	for i := range users {
 		require.NoError(t, db.Create(&models.User{
 			ID: uint(i + 1), Username: fmt.Sprintf("user%d", i), Email: fmt.Sprintf("user%d@x.io", i),
 			IsActive: true, AccountState: core.AccountActive,
@@ -65,7 +65,7 @@ func TestConcurrency_SuspendUser_SurvivesConcurrentSCIMResync(t *testing.T) {
 	yes := true
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < users; i++ {
+	for i := range users {
 		uid := uint(i + 1)
 		wg.Add(2)
 		go func() {
@@ -83,7 +83,7 @@ func TestConcurrency_SuspendUser_SurvivesConcurrentSCIMResync(t *testing.T) {
 	wg.Wait()
 
 	var reverted []uint
-	for i := 0; i < users; i++ {
+	for i := range users {
 		uid := uint(i + 1)
 		var got models.User
 		require.NoError(t, db.First(&got, uid).Error)
@@ -122,7 +122,7 @@ func TestConcurrency_SuspendUser_SurvivesConcurrentSCIMDeactivateReactivate(t *t
 	ctx := context.Background()
 
 	const users = 200
-	for i := 0; i < users; i++ {
+	for i := range users {
 		require.NoError(t, db.Create(&models.User{
 			ID: uint(i + 1), Username: fmt.Sprintf("user%d", i), Email: fmt.Sprintf("user%d@x.io", i),
 			IsActive: true, AccountState: core.AccountActive,
@@ -132,7 +132,7 @@ func TestConcurrency_SuspendUser_SurvivesConcurrentSCIMDeactivateReactivate(t *t
 	no, yes := false, true
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < users; i++ {
+	for i := range users {
 		uid := uint(i + 1)
 		wg.Add(2)
 		go func() {
@@ -153,7 +153,7 @@ func TestConcurrency_SuspendUser_SurvivesConcurrentSCIMDeactivateReactivate(t *t
 	wg.Wait()
 
 	var reverted []uint
-	for i := 0; i < users; i++ {
+	for i := range users {
 		uid := uint(i + 1)
 		var got models.User
 		require.NoError(t, db.First(&got, uid).Error)

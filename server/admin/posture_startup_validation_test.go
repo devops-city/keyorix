@@ -45,7 +45,7 @@ func seedPostureDeployment(t *testing.T, cfg *config.Config, users int, marker b
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, withUsableStorage(cfg, func(store corestorage.Storage) error {
-		for i := 0; i < users; i++ {
+		for i := range users {
 			name := "user" + string(rune('a'+i))
 			if _, err := store.CreateUser(ctx, &models.User{
 				Username: name, UsernameFolded: name, Email: name + "@x.io", EmailFolded: name + "@x.io",
@@ -96,8 +96,8 @@ func TestRunAdminValidatePosture_StartupValidationGracePeriodIsADeviation(t *tes
 // deviationLines returns only the counted part of a printed posture report
 // (the informational section is cut off).
 func deviationLines(out string) string {
-	if i := strings.Index(out, "Informational (not counted"); i >= 0 {
-		return out[:i]
+	if before, _, ok := strings.Cut(out, "Informational (not counted"); ok {
+		return before
 	}
 	return out
 }

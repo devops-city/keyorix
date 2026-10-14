@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -275,12 +276,7 @@ func utcGuardGETRoutes(t *testing.T, w *faultWorld) []string {
 }
 
 func containsString(xs []string, s string) bool {
-	for _, x := range xs {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(xs, s)
 }
 
 func driveUTCGuardRoute(ctx context.Context, t *testing.T, w *faultWorld, route, path string) (utcGuardRouteResult, []utcGuardFinding) {

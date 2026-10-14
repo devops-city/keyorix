@@ -29,7 +29,7 @@ import (
 func GRPCRateLimitInterceptor(cfg config.RateLimitConfig) grpc.UnaryServerInterceptor {
 	if !cfg.Enabled || cfg.RequestsPerSecond <= 0 {
 		log.Printf("Keyorix: GRPCRateLimitInterceptor is disabled (server.grpc.ratelimit.enabled=false) — no per-principal gRPC rate limit is active; enable in production")
-		return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(ctx, req)
 		}
 	}
@@ -63,7 +63,7 @@ type grpcRateLimiter struct {
 	requests uint64
 }
 
-func (rl *grpcRateLimiter) intercept(ctx context.Context, req interface{}, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+func (rl *grpcRateLimiter) intercept(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	if !rl.allow(grpcRateLimitKey(ctx)) {
 		return nil, status.Error(codes.ResourceExhausted, "too many requests; slow down")
 	}
@@ -137,7 +137,7 @@ func grpcRateLimitKey(ctx context.Context) string {
 func StreamRateLimitInterceptor(cfg config.RateLimitConfig) grpc.StreamServerInterceptor {
 	if !cfg.Enabled || cfg.RequestsPerSecond <= 0 {
 		log.Printf("Keyorix: StreamRateLimitInterceptor is disabled (server.grpc.ratelimit.enabled=false) — no per-principal gRPC stream rate limit is active; enable in production")
-		return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 			return handler(srv, stream)
 		}
 	}
@@ -153,7 +153,7 @@ func StreamRateLimitInterceptor(cfg config.RateLimitConfig) grpc.StreamServerInt
 	return rl.interceptStream
 }
 
-func (rl *grpcRateLimiter) interceptStream(srv interface{}, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+func (rl *grpcRateLimiter) interceptStream(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	if !rl.allow(grpcRateLimitKey(stream.Context())) {
 		return status.Error(codes.ResourceExhausted, "too many requests; slow down")
 	}

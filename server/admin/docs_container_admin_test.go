@@ -32,6 +32,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -192,7 +193,7 @@ func dockerDocAdminInvocations(t *testing.T, relFiles []string) []dockerDocInvoc
 				continue
 			}
 			if rest, ok := strings.CutPrefix(line, "docker compose stop "); ok {
-				for _, s := range strings.Fields(rest) {
+				for s := range strings.FieldsSeq(rest) {
 					stopped[s] = true
 				}
 				continue
@@ -220,9 +221,7 @@ func dockerDocAdminInvocations(t *testing.T, relFiles []string) []dockerDocInvoc
 				continue
 			}
 			copyStopped := map[string]bool{}
-			for k, v := range stopped {
-				copyStopped[k] = v
-			}
+			maps.Copy(copyStopped, stopped)
 			out = append(out, dockerDocInvocation{
 				file: rel, line: line, verb: m[1], service: toks[i], binary: toks[i+1],
 				adminArgs: toks[i+3:], stoppedBefore: copyStopped,
@@ -241,7 +240,7 @@ func composeServices(t *testing.T) map[string]bool {
 	}
 	out := map[string]bool{}
 	inServices := false
-	for _, l := range strings.Split(string(b), "\n") {
+	for l := range strings.SplitSeq(string(b), "\n") {
 		if strings.HasPrefix(l, "services:") {
 			inServices = true
 			continue
@@ -269,7 +268,7 @@ func imageServerBinaryInvocations(t *testing.T) map[string]bool {
 	workdir := ""
 	copied := false
 	pathEnv := ""
-	for _, l := range strings.Split(final, "\n") {
+	for l := range strings.SplitSeq(final, "\n") {
 		l = strings.TrimSpace(l)
 		switch {
 		case strings.HasPrefix(l, "WORKDIR "):

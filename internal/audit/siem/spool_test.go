@@ -98,7 +98,7 @@ func TestSpool_CapBoundsGrowth(t *testing.T) {
 	s.maxBytes = 200 // tiny cap for the test
 
 	tr := true
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		s.add(&models.AuditEvent{ID: uint(i + 1), EventType: "secret.read", Success: &tr})
 	}
 	info, statErr := os.Stat(filepath.Join(dir, spoolFileName))
@@ -192,11 +192,9 @@ func TestSpool_ConcurrentReplayCallsDoNotDoubleDeliver(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 5 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			s.replay()
-		}()
+		})
 	}
 	wg.Wait()
 

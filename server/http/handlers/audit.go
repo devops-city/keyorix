@@ -116,7 +116,7 @@ func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) { //
 		totalPages = int(total) / pageSize
 	}
 
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"logs":        entries,
 		"page":        page,
 		"page_size":   pageSize,
@@ -279,7 +279,7 @@ func (h *AuditHandler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 		nextCursor = &id
 	}
 
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"events":      entries,
 		"count":       len(entries),
 		"next_cursor": nextCursor,
@@ -332,9 +332,9 @@ func (h *AuditHandler) GetRBACAuditLogs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	logs := make([]map[string]interface{}, 0, len(entries))
+	logs := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
-		logs = append(logs, map[string]interface{}{
+		logs = append(logs, map[string]any{
 			"id":             e.ID,
 			"action":         e.Action,
 			"actor_user_id":  e.ActorUserID,
@@ -353,7 +353,7 @@ func (h *AuditHandler) GetRBACAuditLogs(w http.ResponseWriter, r *http.Request) 
 	if pageSize > 0 {
 		totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"logs": logs, "page": page, "page_size": pageSize, "total": total, "total_pages": totalPages,
 	}, "")
 }
@@ -393,7 +393,7 @@ func (h *AuditHandler) VerifyAuditChain(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"valid":            v.Valid,
 		"chained_events":   v.ChainedEvents,
 		"unchained_events": v.UnchainedEvents,
@@ -467,7 +467,7 @@ func (h *AuditHandler) WriteAuditCheckpoint(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"id":             cp.ID,
 		"chained_events": cp.ChainedEvents,
 		"head_id":        cp.HeadID,
@@ -526,7 +526,7 @@ func (h *AuditHandler) MigrateAuditChainEncoding(w http.ResponseWriter, r *http.
 		return
 	}
 
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"dry_run":                dryRun,
 		"rows_migrated":          result.RowsMigrated,
 		"unchained_rows_skipped": result.UnchainedRowsSkipped,

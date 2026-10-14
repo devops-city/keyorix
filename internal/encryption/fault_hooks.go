@@ -129,13 +129,7 @@ func applyWriteFault(baseDir, path string, data []byte, perm os.FileMode, f *fil
 	case faultCleanError:
 		return f.err
 	case faultShortWrite:
-		k := f.k
-		if k < 0 {
-			k = 0
-		}
-		if k > len(data) {
-			k = len(data)
-		}
+		k := min(max(f.k, 0), len(data))
 		fh, err := os.OpenFile(full, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm) // #nosec G304 -- fixed internal key-directory path, test-only fault path
 		if err != nil {
 			return err

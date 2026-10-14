@@ -27,7 +27,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
-var pgAdminDBCounter int64
+var pgAdminDBCounter atomic.Int64
 
 func pgAdminTestDSN(t *testing.T) string {
 	t.Helper()
@@ -42,7 +42,7 @@ func pgAdminTestDSN(t *testing.T) string {
 // Postgres server at base, dropped on test cleanup.
 func pgAdminIsolatedDatabaseDSN(t *testing.T, base string) string {
 	t.Helper()
-	n := atomic.AddInt64(&pgAdminDBCounter, 1)
+	n := pgAdminDBCounter.Add(1)
 	dbName := fmt.Sprintf("admin_backup_restore_%d_%d", os.Getpid(), n)
 
 	admin := pgAdminRawOpen(t, base)

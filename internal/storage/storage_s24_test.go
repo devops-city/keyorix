@@ -68,12 +68,12 @@ func TestWithMigrationLock_S24_ConcurrentNonPostgres(t *testing.T) {
 
 	const goroutines = 4
 	errs := make(chan error, goroutines)
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			errs <- withMigrationLock(db, false, dbPath, func(_ *gorm.DB) error { return nil })
 		}()
 	}
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		require.NoError(t, <-errs, "concurrent withMigrationLock must not race or error on non-postgres")
 	}
 }

@@ -31,7 +31,7 @@ func newInactivityHandler(t *testing.T) *AdminJobsHandler {
 
 // postInactivitySuspend helper sends a request directly to the handler (bypasses
 // the router — used for unit-level handler tests).
-func postInactivitySuspend(h http.HandlerFunc, body interface{}, auth bool) *httptest.ResponseRecorder {
+func postInactivitySuspend(h http.HandlerFunc, body any, auth bool) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
 		_ = json.NewEncoder(&buf).Encode(body)
@@ -49,7 +49,7 @@ func postInactivitySuspend(h http.HandlerFunc, body interface{}, auth bool) *htt
 func TestSuspendInactiveUsersHandler_HappyPath(t *testing.T) {
 	h := newInactivityHandler(t)
 	w := postInactivitySuspend(h.SuspendInactiveUsers,
-		map[string]interface{}{"inactive_days": 90}, true)
+		map[string]any{"inactive_days": 90}, true)
 
 	require.Equal(t, http.StatusOK, w.Code)
 	data := decodeData(t, w)
@@ -60,7 +60,7 @@ func TestSuspendInactiveUsersHandler_HappyPath(t *testing.T) {
 func TestSuspendInactiveUsersHandler_RequiresUserContext(t *testing.T) {
 	h := newInactivityHandler(t)
 	w := postInactivitySuspend(h.SuspendInactiveUsers,
-		map[string]interface{}{"inactive_days": 90}, false)
+		map[string]any{"inactive_days": 90}, false)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
@@ -81,14 +81,14 @@ func TestSuspendInactiveUsersHandler_InvalidJSON(t *testing.T) {
 func TestSuspendInactiveUsersHandler_ZeroDays(t *testing.T) {
 	h := newInactivityHandler(t)
 	w := postInactivitySuspend(h.SuspendInactiveUsers,
-		map[string]interface{}{"inactive_days": 0}, true)
+		map[string]any{"inactive_days": 0}, true)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestSuspendInactiveUsersHandler_NegativeDays(t *testing.T) {
 	h := newInactivityHandler(t)
 	w := postInactivitySuspend(h.SuspendInactiveUsers,
-		map[string]interface{}{"inactive_days": -1}, true)
+		map[string]any{"inactive_days": -1}, true)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -107,6 +107,6 @@ func TestSuspendInactiveUsersHandler_CoreError(t *testing.T) {
 	require.NoError(t, sqlDB.Close())
 
 	w := postInactivitySuspend(h.SuspendInactiveUsers,
-		map[string]interface{}{"inactive_days": 1}, true)
+		map[string]any{"inactive_days": 1}, true)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

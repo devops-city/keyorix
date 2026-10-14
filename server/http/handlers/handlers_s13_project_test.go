@@ -353,7 +353,6 @@ func TestMembershipActionState_AllActions_S13(t *testing.T) {
 		{"unknown", "", false},
 		{"", "", false},
 	} {
-		tc := tc
 		t.Run(tc.action, func(t *testing.T) {
 			t.Parallel()
 			got, ok := membershipActionState(tc.action)

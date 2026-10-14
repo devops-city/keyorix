@@ -22,10 +22,10 @@ func (h *DashboardHandler) GetLegalHold(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if hold == nil {
-		sendSuccess(w, map[string]interface{}{"active": false}, "")
+		sendSuccess(w, map[string]any{"active": false}, "")
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"active": true, "hold": hold}, "")
+	sendSuccess(w, map[string]any{"active": true, "hold": hold}, "")
 }
 
 // PlaceLegalHold handles POST /api/v1/legal-hold — activate a hold with a reason.
@@ -58,7 +58,7 @@ func (h *DashboardHandler) PlaceLegalHold(w http.ResponseWriter, r *http.Request
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"hold": hold}, "Legal hold placed")
+	sendCreated(w, map[string]any{"hold": hold}, "Legal hold placed")
 }
 
 // LiftLegalHold handles DELETE /api/v1/legal-hold — release the active hold. The

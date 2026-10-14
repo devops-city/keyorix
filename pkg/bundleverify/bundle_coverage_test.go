@@ -472,7 +472,7 @@ func TestWriteBundle_Cov_ComponentWriteErrorsIncompressible(t *testing.T) {
 func TestWriteBundle_Cov_SigWriteErrorViaLargeManifest(t *testing.T) {
 	const numComponents = 600
 	files := make(map[string]string, numComponents)
-	for i := 0; i < numComponents; i++ {
+	for i := range numComponents {
 		b := make([]byte, 4)
 		_, err := rand.Read(b)
 		require.NoError(t, err)

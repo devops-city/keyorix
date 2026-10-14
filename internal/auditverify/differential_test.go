@@ -70,7 +70,7 @@ func (f *diffFixture) logEvents(n int, age time.Duration) {
 	f.t.Helper()
 	base := time.Now().UTC().Add(-age).Truncate(time.Second)
 	tr := true
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f.nextID++
 		require.NoError(f.t, f.local.LogAuditEvent(f.ctx, &models.AuditEvent{
 			EventType:   "secret.read",
@@ -86,7 +86,7 @@ func (f *diffFixture) logEvents(n int, age time.Duration) {
 // to inject the exact tamper shapes design §9 enumerates (modified row,
 // reordered, deleted, truncated, forged checkpoint), mirroring the pattern
 // internal/core/audit_checkpoint_test.go already uses for the same purpose.
-func (f *diffFixture) exec(sql string, args ...interface{}) {
+func (f *diffFixture) exec(sql string, args ...any) {
 	f.t.Helper()
 	require.NoError(f.t, f.db.Exec(sql, args...).Error)
 }

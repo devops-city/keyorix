@@ -64,7 +64,7 @@ func (h *CatalogHandler) CreateSecretAccessRequest(w http.ResponseWriter, r *htt
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"access_request": req}, "Secret access requested")
+	sendCreated(w, map[string]any{"access_request": req}, "Secret access requested")
 }
 
 // ListSecretAccessRequests handles GET /api/v1/secret-access-requests
@@ -84,7 +84,7 @@ func (h *CatalogHandler) ListSecretAccessRequests(w http.ResponseWriter, r *http
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"mine": mine, "pending_approval": pending}, "")
+	sendSuccess(w, map[string]any{"mine": mine, "pending_approval": pending}, "")
 }
 
 // GetSecretAccessRequest handles GET /api/v1/secret-access-requests/{requestId}.
@@ -106,7 +106,7 @@ func (h *CatalogHandler) GetSecretAccessRequest(w http.ResponseWriter, r *http.R
 		sendError(w, "NotFound", "Access request not found", http.StatusNotFound, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"access_request": req}, "")
+	sendSuccess(w, map[string]any{"access_request": req}, "")
 }
 
 // ResolveSecretAccessRequest handles PUT /api/v1/secret-access-requests/{requestId}:

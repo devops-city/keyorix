@@ -107,10 +107,8 @@ func TestCreateBreakGlassActivation_ConcurrentRaceYieldsExactlyOneWinner(t *test
 	var successes, conflicts, otherErrs atomic.Int64
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < racers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range racers {
+		wg.Go(func() {
 			<-start
 			_, err := ls.CreateBreakGlassActivation(context.Background(), &models.BreakGlassActivation{
 				ProjectID: 2, UserID: 10, RoleID: 3, RoleName: "editor", State: "active",
@@ -123,7 +121,7 @@ func TestCreateBreakGlassActivation_ConcurrentRaceYieldsExactlyOneWinner(t *test
 			default:
 				otherErrs.Add(1)
 			}
-		}()
+		})
 	}
 	close(start) // release all racers at once
 	wg.Wait()

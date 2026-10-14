@@ -34,7 +34,7 @@ func requireVaultEnv(t *testing.T) (addr, token string) {
 
 // vaultAdminDo issues a raw admin request against Vault to seed/inspect fixtures — the test's
 // own setup, independent of the Client under test.
-func vaultAdminDo(t *testing.T, addr, token, method, path string, body interface{}) {
+func vaultAdminDo(t *testing.T, addr, token, method, path string, body any) {
 	t.Helper()
 	var reader *strings.Reader
 	if body != nil {
@@ -69,19 +69,19 @@ func vaultAdminDo(t *testing.T, addr, token, method, path string, body interface
 func TestIntegration_KVv2_RecursiveWalk(t *testing.T) {
 	addr, token := requireVaultEnv(t)
 	mount := "migrate-it-kv2"
-	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]interface{}{
+	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]any{
 		"type": "kv", "options": map[string]string{"version": "2"},
 	})
 
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/data/team-a/db-password",
-		map[string]interface{}{"data": map[string]interface{}{"value": "canary-db-pw-QX7"}})
+		map[string]any{"data": map[string]any{"value": "canary-db-pw-QX7"}})
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/data/team-a/api",
-		map[string]interface{}{"data": map[string]interface{}{"user": "admin", "pass": "canary-api-pw-ZK4"}})
+		map[string]any{"data": map[string]any{"user": "admin", "pass": "canary-api-pw-ZK4"}})
 
 	// Soft-delete a version: write it, then delete it (not destroy) — Vault answers a
 	// subsequent read with {"data": null, "metadata": {...}}, a 200 OK.
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/data/team-a/deleted-me",
-		map[string]interface{}{"data": map[string]interface{}{"value": "should-never-appear"}})
+		map[string]any{"data": map[string]any{"value": "should-never-appear"}})
 	vaultAdminDo(t, addr, token, http.MethodDelete, "/v1/"+mount+"/data/team-a/deleted-me", nil)
 
 	c, err := New(context.Background(), Config{Addr: addr, Mount: mount, Token: token})
@@ -137,11 +137,11 @@ func TestIntegration_KVv2_RecursiveWalk(t *testing.T) {
 func TestIntegration_KVv1_Read(t *testing.T) {
 	addr, token := requireVaultEnv(t)
 	mount := "migrate-it-kv1"
-	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]interface{}{
+	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]any{
 		"type": "kv", "options": map[string]string{"version": "1"},
 	})
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/legacy/token",
-		map[string]interface{}{"value": "canary-legacy-QW1"})
+		map[string]any{"value": "canary-legacy-QW1"})
 
 	c, err := New(context.Background(), Config{Addr: addr, Mount: mount, Token: token})
 	if err != nil {
@@ -163,13 +163,13 @@ func TestIntegration_KVv1_Read(t *testing.T) {
 func TestIntegration_CustomMetadata(t *testing.T) {
 	addr, token := requireVaultEnv(t)
 	mount := "migrate-it-meta"
-	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]interface{}{
+	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]any{
 		"type": "kv", "options": map[string]string{"version": "2"},
 	})
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/data/tagged",
-		map[string]interface{}{"data": map[string]interface{}{"value": "canary-tagged-PL9"}})
+		map[string]any{"data": map[string]any{"value": "canary-tagged-PL9"}})
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/metadata/tagged",
-		map[string]interface{}{"custom_metadata": map[string]string{"owner": "team-a", "env": "prod"}})
+		map[string]any{"custom_metadata": map[string]string{"owner": "team-a", "env": "prod"}})
 
 	c, err := New(context.Background(), Config{Addr: addr, Mount: mount, Token: token})
 	if err != nil {
@@ -202,19 +202,19 @@ func TestIntegration_CustomMetadata(t *testing.T) {
 func TestIntegration_AppRoleAuth(t *testing.T) {
 	addr, token := requireVaultEnv(t)
 	mount := "migrate-it-approle"
-	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]interface{}{
+	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/sys/mounts/"+mount, map[string]any{
 		"type": "kv", "options": map[string]string{"version": "2"},
 	})
 	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/"+mount+"/data/svc",
-		map[string]interface{}{"data": map[string]interface{}{"value": "canary-approle-NM3"}})
+		map[string]any{"data": map[string]any{"value": "canary-approle-NM3"}})
 
 	policyName := "migrate-it-approle-policy"
 	policy := "path \"" + mount + "/*\" { capabilities = [\"read\",\"list\"] }\n" +
 		"path \"sys/internal/ui/mounts/*\" { capabilities = [\"read\"] }"
-	vaultAdminDo(t, addr, token, http.MethodPut, "/v1/sys/policies/acl/"+policyName, map[string]interface{}{"policy": policy})
+	vaultAdminDo(t, addr, token, http.MethodPut, "/v1/sys/policies/acl/"+policyName, map[string]any{"policy": policy})
 
 	authEnabled := struct {
-		Data map[string]interface{} `json:"data"`
+		Data map[string]any `json:"data"`
 	}{}
 	_ = authEnabled // enabling approle auth is idempotent-if-already-enabled; ignore a 400 "already in use"
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, addr+"/v1/sys/auth/approle", strings.NewReader(`{"type":"approle"}`))
@@ -225,7 +225,7 @@ func TestIntegration_AppRoleAuth(t *testing.T) {
 	}
 
 	roleName := "migrate-it-role"
-	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/auth/approle/role/"+roleName, map[string]interface{}{"policies": []string{policyName}})
+	vaultAdminDo(t, addr, token, http.MethodPost, "/v1/auth/approle/role/"+roleName, map[string]any{"policies": []string{policyName}})
 
 	roleIDResp := struct {
 		Data struct {

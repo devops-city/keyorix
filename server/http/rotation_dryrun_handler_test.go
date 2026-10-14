@@ -58,7 +58,7 @@ func newDryRunTestEnv(t *testing.T) *dryRunTestEnv {
 // createDryRunSecret creates a secret via the API and returns its ID.
 func createDryRunSecret(t *testing.T, env *dryRunTestEnv, name string) uint {
 	t.Helper()
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":           name,
 		"value":          "test-value",
 		"project_id":     env.projectID,
@@ -74,14 +74,14 @@ func createDryRunSecret(t *testing.T, env *dryRunTestEnv, name string) uint {
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	var out map[string]interface{}
+	var out map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-	data := out["data"].(map[string]interface{})
+	data := out["data"].(map[string]any)
 	return uint(data["id"].(float64))
 }
 
 // postSimulate calls POST /api/v1/secrets/{id}/rotation/simulate and returns the status + body.
-func postSimulate(t *testing.T, env *dryRunTestEnv, secretID uint, token string) (int, map[string]interface{}) {
+func postSimulate(t *testing.T, env *dryRunTestEnv, secretID uint, token string) (int, map[string]any) {
 	t.Helper()
 	url := fmt.Sprintf("%s/api/v1/secrets/%d/rotation/simulate", env.srv.URL, secretID)
 	req, err := http.NewRequest("POST", url, nil)
@@ -92,7 +92,7 @@ func postSimulate(t *testing.T, env *dryRunTestEnv, secretID uint, token string)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
-	var out map[string]interface{}
+	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
 }
@@ -127,10 +127,10 @@ func TestRotationDryRun_NoPolicy(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.True(t, body["success"].(bool))
 
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.False(t, data["valid"].(bool))
 
-	checks := data["checks"].([]interface{})
+	checks := data["checks"].([]any)
 	require.NotEmpty(t, checks)
 	policyCheck := findCheckInSlice(checks, "policy_exists")
 	require.NotNil(t, policyCheck)
@@ -173,7 +173,7 @@ func TestRotationDryRun_ValidPolicy(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.True(t, body["success"].(bool))
 
-	data := body["data"].(map[string]interface{})
+	data := body["data"].(map[string]any)
 	assert.True(t, data["valid"].(bool))
 	assert.Equal(t, float64(id), data["secret_id"].(float64))
 	assert.NotEmpty(t, data["secret_name"])
@@ -209,9 +209,9 @@ func TestRotationDryRun_LimitedToken(t *testing.T) {
 }
 
 // findCheckInSlice searches a []interface{} of JSON-decoded check maps for the named check.
-func findCheckInSlice(checks []interface{}, name string) map[string]interface{} {
+func findCheckInSlice(checks []any, name string) map[string]any {
 	for _, raw := range checks {
-		ch, ok := raw.(map[string]interface{})
+		ch, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -243,13 +243,13 @@ func TestRotationDryRun_ChecksReturned(t *testing.T) {
 	status, body := postSimulate(t, env, id, env.token)
 	require.Equal(t, http.StatusOK, status)
 
-	data := body["data"].(map[string]interface{})
-	checks := data["checks"].([]interface{})
+	data := body["data"].(map[string]any)
+	checks := data["checks"].([]any)
 	assert.Len(t, checks, 4)
 
 	names := make([]string, 0, 4)
 	for _, raw := range checks {
-		ch := raw.(map[string]interface{})
+		ch := raw.(map[string]any)
 		names = append(names, ch["name"].(string))
 	}
 	assert.Contains(t, names, "policy_exists")

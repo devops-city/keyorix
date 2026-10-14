@@ -140,7 +140,6 @@ func TestRefresh_StorageFaultSlotPolicy(t *testing.T) {
 	require.EqualValues(t, 1, ctrlSlots, "control: a wrong token spends one slot")
 
 	for _, sc := range refreshScenarios {
-		sc := sc
 		// Derive the calls refresh really makes in this scenario.
 		probe := newLockoutOracleEnv(t)
 		tok := sc.setup(t, probe)
@@ -164,7 +163,6 @@ func TestRefresh_StorageFaultSlotPolicy(t *testing.T) {
 		require.NotEmpty(t, calls, "%s: refresh made no storage calls?", sc.name)
 
 		for _, c := range calls {
-			c := c
 			class, ok := refreshStorageCalls[c.method]
 			require.True(t, ok, "%s: refresh now calls storage method %s, which this table has not classified "+
 				"as pre- or post-verdict (decide it by the #2880 rule and add it)", sc.name, c.method)
@@ -172,7 +170,6 @@ func TestRefresh_StorageFaultSlotPolicy(t *testing.T) {
 				continue
 			}
 			for _, kind := range []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindEffectThenError} {
-				kind := kind
 				t.Run(sc.name+"/"+c.method+"#"+string(rune('0'+c.nth))+"/"+kind.String(), func(t *testing.T) {
 					e := newLockoutOracleEnv(t)
 					tok := sc.setup(t, e)
@@ -210,7 +207,6 @@ func TestRefresh_StorageFaultSlotPolicy(t *testing.T) {
 // A pre-verdict fault must leave the token usable: the retry succeeds.
 func TestRefresh_PreVerdictFaultLeavesTokenUsable(t *testing.T) {
 	for _, m := range []string{"GetSessionAny"} {
-		m := m
 		t.Run(m, func(t *testing.T) {
 			e := newLockoutOracleEnv(t)
 			tok := e.loginToken(t)

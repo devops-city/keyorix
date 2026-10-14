@@ -97,10 +97,10 @@ func TestGetDashboardStats_HonoursPATRestriction(t *testing.T) {
 			Description: "User dashpat read secret " + s.Name, Success: &ok, EventTime: time.Now().UTC(),
 		}))
 	}
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		logEvent(decoy)
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		logEvent(canary)
 	}
 	for _, s := range []*models.SecretNode{canary, decoy} {
@@ -151,7 +151,7 @@ func TestGetDashboardStats_HonoursPATRestriction(t *testing.T) {
 func seedNotifications(t *testing.T, st *store.LocalStorage, userID uint, projectID *uint, n int, clock *time.Time) []*models.Notification {
 	t.Helper()
 	out := make([]*models.Notification, 0, n)
-	for i := 0; i < n; i++ {
+	for range n {
 		*clock = clock.Add(time.Second)
 		row, err := st.CreateNotification(context.Background(), &models.Notification{
 			UserID: userID, ProjectID: projectID, Type: "test", Title: "t", Message: "m", CreatedAt: *clock,

@@ -15,9 +15,9 @@ import (
 // issuerKeyResolver returns a distinct signing key per issuer — i.e. each trusted issuer's
 // own JWKS. The verifier picks the key by the token's (configured) issuer, so a token can
 // only ever be validated against its own issuer's key.
-type issuerKeyResolver map[string]interface{}
+type issuerKeyResolver map[string]any
 
-func (r issuerKeyResolver) Key(_ context.Context, issuer, _ string) (interface{}, error) {
+func (r issuerKeyResolver) Key(_ context.Context, issuer, _ string) (any, error) {
 	if k, ok := r[issuer]; ok {
 		return k, nil
 	}

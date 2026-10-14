@@ -290,7 +290,7 @@ func readEntrypointsTSV(path string) ([]entrypointsRow, error) {
 		return nil, err
 	}
 	var out []entrypointsRow
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -316,7 +316,7 @@ func readStoresTSV(path string) (tables, fileWrites map[string]int, err error) {
 	}
 	tables = map[string]int{}
 	fileWrites = map[string]int{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

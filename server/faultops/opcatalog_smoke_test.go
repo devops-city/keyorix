@@ -11,7 +11,6 @@ import (
 // even complete cleanly would make every fuzz finding involving it uninterpretable.
 func TestOpCatalog_SucceedsWithNoFaultArmed(t *testing.T) {
 	for _, op := range opCatalog {
-		op := op
 		t.Run(op.Key, func(t *testing.T) {
 			w := newFaultWorld(t, nil)
 			res, err := runOp(context.Background(), w, op)

@@ -208,8 +208,7 @@ func TestSQLiteMigrationLock_CrossProcess_SerializedBySQLiteItself(t *testing.T)
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 			dir := t.TempDir()
 			markers := filepath.Join(dir, "markers")
 			require.NoError(t, os.Mkdir(markers, 0o700))

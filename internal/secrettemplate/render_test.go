@@ -200,7 +200,7 @@ func TestRender_DedupesRepeatedReferences(t *testing.T) {
 	}
 
 	var tmpl strings.Builder
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		fmt.Fprintf(&tmpl, "${secret:prod/db}")
 	}
 	out, err := Render(tmpl.String(), resolve)
@@ -242,7 +242,7 @@ func TestRender_RejectsTooManyDistinctReferences(t *testing.T) {
 	}
 
 	var tmpl strings.Builder
-	for i := 0; i < MaxDistinctReferences+1; i++ {
+	for i := range MaxDistinctReferences + 1 {
 		fmt.Fprintf(&tmpl, "${secret:ref-%d}", i)
 	}
 	out, err := Render(tmpl.String(), resolve)
@@ -259,7 +259,7 @@ func TestRender_AllowsExactlyMaxDistinctReferences(t *testing.T) {
 
 	var tmpl strings.Builder
 	var want strings.Builder
-	for i := 0; i < MaxDistinctReferences; i++ {
+	for i := range MaxDistinctReferences {
 		fmt.Fprintf(&tmpl, "${secret:ref-%d}", i)
 		fmt.Fprintf(&want, "[ref-%d]", i)
 	}
@@ -281,7 +281,7 @@ func TestRender_NormalTemplateUnaffected(t *testing.T) {
 // the same parse pass.
 func TestReferences_RejectsTooManyDistinctReferences(t *testing.T) {
 	var tmpl strings.Builder
-	for i := 0; i < MaxDistinctReferences+1; i++ {
+	for i := range MaxDistinctReferences + 1 {
 		fmt.Fprintf(&tmpl, "${secret:ref-%d}", i)
 	}
 	_, err := References(tmpl.String())
@@ -377,7 +377,7 @@ func TestRenderJSON_NeutralizesJSONFieldInjection(t *testing.T) {
 	// "admin" field — demonstrating the vulnerability RenderJSON exists to close.
 	raw, err := Render(tmpl, resolve)
 	require.NoError(t, err)
-	var rawParsed map[string]interface{}
+	var rawParsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(raw), &rawParsed), "raw output: %s", raw)
 	assert.Equal(t, true, rawParsed["admin"], "raw Render's substitution let the secret value inject an unrelated admin field")
 	assert.NotEqual(t, payload, rawParsed["password"], "raw Render's password field was truncated by the injected quote, not left intact")
@@ -386,7 +386,7 @@ func TestRenderJSON_NeutralizesJSONFieldInjection(t *testing.T) {
 	// out of the "password" string field at all.
 	out, err := RenderJSON(tmpl, resolve)
 	require.NoError(t, err)
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	require.NoError(t, json.Unmarshal([]byte(out), &parsed), "RenderJSON output: %s", out)
 	assert.Equal(t, payload, parsed["password"], "RenderJSON must preserve the secret value exactly, as the password field's content")
 	_, hasAdmin := parsed["admin"]
@@ -403,13 +403,13 @@ func TestRenderYAML_NeutralizesFlowMappingInjection(t *testing.T) {
 
 	raw, err := Render(tmpl, resolve)
 	require.NoError(t, err)
-	var rawParsed map[string]interface{}
+	var rawParsed map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(raw), &rawParsed), "raw output: %s", raw)
 	assert.Equal(t, true, rawParsed["admin"], "raw Render's substitution let the secret value inject an unrelated admin field")
 
 	out, err := RenderYAML(tmpl, resolve)
 	require.NoError(t, err)
-	var parsed map[string]interface{}
+	var parsed map[string]any
 	require.NoError(t, yaml.Unmarshal([]byte(out), &parsed), "RenderYAML output: %s", out)
 	assert.Equal(t, payload, parsed["password"], "RenderYAML must preserve the secret value exactly, as the password field's content")
 	_, hasAdmin := parsed["admin"]

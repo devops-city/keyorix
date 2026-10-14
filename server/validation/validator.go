@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -30,9 +31,9 @@ func NewValidator() *Validator {
 
 // ValidationError represents validation errors
 type ValidationError struct {
-	Field   string      `json:"field"`
-	Message string      `json:"message"`
-	Value   interface{} `json:"value,omitempty"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+	Value   any    `json:"value,omitempty"`
 }
 
 // ValidationErrors represents multiple validation errors
@@ -54,7 +55,7 @@ func (ve ValidationErrors) Error() string {
 // called concurrently by many goroutines/requests without risk of a
 // concurrent map read/write (which the Go runtime treats as fatal) or of one
 // call's in-flight errors being corrupted by another's.
-func (v *Validator) Validate(s interface{}) error { // NOSONAR -- cognitive complexity 19, suppress go:S3776
+func (v *Validator) Validate(s any) error { // NOSONAR -- cognitive complexity 19, suppress go:S3776
 	errs := make(map[string][]string)
 
 	val := reflect.ValueOf(s)
@@ -117,9 +118,9 @@ func (v *Validator) Validate(s interface{}) error { // NOSONAR -- cognitive comp
 // accumulating any failures into errs, which is local to the enclosing
 // Validate call (see the stateless-by-design note on Validate).
 func (v *Validator) validateField(errs map[string][]string, fieldName string, field reflect.Value, tag string) {
-	rules := strings.Split(tag, ",")
+	rules := strings.SplitSeq(tag, ",")
 
-	for _, rule := range rules {
+	for rule := range rules {
 		rule = strings.TrimSpace(rule)
 		if rule == "" {
 			continue
@@ -523,10 +524,8 @@ func (v *Validator) validateOneOf(field reflect.Value, param string) error {
 	}
 
 	allowedValues := strings.Split(param, " ")
-	for _, allowed := range allowedValues {
-		if value == allowed {
-			return nil
-		}
+	if slices.Contains(allowedValues, value) {
+		return nil
 	}
 
 	return fmt.Errorf("%s: must be one of: %s", i18n.T("ErrorValidation", nil), strings.Join(allowedValues, ", "))

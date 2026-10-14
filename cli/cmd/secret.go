@@ -105,6 +105,6 @@ func secureCreateOutputFile(path string) (*os.File, error) {
 // operations this module's own openapi.yaml filter kept without a response schema
 // (listSecrets, createSecret, getSecret — PR 4's job, a sibling independent PR), whose
 // generated methods return only a raw []byte body rather than a typed JSON200 field.
-func decodeJSONBody(body []byte, v interface{}) error {
+func decodeJSONBody(body []byte, v any) error {
 	return json.Unmarshal(body, v)
 }

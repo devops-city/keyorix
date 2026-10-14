@@ -23,7 +23,7 @@ import (
 
 // newS21UniqueStore opens a fresh in-memory SQLite DB with a per-test unique DSN
 // so parallel tests don't share the same in-memory instance.
-func newS21UniqueStore(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS21UniqueStore(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores21_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -113,7 +113,7 @@ func TestWithAuditCheckpointLock_S21_HappyPath(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // shareRecordModels lists all tables CreateShareRecord depends on.
-var shareRecordModels = []interface{}{
+var shareRecordModels = []any{
 	&models.User{},
 	&models.Group{},
 	&models.UserGroup{},

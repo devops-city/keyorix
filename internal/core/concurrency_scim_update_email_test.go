@@ -53,7 +53,7 @@ func TestConcurrency_UpdateSCIMUser_NoDuplicateEmail(t *testing.T) {
 	ctx := context.Background()
 
 	const attackers = 20 // many concurrent SCIM updates racing to claim the same email
-	for i := 0; i < attackers; i++ {
+	for i := range attackers {
 		username := fmt.Sprintf("user%d", i)
 		email := fmt.Sprintf("user%d@x.io", i)
 		require.NoError(t, db.Create(&models.User{
@@ -66,7 +66,7 @@ func TestConcurrency_UpdateSCIMUser_NoDuplicateEmail(t *testing.T) {
 	start := make(chan struct{})
 	errs := make([]error, attackers)
 	var wg sync.WaitGroup
-	for i := 0; i < attackers; i++ {
+	for i := range attackers {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

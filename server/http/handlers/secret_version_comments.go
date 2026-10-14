@@ -72,7 +72,7 @@ func (h *SecretVersionCommentHandler) CreateComment(w http.ResponseWriter, r *ht
 		return
 	}
 
-	sendCreated(w, map[string]interface{}{"comment": comment}, "Comment created successfully")
+	sendCreated(w, map[string]any{"comment": comment}, "Comment created successfully")
 }
 
 // ListComments handles GET /api/v1/secrets/{id}/versions/{versionId}/comments.
@@ -97,7 +97,7 @@ func (h *SecretVersionCommentHandler) ListComments(w http.ResponseWriter, r *htt
 		return
 	}
 
-	sendSuccess(w, map[string]interface{}{"comments": comments, "total": len(comments)}, "")
+	sendSuccess(w, map[string]any{"comments": comments, "total": len(comments)}, "")
 }
 
 // DeleteComment handles DELETE /api/v1/secrets/{id}/versions/{versionId}/comments/{commentId}.

@@ -266,20 +266,16 @@ func TestEnqueue_ConcurrentWithClose_NoPanic(t *testing.T) {
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 50 {
+		wg.Go(func() {
 			<-start
 			d.enqueue(ev)
-		}()
+		})
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-start
 		d.close()
-	}()
+	})
 	close(start)
 	wg.Wait()
 }
@@ -439,7 +435,7 @@ func TestChatText_WithLink(t *testing.T) {
 func TestChatPayload_TeamsDefaultTitle(t *testing.T) {
 	ev := core.NotificationEvent{Message: "something"}
 	payload := chatPayload(ChatTeams, ev)
-	m, ok := payload.(map[string]interface{})
+	m, ok := payload.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "Keyorix notification", m["title"])
 }
@@ -448,7 +444,7 @@ func TestChatPayload_TeamsDefaultTitle(t *testing.T) {
 func TestChatPayload_TeamsWithTitle(t *testing.T) {
 	ev := core.NotificationEvent{Title: "Alert", Message: "something"}
 	payload := chatPayload(ChatTeams, ev)
-	m, ok := payload.(map[string]interface{})
+	m, ok := payload.(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "Alert", m["title"])
 }

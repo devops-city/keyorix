@@ -18,7 +18,7 @@ func TestTimeoutInterceptor_CapsSlowHandler(t *testing.T) {
 
 	_, err := interceptor(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"},
-		func(ctx context.Context, _ interface{}) (interface{}, error) {
+		func(ctx context.Context, _ any) (any, error) {
 			_, ok := ctx.Deadline()
 			require.True(t, ok, "the handler's context must carry the injected deadline")
 			<-ctx.Done() // simulate a hung handler
@@ -36,7 +36,7 @@ func TestTimeoutInterceptor_FastHandlerUnaffected(t *testing.T) {
 
 	resp, err := interceptor(context.Background(), nil,
 		&grpc.UnaryServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"},
-		func(context.Context, interface{}) (interface{}, error) { return "ok", nil })
+		func(context.Context, any) (any, error) { return "ok", nil })
 
 	require.NoError(t, err)
 	assert.Equal(t, "ok", resp)
@@ -52,7 +52,7 @@ func TestTimeoutInterceptor_PreservesShorterClientDeadline(t *testing.T) {
 	var handlerDeadline time.Time
 	_, _ = interceptor(clientCtx, nil,
 		&grpc.UnaryServerInfo{FullMethod: "/keyorix.v1.SecretService/GetSecret"},
-		func(ctx context.Context, _ interface{}) (interface{}, error) {
+		func(ctx context.Context, _ any) (any, error) {
 			handlerDeadline, _ = ctx.Deadline()
 			return "ok", nil
 		})

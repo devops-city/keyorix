@@ -161,13 +161,13 @@ type familyRoute struct {
 	check func(t *testing.T, body []byte, contentType string) // asserts the 200 payload shape
 }
 
-func jsonDataField(t *testing.T, body []byte) map[string]interface{} {
+func jsonDataField(t *testing.T, body []byte) map[string]any {
 	t.Helper()
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(body, &env))
-	var m map[string]interface{}
+	var m map[string]any
 	require.NoError(t, json.Unmarshal(env.Data, &m))
 	return m
 }
@@ -248,7 +248,7 @@ func TestDeploymentDisclosureFamily_BaselineDeniedAuditorAllowed(t *testing.T) {
 			check: func(t *testing.T, body []byte, _ string) {
 				m := jsonDataField(t, body)
 				assert.Equal(t, true, m["policy_enabled"])
-				violations, _ := m["violations"].([]interface{})
+				violations, _ := m["violations"].([]any)
 				assert.NotEmpty(t, violations, "the non-conformant secret must be reported")
 			},
 		},
@@ -257,7 +257,7 @@ func TestDeploymentDisclosureFamily_BaselineDeniedAuditorAllowed(t *testing.T) {
 			path: "/api/v1/pat-hygiene",
 			check: func(t *testing.T, body []byte, _ string) {
 				m := jsonDataField(t, body)
-				tokens, _ := m["tokens"].([]interface{})
+				tokens, _ := m["tokens"].([]any)
 				assert.NotEmpty(t, tokens, "the expired PAT must be flagged")
 			},
 		},
@@ -266,9 +266,9 @@ func TestDeploymentDisclosureFamily_BaselineDeniedAuditorAllowed(t *testing.T) {
 			path: "/api/v1/machine-token-hygiene",
 			check: func(t *testing.T, body []byte, _ string) {
 				m := jsonDataField(t, body)
-				creds, ok := m["credentials"].([]interface{})
+				creds, ok := m["credentials"].([]any)
 				if !ok {
-					creds, _ = m["tokens"].([]interface{})
+					creds, _ = m["tokens"].([]any)
 				}
 				assert.NotEmpty(t, creds, "the expired machine credential must be flagged")
 			},
@@ -326,7 +326,7 @@ func TestDeploymentDisclosureFamily_BaselineDeniedAuditorAllowed(t *testing.T) {
 			path: "/api/v1/risk-exceptions",
 			check: func(t *testing.T, body []byte, _ string) {
 				m := jsonDataField(t, body)
-				exceptions, _ := m["exceptions"].([]interface{})
+				exceptions, _ := m["exceptions"].([]any)
 				assert.NotEmpty(t, exceptions, "the seeded risk exception must be disclosed to an audit.read holder")
 			},
 		},
@@ -335,7 +335,7 @@ func TestDeploymentDisclosureFamily_BaselineDeniedAuditorAllowed(t *testing.T) {
 			path: "/api/v1/sod/violations",
 			check: func(t *testing.T, body []byte, _ string) {
 				m := jsonDataField(t, body)
-				violations, _ := m["violations"].([]interface{})
+				violations, _ := m["violations"].([]any)
 				assert.NotEmpty(t, violations, "the system_auditor's own system.read+audit.read pair must show up as a violation")
 			},
 		},
@@ -349,11 +349,11 @@ func TestDeploymentDisclosureFamily_BaselineDeniedAuditorAllowed(t *testing.T) {
 			path: "/api/v1/admin/usage",
 			check: func(t *testing.T, body []byte, _ string) {
 				m := jsonDataField(t, body)
-				projects, ok := m["projects"].([]interface{})
+				projects, ok := m["projects"].([]any)
 				require.True(t, ok, "projects field must be a list")
 				found := false
 				for _, p := range projects {
-					proj, _ := p.(map[string]interface{})
+					proj, _ := p.(map[string]any)
 					if proj == nil {
 						continue
 					}
@@ -576,11 +576,11 @@ func TestAdminBillingReport_PermissionTiers(t *testing.T) {
 		require.Equalf(t, http.StatusOK, resp.StatusCode,
 			"a system_auditor (audit.read) caller must succeed at /admin/billing/report (body: %s)", string(body))
 		m := jsonDataField(t, body)
-		projects, ok := m["projects"].([]interface{})
+		projects, ok := m["projects"].([]any)
 		require.True(t, ok, "projects field must be a list")
 		found := false
 		for _, p := range projects {
-			proj, _ := p.(map[string]interface{})
+			proj, _ := p.(map[string]any)
 			if proj == nil {
 				continue
 			}

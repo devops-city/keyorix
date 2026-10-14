@@ -201,7 +201,7 @@ func (ls *LocalStorage) UpdateShareRecord(ctx context.Context, share *models.Sha
 	existing.UpdatedAt = time.Now()
 	res := ls.db.WithContext(ctx).Model(&models.ShareRecord{}).
 		Where(sqlWhereID, existing.ID).
-		Updates(map[string]interface{}{
+		Updates(map[string]any{
 			"permission": existing.Permission,
 			"expires_at": existing.ExpiresAt,
 			"updated_at": existing.UpdatedAt,

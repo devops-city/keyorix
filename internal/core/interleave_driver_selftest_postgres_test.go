@@ -43,7 +43,6 @@ import (
 func TestInterleaveDriver_AllSixOrderings_OnAFixedPair_Postgres(t *testing.T) {
 	t.Parallel()
 	for _, order := range allInterleavings {
-		order := order
 		t.Run(string(order), func(t *testing.T) {
 			t.Parallel()
 			f := newCTAReview(t)

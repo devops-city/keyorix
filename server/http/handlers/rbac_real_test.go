@@ -110,9 +110,9 @@ func TestRBACReal_ListRoles200(t *testing.T) {
 	handler.ListRoles(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok)
 	assert.GreaterOrEqual(t, int(data["total"].(float64)), 1)
 }
@@ -128,9 +128,9 @@ func TestRBACReal_ListPermissions200(t *testing.T) {
 	handler.ListPermissions(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
+	data := resp["data"].(map[string]any)
 	assert.GreaterOrEqual(t, int(data["total"].(float64)), 1)
 }
 
@@ -264,10 +264,10 @@ func TestRBACReal_GetGroupRoles200(t *testing.T) {
 	handler.GetGroupRoles(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	roles := data["roles"].([]interface{})
+	data := resp["data"].(map[string]any)
+	roles := data["roles"].([]any)
 	assert.Len(t, roles, 1)
 }
 
@@ -290,14 +290,14 @@ func TestRBACReal_GetGroupRoles_CarriesExpiry(t *testing.T) {
 	handler.GetGroupRoles(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	roles := resp["data"].(map[string]interface{})["roles"].([]interface{})
+	roles := resp["data"].(map[string]any)["roles"].([]any)
 	require.Len(t, roles, 2)
 
-	byName := map[string]map[string]interface{}{}
+	byName := map[string]map[string]any{}
 	for _, r := range roles {
-		m := r.(map[string]interface{})
+		m := r.(map[string]any)
 		byName[m["name"].(string)] = m
 	}
 	_, hasExpiry := byName["perm-role"]["expires_at"]
@@ -532,12 +532,12 @@ func TestRBACReal_GetUserPermissionsForUser(t *testing.T) {
 	handler.GetUserPermissionsForUser(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	perms := resp["data"].(map[string]interface{})["permissions"].([]interface{})
+	perms := resp["data"].(map[string]any)["permissions"].([]any)
 	names := make([]string, 0, len(perms))
 	for _, p := range perms {
-		names = append(names, p.(map[string]interface{})["name"].(string))
+		names = append(names, p.(map[string]any)["name"].(string))
 	}
 	assert.Contains(t, names, "secrets.read")
 	assert.NotContains(t, names, "secrets.write", "an expired time-bound grant confers no permissions")

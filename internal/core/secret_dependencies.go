@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/keyorixhq/keyorix/internal/besteffort"
@@ -488,7 +489,7 @@ func dependentsAdjacency(edges []*models.SecretDependency) map[uint][]uint {
 		adj[e.DependsOnSecretID] = append(adj[e.DependsOnSecretID], e.DependentSecretID)
 	}
 	for k := range adj {
-		sort.Slice(adj[k], func(i, j int) bool { return adj[k][i] < adj[k][j] })
+		slices.Sort(adj[k])
 	}
 	return adj
 }
@@ -596,7 +597,7 @@ func topologicalRotationOrder(edges []*models.SecretDependency) (order []uint, o
 			ready = append(ready, n)
 		}
 	}
-	sort.Slice(ready, func(i, j int) bool { return ready[i] < ready[j] })
+	slices.Sort(ready)
 
 	order = make([]uint, 0, len(nodes))
 	for len(ready) > 0 {
@@ -604,7 +605,7 @@ func topologicalRotationOrder(edges []*models.SecretDependency) (order []uint, o
 		ready = ready[1:]
 		order = append(order, n)
 		next := append([]uint(nil), adj[n]...)
-		sort.Slice(next, func(i, j int) bool { return next[i] < next[j] })
+		slices.Sort(next)
 		for _, m := range next {
 			indeg[m]--
 			if indeg[m] == 0 {

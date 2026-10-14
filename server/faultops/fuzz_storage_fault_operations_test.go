@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -58,7 +59,7 @@ func drainAllBackgroundGoroutines() {
 // derived at runtime from the interface itself, so it can never drift from the
 // 418 faulty_storage_generated.go actually covers.
 func storageInterfaceMethodNames() []string {
-	t := reflect.TypeOf((*storage.Storage)(nil)).Elem()
+	t := reflect.TypeFor[storage.Storage]()
 	names := make([]string, t.NumMethod())
 	for i := range names {
 		names[i] = t.Method(i).Name
@@ -1381,13 +1382,7 @@ func onlyOutcomeLogTables(diff []string) bool {
 		return false
 	}
 	for _, d := range diff {
-		ok := false
-		for _, o := range outcomeLogTables {
-			if d == o {
-				ok = true
-				break
-			}
-		}
+		ok := slices.Contains(outcomeLogTables, d)
 		if !ok {
 			return false
 		}
@@ -1434,8 +1429,8 @@ func bulkPartialFailureAccountsForDiff(in oracleInput) bool {
 		return false
 	}
 	detail := in.result.Detail
-	sep := strings.Index(detail, ": ")
-	if sep < 0 {
+	_, after, ok := strings.Cut(detail, ": ")
+	if !ok {
 		return false
 	}
 	var body struct {
@@ -1447,7 +1442,7 @@ func bulkPartialFailureAccountsForDiff(in oracleInput) bool {
 			} `json:"failed"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal([]byte(detail[sep+2:]), &body); err != nil {
+	if err := json.Unmarshal([]byte(after), &body); err != nil {
 		return false
 	}
 	if len(body.Data.Deleted) != 0 || len(body.Data.Failed) == 0 {

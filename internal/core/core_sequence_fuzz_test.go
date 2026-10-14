@@ -90,7 +90,7 @@ func FuzzCoreOperationSequence(f *testing.F) {
 		// --- roles/permissions seeded directly (fast, deterministic) ---
 		// admin bypasses all checks (ADR-084: the flag, not the name); reader carries
 		// secrets.read and is what the fuzzer grants/revokes at project scope.
-		mustCreate := func(v interface{}) {
+		mustCreate := func(v any) {
 			if err := db.Create(v).Error; err != nil {
 				t.Fatalf("seed %T: %v", v, err)
 			}
@@ -175,7 +175,7 @@ func decodeOpSubset(b byte) []int {
 		return []int{0, 1, 2, 3, 4}
 	}
 	var subset []int
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if b&(1<<uint(i)) != 0 {
 			subset = append(subset, i)
 		}

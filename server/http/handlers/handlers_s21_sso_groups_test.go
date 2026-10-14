@@ -56,10 +56,10 @@ func TestListSSOProviders_Empty_S21(t *testing.T) {
 	h.ListSSOProviders(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data := resp["data"].(map[string]interface{})
-	providers := data["providers"].([]interface{})
+	data := resp["data"].(map[string]any)
+	providers := data["providers"].([]any)
 	assert.Empty(t, providers)
 }
 
@@ -347,7 +347,7 @@ func TestCreateGroup_ConflictError_S21(t *testing.T) {
 func TestCreateGroup_HappyPathWithDescription_S21(t *testing.T) {
 	gh, _ := freshGroupHandlerWithAdminS21(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"name":        "ops-team-s21",
 		"description": "Operations team for S21 test",
 	})
@@ -392,7 +392,7 @@ func freshUserHandlerS21(t *testing.T) (*UserHandler, *core.KeyorixCore) {
 func TestCreateUserWithOTP_Success_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-success-s21",
 		"email":                      "otp-success-s21@example.com",
 		"display_name":               "OTP Success S21",
@@ -404,12 +404,12 @@ func TestCreateUserWithOTP_Success_S21(t *testing.T) {
 	uh.CreateUser(w, req)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
-	var resp map[string]interface{}
+	var resp map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	require.True(t, ok, "expected data map in response")
 	assert.NotEmpty(t, data["one_time_password"], "expected one_time_password in response")
-	userMap, ok := data["user"].(map[string]interface{})
+	userMap, ok := data["user"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "otp-success-s21", userMap["username"])
 }
@@ -423,7 +423,7 @@ func TestCreateUserWithOTP_ConflictDuplicate_S21(t *testing.T) {
 	// Username/display-name chosen so all 3+-char words contain 'o' or 'l',
 	// which are excluded from the OTP charset — OTP can never match them.
 	makeBody := func() *bytes.Reader {
-		b, _ := json.Marshal(map[string]interface{}{
+		b, _ := json.Marshal(map[string]any{
 			"username":                   "otp-loop-s21",
 			"email":                      "otp-loop-s21@example.com",
 			"display_name":               "OTP Loop S21",
@@ -453,7 +453,7 @@ func TestCreateUserWithOTP_SecondCallConflict_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
 	makeBody := func() *bytes.Reader {
-		b, _ := json.Marshal(map[string]interface{}{
+		b, _ := json.Marshal(map[string]any{
 			"username":                   "otp-second-s21",
 			"email":                      "otp-second-s21@example.com",
 			"display_name":               "OTP Second S21",
@@ -497,7 +497,7 @@ func TestCreateUserWithOTP_InvalidJSON_S21(t *testing.T) {
 func TestCreateUserWithOTP_ValidationError_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":                   "otp-validerror-s21",
 		"email":                      "not-a-valid-email",
 		"display_name":               "OTP Valid Error S21",
@@ -520,7 +520,7 @@ func TestCreateUserWithOTP_ValidationError_S21(t *testing.T) {
 func TestCreateUserWithSetupLink_Success_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-s21",
 		"email":              "setup-s21@example.com",
 		"display_name":       "Setup S21",
@@ -543,7 +543,7 @@ func TestCreateUserWithSetupLink_Conflict_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
 	// Seed a conflicting user via the OTP path (which works without base_url).
-	seedBody, _ := json.Marshal(map[string]interface{}{
+	seedBody, _ := json.Marshal(map[string]any{
 		"username":                   "setup-conflict-s21",
 		"email":                      "setup-conflict-s21@example.com",
 		"display_name":               "Setup Conflict S21",
@@ -556,7 +556,7 @@ func TestCreateUserWithSetupLink_Conflict_S21(t *testing.T) {
 	require.Equal(t, http.StatusCreated, seedW.Code)
 
 	// Now attempt a setup-link create with the same username/email.
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":           "setup-conflict-s21",
 		"email":              "setup-conflict-s21@example.com",
 		"display_name":       "Setup Conflict S21",
@@ -581,7 +581,7 @@ func TestCreateUserWithSetupLink_Conflict_S21(t *testing.T) {
 func TestCreateUserClassic_Success_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
-	body, _ := json.Marshal(map[string]interface{}{
+	body, _ := json.Marshal(map[string]any{
 		"username":     "classic-s21",
 		"email":        "classic-s21@example.com",
 		"display_name": "Classic S21",
@@ -602,7 +602,7 @@ func TestCreateUserClassic_ConflictError_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
 	makeBody := func() *bytes.Reader {
-		b, _ := json.Marshal(map[string]interface{}{
+		b, _ := json.Marshal(map[string]any{
 			"username":     "classic-dup-s21",
 			"email":        "classic-dup-s21@example.com",
 			"display_name": "Classic Dup S21",
@@ -632,7 +632,7 @@ func TestUpdateUser_ConflictError_S21(t *testing.T) {
 	uh, _ := freshUserHandlerS21(t)
 
 	// Create user A.
-	bodyA, _ := json.Marshal(map[string]interface{}{
+	bodyA, _ := json.Marshal(map[string]any{
 		"username":     "conflict-user-a-s21",
 		"email":        "conflict-a-s21@example.com",
 		"display_name": "Conflict A S21",
@@ -645,7 +645,7 @@ func TestUpdateUser_ConflictError_S21(t *testing.T) {
 	require.Equal(t, http.StatusCreated, wA.Code)
 
 	// Create user B.
-	bodyB, _ := json.Marshal(map[string]interface{}{
+	bodyB, _ := json.Marshal(map[string]any{
 		"username":     "conflict-user-b-s21",
 		"email":        "conflict-b-s21@example.com",
 		"display_name": "Conflict B S21",
@@ -657,14 +657,14 @@ func TestUpdateUser_ConflictError_S21(t *testing.T) {
 	uh.CreateUser(wB, reqB)
 	require.Equal(t, http.StatusCreated, wB.Code)
 
-	var respB map[string]interface{}
+	var respB map[string]any
 	require.NoError(t, json.NewDecoder(wB.Body).Decode(&respB))
-	dataB, _ := respB["data"].(map[string]interface{})
+	dataB, _ := respB["data"].(map[string]any)
 	idBFloat, _ := dataB["id"].(float64)
 	idB := uint(idBFloat)
 
 	// Try to rename B → conflict-user-a-s21 (taken by user A).
-	updateBody, _ := json.Marshal(map[string]interface{}{
+	updateBody, _ := json.Marshal(map[string]any{
 		"username": "conflict-user-a-s21",
 	})
 	reqUpdate := withUserCtx(withChiParam(

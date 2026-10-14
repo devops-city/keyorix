@@ -10,7 +10,7 @@ import (
 
 // countByClassification returns row counts of model keyed by its classification
 // label ("" = unclassified), install-wide, via a single GROUP BY.
-func countByClassification(ctx context.Context, db *gorm.DB, model interface{}) (map[string]int, error) {
+func countByClassification(ctx context.Context, db *gorm.DB, model any) (map[string]int, error) {
 	var rows []struct {
 		Classification string
 		N              int

@@ -97,7 +97,7 @@ import (
 
 // newS27Store opens a unique in-memory SQLite DB with the requested models
 // auto-migrated.
-func newS27Store(t *testing.T, mods ...interface{}) *LocalStorage {
+func newS27Store(t *testing.T, mods ...any) *LocalStorage {
 	t.Helper()
 	db := sqlitetest.OpenWithDialector(t, "stores27_", sqlite.Open, &gorm.Config{})
 	if len(mods) > 0 {
@@ -117,7 +117,7 @@ func brokenS27Store(t *testing.T) *LocalStorage {
 }
 
 // rbacModels lists all models required for RBAC tests.
-var rbacModels = []interface{}{
+var rbacModels = []any{
 	&models.UserRole{}, &models.GroupRole{}, &models.UserGroup{},
 	&models.Role{}, &models.Group{}, &models.Project{}, &models.Environment{},
 	&models.Permission{}, &models.RolePermission{}, &models.MachineIdentityRole{},

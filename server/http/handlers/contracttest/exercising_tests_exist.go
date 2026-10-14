@@ -127,7 +127,7 @@ func realTestNames() (map[string]bool, error) {
 	}
 
 	names := map[string]bool{}
-	for _, line := range strings.Split(out.String(), "\n") {
+	for line := range strings.SplitSeq(out.String(), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "ok ") || strings.HasPrefix(line, "FAIL") {
 			continue

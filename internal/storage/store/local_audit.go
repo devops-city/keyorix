@@ -167,7 +167,7 @@ func (s scanTime) Value() (driver.Value, error) {
 	return *s.t, nil
 }
 
-func (s *scanTime) Scan(value interface{}) error {
+func (s *scanTime) Scan(value any) error {
 	if value == nil {
 		return nil
 	}
@@ -560,7 +560,7 @@ func (ls *LocalStorage) GetAuditLogs(ctx context.Context, filter *storage.AuditF
 			// case-sensitive on Postgres, so without it the same search returned
 			// different rows per backend.
 			cond := `user_id IN (SELECT id FROM users WHERE LOWER(username) LIKE LOWER(?) ESCAPE '\' AND deleted_at IS NULL)`
-			args := []interface{}{"%" + escapeLIKE(*filter.ActorUsername) + "%"}
+			args := []any{"%" + escapeLIKE(*filter.ActorUsername) + "%"}
 			// Rows of kind "system" are displayed with actor "system" (#2951), so a
 			// term that is part of "system" (ASCII case-insensitive, e.g. "sys") also
 			// finds exactly those rows: the same rule as actor_type=system
@@ -740,7 +740,7 @@ func (ls *LocalStorage) ListAnomalyAlerts(ctx context.Context, acknowledged *boo
 }
 
 func (ls *LocalStorage) AcknowledgeAnomalyAlert(ctx context.Context, id, actorID uint, at time.Time) error {
-	res := ls.db.WithContext(ctx).Model(&models.AnomalyAlert{}).Where("id = ?", id).Updates(map[string]interface{}{
+	res := ls.db.WithContext(ctx).Model(&models.AnomalyAlert{}).Where("id = ?", id).Updates(map[string]any{
 		"acknowledged":    true,
 		"acknowledged_by": actorID,
 		"acknowledged_at": at,

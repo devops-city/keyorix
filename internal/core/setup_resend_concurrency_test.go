@@ -49,18 +49,16 @@ func TestConcurrency_SetupLinkResendThrottle(t *testing.T) {
 	}).Error)
 
 	const callers = 32
-	var ok int64
+	var ok atomic.Int64
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < callers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range callers {
+		wg.Go(func() {
 			<-start
 			if _, err := c.ResendAccountSetupLink(ctx, uid, 7); err == nil {
-				atomic.AddInt64(&ok, 1)
+				ok.Add(1)
 			}
-		}()
+		})
 	}
 	close(start) // release the whole burst at once
 	wg.Wait()
@@ -72,5 +70,5 @@ func TestConcurrency_SetupLinkResendThrottle(t *testing.T) {
 	// would let several through. Token rows are the ground truth (each successful
 	// resend mints one), and successes must match.
 	assert.Equal(t, int64(1), tokens, "a concurrent burst must mint exactly one setup token, not race past the throttle")
-	assert.Equal(t, int64(1), atomic.LoadInt64(&ok), "exactly one resend may succeed; the rest are throttled")
+	assert.Equal(t, int64(1), ok.Load(), "exactly one resend may succeed; the rest are throttled")
 }

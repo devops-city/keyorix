@@ -81,7 +81,7 @@ func (h *CatalogHandler) ListMachineIdentities(w http.ResponseWriter, r *http.Re
 	for _, m := range identities {
 		wire = append(wire, newMachineIdentityProxyWire(m))
 	}
-	sendSuccess(w, map[string]interface{}{"machine_identities": wire}, "")
+	sendSuccess(w, map[string]any{"machine_identities": wire}, "")
 }
 
 // ListStaleMachineIdentities handles GET /api/v1/projects/{id}/machine-identities/stale?days=N
@@ -106,7 +106,7 @@ func (h *CatalogHandler) ListStaleMachineIdentities(w http.ResponseWriter, r *ht
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"machine_identities": identities, "total": len(identities)}, "")
+	sendSuccess(w, map[string]any{"machine_identities": identities, "total": len(identities)}, "")
 }
 
 // CreateMachineIdentity handles POST /api/v1/projects/{id}/machine-identities.
@@ -153,7 +153,7 @@ func (h *CatalogHandler) CreateMachineIdentity(w http.ResponseWriter, r *http.Re
 	// (pat_handler.go) for why the latter silently sends the wrong Content-Type.
 	// machineIdentityProxyWire, not m directly -- see ListMachineIdentities' comment
 	// above for why a raw models.MachineIdentity marshal is wrong here.
-	sendCreated(w, map[string]interface{}{"machine_identity": newMachineIdentityProxyWire(m)}, "Machine identity created")
+	sendCreated(w, map[string]any{"machine_identity": newMachineIdentityProxyWire(m)}, "Machine identity created")
 }
 
 // MigrateUserToMachine handles POST /api/v1/projects/{id}/machine-identities/migrate-from-user
@@ -201,7 +201,7 @@ func (h *CatalogHandler) MigrateUserToMachine(w http.ResponseWriter, r *http.Req
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendCreated(w, map[string]interface{}{"machine_identity": m}, "User migrated to machine identity")
+	sendCreated(w, map[string]any{"machine_identity": m}, "User migrated to machine identity")
 }
 
 // TransitionMachineIdentity handles PUT /api/v1/projects/{id}/machine-identities/{machineId}.
@@ -256,7 +256,7 @@ func (h *CatalogHandler) TransitionMachineIdentity(w http.ResponseWriter, r *htt
 			}
 		}
 	}
-	sendSuccess(w, map[string]interface{}{"machine_identity": m}, "Machine identity updated")
+	sendSuccess(w, map[string]any{"machine_identity": m}, "Machine identity updated")
 }
 
 // IssueMachineToken handles POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens.
@@ -328,7 +328,7 @@ func (h *CatalogHandler) IssueMachineToken(w http.ResponseWriter, r *http.Reques
 	}
 	// sendCreated, not WriteHeader+sendSuccess -- see CreatePAT's comment
 	// (pat_handler.go) for why the latter silently sends the wrong Content-Type.
-	sendCreated(w, map[string]interface{}{
+	sendCreated(w, map[string]any{
 		"token":          result.PlainToken, // shown once
 		"id":             result.Credential.ID,
 		"prefix":         result.Credential.TokenPrefix,
@@ -359,9 +359,9 @@ func (h *CatalogHandler) ListMachineTokens(w http.ResponseWriter, r *http.Reques
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(creds))
+	out := make([]map[string]any, 0, len(creds))
 	for _, c := range creds {
-		out = append(out, map[string]interface{}{
+		out = append(out, map[string]any{
 			"id":             c.ID,
 			"name":           c.Name,
 			"prefix":         c.TokenPrefix,
@@ -372,7 +372,7 @@ func (h *CatalogHandler) ListMachineTokens(w http.ResponseWriter, r *http.Reques
 			"created_at":     c.CreatedAt,
 		})
 	}
-	sendSuccess(w, map[string]interface{}{"tokens": out}, "")
+	sendSuccess(w, map[string]any{"tokens": out}, "")
 }
 
 // RevokeMachineToken handles DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}.
@@ -445,7 +445,7 @@ func (h *CatalogHandler) ClassifyMachineIdentity(w http.ResponseWriter, r *http.
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{"machine_identity": m}, "Classification updated")
+	sendSuccess(w, map[string]any{"machine_identity": m}, "Classification updated")
 }
 
 // ClassifyMachineToken handles PATCH
@@ -484,7 +484,7 @@ func (h *CatalogHandler) ClassifyMachineToken(w http.ResponseWriter, r *http.Req
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	sendSuccess(w, map[string]interface{}{
+	sendSuccess(w, map[string]any{
 		"id": cred.ID, "classification": cred.Classification,
 	}, "Classification updated")
 }
@@ -620,7 +620,7 @@ func (h *CatalogHandler) ListMachineRoles(w http.ResponseWriter, r *http.Request
 	for _, role := range roles {
 		apiRoles = append(apiRoles, apiRole{ID: role.ID, Name: role.Name})
 	}
-	sendSuccess(w, map[string]interface{}{"roles": apiRoles}, "")
+	sendSuccess(w, map[string]any{"roles": apiRoles}, "")
 }
 
 // CreateOIDCBinding handles POST /api/v1/projects/{id}/machine-identities/{machineId}/oidc-bindings.
@@ -661,7 +661,7 @@ func (h *CatalogHandler) CreateOIDCBinding(w http.ResponseWriter, r *http.Reques
 	}
 	// sendCreated, not WriteHeader+sendSuccess -- see CreatePAT's comment
 	// (pat_handler.go) for why the latter silently sends the wrong Content-Type.
-	sendCreated(w, map[string]interface{}{"id": b.ID, "issuer": b.Issuer, "subject": b.Subject}, "OIDC binding created")
+	sendCreated(w, map[string]any{"id": b.ID, "issuer": b.Issuer, "subject": b.Subject}, "OIDC binding created")
 }
 
 // ListOIDCBindings handles GET /api/v1/projects/{id}/machine-identities/{machineId}/oidc-bindings.
@@ -683,11 +683,11 @@ func (h *CatalogHandler) ListOIDCBindings(w http.ResponseWriter, r *http.Request
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	out := make([]map[string]interface{}, 0, len(bindings))
+	out := make([]map[string]any, 0, len(bindings))
 	for _, b := range bindings {
-		out = append(out, map[string]interface{}{"id": b.ID, "issuer": b.Issuer, "subject": b.Subject, "created_at": b.CreatedAt})
+		out = append(out, map[string]any{"id": b.ID, "issuer": b.Issuer, "subject": b.Subject, "created_at": b.CreatedAt})
 	}
-	sendSuccess(w, map[string]interface{}{"bindings": out}, "")
+	sendSuccess(w, map[string]any{"bindings": out}, "")
 }
 
 // DeleteOIDCBinding handles DELETE /api/v1/projects/{id}/machine-identities/{machineId}/oidc-bindings/{bindingId}.

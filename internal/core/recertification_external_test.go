@@ -188,7 +188,7 @@ func TestRunScheduledRecertification_CampaignQueryCostDoesNotScaleWithHistory(t 
 
 		// A pile of ancient, irrelevant history for project 2 — the deeper past a
 		// correctly-scoped scheduler tick has no reason to ever reload.
-		for i := 0; i < historicalCampaigns; i++ {
+		for i := range historicalCampaigns {
 			closedAt := now.AddDate(0, 0, -1000-i)
 			require.NoError(t, h.DB.Create(&models.AccessReviewCampaign{
 				ProjectID: 2, Name: fmt.Sprintf("historical-%d", i),

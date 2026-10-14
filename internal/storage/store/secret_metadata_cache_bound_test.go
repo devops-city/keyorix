@@ -96,11 +96,11 @@ func TestSecretMetadataCache_BoundHoldsUnderConcurrency(t *testing.T) {
 	const max = 16
 	c := boundTestCache(max, time.Hour, &clock)
 	var wg sync.WaitGroup
-	for g := 0; g < 8; g++ {
+	for g := range 8 {
 		wg.Add(1)
 		go func(g int) {
 			defer wg.Done()
-			for i := 0; i < 500; i++ {
+			for i := range 500 {
 				id := uint(g*1000 + i)
 				c.setVersion(id, versionsGeneration{}, &models.SecretVersion{})
 				c.getVersion(id)

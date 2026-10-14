@@ -139,7 +139,7 @@ func (ls *LocalStorage) SetMachineIdentityCredentialClassification(ctx context.C
 		// A map, not a struct: GORM writes every map entry including a zero
 		// value, so clearing the label (level "") actually persists the empty
 		// string rather than being skipped as "unset".
-		Updates(map[string]interface{}{"classification": toClassification})
+		Updates(map[string]any{"classification": toClassification})
 	if res.Error != nil {
 		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)
 	}

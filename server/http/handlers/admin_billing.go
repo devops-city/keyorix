@@ -71,7 +71,7 @@ func (h *AdminBillingHandler) GetBillingReport(w http.ResponseWriter, r *http.Re
 	// Parse optional comma-separated project_id list
 	var projectIDs []uint
 	if pidStr := q.Get("project_id"); pidStr != "" {
-		for _, part := range strings.Split(pidStr, ",") {
+		for part := range strings.SplitSeq(pidStr, ",") {
 			part = strings.TrimSpace(part)
 			if part == "" {
 				continue

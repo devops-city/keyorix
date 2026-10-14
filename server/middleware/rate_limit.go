@@ -78,7 +78,7 @@ func (rl *principalRateLimiter) middleware(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", "1")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"error":   "RateLimited",
 				"message": "too many requests; slow down",
 				"code":    http.StatusTooManyRequests,

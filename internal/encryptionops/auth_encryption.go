@@ -268,7 +268,7 @@ func MigratePasswordResetTokens(db *gorm.DB, authEnc *encryption.AuthEncryption,
 		// as the encrypted write, and NULL — not "" — avoids colliding with the
 		// unique index on this column when a second row is migrated (NULL is
 		// exempt from uniqueness checks on every backend this targets).
-		if err := db.Model(&reset).Updates(map[string]interface{}{
+		if err := db.Model(&reset).Updates(map[string]any{
 			"encrypted_token": enc,
 			"token_metadata":  meta,
 			"token":           nil,

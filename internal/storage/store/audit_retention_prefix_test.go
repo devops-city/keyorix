@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"math/rand"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -140,7 +140,7 @@ func TestDeleteAuditLogsBefore_NeverDeletesMoreThanEventTimeCutoff(t *testing.T)
 	now := time.Now().UTC().Truncate(time.Second)
 	cutoff := now.Add(-24 * time.Hour)
 
-	for iter := 0; iter < 40; iter++ {
+	for iter := range 40 {
 		t.Run(fmt.Sprintf("seed_iter_%d", iter), func(t *testing.T) {
 			ls := newAuditRetentionTestStore(t)
 			rows := 1 + rng.Intn(12)
@@ -149,7 +149,7 @@ func TestDeleteAuditLogsBefore_NeverDeletesMoreThanEventTimeCutoff(t *testing.T)
 				old bool
 			}
 			var all []appended
-			for i := 0; i < rows; i++ {
+			for i := range rows {
 				// Mostly-old leading rows with random inversions, so the prefix
 				// boundary lands at varied positions (including "all old" and
 				// "first row new").
@@ -206,7 +206,7 @@ func diffIDs(before, after []uint) []uint {
 			out = append(out, id)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 
@@ -292,11 +292,9 @@ func TestDeleteAuditLogsBefore_ConcurrentAppendNotStalledOrDropped_SQLite(t *tes
 	require.NoError(t, ls.WithTransaction(context.Background(), func(tx storage.Storage) error {
 		// The purge transaction now holds SQLite's writer lock. Start an append
 		// and give it time to take auditChainMu and block on BEGIN IMMEDIATE.
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			appendErr = ls.LogAuditEvent(context.Background(), appended)
-		}()
+		})
 		time.Sleep(200 * time.Millisecond)
 		var err error
 		_, anchor, err = tx.DeleteAuditLogsBefore(context.Background(), cutoff)

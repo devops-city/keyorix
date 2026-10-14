@@ -52,11 +52,11 @@ func TestReadCount_IsChargedOnlyAgainstMaxReads(t *testing.T) {
 
 	plain := create("plain", nil)
 	capped := create("capped", func() *int { n := 5; return &n }())
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err = c.GetSecretValue(ctx, plain.ID)
 		require.NoError(t, err)
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		_, err = c.GetSecretValue(ctx, capped.ID)
 		require.NoError(t, err)
 	}

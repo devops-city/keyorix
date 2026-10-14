@@ -24,7 +24,7 @@ const secretMethod = "/keyorix.v1.SecretService/GetSecret"
 
 // okHandler records the context it was invoked with and returns a sentinel.
 func okHandler(captured *context.Context) grpc.UnaryHandler {
-	return func(ctx context.Context, req interface{}) (interface{}, error) {
+	return func(ctx context.Context, req any) (any, error) {
 		if captured != nil {
 			*captured = ctx
 		}
@@ -568,7 +568,7 @@ func TestAuthInterceptor_FailedAuthHammering_ThrottledByIP(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: secretMethod}
 	const attackerIP = "198.51.100.10"
 
-	for i := 0; i < grpcTokenAuthFailureBurst; i++ {
+	for i := range grpcTokenAuthFailureBurst {
 		_, err := interceptor(bearerCtxFromIPUnknownToken(attackerIP), nil, info, okHandler(nil))
 		require.Error(t, err, "invalid-token attempt %d must still fail", i)
 		assert.Equal(t, codes.Unauthenticated, status.Code(err),
@@ -605,7 +605,7 @@ func TestAuthInterceptor_MissingCredentialsNotCountedAgainstFailureBudget(t *tes
 
 	md := metadata.NewIncomingContext(context.Background(), metadata.MD{})
 	ctx := peer.NewContext(md, &peer.Peer{Addr: &net.TCPAddr{IP: net.ParseIP(ip), Port: 5555}})
-	for i := 0; i < grpcTokenAuthFailureBurst*2; i++ {
+	for i := range grpcTokenAuthFailureBurst * 2 {
 		_, err := interceptor(ctx, nil, info, okHandler(nil))
 		require.Error(t, err)
 		assert.Equal(t, codes.Unauthenticated, status.Code(err),
@@ -633,15 +633,15 @@ func TestStreamAuthInterceptor_FailedAuthHammering_ThrottledByIP(t *testing.T) {
 	info := &grpc.StreamServerInfo{FullMethod: "/keyorix.v1.AuditService/StreamAuditLogs"}
 	const attackerIP = "198.51.100.20"
 
-	for i := 0; i < grpcTokenAuthFailureBurst; i++ {
+	for i := range grpcTokenAuthFailureBurst {
 		err := interceptor(nil, &fakeStream{ctx: bearerCtxFromIPUnknownToken(attackerIP)}, info,
-			func(_ interface{}, _ grpc.ServerStream) error { return nil })
+			func(_ any, _ grpc.ServerStream) error { return nil })
 		require.Error(t, err, "invalid-token stream open %d must still fail", i)
 		assert.Equal(t, codes.Unauthenticated, status.Code(err))
 	}
 
 	err := interceptor(nil, &fakeStream{ctx: bearerCtxFromIPUnknownToken(attackerIP)}, info,
-		func(_ interface{}, _ grpc.ServerStream) error { return nil })
+		func(_ any, _ grpc.ServerStream) error { return nil })
 	require.Error(t, err)
 	assert.Equal(t, codes.ResourceExhausted, status.Code(err),
 		"once the IP's failure budget is exhausted, further invalid-token stream opens must be throttled")

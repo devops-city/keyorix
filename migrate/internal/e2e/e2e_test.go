@@ -115,7 +115,7 @@ func (f *fakeKeyorix) handleGetOrUpdate(w http.ResponseWriter, r *http.Request) 
 	switch r.Method {
 	case http.MethodGet:
 		if r.URL.Query().Get("include_value") == "true" {
-			writeEnvelope(w, http.StatusOK, map[string]interface{}{"secret": s, "value": s.Value})
+			writeEnvelope(w, http.StatusOK, map[string]any{"secret": s, "value": s.Value})
 			return
 		}
 		writeEnvelope(w, http.StatusOK, s)
@@ -137,16 +137,16 @@ func (f *fakeKeyorix) handleGetOrUpdate(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-func writeEnvelope(w http.ResponseWriter, status int, data interface{}) {
+func writeEnvelope(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": data})
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": data})
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "message": message, "error": message})
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": message, "error": message})
 }
 
 func vaultEnv(t *testing.T) (addr, token string) {
@@ -160,7 +160,7 @@ func vaultEnv(t *testing.T) (addr, token string) {
 
 func vaultAdminSeed(t *testing.T, addr, token, mount, path, value string) {
 	t.Helper()
-	body, _ := json.Marshal(map[string]interface{}{"data": map[string]interface{}{"value": value}})
+	body, _ := json.Marshal(map[string]any{"data": map[string]any{"value": value}})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, addr+"/v1/"+mount+"/data/"+path, strings.NewReader(string(body)))
 	req.Header.Set("X-Vault-Token", token)
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
