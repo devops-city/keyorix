@@ -120,23 +120,26 @@ func versionMetadataStatus(meta models.JSON) metadataStatus {
 	if len(meta) == 0 {
 		return metadataPlaintext
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(meta, &fields); err != nil {
-		// Not a valid JSON object at all (garbage bytes, truncated JSON, etc).
-		return metadataAmbiguous
-	}
-	if len(fields) == 0 {
-		// Exactly "{}" (or equivalent empty object) — the intended plaintext marker.
+	if len(meta) == 2 && meta[0] == '{' && meta[1] == '}' {
 		return metadataPlaintext
 	}
+	// One decode on the common (encrypted) path. Syntax errors and non-object
+	// documents fail here exactly as they failed the old map decode, and a
+	// non-string "algorithm" fails exactly as it failed the old struct decode.
 	var m struct {
 		Algorithm string `json:"algorithm"`
 	}
 	if err := json.Unmarshal(meta, &m); err != nil {
 		return metadataAmbiguous
 	}
-	if m.Algorithm == "" {
+	if m.Algorithm != "" {
+		return metadataEncrypted
+	}
+	// No usable algorithm: an empty object (or null) is the plaintext marker,
+	// anything with other fields is ambiguous.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(meta, &fields); err != nil || len(fields) != 0 {
 		return metadataAmbiguous
 	}
-	return metadataEncrypted
+	return metadataPlaintext
 }

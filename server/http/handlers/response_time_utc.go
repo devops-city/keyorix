@@ -56,7 +56,11 @@ func utcTimes(v interface{}) interface{} {
 	if v == nil {
 		return nil
 	}
-	return utcTimesValue(reflect.ValueOf(v), 0).Interface()
+	rv := reflect.ValueOf(v)
+	if !needsUTC(rv, 0) {
+		return v
+	}
+	return utcTimesValue(rv, 0).Interface()
 }
 
 func utcTimesValue(v reflect.Value, depth int) reflect.Value {
