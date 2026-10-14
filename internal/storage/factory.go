@@ -1304,6 +1304,11 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if err := checkSchemaEpoch(db); err != nil {
 		return err
 	}
+	// The pipelined audit commit needs the audit_events id sequence to be
+	// CACHE 1; refuse to start rather than fail every audit write later.
+	if err := store.CheckAuditIDSequenceCache(db); err != nil {
+		return err
+	}
 	// #G54: every additive column/index migration below is now checked and
 	// propagated (fail-closed) via this helper, instead of the bare
 	// db.Exec(...) each previously used — which discarded the result
