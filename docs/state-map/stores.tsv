@@ -98,6 +98,7 @@ cli/internal/regularfile/regularfile.go (os.OpenFile)	file_write	cli/internal/re
 cli/internal/securefiles/securefiles.go (os.OpenFile)	file_write	cli/internal/securefiles	1
 cmd/statemapgen/main.go (os.WriteFile)	file_write	cmd/statemapgen	2
 internal/audit/siem/spool.go (os.OpenFile)	file_write	internal/audit/siem	1
+internal/auditverify/witness.go (os.OpenFile)	file_write	internal/auditverify	1
 internal/backupfmt/reader.go (os.WriteFile)	file_write	internal/backupfmt	1
 internal/config/config.go (securefiles.SecureWriteFileSync)	file_write	internal/config	1
 internal/config/roundtrip.go (securefiles.SecureWriteFileSync)	file_write	internal/config	1

@@ -1,10 +1,48 @@
 package auditverify
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 )
+
+// notRegularError is readRegularFile's refusal of a FIFO, device, socket or
+// directory: "<what> <path>: not a regular file".
+type notRegularError struct{ what, path string }
+
+func (e *notRegularError) Error() string { return e.what + " " + e.path + ": not a regular file" }
+
+// readRegularFile reads a whole operator-resolved file without ever blocking on
+// a non-regular one. A plain os.ReadFile blocks in open(2) on a FIFO until a
+// writer appears, which would hang `admin backup/restore` and the server's
+// witness advance. It opens read-only with O_NONBLOCK, fstats the SAME
+// descriptor and refuses anything that is not a regular file; a symlink to a
+// regular file is followed.
+//
+// This package must stay independent of the code that wrote the audit chain
+// (see dependency_guard_test.go), so this is a deliberate local copy of the
+// semantics of internal/secretenv.OpenRegular rather than an import. Guard:
+// internal/secretenv's TestSecretFileReadsGoThroughOpenRegular scans this
+// package too.
+func readRegularFile(what, path string) ([]byte, error) {
+	// #nosec G304 -- caller-resolved sibling-of-DB path, not archive/request input
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, &notRegularError{what: what, path: path}
+	}
+	return io.ReadAll(f)
+}
 
 // AuditHighWaterWitnessFileName is the host-local witness file
 // design-b3-backup-v2.md §6.3's rollback protection compares an archive's
@@ -36,10 +74,16 @@ func WitnessPath(dbPath string) string {
 // protection bypass hide behind "just delete/corrupt the witness file,"
 // exactly the class of gap this mechanism exists to close.
 func ReadWitness(path string) (cp *Checkpoint, sig string, found bool, err error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- caller-resolved sibling-of-DB path, not archive/request input
+	data, err := readRegularFile("witness file", path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, "", false, nil
+		}
+		var nr *notRegularError
+		if errors.As(err, &nr) {
+			// A FIFO/device/directory where the witness should be is not "no
+			// witness yet": refuse, never treat as absent.
+			return nil, "", false, err
 		}
 		return nil, "", false, fmt.Errorf("read witness file %q: %w", path, err)
 	}

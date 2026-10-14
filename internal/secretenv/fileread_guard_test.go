@@ -78,6 +78,7 @@ var guardedDirs = []string{
 	"server/main.go",
 	"internal/k8ssync",
 	"internal/startup",
+	"internal/auditverify",
 	"cmd",
 }
 
@@ -164,7 +165,7 @@ func scanFileReads(t *testing.T, root string, targets []string) []readSite {
 }
 
 // fileReadsIn returns the read-side file opens in one parsed file, except those
-// inside secretenv.OpenRegular itself.
+// inside secretenv.OpenRegular itself and auditverify's local readRegularFile copy.
 func fileReadsIn(fset *token.FileSet, af *ast.File, rel string) []readSite {
 	osName, ioutilName := "", ""
 	for _, imp := range af.Imports {
@@ -187,6 +188,12 @@ func fileReadsIn(fset *token.FileSet, af *ast.File, rel string) []readSite {
 			continue
 		}
 		if rel == "internal/secretenv/secretenv.go" && fd.Name.Name == "OpenRegular" {
+			continue
+		}
+		// internal/auditverify may not import secretenv (independence from the
+		// code that wrote the audit chain), so it carries a local copy of the
+		// same open-nonblocking + fstat reader.
+		if rel == "internal/auditverify/witness.go" && fd.Name.Name == "readRegularFile" {
 			continue
 		}
 		ast.Inspect(fd.Body, func(n ast.Node) bool {

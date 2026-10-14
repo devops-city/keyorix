@@ -1,0 +1,2 @@
+### Security
+- **A FIFO (or other non-regular file) at the audit high-water witness path is refused instead of hanging `admin backup`/`admin restore` and the server's witness advance.** `auditverify.ReadWitness` now opens the witness non-blocking, checks the same descriptor and fails with `witness file <path>: not a regular file`, never treating it as "no witness yet"; a symlink to a regular file still works. `internal/auditverify` cannot import `internal/secretenv`, so it carries a local copy of the reader, and `TestSecretFileReadsGoThroughOpenRegular` now scans it.

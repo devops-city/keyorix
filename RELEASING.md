@@ -47,6 +47,14 @@ That's it. Watch the runs under the repo's **Actions** tab.
 | `docker-publish.yml` | `v*` tag (and `main`) | `ghcr.io/keyorixhq/keyorix-server` AIR-GAPPED variant, tagged `<version>-airgap` (ADR-109 step 6) — same multi-arch platforms and Trivy gates as the full image. |
 | `docker-publish.yml` | `v*` tag (and `main`) | `ghcr.io/keyorixhq/keyorix-web` image tagged with the same semver version — same workflow run, same tag (ADR-070). |
 
+**Supported build targets: Linux and macOS only (amd64/arm64).** Windows is not a
+release target and the Go packages are not kept cross-compilable for it: on `main`,
+`GOOS=windows go build` already fails for the server (`internal/secretenv`,
+`internal/hardening`) and for the CLI (`cli/internal/securefiles`, `pkg/bundleverify`
+use `golang.org/x/sys/unix`). Run the server and CLI on Windows through the Linux
+container image or WSL. If Windows is ever added, it needs build-tagged unix/windows
+implementations of those packages first.
+
 The asset names produced by `make release` are exactly what `install.sh`
 downloads — keep `make release`, `install.sh`, and any image references in sync.
 
