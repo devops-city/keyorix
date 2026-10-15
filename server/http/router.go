@@ -1121,6 +1121,8 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 			r.Get("/rbac-logs", auditHandler.GetRBACAuditLogs)
 			r.Get("/retention", auditHandler.GetAuditRetention)
 			r.Get("/verify", auditHandler.VerifyAuditChain)
+			// Status of a ?full=true background verification — same bar as /verify.
+			r.Get("/verify/jobs/{id}", auditHandler.GetAuditVerifyJob)
 			// Writing a checkpoint is a privileged integrity-control action — gate it
 			// above the group's audit.read with system.write (admin-level).
 			r.With(customMiddleware.RequirePermission(permSystemWrite)).Post("/checkpoint", auditHandler.WriteAuditCheckpoint)

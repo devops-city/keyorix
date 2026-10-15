@@ -1,0 +1,2 @@
+### Changed
+- **List endpoints no longer issue a query per row for names, shares and tags.** The secrets list (and the dashboard counts built on it), the audit log and search views and the shares list resolved usernames, share records, shared secrets, ACL grants and tags with one statement per row or per distinct actor; they now use one batched lookup per kind. A 1000-secret project list went from about 1180 statements to 15 with an identical response. Responses, ordering and pagination are unchanged.

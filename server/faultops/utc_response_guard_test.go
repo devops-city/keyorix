@@ -68,6 +68,7 @@ var utcGuardSkippedRoutes = map[string]string{
 	"/api/v1/secrets/value":            "returns a secret value, no metadata times",
 	"/api/v1/admin/billing/report":     "needs the 'billing' license feature (403 unlicensed); the guard world runs without a license",
 	"/api/v1/secrets/{id}/certificate": "needs a PEM certificate secret; the guard world seeds none",
+	"/api/v1/audit/verify/jobs/{id}":   "needs the id of an asynchronous ?full=true job; its times are rendered .UTC() (handlers TestAuditVerifyJob_StatusEndpoint)",
 }
 
 // utcGuardFreeText reports whether a value is free text or stored record

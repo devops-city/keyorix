@@ -1578,11 +1578,15 @@ type AuditEvent struct {
 	EventType    string
 	UserID       *uint
 	SecretNodeID *uint
-	ProjectID    *uint `gorm:"index"`
-	IPAddress    string
-	Description  string
-	Success      *bool `gorm:"default:true"`
-	EventTime    time.Time
+	// ProjectID, SecretNodeID, MachineIdentityID and EventTime are indexed by
+	// store.AuditListIndexes (composites with event_time), created by code, not
+	// by tags: a tag is a plain CREATE INDEX that blocks audit writes on
+	// Postgres for the whole build (docs/specs/audit-list-keyset.md).
+	ProjectID   *uint
+	IPAddress   string
+	Description string
+	Success     *bool `gorm:"default:true"`
+	EventTime   time.Time
 
 	// Diff is a JSON object describing what changed on a mutation event (e.g.
 	// secret.updated). It records before/after for non-sensitive metadata
@@ -1616,8 +1620,9 @@ type AuditEvent struct {
 	// bug in the writer: the audit model had no field to hold a machine
 	// actor. Indexed so "everything this identity did" is a real, queryable
 	// answer, not just a per-row curiosity -- an attribution field a security
-	// review can't query is only half the control.
-	MachineIdentityID *uint `gorm:"index"`
+	// review can't query is only half the control. Indexed as
+	// (machine_identity_id, event_time), see store.AuditListIndexes.
+	MachineIdentityID *uint
 
 	// Tamper-evidence hash chain (ADR-029). PrevHash is the EntryHash of the
 	// immediately preceding chained event (a fixed genesis constant for the

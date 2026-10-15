@@ -115,14 +115,13 @@ concurrency on PostgreSQL 15:
 
 Durability is not part of the profile. The audit entry for a secret read is
 committed before the secret is returned. `synchronous_commit = off`,
-`fsync = off` or `full_page_writes = off` would let a committed audit entry be
-lost in a crash. The Helm chart accepts only durable values for these three (an
+`fsync = off` or `full_page_writes = off` set on the database would let any
+committed write be lost in a crash, secret writes included. The Helm chart accepts only durable values for these three (an
 allow-list, so prefixes such as `of` are refused too), and refuses settings that
 would override its TLS baseline (`ssl`, `ssl_*`, `hba_file`, `listen_addresses`,
-`password_encryption`, and others) or run commands (`archive_command`). ADR-112's fast
-audit mode is a Keyorix server option
-(`storage.database.insecure_audit_skip_durable_sync`), scoped to the audit
-transaction alone. It is not a database setting.
+`password_encryption`, and others) or run commands (`archive_command`).
+Audit durability is a Keyorix server option, scoped to the audit transaction
+alone, not a database setting: see "Audit durability" below.
 
 Prepared statements need no setting: the server's PostgreSQL driver caches a
 prepared statement per connection by default, and the hot statements run from
@@ -135,6 +134,30 @@ again and each lock holder keeps one PgBouncer server connection: expect lower
 throughput than a direct or session-mode connection. Supported modes, the
 PgBouncer settings they need and what changes:
 [postgresql-poolers.md](postgresql-poolers.md).
+
+### Audit durability
+
+`storage.database.audit_durability` (ADR-112 Amendment 3) chooses whether the
+audit commit for a secret read waits for the disk sync. On PostgreSQL the
+default is `standard`; SQLite runs `strict` only. At `strict` a single-client
+read costs at least one disk sync; at `standard` it does not wait for one,
+which is most of the single-client latency on disks with a slow `fdatasync`.
+
+| | `strict` | `standard` (PostgreSQL default) | Vault / OpenBao file audit device |
+|---|---|---|---|
+| Before the secret is returned | audit row committed **and synced to disk** | audit row committed; the disk sync is not awaited | one `write()` to an append-only file, buffered by the OS, never `fsync`ed |
+| Audit write fails | request fails | request fails | request fails |
+| Server process crash (`kill -9`, OOM, panic) | loses nothing | loses nothing | loses nothing |
+| OS crash, power loss, PostgreSQL crash | loses nothing | up to ~600 ms (3 × `wal_writer_delay`) of audit entries, as a tail | up to ~30 s of audit entries on Linux defaults (dirty page writeback) |
+| Hash chain after a crash | intact | intact: a lost tail, never a gap or a fork | no hash chain |
+| Backends | PostgreSQL, SQLite (SQLite's only level) | PostgreSQL only | — |
+
+Non-audit writes (secret writes, revocations, rotations) commit durably at both
+levels: `standard` relaxes only the audit transaction's own commit
+(`SET LOCAL synchronous_commit = off`).
+
+Set `audit_durability: strict` to wait for the disk sync. Details, and how to
+choose: [hardening guide §5a](security/hardening-guide.md#5a-audit-durability-levels).
 
 ### SQLite settings
 

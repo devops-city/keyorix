@@ -7,9 +7,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core"
@@ -65,9 +67,38 @@ func parseQueryBoolPtr(q url.Values, key string) *bool {
 	}
 }
 
+// errAuditSearchOffset refuses an offset that is not an integer or is negative.
+var errAuditSearchOffset = errors.New("offset must be a non-negative integer")
+
+// parseAuditSearchOffset reads offset: absent is 0; anything but an integer in
+// [0, core.AuditOffsetCap) is refused here, so no out-of-range value reaches
+// the core's offset+limit check (core.ListAuditPage re-checks it, overflow-safe).
+func parseAuditSearchOffset(q url.Values) (int, error) {
+	v := q.Get("offset")
+	if v == "" {
+		return 0, nil
+	}
+	o, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		var numErr *strconv.NumError
+		if errors.As(err, &numErr) && errors.Is(numErr.Err, strconv.ErrRange) && !strings.HasPrefix(v, "-") {
+			return 0, core.ErrAuditOffsetBeyondCap
+		}
+		return 0, errAuditSearchOffset
+	}
+	if o < 0 {
+		return 0, errAuditSearchOffset
+	}
+	if o >= core.AuditOffsetCap {
+		return 0, core.ErrAuditOffsetBeyondCap
+	}
+	return int(o), nil
+}
+
 // parseAuditSearchRequest extracts and coerces all query-string parameters for the
-// audit search endpoint into a core.AuditSearchRequest.
-func parseAuditSearchRequest(r *http.Request) core.AuditSearchRequest {
+// audit search endpoint into a core.AuditSearchRequest. Its errors are the
+// caller's (400).
+func parseAuditSearchRequest(r *http.Request) (core.AuditSearchRequest, error) {
 	q := r.URL.Query()
 	req := core.AuditSearchRequest{
 		ActorUsername: q.Get("actor"),
@@ -94,10 +125,14 @@ func parseAuditSearchRequest(r *http.Request) core.AuditSearchRequest {
 	if l, ok := parseQueryInt(q, "limit"); ok {
 		req.Limit = l
 	}
-	if o, ok := parseQueryInt(q, "offset"); ok && o >= 0 {
-		req.Offset = o
+	offset, err := parseAuditSearchOffset(q)
+	if err != nil {
+		return req, err
 	}
-	return req
+	req.Offset = offset
+	req.Cursor = q.Get("cursor")
+	req.IncludeTotal = q.Get("include_total") == "true"
+	return req, nil
 }
 
 // SearchAuditLogs handles GET /api/v1/audit/search.
@@ -115,17 +150,28 @@ func parseAuditSearchRequest(r *http.Request) core.AuditSearchRequest {
 //	since        — RFC3339 start of time range (inclusive)
 //	until        — RFC3339 end of time range (inclusive)
 //	limit        — max results (1–1000, default 100)
-//	offset       — pagination offset (default 0)
+//	offset       — pagination offset (default 0; offset+limit ≤ core.AuditOffsetCap; 400 when not an integer in range)
+//	cursor       — continue after a previous page's next_cursor (offset ignored)
+//	include_total — "true" for the exact total (a full count)
 func (h *AuditHandler) SearchAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if middleware.GetUserFromContext(r.Context()) == nil {
 		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
 		return
 	}
 
-	req := parseAuditSearchRequest(r)
+	req, err := parseAuditSearchRequest(r)
+	if err != nil {
+		if !sendAuditPageError(w, err) {
+			sendError(w, "InvalidParameter", err.Error(), http.StatusBadRequest, nil)
+		}
+		return
+	}
 
 	result, err := h.coreService.SearchAuditLogs(r.Context(), req)
 	if err != nil {
+		if sendAuditPageError(w, err) {
+			return
+		}
 		sendError(w, "InternalServerError", "Failed to search audit logs", http.StatusInternalServerError, nil)
 		return
 	}
@@ -136,8 +182,13 @@ func (h *AuditHandler) SearchAuditLogs(w http.ResponseWriter, r *http.Request) {
 	// docs/findings/2026-09-25-FINDING-api-raw-model-exposure.md.
 	entries := h.toAuditLogEntries(r.Context(), result.Events)
 
-	sendSuccess(w, map[string]any{
-		"events": entries,
-		"total":  result.Total,
-	}, "")
+	resp := map[string]any{
+		"events":      entries,
+		"next_cursor": nullableCursor(result.NextCursor),
+	}
+	if result.HasTotal {
+		resp["total"] = result.Total
+		resp["total_exact"] = result.TotalExact
+	}
+	sendSuccess(w, resp, "")
 }

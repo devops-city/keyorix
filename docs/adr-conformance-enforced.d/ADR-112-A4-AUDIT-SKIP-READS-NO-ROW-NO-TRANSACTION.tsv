@@ -1,0 +1,1 @@
+ADR-112-A4-AUDIT-SKIP-READS-NO-ROW-NO-TRANSACTION	./internal/core	TestInsecureAuditSkipReads_SuccessfulReadWritesNothingAndOpensNoTransaction	default-ci	pending	-	with insecure_audit_skip_reads on, a successful secret.read or connect.secret_read writes no audit row and no access-log row and makes no audit storage call and opens no transaction

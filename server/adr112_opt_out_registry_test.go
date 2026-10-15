@@ -78,7 +78,8 @@ func TestWarnHTTPOnlySettingsUnderGRPC_LogsEachKey(t *testing.T) {
 	}
 }
 
-// securityPostureSnapshot must cover every registry entry exactly once --
+// securityPostureSnapshot must cover every registry entry (and every
+// config.TrackedSettings entry) exactly once --
 // the settings-diff audit depends on this to see the whole picture every
 // boot, not just whichever entries happen to be in effect right now (an
 // entry flipping from in-effect back to not-in-effect is itself a change
@@ -86,8 +87,13 @@ func TestWarnHTTPOnlySettingsUnderGRPC_LogsEachKey(t *testing.T) {
 func TestSecurityPostureSnapshot_CoversEveryRegistryEntryExactlyOnce(t *testing.T) {
 	cfg := &config.Config{}
 	snapshot := securityPostureSnapshot(cfg)
-	if len(snapshot) != len(config.InsecureSettingsRegistry) {
-		t.Fatalf("snapshot has %d entries, registry has %d", len(snapshot), len(config.InsecureSettingsRegistry))
+	if want := len(config.InsecureSettingsRegistry) + len(config.TrackedSettings); len(snapshot) != want {
+		t.Fatalf("snapshot has %d entries, registry + tracked settings have %d", len(snapshot), want)
+	}
+	for _, s := range config.TrackedSettings {
+		if val, ok := snapshot[s.Name]; !ok || val != s.Value(cfg) {
+			t.Errorf("snapshot[%q] = %q (present %v), want %q", s.Name, val, ok, s.Value(cfg))
+		}
 	}
 	for _, s := range config.InsecureSettingsRegistry {
 		val, ok := snapshot[s.Name]

@@ -25,6 +25,13 @@ import (
 // audit_events + users tables and one seeded event by user "alice".
 func newAuditService(t *testing.T) *AuditGRPCService {
 	t.Helper()
+	svc, _ := newAuditServiceDB(t)
+	return svc
+}
+
+// newAuditServiceDB is newAuditService plus the database, for tests that seed more rows.
+func newAuditServiceDB(t *testing.T) (*AuditGRPCService, *gorm.DB) {
+	t.Helper()
 	require.NoError(t, i18n.Initialize(&config.Config{
 		Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"},
 	}))
@@ -52,7 +59,7 @@ func newAuditService(t *testing.T) *AuditGRPCService {
 		EventTime: time.Now(), ActorType: "user",
 	}).Error)
 
-	return NewAuditService(core.NewKeyorixCore(store.NewLocalStorage(db)))
+	return NewAuditService(core.NewKeyorixCore(store.NewLocalStorage(db))), db
 }
 
 func auditCtx() context.Context {

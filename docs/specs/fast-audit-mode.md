@@ -1,23 +1,100 @@
-# Spec: opt-in fast audit mode (`database.insecure_audit_skip_durable_sync`)
+# Spec: audit durability levels (`storage.database.audit_durability`)
 
-Status: **Accepted** (2026-10-05). Both open sub-decisions were decided by Andrei
-on 2026-10-05 and are recorded inline below (§4 and §6); nothing in this spec is
-still open.
+Status: **Accepted.** The levels (§0) were accepted by Andrei on 2026-10-15
+(ADR-112 Amendment 3). §1–§8 are the original fast audit mode spec (accepted
+2026-10-05, Amendment 1): its mechanism, scope, crash argument and SQLite
+rejection are unchanged and still hold; where §2–§4 describe the opt-out's
+*reporting* (the `insecure_` name, the per-start WARNING and audit event, the
+posture deviation, the `/system/info` booleans), §0 supersedes them.
 
-Amends: ADR-112 (secure-by-default baseline) — two baseline bullets, see
-`docs/adr-112-secure-by-default-baseline.md` §3 "Secrets and audit".
+Amends: ADR-112 (secure-by-default baseline) — `docs/adr-112-secure-by-default-baseline.md`
+§3 "Secrets and audit", Amendments 1 and 3.
 Related: ADR-029 (audit hash chain), ADR-115 (local append-only audit journal —
 a **different** mechanism, not this one), #2403/#2420 (audit group commit).
 
+## 0. The levels (Amendment 3, current)
+
+One setting, `storage.database.audit_durability`, config file only (no API,
+CLI flag or environment variable):
+
+- **`strict`**: the audit commit waits for the disk sync. No audit entry is
+  lost to any crash or power loss.
+- **`standard`**: the audit row is still INSERTed and COMMITted before the
+  secret is returned, and a failed audit write still fails the request; only
+  the wait for the disk sync is skipped (`SET LOCAL synchronous_commit = off`
+  on the audit transaction only — the fast audit mode of §3–§6 below).
+
+| | `strict` | `standard` (PostgreSQL default) | Vault / OpenBao file audit device |
+|---|---|---|---|
+| Before the secret is returned | audit row committed **and synced to disk** | audit row committed; the disk sync is not awaited | one `write()` to an append-only file, buffered by the OS, never `fsync`ed |
+| Audit write fails | request fails | request fails | request fails |
+| Server process crash (`kill -9`, OOM, panic) | loses nothing | loses nothing | loses nothing |
+| OS crash, power loss, PostgreSQL crash | loses nothing | up to ~600 ms (3 × `wal_writer_delay`) of audit entries, as a tail | up to ~30 s of audit entries on Linux defaults (dirty page writeback) |
+| Hash chain after a crash | intact | intact: a lost tail, never a gap or a fork | no hash chain |
+| Backends | PostgreSQL, SQLite (SQLite's only level) | PostgreSQL only | — |
+
+Non-audit writes (secret writes, revocations, rotations) commit durably at both
+levels: `standard` relaxes only the audit transaction's own commit
+(`SET LOCAL synchronous_commit = off`).
+
+| `storage.type` | Default | Allowed |
+|---|---|---|
+| `postgres` / `postgresql` | `standard` | `standard`, `strict` |
+| `local` / `sqlite` | `strict` | `strict` only; `standard` refuses to start with `storage.database.audit_durability: standard is only supported with PostgreSQL; SQLite runs strict only -- remove the setting or set it to strict` (§5 explains why) |
+
+**Reporting.** Neither level is a posture deviation, and the setting is not an
+`insecure_` registry entry.
+
+- Every start logs one `INFO` line with the effective level and its meaning:
+  `audit durability: standard (PostgreSQL default; committed before every
+  disclosure; up to ~600 ms of entries can be lost to an OS crash or power
+  loss; set audit_durability: strict to wait for the disk sync)` or
+  `audit durability: strict (committed and synced to disk before every
+  disclosure; no audit entry is lost to any crash or power loss)`.
+- A level change between two starts is audited by ADR-112 §1's start-to-start
+  settings diff (`security.posture_setting_changed`, old and new value), keyed
+  `storage.database.audit_durability` and recording the EFFECTIVE level
+  (`config.TrackedSettings`), so an upgrade that changes the default is on the
+  record too.
+- `keyorix-server admin validate` prints `Audit durability: <level> (<meaning>)`;
+  `admin validate --posture` lists it as an informational line.
+- `GET /api/v1/system/info` reports `security.audit_durability`.
+
+**Single source of truth.** `config.DatabaseConfig.EffectiveAuditDurability`
+is the only implementation of the rule (explicit level, else the alias mapping,
+else the backend default; only postgres/postgresql can ever be `standard`).
+The storage factory, the start-up line, `admin validate`, the posture report,
+the settings diff and `/system/info` all read it, and
+`TestAuditDurability_ReferencesAreAllowlisted` fails if any file outside
+`internal/config` reads the raw fields.
+
+**Migration.** `storage.database.insecure_audit_skip_durable_sync` is a
+deprecated alias for one minor release: `true` → `standard`, explicit `false`
+→ `strict`. Both keys with conflicting levels refuses to start; the old key
+logs a deprecation line. An existing PostgreSQL install that sets neither key
+moves to `standard` on upgrade (`docs/UPGRADING.md` §6c).
+
+**Acceptance tests.**
+
+| Requirement | Test |
+|---|---|
+| default per backend | `TestEffectiveAuditDurability_DefaultPerBackend` |
+| SQLite refuses `standard` | `TestConfigValidate_RejectsStandardAuditDurabilityOnSQLite`, `TestAuditDurability_SQLiteRefusesStandardEndToEnd` (real binary) |
+| alias mapping, conflict refusal, deprecation line | `TestEffectiveAuditDurability_ExplicitLevelsAndAlias`, `TestConfigValidate_RefusesConflictingAuditDurabilityAlias`, `TestLoad_DeprecatedAuditDurabilityAliasAddsDeprecationLine` |
+| non-audit writes stay durable at `standard` | `TestAuditDurabilityStandard_NonAuditWritesStayDurable` (pg-gated), `TestWithTransaction_CloneNeverInheritsAuditSkipDurableSync` |
+| crash under load at both levels, chain verifies | `TestFastAuditMode_PostgresCrashLosesOnlyATail` (standard), `TestAuditDurabilityStrict_PostgresCrashLosesNothing` (strict); manual, they kill a database server |
+| settings-diff event on a level change | `TestSecurityPostureSnapshot_AuditsAuditDurabilityLevelChange`, `TestAuditDurability_PostgresEndToEnd` (real binary, pg-gated) |
+| zero posture deviations on a default PostgreSQL install | `TestCollectAuditDurabilityPosture_DefaultPostgresIsNotADeviation` |
+| INFO line content | `TestLogAuditDurability_StartupInfoLine`, `TestAuditDurabilityStatus_StartupLine` in `internal/config` |
+| config file only | `TestAuditDurability_NoWriteAssignment`, `TestAuditDurability_NotSettableFromTheEnvironment` |
+
 ## 1. Why
 
-PERF-2 measured Keyorix at ~10x Vault's latency for a single-client secret read
-on pve01 (keyorix-pg W1 c=1: 71.8 rps / 8.36ms p50, vs vault-on with its own file
-audit device enabled: 715.9 rps / 1.30ms p50). PERF-2's H1 is confirmed: at c=1
-there is nothing for the group-commit flusher to batch, so essentially the whole
-8.36ms *is* one durable Postgres commit, and the independently measured
-`fdatasync` floor on that disk is 9.326ms. The read path cannot go faster than
-one disk sync as long as it waits for one.
+PERF-2 measured the single-client secret read path on pve01 and confirmed its
+H1: at c=1 there is nothing for the group-commit flusher to batch, so
+essentially the whole read latency *is* one durable Postgres commit, and the
+independently measured `fdatasync` floor on that disk is 9.326ms. The read
+path cannot go faster than one disk sync as long as it waits for one.
 
 A source-verified survey of how competitors get their numbers
 (`~/proj/prompts/reports/2026-10-05-competitor-audit-write-paths.md`) found that
@@ -37,6 +114,9 @@ power is genuinely guaranteed (UPS, battery-backed RAID write cache, replicated
 cloud block storage) can choose Vault's guarantee and Vault's speed.
 
 ## 2. User journey
+
+*Amendment 1 (2026-10-05). Superseded by §0: the setting is now `audit_durability`, `standard` is the PostgreSQL default and is reported as a level, not a deviation.*
+
 
 1. An operator reads the hardening guide's "Fast audit mode" section, which states
    plainly what is given up.
@@ -62,6 +142,9 @@ cloud block storage) can choose Vault's guarantee and Vault's speed.
    window during which the mode was on.
 
 ## 3. The setting
+
+*Amendment 1 (2026-10-05). Superseded by §0; the boolean below is now the deprecated alias.*
+
 
 | | |
 |---|---|
@@ -116,7 +199,7 @@ so it is `manual` by construction and skips in every automated run; the recorded
 run is in the implementation PR's body. See §5 for why the property holds rather
 than being hoped for.
 
-**S4 — Default off, and not remotely flippable.** With no setting present the
+*(Superseded by §0 on 2026-10-15; kept as the Amendment 1 record.)* **S4 — Default off, and not remotely flippable.** With no setting present the
 sync wait still happens: the Postgres audit transaction issues no
 `SET LOCAL synchronous_commit` statement **at all** (a strict no-op, so the
 default path is byte-identical to before this setting existed), and SQLite's DSN
@@ -133,7 +216,7 @@ Postgres-only decision the raw field is read in exactly ONE package
 `AuditDurableSyncStatus`, and the reachability guard now asserts that empty-set
 invariant rather than a five-file allowlist.
 
-**S5 — Loud and audited.** Every start with the mode on prints a `WARNING:` line
+*(Superseded by §0 on 2026-10-15; kept as the Amendment 1 record.)* **S5 — Loud and audited.** Every start with the mode on prints a `WARNING:` line
 naming the setting, and writes one `admin.audit_durable_sync_skipped_at_startup`
 audit event with `ActorType = system`. Both repeat on every boot, not just the
 first — the same treatment `keyless_mode` gets, and for the same reason: an
@@ -145,7 +228,7 @@ one in the one place an auditor is told to trust literally.
 `TestFastAuditMode_SQLiteRefusesToStartEndToEnd` (both against the real built
 binary).
 
-**S6 — Visible in the posture surface and over the API, with the ignored state
+*(Superseded by §0 on 2026-10-15; kept as the Amendment 1 record.)* **S6 — Visible in the posture surface and over the API, with the ignored state
 distinguishable from both "off" and "weakened".**
 `keyorix-server admin validate` lists it among its warnings AND carries a
 structured `InsecureSettings` entry (`Name`, `Configured`, `InEffect`,
@@ -339,22 +422,17 @@ the audit transaction commits.
 pve01 VM 250, PERF-2 kit, W1 (hot secret read), c=1/10/50, 3 reps, 10s warmup +
 20s measure — the same harness PERF-2 and PERF-4 used. Four arms from one image
 built from the implementation branch, differing per pair by exactly one config
-line, interleaved so host drift cannot land on one arm. Vault and OpenBao
-(audit device enabled) were **re-measured in the same session** rather than
-cited from PERF-2, because the host had drifted ~2x on the disk-sync-bound path
-while Vault barely moved.
+line, interleaved so host drift cannot land on one arm.
 
-PostgreSQL, default → fast mode, with the resulting "x slower than Vault" (both
-sides measured together):
+PostgreSQL, strict (then the default) → standard (then "fast mode"):
 
-| clients | default | fast mode | vs Vault before | after |
-|---|---|---|---|---|
-| 1 | 16.59 ms / 51.7 rps | **3.74 ms / 243.0 rps** | 11.8x | **2.7x** |
-| 10 | 83.28 ms / 115.1 rps | **24.90 ms / 384.8 rps** | 7.1x | **2.1x** |
-| 50 | 150.82 ms / 320.4 rps | **65.84 ms / 726.5 rps** | 3.8x | **1.7x** |
+| clients | strict | standard |
+|---|---|---|
+| 1 | 16.59 ms / 51.7 rps | **3.74 ms / 243.0 rps** |
+| 10 | 83.28 ms / 115.1 rps | **24.90 ms / 384.8 rps** |
+| 50 | 150.82 ms / 320.4 rps | **65.84 ms / 726.5 rps** |
 
 p99 improves at every concurrency too (64.6→9.3, 157.9→51.5, 227.5→115.9 ms).
-Throughput still trails Vault by ~1.5–2.5x where latency is close.
 
 The SQLite figures that decided §5's rejection, and the full cell table, are in
 `~/proj/prompts/reports/SESSION-FASTAUDIT-1.md`; raw data, summary and

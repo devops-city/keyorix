@@ -1,0 +1,1 @@
+ADR-112-A4-AUDIT-SKIP-READS-DEFAULT-OFF	./internal/config	TestInsecureAuditSkipReads_DefaultFalse	default-ci	pending	-	storage.database.insecure_audit_skip_reads defaults to false; a config file that does not name it leaves every secret read audited

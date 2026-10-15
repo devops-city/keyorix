@@ -1,6 +1,8 @@
-// fast_audit_mode_postgres_crash_test.go — the Postgres half of ADR-112
-// Amendment 1's crash requirement (FASTAUDIT-1, docs/specs/fast-audit-mode.md
-// §S3). Its SQLite counterpart is fast_audit_mode_crash_test.go.
+// fast_audit_mode_postgres_crash_test.go — the crash requirement of
+// storage.database.audit_durability on PostgreSQL (ADR-112 Amendments 1 and 3,
+// docs/specs/fast-audit-mode.md §S3), at both levels: standard may lose only a
+// TAIL of acknowledged audit entries, strict loses none, and the chain
+// verifies after the crash at both.
 //
 // WHY THIS NEEDS ITS OWN GATE, AND WHY IT CAN NEVER RUN IN CI. On SQLite the
 // database lives in this process, so a kill -9 of the test's own worker is a
@@ -16,7 +18,7 @@
 //	docker run -d --name kx-crash-pg -e POSTGRES_PASSWORD=pg -p 32790:5432 postgres:16
 //	KX_FASTAUDIT_PG_CRASH_CONTAINER=kx-crash-pg \
 //	KEYORIX_TEST_PG_DSN="host=localhost port=32790 user=postgres password=pg dbname=postgres sslmode=disable" \
-//	  go test ./internal/storage/store/ -run TestFastAuditMode_PostgresCrashLosesOnlyATail -v
+//	  go test ./internal/storage/store/ -run 'TestFastAuditMode_PostgresCrashLosesOnlyATail|TestAuditDurabilityStrict_PostgresCrashLosesNothing' -v
 //
 // A fixed published port matters: `docker start` re-rolls a `-p 0:5432`
 // mapping, so the reconnect after the restart would hit a port nothing is
@@ -59,6 +61,22 @@ import (
 // nothing about tail loss. The positive control below turns that outcome into
 // a visible "this run proved nothing" rather than a silent green.
 func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
+	runPostgresAuditCrash(t, true, "fastaudit_pgcrash")
+}
+
+// TestAuditDurabilityStrict_PostgresCrashLosesNothing is the strict level's
+// promise under the same crash: every acknowledged audit write survives a
+// SIGKILL of the postmaster mid-write (the commit waited for the disk sync
+// before acknowledging), and the chain verifies.
+func TestAuditDurabilityStrict_PostgresCrashLosesNothing(t *testing.T) {
+	runPostgresAuditCrash(t, false, "strictaudit_pgcrash")
+}
+
+// runPostgresAuditCrash writes audit events at the given level, SIGKILLs the
+// postmaster mid-write, restarts it and checks what survived: at standard a
+// clean tail may be lost, at strict nothing may be.
+func runPostgresAuditCrash(t *testing.T, standard bool, schema string) {
+	t.Helper()
 	container := os.Getenv("KX_FASTAUDIT_PG_CRASH_CONTAINER")
 	dsn := os.Getenv("KEYORIX_TEST_PG_DSN")
 	if container == "" || dsn == "" {
@@ -67,7 +85,6 @@ func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
 			"a database server.")
 	}
 
-	const schema = "fastaudit_pgcrash"
 	ctx := context.Background()
 
 	openDB := func() *gorm.DB {
@@ -99,7 +116,7 @@ func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}))
 
 	ls := NewLocalStorage(db)
-	ls.SetAuditSkipDurableSync(true)
+	ls.SetAuditSkipDurableSync(standard)
 
 	killed := make(chan struct{})
 	go func() {
@@ -131,7 +148,7 @@ func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
 		acked = append(acked, desc)
 	}
 	<-killed
-	t.Logf("acknowledged %d async-commit audit writes before the postmaster died", len(acked))
+	t.Logf("acknowledged %d audit writes (standard=%v) before the postmaster died", len(acked), standard)
 	require.NotEmpty(t, acked, "nothing was ever acknowledged -- the harness is broken, not the mode")
 
 	// #nosec G204 -- same env-var-supplied container name as above.
@@ -168,7 +185,13 @@ func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
 				"wrong and the mode is not safe to ship.", i, firstMissing)
 	}
 
-	if firstMissing < 0 {
+	if !standard {
+		require.Equalf(t, -1, firstMissing,
+			"strict: acknowledged write #%d (and %d after it) did not survive the postmaster crash. At strict "+
+				"the audit commit waits for the disk sync before it is acknowledged, so no acknowledged entry "+
+				"may ever be lost.", firstMissing, len(acked)-firstMissing-1)
+		t.Logf("strict: all %d acknowledged writes survived the postmaster crash", len(acked))
+	} else if firstMissing < 0 {
 		// Not a failure, but not evidence either. Say so loudly rather than
 		// reporting a green that means nothing.
 		t.Logf("NOTE: nothing was lost in this run, so it did NOT exercise tail loss -- the WAL writer had "+
@@ -184,8 +207,8 @@ func TestFastAuditMode_PostgresCrashLosesOnlyATail(t *testing.T) {
 	v, err := ls2.VerifyAuditChain(ctx, nil)
 	require.NoError(t, err)
 	require.Truef(t, v.Valid,
-		"the audit chain does not verify after a postmaster crash with async commit on: reason=%q "+
-			"firstBrokenID=%v. Lost tail entries are permitted in this mode; a broken chain is not.",
-		v.Reason, v.FirstBrokenID)
+		"the audit chain does not verify after a postmaster crash (standard=%v): reason=%q "+
+			"firstBrokenID=%v. Lost tail entries are permitted at standard; a broken chain never is.",
+		standard, v.Reason, v.FirstBrokenID)
 	t.Logf("VerifyAuditChain after crash recovery: VALID over %d surviving rows", len(rows))
 }

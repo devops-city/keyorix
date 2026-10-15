@@ -12,9 +12,30 @@ const useRoles = vi.fn();
 const useGroups = vi.fn();
 const apiClientGet = vi.fn();
 
-vi.mock('../../../features/audit', () => ({
-    useAuditLog: (...args: any[]) => useAuditLog(...args),
-}));
+// The page reads the load-more feed (useAuditLogFeed). These tests describe a
+// loaded list with the older page-shaped mock ({data: {data, total}}); toFeed
+// adapts it, plus hasNextPage / totalExact / fetchNextPage for the load-more tests.
+function toFeed(r: any) {
+    return {
+        entries: r?.data?.data ?? [],
+        total: r?.data?.total,
+        totalExact: r?.totalExact ?? true,
+        isLoading: r?.isLoading ?? false,
+        error: r?.error ?? null,
+        isError: !!r?.error,
+        hasNextPage: r?.hasNextPage ?? false,
+        isFetchingNextPage: false,
+        fetchNextPage: r?.fetchNextPage ?? (() => undefined),
+    };
+}
+
+vi.mock('../../../features/audit', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../../features/audit')>();
+    return {
+        LoadMore: actual.LoadMore,
+        useAuditLogFeed: (...args: any[]) => toFeed(useAuditLog(...args)),
+    };
+});
 
 vi.mock('../../../features/dashboard', () => ({
     useAnomalyAlerts: (...args: any[]) => useAnomalyAlerts(...args),
@@ -599,18 +620,34 @@ describe('AuditLogPage — loading and empty states', () => {
     });
 });
 
-describe('AuditLogPage — pagination', () => {
-    it('shows the range and navigates between pages', () => {
-        mockAuditLog({ total: 250, page: 2, totalPages: 3 });
+describe('AuditLogPage — load more (keyset paging)', () => {
+    it('requests the first page of the feed', () => {
+        render(<AuditLogPage />);
+        expect(useAuditLog).toHaveBeenLastCalledWith({ pageSize: 100 });
+    });
+
+    it('shows a capped total as "N+" and loads the next page on click', () => {
+        const fetchNextPage = vi.fn();
+        useAuditLog.mockReturnValue({
+            data: { data: entries, total: 10000 },
+            totalExact: false,
+            hasNextPage: true,
+            fetchNextPage,
+            isLoading: false,
+            error: null,
+        });
         render(<AuditLogPage />);
 
-        expect(screen.getByText('101–200 of 250')).toBeInTheDocument();
+        expect(screen.getByTestId('audit-loaded-count')).toHaveTextContent('Showing 3 of 10,000+ events');
+        fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+        expect(fetchNextPage).toHaveBeenCalledTimes(1);
+    });
 
-        fireEvent.click(screen.getByRole('button', { name: '← Prev' }));
-        expect(useAuditLog).toHaveBeenLastCalledWith({ page: 1, pageSize: 100 });
-
-        fireEvent.click(screen.getByRole('button', { name: 'Next →' }));
-        expect(useAuditLog).toHaveBeenLastCalledWith({ page: 3, pageSize: 100 });
+    it('hides "Load more" on the last page', () => {
+        mockAuditLog({ total: 3 });
+        render(<AuditLogPage />);
+        expect(screen.getByTestId('audit-loaded-count')).toHaveTextContent('Showing 3 of 3 events');
+        expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
     });
 });
 

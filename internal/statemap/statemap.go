@@ -321,7 +321,7 @@ func GRPCMethods(repoRoot string) ([]Entry, error) {
 // Scheduled jobs
 // ---------------------------------------------------------------------
 
-// ScheduledJobs extracts every runScheduler(ctx, "name", ...) call in
+// ScheduledJobs extracts every runScheduler / runSchedulerAfter(ctx, "name", ...) call in
 // server/main.go's startSchedulers, capturing the tick closure's own body
 // position range for classification (no separate resolution step needed --
 // the closure is right there).
@@ -341,7 +341,8 @@ func ScheduledJobs(repoRoot string) ([]Entry, error) {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.Ident)
-		if !ok || sel.Name != "runScheduler" || len(call.Args) < 3 {
+		// runSchedulerAfter (a deferred first tick) registers a job the same way.
+		if !ok || (sel.Name != "runScheduler" && sel.Name != "runSchedulerAfter") || len(call.Args) < 3 {
 			return true
 		}
 		name, ok := call.Args[1].(*ast.BasicLit)

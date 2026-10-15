@@ -7,3 +7,4 @@ ADR-112 Secure Baseline Posture
 
 Informational (not counted toward the exit code):
   - security.enable_file_permission_check is enforcing on its ADR-112 secure-by-default value (never set explicitly; enforced since 2026-10-10T00:00:00Z)
+  - storage.database.audit_durability: strict (committed and synced to disk before every disclosure; no audit entry is lost to any crash or power loss)

@@ -112,6 +112,7 @@ var pendingRegistry = map[string]string{ // #nosec G101 -- operationId keys, not
 	"updateUser":                         reasonSchemaNotYetWritten, // put /api/v1/users/{id}
 	"updateUserRoles":                    reasonSchemaNotYetWritten, // put /api/v1/users/{id}/roles
 	"verifyAuditChain":                   reasonSchemaNotYetWritten, // get /api/v1/audit/verify
+	"getAuditVerifyJob":                  reasonSchemaNotYetWritten, // get /api/v1/audit/verify/jobs/{id} (same untyped body as verifyAuditChain)
 	"verifyComplianceEvidence":           reasonSchemaNotYetWritten, // post /api/v1/compliance/evidence/verify
 	"withdrawAccessRequest":              reasonSchemaNotYetWritten, // post /api/v1/projects/{id}/access-requests/{requestId}/withdraw
 	"withdrawSecretAccessRequest":        reasonSchemaNotYetWritten, // post /api/v1/secret-access-requests/{requestId}/withdraw
