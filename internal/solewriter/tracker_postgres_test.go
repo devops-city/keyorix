@@ -7,11 +7,13 @@ package solewriter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -129,7 +131,8 @@ func TestTracker_EveryEpochMoveIsAWriteTheTrackerSaw(t *testing.T) {
 
 // TestTracker_CanaryCatchesAWriteTheTrackerMissed: a tagged session the
 // tracker does not watch (standing in for a write path the classification
-// misses) moves the epoch; within two polls the canary counts it and flushes.
+// misses) moves the epoch; the poll that sees it flushes, and within two polls
+// the canary counts it.
 func TestTracker_CanaryCatchesAWriteTheTrackerMissed(t *testing.T) {
 	w := newSWWorld(t)
 	g := w.start(Options{})
@@ -144,7 +147,7 @@ func TestTracker_CanaryCatchesAWriteTheTrackerMissed(t *testing.T) {
 	_, err = db.ExecContext(context.Background(), "UPDATE roles SET description = description")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return g.UnattributedBumps() == 1 }, 3*time.Second, 20*time.Millisecond)
-	require.Greater(t, tr.Gen(), g0, "the canary must flush every entry")
+	require.Greater(t, tr.Gen(), g0, "the epoch move must flush every entry")
 	require.EqualValues(t, 1, g.Status().UnattributedBumps)
 }
 
@@ -221,4 +224,84 @@ func TestTracker_TransactionEndsTheWriteNotItsFirstStatement(t *testing.T) {
 	})
 	require.Zero(t, tr.Inflight(), "a rolled-back write must not stay in flight")
 	require.NotEqual(t, g1, tr.Gen())
+}
+
+// TestTracker_SavepointRollbackDoesNotEndTheTransaction: a failed nested GORM
+// transaction rolls back to its savepoint and the outer transaction goes on.
+// Its fenced write must stay in flight until the outer COMMIT, and the COMMIT
+// must move the generation; an entry filled in between must not survive it
+// (REVIEW-SINGLE-WRITER-1 F3). ROLLBACK ... AND CHAIN ends one transaction
+// and starts the next at once, so a write after it is in flight until that
+// one ends too.
+func TestTracker_SavepointRollbackDoesNotEndTheTransaction(t *testing.T) {
+	w := newSWWorld(t)
+	g := w.start(Options{})
+	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
+	tr := g.Tracker()
+	own := w.own()
+	var midInflight int64
+	var midGen uint64
+	require.NoError(t, own.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("UPDATE machine_identity_credentials SET revoked = true WHERE id = ?", w.credID).Error; err != nil {
+			return err
+		}
+		require.Error(t, tx.Transaction(func(*gorm.DB) error { return errors.New("a best-effort step fails") }))
+		midInflight, midGen = tr.Inflight(), tr.Gen()
+		return nil
+	}))
+	require.True(t, w.revoked())
+	require.EqualValues(t, 1, midInflight, "after ROLLBACK TO SAVEPOINT the outer transaction's write must still be in flight")
+	require.Zero(t, tr.Inflight())
+	require.NotEqual(t, midGen, tr.Gen(), "the outer COMMIT must move the generation")
+	require.False(t, tr.Valid(midGen), "an entry filled before the revoking COMMIT must not be served after it")
+
+	// AND CHAIN: the chained transaction's write is in flight until it ends.
+	require.NoError(t, own.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("ROLLBACK AND CHAIN").Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE roles SET description = description").Error; err != nil {
+			return err
+		}
+		g1 := tr.Gen()
+		require.EqualValues(t, 1, tr.Inflight(), "a write in the chained transaction must be in flight until it commits")
+		require.False(t, tr.Valid(g1))
+		return nil
+	}))
+	require.Zero(t, tr.Inflight())
+	time.Sleep(3 * PollInterval)
+	require.Zero(t, g.UnattributedBumps())
+}
+
+// TestPoll_EveryEpochMoveFlushes: a write that passed the fence with a copied
+// tag, committed in the same poll window as one of the server's own writes,
+// must still invalidate what was filled before it. The poller is driven by
+// hand so the two writes always share a window (REVIEW-SINGLE-WRITER-1 F4:
+// the canary counted the move as explained by the server's commit and nothing
+// was flushed).
+func TestPoll_EveryEpochMoveFlushes(t *testing.T) {
+	w := newSWWorld(t)
+	ctx := context.Background()
+	g, err := Start(ctx, w.cfg, Options{SkipPresenceCensus: true, LockWait: 500 * time.Millisecond})
+	require.NoError(t, err)
+	t.Cleanup(g.Close)
+	require.NoError(t, g.InstallFence(ctx))
+	require.NoError(t, g.Settle(ctx)) // one poll; no poller goroutine runs
+	tr := g.Tracker()
+
+	require.NoError(t, w.own().Exec("UPDATE roles SET description = description").Error) // the server's own write
+	fillGen := tr.Gen()                                                                  // an entry filled now, before the foreign write
+	require.True(t, tr.Valid(fillGen))
+	stolen := w0open(t, w.dsn) // no tracer, no tag of its own
+	require.NoError(t, stolen.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT set_config(?, ?, true)", config.SoleWriterSessionSetting, g.nonce).Error; err != nil {
+			return err
+		}
+		return tx.Exec("UPDATE machine_identity_credentials SET revoked = true WHERE id = ?", w.credID).Error
+	}))
+	require.True(t, w.revoked(), "the copied tag passed the fence")
+	for range 3 {
+		g.pollOnce(ctx)
+	}
+	require.False(t, tr.Valid(fillGen), "an entry filled before a foreign epoch move must not be served after the poll that saw it")
 }

@@ -21,11 +21,17 @@ package solewriter
 // (Tracker.BeginFill). So a revocation through the server is effective for
 // every request that starts after the revoking call returned.
 //
+// A savepoint rollback (ROLLBACK TO, GORM's failed nested Transaction) is not
+// an end: the outer transaction goes on and its writes stay in flight until
+// its COMMIT. COMMIT / ROLLBACK ... AND CHAIN ends one transaction and opens
+// the next.
+//
 // What this does not see, stated: pgx batches (SendBatch: only the audit
-// pipeline, which writes no fenced table) and pgconn-level calls. The database
-// side catches anything missed: every fenced write bumps the epoch, and the
-// poller counts an epoch advance this process did not account for as an
-// unattributed bump (Guard.UnattributedBumps), flushing all entries. A
+// pipeline, which writes no fenced table), pgconn-level calls and SQL-level
+// PREPARE / EXECUTE (unused). The database side catches anything missed:
+// every fenced write bumps the epoch, and the poller flushes all entries on
+// every epoch move it sees; one this process did not account for is also
+// counted as an unattributed bump (Guard.UnattributedBumps). A
 // cascading foreign key from an unfenced parent into a fenced table would be
 // such a write; TestFencedTables_NoCascadeFromUnfencedParent forbids it.
 
@@ -137,7 +143,7 @@ func (t *Tracker) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, _ pgx.Trace
 	if st == nil {
 		return
 	}
-	end := kind == stmtEnd || (kind == stmtFencedWrite && !st.inTx) || conn.IsClosed()
+	end := kind == stmtEnd || kind == stmtEndChain || (kind == stmtFencedWrite && !st.inTx) || conn.IsClosed()
 	if !end {
 		return
 	}
@@ -149,6 +155,9 @@ func (t *Tracker) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, _ pgx.Trace
 		t.inflight.Add(-1)
 	}
 	delete(t.conns, conn)
+	if kind == stmtEndChain && !conn.IsClosed() {
+		t.conns[conn] = &connState{inTx: true}
+	}
 }
 
 type stmtKind int
@@ -159,7 +168,31 @@ const (
 	stmtEnd
 	stmtFencedWrite
 	stmtOtherWrite
+	// stmtEndChain ends the transaction and starts the next one at once
+	// (COMMIT / ROLLBACK ... AND CHAIN).
+	stmtEndChain
 )
+
+// endKind sorts a statement that starts with a transaction-ending verb.
+// ROLLBACK TO [SAVEPOINT] (GORM's failed nested Transaction) undoes part of a
+// transaction that goes on: not an end, or the outer transaction's writes
+// would count as committed before its COMMIT (REVIEW-SINGLE-WRITER-1 F3).
+func endKind(s string) stmtKind {
+	f := strings.Fields(strings.ToLower(strings.TrimRight(s, "; \t\n")))
+	if len(f) > 0 && f[0] == "rollback" {
+		i := 1
+		if i < len(f) && (f[i] == "work" || f[i] == "transaction") {
+			i++
+		}
+		if i < len(f) && f[i] == "to" {
+			return stmtRead
+		}
+	}
+	if n := len(f); n >= 2 && f[n-2] == "and" && f[n-1] == "chain" {
+		return stmtEndChain
+	}
+	return stmtEnd
+}
 
 var writeVerbs = map[string]bool{
 	"insert": true, "update": true, "delete": true, "truncate": true, "merge": true,
@@ -187,7 +220,7 @@ func classifyStatement(sql string, args []any) stmtKind {
 	case "begin", "start":
 		return stmtBegin
 	case "commit", "rollback", "end", "abort":
-		return stmtEnd
+		return endKind(s)
 	case "select", "show", "set", "savepoint", "release", "fetch", "explain", "values", "":
 		return stmtRead
 	}

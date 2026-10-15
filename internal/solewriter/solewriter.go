@@ -157,8 +157,7 @@ type Guard struct {
 	unexplained       bool
 	unattributedBumps int64
 
-	onEpochChange atomic.Pointer[func(int64)]
-	onReenter     atomic.Pointer[func()]
+	onReenter atomic.Pointer[func()]
 
 	stopOnce sync.Once
 	stop     chan struct{}
