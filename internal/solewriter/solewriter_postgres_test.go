@@ -192,11 +192,17 @@ func TestFence_RefusesEveryForeignWriteWhileHolderLives(t *testing.T) {
 			return tx.Exec("TRUNCATE " + tbl + " CASCADE").Error
 		})
 		requireFenced(t, err, "TRUNCATE "+tbl)
-		err = w.foreign.Exec("DELETE FROM " + tbl + " WHERE false").Error
-		if tbl != "system_metadata" && tbl != "machine_identity_credentials" {
-			requireFenced(t, err, "DELETE (zero rows) "+tbl)
+		// The guards are per row (a statement-level one is skipped by a write
+		// through a parent), so a DELETE is refused when it reaches a row; a
+		// zero-row statement changes nothing and fires nothing.
+		var rows int64
+		require.NoError(t, w.foreign.Raw("SELECT count(*) FROM "+tbl).Scan(&rows).Error)
+		if rows > 0 && tbl != "system_metadata" {
+			requireFenced(t, w.foreign.Exec("DELETE FROM "+tbl).Error, "DELETE "+tbl)
 		}
 	}
+	requireFenced(t, w.foreign.Exec("INSERT INTO machine_identities (project_id, name, state, created_at, updated_at) SELECT project_id, name || '2', state, now(), now() FROM machine_identities").Error, "INSERT ... SELECT")
+	requireFenced(t, w.foreign.Exec("UPDATE projects SET name = name || '2'").Error, "UPDATE projects")
 	err = w.foreign.Exec("INSERT INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '7', now()) ON CONFLICT (key) DO UPDATE SET value = '7'").Error
 	requireFenced(t, err, "system_metadata generation row")
 	require.NoError(t, w.foreign.Exec("INSERT INTO system_metadata (key, value, updated_at) VALUES ('sw-unrelated', 'x', now())").Error,
@@ -502,8 +508,10 @@ func TestPoll_CatalogMaintenanceKeepsAuthoritative(t *testing.T) {
 	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
 	for _, s := range []string{
 		"VACUUM FREEZE pg_catalog.pg_trigger", "VACUUM FREEZE pg_catalog.pg_proc",
+		"VACUUM FREEZE pg_catalog.pg_attribute", "VACUUM FREEZE pg_catalog.pg_inherits",
 		"ANALYZE machine_identity_credentials", "CREATE INDEX sw_maint_idx ON machine_identity_credentials (name)",
-		"VACUUM FULL machine_identity_credentials",
+		"VACUUM FULL machine_identity_credentials", "CLUSTER machine_identity_credentials USING sw_maint_idx",
+		"VACUUM FREEZE " + EpochTable, "ANALYZE " + EpochTable,
 	} {
 		require.NoError(t, w.foreign.Exec(s).Error, s)
 	}

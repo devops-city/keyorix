@@ -42,6 +42,30 @@ derived from, and so lets it skip that statement.
   move the hole rather than close it) and a per-row write epoch (a schema change on 12 tables, and a
   superuser who can disable the trigger can write the column too). Neither beats the catalog row
   version.
+- **Per row, not per statement** (REVIEW-SINGLE-WRITER-2 N2): INSERT, UPDATE and DELETE are guarded
+  `FOR EACH ROW` on every fenced table and on `keyorix_sole_writer` / `keyorix_write_epoch`; only
+  TRUNCATE is per statement. A statement-level trigger fires only for the table the statement names,
+  so after `ALTER TABLE <fenced> INHERIT p` or `ATTACH PARTITION <fenced>` a write through `p` fired
+  none of them. Row triggers fire on the table holding the row; a TRUNCATE of a parent fires each
+  truncated child's TRUNCATE trigger. The guard bumps the epoch once per transaction (it skips the
+  row when its `xmin` is already this transaction's), so a multi-row write costs one epoch update.
+  The census also covers inheritance in both directions (a covered table as child or as parent;
+  InstallFence refuses either) and every column of a covered table (`pg_attribute` name, type and
+  `xmin`), which catches `ALTER COLUMN ... TYPE ... USING` (rewrites every row, no DML trigger fires)
+  and `RENAME COLUMN`. A zero-row DML statement is no longer refused: it fires no row trigger and
+  changes nothing.
+- **No name resolution** (REVIEW-SINGLE-WRITER-2 N1): the three functions are created with
+  `SET search_path = pg_catalog, pg_temp` and qualify every catalog and function they use
+  (`pg_catalog.pg_database`, `pg_catalog.format`, ...). Before, a temp table named `pg_database` (pg_temp
+  is searched before pg_catalog for relations unless pg_catalog is listed) or a function or operator of
+  the same name in a schema the writer put first changed what the check saw, with TEMP and DML rights
+  only. The pinned search_path is what also fixes the operators (`=`, `+`): qualification alone does
+  not, and a test shows an `=` shadow red without it. The guard's own sessions (holder, admin checks)
+  read their schema once and then pin the same search_path, qualifying every Keyorix object with that
+  schema. The census includes the functions' `proconfig`.
+- **Epoch by row version, not value** (REVIEW-SINGLE-WRITER-2 N3): the poller compares the epoch row's
+  `xmin` as well as `n`. A session that passes the fence (a copied tag) can move `n` back in its own
+  transaction; it cannot give the row an old `xmin`.
 - **Residual, not detectable from SQL**: a superuser (or a member of `pg_execute_server_program` /
   `pg_write_server_files`) can change table data below SQL (native code, the data directory,
   `pg_resetwal`) with no trigger firing and no catalog row changing. That window is the memo TTL

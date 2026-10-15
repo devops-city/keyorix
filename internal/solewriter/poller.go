@@ -23,14 +23,14 @@ import (
 // the ordering independent of how InstallFence happens to lock.
 func (g *Guard) Settle(ctx context.Context) error {
 	var snap string
-	if err := g.conn.QueryRowContext(ctx, "SELECT pg_current_snapshot()::text").Scan(&snap); err != nil {
+	if err := g.conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_current_snapshot()::text").Scan(&snap); err != nil {
 		return fmt.Errorf("single_writer: settle: %w", err)
 	}
 	deadline := time.Now().Add(g.opts.SettleTimeout)
 	for {
 		var done bool
 		if err := g.conn.QueryRowContext(ctx,
-			"SELECT coalesce(bool_and(pg_xact_status(x) <> 'in progress'), true) FROM pg_snapshot_xip($1::pg_snapshot) AS x", snap).Scan(&done); err != nil {
+			"SELECT coalesce(pg_catalog.bool_and(pg_catalog.pg_xact_status(x) <> 'in progress'), true) FROM pg_catalog.pg_snapshot_xip($1::pg_snapshot) AS x", snap).Scan(&done); err != nil {
 			return fmt.Errorf("single_writer: settle: %w", err)
 		}
 		if done {
@@ -76,7 +76,8 @@ func (g *Guard) Run(ctx context.Context) {
 }
 
 // pollOnce reads, in one statement on the holder connection: the backend pid,
-// the proof that it holds the lock, the epoch and the fence fingerprint.
+// the proof that it holds the lock, the epoch (value and row version) and the
+// fence fingerprint.
 func (g *Guard) pollOnce(ctx context.Context) {
 	pctx, cancel := context.WithTimeout(ctx, pollTimeout)
 	defer cancel()
@@ -85,11 +86,12 @@ func (g *Guard) pollOnce(ctx context.Context) {
 		held        bool
 		incarnation string
 		epoch       int64
+		epochXmin   string
 		fp          string
 	)
-	err := g.conn.QueryRowContext(pctx, `SELECT pg_backend_pid(), `+lockHeldExpr("pg_backend_pid()", "current_schema()")+`,
-  e.incarnation, e.n, (`+fingerprintSQL+`)
-FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &fp)
+	err := g.conn.QueryRowContext(pctx, `SELECT pg_catalog.pg_backend_pid(), `+lockHeldExpr("pg_catalog.pg_backend_pid()", "$1")+`,
+  e.incarnation, e.n, e.xmin::text, (`+fingerprintSQL+`)
+FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTableNames()).Scan(&pid, &held, &incarnation, &epoch, &epochXmin, &fp)
 	if err != nil {
 		// A statement error on a live session (a timeout) only lets the
 		// lease run out; a later good poll on the SAME backend proves the
@@ -125,9 +127,13 @@ FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &
 		reenter = g.state == StateConfirming
 		g.state, g.reason = StateAuthoritative, ""
 	}
-	changed := epoch != g.epoch
+	// Not value equality alone: a session that passes the fence can move n
+	// back in the transaction that wrote (REVIEW-SINGLE-WRITER-2 N3). Every
+	// UPDATE of the row gives it a new xmin, and no SQL can set an old one
+	// back, so a changed xmin is a write even when n reads as before.
+	changed := epoch != g.epoch || epochXmin != g.epochXmin
 	g.canaryLocked(changed)
-	g.epoch = epoch
+	g.epoch, g.epochXmin = epoch, epochXmin
 	g.lastGoodMono = now
 	g.lastGoodWall = now.Round(0)
 	if changed && g.tracker != nil {

@@ -85,4 +85,4 @@ func soleWriterAfterConnect() pgconn.AfterConnectFunc {
 }
 
 // soleWriterSetConfigSQL is the whole text of the tagging statement.
-const soleWriterSetConfigSQL = "SELECT set_config($1, $2, false)"
+const soleWriterSetConfigSQL = "SELECT pg_catalog.set_config($1, $2, false)"

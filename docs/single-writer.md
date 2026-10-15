@@ -47,10 +47,18 @@ Not supported, refused at start-up: SQLite, `security.auth_rate_limit_fallback.r
   lock, takes effect **within 1 second**. In both cases the server notices and stops trusting its
   caches until it is restarted. "Bypassed in SQL" covers a table owner or superuser who disables,
   drops, re-creates or replaces a fence trigger or function, even inside one transaction that puts
-  everything back before it commits, and one who adds a table inheriting from a fenced table.
-- A write by a session that copied the server's tag (see "Residual risks") passes the fence but moves
-  the write epoch. The server discards every cached answer at its next poll, so the write takes effect
-  within 1 second too.
+  everything back before it commits; one who adds a table inheriting from a fenced table, or makes a
+  fenced table the child or partition of another; and one who rewrites or renames a fenced table's
+  column (`ALTER COLUMN ... TYPE ... USING`, `RENAME COLUMN`).
+- Writes through a parent table or a partition root are refused like any other: the fence checks
+  every row, whichever table the statement names.
+- The fence resolves no name through the writer's `search_path`. A temp table named like a system
+  catalog, or a function or operator of the same name in a schema the writer lists first, does not
+  change what it checks.
+- A write by a session that copied the server's tag (see "Residual risks") passes the fence but
+  rewrites the write epoch row. The server compares that row's version, not just its value, so moving
+  the counter back in the same transaction does not hide the write. It discards every cached answer at
+  its next poll, so the write takes effect within 1 second too.
 
 ## Emergency SQL
 
@@ -86,16 +94,20 @@ What the fence and its checks cannot see, stated precisely:
   superusers in the cluster have the same power; keep them to administrators you would also trust
   with the server's master key.
 - **The session tag in statement logs.** The server sets its per-boot tag with
-  `SELECT set_config($1, $2, false)`, a bind parameter, so the tag is not in `pg_stat_activity` or
-  `pg_stat_statements`. PostgreSQL still writes bind parameters to its log when `log_statement = all`
-  (or `log_min_duration_statement = 0`) unless `log_parameter_max_length = 0`. Anyone who can read
-  that log can copy the tag and pass the fence. Such a write still moves the epoch (see above), so it is
-  seen within 1 second, but it is not refused. Keep `log_parameter_max_length = 0` if you log every
-  statement.
+  `SELECT pg_catalog.set_config($1, $2, false)`, a bind parameter, so the tag is not in
+  `pg_stat_activity` or `pg_stat_statements`. PostgreSQL still writes bind parameters to its log when
+  `log_statement = all` (or `log_min_duration_statement = 0`) unless `log_parameter_max_length = 0`.
+  On PostgreSQL 16 and later the `auto_explain` module logs them too whenever it logs that statement
+  (`auto_explain.log_min_duration` reached) unless `auto_explain.log_parameter_max_length = 0`. Anyone
+  who can read that log can copy the tag and pass the fence. Such a write still rewrites the epoch row (see above), so it is seen
+  within 1 second, but it is not refused. Keep `log_parameter_max_length = 0` (and
+  `auto_explain.log_parameter_max_length = 0` if you load `auto_explain`) if you log statements.
 
-Everything else that changes a fence trigger or function, enabled or not, is detected within one poll
-(250 ms). The server checks the triggers' and functions' catalog row versions, not just their text, so
-a change that is undone before the next poll is still seen.
+Everything else that changes a fence trigger or function, enabled or not, the inheritance of a fenced
+table or a fenced table's columns is detected within one poll (250 ms). The server checks the catalog
+rows' versions, not just their text, so a change that is undone before the next poll is still seen. A
+write that passes the fence is seen at the next poll by the epoch row's version, whatever value the
+writer leaves in it.
 
 ## Where to see it
 
