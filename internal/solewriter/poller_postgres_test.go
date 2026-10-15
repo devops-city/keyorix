@@ -53,10 +53,10 @@ func TestLease_AnchoredAtPollSend(t *testing.T) {
 	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
 	stopPoller(g)
 
-	const hold = 250 * time.Millisecond // below pollStatementTimeout (300 ms): the poll waits, then succeeds
+	const hold = 150 * time.Millisecond // well below pollStatementTimeout (300 ms): the poll waits, then succeeds
 	locked := make(chan error, 1)
 	go func() {
-		locked <- w.foreignTx("LOCK TABLE "+EpochTable+" IN ACCESS EXCLUSIVE MODE", "SELECT pg_sleep(0.25)")
+		locked <- w.foreignTx("LOCK TABLE "+EpochTable+" IN ACCESS EXCLUSIVE MODE", "SELECT pg_sleep(0.15)")
 	}()
 	require.Eventually(t, func() bool {
 		var n int64
