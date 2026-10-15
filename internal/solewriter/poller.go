@@ -123,7 +123,11 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 		defer g.mu.Unlock()
 		g.lastErr = err.Error()
 		if pingErr != nil && ctx.Err() == nil {
-			g.leaveLocked(fmt.Sprintf("holder lock lost: the lock session is gone (%v)", err))
+			// The driver's text stays out of the reason (shown to every
+			// system.read caller): it is in the log and in last_poll_error
+			// (system.write only).
+			logf("holder lock lost: %v", err)
+			g.leaveLocked(lockSessionGone)
 		}
 		return
 	}
@@ -248,6 +252,9 @@ func (g *Guard) UnattributedBumps() int64 {
 // Tracker is the guard's in-process write tracker.
 func (g *Guard) Tracker() *Tracker { return g.tracker }
 
+// lockSessionGone is the reason when the holder session dies.
+const lockSessionGone = "holder lock lost: the lock session is gone"
+
 // leave moves the guard out of the authoritative state until restart.
 func (g *Guard) leave(reason string) {
 	g.mu.Lock()
@@ -301,13 +308,19 @@ func (g *Guard) Epoch() int64 {
 }
 
 // OnEpochChange registers f, called (from the poller, outside the guard's
-// lock) with each new epoch.
+// lock) with each new epoch. f runs after the poll has renewed the lease, so
+// Authoritative() can already be true before f has run: a cache must not
+// rely on f alone to drop what the change made stale before it serves again
+// (the caches stacked on this, #3263/#3264, check the tracker's
+// generation, which the poll flushes under the lock before it renews the
+// lease).
 func (g *Guard) OnEpochChange(f func(int64)) { g.onEpochChange.Store(&f) }
 
 // OnReenter registers f, called (from the poller, outside the guard's lock)
 // when a good poll finds the previous good poll's lease already run out: in
 // between the guard was not authoritative, and a cache may have missed the
-// epoch changes it relies on.
+// epoch changes it relies on. Like OnEpochChange, f runs after the lease is
+// renewed.
 func (g *Guard) OnReenter(f func()) { g.onReenter.Store(&f) }
 
 // Status is the guard's state for /system/info, the start-up line and the
