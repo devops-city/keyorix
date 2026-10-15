@@ -26,15 +26,27 @@
 // cache authoritative: Guard.Authoritative reports whether one may be (state
 // authoritative, lease valid), and the cache layer decides.
 //
+// Name resolution: nothing the fence or the guard runs resolves a name through
+// a writer's search_path. The fence functions carry SET search_path =
+// pg_catalog, pg_temp and qualify every relation and function they use; the
+// guard's own sessions pin the same search_path once they have read their
+// schema (pinSessionSchema) and qualify every object with it. Otherwise a temp
+// table named pg_database (pg_temp is searched before pg_catalog for
+// relations), or a function or operator of the same name in a schema the
+// writer lists first, would change what the fence checks
+// (REVIEW-SINGLE-WRITER-2 N1).
+//
 // Limits, stated: the fence is a database trigger. A role that can disable,
 // drop or replace triggers (the table owner, a superuser) can bypass it, even
 // inside one transaction that restores everything before it commits: the
-// fingerprint includes the catalog rows' xmin and any table inheriting from a
-// fenced one, so the poller sees the change within PollInterval and the guard
-// leaves the authoritative state for good (until restart). A session that
-// copied the holder's tag passes the fence, but its write moves the epoch like
-// any other. A write made after the holder lock is lost lands within the
-// lease. All these windows are bounded by LeaseDuration.
+// fingerprint includes the catalog rows' xmin, the fenced tables' columns and
+// any inheritance or partitioning involving a fenced table, so the poller sees
+// the change within PollInterval and the guard leaves the authoritative state
+// for good (until restart). A session that copied the holder's tag passes the
+// fence, but its write rewrites the epoch row like any other, and the poller
+// compares that row's xmin as well as its value, so moving n back in the same
+// transaction is seen too. A write made after the holder lock is lost lands
+// within the lease. All these windows are bounded by LeaseDuration.
 //
 // Not detected (docs/single-writer.md "Residual risks"): a superuser who
 // writes the table files or memory below SQL (native code loaded into the
@@ -134,6 +146,7 @@ type Guard struct {
 	db     *sql.DB
 	conn   *sql.Conn
 	pid    int
+	schema string // the schema the security tables live in (pinSessionSchema)
 	since  time.Time
 	nonce  string
 	bootID string
@@ -145,6 +158,7 @@ type Guard struct {
 	fingerprint  string
 	incarnation  string
 	epoch        int64
+	epochXmin    string    // the epoch row's xmin: any UPDATE changes it, a net-zero one included
 	lastGoodMono time.Time // carries the monotonic reading
 	lastGoodWall time.Time // wall clock only (Round(0))
 	lastErr      string
@@ -213,8 +227,12 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*Guard, error
 }
 
 func (g *Guard) start(ctx context.Context) error {
+	var err error
+	if g.schema, err = pinSessionSchema(ctx, g.conn); err != nil {
+		return err
+	}
 	var version int
-	if err := g.conn.QueryRowContext(ctx, "SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
+	if err := g.conn.QueryRowContext(ctx, "SELECT pg_catalog.current_setting('server_version_num')::int").Scan(&version); err != nil {
 		return fmt.Errorf("single_writer: read the server version: %w", err)
 	}
 	if version < 130000 {
@@ -232,7 +250,7 @@ func (g *Guard) start(ctx context.Context) error {
 			return fmt.Errorf("single_writer: set client_connection_check_interval: %w", err)
 		}
 	}
-	if err := g.conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&g.pid); err != nil {
+	if err := g.conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_backend_pid()").Scan(&g.pid); err != nil {
 		return err
 	}
 	if err := g.acquire(ctx); err != nil {
@@ -243,11 +261,11 @@ func (g *Guard) start(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := ensureOwnTables(ctx, g.conn); err != nil {
+	if err := ensureOwnTables(ctx, g.conn, g.schema); err != nil {
 		return err
 	}
 	g.since = g.opts.Now().UTC()
-	if _, err := g.conn.ExecContext(ctx, `INSERT INTO `+HolderTable+` (id, holder_pid, nonce_hash, since, boot_id) VALUES (1, $1, $2, $3, $4)
+	if _, err := g.conn.ExecContext(ctx, `INSERT INTO `+qualify(g.schema, HolderTable)+` (id, holder_pid, nonce_hash, since, boot_id) VALUES (1, $1, $2, $3, $4)
 ON CONFLICT (id) DO UPDATE SET holder_pid = EXCLUDED.holder_pid, nonce_hash = EXCLUDED.nonce_hash, since = EXCLUDED.since, boot_id = EXCLUDED.boot_id`,
 		g.pid, nonceHash(g.nonce), g.since, g.bootID); err != nil {
 		return fmt.Errorf("single_writer: record this server as the holder: %w", err)
@@ -261,14 +279,14 @@ func (g *Guard) acquire(ctx context.Context) error {
 	backoff := 250 * time.Millisecond
 	for {
 		var ok bool
-		if err := g.conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1, hashtext(current_schema()))", LockKey).Scan(&ok); err != nil {
+		if err := g.conn.QueryRowContext(ctx, "SELECT pg_catalog.pg_try_advisory_lock($1, pg_catalog.hashtext($2))", LockKey, g.schema).Scan(&ok); err != nil {
 			return fmt.Errorf("single_writer: take the holder lock: %w", err)
 		}
 		if ok {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			pid, _ := holderPID(ctx, g.conn)
+			pid, _ := holderPID(ctx, g.conn, g.schema)
 			return fmt.Errorf("%w (backend pid %d); storage.database.single_writer allows exactly one server", ErrLockHeld, pid)
 		}
 		select {
@@ -284,8 +302,8 @@ func (g *Guard) acquire(ctx context.Context) error {
 // presence lock) is attached to this database.
 func (g *Guard) presenceCensus(ctx context.Context) error {
 	var n int
-	if err := g.conn.QueryRowContext(ctx, `SELECT count(*) FROM pg_catalog.pg_locks
-WHERE locktype = 'advisory' AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+	if err := g.conn.QueryRowContext(ctx, `SELECT pg_catalog.count(*) FROM pg_catalog.pg_locks
+WHERE locktype = 'advisory' AND granted AND database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())
   AND classid = 0 AND objid = $1 AND objsubid = 1`, serverPresenceLockKey).Scan(&n); err != nil {
 		return fmt.Errorf("single_writer: count attached servers: %w", err)
 	}
@@ -301,22 +319,46 @@ WHERE locktype = 'advisory' AND granted AND database = (SELECT oid FROM pg_datab
 // lockHeldExpr is true when backend pidExpr holds the holder lock for schema
 // schemaExpr (both SQL expressions). The trigger passes the fenced table's own
 // schema, never current_schema(): a session with another search_path writing
-// schema-qualified names must still meet that schema's holder.
+// schema-qualified names must still meet that schema's holder. Every name is
+// qualified; the operators resolve in pg_catalog because every session that
+// evaluates this has search_path pinned to pg_catalog, pg_temp.
 func lockHeldExpr(pidExpr, schemaExpr string) string {
 	return `EXISTS (SELECT 1 FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted AND pid = ` + pidExpr + `
-  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND classid = ` + fmt.Sprint(LockKey) + ` AND objid::bigint = (hashtext(` + schemaExpr + `)::bigint & 4294967295) AND objsubid = 2)`
+  AND database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())
+  AND classid = ` + fmt.Sprint(LockKey) + ` AND objid::bigint = (pg_catalog.hashtext(` + schemaExpr + `)::bigint & 4294967295) AND objsubid = 2)`
 }
 
-// holderPID returns the live holder's backend pid for the current schema, or
-// 0 when none holds the lock.
+// pinSessionSchema returns the session's current schema (where the security
+// tables live) and then pins the session's search_path to pg_catalog, pg_temp,
+// so no statement the guard runs on it afterwards resolves a name or an
+// operator through a schema someone else can create objects in. Every Keyorix
+// object it touches afterwards is qualified with the returned schema.
+func pinSessionSchema(ctx context.Context, conn *sql.Conn) (string, error) {
+	var schema sql.NullString
+	if err := conn.QueryRowContext(ctx, "SELECT pg_catalog.current_schema()").Scan(&schema); err != nil {
+		return "", fmt.Errorf("single_writer: read the schema: %w", err)
+	}
+	if !schema.Valid || schema.String == "" {
+		return "", fmt.Errorf("single_writer: no schema on the connection's search_path exists")
+	}
+	if _, err := conn.ExecContext(ctx, "SELECT pg_catalog.set_config('search_path', 'pg_catalog, pg_temp', false)"); err != nil {
+		return "", fmt.Errorf("single_writer: pin the search_path: %w", err)
+	}
+	return schema.String, nil
+}
+
+// qualify is schema.name, both quoted.
+func qualify(schema, name string) string { return quoteIdent(schema) + "." + quoteIdent(name) }
+
+// holderPID returns the live holder's backend pid for schema, or 0 when none
+// holds the lock.
 func holderPID(ctx context.Context, q interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
-}) (int, error) {
+}, schema string) (int, error) {
 	var pid sql.NullInt64
 	err := q.QueryRowContext(ctx, `SELECT pid FROM pg_catalog.pg_locks WHERE locktype = 'advisory' AND granted
-  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
-  AND classid = $1 AND objid::bigint = (hashtext(current_schema())::bigint & 4294967295) AND objsubid = 2 LIMIT 1`, LockKey).Scan(&pid)
+  AND database = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database())
+  AND classid = $1 AND objid::bigint = (pg_catalog.hashtext($2)::bigint & 4294967295) AND objsubid = 2 LIMIT 1`, LockKey, schema).Scan(&pid)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
