@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/solewriter"
 	"github.com/keyorixhq/keyorix/server/middleware"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -179,4 +181,32 @@ func TestGetMetrics_Authenticated(t *testing.T) {
 	assert.Contains(t, data, "memory")
 	assert.Contains(t, data, "goroutines")
 	assert.Contains(t, data, "uptime")
+}
+
+// TestMakeSystemInfoHandler_SingleWriterPollErrorOnlyForSystemWrite: the
+// single_writer block is shown to every caller, its last_poll_error (driver
+// text that can name the host, role or schema) only to system.write.
+func TestMakeSystemInfoHandler_SingleWriterPollErrorOnlyForSystemWrite(t *testing.T) {
+	defer solewriter.SetCurrentForTest(solewriter.GuardForTest("dial tcp db.internal:5432: connection refused"))()
+	singleWriter := func(t *testing.T, cs *core.KeyorixCore) map[string]any {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		MakeSystemInfoHandler(&config.Config{}, cs)(rr, userCtxForTest(httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)))
+		require.Equal(t, http.StatusOK, rr.Code)
+		var resp map[string]any
+		require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+		db := resp["data"].(map[string]any)["database"].(map[string]any)
+		require.Contains(t, db, "single_writer")
+		return db["single_writer"].(map[string]any)
+	}
+	t.Run("non-admin", func(t *testing.T) {
+		sw := singleWriter(t, freshCoreS12(t))
+		assert.Equal(t, "confirming", sw["state"])
+		assert.NotContains(t, sw, "last_poll_error", "a caller without system.write must not see the poll error")
+	})
+	t.Run("admin", func(t *testing.T) {
+		cs, _ := freshCoreS12WithAdmin(t)
+		sw := singleWriter(t, cs)
+		assert.Equal(t, "dial tcp db.internal:5432: connection refused", sw["last_poll_error"])
+	})
 }

@@ -78,6 +78,13 @@ through.
 
 What the fence and its checks cannot see, stated precisely:
 
+- **A rule, policy or row-level security switch that exists only between two polls.** Rules and
+  policies on a covered table are checked by catalog row version, so one that is altered, disabled or
+  replaced is seen, but one that is created and dropped again (or row-level security switched on and
+  off again) within one poll interval (250 ms), in separate transactions, leaves nothing to see. In
+  that window a `DO INSTEAD NOTHING` rule can drop the server's own writes and a policy can hide rows
+  from its reads. It needs ownership of the table, which no role but the server's should have.
+
 - **A superuser working below SQL.** A role with superuser rights, or with `pg_execute_server_program`
   or `pg_write_server_files`, can change table data without going through SQL triggers: native code
   loaded into PostgreSQL, writing the data directory, `pg_resetwal`. No trigger fires and no catalog row
@@ -104,11 +111,15 @@ What the fence and its checks cannot see, stated precisely:
   of the authoritative state, and `admin validate --posture` names the trigger). A role with `UPDATE`
   can still `LOCK` a security table or the server's own `keyorix_sole_writer` / `keyorix_write_epoch`
   tables: that stalls writes and the server's poll (its caches confirm every read until the lock is
-  released, then it resumes), but it changes nothing.
+  released, then it resumes), but it changes nothing. A stalled poll fails on the database side after
+  300 ms (the holder session's `statement_timeout`); that error does not close the holder connection,
+  so the lock and the fence stay in place. The lease counts from when the poll was sent, so trust
+  ends at most 1 second after the last poll that succeeded.
 
-Everything else that changes a fence trigger or function, enabled or not, any other trigger on a
-covered table, the holder row (`keyorix_sole_writer`), the inheritance of a fenced table or a fenced
-table's columns is detected within one poll (250 ms). The fence refuses a foreign write to the holder
+Everything else that changes a fence trigger or function, enabled or not, any other trigger, rule or
+row-level security policy on a covered table (or a covered table's row-level security switch), the
+holder row (`keyorix_sole_writer`), the inheritance of a fenced table or a fenced table's columns is
+detected within one poll (250 ms). The fence refuses a foreign write to the holder
 row or the epoch row itself; the server also compares the holder row's pid, tag hash and row version
 with its own on every poll. The server checks the catalog
 rows' versions, not just their text, so a change that is undone before the next poll is still seen. A

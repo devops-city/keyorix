@@ -197,7 +197,8 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 		// this must not be visible to non-admins even though the rest of
 		// this endpoint is system.read-gated (the universal baseline).
 		var recoveryKeyStatus *core.RecoveryKeyStatus
-		if middleware.AuthorizedAtGlobalScope(r.Context(), coreService, userCtx, permSystemWrite) {
+		canSystemWrite := middleware.AuthorizedAtGlobalScope(r.Context(), coreService, userCtx, permSystemWrite)
+		if canSystemWrite {
 			if status, err := coreService.GetRecoveryKeyStatus(r.Context()); err == nil {
 				recoveryKeyStatus = status
 			}
@@ -251,6 +252,11 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 
 		if g := solewriter.Current(); g != nil {
 			st := g.Status()
+			// The poll error is the database driver's text (it can name the
+			// host, role or schema); like recovery_key, system.write only.
+			if !canSystemWrite {
+				st.LastPollError = ""
+			}
 			systemInfo.Database.SingleWriter = &st
 		}
 

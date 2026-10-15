@@ -54,6 +54,7 @@ func (g *Guard) Settle(ctx context.Context) error {
 // in its own goroutine.
 func (g *Guard) Run(ctx context.Context) {
 	current.Store(g)
+	g.running.Store(true)
 	go func() {
 		defer close(g.done)
 		t := time.NewTicker(PollInterval)
@@ -91,6 +92,11 @@ func (g *Guard) pollOnce(ctx context.Context) {
 		epochXmin   string
 		fp          string
 	)
+	// The lease runs from the moment the poll was sent, not from its answer:
+	// the answer proves only what held when the statement ran, at or after
+	// this instant, so a slow poll cannot stretch trust past LeaseDuration
+	// after the last thing actually seen.
+	sentMono, sentWall := g.opts.Now(), g.opts.Wall().Round(0)
 	var err error
 	if !g.pollArmed {
 		if _, err = g.conn.ExecContext(pctx, fmt.Sprintf("SET statement_timeout = %d", pollStatementTimeout.Milliseconds())); err == nil {
@@ -121,30 +127,34 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 		}
 		return
 	}
-	now := g.opts.Now()
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	g.lastErr = ""
+	reason := ""
 	switch {
 	case pid != g.pid || !held:
-		g.leaveLocked(fmt.Sprintf("holder lock lost (connection backend pid %d, was %d, held=%v)", pid, g.pid, held))
-		return
+		reason = fmt.Sprintf("holder lock lost (connection backend pid %d, was %d, held=%v)", pid, g.pid, held)
 	case holderPID.Int64 != int64(g.pid) || holderHash.String != nonceHash(g.nonce) || holderXmin.String != g.holderXmin:
 		// Only a session that passed the fence (one with the holder's tag) can
 		// write the row; this boot never rewrites it. A different pid or hash
 		// would open the fence to every session.
-		g.leaveLocked(fmt.Sprintf("the holder row changed (holder_pid %d, row version %s; this server is pid %d, row version %s)", holderPID.Int64, holderXmin.String, g.pid, g.holderXmin))
-		return
+		reason = fmt.Sprintf("the holder row changed (holder_pid %d, row version %s; this server is pid %d, row version %s)", holderPID.Int64, holderXmin.String, g.pid, g.holderXmin)
 	case fp != g.fingerprint:
-		g.leaveLocked("the write fence changed (a trigger or function was dropped, disabled or replaced)")
-		return
+		reason = "the write fence changed (a trigger, rule, row-level security policy or function was added, dropped, disabled or replaced)"
 	case incarnation != g.incarnation:
-		g.leaveLocked("the write epoch was reinitialised by another process")
+		reason = "the write epoch was reinitialised by another process"
+	}
+	if reason != "" {
+		g.leaveLocked(reason)
+		g.mu.Unlock()
 		return
 	}
+	// A re-entry is a good poll after the lease ran out. The state does not
+	// leave StateAuthoritative for a lapse (only leaveLocked moves it, for
+	// good), so the lapse is read from the previous good poll on either
+	// clock, exactly as Authoritative reads it.
 	reenter := false
-	if g.state != StateAuthoritative && !g.permanent {
-		reenter = g.state == StateConfirming
+	if !g.permanent {
+		reenter = g.state == StateAuthoritative && g.lapsedLocked(sentMono, sentWall)
 		g.state, g.reason = StateAuthoritative, ""
 	}
 	// Not value equality alone: a session that passes the fence can move n
@@ -153,8 +163,11 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	// back, so a changed xmin is a write even when n reads as before.
 	changed := epoch != g.epoch || epochXmin != g.epochXmin
 	g.epoch, g.epochXmin = epoch, epochXmin
-	g.lastGoodMono = now
-	g.lastGoodWall = now.Round(0)
+	g.lastGoodMono = sentMono
+	g.lastGoodWall = sentWall
+	g.mu.Unlock()
+	// The callbacks run outside g.mu: they flush caches, which may call back
+	// into the guard (Authoritative, Epoch).
 	if changed {
 		if f := g.onEpochChange.Load(); f != nil {
 			(*f)(epoch)
@@ -192,15 +205,24 @@ func (g *Guard) Authoritative() bool {
 	if g == nil {
 		return false
 	}
-	now := g.opts.Now()
+	now, wall := g.opts.Now(), g.opts.Wall().Round(0)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.state != StateAuthoritative || g.lastGoodMono.IsZero() {
 		return false
 	}
+	return !g.lapsedLocked(now, wall)
+}
+
+// lapsedLocked reports whether the last good poll's lease has run out at
+// (now, wall) by either clock. No good poll yet is not a lapse.
+func (g *Guard) lapsedLocked(now, wall time.Time) bool {
+	if g.lastGoodMono.IsZero() {
+		return false
+	}
 	mono := now.Sub(g.lastGoodMono)
-	wall := now.Round(0).Sub(g.lastGoodWall)
-	return mono >= 0 && mono < LeaseDuration && wall > -LeaseDuration && wall < LeaseDuration
+	w := wall.Sub(g.lastGoodWall)
+	return mono < 0 || mono >= LeaseDuration || w <= -LeaseDuration || w >= LeaseDuration
 }
 
 // Epoch is the last polled write epoch.
@@ -210,11 +232,14 @@ func (g *Guard) Epoch() int64 {
 	return g.epoch
 }
 
-// OnEpochChange registers f, called (from the poller) with each new epoch.
+// OnEpochChange registers f, called (from the poller, outside the guard's
+// lock) with each new epoch.
 func (g *Guard) OnEpochChange(f func(int64)) { g.onEpochChange.Store(&f) }
 
-// OnReenter registers f, called when the guard returns to authoritative after
-// a lapse in which the lease ran out.
+// OnReenter registers f, called (from the poller, outside the guard's lock)
+// when a good poll finds the previous good poll's lease already run out: in
+// between the guard was not authoritative, and a cache may have missed the
+// epoch changes it relies on.
 func (g *Guard) OnReenter(f func()) { g.onReenter.Store(&f) }
 
 // Status is the guard's state for /system/info, the start-up line and the
