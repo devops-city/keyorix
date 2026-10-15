@@ -97,8 +97,20 @@ What the fence and its checks cannot see, stated precisely:
   within 1 second, but it is not refused. Keep `log_parameter_max_length = 0` (and
   `auto_explain.log_parameter_max_length = 0` if you load `auto_explain`) if you log statements.
 
-Everything else that changes a fence trigger or function, enabled or not, the inheritance of a fenced
-table or a fenced table's columns is detected within one poll (250 ms). The server checks the catalog
+- **Other roles' privileges.** Grant any other role at most `SELECT, INSERT, UPDATE, DELETE` on the
+  Keyorix tables, never `ALL`, `TRIGGER`, `TRUNCATE` or ownership. With `TRIGGER` a role can attach its
+  own trigger to a security table, which could change a row after the fence has let it through: the
+  server treats any trigger on a covered table that is not part of the fence as tampering (it stays out
+  of the authoritative state, and `admin validate --posture` names the trigger). A role with `UPDATE`
+  can still `LOCK` a security table or the server's own `keyorix_sole_writer` / `keyorix_write_epoch`
+  tables: that stalls writes and the server's poll (its caches confirm every read until the lock is
+  released, then it resumes), but it changes nothing.
+
+Everything else that changes a fence trigger or function, enabled or not, any other trigger on a
+covered table, the holder row (`keyorix_sole_writer`), the inheritance of a fenced table or a fenced
+table's columns is detected within one poll (250 ms). The fence refuses a foreign write to the holder
+row or the epoch row itself; the server also compares the holder row's pid, tag hash and row version
+with its own on every poll. The server checks the catalog
 rows' versions, not just their text, so a change that is undone before the next poll is still seen. A
 write that passes the fence is seen at the next poll by the epoch row's version, whatever value the
 writer leaves in it.
