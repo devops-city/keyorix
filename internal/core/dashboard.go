@@ -318,7 +318,9 @@ func (c *KeyorixCore) fetchAdminDashboardStats(ctx context.Context, stats *Dashb
 		stats.degrade("audit_logins", auditErr)
 	}
 	secretReadAction := "secret.read"
-	_, auditSecretReads, auditErr = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &thirtyDaysAgo, Action: &secretReadAction, Page: 1, PageSize: 1})
+	// Success: a refused read is a secret.read with success=false (#3273), not a read.
+	readSucceeded := true
+	_, auditSecretReads, auditErr = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &thirtyDaysAgo, Action: &secretReadAction, Success: &readSucceeded, Page: 1, PageSize: 1})
 	if auditErr != nil {
 		stats.degrade("audit_secret_reads", auditErr)
 	}
@@ -477,6 +479,14 @@ func mapAuditEventToActivity(e *models.AuditEvent, actor string) ActivityItem {
 	switch e.EventType {
 	// Secret events — extract secret name from description
 	case "secret.read":
+		if e.Success != nil && !*e.Success {
+			// A refused read (#3273). No name from the description: a refusal
+			// before authorization names only what the caller typed, and the row
+			// carries no SecretNodeID then, so "not found" and "forbidden" look
+			// the same in the caller's own activity.
+			eventType = activityTypeReadRefused
+			break
+		}
 		eventType = "accessed"
 		secretName = extractSecretName(e.Description)
 	case EventSecretVersionsListed:
@@ -521,6 +531,10 @@ func mapAuditEventToActivity(e *models.AuditEvent, actor string) ActivityItem {
 		secretName = "" // the description does not end in the secret's name; the feed looks it up
 	}
 
+	label := ActivityLabel(e.EventType)
+	if eventType == activityTypeReadRefused {
+		label = activityLabelReadRefused
+	}
 	return ActivityItem{
 		ID:         e.ID,
 		Type:       eventType,
@@ -528,9 +542,17 @@ func mapAuditEventToActivity(e *models.AuditEvent, actor string) ActivityItem {
 		Timestamp:  e.EventTime,
 		Actor:      actor,
 		EventType:  e.EventType,
-		Label:      ActivityLabel(e.EventType),
+		Label:      label,
 	}
 }
+
+// activityTypeReadRefused / activityLabelReadRefused are the dashboard row of a
+// refused secret read (secret.read, success=false, #3273), which must not read
+// as "accessed secret".
+const (
+	activityTypeReadRefused  = "read_refused"
+	activityLabelReadRefused = "was refused a secret read"
+)
 
 // activityItems maps audit events to dashboard rows. Each row names the
 // principal that acted (system for events with no user), not the viewer, and

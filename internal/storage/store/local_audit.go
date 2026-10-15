@@ -542,7 +542,8 @@ func (ls *LocalStorage) GetSecretReadCounts(ctx context.Context, secretID uint, 
 		Table("audit_events ae").
 		Select("CAST(ae.user_id AS TEXT) AS actor_id, COALESCE(u.username, '') AS actor_username, COUNT(*) AS read_count, MAX(ae.event_time) AS last_read_at").
 		Joins("LEFT JOIN users u ON u.id = ae.user_id AND u.deleted_at IS NULL").
-		Where("ae.secret_node_id = ? AND ae.event_type = ? AND ae.event_time >= ? AND ae.event_time < ?", secretID, "secret.read", since, until).
+		// success: a refused read (secret.read, success=false, #3273) is not a read.
+		Where("ae.secret_node_id = ? AND ae.event_type = ? AND (ae.success IS NULL OR ae.success = ?) AND ae.event_time >= ? AND ae.event_time < ?", secretID, "secret.read", true, since, until).
 		// Postgres enforces the SQL standard's GROUP BY functional-dependency
 		// rule strictly: every selected column must either be aggregated or
 		// appear in GROUP BY, and it does NOT infer that u.username depends on

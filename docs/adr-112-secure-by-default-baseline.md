@@ -380,12 +380,49 @@ Accepted by Andrei, 2026-10-15. Independent of Amendment 3.
   - Every event with `Success=false`.
   - Every event written outside core: `server/admin`, `internal/encryption`,
     and the start-up events in `server/main.go`.
-- **Denied reads.** The denied reads Keyorix audits today, the six
-  `connect.secret_read` deny paths, stay audited (`Success=false`). Native
-  value-read denials (403, 404, expired, suspended, schedule, max reads) write
-  no audit row at either setting, on `main` as well. Adding them is a separate
-  change that applies to both settings; it is not part of this amendment. Max
-  reads is enforced by a counter on the secret, not by audit rows, so it is
+- **Denied reads stay audited, so probing still leaves a trace** (#3273). At
+  both settings, every refused value read writes an audit row with
+  `Success=false`:
+  - Federated reads: the six `connect.secret_read` deny paths.
+  - Native reads: a `secret.read` row with a `reason=` class and
+    `outcome=denied`. This covers REST `GET /secrets/{id}?include_value=true`
+    and `/secrets/value`, render, copy, environment copy and clone, and gRPC
+    `GetSecretValue`. The reason classes are `forbidden`, `not_found`,
+    `outside_schedule`, `expired`, `suspended`, `max_reads_exhausted`,
+    `classification_gate` and `mfa_required`. A read that breaks
+    (`internal_error`) is recorded with `outcome=failed`.
+
+  How it works (`internal/core/secret_read_denial.go`):
+  - **Who records it.** Each value route carries
+    `middleware.AuditSecretValueReadDenials` as its outermost middleware. The
+    gRPC method opens a `SecretReadDenialNote`. Whatever refuses the read (the
+    route gate, the gRPC authorization helper, or a core value-read entry
+    point) notes the reason, and the transport records one row. Render and copy
+    run inside core, so they record their own refusals.
+  - **No existence oracle.** The caller gets the same response for "does not
+    exist" and "exists but forbidden". A `forbidden` or `not_found` row has no
+    `SecretNodeID` and no `ProjectID`, and its description names only what the
+    caller supplied. So a caller's own dashboard activity and a
+    project-filtered view cannot tell the two apart. The internal truth is in
+    the `reason=` token and in `Diff` (resolved secret and project), which only
+    `audit.read` holders see. A refusal after authorization (expired,
+    suspended, ...) names the secret, because the response already does.
+  - **Flood protection.** Rows are aggregated per (principal, reason, path,
+    target). The first refusal of a key is written immediately. Later ones in
+    the next 60 s are only counted, and one summary row with the count is
+    written when the window closes. So a key costs at most two rows per
+    window. A principal has at most 50 live keys; further targets fold into one
+    overflow key per reason. The aggregator holds at most 10,000 keys. Counts
+    of windows still open are lost on a restart; first rows are never lost.
+  - **Fail-closed semantics unchanged.** The row is best-effort. A failed write
+    is logged (`SECURITY: refused secret read NOT recorded ...`) and the
+    refusal stands. It runs only on the denial path: a successful read pays one
+    context value and a status capture, and touches no lock and no storage.
+  - **Consumers.** Read counts that must mean disclosures (dashboard reads,
+    top readers, billing machine reads, access-review activity) now count only
+    `success = true` (or legacy NULL) rows. Usage and billing reads already did.
+
+  Max reads is enforced by a counter on the secret, not by audit rows, so it is
   unaffected.
 - **What operators lose.** Read history, read counts, `total_reads`, usage and
   billing read counts, the access-log export and anomaly detection all key on
@@ -408,6 +445,11 @@ Accepted by Andrei, 2026-10-15. Independent of Amendment 3.
 | compliance profile refusal | `TestInsecureAuditSkipReads_RefusedByAnActiveComplianceProfile`, `_ComplianceProfileKeyIsGated` |
 | a successful read writes nothing and opens no transaction | `TestInsecureAuditSkipReads_SuccessfulReadWritesNothingAndOpensNoTransaction` |
 | a denied read is still audited | `TestInsecureAuditSkipReads_DeniedReadIsStillAudited` |
+| every refused native value read is audited, per path and reason class, at both settings | `TestSecretValueReadDenials_StateRefusalsAuditedOnEveryRoute`, `TestSecretValueReadDenials_ForbiddenAndNotFoundAuditedWithoutAnOracle`, `TestSecretValueReadDenials_MFARequiredAudited`, `TestSecretReadDenial_RenderRefusalsAudited`, `TestSecretReadDenial_WrittenAtBothSkipReadsSettings` |
+| every value route and RPC carries the denial audit hook | `TestValueReadRoutes_AuditTheirRefusals` |
+| a refusal burst is aggregated: first row immediate, rows bounded, count correct | `TestSecretReadDenial_BurstIsAggregatedFirstImmediateCountCorrect`, `_WindowTimerWritesSummary`, `_DistinctTargetFloodIsBoundedPerPrincipal`, `_GlobalKeyCap` |
+| no existence oracle in the row | `TestSecretReadDenial_ForbiddenAndNotFoundRowsAreNotAnOracle` |
+| an audit-write failure keeps the refusal | `TestSecretReadDenial_AuditWriteFailureKeepsTheRefusal` |
 | one subtest per still-audited event class | `TestInsecureAuditSkipReads_EveryOtherEventClassStillAudited` |
 | the skip set is exactly the two value-read types | `TestInsecureAuditSkipReads_SkipSetIsExactlyTheSuccessfulValueReads` |
 | REST, through the real router, at both settings | `TestInsecureAuditSkipReads_RESTValueReadsUnauditedWritesAudited` |
@@ -467,6 +509,11 @@ audit-before-disclosure tests are untouched and still pass.
   `insecure_` opt-out, default false. It stops audit rows for successful
   secret-value reads only; denied reads and every other event stay audited. A
   compliance profile refuses it. It is independent of `audit_durability`.
+- Refused native value reads are audited at both settings (#3273): a
+  `secret.read` with `Success=false` and a reason class, aggregated per
+  principal, reason, path and target (first row immediate, then one summary
+  per 60 s window), and best-effort (a refusal stays a refusal if its row
+  cannot be written).
 
 ## Definition of done
 

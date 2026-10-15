@@ -1,0 +1,1 @@
+ADR-112-A4-DENIED-READ-AGGREGATED	./internal/core	TestSecretReadDenial_BurstIsAggregatedFirstImmediateCountCorrect	default-ci	pending	3273	N refusals of one key in a window write the first row immediately and one summary row carrying N-1; distinct-target floods are capped per principal (TestSecretReadDenial_DistinctTargetFloodIsBoundedPerPrincipal)

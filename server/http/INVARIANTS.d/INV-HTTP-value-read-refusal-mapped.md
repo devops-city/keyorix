@@ -7,7 +7,8 @@
   mapping (`sendSecretReadRefusal`) runs only after the caller's read permission on that
   secret is established, so a caller who cannot read the secret gets the same 403/404 it got
   before the secret entered the refused state (INV-HTTP-08, ADR-096), and a refused read adds
-  no audit or access-log row. Why: ERRMAP-1 (PERF-FIX-3/4 found 500s). Guard:
+  no access-log row and exactly one audit row, its failed `secret.read` (#3273,
+  INV-HTTP-value-read-refusal-audited). Why: ERRMAP-1 (PERF-FIX-3/4 found 500s). Guard:
   `secret_value_read_refusal_family_test.go` (`TestSecretValueReadRefusals_MapToClientErrorsOnEveryRoute`
   over every route x principal x refusal, plus unauthorized-caller and audit-row invariance;
   `TestValueReadRouteFamily_IsCovered` derives the value-read family from source: every

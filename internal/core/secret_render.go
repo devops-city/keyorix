@@ -7,6 +7,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -88,20 +89,42 @@ func (c *KeyorixCore) RenderSecretTemplate(ctx context.Context, template string,
 	// extends the function's existing "fails the whole render, no partial output"
 	// contract to its side effects, not just its return value.
 	var staged []*stagedSecretRead
+	// refused is the reference whose read was refused, if one was: the render is
+	// aborted at the first such reference and that refusal is audited (#3273).
+	var refused *secretReadDenial
+	actor := SecretReadDenialActor{UserID: userID, Username: username, IP: ip, UA: ua}
 
 	output, err := secrettemplate.Render(template, func(ref string) (string, error) {
-		return c.stageRenderRef(ctx, ref, projectID, userID, envByName, &staged)
+		return c.stageRenderRef(ctx, ref, projectID, userID, envByName, &staged, &refused)
 	})
 	if err != nil {
+		if refused != nil {
+			refused.actor = actor
+			c.recordSecretReadDenialInCore(ctx, *refused)
+		}
 		return "", err
 	}
 
 	for _, s := range staged {
 		if err := c.commitStagedSecretRead(ctx, s, projectID, userID, username, ip, ua); err != nil {
+			if errors.Is(err, ErrSecretMaxReadsExhausted) {
+				c.recordSecretReadDenialInCore(ctx, secretReadDenial{
+					path: secretReadPathRender, reason: SecretReadDeniedMaxReadsExhausted, actor: actor,
+					target:    renderDenialTarget(projectID, s.secretRef),
+					subjectID: s.secret.ID, projectID: s.secret.ProjectID,
+				})
+			}
 			return "", err
 		}
 	}
 	return output, nil
+}
+
+// renderDenialTarget is the aggregation target of a refused render reference:
+// the project plus the reference exactly as the template wrote it, the same
+// shape whether or not the reference resolves to a secret.
+func renderDenialTarget(projectID uint, ref string) SecretReadDenialTarget {
+	return SecretReadDenialTarget{Ref: fmt.Sprintf("render:project:%d/%s", projectID, strings.TrimSpace(ref))}
 }
 
 // stagedSecretRead holds a reference successfully resolved during
@@ -113,6 +136,7 @@ type stagedSecretRead struct {
 	secret     *models.SecretNode
 	version    *models.SecretVersion
 	secretName string
+	secretRef  string
 }
 
 // stageRenderRef resolves one secret reference for RenderSecretTemplate: it runs
@@ -125,10 +149,21 @@ type stagedSecretRead struct {
 // of whether the reference turns out to be unknown, forbidden, or readable — see
 // equalizeReferenceResolutionCost — so response timing can't be used to tell the
 // three cases apart, defeating this function's own anti-enumeration design (#181).
-func (c *KeyorixCore) stageRenderRef(ctx context.Context, ref string, projectID, userID uint, envByName map[string]uint, staged *[]*stagedSecretRead) (string, error) {
+//
+// refused receives the refusal when the reference's read is refused (unknown,
+// forbidden, or refused by the secret's own guards), for the caller to audit.
+// Unknown and forbidden take the identical path into it (#3273 keeps TMPL-002).
+func (c *KeyorixCore) stageRenderRef(ctx context.Context, ref string, projectID, userID uint, envByName map[string]uint, staged *[]*stagedSecretRead, refused **secretReadDenial) (string, error) {
 	envName, secretName, err := splitRenderRef(ref)
 	if err != nil {
 		return "", err
+	}
+	refuse := func(reason SecretReadDenialReason, secret *models.SecretNode) {
+		d := &secretReadDenial{path: secretReadPathRender, reason: reason, target: renderDenialTarget(projectID, ref)}
+		if secret != nil {
+			d.subjectID, d.projectID = secret.ID, secret.ProjectID
+		}
+		*refused = d
 	}
 	envID, ok := envByName[envName]
 	if !ok {
@@ -146,6 +181,7 @@ func (c *KeyorixCore) stageRenderRef(ctx context.Context, ref string, projectID,
 		// (same error, same eventual HTTP status/message) as "exists but you can't
 		// read it" below — see the permission check for why (#181).
 		c.equalizeReferenceResolutionCost(ctx, userID, nil)
+		refuse(SecretReadDeniedNotFound, nil)
 		return "", ErrSecretRefNotFound
 	}
 	// Run the permission check BEFORE anything that could distinguish this from the
@@ -157,22 +193,26 @@ func (c *KeyorixCore) stageRenderRef(ctx context.Context, ref string, projectID,
 	// both outcomes into the identical ErrSecretRefNotFound closes that oracle (#181).
 	if _, err := c.ValidateSecretAccess(ctx, secret.ID, userID); err != nil {
 		c.equalizeReferenceResolutionCost(ctx, userID, secret)
+		refuse(SecretReadDeniedForbidden, secret)
 		return "", ErrSecretRefNotFound
 	}
 	// From here on this mirrors getSecretValueForUser's body exactly, minus the
 	// max-reads increment (deferred to commitStagedSecretRead).
 	if err := c.enforceSecretReadGuards(ctx, secret, userID); err != nil {
+		refuse(ClassifySecretReadDenial(err), secret)
 		return "", err
 	}
 	version, err := c.storage.GetLatestSecretVersion(ctx, secret.ID)
 	if err != nil {
+		refuse(SecretReadDeniedInternalError, secret)
 		return "", fmt.Errorf("%s: %w", i18n.T("ErrorVersionNotFound", nil), err)
 	}
 	val, err := c.decryptVersionValue(secret, version)
 	if err != nil {
+		refuse(SecretReadDeniedInternalError, secret)
 		return "", err
 	}
-	*staged = append(*staged, &stagedSecretRead{secret: secret, version: version, secretName: secretName})
+	*staged = append(*staged, &stagedSecretRead{secret: secret, version: version, secretName: secretName, secretRef: ref})
 	return string(val), nil
 }
 

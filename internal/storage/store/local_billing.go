@@ -203,8 +203,8 @@ func (ls *LocalStorage) billingCountsByProject(ctx context.Context, from, to tim
 	// reported 0 regardless of real machine-identity read activity; caught by
 	// GetBillingReport's first real (non-zero-coverage) test.
 	machineReads, err := ls.countByProject(ctx, "audit_events",
-		"project_id IN ? AND event_type = ? AND actor_type = ? AND event_time >= ? AND event_time < ?",
-		projectIDs, "secret.read", "machine_identity", from, to)
+		"project_id IN ? AND event_type = ? AND success = ? AND actor_type = ? AND event_time >= ? AND event_time < ?",
+		projectIDs, "secret.read", true, "machine_identity", from, to)
 	if err != nil {
 		return nil, err
 	}

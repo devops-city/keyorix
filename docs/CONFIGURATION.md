@@ -306,8 +306,9 @@ storage:
     # insecure_audit_skip_reads: false  # INSECURE when true (ADR-112 Amendment 4):
     #   successful secret-value reads write NO audit row and no access-log row
     #   (REST, gRPC, render, copy, connector reads, and every client through
-    #   the API). Writes, permission changes, authentication, denied reads and
-    #   admin actions are still audited. WARNING + audit event at every start,
+    #   the API). Writes, permission changes, authentication, denied reads
+    #   (native and federated, at both settings) and admin actions are still
+    #   audited. WARNING + audit event at every start,
     #   posture deviation, security.audit_reads_skipped in /system/info, web UI
     #   banner. Config file only; refused by a compliance profile. See
     #   docs/security/hardening-guide.md §5b.

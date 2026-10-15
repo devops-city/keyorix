@@ -1,0 +1,1 @@
+ADR-112-A4-NATIVE-DENIED-READ-AUDITED-EVERY-PATH	./server/http	TestSecretValueReadDenials_StateRefusalsAuditedOnEveryRoute	default-ci	pending	3273	every refused native value read (REST get/ref/render/copy, gRPC GetSecretValue) writes one secret.read success=false row with its reason class, at both insecure_audit_skip_reads settings

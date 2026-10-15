@@ -119,6 +119,9 @@ func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projec
 		Select("user_id, event_time").
 		Where("project_id = ?", projectID).
 		Where("event_type IN ?", eventTypes).
+		// A refused attempt (success=false, e.g. a refused secret.read, #3273) is
+		// not use of the grant; NULL is a legacy row that predates the column.
+		Where("success IS NULL OR success = ?", true).
 		Where("user_id IS NOT NULL").
 		Order("event_time DESC").
 		Scan(&rows).Error

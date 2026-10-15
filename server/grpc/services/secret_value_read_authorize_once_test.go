@@ -230,6 +230,11 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 			denied := func(code, msg string) func(*models.SecretNode) gvoOutcome {
 				return func(*models.SecretNode) gvoOutcome { return gvoOutcome{Code: code, Msg: msg} }
 			}
+			// A secret-state refusal also writes one failed secret.read naming the
+			// secret (#3273); a permission refusal names none, so rows() sees nothing.
+			refused := func(code, msg string) func(*models.SecretNode) gvoOutcome {
+				return func(*models.SecretNode) gvoOutcome { return gvoOutcome{Code: code, Msg: msg, ReadEvents: 1} }
+			}
 			cases := []struct {
 				name  string
 				who   string
@@ -252,11 +257,11 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 				{"suspended", "dev", func(s *models.SecretNode) {
 					_, err := c.SuspendSecret(ctx, s.ID, w.adminID, "perf-fix-3")
 					require.NoError(t, err)
-				}, denied("FailedPrecondition", "secret is suspended; its value cannot be read until it is resumed")},
+				}, refused("FailedPrecondition", "secret is suspended; its value cannot be read until it is resumed")},
 				{"suspended (machine)", "machine", func(s *models.SecretNode) {
 					_, err := c.SuspendSecret(ctx, s.ID, w.adminID, "perf-fix-3")
 					require.NoError(t, err)
-				}, denied("FailedPrecondition", "secret is suspended; its value cannot be read until it is resumed")},
+				}, refused("FailedPrecondition", "secret is suspended; its value cannot be read until it is resumed")},
 				{"expired", "dev", func(s *models.SecretNode) {
 					// Through Save(), so SecretNode's BeforeSave hook runs (G1619).
 					var row models.SecretNode
@@ -264,15 +269,15 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 					past := time.Now().Add(-time.Minute)
 					row.Expiration = &past
 					require.NoError(t, w.db.Save(&row).Error)
-				}, denied("FailedPrecondition", "secret has expired; its value can no longer be read")},
+				}, refused("FailedPrecondition", "secret has expired; its value can no longer be read")},
 				{"schedule denies", "dev", func(s *models.SecretNode) {
 					_, err := c.SetSecretSchedule(ctx, s.ID, gvoNotTodayOrTomorrow(), 0, 24, "UTC")
 					require.NoError(t, err)
-				}, denied("PermissionDenied", "secret access is not permitted outside the configured time window")},
+				}, refused("PermissionDenied", "secret access is not permitted outside the configured time window")},
 				{"schedule denies (machine)", "machine", func(s *models.SecretNode) {
 					_, err := c.SetSecretSchedule(ctx, s.ID, gvoNotTodayOrTomorrow(), 0, 24, "UTC")
 					require.NoError(t, err)
-				}, denied("PermissionDenied", "secret access is not permitted outside the configured time window")},
+				}, refused("PermissionDenied", "secret access is not permitted outside the configured time window")},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
@@ -290,7 +295,7 @@ func TestGRPCValueReadAuthorizeOnce_Equivalence(t *testing.T) {
 				_, err := c.UpdateSecret(ctx, &core.UpdateSecretRequest{ID: s.ID, MaxReads: &one, UpdatedBy: "owner"})
 				require.NoError(t, err)
 				assert.Equal(t, gvoAllowed(s), w.read(t, "dev", s.ID))
-				assert.Equal(t, gvoOutcome{Code: "FailedPrecondition", Msg: "secret has reached its maximum number of reads"}, w.read(t, "dev", s.ID))
+				assert.Equal(t, gvoOutcome{Code: "FailedPrecondition", Msg: "secret has reached its maximum number of reads", ReadEvents: 1}, w.read(t, "dev", s.ID))
 			})
 
 			t.Run("permission check runs once", func(t *testing.T) {
