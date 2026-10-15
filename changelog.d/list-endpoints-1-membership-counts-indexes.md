@@ -1,0 +1,2 @@
+### Changed
+- **More list endpoints no longer query per row.** The users list (project counts), the project access review, the secrets inventory CSV and the machine audit report now use one batched lookup per kind instead of per user, secret, owner or identity: a 100-user page went from 305 statements to about 15, a 1000-secret access review from 1690 to a few dozen, the machine audit report from 204 to 5. Responses and pagination are unchanged.

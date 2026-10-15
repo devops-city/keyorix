@@ -5,7 +5,7 @@ import { Loading } from '../../components/ui/Loading';
 import { useUIStore } from '../../store/uiStore';
 import { Alert } from '../../components/ui/Alert';
 import { useQuery } from '@tanstack/react-query';
-import { useAuditLog, AuditLogEntry } from '../../features/audit';
+import { useAuditLogFeed, AuditLogEntry, LoadMore, LoadMoreProps } from '../../features/audit';
 import { useAnomalyAlerts, useAcknowledgeAnomaly } from '../../features/dashboard';
 import { useRoles, useGroups } from '../../features/admin';
 import { apiClient } from '../../services/client';
@@ -461,50 +461,6 @@ const AuditTable: React.FC<AuditTableProps> = ({ entries, isDark, isLoading, emp
                     ))}
                 </tbody>
             </table>
-        </div>
-    );
-};
-
-// ─── Pagination ───────────────────────────────────────────────────────────────
-
-interface PaginationProps {
-    page: number;
-    totalPages: number;
-    total: number;
-    pageSize: number;
-    onChange: (p: number) => void;
-}
-
-const Pagination: React.FC<PaginationProps> = ({ page, totalPages, total, pageSize, onChange }) => {
-    if (totalPages <= 1) return null;
-    const from = (page - 1) * pageSize + 1;
-    const to = Math.min(page * pageSize, total);
-    return (
-        <div className="px-5 py-3 border-t border-base flex items-center justify-between">
-            <span className="text-xs text-base-muted tabular-nums">
-                {from}–{to} of {total}
-            </span>
-            <div className="flex items-center gap-2">
-                <button
-                    type="button"
-                    onClick={() => onChange(page - 1)}
-                    disabled={page <= 1}
-                    className="px-3 py-1.5 rounded-md text-xs border border-base bg-surface text-base-secondary hover:bg-subtle disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                    ← Prev
-                </button>
-                <span className="text-xs text-base-muted tabular-nums">
-                    {page} / {totalPages}
-                </span>
-                <button
-                    type="button"
-                    onClick={() => onChange(page + 1)}
-                    disabled={page >= totalPages}
-                    className="px-3 py-1.5 rounded-md text-xs border border-base bg-surface text-base-secondary hover:bg-subtle disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                    Next →
-                </button>
-            </div>
         </div>
     );
 };
@@ -1001,13 +957,6 @@ const TAB_BANNERS: Record<ActiveTab, { title: string; description: string }> = {
     },
 };
 
-interface PageData {
-    page?: number;
-    totalPages?: number;
-    total?: number;
-    pageSize?: number;
-}
-
 interface AuditTabPanelProps {
     error: unknown;
     innerBanner?: React.ReactNode;
@@ -1017,8 +966,7 @@ interface AuditTabPanelProps {
     isDark: boolean;
     isLoading: boolean;
     emptyMessage: string;
-    data: PageData | undefined;
-    onPageChange: (p: number) => void;
+    loadMore: LoadMoreProps;
 }
 
 const AuditTabPanel: React.FC<AuditTabPanelProps> = ({
@@ -1030,8 +978,7 @@ const AuditTabPanel: React.FC<AuditTabPanelProps> = ({
     isDark,
     isLoading,
     emptyMessage,
-    data,
-    onPageChange,
+    loadMore,
 }) => (
     <>
         {!!error && (
@@ -1045,13 +992,7 @@ const AuditTabPanel: React.FC<AuditTabPanelProps> = ({
             {innerBanner}
             <FilterBar {...filterBarProps} resultCount={resultCount} />
             <AuditTable entries={entries} isDark={isDark} isLoading={isLoading} emptyMessage={emptyMessage} />
-            <Pagination
-                page={data?.page ?? 1}
-                totalPages={data?.totalPages ?? 1}
-                total={data?.total ?? 0}
-                pageSize={data?.pageSize ?? 100}
-                onChange={onPageChange}
-            />
+            <LoadMore {...loadMore} />
         </div>
     </>
 );
@@ -1067,9 +1008,16 @@ export const AuditLogPage: React.FC = () => {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [actorTypeFilter, setActorTypeFilter] = useState<ActorTypeFilter>('all');
-    const [page, setPage] = useState(1);
-
-    const { data, isLoading, error } = useAuditLog({ page, pageSize: 100 });
+    const feed = useAuditLogFeed({ pageSize: 100 });
+    const { isLoading, error } = feed;
+    const loadMore: LoadMoreProps = {
+        loaded: feed.entries.length,
+        total: feed.total,
+        totalExact: feed.totalExact,
+        hasMore: !!feed.hasNextPage,
+        isLoadingMore: feed.isFetchingNextPage,
+        onLoadMore: () => void feed.fetchNextPage(),
+    };
     const { data: anomalyData, isLoading: anomalyLoading } = useAnomalyAlerts(false);
     const acknowledgeAnomaly = useAcknowledgeAnomaly();
 
@@ -1106,7 +1054,7 @@ export const AuditLogPage: React.FC = () => {
     const anomalies: AnomalyAlert[] = anomalyData?.data?.alerts ?? [];
     const openCount = anomalies.filter((a) => !a.Acknowledged).length;
 
-    const allEntries: AuditLogEntry[] = data?.data ?? [];
+    const allEntries: AuditLogEntry[] = feed.entries;
 
     // Apply tab-level pre-filter first, then user filters
     const applyFilters = useCallback(
@@ -1185,7 +1133,6 @@ export const AuditLogPage: React.FC = () => {
 
     const resetPageOnTabChange = (tab: ActiveTab) => {
         setActiveTab(tab);
-        setPage(1);
         setActorFilter('');
         setEventTypeFilter('all');
         setActorTypeFilter('all');
@@ -1200,7 +1147,7 @@ export const AuditLogPage: React.FC = () => {
                     <h1 className="text-2xl font-bold text-base-primary tracking-tight">Audit Log</h1>
                     <p className="mt-1 text-sm text-base-muted">
                         Complete record of all secret access and system events
-                        {data?.total ? ` · ${data.total} events` : ''}
+                        {feed.total ? ` · ${feed.total.toLocaleString()}${feed.totalExact ? '' : '+'} events` : ''}
                     </p>
                 </div>
 
@@ -1234,8 +1181,7 @@ export const AuditLogPage: React.FC = () => {
                         isDark={isDark}
                         isLoading={isLoading}
                         emptyMessage="No audit events match the current filters."
-                        data={data}
-                        onPageChange={setPage}
+                        loadMore={loadMore}
                     />
                 )}
 
@@ -1263,8 +1209,7 @@ export const AuditLogPage: React.FC = () => {
                             isDark={isDark}
                             isLoading={isLoading}
                             emptyMessage="No RBAC events recorded. Role assignments, permission grants, and group changes will appear here."
-                            data={data}
-                            onPageChange={setPage}
+                            loadMore={loadMore}
                         />
                     </div>
                 )}

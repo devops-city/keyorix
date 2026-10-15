@@ -6,6 +6,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -418,24 +419,61 @@ func (c *KeyorixCore) getOwnedSecretsWithSharingInfo(ctx context.Context, userID
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
 
+	// The active shares of every owned secret in one pass (LIST-ENDPOINTS-1), not
+	// one ListSharesBySecret per secret: the query count no longer grows with the
+	// number of owned secrets.
+	ids := make([]uint, 0, len(secrets))
+	for _, secret := range secrets {
+		ids = append(ids, secret.ID)
+	}
+	sharesBySecret := make(map[uint][]*models.ShareRecord, len(secrets))
+	now := c.shareEffectiveNow()
+	for start := 0; start < len(ids); start += listBatchSize {
+		end := min(start+listBatchSize, len(ids))
+		batch, berr := c.storage.ListSharesBySecretIDs(ctx, ids[start:end], now)
+		if berr != nil {
+			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), berr)
+		}
+		for _, sh := range batch {
+			sharesBySecret[sh.SecretID] = append(sharesBySecret[sh.SecretID], sh)
+		}
+	}
+
+	// Direct recipients' usernames for the share details, once for the page.
+	var recipientIDs []uint
+	for _, shs := range sharesBySecret {
+		for _, sh := range shs {
+			if !sh.IsGroup {
+				recipientIDs = append(recipientIDs, sh.RecipientID)
+			}
+		}
+	}
+	recipientNames := map[uint]string{}
+	if len(recipientIDs) > 0 {
+		if m, nerr := c.storage.GetUsernamesByIDs(ctx, recipientIDs); nerr == nil {
+			recipientNames = m
+		}
+	}
+
 	var result []*models.SecretWithSharingInfo
 	for _, secret := range secrets {
-		shares, err := c.storage.ListSharesBySecret(ctx, secret.ID, c.shareEffectiveNow())
-		if err != nil {
-			continue
-		}
+		shares := sharesBySecret[secret.ID]
 		s := &models.SecretWithSharingInfo{
 			SecretNode:        secret,
 			IsShared:          len(shares) > 0,
 			IsOwnedByUser:     true,
 			UserPermission:    "",
 			ShareCount:        len(shares),
-			SharingIndicators: c.buildSharingIndicators(secret, shares, true, ""),
+			SharingIndicators: c.buildSharingIndicatorsNamed(secret, shares, true, "", recipientNames),
 		}
 		result = append(result, s)
 	}
 	return result, nil
 }
+
+// listBatchSize bounds one IN (...) list when a listing resolves its rows' related
+// records in batches.
+const listBatchSize = 2000
 
 func (c *KeyorixCore) getSharedSecretsWithSharingInfo(ctx context.Context, userID uint, _ *models.SecretListFilter) ([]*models.SecretWithSharingInfo, error) {
 	shares, err := c.storage.ListSharesByUser(ctx, userID, c.shareEffectiveNow())
@@ -443,21 +481,39 @@ func (c *KeyorixCore) getSharedSecretsWithSharingInfo(ctx context.Context, userI
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
 
+	// Secrets and their owners' names for every share in two batched lookups
+	// (LIST-ENDPOINTS-1), not a GetSecret + GetUser per share. A share whose secret
+	// is gone is skipped, as before; an owner that cannot be resolved shows "".
+	secretIDs := make([]uint, 0, len(shares))
+	for _, share := range shares {
+		secretIDs = append(secretIDs, share.SecretID)
+	}
+	secretsByID, err := c.secretsByIDs(ctx, secretIDs)
+	if err != nil {
+		return nil, err
+	}
+	ownerIDs := make([]uint, 0, len(secretsByID))
+	for _, secret := range secretsByID {
+		ownerIDs = append(ownerIDs, secret.OwnerID)
+	}
+	ownerNames := map[uint]string{}
+	if len(ownerIDs) > 0 {
+		if m, nerr := c.storage.GetUsernamesByIDs(ctx, ownerIDs); nerr == nil {
+			ownerNames = m
+		}
+	}
+
 	var result []*models.SecretWithSharingInfo
 	for _, share := range shares {
-		secret, err := c.storage.GetSecret(ctx, share.SecretID)
-		if err != nil || secret == nil {
+		secret := secretsByID[share.SecretID]
+		if secret == nil {
 			continue
-		}
-		ownerUsername := ""
-		if owner, err := c.storage.GetUser(ctx, secret.OwnerID); err == nil && owner != nil {
-			ownerUsername = owner.Username
 		}
 		s := &models.SecretWithSharingInfo{
 			SecretNode:        secret,
 			IsShared:          true,
 			IsOwnedByUser:     false,
-			OwnerUsername:     ownerUsername,
+			OwnerUsername:     ownerNames[secret.OwnerID],
 			UserPermission:    string(share.Permission),
 			ShareCount:        0,
 			SharingIndicators: c.buildSharingIndicators(secret, nil, false, string(share.Permission)),
@@ -467,34 +523,93 @@ func (c *KeyorixCore) getSharedSecretsWithSharingInfo(ctx context.Context, userI
 	return result, nil
 }
 
+// secretsByIDs loads the secrets for ids in batches of listBatchSize, keyed by id.
+// An id with no row is absent.
+func (c *KeyorixCore) secretsByIDs(ctx context.Context, ids []uint) (map[uint]*models.SecretNode, error) {
+	out := make(map[uint]*models.SecretNode, len(ids))
+	ids = dedupeUints(ids)
+	for start := 0; start < len(ids); start += listBatchSize {
+		end := min(start+listBatchSize, len(ids))
+		batch, err := c.storage.GetSecretsByIDs(ctx, ids[start:end])
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+		}
+		for _, sec := range batch {
+			if sec != nil {
+				out[sec.ID] = sec
+			}
+		}
+	}
+	return out, nil
+}
+
 func (c *KeyorixCore) applySecretFilters(ctx context.Context, secrets []*models.SecretWithSharingInfo, filter *models.SecretListFilter) []*models.SecretWithSharingInfo { // nosemgrep: keyorix-unbounded-bulk-slice-param -- secrets is an already-fetched, storage-bounded listing result, not a raw client-supplied array in one request
-	// Tag filter: require every requested tag (AND). Resolved per secret only when a
-	// tag filter is present, so the common no-tag list path does no extra queries.
+	// Tag filter: require every requested tag (AND). Tags are resolved only when a tag
+	// filter or a search term is present, so the common no-tag list path does no extra
+	// queries -- and then in batches for the whole listing, not one lookup per secret
+	// (LIST-ENDPOINTS-1).
 	want := normalizeTagFilter(filter.Tags)
+	query := ""
+	if filter.Search != nil && *filter.Search != "" {
+		query = strings.ToLower(*filter.Search)
+	}
+	tags := c.listingTags(ctx, secrets, want, query)
 	var out []*models.SecretWithSharingInfo
 	for _, s := range secrets {
-		if c.secretPassesFilters(ctx, s, filter, want) {
+		if c.secretPassesFilters(s, filter, want, query, tags) {
 			out = append(out, s)
 		}
 	}
 	return out
 }
 
+// listingTagLookup is the batch-resolved tag names for a listing. failed means the
+// lookup errored, so the callers' fail-closed / best-effort rules apply to every row.
+type listingTagLookup struct {
+	byID   map[uint][]string
+	failed bool
+}
+
+// listingTags resolves, in batches, the tags of the secrets the filters actually
+// need them for: every secret when a tag filter is present; otherwise only those a
+// search term does not already match by name or description (a name hit costs
+// nothing extra).
+func (c *KeyorixCore) listingTags(ctx context.Context, secrets []*models.SecretWithSharingInfo, want []string, query string) listingTagLookup { // nosemgrep: keyorix-unbounded-bulk-slice-param -- secrets is the storage listing result (bounded by the listing scan cap), not a client-supplied array; the per-item work is in-memory, tag lookups are batched by listBatchSize
+	lookup := listingTagLookup{byID: map[uint][]string{}}
+	if len(want) == 0 && query == "" {
+		return lookup
+	}
+	ids := make([]uint, 0, len(secrets))
+	for _, s := range secrets {
+		if len(want) == 0 && secretMatchesSearchText(s, query) {
+			continue
+		}
+		ids = append(ids, s.ID)
+	}
+	for start := 0; start < len(ids); start += listBatchSize {
+		end := min(start+listBatchSize, len(ids))
+		batch, err := c.storage.GetSecretTagsBySecretIDs(ctx, ids[start:end])
+		if err != nil {
+			return listingTagLookup{byID: map[uint][]string{}, failed: true}
+		}
+		maps.Copy(lookup.byID, batch)
+	}
+	return lookup
+}
+
 // secretPassesFilters reports whether a secret satisfies every list filter that
-// can be decided from the secret ROW alone.
+// can be decided from the secret ROW (and its batch-resolved tags) alone.
 //
 // ShowSharedOnly/ShowOwnedOnly are deliberately NOT here: they depend on sharing
 // metadata that is attached later, and evaluating ShowSharedOnly here against an
 // unpopulated IsShared is precisely the F2 defect. They live in
 // secretPassesSharingFilters, which only runs where the metadata exists.
-func (c *KeyorixCore) secretPassesFilters(ctx context.Context, s *models.SecretWithSharingInfo, filter *models.SecretListFilter, want []string) bool {
-	if len(want) > 0 && !c.secretHasAllTags(ctx, s.ID, want) {
+func (c *KeyorixCore) secretPassesFilters(s *models.SecretWithSharingInfo, filter *models.SecretListFilter, want []string, query string, tags listingTagLookup) bool {
+	if len(want) > 0 && !secretHasAllTags(tags, s.ID, want) {
 		return false
 	}
-	if filter.Search != nil && *filter.Search != "" {
-		if !c.secretMatchesSearch(ctx, s, strings.ToLower(*filter.Search)) {
-			return false
-		}
+	if query != "" && !secretMatchesSearch(s, query, tags) {
+		return false
 	}
 	if filter.Type != nil && *filter.Type != "" && s.Type != *filter.Type {
 		return false
@@ -538,15 +653,14 @@ func normalizeTagFilter(in []string) []string {
 	return out
 }
 
-// secretHasAllTags reports whether the secret carries every tag in want. A storage
-// error is treated as "no match" (fail closed — the secret is excluded).
-func (c *KeyorixCore) secretHasAllTags(ctx context.Context, secretID uint, want []string) bool {
-	have, err := c.storage.GetSecretTags(ctx, secretID)
-	if err != nil {
+// secretHasAllTags reports whether the secret carries every tag in want. A failed tag
+// lookup is treated as "no match" (fail closed -- the secret is excluded).
+func secretHasAllTags(tags listingTagLookup, secretID uint, want []string) bool {
+	if tags.failed {
 		return false
 	}
-	set := make(map[string]bool, len(have))
-	for _, t := range have {
+	set := make(map[string]bool, len(tags.byID[secretID]))
+	for _, t := range tags.byID[secretID] {
 		set[t] = true
 	}
 	for _, w := range want {
@@ -557,22 +671,26 @@ func (c *KeyorixCore) secretHasAllTags(ctx context.Context, secretID uint, want 
 	return true
 }
 
-// secretMatchesSearch reports whether the secret matches the (lower-cased) search
-// query by name, description, or any tag. Name/description are in-memory; tags are
-// looked up only when neither already matched (so the common name-hit costs nothing
-// extra). A tag-lookup error just means tags don't contribute to the match.
-func (c *KeyorixCore) secretMatchesSearch(ctx context.Context, s *models.SecretWithSharingInfo, q string) bool {
+// secretMatchesSearchText reports whether the (lower-cased) query matches the
+// secret's name or description.
+func secretMatchesSearchText(s *models.SecretWithSharingInfo, q string) bool {
 	if strings.Contains(strings.ToLower(s.Name), q) {
 		return true
 	}
-	if s.Description != "" && strings.Contains(strings.ToLower(s.Description), q) {
+	return s.Description != "" && strings.Contains(strings.ToLower(s.Description), q)
+}
+
+// secretMatchesSearch reports whether the secret matches the (lower-cased) search
+// query by name, description, or any tag. A failed tag lookup just means tags don't
+// contribute to the match.
+func secretMatchesSearch(s *models.SecretWithSharingInfo, q string, tags listingTagLookup) bool {
+	if secretMatchesSearchText(s, q) {
 		return true
 	}
-	tags, err := c.storage.GetSecretTags(ctx, s.ID)
-	if err != nil {
+	if tags.failed {
 		return false
 	}
-	for _, t := range tags { // stored tags are already lower-cased
+	for _, t := range tags.byID[s.ID] { // stored tags are already lower-cased
 		if strings.Contains(t, q) {
 			return true
 		}
@@ -686,8 +804,19 @@ func (c *KeyorixCore) getACLGrantedSecretsWithSharingInfo(ctx context.Context, u
 	seen := make(map[uint]bool)
 	var result []*models.SecretWithSharingInfo
 
+	// The granted nodes in batches (LIST-ENDPOINTS-1), not one GetSecret per grant. A
+	// failed lookup fails the listing (like the owned and shared paths) rather than
+	// silently hiding every ACL-granted secret behind a 200.
+	aclSecretIDs := make([]uint, 0, len(acls))
 	for _, acl := range acls {
-		c.applyACLGrant(ctx, acl, filter, seen, &result)
+		aclSecretIDs = append(aclSecretIDs, acl.SecretID)
+	}
+	nodes, nerr := c.secretsByIDs(ctx, aclSecretIDs)
+	if nerr != nil {
+		return nil, nerr
+	}
+	for _, acl := range acls {
+		c.applyACLGrant(ctx, acl, nodes[acl.SecretID], filter, seen, &result)
 	}
 
 	return result, nil
@@ -726,14 +855,13 @@ func (c *KeyorixCore) collectFolderDescendants(ctx context.Context, folderID uin
 
 // applyACLGrant processes a single ACL grant, expanding folder nodes to leaf
 // secrets and appending any un-seen entries to result.
-func (c *KeyorixCore) applyACLGrant(ctx context.Context, acl *models.SecretACL, filter *models.SecretListFilter, seen map[uint]bool, result *[]*models.SecretWithSharingInfo) {
+func (c *KeyorixCore) applyACLGrant(ctx context.Context, acl *models.SecretACL, node *models.SecretNode, filter *models.SecretListFilter, seen map[uint]bool, result *[]*models.SecretWithSharingInfo) {
 	perm := ""
 	if perms := DecodeSecretACLPerms(acl.Permissions); len(perms) > 0 {
 		perm = normaliseACLPerm(perms[0])
 	}
 
-	node, err := c.storage.GetSecret(ctx, acl.SecretID)
-	if err != nil || node == nil {
+	if node == nil {
 		return
 	}
 	if filter.ProjectID != nil && node.ProjectID != *filter.ProjectID {

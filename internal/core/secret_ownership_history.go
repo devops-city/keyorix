@@ -59,6 +59,7 @@ func (c *KeyorixCore) GetSecretOwnershipHistory(ctx context.Context, secretID, a
 		SecretID:  &secretID,
 		Action:    &action,
 		Ascending: true,
+		Count:     storage.AuditCountNone,
 		PageSize:  500,
 	})
 	if err != nil {

@@ -1,0 +1,2 @@
+### Testing
+- `scripts/k8s-e2e/run.sh` gains journey J6 for `secureBaseline.existingSecret` on a real kind cluster: install with a pre-created Secret and two upgrades leave the Secret, certificates and pods unchanged (nothing generated, nothing rolled), and a Secret missing a key fails the upgrade naming it with no PEM in the error. `KEYORIX_K8S_E2E_ONLY=j6` runs it alone; new `scripts/k8s-e2e/README.md`.

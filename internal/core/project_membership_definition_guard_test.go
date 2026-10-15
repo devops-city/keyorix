@@ -340,9 +340,10 @@ func TestProjectMembership_OneDefinition_StorageIsProjectMemberHasOneCaller(t *t
 // deliberately NOT watched: GET /projects/{id}/memberships is the lifecycle
 // endpoint, which is the journal's legitimate reader.
 var journalPerUserReads = map[string]bool{
-	"ListUserProjectMemberships":     true,
-	"GetActiveProjectMembership":     true,
-	"CountProjectMembershipsByUsers": true,
+	"ListUserProjectMemberships":          true,
+	"ListUserProjectMembershipsByUserIDs": true,
+	"GetActiveProjectMembership":          true,
+	"CountProjectMembershipsByUsers":      true,
 }
 
 // journalReadAllowedCallers names every non-test call site of a journalPerUserReads
@@ -350,11 +351,14 @@ var journalPerUserReads = map[string]bool{
 var journalReadAllowedCallers = map[string]string{
 	"internal/core/project_membership_definition.go:journalStateByProject": "the ONE journal read in the membership path, and it is an annotation " +
 		"(lifecycle state on a row whose membership was already decided by the grant), never the membership answer.",
+	"internal/core/project_membership_definition.go:journalStatesForUsers": "journalStateByProject for a page of users (LIST-ENDPOINTS-1): the same " +
+		"annotation read, batched; never the membership answer.",
 	"internal/core/membership_lifecycle.go:inviteMemberWithMode": "ADR-022's own duplicate-invite guard — asks whether a journal row already " +
 		"exists before creating one. A question about the journal, not about membership.",
-	"internal/faultstorage/faulty_storage_generated.go:ListUserProjectMemberships":     "generated fault-injection passthrough; not a semantic call site.",
-	"internal/faultstorage/faulty_storage_generated.go:GetActiveProjectMembership":     "generated fault-injection passthrough; not a semantic call site.",
-	"internal/faultstorage/faulty_storage_generated.go:CountProjectMembershipsByUsers": "generated fault-injection passthrough; not a semantic call site.",
+	"internal/faultstorage/faulty_storage_generated.go:ListUserProjectMemberships":          "generated fault-injection passthrough; not a semantic call site.",
+	"internal/faultstorage/faulty_storage_generated.go:ListUserProjectMembershipsByUserIDs": "generated fault-injection passthrough; not a semantic call site.",
+	"internal/faultstorage/faulty_storage_generated.go:GetActiveProjectMembership":          "generated fault-injection passthrough; not a semantic call site.",
+	"internal/faultstorage/faulty_storage_generated.go:CountProjectMembershipsByUsers":      "generated fault-injection passthrough; not a semantic call site.",
 }
 
 func TestProjectMembership_OneDefinition_JournalReadsAreAllowlisted(t *testing.T) {

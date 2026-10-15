@@ -2511,6 +2511,23 @@ func (w *FaultyStorage) GetGroup(ctx context.Context, id uint) (*models.Group, e
 	return w.real.GetGroup(ctx, id)
 }
 
+func (w *FaultyStorage) GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	fire, kind, injected := w.check("GetGroupNamesByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetGroupNamesByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetGroupNamesByIDs(ctx, ids)
+}
+
 func (w *FaultyStorage) GetGroupRoleGrants(ctx context.Context, groupID uint) ([]*storage.GroupRoleGrant, error) {
 	fire, kind, injected := w.check("GetGroupRoleGrants")
 	if fire {
@@ -2680,6 +2697,23 @@ func (w *FaultyStorage) GetMachineIdentityCredentialWithIdentityStateByHash(ctx 
 		}
 	}
 	return w.real.GetMachineIdentityCredentialWithIdentityStateByHash(ctx, hash)
+}
+
+func (w *FaultyStorage) GetMachineIdentityNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	fire, kind, injected := w.check("GetMachineIdentityNamesByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetMachineIdentityNamesByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetMachineIdentityNamesByIDs(ctx, ids)
 }
 
 func (w *FaultyStorage) GetMachineRoleIDsAt(ctx context.Context, machineID uint, scope storage.Scope) ([]uint, error) {
@@ -3278,6 +3312,23 @@ func (w *FaultyStorage) GetSecretTags(ctx context.Context, secretID uint) ([]str
 	return w.real.GetSecretTags(ctx, secretID)
 }
 
+func (w *FaultyStorage) GetSecretTagsBySecretIDs(ctx context.Context, ids []uint) (map[uint][]string, error) {
+	fire, kind, injected := w.check("GetSecretTagsBySecretIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint][]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetSecretTagsBySecretIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetSecretTagsBySecretIDs(ctx, ids)
+}
+
 func (w *FaultyStorage) GetSecretTemplate(ctx context.Context, id uint) (*models.SecretTemplate, error) {
 	fire, kind, injected := w.check("GetSecretTemplate")
 	if fire {
@@ -3551,6 +3602,23 @@ func (w *FaultyStorage) GetUser(ctx context.Context, id uint) (*models.User, err
 	return w.real.GetUser(ctx, id)
 }
 
+func (w *FaultyStorage) GetUserBriefsByIDs(ctx context.Context, ids []uint) (map[uint]storage.UserBrief, error) {
+	fire, kind, injected := w.check("GetUserBriefsByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]storage.UserBrief
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetUserBriefsByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetUserBriefsByIDs(ctx, ids)
+}
+
 func (w *FaultyStorage) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	fire, kind, injected := w.check("GetUserByEmail")
 	if fire {
@@ -3738,6 +3806,23 @@ func (w *FaultyStorage) GetUserRoleScopes(ctx context.Context, userID uint) ([]s
 	return w.real.GetUserRoleScopes(ctx, userID)
 }
 
+func (w *FaultyStorage) GetUserRoleScopesByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]storage.Scope, error) {
+	fire, kind, injected := w.check("GetUserRoleScopesByUserIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint][]storage.Scope
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetUserRoleScopesByUserIDs(ctx, userIDs)
+			return rv1, injected
+		}
+	}
+	return w.real.GetUserRoleScopesByUserIDs(ctx, userIDs)
+}
+
 func (w *FaultyStorage) GetUserRoles(ctx context.Context, userID uint) ([]*models.Role, error) {
 	fire, kind, injected := w.check("GetUserRoles")
 	if fire {
@@ -3753,6 +3838,23 @@ func (w *FaultyStorage) GetUserRoles(ctx context.Context, userID uint) ([]*model
 		}
 	}
 	return w.real.GetUserRoles(ctx, userID)
+}
+
+func (w *FaultyStorage) GetUsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	fire, kind, injected := w.check("GetUsernamesByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetUsernamesByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetUsernamesByIDs(ctx, ids)
 }
 
 func (w *FaultyStorage) GetWebAuthnCredentialByCredID(ctx context.Context, credentialID []byte, userID uint) (*models.WebAuthnCredential, error) {
@@ -4639,6 +4741,23 @@ func (w *FaultyStorage) ListLiveSecretNamesByProject(ctx context.Context, projec
 	return w.real.ListLiveSecretNamesByProject(ctx, projectIDs, limit)
 }
 
+func (w *FaultyStorage) ListMachineCredentialUsageByMachineIDs(ctx context.Context, machineIDs []uint) (map[uint][]*models.MachineIdentityCredential, error) {
+	fire, kind, injected := w.check("ListMachineCredentialUsageByMachineIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint][]*models.MachineIdentityCredential
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListMachineCredentialUsageByMachineIDs(ctx, machineIDs)
+			return rv1, injected
+		}
+	}
+	return w.real.ListMachineCredentialUsageByMachineIDs(ctx, machineIDs)
+}
+
 func (w *FaultyStorage) ListMachineIdentities(ctx context.Context, projectID uint) ([]*models.MachineIdentity, error) {
 	fire, kind, injected := w.check("ListMachineIdentities")
 	if fire {
@@ -5420,6 +5539,23 @@ func (w *FaultyStorage) ListUserProjectMemberships(ctx context.Context, userID u
 		}
 	}
 	return w.real.ListUserProjectMemberships(ctx, userID)
+}
+
+func (w *FaultyStorage) ListUserProjectMembershipsByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]*models.ProjectMembership, error) {
+	fire, kind, injected := w.check("ListUserProjectMembershipsByUserIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint][]*models.ProjectMembership
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListUserProjectMembershipsByUserIDs(ctx, userIDs)
+			return rv1, injected
+		}
+	}
+	return w.real.ListUserProjectMembershipsByUserIDs(ctx, userIDs)
 }
 
 func (w *FaultyStorage) ListUsers(ctx context.Context, filter *storage.UserFilter) ([]*models.User, int64, error) {
@@ -7467,6 +7603,23 @@ func (w *FaultyStorage) VerifyAuditChain(ctx context.Context, anchor *storage.Au
 		}
 	}
 	return w.real.VerifyAuditChain(ctx, anchor)
+}
+
+func (w *FaultyStorage) VerifyAuditChainSegment(ctx context.Context, seg storage.AuditChainSegment) (*storage.AuditChainVerification, error) {
+	fire, kind, injected := w.check("VerifyAuditChainSegment")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *storage.AuditChainVerification
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.VerifyAuditChainSegment(ctx, seg)
+			return rv1, injected
+		}
+	}
+	return w.real.VerifyAuditChainSegment(ctx, seg)
 }
 
 func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func() error) error {
