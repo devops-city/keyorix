@@ -78,6 +78,10 @@ func newC4World(t *testing.T, backend string) *c4World {
 	}
 	db := open()
 	require.NoError(t, db.AutoMigrate(kxstorage.AllModels()...))
+	// The role->permission generation triggers the real migration installs
+	// (#3259): without them the cache is bypassed and a warm decision costs a
+	// second statement.
+	require.NoError(t, localstore.EnsureRolePermissionsGenerationTriggers(db))
 	w := &c4World{t: t, db: db, core: NewKeyorixCore(localstore.NewLocalStorage(db))}
 	w.replica = func() (*KeyorixCore, *gorm.DB) {
 		rdb := open()

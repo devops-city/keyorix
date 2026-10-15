@@ -870,12 +870,12 @@ func (ls *LocalStorage) RoleSetHasPermission(ctx context.Context, roleIDs []uint
 	// generation, and a revoked permission would keep authorizing until some
 	// unrelated role_permissions edit. Read first, the worst case is a cache
 	// entry under an already-stale generation, which simply never hits.
-	gen, genErr := liveRolePermissionsGeneration(ctx, ls)
+	gen, trusted, genErr := liveRolePermissionsGeneration(ctx, ls)
 	allowed, err := ls.liveRoleSetHasPermission(ctx, roleIDs, permission)
 	if err != nil {
 		return false, err
 	}
-	if genErr == nil {
+	if genErr == nil && trusted {
 		ls.rolePermCache.set(key, rolePermCacheEntry{generation: gen, allowed: allowed})
 	}
 	return allowed, nil
@@ -900,7 +900,8 @@ func (ls *LocalStorage) liveRoleSetHasPermission(ctx context.Context, roleIDs []
 // getCachedRolePermission returns (allowed, true) on a confirmed-current
 // cache hit, or (false, false) on any miss — including a generation-check
 // error (fail closed: never trust the cache over a check that itself
-// failed) and a transaction-scoped store, which must never read the shared
+// failed), a generation the triggers no longer maintain (#3259), and a
+// transaction-scoped store, which must never read the shared
 // cache (see cacheEnabled's doc comment on LocalStorage).
 func (ls *LocalStorage) getCachedRolePermission(ctx context.Context, key string) (bool, bool) {
 	if !ls.cacheEnabled {
@@ -910,8 +911,8 @@ func (ls *LocalStorage) getCachedRolePermission(ctx context.Context, key string)
 	if !ok {
 		return false, false
 	}
-	liveGen, err := liveRolePermissionsGeneration(ctx, ls)
-	if err != nil || liveGen != cached.generation {
+	liveGen, trusted, err := liveRolePermissionsGeneration(ctx, ls)
+	if err != nil || !trusted || liveGen != cached.generation {
 		return false, false
 	}
 	return cached.allowed, true

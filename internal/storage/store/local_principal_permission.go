@@ -23,7 +23,8 @@
 // entry with exactly that generation; a miss runs the live join and publishes
 // under the generation read BEFORE the join; a transaction-scoped store
 // (cacheEnabled false) neither reads nor publishes. Role membership is still
-// never cached. Invalidation (bumpRolePermissionsGenerationTx) is unchanged.
+// never cached. Invalidation: the role_permissions/permissions triggers
+// (role_permission_generation_trigger.go) plus bumpRolePermissionsGenerationTx.
 //
 // If the combined statement fails, both methods fall back to the classic
 // per-statement reads (storage.Compose*PermissionAt), so every failure mode
@@ -38,6 +39,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"gorm.io/gorm"
 )
 
 // userPrincipalPermissionSQL: the two role-id subqueries are GetUserRoleIDsAt's
@@ -45,9 +47,13 @@ import (
 // constants spelled out), and the bypass expression is
 // RoleSetBypassesPermissionChecks' predicate. A role id with no roles row
 // (cannot happen with the FK, but) reads as not bypassing, as the COUNT did.
-const userPrincipalPermissionSQL = `SELECT ids.role_id AS role_id,
+//
+// generation is rolePermGenerationExpr: NULL when the triggers that maintain it
+// are missing (#3259), and the cache is then bypassed.
+func userPrincipalPermissionSQL(db *gorm.DB) string {
+	return `SELECT ids.role_id AS role_id,
  CASE WHEN r.bypasses_permission_checks = ? THEN 1 ELSE 0 END AS bypass,
- gen.value AS generation
+ ` + rolePermGenerationExpr(db, "gen") + ` AS generation
 FROM (
  SELECT user_roles.role_id AS role_id FROM user_roles
   LEFT JOIN projects ON projects.id = user_roles.project_id
@@ -70,10 +76,12 @@ FROM (
 ) ids
 LEFT JOIN roles r ON r.id = ids.role_id
 LEFT JOIN system_metadata gen ON gen.key = ?`
+}
 
 // machinePrincipalPermissionSQL: GetMachineRoleIDsAt's WHERE clauses verbatim.
 // No bypass column: a machine never bypasses (ADR-030).
-const machinePrincipalPermissionSQL = `SELECT ids.role_id AS role_id, 0 AS bypass, gen.value AS generation
+func machinePrincipalPermissionSQL(db *gorm.DB) string {
+	return `SELECT ids.role_id AS role_id, 0 AS bypass, ` + rolePermGenerationExpr(db, "gen") + ` AS generation
 FROM (
  SELECT DISTINCT machine_identity_roles.role_id AS role_id FROM machine_identity_roles
   LEFT JOIN projects ON projects.id = machine_identity_roles.project_id
@@ -83,6 +91,7 @@ FROM (
    AND (machine_identity_roles.environment_id = 0 OR (machine_identity_roles.environment_id = ? AND environments.deleted_at IS NULL))
 ) ids
 LEFT JOIN system_metadata gen ON gen.key = ?`
+}
 
 type principalPermissionRow struct {
 	RoleID     uint
@@ -95,7 +104,7 @@ type principalPermissionRow struct {
 func (ls *LocalStorage) ResolveUserPermissionAt(ctx context.Context, userID uint, scope storage.Scope, permission string) (*storage.PrincipalPermission, error) {
 	now := ls.rbacEffectiveNow(time.Now().UTC())
 	var rows []principalPermissionRow
-	if err := ls.db.WithContext(ctx).Raw(userPrincipalPermissionSQL,
+	if err := ls.db.WithContext(ctx).Raw(userPrincipalPermissionSQL(ls.db),
 		true,
 		userID, scope.ProjectID, scope.EnvironmentID, now,
 		userID, scope.ProjectID, scope.ProjectID, scope.EnvironmentID, now,
@@ -120,7 +129,7 @@ func (ls *LocalStorage) ResolveMachinePermissionAt(ctx context.Context, machineI
 		}
 	}
 	var rows []principalPermissionRow
-	if err := ls.db.WithContext(ctx).Raw(machinePrincipalPermissionSQL,
+	if err := ls.db.WithContext(ctx).Raw(machinePrincipalPermissionSQL(ls.db),
 		machineID, scope.ProjectID, scope.EnvironmentID,
 		rolePermissionsGenerationKey,
 	).Scan(&rows).Error; err != nil {
@@ -132,7 +141,9 @@ func (ls *LocalStorage) ResolveMachinePermissionAt(ctx context.Context, machineI
 // resolvePrincipalPermission turns the one-statement rows into the result and,
 // when the set is non-empty and does not bypass, answers the permission under
 // the generation those rows carry. A never-bumped install has no generation
-// row: "" (liveRolePermissionsGeneration's value for that case).
+// row: "" (liveRolePermissionsGeneration's value for that case). A NULL
+// generation means the triggers that maintain it are missing (#3259): the
+// cache can't be validated, so the live join answers and nothing is cached.
 func (ls *LocalStorage) resolvePrincipalPermission(ctx context.Context, rows []principalPermissionRow, permission string, userBypass bool) (*storage.PrincipalPermission, error) {
 	out := &storage.PrincipalPermission{}
 	if len(rows) == 0 {
@@ -152,11 +163,13 @@ func (ls *LocalStorage) resolvePrincipalPermission(ctx context.Context, rows []p
 	if out.BypassesPermissionChecks {
 		return out, nil
 	}
-	gen := ""
-	if rows[0].Generation != nil {
-		gen = *rows[0].Generation
+	var allowed bool
+	var err error
+	if rows[0].Generation == nil {
+		allowed, err = ls.liveRoleSetHasPermission(ctx, out.RoleIDs, permission)
+	} else {
+		allowed, err = ls.roleSetHasPermissionUnderGeneration(ctx, out.RoleIDs, permission, *rows[0].Generation)
 	}
-	allowed, err := ls.roleSetHasPermissionUnderGeneration(ctx, out.RoleIDs, permission, gen)
 	if err != nil {
 		return nil, err
 	}
