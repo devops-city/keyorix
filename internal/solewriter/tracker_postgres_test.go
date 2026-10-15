@@ -144,7 +144,8 @@ func TestTracker_CanaryCatchesAWriteTheTrackerMissed(t *testing.T) {
 	db := stdlibOpen(cc)
 	t.Cleanup(func() { _ = db.Close() })
 	g0 := tr.Gen()
-	_, err = db.ExecContext(context.Background(), "UPDATE roles SET description = description")
+	// A row it reaches: the guards are per row, so a zero-row write moves nothing.
+	_, err = db.ExecContext(context.Background(), "UPDATE projects SET name = name")
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return g.UnattributedBumps() == 1 }, 3*time.Second, 20*time.Millisecond)
 	require.Greater(t, tr.Gen(), g0, "the epoch move must flush every entry")

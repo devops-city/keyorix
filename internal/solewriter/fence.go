@@ -50,12 +50,18 @@ func FencedTableNames() []string {
 	return out
 }
 
+// coveredTableNames are the tables whose rows the fence protects: the fenced
+// tables and this package's own two.
+func coveredTableNames() []string {
+	return append(FencedTableNames(), HolderTable, EpochTable)
+}
+
 // ensureOwnTables creates the holder and epoch tables (not GORM models: only
 // this package reads or writes them).
-func ensureOwnTables(ctx context.Context, conn *sql.Conn) error {
+func ensureOwnTables(ctx context.Context, conn *sql.Conn, schema string) error {
 	for _, s := range []string{
-		`CREATE TABLE IF NOT EXISTS ` + HolderTable + ` (id integer PRIMARY KEY CHECK (id = 1), holder_pid integer, nonce_hash text, since timestamptz, boot_id text)`,
-		`CREATE TABLE IF NOT EXISTS ` + EpochTable + ` (id integer PRIMARY KEY CHECK (id = 1), incarnation text NOT NULL, n bigint NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS ` + qualify(schema, HolderTable) + ` (id integer PRIMARY KEY CHECK (id = 1), holder_pid integer, nonce_hash text, since timestamptz, boot_id text)`,
+		`CREATE TABLE IF NOT EXISTS ` + qualify(schema, EpochTable) + ` (id integer PRIMARY KEY CHECK (id = 1), incarnation text NOT NULL, n bigint NOT NULL)`,
 	} {
 		if _, err := conn.ExecContext(ctx, s); err != nil {
 			return fmt.Errorf("single_writer: create %s: %w", strings.Fields(s)[5], err)
@@ -63,6 +69,13 @@ func ensureOwnTables(ctx context.Context, conn *sql.Conn) error {
 	}
 	return nil
 }
+
+// funcSearchPath is every fence function's own search_path (CREATE FUNCTION
+// ... SET). pg_catalog first and pg_temp named last: a temp table cannot
+// shadow a catalog, and functions and operators are never looked up in
+// pg_temp. The bodies qualify every relation and function as well; the
+// setting is what also pins the operators (=, +, &, ...) and type names.
+const funcSearchPath = "pg_catalog, pg_temp"
 
 // checkFuncBody raises when a live holder exists and the session is not one
 // of its own. Shared by the guard and fence-only trigger functions.
@@ -73,11 +86,11 @@ DECLARE
   hhash text;
   hsince timestamptz;
 BEGIN
-  EXECUTE format('SELECT holder_pid, nonce_hash, since FROM %I.` + HolderTable + ` WHERE id = 1', sch) INTO hpid, hhash, hsince;
+  EXECUTE pg_catalog.format('SELECT holder_pid, nonce_hash, since FROM %I.` + HolderTable + ` WHERE id = 1', sch) INTO hpid, hhash, hsince;
   IF hpid IS NULL THEN
     RETURN;
   END IF;
-  IF hhash = encode(sha256(convert_to(coalesce(current_setting('` + config.SoleWriterSessionSetting + `', true), ''), 'UTF8')), 'hex') THEN
+  IF hhash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(coalesce(pg_catalog.current_setting('` + config.SoleWriterSessionSetting + `', true), ''), 'UTF8')), 'hex') THEN
     RETURN;
   END IF;
   IF NOT ` + lockHeldExpr("hpid", "sch") + ` THEN
@@ -91,14 +104,22 @@ END;
 }
 
 // The function bodies, exactly as installed (the census compares their md5).
-// Every object they touch is qualified with the fired table's schema, never
-// resolved through the writer's search_path: an operator's session on another
-// search_path must meet this schema's fence and epoch.
+// Every Keyorix object they touch is qualified with the fired table's schema,
+// never resolved through the writer's search_path: an operator's session on
+// another search_path must meet this schema's fence and epoch. Every catalog
+// object and function is qualified with pg_catalog (and funcSearchPath pins
+// the rest).
+//
+// The guard runs per row (see triggerSpecs), so it bumps the epoch once per
+// transaction rather than once per row: the UPDATE skips the row when this
+// transaction already wrote it (its xmin is ours). A bump inside a
+// subtransaction carries the subtransaction's xid, so the next row bumps again,
+// which is only an extra bump.
 func guardFuncBody() string {
 	return `
 BEGIN
-  EXECUTE format('SELECT %I.` + checkFunc + `($1)', TG_TABLE_SCHEMA) USING TG_TABLE_SCHEMA::text;
-  EXECUTE format('UPDATE %I.` + EpochTable + ` SET n = n + 1 WHERE id = 1', TG_TABLE_SCHEMA);
+  EXECUTE pg_catalog.format('SELECT %I.` + checkFunc + `($1)', TG_TABLE_SCHEMA) USING TG_TABLE_SCHEMA::text;
+  EXECUTE pg_catalog.format('UPDATE %I.` + EpochTable + ` SET n = n + 1 WHERE id = 1 AND xmin <> pg_catalog.xid(pg_catalog.pg_current_xact_id())', TG_TABLE_SCHEMA);
   RETURN NULL;
 END;
 `
@@ -107,7 +128,7 @@ END;
 func fenceOnlyFuncBody() string {
 	return `
 BEGIN
-  EXECUTE format('SELECT %I.` + checkFunc + `($1)', TG_TABLE_SCHEMA) USING TG_TABLE_SCHEMA::text;
+  EXECUTE pg_catalog.format('SELECT %I.` + checkFunc + `($1)', TG_TABLE_SCHEMA) USING TG_TABLE_SCHEMA::text;
   RETURN NULL;
 END;
 `
@@ -119,23 +140,38 @@ type triggerSpec struct {
 	name, table, events, rest string
 }
 
-func (t triggerSpec) create() string {
-	return "CREATE TRIGGER " + t.name + " AFTER " + t.events + " ON " + t.table + " " + t.rest
+func (t triggerSpec) create(schema string) string {
+	return "CREATE TRIGGER " + t.name + " AFTER " + t.events + " ON " + qualify(schema, t.table) + " " + t.rest
 }
 
-// triggerSpecs derives every fence trigger from FencedTables.
-func triggerSpecs() []triggerSpec {
+// triggerSpecs derives every fence trigger from FencedTables, for the tables
+// and functions in schema.
+//
+// INSERT, UPDATE and DELETE are guarded FOR EACH ROW, never only per
+// statement: a statement-level trigger fires only for the table the statement
+// names, so a write that reaches a fenced table's rows through a parent
+// (ALTER TABLE ... INHERIT, ATTACH PARTITION) would fire none
+// (REVIEW-SINGLE-WRITER-2 N2). Row triggers fire on the table that holds the
+// row, whichever table the statement named. TRUNCATE has no row form; a
+// TRUNCATE of a parent fires the statement-level TRUNCATE trigger of every
+// child it truncates. The census also refuses any inheritance involving a
+// fenced table (fingerprintSQL, InstallFence).
+func triggerSpecs(schema string) []triggerSpec {
 	var out []triggerSpec
-	stmt := "FOR EACH STATEMENT EXECUTE PROCEDURE " + guardFunc + "()"
+	exec := func(fn string) string { return "EXECUTE PROCEDURE " + qualify(schema, fn) + "()" }
+	stmt := "FOR EACH STATEMENT " + exec(guardFunc)
 	row := func(when string) string {
-		return "FOR EACH ROW WHEN (" + when + ") EXECUTE PROCEDURE " + guardFunc + "()"
+		if when == "" {
+			return "FOR EACH ROW " + exec(guardFunc)
+		}
+		return "FOR EACH ROW WHEN (" + when + ") " + exec(guardFunc)
 	}
 	for _, t := range FencedTables {
+		out = append(out, triggerSpec{TriggerPrefix + "guard", t.Name, "TRUNCATE", stmt})
 		switch {
 		case t.Key != "":
 			k := "'" + t.Key + "'"
 			out = append(out,
-				triggerSpec{TriggerPrefix + "guard", t.Name, "TRUNCATE", stmt},
 				triggerSpec{TriggerPrefix + "guard_ins", t.Name, "INSERT", row("NEW.key = " + k)},
 				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "UPDATE", row("OLD.key = " + k + " OR NEW.key = " + k)},
 				triggerSpec{TriggerPrefix + "guard_del", t.Name, "DELETE", row("OLD.key = " + k)})
@@ -145,23 +181,27 @@ func triggerSpecs() []triggerSpec {
 				minus += " - '" + c + "'"
 			}
 			out = append(out,
-				triggerSpec{TriggerPrefix + "guard", t.Name, "INSERT OR DELETE OR TRUNCATE", stmt},
-				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "UPDATE", row("(to_jsonb(OLD)" + minus + ") IS DISTINCT FROM (to_jsonb(NEW)" + minus + ")")})
+				triggerSpec{TriggerPrefix + "guard_row", t.Name, "INSERT OR DELETE", row("")},
+				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "UPDATE", row("(pg_catalog.to_jsonb(OLD)" + minus + ") IS DISTINCT FROM (pg_catalog.to_jsonb(NEW)" + minus + ")")})
 		default:
-			out = append(out, triggerSpec{TriggerPrefix + "guard", t.Name, "INSERT OR UPDATE OR DELETE OR TRUNCATE", stmt})
+			out = append(out, triggerSpec{TriggerPrefix + "guard_row", t.Name, "INSERT OR UPDATE OR DELETE", row("")})
 		}
 	}
 	for _, own := range []string{HolderTable, EpochTable} {
-		out = append(out, triggerSpec{TriggerPrefix + "fence", own, "INSERT OR UPDATE OR DELETE OR TRUNCATE",
-			"FOR EACH STATEMENT EXECUTE PROCEDURE " + fenceOnlyFunc + "()"})
+		out = append(out,
+			triggerSpec{TriggerPrefix + "fence", own, "TRUNCATE", "FOR EACH STATEMENT " + exec(fenceOnlyFunc)},
+			triggerSpec{TriggerPrefix + "fence_row", own, "INSERT OR UPDATE OR DELETE", "FOR EACH ROW " + exec(fenceOnlyFunc)})
 	}
 	return out
 }
 
-// fingerprintSQL fingerprints every fence trigger in the current schema (its
-// full definition, enabled state and catalog row version), the three
-// functions (body and row version), and every table that inherits from a
-// fenced table.
+// fingerprintSQL fingerprints, in schema $1 (covered tables $2, see
+// coveredTableNames): every fence trigger (its full definition, enabled state
+// and catalog row version), the three functions (body, settings and row
+// version), every inheritance or partition link with a covered table on
+// either side, and every column of a covered table (name, type and row
+// version). Every name is qualified; run it on a session whose search_path is
+// pinned (pinSessionSchema), which also fixes pg_get_triggerdef's output.
 //
 // The row version (xmin) is what catches a change that is undone before
 // anyone looks: DISABLE TRIGGER; write; ENABLE ALWAYS TRIGGER in one
@@ -175,20 +215,32 @@ func triggerSpecs() []triggerSpec {
 //
 // A child table (CREATE TABLE ... INHERITS, ALTER TABLE ... INHERIT) is read
 // through its parent, but the parent's triggers do not fire for writes to the
-// child, so a child of a fenced table is tampering too.
-const fingerprintSQL = `SELECT md5(
-  coalesce((SELECT string_agg(c.relname || ':' || pg_get_triggerdef(t.oid) || ':' || t.tgenabled::text || ':' || t.xmin::text, E'\n' ORDER BY c.relname, t.tgname)
-    FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'), '')
+// child, so a child of a fenced table is tampering too. So is a fenced table
+// made the child or partition of a new parent: the row-level guards still
+// fire through it, but nothing the server does needs it.
+//
+// The columns catch DDL that changes stored or read values with no DML
+// trigger firing: ALTER COLUMN ... TYPE ... USING rewrites every row, RENAME
+// COLUMN swaps what a name reads. Each rewrites the pg_attribute row. VACUUM
+// FULL, CLUSTER, CREATE INDEX and ANALYZE do not touch pg_attribute.
+const fingerprintSQL = `SELECT pg_catalog.md5(
+  coalesce((SELECT pg_catalog.string_agg(c.relname || ':' || pg_catalog.pg_get_triggerdef(t.oid) || ':' || t.tgenabled::text || ':' || t.xmin::text, E'\n' ORDER BY c.relname, t.tgname)
+    FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1 AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'), '')
   || '|' ||
-  coalesce((SELECT string_agg(p.proname || ':' || md5(p.prosrc) || ':' || p.xmin::text, ',' ORDER BY p.proname)
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = current_schema() AND p.proname LIKE 'keyorix\_sole\_writer\_%'), '')
+  coalesce((SELECT pg_catalog.string_agg(p.proname || ':' || pg_catalog.md5(p.prosrc) || ':' || coalesce(pg_catalog.array_to_string(p.proconfig, ';'), '') || ':' || p.prosecdef::text || ':' || p.xmin::text, ',' ORDER BY p.proname)
+    FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = $1 AND p.proname LIKE 'keyorix\_sole\_writer\_%'), '')
   || '|' ||
-  coalesce((SELECT string_agg(i.inhparent::text || '<' || i.inhrelid::text, ',' ORDER BY i.inhparent, i.inhrelid)
-    FROM pg_inherits i WHERE i.inhparent IN (
-      SELECT t.tgrelid FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%')), ''))`
+  coalesce((SELECT pg_catalog.string_agg(i.inhparent::text || '<' || i.inhrelid::text, ',' ORDER BY i.inhparent, i.inhrelid)
+    FROM pg_catalog.pg_inherits i WHERE i.inhparent IN (` + coveredOIDsSQL + `) OR i.inhrelid IN (` + coveredOIDsSQL + `)), '')
+  || '|' ||
+  coalesce((SELECT pg_catalog.string_agg(a.attrelid::text || '.' || a.attnum::text || ':' || a.attname || ':' || a.atttypid::text || ':' || a.xmin::text, ',' ORDER BY a.attrelid, a.attnum)
+    FROM pg_catalog.pg_attribute a WHERE a.attnum > 0 AND a.attrelid IN (` + coveredOIDsSQL + `)), ''))`
+
+// coveredOIDsSQL selects the oids of the covered tables ($2) in schema $1.
+const coveredOIDsSQL = `SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = $1 AND c.relname = ANY ($2::text[])`
 
 // InstallFence installs (or converges) the fence and epoch triggers on every
 // fenced table and records the fingerprint the poller will compare against.
@@ -204,9 +256,10 @@ func (g *Guard) InstallFence(ctx context.Context) error {
 		_, err := tx.ExecContext(ctx, q, args...)
 		return err
 	}
+	sch := g.schema
 	for _, t := range FencedTables {
 		var ok bool
-		if err := tx.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", t.Name).Scan(&ok); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.to_regclass($1) IS NOT NULL", qualify(sch, t.Name)).Scan(&ok); err != nil {
 			return err
 		}
 		if !ok {
@@ -219,24 +272,24 @@ func (g *Guard) InstallFence(ctx context.Context) error {
 		{fenceOnlyFunc, "()", "trigger", fenceOnlyFuncBody()},
 	}
 	for _, f := range fns {
-		if err := exec("CREATE OR REPLACE FUNCTION " + f.name + f.sig + " RETURNS " + f.ret + " LANGUAGE plpgsql AS $keyorix$" + f.body + "$keyorix$"); err != nil {
+		if err := exec("CREATE OR REPLACE FUNCTION " + qualify(sch, f.name) + f.sig + " RETURNS " + f.ret + " LANGUAGE plpgsql SET search_path = " + funcSearchPath + " AS $keyorix$" + f.body + "$keyorix$"); err != nil {
 			return fmt.Errorf("single_writer: create %s: %w", f.name, err)
 		}
 	}
-	specs := triggerSpecs()
+	specs := triggerSpecs(sch)
 	for _, s := range specs {
 		var state sql.NullString
-		err := tx.QueryRowContext(ctx, "SELECT tgenabled::text FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = to_regclass($1) AND tgname = $2", s.table, s.name).Scan(&state)
+		err := tx.QueryRowContext(ctx, "SELECT tgenabled::text FROM pg_catalog.pg_trigger WHERE NOT tgisinternal AND tgrelid = pg_catalog.to_regclass($1) AND tgname = $2", qualify(sch, s.table), s.name).Scan(&state)
 		if err != nil && err != sql.ErrNoRows {
 			return err
 		}
 		if !state.Valid {
-			if err := exec(s.create()); err != nil {
+			if err := exec(s.create(sch)); err != nil {
 				return fmt.Errorf("single_writer: create %s on %s: %w", s.name, s.table, err)
 			}
 		}
 		if state.String != "A" {
-			if err := exec("ALTER TABLE " + s.table + " ENABLE ALWAYS TRIGGER " + s.name); err != nil {
+			if err := exec("ALTER TABLE " + qualify(sch, s.table) + " ENABLE ALWAYS TRIGGER " + s.name); err != nil {
 				return fmt.Errorf("single_writer: enable %s on %s: %w", s.name, s.table, err)
 			}
 		}
@@ -245,7 +298,7 @@ func (g *Guard) InstallFence(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := exec(`INSERT INTO `+EpochTable+` (id, incarnation, n) VALUES (1, $1, 0) ON CONFLICT (id) DO UPDATE SET incarnation = EXCLUDED.incarnation`, incarnation); err != nil {
+	if err := exec(`INSERT INTO `+qualify(sch, EpochTable)+` (id, incarnation, n) VALUES (1, $1, 0) ON CONFLICT (id) DO UPDATE SET incarnation = EXCLUDED.incarnation`, incarnation); err != nil {
 		return fmt.Errorf("single_writer: initialise the write epoch: %w", err)
 	}
 	// Verify what is now installed, inside the same transaction: every
@@ -254,9 +307,7 @@ func (g *Guard) InstallFence(ctx context.Context) error {
 	// would show up in the fingerprint only, so recreate-on-mismatch is not
 	// attempted: refuse, and the operator drops it (the message says how).
 	var n, always int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*), count(*) FILTER (WHERE t.tgenabled = 'A')
-FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
-WHERE ns.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'`).Scan(&n, &always); err != nil {
+	if err := tx.QueryRowContext(ctx, fenceCountSQL, sch).Scan(&n, &always); err != nil {
 		return err
 	}
 	if n != len(specs) || always != len(specs) {
@@ -264,36 +315,39 @@ WHERE ns.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'tr
 	}
 	for _, s := range specs {
 		var def string
-		if err := tx.QueryRowContext(ctx, "SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid = to_regclass($1) AND tgname = $2", s.table, s.name).Scan(&def); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.pg_get_triggerdef(oid) FROM pg_catalog.pg_trigger WHERE tgrelid = pg_catalog.to_regclass($1) AND tgname = $2", qualify(sch, s.table), s.name).Scan(&def); err != nil {
 			return err
 		}
 		if !triggerDefMatches(def, s) {
 			return fmt.Errorf("single_writer: fence trigger %s on %s has an unexpected definition (%s); drop it (DROP TRIGGER %s ON %s) and restart", s.name, s.table, def, s.name, s.table)
 		}
 	}
-	// A table inheriting from a fenced one takes writes the fence never sees
-	// (see fingerprintSQL); the fingerprint only notices one added later.
-	var children string
-	if err := tx.QueryRowContext(ctx, `SELECT coalesce(string_agg(i.inhrelid::regclass::text || ' INHERITS ' || i.inhparent::regclass::text, ', '), '')
-FROM pg_inherits i WHERE i.inhparent IN (SELECT to_regclass(x) FROM unnest($1::text[]) AS x)`, FencedTableNames()).Scan(&children); err != nil {
+	// A table inheriting from a fenced one takes writes the fence never sees,
+	// and a fenced table with a parent has no business having one (see
+	// fingerprintSQL); the fingerprint only notices a link added later.
+	var links string
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(pg_catalog.string_agg(ch.relname || ' INHERITS ' || pa.relname, ', ' ORDER BY ch.relname, pa.relname), '')
+FROM pg_catalog.pg_inherits i JOIN pg_catalog.pg_class ch ON ch.oid = i.inhrelid JOIN pg_catalog.pg_class pa ON pa.oid = i.inhparent
+WHERE i.inhparent IN (`+coveredOIDsSQL+`) OR i.inhrelid IN (`+coveredOIDsSQL+`)`, sch, coveredTableNames()).Scan(&links); err != nil {
 		return err
 	}
-	if children != "" {
-		return fmt.Errorf("single_writer: a fenced table has a child table (%s): writes to it bypass the fence; remove the inheritance and restart", children)
+	if links != "" {
+		return fmt.Errorf("single_writer: a fenced table has a child or a parent table (%s): writes through it bypass statement-level checks and a child's rows bypass the fence; remove the inheritance and restart", links)
 	}
 	var fp string
-	if err := tx.QueryRowContext(ctx, fingerprintSQL).Scan(&fp); err != nil {
+	if err := tx.QueryRowContext(ctx, fingerprintSQL, sch, coveredTableNames()).Scan(&fp); err != nil {
 		return err
 	}
 	var epoch int64
-	if err := tx.QueryRowContext(ctx, "SELECT n FROM "+EpochTable+" WHERE id = 1").Scan(&epoch); err != nil {
+	var epochXmin string
+	if err := tx.QueryRowContext(ctx, "SELECT n, xmin::text FROM "+qualify(sch, EpochTable)+" WHERE id = 1").Scan(&epoch, &epochXmin); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("single_writer: install the fence: %w", err)
 	}
 	g.mu.Lock()
-	g.fingerprint, g.incarnation, g.epoch = fp, incarnation, epoch
+	g.fingerprint, g.incarnation, g.epoch, g.epochXmin = fp, incarnation, epoch, epochXmin
 	g.mu.Unlock()
 	return nil
 }
@@ -350,12 +404,12 @@ func HolderLive(ctx context.Context, cfg *config.Config) (bool, int, error) {
 	if st := cfg.Storage.Type; st != "postgres" && st != "postgresql" {
 		return false, 0, nil
 	}
-	db, conn, err := openOne(ctx, cfg)
+	db, conn, schema, err := openOne(ctx, cfg)
 	if err != nil {
 		return false, 0, err
 	}
 	defer func() { _ = conn.Close(); _ = db.Close() }()
-	pid, err := holderPID(ctx, conn)
+	pid, err := holderPID(ctx, conn, schema)
 	return pid != 0, pid, err
 }
 
@@ -368,26 +422,26 @@ func CheckOff(ctx context.Context, cfg *config.Config) error {
 	if st := cfg.Storage.Type; st != "postgres" && st != "postgresql" {
 		return nil
 	}
-	db, conn, err := openOne(ctx, cfg)
+	db, conn, schema, err := openOne(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = conn.Close(); _ = db.Close() }()
-	pid, err := holderPID(ctx, conn)
+	pid, err := holderPID(ctx, conn, schema)
 	if err != nil {
 		return fmt.Errorf("single_writer: check for a single-writer server: %w", err)
 	}
 	if pid != 0 {
 		return fmt.Errorf("a Keyorix server running with storage.database.single_writer holds this database (backend pid %d); it must be the only server. Stop it first, or remove this server", pid)
 	}
-	return removeFence(ctx, conn)
+	return removeFence(ctx, conn, schema)
 }
 
 // removeFence drops every fence trigger, the functions and the two tables, in
 // one transaction, only if any exist.
-func removeFence(ctx context.Context, conn *sql.Conn) error {
-	rows, err := conn.QueryContext(ctx, `SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'`)
+func removeFence(ctx context.Context, conn *sql.Conn, schema string) error {
+	rows, err := conn.QueryContext(ctx, `SELECT c.relname, t.tgname FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'`, schema)
 	if err != nil {
 		return err
 	}
@@ -398,13 +452,13 @@ JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema()
 			_ = rows.Close()
 			return err
 		}
-		drops = append(drops, "DROP TRIGGER "+quoteIdent(name)+" ON "+quoteIdent(rel))
+		drops = append(drops, "DROP TRIGGER "+quoteIdent(name)+" ON "+qualify(schema, rel))
 	}
 	if err := rows.Close(); err != nil {
 		return err
 	}
 	var tables int
-	if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relname IN ("+quoteList([]string{HolderTable, EpochTable})+")").Scan(&tables); err != nil {
+	if err := conn.QueryRowContext(ctx, "SELECT pg_catalog.count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname IN ("+quoteList([]string{HolderTable, EpochTable})+")", schema).Scan(&tables); err != nil {
 		return err
 	}
 	if len(drops) == 0 && tables == 0 {
@@ -416,8 +470,9 @@ JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema()
 	}
 	defer func() { _ = tx.Rollback() }()
 	drops = append(drops,
-		"DROP FUNCTION IF EXISTS "+guardFunc+"()", "DROP FUNCTION IF EXISTS "+fenceOnlyFunc+"()", "DROP FUNCTION IF EXISTS "+checkFunc+"(text)",
-		"DROP TABLE IF EXISTS "+HolderTable, "DROP TABLE IF EXISTS "+EpochTable)
+		"DROP FUNCTION IF EXISTS "+qualify(schema, guardFunc)+"()", "DROP FUNCTION IF EXISTS "+qualify(schema, fenceOnlyFunc)+"()",
+		"DROP FUNCTION IF EXISTS "+qualify(schema, checkFunc)+"(text)",
+		"DROP TABLE IF EXISTS "+qualify(schema, HolderTable), "DROP TABLE IF EXISTS "+qualify(schema, EpochTable))
 	for _, d := range drops {
 		if _, err := tx.ExecContext(ctx, d); err != nil {
 			return fmt.Errorf("single_writer: remove the fence left by an earlier single-writer boot (%s): %w", d, err)
@@ -432,20 +487,27 @@ JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema()
 
 func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 
-// openOne opens a one-connection pool for a short check.
-func openOne(ctx context.Context, cfg *config.Config) (*sql.DB, *sql.Conn, error) {
+// openOne opens a one-connection pool for a short check, with its
+// search_path pinned (pinSessionSchema), and returns the schema.
+func openOne(ctx context.Context, cfg *config.Config) (*sql.DB, *sql.Conn, string, error) {
 	cc, err := config.ResolvePostgresConnConfig(&cfg.Storage.Database)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	db := stdlibOpen(cc)
 	db.SetMaxOpenConns(1)
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		_ = db.Close()
-		return nil, nil, err
+		return nil, nil, "", err
 	}
-	return db, conn, nil
+	schema, err := pinSessionSchema(ctx, conn)
+	if err != nil {
+		_ = conn.Close()
+		_ = db.Close()
+		return nil, nil, "", err
+	}
+	return db, conn, schema, nil
 }
 
 // FenceReport is the installed fence as seen from outside the server (the
@@ -471,22 +533,20 @@ func (r FenceReport) Complete() bool {
 
 // InspectFence reads the fence's state without changing anything.
 func InspectFence(ctx context.Context, cfg *config.Config) (FenceReport, error) {
-	rep := FenceReport{Expected: len(triggerSpecs())}
+	rep := FenceReport{Expected: len(triggerSpecs(""))}
 	if st := cfg.Storage.Type; st != "postgres" && st != "postgresql" {
 		return rep, nil
 	}
-	db, conn, err := openOne(ctx, cfg)
+	db, conn, schema, err := openOne(ctx, cfg)
 	if err != nil {
 		return rep, err
 	}
 	defer func() { _ = conn.Close(); _ = db.Close() }()
-	if rep.HolderPID, err = holderPID(ctx, conn); err != nil {
+	if rep.HolderPID, err = holderPID(ctx, conn, schema); err != nil {
 		return rep, err
 	}
 	rep.HolderLive = rep.HolderPID != 0
-	err = conn.QueryRowContext(ctx, `SELECT count(*), count(*) FILTER (WHERE t.tgenabled = 'A')
-FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
-WHERE ns.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'`).Scan(&rep.Triggers, &rep.Always)
+	err = conn.QueryRowContext(ctx, fenceCountSQL, schema).Scan(&rep.Triggers, &rep.Always)
 	if err != nil {
 		return rep, err
 	}
@@ -494,7 +554,12 @@ WHERE ns.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'tr
 	return rep, err
 }
 
+// fenceCountSQL counts the fence triggers in schema $1, and those ENABLE ALWAYS.
+const fenceCountSQL = `SELECT pg_catalog.count(*), pg_catalog.count(*) FILTER (WHERE t.tgenabled = 'A')
+FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace ns ON ns.oid = c.relnamespace
+WHERE ns.nspname = $1 AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'`
+
 // belowSQLQuery reports whether the session's role can reach below SQL.
-const belowSQLQuery = `SELECT r.rolsuper OR pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER')
-  OR pg_has_role(current_user, 'pg_write_server_files', 'MEMBER')
-FROM pg_roles r WHERE r.rolname = current_user`
+const belowSQLQuery = `SELECT r.rolsuper OR pg_catalog.pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER')
+  OR pg_catalog.pg_has_role(current_user, 'pg_write_server_files', 'MEMBER')
+FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`
