@@ -73,6 +73,11 @@ func TestSingleWriter_WarmMachineReadRunsNoConfirmingStatement(t *testing.T) {
 // Red with the tracker's generation bump removed (the memo keeps serving).
 func TestSingleWriter_ServerPathRevocationIsImmediate(t *testing.T) {
 	cases := append(fcCredentialCases(),
+		// The per-site token cache is not evicted on this path: only the
+		// tracker and the memo's validity check deny the next read (F5).
+		fcCase{"token-revoked-on-server-pool", func(t *testing.T, w *svWorld, _ *models.SecretNode, cred models.MachineIdentityCredential) {
+			require.NoError(t, w.a.db.Exec("UPDATE machine_identity_credentials SET revoked = true WHERE id = ?", cred.ID).Error)
+		}},
 		fcCase{"rotation", func(t *testing.T, w *svWorld, sec *models.SecretNode, _ models.MachineIdentityCredential) {
 			w.rotate(t, w.a.c, sec, "sw-rotated")
 		}},
@@ -120,13 +125,35 @@ func TestSingleWriter_ServerPathRevocationIsImmediate(t *testing.T) {
 
 // TestSingleWriter_RevocationRacingReaders: readers hammer a memoized secret
 // while the token is revoked through core; no read that STARTED after
-// RevokeMachineToken returned may succeed.
+// RevokeMachineToken returned may succeed. RevokeMachineToken also evicts the
+// per-site token cache, so this one stays green without the tracker
+// (REVIEW-SINGLE-WRITER-1 F5); ..._ThroughTheServerPool below does not.
 func TestSingleWriter_RevocationRacingReaders(t *testing.T) {
+	swRevocationRace(t, func(w *svWorld, cred models.MachineIdentityCredential) {
+		_, err := w.a.c.RevokeMachineToken(context.Background(), w.projID, cred.MachineIdentityID, cred.ID, w.adminID)
+		require.NoError(t, err)
+	})
+}
+
+// TestSingleWriter_RevocationRacingReaders_ThroughTheServerPool: the same
+// race, revoked by a statement on the server's own pool, which evicts no
+// per-site cache. Only the tracker's generation and the memo's validity check
+// stand between the readers and the memoized answer, so this is red with
+// either removed (M10, M11).
+func TestSingleWriter_RevocationRacingReaders_ThroughTheServerPool(t *testing.T) {
+	swRevocationRace(t, func(w *svWorld, cred models.MachineIdentityCredential) {
+		require.NoError(t, w.a.db.Exec("UPDATE machine_identity_credentials SET revoked = true WHERE id = ?", cred.ID).Error)
+	})
+}
+
+func swRevocationRace(t *testing.T, revoke func(*svWorld, models.MachineIdentityCredential)) {
 	w, _ := newSWAuthWorld(t, 1)
 	sec, v1 := w.newSecret(t, nil)
 	fcWarm(t, w, w.a, sec, v1, true)
 	tok := w.tokens["machine"]
 	cred := fcMachineCred(t, w)
+	stmts := fcStatements(w.a, func() { require.Equal(t, "200 "+v1, fcRead(w.a, tok, sec.ID)) })
+	require.False(t, swConfirmingStatement(stmts), "precondition: the readers start on memo hits")
 
 	type obs struct {
 		start time.Time
@@ -155,8 +182,7 @@ func TestSingleWriter_RevocationRacingReaders(t *testing.T) {
 		})
 	}
 	time.Sleep(100 * time.Millisecond)
-	_, err := w.a.c.RevokeMachineToken(context.Background(), w.projID, cred.MachineIdentityID, cred.ID, w.adminID)
-	require.NoError(t, err)
+	revoke(w, cred)
 	revokedAt := time.Now()
 	time.Sleep(200 * time.Millisecond)
 	close(stop)

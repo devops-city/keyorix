@@ -6,6 +6,8 @@
   Why: docs/specs/single-writer-cache.md §1.5. Guard: `server/http`
   `TestSingleWriter_ServerPathRevocationIsImmediate` (14 end-of-access paths; red with the tracker's
   generation bump removed, and with the memo hit's validity check removed),
-  `TestSingleWriter_RevocationRacingReaders`, `TestSingleWriter_LostLockConfirmsAgain`,
+  `TestSingleWriter_RevocationRacingReaders`, `TestSingleWriter_RevocationRacingReaders_ThroughTheServerPool`
+  (no per-site cache eviction on that path, so only the tracker and the validity check answer; red with
+  either removed; the `token-revoked-on-server-pool` case likewise), `TestSingleWriter_LostLockConfirmsAgain`,
   `TestSingleWriter_ExpiryByTimeAloneIsSeenOnAMemoHit`, `TestSingleWriter_WarmMachineReadRunsNoConfirmingStatement`;
   `internal/storage/store` `TestFoldedCredentialSQL_ReadsOnlyFencedTables` (red with a read table unfenced).

@@ -443,6 +443,13 @@ a test named "cross-replica" must not share one LocalStorage). Each guard gets a
   check that p99 doesn't regress.
 - Go criteria: B vs A c=1 p50 ≤ −0.25 ms **and** c=50 rps ≥ +6 %, with no p99 regression > 5 % in the churn arm.
   ≥ 10 interleaved repetitions per cell. If it misses, no-go: the complexity isn't justified by less.
+- Harness hygiene (REVIEW-SINGLE-WRITER-1): set `anomaly_alerts.schedule` to the same value in every arm, or
+  `anomaly_alerts.enabled: false` in all of them, so no arm samples `pg_stat_statements` during an
+  anomaly-detection pass the others don't run. Record pgss `mean_exec_time` and `total_plan_time` per
+  statement, not only calls. The churn arm also measures the flush on every epoch move (F4 fix).
+- The magnitude is rig-specific. The first A/B measured ≈ 0.68 ms of PostgreSQL CPU per confirming statement on
+  the bench VM, against ≈ 0.045 ms above `SELECT 1` locally and the ≈ 0.2 ms this design assumed. The direction
+  is trustworthy (same image, every rep); quote no percentage externally until a second rig reproduces it.
 
 ## 6. Recommendation
 
