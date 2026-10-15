@@ -17,6 +17,11 @@ levels rather than an `insecure_` opt-out, with `standard` the PostgreSQL
 default and SQLite `strict` only. `insecure_audit_skip_durable_sync` becomes a
 deprecated alias for one minor release. See "Amendment 3" below.
 
+Amendment 4 (2026-10-15, **accepted by Andrei**): a new `insecure_` opt-out,
+`storage.database.insecure_audit_skip_reads`, default false. When set,
+successful secret-value reads write no audit row; everything else stays
+audited. See "Amendment 4" below.
+
 Amendment 2 (2026-10-10, **proposed, pending Andrei's OK**, #2908): the
 `enable_file_permission_check` upgrade grace period is a reported state:
 a start-up warning, a settings-diff value and a posture deviation.
@@ -322,6 +327,98 @@ line (`TestLogAuditDurability_StartupInfoLine`); the real binary on PostgreSQL
 (`TestAuditDurability_SQLiteRefusesStandardEndToEnd`,
 `TestAuditDurability_SQLiteDefaultBootIsStrict`).
 
+## Amendment 4 (2026-10-15): `insecure_audit_skip_reads`, successful secret reads unaudited
+
+Accepted by Andrei, 2026-10-15. Independent of Amendment 3.
+
+### The decision
+
+1. `storage.database.insecure_audit_skip_reads`, boolean, default **false**,
+   config file only. When true, a SUCCESSFUL secret-value read does not write an
+   audit row. This covers every path that discloses a value: REST, gRPC,
+   connectors/sync/injection, and the CLI through the API. Everything else stays
+   audited: secret create/update/delete and version changes;
+   permission/role/share/policy changes; authentication events and failures;
+   DENIED reads; admin and break-glass actions; configuration and key
+   operations.
+2. Loud, per §1: the `insecure_` prefix and a registry entry; a `WARNING` at
+   every start ("secret reads are NOT audited"); an
+   `admin.audit_reads_skipped_at_startup` audit event at every start; a
+   start-to-start settings-diff event when the value changes; a posture
+   deviation in `admin validate`; a flag in `GET /system/info`; a persistent
+   web UI banner.
+3. Refusal hook: a compliance profile setting refuses this setting, if one
+   exists or whenever one is added. Denied reads are always audited.
+4. Independent of `audit_durability`: that level governs every row that is
+   still written.
+
+### How it is implemented
+
+- **Where the skip happens.** It is in `internal/core/audit_skip_reads.go`, at
+  the three audit-emit choke points every core audit write passes through
+  (`emitAudit`, `emitAuditOn` and `emitAuditWithAccessLog`;
+  `TestDirectLogAuditEventCallersAreSafe` keeps it that way). The check runs
+  before any storage call, so a skipped read opens no database transaction and
+  takes no audit-chain lock. That also holds under `single_writer`: a skipped
+  read never reaches the write path.
+- **What it skips.** Exactly two event types, and only with `Success=true`:
+  - `secret.read`: every native value read through
+    `LogSecretReadWithProject`. That is REST `GET /secrets/{id}?include_value=true`
+    and `/secrets/value`, gRPC `GetSecretValue`, render, and the source read of
+    a copy, environment copy or environment clone. The CLI, k8s sync, MCP and
+    the operator all read through these routes.
+  - `connect.secret_read`: a federated read through a connector.
+
+  The atomic `secret_access_logs` row written with `secret.read` is skipped
+  too. Writing it would need a transaction, and it is part of the same read
+  record.
+- **What it does not skip:**
+  - `secret.metadata_read` and `secret.versions_listed`: no value is disclosed.
+  - `dynamic_lease.issued`: this mints a credential, so it is a create.
+  - `share_access_elevated`: it records that access came through a share.
+  - `secret.certificate_inspected`: it covers public metadata only.
+  - Every event with `Success=false`.
+  - Every event written outside core: `server/admin`, `internal/encryption`,
+    and the start-up events in `server/main.go`.
+- **Denied reads.** The denied reads Keyorix audits today, the six
+  `connect.secret_read` deny paths, stay audited (`Success=false`). Native
+  value-read denials (403, 404, expired, suspended, schedule, max reads) write
+  no audit row at either setting, on `main` as well. Adding them is a separate
+  change that applies to both settings; it is not part of this amendment. Max
+  reads is enforced by a counter on the secret, not by audit rows, so it is
+  unaffected.
+- **What operators lose.** Read history, read counts, `total_reads`, usage and
+  billing read counts, the access-log export and anomaly detection all key on
+  `secret.read` and access-log `read` rows. None of them see reads while the
+  setting is on. The WARNING and the hardening guide say so.
+- **Compliance profile.** No compliance profile setting exists yet.
+  `config.complianceProfileGates` is the hook: `Validate` refuses
+  `insecure_audit_skip_reads` while any registered profile is active.
+  `TestInsecureAuditSkipReads_ComplianceProfileKeyIsGated` fails if a
+  compliance-profile-looking key is added to Config without registering it
+  there.
+
+### Enforcement
+
+| Claim | Test |
+|---|---|
+| default false | `TestInsecureAuditSkipReads_DefaultFalse` |
+| registry entry | `TestInsecureAuditSkipReads_RegistryEntry`, plus the registry sweep |
+| config file only | `TestInsecureAuditSkipReads_NoWriteAssignment`, `_NotSettableFromTheEnvironment`, `_ReferencesAreAllowlisted` |
+| compliance profile refusal | `TestInsecureAuditSkipReads_RefusedByAnActiveComplianceProfile`, `_ComplianceProfileKeyIsGated` |
+| a successful read writes nothing and opens no transaction | `TestInsecureAuditSkipReads_SuccessfulReadWritesNothingAndOpensNoTransaction` |
+| a denied read is still audited | `TestInsecureAuditSkipReads_DeniedReadIsStillAudited` |
+| one subtest per still-audited event class | `TestInsecureAuditSkipReads_EveryOtherEventClassStillAudited` |
+| the skip set is exactly the two value-read types | `TestInsecureAuditSkipReads_SkipSetIsExactlyTheSuccessfulValueReads` |
+| REST, through the real router, at both settings | `TestInsecureAuditSkipReads_RESTValueReadsUnauditedWritesAudited` |
+| gRPC | `TestSecretService_GetSecretValue_InsecureAuditSkipReads` |
+| `/system/info` | `TestMakeSystemInfoHandler_ReportsAuditReadsSkipped` |
+| `admin validate` | `TestAppendAuditSkipReadsPosture` |
+| the real binary | `TestInsecureAuditSkipReads_EndToEnd`: every-start WARNING and event over two starts, the settings diff, `validate` and `validate --posture`, a chain that verifies, and the default install showing none of it |
+
+With the setting off, behaviour is unchanged. The existing
+audit-before-disclosure tests are untouched and still pass.
+
 ## Consequences
 
 - The baseline becomes part of the product's documentation and sales material: "here is the secure configuration, and here is how you prove you're running it."
@@ -366,6 +463,10 @@ line (`TestLogAuditDurability_StartupInfoLine`); the real binary on PostgreSQL
   strict | standard`, not an `insecure_` opt-out. `standard` is the PostgreSQL
   default; SQLite runs `strict` only. Neither level is a posture deviation; a
   level change is audited by the settings diff. See Amendment 3.
+- `storage.database.insecure_audit_skip_reads` (Amendment 4): a boolean
+  `insecure_` opt-out, default false. It stops audit rows for successful
+  secret-value reads only; denied reads and every other event stay audited. A
+  compliance profile refuses it. It is independent of `audit_durability`.
 
 ## Definition of done
 

@@ -1,0 +1,1 @@
+ADR-112-A4-AUDIT-SKIP-READS-COMPLIANCE-PROFILE-REFUSES	./internal/config	TestInsecureAuditSkipReads_RefusedByAnActiveComplianceProfile	default-ci	pending	-	an active compliance profile refuses insecure_audit_skip_reads at Validate; TestInsecureAuditSkipReads_ComplianceProfileKeyIsGated fails if a compliance-profile key is added without registering it in complianceProfileGates

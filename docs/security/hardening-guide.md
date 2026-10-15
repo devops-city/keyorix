@@ -73,6 +73,7 @@ actually kept separately:
 | SIEM endpoint transport | `audit.siem.{insecure_allow_private_network_siem_target,insecure_allow_plaintext_siem_transport}` (deprecated aliases: `allow_private_network_target`, `allow_insecure_transport`) | Leave both `false` (the default) unless the SIEM collector is genuinely on a private network / self-signed — each opt-out is independently logged; don't flip one to work around the other's check. |
 | What to monitor | anomaly-detection alerts, `GET /api/v1/audit/retention` | Watch built-in brute-force/unusual-access alerts, and periodically check `meets_nis2_12_month` / `coverage_days` on the retention endpoint as a durable evidence figure for an auditor, not just an internal metric. |
 | Audit commit durability | `storage.database.audit_durability` (`strict` \| `standard`) | PostgreSQL defaults to `standard`; SQLite is always `strict`. Set `strict` if every disclosed secret must have an audit record that survives power loss. See §5a. |
+| Secret-read auditing | `storage.database.insecure_audit_skip_reads` | Leave `false` (the default). `true` stops auditing successful secret reads entirely. See §5b. |
 
 ### 5a. Audit durability levels
 
@@ -138,6 +139,39 @@ storage (EBS, GCP PD, Azure managed disks).
 works for one minor release: `true` means `standard`, `false` means `strict`.
 It logs a deprecation line at start-up; setting both keys to conflicting levels
 refuses to start.
+
+### 5b. `insecure_audit_skip_reads`: successful secret reads unaudited
+
+`storage.database.insecure_audit_skip_reads: true` (ADR-112 Amendment 4) stops
+**successful secret-value reads** from writing an audit row or an access-log
+row. This applies on every path: REST, gRPC, render, copy, federated connector
+reads, and the CLI, k8s sync, MCP and operator clients through the API. These
+are still audited:
+
+- secret create, update, rotate and delete;
+- permission, role, share and policy changes;
+- authentication and its failures;
+- denied federated reads;
+- admin and break-glass actions;
+- configuration and key operations.
+
+**What you give up.** Nothing records who read which secret, or when. Read
+history, read counts, usage and billing read counts, the access-log export and
+anomaly detection all go blind to reads. Native read denials (403, 404,
+expired, suspended) are not audited at either setting today. Max-reads
+limits still apply.
+
+**How loud it is.** Every start logs `WARNING: storage.database.insecure_audit_skip_reads
+is in effect (true; ...) — secret reads are NOT audited ...` and writes an
+`admin.audit_reads_skipped_at_startup` audit event. A change in the value
+between two starts is audited by the settings diff. `admin validate` and
+`admin validate --posture` report it as a deviation.
+`GET /api/v1/system/info` reports `security.audit_reads_skipped: true`, and
+the web UI shows a persistent banner.
+
+It is set in the config file only (no environment variable, API or CLI flag).
+A compliance profile refuses it. Rows that are still written follow
+`audit_durability` as usual.
 
 ## 6. Backup and key-material custody
 
