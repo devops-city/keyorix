@@ -170,7 +170,7 @@ func collectSingleWriterPosture(cfg *config.Config, report *postureReport) {
 			"Such a trigger can change a row after the fence has let it through, so a single-writer server does not trust its caches while one exists. "+
 			"Drop them, and grant other roles SELECT, INSERT, UPDATE, DELETE only, never TRIGGER (docs/single-writer.md \"Residual risks\")", strings.Join(rep.ForeignTriggers, ", ")))
 	}
-		if err == nil && rep.HolderLive {
+	if err == nil && rep.HolderLive {
 		report.info(fmt.Sprintf("single_writer: a server holds the single-writer lock (backend pid %d)", rep.HolderPID))
 	}
 }
