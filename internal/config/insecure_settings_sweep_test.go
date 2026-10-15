@@ -128,6 +128,10 @@ var optOutLookingSubstrings = []string{
 // its source, which is why each one says what the field actually does rather
 // than just "not applicable".
 var sweepExemptions = map[string]string{
+	"storage.database.insecure_audit_skip_durable_sync": "deprecated alias (one minor release, ADR-112 Amendment 3) " +
+		"of storage.database.audit_durability: true means standard, false means strict. Both levels are baseline, " +
+		"not opt-outs (standard is the PostgreSQL default), so neither key is a registry entry; the effective " +
+		"level is in the start-to-start settings diff through TrackedSettings.",
 	"membership.domain_allowlist": "an ALLOWLIST is a restriction, not an opt-out: setting it narrows which " +
 		"email domains may self-register. Its empty value is the permissive one, but 'open registration' is " +
 		"already covered as a weakening by membership.validation_mode (the insecure_skip_membership_review " +

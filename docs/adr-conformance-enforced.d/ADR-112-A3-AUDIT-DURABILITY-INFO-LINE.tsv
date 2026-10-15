@@ -1,0 +1,1 @@
+ADR-112-A3-AUDIT-DURABILITY-INFO-LINE	./server	TestLogAuditDurability_StartupInfoLine	default-ci	pending	-	every start logs exactly one INFO (never WARNING) line with the effective level and its meaning, e.g. audit durability: standard (PostgreSQL default; committed before every disclosure; up to ~600 ms ...; set audit_durability: strict to wait for the disk sync)

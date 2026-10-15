@@ -293,14 +293,16 @@ storage:
     #   safe default; only set this if production
     #   keyorix_audit_flusher_batch_size/_flushes_total metrics (exposed on
     #   the server's /metrics endpoint) justify it for your own load shape.
-    # insecure_audit_skip_durable_sync: false   # default: false. POSTGRES ONLY
-    #   -- a SQLite install that sets this REFUSES TO START. DO NOT ENABLE
-    #   without reading docs/security/hardening-guide.md §5a. Drops the audit
-    #   commit's WAIT for a disk sync (the row is still written and committed
-    #   before the secret is returned, and a failed audit write still fails the
-    #   request). Buys Vault-equivalent read latency; costs the durability of
-    #   the most recent audit entries on an OS or database-server crash.
-    #   Config file only -- no API, CLI flag or env var can set it.
+    # audit_durability: standard   # strict | standard. Default: standard on
+    #   PostgreSQL; SQLite runs strict only (standard REFUSES TO START there).
+    #   strict: the audit commit waits for the disk sync, no audit entry is lost
+    #   to any crash. standard: the audit row is still committed before the
+    #   secret is returned (a failed audit write still fails the request), but
+    #   the disk sync is not awaited; an OS crash or power loss can lose up to
+    #   ~600 ms of audit entries as a tail. Config file only. See
+    #   docs/security/hardening-guide.md §5a. The old
+    #   insecure_audit_skip_durable_sync (true = standard, false = strict) is a
+    #   deprecated alias for one minor release.
     # pooler: none                # none (default) | pgbouncer-session | pgbouncer-transaction.
     #   POSTGRES ONLY. Names the connection pooler in front of PostgreSQL;
     #   pgbouncer-transaction changes how statements and advisory locks are
@@ -476,29 +478,30 @@ pre-exist. The Postgres backend is unaffected too.
 on by default would break every first boot that does not run `keyorix system init --database`
 first. Turn it on once your deployment creates the file explicitly — which is exactly the point:
 after that, a missing file can only mean something went wrong.
-### Audit commit durability (`insecure_audit_skip_durable_sync`)
+### Audit commit durability (`audit_durability`)
 
-By default Keyorix will not return a secret value until that read's audit
-record is **durably** committed (ADR-112 §3). That is stricter than Vault,
-OpenBao, Conjur and Infisical, none of which wait for a disk sync before
-answering — and it is most of why a single-client read costs ~17ms on a busy
-spinning disk rather than ~1ms.
+`storage.database.audit_durability` (ADR-112 Amendment 3) chooses whether the
+audit commit for a secret read waits for the disk sync. At both levels the
+audit record is committed **before** the secret value is returned, and a failed
+audit write fails the request.
 
-`insecure_audit_skip_durable_sync: true` (ADR-112 Amendment 1) removes only
-that wait, and **only on PostgreSQL**:
+| Level | Meaning | Backends |
+|---|---|---|
+| `strict` | Waits for the disk sync. No audit entry is lost to any crash or power loss. | PostgreSQL, SQLite (SQLite's only level and default) |
+| `standard` | Does not wait for the disk sync (`SET LOCAL synchronous_commit = off` on the audit transaction only). A server process crash loses nothing; an OS crash, power loss or PostgreSQL crash can lose up to ~600 ms of audit entries as a tail, never a gap. | PostgreSQL only; the PostgreSQL default |
 
-| `storage.type` | Behaviour |
-|---|---|
-| `postgres` / `postgresql` | Supported. `SET LOCAL synchronous_commit = off` on the audit transaction only. |
-| `local` / `sqlite` | **Refuses to start.** `PRAGMA synchronous` is per-connection and the pool is shared, so relaxing it would relax *every* table — a power loss could undo a just-committed secret rotation. The measured p99 also got worse under concurrency. |
-| `remote` | Not applicable; a server cannot run with remote storage (ADR-083). |
+Secret writes, revocations and rotations commit durably at both levels.
+`audit_durability: standard` on SQLite refuses to start: `PRAGMA synchronous`
+is per-connection and the pool is shared, so relaxing it would relax every
+table. Every start logs one `INFO` line with the effective level;
+`admin validate` and `GET /api/v1/system/info` (`security.audit_durability`)
+report it, and a change between starts is audited. Neither level is a posture
+deviation. Comparison with Vault/OpenBao's file audit device and how to choose:
+[`security/hardening-guide.md` §5a](security/hardening-guide.md#5a-audit-durability-levels).
 
-It is appropriate **only** where power is genuinely guaranteed — a UPS, a
-healthy battery-backed RAID write cache, or replicated cloud block storage.
-[`security/hardening-guide.md` §5a](security/hardening-guide.md) states exactly
-what you give up, the measured before/after, and the four places the setting is
-surfaced once it is on (startup warning, an audit event in the hash chain at
-every boot, `admin validate`, and `GET /api/v1/system/info`).
+`insecure_audit_skip_durable_sync` is a deprecated alias for one minor release
+(`true` = `standard`, `false` = `strict`); it logs a deprecation line, and
+setting both keys to conflicting levels refuses to start.
 ### Access log when the sink stalls (`server.access_log.on_sink_stall`)
 
 The HTTP access log is written through a 1 MiB in-memory queue to the process

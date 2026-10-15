@@ -686,57 +686,41 @@ type DatabaseConfig struct {
 	// one without a code change.
 	AuditFlusherLingerWindow string `yaml:"audit_flusher_linger_window"`
 
-	// InsecureAuditSkipDurableSync (ADR-112 Amendment 1, FASTAUDIT-1,
-	// docs/specs/fast-audit-mode.md) drops the audit commit's wait for a disk
-	// sync. DEFAULT false, and false is the secure baseline: a secret value is
-	// never returned before its audit record is DURABLY committed
-	// (audit-before-disclosure, ADR-112 §3).
+	// AuditDurability (ADR-112 Amendment 3, docs/specs/fast-audit-mode.md)
+	// chooses whether the audit commit waits for the disk sync. Config file
+	// only; no HTTP handler, gRPC RPC, env var or CLI flag can set it (the
+	// guards are TestAuditDurability_NoWriteAssignment and
+	// TestAuditDurability_NotSettableFromTheEnvironment). Read it through
+	// EffectiveAuditDurability, never directly: the default depends on the
+	// backend and on the deprecated alias below.
 	//
-	// POSTGRES ONLY (Andrei's decision, 2026-10-05). The audit-commit
-	// transaction, and ONLY that transaction, issues `SET LOCAL
-	// synchronous_commit = off`. SET LOCAL is transaction-scoped, so it never
-	// leaks to the next transaction that borrows the same pooled connection,
-	// and a concurrent secret WRITE still commits durably.
+	//   - "strict": the audit commit waits for the disk sync. No audit entry
+	//     is lost to any crash or power loss. The only level on SQLite.
+	//   - "standard": the audit row is still INSERTed and COMMITted before the
+	//     secret is returned, and a failed audit write still fails the
+	//     request; only the wait for the disk sync is skipped (`SET LOCAL
+	//     synchronous_commit = off` on the audit transaction, and only that
+	//     transaction). A Keyorix process crash loses nothing; an OS crash,
+	//     power loss or PostgreSQL crash can lose up to ~600 ms (3 ×
+	//     wal_writer_delay) of audit entries as a TAIL, never a gap or a fork.
+	//     PostgreSQL only, and the PostgreSQL default.
+	//   - "" (unset): the backend default -- standard on PostgreSQL, strict on
+	//     SQLite.
 	//
-	// Per storage.type:
-	//   - postgres/postgresql: supported. In effect when true.
-	//   - local/sqlite: NOT SUPPORTED. Config validation REFUSES TO START (see
-	//     auditSkipDurableSyncSQLiteUnsupportedError and Validate's local/sqlite
-	//     case) rather than ignoring it silently. Two reasons, both measured or
-	//     structural: (1) `PRAGMA synchronous` is a PER-CONNECTION property and
-	//     the pool is shared by every query, so NORMAL would relax commit
-	//     durability for EVERY table — a power loss could undo a just-committed
-	//     secret rotation or revocation, not merely lose audit entries; (2) the
-	//     p99 measurably got WORSE (328.8→518.0ms at c=10, 703.7→919.0ms at
-	//     c=50 on pve01), so it was not even a clean latency win.
-	//   - remote: inert — there is no local database whose commit durability
-	//     could be relaxed. Reported as CONFIGURED BUT NOT IN EFFECT, with the
-	//     reason, everywhere the setting is listed; see AuditDurableSyncStatus.
-	//
-	// Settable from the config file ONLY — no HTTP handler, no gRPC RPC, no env
-	// var and no CLI flag may set it, the same containment
-	// security.recover_admin.keyless_mode has and for the same reason: a
-	// compromised admin API must not be able to silently weaken an install's
-	// durability posture remotely. The guards are
-	// TestInsecureAuditSkipDurableSync_NoWriteAssignment and
-	// TestInsecureAuditSkipDurableSync_NotSettableFromTheEnvironment.
-	//
-	// What it does NOT change when in effect: the audit row is still INSERTed
-	// and COMMITted, in the same transaction/batch as before, BEFORE the secret
-	// value is returned; if the audit row cannot be WRITTEN the request still
-	// fails. Only the wait for the disk sync is skipped. The hash chain may lose
-	// a TAIL of entries to an OS or database-server crash; it can never gap or
-	// fork, because WAL is a single totally-ordered stream and recovery accepts
-	// only a valid prefix — see docs/specs/fast-audit-mode.md §5 for the
-	// argument and TestFastAuditMode_PostgresCrashLosesOnlyATail for the proof.
-	//
-	// Loss window: ≤ ~3 × wal_writer_delay (~600ms at the default). This is
-	// HashiCorp Vault's and OpenBao's guarantee verbatim — both do one write()
-	// to an O_APPEND audit file with no fsync anywhere — which is why this
-	// exists, not because it is safe. Only enable it where power is genuinely
-	// guaranteed: a UPS, a battery-backed RAID write cache, or replicated cloud
-	// block storage. See docs/security/hardening-guide.md.
-	InsecureAuditSkipDurableSync bool `yaml:"insecure_audit_skip_durable_sync"`
+	// Non-audit writes (secret writes, revocations, rotations) commit durably
+	// at both levels. SQLite refuses standard at start-up
+	// (auditDurabilityStandardSQLiteUnsupportedError): its synchronous pragma
+	// is per-connection and the pool is shared, so relaxing it would relax
+	// every table, not only audit (Amendment 1's rejection, which stands).
+	AuditDurability string `yaml:"audit_durability"`
+
+	// InsecureAuditSkipDurableSync is the DEPRECATED alias of AuditDurability,
+	// kept for one minor release (ADR-112 Amendment 3): true means standard,
+	// an explicit false means strict, absent means "not set". A pointer so an
+	// explicit false is distinguishable from an absent key. Setting both keys
+	// to conflicting levels refuses to start (Validate); Load adds a
+	// deprecation line to DeprecatedSettingWarnings whenever it is present.
+	InsecureAuditSkipDurableSync *bool `yaml:"insecure_audit_skip_durable_sync"`
 
 	// Pooler names the connection pooler between Keyorix and PostgreSQL:
 	// "none" (the default, also when empty), "pgbouncer-session" or
@@ -758,113 +742,135 @@ func (d *DatabaseConfig) GetAuditFlusherLingerWindow() time.Duration {
 	return parseDurationDefault(d.AuditFlusherLingerWindow, 0)
 }
 
-// auditSkipDurableSyncSQLiteUnsupportedError is the exact start-up refusal for
-// storage.database.insecure_audit_skip_durable_sync on a SQLite backend
-// (Andrei's decision, 2026-10-05: Postgres only, "no silent ignore"). A
-// constant rather than an inline string so Validate and its red/green test
-// cannot drift apart, and so the wording an operator sees is reviewable in one
-// place.
-const auditSkipDurableSyncSQLiteUnsupportedError = "storage.database.insecure_audit_skip_durable_sync is only " +
-	"supported with PostgreSQL; remove it or switch storage to postgres"
+// AuditDurabilityLevel is one value of storage.database.audit_durability.
+type AuditDurabilityLevel string
 
-// auditSkipDurableSyncRemoteNotInEffectReason is the reason text reported
-// wherever the setting is listed, when it is configured on a storage.type:
-// remote install. Exported through AuditDurableSyncStatus as a structured
-// field, not only as log text (Andrei's decision, 2026-10-05).
-const auditSkipDurableSyncRemoteNotInEffectReason = "storage.type is remote; this setting only applies to a local database"
+const (
+	// AuditDurabilityStrict: the audit commit waits for the disk sync.
+	AuditDurabilityStrict AuditDurabilityLevel = "strict"
+	// AuditDurabilityStandard: the audit row is committed before every
+	// disclosure, without waiting for the disk sync. PostgreSQL only.
+	AuditDurabilityStandard AuditDurabilityLevel = "standard"
+)
 
-// AuditDurableSyncStatus is the computed state of
-// storage.database.insecure_audit_skip_durable_sync for one loaded config —
-// the single source of truth every surface reads, so the start-up log, the
-// posture report and the API can never disagree about whether the setting is
-// actually doing anything.
-//
-// Structured on purpose. "Configured but not in effect, and here is why" is a
-// distinct state from both "off" and "weakening your durability", and an
-// auditor needs to tell them apart from the posture/API output alone rather
-// than by correlating log lines. When ADR-112's insecure_ registry (#2454)
-// lands, its entry's InEffect/NotInEffectReason should delegate here rather
-// than re-deriving the rule.
-type AuditDurableSyncStatus struct {
-	// Configured is true when the operator wrote the key into the config file,
-	// regardless of whether it does anything on this backend.
-	Configured bool
-	// InEffect is true only when the setting is configured AND this backend
-	// actually relaxes the audit commit's durability because of it. False on a
-	// remote backend; a SQLite backend never reaches this function at all,
-	// because Validate refuses to start.
-	InEffect bool
-	// NotInEffectReason explains, in operator-facing words, why a CONFIGURED
-	// setting is not InEffect. Empty whenever Configured is false or InEffect
-	// is true — so a non-empty value always means "you wrote this and it is
-	// doing nothing", and never means anything else.
-	NotInEffectReason string
+// AuditDurabilitySettingName is the canonical dotted path of the setting.
+const AuditDurabilitySettingName = "storage.database.audit_durability"
+
+// auditDurabilityDeprecatedAliasName is the dotted path of the deprecated alias.
+const auditDurabilityDeprecatedAliasName = "storage.database.insecure_audit_skip_durable_sync"
+
+// auditDurabilityStandardSQLiteUnsupportedError is the exact start-up refusal
+// for standard on a SQLite backend (ADR-112 Amendment 1's rejection, kept by
+// Amendment 3). A constant so Validate and its tests cannot drift apart.
+const auditDurabilityStandardSQLiteUnsupportedError = "storage.database.audit_durability: standard is only " +
+	"supported with PostgreSQL; SQLite runs strict only -- remove the setting or set it to strict"
+
+// Meaning returns the one-line, operator-facing meaning of the level, used by
+// the start-up INFO line, admin validate and the posture report.
+func (l AuditDurabilityLevel) Meaning() string {
+	switch l {
+	case AuditDurabilityStandard:
+		return "committed before every disclosure; up to ~600 ms of entries can be lost to an OS crash or power loss; " +
+			"set audit_durability: strict to wait for the disk sync"
+	case AuditDurabilityStrict:
+		return "committed and synced to disk before every disclosure; no audit entry is lost to any crash or power loss"
+	default:
+		return "unknown level"
+	}
 }
 
-// AuditDurableSyncStatus computes the state described on
-// AuditDurableSyncStatus. Takes storage.type explicitly rather than reading it
-// off a *Config so the rule stays a pure function of (setting, backend) and is
-// testable without building a whole config.
-func (d *DatabaseConfig) AuditDurableSyncStatus(storageType string) AuditDurableSyncStatus {
-	if !d.InsecureAuditSkipDurableSync {
-		return AuditDurableSyncStatus{}
-	}
-	// ALLOWLIST, not a denylist: only the two backends that actually implement
-	// the mechanism report InEffect. Every other value — "remote", "local",
-	// "sqlite", a blank type, a typo — reports configured-but-not-in-effect.
-	// Deliberately this direction round: a future backend added to
-	// Validate's switch without touching this function gets "not in effect"
-	// (truthful, since nothing would have implemented the relaxation for it)
-	// rather than a silent claim that its durability has been weakened.
-	switch storageType {
-	case "postgres", "postgresql":
-		return AuditDurableSyncStatus{Configured: true, InEffect: true}
-	case "remote":
-		// CURRENTLY UNREACHABLE IN ANY DEPLOYMENT, and said so here rather
-		// than shipped as though it were live. Validate rejects
-		// storage.type: remote UNCONDITIONALLY for this Config type
-		// (validateRemoteStorageNotServer, ADR-083: remote storage is a
-		// CLI/client mode, never a deployable server backend), so no server
-		// process can boot with it and neither the posture report nor
-		// /system/info can ever observe this branch. The thin CLI is a
-		// separate Go module (cli/go.mod) and cannot import this package at
-		// all, so it cannot reach it either.
-		//
-		// Kept, not deleted, for two reasons: it is the rule Andrei decided
-		// (2026-10-05) and this function is the place that rule belongs, so a
-		// future caller gets the right answer rather than inheriting the
-		// default branch; and it is a pure function of its inputs, so the
-		// branch costs one switch case and is unit-tested directly
-		// (TestAuditDurableSyncStatus) without pretending a live path exists.
-		// TestValidateStartup_RemoteConfigIsRejectedBeforePostureReporting
-		// pins the reachability claim itself, so this comment cannot quietly
-		// become false.
-		return AuditDurableSyncStatus{
-			Configured:        true,
-			InEffect:          false,
-			NotInEffectReason: auditSkipDurableSyncRemoteNotInEffectReason,
-		}
-	case "local", "sqlite":
-		// Unreachable through any normal path: Validate refuses to start on
-		// this combination (auditSkipDurableSyncSQLiteUnsupportedError), so a
-		// loaded config can never hold it. Handled anyway, and NOT as
-		// in-effect, so a caller that skipped validation (a test fixture, a
-		// future entry point) gets the safe answer rather than a claim that
-		// SQLite durability has been relaxed — which would be false, since the
-		// SQLite NORMAL path was removed entirely.
-		return AuditDurableSyncStatus{
-			Configured:        true,
-			InEffect:          false,
-			NotInEffectReason: auditSkipDurableSyncSQLiteUnsupportedError,
-		}
+// parseAuditDurability validates an explicit audit_durability value. "" means
+// unset and is valid.
+func parseAuditDurability(v string) (AuditDurabilityLevel, error) {
+	switch AuditDurabilityLevel(v) {
+	case "", AuditDurabilityStrict, AuditDurabilityStandard:
+		return AuditDurabilityLevel(v), nil
 	default:
-		return AuditDurableSyncStatus{
-			Configured: true,
-			InEffect:   false,
-			NotInEffectReason: fmt.Sprintf(
-				"storage.type %q does not support this setting; it only applies to a local PostgreSQL database", storageType),
-		}
+		return "", fmt.Errorf("storage.database.audit_durability: unknown value %q (allowed: strict, standard)", v)
 	}
+}
+
+// explicitAuditDurability resolves the two config keys into the level the
+// operator asked for, "" when neither is set. Both set with conflicting levels
+// is an error: neither key may silently win over the other.
+func (d *DatabaseConfig) explicitAuditDurability() (AuditDurabilityLevel, error) {
+	level, err := parseAuditDurability(d.AuditDurability)
+	if err != nil {
+		return "", err
+	}
+	if d.InsecureAuditSkipDurableSync == nil {
+		return level, nil
+	}
+	alias := AuditDurabilityStrict
+	if *d.InsecureAuditSkipDurableSync {
+		alias = AuditDurabilityStandard
+	}
+	if level != "" && level != alias {
+		return "", fmt.Errorf("storage.database.audit_durability is %q but the deprecated "+
+			"storage.database.insecure_audit_skip_durable_sync: %t means %q; remove the deprecated key",
+			level, *d.InsecureAuditSkipDurableSync, alias)
+	}
+	return alias, nil
+}
+
+// validateAuditDurability is Validate's check: a known value, no conflict
+// between the key and its deprecated alias, and standard only on PostgreSQL.
+func (d *DatabaseConfig) validateAuditDurability(storageType string) error {
+	level, err := d.explicitAuditDurability()
+	if err != nil {
+		return err
+	}
+	if level == AuditDurabilityStandard && (storageType == "local" || storageType == "sqlite") {
+		return fmt.Errorf("%s", auditDurabilityStandardSQLiteUnsupportedError)
+	}
+	return nil
+}
+
+// AuditDurabilityStatus is the effective audit durability of one loaded
+// config, the single source of truth the storage factory, the start-up line,
+// admin validate, the posture report, the settings diff and GET /system/info
+// all read, so they cannot disagree.
+type AuditDurabilityStatus struct {
+	// Level is the level the audit commit actually runs at.
+	Level AuditDurabilityLevel
+	// Explicit is true when the config file chose the level (audit_durability
+	// or its deprecated alias), false when it is the backend default.
+	Explicit bool
+}
+
+// EffectiveAuditDurability computes the effective level for storageType:
+// the explicit setting when there is one, otherwise standard on PostgreSQL
+// and strict everywhere else.
+//
+// Only postgres/postgresql can ever be standard. An allowlist on purpose: a
+// backend that does not implement the SET LOCAL mechanism (SQLite, remote, an
+// unknown type in a config that skipped Validate) reports strict, which is
+// what it actually does, rather than claiming a relaxation nothing performs.
+// An invalid or conflicting setting (refused by Validate) also reports strict.
+func (d *DatabaseConfig) EffectiveAuditDurability(storageType string) AuditDurabilityStatus {
+	level, err := d.explicitAuditDurability()
+	explicit := err == nil && level != ""
+	if storageType != "postgres" && storageType != "postgresql" {
+		return AuditDurabilityStatus{Level: AuditDurabilityStrict, Explicit: explicit}
+	}
+	if err != nil {
+		return AuditDurabilityStatus{Level: AuditDurabilityStrict}
+	}
+	if level == "" {
+		return AuditDurabilityStatus{Level: AuditDurabilityStandard}
+	}
+	return AuditDurabilityStatus{Level: level, Explicit: true}
+}
+
+// StartupLine is the one INFO line every start logs for the effective level,
+// e.g. "audit durability: standard (PostgreSQL default; committed before every
+// disclosure; ...)".
+func (s AuditDurabilityStatus) StartupLine() string {
+	source := ""
+	if !s.Explicit && s.Level == AuditDurabilityStandard {
+		source = "PostgreSQL default; "
+	}
+	return fmt.Sprintf("audit durability: %s (%s%s)", s.Level, source, s.Level.Meaning())
 }
 
 // BoolPtr returns a pointer to b — for setting optional *bool config fields.
@@ -2563,6 +2569,18 @@ func Load(path string) (*Config, error) {
 		cfg.Storage.Database.SSLRootCert = resolvedRootCert
 	}
 
+	// ADR-112 Amendment 3: the old boolean is an alias with a value mapping,
+	// not a key rename, so resolveDeprecatedAliases cannot translate it; it
+	// still decodes, and Validate refuses a conflict with audit_durability.
+	if alias := cfg.Storage.Database.InsecureAuditSkipDurableSync; alias != nil {
+		level := AuditDurabilityStrict
+		if *alias {
+			level = AuditDurabilityStandard
+		}
+		deprecatedWarnings = append(deprecatedWarnings, fmt.Sprintf(
+			"%q is deprecated and will be removed in the next minor release; %t means %s: %s, use that instead",
+			auditDurabilityDeprecatedAliasName, *alias, AuditDurabilitySettingName, level))
+	}
 	cfg.DeprecatedSettingWarnings = deprecatedWarnings
 
 	return &cfg, nil
@@ -2773,6 +2791,11 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	if err := validatePooler(c.Storage.Type, &c.Storage.Database); err != nil {
 		return err
 	}
+	// ADR-112 Amendment 3: a known level, no conflict with the deprecated
+	// alias, and standard only on PostgreSQL (a SQLite backend refuses it).
+	if err := c.Storage.Database.validateAuditDurability(c.Storage.Type); err != nil {
+		return err
+	}
 
 	switch c.Storage.Type {
 	case "remote":
@@ -2796,9 +2819,6 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	case "local", "sqlite":
 		if c.Storage.Database.Path == "" {
 			return fmt.Errorf("database path is not specified")
-		}
-		if c.Storage.Database.InsecureAuditSkipDurableSync {
-			return fmt.Errorf("%s", auditSkipDurableSyncSQLiteUnsupportedError)
 		}
 	case "":
 		// #G-blank-storage-default: a blank storage.type used to be bucketed

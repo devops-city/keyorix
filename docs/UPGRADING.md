@@ -449,6 +449,45 @@ Check one thing in configs you wrote yourself: the exact value
 install says `development`, change it to `production` (or `staging`, `local`, …)
 and restart.
 
+## 6c. PostgreSQL: audit durability now defaults to `standard`
+
+`storage.database.audit_durability` (ADR-112 Amendment 3) replaces
+`storage.database.insecure_audit_skip_durable_sync`. **An existing PostgreSQL
+install that sets neither key moves from `strict` to `standard` on upgrade:**
+the audit row for a secret read is still committed before the secret is
+returned, and a failed audit write still fails the request, but the commit no
+longer waits for the disk sync, so an OS crash, power loss or PostgreSQL crash
+can lose up to ~600 ms of audit entries (a tail, never a gap). A server process
+crash still loses nothing, and secret writes, revocations and rotations still
+commit durably. SQLite installs are unaffected: SQLite runs `strict` only.
+
+To stay on `strict`, add one line under `storage.database` and restart:
+
+```yaml
+storage:
+  database:
+    audit_durability: strict
+```
+
+What you will see: the first start after the upgrade logs
+`INFO: audit durability: standard (PostgreSQL default; committed before every
+disclosure; ...; set audit_durability: strict to wait for the disk sync)`, and
+the settings diff records `storage.database.audit_durability` changing from
+`""` to `standard` in the audit trail. `admin validate` and
+`GET /api/v1/system/info` (`security.audit_durability`) report the level.
+
+The old key keeps working for one minor release, with a deprecation line at
+start-up: `insecure_audit_skip_durable_sync: true` means `standard`, an
+explicit `false` means `strict`. Setting both keys to conflicting levels
+refuses to start. Replace it with `audit_durability`. `GET /api/v1/system/info`
+no longer returns `security.audit_durable_sync_skipped` or
+`security.audit_durable_sync_skip_not_in_effect_reason`, and the per-start
+`admin.audit_durable_sync_skipped_at_startup` audit event is no longer written.
+
+UNVERIFIED as an upgrade drill; the behaviour is covered by
+`TestAuditDurability_PostgresEndToEnd` and
+`TestSecurityPostureSnapshot_AuditsAuditDurabilityLevelChange`.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

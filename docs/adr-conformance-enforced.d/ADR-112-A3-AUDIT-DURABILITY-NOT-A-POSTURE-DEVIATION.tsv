@@ -1,0 +1,1 @@
+ADR-112-A3-AUDIT-DURABILITY-NOT-A-POSTURE-DEVIATION	./server/admin	TestCollectAuditDurabilityPosture_DefaultPostgresIsNotADeviation	default-ci	pending	-	a fully hardened PostgreSQL config reports zero posture deviations with audit durability unset (standard), strict, or the deprecated alias true, and one informational line naming the effective level

@@ -1,0 +1,1 @@
+ADR-112-A3-AUDIT-DURABILITY-ALIAS-CONFLICT-REFUSED	./internal/config	TestConfigValidate_RefusesConflictingAuditDurabilityAlias	default-ci	pending	-	audit_durability and the deprecated insecure_audit_skip_durable_sync set to conflicting levels refuse to start (neither silently wins); such a config, unvalidated, reports strict

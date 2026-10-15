@@ -120,6 +120,7 @@ func runAdminValidatePosture(cfg *config.Config, configPath string) error {
 	}
 	collectInsecureSettingsPosture(cfg, explicit, report)
 	collectStartupValidationStatePosture(cfg, fileGraceKnown, fileEnforcedSince, report)
+	collectAuditDurabilityPosture(cfg, report)
 
 	printPostureReport(report)
 
@@ -552,4 +553,14 @@ func printPostureReport(report *postureReport) {
 			fmt.Printf("  - %s\n", line)
 		}
 	}
+}
+
+// collectAuditDurabilityPosture reports the effective
+// storage.database.audit_durability as an informational line, never a
+// deviation: strict and standard are both baseline (ADR-112 Amendment 3), and
+// standard is the PostgreSQL default, so a default PostgreSQL install still
+// reports zero deviations.
+func collectAuditDurabilityPosture(cfg *config.Config, report *postureReport) {
+	st := cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type)
+	report.info(fmt.Sprintf("%s: %s (%s)", config.AuditDurabilitySettingName, st.Level, st.Level.Meaning()))
 }
