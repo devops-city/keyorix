@@ -9,7 +9,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,21 +32,39 @@ func init() {
 
 // ── audit verify ─────────────────────────────────────────────────────────────
 
-var auditVerifyJSON bool
+var (
+	auditVerifyJSON    bool
+	auditVerifyFull    bool
+	auditVerifyTimeout time.Duration
+	// auditVerifyPollInterval is how often --full polls the job (a var for tests).
+	auditVerifyPollInterval = 2 * time.Second
+)
 
 var auditVerifyCmd = &cobra.Command{
-	Use:          "verify",
-	Short:        "Re-walk the audit hash chain and report integrity (non-zero exit if broken)",
+	Use:   "verify",
+	Short: "Report the audit hash chain's integrity (non-zero exit if broken or not proven)",
+	Long: `Report the audit hash chain's integrity.
+
+By default this reads the server's incremental verification: the rolling full
+re-walk (every row re-hashed at least once per cycle) plus a check of the rows
+after the latest signed checkpoint. Status is VALID, BROKEN, or NOT PROVEN
+(no recent full verification covers the older rows yet). --full runs a full
+walk on the server now, as a background job, and waits for it.`,
 	SilenceUsage: true,
 	RunE:         runAuditVerify,
 }
 
 func init() {
 	auditVerifyCmd.Flags().BoolVar(&auditVerifyJSON, "json", false, "Emit the raw verification result as JSON (for recording the external anchor)")
+	auditVerifyCmd.Flags().BoolVar(&auditVerifyFull, "full", false, "Run a full walk of the chain on the server now (a background job) and wait for its result")
+	auditVerifyCmd.Flags().DurationVar(&auditVerifyTimeout, "timeout", 30*time.Minute, "With --full: how long to wait for the job")
 }
 
 type verifyResult struct {
 	Valid                     bool   `json:"valid"`
+	Status                    string `json:"status,omitempty"`
+	Mode                      string `json:"mode,omitempty"`
+	NotProvenReason           string `json:"not_proven_reason,omitempty"`
 	ChainedEvents             int    `json:"chained_events"`
 	UnchainedEvents           int    `json:"unchained_events"`
 	HeadHash                  string `json:"head_hash"`
@@ -56,6 +77,33 @@ type verifyResult struct {
 	AnchoredAt                string `json:"anchored_at,omitempty"`
 	AnchorProvider            string `json:"anchor_provider,omitempty"`
 	AnchorTrustRootConfigured bool   `json:"anchor_trust_root_configured,omitempty"`
+	LastFullVerificationAt    string `json:"last_full_verification_at,omitempty"`
+	LastFullThroughID         uint   `json:"last_full_verification_through_id,omitempty"`
+	Coverage                  *struct {
+		CheckpointID  uint `json:"checkpoint_id"`
+		TailFromID    uint `json:"tail_from_id"`
+		TailThroughID uint `json:"tail_through_id"`
+		TailComplete  bool `json:"tail_complete"`
+	} `json:"coverage,omitempty"`
+}
+
+// verifyStatus is the result's status; a server from before incremental
+// verification sends only valid.
+func (v *verifyResult) verifyStatus() string {
+	if v.Status != "" {
+		return v.Status
+	}
+	if v.Valid {
+		return "valid"
+	}
+	return "broken"
+}
+
+type verifyJob struct {
+	JobID  string        `json:"job_id"`
+	State  string        `json:"state"`
+	Error  string        `json:"error"`
+	Result *verifyResult `json:"result"`
 }
 
 func runAuditVerify(_ *cobra.Command, _ []string) error {
@@ -64,17 +112,25 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := client.VerifyAuditChainWithResponse(ctx)
+	var v *verifyResult
+	if auditVerifyFull {
+		v, err = runAuditVerifyFullJob(ctx, client)
+	} else {
+		var resp *apiclient.VerifyAuditChainResponse
+		resp, err = client.VerifyAuditChainWithResponse(ctx, nil)
+		if err == nil && resp.StatusCode() != 200 {
+			err = apiError("verify audit chain", resp.StatusCode(), resp.Body)
+		}
+		if err == nil {
+			var d verifyResult
+			d, err = decodeData[verifyResult](resp.Body)
+			v = &d
+		}
+	}
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode() != 200 {
-		return apiError("verify audit chain", resp.StatusCode(), resp.Body)
-	}
-	v, err := decodeData[verifyResult](resp.Body)
-	if err != nil {
-		return err
-	}
+	status := v.verifyStatus()
 
 	if auditVerifyJSON {
 		b, err := json.Marshal(v)
@@ -83,11 +139,11 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 		}
 		fmt.Println(string(b))
 	} else {
-		status := "VALID"
-		if !v.Valid {
-			status = "BROKEN"
+		label := map[string]string{"valid": "VALID", "broken": "BROKEN", "not_proven": "NOT PROVEN"}[status]
+		if label == "" {
+			label = strings.ToUpper(status)
 		}
-		fmt.Printf("Audit chain: %s\n", status)
+		fmt.Printf("Audit chain: %s\n", label)
 		fmt.Printf("  chained events:   %d\n", v.ChainedEvents)
 		fmt.Printf("  unchained events: %d\n", v.UnchainedEvents)
 		fmt.Printf("  head id:          %d\n", v.HeadID)
@@ -97,11 +153,27 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 		} else {
 			fmt.Println("  checkpoint:       none enforced (record (chained events, head hash) externally to anchor)")
 		}
-		if !v.Valid {
+		if v.Mode == "incremental" {
+			if c := v.Coverage; c != nil {
+				fmt.Printf("  this check:       rows %d..%d after signed checkpoint #%d (complete: %t)\n", c.TailFromID+1, c.TailThroughID, c.CheckpointID, c.TailComplete)
+			}
+			if v.LastFullVerificationAt != "" {
+				fmt.Printf("  full re-walk:     every row through id %d re-hashed, completed %s\n", v.LastFullThroughID, v.LastFullVerificationAt)
+			} else {
+				fmt.Println("  full re-walk:     none completed yet")
+			}
+		}
+		switch status {
+		case "broken":
 			fmt.Printf("  first broken id:  %d\n", v.FirstBrokenID)
 			fmt.Printf("  reason:           %s\n", v.Reason)
-		} else if v.CheckpointReason != "" {
-			fmt.Printf("  note:             %s\n", v.CheckpointReason)
+		case "not_proven":
+			fmt.Printf("  not proven:       %s\n", v.NotProvenReason)
+			fmt.Println("  hint:             'keyorix audit verify --full' runs a full walk now")
+		default:
+			if v.CheckpointReason != "" {
+				fmt.Printf("  note:             %s\n", v.CheckpointReason)
+			}
 		}
 		if v.AnchorToken != "" {
 			fmt.Printf("  anchored at:      %s\n", v.AnchoredAt)
@@ -115,10 +187,62 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if !v.Valid {
+	switch status {
+	case "valid":
+		return nil
+	case "not_proven":
+		return fmt.Errorf("audit chain integrity NOT PROVEN: %s", v.NotProvenReason)
+	default:
 		return fmt.Errorf("audit chain verification FAILED (first broken id %d): %s", v.FirstBrokenID, v.Reason)
 	}
-	return nil
+}
+
+// runAuditVerifyFullJob starts a server-side full walk (?full=true) and polls
+// its job until it finishes.
+func runAuditVerifyFullJob(ctx context.Context, client *apiclient.ClientWithResponses) (*verifyResult, error) {
+	full := apiclient.VerifyAuditChainParamsFullTrue
+	resp, err := client.VerifyAuditChainWithResponse(ctx, &apiclient.VerifyAuditChainParams{Full: &full})
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusAccepted {
+		return nil, apiError("start full audit verification", resp.StatusCode(), resp.Body)
+	}
+	started, err := decodeData[verifyJob](resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if !auditVerifyJSON {
+		fmt.Fprintf(os.Stderr, "Full audit verification running on the server (job %s)...\n", started.JobID)
+	}
+	deadline := time.Now().Add(auditVerifyTimeout)
+	for {
+		jr, err := client.GetAuditVerifyJobWithResponse(ctx, started.JobID)
+		if err != nil {
+			return nil, err
+		}
+		if jr.StatusCode() != 200 {
+			return nil, apiError("audit verification job", jr.StatusCode(), jr.Body)
+		}
+		j, err := decodeData[verifyJob](jr.Body)
+		if err != nil {
+			return nil, err
+		}
+		switch j.State {
+		case "running":
+		case "succeeded":
+			if j.Result == nil {
+				return nil, fmt.Errorf("audit verification job %s succeeded without a result", j.JobID)
+			}
+			return j.Result, nil
+		default:
+			return nil, fmt.Errorf("audit verification job %s %s: %s", j.JobID, j.State, j.Error)
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("audit verification job %s still running after %s (poll it at /api/v1/audit/verify/jobs/%s)", j.JobID, auditVerifyTimeout, j.JobID)
+		}
+		time.Sleep(auditVerifyPollInterval)
+	}
 }
 
 // ── audit export ─────────────────────────────────────────────────────────────

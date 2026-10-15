@@ -7605,6 +7605,23 @@ func (w *FaultyStorage) VerifyAuditChain(ctx context.Context, anchor *storage.Au
 	return w.real.VerifyAuditChain(ctx, anchor)
 }
 
+func (w *FaultyStorage) VerifyAuditChainSegment(ctx context.Context, seg storage.AuditChainSegment) (*storage.AuditChainVerification, error) {
+	fire, kind, injected := w.check("VerifyAuditChainSegment")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *storage.AuditChainVerification
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.VerifyAuditChainSegment(ctx, seg)
+			return rv1, injected
+		}
+	}
+	return w.real.VerifyAuditChainSegment(ctx, seg)
+}
+
 func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func() error) error {
 	fire, kind, injected := w.check("WithAuditCheckpointLock")
 	if fire {

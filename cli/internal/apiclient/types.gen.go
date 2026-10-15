@@ -161,6 +161,12 @@ const (
 	SearchAuditLogsParamsSuccessTrue  SearchAuditLogsParamsSuccess = "true"
 )
 
+// Defines values for VerifyAuditChainParamsFull.
+const (
+	VerifyAuditChainParamsFullFalse VerifyAuditChainParamsFull = "false"
+	VerifyAuditChainParamsFullTrue  VerifyAuditChainParamsFull = "true"
+)
+
 // Defines values for GetComplianceCredentialTrendsParamsDays.
 const (
 	N30 GetComplianceCredentialTrendsParamsDays = 30
@@ -212,8 +218,8 @@ const (
 
 // Defines values for ListProjectEnvironmentsParamsIncludeDeleted.
 const (
-	ListProjectEnvironmentsParamsIncludeDeletedFalse ListProjectEnvironmentsParamsIncludeDeleted = "false"
-	ListProjectEnvironmentsParamsIncludeDeletedTrue  ListProjectEnvironmentsParamsIncludeDeleted = "true"
+	False ListProjectEnvironmentsParamsIncludeDeleted = "false"
+	True  ListProjectEnvironmentsParamsIncludeDeleted = "true"
 )
 
 // Defines values for TransitionMachineIdentityJSONBodyAction.
@@ -1517,6 +1523,15 @@ type SearchAuditLogsParams struct {
 
 // SearchAuditLogsParamsSuccess defines parameters for SearchAuditLogs.
 type SearchAuditLogsParamsSuccess string
+
+// VerifyAuditChainParams defines parameters for VerifyAuditChain.
+type VerifyAuditChainParams struct {
+	// Full true starts a background full verification (202 + job id) instead of reporting.
+	Full *VerifyAuditChainParamsFull `form:"full,omitempty" json:"full,omitempty"`
+}
+
+// VerifyAuditChainParamsFull defines parameters for VerifyAuditChain.
+type VerifyAuditChainParamsFull string
 
 // ChangePasswordJSONBody defines parameters for ChangePassword.
 type ChangePasswordJSONBody struct {

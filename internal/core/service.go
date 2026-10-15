@@ -414,6 +414,22 @@ type KeyorixCore struct {
 	// below a length we already saw this lifetime. Guarded by auditWatermarkMu.
 	auditMaxCertified int64
 	auditWatermarkMu  sync.Mutex
+	// auditVerify* configure incremental audit-chain verification
+	// (audit_verify_incremental.go): the checkpoint scheduler interval and the
+	// number of ticks a rolling full re-walk is spread over. Zero interval =
+	// not configured (no scheduler runs), and every verification is a full walk.
+	auditVerifyInterval time.Duration
+	auditVerifySegments int
+	// auditVerifyMinWidth overrides auditVerifyMinSegmentWidth (tests only; 0 = default).
+	auditVerifyMinWidth uint
+	// auditVerifyJobMu admits one ?full=true job per process; auditVerifyJobID
+	// holds the id of the job this process is running ("" = none).
+	auditVerifyJobMu sync.Mutex
+	auditVerifyJobID atomic.Value
+	// auditVerifyGenSeen is the highest verification-state generation this
+	// process has read or written (audit_verify_state.go): a row below it is a
+	// rollback or replay, like auditMaxCertified for the high-water mark.
+	auditVerifyGenSeen atomic.Uint64
 	// checkpointNotary, when set, anchors each freshly-written audit checkpoint to
 	// an external authority (RFC 3161 TSA) for a forge-proof proof-of-existence
 	// (ADR-029). nil = no external anchoring. Set at startup via SetCheckpointNotary.

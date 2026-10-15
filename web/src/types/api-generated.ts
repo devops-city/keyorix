@@ -4327,9 +4327,29 @@ export interface paths {
         };
         /**
          * Verify the tamper-evidence hash chain (ADR-029)
-         * @description Verify the audit log's tamper-evidence hash chain and report the first broken link if any.
+         * @description Report the audit hash chain's integrity. With incremental verification (the checkpoint scheduler running; docs/specs/audit-incremental-verification.md) this is the signed persisted state (rolling full re-walk, last full verification) plus a bounded check of the tail since the latest signed checkpoint; status says what is proven. Without it, a full walk now. full=true starts a background full walk instead and returns 202 with a job id (without a signing key, where no job state can be kept, full=true returns the full-walk report with 200).
          */
         get: operations["verifyAuditChain"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit/verify/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status of a background full audit-chain verification
+         * @description The job started by GET /api/v1/audit/verify?full=true. Same authorization as /audit/verify. state is running|succeeded|failed|interrupted (interrupted: the process running it died).
+         */
+        get: operations["getAuditVerifyJob"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13738,14 +13758,53 @@ export interface operations {
     };
     verifyAuditChain: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description true starts a background full verification (202 + job id) instead of reporting. */
+                full?: "true" | "false";
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: valid, chained_events, unchained_events; on failure (valid=false) also first_broken_id and reason naming the first divergent event. */
+            /** @description Envelope {data, message}. data: status (valid|broken|not_proven), valid (true only for status=valid), mode (incremental|full), chained_events, unchained_events, head_id, head_hash, checkpointed; when broken also first_broken_id and reason; when not_proven not_proven_reason; in incremental mode coverage {checkpoint_id, tail_from_id, tail_through_id, tail_complete}, last_full_verification_at (null if none), last_full_verification_started_at, last_full_verification_through_id, last_full_verification_source (rolling|job|checkpoint-full), rolling_cycle {started_at, target_id, verified_through_id}, state_reason. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description full=true. Envelope {data, message}. data: {job_id, state: running, status_url}; Location header = status_url. A request while a job runs returns that job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description full=true could not start a job (another replica is starting one); retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getAuditVerifyJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Envelope {data, message}. data: {job_id, state, started_at, finished_at, error, result} where result is the full-mode /audit/verify body. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13754,6 +13813,13 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            /** @description Unknown job id, or superseded by a newer job. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     writeAuditCheckpoint: {
@@ -13765,7 +13831,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: {id, chained_events, head_id, head_hash, key_version} of the new checkpoint. */
+            /** @description Envelope {data, message}. data: {id, chained_events, head_id, head_hash, key_version} of the new checkpoint. With incremental verification the new checkpoint extends the latest signed one by a check of the rows after its head (no full walk); it is refused (409) while a verification failure is recorded. */
             200: {
                 headers: {
                     [name: string]: unknown;

@@ -164,7 +164,10 @@ type ClientInterface interface {
 	SearchAuditLogs(ctx context.Context, params *SearchAuditLogsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// VerifyAuditChain request
-	VerifyAuditChain(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	VerifyAuditChain(ctx context.Context, params *VerifyAuditChainParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetAuditVerifyJob request
+	GetAuditVerifyJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ChangePasswordWithBody request with any body
 	ChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1308,8 +1311,20 @@ func (c *Client) SearchAuditLogs(ctx context.Context, params *SearchAuditLogsPar
 	return c.Client.Do(req)
 }
 
-func (c *Client) VerifyAuditChain(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewVerifyAuditChainRequest(c.Server)
+func (c *Client) VerifyAuditChain(ctx context.Context, params *VerifyAuditChainParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifyAuditChainRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetAuditVerifyJob(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetAuditVerifyJobRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -6171,7 +6186,7 @@ func NewSearchAuditLogsRequest(server string, params *SearchAuditLogsParams) (*h
 }
 
 // NewVerifyAuditChainRequest generates requests for VerifyAuditChain
-func NewVerifyAuditChainRequest(server string) (*http.Request, error) {
+func NewVerifyAuditChainRequest(server string, params *VerifyAuditChainParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -6180,6 +6195,62 @@ func NewVerifyAuditChainRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/audit/verify")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Full != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "full", runtime.ParamLocationQuery, *params.Full); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetAuditVerifyJobRequest generates requests for GetAuditVerifyJob
+func NewGetAuditVerifyJobRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "id", runtime.ParamLocationPath, id)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/audit/verify/jobs/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -15695,7 +15766,10 @@ type ClientWithResponsesInterface interface {
 	SearchAuditLogsWithResponse(ctx context.Context, params *SearchAuditLogsParams, reqEditors ...RequestEditorFn) (*SearchAuditLogsResponse, error)
 
 	// VerifyAuditChainWithResponse request
-	VerifyAuditChainWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*VerifyAuditChainResponse, error)
+	VerifyAuditChainWithResponse(ctx context.Context, params *VerifyAuditChainParams, reqEditors ...RequestEditorFn) (*VerifyAuditChainResponse, error)
+
+	// GetAuditVerifyJobWithResponse request
+	GetAuditVerifyJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAuditVerifyJobResponse, error)
 
 	// ChangePasswordWithBodyWithResponse request with any body
 	ChangePasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangePasswordResponse, error)
@@ -17050,6 +17124,29 @@ func (r VerifyAuditChainResponse) Status() string {
 
 // StatusCode returns HTTPResponse.StatusCode
 func (r VerifyAuditChainResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type GetAuditVerifyJobResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON401      *Error
+	JSON403      *Error
+}
+
+// Status returns HTTPResponse.Status
+func (r GetAuditVerifyJobResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetAuditVerifyJobResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -23296,12 +23393,21 @@ func (c *ClientWithResponses) SearchAuditLogsWithResponse(ctx context.Context, p
 }
 
 // VerifyAuditChainWithResponse request returning *VerifyAuditChainResponse
-func (c *ClientWithResponses) VerifyAuditChainWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*VerifyAuditChainResponse, error) {
-	rsp, err := c.VerifyAuditChain(ctx, reqEditors...)
+func (c *ClientWithResponses) VerifyAuditChainWithResponse(ctx context.Context, params *VerifyAuditChainParams, reqEditors ...RequestEditorFn) (*VerifyAuditChainResponse, error) {
+	rsp, err := c.VerifyAuditChain(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseVerifyAuditChainResponse(rsp)
+}
+
+// GetAuditVerifyJobWithResponse request returning *GetAuditVerifyJobResponse
+func (c *ClientWithResponses) GetAuditVerifyJobWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetAuditVerifyJobResponse, error) {
+	rsp, err := c.GetAuditVerifyJob(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetAuditVerifyJobResponse(rsp)
 }
 
 // ChangePasswordWithBodyWithResponse request with arbitrary body returning *ChangePasswordResponse
@@ -26760,6 +26866,39 @@ func ParseVerifyAuditChainResponse(rsp *http.Response) (*VerifyAuditChainRespons
 	}
 
 	response := &VerifyAuditChainResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetAuditVerifyJobResponse parses an HTTP response from a GetAuditVerifyJobWithResponse call
+func ParseGetAuditVerifyJobResponse(rsp *http.Response) (*GetAuditVerifyJobResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetAuditVerifyJobResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

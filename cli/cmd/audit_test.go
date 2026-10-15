@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func setAuditCreds(t *testing.T, srv *httptest.Server) {
@@ -52,6 +53,64 @@ func TestRunAuditVerify_BrokenChainReturnsError(t *testing.T) {
 	err := runAuditVerify(auditVerifyCmd, nil)
 	if err == nil || !containsAll(err.Error(), "FAILED", "hash mismatch") {
 		t.Fatalf("err = %v, want a broken-chain error", err)
+	}
+}
+
+// Incremental verification (docs/specs/audit-incremental-verification.md): a
+// not_proven status prints NOT PROVEN with the reason and exits non-zero, and
+// is not reported as a broken chain.
+func TestRunAuditVerify_NotProvenIsNeitherValidNorBroken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"data":{"valid":false,"status":"not_proven","mode":"incremental","not_proven_reason":"no full verification has completed yet","chained_events":9,"head_id":9,"head_hash":"h","checkpointed":true,"coverage":{"checkpoint_id":2,"tail_from_id":5,"tail_through_id":9,"tail_complete":true},"last_full_verification_at":null}}`)
+	}))
+	defer srv.Close()
+	setAuditCreds(t, srv)
+	auditVerifyJSON, auditVerifyFull = false, false
+
+	var err error
+	out := captureStdout(t, func() { err = runAuditVerify(auditVerifyCmd, nil) })
+	if !containsAll(out, "Audit chain: NOT PROVEN", "rows 6..9 after signed checkpoint #2", "full re-walk:     none completed yet", "no full verification has completed yet") {
+		t.Fatalf("output missing expected fields: %q", out)
+	}
+	if err == nil || !containsAll(err.Error(), "NOT PROVEN") || containsAll(err.Error(), "FAILED") {
+		t.Fatalf("err = %v, want a not-proven (not a broken-chain) error", err)
+	}
+}
+
+// --full starts the server-side job (?full=true → 202) and polls its status
+// until it finishes, then reports the job's result.
+func TestRunAuditVerify_FullPollsTheJob(t *testing.T) {
+	polls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/audit/verify" && r.URL.Query().Get("full") == "true":
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = fmt.Fprint(w, `{"data":{"job_id":"j1","state":"running","status_url":"/api/v1/audit/verify/jobs/j1"}}`)
+		case r.URL.Path == "/api/v1/audit/verify/jobs/j1":
+			polls++
+			if polls < 2 {
+				_, _ = fmt.Fprint(w, `{"data":{"job_id":"j1","state":"running"}}`)
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"data":{"job_id":"j1","state":"succeeded","result":{"valid":true,"status":"valid","mode":"full","chained_events":42,"head_id":42,"head_hash":"abc","checkpointed":true}}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	setAuditCreds(t, srv)
+	auditVerifyJSON, auditVerifyFull, auditVerifyTimeout, auditVerifyPollInterval = false, true, time.Minute, time.Millisecond
+	defer func() { auditVerifyFull = false }()
+
+	out := captureStdout(t, func() {
+		if err := runAuditVerify(auditVerifyCmd, nil); err != nil {
+			t.Fatalf("runAuditVerify --full: %v", err)
+		}
+	})
+	if polls < 2 || !containsAll(out, "Audit chain: VALID", "chained events:   42") {
+		t.Fatalf("polls=%d output=%q", polls, out)
 	}
 }
 

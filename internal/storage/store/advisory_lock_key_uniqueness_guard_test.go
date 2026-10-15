@@ -39,6 +39,8 @@ var advisoryLockKeyGuardPackages = []string{
 	"github.com/keyorixhq/keyorix/internal/storage",
 	"github.com/keyorixhq/keyorix/internal/storage/store",
 	"github.com/keyorixhq/keyorix/internal/serverguard",
+	// AuditVerifyJobLockKey (audit-chain-verification job lock, a WithSchedulerLock key).
+	"github.com/keyorixhq/keyorix/internal/core/storage",
 }
 
 type advisoryLockKeyConst struct {

@@ -1,7 +1,7 @@
 import { formatDateTime } from '../../utils/datetime';
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { complianceApi } from '../../services/compliance';
+import { complianceApi, type CompliancePosture } from '../../services/compliance';
 import { apiClient } from '../../services/client';
 import { triggerBlobDownload } from '../../utils';
 
@@ -266,6 +266,18 @@ function boolTone(ok: boolean): 'good' | 'bad' {
     return ok ? 'good' : 'bad';
 }
 
+// Incremental audit verification reports not_proven until a full re-walk of the
+// chain has completed: neither verified nor broken.
+function auditChainValue(a: CompliancePosture['auditIntegrity']): string {
+    if (a.verificationStatus === 'not_proven') return 'Not yet proven';
+    return a.chainVerified ? 'Yes' : 'No';
+}
+
+function auditChainTone(a: CompliancePosture['auditIntegrity']): 'good' | 'warn' | 'bad' {
+    if (a.verificationStatus === 'not_proven') return 'warn';
+    return boolTone(a.chainVerified);
+}
+
 // PosturePanel surfaces the live controls-posture report (GET /compliance/posture).
 // It needs system.read; non-admins get 403 and the panel shows a quiet note rather
 // than failing the page.
@@ -322,9 +334,15 @@ const PosturePanel: React.FC = () => {
             <div className="px-6 py-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                 <Tile
                     label="Audit chain verified (A.5.28)"
-                    value={p.auditIntegrity.chainVerified ? 'Yes' : 'No'}
-                    tone={boolTone(p.auditIntegrity.chainVerified)}
+                    value={auditChainValue(p.auditIntegrity)}
+                    tone={auditChainTone(p.auditIntegrity)}
                 />
+                {p.auditIntegrity.lastFullVerificationAt && (
+                    <Tile
+                        label="Last full chain re-walk"
+                        value={formatDateTime(p.auditIntegrity.lastFullVerificationAt)}
+                    />
+                )}
                 <Tile
                     label="On-box checkpointed"
                     value={p.auditIntegrity.checkpointed ? 'Yes' : 'No'}

@@ -261,7 +261,7 @@ func (s *AuditGRPCService) VerifyAuditChain(ctx context.Context, _ *emptypb.Empt
 	if err := authorizeGlobal(ctx, s.core, actor, permAuditRead); err != nil {
 		return nil, err
 	}
-	v, err := s.core.VerifyAuditChain(ctx)
+	v, err := s.core.VerifyAuditChainIncremental(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to verify audit chain")
 	}
@@ -274,9 +274,15 @@ func (s *AuditGRPCService) VerifyAuditChain(ctx context.Context, _ *emptypb.Empt
 		Checkpointed:     v.Checkpointed,
 		Reason:           v.Reason,
 		CheckpointReason: v.CheckpointReason,
+		Status:           v.Status,
+		Mode:             v.Mode,
+		NotProvenReason:  v.NotProvenReason,
 	}
 	if v.FirstBrokenID != nil {
 		resp.FirstBrokenId = ptrU32(*v.FirstBrokenID)
+	}
+	if v.LastFullVerificationAt != nil {
+		resp.LastFullVerificationAt = timestamppb.New(*v.LastFullVerificationAt)
 	}
 	return resp, nil
 }
@@ -300,7 +306,7 @@ func (s *AuditGRPCService) WriteAuditCheckpoint(ctx context.Context, _ *emptypb.
 	if err := authorizeGlobal(ctx, s.core, actor, "system.write"); err != nil {
 		return nil, err
 	}
-	cp, written, err := s.core.WriteAuditCheckpoint(ctx)
+	cp, written, err := s.core.WriteAuditCheckpointIncremental(ctx)
 	if err != nil {
 		// The chain did not verify (broken, or a prior signed checkpoint proves a
 		// truncation) — refuse to notarise it. A precondition failure, not an error.

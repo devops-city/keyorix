@@ -1641,6 +1641,18 @@ type Storage interface {
 	// that already starts at genesis (the purge only removed the legacy
 	// unchained prefix, or the table is now empty) ignores a non-nil anchor.
 	VerifyAuditChain(ctx context.Context, anchor *AuditChainAnchor) (*AuditChainVerification, error)
+	// VerifyAuditChainSegment walks one bounded part of the chain with the same
+	// per-row rules as VerifyAuditChain (docs/specs/audit-incremental-verification.md).
+	// With seg.AfterID == 0 it starts at the chain start exactly like
+	// VerifyAuditChain(ctx, seg.Anchor). With seg.AfterID > 0 the row AfterID is
+	// pinned first: it must exist, carry entry_hash == seg.SeedHash and recompute
+	// from its own fields; the walk then continues with the rows id > AfterID,
+	// the first of which must link to SeedHash. The walk stops after ThroughID
+	// (0 = no bound) or MaxRows rows (0 = no bound). The result's HeadID/HeadHash
+	// are the last row verified (the pinned row when nothing followed it), and
+	// ChainedEvents counts the rows walked after the pinned row. Truncated
+	// reports that MaxRows stopped the walk before ThroughID / the end.
+	VerifyAuditChainSegment(ctx context.Context, seg AuditChainSegment) (*AuditChainVerification, error)
 	// MigrateAuditChainEncoding re-derives entry_hash/prev_hash for every chained
 	// audit_events row, in ascending id order, under computeAuditEntryHash's
 	// current (length-prefixed) encoding — closing the gap left when that
@@ -2567,6 +2579,11 @@ type AuditChainVerification struct {
 	// server has never checked it against any root of trust — callers must not
 	// treat a recorded-but-unverifiable anchor as equivalent to a verified one.
 	AnchorTrustRootConfigured bool
+
+	// Truncated is set only by VerifyAuditChainSegment: the MaxRows cap stopped
+	// the walk before ThroughID or the end of the chain, so rows after HeadID
+	// were NOT verified.
+	Truncated bool
 }
 
 // AuditChainAnchor is an authenticated re-anchor point for VerifyAuditChain's
@@ -2593,6 +2610,29 @@ type AuditChainAnchor struct {
 	// actor cannot raise it to excuse a truncation. Checkpoint and high-water
 	// checks compare chained + PurgedEvents against the certified count.
 	PurgedEvents int64
+}
+
+// AuditVerifyJobLockKey is the WithSchedulerLock key that admits one background
+// full audit-chain verification job across replicas ("KEYSAVJB"; distinct from
+// server/main.go's schedLock* keys; uniqueness against every *LockKey constant
+// is guarded by store.TestEveryAdvisoryLockKeyConstantIsUnique).
+const AuditVerifyJobLockKey int64 = 0x4B455953_41564A42
+
+// AuditChainSegment bounds one VerifyAuditChainSegment walk. AfterID/SeedHash
+// come from an authenticated source (a signed checkpoint head, or the signed
+// incremental-verification state); like AuditChainAnchor, the store layer
+// trusts them literally.
+type AuditChainSegment struct {
+	// AfterID is the pinned seed row; 0 = start at the chain start.
+	AfterID uint
+	// SeedHash is the entry_hash AfterID was certified/verified with.
+	SeedHash string
+	// Anchor is the authenticated retention anchor, used only when AfterID == 0.
+	Anchor *AuditChainAnchor
+	// ThroughID is the last id to walk (inclusive); 0 = to the end.
+	ThroughID uint
+	// MaxRows caps the rows walked after the pinned row; 0 = no cap.
+	MaxRows int
 }
 
 // AuditChainMigrationResult reports the outcome of MigrateAuditChainEncoding.

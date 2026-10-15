@@ -1545,6 +1545,14 @@ func (m *MockStorage) VerifyAuditChain(ctx context.Context, anchor *storage.Audi
 	return args.Get(0).(*storage.AuditChainVerification), args.Error(1)
 }
 
+func (m *MockStorage) VerifyAuditChainSegment(ctx context.Context, seg storage.AuditChainSegment) (*storage.AuditChainVerification, error) {
+	args := m.Called(ctx, seg)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*storage.AuditChainVerification), args.Error(1)
+}
+
 func (m *MockStorage) MigrateAuditChainEncoding(ctx context.Context, dryRun bool, anchor *storage.AuditChainAnchor) (*storage.AuditChainMigrationResult, error) {
 	args := m.Called(ctx, dryRun, anchor)
 	if args.Get(0) == nil {

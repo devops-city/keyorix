@@ -742,6 +742,13 @@ message VerifyAuditChainResponse {
   optional uint32 first_broken_id = 7; // set only when !valid
   string reason = 8; // set only when !valid
   string checkpoint_reason = 9; // non-fatal notes (e.g. checkpoint under a prior key)
+  // Incremental verification (docs/specs/audit-incremental-verification.md):
+  // status is valid | broken | not_proven, and valid is true only for "valid";
+  // mode is incremental (tail check + persisted state) or full (walked now).
+  string status = 10;
+  string mode = 11;
+  string not_proven_reason = 12; // set only when status is not_proven
+  optional google.protobuf.Timestamp last_full_verification_at = 13;
 }
 
 // WriteAuditCheckpointResponse is the signed checkpoint that was written.
