@@ -206,7 +206,14 @@ func (c *KeyorixCore) GetUserSecretPermission(ctx context.Context, secretID, use
 }
 
 // buildSharingIndicators creates UI indicators for a secret based on sharing information.
-func (c *KeyorixCore) buildSharingIndicators(_ *models.SecretNode, shares []*models.ShareRecord, isOwner bool, userPermission string) *models.SharingIndicators {
+func (c *KeyorixCore) buildSharingIndicators(secret *models.SecretNode, shares []*models.ShareRecord, isOwner bool, userPermission string) *models.SharingIndicators {
+	return c.buildSharingIndicatorsNamed(secret, shares, isOwner, userPermission, nil)
+}
+
+// buildSharingIndicatorsNamed is buildSharingIndicators with the share recipients'
+// usernames already resolved (a listing resolves them once for the whole page,
+// LIST-ENDPOINTS-1). nil names means "look each recipient up", the single-secret path.
+func (c *KeyorixCore) buildSharingIndicatorsNamed(_ *models.SecretNode, shares []*models.ShareRecord, isOwner bool, userPermission string, names map[uint]string) *models.SharingIndicators {
 	indicators := &models.SharingIndicators{
 		CanRead:   true,
 		CanWrite:  isOwner || userPermission == string(PermissionWrite),
@@ -247,13 +254,20 @@ func (c *KeyorixCore) buildSharingIndicators(_ *models.SecretNode, shares []*mod
 	}
 
 	if len(shares) > 0 {
-		indicators.ShareDetails = c.buildShareDetails(shares)
+		indicators.ShareDetails = c.buildShareDetailsNamed(shares, names)
 	}
 	return indicators
 }
 
 // buildShareDetails creates detailed sharing information for UI display.
-func (c *KeyorixCore) buildShareDetails(shares []*models.ShareRecord) *models.ShareDetails { // NOSONAR -- cognitive complexity 19, suppress go:S3776
+func (c *KeyorixCore) buildShareDetails(shares []*models.ShareRecord) *models.ShareDetails {
+	return c.buildShareDetailsNamed(shares, nil)
+}
+
+// buildShareDetailsNamed is buildShareDetails with pre-resolved recipient usernames;
+// nil names falls back to one GetUser per direct recipient. A recipient missing from
+// a non-nil names map keeps the "User N" placeholder, as an unreadable user does.
+func (c *KeyorixCore) buildShareDetailsNamed(shares []*models.ShareRecord, names map[uint]string) *models.ShareDetails { // NOSONAR -- cognitive complexity 19, suppress go:S3776
 	details := &models.ShareDetails{TotalShares: len(shares)}
 
 	var directShares, groupShares, readCount, writeCount int
@@ -279,10 +293,12 @@ func (c *KeyorixCore) buildShareDetails(shares []*models.ShareRecord) *models.Sh
 		if share.IsGroup {
 			recipientType = "group" //nolint:goconst
 			recipientName = fmt.Sprintf("Group %d", share.RecipientID)
-		} else {
-			if user, err := c.storage.GetUser(context.Background(), share.RecipientID); err == nil && user != nil {
-				recipientName = user.Username
+		} else if names != nil {
+			if n := names[share.RecipientID]; n != "" {
+				recipientName = n
 			}
+		} else if user, err := c.storage.GetUser(context.Background(), share.RecipientID); err == nil && user != nil {
+			recipientName = user.Username
 		}
 
 		if isRecent || len(recentShares) < 5 {

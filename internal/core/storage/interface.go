@@ -822,6 +822,15 @@ type Storage interface {
 	// planner's risk-scoring batch (#409) so scoring N candidate secrets costs a
 	// small constant number of queries, not N.
 	GetSecretsByIDs(ctx context.Context, ids []uint) ([]*models.SecretNode, error)
+	// Batch name lookups for list views (LIST-ENDPOINTS-1): one query per page
+	// instead of one GetUser / GetGroup / GetMachineIdentity / GetSecretTags per
+	// row. Each selects only the id and display column. An id with no live row is
+	// absent from the map (no error), as the single-row getters report not-found.
+	// GetSecretTagsBySecretIDs returns name-ordered tags; an untagged secret is absent.
+	GetUsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	GetMachineIdentityNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	GetSecretTagsBySecretIDs(ctx context.Context, ids []uint) (map[uint][]string, error)
 	GetSecretByName(ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error)
 	// UpdateSecretFields persists ONLY the fields f names, onto a LIVE secret
 	// row: "UPDATE secret_nodes SET <named columns> WHERE id = ? AND deleted_at

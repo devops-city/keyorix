@@ -2511,6 +2511,23 @@ func (w *FaultyStorage) GetGroup(ctx context.Context, id uint) (*models.Group, e
 	return w.real.GetGroup(ctx, id)
 }
 
+func (w *FaultyStorage) GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	fire, kind, injected := w.check("GetGroupNamesByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetGroupNamesByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetGroupNamesByIDs(ctx, ids)
+}
+
 func (w *FaultyStorage) GetGroupRoleGrants(ctx context.Context, groupID uint) ([]*storage.GroupRoleGrant, error) {
 	fire, kind, injected := w.check("GetGroupRoleGrants")
 	if fire {
@@ -2680,6 +2697,23 @@ func (w *FaultyStorage) GetMachineIdentityCredentialWithIdentityStateByHash(ctx 
 		}
 	}
 	return w.real.GetMachineIdentityCredentialWithIdentityStateByHash(ctx, hash)
+}
+
+func (w *FaultyStorage) GetMachineIdentityNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	fire, kind, injected := w.check("GetMachineIdentityNamesByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetMachineIdentityNamesByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetMachineIdentityNamesByIDs(ctx, ids)
 }
 
 func (w *FaultyStorage) GetMachineRoleIDsAt(ctx context.Context, machineID uint, scope storage.Scope) ([]uint, error) {
@@ -3278,6 +3312,23 @@ func (w *FaultyStorage) GetSecretTags(ctx context.Context, secretID uint) ([]str
 	return w.real.GetSecretTags(ctx, secretID)
 }
 
+func (w *FaultyStorage) GetSecretTagsBySecretIDs(ctx context.Context, ids []uint) (map[uint][]string, error) {
+	fire, kind, injected := w.check("GetSecretTagsBySecretIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint][]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetSecretTagsBySecretIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetSecretTagsBySecretIDs(ctx, ids)
+}
+
 func (w *FaultyStorage) GetSecretTemplate(ctx context.Context, id uint) (*models.SecretTemplate, error) {
 	fire, kind, injected := w.check("GetSecretTemplate")
 	if fire {
@@ -3753,6 +3804,23 @@ func (w *FaultyStorage) GetUserRoles(ctx context.Context, userID uint) ([]*model
 		}
 	}
 	return w.real.GetUserRoles(ctx, userID)
+}
+
+func (w *FaultyStorage) GetUsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	fire, kind, injected := w.check("GetUsernamesByIDs")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]string
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.GetUsernamesByIDs(ctx, ids)
+			return rv1, injected
+		}
+	}
+	return w.real.GetUsernamesByIDs(ctx, ids)
 }
 
 func (w *FaultyStorage) GetWebAuthnCredentialByCredID(ctx context.Context, credentialID []byte, userID uint) (*models.WebAuthnCredential, error) {

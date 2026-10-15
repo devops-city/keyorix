@@ -662,6 +662,34 @@ func (m *MockStorage) GetSecretsByIDs(ctx context.Context, ids []uint) ([]*model
 	return args.Get(0).([]*models.SecretNode), args.Error(1)
 }
 
+func (m *MockStorage) mockNameMap(method string, ctx context.Context, ids []uint) (map[uint]string, error) {
+	args := m.MethodCalled(method, ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]string), args.Error(1)
+}
+
+func (m *MockStorage) GetUsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	return m.mockNameMap("GetUsernamesByIDs", ctx, ids)
+}
+
+func (m *MockStorage) GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	return m.mockNameMap("GetGroupNamesByIDs", ctx, ids)
+}
+
+func (m *MockStorage) GetMachineIdentityNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
+	return m.mockNameMap("GetMachineIdentityNamesByIDs", ctx, ids)
+}
+
+func (m *MockStorage) GetSecretTagsBySecretIDs(ctx context.Context, ids []uint) (map[uint][]string, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint][]string), args.Error(1)
+}
+
 func (m *MockStorage) GetSecretByName(ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error) {
 	args := m.Called(ctx, name, projectID, environmentID)
 	if args.Get(0) == nil {

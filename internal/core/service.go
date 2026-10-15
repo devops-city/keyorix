@@ -1215,9 +1215,23 @@ func (c *KeyorixCore) ResolveUsernames(ctx context.Context, events []*models.Aud
 		}
 	}
 	byID := map[uint]string{0: "system"}
+	ids := make([]uint, 0, len(seen))
 	for uid := range seen {
-		if user, err := c.storage.GetUser(ctx, uid); err == nil && user != nil {
-			byID[uid] = user.Username
+		ids = append(ids, uid)
+	}
+	// One batched lookup for the page (LIST-ENDPOINTS-1), not one GetUser per
+	// distinct actor. A failed lookup degrades every name to "unknown", as a
+	// failed per-id GetUser did.
+	var names map[uint]string
+	if len(ids) > 0 {
+		var err error
+		if names, err = c.storage.GetUsernamesByIDs(ctx, ids); err != nil {
+			names = nil
+		}
+	}
+	for _, uid := range ids {
+		if name, ok := names[uid]; ok {
+			byID[uid] = name
 		} else {
 			byID[uid] = "unknown"
 		}
@@ -1232,18 +1246,27 @@ func (c *KeyorixCore) ResolveUsernames(ctx context.Context, events []*models.Aud
 // An identity that cannot be read maps to "unknown".
 func (c *KeyorixCore) ResolveMachineNames(ctx context.Context, events []*models.AuditEvent) map[uint]string { // nosemgrep: keyorix-unbounded-bulk-slice-param -- events is an already-paginated audit-log query result, not a raw client-supplied array; the per-item DB round trip below is over the deduped machine-id set, not events itself
 	byID := map[uint]string{}
+	var ids []uint
 	for _, e := range events {
 		if e.MachineIdentityID == nil {
 			continue
 		}
-		id := *e.MachineIdentityID
-		if _, done := byID[id]; done {
+		if _, done := byID[*e.MachineIdentityID]; done {
 			continue
 		}
-		if m, err := c.storage.GetMachineIdentity(ctx, id); err == nil && m != nil && m.Name != "" {
-			byID[id] = m.Name
-		} else {
-			byID[id] = "unknown"
+		byID[*e.MachineIdentityID] = "unknown"
+		ids = append(ids, *e.MachineIdentityID)
+	}
+	if len(ids) == 0 {
+		return byID
+	}
+	// One batched lookup (LIST-ENDPOINTS-1); a missing, unnamed or unreadable
+	// identity stays "unknown".
+	if names, err := c.storage.GetMachineIdentityNamesByIDs(ctx, ids); err == nil {
+		for id, name := range names {
+			if name != "" {
+				byID[id] = name
+			}
 		}
 	}
 	return byID
