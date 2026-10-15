@@ -65,8 +65,8 @@ func fillPointers(t *testing.T, v any) {
 	t.Helper()
 	rv := reflect.ValueOf(v).Elem()
 	n := 0
-	for i := range rv.NumField() {
-		if f := rv.Field(i); f.Kind() == reflect.Pointer && f.CanSet() {
+	for _, f := range rv.Fields() {
+		if f.Kind() == reflect.Pointer && f.CanSet() {
 			f.Set(reflect.New(f.Type().Elem()))
 			n++
 		}
@@ -81,10 +81,10 @@ func fillPointers(t *testing.T, v any) {
 func sharedPointers(a, b any) []string {
 	ra, rb := reflect.ValueOf(a), reflect.ValueOf(b)
 	var out []string
-	for i := range ra.NumField() {
-		fa, fb := ra.Field(i), rb.Field(i)
+	for sf, fa := range ra.Fields() {
+		fb := rb.FieldByIndex(sf.Index)
 		if fa.Kind() == reflect.Pointer && !fa.IsNil() && fa.Pointer() == fb.Pointer() {
-			out = append(out, ra.Type().Field(i).Name)
+			out = append(out, sf.Name)
 		}
 	}
 	return out
