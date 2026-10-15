@@ -278,8 +278,10 @@ func (g *Guard) start(ctx context.Context) error {
 		return err
 	}
 	g.since = g.opts.Now().UTC()
+	// The table name is this session's own schema (pinSessionSchema), quoted
+	// as an identifier; every value is a bind parameter.
 	if _, err := g.conn.ExecContext(ctx, `INSERT INTO `+qualify(g.schema, HolderTable)+` (id, holder_pid, nonce_hash, since, boot_id) VALUES (1, $1, $2, $3, $4)
-ON CONFLICT (id) DO UPDATE SET holder_pid = EXCLUDED.holder_pid, nonce_hash = EXCLUDED.nonce_hash, since = EXCLUDED.since, boot_id = EXCLUDED.boot_id`,
+ON CONFLICT (id) DO UPDATE SET holder_pid = EXCLUDED.holder_pid, nonce_hash = EXCLUDED.nonce_hash, since = EXCLUDED.since, boot_id = EXCLUDED.boot_id`, // #nosec G202 -- schema-qualified identifier from the server's own session, quoted; values are bind parameters
 		g.pid, nonceHash(g.nonce), g.since, g.bootID); err != nil {
 		return fmt.Errorf("single_writer: record this server as the holder: %w", err)
 	}
