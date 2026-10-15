@@ -162,6 +162,11 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 		reenter = g.state == StateAuthoritative && g.lapsedLocked(sentMono, sentWall)
 		g.state, g.reason = StateAuthoritative, ""
 	}
+	if reenter && g.tracker != nil {
+		// Back from a lapse: nothing filled before it is trusted. Under g.mu,
+		// before the lease is renewed, like the epoch-move flush below.
+		g.tracker.Flush()
+	}
 	// Not value equality alone: a session that passes the fence can move n
 	// back in the transaction that wrote (REVIEW-SINGLE-WRITER-2 N3). Every
 	// UPDATE of the row gives it a new xmin, and no SQL can set an old one
@@ -192,8 +197,6 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 		}
 	}
 	if reenter {
-		// Back from a lapse: nothing filled before it is trusted.
-		g.tracker.Flush()
 		if f := g.onReenter.Load(); f != nil {
 			(*f)()
 		}

@@ -16,9 +16,9 @@ silently removing it.
 |---|---|---|---|---|
 | `internal/core` | [internal/core/INVARIANTS.md](../internal/core/INVARIANTS.md) | 40 | 35 | 5 |
 | `internal/storage` | [internal/storage/INVARIANTS.md](../internal/storage/INVARIANTS.md) | 35 | 29 | 6 |
-| `internal/storage/store` | [internal/storage/store/INVARIANTS.md](../internal/storage/store/INVARIANTS.md) | 20 | 16 | 4 |
-| `internal/storage` | [internal/storage/INVARIANTS.md](../internal/storage/INVARIANTS.md) | 35 | 28 | 7 |
 | `internal/storage/store` | [internal/storage/store/INVARIANTS.md](../internal/storage/store/INVARIANTS.md) | 21 | 17 | 4 |
+| `internal/storage` | [internal/storage/INVARIANTS.md](../internal/storage/INVARIANTS.md) | 35 | 28 | 7 |
+| `internal/storage/store` | [internal/storage/store/INVARIANTS.md](../internal/storage/store/INVARIANTS.md) | 22 | 18 | 4 |
 | `internal/encryption` | [internal/encryption/INVARIANTS.md](../internal/encryption/INVARIANTS.md) | 27 | 24 | 3 |
 | `internal/encryption` | [internal/encryption/INVARIANTS.md](../internal/encryption/INVARIANTS.md) | 28 | 25 | 3 |
 | `internal/auditverify` | [internal/auditverify/INVARIANTS.md](../internal/auditverify/INVARIANTS.md) | 15 | 12 | 3 |
@@ -28,9 +28,9 @@ silently removing it.
 | `server/grpc/services` | [server/grpc/services/INVARIANTS.md](../server/grpc/services/INVARIANTS.md) | 8 | 8 | 0 |
 | `cli` | [cli/INVARIANTS.md](../cli/INVARIANTS.md) | 13 | 10 | 3 |
 | `web/src` | [web/src/INVARIANTS.md](../web/src/INVARIANTS.md) | 7 | 2 | 5 |
-| `internal/solewriter` | [internal/solewriter/INVARIANTS.md](../internal/solewriter/INVARIANTS.md) | 9 | 9 | 0 |
-| **Total** | | **219** | **184** | **35** |
-| **Total** | | **220** | **184** | **36** |
+| `internal/solewriter` | [internal/solewriter/INVARIANTS.md](../internal/solewriter/INVARIANTS.md) | 16 | 16 | 0 |
+| **Total** | | **236** | **201** | **35** |
+| **Total** | | **237** | **201** | **36** |
 
 ## Highest-priority UNGUARDED gaps
 

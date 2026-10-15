@@ -112,20 +112,60 @@ func (ls *LocalStorage) foldedStatement(ctx context.Context, q string, args []an
 	key := foldMemoKey(q, args)
 	now := time.Now()
 	if e, ok := ls.foldMemo.get(key, now); ok && auth.Valid(e.gen) {
-		c := e.cred // a copy per request
+		// A deep copy per request: no caller can change the entry through
+		// a pointer field (ExpiresAt, RoleID, ...).
+		c := cloneCred(e.cred)
 		var rows []readPathPrefetchRow
 		if e.hasNode {
-			rows = append([]readPathPrefetchRow(nil), e.nodeRows...)
+			rows = cloneRows(e.nodeRows)
 		}
 		return &c, e.state, rows, true
 	}
 	fill := auth.BeginFill()
 	c, state, rows, ok := runFoldedStatement(query, wantScheduleVersion)
 	if ok && fill.Store() {
-		ls.foldMemo.set(key, foldMemoEntry{gen: fill.Gen(), storedAt: now, cred: *c, state: state,
-			nodeRows: append([]readPathPrefetchRow(nil), rows...), hasNode: rows != nil})
+		ls.foldMemo.set(key, foldMemoEntry{gen: fill.Gen(), storedAt: now, cred: cloneCred(*c), state: state,
+			nodeRows: cloneRows(rows), hasNode: rows != nil})
 	}
 	return c, state, rows, ok
+}
+
+// clonePtr copies what p points to.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneCred copies c and every pointer field it carries.
+func cloneCred(c models.MachineIdentityCredential) models.MachineIdentityCredential {
+	c.LastUsedAt = clonePtr(c.LastUsedAt)
+	c.ExpiresAt = clonePtr(c.ExpiresAt)
+	return c
+}
+
+// cloneRows copies rows and every pointer field each one carries.
+func cloneRows(rows []readPathPrefetchRow) []readPathPrefetchRow {
+	if rows == nil {
+		return nil
+	}
+	out := make([]readPathPrefetchRow, len(rows))
+	for i, r := range rows {
+		r.RoleID = clonePtr(r.RoleID)
+		r.Generation = clonePtr(r.Generation)
+		r.SchedID = clonePtr(r.SchedID)
+		r.SchedSecretNodeID = clonePtr(r.SchedSecretNodeID)
+		r.SchedAllowedDays = clonePtr(r.SchedAllowedDays)
+		r.SchedStartHour = clonePtr(r.SchedStartHour)
+		r.SchedEndHour = clonePtr(r.SchedEndHour)
+		r.SchedTimezone = clonePtr(r.SchedTimezone)
+		r.SchedCreatedAt = clonePtr(r.SchedCreatedAt)
+		r.SchedUpdatedAt = clonePtr(r.SchedUpdatedAt)
+		out[i] = r
+	}
+	return out
 }
 
 func runFoldedStatement(query func() (rowScanner, func(), error), wantScheduleVersion bool) (*models.MachineIdentityCredential, string, []readPathPrefetchRow, bool) {
