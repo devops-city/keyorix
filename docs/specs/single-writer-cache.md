@@ -29,8 +29,25 @@ derived from, and so lets it skip that statement.
   well, and it avoids the row-level BEFORE return-value trap. Every object the functions touch is
   qualified with `TG_TABLE_SCHEMA`.
 - **Census**: the poller compares a fingerprint (md5 over every `trg_ksw_*` trigger's
-  `pg_get_triggerdef` + `tgenabled`, and the functions' `prosrc`) with the one recorded inside the
-  install transaction. Any change means `confirming` until restart.
+  `pg_get_triggerdef` + `tgenabled` + catalog row `xmin`, the functions' `prosrc` + `xmin`, and every
+  `pg_inherits` child of a fenced table) with the one recorded inside the install transaction. Any
+  change means `confirming` until restart. The `xmin` is what catches a change undone before the next
+  poll (REVIEW-SINGLE-WRITER-1 F1): `DISABLE TRIGGER; write; ENABLE ALWAYS TRIGGER` in one transaction,
+  the same split over two transactions, DROP + identical CREATE, CREATE OR REPLACE with the same body.
+  Each rewrites the catalog row; no SQL statement can restore its `xmin`. Catalog VACUUM FULL/FREEZE
+  keep it (tested). A child table is read through its fenced parent but its writes fire none of the
+  parent's triggers, so InstallFence refuses to start with one and the census treats a new one as
+  tampering. Alternatives considered: an event trigger on `ddl_command_end` (needs a superuser to
+  install, and `ALTER EVENT TRIGGER ... DISABLE` is not itself seen by event triggers, so it would
+  move the hole rather than close it) and a per-row write epoch (a schema change on 12 tables, and a
+  superuser who can disable the trigger can write the column too). Neither beats the catalog row
+  version.
+- **Residual, not detectable from SQL**: a superuser (or a member of `pg_execute_server_program` /
+  `pg_write_server_files`) can change table data below SQL (native code, the data directory,
+  `pg_resetwal`) with no trigger firing and no catalog row changing. That window is the memo TTL
+  (5 min) or the next server write. It is reported as a `single_writer` posture deviation when the
+  server's own role has those rights; other superusers in the cluster are stated in
+  docs/single-writer.md "Residual risks".
 - **Settle** is kept as an explicit barrier. InstallFence already waits for older writers through
   locks (CREATE TRIGGER's table lock on a first boot; the epoch row the writer's own trigger holds on a
   later boot), so removing Settle does not turn its test red. Documented, not hidden.
@@ -253,7 +270,7 @@ semantics).
 | 8 | Migrations at boot | in-process, before `authoritative` | n/a (caches cold) | |
 | 9 | `admin` commands (restore, recover-admin, clear-login-lockout, migrate, encryption rotate/upgrade-aad...) | separate process | **refused while the server runs** (serverguard exclusive; `--force` refused under the mode; fence refuses any write regardless) | with the server stopped they run normally and the next boot starts cold |
 | 10 | Direct SQL by a DBA / scripts / pg_restore into the live DB / a misconfigured second replica / an older binary | Postgres session without the nonce | **refused** (fence error naming the holder) | an operational change: see "Emergency SQL" below |
-| 11 | Direct SQL after deliberately bypassing the fence (superuser `ALTER TABLE ... DISABLE TRIGGER`, dropping the function, copying the nonce from the server's session or logs) | — | **≤ 1 s**: the census on the next poll (≤ 250 ms) sees the trigger change and drops to `confirming` for good; the epoch trigger, if still on, catches the write itself | not a boundary against the DB owner/superuser, same stated limit as serverguard's package doc |
+| 11 | Direct SQL after deliberately bypassing the fence (owner/superuser `ALTER TABLE ... DISABLE TRIGGER`, also toggled off and back on inside one transaction; dropping or re-creating a trigger or function; a child table; copying the nonce from the server's statement log) | — | **≤ 1 s**: the census on the next poll (≤ 250 ms) sees the catalog change (row `xmin` included) and drops to `confirming` for good; a copied-nonce write moves the epoch and every epoch move flushes the caches at that poll | not a boundary against the DB owner/superuser. Superuser writes **below SQL** (native code, data directory) are not detectable: up to the memo TTL; posture deviation when the server's role can do it |
 | 12 | Writes after the holder lock is lost (pg_terminate_backend, network partition, PG restart) | — | **≤ 1 s** (lease) after the last successful poll | §4 |
 | 13 | Backup restore: `admin restore` | admin path | refused while the server runs | |
 | 14 | Backup restore: volume snapshot / PITR / `pg_restore` from outside | needs PG restart or a new cluster → the holder connection dies | row 12, then a restart with cold caches; the incarnation check rejects old entries | |
@@ -280,7 +297,8 @@ direct SQL included, takes effect on the next request. Under the mode:
   within **1 second**, not on the next request.
 
 So #G18 holds for every write that can commit, except two bounded cases that need a DB superuser or
-owner acting against the fence, or an infrastructure failure. The opt-in exists because the cost is real.
+owner acting against the fence, or an infrastructure failure, and one unbounded-by-the-poll case: a
+superuser changing data below SQL (row 11, posture deviation). The opt-in exists because the cost is real.
 
 ### 3.2 Proposed wording
 
@@ -288,7 +306,9 @@ ADR-112 baseline line (amendment, coordinator-owned; I did not touch the ADR):
 > Revocation takes effect immediately (#G18). With `storage.database.single_writer` (opt-in,
 > single-server PostgreSQL only) this holds for every change made through the server; direct
 > database writes are refused while the server runs, and a change made after the database-side
-> fence has been bypassed or the server's lock lost takes effect within 1 second.
+> fence has been bypassed in SQL or the server's lock lost takes effect within 1 second. A database
+> superuser changing data below SQL is not detected (reported by the posture check when the
+> server's own role has that power).
 
 docs/CONFIGURATION.md entry:
 > `storage.database.single_writer` (default `false`, PostgreSQL only). Declares this server the only
