@@ -27,7 +27,11 @@ import (
 //     call panicked): the slot stays counted;
 //   - pre-verdict (the calibration: the panic landed before the credential was
 //     evaluated): the slot is released, as before.
-// The panic must still reach the caller unchanged either way.
+// The panic must still reach the caller unchanged either way, except for the
+// login identity read (GetUserRoles, GetUserPermissions): since #3267 core
+// denies a panic there exactly like its error (the wrong-credential 401, the
+// lockout counted, auth.login_error), so nothing reaches the caller and the
+// slot stays counted as for any post-verdict denial.
 
 // recoverPanic runs f and returns what it panicked with, or nil.
 func recoverPanic(f func()) (rec any) {
@@ -47,19 +51,22 @@ func TestVerifyMFA_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) {
 	for _, c := range []struct {
 		method      string
 		postVerdict bool
+		// deniedAsError: core turns this panic into its post-verdict error
+		// (#3267), so it never reaches the caller.
+		deniedAsError bool
 	}{
 		// Pre-verdict: the challenge, the user and the TOTP secret are read
 		// before the submitted code is compared.
-		{"ConsumeMFAChallenge", false},
-		{"GetUser", false},
-		{"GetMFASecret", false},
+		{"ConsumeMFAChallenge", false, false},
+		{"GetUser", false, false},
+		{"GetMFASecret", false, false},
 		// Post-verdict: the code has matched. MarkTOTPStepUsed is the
 		// anti-replay write right after the match; the identity reads and the
 		// session mint follow it.
-		{"MarkTOTPStepUsed", true},
-		{"GetUserRoles", true},
-		{"GetUserPermissions", true},
-		{"CreateSession", true},
+		{"MarkTOTPStepUsed", true, false},
+		{"GetUserRoles", true, true},
+		{"GetUserPermissions", true, true},
+		{"CreateSession", true, false},
 	} {
 		t.Run(c.method, func(t *testing.T) {
 			h, fs, secret, fixed, db := newIdentityFailClosedTestHandler(t)
@@ -72,7 +79,11 @@ func TestVerifyMFA_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) {
 			rec := recoverPanic(func() { postVerifyMFA(t, h, ch, code) })
 
 			require.True(t, fs.Fired(), "the armed %s panic must have fired", c.method)
-			assert.Equal(t, errArmedPanicValue, rec, "the panic must reach the caller with its ORIGINAL value")
+			if c.deniedAsError {
+				assert.Nil(t, rec, "%s is the login identity read: core denies its panic as the post-verdict error (#3267)", c.method)
+			} else {
+				assert.Equal(t, errArmedPanicValue, rec, "the panic must reach the caller with its ORIGINAL value")
+			}
 			if c.postVerdict {
 				assert.EqualValues(t, 1, loginAttemptRows(t, db),
 					"%s panicked AFTER the code matched: the slot must stay counted, exactly as the same fault "+
@@ -87,18 +98,19 @@ func TestVerifyMFA_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) {
 
 func TestFinishWebAuthnLogin_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) {
 	for _, c := range []struct {
-		method      string
-		postVerdict bool
+		method        string
+		postVerdict   bool
+		deniedAsError bool // see TestVerifyMFA_PanicKeepsTheSlotOnlyAfterTheVerdict
 	}{
 		// Pre-verdict: the challenge and ceremony are consumed and the user and
 		// credentials loaded before ValidateLogin evaluates the assertion.
-		{"ConsumeMFAChallenge", false},
-		{"ConsumeWebAuthnSession", false},
-		{"ListWebAuthnCredentials", false},
+		{"ConsumeMFAChallenge", false, false},
+		{"ConsumeWebAuthnSession", false, false},
+		{"ListWebAuthnCredentials", false, false},
 		// Post-verdict: the assertion verified.
-		{"GetUserRoles", true},
-		{"GetUserPermissions", true},
-		{"CreateSession", true},
+		{"GetUserRoles", true, true},
+		{"GetUserPermissions", true, true},
+		{"CreateSession", true, false},
 	} {
 		t.Run(c.method, func(t *testing.T) {
 			h, fs, db := newWebAuthnCompletionEnv(t)
@@ -111,7 +123,11 @@ func TestFinishWebAuthnLogin_PanicKeepsTheSlotOnlyAfterTheVerdict(t *testing.T) 
 			rec := recoverPanic(func() { postFinishWebAuthnLogin(t, h, ch, token, cred) })
 
 			require.True(t, fs.Fired(), "the armed %s panic must have fired", c.method)
-			assert.Equal(t, errArmedPanicValue, rec, "the panic must reach the caller with its ORIGINAL value")
+			if c.deniedAsError {
+				assert.Nil(t, rec, "%s is the login identity read: core denies its panic as the post-verdict error (#3267)", c.method)
+			} else {
+				assert.Equal(t, errArmedPanicValue, rec, "the panic must reach the caller with its ORIGINAL value")
+			}
 			if c.postVerdict {
 				assert.EqualValues(t, 1, loginAttemptRows(t, db),
 					"%s panicked AFTER the assertion verified: the slot must stay counted, exactly as the same "+
@@ -154,7 +170,7 @@ func TestLoginPanic_AfterAWrongCredentialKeepsTheSlot(t *testing.T) {
 		ch, err := env.h.coreService.CreateMFAChallenge(context.Background(), 1)
 		require.NoError(t, err)
 		env.fs.Arm(&faultstorage.FaultSpec{Method: "LockUserForUpdate", NthCall: 1, Kind: faultstorage.KindPanic, Err: errArmedPanicValue})
-		rec := recoverPanic(func() { env.postVerify(t, ch, "000000") })
+		rec := recoverPanic(func() { env.postVerifyUnrecovered(t, ch, "000000") })
 		require.True(t, env.fs.Fired(), "the wrong code must reach recordFailedLogin")
 		assert.Equal(t, errArmedPanicValue, rec)
 		assert.EqualValues(t, 1, budgetSlots(t, env.db),
