@@ -4187,7 +4187,7 @@ export interface paths {
         };
         /**
          * List audit log entries (UI-oriented, paginated)
-         * @description Return paginated audit log entries filtered by action, user, project, actor type, or time range.
+         * @description Return audit log entries newest first (event time, then id), filtered by action, user, project, actor type, or time range. page/page_size reach the newest 10000 events; follow next_cursor (cursor=) to page deeper. See docs/specs/audit-list-keyset.md.
          */
         get: operations["listAuditLogs"];
         put?: never;
@@ -4227,7 +4227,7 @@ export interface paths {
         };
         /**
          * Download audit events as CSV (compliance hand-off)
-         * @description Returns a bounded, human/auditor-friendly CSV attachment with a header row. Distinct from the JSON /audit/export SIEM feed — this is a single one-shot download capped at 10 000 rows. Gated by audit.read AND system.read (same bar as /audit/anomalies): the export includes ip_address, which /audit/logs and /audit/search deliberately omit.
+         * @description Returns a bounded, human/auditor-friendly CSV attachment with a header row. Distinct from the JSON /audit/export SIEM feed — this is a single one-shot download capped at 10 000 rows, newest first, streamed in batches. Gated by audit.read AND system.read (same bar as /audit/anomalies): the export includes ip_address, which /audit/logs and /audit/search deliberately omit.
          */
         get: operations["exportAuditLogsCSV"];
         put?: never;
@@ -4247,7 +4247,7 @@ export interface paths {
         };
         /**
          * Rich-filter audit search
-         * @description Exposes finer-grained search filters than GET /audit/logs: partial actor username match, exact IP address, resource type/ID, success flag, RFC3339 time range, and limit/offset pagination. Gated by audit.read.
+         * @description Exposes finer-grained search filters than GET /audit/logs: partial actor username match, exact IP address, resource type/ID, success flag, RFC3339 time range, and limit/offset pagination (offset+limit at most 10000; follow next_cursor to page deeper). Newest first (event time, then id). Gated by audit.read.
          */
         get: operations["searchAuditLogs"];
         put?: never;
@@ -13545,8 +13545,13 @@ export interface operations {
                 start_time?: string;
                 /** @description RFC3339 upper bound (inclusive). */
                 end_time?: string;
+                /** @description (page-1)*page_size + page_size must be at most 10000 (400 beyond; use cursor). */
                 page?: number;
                 page_size?: number;
+                /** @description Opaque next_cursor of a previous page; continues after it (page is ignored). */
+                cursor?: string;
+                /** @description Exact total (a full count). Without it total is exact up to 10000 and capped there. */
+                include_total?: boolean;
             };
             header?: never;
             path?: never;
@@ -13554,7 +13559,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data has logs[] (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated), plus page, page_size, total, total_pages. */
+            /** @description Envelope {data, message}. data has logs[] (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated), page, page_size, next_cursor (null on the last page), and total, total_exact, total_pages (absent on a cursor page without include_total). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13571,7 +13576,7 @@ export interface operations {
             query?: {
                 /** @description Cursor — pass the last returned event id to fetch the next page. */
                 after_id?: number;
-                /** @description RFC3339 lower bound on event time. */
+                /** @description RFC3339 lower bound on event time (resolved to the lowest id at or after it through the time index, then paged by id; exact under clock skew). */
                 since?: string;
                 limit?: number;
             };
@@ -13651,8 +13656,12 @@ export interface operations {
                 until?: string;
                 /** @description Maximum results. */
                 limit?: number;
-                /** @description Pagination offset. */
+                /** @description Pagination offset; offset+limit must be at most 10000 (400 beyond; use cursor). */
                 offset?: number;
+                /** @description Opaque next_cursor of a previous page; continues after it (offset is ignored). */
+                cursor?: string;
+                /** @description Exact total (a full count). Without it total is exact up to 10000 and capped there. */
+                include_total?: boolean;
             };
             header?: never;
             path?: never;
@@ -13660,7 +13669,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data has events[] -- the same shape GET /audit/logs returns (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated; never ip_address or the tamper-evidence hash chain) -- and total. */
+            /** @description Envelope {data, message}. data has events[] -- the same shape GET /audit/logs returns (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated; never ip_address or the tamper-evidence hash chain) -- next_cursor (null on the last page), and total and total_exact (absent on a cursor page without include_total). */
             200: {
                 headers: {
                     [name: string]: unknown;

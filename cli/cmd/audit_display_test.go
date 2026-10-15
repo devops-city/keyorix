@@ -44,7 +44,7 @@ func TestPrintAuditLogTable_NeverCutsEventNamesMidWord(t *testing.T) {
 		printAuditLogTable([]logEntry{
 			{ID: 1, EventType: long, Actor: "system", ActorType: "system", Timestamp: "2026-10-10T01:56:04Z"},
 			{ID: 2, EventType: "secret.read", Actor: "alice", ActorType: "user", Timestamp: "2026-10-10T01:57:04Z"},
-		}, 2)
+		}, auditPageFooter{})
 	})
 	if !strings.Contains(out, long) || strings.Contains(out, "…") {
 		t.Fatalf("event name was truncated:\n%s", out)

@@ -1436,7 +1436,7 @@ type ExportAuditLogsParams struct {
 	// AfterId Cursor — pass the last returned event id to fetch the next page.
 	AfterId *int `form:"after_id,omitempty" json:"after_id,omitempty"`
 
-	// Since RFC3339 lower bound on event time.
+	// Since RFC3339 lower bound on event time (resolved to the lowest id at or after it through the time index, then paged by id; exact under clock skew).
 	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
 	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
@@ -1459,9 +1459,17 @@ type ListAuditLogsParams struct {
 	StartTime *time.Time `form:"start_time,omitempty" json:"start_time,omitempty"`
 
 	// EndTime RFC3339 upper bound (inclusive).
-	EndTime  *time.Time `form:"end_time,omitempty" json:"end_time,omitempty"`
-	Page     *int       `form:"page,omitempty" json:"page,omitempty"`
-	PageSize *int       `form:"page_size,omitempty" json:"page_size,omitempty"`
+	EndTime *time.Time `form:"end_time,omitempty" json:"end_time,omitempty"`
+
+	// Page (page-1)*page_size + page_size must be at most 10000 (400 beyond; use cursor).
+	Page     *int `form:"page,omitempty" json:"page,omitempty"`
+	PageSize *int `form:"page_size,omitempty" json:"page_size,omitempty"`
+
+	// Cursor Opaque next_cursor of a previous page; continues after it (page is ignored).
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// IncludeTotal Exact total (a full count). Without it total is exact up to 10000 and capped there.
+	IncludeTotal *bool `form:"include_total,omitempty" json:"include_total,omitempty"`
 }
 
 // ListAuditLogsParamsActorType defines parameters for ListAuditLogs.
@@ -1517,8 +1525,14 @@ type SearchAuditLogsParams struct {
 	// Limit Maximum results.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 
-	// Offset Pagination offset.
+	// Offset Pagination offset; offset+limit must be at most 10000 (400 beyond; use cursor).
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Cursor Opaque next_cursor of a previous page; continues after it (offset is ignored).
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// IncludeTotal Exact total (a full count). Without it total is exact up to 10000 and capped there.
+	IncludeTotal *bool `form:"include_total,omitempty" json:"include_total,omitempty"`
 }
 
 // SearchAuditLogsParamsSuccess defines parameters for SearchAuditLogs.

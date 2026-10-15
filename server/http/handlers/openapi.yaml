@@ -6480,7 +6480,11 @@ paths:
     get:
       tags: [Audit]
       summary: List audit log entries (UI-oriented, paginated)
-      description: Return paginated audit log entries filtered by action, user, project, actor type, or time range.
+      description: >-
+        Return audit log entries newest first (event time, then id), filtered by
+        action, user, project, actor type, or time range. page/page_size reach
+        the newest 10000 events; follow next_cursor (cursor=) to page deeper.
+        See docs/specs/audit-list-keyset.md.
       operationId: listAuditLogs
       security: [{bearerAuth: []}]
       parameters:
@@ -6490,15 +6494,18 @@ paths:
         - {name: actor_type, in: query, schema: {type: string, enum: [user, machine_identity, system]}, description: Segment human vs machine activity (ADR-023).}
         - {name: start_time, in: query, schema: {type: string, format: date-time}, description: RFC3339 lower bound (inclusive).}
         - {name: end_time, in: query, schema: {type: string, format: date-time}, description: RFC3339 upper bound (inclusive).}
-        - {name: page, in: query, schema: {type: integer, default: 1, minimum: 1}}
+        - {name: page, in: query, schema: {type: integer, default: 1, minimum: 1}, description: "(page-1)*page_size + page_size must be at most 10000 (400 beyond; use cursor)."}
         - {name: page_size, in: query, schema: {type: integer, default: 50, maximum: 100}}
+        - {name: cursor, in: query, schema: {type: string}, description: Opaque next_cursor of a previous page; continues after it (page is ignored).}
+        - {name: include_total, in: query, schema: {type: boolean, default: false}, description: Exact total (a full count). Without it total is exact up to 10000 and capped there.}
       responses:
         '200':
           description: >-
             Envelope {data, message}. data has logs[] (each: id, event_type, actor,
             actor_type, description, timestamp, optional diff, and impersonation /
-            impersonated_by / acting_as when impersonated), plus page, page_size,
-            total, total_pages.
+            impersonated_by / acting_as when impersonated), page, page_size,
+            next_cursor (null on the last page), and total, total_exact,
+            total_pages (absent on a cursor page without include_total).
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
@@ -6515,7 +6522,7 @@ paths:
       security: [{bearerAuth: []}]
       parameters:
         - {name: after_id, in: query, schema: {type: integer}, description: Cursor — pass the last returned event id to fetch the next page.}
-        - {name: since, in: query, schema: {type: string, format: date-time}, description: RFC3339 lower bound on event time.}
+        - {name: since, in: query, schema: {type: string, format: date-time}, description: "RFC3339 lower bound on event time (resolved to the lowest id at or after it through the time index, then paged by id; exact under clock skew)."}
         - {name: limit, in: query, schema: {type: integer, default: 100, maximum: 1000}}
       responses:
         '200':
@@ -6535,7 +6542,8 @@ paths:
       description: >-
         Returns a bounded, human/auditor-friendly CSV attachment with a header
         row. Distinct from the JSON /audit/export SIEM feed — this is a
-        single one-shot download capped at 10 000 rows. Gated by audit.read
+        single one-shot download capped at 10 000 rows, newest first, streamed
+        in batches. Gated by audit.read
         AND system.read (same bar as /audit/anomalies): the export includes
         ip_address, which /audit/logs and /audit/search deliberately omit.
       operationId: exportAuditLogsCSV
@@ -6562,8 +6570,9 @@ paths:
       description: >-
         Exposes finer-grained search filters than GET /audit/logs: partial
         actor username match, exact IP address, resource type/ID, success
-        flag, RFC3339 time range, and limit/offset pagination. Gated by
-        audit.read.
+        flag, RFC3339 time range, and limit/offset pagination (offset+limit at
+        most 10000; follow next_cursor to page deeper). Newest first (event
+        time, then id). Gated by audit.read.
       operationId: searchAuditLogs
       security: [{bearerAuth: []}]
       parameters:
@@ -6578,7 +6587,9 @@ paths:
         - {name: since, in: query, schema: {type: string, format: date-time}, description: RFC3339 start of time range (inclusive).}
         - {name: until, in: query, schema: {type: string, format: date-time}, description: RFC3339 end of time range (inclusive).}
         - {name: limit, in: query, schema: {type: integer, default: 100, maximum: 1000}, description: Maximum results.}
-        - {name: offset, in: query, schema: {type: integer, default: 0, minimum: 0}, description: Pagination offset.}
+        - {name: offset, in: query, schema: {type: integer, default: 0, minimum: 0}, description: "Pagination offset; offset+limit must be at most 10000 (400 beyond; use cursor)."}
+        - {name: cursor, in: query, schema: {type: string}, description: Opaque next_cursor of a previous page; continues after it (offset is ignored).}
+        - {name: include_total, in: query, schema: {type: boolean, default: false}, description: Exact total (a full count). Without it total is exact up to 10000 and capped there.}
       responses:
         '200':
           description: >-
@@ -6586,7 +6597,9 @@ paths:
             /audit/logs returns (each: id, event_type, actor, actor_type,
             description, timestamp, optional diff, and impersonation /
             impersonated_by / acting_as when impersonated; never ip_address or
-            the tamper-evidence hash chain) -- and total.
+            the tamper-evidence hash chain) -- next_cursor (null on the last
+            page), and total and total_exact (absent on a cursor page without
+            include_total).
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}

@@ -2399,7 +2399,42 @@ type AuditFilter struct {
 	// ResourceType filters events by the resource type embedded in the event_type
 	// (the prefix before the first dot, e.g. "secret" from "secret.read").
 	ResourceType *string
+
+	// Before is the keyset cursor of the newest-first order (event_time DESC,
+	// id DESC): only rows strictly after that position are returned and Page is
+	// ignored. Ignored in Ascending mode. See docs/specs/audit-list-keyset.md.
+	Before *AuditCursor
+	// Count selects how the total is computed. The zero value is the exact
+	// COUNT(*) over every match; a caller that discards the total passes
+	// AuditCountNone, and the public list views pass AuditCountCapped.
+	Count AuditCountMode
 }
+
+// AuditCursor is a position in the newest-first audit order: the event_time
+// and id of the last row a page returned.
+type AuditCursor struct {
+	EventTime time.Time
+	ID        uint
+}
+
+// AuditCountMode selects how GetAuditLogs computes its total.
+type AuditCountMode int
+
+const (
+	// AuditCountExact counts every matching row (the default).
+	AuditCountExact AuditCountMode = iota
+	// AuditCountNone skips the count; the returned total is 0.
+	AuditCountNone
+	// AuditCountCapped counts at most AuditCountCap+1 matching rows, so the cost
+	// is bounded by the cap rather than by the table. A total above
+	// AuditCountCap means "more than AuditCountCap".
+	AuditCountCapped
+)
+
+// AuditCountCap bounds AuditCountCapped. It equals the deepest offset the
+// public list views let a caller reach by page number (AuditOffsetCap in
+// internal/core), so a capped total still yields every reachable page.
+const AuditCountCap = 10_000
 
 // Scope identifies the project/environment a role assignment or an
 // authorization check applies to. It uses a 0 = global/unspecified sentinel,

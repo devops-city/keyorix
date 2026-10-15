@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,6 +138,53 @@ func TestRunAuditLogs_MatchesOldCLIOutputShape(t *testing.T) {
 	})
 	if !containsAll(out, "ID", "TIME", "ACTOR", "secret.read", "alice", "read db-pass", "Showing 1 of 1 total event(s).") {
 		t.Fatalf("output missing expected fields: %q", out)
+	}
+}
+
+// TestRunAuditLogs_FollowsTheCursor: --cursor and --include-total reach the
+// server as cursor= / include_total=, a capped total reads as "more than", and
+// the next page's cursor is printed (docs/specs/audit-list-keyset.md §2).
+func TestRunAuditLogs_FollowsTheCursor(t *testing.T) {
+	var gotCursor, gotTotal string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCursor, gotTotal = r.URL.Query().Get("cursor"), r.URL.Query().Get("include_total")
+		w.Header().Set("Content-Type", "application/json")
+		if gotCursor == "" {
+			_, _ = fmt.Fprint(w, `{"data":{"logs":[{"id":9,"event_type":"secret.read","actor":"alice","actor_type":"user","description":"d","timestamp":"2026-01-01T00:00:00Z"}],"total":10000,"total_exact":false,"next_cursor":"djEuMTIzLjk"}}`)
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"data":{"logs":[{"id":8,"event_type":"secret.read","actor":"bob","actor_type":"user","description":"d","timestamp":"2026-01-01T00:00:00Z"}],"next_cursor":null}}`)
+	}))
+	defer srv.Close()
+	setAuditCreds(t, srv)
+	auditLogLimit = 1
+	auditLogEventType, auditLogUserID, auditLogProjectID, auditLogActorType, auditLogSince, auditLogUntil = "", 0, 0, "", "", ""
+	defer func() { auditLogCursor, auditLogTotal = "", false }()
+
+	auditLogCursor, auditLogTotal = "", false
+	out := captureStdout(t, func() {
+		if err := runAuditLogs(auditLogsCmd, nil); err != nil {
+			t.Fatalf("runAuditLogs: %v", err)
+		}
+	})
+	if !containsAll(out, "alice", "Showing 1 of more than 10000 event(s)", "Next page: --cursor djEuMTIzLjk") {
+		t.Fatalf("first page output: %q", out)
+	}
+	if gotCursor != "" || gotTotal != "" {
+		t.Fatalf("first page sent cursor=%q include_total=%q", gotCursor, gotTotal)
+	}
+
+	auditLogCursor, auditLogTotal = "djEuMTIzLjk", true
+	out = captureStdout(t, func() {
+		if err := runAuditLogs(auditLogsCmd, nil); err != nil {
+			t.Fatalf("runAuditLogs: %v", err)
+		}
+	})
+	if gotCursor != "djEuMTIzLjk" || gotTotal != "true" {
+		t.Fatalf("second page sent cursor=%q include_total=%q", gotCursor, gotTotal)
+	}
+	if !containsAll(out, "bob", "Showing 1 event(s).") || strings.Contains(out, "Next page") {
+		t.Fatalf("last page output: %q", out)
 	}
 }
 

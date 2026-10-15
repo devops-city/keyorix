@@ -39,6 +39,7 @@ func (c *KeyorixCore) ListSecretAuditEvents(ctx context.Context, secretID, actor
 	events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{
 		SecretID: &secretID,
 		PageSize: limit,
+		Count:    storage.AuditCountNone,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)

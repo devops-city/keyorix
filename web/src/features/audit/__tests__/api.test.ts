@@ -10,7 +10,7 @@ vi.mock('../../../services/client', () => ({
 }));
 
 import { apiClient } from '../../../services/client';
-import { useAuditLog } from '../api';
+import { useAuditLog, useAuditLogFeed } from '../api';
 
 const mock = apiClient as unknown as {
     get: ReturnType<typeof vi.fn>;
@@ -84,5 +84,33 @@ describe('useAuditLog', () => {
         await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
         expect(result.current.data).toEqual({ data: [], total: 0, page: 1, pageSize: 100, totalPages: 1 });
+    });
+});
+
+describe('useAuditLogFeed', () => {
+    it('loads the first page without a cursor, then follows next_cursor until it is null', async () => {
+        mock.get
+            .mockResolvedValueOnce({
+                data: { data: { logs: [{ id: 9 }, { id: 8 }], total: 10000, total_exact: false, next_cursor: 'c1' } },
+            })
+            .mockResolvedValueOnce({ data: { data: { logs: [{ id: 7 }], next_cursor: null } } });
+
+        const { result } = renderHook(() => useAuditLogFeed({ pageSize: 2, projectId: 3 }), {
+            wrapper: createWrapper(),
+        });
+        await waitFor(() => expect(result.current.entries).toHaveLength(2));
+        expect(mock.get).toHaveBeenLastCalledWith('/api/v1/audit/logs', { params: { page_size: 2, project_id: 3 } });
+        expect(result.current.total).toBe(10000);
+        expect(result.current.totalExact).toBe(false);
+        expect(result.current.hasNextPage).toBe(true);
+
+        await result.current.fetchNextPage();
+        await waitFor(() => expect(result.current.entries.map((e) => e.id)).toEqual([9, 8, 7]));
+        expect(mock.get).toHaveBeenLastCalledWith('/api/v1/audit/logs', {
+            params: { page_size: 2, project_id: 3, cursor: 'c1' },
+        });
+        expect(result.current.hasNextPage).toBe(false);
+        // The total comes from the first page; cursor pages carry none.
+        expect(result.current.total).toBe(10000);
     });
 });

@@ -3682,16 +3682,24 @@ func (x *AuditLog) GetActingAs() string {
 	return ""
 }
 
+// Newest-first (event_time DESC, id DESC). page/page_size reach at most the
+// newest 10000 events (InvalidArgument beyond); deeper pages follow
+// next_cursor. See docs/specs/audit-list-keyset.md.
 type GetAuditLogsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	EventType     *string                `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3,oneof" json:"event_type,omitempty"`
-	UserId        *uint32                `protobuf:"varint,2,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
-	ProjectId     *uint32                `protobuf:"varint,3,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
-	ActorType     *string                `protobuf:"bytes,4,opt,name=actor_type,json=actorType,proto3,oneof" json:"actor_type,omitempty"`
-	StartTime     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=start_time,json=startTime,proto3,oneof" json:"start_time,omitempty"`
-	EndTime       *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=end_time,json=endTime,proto3,oneof" json:"end_time,omitempty"`
-	Page          uint32                 `protobuf:"varint,7,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      uint32                 `protobuf:"varint,8,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	EventType *string                `protobuf:"bytes,1,opt,name=event_type,json=eventType,proto3,oneof" json:"event_type,omitempty"`
+	UserId    *uint32                `protobuf:"varint,2,opt,name=user_id,json=userId,proto3,oneof" json:"user_id,omitempty"`
+	ProjectId *uint32                `protobuf:"varint,3,opt,name=project_id,json=projectId,proto3,oneof" json:"project_id,omitempty"`
+	ActorType *string                `protobuf:"bytes,4,opt,name=actor_type,json=actorType,proto3,oneof" json:"actor_type,omitempty"`
+	StartTime *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=start_time,json=startTime,proto3,oneof" json:"start_time,omitempty"`
+	EndTime   *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=end_time,json=endTime,proto3,oneof" json:"end_time,omitempty"`
+	Page      uint32                 `protobuf:"varint,7,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize  uint32                 `protobuf:"varint,8,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Continue after a previous response's next_cursor; page is then ignored.
+	Cursor *string `protobuf:"bytes,9,opt,name=cursor,proto3,oneof" json:"cursor,omitempty"`
+	// Exact total (a full count over the filter). Without it, total is exact
+	// up to 10000 and capped there (total_exact false).
+	IncludeTotal  bool `protobuf:"varint,10,opt,name=include_total,json=includeTotal,proto3" json:"include_total,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3782,13 +3790,31 @@ func (x *GetAuditLogsRequest) GetPageSize() uint32 {
 	return 0
 }
 
+func (x *GetAuditLogsRequest) GetCursor() string {
+	if x != nil && x.Cursor != nil {
+		return *x.Cursor
+	}
+	return ""
+}
+
+func (x *GetAuditLogsRequest) GetIncludeTotal() bool {
+	if x != nil {
+		return x.IncludeTotal
+	}
+	return false
+}
+
 type GetAuditLogsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Logs          []*AuditLog            `protobuf:"bytes,1,rep,name=logs,proto3" json:"logs,omitempty"`
-	Total         uint32                 `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
-	Page          uint32                 `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
-	PageSize      uint32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	TotalPages    uint32                 `protobuf:"varint,5,opt,name=total_pages,json=totalPages,proto3" json:"total_pages,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Logs  []*AuditLog            `protobuf:"bytes,1,rep,name=logs,proto3" json:"logs,omitempty"`
+	// 0 on a cursor page without include_total (no count ran).
+	Total      uint32 `protobuf:"varint,2,opt,name=total,proto3" json:"total,omitempty"`
+	Page       uint32 `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
+	PageSize   uint32 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	TotalPages uint32 `protobuf:"varint,5,opt,name=total_pages,json=totalPages,proto3" json:"total_pages,omitempty"`
+	// Cursor of the next page; absent on the last page.
+	NextCursor    *string `protobuf:"bytes,6,opt,name=next_cursor,json=nextCursor,proto3,oneof" json:"next_cursor,omitempty"`
+	TotalExact    bool    `protobuf:"varint,7,opt,name=total_exact,json=totalExact,proto3" json:"total_exact,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3856,6 +3882,20 @@ func (x *GetAuditLogsResponse) GetTotalPages() uint32 {
 		return x.TotalPages
 	}
 	return 0
+}
+
+func (x *GetAuditLogsResponse) GetNextCursor() string {
+	if x != nil && x.NextCursor != nil {
+		return *x.NextCursor
+	}
+	return ""
+}
+
+func (x *GetAuditLogsResponse) GetTotalExact() bool {
+	if x != nil {
+		return x.TotalExact
+	}
+	return false
 }
 
 type RBACAuditLog struct {
@@ -11466,7 +11506,7 @@ const file_keyorix_proto_rawDesc = "" +
 	"\x05_diffB\x12\n" +
 	"\x10_impersonated_byB\f\n" +
 	"\n" +
-	"_acting_as\"\xa1\x03\n" +
+	"_acting_as\"\xee\x03\n" +
 	"\x13GetAuditLogsRequest\x12\"\n" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tH\x00R\teventType\x88\x01\x01\x12\x1c\n" +
@@ -11479,21 +11519,30 @@ const file_keyorix_proto_rawDesc = "" +
 	"start_time\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampH\x04R\tstartTime\x88\x01\x01\x12:\n" +
 	"\bend_time\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampH\x05R\aendTime\x88\x01\x01\x12\x12\n" +
 	"\x04page\x18\a \x01(\rR\x04page\x12\x1b\n" +
-	"\tpage_size\x18\b \x01(\rR\bpageSizeB\r\n" +
+	"\tpage_size\x18\b \x01(\rR\bpageSize\x12\x1b\n" +
+	"\x06cursor\x18\t \x01(\tH\x06R\x06cursor\x88\x01\x01\x12#\n" +
+	"\rinclude_total\x18\n" +
+	" \x01(\bR\fincludeTotalB\r\n" +
 	"\v_event_typeB\n" +
 	"\n" +
 	"\b_user_idB\r\n" +
 	"\v_project_idB\r\n" +
 	"\v_actor_typeB\r\n" +
 	"\v_start_timeB\v\n" +
-	"\t_end_time\"\xa8\x01\n" +
+	"\t_end_timeB\t\n" +
+	"\a_cursor\"\xff\x01\n" +
 	"\x14GetAuditLogsResponse\x12(\n" +
 	"\x04logs\x18\x01 \x03(\v2\x14.keyorix.v1.AuditLogR\x04logs\x12\x14\n" +
 	"\x05total\x18\x02 \x01(\rR\x05total\x12\x12\n" +
 	"\x04page\x18\x03 \x01(\rR\x04page\x12\x1b\n" +
 	"\tpage_size\x18\x04 \x01(\rR\bpageSize\x12\x1f\n" +
 	"\vtotal_pages\x18\x05 \x01(\rR\n" +
-	"totalPages\"\x89\x04\n" +
+	"totalPages\x12$\n" +
+	"\vnext_cursor\x18\x06 \x01(\tH\x00R\n" +
+	"nextCursor\x88\x01\x01\x12\x1f\n" +
+	"\vtotal_exact\x18\a \x01(\bR\n" +
+	"totalExactB\x0e\n" +
+	"\f_next_cursor\"\x89\x04\n" +
 	"\fRBACAuditLog\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x16\n" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12'\n" +
@@ -12773,6 +12822,7 @@ func file_keyorix_proto_init() {
 	file_keyorix_proto_msgTypes[45].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[48].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[49].OneofWrappers = []any{}
+	file_keyorix_proto_msgTypes[50].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[51].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[52].OneofWrappers = []any{}
 	file_keyorix_proto_msgTypes[54].OneofWrappers = []any{}

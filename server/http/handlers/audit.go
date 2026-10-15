@@ -105,26 +105,65 @@ func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) { //
 		filter.ActorType = &at
 	}
 
-	events, total, err := h.coreService.Storage().GetAuditLogs(r.Context(), filter)
+	offset := (page - 1) * pageSize
+	if page > core.AuditOffsetCap {
+		offset = core.AuditOffsetCap // past the cap either way; avoids overflow
+	}
+	result, err := h.coreService.ListAuditPage(r.Context(), core.AuditPageRequest{
+		Filter:       *filter,
+		Offset:       offset,
+		Limit:        pageSize,
+		Cursor:       r.URL.Query().Get("cursor"),
+		IncludeTotal: r.URL.Query().Get("include_total") == "true",
+	})
 	if err != nil {
+		if sendAuditPageError(w, err) {
+			return
+		}
 		sendError(w, "InternalServerError", "Failed to fetch audit logs", http.StatusInternalServerError, nil)
 		return
 	}
 
-	entries := h.toAuditLogEntries(r.Context(), events)
-
-	totalPages := int(total)/pageSize + 1
-	if int(total)%pageSize == 0 && total > 0 {
-		totalPages = int(total) / pageSize
-	}
-
-	sendSuccess(w, map[string]any{
-		"logs":        entries,
+	resp := map[string]any{
+		"logs":        h.toAuditLogEntries(r.Context(), result.Events),
 		"page":        page,
 		"page_size":   pageSize,
-		"total":       total,
-		"total_pages": totalPages,
-	}, "")
+		"next_cursor": nullableCursor(result.NextCursor),
+	}
+	if result.HasTotal {
+		total := result.Total
+		totalPages := int(total)/pageSize + 1
+		if int(total)%pageSize == 0 && total > 0 {
+			totalPages = int(total) / pageSize
+		}
+		resp["total"] = total
+		resp["total_exact"] = result.TotalExact
+		resp["total_pages"] = totalPages
+	}
+	sendSuccess(w, resp, "")
+}
+
+// sendAuditPageError answers the caller errors of core.ListAuditPage (a bad
+// cursor, an offset past core.AuditOffsetCap) with 400 and reports whether it
+// did. The offset message names the cursor so a client knows how to go deeper.
+func sendAuditPageError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, core.ErrInvalidAuditCursor):
+		sendError(w, "InvalidParameter", "invalid cursor", http.StatusBadRequest, nil)
+		return true
+	case errors.Is(err, core.ErrAuditOffsetBeyondCap):
+		sendError(w, "InvalidParameter", core.AuditOffsetCapMessage, http.StatusBadRequest, nil)
+		return true
+	}
+	return false
+}
+
+// nullableCursor is next_cursor on the wire: the cursor, or null on the last page.
+func nullableCursor(c string) any {
+	if c == "" {
+		return nil
+	}
+	return c
 }
 
 // toAuditLogEntries converts raw audit events into the UI-oriented AuditLogEntry
@@ -214,7 +253,9 @@ func (h *AuditHandler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 1000 {
 		limit = l
 	}
-	filter := &storage.AuditFilter{Ascending: true, PageSize: limit}
+	// No total: the feed is paged by after_id. A since is resolved to a start
+	// id by GetAuditLogs (docs/specs/audit-list-keyset.md §3).
+	filter := &storage.AuditFilter{Ascending: true, PageSize: limit, Count: storage.AuditCountNone}
 	if aidStr := r.URL.Query().Get("after_id"); aidStr != "" {
 		if aid, err := strconv.ParseUint(aidStr, 10, 32); err == nil {
 			a := uint(aid)

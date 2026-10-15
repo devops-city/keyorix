@@ -663,6 +663,9 @@ message AuditLog {
   optional string acting_as = 15;
 }
 
+// Newest-first (event_time DESC, id DESC). page/page_size reach at most the
+// newest 10000 events (InvalidArgument beyond); deeper pages follow
+// next_cursor. See docs/specs/audit-list-keyset.md.
 message GetAuditLogsRequest {
   optional string event_type = 1;
   optional uint32 user_id = 2;
@@ -672,14 +675,23 @@ message GetAuditLogsRequest {
   optional google.protobuf.Timestamp end_time = 6;
   uint32 page = 7;
   uint32 page_size = 8;
+  // Continue after a previous response's next_cursor; page is then ignored.
+  optional string cursor = 9;
+  // Exact total (a full count over the filter). Without it, total is exact
+  // up to 10000 and capped there (total_exact false).
+  bool include_total = 10;
 }
 
 message GetAuditLogsResponse {
   repeated AuditLog logs = 1;
+  // 0 on a cursor page without include_total (no count ran).
   uint32 total = 2;
   uint32 page = 3;
   uint32 page_size = 4;
   uint32 total_pages = 5;
+  // Cursor of the next page; absent on the last page.
+  optional string next_cursor = 6;
+  bool total_exact = 7;
 }
 
 message RBACAuditLog {

@@ -512,6 +512,8 @@ var (
 	auditLogSince     string
 	auditLogUntil     string
 	auditLogLimit     int
+	auditLogCursor    string
+	auditLogTotal     bool
 )
 
 var auditLogsCmd = &cobra.Command{
@@ -529,6 +531,8 @@ func init() {
 	auditLogsCmd.Flags().StringVar(&auditLogSince, "since", "", "Only events at/after this time (RFC3339)")
 	auditLogsCmd.Flags().StringVar(&auditLogUntil, "until", "", "Only events at/before this time (RFC3339)")
 	auditLogsCmd.Flags().IntVar(&auditLogLimit, "limit", 50, "Max events to show (1–100)")
+	auditLogsCmd.Flags().StringVar(&auditLogCursor, "cursor", "", "Continue after a previous page (the cursor printed under it)")
+	auditLogsCmd.Flags().BoolVar(&auditLogTotal, "include-total", false, "Count every matching event (exact total; slower on a large audit trail)")
 }
 
 type logEntry struct {
@@ -542,9 +546,18 @@ type logEntry struct {
 	ImpersonatedBy string `json:"impersonated_by"`
 }
 
+// auditPageFooter is the paging part of the /audit/logs and /audit/search
+// envelopes: total and total_exact are absent on a cursor page that did not
+// ask for the total; next_cursor is null on the last page.
+type auditPageFooter struct {
+	Total      *int64  `json:"total"`
+	TotalExact *bool   `json:"total_exact"`
+	NextCursor *string `json:"next_cursor"`
+}
+
 type logsPage struct {
-	Logs  []logEntry `json:"logs"`
-	Total int64      `json:"total"`
+	Logs []logEntry `json:"logs"`
+	auditPageFooter
 }
 
 func runAuditLogs(_ *cobra.Command, _ []string) error {
@@ -557,6 +570,12 @@ func runAuditLogs(_ *cobra.Command, _ []string) error {
 	params := &apiclient.ListAuditLogsParams{}
 	limit := auditLogLimit
 	params.PageSize = &limit
+	if auditLogCursor != "" {
+		params.Cursor = &auditLogCursor
+	}
+	if auditLogTotal {
+		params.IncludeTotal = &auditLogTotal
+	}
 	if auditLogEventType != "" {
 		params.Action = &auditLogEventType
 	}
@@ -607,7 +626,7 @@ func runAuditLogs(_ *cobra.Command, _ []string) error {
 		fmt.Println("No audit events match.")
 		return nil
 	}
-	printAuditLogTable(page.Logs, page.Total)
+	printAuditLogTable(page.Logs, page.auditPageFooter)
 	return nil
 }
 
@@ -616,7 +635,7 @@ func runAuditLogs(_ *cobra.Command, _ []string) error {
 // never cut mid-word (#2942).
 const auditEventColMax = 40
 
-func printAuditLogTable(logs []logEntry, total int64) {
+func printAuditLogTable(logs []logEntry, footer auditPageFooter) {
 	evW := len("EVENT")
 	for _, e := range logs {
 		if n := len(e.EventType); n > evW {
@@ -638,7 +657,18 @@ func printAuditLogTable(logs []logEntry, total int64) {
 			e.ID, shortTime(e.Timestamp), auditTruncate(cliout.SanitizeForTerminal(actor), 16), e.ActorType,
 			evW, auditTruncate(cliout.SanitizeForTerminal(e.EventType), evW), cliout.SanitizeForTerminal(e.Description))
 	}
-	fmt.Printf("\nShowing %d of %d total event(s).\n", len(logs), total)
+	switch {
+	case footer.Total == nil:
+		fmt.Printf("\nShowing %d event(s).\n", len(logs))
+	case footer.TotalExact != nil && !*footer.TotalExact:
+		fmt.Printf("\nShowing %d of more than %d event(s) (--include-total counts them all).\n", len(logs), *footer.Total)
+	default:
+		fmt.Printf("\nShowing %d of %d total event(s).\n", len(logs), *footer.Total)
+	}
+	if footer.NextCursor != nil && *footer.NextCursor != "" {
+		// Server-supplied text: sanitized like every other value printed here.
+		fmt.Printf("Next page: --cursor %s\n", cliout.SanitizeForTerminal(*footer.NextCursor))
+	}
 }
 
 func shortTime(s string) string {
@@ -678,6 +708,8 @@ var (
 	auditSearchUntil        string
 	auditSearchLimit        int
 	auditSearchOffset       int
+	auditSearchCursor       string
+	auditSearchTotal        bool
 )
 
 var auditSearchCmd = &cobra.Command{
@@ -699,7 +731,9 @@ func init() {
 	auditSearchCmd.Flags().StringVar(&auditSearchSince, "since", "", "Only events at/after this RFC3339 time")
 	auditSearchCmd.Flags().StringVar(&auditSearchUntil, "until", "", "Only events at/before this RFC3339 time")
 	auditSearchCmd.Flags().IntVar(&auditSearchLimit, "limit", 100, "Max results (1–1000)")
-	auditSearchCmd.Flags().IntVar(&auditSearchOffset, "offset", 0, "Pagination offset")
+	auditSearchCmd.Flags().IntVar(&auditSearchOffset, "offset", 0, "Pagination offset (offset+limit up to 10000; use --cursor beyond)")
+	auditSearchCmd.Flags().StringVar(&auditSearchCursor, "cursor", "", "Continue after a previous page (the cursor printed under it)")
+	auditSearchCmd.Flags().BoolVar(&auditSearchTotal, "include-total", false, "Count every matching event (exact total; slower on a large audit trail)")
 }
 
 // searchPage is the GET /api/v1/audit/search envelope. Its events are the same
@@ -709,7 +743,7 @@ func init() {
 // columns (#2942).
 type searchPage struct {
 	Events []logEntry `json:"events"`
-	Total  int64      `json:"total"`
+	auditPageFooter
 }
 
 func runAuditSearch(_ *cobra.Command, _ []string) error {
@@ -725,6 +759,12 @@ func runAuditSearch(_ *cobra.Command, _ []string) error {
 	if auditSearchOffset > 0 {
 		offset := auditSearchOffset
 		params.Offset = &offset
+	}
+	if auditSearchCursor != "" {
+		params.Cursor = &auditSearchCursor
+	}
+	if auditSearchTotal {
+		params.IncludeTotal = &auditSearchTotal
 	}
 	if auditSearchActor != "" {
 		params.Actor = &auditSearchActor
@@ -789,6 +829,6 @@ func runAuditSearch(_ *cobra.Command, _ []string) error {
 		fmt.Println("No audit events match.")
 		return nil
 	}
-	printAuditLogTable(page.Events, page.Total)
+	printAuditLogTable(page.Events, page.auditPageFooter)
 	return nil
 }
