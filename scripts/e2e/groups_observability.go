@@ -2,7 +2,10 @@
 
 package e2e
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // groupNotifications exercises list + read-all (safe/idempotent regardless
 // of whether any notification exists yet) and, if this run's earlier
@@ -83,6 +86,33 @@ func groupAudit(ctx *smokeCtx) {
 	c.callExpect("GET", "GET /api/v1/audit/search", "/api/v1/audit/search?q=e2e-smoke", nil, 200, 400)
 	c.callExpect("GET", "GET /api/v1/audit/retention", "/api/v1/audit/retention", nil, 200)
 	c.callExpect("GET", "GET /api/v1/audit/verify", "/api/v1/audit/verify", nil, 200)
+	// ?full=true (docs/specs/audit-incremental-verification.md): a background full
+	// walk, 202 + a job id to poll; 200 = no signing key, the walk ran inline.
+	full := c.callExpect("GET", "GET /api/v1/audit/verify", "/api/v1/audit/verify?full=true", nil, 202, 200)
+	if full.StatusCode == 202 {
+		var job struct {
+			JobID  string `json:"job_id"`
+			State  string `json:"state"`
+			Result *struct {
+				Status string `json:"status"`
+			} `json:"result"`
+		}
+		c.unmarshalData(full, &job, "start full audit verification")
+		id := job.JobID
+		for deadline := time.Now().Add(60 * time.Second); ; {
+			env := c.callExpect("GET", "GET /api/v1/audit/verify/jobs/{id}", "/api/v1/audit/verify/jobs/"+id, nil, 200)
+			c.unmarshalData(env, &job, "audit verification job")
+			if job.State != "running" || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		if job.State != "succeeded" || job.Result == nil || job.Result.Status != "valid" {
+			c.t.Fatalf("full audit verification job %s: state=%q result=%+v", id, job.State, job.Result)
+		}
+	} else {
+		c.skip("GET /api/v1/audit/verify/jobs/{id}")
+	}
 	c.callExpect("GET", "GET /api/v1/audit/export", "/api/v1/audit/export?page_size=10", nil, 200)
 	c.callExpect("GET", "GET /api/v1/audit/export.csv", "/api/v1/audit/export.csv", nil, 200)
 	c.callExpect("POST", "POST /api/v1/audit/checkpoint", "/api/v1/audit/checkpoint", nil, 200, 201)

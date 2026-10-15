@@ -57,6 +57,7 @@ import (
 	"sort"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
 // UserProjectMembership is one row of "which projects is this user a member of",
@@ -274,11 +275,37 @@ func (c *KeyorixCore) ProjectMembershipCounts(ctx context.Context, userIDs []uin
 	}
 
 	out := make(map[uint]storage.MembershipCounts, len(userIDs))
-	for _, uid := range dedupeUints(userIDs) {
+	uniqIDs := dedupeUints(userIDs)
+	// A page of users reads its role scopes and onboarding journal in two statements
+	// (LIST-ENDPOINTS-1), not three per user. A single user (the gRPC CreateUser /
+	// UpdateUser enrichment of the one target) keeps the per-user reads: they are
+	// already constant, and the fault-injection registry's #3093 rows are keyed on
+	// GetUserRoleScopes. The per-user arithmetic below is the same either way.
+	scopesByUser := make(map[uint][]storage.Scope, len(uniqIDs))
+	statesByUser := make(map[uint]map[uint]string, len(uniqIDs))
+	if len(uniqIDs) == 1 {
+		uid := uniqIDs[0]
 		scopes, err := c.storage.GetUserRoleScopes(ctx, uid)
 		if err != nil {
 			return nil, fmt.Errorf("project membership counts: enumerate role scopes for user %d: %w", uid, err)
 		}
+		scopesByUser[uid] = scopes
+		states, err := c.journalStateByProject(ctx, uid)
+		if err != nil {
+			return nil, fmt.Errorf("project membership counts: user %d: %w", uid, err)
+		}
+		statesByUser[uid] = states
+	} else {
+		var err error
+		if scopesByUser, err = c.storage.GetUserRoleScopesByUserIDs(ctx, uniqIDs); err != nil {
+			return nil, fmt.Errorf("project membership counts: enumerate role scopes: %w", err)
+		}
+		if statesByUser, err = c.journalStatesForUsers(ctx, uniqIDs); err != nil {
+			return nil, fmt.Errorf("project membership counts: %w", err)
+		}
+	}
+	for _, uid := range uniqIDs {
+		scopes := scopesByUser[uid]
 		member := make(map[uint]struct{}, len(scopes))
 		for _, s := range scopes {
 			if s.ProjectID == 0 {
@@ -290,10 +317,7 @@ func (c *KeyorixCore) ProjectMembershipCounts(ctx context.Context, userIDs []uin
 			member[s.ProjectID] = struct{}{}
 		}
 		pending := 0
-		states, err := c.journalStateByProject(ctx, uid)
-		if err != nil {
-			return nil, fmt.Errorf("project membership counts: user %d: %w", uid, err)
-		}
+		states := statesByUser[uid]
 		for pid, state := range states {
 			if state == MembershipRevoked {
 				continue
@@ -377,6 +401,26 @@ func (c *KeyorixCore) journalStateByProject(ctx context.Context, userID uint) (m
 	if err != nil {
 		return nil, fmt.Errorf("list project memberships: read onboarding journal: %w", err)
 	}
+	return journalStatesFromRows(rows), nil
+}
+
+// journalStatesForUsers is journalStateByProject for a page of users: one batched read
+// of the onboarding journal, reduced per user exactly as the single-user read is.
+func (c *KeyorixCore) journalStatesForUsers(ctx context.Context, userIDs []uint) (map[uint]map[uint]string, error) {
+	rows, err := c.storage.ListUserProjectMembershipsByUserIDs(ctx, userIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list project memberships: read onboarding journal: %w", err)
+	}
+	out := make(map[uint]map[uint]string, len(rows))
+	for uid, userRows := range rows {
+		out[uid] = journalStatesFromRows(userRows)
+	}
+	return out, nil
+}
+
+// journalStatesFromRows reduces one user's onboarding-journal rows (newest invite
+// first) to a state per project, keeping a non-revoked row over a revoked one.
+func journalStatesFromRows(rows []*models.ProjectMembership) map[uint]string {
 	byProject := make(map[uint]string, len(rows))
 	for _, m := range rows {
 		if m == nil {
@@ -387,7 +431,7 @@ func (c *KeyorixCore) journalStateByProject(ctx context.Context, userID uint) (m
 		}
 		byProject[m.ProjectID] = m.State
 	}
-	return byProject, nil
+	return byProject
 }
 
 // dedupeSortedRoleNames removes duplicates and sorts, so a membership row's Roles

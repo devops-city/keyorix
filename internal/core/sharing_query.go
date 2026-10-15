@@ -267,32 +267,43 @@ func (c *KeyorixCore) shareViews(ctx context.Context, shares []*models.ShareReco
 	if len(shares) > maxShareViewBatchSize {
 		return nil, ErrShareListOverCap
 	}
-	userNames := map[uint]string{}
+	// Recipient/creator names for the whole list in one lookup per kind
+	// (LIST-ENDPOINTS-1), not one GetUser / GetGroup per distinct id. A failed
+	// lookup, a missing row or an empty name falls back to "User N" / "Group N".
+	var userIDs, groupIDs []uint
+	for _, s := range shares {
+		userIDs = append(userIDs, s.OwnerID)
+		if s.IsGroup {
+			groupIDs = append(groupIDs, s.RecipientID)
+		} else {
+			userIDs = append(userIDs, s.RecipientID)
+		}
+	}
+	userNames, groupNames := map[uint]string{}, map[uint]string{}
+	if len(userIDs) > 0 {
+		if m, err := c.storage.GetUsernamesByIDs(ctx, userIDs); err == nil {
+			userNames = m
+		}
+	}
+	if len(groupIDs) > 0 {
+		if m, err := c.storage.GetGroupNamesByIDs(ctx, groupIDs); err == nil {
+			groupNames = m
+		}
+	}
 	resolveUser := func(id uint) string {
 		if id == 0 {
 			return ""
 		}
-		if n, ok := userNames[id]; ok {
+		if n := userNames[id]; n != "" {
 			return n
 		}
-		name := fmt.Sprintf("User %d", id)
-		if u, err := c.storage.GetUser(ctx, id); err == nil && u != nil && u.Username != "" {
-			name = u.Username
-		}
-		userNames[id] = name
-		return name
+		return fmt.Sprintf("User %d", id)
 	}
-	groupNames := map[uint]string{}
 	resolveGroup := func(id uint) string {
-		if n, ok := groupNames[id]; ok {
+		if n := groupNames[id]; n != "" {
 			return n
 		}
-		name := fmt.Sprintf("Group %d", id)
-		if g, err := c.storage.GetGroup(ctx, id); err == nil && g != nil && g.Name != "" {
-			name = g.Name
-		}
-		groupNames[id] = name
-		return name
+		return fmt.Sprintf("Group %d", id)
 	}
 
 	views := make([]ShareView, 0, len(shares))

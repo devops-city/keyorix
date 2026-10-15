@@ -189,21 +189,37 @@ func (s *AuditGRPCService) GetAuditLogs(ctx context.Context, req *pb.GetAuditLog
 	// request doesn't return a different-sized page depending on transport.
 	page, pageSize := normalizePageWithDefault(req.GetPage(), req.GetPageSize(), 50)
 
-	filter := &corestorage.AuditFilter{
+	filter := corestorage.AuditFilter{
 		Action:    optString(req.EventType),
 		UserID:    optUint(req.UserId),
 		ProjectID: optUint(req.ProjectId),
 		ActorType: optString(req.ActorType),
 		StartTime: tsToTimePtr(req.GetStartTime()),
 		EndTime:   tsToTimePtr(req.GetEndTime()),
-		Page:      page,
-		PageSize:  pageSize,
 	}
-
-	events, total, err := s.core.Storage().GetAuditLogs(ctx, filter)
+	offset := (page - 1) * pageSize
+	if page > core.AuditOffsetCap {
+		offset = core.AuditOffsetCap // past the cap either way; avoids overflow
+	}
+	// Same page function as REST GET /audit/logs: keyset cursor, offset cap,
+	// capped total (docs/specs/audit-list-keyset.md).
+	result, err := s.core.ListAuditPage(ctx, core.AuditPageRequest{
+		Filter:       filter,
+		Offset:       offset,
+		Limit:        pageSize,
+		Cursor:       req.GetCursor(),
+		IncludeTotal: req.GetIncludeTotal(),
+	})
 	if err != nil {
+		switch {
+		case errors.Is(err, core.ErrInvalidAuditCursor):
+			return nil, status.Error(codes.InvalidArgument, "invalid cursor")
+		case errors.Is(err, core.ErrAuditOffsetBeyondCap):
+			return nil, status.Error(codes.InvalidArgument, core.AuditOffsetCapMessage)
+		}
 		return nil, status.Error(codes.Internal, "failed to read audit logs")
 	}
+	events := result.Events
 	names := s.core.ResolveUsernames(ctx, events)
 	machineNames := s.core.ResolveMachineNames(ctx, events)
 
@@ -211,13 +227,20 @@ func (s *AuditGRPCService) GetAuditLogs(ctx context.Context, req *pb.GetAuditLog
 	for _, e := range events {
 		logs = append(logs, auditEventToProto(e, names, machineNames))
 	}
-	return &pb.GetAuditLogsResponse{
+	resp := &pb.GetAuditLogsResponse{
 		Logs:       logs,
-		Total:      i64ToU32(total),
 		Page:       intToU32(page),
 		PageSize:   intToU32(pageSize),
-		TotalPages: intToU32(totalPages(int(total), pageSize)),
-	}, nil
+		TotalExact: result.TotalExact,
+	}
+	if result.HasTotal {
+		resp.Total = i64ToU32(result.Total)
+		resp.TotalPages = intToU32(totalPages(int(result.Total), pageSize))
+	}
+	if result.NextCursor != "" {
+		resp.NextCursor = &result.NextCursor
+	}
+	return resp, nil
 }
 
 // GetRBACAuditLogs returns the RBAC audit trail (role assignments/removals).
@@ -261,7 +284,7 @@ func (s *AuditGRPCService) VerifyAuditChain(ctx context.Context, _ *emptypb.Empt
 	if err := authorizeGlobal(ctx, s.core, actor, permAuditRead); err != nil {
 		return nil, err
 	}
-	v, err := s.core.VerifyAuditChain(ctx)
+	v, err := s.core.VerifyAuditChainIncremental(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to verify audit chain")
 	}
@@ -274,9 +297,15 @@ func (s *AuditGRPCService) VerifyAuditChain(ctx context.Context, _ *emptypb.Empt
 		Checkpointed:     v.Checkpointed,
 		Reason:           v.Reason,
 		CheckpointReason: v.CheckpointReason,
+		Status:           v.Status,
+		Mode:             v.Mode,
+		NotProvenReason:  v.NotProvenReason,
 	}
 	if v.FirstBrokenID != nil {
 		resp.FirstBrokenId = ptrU32(*v.FirstBrokenID)
+	}
+	if v.LastFullVerificationAt != nil {
+		resp.LastFullVerificationAt = timestamppb.New(*v.LastFullVerificationAt)
 	}
 	return resp, nil
 }
@@ -300,7 +329,7 @@ func (s *AuditGRPCService) WriteAuditCheckpoint(ctx context.Context, _ *emptypb.
 	if err := authorizeGlobal(ctx, s.core, actor, "system.write"); err != nil {
 		return nil, err
 	}
-	cp, written, err := s.core.WriteAuditCheckpoint(ctx)
+	cp, written, err := s.core.WriteAuditCheckpointIncremental(ctx)
 	if err != nil {
 		// The chain did not verify (broken, or a prior signed checkpoint proves a
 		// truncation) — refuse to notarise it. A precondition failure, not an error.
@@ -450,6 +479,7 @@ func (s *AuditGRPCService) StreamAuditLogs(req *pb.StreamAuditLogsRequest, strea
 			events, _, err := s.core.Storage().GetAuditLogs(ctx, &corestorage.AuditFilter{
 				AfterID:   &after,
 				Ascending: true,
+				Count:     corestorage.AuditCountNone,
 				PageSize:  auditStreamBatch,
 				Action:    optString(req.EventType),
 				UserID:    optUint(req.UserId),
@@ -512,7 +542,7 @@ func (s *AuditGRPCService) StreamAuditLogs(req *pb.StreamAuditLogsRequest, strea
 // or 0 when the log is empty. The default GetAuditLogs order is newest-first and
 // ids autoincrement with insertion, so the first row carries the head id.
 func (s *AuditGRPCService) latestAuditID(ctx context.Context) (uint, error) {
-	events, _, err := s.core.Storage().GetAuditLogs(ctx, &corestorage.AuditFilter{Page: 1, PageSize: 1})
+	events, _, err := s.core.Storage().GetAuditLogs(ctx, &corestorage.AuditFilter{Page: 1, PageSize: 1, Count: corestorage.AuditCountNone})
 	if err != nil {
 		return 0, err
 	}

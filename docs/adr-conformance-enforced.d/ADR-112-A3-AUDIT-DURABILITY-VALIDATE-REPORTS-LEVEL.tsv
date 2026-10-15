@@ -1,0 +1,1 @@
+ADR-112-A3-AUDIT-DURABILITY-VALIDATE-REPORTS-LEVEL	./internal/startup	TestValidateStartup_ReportsAuditDurabilityLevelNotADeviation	default-ci	pending	-	admin validate's result carries the effective audit durability level (sqlite default strict, postgres default standard, explicit strict, deprecated alias) and never a Warning or InsecureSettings entry for it

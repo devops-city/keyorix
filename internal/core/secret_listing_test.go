@@ -75,10 +75,10 @@ func TestKeyorixCore_ListSecretsWithSharingInfo(t *testing.T) {
 
 	// Mock expectations
 	mockStorage.On("ListSecrets", ctx, mock.AnythingOfType("*storage.SecretFilter")).Return(ownedSecrets, int64(1), nil)
-	mockStorage.On("ListSharesBySecret", ctx, uint(1)).Return(ownedSecretShares, nil)
+	mockStorage.On("ListSharesBySecretIDs", ctx, []uint{1}, mock.Anything).Return(ownedSecretShares, nil)
 	mockStorage.On("ListSharesByUser", ctx, userID).Return(userShares, nil)
-	mockStorage.On("GetSecret", ctx, uint(2)).Return(sharedSecret, nil)
-	mockStorage.On("GetUser", ctx, uint(2)).Return(owner, nil)
+	mockStorage.On("GetSecretsByIDs", ctx, []uint{2}).Return([]*models.SecretNode{sharedSecret}, nil)
+	mockStorage.On("GetUsernamesByIDs", ctx, []uint{2}).Return(map[uint]string{owner.ID: owner.Username}, nil)
 	mockStorage.On("GetUser", ctx, uint(1)).Return(&models.User{ID: 1, Username: "testuser"}, nil)
 	mockStorage.On("ListSecretACLsByUser", ctx, userID).Return(([]*models.SecretACL)(nil), nil)
 
@@ -142,7 +142,7 @@ func TestKeyorixCore_ListSecretsWithSharingInfo_ShowOwnedOnly(t *testing.T) {
 	// Mock expectations
 	mockStorage.On("GetUser", ctx, uint(1)).Return(&models.User{ID: 1, Username: "testuser"}, nil)
 	mockStorage.On("ListSecrets", ctx, mock.AnythingOfType("*storage.SecretFilter")).Return(ownedSecrets, int64(1), nil)
-	mockStorage.On("ListSharesBySecret", ctx, uint(1)).Return([]*models.ShareRecord{}, nil)
+	mockStorage.On("ListSharesBySecretIDs", ctx, []uint{1}, mock.Anything).Return([]*models.ShareRecord{}, nil)
 
 	// Execute
 	result, err := core.ListSecretsWithSharingInfo(ctx, userID, filter)
@@ -202,8 +202,8 @@ func TestKeyorixCore_ListSecretsWithSharingInfo_ShowSharedOnly(t *testing.T) {
 
 	// Mock expectations (ShowSharedOnly=true skips getOwnedSecretsWithSharingInfo, so GetUser(1) is not called)
 	mockStorage.On("ListSharesByUser", ctx, userID).Return(userShares, nil)
-	mockStorage.On("GetSecret", ctx, uint(2)).Return(sharedSecret, nil)
-	mockStorage.On("GetUser", ctx, uint(2)).Return(owner, nil)
+	mockStorage.On("GetSecretsByIDs", ctx, []uint{2}).Return([]*models.SecretNode{sharedSecret}, nil)
+	mockStorage.On("GetUsernamesByIDs", ctx, []uint{2}).Return(map[uint]string{owner.ID: owner.Username}, nil)
 	mockStorage.On("ListSecretACLsByUser", ctx, userID).Return(([]*models.SecretACL)(nil), nil)
 
 	// Execute

@@ -287,11 +287,13 @@ sso.providers.saml.name_attribute
 sso.providers.saml.sp_entity_id
 sso.providers.scopes
 sso.providers.type
+storage.database.audit_durability
 storage.database.audit_flusher_linger_window
 storage.database.conn_max_lifetime_minutes
 storage.database.dsn
 storage.database.host
 storage.database.insecure_audit_skip_durable_sync
+storage.database.insecure_audit_skip_reads
 storage.database.max_idle_conns
 storage.database.max_open_conns
 storage.database.name

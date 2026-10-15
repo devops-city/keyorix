@@ -6,3 +6,6 @@ ADR-112 Secure Baseline Posture
   [insecure-setting/shipped-default] server.insecure_allow_unauthenticated_metrics is in effect (true) — /metrics served fully unauthenticated
   [insecure-setting/shipped-default] server.insecure_disable_api_ratelimit is in effect (true) — removes per-principal API rate limiting
   [grace-period/shipped-default] security.enable_file_permission_check is in its ADR-112 upgrade grace period: this upgraded deployment never set it, so a failed startup check only WARNS and the server starts anyway. Fix anything the startup checks report; the first clean boot then ends the grace period for good (adr112.file_permission_check.enforced), or set security.enable_file_permission_check: true explicitly
+
+Informational (not counted toward the exit code):
+  - storage.database.audit_durability: strict (committed and synced to disk before every disclosure; no audit entry is lost to any crash or power loss)

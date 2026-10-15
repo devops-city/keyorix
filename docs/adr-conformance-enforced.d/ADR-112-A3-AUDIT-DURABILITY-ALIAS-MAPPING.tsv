@@ -1,0 +1,1 @@
+ADR-112-A3-AUDIT-DURABILITY-ALIAS-MAPPING	./internal/config	TestEffectiveAuditDurability_ExplicitLevelsAndAlias	default-ci	pending	-	the deprecated insecure_audit_skip_durable_sync maps true -> standard and explicit false -> strict; an explicit audit_durability wins only when it agrees

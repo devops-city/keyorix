@@ -68,6 +68,7 @@ func (k *KeyorixCore) ExportSecretAccessLog(ctx context.Context, actorKind strin
 	events, _, err := k.storage.GetAuditLogs(ctx, &storage.AuditFilter{
 		SecretID:  &secretID,
 		Action:    &action,
+		Count:     storage.AuditCountNone,
 		Page:      1,
 		PageSize:  ExportMaxRows,
 		Ascending: true,

@@ -29,6 +29,14 @@ type AuditIntegrityPosture struct {
 	ChainedEvents int64  `json:"chained_events"`
 	Checkpointed  bool   `json:"checkpointed"`
 	Reason        string `json:"reason,omitempty"` // failure/notes when not fully verified
+	// VerificationStatus is valid | broken | not_proven
+	// (docs/specs/audit-incremental-verification.md §4); ChainVerified is true
+	// only for valid. LastFullVerificationAt is when the last full verification
+	// (rolling cycle or full job) completed; LastCheckedAt when the scheduler last
+	// checked the tail. Both nil when not recorded (or a full walk was run now).
+	VerificationStatus     string     `json:"verification_status,omitempty"`
+	LastFullVerificationAt *time.Time `json:"last_full_verification_at,omitempty"`
+	LastCheckedAt          *time.Time `json:"last_checked_at,omitempty"`
 }
 
 // AccessGovernancePosture summarises access recertification + dormant access.
@@ -338,7 +346,7 @@ const riskExpiringSoonWindow = 14 * 24 * time.Hour
 type complianceSnapshot struct {
 	projects []*models.Project
 
-	auditChain    *storage.AuditChainVerification
+	auditChain    *AuditVerifyReport
 	auditChainErr error
 
 	rotationStatuses []*RotationStatusEntry
@@ -387,7 +395,8 @@ func (c *KeyorixCore) buildComplianceSnapshot(ctx context.Context) (*complianceS
 		accessRequestsErrByProject: make(map[uint]error, len(projects)),
 	}
 
-	snap.auditChain, snap.auditChainErr = c.VerifyAuditChain(ctx)
+	// The persisted verification state, not a walk (spec audit-incremental-verification §5).
+	snap.auditChain, snap.auditChainErr = c.AuditVerificationStatus(ctx)
 	snap.rotationStatuses, snap.rotationErr = c.GetRotationStatus(ctx, nil, nil)
 	if _, total, err := c.storage.ListSecrets(ctx, &storage.SecretFilter{Page: 1, PageSize: 1}); err == nil {
 		snap.totalSecrets = int(total)
@@ -645,13 +654,19 @@ func applyAuditIntegrityPosture(p *CompliancePosture, snap *complianceSnapshot) 
 		return
 	}
 	p.AuditIntegrity = AuditIntegrityPosture{
-		ChainVerified: v.Valid,
-		ChainedEvents: v.ChainedEvents,
-		Checkpointed:  v.Checkpointed,
+		ChainVerified:          v.Valid,
+		ChainedEvents:          v.ChainedEvents,
+		Checkpointed:           v.Checkpointed,
+		VerificationStatus:     v.Status,
+		LastFullVerificationAt: v.LastFullVerificationAt,
+		LastCheckedAt:          v.LastCheckedAt,
 	}
-	if !v.Valid {
+	switch {
+	case v.Status == AuditVerifyStatusNotProven:
+		p.AuditIntegrity.Reason = v.NotProvenReason
+	case !v.Valid:
 		p.AuditIntegrity.Reason = v.Reason
-	} else if v.CheckpointReason != "" {
+	case v.CheckpointReason != "":
 		p.AuditIntegrity.Reason = v.CheckpointReason
 	}
 }

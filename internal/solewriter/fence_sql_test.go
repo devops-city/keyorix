@@ -2,8 +2,11 @@ package solewriter
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
 // TestTriggerSpecs_EveryDMLGuardIsPerRow is the class guard for
@@ -71,5 +74,45 @@ func TestFenceSQL_QualifiesEveryFunction(t *testing.T) {
 	}
 	if !strings.HasPrefix(funcSearchPath, "pg_catalog,") || !strings.HasSuffix(funcSearchPath, "pg_temp") {
 		t.Errorf("funcSearchPath = %q: pg_catalog must come first and pg_temp last", funcSearchPath)
+	}
+}
+
+// TestTriggerSpecs_OwnTablesAreFencedBefore is the class guard for
+// REVIEW-SINGLE-WRITER-3 N5: the holder and epoch tables are fenced BEFORE
+// the change, so the fence decides from the holder row as it was, never from
+// the version the write itself put there.
+func TestTriggerSpecs_OwnTablesAreFencedBefore(t *testing.T) {
+	own := map[string]bool{HolderTable: true, EpochTable: true}
+	n := 0
+	for _, s := range triggerSpecs("sch") {
+		if !own[s.table] {
+			continue
+		}
+		n++
+		if s.timing != "BEFORE" {
+			t.Errorf("%s on %s fires %s; an own table must be fenced BEFORE the change", s.name, s.table, s.timing)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no fence trigger on the own tables")
+	}
+}
+
+// TestMigrationTriggers_MatchTheStore: migrationTriggers names the triggers
+// the store's migrations install, on covered tables.
+func TestMigrationTriggers_MatchTheStore(t *testing.T) {
+	want := []string{
+		"permissions." + store.PermissionsGenerationTrigger,
+		"role_permissions." + store.RolePermissionsGenerationTrigger,
+		"secret_nodes." + store.SecretNodeCacheEpochTrigger,
+	}
+	if !slices.Equal(migrationTriggers, want) {
+		t.Fatalf("migrationTriggers = %v, want %v", migrationTriggers, want)
+	}
+	for _, mt := range migrationTriggers {
+		table, _, _ := strings.Cut(mt, ".")
+		if !slices.Contains(coveredTableNames(), table) {
+			t.Errorf("%s is not on a covered table", mt)
+		}
 	}
 }

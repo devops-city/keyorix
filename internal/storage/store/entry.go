@@ -19,6 +19,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"strings"
@@ -208,21 +209,20 @@ type LocalStorage struct {
 	nativeRowChain      uintptr
 	nativeRowChainKnown bool
 	// auditSkipDurableSync, when true, makes the audit-commit transaction skip
-	// the WAIT for a disk sync — nothing else (ADR-112 Amendment 1,
-	// FASTAUDIT-1, docs/specs/fast-audit-mode.md). Set once at construction
-	// from config.DatabaseConfig.InsecureAuditSkipDurableSync; zero value
-	// (false, Go's own default) is the secure baseline, so a construction site
-	// that forgets to call SetAuditSkipDurableSync gets DURABLE commits, never
-	// the weak mode.
+	// the WAIT for a disk sync — nothing else: storage.database.audit_durability
+	// standard (ADR-112 Amendments 1 and 3, docs/specs/fast-audit-mode.md).
+	// Set once at construction from config.DatabaseConfig.EffectiveAuditDurability
+	// (standard is the PostgreSQL default); the zero value (false) is strict, so a
+	// construction site that forgets to call SetAuditSkipDurableSync gets
+	// commits that wait for the disk sync.
 	//
 	// Read by commitBatchAttempt and logAuditEventDirect, and acted on ONLY on
 	// Postgres (`SET LOCAL synchronous_commit = off`, transaction-scoped).
 	// There is no SQLite equivalent and deliberately never was in a shipped
-	// build: the mode is PostgreSQL-only (Andrei's decision, 2026-10-05) and
-	// config validation refuses to start a SQLite backend that sets it, so a
-	// SQLite-backed LocalStorage can never have this field true. See
-	// config.DatabaseConfig.InsecureAuditSkipDurableSync for the two reasons
-	// (per-connection pragma relaxes every table; measured p99 regression).
+	// build: standard is PostgreSQL-only and config validation refuses to
+	// start a SQLite backend set to it, so a SQLite-backed LocalStorage can
+	// never have this field true. See config.DatabaseConfig.AuditDurability
+	// for why (per-connection pragma relaxes every table).
 	//
 	// Deliberately NOT shared with transaction-scoped clones, same as
 	// auditFlusherLingerWindow: read-only after construction, and a clone's
@@ -295,6 +295,76 @@ type LocalStorage struct {
 	// store, which therefore never trusts the stamp — same fail-closed shape as
 	// cacheEnabled.
 	nodeStampProbe *nodeStampProbe
+	// auditIndexBuild is the background Postgres audit index build
+	// (StartAuditListIndexBuild), cancelled and awaited by Close. nil when none
+	// was started.
+	auditIndexBuild *backgroundJob
+}
+
+// backgroundJob is a goroutine Close cancels and waits for.
+type backgroundJob struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// StartAuditListIndexBuild runs BuildAuditListIndexesPostgres on db in the
+// background (docs/specs/audit-list-keyset.md §4: a large table must not hold
+// the server's start, or a liveness probe could kill the build halfway, over
+// and over). db is a dedicated pool the job closes when it finishes. While
+// another session holds the build lock (another replica building) it retries
+// every auditIndexBuildRetry, up to auditIndexBuildRetries times. Close
+// cancels a running build: Postgres aborts the CREATE INDEX CONCURRENTLY,
+// which leaves an INVALID index the next start drops and rebuilds. A failed
+// build is logged, never fatal: a missing index costs speed, not correctness.
+// The build lock takes ls's advisory lock shape (SetTransactionPooling), and db
+// must allow two open connections (BuildAuditListIndexesPostgres).
+func (ls *LocalStorage) StartAuditListIndexBuild(db *sql.DB, logf func(string, ...any)) {
+	ctx, cancel := context.WithCancel(context.Background())
+	job := &backgroundJob{cancel: cancel, done: make(chan struct{})}
+	ls.auditIndexBuild = job
+	go func() {
+		defer close(job.done)
+		defer func() { _ = db.Close() }()
+		start := time.Now()
+		for attempt := 0; ; attempt++ {
+			err := BuildAuditListIndexesPostgres(ctx, db, ls.transactionPooling, logf)
+			switch {
+			case err == nil:
+				logf("audit index build: complete in %s", time.Since(start).Round(time.Second))
+				return
+			case errors.Is(err, ErrAuditIndexBuildLockHeld) && attempt < auditIndexBuildRetries:
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(auditIndexBuildRetry):
+				}
+			case errors.Is(err, ErrAuditIndexBuildLockHeld):
+				logf("audit index build: another session kept the build lock; leaving the build to it")
+				return
+			default:
+				logf("audit index build: failed after %s, retried at the next start: %v", time.Since(start).Round(time.Second), err)
+				return
+			}
+		}
+	}()
+}
+
+// auditIndexBuildRetry / auditIndexBuildRetries bound how long a background
+// build waits for the build lock (vars so tests can shorten them).
+var (
+	auditIndexBuildRetry   = 5 * time.Second
+	auditIndexBuildRetries = 60
+)
+
+// WaitAuditListIndexBuild blocks until the background build started by
+// StartAuditListIndexBuild has finished and reports whether one was started.
+func (ls *LocalStorage) WaitAuditListIndexBuild() bool {
+	job := ls.auditIndexBuild
+	if job == nil {
+		return false
+	}
+	<-job.done
+	return true
 }
 
 // clockWatermark pairs a mutex with the time.Time it guards, so a single
@@ -368,13 +438,12 @@ func (ls *LocalStorage) SetAuditFlusherLingerWindow(d time.Duration) {
 }
 
 // SetAuditSkipDurableSync configures whether the audit-commit transaction
-// skips the WAIT for a disk sync (ADR-112 Amendment 1, FASTAUDIT-1 —
-// docs/specs/fast-audit-mode.md). false, the zero value and this type's
-// default if this is never called, is the secure baseline: the audit record is
-// durably committed before a secret value is returned. Only
-// internal/storage's factory calls this, and only with
-// config.DatabaseConfig.InsecureAuditSkipDurableSync, which no transport can
-// set.
+// skips the WAIT for a disk sync: audit_durability standard (ADR-112
+// Amendments 1 and 3, docs/specs/fast-audit-mode.md). false, the zero value
+// and this type's default if this is never called, is strict: the audit
+// record is synced to disk before a secret value is returned. Only
+// internal/storage's factory calls this, from
+// config.DatabaseConfig.EffectiveAuditDurability, which no transport can set.
 //
 // Same constraint as SetAuditFlusherLingerWindow: safe to call only before
 // this LocalStorage starts serving traffic — the field is read once per
@@ -411,6 +480,10 @@ func (ls *LocalStorage) DB() *gorm.DB {
 // Postgres connection this storage opened. Call it once, after everything using
 // the storage (requests, schedulers) has stopped.
 func (ls *LocalStorage) Close() error {
+	if job := ls.auditIndexBuild; job != nil {
+		job.cancel()
+		<-job.done
+	}
 	if ls.nativeReads != nil {
 		ls.nativeReads.Close()
 	}

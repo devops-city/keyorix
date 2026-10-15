@@ -87,7 +87,7 @@ DECLARE
   hsince timestamptz;
 BEGIN
   EXECUTE pg_catalog.format('SELECT holder_pid, nonce_hash, since FROM %I.` + HolderTable + ` WHERE id = 1', sch) INTO hpid, hhash, hsince;
-  IF hpid IS NULL THEN
+  IF hpid IS NULL OR hpid = pg_catalog.pg_backend_pid() THEN
     RETURN;
   END IF;
   IF hhash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(coalesce(pg_catalog.current_setting('` + config.SoleWriterSessionSetting + `', true), ''), 'UTF8')), 'hex') THEN
@@ -125,23 +125,37 @@ END;
 `
 }
 
+// fenceOnlyFuncBody fences the holder and epoch tables. It runs BEFORE the
+// row (or the TRUNCATE) is changed, so the holder row it reads is the one the
+// statement is about to change, never the statement's own new version: an
+// AFTER trigger would read a holder_pid or nonce_hash the writer just put
+// there and let the write through (REVIEW-SINGLE-WRITER-3 N5). It returns the
+// row unchanged, so a write it lets through is applied as written.
 func fenceOnlyFuncBody() string {
 	return `
 BEGIN
   EXECUTE pg_catalog.format('SELECT %I.` + checkFunc + `($1)', TG_TABLE_SCHEMA) USING TG_TABLE_SCHEMA::text;
-  RETURN NULL;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
 END;
 `
 }
 
-// triggerSpec is one fence trigger: its name, table and the rest of its
-// CREATE TRIGGER text after "ON <table>".
+// triggerSpec is one fence trigger: its name, table, timing (BEFORE or
+// AFTER), events and the rest of its CREATE TRIGGER text after "ON <table>".
 type triggerSpec struct {
-	name, table, events, rest string
+	name, table, timing, events, rest string
 }
 
 func (t triggerSpec) create(schema string) string {
-	return "CREATE TRIGGER " + t.name + " AFTER " + t.events + " ON " + qualify(schema, t.table) + " " + t.rest
+	return t.createOn(schema, t.table)
+}
+
+// createOn is the spec's CREATE TRIGGER on another table of schema.
+func (t triggerSpec) createOn(schema, table string) string {
+	return "CREATE TRIGGER " + t.name + " " + t.timing + " " + t.events + " ON " + qualify(schema, table) + " " + t.rest
 }
 
 // triggerSpecs derives every fence trigger from FencedTables, for the tables
@@ -167,37 +181,40 @@ func triggerSpecs(schema string) []triggerSpec {
 		return "FOR EACH ROW WHEN (" + when + ") " + exec(guardFunc)
 	}
 	for _, t := range FencedTables {
-		out = append(out, triggerSpec{TriggerPrefix + "guard", t.Name, "TRUNCATE", stmt})
+		out = append(out, triggerSpec{TriggerPrefix + "guard", t.Name, "AFTER", "TRUNCATE", stmt})
 		switch {
 		case t.Key != "":
 			k := "'" + t.Key + "'"
 			out = append(out,
-				triggerSpec{TriggerPrefix + "guard_ins", t.Name, "INSERT", row("NEW.key = " + k)},
-				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "UPDATE", row("OLD.key = " + k + " OR NEW.key = " + k)},
-				triggerSpec{TriggerPrefix + "guard_del", t.Name, "DELETE", row("OLD.key = " + k)})
+				triggerSpec{TriggerPrefix + "guard_ins", t.Name, "AFTER", "INSERT", row("NEW.key = " + k)},
+				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "AFTER", "UPDATE", row("OLD.key = " + k + " OR NEW.key = " + k)},
+				triggerSpec{TriggerPrefix + "guard_del", t.Name, "AFTER", "DELETE", row("OLD.key = " + k)})
 		case len(t.UpdateIgnores) > 0:
 			minus := ""
 			for _, c := range t.UpdateIgnores {
 				minus += " - '" + c + "'"
 			}
 			out = append(out,
-				triggerSpec{TriggerPrefix + "guard_row", t.Name, "INSERT OR DELETE", row("")},
-				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "UPDATE", row("(pg_catalog.to_jsonb(OLD)" + minus + ") IS DISTINCT FROM (pg_catalog.to_jsonb(NEW)" + minus + ")")})
+				triggerSpec{TriggerPrefix + "guard_row", t.Name, "AFTER", "INSERT OR DELETE", row("")},
+				triggerSpec{TriggerPrefix + "guard_upd", t.Name, "AFTER", "UPDATE", row("(pg_catalog.to_jsonb(OLD)" + minus + ") IS DISTINCT FROM (pg_catalog.to_jsonb(NEW)" + minus + ")")})
 		default:
-			out = append(out, triggerSpec{TriggerPrefix + "guard_row", t.Name, "INSERT OR UPDATE OR DELETE", row("")})
+			out = append(out, triggerSpec{TriggerPrefix + "guard_row", t.Name, "AFTER", "INSERT OR UPDATE OR DELETE", row("")})
 		}
 	}
+	// The own tables are fenced BEFORE the change (fenceOnlyFuncBody).
 	for _, own := range []string{HolderTable, EpochTable} {
 		out = append(out,
-			triggerSpec{TriggerPrefix + "fence", own, "TRUNCATE", "FOR EACH STATEMENT " + exec(fenceOnlyFunc)},
-			triggerSpec{TriggerPrefix + "fence_row", own, "INSERT OR UPDATE OR DELETE", "FOR EACH ROW " + exec(fenceOnlyFunc)})
+			triggerSpec{TriggerPrefix + "fence", own, "BEFORE", "TRUNCATE", "FOR EACH STATEMENT " + exec(fenceOnlyFunc)},
+			triggerSpec{TriggerPrefix + "fence_row", own, "BEFORE", "INSERT OR UPDATE OR DELETE", "FOR EACH ROW " + exec(fenceOnlyFunc)})
 	}
 	return out
 }
 
 // fingerprintSQL fingerprints, in schema $1 (covered tables $2, see
-// coveredTableNames): every fence trigger (its full definition, enabled state
-// and catalog row version), the three functions (body, settings and row
+// coveredTableNames): every trigger on a covered table, the fence's and any
+// other (its full definition, enabled state and catalog row version; a role
+// with the TRIGGER privilege can add one that rewrites or suppresses rows
+// around the fence), the three functions (body, settings and row
 // version), every inheritance or partition link with a covered table on
 // either side, and every column of a covered table (name, type and row
 // version). Every name is qualified; run it on a session whose search_path is
@@ -226,7 +243,7 @@ func triggerSpecs(schema string) []triggerSpec {
 const fingerprintSQL = `SELECT pg_catalog.md5(
   coalesce((SELECT pg_catalog.string_agg(c.relname || ':' || pg_catalog.pg_get_triggerdef(t.oid) || ':' || t.tgenabled::text || ':' || t.xmin::text, E'\n' ORDER BY c.relname, t.tgname)
     FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = $1 AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'), '')
+    WHERE NOT t.tgisinternal AND t.tgrelid IN (` + coveredOIDsSQL + `)), '')
   || '|' ||
   coalesce((SELECT pg_catalog.string_agg(p.proname || ':' || pg_catalog.md5(p.prosrc) || ':' || coalesce(pg_catalog.array_to_string(p.proconfig, ';'), '') || ':' || p.prosecdef::text || ':' || p.xmin::text, ',' ORDER BY p.proname)
     FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
@@ -314,12 +331,16 @@ func (g *Guard) InstallFence(ctx context.Context) error {
 		return fmt.Errorf("single_writer: fence verification failed: %d fence triggers present (%d ENABLE ALWAYS), want %d", n, always, len(specs))
 	}
 	for _, s := range specs {
-		var def string
-		if err := tx.QueryRowContext(ctx, "SELECT pg_catalog.pg_get_triggerdef(oid) FROM pg_catalog.pg_trigger WHERE tgrelid = pg_catalog.to_regclass($1) AND tgname = $2", qualify(sch, s.table), s.name).Scan(&def); err != nil {
+		def, err := triggerDef(ctx, tx, sch, s.table, s.name)
+		if err != nil {
 			return err
 		}
-		if !triggerDefMatches(def, s) {
-			return fmt.Errorf("single_writer: fence trigger %s on %s has an unexpected definition (%s); drop it (DROP TRIGGER %s ON %s) and restart", s.name, s.table, def, s.name, s.table)
+		want, err := expectedTriggerDef(ctx, tx, sch, s)
+		if err != nil {
+			return err
+		}
+		if triggerDefShape(def) != want {
+			return fmt.Errorf("single_writer: fence trigger %s on %s has an unexpected definition (%s, want %s); drop it (DROP TRIGGER %s ON %s) and restart", s.name, s.table, def, want, s.name, s.table)
 		}
 	}
 	// A table inheriting from a fenced one takes writes the fence never sees,
@@ -333,6 +354,10 @@ WHERE i.inhparent IN (`+coveredOIDsSQL+`) OR i.inhrelid IN (`+coveredOIDsSQL+`)`
 	}
 	if links != "" {
 		return fmt.Errorf("single_writer: a fenced table has a child or a parent table (%s): writes through it bypass statement-level checks and a child's rows bypass the fence; remove the inheritance and restart", links)
+	}
+	foreign, err := foreignTriggers(ctx, tx, sch)
+	if err != nil {
+		return err
 	}
 	var fp string
 	if err := tx.QueryRowContext(ctx, fingerprintSQL, sch, coveredTableNames()).Scan(&fp); err != nil {
@@ -349,52 +374,97 @@ WHERE i.inhparent IN (`+coveredOIDsSQL+`) OR i.inhrelid IN (`+coveredOIDsSQL+`)`
 	g.mu.Lock()
 	g.fingerprint, g.incarnation, g.epoch, g.epochXmin = fp, incarnation, epoch, epochXmin
 	g.mu.Unlock()
+	if len(foreign) > 0 {
+		// Not a refusal to start: the fence is complete, but such a trigger
+		// can change a row after the fence has passed it, so no cache may
+		// trust its contents (the posture report names it too).
+		g.leave(fmt.Sprintf("a trigger that is not part of the write fence is installed on a covered table (%s); drop it, grant other roles SELECT, INSERT, UPDATE, DELETE only (never TRIGGER), and restart", strings.Join(foreign, ", ")))
+	}
 	return nil
 }
 
-// triggerDefMatches compares pg_get_triggerdef's text with the spec loosely
-// enough to absorb PostgreSQL's normalisation (schema qualification, WHEN
-// parenthesisation, EXECUTE FUNCTION vs PROCEDURE): same name, timing,
-// events, level and function.
-func triggerDefMatches(def string, s triggerSpec) bool {
-	d := strings.ToUpper(def)
-	prefix := "TRIGGER " + strings.ToUpper(s.name) + " AFTER "
-	_, rest, ok := strings.Cut(d, prefix)
-	if !ok {
-		return false
-	}
-	events, _, ok := strings.Cut(rest, " ON ")
-	if !ok || !sameEvents(events, strings.ToUpper(s.events)) {
-		return false
-	}
-	fn := guardFunc
-	if strings.Contains(s.rest, fenceOnlyFunc) {
-		fn = fenceOnlyFunc
-	}
-	level := "FOR EACH STATEMENT"
-	if strings.Contains(s.rest, "FOR EACH ROW") {
-		level = "FOR EACH ROW"
-	}
-	return strings.Contains(d, level) && strings.Contains(d, strings.ToUpper(fn)+"()")
+// triggerDef is pg_get_triggerdef of trigger name on schema.table.
+func triggerDef(ctx context.Context, tx *sql.Tx, schema, table, name string) (string, error) {
+	var def string
+	err := tx.QueryRowContext(ctx, "SELECT pg_catalog.pg_get_triggerdef(oid) FROM pg_catalog.pg_trigger WHERE tgrelid = pg_catalog.to_regclass($1) AND tgname = $2", qualify(schema, table), name).Scan(&def)
+	return def, err
 }
 
-// sameEvents compares two "A OR B OR C" event lists as sets (PostgreSQL
-// prints them in its own order).
-func sameEvents(a, b string) bool {
-	as, bs := strings.Split(a, " OR "), strings.Split(b, " OR ")
-	if len(as) != len(bs) {
-		return false
-	}
-	seen := map[string]bool{}
-	for _, e := range as {
-		seen[strings.TrimSpace(e)] = true
-	}
-	for _, e := range bs {
-		if !seen[strings.TrimSpace(e)] {
-			return false
+// expectedTriggerDef is the definition PostgreSQL prints for s as this build
+// creates it, with the relation left out (triggerDefShape): the spec created
+// on a scratch copy of the table (CREATE TABLE ... LIKE) inside a savepoint
+// that is rolled back. Comparing with it checks the whole definition (timing,
+// events, level, the WHEN clause and the function with its schema) in
+// PostgreSQL's own normalisation, on every version. The copy, not the table
+// itself: CREATE TRIGGER on the fenced table would wait for every open writer
+// of it (LIKE only takes the lock a reader takes), and a writer older than the
+// boot is Settle's to wait for, with its timeout.
+func expectedTriggerDef(ctx context.Context, tx *sql.Tx, schema string, s triggerSpec) (string, error) {
+	const probe = "keyorix_sole_writer_probe"
+	for _, q := range []string{"SAVEPOINT ksw_probe", "CREATE TABLE " + qualify(schema, probe) + " (LIKE " + qualify(schema, s.table) + ")", s.createOn(schema, probe)} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return "", fmt.Errorf("single_writer: probe the definition of %s on %s: %w", s.name, s.table, err)
 		}
 	}
-	return true
+	def, err := triggerDef(ctx, tx, schema, probe, s.name)
+	if _, rerr := tx.ExecContext(ctx, "ROLLBACK TO SAVEPOINT ksw_probe"); err == nil {
+		err = rerr
+	}
+	if err != nil {
+		return "", err
+	}
+	return triggerDefShape(def), nil
+}
+
+// triggerDefShape is a pg_get_triggerdef text with the relation between " ON "
+// and " FOR EACH " left out (the names in it are this package's own).
+func triggerDefShape(def string) string {
+	head, rest, ok := strings.Cut(def, " ON ")
+	if !ok {
+		return def
+	}
+	_, tail, ok := strings.Cut(rest, " FOR EACH ")
+	if !ok {
+		return def
+	}
+	return head + " ON * FOR EACH " + tail
+}
+
+// foreignTriggersSQL lists, in schema $1 (covered tables $2), every
+// non-internal trigger on a covered table whose table.name is not in $3.
+const foreignTriggersSQL = `SELECT coalesce(pg_catalog.string_agg(c.relname || '.' || t.tgname, ',' ORDER BY c.relname, t.tgname), '')
+FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+WHERE NOT t.tgisinternal AND t.tgrelid IN (` + coveredOIDsSQL + `) AND NOT ((c.relname || '.' || t.tgname) = ANY ($3::text[]))`
+
+// migrationTriggers are the triggers Keyorix's own migrations install on
+// covered tables (internal/storage/store: the role-permission generation and
+// the secret-node cache epoch), as table.trigger. They are not the fence's,
+// but not foreign either; the fingerprint still covers them. A migration that
+// adds another one makes every single-writer start non-authoritative until it
+// is listed here (TestMigrationTriggers_MatchTheStore checks the names).
+var migrationTriggers = []string{
+	"permissions.trg_permissions_generation",
+	"role_permissions.trg_role_permissions_generation",
+	"secret_nodes.trg_secret_nodes_cache_epoch",
+}
+
+// foreignTriggers lists every trigger on a covered table that is neither one
+// of the fence's nor a migration's (migrationTriggers), as table.trigger.
+func foreignTriggers(ctx context.Context, q interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, schema string) ([]string, error) {
+	fence := append([]string(nil), migrationTriggers...)
+	for _, s := range triggerSpecs(schema) {
+		fence = append(fence, s.table+"."+s.name)
+	}
+	var list string
+	if err := q.QueryRowContext(ctx, foreignTriggersSQL, schema, coveredTableNames(), fence).Scan(&list); err != nil {
+		return nil, err
+	}
+	if list == "" {
+		return nil, nil
+	}
+	return strings.Split(list, ","), nil
 }
 
 // HolderLive reports whether a single-writer server currently holds the lock
@@ -524,6 +594,9 @@ type FenceReport struct {
 	// with no trigger firing and no catalog row changing, which neither the
 	// fence nor the fingerprint can see.
 	BelowSQL bool
+	// ForeignTriggers lists, as table.trigger, every trigger on a covered
+	// table that is not one of the fence's.
+	ForeignTriggers []string
 }
 
 // Complete reports whether every expected trigger is present and ENABLE ALWAYS.
@@ -550,7 +623,10 @@ func InspectFence(ctx context.Context, cfg *config.Config) (FenceReport, error) 
 	if err != nil {
 		return rep, err
 	}
-	err = conn.QueryRowContext(ctx, belowSQLQuery).Scan(&rep.BelowSQL)
+	if err = conn.QueryRowContext(ctx, belowSQLQuery).Scan(&rep.BelowSQL); err != nil {
+		return rep, err
+	}
+	rep.ForeignTriggers, err = foreignTriggers(ctx, conn, schema)
 	return rep, err
 }
 

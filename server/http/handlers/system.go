@@ -63,26 +63,19 @@ type SecurityInfo struct {
 	// escape hatch -- one of the three places design §5 requires this to be
 	// flagged (alongside the startup warning and the startup audit event).
 	KeylessRecoveryMode bool `json:"keyless_recovery_mode"`
-	// AuditDurableSyncSkipped surfaces
-	// storage.database.insecure_audit_skip_durable_sync (ADR-112 Amendment 1,
-	// docs/specs/fast-audit-mode.md) -- one of the four places that amendment
-	// requires the setting to be flagged, and specifically the one a buyer's
-	// auditor can reach WITHOUT host access, so "is this install still
-	// committing audit durably before disclosing a secret?" is answerable over
-	// the API.
-	//
-	// true means it is NOT: the audit record is still written and committed
-	// before the secret is returned, and a failed audit write still fails the
-	// request, but the commit no longer waits for a disk sync.
-	//
-	// This reports IN EFFECT, not merely "configured" -- so it is false on a
-	// backend where the setting does nothing. Deliberately that way round: the
-	// question this field answers is "is my audit durability weakened right
-	// now", and on a remote backend the truthful answer is no. A configured
-	// setting that is being ignored shows up in
-	// AuditDurableSyncSkipNotInEffectReason below, so the two states stay
-	// distinguishable from this response alone.
-	AuditDurableSyncSkipped bool `json:"audit_durable_sync_skipped"`
+	// AuditDurability is the effective storage.database.audit_durability
+	// (ADR-112 Amendment 3): "strict" (the audit commit waits for the disk
+	// sync) or "standard" (committed before every disclosure without waiting
+	// for the sync; up to ~600 ms of audit entries can be lost to an OS crash
+	// or power loss). Lets a buyer's auditor read the level over the API
+	// without host access. Both levels are baseline; neither is a deviation.
+	AuditDurability string `json:"audit_durability"`
+	// AuditReadsSkipped is storage.database.insecure_audit_skip_reads (ADR-112
+	// Amendment 4): true means successful secret-value reads are NOT audited
+	// on this install (writes, permission changes, authentication, denied
+	// reads and admin actions still are). Lets an auditor see it over the API
+	// without host access; the web UI shows a persistent banner from it.
+	AuditReadsSkipped bool `json:"audit_reads_skipped"`
 	// AccessLogOnSinkStall is the effective server.access_log.on_sink_stall:
 	// "block" (default; no access-log line is ever lost, requests wait for a
 	// stalled sink) or "drop" (keeps serving; lines past the 1 MiB queue are
@@ -91,14 +84,6 @@ type SecurityInfo struct {
 	// AccessLogDropped is how many access-log lines this process has dropped
 	// since start because the sink stalled. Always 0 in block mode.
 	AccessLogDropped uint64 `json:"access_log_dropped"`
-	// AuditDurableSyncSkipNotInEffectReason is non-empty ONLY when
-	// insecure_audit_skip_durable_sync is present in the config but is not in
-	// effect on this backend -- so a non-empty value always means "the
-	// operator wrote this and it is doing nothing", and never anything else
-	// (Andrei's decision, 2026-10-05: show it as off, WITH the reason, as a
-	// field rather than only as log text). Omitted when empty, so a default
-	// install's response is unchanged.
-	AuditDurableSyncSkipNotInEffectReason string `json:"audit_durable_sync_skip_not_in_effect_reason,omitempty"`
 	// RecoveryKey is a read-only recovery-key configuration status (F6,
 	// recovery-key visibility) -- nil for any caller who does not hold
 	// system.write (global-admin tier). Never carries the key or its hash,
@@ -218,10 +203,6 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 			}
 		}
 
-		// One computation, read twice below, so "in effect" and "why not"
-		// cannot disagree within a single response.
-		fastAuditStatus := cfg.Storage.Database.AuditDurableSyncStatus(cfg.Storage.Type)
-
 		tlsEnabled := cfg.Server.HTTP.TLS.Enabled
 		encryptionEnabled := cfg.Storage.Encryption.Enabled
 		grpcEnabled := cfg.Server.GRPC.Enabled
@@ -258,14 +239,13 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				KeylessRecoveryMode: cfg.Security.RecoverAdmin.KeylessMode,
 				// Read from the already-loaded *config.Config, exactly like
 				// KeylessRecoveryMode above -- no request body ever reaches
-				// these values, which is what keeps the setting
-				// config-file-only (ADR-112 Amendment 1; the guard is
-				// TestInsecureAuditSkipDurableSync_NoWriteAssignment).
-				AuditDurableSyncSkipped:               fastAuditStatus.InEffect,
-				AccessLogOnSinkStall:                  cfg.Server.AccessLog.EffectiveOnSinkStall(),
-				AccessLogDropped:                      middleware.AccessLogDropped(),
-				AuditDurableSyncSkipNotInEffectReason: fastAuditStatus.NotInEffectReason,
-				RecoveryKey:                           recoveryKeyStatus,
+				// this value, which keeps the setting config-file-only (the
+				// guard is TestAuditDurability_NoWriteAssignment).
+				AuditDurability:      string(cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type).Level),
+				AuditReadsSkipped:    cfg.Storage.Database.InsecureAuditSkipReads,
+				AccessLogOnSinkStall: cfg.Server.AccessLog.EffectiveOnSinkStall(),
+				AccessLogDropped:     middleware.AccessLogDropped(),
+				RecoveryKey:          recoveryKeyStatus,
 			},
 		}
 

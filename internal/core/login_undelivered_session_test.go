@@ -152,10 +152,15 @@ func TestLoginWithIdentity_IdentityReadPanic_LeavesNoSession(t *testing.T) {
 	before := len(adminSessions(t, st))
 	c.storage = &panicOnGetUserRoles{Storage: st}
 
-	func() {
-		defer func() { assert.NotNil(t, recover()) }()
-		_, _, _, _ = c.LoginWithIdentity(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
-	}()
+	// #3267: the panic no longer propagates. resolveLoginIdentityBeforeMint
+	// returns it as its post-verdict error, so the login is denied exactly as
+	// for the read's error kind (login_identity_read_panic_test.go).
+	var err error
+	require.NotPanics(t, func() {
+		_, _, _, err = c.LoginWithIdentity(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
+	})
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
+	require.ErrorIs(t, err, ErrLoginIdentityUnavailable)
 
 	assert.Len(t, adminSessions(t, st), before,
 		"the identity read runs before the session is written, so a panic in it can leave nothing behind")

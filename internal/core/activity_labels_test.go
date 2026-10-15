@@ -43,7 +43,7 @@ func TestGetActivityFeed_ResolvesSubjectSecretAndEventActor(t *testing.T) {
 	}
 	ms.On("GetAuditLogs", mock.Anything, mock.Anything).Return(events, int64(3), nil)
 	ms.On("GetSecretsByIDs", mock.Anything, []uint{9}).Return([]*models.SecretNode{{ID: 9, Name: "api-key"}}, nil)
-	ms.On("GetUser", mock.Anything, uid).Return(&models.User{ID: uid, Username: "bob"}, nil)
+	ms.On("GetUsernamesByIDs", mock.Anything, []uint{uid}).Return(map[uint]string{uid: "bob"}, nil)
 	c := NewKeyorixCore(ms)
 
 	feed, err := c.GetActivityFeed(context.Background(), 1, "alice-the-viewer", 1, 10)

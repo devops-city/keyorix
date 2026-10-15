@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -324,11 +325,10 @@ const sqliteBusyTimeoutMillis = 10000
 //     before/after (no throughput delta, as expected, since the pragma value
 //     is unchanged — this closes an unasserted-guarantee gap, not a bug).
 //
-//     NOT RELAXABLE BY CONFIGURATION. ADR-112 Amendment 1's fast audit mode
-//     (storage.database.insecure_audit_skip_durable_sync) is PostgreSQL-ONLY
-//     (Andrei's decision, 2026-10-05) and config validation REFUSES TO START
-//     when it is combined with a SQLite backend
-//     (internal/config's auditSkipDurableSyncSQLiteUnsupportedError), so this
+//     NOT RELAXABLE BY CONFIGURATION. storage.database.audit_durability's
+//     standard level (ADR-112 Amendments 1 and 3) is PostgreSQL-ONLY and
+//     config validation REFUSES TO START a SQLite backend set to it
+//     (internal/config's auditDurabilityStandardSQLiteUnsupportedError), so this
 //     DSN has no NORMAL branch at all and never had one in a shipped build.
 //     Two reasons it is not offered here, both measured or structural:
 //     `synchronous` is a PER-CONNECTION property set once per DSN and the pool
@@ -624,16 +624,16 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 		return nil, err
 	}
 
-	if err := withMigrationLock(db, false, dbPath, f.migrateDatabase); err != nil {
+	if err := withMigrationLock(db, false, dbPath, f.migrateSQLite); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
 	ls := store.NewLocalStorage(db)
 	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
 	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
-	// No SetAuditSkipDurableSync here, deliberately: ADR-112 Amendment 1's
-	// fast audit mode is PostgreSQL-only and config validation refuses to
-	// start a SQLite backend that sets it, so there is nothing to propagate --
+	// No SetAuditSkipDurableSync here, deliberately: audit_durability standard
+	// is PostgreSQL-only and config validation refuses to start a SQLite
+	// backend set to it (SQLite is strict only), so there is nothing to propagate --
 	// and leaving the zero value (false, durable) means a config that somehow
 	// bypassed validation still gets durable commits rather than a half-
 	// applied weak mode.
@@ -697,12 +697,94 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	ls.SetNamedLockDB(namedLockDB)
 	ls.SetNativeReadPool(nativeReads)
 	ls.SetTransactionPooling(cfg.Storage.Database.TransactionPooling())
-	// ADR-112 Amendment 1: read the computed status rather than the raw bool,
-	// so "configured" and "actually in effect" cannot drift apart between
-	// here and the surfaces that report it (start-up log, posture, API). This
-	// is the one backend where InEffect can be true.
-	ls.SetAuditSkipDurableSync(cfg.Storage.Database.AuditDurableSyncStatus(cfg.Storage.Type).InEffect)
+	// ADR-112 Amendment 3: the effective audit_durability level, read through
+	// the same function the start-up line, posture report and API use, so the
+	// level reported cannot differ from the level run. Standard -- the
+	// PostgreSQL default -- skips only the audit commit's wait for the disk sync.
+	ls.SetAuditSkipDurableSync(cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type).Level == config.AuditDurabilityStandard)
+	ensureAuditListIndexesPostgres(ls, db, func() (*sql.DB, error) {
+		bdb, _, err := openPostgresSQLDB(&cfg.Storage.Database)
+		return bdb, err
+	})
 	return ls, nil
+}
+
+// migrateSQLite is migrateDatabase plus the audit list indexes, inside the
+// same SQLite migration lock and transaction (docs/specs/audit-list-keyset.md
+// §4). They are created after migrateDatabase because a fresh install creates
+// audit_events only in its final AutoMigrate step.
+func (f *DefaultStorageFactory) migrateSQLite(db *gorm.DB) error {
+	if err := f.migrateDatabase(db); err != nil {
+		return err
+	}
+	return store.EnsureAuditListIndexesSQLite(db, log.Printf)
+}
+
+// auditIndexSyncBuildMaxRows is the audit_events size (row estimate) below
+// which the Postgres audit index build runs before the server serves: a fresh
+// install or a small table builds in about a second. A larger table is built in
+// the background (store.LocalStorage.StartAuditListIndexBuild). A var so tests
+// can move the threshold.
+var auditIndexSyncBuildMaxRows int64 = 200_000
+
+// auditIndexSyncBuildTimeout bounds that synchronous build. CREATE INDEX
+// CONCURRENTLY waits for every transaction already writing to the table, so one
+// idle-in-transaction session elsewhere could otherwise hold the server's start
+// forever. Past the timeout the build is cancelled (leaving an INVALID index)
+// and continues in the background, which drops and rebuilds it.
+var auditIndexSyncBuildTimeout = 30 * time.Second
+
+// ensureAuditListIndexesPostgres brings the audit list indexes up to date after
+// the migration transaction has committed: CREATE INDEX CONCURRENTLY never runs
+// inside a transaction, and never blocks audit writes. Nothing here is fatal:
+// a missing index costs speed, not correctness, and the next start retries.
+// openBuildDB opens the dedicated pool a background build runs on.
+func ensureAuditListIndexesPostgres(ls *store.LocalStorage, db *gorm.DB, openBuildDB func() (*sql.DB, error)) {
+	ctx := context.Background()
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Printf("audit index build: skipped: %v", err)
+		return
+	}
+	pending, err := store.AuditListIndexesPendingPostgres(ctx, sqlDB)
+	if err != nil {
+		log.Printf("audit index build: skipped, catalog check failed: %v", err)
+		return
+	}
+	if !pending {
+		return
+	}
+	rows, err := store.AuditEventsRowEstimate(ctx, db)
+	if err != nil {
+		log.Printf("audit index build: skipped, row estimate failed: %v", err)
+		return
+	}
+	if rows < auditIndexSyncBuildMaxRows {
+		sctx, cancel := context.WithTimeout(ctx, auditIndexSyncBuildTimeout)
+		err := store.BuildAuditListIndexesPostgres(sctx, sqlDB, ls.TransactionPooling(), log.Printf)
+		timedOut := sctx.Err() != nil
+		cancel()
+		switch {
+		case err == nil:
+			return
+		case errors.Is(err, store.ErrAuditIndexBuildLockHeld):
+			log.Printf("audit index build: another process is building the audit indexes")
+			return
+		case !timedOut:
+			log.Printf("audit index build: failed, retried at the next start: %v", err)
+			return
+		}
+		log.Printf("audit index build: not finished within %s (a long-running transaction on audit_events?); continuing in the background", auditIndexSyncBuildTimeout)
+	} else {
+		log.Printf("audit index build: audit_events has ~%d rows; building in the background while the server serves", rows)
+	}
+	bdb, err := openBuildDB()
+	if err != nil {
+		log.Printf("audit index build: skipped, cannot open a build connection: %v", err)
+		return
+	}
+	bdb.SetMaxOpenConns(2) // the build lock's connection and the DDL's
+	ls.StartAuditListIndexBuild(bdb, log.Printf)
 }
 
 // applyPoolSettings configures the connection pool on the underlying *sql.DB

@@ -221,6 +221,50 @@ func newAccessReviewResolver(store storage.Storage) *accessReviewResolver {
 	}
 }
 
+// prefetch fills the user, group and machine caches for the given ids with one
+// batched lookup per kind (LIST-ENDPOINTS-1), instead of one lookup per distinct
+// principal. An id with no readable row is cached empty, exactly what a failed
+// per-id lookup produced; a failed batch leaves the ids uncached so resolve* falls
+// back to the per-id lookup.
+func (r *accessReviewResolver) prefetch(ctx context.Context, userIDs, groupIDs, machineIDs []uint) {
+	if ids := r.missing(userIDs, func(id uint) bool { _, ok := r.users[id]; return ok }); len(ids) > 0 {
+		if briefs, err := r.store.GetUserBriefsByIDs(ctx, ids); err == nil {
+			for _, id := range ids {
+				b := briefs[id]
+				r.users[id] = [2]string{b.Username, b.Email}
+			}
+		}
+	}
+	if ids := r.missing(groupIDs, func(id uint) bool { _, ok := r.groups[id]; return ok }); len(ids) > 0 {
+		if names, err := r.store.GetGroupNamesByIDs(ctx, ids); err == nil {
+			for _, id := range ids {
+				r.groups[id] = names[id]
+			}
+		}
+	}
+	if ids := r.missing(machineIDs, func(id uint) bool { _, ok := r.machines[id]; return ok }); len(ids) > 0 {
+		if names, err := r.store.GetMachineIdentityNamesByIDs(ctx, ids); err == nil {
+			for _, id := range ids {
+				r.machines[id] = names[id]
+			}
+		}
+	}
+}
+
+// missing returns the distinct ids (never 0) that cached reports as not yet resolved.
+func (r *accessReviewResolver) missing(ids []uint, cached func(uint) bool) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	var out []uint
+	for _, id := range ids {
+		if _, dup := seen[id]; dup || id == 0 || cached(id) {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 func (r *accessReviewResolver) resolveRole(ctx context.Context, roleID uint) (roleInfo, error) {
 	if ri, ok := r.roles[roleID]; ok {
 		return ri, nil
@@ -276,6 +320,18 @@ func (r *accessReviewResolver) resolveMachine(ctx context.Context, id uint) stri
 // appendRoleEntries adds role-based standing access entries for all project assignments
 // (role grants whose role confers a secrets.* permission).
 func (c *KeyorixCore) appendRoleEntries(ctx context.Context, assignments []storage.RoleAssignment, entries *[]*AccessReviewEntry, res *accessReviewResolver) error { // nosemgrep: keyorix-unbounded-bulk-slice-param -- assignments is a storage query result (existing role grants in the DB), not a raw client-supplied array in one request
+	var userIDs, groupIDs, machineIDs []uint
+	for _, a := range assignments {
+		switch a.PrincipalType {
+		case "group":
+			groupIDs = append(groupIDs, a.PrincipalID)
+		case "machine":
+			machineIDs = append(machineIDs, a.PrincipalID)
+		default:
+			userIDs = append(userIDs, a.PrincipalID)
+		}
+	}
+	res.prefetch(ctx, userIDs, groupIDs, machineIDs)
 	for _, a := range assignments {
 		ri, err := res.resolveRole(ctx, a.RoleID)
 		if err != nil {
@@ -310,6 +366,48 @@ func (c *KeyorixCore) appendRoleEntries(ctx context.Context, assignments []stora
 // shares. #483: a transient share-list error for ONE secret degrades (not aborts) the
 // report so that coverage for remaining secrets is not silently dropped.
 func (c *KeyorixCore) appendSecretGrantEntries(ctx context.Context, secrets []*models.SecretNode, report *AccessReviewReport, entries *[]*AccessReviewEntry, res *accessReviewResolver) {
+	// Every secret's active shares in batches (LIST-ENDPOINTS-1), not one
+	// ListSharesBySecret per secret.
+	sharesBySecret := make(map[uint][]*models.ShareRecord, len(secrets))
+	failedShares := map[uint]error{}
+	now := c.shareEffectiveNow()
+	for start := 0; start < len(secrets); start += listBatchSize {
+		end := min(start+listBatchSize, len(secrets))
+		ids := make([]uint, 0, end-start)
+		for _, s := range secrets[start:end] {
+			ids = append(ids, s.ID)
+		}
+		batch, err := c.storage.ListSharesBySecretIDs(ctx, ids, now)
+		if err != nil {
+			// A failed batch falls back to per-secret lookups, so one bad read still
+			// degrades only its own secret (#483) and not the whole chunk.
+			for _, id := range ids {
+				shares, serr := c.storage.ListSharesBySecret(ctx, id, now)
+				if serr != nil {
+					failedShares[id] = serr
+					continue
+				}
+				sharesBySecret[id] = shares
+			}
+			continue
+		}
+		for _, sh := range batch {
+			sharesBySecret[sh.SecretID] = append(sharesBySecret[sh.SecretID], sh)
+		}
+	}
+	var userIDs, groupIDs []uint
+	for _, s := range secrets {
+		userIDs = append(userIDs, s.OwnerID)
+		for _, sh := range sharesBySecret[s.ID] {
+			if sh.IsGroup {
+				groupIDs = append(groupIDs, sh.RecipientID)
+			} else {
+				userIDs = append(userIDs, sh.RecipientID)
+			}
+		}
+	}
+	res.prefetch(ctx, userIDs, groupIDs, nil)
+
 	for _, s := range secrets {
 		if s.OwnerID != 0 {
 			name, email := res.resolveUser(ctx, s.OwnerID)
@@ -318,12 +416,11 @@ func (c *KeyorixCore) appendSecretGrantEntries(ctx context.Context, secrets []*m
 				Source: "owner", AccessLevel: "owner", SecretID: s.ID, SecretName: s.Name,
 			})
 		}
-		shares, err := c.storage.ListSharesBySecret(ctx, s.ID, c.shareEffectiveNow())
-		if err != nil {
+		if err := failedShares[s.ID]; err != nil {
 			report.degrade(fmt.Sprintf("shares:secret=%d", s.ID), err)
 			continue
 		}
-		for _, sh := range shares {
+		for _, sh := range sharesBySecret[s.ID] {
 			e := &AccessReviewEntry{
 				PrincipalID: sh.RecipientID, AccessLevel: sh.Permission,
 				SecretID: s.ID, SecretName: s.Name,

@@ -617,6 +617,15 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	// 30-day library default.
 	coreService.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
 
+	// ADR-112 Amendment 4: storage.database.insecure_audit_skip_reads. Set before
+	// the server serves anything. The every-start WARNING comes from the
+	// registry (warnInsecureSettingsInEffect); the every-start audit event is
+	// written here so the chain itself records the window reads went unaudited.
+	coreService.SetInsecureAuditSkipReads(cfg.Storage.Database.InsecureAuditSkipReads)
+	if cfg.Storage.Database.InsecureAuditSkipReads {
+		auditReadsSkippedStartup(store)
+	}
+
 	// keyless mode (docs/design-b2-recover-admin.md §5): flagged loudly and
 	// repeatedly wherever an operator or auditor would look -- a startup
 	// warning EVERY boot (not just the first), a boolean in /system/info
@@ -635,28 +644,12 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 		warnIfRecoveryKeyMissing(store)
 	}
 
-	// Fast audit mode (ADR-112 Amendment 1, docs/specs/fast-audit-mode.md):
-	// flagged in the same four places keyless_mode is, for the same reason --
-	// a startup warning EVERY boot, an audit event EVERY boot (so the
-	// tamper-evident chain itself records the window this install ran
-	// weakened, rather than an auditor having to trust a point-in-time config
-	// dump), a line in the posture surface (internal/startup.ValidateStartup,
-	// printed by `keyorix-server admin validate`), and a boolean in
-	// /system/info (server/http/handlers/system.go) so a buyer's auditor can
-	// see it over the API without host access.
-	if st := cfg.Storage.Database.AuditDurableSyncStatus(cfg.Storage.Type); st.Configured {
-		log.Printf("WARNING: %s", auditDurableSyncWarning(st))
-		// The audit event fires ONLY when the mode is actually in effect. Its
-		// whole purpose is to put a durable record of the WEAKENED WINDOW into
-		// the tamper-evident chain itself; a config line that is being ignored
-		// weakened no window, so writing the event would plant a false claim in
-		// the one place an auditor is told to trust literally. The ignored case
-		// is still loud -- the startup warning above, the posture report, and
-		// /system/info all carry it with its reason.
-		if st.InEffect {
-			auditDurableSyncSkippedStartup(store)
-		}
-	}
+	// Audit durability (ADR-112 Amendment 3, docs/specs/fast-audit-mode.md):
+	// one INFO line every start with the effective level and its meaning.
+	// Both levels are baseline, so this is never a WARNING and writes no
+	// per-start audit event; a level change between two starts is audited by
+	// the start-to-start settings diff (config.TrackedSettings).
+	logAuditDurability(cfg)
 
 	// Access-log stall mode (server.access_log.on_sink_stall): always reported at
 	// startup so the effective mode is visible; "drop" is a WARNING.
@@ -1755,16 +1748,29 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		log.Printf("WARNING: audit checkpointing is UNAVAILABLE (encryption/signing key not configured) — the audit trail is tamper-EVIDENT only, NOT forgery-resistant: a database-write attacker can edit/delete/reorder audit rows and recompute the chain. Enable encryption to activate forgery resistance.")
 	default:
 		interval := cfg.AuditCheckpoints.GetInterval()
-		log.Printf("Audit-checkpoint scheduler enabled (forgery resistance active): every %s", interval)
-		runScheduler(ctx, "audit_checkpoint", interval, func() middleware.SchedulerOutcome {
+		segments := core.DefaultAuditFullVerificationSegments
+		// Incremental verification (docs/specs/audit-incremental-verification.md):
+		// each tick checks only the tail since the latest checkpoint and re-walks
+		// 1/segments of the chain, so the whole chain is re-hashed every
+		// interval × segments; requests and posture read the persisted result.
+		coreService.SetAuditIncrementalVerification(interval, segments)
+		// A fresh checkpoint defers the first tick (spec §6): a restart does not
+		// re-verify what the last tick already covered.
+		firstDelay := coreService.AuditCheckpointFirstTickDelay(ctx, interval)
+		log.Printf("Audit-checkpoint scheduler enabled (forgery resistance active): every %s, full re-walk every %s, first tick in %s",
+			interval, interval*time.Duration(segments), firstDelay.Round(time.Second))
+		runSchedulerAfter(ctx, "audit_checkpoint", interval, firstDelay, func() middleware.SchedulerOutcome {
 			return lockedRun(ctx, coreService.Storage(), schedLockAuditCkpt, "Audit-checkpoint", func() error {
-				cp, written, werr := coreService.WriteAuditCheckpoint(ctx)
+				res, werr := coreService.RunAuditVerificationTick(ctx)
+				if res != nil && res.Written {
+					log.Printf("Audit checkpoint written: #%d head=%d events=%d", res.Checkpoint.ID, res.Checkpoint.HeadID, res.Checkpoint.ChainedEvents)
+				}
+				if res != nil && res.SegmentWalked {
+					log.Printf("Audit rolling verification: verified through #%d of #%d (cycle complete: %t)", res.VerifiedThrough, res.CycleTarget, res.CycleCompleted)
+				}
 				if werr != nil {
 					log.Printf("Audit-checkpoint error: %v", werr)
 					return werr
-				}
-				if written {
-					log.Printf("Audit checkpoint written: #%d head=%d events=%d", cp.ID, cp.HeadID, cp.ChainedEvents)
 				}
 				return nil
 			})
@@ -2446,12 +2452,26 @@ func resolveADR112BootPosture(cfg *config.Config) {
 // config.InsecureSettingsRegistry here is the other half of
 // TestInsecureSettingsRegistry_EveryEntryHasThePrefixWarningAndAuditHook's
 // guarantee: every entry with a non-nil Value is audited by construction.
+//
+// config.TrackedSettings (settings that are never a deviation, such as
+// storage.database.audit_durability) are diffed the same way, so a change of
+// one between two starts is audited with its old and new value.
 func securityPostureSnapshot(cfg *config.Config) map[string]string {
-	snapshot := make(map[string]string, len(config.InsecureSettingsRegistry))
+	snapshot := make(map[string]string, len(config.InsecureSettingsRegistry)+len(config.TrackedSettings))
 	for _, s := range config.InsecureSettingsRegistry {
 		snapshot[s.Name] = s.Value(cfg)
 	}
+	for _, s := range config.TrackedSettings {
+		snapshot[s.Name] = s.Value(cfg)
+	}
 	return snapshot
+}
+
+// logAuditDurability logs the start-up INFO line for the effective
+// storage.database.audit_durability, e.g. "audit durability: standard
+// (PostgreSQL default; committed before every disclosure; ...)".
+func logAuditDurability(cfg *config.Config) {
+	log.Printf("INFO: %s", cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type).StartupLine())
 }
 
 func startGRPCServer(ctx context.Context, cfg *config.Config, coreService *core.KeyorixCore) error {
@@ -3320,56 +3340,26 @@ func auditKeylessModeStartup(store corestorage.Storage) {
 	}
 }
 
-// auditDurableSyncWarning is the operator-facing start-up text for
-// storage.database.insecure_audit_skip_durable_sync (ADR-112 Amendment 1,
-// docs/specs/fast-audit-mode.md). Takes the already-computed status so the
-// log, the posture report and /system/info can never disagree about whether
-// the setting is doing anything.
-//
-// Two wordings, and the distinction is load-bearing rather than cosmetic:
-//
-//   - IN EFFECT: say the durability was weakened, name what is lost, and say
-//     plainly that this is Vault's guarantee and not a safe one.
-//   - CONFIGURED BUT NOT IN EFFECT: say IGNORED and give the reason. Never
-//     imply durability was weakened (Andrei's decision, 2026-10-05) -- it was
-//     not, and a line that implied otherwise would send an operator chasing a
-//     durability problem they do not have. One warning still prints, because a
-//     config line that does nothing is itself worth telling them about.
-func auditDurableSyncWarning(st config.AuditDurableSyncStatus) string {
-	if !st.InEffect {
-		return "storage.database.insecure_audit_skip_durable_sync is set but IGNORED -- not in effect: " +
-			st.NotInEffectReason + ". Audit durability is UNCHANGED (the audit record is still durably " +
-			"committed before a secret value is returned). Remove the setting to silence this."
-	}
-	return "storage.database.insecure_audit_skip_durable_sync is ENABLED -- the audit record is still written " +
-		"and committed before a secret value is returned, and a failed audit write still fails the request, but " +
-		"the commit NO LONGER WAITS for a disk sync. An OS or database-server crash can lose the last fraction " +
-		"of a second of audit entries (up to ~3x wal_writer_delay). This is HashiCorp Vault's guarantee, not a " +
-		"safe one. Only appropriate where power is guaranteed (UPS, battery-backed write cache, replicated " +
-		"cloud block storage); disable it otherwise."
-}
+// auditReadsSkippedStartupEventType is written at every boot while
+// storage.database.insecure_audit_skip_reads is enabled (ADR-112 Amendment 4).
+const auditReadsSkippedStartupEventType = "admin.audit_reads_skipped_at_startup"
 
-// auditDurableSyncSkippedStartup records, at every boot while
-// storage.database.insecure_audit_skip_durable_sync is enabled, a system-actor
-// audit event (no UserID, never machine-identity-typed) -- the same shape and
-// the same reasoning as auditKeylessModeStartup above, so the tamper-evident
-// chain carries its own repeated record of the weaker mode.
-//
-// Note the self-reference this deliberately accepts: this event is itself
-// written through the very audit path whose durability the setting relaxes, so
-// an OS crash moments after startup could lose it. That is not a defect to
-// engineer around -- the event's purpose is to mark a WINDOW (every subsequent
-// boot re-marks it, and the setting is also reported live by /system/info and
-// `admin validate`), not to be the single unforgeable record of one instant.
-func auditDurableSyncSkippedStartup(store corestorage.Storage) {
+// auditReadsSkippedStartup records, at every boot while
+// storage.database.insecure_audit_skip_reads is enabled, a system-actor audit
+// event, the same shape and reason as auditKeylessModeStartup: the
+// tamper-evident chain carries its own repeated record that successful secret
+// reads were not being audited from this start on.
+func auditReadsSkippedStartup(store corestorage.Storage) {
 	ok := true
 	if err := store.LogAuditEvent(context.Background(), &models.AuditEvent{
-		EventType:   "admin.audit_durable_sync_skipped_at_startup",
-		Description: "server started with storage.database.insecure_audit_skip_durable_sync enabled -- audit commits no longer wait for a disk sync, so an OS crash or power loss can lose the most recent audit entries",
-		Success:     &ok,
-		ActorType:   core.ActorTypeSystem,
-		EventTime:   time.Now(),
+		EventType: auditReadsSkippedStartupEventType,
+		Description: "server started with storage.database.insecure_audit_skip_reads enabled -- successful " +
+			"secret-value reads are NOT audited; writes, permission changes, authentication, denied reads and " +
+			"admin actions still are",
+		Success:   &ok,
+		ActorType: core.ActorTypeSystem,
+		EventTime: time.Now(),
 	}); err != nil {
-		log.Printf("note: could not record the audit-durable-sync-skipped startup event to the audit chain (%v)", err)
+		log.Printf("note: could not record the audit-reads-skipped startup event to the audit chain (%v)", err)
 	}
 }

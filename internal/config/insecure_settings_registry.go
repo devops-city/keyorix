@@ -322,15 +322,14 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		Value:       func(c *Config) string { return boolStr(c.Notifications.Webhook.InsecureSkipVerify) },
 	},
 	{
-		// ADR-112 Amendment 1 (fast audit mode), landed on main after this
-		// registry was written. Postgres-only; a SQLite backend refuses it.
-		Name:        "storage.database.insecure_audit_skip_durable_sync",
-		SourcePaths: []string{"storage.database.insecure_audit_skip_durable_sync"},
-		Describe:    "audit writes no longer wait for the disk sync: an OS or database crash can lose a tail of audit entries (~600ms)",
-		InEffect:    func(c *Config) bool { return c.Storage.Database.InsecureAuditSkipDurableSync },
-		Value:       func(c *Config) string { return boolStr(c.Storage.Database.InsecureAuditSkipDurableSync) },
+		// ADR-112 Amendment 4. Also flagged by a per-start audit event
+		// (server/main.go), GET /system/info and the web UI banner.
+		Name:        InsecureAuditSkipReadsSettingName,
+		SourcePaths: []string{InsecureAuditSkipReadsSettingName},
+		Describe:    InsecureAuditSkipReadsDescribe,
+		InEffect:    func(c *Config) bool { return c.Storage.Database.InsecureAuditSkipReads },
+		Value:       func(c *Config) string { return boolStr(c.Storage.Database.InsecureAuditSkipReads) },
 	},
-
 	// -- The thirteen KNOWN EXCEPTIONS (#2895 rows 1-13; its row 14,
 	//    trust_asserted_email, is renameable and registered above). Each
 	//    needs a product decision, not a mechanical edit: a polarity
@@ -491,6 +490,36 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		},
 		Value: func(c *Config) string {
 			return boolStr(c.CredentialDelivery.SMTP.TLS == "none" || c.Notifications.Email.TLS == "none")
+		},
+	},
+}
+
+// TrackedSetting is a security-relevant setting that is NOT a deviation from
+// the baseline at any of its values, but whose change between two starts
+// must still be audited by ADR-112 §1's start-to-start settings diff.
+type TrackedSetting struct {
+	// Name is the setting's canonical dotted path: its key in the settings-diff
+	// snapshot.
+	Name string
+	// SourcePaths are the real dotted YAML path(s) Value reads.
+	SourcePaths []string
+	// Value returns the effective value for the settings diff.
+	Value func(*Config) string
+}
+
+// TrackedSettings are recorded in the settings diff alongside every
+// InsecureSettingsRegistry entry, but never warned about and never reported as
+// a posture deviation.
+var TrackedSettings = []TrackedSetting{
+	{
+		// ADR-112 Amendment 3: both levels are baseline (standard is the
+		// PostgreSQL default), so a level change is audited, not flagged.
+		// Value is the EFFECTIVE level, so a backend default changing on
+		// upgrade is diffed too, not only an edit of the config file.
+		Name:        AuditDurabilitySettingName,
+		SourcePaths: []string{AuditDurabilitySettingName, auditDurabilityDeprecatedAliasName},
+		Value: func(c *Config) string {
+			return string(c.Storage.Database.EffectiveAuditDurability(c.Storage.Type).Level)
 		},
 	},
 }
