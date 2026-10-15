@@ -428,6 +428,24 @@ run_group() {
         printf '\nbreak_glass:\n  enabled: true\n  emergency_role: project_developer\n  default_ttl: 4h\n  max_ttl: 24h\n' >>"$config_path"
     fi
 
+    # storage.database.insecure_audit_skip_reads is off by default (ADR-112 Amendment 4). A spec
+    # that drives its UI banner declares `// e2e-server: insecure_audit_skip_reads=true` in its own
+    # file; its group boots with the setting on. The key is inserted once, right after the
+    # template's `path:` line inside storage.database, and checked to be there exactly once.
+    local spec_wants_skip_reads=false
+    for spec in "${specs[@]}"; do
+        if grep -q '^// e2e-server: insecure_audit_skip_reads=true' "$WEB_DIR/$spec"; then
+            spec_wants_skip_reads=true
+        fi
+    done
+    if [ "$spec_wants_skip_reads" = true ]; then
+        echo "==> [group $group_label] ${specs[*]} asks for storage.database.insecure_audit_skip_reads=true"
+        awk '{ print } /^    path: "keyorix.db"$/ && !done { print "    insecure_audit_skip_reads: true"; done = 1 }' \
+            "$config_path" >"$config_path.tmp" && mv "$config_path.tmp" "$config_path"
+        [ "$(grep -c '^    insecure_audit_skip_reads: true$' "$config_path")" = 1 ] ||
+            fail "[group $group_label] could not set storage.database.insecure_audit_skip_reads in $config_path (did configs/keyorix.yaml.tpl change?)"
+    fi
+
     echo "==> [group $group_label] keyorix-server admin encryption init"
     (cd "$smoke_dir" && "$SERVER_BIN" admin encryption init --config "$config_rel") ||
         fail "admin encryption init exited non-zero"

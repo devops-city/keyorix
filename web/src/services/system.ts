@@ -20,6 +20,12 @@ export interface SystemSecurityInfo {
     auth_enabled: boolean;
     encryption_method: string;
     audit_enabled: boolean;
+    /**
+     * storage.database.insecure_audit_skip_reads (ADR-112 Amendment 4): true
+     * means successful secret-value reads are NOT audited on this install.
+     * Drives AuditReadsSkippedBanner. Optional for older servers.
+     */
+    audit_reads_skipped?: boolean;
 }
 
 export interface SystemInfo {
