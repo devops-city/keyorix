@@ -163,12 +163,6 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	// back, so a changed xmin is a write even when n reads as before.
 	changed := epoch != g.epoch || epochXmin != g.epochXmin
 	g.canaryLocked(changed)
-	g.epoch, g.epochXmin = epoch, epochXmin
-	g.lastGoodMono = sentMono
-	g.lastGoodWall = sentWall
-	g.mu.Unlock()
-	// The flush and the callbacks run outside g.mu: a callback may call back
-	// into the guard (Authoritative, Epoch).
 	if changed && g.tracker != nil {
 		// Every epoch move invalidates every entry, explained or not. The
 		// fence lets a session with a copied tag write, and its move can share
@@ -176,9 +170,17 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 		// apart would need the database to say which transaction moved the
 		// epoch (REVIEW-SINGLE-WRITER-1 F4). The cost is one extra miss per
 		// entry after this server's own fenced writes, which already moved the
-		// generation at their commit.
+		// generation at their commit. Under g.mu, before the lease is renewed
+		// (Flush is an atomic add, not a callback): no reader sees the fresh
+		// lease with the old generation.
 		g.tracker.Flush()
 	}
+	g.epoch, g.epochXmin = epoch, epochXmin
+	g.lastGoodMono = sentMono
+	g.lastGoodWall = sentWall
+	g.mu.Unlock()
+	// The callbacks run outside g.mu: a callback may call back into the
+	// guard (Authoritative, Epoch).
 	if changed {
 		if f := g.onEpochChange.Load(); f != nil {
 			(*f)(epoch)
