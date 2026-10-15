@@ -307,3 +307,96 @@ func TestAuditLogs_QueryCountDoesNotGrowWithActors(t *testing.T) {
 		})
 	}
 }
+
+// TestUsersList_QueryCountDoesNotGrowWithPageSize: the project-count enrichment read
+// each user's role scopes (two statements) and onboarding journal (one) separately.
+func TestUsersList_QueryCountDoesNotGrowWithPageSize(t *testing.T) {
+	for _, backend := range leBackends(t) {
+		t.Run(backend, func(t *testing.T) {
+			f := newLEFixture(t, backend, 60)
+			stS, bodyS, sqlS := f.rec.get(t, f.w, f.token, "/api/v1/users?page_size=2")
+			stL, bodyL, sqlL := f.rec.get(t, f.w, f.token, "/api/v1/users?page_size=50")
+			require.Equal(t, http.StatusOK, stS, bodyS)
+			require.Equal(t, http.StatusOK, stL, bodyL)
+			require.Contains(t, bodyL, `"project_count"`, "the enrichment must still be present")
+			require.LessOrEqual(t, len(sqlL), len(sqlS)+1,
+				"%d statements for 50 users vs %d for 2: the list issues statements per user", len(sqlL), len(sqlS))
+		})
+	}
+}
+
+// TestProjectAccessReview_QueryCountDoesNotGrowWithSecrets: the review listed shares per
+// secret and looked up every distinct owner, recipient, group and machine one by one.
+func TestProjectAccessReview_QueryCountDoesNotGrowWithSecrets(t *testing.T) {
+	for _, backend := range leBackends(t) {
+		t.Run(backend, func(t *testing.T) {
+			const small, large = 6, 60
+			f := newLEFixture(t, backend, large)
+			smallID := f.project(t, "arsmall", small)
+			largeID := f.project(t, "arlarge", large)
+			stS, bodyS, sqlS := f.rec.get(t, f.w, f.token, fmt.Sprintf("/api/v1/projects/%d/access-review", smallID))
+			stL, bodyL, sqlL := f.rec.get(t, f.w, f.token, fmt.Sprintf("/api/v1/projects/%d/access-review", largeID))
+			require.Equal(t, http.StatusOK, stS, bodyS)
+			require.Equal(t, http.StatusOK, stL, bodyL)
+			require.Contains(t, bodyL, "leuser", "share recipients must still be named")
+			require.LessOrEqual(t, len(sqlL), len(sqlS)+3,
+				"%d statements for %d secrets vs %d for %d: the review issues statements per secret or principal", len(sqlL), large, len(sqlS), small)
+		})
+	}
+}
+
+// TestSecretsInventoryCSV_QueryCountDoesNotGrowWithOwners: one GetUser per distinct owner.
+func TestSecretsInventoryCSV_QueryCountDoesNotGrowWithOwners(t *testing.T) {
+	for _, backend := range leBackends(t) {
+		t.Run(backend, func(t *testing.T) {
+			const small, large = 6, 60
+			f := newLEFixture(t, backend, large)
+			smallID := f.project(t, "invsmall", small)
+			largeID := f.project(t, "invlarge", large)
+			for _, pid := range []uint{smallID, largeID} {
+				var secs []models.SecretNode
+				require.NoError(t, f.w.a.db.Where("project_id = ?", pid).Find(&secs).Error)
+				for i := range secs {
+					require.NoError(t, f.w.a.db.Model(&models.SecretNode{}).Where("id = ?", secs[i].ID).
+						Update("owner_id", f.users[i%len(f.users)].ID).Error)
+				}
+			}
+			stS, bodyS, sqlS := f.rec.get(t, f.w, f.token, fmt.Sprintf("/api/v1/projects/%d/secrets/inventory.csv", smallID))
+			stL, bodyL, sqlL := f.rec.get(t, f.w, f.token, fmt.Sprintf("/api/v1/projects/%d/secrets/inventory.csv", largeID))
+			require.Equal(t, http.StatusOK, stS, bodyS)
+			require.Equal(t, http.StatusOK, stL, bodyL)
+			require.Contains(t, bodyL, "leuser", "owner names must still be resolved")
+			require.LessOrEqual(t, len(sqlL), len(sqlS)+1,
+				"%d statements for %d owners vs %d for %d: one lookup per owner", len(sqlL), large, len(sqlS), small)
+		})
+	}
+}
+
+// TestMachineAuditReport_QueryCountDoesNotGrowWithIdentities: one credential list per identity.
+func TestMachineAuditReport_QueryCountDoesNotGrowWithIdentities(t *testing.T) {
+	for _, backend := range leBackends(t) {
+		t.Run(backend, func(t *testing.T) {
+			f := newLEFixture(t, backend, 1)
+			db := f.w.a.db
+			seed := func(prefix string, n int) {
+				for i := range n {
+					m := models.MachineIdentity{ProjectID: f.w.projectID, Name: fmt.Sprintf("%s%03d", prefix, i), IdentityType: "ci", State: "active", CreatedAt: f.now, UpdatedAt: f.now}
+					require.NoError(t, db.Create(&m).Error)
+					used := f.now.Add(-time.Hour)
+					require.NoError(t, db.Create(&models.MachineIdentityCredential{
+						MachineIdentityID: m.ID, Name: "c", TokenHash: fmt.Sprintf("%s-%d-h", prefix, i), LastUsedAt: &used, CreatedAt: f.now,
+					}).Error)
+				}
+			}
+			seed("few", 4)
+			stS, bodyS, sqlS := f.rec.get(t, f.w, f.token, "/api/v1/machine-identities/audit")
+			seed("many", 56)
+			stL, bodyL, sqlL := f.rec.get(t, f.w, f.token, "/api/v1/machine-identities/audit")
+			require.Equal(t, http.StatusOK, stS, bodyS)
+			require.Equal(t, http.StatusOK, stL, bodyL)
+			require.Contains(t, bodyL, "many055")
+			require.LessOrEqual(t, len(sqlL), len(sqlS)+1,
+				"%d statements for 60 identities vs %d for 4: one credential query per identity", len(sqlL), len(sqlS))
+		})
+	}
+}

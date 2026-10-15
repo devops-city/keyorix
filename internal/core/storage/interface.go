@@ -656,6 +656,10 @@ type Storage interface {
 	GetMachineIdentityCredentialWithIdentityStateByHash(ctx context.Context, hash string) (cred *models.MachineIdentityCredential, identityState string, err error)
 	GetMachineIdentityCredentialByID(ctx context.Context, id uint) (*models.MachineIdentityCredential, error)
 	ListMachineIdentityCredentials(ctx context.Context, machineID uint) ([]*models.MachineIdentityCredential, error)
+	// ListMachineCredentialUsageByMachineIDs is the batch form of ListMachineIdentityCredentials
+	// for the machine audit report (LIST-ENDPOINTS-1): per machine, its credentials with ONLY
+	// id, machine_identity_id and last_used_at populated (no token hash or CIDR list).
+	ListMachineCredentialUsageByMachineIDs(ctx context.Context, machineIDs []uint) (map[uint][]*models.MachineIdentityCredential, error)
 	// ListActiveMachineIdentityCredentials returns every non-revoked machine
 	// credential across all identities — the deployment-wide view for token-hygiene
 	// auditing (stale / expired-but-active).
@@ -790,6 +794,10 @@ type Storage interface {
 	// ListUserProjectMemberships returns all membership rows for a single user,
 	// newest first (powers the per-user assignments view).
 	ListUserProjectMemberships(ctx context.Context, userID uint) ([]*models.ProjectMembership, error)
+	// ListUserProjectMembershipsByUserIDs is the batch form of ListUserProjectMemberships
+	// (LIST-ENDPOINTS-1): each user's rows, newest invite first, keyed by user id; a user
+	// with no row is absent.
+	ListUserProjectMembershipsByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]*models.ProjectMembership, error)
 	// CountProjectMembershipsByUsers returns per-user membership tallies (active
 	// and non-revoked total) for the given user IDs in one grouped query.
 	CountProjectMembershipsByUsers(ctx context.Context, userIDs []uint) (map[uint]MembershipCounts, error)
@@ -828,6 +836,8 @@ type Storage interface {
 	// absent from the map (no error), as the single-row getters report not-found.
 	// GetSecretTagsBySecretIDs returns name-ordered tags; an untagged secret is absent.
 	GetUsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	// GetUserBriefsByIDs is GetUsernamesByIDs plus the email (id, username, email columns only).
+	GetUserBriefsByIDs(ctx context.Context, ids []uint) (map[uint]UserBrief, error)
 	GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
 	GetMachineIdentityNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
 	GetSecretTagsBySecretIDs(ctx context.Context, ids []uint) (map[uint][]string, error)
@@ -1369,6 +1379,9 @@ type Storage interface {
 	// enumerate every scope the target actually has a grant at, then evaluate
 	// GetUserRoleIDsAt/GetUserGroupRoleIDsAt (via scopedRoleIDs) per scope.
 	GetUserRoleScopes(ctx context.Context, userID uint) ([]Scope, error)
+	// GetUserRoleScopesByUserIDs is the batch form of GetUserRoleScopes (LIST-ENDPOINTS-1):
+	// the same distinct live scopes per user, keyed by user id; a user with no live role is absent.
+	GetUserRoleScopesByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]Scope, error)
 	RoleSetHasPermission(ctx context.Context, roleIDs []uint, permission string) (bool, error)
 	// RoleSetBypassesPermissionChecks reports whether any role in roleIDs has
 	// BypassesPermissionChecks = true (ADR-084) -- the structural,
@@ -2322,6 +2335,12 @@ type UserFilter struct {
 
 // MembershipCounts holds a user's project-membership tallies: Active counts
 // memberships in the `active` state; Total counts all non-revoked memberships.
+// UserBrief is the identity a list view shows for a user: never the full row.
+type UserBrief struct {
+	Username string
+	Email    string
+}
+
 type MembershipCounts struct {
 	Active int
 	Total  int

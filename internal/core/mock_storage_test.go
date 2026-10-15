@@ -674,6 +674,38 @@ func (m *MockStorage) GetUsernamesByIDs(ctx context.Context, ids []uint) (map[ui
 	return m.mockNameMap("GetUsernamesByIDs", ctx, ids)
 }
 
+func (m *MockStorage) GetUserBriefsByIDs(ctx context.Context, ids []uint) (map[uint]storage.UserBrief, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]storage.UserBrief), args.Error(1)
+}
+
+func (m *MockStorage) GetUserRoleScopesByUserIDs(ctx context.Context, ids []uint) (map[uint][]storage.Scope, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint][]storage.Scope), args.Error(1)
+}
+
+func (m *MockStorage) ListUserProjectMembershipsByUserIDs(ctx context.Context, ids []uint) (map[uint][]*models.ProjectMembership, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint][]*models.ProjectMembership), args.Error(1)
+}
+
+func (m *MockStorage) ListMachineCredentialUsageByMachineIDs(ctx context.Context, ids []uint) (map[uint][]*models.MachineIdentityCredential, error) {
+	args := m.Called(ctx, ids)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint][]*models.MachineIdentityCredential), args.Error(1)
+}
+
 func (m *MockStorage) GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error) {
 	return m.mockNameMap("GetGroupNamesByIDs", ctx, ids)
 }
