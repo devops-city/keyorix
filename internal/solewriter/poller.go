@@ -166,12 +166,25 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	// UPDATE of the row gives it a new xmin, and no SQL can set an old one
 	// back, so a changed xmin is a write even when n reads as before.
 	changed := epoch != g.epoch || epochXmin != g.epochXmin
+	g.canaryLocked(changed)
+	if changed && g.tracker != nil {
+		// Every epoch move invalidates every entry, explained or not. The
+		// fence lets a session with a copied tag write, and its move can share
+		// a poll window with one of this server's own commits; telling the two
+		// apart would need the database to say which transaction moved the
+		// epoch (REVIEW-SINGLE-WRITER-1 F4). The cost is one extra miss per
+		// entry after this server's own fenced writes, which already moved the
+		// generation at their commit. Under g.mu, before the lease is renewed
+		// (Flush is an atomic add, not a callback): no reader sees the fresh
+		// lease with the old generation.
+		g.tracker.Flush()
+	}
 	g.epoch, g.epochXmin = epoch, epochXmin
 	g.lastGoodMono = sentMono
 	g.lastGoodWall = sentWall
 	g.mu.Unlock()
-	// The callbacks run outside g.mu: they flush caches, which may call back
-	// into the guard (Authoritative, Epoch).
+	// The callbacks run outside g.mu: a callback may call back into the
+	// guard (Authoritative, Epoch).
 	if changed {
 		if f := g.onEpochChange.Load(); f != nil {
 			(*f)(epoch)
@@ -183,6 +196,61 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 		}
 	}
 }
+
+// canaryLocked accounts an epoch move to this process's own fenced commits.
+// The epoch is bumped inside a writer's commit and the tracker counts the
+// commit right after it returns, so a move is only called unattributed when
+// the following poll still finds no commit (and none in flight) to explain it.
+// Every in-process write is supposed to be seen by the tracker and every
+// foreign one refused by the fence, so an unattributed move means one of the
+// two missed a write: say so loudly.
+//
+// It is an alarm, not a guard: pollOnce already flushed every entry on the
+// move itself. It undercounts by design: a foreign move that shares a poll
+// window with one of this server's commits counts as explained.
+func (g *Guard) canaryLocked(changed bool) {
+	if g.tracker == nil {
+		return
+	}
+	commits := g.tracker.commits.Load()
+	explained := commits != g.lastCommits || g.tracker.Inflight() > 0
+	g.lastCommits = commits
+	switch {
+	case changed && !explained:
+		if g.unexplained {
+			g.recordUnattributedLocked()
+		}
+		g.unexplained = true
+	case g.unexplained && !explained:
+		g.recordUnattributedLocked()
+		g.unexplained = false
+	default:
+		g.unexplained = false
+	}
+}
+
+func (g *Guard) recordUnattributedLocked() {
+	g.unattributedBumps++
+	g.tracker.Flush()
+	logf("ERROR: the write epoch moved without a write this server accounts for (%d so far); every cache entry was flushed. "+
+		"A write reached a security table outside the tracker (see internal/solewriter/tracker.go)", g.unattributedBumps)
+	// One can be a foreign tagged write the fence let through; a second one
+	// means a write path the tracker keeps missing, and every miss is up to
+	// one poll of stale cache. Stop trusting the caches until restart.
+	if g.unattributedBumps >= 2 {
+		g.leaveLocked(fmt.Sprintf("the write epoch moved %d times without a write this server accounts for (a write path the tracker does not see)", g.unattributedBumps))
+	}
+}
+
+// UnattributedBumps is the canary's count (tests: must stay 0).
+func (g *Guard) UnattributedBumps() int64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.unattributedBumps
+}
+
+// Tracker is the guard's in-process write tracker.
+func (g *Guard) Tracker() *Tracker { return g.tracker }
 
 // lockSessionGone is the reason when the holder session dies.
 const lockSessionGone = "holder lock lost: the lock session is gone"
@@ -267,8 +335,10 @@ type Status struct {
 	Epoch         int64    `json:"epoch"`
 	LastPollAgeMS int64    `json:"last_poll_age_ms"`
 	LastPollError string   `json:"last_poll_error,omitempty"`
-	Authoritative bool     `json:"authoritative"`
-	Emergency     string   `json:"emergency_sql"`
+	// UnattributedBumps counts epoch moves no in-process write accounted for.
+	UnattributedBumps int64  `json:"unattributed_bumps"`
+	Authoritative     bool   `json:"authoritative"`
+	Emergency         string `json:"emergency_sql"`
 }
 
 // EmergencySQL is the documented two-step for an emergency change made
@@ -283,7 +353,8 @@ func (g *Guard) Status() Status {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	st := Status{Enabled: true, State: g.state, Reason: g.reason, HolderPID: g.pid, Since: g.since.Format(time.RFC3339),
-		FencedTables: FencedTableNames(), Epoch: g.epoch, LastPollError: g.lastErr, Authoritative: auth, Emergency: EmergencySQL}
+		FencedTables: FencedTableNames(), Epoch: g.epoch, LastPollError: g.lastErr, Authoritative: auth, Emergency: EmergencySQL,
+		UnattributedBumps: g.unattributedBumps}
 	if !g.lastGoodMono.IsZero() {
 		st.LastPollAgeMS = now.Sub(g.lastGoodMono).Milliseconds()
 	}

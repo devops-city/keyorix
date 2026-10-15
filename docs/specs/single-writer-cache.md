@@ -79,6 +79,25 @@ derived from, and so lets it skip that statement.
   `confirming` until restart. The lease alone already stops authoritative answers.
 - **Mode off**: every PostgreSQL boot without the setting refuses while a holder is live and removes a
   fence an earlier single-writer boot left (`solewriter.CheckOff`).
+- **In-process invalidation (PR 2) is a pgx QueryTracer, not a generated storage wrapper.** Every
+  connection a single-writer server opens reports its statements (`config.SetSoleWriterQueryTracer`,
+  `solewriter.Tracker`). A statement that can write and names a fenced table marks its connection's
+  transaction; at COMMIT/ROLLBACK (or at the statement's end outside a transaction) the tracker's
+  generation moves. It uses the same exclusions as the triggers: bookkeeping-only UPDATE, system_metadata
+  rows other than the fenced key. This sees raw SQL and every storage method alike with no per-method
+  classification to keep in sync. The trigger is the oracle (`TestTracker_EveryEpochMoveIsAWriteTheTrackerSaw`:
+  the epoch moved means the generation moved, per storage write path). `ROLLBACK TO [SAVEPOINT]` (GORM's
+  failed nested transaction) does not end the transaction; `... AND CHAIN` ends it and starts the next
+  (REVIEW-SINGLE-WRITER-1 F3). **Every epoch move the poller sees flushes every entry**, whether or not a
+  tracked commit explains it (F4): a write that passed the fence with a copied tag can share a poll window
+  with one of the server's own commits, and the database cannot say which transaction moved the epoch
+  without a write log per fenced statement. This is the original hit rule's `entry.epoch >= knownEpoch`,
+  applied as a flush. The cost is one extra miss per entry after the server's own fenced writes. The
+  unattributed-bump canary stays as an alarm only (it undercounts a foreign move that shares a window with
+  an own commit). Not seen by the tracker, stated: pgx batches (only the audit pipeline, which writes no
+  fenced table) and SQL-level `PREPARE` / `EXECUTE` (unused); a write either of them made would be caught
+  by the epoch flush within one poll. A cascading FK from an unfenced parent into a fenced table is
+  forbidden by `TestFencedTables_NoCascadeFromUnfencedParent`.
 - **PgBouncer**: `storage.database.pooler: pgbouncer-transaction` (#3254) is refused at config
   validation; `pgbouncer-session` is allowed. The Helm `fail` guard is a follow-up.
 
@@ -370,7 +389,7 @@ docs/CONFIGURATION.md entry:
 | Poll statement fails, same session | poll error | lease runs out → `confirming`. Re-entry is allowed only if a later poll succeeds **on the same backend pid** (same session ⇒ the lock was never released), followed by a full flush and a re-read of the epoch. A different pid means lock lost (row above). |
 | Poll goroutine stalls (GC, CPU starvation), clock jump, VM pause/SIGSTOP | lease checked against monotonic AND wall clock on every hit | expires → `confirming` until a fresh poll succeeds; no hit is ever served on an old lease |
 | Trigger census mismatch (dropped, disabled, `tgenabled != 'A'`, body changed) | poll | `confirming` until restart; deviation; the boot installer reinstalls the triggers on the next start |
-| Unattributed epoch bump | poll | full flush, ERROR, metric, deviation (stays authoritative: the flush already made it correct; repeated bumps → `confirming`) |
+| Unattributed epoch bump | poll | full flush (as for every epoch move), ERROR, metric, deviation (the first stays authoritative: the flush already made it correct; the second → `confirming` until restart) |
 | Crash / kill -9 | Postgres drops the session (≤ ~25 s with the keepalive settings, at once on a clean TCP close) | caches die with the process; the fence opens once K1 is released; the next boot starts cold, settles, then becomes authoritative. Until Postgres notices the dead client, out-of-band writes are refused (loudly), not lost. |
 | Recreate rollout overlap | new pod can't get K1 | bounded wait (120 s), then exit non-zero, so the orchestrator retries |
 | Fence settle can't complete (a long-open transaction) | 30 s timeout | stays `confirming` and says which xid/age |

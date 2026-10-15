@@ -136,6 +136,11 @@ func TestSingleWriter_Postgres_OperatorJourney(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, out, "--force cannot override it", out)
 
+	// The server's own boot and bootstrap writes are all accounted for by its
+	// tracker: the unattributed-bump canary never fired.
+	time.Sleep(time.Second)
+	require.NotContains(t, srv.output(), "write epoch moved without", "the canary fired during a normal run")
+
 	// 5. The emergency two-step: terminate the holder's lock session, then
 	// the direct change commits; the server reports it no longer trusts its
 	// caches.

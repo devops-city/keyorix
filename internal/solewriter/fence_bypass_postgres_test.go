@@ -8,7 +8,6 @@ package solewriter
 import (
 	"fmt"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -226,14 +225,19 @@ func TestInstallFence_RefusesAFencedTableThatIsAChild(t *testing.T) {
 
 // TestPoll_EpochRewindIsSeen: a session that passes the fence (here one that
 // copied the server's tag, the documented residual) and moves the epoch back
-// in the same transaction leaves n where it was. The poller must still see
-// the write and flush (REVIEW-SINGLE-WRITER-2 N3).
+// in the same transaction leaves n where it was. The poll that follows must
+// still see the write and flush (REVIEW-SINGLE-WRITER-2 N3).
 func TestPoll_EpochRewindIsSeen(t *testing.T) {
 	w := newSWWorld(t)
-	g := w.start(Options{})
-	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
-	var flushes atomic.Int64
-	g.OnEpochChange(func(int64) { flushes.Add(1) })
+	ctx := t.Context()
+	g, err := Start(ctx, w.cfg, Options{SkipPresenceCensus: true, LockWait: 500 * time.Millisecond})
+	require.NoError(t, err)
+	t.Cleanup(g.Close)
+	require.NoError(t, g.InstallFence(ctx))
+	require.NoError(t, g.Settle(ctx)) // one poll; no poller goroutine runs
+	tr := g.Tracker()
+	fillGen := tr.Gen()
+	require.True(t, tr.Valid(fillGen))
 	e0 := w.epoch(w.foreign)
 	require.NoError(t, w.foreignTx(
 		"SELECT set_config('"+config.SoleWriterSessionSetting+"', '"+g.nonce+"', true)",
@@ -242,7 +246,6 @@ func TestPoll_EpochRewindIsSeen(t *testing.T) {
 	))
 	require.True(t, w.revoked())
 	require.Equal(t, e0, w.epoch(w.foreign), "the test needs a net-zero epoch")
-	d := waitFor(t, 2*time.Second, func() bool { return flushes.Load() > 0 })
-	require.GreaterOrEqual(t, d, time.Duration(0), "a net-zero epoch write must still flush")
-	require.LessOrEqual(t, d, PollInterval+pollTimeout)
+	g.pollOnce(ctx)
+	require.False(t, tr.Valid(fillGen), "an entry filled before a net-zero epoch write must not be served after the poll that saw it")
 }
