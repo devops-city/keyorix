@@ -827,6 +827,7 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 		handleScopeResolutionError(w, r, cs, userCtx, permission, errTargetNotFound, defaultDenyMessage)
 		return
 	}
+	core.NoteSecretReadSubject(r.Context(), secret)
 	scope := core.Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
 	// Pin this ONE resolution on the request context before dispatch, regardless of
 	// the authorize outcome below (finishScopedPermissionRequest still gates on
@@ -843,6 +844,7 @@ func handleScopedSecretPermissionRequest(next http.Handler, w http.ResponseWrite
 		prefetch.DropPermission()
 	}
 	if err == nil && decision.ShareNotElevated {
+		core.NoteSecretReadDenial(r.Context(), core.SecretReadDeniedForbidden)
 		forbiddenResponse(w, core.ShareActionNotElevatedMessage)
 		return
 	}
@@ -933,6 +935,7 @@ func handleScopedSecretRefPermissionRequest(next http.Handler, w http.ResponseWr
 		handleScopeResolutionError(w, r, cs, userCtx, permission, resolveErr, defaultDenyMessage)
 		return
 	}
+	core.NoteSecretReadSubject(r.Context(), secret)
 	scope := core.Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}
 	// The same per-secret decision as RequireScopedSecretPermission (role, per-secret
 	// ACL, #2941 share term), so reading a secret by reference is allowed exactly when
@@ -1021,6 +1024,9 @@ func AuthorizedAtGlobalScope(ctx context.Context, cs *core.KeyorixCore, userCtx 
 // other error is treated as an unparseable target (400).
 func handleScopeResolutionError(w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, userCtx *UserContext, permission string, err error, denyMessage string) {
 	if errors.Is(err, errTargetNotFound) {
+		// The same note whichever response follows (404 for a global holder, 403
+		// otherwise): the audit row records the truth, the response does not.
+		core.NoteSecretReadDenial(r.Context(), core.SecretReadDeniedNotFound)
 		if AuthorizedAtGlobalScope(r.Context(), cs, userCtx, permission) {
 			notFoundResponse(w, "Resource not found")
 		} else {
@@ -1036,12 +1042,14 @@ func handleScopeResolutionError(w http.ResponseWriter, r *http.Request, cs *core
 // RequireScopedPermission and RequireScopedSecretPermission.
 func finishScopedPermissionRequest(next http.Handler, w http.ResponseWriter, r *http.Request, cs *core.KeyorixCore, scope core.Scope, allowed bool, err error, denyMessage string) {
 	if err != nil || !allowed {
+		core.NoteSecretReadDenial(r.Context(), core.SecretReadDeniedForbidden)
 		forbiddenResponse(w, denyMessage)
 		return
 	}
 	// Per-project MFA policy (ADR-037): deny an interactive session without a
 	// second factor access to a project that requires MFA.
 	if ProjectMFABlocked(r, cs, scope.ProjectID) {
+		core.NoteSecretReadDenial(r.Context(), core.SecretReadDeniedMFARequired)
 		projectMFARequiredResponse(w)
 		return
 	}

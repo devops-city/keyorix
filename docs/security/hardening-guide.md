@@ -151,15 +151,26 @@ are still audited:
 - secret create, update, rotate and delete;
 - permission, role, share and policy changes;
 - authentication and its failures;
-- denied federated reads;
+- denied reads, native and federated (see below);
 - admin and break-glass actions;
 - configuration and key operations.
 
 **What you give up.** Nothing records who read which secret, or when. Read
 history, read counts, usage and billing read counts, the access-log export and
-anomaly detection all go blind to reads. Native read denials (403, 404,
-expired, suspended) are not audited at either setting today. Max-reads
-limits still apply.
+anomaly detection all go blind to reads. Max-reads limits still apply.
+
+**Denied reads stay audited, so probing still leaves a trace.** At both
+settings, a refused read writes a `secret.read` row with `success=false`,
+`outcome=denied` and a `reason=` class: `forbidden`, `not_found`,
+`outside_schedule`, `expired`, `suspended`, `max_reads_exhausted`,
+`classification_gate` or `mfa_required`. A read that breaks is recorded as
+`internal_error` with `outcome=failed`. This covers REST, gRPC, render, copy,
+environment copy and clone; federated denials are `connect.secret_read`
+rows as before. A burst is aggregated per principal, reason, path and target:
+the first refusal is written at once, then one summary row per 60-second
+window carries the count. A `forbidden` and a `not_found` row look the same to
+the caller (no secret or project column); `audit.read` holders see the reason
+and, in the row's diff, which secret it was.
 
 **How loud it is.** Every start logs `WARNING: storage.database.insecure_audit_skip_reads
 is in effect (true; ...) — secret reads are NOT audited ...` and writes an

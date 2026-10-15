@@ -623,7 +623,10 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		r.With(customMiddleware.RequireScopedPermission(permRolesAssign, projectScope)).Post("/projects/{id}/machine-identities/{machineId}/oidc-bindings", catalogHandler.CreateOIDCBinding)
 		r.With(customMiddleware.RequireScopedPermission(permUsersRead, projectScope)).Get("/projects/{id}/machine-identities/{machineId}/oidc-bindings", catalogHandler.ListOIDCBindings)
 		r.With(customMiddleware.RequireScopedPermission(permRolesAssign, projectScope)).Delete("/projects/{id}/machine-identities/{machineId}/oidc-bindings/{bindingId}", catalogHandler.DeleteOIDCBinding)
-		r.With(customMiddleware.RequireScopedPermission(permSecretsRead, projectScope)).Post("/projects/{id}/secrets/render", secretHandler.RenderTemplate)
+		r.With(
+			customMiddleware.AuditSecretValueReadDenials(customMiddleware.SecretValueReadByPathParam(core.SecretReadPathRESTRender, "project", "id")),
+			customMiddleware.RequireScopedPermission(permSecretsRead, projectScope),
+		).Post("/projects/{id}/secrets/render", secretHandler.RenderTemplate)
 		r.With(customMiddleware.RequireScopedPermission(permSecretsRead, projectScope)).Get("/projects/{id}/secrets/deleted", secretHandler.DeletedSecrets)
 		r.With(customMiddleware.RequireScopedPermission(permSecretsRead, projectScope)).Get("/projects/{id}/secrets/orphaned", secretHandler.OrphanedSecrets)
 		r.With(customMiddleware.RequireScopedPermission(permSecretsRead, projectScope)).Get("/projects/{id}/hygiene", secretHandler.ProjectHygiene)
@@ -658,6 +661,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// were deliberately denied read access to, defeating the write-only RBAC role
 		// this product's custom-role system is designed to support.
 		r.With(
+			customMiddleware.AuditSecretValueReadDenials(customMiddleware.SecretValueReadByPathParam(core.SecretReadPathRESTCopyEnv, "environment", "envId")),
 			customMiddleware.RequireScopedPermission(permSecretsWrite, projectScope),
 			customMiddleware.RequireScopedPermission(permSecretsRead, customMiddleware.ScopeFromEnvParam("envId")),
 		).Post("/projects/{id}/environments/{envId}/copy-secrets", secretHandler.CopyEnvironmentSecrets)
@@ -665,6 +669,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// project (staging → production promotion). Requires secrets.write on the project scope
 		// (creates in destination) AND secrets.read on the source environment (reads values).
 		r.With(
+			customMiddleware.AuditSecretValueReadDenials(customMiddleware.SecretValueReadByPathParam(core.SecretReadPathRESTCloneEnv, "environment", "envId")),
 			customMiddleware.RequireScopedPermission(permSecretsWrite, projectScope),
 			customMiddleware.RequireScopedPermission(permSecretsRead, customMiddleware.ScopeFromEnvParam("envId")),
 		).Post("/projects/{id}/environments/{envId}/clone", catalogHandler.CloneEnvironment)
@@ -728,13 +733,19 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 			// RequireScopedSecretRefPermission resolves the ref exactly once and pins
 			// the result on the request context so GetSecretValueByRef reuses it
 			// instead of re-resolving by name (closes a TOCTOU window — see its doc).
-			r.With(customMiddleware.RequireScopedSecretRefPermission(permSecretsRead)).Get("/value", secretHandler.GetSecretValueByRef)
+			r.With(
+				customMiddleware.AuditSecretValueReadDenials(customMiddleware.SecretValueReadByRef(core.SecretReadPathRESTByRef)),
+				customMiddleware.RequireScopedSecretRefPermission(permSecretsRead),
+			).Get("/value", secretHandler.GetSecretValueByRef)
 			// By-name metadata lookup, scoped by project_id/environment_id query params
 			// (same gate/convention as ListSecrets above) — the server-side counterpart
 			// RemoteStorage.GetSecretByName (#497) needs; a caller with only a secret's
 			// name (not its numeric ID) resolves it here. Static path, before /{id}.
 			r.With(customMiddleware.RequireScopedPermission(permSecretsRead, customMiddleware.ScopeFromQuery)).Get("/by-name", secretHandler.GetSecretByName)
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}", secretHandler.GetSecret)
+			r.With(
+				customMiddleware.AuditSecretValueReadDenials(customMiddleware.SecretValueReadByID(core.SecretReadPathRESTGet, "id", customMiddleware.IncludeValueRequested)),
+				customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id"),
+			).Get("/{id}", secretHandler.GetSecret)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/versions", secretHandler.GetSecretVersions)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Get("/{id}/versions/{from}/diff/{to}", secretHandler.DiffSecretVersions)
 
@@ -799,7 +810,10 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionUpdateMetadata)).Patch("/{id}/description", secretHandler.DescribeSecret)
 			// Copy into another environment: read the source ({id}); the handler also
 			// authorizes secrets.write at the target environment's scope.
-			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id")).Post("/{id}/copy", secretHandler.CopySecret)
+			r.With(
+				customMiddleware.AuditSecretValueReadDenials(customMiddleware.SecretValueReadByID(core.SecretReadPathRESTCopy, "id", nil)),
+				customMiddleware.RequireScopedSecretPermission(permSecretsRead, "id"),
+			).Post("/{id}/copy", secretHandler.CopySecret)
 			r.With(customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionSetAutoRotate)).Patch("/{id}/auto-rotate", secretHandler.SetAutoRotate)
 			r.With(secretBodyLimit, customMiddleware.RequireScopedSecretPermission(permSecretsWrite, "id", core.SecretActionRotate)).Post("/{id}/rotate", secretHandler.RotateSecret)
 			// Rotation dry-run / simulation (ADR-047): validates the rotation config without

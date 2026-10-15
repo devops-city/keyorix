@@ -455,8 +455,14 @@ func TestRenderSecretTemplate_NoSideEffectsWhenLaterReferenceFails(t *testing.T)
 	assert.Zero(t, accessLogs, "no secret_access_logs row for any reference in a template whose render ultimately failed")
 
 	var auditEvents int64
-	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ?", "secret.read").Count(&auditEvents).Error)
-	assert.Zero(t, auditEvents, "no secret.read audit event for any reference in a template whose render ultimately failed")
+	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ? AND success = ?", "secret.read", true).Count(&auditEvents).Error)
+	assert.Zero(t, auditEvents, "no successful secret.read audit event for any reference in a template whose render ultimately failed")
+	// #3273: the one refused reference is audited, as a refusal (one row, not
+	// one per reference: the resolved ones delivered nothing and are not reads).
+	var refused []models.AuditEvent
+	require.NoError(t, db.Where("event_type = ? AND success = ?", "secret.read", false).Find(&refused).Error)
+	require.Len(t, refused, 1)
+	assert.Contains(t, refused[0].Description, "reason=not_found")
 
 	reloadedAPIKey, err := c.storage.GetSecret(ctx, apiKey.ID)
 	require.NoError(t, err)

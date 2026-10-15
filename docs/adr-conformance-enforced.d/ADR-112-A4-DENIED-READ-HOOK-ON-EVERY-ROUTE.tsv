@@ -1,0 +1,1 @@
+ADR-112-A4-DENIED-READ-HOOK-ON-EVERY-ROUTE	./server/http	TestValueReadRoutes_AuditTheirRefusals	default-ci	pending	3273	every source-derived value-read REST registration carries AuditSecretValueReadDenials first, and every gRPC value read opens a SecretReadDenialNote

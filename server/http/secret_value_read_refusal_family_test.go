@@ -19,7 +19,8 @@ package http
 // as an ErrorInfo detail's Reason. Two properties that must NOT change ride
 // along: a caller who cannot read the secret gets exactly the answer it got
 // before the secret entered the refused state (no existence or state oracle),
-// and a refused read writes no audit or access-log row (as before).
+// and a refused read writes no access-log row. Since #3273 it does write one
+// audit row, a secret.read with Success=false (secret_value_read_denial_audit_test.go).
 //
 // TestValueReadRouteFamily_IsCovered keeps the route table honest: it derives
 // the value-read routes from the source instead of trusting this list.
@@ -304,7 +305,7 @@ func TestSecretValueReadRefusals_MapToClientErrorsOnEveryRoute(t *testing.T) {
 					}
 
 					audit1, access1 := refusalRowCounts(t, w, sec.ID)
-					assert.Equal(t, audit0, audit1, "a refused read must not add audit rows (unchanged behaviour)")
+					assert.Equal(t, audit0+1, audit1, "a refused read adds exactly one audit row, its failed secret.read (#3273)")
 					assert.Equal(t, access0, access1, "a refused read must not add access-log rows (unchanged behaviour)")
 
 					// A caller who cannot read the secret learns nothing from its state:

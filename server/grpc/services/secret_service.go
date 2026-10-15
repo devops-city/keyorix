@@ -180,11 +180,22 @@ func (s *SecretGRPCService) GetSecretImpact(ctx context.Context, req *pb.GetSecr
 // GetSecretValue returns a secret's decrypted value (counts toward max_reads).
 // version_number/read_count are not populated here — use GetSecretVersions for
 // version history.
-func (s *SecretGRPCService) GetSecretValue(ctx context.Context, req *pb.GetSecretRequest) (*pb.SecretValue, error) {
+func (s *SecretGRPCService) GetSecretValue(ctx context.Context, req *pb.GetSecretRequest) (_ *pb.SecretValue, err error) {
 	user, err := requireUser(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// #3273: every refusal from here on is audited as a failed secret.read, the
+	// same as REST (middleware.AuditSecretValueReadDenials). Whatever refuses
+	// notes the reason on ctx; the answer to the caller is unchanged.
+	ctx, note := core.WithSecretReadDenialNote(ctx, core.SecretReadPathGRPCGetValue)
+	defer func() {
+		if err != nil {
+			s.core.RecordNotedSecretReadDenial(core.DetachedAuditContext(ctx), note,
+				core.SecretReadDenialActor{UserID: user.UserID, Username: user.Username, IP: interceptors.PeerIP(ctx), UA: interceptors.ClientUserAgent(ctx)},
+				core.SecretReadDenialTarget{SecretID: uint(req.GetId())}, grpcReadRefusal(err))
+		}
+	}()
 	if err := authorizeSecretScoped(ctx, s.core, user, uint(req.GetId()), permSecretsRead); err != nil {
 		return nil, err
 	}
@@ -206,6 +217,9 @@ func (s *SecretGRPCService) GetSecretValue(ctx context.Context, req *pb.GetSecre
 		}
 	}
 	if err != nil {
+		// core.GetSecret (the machine branch) refuses an expired secret itself and
+		// is not a value-read entry point, so note the refusal here.
+		core.NoteSecretReadDenial(ctx, core.ClassifySecretReadDenial(err))
 		return nil, mapSecretReadError(err)
 	}
 	var value []byte
@@ -637,18 +651,28 @@ func authorizeSecretScoped(ctx context.Context, cs *core.KeyorixCore, actor *int
 	if len(action) > 0 {
 		act = action[0]
 	}
+	// The core.NoteSecretRead* calls are no-ops unless a value read put a
+	// denial note on ctx (GetSecretValue, #3273); they never change the answer.
 	secret, err := cs.Storage().GetSecret(ctx, secretID)
 	if err != nil {
+		core.NoteSecretReadDenial(ctx, core.SecretReadDeniedNotFound)
 		return authorizeScopedTarget(ctx, cs, actor, perm, err, core.Scope{}, "secret not found")
 	}
+	core.NoteSecretReadSubject(ctx, secret)
 	decision, aerr := cs.AuthorizeSecretPrincipalForSecretAction(ctx, actor.ActorKind(), actor.PrincipalID(), secret, perm, act)
 	if aerr == nil && decision.ShareNotElevated {
+		core.NoteSecretReadDenial(ctx, core.SecretReadDeniedForbidden)
 		return status.Error(codes.PermissionDenied, core.ShareActionNotElevatedMessage)
 	}
 	if aerr != nil || !decision.Allowed {
+		core.NoteSecretReadDenial(ctx, core.SecretReadDeniedForbidden)
 		return status.Error(codes.PermissionDenied, "insufficient permissions")
 	}
-	return enforceProjectMFA(ctx, cs, actor, secret.ProjectID)
+	if err := enforceProjectMFA(ctx, cs, actor, secret.ProjectID); err != nil {
+		core.NoteSecretReadDenial(ctx, core.SecretReadDeniedMFARequired)
+		return err
+	}
+	return nil
 }
 
 // mapSecretReadError is mapSecretError for a secret read whose authorization
@@ -674,6 +698,20 @@ func mapSecretReadError(err error) error {
 		st = withInfo
 	}
 	return st.Err()
+}
+
+// grpcReadRefusal is the reason for a refused GetSecretValue no layer noted:
+// PermissionDenied is forbidden, NotFound not_found; any other failure (an
+// audit-write failure on the success path, for one) is not a read refusal.
+func grpcReadRefusal(err error) core.SecretReadDenialReason {
+	switch status.Code(err) {
+	case codes.PermissionDenied:
+		return core.SecretReadDeniedForbidden
+	case codes.NotFound:
+		return core.SecretReadDeniedNotFound
+	default:
+		return ""
+	}
 }
 
 // SecretReadRefusalDomain is the ErrorInfo.Domain of a secret-read refusal.

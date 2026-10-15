@@ -155,7 +155,8 @@ func (c *KeyorixCore) GetLatestSecretVersionWithPermissionCheck(ctx context.Cont
 // A direct call here is always treated as userID 0 for the classification gate
 // (see checkRestrictedSecretReadApproval) — there is no user to check an approval
 // against, matching the machine-read design decision.
-func (c *KeyorixCore) GetSecretValue(ctx context.Context, secretID uint) ([]byte, error) {
+func (c *KeyorixCore) GetSecretValue(ctx context.Context, secretID uint) (value []byte, err error) {
+	defer func() { noteValueReadErr(ctx, err, secretID) }()
 	return c.getSecretValueForUser(ctx, secretID, 0, nil)
 }
 
@@ -166,7 +167,8 @@ func (c *KeyorixCore) GetSecretValue(ctx context.Context, secretID uint) ([]byte
 // follow-up). Same guards, same classification gate (userID 0, matching
 // GetSecretValue's own machine-read semantics), same disclosure path — only
 // the fetch is skipped, nothing else changes.
-func (c *KeyorixCore) GetSecretValueResolved(ctx context.Context, secret *models.SecretNode) ([]byte, error) {
+func (c *KeyorixCore) GetSecretValueResolved(ctx context.Context, secret *models.SecretNode) (value []byte, err error) {
+	defer func() { noteValueReadErr(ctx, err, secret.ID) }()
 	return c.getSecretValueForUser(ctx, secret.ID, 0, secret)
 }
 
@@ -285,7 +287,8 @@ func (c *KeyorixCore) getSecretValueForUser(ctx context.Context, secretID, userI
 }
 
 // GetSecretValueWithPermissionCheck retrieves the decrypted value with permission validation.
-func (c *KeyorixCore) GetSecretValueWithPermissionCheck(ctx context.Context, secretID, userID uint) ([]byte, error) {
+func (c *KeyorixCore) GetSecretValueWithPermissionCheck(ctx context.Context, secretID, userID uint) (value []byte, err error) {
+	defer func() { noteValueReadErr(ctx, err, secretID) }()
 	if userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required for permission checking")
 	}
@@ -314,7 +317,8 @@ func (p *ReadPermittedSecret) Secret() *models.SecretNode { return p.secret }
 // GetSecretForValueRead is GetSecretWithPermissionCheck for a request that goes on
 // to read the value: same checks, same errors, same returned secret, plus the proof
 // GetPermittedSecretValue takes (PERF-FIX-3).
-func (c *KeyorixCore) GetSecretForValueRead(ctx context.Context, id, userID uint) (*ReadPermittedSecret, error) {
+func (c *KeyorixCore) GetSecretForValueRead(ctx context.Context, id, userID uint) (_ *ReadPermittedSecret, err error) {
+	defer func() { noteValueReadErr(ctx, err, id) }()
 	secret, err := c.GetSecretWithPermissionCheck(ctx, id, userID)
 	if err != nil {
 		return nil, err
@@ -330,7 +334,12 @@ func (c *KeyorixCore) GetSecretForValueRead(ctx context.Context, id, userID uint
 // own tail: the full read-guard bundle (clock, expiry, suspended, classification
 // gate with the real userID, schedule), the latest version and the atomic max-reads
 // accounting.
-func (c *KeyorixCore) GetPermittedSecretValue(ctx context.Context, p *ReadPermittedSecret) ([]byte, error) {
+func (c *KeyorixCore) GetPermittedSecretValue(ctx context.Context, p *ReadPermittedSecret) (value []byte, err error) {
+	defer func() {
+		if p != nil && p.secret != nil {
+			noteValueReadErr(ctx, err, p.secret.ID)
+		}
+	}()
 	if p == nil || p.secret == nil || p.userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required for permission checking")
 	}
@@ -340,7 +349,8 @@ func (c *KeyorixCore) GetPermittedSecretValue(ctx context.Context, p *ReadPermit
 // GetSecretValueByVersion retrieves the decrypted value of a specific version of a secret.
 // Like GetSecretValue, a direct call has no user principal — see
 // getSecretValueByVersionForUser.
-func (c *KeyorixCore) GetSecretValueByVersion(ctx context.Context, secretID uint, versionNumber int) ([]byte, error) {
+func (c *KeyorixCore) GetSecretValueByVersion(ctx context.Context, secretID uint, versionNumber int) (value []byte, err error) {
+	defer func() { noteValueReadErr(ctx, err, secretID) }()
 	return c.getSecretValueByVersionForUser(ctx, secretID, versionNumber, 0)
 }
 
@@ -409,7 +419,8 @@ func (c *KeyorixCore) RollbackSecret(ctx context.Context, secretID uint, targetV
 }
 
 // GetSecretValueByVersionWithPermissionCheck retrieves the decrypted value of a specific version with permission validation.
-func (c *KeyorixCore) GetSecretValueByVersionWithPermissionCheck(ctx context.Context, secretID, userID uint, versionNumber int) ([]byte, error) {
+func (c *KeyorixCore) GetSecretValueByVersionWithPermissionCheck(ctx context.Context, secretID, userID uint, versionNumber int) (value []byte, err error) {
+	defer func() { noteValueReadErr(ctx, err, secretID) }()
 	if userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required for permission checking")
 	}

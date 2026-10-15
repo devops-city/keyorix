@@ -82,6 +82,11 @@ type KeyorixCore struct {
 	// at startup via SetInsecureAuditSkipReads; read only by
 	// skipsSuccessfulReadAudit (audit_skip_reads.go).
 	skipSuccessfulReadAudit bool
+	// secretReadDenialAgg aggregates audit rows for refused secret-value reads
+	// (secret_read_denial.go). Created on first use by secretReadDenials; a test
+	// may set it beforehand to shorten the window.
+	secretReadDenialAgg     *denialAggregator
+	secretReadDenialAggOnce sync.Once
 	// dynamicMaxLeaseTTL mirrors config dynamic_secrets.max_lease_ttl (#97): a hard,
 	// install-wide ceiling dynamicTTL enforces alongside (never instead of) each
 	// config's own MaxTTLSeconds, which has no ceiling of its own. Zero = the

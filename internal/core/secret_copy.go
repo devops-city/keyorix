@@ -46,12 +46,28 @@ func (c *KeyorixCore) CopySecret(ctx context.Context, sourceID, targetEnvID uint
 	// etc.) still propagates as-is so it isn't misreported and mishandled
 	// upstream as a plain not-found.
 	notFound := fmt.Errorf("%s: %s", i18n.T("ErrorSecretNotFound", nil), "not found")
+	// #3273: a refused source read is audited (secret.read, Success=false). A
+	// missing source and a forbidden one answer the same notFound and take the
+	// same path into the recorder; only the row's reason differs.
+	refuse := func(reason SecretReadDenialReason, secret *models.SecretNode) {
+		d := secretReadDenial{
+			path: secretReadPathCopy, reason: reason,
+			actor:  SecretReadDenialActor{UserID: actorID, Username: actorUsername, IP: ip, UA: ua},
+			target: SecretReadDenialTarget{SecretID: sourceID},
+		}
+		if secret != nil {
+			d.subjectID, d.projectID = secret.ID, secret.ProjectID
+		}
+		c.recordSecretReadDenialInCore(ctx, d)
+	}
 	source, err := c.GetSecret(ctx, sourceID)
 	if err != nil {
+		refuse(SecretReadDeniedNotFound, nil)
 		return nil, notFound
 	}
 	value, err := c.GetSecretValueWithPermissionCheck(ctx, sourceID, actorID)
 	if err != nil {
+		refuse(ClassifySecretReadDenial(err), source)
 		if strings.Contains(err.Error(), "insufficient permissions") {
 			return nil, notFound
 		}
