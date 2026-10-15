@@ -66,6 +66,12 @@ type SecurityInfo struct {
 	// or power loss). Lets a buyer's auditor read the level over the API
 	// without host access. Both levels are baseline; neither is a deviation.
 	AuditDurability string `json:"audit_durability"`
+	// AuditReadsSkipped is storage.database.insecure_audit_skip_reads (ADR-112
+	// Amendment 4): true means successful secret-value reads are NOT audited
+	// on this install (writes, permission changes, authentication, denied
+	// reads and admin actions still are). Lets an auditor see it over the API
+	// without host access; the web UI shows a persistent banner from it.
+	AuditReadsSkipped bool `json:"audit_reads_skipped"`
 	// AccessLogOnSinkStall is the effective server.access_log.on_sink_stall:
 	// "block" (default; no access-log line is ever lost, requests wait for a
 	// stalled sink) or "drop" (keeps serving; lines past the 1 MiB queue are
@@ -232,6 +238,7 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				// this value, which keeps the setting config-file-only (the
 				// guard is TestAuditDurability_NoWriteAssignment).
 				AuditDurability:      string(cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type).Level),
+				AuditReadsSkipped:    cfg.Storage.Database.InsecureAuditSkipReads,
 				AccessLogOnSinkStall: cfg.Server.AccessLog.EffectiveOnSinkStall(),
 				AccessLogDropped:     middleware.AccessLogDropped(),
 				RecoveryKey:          recoveryKeyStatus,

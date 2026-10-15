@@ -303,6 +303,14 @@ storage:
     #   docs/security/hardening-guide.md §5a. The old
     #   insecure_audit_skip_durable_sync (true = standard, false = strict) is a
     #   deprecated alias for one minor release.
+    # insecure_audit_skip_reads: false  # INSECURE when true (ADR-112 Amendment 4):
+    #   successful secret-value reads write NO audit row and no access-log row
+    #   (REST, gRPC, render, copy, connector reads, and every client through
+    #   the API). Writes, permission changes, authentication, denied reads and
+    #   admin actions are still audited. WARNING + audit event at every start,
+    #   posture deviation, security.audit_reads_skipped in /system/info, web UI
+    #   banner. Config file only; refused by a compliance profile. See
+    #   docs/security/hardening-guide.md §5b.
     # pooler: none                # none (default) | pgbouncer-session | pgbouncer-transaction.
     #   POSTGRES ONLY. Names the connection pooler in front of PostgreSQL;
     #   pgbouncer-transaction changes how statements and advisory locks are

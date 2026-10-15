@@ -27,8 +27,9 @@ import (
 // secretTestRig is a real core service over an in-memory DB with a seeded
 // project/environment, plus the gRPC SecretService under test.
 type secretTestRig struct {
-	svc *SecretGRPCService
-	db  *gorm.DB
+	svc  *SecretGRPCService
+	db   *gorm.DB
+	core *core.KeyorixCore
 }
 
 func newSecretTestRig(t *testing.T) *secretTestRig {
@@ -73,7 +74,7 @@ func newSecretTestRig(t *testing.T) *secretTestRig {
 	require.NoError(t, db.Create(&models.UserRole{UserID: 1, RoleID: writerRoleID}).Error) // global (project 0, env 0)
 
 	coreService := core.NewKeyorixCore(store.NewLocalStorage(db))
-	return &secretTestRig{svc: NewSecretService(coreService), db: db}
+	return &secretTestRig{svc: NewSecretService(coreService), db: db, core: coreService}
 }
 
 // writerRoleID is the seeded role granting secrets.read/write/delete in the rig.

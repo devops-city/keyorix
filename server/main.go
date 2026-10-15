@@ -587,6 +587,15 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	// 30-day library default.
 	coreService.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
 
+	// ADR-112 Amendment 4: storage.database.insecure_audit_skip_reads. Set before
+	// the server serves anything. The every-start WARNING comes from the
+	// registry (warnInsecureSettingsInEffect); the every-start audit event is
+	// written here so the chain itself records the window reads went unaudited.
+	coreService.SetInsecureAuditSkipReads(cfg.Storage.Database.InsecureAuditSkipReads)
+	if cfg.Storage.Database.InsecureAuditSkipReads {
+		auditReadsSkippedStartup(store)
+	}
+
 	// keyless mode (docs/design-b2-recover-admin.md §5): flagged loudly and
 	// repeatedly wherever an operator or auditor would look -- a startup
 	// warning EVERY boot (not just the first), a boolean in /system/info
@@ -3298,5 +3307,29 @@ func auditKeylessModeStartup(store corestorage.Storage) {
 		EventTime:   time.Now(),
 	}); err != nil {
 		log.Printf("note: could not record the keyless-mode startup event to the audit chain (%v)", err)
+	}
+}
+
+// auditReadsSkippedStartupEventType is written at every boot while
+// storage.database.insecure_audit_skip_reads is enabled (ADR-112 Amendment 4).
+const auditReadsSkippedStartupEventType = "admin.audit_reads_skipped_at_startup"
+
+// auditReadsSkippedStartup records, at every boot while
+// storage.database.insecure_audit_skip_reads is enabled, a system-actor audit
+// event, the same shape and reason as auditKeylessModeStartup: the
+// tamper-evident chain carries its own repeated record that successful secret
+// reads were not being audited from this start on.
+func auditReadsSkippedStartup(store corestorage.Storage) {
+	ok := true
+	if err := store.LogAuditEvent(context.Background(), &models.AuditEvent{
+		EventType: auditReadsSkippedStartupEventType,
+		Description: "server started with storage.database.insecure_audit_skip_reads enabled -- successful " +
+			"secret-value reads are NOT audited; writes, permission changes, authentication, denied reads and " +
+			"admin actions still are",
+		Success:   &ok,
+		ActorType: core.ActorTypeSystem,
+		EventTime: time.Now(),
+	}); err != nil {
+		log.Printf("note: could not record the audit-reads-skipped startup event to the audit chain (%v)", err)
 	}
 }
