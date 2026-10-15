@@ -302,6 +302,7 @@ storage.database.path
 storage.database.pooler
 storage.database.port
 storage.database.require_existing_path
+storage.database.single_writer
 storage.database.ssl_mode
 storage.database.ssl_root_cert
 storage.database.user

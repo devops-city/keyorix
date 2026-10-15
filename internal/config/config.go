@@ -741,6 +741,21 @@ type DatabaseConfig struct {
 	// "pgbouncer-transaction". Only pgbouncer-transaction changes behaviour;
 	// see TransactionPooling and docs/postgresql-poolers.md.
 	Pooler string `yaml:"pooler"`
+
+	// SingleWriter (docs/specs/single-writer-cache.md) declares this server the
+	// ONLY writer of its PostgreSQL database. Default false; false changes
+	// nothing. When true the server takes a per-schema advisory lock at boot
+	// and refuses to start if another server holds it, installs a write fence
+	// that refuses every write to the security tables from any other session
+	// while it runs, and keeps a write epoch it polls (internal/solewriter). If
+	// the fence cannot be installed and verified, the server refuses to start:
+	// the setting is never in effect without it.
+	//
+	// PostgreSQL only: a SQLite or remote backend refuses to start with it set,
+	// as do auth_rate_limit_fallback.replicas > 1 (a declared multi-replica
+	// deployment) and pooler pgbouncer-transaction (the lock and the session
+	// tag are session-scoped).
+	SingleWriter bool `yaml:"single_writer"`
 }
 
 // GetPassword returns the resolved DB password, preferring the environment variable.
@@ -755,6 +770,18 @@ func (d *DatabaseConfig) GetPassword() string {
 func (d *DatabaseConfig) GetAuditFlusherLingerWindow() time.Duration {
 	return parseDurationDefault(d.AuditFlusherLingerWindow, 0)
 }
+
+// singleWriterUnsupportedBackendError / singleWriterMultiReplicaError are the
+// start-up refusals for storage.database.single_writer outside its one
+// supported topology (one server, PostgreSQL).
+const (
+	singleWriterUnsupportedBackendError = "storage.database.single_writer is only supported with storage.type postgres: " +
+		"it relies on PostgreSQL session advisory locks and triggers; remove the setting"
+	singleWriterMultiReplicaError = "storage.database.single_writer allows exactly one server, but " +
+		"security.auth_rate_limit_fallback.replicas declares more than one; remove one of the two settings"
+	singleWriterTransactionPoolingError = "storage.database.single_writer is not supported with storage.database.pooler " +
+		"pgbouncer-transaction: its holder lock and session tag are session-scoped; use pgbouncer-session or connect directly"
+)
 
 // AuditDurabilityLevel is one value of storage.database.audit_durability.
 type AuditDurabilityLevel string
@@ -2832,11 +2859,20 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		if err := ValidateDatabaseTLS(&db); err != nil {
 			return err
 		}
+		if db.SingleWriter && c.Security.AuthRateLimitFallback.GetReplicas() > 1 {
+			return fmt.Errorf("%s", singleWriterMultiReplicaError)
+		}
+		if db.SingleWriter && db.TransactionPooling() {
+			return fmt.Errorf("%s", singleWriterTransactionPoolingError)
+		}
 	// #1640: "sqlite" is an accepted alias for "local" -- see the matching
 	// comment in internal/storage/factory.go's CreateStorage switch.
 	case "local", "sqlite":
 		if c.Storage.Database.Path == "" {
 			return fmt.Errorf("database path is not specified")
+		}
+		if c.Storage.Database.SingleWriter {
+			return fmt.Errorf("%s", singleWriterUnsupportedBackendError)
 		}
 	case "":
 		// #G-blank-storage-default: a blank storage.type used to be bucketed

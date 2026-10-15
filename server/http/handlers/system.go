@@ -7,6 +7,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/solewriter"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
@@ -38,6 +39,9 @@ type DatabaseInfo struct {
 	Connected bool     `json:"connected"`
 	Version   string   `json:"version"`
 	Pool      PoolInfo `json:"pool"`
+	// SingleWriter is storage.database.single_writer's live state; absent when
+	// the setting is off.
+	SingleWriter *solewriter.Status `json:"single_writer,omitempty"`
 }
 
 // PoolInfo represents database connection pool information
@@ -193,7 +197,8 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 		// this must not be visible to non-admins even though the rest of
 		// this endpoint is system.read-gated (the universal baseline).
 		var recoveryKeyStatus *core.RecoveryKeyStatus
-		if middleware.AuthorizedAtGlobalScope(r.Context(), coreService, userCtx, permSystemWrite) {
+		canSystemWrite := middleware.AuthorizedAtGlobalScope(r.Context(), coreService, userCtx, permSystemWrite)
+		if canSystemWrite {
 			if status, err := coreService.GetRecoveryKeyStatus(r.Context()); err == nil {
 				recoveryKeyStatus = status
 			}
@@ -243,6 +248,16 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				AccessLogDropped:     middleware.AccessLogDropped(),
 				RecoveryKey:          recoveryKeyStatus,
 			},
+		}
+
+		if g := solewriter.Current(); g != nil {
+			st := g.Status()
+			// The poll error is the database driver's text (it can name the
+			// host, role or schema); like recovery_key, system.write only.
+			if !canSystemWrite {
+				st.LastPollError = ""
+			}
+			systemInfo.Database.SingleWriter = &st
 		}
 
 		sendSuccess(w, systemInfo, "")

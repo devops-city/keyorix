@@ -16,6 +16,7 @@ import (
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/serverguard"
+	"github.com/keyorixhq/keyorix/internal/solewriter"
 	"github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/version"
@@ -149,6 +150,14 @@ func acquireDatabaseLock(cfg *config.Config) (*serverguard.Exclusive, error) {
 	lock, err := serverguard.AcquireExclusive(cfg)
 	if err != nil {
 		if forceFlag {
+			// single_writer: --force never runs next to a single-writer server.
+			// Its write fence would refuse this command's writes to the
+			// security tables anyway; refusing up front keeps a forced command
+			// from failing halfway. A failed check falls through: the fence
+			// is still there.
+			if live, pid, herr := solewriter.HolderLive(context.Background(), cfg); herr == nil && live {
+				return nil, fmt.Errorf("a Keyorix server running with storage.database.single_writer holds this database (backend pid %d); --force cannot override it. Stop the server first (emergency SQL: %s)", pid, solewriter.EmergencySQL)
+			}
 			fmt.Printf("WARNING: could not acquire this database's exclusive lock (%v) — proceeding anyway because --force was given. A live server or another admin command may be concurrently using this database; this command is not protected against that race.\n", err)
 			return nil, nil
 		}

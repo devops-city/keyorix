@@ -11,6 +11,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core"
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
+	"github.com/keyorixhq/keyorix/internal/solewriter"
 	"github.com/keyorixhq/keyorix/internal/startup"
 )
 
@@ -86,6 +87,7 @@ func runAdminValidatePosture(cfg *config.Config, configPath string) error {
 	collectTLSPosture(cfg, report)
 	collectDatabaseTLSPosture(cfg, report)
 	collectKEKAgePosture(cfg, report)
+	collectSingleWriterPosture(cfg, report)
 
 	// A database that cannot be queried is reported as a deviation of its own
 	// and the report is still printed: everything collected above is real, and
@@ -131,6 +133,46 @@ func runAdminValidatePosture(cfg *config.Config, configPath string) error {
 		return fmt.Errorf("%d secure-baseline deviation(s) found", len(report.deviations))
 	}
 	return nil
+}
+
+// collectSingleWriterPosture reports storage.database.single_writer: always a
+// visible line while it is on (with the emergency two-step), and a deviation
+// when the installed write fence is incomplete or not ENABLE ALWAYS (a server
+// start reinstalls it, and refuses to run without it).
+func collectSingleWriterPosture(cfg *config.Config, report *postureReport) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	rep, err := solewriter.InspectFence(ctx, cfg)
+	if !cfg.Storage.Database.SingleWriter {
+		if err == nil && rep.Triggers > 0 {
+			report.info(fmt.Sprintf("single_writer: off, but %d write-fence trigger(s) from an earlier single_writer boot are still installed; the next server start removes them", rep.Triggers))
+		}
+		return
+	}
+	report.info(fmt.Sprintf("single_writer: on (storage.database.single_writer). The server is the only permitted writer of %d security tables; "+
+		"direct database writes to them are refused while it runs, and revocations through the server take effect on the next request. "+
+		"Emergency direct change: %s", len(solewriter.FencedTables), solewriter.EmergencySQL))
+	switch {
+	case err != nil:
+		report.info(fmt.Sprintf("single_writer: the write fence could not be inspected: %v", err))
+	case rep.Triggers == 0:
+		report.info("single_writer: the write fence is not installed yet; the server installs it at start-up and refuses to start without it")
+	case !rep.Complete():
+		report.deviate("single_writer", fmt.Sprintf("the write fence is incomplete: %d of %d triggers present, %d ENABLE ALWAYS. Restart the server to reinstall it", rep.Triggers, rep.Expected, rep.Always))
+	}
+	if err == nil && rep.BelowSQL {
+		report.deviate("single_writer", "the database role this server connects as is a superuser (or may run server programs or write server files). "+
+			"Anyone holding its credentials can change the security tables below SQL, where neither the write fence nor its fingerprint sees it, "+
+			"and the server would keep serving from its caches. Connect as a non-superuser role that owns the tables (docs/single-writer.md \"Residual risks\")")
+	}
+	if err == nil && len(rep.ForeignTriggers) > 0 {
+		report.deviate("single_writer", fmt.Sprintf("trigger(s) that are not part of the write fence are installed on security tables (%s). "+
+			"Such a trigger can change a row after the fence has let it through, so a single-writer server does not trust its caches while one exists. "+
+			"Drop them, and grant other roles SELECT, INSERT, UPDATE, DELETE only, never TRIGGER (docs/single-writer.md \"Residual risks\")", strings.Join(rep.ForeignTriggers, ", ")))
+	}
+	if err == nil && rep.HolderLive {
+		report.info(fmt.Sprintf("single_writer: a server holds the single-writer lock (backend pid %d)", rep.HolderPID))
+	}
 }
 
 // collectInsecureSettingsPosture reports EVERY item-2 registry entry currently

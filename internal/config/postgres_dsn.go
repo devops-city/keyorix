@@ -80,6 +80,11 @@ func ResolvePostgresConnConfig(d *DatabaseConfig) (*pgx.ConnConfig, error) {
 		return nil, err
 	}
 	applyPoolerConnConfig(d, cc)
+	// A single-writer server tags every session it opens (the write fence's
+	// proof of origin, postgres_session_tag.go). nil for every other process.
+	if setup := soleWriterAfterConnect(); setup != nil {
+		cc.AfterConnect = setup
+	}
 	return cc, nil
 }
 
