@@ -14,7 +14,6 @@
 package faultops
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -680,12 +679,20 @@ func runOneFuzzIterationReporting(t *testing.T, rep fuzzVerdict, data []byte, re
 		// requireLogSubstring: evidence must come from THIS call, not from
 		// Setup or an earlier/later iteration's output. Same redirect pattern
 		// as internal/core's captureLog helper (audit_write_failure_test.go).
-		var logBuf bytes.Buffer
+		//
+		// The buffer must be locked: during Execute it has concurrent writers.
+		// server/middleware's accessLogWriter writes its batches to log.Writer()
+		// outside log.Logger's mutex (it relies on the sink being safe for
+		// concurrent use, as os.Stderr is), while a detached goSafe goroutine
+		// (e.g. Login's RecordLogin, whose RunRecover logs a panic) writes
+		// through log.Printf. A bare bytes.Buffer here was a data race that
+		// failed TestUndeliveredSessionSweep under -race.
+		var logBuf lockedLogBuffer
 		prevOut := log.Writer()
 		log.SetOutput(&logBuf)
 		defer func() {
 			log.SetOutput(prevOut)
-			execLog = logBuf.String()
+			execLog = logBuf.since(0)
 			if r := recover(); r != nil {
 				rep.Errorf("panic escaped the transport layer entirely for op %q (fault %s/%d/%s) — "+
 					"the real Recovery middleware/RecoveryInterceptor should have converted this to "+
