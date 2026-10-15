@@ -130,10 +130,15 @@ FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &
 	g.epoch = epoch
 	g.lastGoodMono = now
 	g.lastGoodWall = now.Round(0)
-	if changed {
-		if f := g.onEpochChange.Load(); f != nil {
-			(*f)(epoch)
-		}
+	if changed && g.tracker != nil {
+		// Every epoch move invalidates every entry, explained or not. The
+		// fence lets a session with a copied tag write, and its move can share
+		// a poll window with one of this server's own commits; telling the two
+		// apart would need the database to say which transaction moved the
+		// epoch (REVIEW-SINGLE-WRITER-1 F4). The cost is one extra miss per
+		// entry after this server's own fenced writes, which already moved the
+		// generation at their commit.
+		g.tracker.Flush()
 	}
 	if reenter {
 		// Back from a lapse: nothing filled before it is trusted.
@@ -150,7 +155,11 @@ FROM `+EpochTable+` e WHERE e.id = 1`).Scan(&pid, &held, &incarnation, &epoch, &
 // the following poll still finds no commit (and none in flight) to explain it.
 // Every in-process write is supposed to be seen by the tracker and every
 // foreign one refused by the fence, so an unattributed move means one of the
-// two missed a write: flush every entry and say so loudly.
+// two missed a write: say so loudly.
+//
+// It is an alarm, not a guard: pollOnce already flushed every entry on the
+// move itself. It undercounts by design: a foreign move that shares a poll
+// window with one of this server's commits counts as explained.
 func (g *Guard) canaryLocked(changed bool) {
 	if g.tracker == nil {
 		return
@@ -238,9 +247,6 @@ func (g *Guard) Epoch() int64 {
 	defer g.mu.Unlock()
 	return g.epoch
 }
-
-// OnEpochChange registers f, called (from the poller) with each new epoch.
-func (g *Guard) OnEpochChange(f func(int64)) { g.onEpochChange.Store(&f) }
 
 // OnReenter registers f, called when the guard returns to authoritative after
 // a lapse in which the lease ran out.

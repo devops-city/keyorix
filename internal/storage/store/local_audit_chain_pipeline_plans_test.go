@@ -26,6 +26,7 @@ func TestCommitBatchAttempt_PostgresHeadReadReusesItsPlan(t *testing.T) {
 	ctx := context.Background()
 	const flights = 8
 	for i := range flights {
+		ls.invalidateAuditChainHead() // the head read is the two-flight path's
 		require.NoError(t, ls.commitBatchAttempt(ctx, buildMultiRowBatch(1+i%3, "plans")))
 	}
 	var rows []struct {
@@ -36,7 +37,7 @@ func TestCommitBatchAttempt_PostgresHeadReadReusesItsPlan(t *testing.T) {
 	require.NoError(t, ls.db.Raw("SELECT statement, generic_plans, custom_plans FROM pg_prepared_statements").Scan(&rows).Error)
 	found := false
 	for _, r := range rows {
-		if !strings.Contains(r.Statement, "ORDER BY id DESC") {
+		if !strings.Contains(r.Statement, "ORDER BY id DESC LIMIT 1") || strings.Contains(r.Statement, "CASE") {
 			continue
 		}
 		found = true

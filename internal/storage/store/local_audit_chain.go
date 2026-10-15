@@ -365,6 +365,8 @@ func (ls *LocalStorage) logAuditEventDirect(ctx context.Context, event *models.A
 				if err := applyAuditCommitDurability(tx, ls.auditSkipDurableSync); err != nil {
 					return err
 				}
+				// This append moves the head without the flusher (AUDIT-1FLIGHT-1).
+				ls.invalidateAuditChainHead()
 			}
 
 			var head struct{ EntryHash string }
@@ -944,6 +946,8 @@ func (ls *LocalStorage) MigrateAuditChainEncoding(ctx context.Context, dryRun bo
 			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(auditAdvisoryLockKey)).Error; err != nil {
 				return err
 			}
+			// Re-hashing rewrites the head's entry_hash (AUDIT-1FLIGHT-1).
+			ls.invalidateAuditChainHead()
 		}
 
 		// Pre-flight, inside the same transaction and before a single row is

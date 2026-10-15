@@ -159,6 +159,11 @@ func collectSingleWriterPosture(cfg *config.Config, report *postureReport) {
 	case !rep.Complete():
 		report.deviate("single_writer", fmt.Sprintf("the write fence is incomplete: %d of %d triggers present, %d ENABLE ALWAYS. Restart the server to reinstall it", rep.Triggers, rep.Expected, rep.Always))
 	}
+	if err == nil && rep.BelowSQL {
+		report.deviate("single_writer", "the database role this server connects as is a superuser (or may run server programs or write server files). "+
+			"Anyone holding its credentials can change the security tables below SQL, where neither the write fence nor its fingerprint sees it, "+
+			"and the server would keep serving from its caches. Connect as a non-superuser role that owns the tables (docs/single-writer.md \"Residual risks\")")
+	}
 	if err == nil && rep.HolderLive {
 		report.info(fmt.Sprintf("single_writer: a server holds the single-writer lock (backend pid %d)", rep.HolderPID))
 	}

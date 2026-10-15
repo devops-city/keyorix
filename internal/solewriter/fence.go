@@ -159,15 +159,36 @@ func triggerSpecs() []triggerSpec {
 }
 
 // fingerprintSQL fingerprints every fence trigger in the current schema (its
-// full definition and enabled state) and the three functions' bodies.
+// full definition, enabled state and catalog row version), the three
+// functions (body and row version), and every table that inherits from a
+// fenced table.
+//
+// The row version (xmin) is what catches a change that is undone before
+// anyone looks: DISABLE TRIGGER; write; ENABLE ALWAYS TRIGGER in one
+// transaction (or across two between polls), DROP and re-CREATE of an
+// identical trigger, CREATE OR REPLACE with the same body. Every one of them
+// rewrites the pg_trigger / pg_proc row, so its xmin is the tampering
+// transaction's id even though the definition reads as before. No SQL
+// statement can set a row's xmin back. Nothing the server does after
+// InstallFence rewrites these rows; something else that does (a manual
+// ALTER, a pg_upgrade) is a false alarm that fails closed.
+//
+// A child table (CREATE TABLE ... INHERITS, ALTER TABLE ... INHERIT) is read
+// through its parent, but the parent's triggers do not fire for writes to the
+// child, so a child of a fenced table is tampering too.
 const fingerprintSQL = `SELECT md5(
-  coalesce((SELECT string_agg(c.relname || ':' || pg_get_triggerdef(t.oid) || ':' || t.tgenabled::text, E'\n' ORDER BY c.relname, t.tgname)
+  coalesce((SELECT string_agg(c.relname || ':' || pg_get_triggerdef(t.oid) || ':' || t.tgenabled::text || ':' || t.xmin::text, E'\n' ORDER BY c.relname, t.tgname)
     FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'), '')
   || '|' ||
-  coalesce((SELECT string_agg(p.proname || ':' || md5(p.prosrc), ',' ORDER BY p.proname)
+  coalesce((SELECT string_agg(p.proname || ':' || md5(p.prosrc) || ':' || p.xmin::text, ',' ORDER BY p.proname)
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    WHERE n.nspname = current_schema() AND p.proname LIKE 'keyorix\_sole\_writer\_%'), ''))`
+    WHERE n.nspname = current_schema() AND p.proname LIKE 'keyorix\_sole\_writer\_%'), '')
+  || '|' ||
+  coalesce((SELECT string_agg(i.inhparent::text || '<' || i.inhrelid::text, ',' ORDER BY i.inhparent, i.inhrelid)
+    FROM pg_inherits i WHERE i.inhparent IN (
+      SELECT t.tgrelid FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%')), ''))`
 
 // InstallFence installs (or converges) the fence and epoch triggers on every
 // fenced table and records the fingerprint the poller will compare against.
@@ -249,6 +270,16 @@ WHERE ns.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'tr
 		if !triggerDefMatches(def, s) {
 			return fmt.Errorf("single_writer: fence trigger %s on %s has an unexpected definition (%s); drop it (DROP TRIGGER %s ON %s) and restart", s.name, s.table, def, s.name, s.table)
 		}
+	}
+	// A table inheriting from a fenced one takes writes the fence never sees
+	// (see fingerprintSQL); the fingerprint only notices one added later.
+	var children string
+	if err := tx.QueryRowContext(ctx, `SELECT coalesce(string_agg(i.inhrelid::regclass::text || ' INHERITS ' || i.inhparent::regclass::text, ', '), '')
+FROM pg_inherits i WHERE i.inhparent IN (SELECT to_regclass(x) FROM unnest($1::text[]) AS x)`, FencedTableNames()).Scan(&children); err != nil {
+		return err
+	}
+	if children != "" {
+		return fmt.Errorf("single_writer: a fenced table has a child table (%s): writes to it bypass the fence; remove the inheritance and restart", children)
 	}
 	var fp string
 	if err := tx.QueryRowContext(ctx, fingerprintSQL).Scan(&fp); err != nil {
@@ -425,6 +456,12 @@ type FenceReport struct {
 	Triggers   int // fence triggers present in the current schema
 	Always     int // of which ENABLE ALWAYS
 	Expected   int // triggers a complete fence has
+	// BelowSQL: the role this configuration connects as is a superuser, or
+	// may run server-side programs or write server files. Such a session can
+	// change the security tables below SQL (native code, the data directory)
+	// with no trigger firing and no catalog row changing, which neither the
+	// fence nor the fingerprint can see.
+	BelowSQL bool
 }
 
 // Complete reports whether every expected trigger is present and ENABLE ALWAYS.
@@ -450,5 +487,14 @@ func InspectFence(ctx context.Context, cfg *config.Config) (FenceReport, error) 
 	err = conn.QueryRowContext(ctx, `SELECT count(*), count(*) FILTER (WHERE t.tgenabled = 'A')
 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
 WHERE ns.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname LIKE 'trg\_ksw\_%'`).Scan(&rep.Triggers, &rep.Always)
+	if err != nil {
+		return rep, err
+	}
+	err = conn.QueryRowContext(ctx, belowSQLQuery).Scan(&rep.BelowSQL)
 	return rep, err
 }
+
+// belowSQLQuery reports whether the session's role can reach below SQL.
+const belowSQLQuery = `SELECT r.rolsuper OR pg_has_role(current_user, 'pg_execute_server_program', 'MEMBER')
+  OR pg_has_role(current_user, 'pg_write_server_files', 'MEMBER')
+FROM pg_roles r WHERE r.rolname = current_user`

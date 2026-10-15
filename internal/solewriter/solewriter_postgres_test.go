@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -277,20 +278,65 @@ func TestEmergencyTwoStep(t *testing.T) {
 	t.Logf("emergency: stopped trusting caches %s after the terminate; status: %s (%s)", time.Since(start).Round(time.Millisecond), st.State, st.Reason)
 }
 
-// TestPoll_FenceTamperingLeavesAuthoritativeForGood: a superuser disabling a
-// fence trigger is seen on the next poll.
+// TestPoll_FenceTamperingLeavesAuthoritativeForGood: a table owner or
+// superuser disabling, replacing or working around a fence trigger is seen on
+// the next poll. Each case is a list of transactions, each a list of
+// statements. The restore-the-same-state cases (toggle inside one
+// transaction, toggle split over two, drop and re-create the identical
+// trigger, re-create the identical function) leave every definition and
+// enabled flag as it was, so only the catalog rows' xmin tells them apart
+// (REVIEW-SINGLE-WRITER-1 F1).
 func TestPoll_FenceTamperingLeavesAuthoritativeForGood(t *testing.T) {
-	for _, tamper := range []string{
-		"ALTER TABLE machine_identity_credentials DISABLE TRIGGER " + TriggerPrefix + "guard_upd",
-		"ALTER TABLE roles ENABLE TRIGGER " + TriggerPrefix + "guard", // ALWAYS -> ordinary
-		"DROP TRIGGER " + TriggerPrefix + "guard ON secret_nodes",
-		"CREATE OR REPLACE FUNCTION " + checkFunc + "(sch text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END; $$",
-	} {
-		t.Run(strings.Fields(tamper)[0]+"-"+strings.Fields(tamper)[2], func(t *testing.T) {
+	const updTrigger = TriggerPrefix + "guard_upd"
+	revoke := "UPDATE machine_identity_credentials SET revoked = true WHERE id = %d"
+	cases := []struct {
+		name string
+		txs  [][]string
+	}{
+		{"disable", [][]string{{"ALTER TABLE machine_identity_credentials DISABLE TRIGGER " + updTrigger}}},
+		{"enable-not-always", [][]string{{"ALTER TABLE roles ENABLE TRIGGER " + TriggerPrefix + "guard"}}},
+		{"drop", [][]string{{"DROP TRIGGER " + TriggerPrefix + "guard ON secret_nodes"}}},
+		{"replace-function", [][]string{{"CREATE OR REPLACE FUNCTION " + checkFunc + "(sch text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END; $$"}}},
+		{"toggle-in-one-tx", [][]string{{
+			"ALTER TABLE machine_identity_credentials DISABLE TRIGGER " + updTrigger,
+			revoke,
+			"ALTER TABLE machine_identity_credentials ENABLE ALWAYS TRIGGER " + updTrigger,
+		}}},
+		{"toggle-over-two-tx", [][]string{
+			{"ALTER TABLE machine_identity_credentials DISABLE TRIGGER " + updTrigger, revoke},
+			{"ALTER TABLE machine_identity_credentials ENABLE ALWAYS TRIGGER " + updTrigger},
+		}},
+		{"drop-and-recreate-identical", [][]string{{
+			"DROP TRIGGER " + updTrigger + " ON machine_identity_credentials",
+			revoke,
+			"CREATE TRIGGER " + updTrigger + " AFTER UPDATE ON machine_identity_credentials FOR EACH ROW WHEN ((to_jsonb(OLD) - 'last_used_at') IS DISTINCT FROM (to_jsonb(NEW) - 'last_used_at')) EXECUTE PROCEDURE " + guardFunc + "()",
+			"ALTER TABLE machine_identity_credentials ENABLE ALWAYS TRIGGER " + updTrigger,
+		}}},
+		{"recreate-identical-function", [][]string{{
+			"CREATE OR REPLACE FUNCTION " + checkFunc + "(sch text) RETURNS void LANGUAGE plpgsql AS $keyorix$" + checkFuncBody() + "$keyorix$",
+		}}},
+		// A child table's rows are read through the parent, but the parent's
+		// triggers do not fire for writes to the child.
+		{"inheriting-child", [][]string{{"CREATE TABLE sw_child_roles () INHERITS (roles)"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			w := newSWWorld(t)
 			g := w.start(Options{})
 			require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
-			require.NoError(t, w.foreign.Exec(tamper).Error)
+			for _, stmts := range tc.txs {
+				require.NoError(t, w.foreign.Transaction(func(tx *gorm.DB) error {
+					for _, s := range stmts {
+						if strings.Contains(s, "%d") {
+							s = fmt.Sprintf(s, w.credID)
+						}
+						if err := tx.Exec(s).Error; err != nil {
+							return err
+						}
+					}
+					return nil
+				}))
+			}
 			start := time.Now()
 			d := waitFor(t, 2*time.Second, func() bool { return !g.Authoritative() })
 			require.GreaterOrEqual(t, d, time.Duration(0))
@@ -403,4 +449,101 @@ func TestInstallFence_RefusesWhenATableIsMissing(t *testing.T) {
 	err = g.InstallFence(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "secret_access_schedules does not exist")
+}
+
+// TestInstallFence_RefusesAFencedTableWithAChild: rows written to a child
+// table are read through the fenced parent without firing its triggers, so a
+// boot that finds one does not start (the fingerprint only notices a child
+// added later).
+func TestInstallFence_RefusesAFencedTableWithAChild(t *testing.T) {
+	w := newSWWorld(t)
+	require.NoError(t, w.foreign.Exec("CREATE TABLE sw_child_creds () INHERITS (machine_identity_credentials)").Error)
+	g, err := Start(context.Background(), w.cfg, Options{LockWait: 500 * time.Millisecond, SkipPresenceCensus: true})
+	require.NoError(t, err)
+	t.Cleanup(g.Close)
+	err = g.InstallFence(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sw_child_creds INHERITS machine_identity_credentials")
+}
+
+// TestSessionTag_NotInStatementText: a freshly tagged server session carries
+// the nonce, but the statement that set it (still that backend's
+// pg_stat_activity.query, since nothing else ran yet) does not contain it.
+// Anyone who can read pg_stat_activity could otherwise copy it
+// (REVIEW-SINGLE-WRITER-1 F2).
+func TestSessionTag_NotInStatementText(t *testing.T) {
+	w := newSWWorld(t)
+	g := w.start(Options{})
+	ctx := context.Background()
+	cc, err := config.ResolvePostgresConnConfig(&w.cfg.Storage.Database)
+	require.NoError(t, err)
+	conn, err := pgx.ConnectConfig(ctx, cc)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(ctx) })
+	var query string
+	require.NoError(t, w.foreign.Raw("SELECT coalesce(query, '') FROM pg_stat_activity WHERE pid = ?", conn.PgConn().PID()).Scan(&query).Error)
+	t.Logf("the tagged session's last statement: %q", query)
+	require.NotEmpty(t, query, "the test must see the set-up statement")
+	require.NotContains(t, query, g.nonce, "the nonce is visible in pg_stat_activity")
+	var got string
+	require.NoError(t, conn.QueryRow(ctx, "SELECT current_setting('"+config.SoleWriterSessionSetting+"')").Scan(&got))
+	require.Equal(t, g.nonce, got, "the session must still carry the tag")
+}
+
+// TestPoll_CatalogMaintenanceKeepsAuthoritative is the other direction of the
+// tampering test: routine maintenance that rewrites or freezes the catalog
+// rows the fingerprint reads (xmin included) must not be taken for tampering.
+func TestPoll_CatalogMaintenanceKeepsAuthoritative(t *testing.T) {
+	w := newSWWorld(t)
+	g := w.start(Options{})
+	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
+	for _, s := range []string{
+		"VACUUM FREEZE pg_catalog.pg_trigger", "VACUUM FREEZE pg_catalog.pg_proc",
+		"VACUUM FULL pg_catalog.pg_trigger", "VACUUM FULL pg_catalog.pg_proc",
+		"ANALYZE machine_identity_credentials", "CREATE INDEX sw_maint_idx ON machine_identity_credentials (name)",
+		"VACUUM FULL machine_identity_credentials",
+	} {
+		require.NoError(t, w.foreign.Exec(s).Error, s)
+	}
+	time.Sleep(3 * PollInterval)
+	require.True(t, g.Authoritative(), "maintenance was taken for tampering: %s", g.Status().Reason)
+}
+
+// TestInspectFence_ReportsARoleThatReachesBelowSQL: the posture deviation for
+// the one bypass neither the fence nor the fingerprint can see (a superuser,
+// or a role that may run server programs or write server files). A plain
+// table-owning role is not reported.
+func TestInspectFence_ReportsARoleThatReachesBelowSQL(t *testing.T) {
+	w := newSWWorld(t)
+	var super bool
+	require.NoError(t, w.foreign.Raw("SELECT rolsuper FROM pg_roles WHERE rolname = current_user").Scan(&super).Error)
+	if !super {
+		t.Skip("the test role is not a superuser; the reported case cannot be shown")
+	}
+	rep, err := InspectFence(context.Background(), w.cfg)
+	require.NoError(t, err)
+	require.True(t, rep.BelowSQL, "a superuser connection must be reported")
+
+	role := "sw_plain_" + w.schema
+	require.NoError(t, w.foreign.Exec("CREATE ROLE "+role+" NOLOGIN").Error)
+	t.Cleanup(func() { _ = w.foreign.Exec("DROP ROLE IF EXISTS " + role).Error })
+	for _, tc := range []struct {
+		grant string
+		want  bool
+	}{{"", false}, {"pg_execute_server_program", true}, {"pg_write_server_files", true}} {
+		if tc.grant != "" {
+			require.NoError(t, w.foreign.Exec("GRANT "+tc.grant+" TO "+role).Error)
+		}
+		var got bool
+		require.NoError(t, w.foreign.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SET LOCAL ROLE " + role).Error; err != nil {
+				return err
+			}
+			return tx.Raw(belowSQLQuery).Scan(&got).Error
+		}))
+		require.Equal(t, tc.want, got, "role with %q", tc.grant)
+		if tc.grant != "" {
+			require.NoError(t, w.foreign.Exec("REVOKE "+tc.grant+" FROM "+role).Error)
+		}
+	}
 }

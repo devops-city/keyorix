@@ -43,9 +43,14 @@ Not supported, refused at start-up: SQLite, `security.auth_rate_limit_fallback.r
   take effect on the next request.
 - A **direct database write** to a security table while the server runs is **refused**, with an error
   that names the server's backend pid and this page.
-- A direct write after the fence has been deliberately bypassed (a superuser disabling or dropping a
-  trigger), or after the server lost its lock, takes effect **within 1 second**. In both cases the
-  server notices and stops trusting its caches until it is restarted.
+- A direct write after the fence has been deliberately bypassed in SQL, or after the server lost its
+  lock, takes effect **within 1 second**. In both cases the server notices and stops trusting its
+  caches until it is restarted. "Bypassed in SQL" covers a table owner or superuser who disables,
+  drops, re-creates or replaces a fence trigger or function, even inside one transaction that puts
+  everything back before it commits, and one who adds a table inheriting from a fenced table.
+- A write by a session that copied the server's tag (see "Residual risks") passes the fence but moves
+  the write epoch. The server discards every cached answer at its next poll, so the write takes effect
+  within 1 second too.
 
 ## Emergency SQL
 
@@ -66,6 +71,31 @@ is restarted. Restart it when you are done. The same text is in the refusal's HI
 
 Stopping the server first is the other way: with no server running, the fence lets every write
 through.
+
+## Residual risks
+
+What the fence and its checks cannot see, stated precisely:
+
+- **A superuser working below SQL.** A role with superuser rights, or with `pg_execute_server_program`
+  or `pg_write_server_files`, can change table data without going through SQL triggers: native code
+  loaded into PostgreSQL, writing the data directory, `pg_resetwal`. No trigger fires and no catalog row
+  changes, so the server keeps trusting its caches. A change made this way can be served stale for up to
+  5 minutes (the cache entry lifetime), or until the server's next write to a security table. Use a
+  role that owns the tables but is not a superuser and has neither of those two roles. While it runs
+  as such a role, `keyorix-server admin validate --posture` reports a `single_writer` deviation. Other
+  superusers in the cluster have the same power; keep them to administrators you would also trust
+  with the server's master key.
+- **The session tag in statement logs.** The server sets its per-boot tag with
+  `SELECT set_config($1, $2, false)`, a bind parameter, so the tag is not in `pg_stat_activity` or
+  `pg_stat_statements`. PostgreSQL still writes bind parameters to its log when `log_statement = all`
+  (or `log_min_duration_statement = 0`) unless `log_parameter_max_length = 0`. Anyone who can read
+  that log can copy the tag and pass the fence. Such a write still moves the epoch (see above), so it is
+  seen within 1 second, but it is not refused. Keep `log_parameter_max_length = 0` if you log every
+  statement.
+
+Everything else that changes a fence trigger or function, enabled or not, is detected within one poll
+(250 ms). The server checks the triggers' and functions' catalog row versions, not just their text, so
+a change that is undone before the next poll is still seen.
 
 ## Where to see it
 

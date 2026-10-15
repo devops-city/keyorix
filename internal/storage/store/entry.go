@@ -170,6 +170,15 @@ type LocalStorage struct {
 	// construction and meaningless on a clone anyway (auditFlusher is nil
 	// there, so runAuditFlusher never runs for it).
 	auditFlusherLingerWindow time.Duration
+	// auditHead is the chain head the flusher last committed, which lets a
+	// Postgres batch go in one flight (AUDIT-1FLIGHT-1,
+	// local_audit_chain_one_flight.go). Only the root LocalStorage's flusher
+	// reads it. Unlike auditFlusher, WithTransaction shares the pointer with
+	// its clones, so their direct audit appends and retention purges can
+	// invalidate it; a clone-construction site that forgets it leaves the
+	// clone's field nil, every method is a no-op on nil, and the flusher's
+	// in-transaction head check still catches the moved head.
+	auditHead *auditChainHeadCache
 	// schedulerLockDB is the dedicated pool WithSchedulerLock takes its advisory-
 	// lock sessions from (SetSchedulerLockDB). nil means the request pool (ls.db).
 	// Set once at construction, read-only afterwards.
@@ -311,6 +320,7 @@ func NewLocalStorage(db *gorm.DB) *LocalStorage {
 		consumeClockWatermark: &clockWatermark{},
 		rbacClockWatermark:    &clockWatermark{},
 		auditFlusher:          &auditFlusherState{},
+		auditHead:             newAuditChainHeadCache(),
 		rawStmts:              &rawStatements{},
 		secretMetaCache:       newSecretMetadataCache(),
 		foldMemo:              newFoldMemo(),

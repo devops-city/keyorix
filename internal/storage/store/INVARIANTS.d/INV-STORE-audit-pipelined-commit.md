@@ -2,7 +2,10 @@
   (`commitBatchAttemptPipelined`) runs the same statements in the same order as the GORM
   transaction (`commitBatchAttemptTx`), in two pipelined flights: BEGIN, the fast-mode
   `SET LOCAL` (only when enabled), `pg_advisory_xact_lock(KEYAUDIT)`, the id-DESC head read
-  and the event-id allocation; then the INSERTs (GORM's own SQL) and COMMIT. Three rules
+  and the event-id allocation; then the INSERTs (GORM's own SQL), with the link check
+  (`auditLinkCheckSQL`: the stored rows link onto the head in id order) between the events
+  INSERT and the access-log INSERT, and COMMIT. When the chain-head cache is armed the
+  transaction goes in one flight instead (`INV-STORE-audit-one-flight-commit`). Three rules
   hold. (1) The head is read by its own statement after the lock statement, so it sees every
   batch committed before the lock was granted. (2) Nothing that decides whether to commit
   runs between the INSERTs and COMMIT: the event ids are allocated from the table's sequence
@@ -13,8 +16,9 @@
   every replica's appends until it was next checked out. The chain bytes for a fixed input
   are pinned. Why: PERF-FIX-1 — the single flusher spent each batch waiting on six sequential
   round trips.
-  Guard: `internal/storage/store` `TestCommitBatchAttempt_PostgresTwoFlights` (counts flights
-  on the wire; red on the GORM path), `TestAuditChain_GoldenBytes_SQLite`/`_Postgres`
+  Guard: `internal/storage/store` `TestCommitBatchAttempt_PostgresFlightCount` (counts flights
+  on the wire; red on the GORM path), `TestOneFlight_PostgresOutOfOrderIDsFailClosed` (a
+  trigger that rewrites ids: red without flight 2's link check), `TestAuditChain_GoldenBytes_SQLite`/`_Postgres`
   (digest recorded on main), `TestCommitBatchAttempt_PostgresFailureBetweenFlightsRollsBack`
   (lock checked from another session), `TestCommitAuditBatch_PostgresBackendDiesMidBatch`,
   `TestCommitBatchAttempt_PostgresFastModeAppliesToTheInsert`,

@@ -158,6 +158,13 @@ func TestSingleWriter_Postgres_OperatorJourney(t *testing.T) {
 	out, _ = runAdmin(t, bin, dir, env, "validate", "--posture", "--config", "./keyorix.yaml")
 	require.Contains(t, out, "single_writer: on (storage.database.single_writer)", out)
 	require.Contains(t, out, "pg_terminate_backend(holder_pid)", out)
+	// The residual the fence cannot see is a deviation when the server's
+	// role reaches below SQL (CI connects as a superuser).
+	var super bool
+	require.NoError(t, db.Raw("SELECT rolsuper FROM pg_roles WHERE rolname = current_user").Scan(&super).Error)
+	if super {
+		require.Contains(t, out, "can change the security tables below SQL", out)
+	}
 
 	// 7. A later boot without the setting removes the fence.
 	swWriteConfig(t, dir, dsn, false)
