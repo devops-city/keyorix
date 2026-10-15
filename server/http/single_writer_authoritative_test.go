@@ -31,7 +31,13 @@ import (
 // pool opens, then the fence, settle and the poller once the schema exists.
 func newSWAuthWorld(t *testing.T, replicas int) (*svWorld, *solewriter.Guard) {
 	t.Helper()
-	cfg := svStorageConfig(t, "postgres")
+	return newSWAuthWorldFromConfig(t, replicas, svStorageConfig(t, "postgres"))
+}
+
+// newSWAuthWorldFromConfig is newSWAuthWorld on a config the caller keeps
+// (to open its own sessions on the same schema).
+func newSWAuthWorldFromConfig(t *testing.T, replicas int, cfg *config.Config) (*svWorld, *solewriter.Guard) {
+	t.Helper()
 	t.Cleanup(config.ClearSoleWriterSessionTagForTest)
 	g, err := solewriter.Start(context.Background(), cfg, solewriter.Options{SkipPresenceCensus: true, LockWait: 2 * time.Second})
 	require.NoError(t, err)
@@ -44,6 +50,19 @@ func newSWAuthWorld(t *testing.T, replicas int) (*svWorld, *solewriter.Guard) {
 	g.Run(context.Background())
 	require.Eventually(t, g.Authoritative, 2*time.Second, 10*time.Millisecond)
 	return w, g
+}
+
+// swCaughtUp waits until the guard's poller has seen the write epoch as it is
+// now, plus one more poll. The set-up's own fenced writes move the epoch, and
+// the poll that sees the move flushes the memo; under load that poll can land
+// after a warm-up and turn the next read into a confirming one. Warm after
+// this.
+func swCaughtUp(t *testing.T, w *svWorld, g *solewriter.Guard) {
+	t.Helper()
+	var n int64
+	require.NoError(t, w.a.db.Raw("SELECT n FROM keyorix_write_epoch WHERE id = 1").Scan(&n).Error)
+	require.Eventually(t, func() bool { return g.Epoch() >= n }, 5*time.Second, 10*time.Millisecond, "the poller never saw epoch %d", n)
+	time.Sleep(2 * solewriter.PollInterval)
 }
 
 // swConfirmingStatement reports whether stmts contain the confirming
@@ -60,6 +79,7 @@ func swConfirmingStatement(stmts []string) bool {
 func TestSingleWriter_WarmMachineReadRunsNoConfirmingStatement(t *testing.T) {
 	w, g := newSWAuthWorld(t, 1)
 	sec, v1 := w.newSecret(t, nil)
+	swCaughtUp(t, w, g)
 	fcWarm(t, w, w.a, sec, v1, true) // the folded statement ran once: memoized
 	var got string
 	stmts := fcStatements(w.a, func() { got = fcRead(w.a, w.tokens["machine"], sec.ID) })
@@ -108,6 +128,7 @@ func TestSingleWriter_ServerPathRevocationIsImmediate(t *testing.T) {
 			svAvoidHourBoundary(t)
 			w, g := newSWAuthWorld(t, 3)
 			sec, v1 := w.newSecret(t, nil)
+			swCaughtUp(t, w, g)
 			fcWarm(t, w, w.a, sec, v1, true)
 			tok := w.tokens["machine"]
 			stmts := fcStatements(w.a, func() { require.Equal(t, "200 "+v1, fcRead(w.a, tok, sec.ID)) })
@@ -147,8 +168,9 @@ func TestSingleWriter_RevocationRacingReaders_ThroughTheServerPool(t *testing.T)
 }
 
 func swRevocationRace(t *testing.T, revoke func(*svWorld, models.MachineIdentityCredential)) {
-	w, _ := newSWAuthWorld(t, 1)
+	w, g := newSWAuthWorld(t, 1)
 	sec, v1 := w.newSecret(t, nil)
+	swCaughtUp(t, w, g)
 	fcWarm(t, w, w.a, sec, v1, true)
 	tok := w.tokens["machine"]
 	cred := fcMachineCred(t, w)
@@ -218,12 +240,13 @@ func TestSingleWriter_LostLockConfirmsAgain(t *testing.T) {
 // memo returns the row, and CurrentMachineTokenRestriction judges expires_at
 // against the request's clock, so the read is denied.
 func TestSingleWriter_ExpiryByTimeAloneIsSeenOnAMemoHit(t *testing.T) {
-	w, _ := newSWAuthWorld(t, 1)
+	w, g := newSWAuthWorld(t, 1)
 	cred := fcMachineCred(t, w)
-	soon := time.Now().Add(2 * time.Second)
+	soon := time.Now().Add(4 * time.Second)
 	cred.ExpiresAt = &soon
 	require.NoError(t, w.a.db.Save(&cred).Error) // before warming: the memo holds this row
 	sec, v1 := w.newSecret(t, nil)
+	swCaughtUp(t, w, g)
 	fcWarm(t, w, w.a, sec, v1, true)
 	tok := w.tokens["machine"]
 	stmts := fcStatements(w.a, func() { require.Equal(t, "200 "+v1, fcRead(w.a, tok, sec.ID)) })
