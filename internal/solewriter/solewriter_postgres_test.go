@@ -65,7 +65,11 @@ func newSWWorld(t *testing.T) *swWorld {
 	cfg := &config.Config{Storage: config.StorageConfig{Type: "postgres", Database: config.DatabaseConfig{DSN: dsn}}}
 	st, err := storage.NewStorageFactory().CreateStorage(cfg)
 	require.NoError(t, err)
-	_ = st
+	// Close the migration pool: left open, every world keeps its connections
+	// until the process ends and a full run exhausts max_connections.
+	if c, ok := st.(interface{ Close() error }); ok {
+		t.Cleanup(func() { _ = c.Close() })
+	}
 	w := &swWorld{t: t, dsn: dsn, schema: schema, cfg: cfg, foreign: w0open(t, dsn)}
 	p := models.Project{Name: "sw-project"}
 	require.NoError(t, w.foreign.Create(&p).Error)
