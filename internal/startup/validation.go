@@ -51,10 +51,15 @@ type ValidationResult struct {
 	// consumer — the posture report, a dashboard, an auditor's script — has to
 	// be able to tell them apart from a field rather than by parsing log text.
 	//
-	// Today it carries exactly one entry's worth of settings (the fast audit
-	// mode). When ADR-112's registry (#2454) lands, this slice should be
-	// populated by iterating that registry instead of being hand-built here.
+	// Today it carries the access-log drop mode only. When ADR-112's registry
+	// (#2454) lands, this slice should be populated by iterating that registry
+	// instead of being hand-built here.
 	InsecureSettings []InsecureSettingStatus
+	// EffectiveAuditDurability is the effective storage.database.audit_durability
+	// (ADR-112 Amendment 3). Informational: both levels are baseline, so it
+	// is never a Warning or an InsecureSettings entry. Zero when validation
+	// stopped before the database check.
+	EffectiveAuditDurability config.AuditDurabilityStatus
 }
 
 // InsecureSettingStatus is one ADR-112 `insecure_` opt-out's posture state.
@@ -173,13 +178,9 @@ func validateStartup(configPath string, forceAutoFix bool, tolerateUnprovisioned
 	}
 	result.DatabaseOK = true
 
-	// ADR-112 Amendment 1 (docs/specs/fast-audit-mode.md) requires the fast
-	// audit mode to appear in the posture surface. Until the dedicated
-	// `admin validate --posture` report lands (#2478), this -- what
-	// `keyorix-server admin validate` prints -- IS the posture surface, so the
-	// deviation goes here, both as a human-readable Warnings line and as a
-	// structured InsecureSettings entry.
-	appendFastAuditPosture(cfg, result)
+	// ADR-112 Amendment 3: admin validate reports the effective audit
+	// durability level. Both levels are baseline, so it is never a warning.
+	result.EffectiveAuditDurability = cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type)
 	appendAccessLogPosture(cfg, result)
 
 	return result, nil
@@ -199,8 +200,9 @@ const AccessLogDropModeWarning = "Access log stall mode is DROP (server.access_l
 	"keeps serving secrets when the log sink stalls; access-log lines past the 1 MiB queue are dropped " +
 	"and reported; the audit trail is unaffected"
 
-// appendAccessLogPosture records the drop mode in result, like the fast audit
-// mode. It is always in effect when configured.
+// appendAccessLogPosture records the drop mode in result, as a Warnings line
+// and a structured InsecureSettings entry. It is always in effect when
+// configured.
 func appendAccessLogPosture(cfg *config.Config, result *ValidationResult) {
 	if cfg.Server.AccessLog.EffectiveOnSinkStall() != config.AccessLogOnSinkStallDrop {
 		return
@@ -212,71 +214,6 @@ func appendAccessLogPosture(cfg *config.Config, result *ValidationResult) {
 		Describe:   accessLogDropDescribe,
 	})
 	result.Warnings = append(result.Warnings, AccessLogDropModeWarning)
-}
-
-// AuditSkipDurableSyncSettingName is the canonical dotted config path of the
-// fast audit mode, insecure_-prefixed leaf per ADR-112 section 1. Exported so
-// a posture consumer can match on it without hardcoding the string.
-const AuditSkipDurableSyncSettingName = "storage.database.insecure_audit_skip_durable_sync"
-
-// auditSkipDurableSyncDescribe is the one-line "what being in effect weakens"
-// text, in the shape ADR-112's registry (#2454) uses for every entry.
-const auditSkipDurableSyncDescribe = "the audit commit no longer waits for a disk sync, so an OS or " +
-	"database-server crash can lose the most recent audit entries"
-
-// AuditDurableSyncSkippedWarning is the posture-deviation line for the fast
-// audit mode when it is actually IN EFFECT. Exported so a test can assert the
-// exact string rather than a substring a later reword could silently stop
-// matching, the same way validation_test.go already pins "File permission
-// checks are disabled" and "Encryption is disabled" literally
-// (admin/validate.go matches those by equality to pick a recommendation line).
-const AuditDurableSyncSkippedWarning = "Durable audit sync is DISABLED " +
-	"(storage.database.insecure_audit_skip_durable_sync): audit commits no longer wait for a disk sync, so an OS " +
-	"crash or power loss can lose the most recent audit entries -- see docs/security/hardening-guide.md"
-
-// AuditDurableSyncIgnoredWarningPrefix starts the posture line for a setting
-// that is CONFIGURED BUT NOT IN EFFECT (Andrei's decision, 2026-10-05: show it
-// as off, with the reason). A prefix rather than a whole constant because the
-// reason varies by backend and is appended verbatim; a test asserts the
-// prefix plus the reason rather than a single frozen sentence.
-//
-// Worded as IGNORED, never as "audit durability weakened" -- the whole point of
-// this state is that nothing has been weakened, and a line that implied
-// otherwise would send an operator chasing a durability problem they do not
-// have.
-const AuditDurableSyncIgnoredWarningPrefix = "storage.database.insecure_audit_skip_durable_sync is set but IGNORED, " +
-	"not in effect: "
-
-// appendFastAuditPosture records the fast audit mode's state in result, in
-// both forms. Three outcomes, and each is a distinct, separately-reported
-// state rather than a boolean:
-//
-//   - not configured: nothing recorded at all, so a default install still
-//     shows ZERO deviations (ADR-112 section 4's own gate).
-//   - configured and in effect: the AuditDurableSyncSkippedWarning deviation,
-//     InEffect true, empty NotInEffectReason.
-//   - configured and NOT in effect: an IGNORED line carrying the reason, and
-//     a structured entry with InEffect false plus that same reason. Still
-//     reported, because a config line an operator wrote and believes is doing
-//     something is worth surfacing -- but not reported as a weakening,
-//     because it is not one.
-func appendFastAuditPosture(cfg *config.Config, result *ValidationResult) {
-	st := cfg.Storage.Database.AuditDurableSyncStatus(cfg.Storage.Type)
-	if !st.Configured {
-		return
-	}
-	result.InsecureSettings = append(result.InsecureSettings, InsecureSettingStatus{
-		Name:              AuditSkipDurableSyncSettingName,
-		Configured:        true,
-		InEffect:          st.InEffect,
-		NotInEffectReason: st.NotInEffectReason,
-		Describe:          auditSkipDurableSyncDescribe,
-	})
-	if st.InEffect {
-		result.Warnings = append(result.Warnings, AuditDurableSyncSkippedWarning)
-		return
-	}
-	result.Warnings = append(result.Warnings, AuditDurableSyncIgnoredWarningPrefix+st.NotInEffectReason)
 }
 
 // SafeFilePermPath cleans path and rejects it if the cleaned form still
@@ -587,6 +524,9 @@ func PrintValidationResult(result *ValidationResult) {
 	printStatus("Permissions", result.PermissionsOK)
 	printStatus("Encryption", result.EncryptionOK)
 	printStatus("Database", result.DatabaseOK)
+	if result.EffectiveAuditDurability.Level != "" {
+		fmt.Printf("%-13s: %s (%s)\n", "Audit durability", result.EffectiveAuditDurability.Level, result.EffectiveAuditDurability.Level.Meaning())
+	}
 
 	if len(result.Warnings) > 0 {
 		fmt.Println("\n⚠️  Warnings:")

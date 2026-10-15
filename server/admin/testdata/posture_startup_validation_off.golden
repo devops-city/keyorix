@@ -6,3 +6,6 @@ ADR-112 Secure Baseline Posture
   [insecure-setting/explicit] storage.encryption.insecure_disable_encryption_at_rest is in effect (true) — secrets stored unencrypted at rest
   [insecure-setting/shipped-default] server.insecure_allow_unauthenticated_metrics is in effect (true) — /metrics served fully unauthenticated
   [insecure-setting/shipped-default] server.insecure_disable_api_ratelimit is in effect (true) — removes per-principal API rate limiting
+
+Informational (not counted toward the exit code):
+  - storage.database.audit_durability: strict (committed and synced to disk before every disclosure; no audit entry is lost to any crash or power loss)

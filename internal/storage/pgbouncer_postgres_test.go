@@ -76,7 +76,12 @@ func (tg pgBouncerTarget) open(t *testing.T, fastAudit bool) corestorage.Storage
 	cfg.Storage.Type = "postgres"
 	cfg.Storage.Database.DSN = tg.dsn
 	cfg.Storage.Database.MaxOpenConns = 5
-	cfg.Storage.Database.InsecureAuditSkipDurableSync = fastAudit
+	// Explicit at both levels: standard is the PostgreSQL default since
+	// ADR-112 Amendment 3, so the durable arm must ask for strict.
+	cfg.Storage.Database.AuditDurability = string(config.AuditDurabilityStrict)
+	if fastAudit {
+		cfg.Storage.Database.AuditDurability = string(config.AuditDurabilityStandard)
+	}
 	setTestPooler(&cfg.Storage.Database, tg.pooler)
 	st, err := NewStorageFactory().CreateStorage(cfg)
 	require.NoError(t, err, "pooler %q, pool mode %q", tg.pooler, tg.mode)

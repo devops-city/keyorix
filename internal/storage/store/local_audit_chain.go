@@ -54,23 +54,23 @@ const (
 	auditBusyRetryMaxDelay  = 500 * time.Millisecond
 )
 
-// applyAuditCommitDurability is the ONE place the ADR-112 Amendment 1 fast
-// audit mode (FASTAUDIT-1, docs/specs/fast-audit-mode.md) touches the
-// audit-commit path, and the ONLY implementation of the mode anywhere.
+// applyAuditCommitDurability is the ONE place storage.database.audit_durability
+// (ADR-112 Amendments 1 and 3, docs/specs/fast-audit-mode.md) touches the
+// audit-commit path, and the ONLY implementation of the standard level anywhere.
 //
 // POSTGRES ONLY. Callers must already have established that tx's dialect is
 // postgres. There is NO SQLite counterpart, and deliberately never was in a
-// shipped build: the mode is PostgreSQL-only (Andrei's decision, 2026-10-05)
-// and config validation REFUSES TO START a SQLite backend that sets the key
-// (internal/config's auditSkipDurableSyncSQLiteUnsupportedError), so a
+// shipped build: standard is PostgreSQL-only (Andrei's decision, 2026-10-05)
+// and config validation REFUSES TO START a SQLite backend set to standard
+// (internal/config's auditDurabilityStandardSQLiteUnsupportedError), so a
 // SQLite-backed LocalStorage can never reach this function with skip == true.
 // SQLite's own DSN says `_synchronous=FULL` unconditionally and has no other
-// branch. See config.DatabaseConfig.InsecureAuditSkipDurableSync for the two
+// branch. See config.DatabaseConfig.AuditDurability for the
 // reasons SQLite was rejected (a per-connection pragma would relax every
 // table, not just audit; and the measured p99 got worse under concurrency).
 //
-// skip == false (the default, and the secure baseline) is a strict NO-OP: no
-// statement is issued at all, so the default path is byte-identical to what it
+// skip == false (the strict level) is a strict NO-OP: no
+// statement is issued at all, so the strict path is byte-identical to what it
 // was before this setting existed — no extra round trip, nothing to regress,
 // and nothing that could accidentally override a cluster- or role-level
 // synchronous_commit an operator set deliberately.

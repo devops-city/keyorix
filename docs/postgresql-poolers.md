@@ -89,10 +89,11 @@ start beside it. Detecting that (a periodic liveness check on the lock
 connection that stops the server) is not implemented yet.
 
 What does not change in any mode: the audit record of a secret read is
-committed durably before the secret is returned. Fast audit mode
-(`insecure_audit_skip_durable_sync`) still uses `SET LOCAL synchronous_commit =
-off`, which ends with the audit transaction and never reaches another client.
-`TestPgBouncer_StorageSlice/AuditCommit` checks both through PgBouncer.
+committed before the secret is returned. At `audit_durability: strict` the
+commit waits for the disk sync; at `standard` (the PostgreSQL default) the
+audit transaction uses `SET LOCAL synchronous_commit = off`, which ends with
+that transaction and never reaches another client.
+`TestPgBouncer_StorageSlice/AuditCommit` checks both levels through PgBouncer.
 
 ## PgBouncer requirements for transaction mode
 

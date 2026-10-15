@@ -208,21 +208,20 @@ type LocalStorage struct {
 	nativeRowChain      uintptr
 	nativeRowChainKnown bool
 	// auditSkipDurableSync, when true, makes the audit-commit transaction skip
-	// the WAIT for a disk sync — nothing else (ADR-112 Amendment 1,
-	// FASTAUDIT-1, docs/specs/fast-audit-mode.md). Set once at construction
-	// from config.DatabaseConfig.InsecureAuditSkipDurableSync; zero value
-	// (false, Go's own default) is the secure baseline, so a construction site
-	// that forgets to call SetAuditSkipDurableSync gets DURABLE commits, never
-	// the weak mode.
+	// the WAIT for a disk sync — nothing else: storage.database.audit_durability
+	// standard (ADR-112 Amendments 1 and 3, docs/specs/fast-audit-mode.md).
+	// Set once at construction from config.DatabaseConfig.EffectiveAuditDurability
+	// (standard is the PostgreSQL default); the zero value (false) is strict, so a
+	// construction site that forgets to call SetAuditSkipDurableSync gets
+	// commits that wait for the disk sync.
 	//
 	// Read by commitBatchAttempt and logAuditEventDirect, and acted on ONLY on
 	// Postgres (`SET LOCAL synchronous_commit = off`, transaction-scoped).
 	// There is no SQLite equivalent and deliberately never was in a shipped
-	// build: the mode is PostgreSQL-only (Andrei's decision, 2026-10-05) and
-	// config validation refuses to start a SQLite backend that sets it, so a
-	// SQLite-backed LocalStorage can never have this field true. See
-	// config.DatabaseConfig.InsecureAuditSkipDurableSync for the two reasons
-	// (per-connection pragma relaxes every table; measured p99 regression).
+	// build: standard is PostgreSQL-only and config validation refuses to
+	// start a SQLite backend set to it, so a SQLite-backed LocalStorage can
+	// never have this field true. See config.DatabaseConfig.AuditDurability
+	// for why (per-connection pragma relaxes every table).
 	//
 	// Deliberately NOT shared with transaction-scoped clones, same as
 	// auditFlusherLingerWindow: read-only after construction, and a clone's
@@ -364,13 +363,12 @@ func (ls *LocalStorage) SetAuditFlusherLingerWindow(d time.Duration) {
 }
 
 // SetAuditSkipDurableSync configures whether the audit-commit transaction
-// skips the WAIT for a disk sync (ADR-112 Amendment 1, FASTAUDIT-1 —
-// docs/specs/fast-audit-mode.md). false, the zero value and this type's
-// default if this is never called, is the secure baseline: the audit record is
-// durably committed before a secret value is returned. Only
-// internal/storage's factory calls this, and only with
-// config.DatabaseConfig.InsecureAuditSkipDurableSync, which no transport can
-// set.
+// skips the WAIT for a disk sync: audit_durability standard (ADR-112
+// Amendments 1 and 3, docs/specs/fast-audit-mode.md). false, the zero value
+// and this type's default if this is never called, is strict: the audit
+// record is synced to disk before a secret value is returned. Only
+// internal/storage's factory calls this, from
+// config.DatabaseConfig.EffectiveAuditDurability, which no transport can set.
 //
 // Same constraint as SetAuditFlusherLingerWindow: safe to call only before
 // this LocalStorage starts serving traffic — the field is read once per

@@ -324,11 +324,10 @@ const sqliteBusyTimeoutMillis = 10000
 //     before/after (no throughput delta, as expected, since the pragma value
 //     is unchanged — this closes an unasserted-guarantee gap, not a bug).
 //
-//     NOT RELAXABLE BY CONFIGURATION. ADR-112 Amendment 1's fast audit mode
-//     (storage.database.insecure_audit_skip_durable_sync) is PostgreSQL-ONLY
-//     (Andrei's decision, 2026-10-05) and config validation REFUSES TO START
-//     when it is combined with a SQLite backend
-//     (internal/config's auditSkipDurableSyncSQLiteUnsupportedError), so this
+//     NOT RELAXABLE BY CONFIGURATION. storage.database.audit_durability's
+//     standard level (ADR-112 Amendments 1 and 3) is PostgreSQL-ONLY and
+//     config validation REFUSES TO START a SQLite backend set to it
+//     (internal/config's auditDurabilityStandardSQLiteUnsupportedError), so this
 //     DSN has no NORMAL branch at all and never had one in a shipped build.
 //     Two reasons it is not offered here, both measured or structural:
 //     `synchronous` is a PER-CONNECTION property set once per DSN and the pool
@@ -631,9 +630,9 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 	ls := store.NewLocalStorage(db)
 	ls.SetAuditFlusherLingerWindow(cfg.Storage.Database.GetAuditFlusherLingerWindow())
 	ls.SetSoftDeleteRetentionDays(cfg.SoftDelete.GetRetentionDays())
-	// No SetAuditSkipDurableSync here, deliberately: ADR-112 Amendment 1's
-	// fast audit mode is PostgreSQL-only and config validation refuses to
-	// start a SQLite backend that sets it, so there is nothing to propagate --
+	// No SetAuditSkipDurableSync here, deliberately: audit_durability standard
+	// is PostgreSQL-only and config validation refuses to start a SQLite
+	// backend set to it (SQLite is strict only), so there is nothing to propagate --
 	// and leaving the zero value (false, durable) means a config that somehow
 	// bypassed validation still gets durable commits rather than a half-
 	// applied weak mode.
@@ -697,11 +696,11 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	ls.SetNamedLockDB(namedLockDB)
 	ls.SetNativeReadPool(nativeReads)
 	ls.SetTransactionPooling(cfg.Storage.Database.TransactionPooling())
-	// ADR-112 Amendment 1: read the computed status rather than the raw bool,
-	// so "configured" and "actually in effect" cannot drift apart between
-	// here and the surfaces that report it (start-up log, posture, API). This
-	// is the one backend where InEffect can be true.
-	ls.SetAuditSkipDurableSync(cfg.Storage.Database.AuditDurableSyncStatus(cfg.Storage.Type).InEffect)
+	// ADR-112 Amendment 3: the effective audit_durability level, read through
+	// the same function the start-up line, posture report and API use, so the
+	// level reported cannot differ from the level run. Standard -- the
+	// PostgreSQL default -- skips only the audit commit's wait for the disk sync.
+	ls.SetAuditSkipDurableSync(cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type).Level == config.AuditDurabilityStandard)
 	return ls, nil
 }
 
