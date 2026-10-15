@@ -149,6 +149,11 @@ func TestLoginBudget_FailureCountSurvivesRestart(t *testing.T) {
 	for i := range core.LoginMaxAttempts {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, h, "wrong-password").Code, "failure %d", i+1)
 	}
+	// Every failed login detaches its audit write (goSafe). A graceful stop
+	// waits for them; closing first would leave one holding SQLite's write lock
+	// while the restarted process migrates ("database is locked", #3270).
+	DrainBackgroundGoroutines()
+	core.DrainBackgroundGoroutines()
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close(), "simulated server stop")
