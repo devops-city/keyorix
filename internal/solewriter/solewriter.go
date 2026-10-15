@@ -26,12 +26,20 @@
 // cache authoritative: Guard.Authoritative reports whether one may be (state
 // authoritative, lease valid), and the cache layer decides.
 //
-// Limits, stated: the fence is a database trigger. A role that can disable
-// or drop triggers (the table owner, a superuser) or read the holder's
-// session tag can bypass it. The poller then sees the trigger fingerprint
-// change within PollInterval and the guard leaves the authoritative state for
-// good (until restart). A write made after the holder lock is lost lands
-// within the lease. Both windows are bounded by LeaseDuration.
+// Limits, stated: the fence is a database trigger. A role that can disable,
+// drop or replace triggers (the table owner, a superuser) can bypass it, even
+// inside one transaction that restores everything before it commits: the
+// fingerprint includes the catalog rows' xmin and any table inheriting from a
+// fenced one, so the poller sees the change within PollInterval and the guard
+// leaves the authoritative state for good (until restart). A session that
+// copied the holder's tag passes the fence, but its write moves the epoch like
+// any other. A write made after the holder lock is lost lands within the
+// lease. All these windows are bounded by LeaseDuration.
+//
+// Not detected (docs/single-writer.md "Residual risks"): a superuser who
+// writes the table files or memory below SQL (native code loaded into the
+// server, the data directory, pg_resetwal) changes rows without any trigger
+// or catalog change to see.
 package solewriter
 
 import (

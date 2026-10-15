@@ -59,6 +59,7 @@ func newPrincipalPermStorage(t *testing.T, backend string) (*LocalStorage, func(
 	}
 	db := open()
 	require.NoError(t, db.AutoMigrate(principalPermModels...))
+	require.NoError(t, EnsureRolePermissionsGenerationTriggers(db)) // #3259, see newRolePermCacheTestStorage
 	// On Postgres the stores read their hot statements on a native pool, as the
 	// factory-built storage does (native_reads.go).
 	mk := func(db *gorm.DB) *LocalStorage {
@@ -326,6 +327,9 @@ func TestResolvePrincipalPermission_OneStatementAndSharedCache(t *testing.T) {
 			r, err := ls.CreateRole(ctx, n, "")
 			require.NoError(t, err)
 			require.NoError(t, ls.db.Create(&models.RolePermission{RoleID: r.ID, PermissionID: pR.ID}).Error)
+			// The #3259 triggers created the generation row on those writes; remove
+			// it to get back to an install that has none.
+			require.NoError(t, ls.db.Where("key = ?", rolePermissionsGenerationKey).Delete(&models.SystemMetadata{}).Error)
 			var gens int64
 			require.NoError(t, ls.db.Model(&models.SystemMetadata{}).Where("key = ?", rolePermissionsGenerationKey).Count(&gens).Error)
 			require.Zero(t, gens, "precondition: never-bumped install")
@@ -424,11 +428,13 @@ func TestResolvePrincipalPermission_GenerationReadBeforeTheJoin(t *testing.T) {
 				}
 
 				// One-shot hook: right after the live join (the only statement
-				// reading role_permissions), another replica removes the permission.
+				// joining role_permissions; the principal statement only names the
+				// table in its #3259 trigger proof), another replica removes the
+				// permission.
 				var once sync.Once
 				fired := false
 				hook := func(db *gorm.DB) {
-					if !strings.Contains(db.Statement.SQL.String(), "role_permissions") {
+					if !strings.Contains(db.Statement.SQL.String(), sqlJoinRolePerms) {
 						return
 					}
 					once.Do(func() {
@@ -468,8 +474,9 @@ func TestResolvePrincipalPermission_TransactionScopedStoreNeverUsesTheCache(t *t
 			mid := w.machine(p)
 			require.NoError(t, ls.AssignMachineRole(ctx, mid, r.ID, sc))
 
-			gen, err := liveRolePermissionsGeneration(ctx, ls)
+			gen, trusted, err := liveRolePermissionsGeneration(ctx, ls)
 			require.NoError(t, err)
+			require.True(t, trusted, "precondition: the generation triggers are installed")
 			poisoned := rolePermKey([]uint{r.ID}, pW.Name)
 			ls.rolePermCache.set(poisoned, rolePermCacheEntry{generation: gen, allowed: true})
 			// Calibration: the non-tx store DOES serve the poisoned entry.

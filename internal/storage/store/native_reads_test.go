@@ -154,7 +154,7 @@ func TestNativeReads_CredentialLookupMatchesDatabaseSQL(t *testing.T) {
 func requireNativePrefetchMatches(t *testing.T, ls *LocalStorage, c prefetchScanCase, wantRows int) {
 	t.Helper()
 	ctx := context.Background()
-	q := readPathPrefetchSQL(nodeTriggerExistsExpr(ls.db), c.want)
+	q := readPathPrefetchSQL(nodeTriggerExistsExpr(ls.db), rolePermGenerationExpr(ls.db, "gen"), c.want)
 	type answer struct {
 		rows []readPathPrefetchRow
 		err  error
@@ -321,9 +321,10 @@ func TestNativeSQL_NumbersEveryPlaceholder(t *testing.T) {
 		&gorm.Config{Logger: logger.Discard, DryRun: true, DisableAutomaticPing: true})
 	require.NoError(t, err)
 	expr := nodeTriggerExistsExpr(db)
+	genExpr := rolePermGenerationExpr(db, "gen")
 	require.Contains(t, expr, "pg_trigger", "precondition: the Postgres trigger proof")
 	for _, want := range []bool{true, false} {
-		for _, q := range []string{readPathPrefetchSQL(expr, want), foldedCredentialSQL(expr, want)} {
+		for _, q := range []string{readPathPrefetchSQL(expr, genExpr, want), foldedCredentialSQL(expr, genExpr, want)} {
 			n := strings.Count(q, "?")
 			args := make([]any, n)
 			for i := range args {
