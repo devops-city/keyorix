@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { Footer } from './Footer';
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { ImpersonationBanner } from './ImpersonationBanner';
+import { AuditReadsSkippedBanner } from './AuditReadsSkippedBanner';
 import { CmdKSearch } from '../ui/CmdKSearch';
 import { isPaletteShortcut } from '../../utils/platform';
 import { useAuthStore } from '../../store/authStore';
@@ -51,6 +52,9 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
                 <div className="sticky top-0 z-50 flex flex-col">
                     {/* Impersonation warning bar (visible only while impersonating) */}
                     <ImpersonationBanner />
+
+                    {/* Persistent while secret reads are not audited (ADR-112 Amendment 4) */}
+                    <AuditReadsSkippedBanner />
 
                     {/* Header */}
                     <Header onMenuClick={() => setSidebarOpen(true)} />

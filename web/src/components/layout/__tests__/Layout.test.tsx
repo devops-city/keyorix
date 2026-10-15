@@ -39,6 +39,10 @@ vi.mock('../ImpersonationBanner', () => ({
     ImpersonationBanner: () => <div data-testid="impersonation-banner-stub">impersonation banner stub</div>,
 }));
 
+vi.mock('../AuditReadsSkippedBanner', () => ({
+    AuditReadsSkippedBanner: () => <div data-testid="audit-reads-skipped-banner-stub">audit reads banner stub</div>,
+}));
+
 vi.mock('../../ui/CmdKSearch', () => ({
     CmdKSearch: ({ onClose }: { onClose: () => void }) => (
         <div data-testid="cmdk-search-stub">
@@ -62,6 +66,7 @@ describe('Layout', () => {
         expect(screen.getByTestId('sidebar-stub')).toBeInTheDocument();
         expect(screen.getByTestId('footer-stub')).toBeInTheDocument();
         expect(screen.getByTestId('impersonation-banner-stub')).toBeInTheDocument();
+        expect(screen.getByTestId('audit-reads-skipped-banner-stub')).toBeInTheDocument();
         expect(screen.getByTestId('page-content')).toBeInTheDocument();
     });
 
