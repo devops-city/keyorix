@@ -233,6 +233,11 @@ kubectl -n keyorix create secret generic keyorix-secure-baseline \
   --from-literal=metrics_token="$(openssl rand -base64 36)"
 ```
 
+This flow is exercised on a real cluster by journey J6 of `scripts/k8s-e2e`
+(`KEYORIX_K8S_E2E_ONLY=j6 make k8s-e2e`): install plus two upgrades leave the
+Secret, certificates and pods unchanged, and a Secret missing a key fails the
+upgrade.
+
 On `helm install/upgrade` a missing or empty key fails the render naming the
 key. Under `helm template` the cluster is invisible, so the check cannot run
 and a bad Secret shows up as pods that do not start. The pod checksum

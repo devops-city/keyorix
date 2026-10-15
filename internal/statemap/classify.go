@@ -253,7 +253,16 @@ func jobClosureBodies(repoRoot string) (map[string]*ast.BlockStmt, error) {
 		// missed, so this matched nothing for any of the 18 real call sites and
 		// every job silently fell through to the "could not re-locate" REVIEW
 		// path in Classify).
-		if !ok || id.Name != "runScheduler" || len(call.Args) < 4 {
+		// runSchedulerAfter(ctx, name, interval, firstDelay, tick) carries the
+		// closure one argument later.
+		tickArg := 3
+		switch {
+		case !ok:
+			return true
+		case id.Name == "runScheduler" && len(call.Args) >= 4:
+		case id.Name == "runSchedulerAfter" && len(call.Args) >= 5:
+			tickArg = 4
+		default:
 			return true
 		}
 		lit, ok := call.Args[1].(*ast.BasicLit)
@@ -264,7 +273,7 @@ func jobClosureBodies(repoRoot string) (map[string]*ast.BlockStmt, error) {
 		if uerr != nil {
 			return true
 		}
-		if fn, ok := call.Args[3].(*ast.FuncLit); ok && fn.Body != nil {
+		if fn, ok := call.Args[tickArg].(*ast.FuncLit); ok && fn.Body != nil {
 			out[label] = fn.Body
 		}
 		return true

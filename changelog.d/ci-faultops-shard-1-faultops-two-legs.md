@@ -1,0 +1,2 @@
+### Fixed
+- **CI: `server/faultops` no longer hits the 30-minute `go test` timeout in the `test-suite` matrix.** The package had grown from 1305s to 1805s inside root-4's catch-all, so main and merge-queue groups failed at random. It now runs in two dedicated legs (`faultops-1`, `faultops-2`) split by test name, root-4 excludes it, and both legs upload coverage into the floor. No test, fuzz corpus or seed was skipped or reduced; `assert_faultops_shards_complete` fails CI if any test would run in no shard or in two.

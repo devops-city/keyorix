@@ -371,6 +371,39 @@ describe('CompliancePage posture panel', () => {
         expect(await screen.findByText('Controls posture is currently unavailable.')).toBeInTheDocument();
     });
 
+    it('shows an audit chain that no full re-walk has proven yet as "Not yet proven", not "No"', async () => {
+        (complianceApi.getPosture as any).mockResolvedValue({
+            ...posture,
+            auditIntegrity: {
+                chainVerified: false,
+                chainedEvents: 12,
+                checkpointed: true,
+                verificationStatus: 'not_proven',
+                reason: 'no full verification has completed yet',
+            },
+        });
+        render(<CompliancePage />);
+
+        expect(await screen.findByText('Not yet proven')).toBeInTheDocument();
+        expect(screen.queryByText('Last full chain re-walk')).not.toBeInTheDocument();
+    });
+
+    it('shows when the last full chain re-walk completed', async () => {
+        (complianceApi.getPosture as any).mockResolvedValue({
+            ...posture,
+            auditIntegrity: {
+                chainVerified: true,
+                chainedEvents: 12,
+                checkpointed: true,
+                verificationStatus: 'valid',
+                lastFullVerificationAt: '2026-10-14T03:00:00Z',
+            },
+        });
+        render(<CompliancePage />);
+
+        expect(await screen.findByText('Last full chain re-walk')).toBeInTheDocument();
+    });
+
     it('reflects a degraded posture: failed checks, low second-factor coverage, and disabled retention', async () => {
         (complianceApi.getPosture as any).mockResolvedValue({
             ...posture,

@@ -77,6 +77,15 @@ each chained row, (a) checks `prev_hash` equals the running previous
 row's stored fields and checks it matches. The first divergence is reported with
 the offending `id` and reason. Exposed as `GET /api/v1/audit/verify`.
 
+Since AUDIT-VERIFY-INCR-1, that endpoint, the checkpoint scheduler, the
+on-demand checkpoint and the compliance posture no longer walk the whole chain.
+They use a tail check from the latest signed checkpoint, and a rolling full
+re-walk spread over the scheduler ticks that keeps its progress in a signed
+state row. Every row is still re-hashed at least once per cycle. The full walk
+stays available as `?full=true` (a background job) and as the offline
+`admin verify-audit`. What each mode proves and does not prove:
+`docs/specs/audit-incremental-verification.md`.
+
 ### Legacy rows
 
 Events written before this ADR have empty `prev_hash`/`entry_hash`. Verification

@@ -1718,16 +1718,29 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		log.Printf("WARNING: audit checkpointing is UNAVAILABLE (encryption/signing key not configured) — the audit trail is tamper-EVIDENT only, NOT forgery-resistant: a database-write attacker can edit/delete/reorder audit rows and recompute the chain. Enable encryption to activate forgery resistance.")
 	default:
 		interval := cfg.AuditCheckpoints.GetInterval()
-		log.Printf("Audit-checkpoint scheduler enabled (forgery resistance active): every %s", interval)
-		runScheduler(ctx, "audit_checkpoint", interval, func() middleware.SchedulerOutcome {
+		segments := core.DefaultAuditFullVerificationSegments
+		// Incremental verification (docs/specs/audit-incremental-verification.md):
+		// each tick checks only the tail since the latest checkpoint and re-walks
+		// 1/segments of the chain, so the whole chain is re-hashed every
+		// interval × segments; requests and posture read the persisted result.
+		coreService.SetAuditIncrementalVerification(interval, segments)
+		// A fresh checkpoint defers the first tick (spec §6): a restart does not
+		// re-verify what the last tick already covered.
+		firstDelay := coreService.AuditCheckpointFirstTickDelay(ctx, interval)
+		log.Printf("Audit-checkpoint scheduler enabled (forgery resistance active): every %s, full re-walk every %s, first tick in %s",
+			interval, interval*time.Duration(segments), firstDelay.Round(time.Second))
+		runSchedulerAfter(ctx, "audit_checkpoint", interval, firstDelay, func() middleware.SchedulerOutcome {
 			return lockedRun(ctx, coreService.Storage(), schedLockAuditCkpt, "Audit-checkpoint", func() error {
-				cp, written, werr := coreService.WriteAuditCheckpoint(ctx)
+				res, werr := coreService.RunAuditVerificationTick(ctx)
+				if res != nil && res.Written {
+					log.Printf("Audit checkpoint written: #%d head=%d events=%d", res.Checkpoint.ID, res.Checkpoint.HeadID, res.Checkpoint.ChainedEvents)
+				}
+				if res != nil && res.SegmentWalked {
+					log.Printf("Audit rolling verification: verified through #%d of #%d (cycle complete: %t)", res.VerifiedThrough, res.CycleTarget, res.CycleCompleted)
+				}
 				if werr != nil {
 					log.Printf("Audit-checkpoint error: %v", werr)
 					return werr
-				}
-				if written {
-					log.Printf("Audit checkpoint written: #%d head=%d events=%d", cp.ID, cp.HeadID, cp.ChainedEvents)
 				}
 				return nil
 			})

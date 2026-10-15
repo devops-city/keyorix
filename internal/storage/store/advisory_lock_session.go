@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/keyorixhq/keyorix/internal/config"
 )
 
@@ -39,6 +41,14 @@ import (
 // still inside its critical section. The pooler's own idle_transaction_timeout
 // and transaction timeouts must be 0 or longer than any critical section
 // (docs/postgresql-poolers.md).
+//
+// In transaction shape the lock statements go over the simple query protocol.
+// An extended-protocol SELECT inside a transaction block leaves its unnamed
+// portal, and that portal's snapshot, open until the transaction ends, so the
+// idle lock transaction would hold back the database's xmin for the whole
+// critical section: VACUUM keeps dead rows, and every CREATE INDEX
+// CONCURRENTLY (the audit index build, which runs under this lock) waits for
+// it to end.
 type advisoryLockSession struct {
 	conn *sql.Conn
 	xact bool
@@ -62,22 +72,22 @@ func openAdvisoryLockSession(ctx context.Context, conn *sql.Conn, xact bool) (*a
 
 // lock blocks until the exclusive advisory lock key is held.
 func (s *advisoryLockSession) lock(ctx context.Context, key int64) error {
-	q := "SELECT pg_advisory_lock($1)"
 	if s.xact {
-		q = "SELECT pg_advisory_xact_lock($1)"
+		_, err := s.conn.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", pgx.QueryExecModeSimpleProtocol, key)
+		return err
 	}
-	_, err := s.conn.ExecContext(ctx, q, key)
+	_, err := s.conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", key)
 	return err
 }
 
 // tryLock takes the exclusive advisory lock key if no one else holds it.
 func (s *advisoryLockSession) tryLock(ctx context.Context, key int64) (bool, error) {
-	q := "SELECT pg_try_advisory_lock($1)"
-	if s.xact {
-		q = "SELECT pg_try_advisory_xact_lock($1)"
-	}
 	var locked bool
-	err := s.conn.QueryRowContext(ctx, q, key).Scan(&locked)
+	if s.xact {
+		err := s.conn.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock($1)", pgx.QueryExecModeSimpleProtocol, key).Scan(&locked)
+		return locked, err
+	}
+	err := s.conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&locked)
 	return locked, err
 }
 
@@ -125,4 +135,9 @@ func (s *advisoryLockSession) discard() {
 // before serving traffic.
 func (ls *LocalStorage) SetTransactionPooling(on bool) {
 	ls.transactionPooling = on
+}
+
+// TransactionPooling reports SetTransactionPooling's setting.
+func (ls *LocalStorage) TransactionPooling() bool {
+	return ls.transactionPooling
 }

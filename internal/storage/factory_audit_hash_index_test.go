@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
+	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -35,8 +36,10 @@ func requireAuditHashIndexesDroppedOnUpgrade(t *testing.T, db *gorm.DB) {
 		require.False(t, indexExists(db, idx), "an upgraded install must drop %s", idx)
 	}
 	require.NoError(t, f.migrateDatabase(db), "re-running the migration must be a no-op")
-	require.True(t, indexExists(db, "idx_audit_events_project_id"), "the other audit_events indexes stay")
-	require.True(t, indexExists(db, "idx_audit_events_machine_identity_id"), "the other audit_events indexes stay")
+	ensureAuditListIndexesForTest(t, db)
+	for _, ix := range store.AuditListIndexes {
+		require.True(t, indexExists(db, ix.Name), "the audit list index %s exists", ix.Name)
+	}
 }
 
 func TestAuditEventHashIndexes_DroppedOnUpgrade(t *testing.T) {

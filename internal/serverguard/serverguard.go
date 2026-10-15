@@ -85,6 +85,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/keyorixhq/keyorix/internal/config"
 	"gorm.io/driver/postgres"
@@ -336,7 +337,7 @@ func acquirePostgresPresence(cfg *config.Config) (*Presence, error) {
 		}
 	}
 	var acquired bool
-	if err := conn.QueryRowContext(ctx, pgLockSQL("pg_try_advisory_lock_shared", xact), serverPresenceLockKey).Scan(&acquired); err != nil {
+	if err := conn.QueryRowContext(ctx, pgLockSQL("pg_try_advisory_lock_shared", xact), pgLockArgs(xact)...).Scan(&acquired); err != nil {
 		_ = conn.Close()
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("acquire shared server-presence advisory lock: %w", err)
@@ -384,7 +385,7 @@ func acquirePostgresExclusive(cfg *config.Config) (*Exclusive, error) {
 		}
 	}
 	var acquired bool
-	if err := conn.QueryRowContext(ctx, pgLockSQL("pg_try_advisory_lock", xact), serverPresenceLockKey).Scan(&acquired); err != nil {
+	if err := conn.QueryRowContext(ctx, pgLockSQL("pg_try_advisory_lock", xact), pgLockArgs(xact)...).Scan(&acquired); err != nil {
 		_ = conn.Close()
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("probe server-presence advisory lock: %w", err)
@@ -432,6 +433,19 @@ func pgLockSQL(fn string, xact bool) string {
 		fn = strings.Replace(fn, "advisory_lock", "advisory_xact_lock", 1)
 	}
 	return "SELECT " + fn + "($1)"
+}
+
+// pgLockArgs are pgLockSQL's arguments. In its transaction-scoped form the
+// statement goes over the simple query protocol: an extended-protocol SELECT
+// inside a transaction block leaves its unnamed portal, and that portal's
+// snapshot, open until the transaction ends, so a lock transaction held for
+// the server's lifetime would pin the database's xmin as long (VACUUM keeps
+// dead rows; every CREATE INDEX CONCURRENTLY waits for it).
+func pgLockArgs(xact bool) []any {
+	if xact {
+		return []any{pgx.QueryExecModeSimpleProtocol, serverPresenceLockKey}
+	}
+	return []any{serverPresenceLockKey}
 }
 
 // beginPinnedLockTx opens the transaction a transaction-scoped presence lock

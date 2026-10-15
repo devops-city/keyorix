@@ -47,6 +47,10 @@
 #      not just the PR's own unit tests).
 #   7. J5 -- install a real External Secrets Operator, apply the fixed
 #      ClusterSecretStore + ExternalSecret from deploy/eso/, verify sync.
+#   J6 -- secureBaseline.existingSecret: pre-created Secret, install + 2
+#      upgrades leave Secret/certs/pods untouched; a Secret missing a key fails
+#      the upgrade naming it, with no PEM in the error. Runs right after image
+#      load (before J1); `KEYORIX_K8S_E2E_ONLY=j6` runs just this journey.
 #   8. Clean up every namespace/release this script created. The kind cluster
 #      itself is left running (fast re-runs) unless KEYORIX_K8S_E2E_KEEP_CLUSTER=0.
 set -euo pipefail
@@ -70,6 +74,7 @@ docker info >/dev/null 2>&1 || fail "Docker daemon not reachable (docker info fa
 CLUSTER_NAME="${KEYORIX_K8S_E2E_CLUSTER:-keyorix-k8s-e2e}"
 KEEP_CLUSTER="${KEYORIX_K8S_E2E_KEEP_CLUSTER:-1}"
 IMAGE_TAG="${KEYORIX_K8S_E2E_IMAGE_TAG:-k8s-e2e}"
+ONLY="${KEYORIX_K8S_E2E_ONLY:-}"
 NS_PREFIX="kxe2e"
 WORK_DIR="$(mktemp -d)"
 PORT_FORWARD_PIDS=()
@@ -79,7 +84,7 @@ cleanup() {
     for pid in "${PORT_FORWARD_PIDS[@]:-}"; do
         [ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
     done
-    for ns in "${NS_PREFIX}-j1" "${NS_PREFIX}-j2" "${NS_PREFIX}-j3" "${NS_PREFIX}-j3-target" "${NS_PREFIX}-j4" "${NS_PREFIX}-j5" "${NS_PREFIX}-j5-target" "${NS_PREFIX}-eso"; do
+    for ns in "${NS_PREFIX}-j6" "${NS_PREFIX}-j1" "${NS_PREFIX}-j2" "${NS_PREFIX}-j3" "${NS_PREFIX}-j3-target" "${NS_PREFIX}-j4" "${NS_PREFIX}-j5" "${NS_PREFIX}-j5-target" "${NS_PREFIX}-eso"; do
         kubectl delete namespace "$ns" --wait=false --ignore-not-found >/dev/null 2>&1 || true
     done
     rm -rf "$WORK_DIR"
@@ -101,15 +106,142 @@ else
 fi
 kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 
-log "Building images (tag :$IMAGE_TAG) -- server, web, operator, k8s-sync"
-docker build -q -t "keyorix-server:${IMAGE_TAG}" -f "$REPO_ROOT/server/Dockerfile" "$REPO_ROOT" >/dev/null
-docker build -q -t "keyorix-web:${IMAGE_TAG}" -f "$REPO_ROOT/web/Dockerfile" "$REPO_ROOT/web" >/dev/null
-docker build -q -t "keyorix-operator:${IMAGE_TAG}" -f "$REPO_ROOT/operator/Dockerfile" "$REPO_ROOT/operator" >/dev/null
-docker build -q -t "keyorix-k8s-sync:${IMAGE_TAG}" -f "$REPO_ROOT/cmd/keyorix-k8s-sync/Dockerfile" "$REPO_ROOT" >/dev/null
+if [ "$ONLY" = "j6" ]; then
+    log "Building images (tag :$IMAGE_TAG) -- server, web (KEYORIX_K8S_E2E_ONLY=j6)"
+    docker build -q -t "keyorix-server:${IMAGE_TAG}" -f "$REPO_ROOT/server/Dockerfile" "$REPO_ROOT" >/dev/null
+    docker build -q -t "keyorix-web:${IMAGE_TAG}" -f "$REPO_ROOT/web/Dockerfile" "$REPO_ROOT/web" >/dev/null
+    log "Loading images into $CLUSTER_NAME"
+    kind load docker-image "keyorix-server:${IMAGE_TAG}" "keyorix-web:${IMAGE_TAG}" --name "$CLUSTER_NAME" >/dev/null
+else
+    log "Building images (tag :$IMAGE_TAG) -- server, web, operator, k8s-sync"
+    docker build -q -t "keyorix-server:${IMAGE_TAG}" -f "$REPO_ROOT/server/Dockerfile" "$REPO_ROOT" >/dev/null
+    docker build -q -t "keyorix-web:${IMAGE_TAG}" -f "$REPO_ROOT/web/Dockerfile" "$REPO_ROOT/web" >/dev/null
+    docker build -q -t "keyorix-operator:${IMAGE_TAG}" -f "$REPO_ROOT/operator/Dockerfile" "$REPO_ROOT/operator" >/dev/null
+    docker build -q -t "keyorix-k8s-sync:${IMAGE_TAG}" -f "$REPO_ROOT/cmd/keyorix-k8s-sync/Dockerfile" "$REPO_ROOT" >/dev/null
 
-log "Loading images into $CLUSTER_NAME"
-kind load docker-image "keyorix-server:${IMAGE_TAG}" "keyorix-web:${IMAGE_TAG}" \
-    "keyorix-operator:${IMAGE_TAG}" "keyorix-k8s-sync:${IMAGE_TAG}" --name "$CLUSTER_NAME" >/dev/null
+    log "Loading images into $CLUSTER_NAME"
+    kind load docker-image "keyorix-server:${IMAGE_TAG}" "keyorix-web:${IMAGE_TAG}" \
+        "keyorix-operator:${IMAGE_TAG}" "keyorix-k8s-sync:${IMAGE_TAG}" --name "$CLUSTER_NAME" >/dev/null
+fi
+
+# ============================================================================
+# J6 -- secureBaseline.existingSecret (bring-your-own TLS/metrics Secret, the
+# ArgoCD/GitOps path). Needs only the server and web images and no CLI login,
+# so it sits before J1 and can run alone: KEYORIX_K8S_E2E_ONLY=j6.
+# Proves on a real cluster what helm unit tests cannot: install + two upgrades
+# with a pre-created Secret leave the Secret, the certs and the pods untouched
+# (no generated -secure-baseline Secret, no roll), and a Secret missing keys
+# fails the upgrade naming the keys. Secret contents are never printed.
+# ============================================================================
+J6_NS="${NS_PREFIX}-j6"
+J6_REL="kxbase"
+J6_FULL="${J6_REL}-keyorix"
+J6_SECRET="keyorix-secure-baseline"
+J6_SEL="app.kubernetes.io/instance=${J6_REL}"
+J6_SETS=(
+    --set auth.masterPassword="k8s-e2e-master-password"
+    --set postgresql.auth.password="k8s-e2e-db-password"
+    --set auth.adminPassword="K8sE2e-Run-Passw0rd!"
+    --set server.image.repository=keyorix-server --set server.image.tag="$IMAGE_TAG"
+    --set web.image.repository=keyorix-web --set web.image.tag="$IMAGE_TAG"
+)
+
+# j6_state prints a non-secret fingerprint of everything an upgrade must not
+# change: the Secret (resourceVersion + a hash of its data, never the data),
+# pod UIDs + restart counts, workload generations + pod-template annotations
+# (carries checksum/secure-baseline).
+j6_state() {
+    echo "secret-rv: $(kubectl -n "$J6_NS" get secret "$J6_SECRET" -o jsonpath='{.metadata.resourceVersion}')"
+    echo "secret-data-sha256: $(kubectl -n "$J6_NS" get secret "$J6_SECRET" -o jsonpath='{.data}' | sha256sum | cut -d' ' -f1)"
+    kubectl -n "$J6_NS" get pods -l "$J6_SEL" \
+        -o jsonpath='{range .items[*]}pod {.metadata.name} {.metadata.uid} restarts={range .status.containerStatuses[*]}{.restartCount},{end}{"\n"}{end}' | sort
+    kubectl -n "$J6_NS" get deploy,sts -l "$J6_SEL" \
+        -o jsonpath='{range .items[*]}{.kind} {.metadata.name} gen={.metadata.generation} {.spec.template.metadata.annotations}{"\n"}{end}' | sort
+}
+
+j6_run() {
+    log "J6: secureBaseline.existingSecret in $J6_NS"
+    kubectl delete namespace "$J6_NS" --wait=true --ignore-not-found >/dev/null 2>&1 || true
+    kubectl create namespace "$J6_NS" >/dev/null
+
+    local d="$WORK_DIR/j6"
+    mkdir -p "$d"
+    local srv="${J6_FULL}-server" pg="${J6_FULL}-postgresql"
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout "$d/server.key" -out "$d/server.crt" -days 30 \
+        -subj "/CN=${srv}" \
+        -addext "subjectAltName=DNS:${srv},DNS:${srv}.${J6_NS},DNS:${srv}.${J6_NS}.svc,DNS:localhost" >/dev/null 2>&1
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout "$d/postgres.key" -out "$d/postgres.crt" -days 30 \
+        -subj "/CN=${pg}" \
+        -addext "subjectAltName=DNS:${pg},DNS:${pg}.${J6_NS},DNS:${pg}.${J6_NS}.svc" >/dev/null 2>&1
+    openssl rand -base64 36 | tr -d '\n' >"$d/metrics_token"
+
+    kubectl -n "$J6_NS" create secret generic "$J6_SECRET" \
+        --from-file=server.crt="$d/server.crt" --from-file=server.key="$d/server.key" \
+        --from-file=postgres.crt="$d/postgres.crt" --from-file=postgres.key="$d/postgres.key" \
+        --from-file=metrics_token="$d/metrics_token" >/dev/null
+
+    log "J6: helm install with the pre-created Secret"
+    helm install "$J6_REL" "$REPO_ROOT/deploy/helm/keyorix" -n "$J6_NS" "${J6_SETS[@]}" \
+        --set secureBaseline.existingSecret="$J6_SECRET" --wait --timeout 240s >/dev/null \
+        || fail "J6: helm install with secureBaseline.existingSecret failed"
+
+    kubectl -n "$J6_NS" get secret "${J6_FULL}-secure-baseline" >/dev/null 2>&1 \
+        && fail "J6: chart generated ${J6_FULL}-secure-baseline although secureBaseline.existingSecret is set"
+    for w in deploy/"${J6_FULL}-server" deploy/"${J6_FULL}-web" sts/"${J6_FULL}-postgresql"; do
+        kubectl -n "$J6_NS" get "$w" -o jsonpath='{.spec.template.spec.volumes[*].secret.secretName}' | grep -qw "$J6_SECRET" \
+            || fail "J6: $w does not mount $J6_SECRET"
+    done
+    [ "$(kubectl -n "$J6_NS" get secret "$J6_SECRET" -o jsonpath='{.data.server\.crt}' | base64 -d | sha256sum | cut -d' ' -f1)" \
+        = "$(sha256sum "$d/server.crt" | cut -d' ' -f1)" ] \
+        || fail "J6: server.crt in the Secret differs from the one supplied"
+    j6_state >"$d/state0"
+
+    local n
+    for n in 1 2; do
+        log "J6: helm upgrade #$n (same values)"
+        helm upgrade "$J6_REL" "$REPO_ROOT/deploy/helm/keyorix" -n "$J6_NS" "${J6_SETS[@]}" \
+            --set secureBaseline.existingSecret="$J6_SECRET" --wait --timeout 240s >/dev/null \
+            || fail "J6: helm upgrade #$n failed"
+        j6_state >"$d/state$n"
+        diff -q "$d/state0" "$d/state$n" >/dev/null \
+            || fail "J6: state changed across upgrade #$n (Secret, certs, pod UIDs/restarts or checksum annotation); diff of non-secret fields:
+$(diff "$d/state0" "$d/state$n" | head -20)"
+    done
+    [ "$(kubectl -n "$J6_NS" get secret "$J6_SECRET" -o jsonpath='{.data.server\.crt}' | base64 -d | sha256sum | cut -d' ' -f1)" \
+        = "$(sha256sum "$d/server.crt" | cut -d' ' -f1)" ] \
+        || fail "J6: server.crt changed after upgrades"
+    kubectl -n "$J6_NS" get secret "${J6_FULL}-secure-baseline" >/dev/null 2>&1 \
+        && fail "J6: a -secure-baseline Secret appeared after upgrade"
+    log "J6: install + 2 upgrades OK (Secret, certs, pods unchanged, nothing generated)"
+
+    log "J6: Secret missing a required key -> upgrade must fail naming the key"
+    local bad="${J6_SECRET}-bad"
+    kubectl -n "$J6_NS" create secret generic "$bad" \
+        --from-file=server.crt="$d/server.crt" \
+        --from-file=postgres.crt="$d/postgres.crt" --from-file=postgres.key="$d/postgres.key" \
+        --from-file=metrics_token="$d/metrics_token" >/dev/null
+    local out rc=0
+    out="$(helm upgrade "$J6_REL" "$REPO_ROOT/deploy/helm/keyorix" -n "$J6_NS" "${J6_SETS[@]}" \
+        --set secureBaseline.existingSecret="$bad" --wait --timeout 60s 2>&1)" || rc=$?
+    [ "$rc" -ne 0 ] || fail "J6: upgrade with a Secret missing server.key succeeded"
+    # Print only the sanitized message line, never the raw helm output.
+    local msg
+    msg="$(printf '%s' "$out" | grep -o 'missing required key(s): [A-Za-z0-9_., ]*' | head -1 || true)"
+    [ "$msg" = "missing required key(s): server.key" ] \
+        || fail "J6: expected error 'missing required key(s): server.key', got: '${msg:-<no such message>}'"
+    printf '%s' "$out" | grep -q 'BEGIN' && fail "J6: PEM material appears in the failed-upgrade error"
+    printf '%s' "$out" | grep -qF "$(cat "$d/metrics_token")" && fail "J6: metrics token appears in the failed-upgrade error"
+    j6_state >"$d/state3"
+    diff -q "$d/state0" "$d/state3" >/dev/null || fail "J6: failed upgrade changed the running release"
+    log "J6: missing-key upgrade failed as expected ('$msg'), no secret content in the error, release untouched"
+}
+j6_run
+
+if [ "$ONLY" = "j6" ]; then
+    echo ""
+    echo "K8S E2E PASSED (J6 only)"
+    exit 0
+fi
 
 log "Building the thin CLI"
 CLI_BIN="$WORK_DIR/keyorix"
@@ -498,4 +630,4 @@ GOT="$(kubectl -n "$J5_TARGET_NS" get secret db-creds -o jsonpath='{.data.DB_PAS
 log "J5: ESO webhook sync OK"
 
 echo ""
-echo "K8S E2E PASSED (J1-J5)"
+echo "K8S E2E PASSED (J1-J6)"
