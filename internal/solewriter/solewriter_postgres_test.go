@@ -491,15 +491,17 @@ func TestSessionTag_NotInStatementText(t *testing.T) {
 }
 
 // TestPoll_CatalogMaintenanceKeepsAuthoritative is the other direction of the
-// tampering test: routine maintenance that rewrites or freezes the catalog
-// rows the fingerprint reads (xmin included) must not be taken for tampering.
+// tampering test: routine maintenance that freezes the catalog rows the
+// fingerprint reads (xmin included) must not be taken for tampering. VACUUM
+// FULL of pg_trigger / pg_proc keeps xmin too (checked by hand, FIX-SINGLE-
+// WRITER-1), but it is not run here: it locks the catalog for every session
+// of the shared test database.
 func TestPoll_CatalogMaintenanceKeepsAuthoritative(t *testing.T) {
 	w := newSWWorld(t)
 	g := w.start(Options{})
 	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
 	for _, s := range []string{
 		"VACUUM FREEZE pg_catalog.pg_trigger", "VACUUM FREEZE pg_catalog.pg_proc",
-		"VACUUM FULL pg_catalog.pg_trigger", "VACUUM FULL pg_catalog.pg_proc",
 		"ANALYZE machine_identity_credentials", "CREATE INDEX sw_maint_idx ON machine_identity_credentials (name)",
 		"VACUUM FULL machine_identity_credentials",
 	} {
