@@ -77,6 +77,11 @@ type KeyorixCore struct {
 	// soft-deleted secret that has no frozen purge_at (see SecretPurgeAt); 0 = not
 	// wired, treated as the 30-day default. Set via SetSoftDeleteRetentionDays.
 	softDeleteRetentionDays int
+	// skipSuccessfulReadAudit mirrors config
+	// storage.database.insecure_audit_skip_reads (ADR-112 Amendment 4). Set once
+	// at startup via SetInsecureAuditSkipReads; read only by
+	// skipsSuccessfulReadAudit (audit_skip_reads.go).
+	skipSuccessfulReadAudit bool
 	// dynamicMaxLeaseTTL mirrors config dynamic_secrets.max_lease_ttl (#97): a hard,
 	// install-wide ceiling dynamicTTL enforces alongside (never instead of) each
 	// config's own MaxTTLSeconds, which has no ceiling of its own. Zero = the
@@ -724,6 +729,9 @@ func (c *KeyorixCore) emitAudit(ctx context.Context, event *models.AuditEvent) (
 			persisted = false
 		}
 	}()
+	if c.skipsSuccessfulReadAudit(event) {
+		return true
+	}
 	prepareAuditEventForEmit(ctx, event)
 	// #1650: the request-cancellation-immunity fix lives at the storage layer
 	// (LocalStorage.LogAuditEvent detaches its own ctx before doing I/O), not here —
@@ -810,6 +818,9 @@ func (c *KeyorixCore) emitAuditWithAccessLog(ctx context.Context, event *models.
 			err = fmt.Errorf("audit write panicked: %v", r)
 		}
 	}()
+	if c.skipsSuccessfulReadAudit(event) {
+		return nil
+	}
 	prepareAuditEventForEmit(ctx, event)
 	if werr := c.storage.LogAuditEventWithAccessLog(ctx, event, accessLog); werr != nil {
 		log.Printf("SECURITY: failed to persist audit event %q with access log (success=%v): %v -- failing closed", event.EventType, event.Success, werr)

@@ -321,6 +321,15 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		InEffect:    func(c *Config) bool { return c.Notifications.Webhook.InsecureSkipVerify },
 		Value:       func(c *Config) string { return boolStr(c.Notifications.Webhook.InsecureSkipVerify) },
 	},
+	{
+		// ADR-112 Amendment 4. Also flagged by a per-start audit event
+		// (server/main.go), GET /system/info and the web UI banner.
+		Name:        InsecureAuditSkipReadsSettingName,
+		SourcePaths: []string{InsecureAuditSkipReadsSettingName},
+		Describe:    InsecureAuditSkipReadsDescribe,
+		InEffect:    func(c *Config) bool { return c.Storage.Database.InsecureAuditSkipReads },
+		Value:       func(c *Config) string { return boolStr(c.Storage.Database.InsecureAuditSkipReads) },
+	},
 	// -- The thirteen KNOWN EXCEPTIONS (#2895 rows 1-13; its row 14,
 	//    trust_asserted_email, is renameable and registered above). Each
 	//    needs a product decision, not a mechanical edit: a polarity

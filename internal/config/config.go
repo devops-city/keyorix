@@ -722,6 +722,20 @@ type DatabaseConfig struct {
 	// deprecation line to DeprecatedSettingWarnings whenever it is present.
 	InsecureAuditSkipDurableSync *bool `yaml:"insecure_audit_skip_durable_sync"`
 
+	// InsecureAuditSkipReads (ADR-112 Amendment 4) stops SUCCESSFUL secret-value
+	// reads from writing an audit row (and their secret_access_logs row): every
+	// path that discloses a value -- REST, gRPC, render, copy, federated
+	// connect reads, and the CLI, sync and operator clients through the API.
+	// Everything else stays audited: secret create/update/delete/version
+	// changes, permission/role/share/policy changes, authentication events and
+	// failures, denied reads, admin and break-glass actions, configuration and
+	// key operations. Default false; config file only (the guards are
+	// TestInsecureAuditSkipReads_NoWriteAssignment and
+	// TestInsecureAuditSkipReads_NotSettableFromTheEnvironment). Independent of
+	// AuditDurability, which governs every row still written. A compliance
+	// profile refuses it (complianceProfileRefusals).
+	InsecureAuditSkipReads bool `yaml:"insecure_audit_skip_reads"`
+
 	// Pooler names the connection pooler between Keyorix and PostgreSQL:
 	// "none" (the default, also when empty), "pgbouncer-session" or
 	// "pgbouncer-transaction". Only pgbouncer-transaction changes behaviour;
@@ -2794,6 +2808,10 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	// ADR-112 Amendment 3: a known level, no conflict with the deprecated
 	// alias, and standard only on PostgreSQL (a SQLite backend refuses it).
 	if err := c.Storage.Database.validateAuditDurability(c.Storage.Type); err != nil {
+		return err
+	}
+	// ADR-112 Amendment 4: a compliance profile refuses insecure_audit_skip_reads.
+	if err := validateInsecureAuditSkipReads(c); err != nil {
 		return err
 	}
 

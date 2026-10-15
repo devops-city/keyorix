@@ -182,8 +182,31 @@ func validateStartup(configPath string, forceAutoFix bool, tolerateUnprovisioned
 	// durability level. Both levels are baseline, so it is never a warning.
 	result.EffectiveAuditDurability = cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type)
 	appendAccessLogPosture(cfg, result)
+	appendAuditSkipReadsPosture(cfg, result)
 
 	return result, nil
+}
+
+// AuditReadsSkippedWarning is the admin validate line while
+// storage.database.insecure_audit_skip_reads is set (ADR-112 Amendment 4).
+const AuditReadsSkippedWarning = "Secret reads are NOT audited (" + config.InsecureAuditSkipReadsSettingName +
+	"): a successful secret-value read writes no audit row; writes, permission changes, authentication, " +
+	"denied reads and admin actions are still audited -- see docs/security/hardening-guide.md"
+
+// appendAuditSkipReadsPosture records insecure_audit_skip_reads in result, as
+// a Warnings line and a structured InsecureSettings entry, like the access-log
+// drop mode. It is in effect whenever it is set.
+func appendAuditSkipReadsPosture(cfg *config.Config, result *ValidationResult) {
+	if !cfg.Storage.Database.InsecureAuditSkipReads {
+		return
+	}
+	result.InsecureSettings = append(result.InsecureSettings, InsecureSettingStatus{
+		Name:       config.InsecureAuditSkipReadsSettingName,
+		Configured: true,
+		InEffect:   true,
+		Describe:   config.InsecureAuditSkipReadsDescribe,
+	})
+	result.Warnings = append(result.Warnings, AuditReadsSkippedWarning)
 }
 
 // AccessLogOnSinkStallSettingName is the dotted config path of the access-log
