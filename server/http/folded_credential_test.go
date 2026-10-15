@@ -271,6 +271,17 @@ func TestFoldedCredential_CrossReplicaInvalidation(t *testing.T) {
 			require.NoError(t, w.a.db.Exec("DELETE FROM role_permissions WHERE role_id = ?", role.ID).Error)
 			require.NoError(t, w.a.db.Exec("UPDATE system_metadata SET value = value || 'x' WHERE key = 'role_permissions_generation'").Error)
 		}},
+		// #3259: a direct database change to role_permissions / permissions,
+		// with nothing bumping the generation by hand (the case above does,
+		// which is what hid the gap): the triggers must move it.
+		fcCase{"role-permission-removed-direct-sql", func(t *testing.T, w *svWorld, _ *models.SecretNode, _ models.MachineIdentityCredential) {
+			var role models.Role
+			require.NoError(t, w.a.db.Where("name = ?", "sv-reader").First(&role).Error)
+			require.NoError(t, w.a.db.Exec("DELETE FROM role_permissions WHERE role_id = ?", role.ID).Error)
+		}},
+		fcCase{"permission-renamed-direct-sql", func(t *testing.T, w *svWorld, _ *models.SecretNode, _ models.MachineIdentityCredential) {
+			require.NoError(t, w.a.db.Exec("UPDATE permissions SET name = name || '.renamed' WHERE name = 'secrets.read'").Error)
+		}},
 		fcCase{"epoch-trigger-dropped-then-write", func(t *testing.T, w *svWorld, sec *models.SecretNode, _ models.MachineIdentityCredential) {
 			drop := "DROP TRIGGER trg_secret_nodes_cache_epoch"
 			if w.backend == "postgres" {

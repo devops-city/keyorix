@@ -101,6 +101,38 @@ const schemaEpochMetadataKey = "schema_epoch"
 // schemaEpochMetadataKey above.
 const schemaMinCompatibleEpochMetadataKey = "schema_min_compatible_epoch"
 
+// rolePermissionsGenerationMetadataKey mirrors internal/storage/store's
+// rolePermissionsGenerationKey -- byte-for-byte, same reason as
+// schemaEpochMetadataKey above.
+//
+// The row is the role->permission cache's generation: cache state, not
+// portable data (any value works on a restored database, whose servers start
+// with empty caches; it only has to change on every later write). Since #3259,
+// triggers on permissions and role_permissions write it whenever either table
+// is written -- loading those tables in this same transaction creates it in the
+// target before (or after) system_metadata loads. So the archive's copy is
+// inserted only when the target has none yet, and otherwise skipped (a plain
+// INSERT hit the primary key, found by TestBackupRestore_PropertyRoundTrip).
+const rolePermissionsGenerationMetadataKey = "role_permissions_generation"
+
+// isTriggerMaintainedRowAlreadyPresent reports whether rowPtr is the
+// system_metadata role_permissions_generation row and the target (db, the load
+// transaction) already holds that key.
+func isTriggerMaintainedRowAlreadyPresent(db *gorm.DB, tableName string, rowPtr reflect.Value) (bool, error) {
+	if tableName != systemMetadataTableName {
+		return false, nil
+	}
+	keyField := rowPtr.Elem().FieldByName("Key")
+	if !keyField.IsValid() || keyField.Kind() != reflect.String || keyField.String() != rolePermissionsGenerationMetadataKey {
+		return false, nil
+	}
+	var n int64
+	if err := db.Table(systemMetadataTableName).Where("key = ?", rolePermissionsGenerationMetadataKey).Count(&n).Error; err != nil {
+		return false, fmt.Errorf("check for the target's own %s row: %w", rolePermissionsGenerationMetadataKey, err)
+	}
+	return n > 0, nil
+}
+
 // systemMetadataTableName is SystemMetadata's GORM table name -- the one
 // table loadTable applies the schemaEpochMetadataKey skip to.
 const systemMetadataTableName = "system_metadata"
@@ -175,6 +207,11 @@ func loadTable(db *gorm.DB, model any, entry TableEntry, stagingDir string) (int
 		total++
 		if isSystemMetadataSchemaEpochRow(entry.Name, rowPtr) {
 			continue // schemaEpochMetadataKey's own doc comment explains why
+		}
+		if skip, err := isTriggerMaintainedRowAlreadyPresent(db, entry.Name, rowPtr); err != nil {
+			return total, fmt.Errorf("table %q: %w", entry.Name, err)
+		} else if skip {
+			continue // rolePermissionsGenerationMetadataKey's doc comment explains why
 		}
 		batch = reflect.Append(batch, rowPtr.Elem())
 		if batch.Len() >= batchSize {

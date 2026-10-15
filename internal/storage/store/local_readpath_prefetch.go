@@ -84,9 +84,9 @@ type readPathPrefetchParts struct {
 	joins string
 }
 
-func readPathPrefetchPartsFor(triggerExpr string, wantScheduleVersion bool) readPathPrefetchParts {
+func readPathPrefetchPartsFor(triggerExpr, genExpr string, wantScheduleVersion bool) readPathPrefetchParts {
 	cols := "n.cache_epoch AS cache_epoch, " + triggerExpr + " AS trigger_present,\n" +
-		" ids.role_id AS role_id, gen.value AS generation"
+		" ids.role_id AS role_id, " + genExpr + " AS generation"
 	if wantScheduleVersion {
 		cols += ",\n v.cnt AS cnt, v.max_ver AS max_ver, v.sum_rc AS sum_rc," +
 			" s.id AS sched_id, s.secret_node_id AS sched_secret_node_id, s.allowed_days AS sched_allowed_days," +
@@ -126,6 +126,7 @@ func readPathPrefetchJoinArgs(args []any, pf *storage.ReadPathPrefetch, id uint,
 type readPathPrefetchSQLKey struct {
 	folded              bool
 	triggerExpr         string
+	genExpr             string
 	wantScheduleVersion bool
 }
 
@@ -137,7 +138,7 @@ func cachedReadPathSQL(key readPathPrefetchSQLKey, build func(readPathPrefetchPa
 	if q, ok := readPathPrefetchSQLs.Load(key); ok {
 		return q.(string)
 	}
-	q := build(readPathPrefetchPartsFor(key.triggerExpr, key.wantScheduleVersion))
+	q := build(readPathPrefetchPartsFor(key.triggerExpr, key.genExpr, key.wantScheduleVersion))
 	readPathPrefetchSQLs.Store(key, q)
 	return q
 }
@@ -145,8 +146,8 @@ func cachedReadPathSQL(key readPathPrefetchSQLKey, build func(readPathPrefetchPa
 // readPathPrefetchSQL returns the node-stamp statement. Its bind order is: the
 // trigger name, the machine id, the node's project and environment, the
 // generation key, the secret id (schedule/version only) and the secret id.
-func readPathPrefetchSQL(triggerExpr string, wantScheduleVersion bool) string {
-	key := readPathPrefetchSQLKey{triggerExpr: triggerExpr, wantScheduleVersion: wantScheduleVersion}
+func readPathPrefetchSQL(triggerExpr, genExpr string, wantScheduleVersion bool) string {
+	key := readPathPrefetchSQLKey{triggerExpr: triggerExpr, genExpr: genExpr, wantScheduleVersion: wantScheduleVersion}
 	return cachedReadPathSQL(key, func(p readPathPrefetchParts) string {
 		return "SELECT " + p.cols + "\nFROM secret_nodes n\n" + p.joins + "\nWHERE n.id = ? AND n.deleted_at IS NULL"
 	})
@@ -209,7 +210,7 @@ func scanReadPathPrefetchRows(rows rowScanner, wantScheduleVersion bool) ([]read
 // readNodeStampPrefetching is readLiveNodeStamp widened per the file header. It
 // returns the stamp and the rows to park (nil when nothing may be parked).
 func (ls *LocalStorage) readNodeStampPrefetching(ctx context.Context, pf *storage.ReadPathPrefetch, id uint, node *models.SecretNode) (nodeStampRead, *storage.PrefetchedPermission, *storage.PrefetchedScheduleVersion, bool) {
-	q := readPathPrefetchSQL(nodeTriggerExistsExpr(ls.db), pf.WantScheduleVersion)
+	q := readPathPrefetchSQL(nodeTriggerExistsExpr(ls.db), rolePermGenerationExpr(ls.db, "gen"), pf.WantScheduleVersion)
 	rows, err := ls.readPathPrefetchRows(ctx, q, readPathPrefetchArgs(pf, id, node), pf.WantScheduleVersion)
 	if err != nil {
 		return nodeStampRead{}, nil, nil, false
