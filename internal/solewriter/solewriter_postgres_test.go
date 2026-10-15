@@ -285,6 +285,9 @@ func TestEmergencyTwoStep(t *testing.T) {
 	require.False(t, g.Authoritative(), "a lost holder lock must not be re-entered without a restart")
 	st := g.Status()
 	require.Equal(t, StateConfirming, st.State)
+	// The reason is shown to every system.read caller: no driver text in it
+	// (that is last_poll_error, system.write only).
+	require.Equal(t, lockSessionGone, st.Reason)
 	t.Logf("emergency: stopped trusting caches %s after the terminate; status: %s (%s)", time.Since(start).Round(time.Millisecond), st.State, st.Reason)
 }
 
