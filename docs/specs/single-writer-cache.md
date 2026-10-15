@@ -34,8 +34,8 @@ derived from, and so lets it skip that statement.
   change means `confirming` until restart. The `xmin` is what catches a change undone before the next
   poll (REVIEW-SINGLE-WRITER-1 F1): `DISABLE TRIGGER; write; ENABLE ALWAYS TRIGGER` in one transaction,
   the same split over two transactions, DROP + identical CREATE, CREATE OR REPLACE with the same body.
-  Each rewrites the catalog row; no SQL statement can restore its `xmin`. Catalog VACUUM FULL/FREEZE
-  keep it (tested). A child table is read through its fenced parent but its writes fire none of the
+  Each rewrites the catalog row; no SQL statement can restore its `xmin`. Catalog VACUUM FREEZE keeps
+  it (tested; VACUUM FULL checked by hand). A child table is read through its fenced parent but its writes fire none of the
   parent's triggers, so InstallFence refuses to start with one and the census treats a new one as
   tampering. Alternatives considered: an event trigger on `ddl_command_end` (needs a superuser to
   install, and `ALTER EVENT TRIGGER ... DISABLE` is not itself seen by event triggers, so it would
