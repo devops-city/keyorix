@@ -131,8 +131,13 @@ type Options struct {
 	SkipPresenceCensus bool
 	// SettleTimeout bounds the fence settle. Default 30 s.
 	SettleTimeout time.Duration
-	// Now is the wall clock (tests). Default time.Now.
+	// Now is the clock the lease's monotonic check reads (tests). Default
+	// time.Now.
 	Now func() time.Time
+	// Wall is the clock the lease's wall check reads, monotonic reading
+	// stripped (tests: a wall jump with the monotonic clock unchanged).
+	// Default time.Now.
+	Wall func() time.Time
 }
 
 func (o *Options) defaults() {
@@ -144,6 +149,9 @@ func (o *Options) defaults() {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Wall == nil {
+		o.Wall = time.Now
 	}
 }
 
@@ -180,11 +188,13 @@ type Guard struct {
 	unexplained       bool
 	unattributedBumps int64
 
-	onReenter atomic.Pointer[func()]
+	onEpochChange atomic.Pointer[func(int64)]
+	onReenter     atomic.Pointer[func()]
 
 	stopOnce sync.Once
 	stop     chan struct{}
-	done     chan struct{}
+	done     chan struct{} // closed when Run's poller returns
+	running  atomic.Bool   // Run started the poller
 }
 
 var current atomic.Pointer[Guard]
@@ -196,6 +206,15 @@ func Current() *Guard { return current.Load() }
 func SetCurrentForTest(g *Guard) (restore func()) {
 	prev := current.Swap(g)
 	return func() { current.Store(prev) }
+}
+
+// GuardForTest is a guard with no database behind it, in state confirming,
+// whose last poll failed with lastPollError: for other packages' tests of
+// what they show from Status.
+func GuardForTest(lastPollError string) *Guard {
+	g := &Guard{state: StateConfirming, reason: "test", lastErr: lastPollError, stop: make(chan struct{}), done: make(chan struct{})}
+	g.opts.defaults()
+	return g
 }
 
 // ErrLockHeld is returned by Start when another session holds the lock.
@@ -233,6 +252,10 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*Guard, error
 	if err != nil {
 		return nil, err
 	}
+	// The holder connection is not traced: its fence DDL and holder/epoch
+	// rows are the guard's own bookkeeping, not writes a cache depends on,
+	// and counting them would make the canary call a real miss explained.
+	cc.Tracer = nil
 	g.db = stdlibOpen(cc)
 	g.db.SetMaxOpenConns(1)
 	g.conn, err = g.db.Conn(ctx)
@@ -400,6 +423,12 @@ func (g *Guard) Close() {
 		swstate.Set(nil)
 	}
 	g.stopOnce.Do(func() { close(g.stop) })
+	// Wait for the poller to return before closing its connection: a poll
+	// in flight on a closed connection reads as a dead lock session and
+	// logs a false "holder lock lost".
+	if g.running.Load() {
+		<-g.done
+	}
 	g.close()
 }
 

@@ -240,6 +240,16 @@ func triggerSpecs(schema string) []triggerSpec {
 // trigger firing: ALTER COLUMN ... TYPE ... USING rewrites every row, RENAME
 // COLUMN swaps what a name reads. Each rewrites the pg_attribute row. VACUUM
 // FULL, CLUSTER, CREATE INDEX and ANALYZE do not touch pg_attribute.
+//
+// Rules and row-level security act on rows with no trigger involved: a rule
+// (CREATE RULE ... DO INSTEAD NOTHING) drops the server's own writes or
+// redirects them, a policy (with ENABLE/FORCE ROW LEVEL SECURITY) hides rows
+// from the server's reads. Every rule and policy on a covered table is in
+// the fingerprint by row version (ALTER TABLE ... DISABLE RULE and ALTER
+// POLICY rewrite the row), and so is each covered table's RLS switch. The
+// server creates neither, so any one is tampering. One created and dropped
+// again between two polls leaves no row behind (docs/single-writer.md
+// "Residual risks").
 const fingerprintSQL = `SELECT pg_catalog.md5(
   coalesce((SELECT pg_catalog.string_agg(c.relname || ':' || pg_catalog.pg_get_triggerdef(t.oid) || ':' || t.tgenabled::text || ':' || t.xmin::text, E'\n' ORDER BY c.relname, t.tgname)
     FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
@@ -253,7 +263,16 @@ const fingerprintSQL = `SELECT pg_catalog.md5(
     FROM pg_catalog.pg_inherits i WHERE i.inhparent IN (` + coveredOIDsSQL + `) OR i.inhrelid IN (` + coveredOIDsSQL + `)), '')
   || '|' ||
   coalesce((SELECT pg_catalog.string_agg(a.attrelid::text || '.' || a.attnum::text || ':' || a.attname || ':' || a.atttypid::text || ':' || a.xmin::text, ',' ORDER BY a.attrelid, a.attnum)
-    FROM pg_catalog.pg_attribute a WHERE a.attnum > 0 AND a.attrelid IN (` + coveredOIDsSQL + `)), ''))`
+    FROM pg_catalog.pg_attribute a WHERE a.attnum > 0 AND a.attrelid IN (` + coveredOIDsSQL + `)), '')
+  || '|' ||
+  coalesce((SELECT pg_catalog.string_agg(r.ev_class::text || '.' || r.rulename || ':' || r.ev_enabled::text || ':' || r.xmin::text, ',' ORDER BY r.ev_class, r.rulename)
+    FROM pg_catalog.pg_rewrite r WHERE r.ev_class IN (` + coveredOIDsSQL + `)), '')
+  || '|' ||
+  coalesce((SELECT pg_catalog.string_agg(p.polrelid::text || '.' || p.polname || ':' || p.xmin::text, ',' ORDER BY p.polrelid, p.polname)
+    FROM pg_catalog.pg_policy p WHERE p.polrelid IN (` + coveredOIDsSQL + `)), '')
+  || '|' ||
+  coalesce((SELECT pg_catalog.string_agg(c.oid::text || ':' || c.relrowsecurity::text || c.relforcerowsecurity::text, ',' ORDER BY c.oid)
+    FROM pg_catalog.pg_class c WHERE c.oid IN (` + coveredOIDsSQL + `) AND (c.relrowsecurity OR c.relforcerowsecurity)), ''))`
 
 // coveredOIDsSQL selects the oids of the covered tables ($2) in schema $1.
 const coveredOIDsSQL = `SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace

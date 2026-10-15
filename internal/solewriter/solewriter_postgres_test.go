@@ -328,6 +328,15 @@ func TestPoll_FenceTamperingLeavesAuthoritativeForGood(t *testing.T) {
 		// A child table's rows are read through the parent, but the parent's
 		// triggers do not fire for writes to the child.
 		{"inheriting-child", [][]string{{"CREATE TABLE sw_child_roles () INHERITS (roles)"}}},
+		// Rules and row-level security act on rows with no trigger firing:
+		// DO INSTEAD NOTHING drops the server's own writes, a policy hides
+		// rows from its reads.
+		{"rule", [][]string{{"CREATE RULE sw_drop AS ON UPDATE TO machine_identity_credentials DO INSTEAD NOTHING"}}},
+		{"rule-disabled", [][]string{
+			{"CREATE RULE sw_drop AS ON UPDATE TO machine_identity_credentials DO INSTEAD NOTHING", "ALTER TABLE machine_identity_credentials DISABLE RULE sw_drop"},
+		}},
+		{"policy", [][]string{{"CREATE POLICY sw_hide ON roles USING (false)"}}},
+		{"row-level-security", [][]string{{"ALTER TABLE roles ENABLE ROW LEVEL SECURITY"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -361,8 +370,11 @@ func TestPoll_FenceTamperingLeavesAuthoritativeForGood(t *testing.T) {
 // a lease older than LeaseDuration by either clock.
 func TestLease_ExpiresOnAStalledPollerAndAClockJump(t *testing.T) {
 	w := newSWWorld(t)
+	// Only the wall source is skewed: time.Now().Add would move the
+	// monotonic reading too, and the jump would then be caught by the
+	// monotonic check alone.
 	var skew atomic.Int64
-	g := w.start(Options{Now: func() time.Time { return time.Now().Add(time.Duration(skew.Load())) }})
+	g := w.start(Options{Wall: func() time.Time { return time.Now().Round(0).Add(time.Duration(skew.Load())) }})
 	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
 
 	// A stalled poller: stop it; the lease runs out.
@@ -376,6 +388,10 @@ func TestLease_ExpiresOnAStalledPollerAndAClockJump(t *testing.T) {
 	require.True(t, g.Authoritative())
 	skew.Store(int64(2 * LeaseDuration))
 	require.False(t, g.Authoritative(), "a wall clock 2 leases ahead must expire the lease")
+	skew.Store(int64(-2 * LeaseDuration))
+	require.False(t, g.Authoritative(), "a wall clock 2 leases behind must expire the lease")
+	skew.Store(0)
+	require.True(t, g.Authoritative(), "the monotonic lease alone is still fresh")
 }
 
 // TestSettle_WaitsForATransactionOlderThanTheBoot: a write that passed the

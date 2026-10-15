@@ -27,8 +27,13 @@ package solewriter
 // the next.
 //
 // What this does not see, stated: pgx batches (SendBatch: only the audit
-// pipeline, which writes no fenced table), pgconn-level calls and SQL-level
-// PREPARE / EXECUTE (unused). The database side catches anything missed:
+// pipeline, which writes no fenced table), pgconn-level calls, SQL-level
+// PREPARE / EXECUTE (unused), a SELECT of a function that writes a fenced
+// table, and a trigger on an unfenced table that writes a fenced one (the
+// server defines neither; adding one needs CREATE or the TRIGGER privilege,
+// and either runs in the server's tagged session, so the fence lets it
+// through). A string holding several statements is counted as a fenced write
+// whatever it holds. The database side catches anything missed:
 // every fenced write bumps the epoch, and the poller flushes all entries on
 // every epoch move it sees; one this process did not account for is also
 // counted as an unattributed bump (Guard.UnattributedBumps). A
@@ -37,6 +42,8 @@ package solewriter
 
 import (
 	"context"
+	"database/sql/driver"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -134,7 +141,11 @@ type traceKindKey struct{}
 // TraceQueryEnd implements pgx.QueryTracer.
 func (t *Tracker) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, _ pgx.TraceQueryEndData) {
 	kind, _ := ctx.Value(traceKindKey{}).(stmtKind)
-	if kind == stmtRead || kind == 0 {
+	// A connection that died during any statement, a read included, ends
+	// its transaction: left in the map, its write would stay in flight for
+	// good (caches off, the canary blind).
+	closed := conn.IsClosed()
+	if (kind == stmtRead || kind == 0) && !closed {
 		return
 	}
 	t.mu.Lock()
@@ -143,7 +154,7 @@ func (t *Tracker) TraceQueryEnd(ctx context.Context, conn *pgx.Conn, _ pgx.Trace
 	if st == nil {
 		return
 	}
-	end := kind == stmtEnd || kind == stmtEndChain || (kind == stmtFencedWrite && !st.inTx) || conn.IsClosed()
+	end := kind == stmtEnd || kind == stmtEndChain || (kind == stmtFencedWrite && !st.inTx) || closed
 	if !end {
 		return
 	}
@@ -215,6 +226,11 @@ var fencedNameRE = func() *regexp.Regexp {
 // columns only; a system_metadata write that does not touch the fenced key).
 func classifyStatement(sql string, args []any) stmtKind {
 	s := strings.TrimSpace(stripLeadingComments(sql))
+	// Several statements in one string (the simple protocol allows it) are
+	// not parsed one by one: any of them may write a fenced table.
+	if strings.Contains(strings.TrimRight(s, "; \t\n"), ";") {
+		return stmtFencedWrite
+	}
 	verb := strings.ToLower(firstWord(s))
 	switch verb {
 	case "begin", "start":
@@ -263,8 +279,57 @@ func mentionsKey(s string, args []any, key string) bool {
 		return true
 	}
 	for _, a := range args {
-		if v, ok := a.(string); ok && v == key {
+		if argIsKey(a, key, 0) {
 			return true
+		}
+	}
+	return false
+}
+
+// argIsKey reports whether a bind argument can carry key: a string of any
+// named type, a []byte, a pointer to either, a driver.Valuer whose value does,
+// or a slice/array holding one (= ANY($1)). A Valuer that fails is counted as
+// the key (fail closed: the write stays fenced).
+func argIsKey(a any, key string, depth int) bool {
+	if a == nil || depth > 4 {
+		return false
+	}
+	rv := reflect.ValueOf(a)
+	if rv.Kind() == reflect.Pointer && rv.IsNil() {
+		return false
+	}
+	if v, ok := a.(driver.Valuer); ok {
+		dv, err := v.Value()
+		if err != nil {
+			return true
+		}
+		if dv == nil {
+			return false
+		}
+		if _, same := dv.(driver.Valuer); !same {
+			return argIsKey(dv, key, depth+1)
+		}
+	}
+	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
+		if rv.IsNil() {
+			return false
+		}
+		rv = rv.Elem()
+	}
+	switch rv.Kind() {
+	case reflect.String:
+		return rv.String() == key
+	case reflect.Slice, reflect.Array:
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			if rv.Kind() == reflect.Slice {
+				return string(rv.Bytes()) == key
+			}
+			return false
+		}
+		for i := range rv.Len() {
+			if argIsKey(rv.Index(i).Interface(), key, depth+1) {
+				return true
+			}
 		}
 	}
 	return false
@@ -278,6 +343,12 @@ func onlySets(s string, cols []string) bool {
 		return false
 	}
 	setList, _, _ := strings.Cut(after, " where ")
+	// A parenthesis is a subquery, a row constructor or a function call: its
+	// own " where " or "," would cut the list in the wrong place. Count it as
+	// a write of the table (the safe side).
+	if strings.Contains(setList, "(") {
+		return false
+	}
 	for part := range strings.SplitSeq(setList, ",") {
 		lhs, _, ok := strings.Cut(part, "=")
 		if !ok {

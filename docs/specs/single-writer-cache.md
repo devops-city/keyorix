@@ -400,7 +400,7 @@ docs/CONFIGURATION.md entry:
 | Poll statement fails, same session | poll error | lease runs out → `confirming`. Re-entry is allowed only if a later poll succeeds **on the same backend pid** (same session ⇒ the lock was never released), followed by a full flush and a re-read of the epoch. A different pid means lock lost (row above). |
 | Poll goroutine stalls (GC, CPU starvation), clock jump, VM pause/SIGSTOP | lease checked against monotonic AND wall clock on every hit | expires → `confirming` until a fresh poll succeeds; no hit is ever served on an old lease |
 | Trigger census mismatch (dropped, disabled, `tgenabled != 'A'`, body changed) | poll | `confirming` until restart; deviation; the boot installer reinstalls the triggers on the next start |
-| Unattributed epoch bump | poll | full flush (as for every epoch move), ERROR, metric, deviation (stays authoritative: the flush already made it correct; repeated bumps → `confirming`) |
+| Unattributed epoch bump | poll | full flush (as for every epoch move), ERROR, metric, deviation (the first stays authoritative: the flush already made it correct; the second → `confirming` until restart) |
 | Crash / kill -9 | Postgres drops the session (≤ ~25 s with the keepalive settings, at once on a clean TCP close) | caches die with the process; the fence opens once K1 is released; the next boot starts cold, settles, then becomes authoritative. Until Postgres notices the dead client, out-of-band writes are refused (loudly), not lost. |
 | Recreate rollout overlap | new pod can't get K1 | bounded wait (120 s), then exit non-zero, so the orchestrator retries |
 | Fence settle can't complete (a long-open transaction) | 30 s timeout | stays `confirming` and says which xid/age |
