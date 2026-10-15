@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -75,8 +76,26 @@ var ErrLoginIdentityUnavailable = errors.New("login identity unavailable: could 
 // and cannot make the login report failure.) The caller is expected to return
 // this identity so the handler does not re-read it; re-reading would reopen the
 // same window one layer up.
-func (c *KeyorixCore) resolveLoginIdentityBeforeMint(ctx context.Context, userID uint) (UserIdentity, error) {
-	identity, err := c.GetUserIdentity(ctx, userID)
+//
+// A PANIC in the read is returned as the same error (#3267). Every caller runs
+// this after the credential matched and denies on its error through the
+// post-verdict path: the wrong-credential response, the lockout counted, the
+// slot kept, auth.login_error audited. A panic used to skip all of that and
+// reach the Recovery middleware instead: a 500 that a wrong credential can
+// never get (it never reaches this read), so the status code answered "was the
+// credential correct?", while the lockout went uncounted and nothing was
+// audited. Turning it into the error is safe because the read writes nothing
+// and nothing has been written for this login since the verdict but the
+// credential's own consumption, which the error path deliberately keeps.
+func (c *KeyorixCore) resolveLoginIdentityBeforeMint(ctx context.Context, userID uint) (identity UserIdentity, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: login identity read for user %d panicked after the credential matched; "+
+				"denying it as a post-verdict fault: %v\n%s", userID, r, debug.Stack())
+			identity, err = UserIdentity{}, fmt.Errorf("%w: user %d: identity read panicked: %v", ErrLoginIdentityUnavailable, userID, r)
+		}
+	}()
+	identity, err = c.GetUserIdentity(ctx, userID)
 	if err != nil {
 		return UserIdentity{}, fmt.Errorf("%w: user %d: %w", ErrLoginIdentityUnavailable, userID, err)
 	}

@@ -106,6 +106,7 @@ var keptPaths = []string{
 	// PR 7 (docs/cli-split-inventory.md §7) -- audit, anomalies, notification,
 	// accessreview, request.
 	"/api/v1/audit/verify",
+	"/api/v1/audit/verify/jobs/{id}",
 	"/api/v1/audit/export",
 	"/api/v1/audit/checkpoint",
 	"/api/v1/audit/migrate-chain-encoding",

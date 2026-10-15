@@ -54,23 +54,23 @@ const (
 	auditBusyRetryMaxDelay  = 500 * time.Millisecond
 )
 
-// applyAuditCommitDurability is the ONE place the ADR-112 Amendment 1 fast
-// audit mode (FASTAUDIT-1, docs/specs/fast-audit-mode.md) touches the
-// audit-commit path, and the ONLY implementation of the mode anywhere.
+// applyAuditCommitDurability is the ONE place storage.database.audit_durability
+// (ADR-112 Amendments 1 and 3, docs/specs/fast-audit-mode.md) touches the
+// audit-commit path, and the ONLY implementation of the standard level anywhere.
 //
 // POSTGRES ONLY. Callers must already have established that tx's dialect is
 // postgres. There is NO SQLite counterpart, and deliberately never was in a
-// shipped build: the mode is PostgreSQL-only (Andrei's decision, 2026-10-05)
-// and config validation REFUSES TO START a SQLite backend that sets the key
-// (internal/config's auditSkipDurableSyncSQLiteUnsupportedError), so a
+// shipped build: standard is PostgreSQL-only (Andrei's decision, 2026-10-05)
+// and config validation REFUSES TO START a SQLite backend set to standard
+// (internal/config's auditDurabilityStandardSQLiteUnsupportedError), so a
 // SQLite-backed LocalStorage can never reach this function with skip == true.
 // SQLite's own DSN says `_synchronous=FULL` unconditionally and has no other
-// branch. See config.DatabaseConfig.InsecureAuditSkipDurableSync for the two
+// branch. See config.DatabaseConfig.AuditDurability for the
 // reasons SQLite was rejected (a per-connection pragma would relax every
 // table, not just audit; and the measured p99 got worse under concurrency).
 //
-// skip == false (the default, and the secure baseline) is a strict NO-OP: no
-// statement is issued at all, so the default path is byte-identical to what it
+// skip == false (the strict level) is a strict NO-OP: no
+// statement is issued at all, so the strict path is byte-identical to what it
 // was before this setting existed — no extra round trip, nothing to regress,
 // and nothing that could accidentally override a cluster- or role-level
 // synchronous_commit an operator set deliberately.
@@ -163,6 +163,15 @@ func isBatchGlobalContentionErr(err error) bool {
 	return errors.Is(err, storage.ErrSQLiteWriteContention) ||
 		errors.Is(err, context.DeadlineExceeded) ||
 		errors.Is(err, context.Canceled)
+}
+
+// ComputeAuditEntryHash is computeAuditEntryHash (the current encoding) for
+// callers outside this package that must model the chain exactly — tests of a
+// DB-level attacker who rewrites rows and recomputes their hashes. The hash is
+// unkeyed by design (ADR-029: forgery resistance comes from the signed
+// checkpoints), so exporting it gives an attacker nothing new.
+func ComputeAuditEntryHash(e *models.AuditEvent, prevHash string) string {
+	return computeAuditEntryHash(e, prevHash)
 }
 
 // computeAuditEntryHash hashes an event's semantically meaningful fields plus
@@ -876,21 +885,52 @@ func (ls *LocalStorage) logAuditEventBatched(ctx context.Context, event *models.
 // the table, or no purge ever ran), the anchor is superfluous and ignored —
 // the walk proceeds exactly as it always has.
 func (ls *LocalStorage) VerifyAuditChain(ctx context.Context, anchor *storage.AuditChainAnchor) (*storage.AuditChainVerification, error) {
+	return ls.VerifyAuditChainSegment(ctx, storage.AuditChainSegment{Anchor: anchor})
+}
+
+// VerifyAuditChainSegment is the walk behind VerifyAuditChain, bounded for the
+// incremental verification modes (docs/specs/audit-incremental-verification.md).
+// The zero segment is exactly VerifyAuditChain(ctx, nil). See the
+// storage.Storage interface doc for the contract.
+func (ls *LocalStorage) VerifyAuditChainSegment(ctx context.Context, seg storage.AuditChainSegment) (*storage.AuditChainVerification, error) {
 	result := &storage.AuditChainVerification{Valid: true}
 
 	prevHash := auditGenesisHash
 	started := false
 	var lastID uint
 	var headID uint
-	firstBatch := true
+	firstBatch := seg.AfterID == 0
+	anchor := seg.Anchor
 
+	if seg.AfterID > 0 {
+		broke, err := ls.pinAuditChainSeed(ctx, seg, result)
+		if err != nil || broke {
+			return result, err
+		}
+		prevHash, started, lastID, headID = seg.SeedHash, true, seg.AfterID, seg.AfterID
+	}
+
+	walked := 0
 	for {
+		limit := auditChainVerifyBatch
+		if seg.MaxRows > 0 {
+			limit = min(limit, seg.MaxRows-walked)
+		}
+		q := ls.db.WithContext(ctx).Where("id > ?", lastID)
+		if seg.ThroughID > 0 {
+			q = q.Where("id <= ?", seg.ThroughID)
+		}
+		if limit <= 0 {
+			// The row cap is reached: report whether anything was left unwalked.
+			var next []uint
+			if err := q.Model(&models.AuditEvent{}).Order("id ASC").Limit(1).Pluck("id", &next).Error; err != nil {
+				return nil, err
+			}
+			result.Truncated = len(next) > 0
+			break
+		}
 		var batch []*models.AuditEvent
-		if err := ls.db.WithContext(ctx).
-			Where("id > ?", lastID).
-			Order("id ASC").
-			Limit(auditChainVerifyBatch).
-			Find(&batch).Error; err != nil {
+		if err := q.Order("id ASC").Limit(limit).Find(&batch).Error; err != nil {
 			return nil, err
 		}
 		if len(batch) == 0 {
@@ -916,9 +956,13 @@ func (ls *LocalStorage) VerifyAuditChain(ctx context.Context, anchor *storage.Au
 		if broke {
 			return result, nil
 		}
-		prevHash, headID, started = newPrev, newHead, newStarted
+		prevHash, started = newPrev, newStarted
+		if newHead != 0 {
+			headID = newHead
+		}
+		walked += len(batch)
 		lastID = batch[len(batch)-1].ID
-		if len(batch) < auditChainVerifyBatch {
+		if len(batch) < limit {
 			break
 		}
 	}
@@ -929,6 +973,34 @@ func (ls *LocalStorage) VerifyAuditChain(ctx context.Context, anchor *storage.Au
 	result.HeadHash = prevHash
 	result.HeadID = headID
 	return result, nil
+}
+
+// pinAuditChainSeed checks a segment's seed row before the walk continues past
+// it: the row must still exist, carry the entry_hash it was certified or last
+// verified with, and recompute from its own stored fields. broke reports a
+// failure already recorded on result.
+func (ls *LocalStorage) pinAuditChainSeed(ctx context.Context, seg storage.AuditChainSegment, result *storage.AuditChainVerification) (broke bool, err error) {
+	var seed models.AuditEvent
+	err = ls.db.WithContext(ctx).Where("id = ?", seg.AfterID).Take(&seed).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		brokenChain(result, seg.AfterID, fmt.Sprintf(
+			"audit event #%d, the certified/verified starting point of this walk, is missing (rows removed outside a sanctioned purge)", seg.AfterID))
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if seed.EntryHash != seg.SeedHash {
+		brokenChain(result, seg.AfterID, fmt.Sprintf(
+			"audit event #%d hash differs from the value it was certified/verified with (row rewritten)", seg.AfterID))
+		return true, nil
+	}
+	if computeAuditEntryHash(&seed, seed.PrevHash) != seed.EntryHash {
+		brokenChain(result, seg.AfterID, fmt.Sprintf(
+			"audit event #%d no longer recomputes to its entry_hash, so its contents changed after it was written (event modified)", seg.AfterID))
+		return true, nil
+	}
+	return false, nil
 }
 
 // MigrateAuditChainEncoding re-derives entry_hash/prev_hash for every chained

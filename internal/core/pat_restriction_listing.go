@@ -199,12 +199,12 @@ const (
 // not just shorten the list.
 func (c *KeyorixCore) ownRecentActivity(ctx context.Context, userID uint) ([]*models.AuditEvent, error) {
 	if patRestrictionFromContext(ctx) == nil {
-		events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{UserID: &userID, Page: 1, PageSize: dashboardRecentActivity})
+		events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{UserID: &userID, Page: 1, PageSize: dashboardRecentActivity, Count: storage.AuditCountNone})
 		return events, err
 	}
 	out := make([]*models.AuditEvent, 0, dashboardRecentActivity)
 	for page := 1; page <= dashboardActivityScanPages; page++ {
-		events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{UserID: &userID, Page: page, PageSize: dashboardActivityScanPageSize})
+		events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{UserID: &userID, Page: page, PageSize: dashboardActivityScanPageSize, Count: storage.AuditCountNone})
 		if err != nil {
 			return out, err
 		}

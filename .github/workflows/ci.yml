@@ -952,6 +952,22 @@ jobs:
           - leg: encryption-2
             timeout: 1800
             coverage-file: coverage_encryption2.out
+          # server/faultops split out of root-4's catch-all into two test-name
+          # shards (2026-10-15). It ran 1305s -> 1605s -> 1679s -> 1759s in
+          # root-4 and then hit the 30m per-binary timeout on main (run
+          # 38698772543, 1804.7s) and in merge-group runs (38721857337). The
+          # timeout is per test binary, so one leg of its own would not have
+          # been enough -- the package alone is the problem; two shards halve
+          # it. Nothing is skipped or reduced: every Test*/Fuzz* name runs in
+          # exactly one shard (assert_faultops_shards_complete, run by
+          # assert-leg-completeness). See faultops_pkgs in
+          # scripts/ci-test-legs.sh.
+          - leg: faultops-1
+            timeout: 1800
+            coverage-file: coverage_faultops1.out
+          - leg: faultops-2
+            timeout: 1800
+            coverage-file: coverage_faultops2.out
           # handlers (server/http/handlers, one package, 167 test files, 5151
           # top-level tests, all already t.Parallel()) measured at 911s in CI
           # -- vs. 15s wall / 37s summed-per-test locally without -race. That
@@ -1114,6 +1130,11 @@ jobs:
               run_filter=$(run_filter_for_shard "$pkgs" "$shard" 2)
               pkgs=./internal/encryption
               ;;
+            faultops-1|faultops-2)
+              shard=${leg#faultops-}
+              run_filter=$(faultops_run_filter "$shard")
+              pkgs=./server/faultops
+              ;;
             storage-store-1|storage-store-2)
               shard=${leg#storage-store-}
               run_filter=$(run_filter_for_shard "$pkgs" "$shard" 2)
@@ -1234,6 +1255,11 @@ jobs:
         run: |
           source scripts/ci-test-legs.sh
           assert_pinned_leg_packages_valid
+
+      - name: Assert every server/faultops test runs in exactly one faultops shard
+        run: |
+          source scripts/ci-test-legs.sh
+          assert_faultops_shards_complete
 
   # Independent of test execution/coverage -- both tools statically analyze
   # source, so this runs in parallel with test-suite instead of waiting for it
@@ -1396,7 +1422,7 @@ jobs:
           # floor). The coverage_storage_store*.out files below are included: they are THIS
           # leg's own new file, and omitting it would just be reproducing that
           # same gap in new code rather than inheriting an unrelated one.
-          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root3.out coverage_root4.out coverage_storage_store1.out coverage_storage_store2.out coverage_encryption1.out coverage_encryption2.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out coverage_http5.out coverage_http6.out coverage_http7.out coverage_http8.out | grep -v "${grep_args[@]}" >> coverage_merged.out
+          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root3.out coverage_root4.out coverage_storage_store1.out coverage_storage_store2.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out coverage_http5.out coverage_http6.out coverage_http7.out coverage_http8.out | grep -v "${grep_args[@]}" >> coverage_merged.out
           mv coverage_merged.out coverage.out
 
       - name: Check coverage floor (≥${{ env.COVERAGE_FLOOR }}%)

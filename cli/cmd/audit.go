@@ -9,7 +9,10 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -29,21 +32,39 @@ func init() {
 
 // ── audit verify ─────────────────────────────────────────────────────────────
 
-var auditVerifyJSON bool
+var (
+	auditVerifyJSON    bool
+	auditVerifyFull    bool
+	auditVerifyTimeout time.Duration
+	// auditVerifyPollInterval is how often --full polls the job (a var for tests).
+	auditVerifyPollInterval = 2 * time.Second
+)
 
 var auditVerifyCmd = &cobra.Command{
-	Use:          "verify",
-	Short:        "Re-walk the audit hash chain and report integrity (non-zero exit if broken)",
+	Use:   "verify",
+	Short: "Report the audit hash chain's integrity (non-zero exit if broken or not proven)",
+	Long: `Report the audit hash chain's integrity.
+
+By default this reads the server's incremental verification: the rolling full
+re-walk (every row re-hashed at least once per cycle) plus a check of the rows
+after the latest signed checkpoint. Status is VALID, BROKEN, or NOT PROVEN
+(no recent full verification covers the older rows yet). --full runs a full
+walk on the server now, as a background job, and waits for it.`,
 	SilenceUsage: true,
 	RunE:         runAuditVerify,
 }
 
 func init() {
 	auditVerifyCmd.Flags().BoolVar(&auditVerifyJSON, "json", false, "Emit the raw verification result as JSON (for recording the external anchor)")
+	auditVerifyCmd.Flags().BoolVar(&auditVerifyFull, "full", false, "Run a full walk of the chain on the server now (a background job) and wait for its result")
+	auditVerifyCmd.Flags().DurationVar(&auditVerifyTimeout, "timeout", 30*time.Minute, "With --full: how long to wait for the job")
 }
 
 type verifyResult struct {
 	Valid                     bool   `json:"valid"`
+	Status                    string `json:"status,omitempty"`
+	Mode                      string `json:"mode,omitempty"`
+	NotProvenReason           string `json:"not_proven_reason,omitempty"`
 	ChainedEvents             int    `json:"chained_events"`
 	UnchainedEvents           int    `json:"unchained_events"`
 	HeadHash                  string `json:"head_hash"`
@@ -56,6 +77,33 @@ type verifyResult struct {
 	AnchoredAt                string `json:"anchored_at,omitempty"`
 	AnchorProvider            string `json:"anchor_provider,omitempty"`
 	AnchorTrustRootConfigured bool   `json:"anchor_trust_root_configured,omitempty"`
+	LastFullVerificationAt    string `json:"last_full_verification_at,omitempty"`
+	LastFullThroughID         uint   `json:"last_full_verification_through_id,omitempty"`
+	Coverage                  *struct {
+		CheckpointID  uint `json:"checkpoint_id"`
+		TailFromID    uint `json:"tail_from_id"`
+		TailThroughID uint `json:"tail_through_id"`
+		TailComplete  bool `json:"tail_complete"`
+	} `json:"coverage,omitempty"`
+}
+
+// verifyStatus is the result's status; a server from before incremental
+// verification sends only valid.
+func (v *verifyResult) verifyStatus() string {
+	if v.Status != "" {
+		return v.Status
+	}
+	if v.Valid {
+		return "valid"
+	}
+	return "broken"
+}
+
+type verifyJob struct {
+	JobID  string        `json:"job_id"`
+	State  string        `json:"state"`
+	Error  string        `json:"error"`
+	Result *verifyResult `json:"result"`
 }
 
 func runAuditVerify(_ *cobra.Command, _ []string) error {
@@ -64,17 +112,25 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := client.VerifyAuditChainWithResponse(ctx)
+	var v *verifyResult
+	if auditVerifyFull {
+		v, err = runAuditVerifyFullJob(ctx, client)
+	} else {
+		var resp *apiclient.VerifyAuditChainResponse
+		resp, err = client.VerifyAuditChainWithResponse(ctx, nil)
+		if err == nil && resp.StatusCode() != 200 {
+			err = apiError("verify audit chain", resp.StatusCode(), resp.Body)
+		}
+		if err == nil {
+			var d verifyResult
+			d, err = decodeData[verifyResult](resp.Body)
+			v = &d
+		}
+	}
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode() != 200 {
-		return apiError("verify audit chain", resp.StatusCode(), resp.Body)
-	}
-	v, err := decodeData[verifyResult](resp.Body)
-	if err != nil {
-		return err
-	}
+	status := v.verifyStatus()
 
 	if auditVerifyJSON {
 		b, err := json.Marshal(v)
@@ -83,11 +139,11 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 		}
 		fmt.Println(string(b))
 	} else {
-		status := "VALID"
-		if !v.Valid {
-			status = "BROKEN"
+		label := map[string]string{"valid": "VALID", "broken": "BROKEN", "not_proven": "NOT PROVEN"}[status]
+		if label == "" {
+			label = strings.ToUpper(status)
 		}
-		fmt.Printf("Audit chain: %s\n", status)
+		fmt.Printf("Audit chain: %s\n", label)
 		fmt.Printf("  chained events:   %d\n", v.ChainedEvents)
 		fmt.Printf("  unchained events: %d\n", v.UnchainedEvents)
 		fmt.Printf("  head id:          %d\n", v.HeadID)
@@ -97,11 +153,27 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 		} else {
 			fmt.Println("  checkpoint:       none enforced (record (chained events, head hash) externally to anchor)")
 		}
-		if !v.Valid {
+		if v.Mode == "incremental" {
+			if c := v.Coverage; c != nil {
+				fmt.Printf("  this check:       rows %d..%d after signed checkpoint #%d (complete: %t)\n", c.TailFromID+1, c.TailThroughID, c.CheckpointID, c.TailComplete)
+			}
+			if v.LastFullVerificationAt != "" {
+				fmt.Printf("  full re-walk:     every row through id %d re-hashed, completed %s\n", v.LastFullThroughID, v.LastFullVerificationAt)
+			} else {
+				fmt.Println("  full re-walk:     none completed yet")
+			}
+		}
+		switch status {
+		case "broken":
 			fmt.Printf("  first broken id:  %d\n", v.FirstBrokenID)
 			fmt.Printf("  reason:           %s\n", v.Reason)
-		} else if v.CheckpointReason != "" {
-			fmt.Printf("  note:             %s\n", v.CheckpointReason)
+		case "not_proven":
+			fmt.Printf("  not proven:       %s\n", v.NotProvenReason)
+			fmt.Println("  hint:             'keyorix audit verify --full' runs a full walk now")
+		default:
+			if v.CheckpointReason != "" {
+				fmt.Printf("  note:             %s\n", v.CheckpointReason)
+			}
 		}
 		if v.AnchorToken != "" {
 			fmt.Printf("  anchored at:      %s\n", v.AnchoredAt)
@@ -115,10 +187,62 @@ func runAuditVerify(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	if !v.Valid {
+	switch status {
+	case "valid":
+		return nil
+	case "not_proven":
+		return fmt.Errorf("audit chain integrity NOT PROVEN: %s", v.NotProvenReason)
+	default:
 		return fmt.Errorf("audit chain verification FAILED (first broken id %d): %s", v.FirstBrokenID, v.Reason)
 	}
-	return nil
+}
+
+// runAuditVerifyFullJob starts a server-side full walk (?full=true) and polls
+// its job until it finishes.
+func runAuditVerifyFullJob(ctx context.Context, client *apiclient.ClientWithResponses) (*verifyResult, error) {
+	full := apiclient.VerifyAuditChainParamsFullTrue
+	resp, err := client.VerifyAuditChainWithResponse(ctx, &apiclient.VerifyAuditChainParams{Full: &full})
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode() != http.StatusAccepted {
+		return nil, apiError("start full audit verification", resp.StatusCode(), resp.Body)
+	}
+	started, err := decodeData[verifyJob](resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if !auditVerifyJSON {
+		fmt.Fprintf(os.Stderr, "Full audit verification running on the server (job %s)...\n", started.JobID)
+	}
+	deadline := time.Now().Add(auditVerifyTimeout)
+	for {
+		jr, err := client.GetAuditVerifyJobWithResponse(ctx, started.JobID)
+		if err != nil {
+			return nil, err
+		}
+		if jr.StatusCode() != 200 {
+			return nil, apiError("audit verification job", jr.StatusCode(), jr.Body)
+		}
+		j, err := decodeData[verifyJob](jr.Body)
+		if err != nil {
+			return nil, err
+		}
+		switch j.State {
+		case "running":
+		case "succeeded":
+			if j.Result == nil {
+				return nil, fmt.Errorf("audit verification job %s succeeded without a result", j.JobID)
+			}
+			return j.Result, nil
+		default:
+			return nil, fmt.Errorf("audit verification job %s %s: %s", j.JobID, j.State, j.Error)
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("audit verification job %s still running after %s (poll it at /api/v1/audit/verify/jobs/%s)", j.JobID, auditVerifyTimeout, j.JobID)
+		}
+		time.Sleep(auditVerifyPollInterval)
+	}
 }
 
 // ── audit export ─────────────────────────────────────────────────────────────
@@ -388,6 +512,8 @@ var (
 	auditLogSince     string
 	auditLogUntil     string
 	auditLogLimit     int
+	auditLogCursor    string
+	auditLogTotal     bool
 )
 
 var auditLogsCmd = &cobra.Command{
@@ -405,6 +531,8 @@ func init() {
 	auditLogsCmd.Flags().StringVar(&auditLogSince, "since", "", "Only events at/after this time (RFC3339)")
 	auditLogsCmd.Flags().StringVar(&auditLogUntil, "until", "", "Only events at/before this time (RFC3339)")
 	auditLogsCmd.Flags().IntVar(&auditLogLimit, "limit", 50, "Max events to show (1–100)")
+	auditLogsCmd.Flags().StringVar(&auditLogCursor, "cursor", "", "Continue after a previous page (the cursor printed under it)")
+	auditLogsCmd.Flags().BoolVar(&auditLogTotal, "include-total", false, "Count every matching event (exact total; slower on a large audit trail)")
 }
 
 type logEntry struct {
@@ -418,9 +546,18 @@ type logEntry struct {
 	ImpersonatedBy string `json:"impersonated_by"`
 }
 
+// auditPageFooter is the paging part of the /audit/logs and /audit/search
+// envelopes: total and total_exact are absent on a cursor page that did not
+// ask for the total; next_cursor is null on the last page.
+type auditPageFooter struct {
+	Total      *int64  `json:"total"`
+	TotalExact *bool   `json:"total_exact"`
+	NextCursor *string `json:"next_cursor"`
+}
+
 type logsPage struct {
-	Logs  []logEntry `json:"logs"`
-	Total int64      `json:"total"`
+	Logs []logEntry `json:"logs"`
+	auditPageFooter
 }
 
 func runAuditLogs(_ *cobra.Command, _ []string) error {
@@ -433,6 +570,12 @@ func runAuditLogs(_ *cobra.Command, _ []string) error {
 	params := &apiclient.ListAuditLogsParams{}
 	limit := auditLogLimit
 	params.PageSize = &limit
+	if auditLogCursor != "" {
+		params.Cursor = &auditLogCursor
+	}
+	if auditLogTotal {
+		params.IncludeTotal = &auditLogTotal
+	}
 	if auditLogEventType != "" {
 		params.Action = &auditLogEventType
 	}
@@ -483,7 +626,7 @@ func runAuditLogs(_ *cobra.Command, _ []string) error {
 		fmt.Println("No audit events match.")
 		return nil
 	}
-	printAuditLogTable(page.Logs, page.Total)
+	printAuditLogTable(page.Logs, page.auditPageFooter)
 	return nil
 }
 
@@ -492,7 +635,7 @@ func runAuditLogs(_ *cobra.Command, _ []string) error {
 // never cut mid-word (#2942).
 const auditEventColMax = 40
 
-func printAuditLogTable(logs []logEntry, total int64) {
+func printAuditLogTable(logs []logEntry, footer auditPageFooter) {
 	evW := len("EVENT")
 	for _, e := range logs {
 		if n := len(e.EventType); n > evW {
@@ -514,7 +657,18 @@ func printAuditLogTable(logs []logEntry, total int64) {
 			e.ID, shortTime(e.Timestamp), auditTruncate(cliout.SanitizeForTerminal(actor), 16), e.ActorType,
 			evW, auditTruncate(cliout.SanitizeForTerminal(e.EventType), evW), cliout.SanitizeForTerminal(e.Description))
 	}
-	fmt.Printf("\nShowing %d of %d total event(s).\n", len(logs), total)
+	switch {
+	case footer.Total == nil:
+		fmt.Printf("\nShowing %d event(s).\n", len(logs))
+	case footer.TotalExact != nil && !*footer.TotalExact:
+		fmt.Printf("\nShowing %d of more than %d event(s) (--include-total counts them all).\n", len(logs), *footer.Total)
+	default:
+		fmt.Printf("\nShowing %d of %d total event(s).\n", len(logs), *footer.Total)
+	}
+	if footer.NextCursor != nil && *footer.NextCursor != "" {
+		// Server-supplied text: sanitized like every other value printed here.
+		fmt.Printf("Next page: --cursor %s\n", cliout.SanitizeForTerminal(*footer.NextCursor))
+	}
 }
 
 func shortTime(s string) string {
@@ -554,6 +708,8 @@ var (
 	auditSearchUntil        string
 	auditSearchLimit        int
 	auditSearchOffset       int
+	auditSearchCursor       string
+	auditSearchTotal        bool
 )
 
 var auditSearchCmd = &cobra.Command{
@@ -575,7 +731,9 @@ func init() {
 	auditSearchCmd.Flags().StringVar(&auditSearchSince, "since", "", "Only events at/after this RFC3339 time")
 	auditSearchCmd.Flags().StringVar(&auditSearchUntil, "until", "", "Only events at/before this RFC3339 time")
 	auditSearchCmd.Flags().IntVar(&auditSearchLimit, "limit", 100, "Max results (1–1000)")
-	auditSearchCmd.Flags().IntVar(&auditSearchOffset, "offset", 0, "Pagination offset")
+	auditSearchCmd.Flags().IntVar(&auditSearchOffset, "offset", 0, "Pagination offset (offset+limit up to 10000; use --cursor beyond)")
+	auditSearchCmd.Flags().StringVar(&auditSearchCursor, "cursor", "", "Continue after a previous page (the cursor printed under it)")
+	auditSearchCmd.Flags().BoolVar(&auditSearchTotal, "include-total", false, "Count every matching event (exact total; slower on a large audit trail)")
 }
 
 // searchPage is the GET /api/v1/audit/search envelope. Its events are the same
@@ -585,7 +743,7 @@ func init() {
 // columns (#2942).
 type searchPage struct {
 	Events []logEntry `json:"events"`
-	Total  int64      `json:"total"`
+	auditPageFooter
 }
 
 func runAuditSearch(_ *cobra.Command, _ []string) error {
@@ -601,6 +759,12 @@ func runAuditSearch(_ *cobra.Command, _ []string) error {
 	if auditSearchOffset > 0 {
 		offset := auditSearchOffset
 		params.Offset = &offset
+	}
+	if auditSearchCursor != "" {
+		params.Cursor = &auditSearchCursor
+	}
+	if auditSearchTotal {
+		params.IncludeTotal = &auditSearchTotal
 	}
 	if auditSearchActor != "" {
 		params.Actor = &auditSearchActor
@@ -665,6 +829,6 @@ func runAuditSearch(_ *cobra.Command, _ []string) error {
 		fmt.Println("No audit events match.")
 		return nil
 	}
-	printAuditLogTable(page.Events, page.Total)
+	printAuditLogTable(page.Events, page.auditPageFooter)
 	return nil
 }

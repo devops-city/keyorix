@@ -2,6 +2,7 @@ package solewriter
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -71,22 +72,40 @@ func (g *Guard) Run(ctx context.Context) {
 }
 
 // pollOnce reads, in one statement on the holder connection: the backend pid,
-// the proof that it holds the lock, the epoch (value and row version) and the
-// fence fingerprint.
+// the proof that it holds the lock, the holder row (pid, nonce hash and row
+// version), the epoch (value and row version) and the fence fingerprint.
+//
+// The first call sets the holder session's statement_timeout
+// (pollStatementTimeout); nothing but polls runs on the session afterwards.
 func (g *Guard) pollOnce(ctx context.Context) {
 	pctx, cancel := context.WithTimeout(ctx, pollTimeout)
 	defer cancel()
 	var (
 		pid         int
 		held        bool
+		holderPID   sql.NullInt64
+		holderHash  sql.NullString
+		holderXmin  sql.NullString
 		incarnation string
 		epoch       int64
 		epochXmin   string
 		fp          string
 	)
-	err := g.conn.QueryRowContext(pctx, `SELECT pg_catalog.pg_backend_pid(), `+lockHeldExpr("pg_catalog.pg_backend_pid()", "$1")+`,
+	var err error
+	if !g.pollArmed {
+		if _, err = g.conn.ExecContext(pctx, fmt.Sprintf("SET statement_timeout = %d", pollStatementTimeout.Milliseconds())); err == nil {
+			g.pollArmed = true
+		}
+	}
+	if err == nil {
+		holder := func(col string) string {
+			return `(SELECT h.` + col + ` FROM ` + qualify(g.schema, HolderTable) + ` h WHERE h.id = 1)`
+		}
+		err = g.conn.QueryRowContext(pctx, `SELECT pg_catalog.pg_backend_pid(), `+lockHeldExpr("pg_catalog.pg_backend_pid()", "$1")+`,
+  `+holder("holder_pid")+`, `+holder("nonce_hash")+`, `+holder("xmin::text")+`,
   e.incarnation, e.n, e.xmin::text, (`+fingerprintSQL+`)
-FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTableNames()).Scan(&pid, &held, &incarnation, &epoch, &epochXmin, &fp)
+FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTableNames()).Scan(&pid, &held, &holderPID, &holderHash, &holderXmin, &incarnation, &epoch, &epochXmin, &fp)
+	}
 	if err != nil {
 		// A statement error on a live session (a timeout) only lets the
 		// lease run out; a later good poll on the SAME backend proves the
@@ -109,6 +128,12 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	switch {
 	case pid != g.pid || !held:
 		g.leaveLocked(fmt.Sprintf("holder lock lost (connection backend pid %d, was %d, held=%v)", pid, g.pid, held))
+		return
+	case holderPID.Int64 != int64(g.pid) || holderHash.String != nonceHash(g.nonce) || holderXmin.String != g.holderXmin:
+		// Only a session that passed the fence (one with the holder's tag) can
+		// write the row; this boot never rewrites it. A different pid or hash
+		// would open the fence to every session.
+		g.leaveLocked(fmt.Sprintf("the holder row changed (holder_pid %d, row version %s; this server is pid %d, row version %s)", holderPID.Int64, holderXmin.String, g.pid, g.holderXmin))
 		return
 	case fp != g.fingerprint:
 		g.leaveLocked("the write fence changed (a trigger or function was dropped, disabled or replaced)")

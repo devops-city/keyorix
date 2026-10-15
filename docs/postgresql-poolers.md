@@ -51,11 +51,14 @@ next. Keyorix relies on two such things, and the setting replaces both:
 2. **Session-scoped advisory locks.** Keyorix serializes some work across
    replicas with PostgreSQL advisory locks held across statements: named locks
    (`WithNamedLock`), scheduler job locks, the bootstrap lock, the
-   audit-checkpoint lock, the migration lock and the server-presence lock that
+   audit-checkpoint lock, the audit list index build lock, the migration lock and the server-presence lock that
    keeps admin commands (`keyorix-server admin ...`) and running servers apart.
    With `pgbouncer-transaction`, each is taken with the transaction-scoped form
    (`pg_advisory_xact_lock`, `pg_try_advisory_xact_lock[_shared]`) inside a
-   transaction that stays open for the whole critical section. While a
+   transaction that stays open for the whole critical section, its lock
+   statement sent over the simple query protocol so the open transaction holds
+   no snapshot (one would hold back VACUUM and every `CREATE INDEX
+   CONCURRENTLY` for as long). While a
    transaction is open, PgBouncer keeps the client on one server connection, and
    the lock ends with that transaction: at the end of the critical section, or
    when PgBouncer closes the server connection of a client that disconnected
@@ -89,10 +92,11 @@ start beside it. Detecting that (a periodic liveness check on the lock
 connection that stops the server) is not implemented yet.
 
 What does not change in any mode: the audit record of a secret read is
-committed durably before the secret is returned. Fast audit mode
-(`insecure_audit_skip_durable_sync`) still uses `SET LOCAL synchronous_commit =
-off`, which ends with the audit transaction and never reaches another client.
-`TestPgBouncer_StorageSlice/AuditCommit` checks both through PgBouncer.
+committed before the secret is returned. At `audit_durability: strict` the
+commit waits for the disk sync; at `standard` (the PostgreSQL default) the
+audit transaction uses `SET LOCAL synchronous_commit = off`, which ends with
+that transaction and never reaches another client.
+`TestPgBouncer_StorageSlice/AuditCommit` checks both levels through PgBouncer.
 
 ## PgBouncer requirements for transaction mode
 

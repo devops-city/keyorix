@@ -481,3 +481,53 @@ func TestCollectTLSPosture_TLSEnabledDisabledListenerSkipped(t *testing.T) {
 	// the Len(informational, 1) assertion with it.)
 	assert.Empty(t, report.informational, "an enabled+TLS listener and a disabled listener both contribute nothing")
 }
+
+// TestCollectAuditDurabilityPosture_DefaultPostgresIsNotADeviation: ADR-112
+// Amendment 3 makes standard the PostgreSQL baseline. A fully hardened
+// PostgreSQL config -- with neither key set (standard by default), with
+// strict, or with the deprecated alias set to true -- reports zero deviations
+// and one informational line naming the effective level.
+func TestCollectAuditDurabilityPosture_DefaultPostgresIsNotADeviation(t *testing.T) {
+	trueVal := true
+	cases := []struct {
+		name  string
+		level string
+		alias *bool
+		want  string
+	}{
+		{"neither key set", "", nil, "storage.database.audit_durability: standard (committed before every disclosure"},
+		{"strict", "strict", nil, "storage.database.audit_durability: strict (committed and synced to disk"},
+		{"deprecated alias true", "", &trueVal, "storage.database.audit_durability: standard (committed before every disclosure"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Security.RequireTransportTLS = true
+			cfg.Security.EnableFilePermissionCheck = true
+			cfg.Security.RequireMFA = true
+			cfg.Storage.Type = "postgres"
+			cfg.Storage.Encryption.Enabled = true
+			cfg.Storage.Database.SSLMode = "require"
+			cfg.Storage.Database.AuditDurability = tc.level
+			cfg.Storage.Database.InsecureAuditSkipDurableSync = tc.alias
+			cfg.Membership.ValidationMode = "allowlist"
+			cfg.Server.HTTP.MetricsToken = "set"
+			cfg.Server.GRPC.MetricsToken = "set"
+			cfg.Server.HTTP.MaxRequestBodyBytes = 1 << 20
+			cfg.Server.GRPC.MaxRequestBodyBytes = 1 << 20
+			cfg.Server.HTTP.RateLimit.Enabled = true
+			cfg.Server.GRPC.RateLimit.Enabled = true
+			cfg.CredentialDelivery.Mode = "smtp"
+			cfg.CredentialDelivery.SMTP.TLS = "starttls"
+			cfg.Notifications.Email.TLS = "starttls"
+
+			report := &postureReport{}
+			collectInsecureSettingsPosture(cfg, nil, report)
+			collectAuditDurabilityPosture(cfg, report)
+
+			assert.Empty(t, report.deviations, "audit durability is never a posture deviation: %+v", report.deviations)
+			require.Len(t, report.informational, 1)
+			assert.True(t, strings.HasPrefix(report.informational[0], tc.want), "got %q", report.informational[0])
+		})
+	}
+}

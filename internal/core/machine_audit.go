@@ -7,6 +7,7 @@ package core
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -68,11 +69,25 @@ func (c *KeyorixCore) GetMachineAuditReport(ctx context.Context) (*MachineAuditR
 	staleCount := 0
 	revokedCount := 0
 
-	for _, m := range identities {
-		creds, err := c.storage.ListMachineIdentityCredentials(ctx, m.ID)
+	// Every identity's credential usage in batches (LIST-ENDPOINTS-1), not one
+	// ListMachineIdentityCredentials per identity; a failed batch fails the report as
+	// a failed per-identity lookup did.
+	credsByMachine := make(map[uint][]*models.MachineIdentityCredential, len(identities))
+	for start := 0; start < len(identities); start += listBatchSize {
+		end := min(start+listBatchSize, len(identities))
+		ids := make([]uint, 0, end-start)
+		for _, m := range identities[start:end] {
+			ids = append(ids, m.ID)
+		}
+		batch, err := c.storage.ListMachineCredentialUsageByMachineIDs(ctx, ids)
 		if err != nil {
 			return nil, err
 		}
+		maps.Copy(credsByMachine, batch)
+	}
+
+	for _, m := range identities {
+		creds := credsByMachine[m.ID]
 
 		lastUsedAt := machineCredMostRecent(creds)
 

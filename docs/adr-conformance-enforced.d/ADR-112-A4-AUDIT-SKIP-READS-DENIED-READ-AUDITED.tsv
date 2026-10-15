@@ -1,0 +1,1 @@
+ADR-112-A4-AUDIT-SKIP-READS-DENIED-READ-AUDITED	./internal/core	TestInsecureAuditSkipReads_DeniedReadIsStillAudited	default-ci	pending	-	with insecure_audit_skip_reads on, a denied federated read is still audited (connect.secret_read, Success=false)

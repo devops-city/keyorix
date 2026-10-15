@@ -72,10 +72,10 @@ var auditAttributionAllowlist = map[string]string{
 		"UserID (absent from the struct literal) -- the boot-time keyless-mode warning event " +
 		"(docs/design-b2-recover-admin.md §5), emitted before any request context exists, same " +
 		"no-actor shape as auditConnectorProjectBindingCreate above.",
-	"server/main.go:auditDurableSyncSkippedStartup": "hardcodes ActorType: core.ActorTypeSystem and never sets " +
-		"UserID (absent from the struct literal) -- the boot-time fast-audit-mode warning event (ADR-112 " +
-		"Amendment 1, docs/specs/fast-audit-mode.md), emitted before any request context exists, same " +
-		"no-actor shape as auditKeylessModeStartup above and for the same reason.",
+	"server/main.go:auditReadsSkippedStartup": "hardcodes ActorType: core.ActorTypeSystem and never sets " +
+		"UserID (absent from the struct literal) -- the boot-time insecure_audit_skip_reads warning event " +
+		"(ADR-112 Amendment 4), emitted before any request context exists, same no-actor shape as " +
+		"auditKeylessModeStartup above and for the same reason.",
 	"server/admin/admin.go:recordAdminAction": "hardcodes ActorType: adminActorType (\"admin_cli\", " +
 		"server/admin/admin.go) and never sets UserID (absent from the struct literal, so it's the zero value " +
 		"nil) -- a host-side `keyorix-server admin` CLI action with no HTTP/gRPC request context to derive a " +

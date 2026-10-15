@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { DocumentTextIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
-import { useAuditLog } from '../../features/audit/api';
-import { Button } from '../../components/ui/Button';
+import React from 'react';
+import { DocumentTextIcon } from '@heroicons/react/24/outline';
+import { useAuditLogFeed } from '../../features/audit/api';
+import { LoadMore } from '../../features/audit/LoadMore';
 import { parseServerDate } from '../../utils';
 import { eventLabel } from '../../utils/eventLabels';
 import { formatDateTime } from '../../utils/datetime';
@@ -42,18 +42,13 @@ function relativeTime(ts: string): string {
  * Shows audit log events filtered by project_id.
  */
 export const ProjectActivityTab: React.FC<ProjectActivityTabProps> = ({ projectId }) => {
-    const [page, setPage] = useState(1);
     const PAGE_SIZE = 25;
 
-    const { data, isLoading, isError } = useAuditLog({
-        projectId,
-        page,
-        pageSize: PAGE_SIZE,
-    });
+    const feed = useAuditLogFeed({ projectId, pageSize: PAGE_SIZE });
+    const { isLoading, isError } = feed;
 
     const resolveNames = useAuditNames();
-    const events = data?.data ?? [];
-    const totalPages = data?.totalPages ?? 1;
+    const events = feed.entries;
 
     const loadingContent = (
         <div className="p-6 space-y-3">
@@ -143,29 +138,14 @@ export const ProjectActivityTab: React.FC<ProjectActivityTabProps> = ({ projectI
                 </table>
             </div>
 
-            {totalPages > 1 && (
-                <div
-                    className="px-4 py-3 border-t flex items-center justify-between"
-                    style={{ borderColor: 'var(--border)' }}
-                >
-                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        Page {page} of {totalPages}
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
-                            <ChevronLeftIcon className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPage((p) => p + 1)}
-                            disabled={page === totalPages}
-                        >
-                            <ChevronRightIcon className="h-4 w-4" />
-                        </Button>
-                    </div>
-                </div>
-            )}
+            <LoadMore
+                loaded={events.length}
+                total={feed.total}
+                totalExact={feed.totalExact}
+                hasMore={!!feed.hasNextPage}
+                isLoadingMore={feed.isFetchingNextPage}
+                onLoadMore={() => void feed.fetchNextPage()}
+            />
         </>
     );
 

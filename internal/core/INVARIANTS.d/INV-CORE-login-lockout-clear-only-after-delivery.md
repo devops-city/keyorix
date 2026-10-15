@@ -9,7 +9,16 @@
   recheck (`recheckLockAfterCredentialMatched`, #2894 review), the
   password-expiry gate, the session mint, the step-up-grant write, or the
   transport's identity read also goes to N and locks; only a login the client actually received
-  resets to 0. Why: #2894 — `checkLockAndClearLoginFailures` cleared the counter
+  resets to 0. The identity read holds this for a PANIC as well as an error
+  (#3267): `resolveLoginIdentityBeforeMint` returns a panic in that pure read
+  as its post-verdict error, so it is counted, answered like a wrong
+  credential and audited `auth.login_error`, never the Recovery 500 a wrong
+  credential cannot get (guards:
+  `server/faultops/TestPostVerdictIdentityReadPanic_AnsweredLikeItsError`, the
+  panic subtests of the handler tests below, run through
+  `middleware.Recovery`, and `internal/core/TestLoginIdentityReadPanic_DeniedLikeItsError`).
+  A panic in a post-verdict WRITE (the anti-replay mark, the session mint)
+  still reaches the Recovery middleware: UNGUARDED, #3277. Why: #2894 — `checkLockAndClearLoginFailures` cleared the counter
   on its way past the TOCTOU re-check, which put the clear BEFORE every
   remaining fallible step of every login path (`internal/core/auth.go`,
   `mfa.go`, `webauthn.go` ×2, `mfa_stepup.go`), and the `completeLogin` failure

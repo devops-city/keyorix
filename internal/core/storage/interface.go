@@ -656,6 +656,10 @@ type Storage interface {
 	GetMachineIdentityCredentialWithIdentityStateByHash(ctx context.Context, hash string) (cred *models.MachineIdentityCredential, identityState string, err error)
 	GetMachineIdentityCredentialByID(ctx context.Context, id uint) (*models.MachineIdentityCredential, error)
 	ListMachineIdentityCredentials(ctx context.Context, machineID uint) ([]*models.MachineIdentityCredential, error)
+	// ListMachineCredentialUsageByMachineIDs is the batch form of ListMachineIdentityCredentials
+	// for the machine audit report (LIST-ENDPOINTS-1): per machine, its credentials with ONLY
+	// id, machine_identity_id and last_used_at populated (no token hash or CIDR list).
+	ListMachineCredentialUsageByMachineIDs(ctx context.Context, machineIDs []uint) (map[uint][]*models.MachineIdentityCredential, error)
 	// ListActiveMachineIdentityCredentials returns every non-revoked machine
 	// credential across all identities — the deployment-wide view for token-hygiene
 	// auditing (stale / expired-but-active).
@@ -790,6 +794,10 @@ type Storage interface {
 	// ListUserProjectMemberships returns all membership rows for a single user,
 	// newest first (powers the per-user assignments view).
 	ListUserProjectMemberships(ctx context.Context, userID uint) ([]*models.ProjectMembership, error)
+	// ListUserProjectMembershipsByUserIDs is the batch form of ListUserProjectMemberships
+	// (LIST-ENDPOINTS-1): each user's rows, newest invite first, keyed by user id; a user
+	// with no row is absent.
+	ListUserProjectMembershipsByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]*models.ProjectMembership, error)
 	// CountProjectMembershipsByUsers returns per-user membership tallies (active
 	// and non-revoked total) for the given user IDs in one grouped query.
 	CountProjectMembershipsByUsers(ctx context.Context, userIDs []uint) (map[uint]MembershipCounts, error)
@@ -822,6 +830,17 @@ type Storage interface {
 	// planner's risk-scoring batch (#409) so scoring N candidate secrets costs a
 	// small constant number of queries, not N.
 	GetSecretsByIDs(ctx context.Context, ids []uint) ([]*models.SecretNode, error)
+	// Batch name lookups for list views (LIST-ENDPOINTS-1): one query per page
+	// instead of one GetUser / GetGroup / GetMachineIdentity / GetSecretTags per
+	// row. Each selects only the id and display column. An id with no live row is
+	// absent from the map (no error), as the single-row getters report not-found.
+	// GetSecretTagsBySecretIDs returns name-ordered tags; an untagged secret is absent.
+	GetUsernamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	// GetUserBriefsByIDs is GetUsernamesByIDs plus the email (id, username, email columns only).
+	GetUserBriefsByIDs(ctx context.Context, ids []uint) (map[uint]UserBrief, error)
+	GetGroupNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	GetMachineIdentityNamesByIDs(ctx context.Context, ids []uint) (map[uint]string, error)
+	GetSecretTagsBySecretIDs(ctx context.Context, ids []uint) (map[uint][]string, error)
 	GetSecretByName(ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error)
 	// UpdateSecretFields persists ONLY the fields f names, onto a LIVE secret
 	// row: "UPDATE secret_nodes SET <named columns> WHERE id = ? AND deleted_at
@@ -1360,6 +1379,9 @@ type Storage interface {
 	// enumerate every scope the target actually has a grant at, then evaluate
 	// GetUserRoleIDsAt/GetUserGroupRoleIDsAt (via scopedRoleIDs) per scope.
 	GetUserRoleScopes(ctx context.Context, userID uint) ([]Scope, error)
+	// GetUserRoleScopesByUserIDs is the batch form of GetUserRoleScopes (LIST-ENDPOINTS-1):
+	// the same distinct live scopes per user, keyed by user id; a user with no live role is absent.
+	GetUserRoleScopesByUserIDs(ctx context.Context, userIDs []uint) (map[uint][]Scope, error)
 	RoleSetHasPermission(ctx context.Context, roleIDs []uint, permission string) (bool, error)
 	// RoleSetBypassesPermissionChecks reports whether any role in roleIDs has
 	// BypassesPermissionChecks = true (ADR-084) -- the structural,
@@ -1619,6 +1641,18 @@ type Storage interface {
 	// that already starts at genesis (the purge only removed the legacy
 	// unchained prefix, or the table is now empty) ignores a non-nil anchor.
 	VerifyAuditChain(ctx context.Context, anchor *AuditChainAnchor) (*AuditChainVerification, error)
+	// VerifyAuditChainSegment walks one bounded part of the chain with the same
+	// per-row rules as VerifyAuditChain (docs/specs/audit-incremental-verification.md).
+	// With seg.AfterID == 0 it starts at the chain start exactly like
+	// VerifyAuditChain(ctx, seg.Anchor). With seg.AfterID > 0 the row AfterID is
+	// pinned first: it must exist, carry entry_hash == seg.SeedHash and recompute
+	// from its own fields; the walk then continues with the rows id > AfterID,
+	// the first of which must link to SeedHash. The walk stops after ThroughID
+	// (0 = no bound) or MaxRows rows (0 = no bound). The result's HeadID/HeadHash
+	// are the last row verified (the pinned row when nothing followed it), and
+	// ChainedEvents counts the rows walked after the pinned row. Truncated
+	// reports that MaxRows stopped the walk before ThroughID / the end.
+	VerifyAuditChainSegment(ctx context.Context, seg AuditChainSegment) (*AuditChainVerification, error)
 	// MigrateAuditChainEncoding re-derives entry_hash/prev_hash for every chained
 	// audit_events row, in ascending id order, under computeAuditEntryHash's
 	// current (length-prefixed) encoding — closing the gap left when that
@@ -2313,6 +2347,12 @@ type UserFilter struct {
 
 // MembershipCounts holds a user's project-membership tallies: Active counts
 // memberships in the `active` state; Total counts all non-revoked memberships.
+// UserBrief is the identity a list view shows for a user: never the full row.
+type UserBrief struct {
+	Username string
+	Email    string
+}
+
 type MembershipCounts struct {
 	Active int
 	Total  int
@@ -2359,7 +2399,42 @@ type AuditFilter struct {
 	// ResourceType filters events by the resource type embedded in the event_type
 	// (the prefix before the first dot, e.g. "secret" from "secret.read").
 	ResourceType *string
+
+	// Before is the keyset cursor of the newest-first order (event_time DESC,
+	// id DESC): only rows strictly after that position are returned and Page is
+	// ignored. Ignored in Ascending mode. See docs/specs/audit-list-keyset.md.
+	Before *AuditCursor
+	// Count selects how the total is computed. The zero value is the exact
+	// COUNT(*) over every match; a caller that discards the total passes
+	// AuditCountNone, and the public list views pass AuditCountCapped.
+	Count AuditCountMode
 }
+
+// AuditCursor is a position in the newest-first audit order: the event_time
+// and id of the last row a page returned.
+type AuditCursor struct {
+	EventTime time.Time
+	ID        uint
+}
+
+// AuditCountMode selects how GetAuditLogs computes its total.
+type AuditCountMode int
+
+const (
+	// AuditCountExact counts every matching row (the default).
+	AuditCountExact AuditCountMode = iota
+	// AuditCountNone skips the count; the returned total is 0.
+	AuditCountNone
+	// AuditCountCapped counts at most AuditCountCap+1 matching rows, so the cost
+	// is bounded by the cap rather than by the table. A total above
+	// AuditCountCap means "more than AuditCountCap".
+	AuditCountCapped
+)
+
+// AuditCountCap bounds AuditCountCapped. It equals the deepest offset the
+// public list views let a caller reach by page number (AuditOffsetCap in
+// internal/core), so a capped total still yields every reachable page.
+const AuditCountCap = 10_000
 
 // Scope identifies the project/environment a role assignment or an
 // authorization check applies to. It uses a 0 = global/unspecified sentinel,
@@ -2539,6 +2614,11 @@ type AuditChainVerification struct {
 	// server has never checked it against any root of trust — callers must not
 	// treat a recorded-but-unverifiable anchor as equivalent to a verified one.
 	AnchorTrustRootConfigured bool
+
+	// Truncated is set only by VerifyAuditChainSegment: the MaxRows cap stopped
+	// the walk before ThroughID or the end of the chain, so rows after HeadID
+	// were NOT verified.
+	Truncated bool
 }
 
 // AuditChainAnchor is an authenticated re-anchor point for VerifyAuditChain's
@@ -2565,6 +2645,29 @@ type AuditChainAnchor struct {
 	// actor cannot raise it to excuse a truncation. Checkpoint and high-water
 	// checks compare chained + PurgedEvents against the certified count.
 	PurgedEvents int64
+}
+
+// AuditVerifyJobLockKey is the WithSchedulerLock key that admits one background
+// full audit-chain verification job across replicas ("KEYSAVJB"; distinct from
+// server/main.go's schedLock* keys; uniqueness against every *LockKey constant
+// is guarded by store.TestEveryAdvisoryLockKeyConstantIsUnique).
+const AuditVerifyJobLockKey int64 = 0x4B455953_41564A42
+
+// AuditChainSegment bounds one VerifyAuditChainSegment walk. AfterID/SeedHash
+// come from an authenticated source (a signed checkpoint head, or the signed
+// incremental-verification state); like AuditChainAnchor, the store layer
+// trusts them literally.
+type AuditChainSegment struct {
+	// AfterID is the pinned seed row; 0 = start at the chain start.
+	AfterID uint
+	// SeedHash is the entry_hash AfterID was certified/verified with.
+	SeedHash string
+	// Anchor is the authenticated retention anchor, used only when AfterID == 0.
+	Anchor *AuditChainAnchor
+	// ThroughID is the last id to walk (inclusive); 0 = to the end.
+	ThroughID uint
+	// MaxRows caps the rows walked after the pinned row; 0 = no cap.
+	MaxRows int
 }
 
 // AuditChainMigrationResult reports the outcome of MigrateAuditChainEncoding.

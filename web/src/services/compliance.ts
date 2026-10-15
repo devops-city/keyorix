@@ -9,6 +9,10 @@ export interface CompliancePosture {
         chainedEvents: number;
         checkpointed: boolean;
         reason?: string;
+        // valid | broken | not_proven (incremental verification); absent from older servers.
+        verificationStatus?: string;
+        // When the last full re-walk of the chain completed; absent when none has.
+        lastFullVerificationAt?: string;
     };
     accessGovernance: {
         projects: number;
@@ -69,6 +73,8 @@ const normalize = (d: any): CompliancePosture => ({
         chainedEvents: num(d.audit_integrity?.chained_events),
         checkpointed: !!d.audit_integrity?.checkpointed,
         reason: d.audit_integrity?.reason ?? undefined,
+        verificationStatus: d.audit_integrity?.verification_status ?? undefined,
+        lastFullVerificationAt: d.audit_integrity?.last_full_verification_at ?? undefined,
     },
     accessGovernance: {
         projects: num(d.access_governance?.projects),

@@ -92,6 +92,9 @@ func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *m
 			persisted = false
 		}
 	}()
+	if c.skipsSuccessfulReadAudit(event) {
+		return true
+	}
 	prepareAuditEventForEmit(ctx, event)
 	if err := tgt.st.LogAuditEvent(ctx, event); err != nil {
 		logAuditEmitFailure(event, err)

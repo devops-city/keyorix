@@ -84,6 +84,12 @@ const (
 	PollInterval  = 250 * time.Millisecond
 	LeaseDuration = time.Second
 	pollTimeout   = 500 * time.Millisecond
+	// pollStatementTimeout is the holder session's statement_timeout once it
+	// polls: a poll blocked on a lock (a role with UPDATE on an own table can
+	// LOCK it) fails on the server, which keeps the session and its lock,
+	// before pollTimeout's context cancel would close the connection and so
+	// release the lock (REVIEW-SINGLE-WRITER-3 N6).
+	pollStatementTimeout = pollTimeout * 3 / 5
 )
 
 // serverPresenceLockKey mirrors internal/serverguard's key (a live server
@@ -159,6 +165,8 @@ type Guard struct {
 	incarnation  string
 	epoch        int64
 	epochXmin    string    // the epoch row's xmin: any UPDATE changes it, a net-zero one included
+	holderXmin   string    // the holder row's xmin as this boot wrote it; nothing rewrites it while the holder lives
+	pollArmed    bool      // the holder session's statement_timeout is set (pollOnce only)
 	lastGoodMono time.Time // carries the monotonic reading
 	lastGoodWall time.Time // wall clock only (Round(0))
 	lastErr      string
@@ -279,9 +287,9 @@ func (g *Guard) start(ctx context.Context) error {
 	g.since = g.opts.Now().UTC()
 	// The table name is this session's own schema (pinSessionSchema), quoted
 	// as an identifier; every value is a bind parameter.
-	if _, err := g.conn.ExecContext(ctx, `INSERT INTO `+qualify(g.schema, HolderTable)+` (id, holder_pid, nonce_hash, since, boot_id) VALUES (1, $1, $2, $3, $4)
-ON CONFLICT (id) DO UPDATE SET holder_pid = EXCLUDED.holder_pid, nonce_hash = EXCLUDED.nonce_hash, since = EXCLUDED.since, boot_id = EXCLUDED.boot_id`, // #nosec G202 -- schema-qualified identifier from the server's own session, quoted; values are bind parameters
-		g.pid, nonceHash(g.nonce), g.since, g.bootID); err != nil {
+	if err := g.conn.QueryRowContext(ctx, `INSERT INTO `+qualify(g.schema, HolderTable)+` (id, holder_pid, nonce_hash, since, boot_id) VALUES (1, $1, $2, $3, $4)
+ON CONFLICT (id) DO UPDATE SET holder_pid = EXCLUDED.holder_pid, nonce_hash = EXCLUDED.nonce_hash, since = EXCLUDED.since, boot_id = EXCLUDED.boot_id RETURNING xmin::text`, // #nosec G202 -- schema-qualified identifier from the server's own session, quoted; values are bind parameters
+		g.pid, nonceHash(g.nonce), g.since, g.bootID).Scan(&g.holderXmin); err != nil {
 		return fmt.Errorf("single_writer: record this server as the holder: %w", err)
 	}
 	return nil

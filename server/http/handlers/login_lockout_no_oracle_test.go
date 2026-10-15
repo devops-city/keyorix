@@ -53,6 +53,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
 const (
@@ -222,8 +223,19 @@ func (e *lockoutOracleEnv) postLogin(t *testing.T, password string) *httptest.Re
 	require.NoError(t, err)
 	r := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	e.h.Login(w, r)
+	throughProductionRecovery(e.h.Login).ServeHTTP(w, r)
 	return w
+}
+
+// throughProductionRecovery wraps a handler in the production
+// middleware.Recovery, the outermost layer of the real router, so a PANIC
+// fault is answered here exactly as a client would see it (#3267). Without it
+// a panic would unwind out of the test instead of producing a response, and
+// nobody could show what a panic returns over HTTP. For a request that does
+// not panic it changes nothing, so the control and the non-panic probes are
+// unaffected.
+func throughProductionRecovery(h http.HandlerFunc) http.Handler {
+	return middleware.Recovery()(h)
 }
 
 // driveToThresholdMinusOne spends MaxAttempts-1 wrong passwords, so the NEXT
@@ -256,6 +268,11 @@ func (e *lockoutOracleEnv) driveToThresholdMinusOne(t *testing.T) {
 // effect-then-error kind of each read are the server/faultops
 // oracleAByDesignErrors rows' proving subtests, so every pinned class-A tuple
 // has a handler-level parity proof.
+//
+// #3267: the PANIC kind of the identity read is here too, answered through
+// the production Recovery middleware (postLogin). Before the fix it got the
+// Recovery 500 and an uncounted lockout, both of which a wrong password never
+// gets.
 func TestLogin_PostVerdictFaultCostsTheSameAsAWrongPassword(t *testing.T) {
 	for _, c := range []struct {
 		method string
@@ -266,6 +283,8 @@ func TestLogin_PostVerdictFaultCostsTheSameAsAWrongPassword(t *testing.T) {
 		{"GetUserRoles", faultstorage.KindError},
 		{"GetUserPermissions", faultstorage.KindEffectThenError},
 		{"GetUserRoles", faultstorage.KindEffectThenError},
+		{"GetUserPermissions", faultstorage.KindPanic},
+		{"GetUserRoles", faultstorage.KindPanic},
 	} {
 		method, kind := c.method, c.kind
 		t.Run(method+"/"+kind.String(), func(t *testing.T) {
@@ -447,11 +466,24 @@ func waitForAuditEvent(t *testing.T, db *gorm.DB, eventType string) int64 {
 
 func (e *lockoutOracleEnv) postVerify(t *testing.T, challenge, code string) *httptest.ResponseRecorder {
 	t.Helper()
+	return e.serveVerify(t, throughProductionRecovery(e.h.VerifyMFA), challenge, code)
+}
+
+// postVerifyUnrecovered calls the handler bare, for a test that asserts what a
+// panic carries when it leaves the handler (#3048) rather than what the client
+// is answered.
+func (e *lockoutOracleEnv) postVerifyUnrecovered(t *testing.T, challenge, code string) *httptest.ResponseRecorder {
+	t.Helper()
+	return e.serveVerify(t, http.HandlerFunc(e.h.VerifyMFA), challenge, code)
+}
+
+func (e *lockoutOracleEnv) serveVerify(t *testing.T, h http.Handler, challenge, code string) *httptest.ResponseRecorder {
+	t.Helper()
 	body, err := json.Marshal(map[string]string{"mfa_challenge": challenge, "code": code})
 	require.NoError(t, err)
 	r := httptest.NewRequest(http.MethodPost, "/auth/mfa/verify", bytes.NewReader(body))
 	w := httptest.NewRecorder()
-	e.h.VerifyMFA(w, r)
+	h.ServeHTTP(w, r)
 	return w
 }
 
@@ -485,6 +517,12 @@ func TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 	//
 	// ORPHAN-2: GetUserRoles and the effect-then-error kinds are the proving
 	// subtests of the server/faultops oracleAByDesignErrors class-A rows.
+	//
+	// #3267: so are the PANIC kinds of the identity read, answered through the
+	// production Recovery middleware (postVerify). Before the fix a panic there
+	// got the Recovery 500 (a wrong code never reaches the identity read, so a
+	// 500 meant "the code was right"), the lockout went uncounted and nothing
+	// was audited, while the TOTP step stayed burned and the slot stayed spent.
 	for _, c := range []struct {
 		method string
 		kind   faultstorage.FaultKind
@@ -496,6 +534,8 @@ func TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 		{"GetUserPermissions", faultstorage.KindEffectThenError},
 		{"GetUserRoles", faultstorage.KindEffectThenError},
 		{"MarkTOTPStepUsed", faultstorage.KindEffectThenError},
+		{"GetUserPermissions", faultstorage.KindPanic},
+		{"GetUserRoles", faultstorage.KindPanic},
 	} {
 		method, kind := c.method, c.kind
 		t.Run(method+"/"+kind.String(), func(t *testing.T) {
@@ -551,6 +591,43 @@ func TestVerifyMFA_MintFailureAfterCorrectCodeAuditsLoginError(t *testing.T) {
 	errorEvents := waitForAuditEvent(t, env.db, "auth.login_error")
 	assert.Equal(t, int64(1), errorEvents,
 		"a mintSession failure after a CORRECT code must reach LogAuthError -- previously this branch audited nothing at all")
+}
+
+// TestVerifyMFA_IdentityReadPanicAuditsLoginErrorAndKeepsTheCodeBurned is the
+// rest of #3267's decided outcome for a post-verdict identity-read PANIC,
+// through the production Recovery middleware: the operator-only audit half
+// (auth.login_error, as for the error kind), and the TOTP step reuse
+// protection. The code matched, so its step was consumed before the panic and
+// must stay consumed: replaying the same code on a fresh challenge is refused.
+func TestVerifyMFA_IdentityReadPanicAuditsLoginErrorAndKeepsTheCodeBurned(t *testing.T) {
+	for _, method := range []string{"GetUserPermissions", "GetUserRoles"} {
+		t.Run(method, func(t *testing.T) {
+			env := newLockoutOracleEnvWithMFA(t)
+			code, err := totp.GenerateCode(env.totpSecret, env.clock)
+			require.NoError(t, err)
+
+			ch, err := env.h.coreService.CreateMFAChallenge(context.Background(), 1)
+			require.NoError(t, err)
+			env.fs.Arm(&faultstorage.FaultSpec{Method: method, NthCall: 1, Kind: faultstorage.KindPanic})
+			w := env.postVerify(t, ch, code)
+			require.True(t, env.fs.Fired(), "the armed %s panic must actually have fired", method)
+			env.fs.Arm(nil)
+			require.Equal(t, http.StatusUnauthorized, w.Code, "a post-verdict panic must get the wrong-code 401, not the Recovery 500: %s", w.Body.String())
+
+			assert.Equal(t, int64(1), waitForAuditEvent(t, env.db, "auth.login_error"),
+				"a post-verdict panic must be audited auth.login_error, like the same fault returned as an error")
+
+			replay, err := env.h.coreService.CreateMFAChallenge(context.Background(), 1)
+			require.NoError(t, err)
+			w = env.postVerify(t, replay, code)
+			assert.Equal(t, http.StatusUnauthorized, w.Code,
+				"the code was accepted before the panic, so its TOTP step must stay burned: a replay must be refused")
+
+			var sessions int64
+			require.NoError(t, env.db.Model(&models.Session{}).Count(&sessions).Error)
+			assert.Zero(t, sessions, "neither the panicked attempt nor the replay may mint a session")
+		})
+	}
 }
 
 // TestVerifyMFA_PreVerdictFaultStillReleasesItsSlot is the other direction, and

@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -154,6 +156,34 @@ func TestJourney_AuditTrail(t *testing.T) {
 		}
 	})
 
+	t.Run("cursor paging: /audit/logs walk matches /audit/search, offset cap answers 400, CLI follows --cursor", func(t *testing.T) {
+		var sum int
+		for _, n := range hist {
+			sum += n
+		}
+		logs := auditCursorWalk(t, s, adminToken, "/api/v1/audit/logs?page_size=7", "logs")
+		if len(logs) != sum {
+			t.Fatalf("/audit/logs cursor walk returned %d events, /audit/search walk %d", len(logs), sum)
+		}
+		env := restCall(t, s, adminToken, http.MethodGet, "/api/v1/audit/logs?page=101&page_size=100", nil)
+		if env.StatusCode != http.StatusBadRequest || !strings.Contains(env.Message, "cursor") {
+			t.Fatalf("page past the offset cap: want 400 naming the cursor, got %d %q", env.StatusCode, env.Message)
+		}
+
+		out := runCLI(t, cliBin, adminEnv(s, adminToken), "audit", "logs", "--limit", "5")
+		cur := cliNextCursor(t, out)
+		if cur == "" {
+			t.Fatalf("`audit logs --limit 5` printed no next cursor with %d events present:\n%s", sum, out)
+		}
+		out2 := runCLI(t, cliBin, adminEnv(s, adminToken), "audit", "logs", "--limit", "5", "--cursor", cur)
+		if !strings.Contains(out2, "Showing 5 event(s).") {
+			t.Fatalf("`audit logs --cursor` second page:\n%s", out2)
+		}
+		if strings.Contains(out2, cliFirstIDLine(out)) {
+			t.Fatalf("second CLI page repeats the first page's first row:\n%s\n---\n%s", out, out2)
+		}
+	})
+
 	t.Run("every expected event type present, exact count, no duplicates", func(t *testing.T) {
 		for evtType, want := range n3ExactEventCounts {
 			if got := hist[evtType]; got != want {
@@ -276,31 +306,61 @@ func TestJourney_AuditTrail(t *testing.T) {
 	}
 }
 
-// auditEventTypeHistogram fetches every audit event (paginated) via GET
-// /api/v1/audit/search and counts occurrences by event_type.
+// auditEventTypeHistogram fetches every audit event via GET
+// /api/v1/audit/search, following next_cursor (keyset paging,
+// docs/specs/audit-list-keyset.md), and counts occurrences by event_type. A
+// repeated id fails the journey: the cursor must never return a row twice.
 func auditEventTypeHistogram(t *testing.T, s *harness.Server, adminToken string) map[string]int {
 	t.Helper()
 	hist := map[string]int{}
-	const pageSize = 200
-	for offset := 0; ; offset += pageSize {
-		path := fmt.Sprintf("/api/v1/audit/search?limit=%d&offset=%d", pageSize, offset)
+	for _, e := range auditCursorWalk(t, s, adminToken, "/api/v1/audit/search?limit=200", "events") {
+		hist[e.EventType]++
+	}
+	return hist
+}
+
+type auditWalkEvent struct {
+	ID        int    `json:"id"`
+	EventType string `json:"event_type"`
+}
+
+// auditCursorWalk pages basePath (whose list field is listField) to its end by
+// next_cursor and returns every event, failing on a repeated id.
+func auditCursorWalk(t *testing.T, s *harness.Server, adminToken, basePath, listField string) []auditWalkEvent {
+	t.Helper()
+	var all []auditWalkEvent
+	seen := map[int]bool{}
+	path := basePath
+	for range 10_000 {
 		env := restExpect(t, s, adminToken, http.MethodGet, path, nil, http.StatusOK)
-		var data struct {
-			Events []struct {
-				EventType string `json:"event_type"`
-			} `json:"events"`
-		}
+		var data map[string]json.RawMessage
 		if err := json.Unmarshal(env.Data, &data); err != nil {
 			t.Fatalf("decode GET %s: %v\nraw: %s", path, err, env.Data)
 		}
-		for _, e := range data.Events {
-			hist[e.EventType]++
+		var page []auditWalkEvent
+		if err := json.Unmarshal(data[listField], &page); err != nil {
+			t.Fatalf("decode %s of GET %s: %v", listField, path, err)
 		}
-		if len(data.Events) < pageSize {
-			break
+		for _, e := range page {
+			if seen[e.ID] {
+				t.Fatalf("GET %s returned id %d again: the cursor walk repeated a row", path, e.ID)
+			}
+			seen[e.ID] = true
+			all = append(all, e)
 		}
+		var next *string
+		if raw, ok := data["next_cursor"]; ok {
+			if err := json.Unmarshal(raw, &next); err != nil {
+				t.Fatalf("decode next_cursor of GET %s: %v", path, err)
+			}
+		}
+		if next == nil || *next == "" {
+			return all
+		}
+		path = basePath + "&cursor=" + url.QueryEscape(*next)
 	}
-	return hist
+	t.Fatalf("cursor walk of %s did not end", basePath)
+	return nil
 }
 
 // auditEventID returns the ID of the single event of evtType this journey
@@ -418,4 +478,27 @@ func deleteAuditRow(t *testing.T, dbPath string, id int) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("sqlite3 tamper DELETE failed: %v\n%s", err, out)
 	}
+}
+
+// cliNextCursor extracts the cursor from `audit logs`' "Next page: --cursor X" line.
+func cliNextCursor(t *testing.T, out string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "Next page: --cursor "); ok {
+			return strings.TrimSpace(rest)
+		}
+	}
+	return ""
+}
+
+// cliFirstIDLine is the first data row of an `audit logs` table (the line
+// after the header), used to tell two pages apart.
+func cliFirstIDLine(out string) string {
+	lines := strings.Split(out, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, "ID ") && i+1 < len(lines) {
+			return lines[i+1]
+		}
+	}
+	return "\x00no-row"
 }

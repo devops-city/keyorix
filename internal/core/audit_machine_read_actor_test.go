@@ -59,8 +59,8 @@ func TestResolveMachineNames(t *testing.T) {
 	t.Parallel()
 	store := new(MockStorage)
 	c := NewKeyorixCore(store)
-	store.On("GetMachineIdentity", mock.Anything, uint(5)).Return(&models.MachineIdentity{ID: 5, Name: "ci-app"}, nil)
-	store.On("GetMachineIdentity", mock.Anything, uint(6)).Return((*models.MachineIdentity)(nil), assert.AnError)
+	// One batched lookup for the distinct ids; 6 has no readable row.
+	store.On("GetMachineIdentityNamesByIDs", mock.Anything, []uint{5, 6}).Return(map[uint]string{5: "ci-app"}, nil)
 
 	five, six, user := uint(5), uint(6), uint(5)
 	names := c.ResolveMachineNames(context.Background(), []*models.AuditEvent{
@@ -71,5 +71,5 @@ func TestResolveMachineNames(t *testing.T) {
 	})
 
 	assert.Equal(t, map[uint]string{5: "ci-app", 6: "unknown"}, names)
-	store.AssertNumberOfCalls(t, "GetMachineIdentity", 2) // 5 is looked up once
+	store.AssertNumberOfCalls(t, "GetMachineIdentityNamesByIDs", 1) // not one lookup per identity
 }

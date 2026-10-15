@@ -57,6 +57,7 @@ func (c *KeyorixCore) RunRecoverAdminAlerting(ctx context.Context) (int, error) 
 		Action:    &action,
 		AfterID:   &highWater,
 		Ascending: true,
+		Count:     storage.AuditCountNone,
 		PageSize:  recoverAdminAlertBatchSize,
 	})
 	if err != nil {

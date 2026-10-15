@@ -5,8 +5,23 @@ import { ProjectActivityTab } from '../ProjectActivityTab';
 
 const useAuditLog = vi.fn();
 
+// The tab reads the load-more feed; toFeed adapts the page-shaped mock below.
+function toFeed(r: any) {
+    return {
+        entries: r?.data?.data ?? [],
+        total: r?.data?.total,
+        totalExact: true,
+        isLoading: r?.isLoading ?? false,
+        isError: r?.isError ?? false,
+        error: null,
+        hasNextPage: r?.hasNextPage ?? false,
+        isFetchingNextPage: false,
+        fetchNextPage: r?.fetchNextPage ?? (() => undefined),
+    };
+}
+
 vi.mock('../../../features/audit/api', () => ({
-    useAuditLog: (...args: any[]) => useAuditLog(...args),
+    useAuditLogFeed: (...args: any[]) => toFeed(useAuditLog(...args)),
 }));
 
 const events = [
@@ -37,16 +52,21 @@ const events = [
 ];
 
 function mockAuditLog(
-    overrides: Partial<{ data: typeof events; totalPages: number; isLoading: boolean; isError: boolean }> = {}
+    overrides: Partial<{
+        data: typeof events;
+        hasNextPage: boolean;
+        fetchNextPage: () => void;
+        isLoading: boolean;
+        isError: boolean;
+    }> = {}
 ) {
     useAuditLog.mockReturnValue({
         data: {
             data: overrides.data ?? events,
             total: (overrides.data ?? events).length,
-            page: 1,
-            pageSize: 25,
-            totalPages: overrides.totalPages ?? 1,
         },
+        hasNextPage: overrides.hasNextPage ?? false,
+        fetchNextPage: overrides.fetchNextPage,
         isLoading: overrides.isLoading ?? false,
         isError: overrides.isError ?? false,
     });
@@ -61,7 +81,7 @@ beforeEach(() => {
 describe('ProjectActivityTab', () => {
     it('requests the audit log scoped to the given project', () => {
         render(<ProjectActivityTab projectId={42} />);
-        expect(useAuditLog).toHaveBeenCalledWith({ projectId: 42, page: 1, pageSize: 25 });
+        expect(useAuditLog).toHaveBeenCalledWith({ projectId: 42, pageSize: 25 });
     });
 
     it('shows a loading skeleton while the query is in flight', () => {
@@ -146,54 +166,27 @@ describe('ProjectActivityTab', () => {
         expect(table.getByText(/^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s?[AP]M [A-Z]/)).toBeInTheDocument();
     });
 
-    it('hides pagination controls when there is only one page', () => {
+    it('hides "Load more" on the last page', () => {
         render(<ProjectActivityTab projectId={1} />);
-        expect(screen.queryByText(/Page \d+ of \d+/)).not.toBeInTheDocument();
+        expect(screen.getByTestId('audit-loaded-count')).toHaveTextContent('Showing 3 of 3 events');
+        expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
     });
 
-    it('falls back to empty events and a single page when data is undefined', () => {
+    it('falls back to empty events when data is undefined', () => {
         useAuditLog.mockReturnValue({ data: undefined, isLoading: false, isError: false });
         render(<ProjectActivityTab projectId={1} />);
 
         expect(screen.getByText('No activity yet')).toBeInTheDocument();
-        expect(screen.queryByText(/Page \d+ of \d+/)).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
     });
 
-    describe('pagination', () => {
-        beforeEach(() => {
-            mockAuditLog({ totalPages: 3 });
-        });
+    it('loads the next page of the project feed on "Load more"', () => {
+        const fetchNextPage = vi.fn();
+        mockAuditLog({ hasNextPage: true, fetchNextPage });
+        render(<ProjectActivityTab projectId={7} />);
 
-        it('shows page info and disables Previous on the first page', () => {
-            render(<ProjectActivityTab projectId={7} />);
-
-            expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
-            const [prevBtn, nextBtn] = screen.getAllByRole('button');
-            expect(prevBtn).toBeDisabled();
-            expect(nextBtn).not.toBeDisabled();
-        });
-
-        it('advances pages, re-requesting the audit log for the new page, and disables Next on the last page', () => {
-            render(<ProjectActivityTab projectId={7} />);
-            const [, nextBtn] = screen.getAllByRole('button');
-
-            fireEvent.click(nextBtn);
-            expect(screen.getByText('Page 2 of 3')).toBeInTheDocument();
-            expect(useAuditLog).toHaveBeenLastCalledWith({ projectId: 7, page: 2, pageSize: 25 });
-
-            fireEvent.click(nextBtn);
-            expect(screen.getByText('Page 3 of 3')).toBeInTheDocument();
-            expect(nextBtn).toBeDisabled();
-        });
-
-        it('goes back to the previous page', () => {
-            render(<ProjectActivityTab projectId={7} />);
-            const [prevBtn, nextBtn] = screen.getAllByRole('button');
-
-            fireEvent.click(nextBtn);
-            fireEvent.click(prevBtn);
-            expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
-            expect(prevBtn).toBeDisabled();
-        });
+        fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+        expect(fetchNextPage).toHaveBeenCalledTimes(1);
+        expect(useAuditLog).toHaveBeenLastCalledWith({ projectId: 7, pageSize: 25 });
     });
 });

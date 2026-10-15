@@ -122,6 +122,7 @@ func runAdminValidatePosture(cfg *config.Config, configPath string) error {
 	}
 	collectInsecureSettingsPosture(cfg, explicit, report)
 	collectStartupValidationStatePosture(cfg, fileGraceKnown, fileEnforcedSince, report)
+	collectAuditDurabilityPosture(cfg, report)
 
 	printPostureReport(report)
 
@@ -163,6 +164,11 @@ func collectSingleWriterPosture(cfg *config.Config, report *postureReport) {
 		report.deviate("single_writer", "the database role this server connects as is a superuser (or may run server programs or write server files). "+
 			"Anyone holding its credentials can change the security tables below SQL, where neither the write fence nor its fingerprint sees it, "+
 			"and the server would keep serving from its caches. Connect as a non-superuser role that owns the tables (docs/single-writer.md \"Residual risks\")")
+	}
+	if err == nil && len(rep.ForeignTriggers) > 0 {
+		report.deviate("single_writer", fmt.Sprintf("trigger(s) that are not part of the write fence are installed on security tables (%s). "+
+			"Such a trigger can change a row after the fence has let it through, so a single-writer server does not trust its caches while one exists. "+
+			"Drop them, and grant other roles SELECT, INSERT, UPDATE, DELETE only, never TRIGGER (docs/single-writer.md \"Residual risks\")", strings.Join(rep.ForeignTriggers, ", ")))
 	}
 	if err == nil && rep.HolderLive {
 		report.info(fmt.Sprintf("single_writer: a server holds the single-writer lock (backend pid %d)", rep.HolderPID))
@@ -589,4 +595,14 @@ func printPostureReport(report *postureReport) {
 			fmt.Printf("  - %s\n", line)
 		}
 	}
+}
+
+// collectAuditDurabilityPosture reports the effective
+// storage.database.audit_durability as an informational line, never a
+// deviation: strict and standard are both baseline (ADR-112 Amendment 3), and
+// standard is the PostgreSQL default, so a default PostgreSQL install still
+// reports zero deviations.
+func collectAuditDurabilityPosture(cfg *config.Config, report *postureReport) {
+	st := cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type)
+	report.info(fmt.Sprintf("%s: %s (%s)", config.AuditDurabilitySettingName, st.Level, st.Level.Meaning()))
 }

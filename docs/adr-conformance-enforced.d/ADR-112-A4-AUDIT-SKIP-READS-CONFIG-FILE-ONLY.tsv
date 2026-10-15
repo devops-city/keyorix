@@ -1,0 +1,1 @@
+ADR-112-A4-AUDIT-SKIP-READS-CONFIG-FILE-ONLY	./internal/config	TestInsecureAuditSkipReads_NoWriteAssignment	default-ci	pending	-	insecure_audit_skip_reads is settable from the config file only: no Go code assigns it and no KEYORIX_* variable names it (TestInsecureAuditSkipReads_NotSettableFromTheEnvironment)

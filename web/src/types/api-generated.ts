@@ -4187,7 +4187,7 @@ export interface paths {
         };
         /**
          * List audit log entries (UI-oriented, paginated)
-         * @description Return paginated audit log entries filtered by action, user, project, actor type, or time range.
+         * @description Return audit log entries newest first (event time, then id), filtered by action, user, project, actor type, or time range. page/page_size reach the newest 10000 events; follow next_cursor (cursor=) to page deeper. See docs/specs/audit-list-keyset.md.
          */
         get: operations["listAuditLogs"];
         put?: never;
@@ -4227,7 +4227,7 @@ export interface paths {
         };
         /**
          * Download audit events as CSV (compliance hand-off)
-         * @description Returns a bounded, human/auditor-friendly CSV attachment with a header row. Distinct from the JSON /audit/export SIEM feed — this is a single one-shot download capped at 10 000 rows. Gated by audit.read AND system.read (same bar as /audit/anomalies): the export includes ip_address, which /audit/logs and /audit/search deliberately omit.
+         * @description Returns a bounded, human/auditor-friendly CSV attachment with a header row. Distinct from the JSON /audit/export SIEM feed — this is a single one-shot download capped at 10 000 rows, newest first, streamed in batches. Gated by audit.read AND system.read (same bar as /audit/anomalies): the export includes ip_address, which /audit/logs and /audit/search deliberately omit.
          */
         get: operations["exportAuditLogsCSV"];
         put?: never;
@@ -4247,7 +4247,7 @@ export interface paths {
         };
         /**
          * Rich-filter audit search
-         * @description Exposes finer-grained search filters than GET /audit/logs: partial actor username match, exact IP address, resource type/ID, success flag, RFC3339 time range, and limit/offset pagination. Gated by audit.read.
+         * @description Exposes finer-grained search filters than GET /audit/logs: partial actor username match, exact IP address, resource type/ID, success flag, RFC3339 time range, and limit/offset pagination (offset+limit at most 10000; follow next_cursor to page deeper). Newest first (event time, then id). Gated by audit.read.
          */
         get: operations["searchAuditLogs"];
         put?: never;
@@ -4327,9 +4327,29 @@ export interface paths {
         };
         /**
          * Verify the tamper-evidence hash chain (ADR-029)
-         * @description Verify the audit log's tamper-evidence hash chain and report the first broken link if any.
+         * @description Report the audit hash chain's integrity. With incremental verification (the checkpoint scheduler running; docs/specs/audit-incremental-verification.md) this is the signed persisted state (rolling full re-walk, last full verification) plus a bounded check of the tail since the latest signed checkpoint; status says what is proven. Without it, a full walk now. full=true starts a background full walk instead and returns 202 with a job id (without a signing key, where no job state can be kept, full=true returns the full-walk report with 200).
          */
         get: operations["verifyAuditChain"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit/verify/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status of a background full audit-chain verification
+         * @description The job started by GET /api/v1/audit/verify?full=true. Same authorization as /audit/verify. state is running|succeeded|failed|interrupted (interrupted: the process running it died).
+         */
+        get: operations["getAuditVerifyJob"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13525,8 +13545,13 @@ export interface operations {
                 start_time?: string;
                 /** @description RFC3339 upper bound (inclusive). */
                 end_time?: string;
+                /** @description (page-1)*page_size + page_size must be at most 10000 (400 beyond; use cursor). */
                 page?: number;
                 page_size?: number;
+                /** @description Opaque next_cursor of a previous page; continues after it (page is ignored). */
+                cursor?: string;
+                /** @description Exact total (a full count). Without it total is exact up to 10000 and capped there. */
+                include_total?: boolean;
             };
             header?: never;
             path?: never;
@@ -13534,7 +13559,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data has logs[] (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated), plus page, page_size, total, total_pages. */
+            /** @description Envelope {data, message}. data has logs[] (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated), page, page_size, next_cursor (null on the last page), and total, total_exact, total_pages (absent on a cursor page without include_total). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13551,7 +13576,7 @@ export interface operations {
             query?: {
                 /** @description Cursor — pass the last returned event id to fetch the next page. */
                 after_id?: number;
-                /** @description RFC3339 lower bound on event time. */
+                /** @description RFC3339 lower bound on event time (resolved to the lowest id at or after it through the time index, then paged by id; exact under clock skew). */
                 since?: string;
                 limit?: number;
             };
@@ -13631,8 +13656,12 @@ export interface operations {
                 until?: string;
                 /** @description Maximum results. */
                 limit?: number;
-                /** @description Pagination offset. */
+                /** @description Pagination offset; offset+limit must be at most 10000 (400 beyond; use cursor). */
                 offset?: number;
+                /** @description Opaque next_cursor of a previous page; continues after it (offset is ignored). */
+                cursor?: string;
+                /** @description Exact total (a full count). Without it total is exact up to 10000 and capped there. */
+                include_total?: boolean;
             };
             header?: never;
             path?: never;
@@ -13640,7 +13669,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data has events[] -- the same shape GET /audit/logs returns (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated; never ip_address or the tamper-evidence hash chain) -- and total. */
+            /** @description Envelope {data, message}. data has events[] -- the same shape GET /audit/logs returns (each: id, event_type, actor, actor_type, description, timestamp, optional diff, and impersonation / impersonated_by / acting_as when impersonated; never ip_address or the tamper-evidence hash chain) -- next_cursor (null on the last page), and total and total_exact (absent on a cursor page without include_total). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13738,14 +13767,53 @@ export interface operations {
     };
     verifyAuditChain: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description true starts a background full verification (202 + job id) instead of reporting. */
+                full?: "true" | "false";
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: valid, chained_events, unchained_events; on failure (valid=false) also first_broken_id and reason naming the first divergent event. */
+            /** @description Envelope {data, message}. data: status (valid|broken|not_proven), valid (true only for status=valid), mode (incremental|full), chained_events, unchained_events, head_id, head_hash, checkpointed; when broken also first_broken_id and reason; when not_proven not_proven_reason; in incremental mode coverage {checkpoint_id, tail_from_id, tail_through_id, tail_complete}, last_full_verification_at (null if none), last_full_verification_started_at, last_full_verification_through_id, last_full_verification_source (rolling|job|checkpoint-full), rolling_cycle {started_at, target_id, verified_through_id}, state_reason. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description full=true. Envelope {data, message}. data: {job_id, state: running, status_url}; Location header = status_url. A request while a job runs returns that job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            /** @description full=true could not start a job (another replica is starting one); retry. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getAuditVerifyJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Envelope {data, message}. data: {job_id, state, started_at, finished_at, error, result} where result is the full-mode /audit/verify body. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13754,6 +13822,13 @@ export interface operations {
             };
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            /** @description Unknown job id, or superseded by a newer job. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     writeAuditCheckpoint: {
@@ -13765,7 +13840,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: {id, chained_events, head_id, head_hash, key_version} of the new checkpoint. */
+            /** @description Envelope {data, message}. data: {id, chained_events, head_id, head_hash, key_version} of the new checkpoint. With incremental verification the new checkpoint extends the latest signed one by a check of the rows after its head (no full walk); it is refused (409) while a verification failure is recorded. */
             200: {
                 headers: {
                     [name: string]: unknown;
