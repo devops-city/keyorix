@@ -228,12 +228,58 @@ encryption_pkgs() {
   echo "github.com/keyorixhq/keyorix/internal/encryption"
 }
 
+# faultops_pkgs: server/faultops gets its own two test-name shards
+# (2026-10-15). As root-4's catch-all member it grew to 1305s -> 1605s -> 1679s
+# -> 1759s (CI runs 38723925767, 38529600394, 38376142637, 38228340562) and then
+# hit the 30m per-binary timeout on main (schedule run 38698772543, 1804.7s,
+# in the FuzzMixedPrincipalAuthority seed phase) and in merge-group runs. The
+# timeout is per test binary, so a leg of its own would not have helped by
+# itself: the one package is the whole problem. Same mod-2 mechanism as
+# encryption-1/2 and storage-store-1/2; every Test*/Fuzz* name lands in exactly
+# one shard (assert_shard_partition_complete below proves it).
+faultops_pkgs() {
+  echo "github.com/keyorixhq/keyorix/server/faultops"
+}
+
+# faultops_run_filter <shard 1|2>: plain mod-2 over the sorted names was
+# measured badly lopsided here (local -race run, 1251s total: 381s vs 856s)
+# because four tests dominate the package. So those four are pinned two per
+# shard (measured -race seconds in parentheses), and everything else is split
+# by (sorted index) mod 2 like run_filter_for_shard does:
+#   shard 1: TestUndeliveredSessionSweep (346) + FuzzMixedPrincipalAuthority (102)
+#   shard 2: TestWorldReuseSoundness (229) + TestCanaryLeakAcrossSecretOperations (183)
+# Completeness never depends on this list: a pinned name that no longer exists
+# just drops out, and a new test lands in the mod-2 remainder. The pinning only
+# affects balance, and assert_faultops_shards_complete proves the partition.
+faultops_run_filter() {
+  local shard="$1" names rest selected n
+  local -a pinned=(TestUndeliveredSessionSweep FuzzMixedPrincipalAuthority TestWorldReuseSoundness TestCanaryLeakAcrossSecretOperations)
+  local -a mine
+  if [ "$shard" = 1 ]; then
+    mine=(TestUndeliveredSessionSweep FuzzMixedPrincipalAuthority)
+  else
+    mine=(TestWorldReuseSoundness TestCanaryLeakAcrossSecretOperations)
+  fi
+  names=$(go test -list '^(Test|Fuzz)' "$(faultops_pkgs)" | grep -v '^ok\b' | sort)
+  rest="$names"
+  for n in "${pinned[@]}"; do
+    rest=$(echo "$rest" | grep -vxF "$n" || true)
+  done
+  selected=$(echo "$rest" | awk -v s="$shard" 'NR % 2 == (s - 1)')
+  for n in "${mine[@]}"; do
+    if echo "$names" | grep -qxF "$n"; then
+      selected+=$'\n'"$n"
+    fi
+  done
+  printf '^(%s)$' "$(echo "$selected" | sed '/^$/d' | paste -sd '|' -)"
+}
+
 # root_4_pkgs: the dynamic catch-all -- every root_base() package not pinned
-# to root-1/2/3/core/storage-store above, so a newly added package always
-# lands somewhere (root-4) rather than silently running nowhere.
+# to root-1/2/3/core/storage-store/encryption/faultops above, so a newly added
+# package always lands somewhere (root-4) rather than silently running nowhere.
 root_4_pkgs() {
   local pinned
-  pinned=$(cat <(root_1_pkgs) <(root_2_pkgs) <(root_3_pkgs) <(core_pkgs) <(storage_store_pkgs) <(encryption_pkgs) | sort -u)
+  pinned=$(cat <(root_1_pkgs) <(root_2_pkgs) <(root_3_pkgs) <(core_pkgs) <(storage_store_pkgs) <(encryption_pkgs) <(faultops_pkgs) | sort -u)
   comm -23 <(root_base | sort -u) <(echo "$pinned")
 }
 
@@ -300,6 +346,7 @@ pkgs_for_leg() {
     root-4) root_4_pkgs ;;
     storage-store-1|storage-store-2) storage_store_pkgs ;;
     encryption-1|encryption-2) encryption_pkgs ;;
+    faultops-1|faultops-2) faultops_pkgs ;;
     handlers-1|handlers-2) handlers_pkg ;;
     http-1|http-2|http-3|http-4|http-5|http-6|http-7|http-8) http_pkg ;;
     *) echo "pkgs_for_leg: unknown leg '$1'" >&2; return 1 ;;
@@ -320,6 +367,8 @@ storage-store-1
 storage-store-2
 encryption-1
 encryption-2
+faultops-1
+faultops-2
 handlers-1
 handlers-2
 http-1
@@ -348,7 +397,7 @@ run_filter_for_shard() {
   # internal/storage/store included. fuzz-targets only checks registration.
   names=$(go test -list '^(Test|Fuzz)' "$pkg" | grep -v '^ok\b' | sort)
   selected=$(echo "$names" | awk -v n="$n" -v s="$shard" 'NR % n == (s - 1)')
-  printf '^(%s)$' "$(echo "$selected" | paste -sd '|')"
+  printf '^(%s)$' "$(echo "$selected" | paste -sd '|' -)"
 }
 
 # check_exclusion_freshness: fails (nonzero exit, one line per offender on
@@ -428,7 +477,7 @@ assert_pinned_leg_packages_valid() {
   local actual failed=0
   actual=$(go list ./... | sort -u)
 
-  local -a exclusive_lists=(root_1_pkgs root_2_pkgs root_3_pkgs core_pkgs storage_store_pkgs encryption_pkgs)
+  local -a exclusive_lists=(root_1_pkgs root_2_pkgs root_3_pkgs core_pkgs storage_store_pkgs encryption_pkgs faultops_pkgs)
   local list_name pkg
   local pinned_pkg_names="" pinned_pkg_owners=""
 
@@ -465,4 +514,54 @@ assert_pinned_leg_packages_valid() {
 
   [ "$failed" -eq 0 ] && echo "OK: every pinned root-1/2/3/core/storage-store/handlers/http package exists in go list ./... and is pinned to exactly one leg."
   return $failed
+}
+
+# assert_shard_partition_complete <pkg> <n> [filter-fn]: proves the n test-name
+# shards that run_filter_for_shard (or filter-fn <shard>) builds for <pkg> run every test the package has, each in
+# exactly one shard. For each shard it lists what that shard's -run regex
+# selects (`go test -list`, same matching as -run), concatenates the n lists and
+# compares them, as sorted multisets, with every Test*/Fuzz*/Example* name in
+# the package: a name in no shard shows up as missing, a name in two shards as
+# a duplicate. Example* is in the reference set on purpose: run_filter_for_shard
+# selects only Test*/Fuzz*, so an Example added to a sharded package would
+# otherwise silently run nowhere (the package-level `-run ""` legs do run it).
+# Does not execute any test, only compiles the package, so it is cheap enough
+# for the same pre-test-suite job as assert_leg_completeness. Used for
+# faultops (n=2) via assert_faultops_shards_complete below.
+assert_shard_partition_complete() {
+  local pkg="$1" n="$2" filter_fn="${3:-run_filter_for_shard}" s filter
+  local expected actual missing dupes failed=0
+  expected=$(go test -list '^(Test|Fuzz|Example)' "$pkg" | grep -v '^ok\b' | sort) || return 1
+  if [ -z "$expected" ]; then
+    echo "SHARD PARTITION: $pkg lists no Test/Fuzz/Example names at all -- refusing to call an empty set complete"
+    return 1
+  fi
+  actual=""
+  for s in $(seq 1 "$n"); do
+    if [ "$filter_fn" = run_filter_for_shard ]; then
+      filter=$(run_filter_for_shard "$pkg" "$s" "$n") || return 1
+    else
+      filter=$("$filter_fn" "$s") || return 1
+    fi
+    actual+=$(go test -list "$filter" "$pkg" | grep -v '^ok\b')$'\n'
+  done
+  actual=$(echo "$actual" | sed '/^$/d' | sort)
+  missing=$(comm -23 <(echo "$expected") <(echo "$actual" | uniq))
+  dupes=$(echo "$actual" | uniq -d)
+  if [ -n "$missing" ]; then
+    echo "SHARD PARTITION: $pkg tests that run in NO shard (of $n):"
+    echo "$missing"
+    failed=1
+  fi
+  if [ -n "$dupes" ]; then
+    echo "SHARD PARTITION: $pkg tests that run in MORE THAN ONE shard (of $n):"
+    echo "$dupes"
+    failed=1
+  fi
+  [ "$failed" -eq 0 ] && echo "OK: $pkg: all $(echo "$expected" | wc -l | tr -d ' ') Test/Fuzz/Example names run in exactly one of $n shards."
+  return $failed
+}
+
+assert_faultops_shards_complete() {
+  assert_shard_partition_complete "$(faultops_pkgs)" 2 faultops_run_filter
 }

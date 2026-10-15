@@ -7,12 +7,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -103,26 +105,65 @@ func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) { //
 		filter.ActorType = &at
 	}
 
-	events, total, err := h.coreService.Storage().GetAuditLogs(r.Context(), filter)
+	offset := (page - 1) * pageSize
+	if page > core.AuditOffsetCap {
+		offset = core.AuditOffsetCap // past the cap either way; avoids overflow
+	}
+	result, err := h.coreService.ListAuditPage(r.Context(), core.AuditPageRequest{
+		Filter:       *filter,
+		Offset:       offset,
+		Limit:        pageSize,
+		Cursor:       r.URL.Query().Get("cursor"),
+		IncludeTotal: r.URL.Query().Get("include_total") == "true",
+	})
 	if err != nil {
+		if sendAuditPageError(w, err) {
+			return
+		}
 		sendError(w, "InternalServerError", "Failed to fetch audit logs", http.StatusInternalServerError, nil)
 		return
 	}
 
-	entries := h.toAuditLogEntries(r.Context(), events)
-
-	totalPages := int(total)/pageSize + 1
-	if int(total)%pageSize == 0 && total > 0 {
-		totalPages = int(total) / pageSize
-	}
-
-	sendSuccess(w, map[string]any{
-		"logs":        entries,
+	resp := map[string]any{
+		"logs":        h.toAuditLogEntries(r.Context(), result.Events),
 		"page":        page,
 		"page_size":   pageSize,
-		"total":       total,
-		"total_pages": totalPages,
-	}, "")
+		"next_cursor": nullableCursor(result.NextCursor),
+	}
+	if result.HasTotal {
+		total := result.Total
+		totalPages := int(total)/pageSize + 1
+		if int(total)%pageSize == 0 && total > 0 {
+			totalPages = int(total) / pageSize
+		}
+		resp["total"] = total
+		resp["total_exact"] = result.TotalExact
+		resp["total_pages"] = totalPages
+	}
+	sendSuccess(w, resp, "")
+}
+
+// sendAuditPageError answers the caller errors of core.ListAuditPage (a bad
+// cursor, an offset past core.AuditOffsetCap) with 400 and reports whether it
+// did. The offset message names the cursor so a client knows how to go deeper.
+func sendAuditPageError(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, core.ErrInvalidAuditCursor):
+		sendError(w, "InvalidParameter", "invalid cursor", http.StatusBadRequest, nil)
+		return true
+	case errors.Is(err, core.ErrAuditOffsetBeyondCap):
+		sendError(w, "InvalidParameter", core.AuditOffsetCapMessage, http.StatusBadRequest, nil)
+		return true
+	}
+	return false
+}
+
+// nullableCursor is next_cursor on the wire: the cursor, or null on the last page.
+func nullableCursor(c string) any {
+	if c == "" {
+		return nil
+	}
+	return c
 }
 
 // toAuditLogEntries converts raw audit events into the UI-oriented AuditLogEntry
@@ -212,7 +253,9 @@ func (h *AuditHandler) ExportAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 && l <= 1000 {
 		limit = l
 	}
-	filter := &storage.AuditFilter{Ascending: true, PageSize: limit}
+	// No total: the feed is paged by after_id. A since is resolved to a start
+	// id by GetAuditLogs (docs/specs/audit-list-keyset.md §3).
+	filter := &storage.AuditFilter{Ascending: true, PageSize: limit, Count: storage.AuditCountNone}
 	if aidStr := r.URL.Query().Get("after_id"); aidStr != "" {
 		if aid, err := strconv.ParseUint(aidStr, 10, 32); err == nil {
 			a := uint(aid)
@@ -387,14 +430,52 @@ func (h *AuditHandler) VerifyAuditChain(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	v, err := h.coreService.VerifyAuditChain(r.Context())
+	// ?full=true: the full walk is minutes at scale, so it runs as a background
+	// job (docs/specs/audit-incremental-verification.md §5) — 202 + a job id to
+	// poll at /audit/verify/jobs/{id}. At most one runs at a time.
+	if r.URL.Query().Get("full") == "true" {
+		id, _, err := h.coreService.StartAuditFullVerification(r.Context())
+		if errors.Is(err, core.ErrAuditVerifyJobsUnavailable) {
+			// No signing key: no job state can be kept, and the plain report
+			// below is itself a full walk now (mode "full").
+			h.writeAuditVerifyReport(w, r)
+			return
+		}
+		if err != nil || id == "" {
+			if err != nil {
+				log.Printf("Error starting full audit verification: %v", err)
+			}
+			sendError(w, "Conflict", "a full audit verification could not be started (another may be starting on another replica); retry shortly", http.StatusConflict, nil)
+			return
+		}
+		w.Header().Set("Location", "/api/v1/audit/verify/jobs/"+id)
+		sendAccepted(w, map[string]any{
+			"job_id":     id,
+			"state":      core.AuditVerifyJobRunning,
+			"status_url": "/api/v1/audit/verify/jobs/" + id,
+		}, "full audit verification running")
+		return
+	}
+
+	h.writeAuditVerifyReport(w, r)
+}
+
+func (h *AuditHandler) writeAuditVerifyReport(w http.ResponseWriter, r *http.Request) {
+	v, err := h.coreService.VerifyAuditChainIncremental(r.Context())
 	if err != nil {
 		sendError(w, "InternalError", "Failed to verify audit chain", http.StatusInternalServerError, nil)
 		return
 	}
+	sendSuccess(w, auditVerifyResponse(v), "")
+}
 
+// auditVerifyResponse renders a verification report. The pre-incremental keys
+// keep their names and presence rules; valid is true only for status "valid".
+func auditVerifyResponse(v *core.AuditVerifyReport) map[string]any {
 	resp := map[string]any{
 		"valid":            v.Valid,
+		"status":           v.Status,
+		"mode":             v.Mode,
 		"chained_events":   v.ChainedEvents,
 		"unchained_events": v.UnchainedEvents,
 		// The verified chain head — record (chained_events, head_hash) externally to
@@ -405,12 +486,34 @@ func (h *AuditHandler) VerifyAuditChain(w http.ResponseWriter, r *http.Request) 
 		// checkpoint (ADR-029) — on-box truncation detection a DBA cannot forge.
 		"checkpointed": v.Checkpointed,
 	}
-	if !v.Valid {
+	if v.Status == core.AuditVerifyStatusBroken {
 		resp["first_broken_id"] = v.FirstBrokenID
 		resp["reason"] = v.Reason
 	}
+	if v.NotProvenReason != "" {
+		resp["not_proven_reason"] = v.NotProvenReason
+	}
+	if v.StateReason != "" {
+		resp["state_reason"] = v.StateReason
+	}
 	if v.CheckpointReason != "" {
 		resp["checkpoint_reason"] = v.CheckpointReason
+	}
+	// What this answer covers (incremental mode): the tail this request walked
+	// and the last completed full re-walk.
+	if v.Coverage != nil {
+		resp["coverage"] = v.Coverage
+	}
+	if v.Mode == core.AuditVerifyModeIncremental {
+		resp["last_full_verification_at"] = v.LastFullVerificationAt
+		if v.LastFullVerificationAt != nil {
+			resp["last_full_verification_started_at"] = v.LastFullVerificationStartedAt
+			resp["last_full_verification_through_id"] = v.LastFullVerificationThroughID
+			resp["last_full_verification_source"] = v.LastFullVerificationSource
+		}
+		if v.RollingCycle != nil {
+			resp["rolling_cycle"] = v.RollingCycle
+		}
 	}
 	// Surface the latest checkpoint's raw external-notary (RFC 3161) receipt, when one
 	// exists — so an operator/monitor can capture it here (this is the surface an
@@ -430,6 +533,40 @@ func (h *AuditHandler) VerifyAuditChain(w http.ResponseWriter, r *http.Request) 
 		// to one this server actually verified without checking this first.
 		resp["anchor_trust_root_configured"] = v.AnchorTrustRootConfigured
 	}
+	return resp
+}
+
+// GetAuditVerifyJob handles GET /api/v1/audit/verify/jobs/{id} — the status of
+// a ?full=true background verification. Same authorization as /audit/verify.
+func (h *AuditHandler) GetAuditVerifyJob(w http.ResponseWriter, r *http.Request) {
+	if middleware.GetUserFromContext(r.Context()) == nil {
+		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+		return
+	}
+	j, err := h.coreService.AuditFullVerificationJob(r.Context(), chi.URLParam(r, "id"))
+	if errors.Is(err, core.ErrAuditVerifyJobNotFound) {
+		sendError(w, "NotFound", "audit verification job not found (unknown, or superseded by a newer job)", http.StatusNotFound, nil)
+		return
+	}
+	if err != nil {
+		log.Printf("Error reading audit verification job: %v", err)
+		sendError(w, "InternalError", "Failed to read audit verification job", http.StatusInternalServerError, nil)
+		return
+	}
+	resp := map[string]any{
+		"job_id":     j.JobID,
+		"state":      j.State,
+		"started_at": j.StartedAt.UTC(),
+	}
+	if j.FinishedAt != nil {
+		resp["finished_at"] = j.FinishedAt.UTC()
+	}
+	if j.Error != "" {
+		resp["error"] = j.Error
+	}
+	if j.Result != nil {
+		resp["result"] = auditVerifyResponse(j.Result)
+	}
 	sendSuccess(w, resp, "")
 }
 
@@ -445,7 +582,7 @@ func (h *AuditHandler) WriteAuditCheckpoint(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	cp, written, err := h.coreService.WriteAuditCheckpoint(r.Context())
+	cp, written, err := h.coreService.WriteAuditCheckpointIncremental(r.Context())
 	if err != nil {
 		// The chain did not verify (broken, or a prior signed checkpoint proves a
 		// truncation) — the server refuses to notarise it. Surface the reason so the

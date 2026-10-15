@@ -8,6 +8,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -50,20 +51,30 @@ type AuditSearchRequest struct {
 	Until time.Time
 	// Limit caps results (default 100, max 1000).
 	Limit int
-	// Offset controls pagination (0-based).
+	// Offset controls pagination (0-based); Offset+Limit must stay within
+	// AuditOffsetCap. Ignored when Cursor is set.
 	Offset int
+	// Cursor continues after a previous page's NextCursor.
+	Cursor string
+	// IncludeTotal asks for the exact total (a full COUNT over the filter).
+	IncludeTotal bool
 }
 
 // AuditSearchResult is the typed response for SearchAuditLogs.
 type AuditSearchResult struct {
 	Events []*models.AuditEvent `json:"events"`
-	Total  int64                `json:"total"`
+	// Total, TotalExact and HasTotal: see AuditPage.
+	Total      int64  `json:"total"`
+	TotalExact bool   `json:"total_exact"`
+	HasTotal   bool   `json:"-"`
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 // SearchAuditLogs executes a structured audit-log query against the storage
 // layer. It validates Limit (capping at AuditSearchMaxLimit), rejects an
 // Until that precedes Since, maps the typed request onto an AuditFilter, and
-// delegates to GetAuditLogs.
+// reads one page through ListAuditPage (ErrInvalidAuditCursor and
+// ErrAuditOffsetBeyondCap are returned unwrapped-comparable for a 400).
 func (k *KeyorixCore) SearchAuditLogs(ctx context.Context, req AuditSearchRequest) (*AuditSearchResult, error) {
 	// Validate and normalise limit.
 	limit := req.Limit
@@ -80,25 +91,36 @@ func (k *KeyorixCore) SearchAuditLogs(ctx context.Context, req AuditSearchReques
 		return nil, fmt.Errorf("until must not be before since")
 	}
 
-	filter := buildAuditFilter(req, limit)
-
-	events, total, err := k.storage.GetAuditLogs(ctx, filter)
+	page, err := k.ListAuditPage(ctx, AuditPageRequest{
+		Filter:       *buildAuditFilter(req),
+		Offset:       req.Offset,
+		Limit:        limit,
+		Cursor:       req.Cursor,
+		IncludeTotal: req.IncludeTotal,
+	})
 	if err != nil {
+		if errors.Is(err, ErrInvalidAuditCursor) || errors.Is(err, ErrAuditOffsetBeyondCap) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("SearchAuditLogs: %w", err)
 	}
+	events := page.Events
 	if events == nil {
 		events = []*models.AuditEvent{}
 	}
-	return &AuditSearchResult{Events: events, Total: total}, nil
+	return &AuditSearchResult{
+		Events:     events,
+		Total:      page.Total,
+		TotalExact: page.TotalExact,
+		HasTotal:   page.HasTotal,
+		NextCursor: page.NextCursor,
+	}, nil
 }
 
-// buildAuditFilter maps an AuditSearchRequest onto an AuditFilter.
-func buildAuditFilter(req AuditSearchRequest, limit int) *storage.AuditFilter {
-	filter := &storage.AuditFilter{
-		PageSize: limit,
-		// Offset-based pagination: page = offset/limit + 1.
-		Page: req.Offset/limit + 1,
-	}
+// buildAuditFilter maps an AuditSearchRequest's predicates onto an
+// AuditFilter (paging is ListAuditPage's).
+func buildAuditFilter(req AuditSearchRequest) *storage.AuditFilter {
+	filter := &storage.AuditFilter{}
 	if req.ActorUsername != "" {
 		filter.ActorUsername = &req.ActorUsername
 	}

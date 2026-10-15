@@ -31,11 +31,13 @@ func TestGenerateProjectAccessReview_DegradedOnShareLookupError(t *testing.T) {
 		{ID: 500, ProjectID: proj, Name: "good-secret"},
 		{ID: 501, ProjectID: proj, Name: "bad-secret"},
 	}, int64(2), nil)
-	ms.On("ListSharesBySecret", ctx, uint(500)).Return([]*models.ShareRecord{
+	// The batched lookup fails; the per-secret fallback then isolates the bad secret.
+	ms.On("ListSharesBySecretIDs", ctx, []uint{500, 501}, mock.Anything).Return(nil, errors.New("connection reset"))
+	ms.On("ListSharesBySecret", ctx, uint(500), mock.Anything).Return([]*models.ShareRecord{
 		{SecretID: 500, RecipientID: 100, IsGroup: true, Permission: "write"},
 	}, nil)
-	ms.On("ListSharesBySecret", ctx, uint(501)).Return(nil, errors.New("connection reset"))
-	ms.On("GetGroup", ctx, uint(100)).Return(&models.Group{ID: 100, Name: "devs"}, nil)
+	ms.On("ListSharesBySecret", ctx, uint(501), mock.Anything).Return(nil, errors.New("connection reset"))
+	ms.On("GetGroupNamesByIDs", ctx, []uint{100}).Return(map[uint]string{100: "devs"}, nil)
 	ms.On("LastUserSecretActivity", ctx, proj).Return(map[uint]time.Time{}, nil)
 
 	c := NewKeyorixCore(ms)

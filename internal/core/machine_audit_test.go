@@ -43,8 +43,8 @@ func TestGetMachineAuditReport_StaleWhenNeverUsed(t *testing.T) {
 	m := &models.MachineIdentity{ID: 1, Name: "ci-bot", State: MachineActive}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
 	// No credential has ever been used — all LastUsedAt are nil.
-	store.On("ListMachineIdentityCredentials", ctx, uint(1)).
-		Return([]*models.MachineIdentityCredential{{ID: 10, LastUsedAt: nil}}, nil)
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{1}).
+		Return(map[uint][]*models.MachineIdentityCredential{1: []*models.MachineIdentityCredential{{ID: 10, LastUsedAt: nil}}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)
@@ -64,8 +64,8 @@ func TestGetMachineAuditReport_StaleWhenLastUsedTooLongAgo(t *testing.T) {
 	old := machineAuditFixed.Add(-40 * 24 * time.Hour) // 40 days ago > 30-day threshold
 	m := &models.MachineIdentity{ID: 2, Name: "deploy-bot", State: MachineActive}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(2)).
-		Return([]*models.MachineIdentityCredential{{ID: 11, LastUsedAt: &old}}, nil)
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{2}).
+		Return(map[uint][]*models.MachineIdentityCredential{2: []*models.MachineIdentityCredential{{ID: 11, LastUsedAt: &old}}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)
@@ -82,8 +82,8 @@ func TestGetMachineAuditReport_NotStaleWhenRecentlyUsed(t *testing.T) {
 	recent := machineAuditFixed.Add(-5 * 24 * time.Hour) // 5 days ago — within 30-day window
 	m := &models.MachineIdentity{ID: 3, Name: "api-bot", State: MachineActive}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(3)).
-		Return([]*models.MachineIdentityCredential{{ID: 12, LastUsedAt: &recent}}, nil)
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{3}).
+		Return(map[uint][]*models.MachineIdentityCredential{3: []*models.MachineIdentityCredential{{ID: 12, LastUsedAt: &recent}}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)
@@ -101,11 +101,11 @@ func TestGetMachineAuditReport_LastUsedPicksMostRecent(t *testing.T) {
 	newer := machineAuditFixed.Add(-2 * 24 * time.Hour)
 	m := &models.MachineIdentity{ID: 4, Name: "multi-cred", State: MachineActive}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(4)).
-		Return([]*models.MachineIdentityCredential{
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{4}).
+		Return(map[uint][]*models.MachineIdentityCredential{4: []*models.MachineIdentityCredential{
 			{ID: 13, LastUsedAt: &older},
 			{ID: 14, LastUsedAt: &newer},
-		}, nil)
+		}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)
@@ -122,8 +122,8 @@ func TestGetMachineAuditReport_RevokedCounted(t *testing.T) {
 	recent := machineAuditFixed.Add(-1 * time.Hour)
 	m := &models.MachineIdentity{ID: 5, Name: "old-bot", State: MachineRevoked}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(5)).
-		Return([]*models.MachineIdentityCredential{{ID: 15, LastUsedAt: &recent}}, nil)
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{5}).
+		Return(map[uint][]*models.MachineIdentityCredential{5: []*models.MachineIdentityCredential{{ID: 15, LastUsedAt: &recent}}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)
@@ -140,12 +140,12 @@ func TestGetMachineAuditReport_CredentialCountIncludesAll(t *testing.T) {
 	recent := machineAuditFixed.Add(-1 * time.Hour)
 	m := &models.MachineIdentity{ID: 6, Name: "many-keys", State: MachineActive}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(6)).
-		Return([]*models.MachineIdentityCredential{
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{6}).
+		Return(map[uint][]*models.MachineIdentityCredential{6: []*models.MachineIdentityCredential{
 			{ID: 20, LastUsedAt: &recent},
 			{ID: 21, LastUsedAt: nil},
 			{ID: 22, LastUsedAt: nil},
-		}, nil)
+		}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestGetMachineAuditReport_ListCredentialsError(t *testing.T) {
 
 	m := &models.MachineIdentity{ID: 7, Name: "broken", State: MachineActive}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(7)).Return(nil, errors.New("cred error"))
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{7}).Return(nil, errors.New("cred error"))
 
 	_, err := c.GetMachineAuditReport(ctx)
 	require.Error(t, err)
@@ -193,8 +193,8 @@ func TestGetMachineAuditReport_RowFieldsPopulated(t *testing.T) {
 		CreatedAt:   created,
 	}
 	store.On("ListAllMachineIdentities", ctx).Return([]*models.MachineIdentity{m}, nil)
-	store.On("ListMachineIdentityCredentials", ctx, uint(8)).
-		Return([]*models.MachineIdentityCredential{}, nil)
+	store.On("ListMachineCredentialUsageByMachineIDs", ctx, []uint{8}).
+		Return(map[uint][]*models.MachineIdentityCredential{8: []*models.MachineIdentityCredential{}}, nil)
 
 	report, err := c.GetMachineAuditReport(ctx)
 	require.NoError(t, err)

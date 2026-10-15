@@ -663,6 +663,9 @@ message AuditLog {
   optional string acting_as = 15;
 }
 
+// Newest-first (event_time DESC, id DESC). page/page_size reach at most the
+// newest 10000 events (InvalidArgument beyond); deeper pages follow
+// next_cursor. See docs/specs/audit-list-keyset.md.
 message GetAuditLogsRequest {
   optional string event_type = 1;
   optional uint32 user_id = 2;
@@ -672,14 +675,23 @@ message GetAuditLogsRequest {
   optional google.protobuf.Timestamp end_time = 6;
   uint32 page = 7;
   uint32 page_size = 8;
+  // Continue after a previous response's next_cursor; page is then ignored.
+  optional string cursor = 9;
+  // Exact total (a full count over the filter). Without it, total is exact
+  // up to 10000 and capped there (total_exact false).
+  bool include_total = 10;
 }
 
 message GetAuditLogsResponse {
   repeated AuditLog logs = 1;
+  // 0 on a cursor page without include_total (no count ran).
   uint32 total = 2;
   uint32 page = 3;
   uint32 page_size = 4;
   uint32 total_pages = 5;
+  // Cursor of the next page; absent on the last page.
+  optional string next_cursor = 6;
+  bool total_exact = 7;
 }
 
 message RBACAuditLog {
@@ -742,6 +754,13 @@ message VerifyAuditChainResponse {
   optional uint32 first_broken_id = 7; // set only when !valid
   string reason = 8; // set only when !valid
   string checkpoint_reason = 9; // non-fatal notes (e.g. checkpoint under a prior key)
+  // Incremental verification (docs/specs/audit-incremental-verification.md):
+  // status is valid | broken | not_proven, and valid is true only for "valid";
+  // mode is incremental (tail check + persisted state) or full (walked now).
+  string status = 10;
+  string mode = 11;
+  string not_proven_reason = 12; // set only when status is not_proven
+  optional google.protobuf.Timestamp last_full_verification_at = 13;
 }
 
 // WriteAuditCheckpointResponse is the signed checkpoint that was written.

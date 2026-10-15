@@ -132,7 +132,7 @@ func TestResolveUsernames_ResolvesUserID(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)
 	uid := uint(42)
-	ms.On("GetUser", mock.Anything, uid).Return(&models.User{ID: uid, Username: "alice"}, nil)
+	ms.On("GetUsernamesByIDs", mock.Anything, []uint{uid}).Return(map[uint]string{uid: "alice"}, nil)
 	c := NewKeyorixCore(ms)
 	events := []*models.AuditEvent{{UserID: &uid}}
 	result := c.ResolveUsernames(context.Background(), events)
@@ -144,7 +144,7 @@ func TestResolveUsernames_UserNotFound(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)
 	uid := uint(99)
-	ms.On("GetUser", mock.Anything, uid).Return(nil, errors.New("not found"))
+	ms.On("GetUsernamesByIDs", mock.Anything, []uint{uid}).Return(map[uint]string{}, nil)
 	c := NewKeyorixCore(ms)
 	events := []*models.AuditEvent{{UserID: &uid}}
 	result := c.ResolveUsernames(context.Background(), events)
@@ -155,7 +155,7 @@ func TestResolveUsernames_ImpersonatedBy(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)
 	uid := uint(5)
-	ms.On("GetUser", mock.Anything, uid).Return(&models.User{ID: uid, Username: "admin"}, nil)
+	ms.On("GetUsernamesByIDs", mock.Anything, []uint{uid}).Return(map[uint]string{uid: "admin"}, nil)
 	c := NewKeyorixCore(ms)
 	events := []*models.AuditEvent{{ImpersonatedBy: &uid}}
 	result := c.ResolveUsernames(context.Background(), events)
@@ -824,8 +824,7 @@ func TestListUserShareViews_UserShare(t *testing.T) {
 	}
 	ms.On("ListSharesByUser", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
 	ms.On("ListSharesByOwner", mock.Anything, uint(1)).Return([]*models.ShareRecord{}, nil)
-	ms.On("GetUser", mock.Anything, uint(1)).Return(&models.User{ID: 1, Username: "owner"}, nil)
-	ms.On("GetUser", mock.Anything, uint(2)).Return(&models.User{ID: 2, Username: "recipient"}, nil)
+	ms.On("GetUsernamesByIDs", mock.Anything, mock.Anything).Return(map[uint]string{1: "owner", 2: "recipient"}, nil)
 	// The secret no longer resolves, so the view carries no name (#3153).
 	ms.On("GetSecretsByIDs", mock.Anything, []uint{10}).Return([]*models.SecretNode{}, nil)
 	c := NewKeyorixCore(ms)
@@ -850,8 +849,8 @@ func TestListUserShareViews_GroupShare(t *testing.T) {
 	}
 	ms.On("ListSharesByUser", mock.Anything, uint(1)).Return([]*models.ShareRecord{}, nil)
 	ms.On("ListSharesByOwner", mock.Anything, uint(1)).Return([]*models.ShareRecord{share}, nil)
-	ms.On("GetUser", mock.Anything, uint(1)).Return(&models.User{ID: 1, Username: "owner"}, nil)
-	ms.On("GetGroup", mock.Anything, uint(99)).Return(&models.Group{ID: 99, Name: "ops-team"}, nil)
+	ms.On("GetUsernamesByIDs", mock.Anything, mock.Anything).Return(map[uint]string{1: "owner"}, nil)
+	ms.On("GetGroupNamesByIDs", mock.Anything, []uint{99}).Return(map[uint]string{99: "ops-team"}, nil)
 	ms.On("GetSecretsByIDs", mock.Anything, []uint{10}).Return([]*models.SecretNode{}, nil)
 	c := NewKeyorixCore(ms)
 	views, err := c.ListUserShareViews(context.Background(), 1)

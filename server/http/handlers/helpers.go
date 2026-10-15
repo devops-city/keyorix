@@ -53,9 +53,18 @@ func sendSuccess(w http.ResponseWriter, data any, message string) {
 // sendSuccess's Header().Set() calls to be silently ignored), this function sets
 // Content-Type and X-Content-Type-Options before WriteHeader.
 func sendCreated(w http.ResponseWriter, data any, message string) {
+	sendSuccessStatus(w, http.StatusCreated, data, message)
+}
+
+// sendAccepted is sendCreated for 202 Accepted (work started in the background).
+func sendAccepted(w http.ResponseWriter, data any, message string) {
+	sendSuccessStatus(w, http.StatusAccepted, data, message)
+}
+
+func sendSuccessStatus(w http.ResponseWriter, status int, data any, message string) {
 	w.Header().Set(hdrContentType, mimeApplicationJSON)
 	w.Header().Set(hdrXContentTypeOptions, "nosniff")
-	w.WriteHeader(http.StatusCreated)
+	w.WriteHeader(status)
 	response := map[string]any{
 		"success": true,
 		"data":    utcTimes(data),
