@@ -251,6 +251,10 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*Guard, error
 	if err != nil {
 		return nil, err
 	}
+	// The holder connection is not traced: its fence DDL and holder/epoch
+	// rows are the guard's own bookkeeping, not writes a cache depends on,
+	// and counting them would make the canary call a real miss explained.
+	cc.Tracer = nil
 	g.db = stdlibOpen(cc)
 	g.db.SetMaxOpenConns(1)
 	g.conn, err = g.db.Conn(ctx)

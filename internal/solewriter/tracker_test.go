@@ -1,6 +1,11 @@
 package solewriter
 
-import "testing"
+import (
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"testing"
+)
 
 // TestClassifyStatement covers the statement shapes this codebase sends
 // (GORM's quoted identifiers, raw SQL, transaction control) and the two
@@ -42,6 +47,20 @@ func TestClassifyStatement(t *testing.T) {
 		{`UPDATE "system_metadata" SET "value"=CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = $1`, []any{"role_permissions_generation"}, stmtFencedWrite},
 		{"-- comment\nDELETE FROM environments WHERE id = 1", nil, stmtFencedWrite},
 		{"/* c */ UPDATE secret_access_schedules SET start_hour = 1", nil, stmtFencedWrite},
+		// A subquery's own WHERE must not end the SET list early.
+		{`UPDATE "machine_identity_credentials" SET "last_used_at"=(SELECT now() WHERE true),"revoked"=true WHERE id = $1`, nil, stmtFencedWrite},
+		{`UPDATE "machine_identity_credentials" SET "last_used_at"=coalesce($1, now()) WHERE id = $2`, nil, stmtFencedWrite},
+		// The fenced key in a bind argument of any string-like shape.
+		{metaUpd, []any{"3", metaKey(sysKey)}, stmtFencedWrite},
+		{metaUpd, []any{"3", &sysKeyStr}, stmtFencedWrite},
+		{metaUpd, []any{"3", []byte(sysKey)}, stmtFencedWrite},
+		{metaUpd, []any{"3", sql.NullString{String: sysKey, Valid: true}}, stmtFencedWrite},
+		{metaUpd, []any{"3", failingValuer{}}, stmtFencedWrite},
+		{`DELETE FROM "system_metadata" WHERE key = ANY($1)`, []any{[]string{"schema_epoch", sysKey}}, stmtFencedWrite},
+		{metaUpd, []any{"3", metaKey("schema_epoch"), (*string)(nil), sql.NullString{}}, stmtOtherWrite},
+		// Several statements in one string: not parsed one by one.
+		{`UPDATE audit_events SET x = 1; UPDATE roles SET description = 'x'`, nil, stmtFencedWrite},
+		{`SELECT 1; DELETE FROM roles`, nil, stmtFencedWrite},
 	} {
 		if got := classifyStatement(tc.sql, tc.args); got != tc.want {
 			t.Errorf("classifyStatement(%q) = %d, want %d", tc.sql, got, tc.want)
@@ -71,3 +90,16 @@ func TestFill_RejectsAnOverlappingWrite(t *testing.T) {
 		t.Fatal("no entry is valid while a write is in flight")
 	}
 }
+
+const (
+	metaUpd = `UPDATE "system_metadata" SET "value"=$1 WHERE key = $2`
+	sysKey  = "role_permissions_generation"
+)
+
+var sysKeyStr = sysKey
+
+type metaKey string
+
+type failingValuer struct{}
+
+func (failingValuer) Value() (driver.Value, error) { return nil, errors.New("no value") }

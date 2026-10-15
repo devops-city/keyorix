@@ -228,6 +228,12 @@ func (g *Guard) recordUnattributedLocked() {
 	g.tracker.Flush()
 	logf("ERROR: the write epoch moved without a write this server accounts for (%d so far); every cache entry was flushed. "+
 		"A write reached a security table outside the tracker (see internal/solewriter/tracker.go)", g.unattributedBumps)
+	// One can be a foreign tagged write the fence let through; a second one
+	// means a write path the tracker keeps missing, and every miss is up to
+	// one poll of stale cache. Stop trusting the caches until restart.
+	if g.unattributedBumps >= 2 {
+		g.leaveLocked(fmt.Sprintf("the write epoch moved %d times without a write this server accounts for (a write path the tracker does not see)", g.unattributedBumps))
+	}
 }
 
 // UnattributedBumps is the canary's count (tests: must stay 0).

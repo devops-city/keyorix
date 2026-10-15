@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -45,19 +46,22 @@ func TestTracker_EveryEpochMoveIsAWriteTheTrackerSaw(t *testing.T) {
 	st := w.serverStorage()
 	ctx := context.Background()
 
+	// The tracker's commit count, not Gen: the running poller also moves Gen
+	// (Flush) on every epoch move it sees, so a Gen change after a step would
+	// not prove the tracker itself saw the write.
 	step := func(name string, bookkeeping bool, op func() error) {
 		t.Helper()
-		e0, g0 := w.epoch(w.foreign), tr.Gen()
+		e0, c0 := w.epoch(w.foreign), tr.commits.Load()
 		require.NoError(t, op(), name)
-		e1, g1 := w.epoch(w.foreign), tr.Gen()
+		e1, c1 := w.epoch(w.foreign), tr.commits.Load()
 		require.Zero(t, tr.Inflight(), "%s: a write is still counted in flight after the call returned", name)
 		if bookkeeping {
 			require.Equal(t, e0, e1, "%s: bookkeeping moved the epoch", name)
-			require.Equal(t, g0, g1, "%s: bookkeeping flushed the caches", name)
+			require.Equal(t, c0, c1, "%s: bookkeeping counted as a fenced write", name)
 			return
 		}
 		require.NotEqual(t, e0, e1, "%s: precondition: the write must reach a fenced table", name)
-		require.NotEqual(t, g0, g1, "%s: the epoch moved (%d -> %d) but the tracker did not see the write", name, e0, e1)
+		require.Greater(t, c1, c0, "%s: the epoch moved (%d -> %d) but the tracker did not see the write", name, e0, e1)
 	}
 
 	var (
@@ -150,6 +154,54 @@ func TestTracker_CanaryCatchesAWriteTheTrackerMissed(t *testing.T) {
 	require.Eventually(t, func() bool { return g.UnattributedBumps() == 1 }, 3*time.Second, 20*time.Millisecond)
 	require.Greater(t, tr.Gen(), g0, "the epoch move must flush every entry")
 	require.EqualValues(t, 1, g.Status().UnattributedBumps)
+	require.Equal(t, StateAuthoritative, g.Status().State, "one unattributed bump keeps the guard authoritative")
+
+	// A second one: a write path the tracker keeps missing. Confirming until
+	// restart (docs/specs/single-writer-cache.md, failure table).
+	_, err = db.ExecContext(context.Background(), "UPDATE projects SET name = name")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return g.UnattributedBumps() == 2 }, 3*time.Second, 20*time.Millisecond)
+	st := g.Status()
+	require.Equal(t, StateConfirming, st.State, "repeated unattributed bumps must leave the authoritative state")
+	require.Contains(t, st.Reason, "without a write this server accounts for")
+	require.False(t, g.Authoritative())
+}
+
+// TestTracker_GuardOwnFenceIsNotCounted: the holder connection's fence DDL
+// and holder/epoch rows are not server writes (REVIEW finding 7: counting
+// them made the canary call a miss explained).
+func TestTracker_GuardOwnFenceIsNotCounted(t *testing.T) {
+	w := newSWWorld(t)
+	g := w.start(Options{})
+	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
+	require.Zero(t, g.Tracker().commits.Load(), "the guard's own boot was counted as fenced writes")
+	time.Sleep(3 * PollInterval)
+	require.Zero(t, g.UnattributedBumps())
+}
+
+// TestTracker_ConnectionDeathDuringAReadEndsTheWrite: a connection inside a
+// fenced write that dies during a read (or any statement) must not stay in
+// flight: that would keep every cache off and the canary blind for good.
+func TestTracker_ConnectionDeathDuringAReadEndsTheWrite(t *testing.T) {
+	w := newSWWorld(t)
+	g := w.start(Options{})
+	tr := g.Tracker()
+	ctx := context.Background()
+	cc, err := config.ResolvePostgresConnConfig(&w.cfg.Storage.Database) // tagged and traced, as the server's pools
+	require.NoError(t, err)
+	conn, err := pgx.ConnectConfig(ctx, cc)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	_, err = conn.Exec(ctx, "BEGIN")
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, "UPDATE roles SET description = description")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, tr.Inflight())
+	require.NoError(t, w.foreign.Exec("SELECT pg_terminate_backend(?)", conn.PgConn().PID()).Error)
+	_, err = conn.Exec(ctx, "SELECT 1")
+	require.Error(t, err, "the read must fail on the terminated connection")
+	require.True(t, conn.IsClosed())
+	require.Zero(t, tr.Inflight(), "a dead connection's write must not stay in flight")
 }
 
 // TestFencedTables_NoCascadeFromUnfencedParent: a foreign key that cascades
@@ -202,21 +254,23 @@ func TestTracker_TransactionEndsTheWriteNotItsFirstStatement(t *testing.T) {
 	tr := g.Tracker()
 	st := w.serverStorage()
 	ctx := context.Background()
-	g0 := tr.Gen()
+	// Commit counts, not Gen alone: the running poller also moves Gen.
+	g0, c0 := tr.Gen(), tr.commits.Load()
 	require.NoError(t, st.WithTransaction(ctx, func(tx storage.Storage) error {
 		if _, err := tx.CreateProject(ctx, &models.Project{Name: fmt.Sprintf("tx-%d", time.Now().UnixNano())}); err != nil {
 			return err
 		}
 		require.EqualValues(t, 1, tr.Inflight(), "inside the transaction the write must be in flight")
-		require.Equal(t, g0, tr.Gen(), "the generation must not move before COMMIT")
+		require.Equal(t, c0, tr.commits.Load(), "the write must not count as finished before COMMIT")
 		require.False(t, tr.Valid(g0), "no entry may be served while the write is in flight")
 		return nil
 	}))
 	require.Zero(t, tr.Inflight())
-	require.NotEqual(t, g0, tr.Gen(), "COMMIT must move the generation")
+	require.Equal(t, c0+1, tr.commits.Load(), "COMMIT must end the write")
+	require.False(t, tr.Valid(g0), "COMMIT must move the generation")
 
 	// A rolled-back write also ends (and moves the generation: harmless).
-	g1 := tr.Gen()
+	g1, c1 := tr.Gen(), tr.commits.Load()
 	_ = st.WithTransaction(ctx, func(tx storage.Storage) error {
 		if _, err := tx.CreateProject(ctx, &models.Project{Name: fmt.Sprintf("rb-%d", time.Now().UnixNano())}); err != nil {
 			return err
@@ -224,7 +278,8 @@ func TestTracker_TransactionEndsTheWriteNotItsFirstStatement(t *testing.T) {
 		return fmt.Errorf("roll back")
 	})
 	require.Zero(t, tr.Inflight(), "a rolled-back write must not stay in flight")
-	require.NotEqual(t, g1, tr.Gen())
+	require.Equal(t, c1+1, tr.commits.Load())
+	require.False(t, tr.Valid(g1))
 }
 
 // TestTracker_SavepointRollbackDoesNotEndTheTransaction: a failed nested GORM
@@ -241,19 +296,19 @@ func TestTracker_SavepointRollbackDoesNotEndTheTransaction(t *testing.T) {
 	tr := g.Tracker()
 	own := w.own()
 	var midInflight int64
-	var midGen uint64
+	var midGen, midCommits uint64
 	require.NoError(t, own.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Exec("UPDATE machine_identity_credentials SET revoked = true WHERE id = ?", w.credID).Error; err != nil {
 			return err
 		}
 		require.Error(t, tx.Transaction(func(*gorm.DB) error { return errors.New("a best-effort step fails") }))
-		midInflight, midGen = tr.Inflight(), tr.Gen()
+		midInflight, midGen, midCommits = tr.Inflight(), tr.Gen(), tr.commits.Load()
 		return nil
 	}))
 	require.True(t, w.revoked())
 	require.EqualValues(t, 1, midInflight, "after ROLLBACK TO SAVEPOINT the outer transaction's write must still be in flight")
 	require.Zero(t, tr.Inflight())
-	require.NotEqual(t, midGen, tr.Gen(), "the outer COMMIT must move the generation")
+	require.Equal(t, midCommits+1, tr.commits.Load(), "the outer COMMIT (not the savepoint rollback) must end the write")
 	require.False(t, tr.Valid(midGen), "an entry filled before the revoking COMMIT must not be served after it")
 
 	// AND CHAIN: the chained transaction's write is in flight until it ends.
