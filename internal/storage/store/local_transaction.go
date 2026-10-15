@@ -35,6 +35,7 @@ func (ls *LocalStorage) WithTransaction(ctx context.Context, fn func(storage.Sto
 			namedLockMu:           ls.namedLockMu,
 			consumeClockWatermark: ls.consumeClockWatermark,
 			rbacClockWatermark:    ls.rbacClockWatermark,
+			auditHead:             ls.auditHead,
 			transactionPooling:    ls.transactionPooling,
 			// auditSkipDurableSync (ADR-112 Amendment 1) is deliberately NOT
 			// propagated, and this is a correctness requirement rather than an

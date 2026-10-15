@@ -424,6 +424,10 @@ func (ls *LocalStorage) DeleteAuditLogsBefore(ctx context.Context, cutoff time.T
 			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", int64(auditAdvisoryLockKey)).Error; err != nil {
 				return err
 			}
+			// The purge can empty the table, which moves the head; make the
+			// flusher re-read it rather than spend a flight finding out
+			// (AUDIT-1FLIGHT-1).
+			ls.invalidateAuditChainHead()
 		}
 
 		// B: the first row (by id) the pre-#2633 predicate would have kept —

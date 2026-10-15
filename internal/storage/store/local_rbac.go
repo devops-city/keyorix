@@ -588,6 +588,7 @@ func (ls *LocalStorage) RemoveGlobalAdminRoleGuarded(ctx context.Context, userID
 			namedLockMu:           ls.namedLockMu,
 			consumeClockWatermark: ls.consumeClockWatermark,
 			rbacClockWatermark:    ls.rbacClockWatermark,
+			auditHead:             ls.auditHead,
 		}
 		assignments, err := txStorage.ListGlobalAdminAssignmentsForUpdate(ctx, adminRoleIDs)
 		if err != nil {

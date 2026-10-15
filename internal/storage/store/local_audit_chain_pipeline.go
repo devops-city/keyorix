@@ -12,7 +12,7 @@
 //	          SELECT pg_advisory_xact_lock(KEYAUDIT);
 //	          SELECT id, entry_hash FROM audit_events ORDER BY id DESC LIMIT 1;
 //	          SELECT nextval(<audit_events id sequence>) FROM generate_series(1, n)
-//	flight 2: INSERT audit_events ...; INSERT secret_access_logs ...; COMMIT
+//	flight 2: INSERT audit_events ...; link check; INSERT secret_access_logs ...; COMMIT
 //
 // The statements and their order inside the transaction are what the GORM
 // path runs, and the INSERTs are GORM's own SQL (built in DryRun mode, hooks
@@ -28,7 +28,12 @@
 // before flight 2 is built, so that check (and a check that the first id sorts
 // after the head) runs on the final ids before anything is written. An error
 // in either flight makes Postgres skip the rest of it, COMMIT included, and the
-// attempt fails closed exactly like a failed GORM transaction.
+// attempt fails closed exactly like a failed GORM transaction. What the INSERT
+// actually stored is checked inside the transaction too: flight 2 runs the
+// link check (auditLinkCheckSQL) between the events INSERT and COMMIT.
+//
+// When the flusher already knows the head, the whole transaction goes in one
+// flight instead (local_audit_chain_one_flight.go).
 package store
 
 import (
@@ -55,7 +60,7 @@ const auditAllocateIDsSQL = "SELECT nextval(q.seq) FROM (SELECT pg_get_serial_se
 // errAuditPipelineUnavailable means the pool is not a database/sql pool over
 // pgx, so commitBatchAttempt uses the GORM transaction instead. Every
 // production Postgres pool is one (storage.openPostgresGorm, and
-// gorm.io/driver/postgres's own Open); TestCommitBatchAttempt_PostgresTwoFlights
+// gorm.io/driver/postgres's own Open); TestCommitBatchAttempt_PostgresFlightCount
 // fails if the pipelined path is not the one that runs.
 var errAuditPipelineUnavailable = errors.New("audit pipeline: the connection pool is not a pgx pool")
 
@@ -66,10 +71,48 @@ const auditPipelineCleanupTimeout = 5 * time.Second
 
 // commitBatchAttemptPipelined is commitBatchAttempt on Postgres: the same
 // transaction as commitBatchAttemptTx, sent in two flights (see the file
-// comment). The connection goes back to the pool idle, or closed (and so
-// discarded by database/sql) when it cannot be brought back to idle; it never
-// goes back inside a transaction.
+// comment), or in one when the flusher's chain-head cache is armed
+// (local_audit_chain_one_flight.go). A one-flight attempt that provably wrote
+// nothing (errAuditOneFlightRolledBack: the head moved, or any other error
+// Postgres reported before COMMIT) disarms the cache and is repeated once in
+// two flights, which re-read the head under the lock; whatever that attempt
+// returns is the result. Every other failure is returned as is.
 func (ls *LocalStorage) commitBatchAttemptPipelined(ctx context.Context, batch []*auditBatchItem) error {
+	epoch, head, armed := ls.auditHead.begin()
+	if armed {
+		err := ls.withAuditPipelineConn(ctx, func(pc *pgx.Conn) error {
+			last, err := ls.runAuditOneFlight(ctx, pc, batch, head)
+			if err == nil {
+				ls.auditHead.committedOneFlight(epoch, last)
+			}
+			return err
+		})
+		switch {
+		case err == nil:
+			return nil
+		case !errors.Is(err, errAuditOneFlightRolledBack):
+			ls.auditHead.failed()
+			return err
+		}
+		ls.auditHead.missedOneFlight()
+		epoch, _, _ = ls.auditHead.begin()
+	}
+	return ls.withAuditPipelineConn(ctx, func(pc *pgx.Conn) error {
+		read, last, err := ls.runAuditPipeline(ctx, pc, batch)
+		if err != nil {
+			ls.auditHead.failed()
+			return err
+		}
+		ls.auditHead.committedTwoFlights(epoch, read, last)
+		return nil
+	})
+}
+
+// withAuditPipelineConn runs fn on a pgx connection of its own from the pool.
+// The connection goes back to the pool idle, or closed (and so discarded by
+// database/sql) when it cannot be brought back to idle; it never goes back
+// inside a transaction.
+func (ls *LocalStorage) withAuditPipelineConn(ctx context.Context, fn func(*pgx.Conn) error) error {
 	sqlDB, ok := ls.db.Statement.ConnPool.(*sql.DB)
 	if !ok {
 		return errAuditPipelineUnavailable
@@ -86,7 +129,7 @@ func (ls *LocalStorage) commitBatchAttemptPipelined(ctx context.Context, batch [
 		}
 		pc := sc.Conn()
 		defer leaveAuditConnIdle(pc)
-		return ls.runAuditPipeline(ctx, pc, batch)
+		return fn(pc)
 	})
 }
 
@@ -230,7 +273,9 @@ func (f *auditFlight) close(err error) error {
 	return err
 }
 
-func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batch []*auditBatchItem) error {
+// runAuditPipeline commits batch in two flights. It returns the head its
+// first flight read and the batch's last row.
+func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batch []*auditBatchItem) (read, last auditChainHead, err error) {
 	// The head read's LIMIT is written into the text rather than bound (GORM's
 	// Limit(1) binds it): Postgres cannot know a bound LIMIT is 1 when it
 	// costs the cached statement's generic plan, so it re-plans the statement
@@ -240,7 +285,7 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		Order("id DESC").
 		Find(&[]models.AuditEvent{})
 	if headStmt.Error != nil {
-		return headStmt.Error
+		return read, last, headStmt.Error
 	}
 	table := headStmt.Statement.Schema.Table
 
@@ -261,7 +306,7 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		ids      []uint
 	)
 	open.send(pc)
-	err := func() error {
+	err = func() error {
 		for range len(open.stmts) - 2 {
 			if err := open.exec(); err != nil {
 				return err
@@ -289,22 +334,23 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		return open.done(int64(len(ids)), err)
 	}()
 	if err := open.close(err); err != nil {
-		return err
+		return read, last, err
 	}
+	read = auditChainHead{id: headID, hash: headHash}
 
 	events, accessLogs := chainAuditBatch(batch, headHash)
 	if len(ids) != len(events) {
-		return fmt.Errorf("audit pipeline: allocated %d ids for %d events", len(ids), len(events))
+		return read, last, fmt.Errorf("audit pipeline: allocated %d ids for %d events", len(ids), len(events))
 	}
 	slices.Sort(ids)
 	for i, e := range events {
 		e.ID = ids[i]
 	}
 	if err := checkAuditInsertIDOrder(events); err != nil {
-		return err
+		return read, last, err
 	}
 	if events[0].ID <= headID {
-		return fmt.Errorf("audit pipeline: first allocated id %d does not sort after the chain head %d", events[0].ID, headID)
+		return read, last, fmt.Errorf("audit pipeline: first allocated id %d does not sort after the chain head %d", events[0].ID, headID)
 	}
 
 	// Flight 2: the INSERTs and COMMIT. Nothing below may be needed to decide
@@ -324,8 +370,14 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		}
 		return queue(queueAuditInsert(commit, chunk, ids, true))
 	}); err != nil {
-		return err
+		return read, last, err
 	}
+	eventInserts := len(inserts)
+	// The ids were checked above, but only as assigned: what the INSERT stored
+	// is known once its RETURNING is read, after COMMIT is on the wire. The link
+	// check verifies the stored rows inside the transaction instead.
+	linkSQL, linkArgs := auditLinkCheckStatement(table, headID, headHash, len(events))
+	commit.queue(linkSQL, linkArgs...)
 	if err := forEachAuditInsertChunk(accessLogs, func(chunk []*models.SecretAccessLog) error {
 		ids := make([]*uint, len(chunk))
 		for i, l := range chunk {
@@ -333,14 +385,24 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		}
 		return queue(queueAuditInsert(commit, chunk, ids, false))
 	}); err != nil {
-		return err
+		return read, last, err
 	}
 	commit.queue("COMMIT")
 
 	commit.send(pc)
 	err = func() error {
-		for _, ins := range inserts {
+		for i, ins := range inserts {
+			if i == eventInserts {
+				if err := commit.exec(); err != nil {
+					return err
+				}
+			}
 			if err := readAuditInsert(commit, ins); err != nil {
+				return err
+			}
+		}
+		if eventInserts == len(inserts) {
+			if err := commit.exec(); err != nil {
 				return err
 			}
 		}
@@ -350,7 +412,11 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 		}
 		return commit.done(0, err)
 	}()
-	return commit.close(err)
+	if err := commit.close(err); err != nil {
+		return read, last, err
+	}
+	tail := events[len(events)-1]
+	return read, auditChainHead{id: tail.ID, hash: tail.EntryHash}, nil
 }
 
 // forEachAuditInsertChunk calls fn on rows in the same

@@ -1,0 +1,2 @@
+### Changed
+- The PostgreSQL audit group commit now sends a batch in a single network round trip when the audit flusher already knows the hash-chain head (it wrote the previous batch), instead of two. The cached head is verified inside the transaction, after the audit lock, before COMMIT; if another replica, a restore or a purge moved the head, the batch is retried through the two-round-trip path, so the chain can never fork. Durability and chain bytes are unchanged; fast audit mode applies as before.
