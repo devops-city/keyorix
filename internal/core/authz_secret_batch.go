@@ -39,6 +39,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"sort"
 	"strconv"
@@ -53,6 +54,12 @@ import (
 // not either. The equivalence matrix includes a chain deeper than the cap.
 const secretAncestorDepthCap = 20
 
+// maxAuthorizeSecretsBatchSize bounds how many secrets one AuthorizeSecretsBatch call
+// decides (CWE-400). It equals maxShareViewBatchSize, the cap of its only caller's list,
+// so no list that is served today is refused. An over-limit call returns an error and no
+// decisions; the caller fails closed. Same pattern as maxBulkAccessRequestBatchSize.
+const maxAuthorizeSecretsBatchSize = maxShareViewBatchSize
+
 type batchVerdict uint8
 
 const (
@@ -64,6 +71,9 @@ const (
 // AuthorizeSecretsBatch: see the file header. The result has an entry for every
 // non-nil secret in secrets; a secret listed twice is decided once.
 func (c *KeyorixCore) AuthorizeSecretsBatch(ctx context.Context, userID uint, perm string, secrets []*models.SecretNode) (map[uint]bool, error) {
+	if len(secrets) > maxAuthorizeSecretsBatchSize {
+		return nil, fmt.Errorf("secrets exceeds the maximum batch size of %d", maxAuthorizeSecretsBatchSize)
+	}
 	rows := make([]*models.SecretNode, 0, len(secrets))
 	seen := make(map[uint]struct{}, len(secrets))
 	for _, s := range secrets {
@@ -215,6 +225,9 @@ func (c *KeyorixCore) batchACLStage(ctx context.Context, userID uint, perm strin
 // level of nodes per round for all secrets together. An ancestor id whose node is
 // not live is on the chain but absent from the node map, as in the walk.
 func (c *KeyorixCore) batchSecretAncestry(ctx context.Context, rows []*models.SecretNode) (map[uint]*models.SecretNode, map[uint][]uint, error) {
+	if len(rows) > maxAuthorizeSecretsBatchSize {
+		return nil, nil, fmt.Errorf("rows exceeds the maximum batch size of %d", maxAuthorizeSecretsBatchSize)
+	}
 	type walk struct {
 		root    uint
 		cur     uint
