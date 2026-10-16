@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -122,6 +123,21 @@ const errUndeclaredTransactionPooler = "storage.database: two open connections w
 	"there. Set storage.database.pooler: pgbouncer-transaction (docs/postgresql-poolers.md), or run the " +
 	"pooler in session mode"
 
+// UndeclaredTransactionPoolerError is the refusal itself, as opposed to a probe
+// that could not connect: IsUndeclaredTransactionPooler tells them apart.
+type UndeclaredTransactionPoolerError struct{ PID int64 }
+
+func (e *UndeclaredTransactionPoolerError) Error() string {
+	return fmt.Sprintf(errUndeclaredTransactionPooler, e.PID)
+}
+
+// IsUndeclaredTransactionPooler reports whether err is the refusal of an
+// undeclared transaction-mode pooler (not a failure to run the check).
+func IsUndeclaredTransactionPooler(err error) bool {
+	_, ok := errors.AsType[*UndeclaredTransactionPoolerError](err)
+	return ok
+}
+
 // refuseUndeclaredTransactionPooler is a start-up tripwire for the one
 // misconfiguration that fails silently: a transaction-mode pooler in front of
 // PostgreSQL with storage.database.pooler unset. The session advisory locks
@@ -178,7 +194,7 @@ func refuseUndeclaredTransactionPooler(d *config.DatabaseConfig) error {
 		return postgresConnectError(err, cc)
 	}
 	if pa == pb {
-		return fmt.Errorf(errUndeclaredTransactionPooler, pa)
+		return &UndeclaredTransactionPoolerError{PID: pa}
 	}
 	return nil
 }
