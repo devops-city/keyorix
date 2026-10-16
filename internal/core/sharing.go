@@ -163,16 +163,28 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 		shareRecord.ExpiresAt = req.ExpiresAt
 	}
 
-	oldPermission := shareRecord.Permission
 	shareRecord.Permission = req.Permission
-	// AUDIT-TX-2: an update can widen a share (permission or expiry), so it
-	// commits with its share_updated / group_share_updated row or not at all.
+	// AUDIT-TX-2 + REVIEW-2 on #3367: an update can widen a share (permission
+	// or expiry) or narrow it, so it is classified per call against the share
+	// as read INSIDE the transaction. A widening one, mixed included, commits
+	// with its share_updated / group_share_updated row or not at all; a
+	// narrowing or neutral one is a revocation and is never blocked by the
+	// audit log: its row is written best-effort after the commit
+	// (withDirectedAuditedMutation).
 	var updatedShare *models.ShareRecord
-	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
-		var err error
-		if updatedShare, err = tx.UpdateShareRecord(ctx, shareRecord); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	var oldPermission string
+	if err := c.withDirectedAuditedMutation(ctx, func(tx storage.Storage) (bool, error) {
+		cur, err := tx.GetShareRecord(ctx, shareRecord.ID)
+		if err != nil {
+			return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
+		oldPermission = cur.Permission
+		widens := shareUpdateWidens(cur.Permission, cur.ExpiresAt, shareRecord.Permission, shareRecord.ExpiresAt)
+		if updatedShare, err = tx.UpdateShareRecord(ctx, shareRecord); err != nil {
+			return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		return widens, nil
+	}, func(tgt auditTarget) {
 		eventType := ShareAuditEventUpdated
 		if updatedShare.IsGroup {
 			eventType = ShareAuditEventGroupUpdated
@@ -186,12 +198,40 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 			OldPermission: oldPermission,
 			ShareID:       updatedShare.ID,
 		})
-		return nil
 	}); err != nil {
 		return nil, err
 	}
 
 	return updatedShare, nil
+}
+
+// shareUpdateWidens reports whether changing a share from (oldPerm, oldExp) to
+// (newPerm, newExp) gives the recipient anything it did not have: a higher
+// permission, a later expiry, or no expiry where there was one. A mixed change
+// (one narrower, one wider) widens. An unknown permission level counts as
+// widening, so it fails closed. A nil expiry means permanent.
+func shareUpdateWidens(oldPerm string, oldExp *time.Time, newPerm string, newExp *time.Time) bool {
+	rank := func(p string) int {
+		switch PermissionLevel(p) {
+		case PermissionRead:
+			return 1
+		case PermissionWrite:
+			return 2
+		}
+		return 0
+	}
+	oldRank, newRank := rank(oldPerm), rank(newPerm)
+	if oldRank == 0 || newRank == 0 || newRank > oldRank {
+		return true
+	}
+	switch {
+	case oldExp == nil:
+		return false // permanent before: any expiry narrows, none keeps it
+	case newExp == nil:
+		return true // time-bound before, permanent now
+	default:
+		return newExp.After(*oldExp)
+	}
 }
 
 // RevokeShare revokes a share. Only the secret owner can revoke.

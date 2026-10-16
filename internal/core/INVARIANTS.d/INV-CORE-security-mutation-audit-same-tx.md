@@ -2,7 +2,8 @@
   (one that adds access, a credential, a principal or changes a preventive
   control: every direct, JIT, SSO, baseline and access-request role grant, group
   role grant and membership, permission and role-definition change, break-glass
-  activation, share create/update, secret ACL grant, machine identity create /
+  activation, share create, a share or role UPDATE that widens access (see
+  below), secret ACL grant, machine identity create /
   token issue / role grant, PAT create, `CreateUserWithAssignments` and
   `CreateUserAudited`, project/environment create called with
   `WithMutationAuditActor`, SoD policy create/delete) writes its audit row(s)
@@ -13,14 +14,23 @@
   the same way. Off-box side effects (SIEM, live tail) run only after the commit;
   notifications after that. Revocations are deliberately NOT covered: they are
   never blocked by the audit log and keep their best-effort row after the commit
-  (Andrei 2026-10-14). Why: a crash or refused append between the commit and the
+  (Andrei 2026-10-14). `UpdateRole` and `UpdateSharePermission` go either way
+  and are classified per call from what they change inside their transaction
+  (`withDirectedAuditedMutation`): any added permission, a higher share
+  permission, a later or cleared expiry (mixed changes included) is a grant and
+  fails closed; a change that only narrows or changes no access commits and
+  audits best-effort after the commit (REVIEW-2 on #3367). Why: a crash or refused append between the commit and the
   row left a grant with no audit record (REVIEW-1, AUDIT-TX-2). Inventory:
   `docs/specs/security-mutation-audit-inventory.md`.
   Guard: `internal/core` `TestSecurityMutationAudit_RowExistsIffMutationCommitted`
   (SQLite always, PostgreSQL pg-gated; error, effect-then-error, panic, and a
   goroutine death at the append), `TestWithAuditedMutation_NoRowFailsClosed`,
   `server/faultops` `TestSecurityMutationAuditFailure_FailsClosedChangesNothing`
-  (32 REST/gRPC ops, no tolerance), `internal/solewriter`
+  (30 REST/gRPC ops, no tolerance), the per-call classification by
+  `TestSecurityMutationAudit_UpdateRole_ByDirection`,
+  `TestSecurityMutationAudit_UpdateSharePermission_ByDirection` and
+  `server/faultops` `TestRoleEditorUpdate_AuditFailure_ByDirection`,
+  `TestShareUpdate_AuditFailure_ByDirection`, `internal/solewriter`
   `TestTracker_GrantWithItsAuditRowIsOneFencedWrite` (pg-gated).
   **Not covered**: the follow-ups listed in the inventory (project/environment
   delete and update, group create/update, user update/restore/reactivate, config

@@ -24,6 +24,11 @@
 // their best-effort post-commit audit (Andrei 2026-10-14: a revocation is never
 // blocked by the audit log), and SetUserRoles (PUT /users/{id}/roles) is a
 // compensated sequence of single grants and removals, each audited on its own.
+// Role and share UPDATES go either way and are classified per call (REVIEW-2
+// on #3367): the catalog's role-update ops save the role's existing permission
+// set (neutral, so they commit), and are covered by direction in
+// security_mutation_audit_direction_test.go; the share-update ops widen
+// read->write and stay listed here.
 package faultops
 
 import (
@@ -43,8 +48,6 @@ var securityMutationAuditOps = []string{
 	"REST POST /api/v1/projects/{id}/members",
 	"REST POST /api/v1/roles/",
 	"GRPC keyorix.v1.RoleService.CreateRole",
-	"REST PUT /api/v1/roles/{id}",
-	"GRPC keyorix.v1.RoleService.UpdateRole",
 	"REST POST /api/v1/roles/{id}/permissions",
 	"REST POST /api/v1/groups/{id}/roles",
 	"REST POST /api/v1/groups/{id}/members",

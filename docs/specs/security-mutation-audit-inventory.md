@@ -24,6 +24,19 @@ This table is the reviewed list behind them, not a guard of its own.
   best-effort audit after the commit. #3345 (owed-audit record plus backfill) is
   not merged, so these paths have no backfill yet. When it merges, revocations
   should record their row through `commitOwingAudit`, as plain suspend does there.
+- **Updates classified per call** (REVIEW-2 on #3367). `UpdateRole` and
+  `UpdateSharePermission` can widen access or narrow it. They decide from what the
+  update actually changes, read inside its own transaction
+  (`withDirectedAuditedMutation`): one that grants anything, including a mixed one
+  that also removes, is grant-shaped and fails closed; one that only narrows
+  (removes permissions, write→read, sets or shortens an expiry) or changes no
+  access is a revocation or neutral, commits without an audit write in its
+  transaction, and writes the same rows best-effort after the commit. The web role
+  editor (`PUT /api/v1/roles/{id}`) can therefore strip a permission during an
+  audit outage. Guards: `TestSecurityMutationAudit_UpdateRole_ByDirection`,
+  `TestSecurityMutationAudit_UpdateSharePermission_ByDirection` (`internal/core`,
+  SQLite and PostgreSQL), `TestRoleEditorUpdate_AuditFailure_ByDirection`,
+  `TestShareUpdate_AuditFailure_ByDirection` (`server/faultops`, REST and gRPC).
 - **External side effects** (notifications, setup-link email, upstream lease
   revocation) stay after the commit and after the audit row.
 
@@ -42,13 +55,13 @@ through the transaction handle and commits together with the mutation.
 | Group role grant (permanent, JIT) | `AssignRoleToGroup`, `AssignGroupRoleWithExpiry` → `grantGroupRoleAudited` | `role.group_assigned` | after commit | in tx |
 | Permission into role | `AssignPermissionToRole` | `permission.assigned` | after commit | in tx |
 | Role create | `CreateRole` | `role.created` + `permission.assigned`×n | after commit | in tx |
-| Role update (incl. permission set) | `UpdateRole` | `role.updated` + `permission.removed/assigned`×n | after commit | in tx |
+| Role update (incl. permission set) | `UpdateRole` | `role.updated` + `permission.removed/assigned`×n | after commit | in tx when it assigns any permission (mixed included); after commit, best-effort, when it only removes permissions or changes the description (see "Updates classified per call") |
 | Group membership add | `AddUserToGroup` | `group.member_added` | after commit | in tx |
 | Project member add | `AddProjectMember` → `AssignUserRole` | `role.assigned` | after commit | in tx |
 | Access-request approval grant | `finalizeAccessRequestApproval` | `role.assigned` + `access_request.approved` | after commit | in tx |
 | Break-glass activation | `activateBreakGlassLocked` | `role.assigned` + `break_glass.activated` | after commit (activated: outside the lock) | in tx |
 | Share create (user, group) | `ShareSecret`, `ShareSecretWithGroup` | `share_created` / `group_share_created` | after commit | in tx |
-| Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx |
+| Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx when it widens (read→write, later expiry, expiry cleared; mixed included); after commit, best-effort, when it only narrows or changes nothing (see "Updates classified per call") |
 | Secret ACL grant | `GrantSecretACL` | `secret.acl_granted` | after commit | in tx |
 | Machine identity create | `CreateMachineIdentity` | `machine_identity.created` | after commit | in tx |
 | Machine token issue / rotate | `IssueMachineToken` | `machine_identity.token_issued` / `token_rotated` | after commit | in tx |
