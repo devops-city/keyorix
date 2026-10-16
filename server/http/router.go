@@ -206,7 +206,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// gesture with user verification mints a session, no password (ADR-036 addendum).
 		r.Post("/auth/webauthn/passwordless/begin", authHandler.BeginWebAuthnPasswordlessLogin)
 		r.Post("/auth/webauthn/passwordless/finish", authHandler.FinishWebAuthnPasswordlessLogin)
-		r.Post("/system/init", authHandler.InitSystem)
+		r.With(customMiddleware.FailureBudget(bootstrapFailureBurst, bootstrapFailureRefill, http.StatusForbidden)).Post("/system/init", authHandler.InitSystem)
 
 		// Credential-delivery setup links (ADR-028) — unauthenticated: the bearer is the
 		// single-use setup token in the URL / request body, not a session.
@@ -258,7 +258,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// Config.Validate refuses to start on an unreadable metrics_token_file or on
 	// both metrics_token and metrics_token_file being set (SECURE-DEFAULT-1).
 	//
-	r.Handle(pathMetrics, metricsHandlerFor(cfg.Server.HTTP))
+	r.With(customMiddleware.FailureBudget(metricsFailureBurst, metricsFailureRefill, http.StatusUnauthorized)).Handle(pathMetrics, metricsHandlerFor(cfg.Server.HTTP))
 
 	// Status page endpoint - serves stylish status dashboard
 	r.Get(pathStatus, func(w http.ResponseWriter, r *http.Request) {
