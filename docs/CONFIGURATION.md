@@ -478,7 +478,10 @@ deliberately, or verify database.path and the working directory -- refusing to c
 empty database in its place
 ```
 
-Create the database deliberately with `keyorix system init --database` (which creates the file
+(The command the message names is stale: the supported way to create the database is
+`keyorix-server admin init --database`, below.)
+
+Create the database deliberately with `keyorix-server admin init --database` (which creates the file
 with `O_CREATE|O_EXCL`), then start the server.
 
 In-memory DSNs (`:memory:`, `...?mode=memory`) are unaffected — there is no file that could
@@ -486,7 +489,7 @@ pre-exist. The Postgres backend is unaffected too.
 
 **Why this is off by default:** the shipped first-boot paths (`server/entrypoint.sh`,
 `docker-compose.yml`) start the server directly and let it create the database, so turning this
-on by default would break every first boot that does not run `keyorix system init --database`
+on by default would break every first boot that does not run `keyorix-server admin init --database`
 first. Turn it on once your deployment creates the file explicitly — which is exactly the point:
 after that, a missing file can only mean something went wrong.
 ### Single-writer mode (`single_writer`)
@@ -560,7 +563,7 @@ storage:
 
     # key_provider — default is "password" when omitted.
     key_provider:
-      type: password              # password | file | env | exec | aws-kms | gcp-kms | azure-kms
+      type: password              # password | file | env | exec | shamir | tpm | aws-kms | gcp-kms | azure-kms
 
       # type: file — read raw key material from a path (mounted CSI/sealed
       # secret, KMS sidecar output). Accepts 32 raw bytes, hex, or base64.
@@ -576,7 +579,7 @@ storage:
 
       # type: shamir — reconstruct the KEK from K-of-N Shamir shares (no single
       # custodian holds it). Provide at least the threshold many shares (hex/base64)
-      # via files and/or env vars. Generate with `keyorix encryption shamir-split`.
+      # via files and/or env vars. Generate with `keyorix-server admin encryption shamir-split`.
       # shamir_share_files: [/etc/keyorix/share-1.hex, /etc/keyorix/share-2.hex, /etc/keyorix/share-3.hex]
       # shamir_share_env: [KX_KEK_SHARE_1, KX_KEK_SHARE_2]
       # shamir_commitment is also printed by shamir-split — set it so reconstruction
@@ -614,7 +617,7 @@ storage:
   required. The argv is trusted deployment config, like `file_path`/`env_var`.
 - **`shamir`**: the KEK is split into **N Shamir shares** with a **K-of-N**
   threshold, so no single custodian holds it and at least K must combine to unseal
-  (separation of duties for the master key). Generate with `keyorix encryption
+  (separation of duties for the master key). Generate with `keyorix-server admin encryption
   shamir-split --shares N --threshold K` (the KEK is never printed/stored — only the
   shares are, plus a `shamir_commitment` value). Provide at least K shares at
   startup via `shamir_share_files` and/or `shamir_share_env` (each a hex/base64
@@ -623,7 +626,7 @@ storage:
   attacker holding threshold-1 genuine shares can forge to make ANY chosen value
   reconstruct; with it, the reconstructed KEK is verified against a real HMAC-SHA256
   commitment computed at split time. `KEYORIX_MASTER_PASSWORD` is **not** required.
-  Move an existing install onto it with `keyorix encryption migrate-provider
+  Move an existing install onto it with `keyorix-server admin encryption migrate-provider
   --to-type shamir --to-shamir-share-files … --to-shamir-commitment …`. ⚠️ Losing
   more than N-K shares makes the KEK — and all data — permanently unrecoverable;
   store and back up shares separately.
@@ -635,7 +638,7 @@ storage:
   blob is bound to *this* TPM — it cannot be unsealed on another host, so back up the
   data under a portable provider (or re-seal per host) and note that a TPM
   clear/replacement makes the blob unrecoverable. Move an existing install on with
-  `keyorix encryption migrate-provider --to-type tpm --to-wrapped-key-path keys/kek.tpm`.
+  `keyorix-server admin encryption migrate-provider --to-type tpm --to-wrapped-key-path keys/kek.tpm`.
   ⚠️ **No PCR policy binding yet**: the seal is bound to "this TPM chip", not to a
   verified/measured boot state — no PolicyPCR session is used. Any code capable of
   asking the TPM to unseal the blob succeeds regardless of firmware/bootloader/kernel
@@ -658,11 +661,11 @@ storage:
   `KEYORIX_MASTER_PASSWORD` is **not** required. Startup needs the KMS reachable
   (fail-closed).
 
-> Rotating the **DEK** (`keyorix encryption rotate`) re-encrypts all rows under a
+> Rotating the **DEK** (`keyorix-server admin encryption rotate`) re-encrypts all rows under a
 > new DEK and is independent of the provider.
 >
 > **Switching providers** (e.g. password → a cloud KMS) is
-> `keyorix encryption migrate-provider --to-type <type> … --confirm` (ADR-041): it
+> `keyorix-server admin encryption migrate-provider --to-type <type> … --confirm` (ADR-041): it
 > re-wraps the DEK under the target provider's KEK **without re-encrypting any
 > data** (fast, no DB lock), verifies the target unwraps it, and keeps a backup of
 > the previous wrapped DEK. Migrating `--to-type password` reads the new passphrase

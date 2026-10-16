@@ -50,7 +50,7 @@ carry only a `{"value":{"changed":true}}` marker (`AUDIT-LOG-PROVISIONS.md` §3)
 
 ## 2. Key rotation and the DEK re-encryption sweep
 
-`keyorix encryption rotate` performs a full re-encryption sweep of every
+`keyorix-server admin encryption rotate` performs a full re-encryption sweep of every
 DEK-encrypted table under a newly generated DEK, promotes the new key to disk,
 and survives a restart mid-sweep — covered by an end-to-end integration test
 (ADR-010). The sweep is **ordered by primary key**, closing a prior gap where
