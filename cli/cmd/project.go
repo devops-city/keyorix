@@ -83,7 +83,7 @@ func init() {
 
 func runProjectCreate(_ *cobra.Command, _ []string) error {
 	if projectCreateName == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)

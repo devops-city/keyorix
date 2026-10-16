@@ -50,10 +50,10 @@ environment, not across the whole project.`,
 
 func runSecretBulkRotate(_ *cobra.Command, _ []string) error {
 	if bulkRotateProject == 0 {
-		return fmt.Errorf("--project is required")
+		return usageErrorf("--project is required")
 	}
 	if !bulkRotateConfirm {
-		return fmt.Errorf("--confirm is required to proceed with bulk rotation (this is a destructive bulk operation)")
+		return usageErrorf("--confirm is required to proceed with bulk rotation (this is a destructive bulk operation)")
 	}
 
 	client, err := secretAPIClient()
@@ -65,7 +65,7 @@ func runSecretBulkRotate(_ *cobra.Command, _ []string) error {
 	var secretIDs *[]int
 	if bulkRotateNames != "" {
 		if bulkRotateEnv == 0 {
-			return fmt.Errorf("--env is required when using --names (a secret name is only unique within one project's environment, not across the whole project)")
+			return usageErrorf("--env is required when using --names (a secret name is only unique within one project's environment, not across the whole project)")
 		}
 		ids, err := resolveSecretNamesToIDs(ctx, client, bulkRotateProject, bulkRotateEnv, splitSecretNames(bulkRotateNames))
 		if err != nil {
@@ -225,10 +225,10 @@ secrets.write at the project scope.`,
 
 func runSecretBulkRename(_ *cobra.Command, _ []string) error {
 	if bulkRenameProject == 0 {
-		return fmt.Errorf("--project is required")
+		return usageErrorf("--project is required")
 	}
 	if len(bulkRenamePairs) == 0 {
-		return fmt.Errorf("at least one --rename <id>=<new-name> is required")
+		return usageErrorf("at least one --rename <id>=<new-name> is required")
 	}
 	entries, err := parseSecretRenamePairs(bulkRenamePairs)
 	if err != nil {
@@ -333,13 +333,13 @@ exits.`,
 
 func runSecretBulkDelete(_ *cobra.Command, _ []string) error {
 	if len(bulkDeleteIDs) == 0 && len(bulkDeleteNames) == 0 {
-		return fmt.Errorf("at least one of --ids or --names is required")
+		return usageErrorf("at least one of --ids or --names is required")
 	}
 	if bulkDeleteProject == 0 && len(bulkDeleteNames) > 0 {
-		return fmt.Errorf("--project is required when using --names")
+		return usageErrorf("--project is required when using --names")
 	}
 	if bulkDeleteEnv == 0 && len(bulkDeleteNames) > 0 {
-		return fmt.Errorf("--env is required when using --names (a secret name is only unique within one project's environment, not across the whole project)")
+		return usageErrorf("--env is required when using --names (a secret name is only unique within one project's environment, not across the whole project)")
 	}
 
 	// The API client is only built once it's actually needed: a pure --ids preview
