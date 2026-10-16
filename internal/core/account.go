@@ -450,7 +450,7 @@ func (c *KeyorixCore) applyNewPassword(ctx context.Context, user *models.User, n
 	// surviving a compromise-driven password reset is exactly the attack this step exists
 	// to close, so it must be visible for operator follow-up, not indistinguishable from
 	// "nothing to revoke."
-	hashes, herr := c.storage.RevokeAllPersonalAccessTokensForUser(ctx, user.ID)
+	hashes, herr := c.revokePATsAfterPasswordChange(ctx, user.ID)
 	if herr != nil {
 		uid := user.ID
 		c.writeAuditEventFailed(ctx, EventPasswordChangePATRevokeFailed, &uid, nil, "",
@@ -459,6 +459,19 @@ func (c *KeyorixCore) applyNewPassword(ctx context.Context, user *models.User, n
 		c.invalidateTokenCache(hashes...)
 	}
 	return nil
+}
+
+// revokePATsAfterPasswordChange is RevokeAllPersonalAccessTokensForUser with a
+// panic turned into an error, so it takes the same loud, audited branch: the
+// password change has committed by now, and an escaping panic answered 500 over
+// it (AUTH-2 sweep, change-password RevokeAllPersonalAccessTokensForUser#1/panic).
+func (c *KeyorixCore) revokePATsAfterPasswordChange(ctx context.Context, userID uint) (hashes []string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			hashes, err = nil, fmt.Errorf("PAT revocation panicked: %v", r)
+		}
+	}()
+	return c.storage.RevokeAllPersonalAccessTokensForUser(ctx, userID)
 }
 
 // EventPasswordChangePATRevokeFailed fires when applyNewPassword's PAT

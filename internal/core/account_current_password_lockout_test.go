@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -238,4 +239,26 @@ func TestRequireReauth_RejectionsCarryTheSentinel(t *testing.T) {
 	err = c.requireReauth(context.Background(), &totpUser, "wrong-guess", "email_change")
 	require.ErrorIs(t, err, ErrMFAVerificationStorageFailure)
 	assert.False(t, errors.Is(err, ErrReauthRejected))
+}
+
+// AUTH-2 sweep (pre-existing on main): a PANIC in the post-commit PAT revocation
+// answered 500 over a committed password change. It now takes the error's
+// branch: the change succeeds and the failed revocation is audited loudly.
+func TestChangePassword_PATRevocationPanicAfterCommitIsAuditedNotEscaped(t *testing.T) {
+	t.Parallel()
+	c, db := newCurrentPasswordCore(t)
+	base := c.storage
+	c.storage = faultstorage.NewFaultyStorage(base, &faultstorage.FaultSpec{
+		Method: "RevokeAllPersonalAccessTokensForUser", NthCall: 1, Kind: faultstorage.KindPanic,
+	})
+	require.NotPanics(t, func() {
+		require.NoError(t, c.ChangePassword(context.Background(), 1, curPwOld, curPwNew, ""))
+	})
+	c.storage = base
+	var u models.User
+	require.NoError(t, db.First(&u, 1).Error)
+	require.NoError(t, bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(curPwNew)))
+	var n int64
+	require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ?", EventPasswordChangePATRevokeFailed).Count(&n).Error)
+	assert.EqualValues(t, 1, n)
 }

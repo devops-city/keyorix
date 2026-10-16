@@ -727,7 +727,16 @@ func (h *AuthHandler) Profile(w http.ResponseWriter, r *http.Request) {
 
 // userIdentity returns the user's role/permission summary for the profile DTO.
 // Best-effort: on error it returns an empty identity so the profile still renders.
-func (h *AuthHandler) userIdentity(r *http.Request, userID uint) core.UserIdentity {
+func (h *AuthHandler) userIdentity(r *http.Request, userID uint) (identity core.UserIdentity) {
+	// A panic is treated like the error below: PUT /auth/profile reaches this
+	// after its update committed, and an escaping panic answered 500 over a
+	// changed email (AUTH-2 sweep, GetUserPermissions#1 / GetUserRoles#2 panic).
+	defer func() {
+		if p := recover(); p != nil {
+			log.Printf("userIdentity: identity read for user %d panicked (reporting only): %v", userID, p)
+			identity = core.UserIdentity{Roles: []string{}, Permissions: []string{}}
+		}
+	}()
 	id, err := h.coreService.GetUserIdentity(r.Context(), userID)
 	if err != nil {
 		return core.UserIdentity{Roles: []string{}, Permissions: []string{}}

@@ -105,10 +105,21 @@ func (c *KeyorixCore) needsSetupSession(u *models.User) bool {
 // If the account cannot be re-read, the setup session is revoked anyway: it
 // owes nothing a fresh login cannot redo, and continuing it on a state nobody
 // checked would be the fail-open side.
-func (c *KeyorixCore) EndSetupSessionIfComplete(ctx context.Context, userID uint, token string) bool {
+func (c *KeyorixCore) EndSetupSessionIfComplete(ctx context.Context, userID uint, token string) (ended bool) {
 	if token == "" {
 		return false
 	}
+	// Every caller runs this AFTER its own change committed (a password change,
+	// an MFA activation, a passkey registration): an escaping panic answered 500
+	// over the committed change (AUTH-2 sweep, change-password GetSession#4/panic).
+	// Recovered as "not ended": a setup-only session that owes nothing is refused
+	// with a re-authentication answer by both transports, so it gains nothing.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: EndSetupSessionIfComplete: user %d: panicked (%v); the setup session was not ended", userID, r)
+			ended = false
+		}
+	}()
 	sess, err := c.storage.GetSession(ctx, token)
 	if err != nil || sess == nil || !sess.SetupOnly || sess.UserID != userID {
 		return false

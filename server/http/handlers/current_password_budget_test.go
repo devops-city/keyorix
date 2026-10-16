@@ -185,3 +185,22 @@ func TestChangePassword_PanicReturnsTheSlot(t *testing.T) {
 		})
 	}
 }
+
+// AUTH-2 sweep (pre-existing on main): PUT /auth/profile reads the identity for
+// its response AFTER the update committed; a panic there answered 500 over a
+// changed email. It is now reported like the read's error (empty identity).
+func TestUpdateProfile_IdentityReadPanicAfterCommitStillAnswersOK(t *testing.T) {
+	db := openCurrentPasswordDB(t)
+	fs := faultstorage.NewFaultyStorage(store.NewLocalStorage(db), &faultstorage.FaultSpec{
+		Method: "GetUserRoles", NthCall: 1, Kind: faultstorage.KindPanic,
+	})
+	h := NewAuthHandler(core.NewKeyorixCore(fs), false)
+	w := asAlice(t, func(w http.ResponseWriter, r *http.Request) {
+		middleware.Recovery()(http.HandlerFunc(h.UpdateProfile)).ServeHTTP(w, r)
+	}, http.MethodPut, "/auth/profile", map[string]string{"display_name": "Alice B."})
+	require.True(t, fs.Fired())
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var u models.User
+	require.NoError(t, db.First(&u, 1).Error)
+	require.Equal(t, "Alice B.", u.DisplayName)
+}
