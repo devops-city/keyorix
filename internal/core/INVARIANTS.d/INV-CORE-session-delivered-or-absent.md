@@ -11,14 +11,17 @@
   (`auth.undelivered_session_revoked`) before the panic continues; on the four login paths
   `mintLoginSession` then returns it as a post-verdict error with no token (#3277,
   `TestLoginWritePanic_DeniedLikeItsError`). Session inserts go through
-  `createSession` (mintSession's seven callers, StartImpersonation); RefreshSession applies (3)
-  to `RotateSession`. Handler-side, `completeLogin` (ConsumeSetup only) revokes on a panic as
-  well as an error. Why: #2844 — a reported-failure login left a live session the owner could
+  `createSession` (mintSession's callers, StartImpersonation); RefreshSession applies (3)
+  to `RotateSession`. The setup-token consume inserts its session INSIDE its one transaction
+  (INV-CORE-setup-consume-all-or-nothing), resolves the identity before it, and applies (3)
+  to the whole transaction (`setupConsumeLanded`); `completeLogin`, its old read-after-mint
+  compensation, is gone (AUTH-2 item 1). Why: #2844 — a reported-failure login left a live session the owner could
   see and a revocation sweep had to find (identity-read panic on /auth/login, step-up grant
   panic on WebAuthn finish, CreateSession/RotateSession effect-then-error on every
   session-issuing op). Guard: `server/faultops` oracle (f) `checkNoUndeliveredSession`
   (every fuzz input), `TestUndeliveredSessionSweep` (every fired method x nth 1-3 x kind on
   every session-issuing op), `TestUndeliveredSession_PinnedTuplesLeaveNoSession`;
   `login_undelivered_session_test.go` here and in `server/http/handlers` (ConsumeSetup).
-  **Not covered**: the passwordless WebAuthn finish and setup consume are not in opCatalog
-  (covered by the core/handler tests above, not by the sweep).
+  Setup consume is in opCatalog and `sessionIssuingOps` since AUTH-2 item 1. **Not
+  covered**: the passwordless WebAuthn finish is not in opCatalog (covered by the core/handler
+  tests above, not by the sweep).

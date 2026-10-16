@@ -782,6 +782,25 @@ func (c *KeyorixCore) LogCurrentPasswordError(ctx context.Context, userID uint, 
 		fmt.Sprintf("Current-password check for username %s (%s) denied by a storage error AFTER the password matched: %v", username, op, err))
 }
 
+// LogSetupConsumeFailure writes setup_token.consume_failed (Success=false) for a
+// setup-link consume refused on the token or the account: unknown, expired,
+// used, or an account that cannot take a local password (AUTH-2 item 1). The
+// counterpart of auth.login_failed for this unauthenticated endpoint, so a
+// burst of dead-link attempts is visible to an operator.
+func (c *KeyorixCore) LogSetupConsumeFailure(ctx context.Context, ip string, err error) {
+	c.writeAuditEventFailed(ctx, "setup_token.consume_failed", nil, nil, ip,
+		fmt.Sprintf("setup link consume refused: %v", err))
+}
+
+// LogSetupConsumeError writes setup_token.consume_error (Success=false): the
+// token was valid and a storage fault refused the consume (ErrSetupPostVerdict).
+// Nothing was written and the link still works; the client got exactly the
+// dead-link answer, so only this event tells the two apart.
+func (c *KeyorixCore) LogSetupConsumeError(ctx context.Context, ip string, err error) {
+	c.writeAuditEventFailed(ctx, "setup_token.consume_error", nil, nil, ip,
+		fmt.Sprintf("setup link consume failed AFTER the token was validated (nothing written, the link still works): %v", err))
+}
+
 // LogAuthLogout writes an auth.logout audit event.
 func (c *KeyorixCore) LogAuthLogout(ctx context.Context, userID uint, username, ip, ua string) {
 	uid := userID

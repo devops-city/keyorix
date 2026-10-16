@@ -331,6 +331,43 @@ func (c *KeyorixCore) mintSession(ctx context.Context, userID uint, userAgent, i
 // session's whole life is capped at SetupSessionTTL from now, whatever the
 // configured access/absolute TTLs, and the cap is carried through every refresh.
 func (c *KeyorixCore) mintSessionWith(ctx context.Context, userID uint, userAgent, ip string, setupOnly bool) (*models.Session, error) {
+	session, err := c.newSessionRow(userID, userAgent, ip, setupOnly)
+	if err != nil {
+		return nil, err
+	}
+	// A failed insert may still have committed: createSession delivers the row
+	// if it landed instead of reporting a failed login over a live session
+	// (#2844). See session_undelivered.go.
+	created, err := c.createSession(ctx, session, ip, "login")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+	// Bound concurrent sessions per user so unbounded logins can't grow the table or
+	// enlarge the credential-theft blast radius. Best-effort — never fail a login on
+	// it, including a panic here (found live by FuzzStorageFaultOperations,
+	// server/faultops, docs/findings/2026-10-02-FINDING-mfa-verify-enforcesessionlimit-panic-masks-successful-login.md):
+	// unrecovered, it would propagate past this line and out through the
+	// transport's own panic-recovery wrapper as a 500 — misreporting an
+	// already-committed session (and, for the MFA-verify caller, an already-
+	// consumed TOTP step) as a failed login.
+	c.enforceSessionLimitBestEffort(ctx, userID)
+	return created, nil
+}
+
+// enforceSessionLimitBestEffort is mintSessionWith's post-insert session cap,
+// shared with the setup-token consume, whose session is inserted inside its own
+// transaction (AUTH-2 item 1).
+func (c *KeyorixCore) enforceSessionLimitBestEffort(ctx context.Context, userID uint) {
+	besteffort.Run(ctx, "auth.mintSession.EnforceSessionLimit", func() error {
+		return c.storage.EnforceSessionLimit(ctx, userID, maxSessionsPerUser)
+	})
+}
+
+// newSessionRow builds (does not write) a session row for userID: fresh token
+// and family, the configured access window and absolute ceiling, the device
+// fields, and the setup-only cap. mintSessionWith inserts it through
+// createSession; the setup-token consume inserts it inside its transaction.
+func (c *KeyorixCore) newSessionRow(userID uint, userAgent, ip string, setupOnly bool) (*models.Session, error) {
 	token, err := generateSecureToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate session token: %w", err)
@@ -365,25 +402,7 @@ func (c *KeyorixCore) mintSessionWith(ctx context.Context, userID uint, userAgen
 	if setupOnly {
 		capSetupSession(session, now)
 	}
-	// A failed insert may still have committed: createSession delivers the row
-	// if it landed instead of reporting a failed login over a live session
-	// (#2844). See session_undelivered.go.
-	created, err := c.createSession(ctx, session, ip, "login")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create session: %w", err)
-	}
-	// Bound concurrent sessions per user so unbounded logins can't grow the table or
-	// enlarge the credential-theft blast radius. Best-effort — never fail a login on
-	// it, including a panic here (found live by FuzzStorageFaultOperations,
-	// server/faultops, docs/findings/2026-10-02-FINDING-mfa-verify-enforcesessionlimit-panic-masks-successful-login.md):
-	// unrecovered, it would propagate past this line and out through the
-	// transport's own panic-recovery wrapper as a 500 — misreporting an
-	// already-committed session (and, for the MFA-verify caller, an already-
-	// consumed TOTP step) as a failed login.
-	besteffort.Run(ctx, "auth.mintSession.EnforceSessionLimit", func() error {
-		return c.storage.EnforceSessionLimit(ctx, userID, maxSessionsPerUser)
-	})
-	return created, nil
+	return session, nil
 }
 
 // capSetupSession clamps a setup-only session's access window and absolute
