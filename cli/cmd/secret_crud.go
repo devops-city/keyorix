@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +48,7 @@ func init() {
 	secretCreateCmd.Flags().IntVar(&secretCreateMaxReads, "max-reads", 0, "Maximum number of reads (0 = unlimited)")
 	secretCreateCmd.Flags().StringVar(&secretCreateExpiration, "expires", "", "Expiration time (RFC3339 format)")
 	secretCreateCmd.Flags().StringVar(&secretCreateValue, "value", "", "Secret value")
-	secretCreateCmd.Flags().StringVar(&secretCreateFromFile, "from-file", "", "Read secret value from file")
+	secretCreateCmd.Flags().StringVar(&secretCreateFromFile, "from-file", "", "Read the secret value from a file (relative path), or from stdin with \"-\"")
 	secretCreateCmd.Flags().BoolVar(&secretCreateInteractive, "interactive", false, "Interactive mode (value read from a hidden prompt)")
 	secretCreateCmd.Flags().StringVar(&secretCreateDescription, "description", "", "Optional free-text note about the secret")
 	SecretCmd.AddCommand(secretCreateCmd)
@@ -58,6 +60,9 @@ func init() {
 // both refusals exist so a secret value can't be read from an arbitrary
 // absolute location or through a planted symlink.
 func readSecretValueFromFile(path string) ([]byte, error) {
+	if path == "-" {
+		return readSecretValueFromStdin(secretValueStdin)
+	}
 	cleanPath := filepath.Clean(path)
 	if filepath.IsAbs(cleanPath) {
 		return nil, fmt.Errorf("absolute paths are not allowed: %s (use a path relative to the current directory, e.g. --from-file ./%s)", cleanPath, filepath.Base(cleanPath))
@@ -70,6 +75,28 @@ func readSecretValueFromFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("symlinks are not allowed: %s", cleanPath)
 	}
 	return regularfile.ReadFile("secret value file", cleanPath)
+}
+
+// secretValueStdin is where `--from-file -` reads (a variable so tests can feed it).
+var secretValueStdin io.Reader = os.Stdin
+
+// readSecretValueFromStdin reads a secret value piped to the command, the way a script
+// supplies one without a temp file or argv: `printf %s "$V" | keyorix secret create
+// ... --from-file -`. One trailing newline is dropped (so `echo` works), the same rule
+// as the KEYORIX_*_FILE variables; the size cap is theirs too.
+func readSecretValueFromStdin(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxSecretFileSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the secret value from stdin: %w", err)
+	}
+	if len(data) > maxSecretFileSize {
+		return nil, fmt.Errorf("secret value on stdin is too large (limit %d bytes)", maxSecretFileSize)
+	}
+	data = bytes.TrimSuffix(bytes.TrimSuffix(data, []byte("\n")), []byte("\r"))
+	if len(data) == 0 {
+		return nil, fmt.Errorf("nothing on stdin: pipe the secret value in, e.g. printf %%s \"$VALUE\" | keyorix secret create ... --from-file -")
+	}
+	return data, nil
 }
 
 // readHiddenValue prompts on stderr and reads a value from stdin with echo
@@ -101,7 +128,7 @@ func resolveSecretCreateValue() ([]byte, error) {
 	case secretCreateValue != "":
 		return []byte(secretCreateValue), nil
 	default:
-		return nil, fmt.Errorf("secret value is required (use --value, --from-file, or --interactive)")
+		return nil, fmt.Errorf("secret value is required (use --from-file (a file, or - for stdin) or --interactive)")
 	}
 }
 
@@ -475,7 +502,7 @@ func init() {
 	secretUpdateCmd.Flags().BoolVar(&secretUpdateClearReads, "clear-max-reads", false, "Remove the read limit (unlimited)")
 	secretUpdateCmd.Flags().StringVar(&secretUpdateExpiration, "expires", "", "Update expiration (RFC3339 format)")
 	secretUpdateCmd.Flags().StringVar(&secretUpdateValue, "value", "", "New secret value")
-	secretUpdateCmd.Flags().StringVar(&secretUpdateFromFile, "from-file", "", "Read new value from file")
+	secretUpdateCmd.Flags().StringVar(&secretUpdateFromFile, "from-file", "", "Read the new value from a file (relative path), or from stdin with \"-\"")
 	secretUpdateCmd.Flags().BoolVar(&secretUpdateInteractive, "interactive", false, "Interactive mode (value read from a hidden prompt)")
 	secretUpdateCmd.Flags().BoolVar(&secretUpdateClearExp, "clear-expiration", false, "Remove expiration")
 	SecretCmd.AddCommand(secretUpdateCmd)

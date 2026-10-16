@@ -224,8 +224,15 @@ type smokeCtx struct {
 // command exists" half of I2's brief. Fails the test on a non-zero exit.
 func (ctx *smokeCtx) runCLI(args ...string) string {
 	ctx.t.Helper()
+	return ctx.runCLIWithEnv(nil, args...)
+}
+
+// runCLIWithEnv is runCLI with extra environment variables, for the secrets a command
+// takes from KEYORIX_* variables (a password on argv is visible in ps and refused by the CLI).
+func (ctx *smokeCtx) runCLIWithEnv(extra []string, args ...string) string {
+	ctx.t.Helper()
 	cmd := exec.Command(ctx.cli, args...)
-	cmd.Env = ctx.cliEnv
+	cmd.Env = append(append([]string{}, ctx.cliEnv...), extra...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		ctx.t.Fatalf("keyorix %v: %v\n%s", args, err, out)

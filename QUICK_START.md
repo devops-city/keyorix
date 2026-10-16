@@ -147,8 +147,10 @@ export KEYORIX_ADMIN_PASSWORD
 
 > **Why no `--admin-password` / `--password` / `--value` flags?** Anything on a
 > command line is visible to other local users (`ps`, `/proc`) and saved in shell
-> history, and the CLI itself prints a warning when you do it. The examples here
-> use the prompt, environment-variable or file forms instead.
+> history, so the CLI refuses a secret given as a flag and tells you the safe form
+> (a hidden prompt, a `KEYORIX_*` environment variable or `KEYORIX_*_FILE`, a
+> file, or stdin). The examples here use those. A script that cannot be moved yet
+> can set `KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1` to get the old warning instead.
 
 Two things about this command are not obvious from `--help` alone:
 
@@ -282,7 +284,7 @@ project's environment ID fails with a bare `HTTP 422`, so list them first:
 
 Useful on create: `--max-reads N` (burn after N reads), `--expires` (RFC3339),
 `--type`, `--description`, `--interactive` (hidden-prompt value) and
-`--from-file` — rather than `--value`, which puts the secret on the command line.
+`--from-file` (a relative path, or `-` to read the value from stdin: `printf %s "$VALUE" | keyorix secret create ... --from-file -`) — `--value` is refused, since it puts the secret on the command line.
 
 Export everything in a project/environment at once — the same call the
 [GitHub Action](integrations/github-action/README.md) makes:
