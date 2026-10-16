@@ -52,13 +52,14 @@ func (h *AuthHandler) ActivateMFA(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "BadRequest", errInvalidRequestBody, http.StatusBadRequest, nil)
 		return
 	}
-	slot, admitted := h.admitCredentialCheck(w, r)
+	att, admitted := h.admitCredentialCheck(w, r)
 	if !admitted {
 		return
 	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
 	token := extractBearerToken(r)
 	codes, err := h.coreService.ActivateMFA(r.Context(), userCtx.UserID, body.Code, body.Password, token)
-	h.settleCredentialCheck(r, slot, userCtx, "activate_mfa", err)
+	h.settleCredentialCheck(r, att, userCtx, "activate_mfa", err)
 	if err != nil {
 		h.writeMFAErr(w, err)
 		return
@@ -93,12 +94,13 @@ func (h *AuthHandler) DisableMFA(w http.ResponseWriter, r *http.Request) {
 	if proof == "" {
 		proof = body.Password
 	}
-	slot, admitted := h.admitCredentialCheck(w, r)
+	att, admitted := h.admitCredentialCheck(w, r)
 	if !admitted {
 		return
 	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
 	err := h.coreService.DisableMFA(r.Context(), userCtx.UserID, proof, extractBearerToken(r))
-	h.settleCredentialCheck(r, slot, userCtx, "disable_mfa", err)
+	h.settleCredentialCheck(r, att, userCtx, "disable_mfa", err)
 	if err != nil {
 		h.writeMFAErr(w, err)
 		return
@@ -127,12 +129,13 @@ func (h *AuthHandler) RegenerateRecoveryCodes(w http.ResponseWriter, r *http.Req
 	if proof == "" {
 		proof = body.Password
 	}
-	slot, admitted := h.admitCredentialCheck(w, r)
+	att, admitted := h.admitCredentialCheck(w, r)
 	if !admitted {
 		return
 	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
 	codes, err := h.coreService.RegenerateMFARecoveryCodes(r.Context(), userCtx.UserID, proof)
-	h.settleCredentialCheck(r, slot, userCtx, "regenerate_recovery_codes", err)
+	h.settleCredentialCheck(r, att, userCtx, "regenerate_recovery_codes", err)
 	if err != nil {
 		h.writeMFAErr(w, err)
 		return

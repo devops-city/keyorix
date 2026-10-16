@@ -791,18 +791,17 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	// (core checks it for an email change) and spends the login budget. One
 	// without it guesses nothing: an empty password never matches, so a plain
 	// display-name edit is not throttled.
-	var slot loginSlot
+	var att *credentialAttempt
 	if body.CurrentPassword != "" {
 		var admitted bool
-		if slot, admitted = h.admitCredentialCheck(w, r); !admitted {
+		if att, admitted = h.admitCredentialCheck(w, r); !admitted {
 			return
 		}
+		defer h.releaseCredentialSlotOnPanic(r, att)
 	}
 
 	user, err := h.coreService.UpdateOwnProfile(r.Context(), userCtx.UserID, body.DisplayName, body.Email, body.CurrentPassword)
-	if body.CurrentPassword != "" {
-		h.settleCredentialCheck(r, slot, userCtx, "email_change", err)
-	}
+	h.settleCredentialCheck(r, att, userCtx, "email_change", err)
 	if err != nil {
 		if errors.Is(err, core.ErrIncorrectCurrentPassword) {
 			sendError(w, "Unauthorized", "Current password is incorrect", http.StatusUnauthorized, nil)
@@ -826,14 +825,23 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 // requires. The per-account lockout is core's (verifyCurrentPassword,
 // requireReauth). Without both, a stolen session or PAT could guess the
 // account's password at bcrypt speed: the per-principal budget is off by default.
-// Reports false when it has answered the request.
-func (h *AuthHandler) admitCredentialCheck(w http.ResponseWriter, r *http.Request) (loginSlot, bool) {
+// Reports false when it has answered the request. The caller defers
+// releaseCredentialSlotOnPanic and calls settleCredentialCheck with the check's
+// result.
+func (h *AuthHandler) admitCredentialCheck(w http.ResponseWriter, r *http.Request) (*credentialAttempt, bool) {
 	ip := clientIP(r)
 	if h.checkLoginRateLimit(r.Context(), ip) {
 		sendError(w, "TooManyRequests", "Too many attempts. Try again later.", http.StatusTooManyRequests, nil)
-		return loginSlot{}, false
+		return nil, false
 	}
-	return h.reserveLoginAttempt(r.Context(), ip), true
+	return &credentialAttempt{slot: h.reserveLoginAttempt(r.Context(), ip)}, true
+}
+
+// credentialAttempt is one admitted credential check's budget slot, until it
+// is settled.
+type credentialAttempt struct {
+	slot    loginSlot
+	settled bool
 }
 
 // settleCredentialCheck settles admitCredentialCheck's slot by the check's
@@ -844,8 +852,12 @@ func (h *AuthHandler) admitCredentialCheck(w http.ResponseWriter, r *http.Reques
 // verdict). A rejected current password is audited like a failed login
 // (auth.login_failed, or auth.login_error when the password had matched and a
 // storage fault refused it); the second-factor re-checks are audited by core
-// (mfa.failed / mfa.error).
-func (h *AuthHandler) settleCredentialCheck(r *http.Request, slot loginSlot, userCtx *middleware.UserContext, op string, err error) {
+// (mfa.failed / mfa.error). att nil (nothing was admitted) is a no-op.
+func (h *AuthHandler) settleCredentialCheck(r *http.Request, att *credentialAttempt, userCtx *middleware.UserContext, op string, err error) {
+	if att == nil || att.settled {
+		return
+	}
+	att.settled = true
 	switch {
 	case errors.Is(err, core.ErrIncorrectCurrentPassword):
 		ip, uid, username := clientIP(r), userCtx.UserID, userCtx.Username
@@ -857,7 +869,27 @@ func (h *AuthHandler) settleCredentialCheck(r *http.Request, slot loginSlot, use
 	case errors.Is(err, core.ErrReauthRejected), errors.Is(err, core.ErrLoginPostVerdict):
 		// Core audited it; the slot stays counted.
 	default:
-		h.returnLoginSlot(r.Context(), slot)
+		h.returnLoginSlot(r.Context(), att.slot)
+	}
+}
+
+// releaseCredentialSlotOnPanic, deferred right after admitCredentialCheck,
+// hands an unsettled slot back when the check PANICS, then re-raises the panic
+// unchanged (Recovery answers 500). A panic is a server bug no client can cause,
+// so returning the slot grants no extra guesses, and it keeps the 500 free of
+// side effects: the faultops sweep flagged the kept LoginAttempt row as a state
+// change behind a reported failure (oracle (a)). The login handlers keep a
+// post-verdict panic's slot instead (INV-HTTP-login-panic-release-pre-verdict-only)
+// because there a faulted correct credential must not be cheaper than a wrong
+// one under an IDENTICAL response; these endpoints answer a panic with 500,
+// which a wrong credential never gets, so no lockout-cost parity is at stake.
+func (h *AuthHandler) releaseCredentialSlotOnPanic(r *http.Request, att *credentialAttempt) {
+	if p := recover(); p != nil {
+		if att != nil && !att.settled {
+			att.settled = true
+			h.returnLoginSlot(r.Context(), att.slot)
+		}
+		panic(p)
 	}
 }
 
@@ -880,14 +912,15 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// AUTH-PW-BUDGET: the current-password check spends the login budget.
-	slot, admitted := h.admitCredentialCheck(w, r)
+	att, admitted := h.admitCredentialCheck(w, r)
 	if !admitted {
 		return
 	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
 
 	token := extractBearerToken(r)
 	err := h.coreService.ChangePassword(r.Context(), userCtx.UserID, body.CurrentPassword, body.NewPassword, token)
-	h.settleCredentialCheck(r, slot, userCtx, "change_password", err)
+	h.settleCredentialCheck(r, att, userCtx, "change_password", err)
 	if err != nil {
 		if errors.Is(err, core.ErrIncorrectCurrentPassword) {
 			sendError(w, "Unauthorized", "Current password is incorrect", http.StatusUnauthorized, nil)

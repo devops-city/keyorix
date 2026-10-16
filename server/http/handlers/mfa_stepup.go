@@ -35,12 +35,13 @@ func (h *AuthHandler) MFAStepUp(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "BadRequest", "code is required", http.StatusBadRequest, nil)
 		return
 	}
-	slot, admitted := h.admitCredentialCheck(w, r)
+	att, admitted := h.admitCredentialCheck(w, r)
 	if !admitted {
 		return
 	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
 	err := h.coreService.VerifyMFAStepUp(r.Context(), userCtx.UserID, body.Code)
-	h.settleCredentialCheck(r, slot, userCtx, "mfa_stepup", err)
+	h.settleCredentialCheck(r, att, userCtx, "mfa_stepup", err)
 	if err != nil {
 		if errors.Is(err, core.ErrMFAVerificationUnavailable) {
 			// FIX-1 (#2548 sibling) + #2740 review: no code was evaluated, so

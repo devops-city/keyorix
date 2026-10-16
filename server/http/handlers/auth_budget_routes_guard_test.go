@@ -286,6 +286,8 @@ func TestEveryAuthRoute_IsClassifiedAndBudgeted(t *testing.T) {
 				require.Equal(t, "login", cls.budget, "%s: authenticated credential checks share the login budget", key)
 				assert.True(t, callsSelector(fd.Body, "admitCredentialCheck") && callsSelector(fd.Body, "settleCredentialCheck"),
 					"%s: %s checks a credential but no longer calls admitCredentialCheck/settleCredentialCheck, so a stolen session can guess it without the login budget", key, cls.handler)
+				assert.True(t, callsSelector(fd.Body, "releaseCredentialSlotOnPanic"),
+					"%s: %s must defer releaseCredentialSlotOnPanic, or a panic leaves its slot counted behind a 500", key, cls.handler)
 			}
 		case routeExempt:
 			assert.NotEmpty(t, cls.why, "%s: an exempt route must say why it needs no budget", key)

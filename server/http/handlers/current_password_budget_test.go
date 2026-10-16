@@ -21,7 +21,9 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
@@ -159,4 +161,27 @@ func TestUpdateProfile_CorrectPasswordReturnsTheSlot(t *testing.T) {
 	var u models.User
 	require.NoError(t, db.First(&u, 1).Error)
 	assert.Equal(t, "alice@new.example.com", u.Email)
+}
+
+// A panic inside the check is a server bug: Recovery answers 500 and the
+// unsettled slot is handed back, so the 500 changes nothing (the faultops sweep
+// flagged the kept LoginAttempt row as oracle (a)). Covers a pre-verdict panic
+// (GetUser) and post-verdict ones (SetPasswordHash, WithTransaction).
+func TestChangePassword_PanicReturnsTheSlot(t *testing.T) {
+	for _, method := range []string{"GetUser", "SetPasswordHash", "WithTransaction"} {
+		t.Run(method, func(t *testing.T) {
+			db := openCurrentPasswordDB(t)
+			fs := faultstorage.NewFaultyStorage(store.NewLocalStorage(db), &faultstorage.FaultSpec{
+				Method: method, NthCall: 1, Kind: faultstorage.KindPanic,
+			})
+			h := NewAuthHandler(core.NewKeyorixCore(fs), false)
+			w := asAlice(t, func(w http.ResponseWriter, r *http.Request) {
+				middleware.Recovery()(http.HandlerFunc(h.ChangePassword)).ServeHTTP(w, r)
+			}, http.MethodPost, "/auth/change-password",
+				map[string]string{"current_password": lockoutOracleTestPassword, "new_password": currentPwNew})
+			require.True(t, fs.Fired(), "the %s panic must have been reached", method)
+			require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+			require.Zero(t, loginAttemptsFor(t, db), "a panic must not leave the slot counted")
+		})
+	}
 }
