@@ -169,6 +169,12 @@ your own `extraRules`.
 
 ## Production notes
 
+Start from [`values-production.yaml`](values-production.yaml): external PostgreSQL
+with `verify-full` TLS, credentials from your own Secret (`auth.existingSecret`),
+TLS on the ingress and between pods (secure baseline), `server.auditDurability:
+strict`, Guaranteed-QoS server resources. It is rendered by a test on every change;
+replace each `CHANGE-ME`.
+
 - **External database:** set `postgresql.enabled=false` and `externalDatabase.host`
   (+ `externalDatabase.password` via `auth.existingSecret`), pointing at a managed
   or HA PostgreSQL. The bundled Postgres is single-instance, for evaluation.
