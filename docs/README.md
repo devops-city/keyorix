@@ -35,6 +35,7 @@ Complete documentation for the production-ready Keyorix secret management system
 
 ### Performance & Operations
 - **[PERFORMANCE.md](./PERFORMANCE.md)** - Performance metrics and optimization
+- **[edge-deployment.md](./edge-deployment.md)** - Edge and industrial devices: SQLite, audit durability, power loss, air-gapped updates, hardening
 - **[TESTING_FRAMEWORK.md](./TESTING_FRAMEWORK.md)** - Testing strategy and results
 - **[COMPREHENSIVE_TEST_RESULTS.md](../COMPREHENSIVE_TEST_RESULTS.md)** - Complete test report
 
@@ -56,6 +57,7 @@ Complete documentation for the production-ready Keyorix secret management system
 2. **Performance**: [PERFORMANCE.md](./PERFORMANCE.md)
 3. **Security**: [SECURITY.md](./SECURITY.md)
 4. **Monitoring**: Health checks at `/health`
+5. **Edge / air-gapped devices**: [edge-deployment.md](./edge-deployment.md)
 
 ### For End Users
 1. **Quick Start**: [QUICK_START.md](../QUICK_START.md)
