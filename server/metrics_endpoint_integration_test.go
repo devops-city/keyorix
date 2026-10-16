@@ -5,6 +5,7 @@ package main
 // authenticated-only audit-verification metrics are not.
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -24,6 +25,17 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 
 	if out, err := runAdmin(t, bin, dir, env, "init", "--dev", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin init failed: %v\n%s", err, out)
+	}
+	// Same opt-out the web e2e harness uses (scripts/e2e/web-real-smoke.sh): the shared
+	// bootstrap admin has no MFA, which security.require_mfa would confine to the
+	// enrolment endpoints, and this test calls an ordinary admin endpoint.
+	cfgPath := filepath.Join(dir, "keyorix.yaml")
+	cfgRaw, err := os.ReadFile(cfgPath) //nolint:gosec // test-generated path under t.TempDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte(strings.Replace(string(cfgRaw), "\n  require_mfa: true\n", "\n  require_mfa: false\n", 1)), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	if out, err := runAdmin(t, bin, dir, env, "diagnose", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin diagnose failed: %v\n%s", err, out)
@@ -112,6 +124,39 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 	}
 	if strings.Contains(body, "keyorix_audit_verify_") {
 		t.Error("audit-verification metrics must not be served on the unauthenticated /metrics")
+	}
+
+	// The authenticated endpoint serves the protected metrics to an admin session.
+	loginResp, err := http.Post(base+"/auth/login", "application/json", strings.NewReader( //nolint:noctx // test-local request
+		`{"username":"obsadmin","password":"InitialPassw0rd!"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var login struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	loginRaw, _ := io.ReadAll(loginResp.Body)
+	_ = loginResp.Body.Close()
+	if err := json.Unmarshal(loginRaw, &login); err != nil || login.Data.Token == "" {
+		t.Fatalf("login failed (%d): %s", loginResp.StatusCode, loginRaw)
+	}
+	authReq, _ := http.NewRequest(http.MethodGet, base+"/api/v1/admin/scheduler-metrics", nil)
+	authReq.Header.Set("Authorization", "Bearer "+login.Data.Token)
+	authResp, err := http.DefaultClient.Do(authReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	protectedRaw, _ := io.ReadAll(authResp.Body)
+	_ = authResp.Body.Close()
+	if authResp.StatusCode != http.StatusOK {
+		t.Fatalf("authenticated GET scheduler-metrics = %d: %s", authResp.StatusCode, protectedRaw)
+	}
+	for _, want := range []string{"keyorix_audit_verify_failure_recorded 0", "keyorix_audit_verify_state_rejected 0"} {
+		if !strings.Contains(string(protectedRaw), want) {
+			t.Errorf("authenticated scheduler-metrics is missing %q", want)
+		}
 	}
 
 	// The authenticated endpoint refuses an anonymous caller.
