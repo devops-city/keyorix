@@ -1002,11 +1002,14 @@ func (h *AuthHandler) InitSystem(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		// A bad/missing token or a weak password is a client error, not a 500.
-		status := http.StatusInternalServerError
 		if errors.Is(err, core.ErrInvalidBootstrapToken) || strings.Contains(err.Error(), i18n.T("ErrorValidation", nil)) {
-			status = http.StatusForbidden
+			sendError(w, "Error", err.Error(), http.StatusForbidden, nil)
+			return
 		}
-		sendError(w, "Error", err.Error(), status, nil)
+		// This endpoint is reachable unauthenticated: a server-side failure (a database
+		// error names hosts, roles, tables) is logged, never returned.
+		log.Printf("InitSystem: %v", err)
+		sendError(w, "InternalError", "Failed to initialize system", http.StatusInternalServerError, nil)
 		return
 	}
 
