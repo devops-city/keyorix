@@ -215,12 +215,13 @@ spec:
             # Kept in sync with values.yaml's own server.resources default --
             # see its comment for the Guaranteed-QoS/measurement derivation.
             requests:
-              cpu: 1000m
+              cpu: 1
               memory: 512Mi
               ephemeral-storage: 64Mi
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 512Mi
+              ephemeral-storage: 256Mi
             {{- end }}
       volumes:
         # 0440 + the pod's fsGroup (1001) = readable by the server, nobody else, and
