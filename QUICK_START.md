@@ -134,7 +134,7 @@ network, even on a single machine. Start the server, then bootstrap the first
 admin account and default workspace with `keyorix system init --server`:
 
 ```bash
-export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
+export KEYORIX_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"   # 32+ characters; the server refuses a shorter one
 KEYORIX_CONFIG_PATH=./keyorix.yaml ./bin/keyorix-server &
 
 # The admin password and bootstrap token come from the environment (or, if
