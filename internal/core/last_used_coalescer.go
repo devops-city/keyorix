@@ -39,6 +39,8 @@ package core
 import (
 	"cmp"
 	"context"
+	"fmt"
+	"log"
 	"slices"
 	"sync"
 	"time"
@@ -200,7 +202,7 @@ func (a *lastUsedCoalescer) flush(ctx context.Context) {
 			}
 			break
 		}
-		if err := a.write(ctx, k, batch[k]); err != nil {
+		if panicked, err := a.safeWrite(ctx, k, batch[k]); err != nil && !panicked {
 			if failed == nil {
 				failed = map[lastUsedKey]time.Time{}
 			}
@@ -220,6 +222,20 @@ func (a *lastUsedCoalescer) flush(ctx context.Context) {
 		a.timer = time.AfterFunc(a.interval, a.flushInBackground)
 	}
 	a.mu.Unlock()
+}
+
+// safeWrite runs one write and turns a panic into an error: the flush runs on
+// a timer goroutine, where an unrecovered panic from storage would take the
+// whole server down for a bookkeeping stamp. A panicking key is dropped, not
+// retried (it would most likely panic again every interval).
+func (a *lastUsedCoalescer) safeWrite(ctx context.Context, k lastUsedKey, at time.Time) (panicked bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("last-used flush: write for kind %d id %d panicked, dropping it: %v", k.kind, k.id, r)
+			panicked, err = true, fmt.Errorf("last-used write panicked: %v", r)
+		}
+	}()
+	return false, a.write(ctx, k, at)
 }
 
 // FlushLastUsed writes every recorded but not yet flushed last-used / last-seen

@@ -407,3 +407,25 @@ func TestLastUsed_OnlyTheCoalescerCallsTheStoreTouches(t *testing.T) {
 	}
 	assert.Empty(t, offenders, "record uses through TouchPATLastUsed / TouchMachineTokenLastUsed / lastUsed().record, not the store directly")
 }
+
+// TestLastUsed_PanickingWriteDoesNotEscapeTheFlush: the flush runs on a timer
+// goroutine, so a storage panic must not escape it (it would crash the
+// process); the key is dropped, the other keys are still written.
+func TestLastUsed_PanickingWriteDoesNotEscapeTheFlush(t *testing.T) {
+	a := newLastUsedCoalescer(time.Hour, lastUsedMaxPending)
+	var wrote atomic.Int32
+	a.write = func(_ context.Context, k lastUsedKey, _ time.Time) error {
+		if k.id == 1 {
+			panic("injected")
+		}
+		wrote.Add(1)
+		return nil
+	}
+	now := time.Now()
+	a.record(lastUsedKey{lastUsedSession, 1}, now)
+	a.record(lastUsedKey{lastUsedSession, 2}, now)
+	require.NotPanics(t, func() { a.flush(context.Background()) })
+	assert.Equal(t, int32(1), wrote.Load())
+	_, ok := a.pendingAt(lastUsedKey{lastUsedSession, 1})
+	assert.False(t, ok, "a panicking key is dropped, not retried")
+}

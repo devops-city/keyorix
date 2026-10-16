@@ -281,6 +281,7 @@ func TestValidateSessionToken_AbsoluteCeilingEnforcedAtBoundary(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, uint(2), user.ID)
 		require.Equal(t, []string{"viewer"}, roles)
+		c.FlushLastUsed(ctx) // write the coalesced stamp now, not from a timer after the test
 	})
 }
 
