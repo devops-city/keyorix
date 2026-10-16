@@ -4,18 +4,25 @@ This guide helps you diagnose and resolve common issues when using the Keyorix C
 
 ## Quick Diagnostics
 
-Run these commands to quickly diagnose issues:
+Start with `keyorix doctor`. It is read-only and checks, in order: the configuration the CLI
+would use, that the server answers, the TLS chain and its expiry, version compatibility, clock
+skew against the server, that your token is accepted, and the audit chain's integrity. Each
+problem comes with the next step:
 
 ```bash
-# Check overall system status (also tests remote connectivity; exits non-zero
-# on unhealthy/unreachable/unconfigured, so it's safe to script against)
+keyorix doctor
+keyorix doctor -o json    # for scripts; exits non-zero if any check failed
+```
+
+For a short look at just the server URL and login state:
+
+```bash
+# Also tests remote connectivity; exits non-zero on unhealthy/unreachable/unconfigured,
+# so it's safe to script against
 keyorix status
 
-# Check configuration
-keyorix config status
-
-# Check authentication
-keyorix auth status
+# Show a saved setting, e.g. the CA file for a private-CA server
+keyorix config get ca_file
 ```
 
 ## Common Issues
