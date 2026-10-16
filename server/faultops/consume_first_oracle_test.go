@@ -75,6 +75,12 @@ type consumeFirstExemption struct {
 	// TestConsumeFirstExemptions_Documented refuses that, so the cap cannot be
 	// forgotten rather than deliberately omitted.
 	maxRowsRemoved map[string]int
+	// keepsLoginSlot: the op's credential check spends the per-IP login budget
+	// (AUTH-2 item 4) and a post-verdict fault keeps its slot, counted like a
+	// wrong code (INV-HTTP-every-auth-route-budgeted, the login family's
+	// #2880 rule). Accepted only as a pure addition of at most ONE LoginAttempt
+	// row: a deleted or edited row, or a second one, still fails.
+	keepsLoginSlot bool
 	// why is the one-line reason, printed in the ACCEPTABLE-BY-DESIGN log line
 	// so a passing run still says what it accepted and on what grounds.
 	why string
@@ -99,6 +105,7 @@ var consumeFirstExemptions = []consumeFirstExemption{
 		op:              "REST POST /api/v1/auth/mfa/disable",
 		fn:              "(*KeyorixCore).requireReauth",
 		consumedColumns: map[string][]string{"MFASecret": {"LastUsedStep"}},
+		keepsLoginSlot:  true,
 		why:             "requireReauth burned the matched TOTP time-step (MFASecret.LastUsedStep) before the disable transaction; it must stay burned so the same code cannot be replayed",
 	},
 	// #2814. CompleteSAML (internal/core/sso.go) is itself a class-B row
@@ -199,6 +206,7 @@ var consumeFirstExemptions = []consumeFirstExemption{
 		op:              "REST POST /api/v1/auth/mfa/recovery-codes/regenerate",
 		fn:              "(*KeyorixCore).requireReauth",
 		consumedColumns: map[string][]string{"MFASecret": {"LastUsedStep"}},
+		keepsLoginSlot:  true,
 		why:             "requireReauth burned the matched TOTP time-step before the recovery-code replacement transaction; it must stay burned so the same code cannot be replayed",
 	},
 	// ORPHAN-2 (#2844 triage class B). VerifyMFAStepUp's verifyMFAStepUpCode is
@@ -221,6 +229,7 @@ var consumeFirstExemptions = []consumeFirstExemption{
 		op:              "REST POST /api/v1/auth/mfa/stepup",
 		fn:              "(*KeyorixCore).verifyMFAStepUpCode",
 		consumedColumns: map[string][]string{"MFASecret": {"LastUsedStep"}},
+		keepsLoginSlot:  true,
 		why:             "verifyMFAStepUpCode burned the matched TOTP time-step before the step-up grant write; it must stay burned so the same code cannot be replayed for a second grant",
 	},
 }
@@ -258,6 +267,26 @@ func pureRowSubtraction(before, after tableSnapshot) bool {
 	return true
 }
 
+// pureRowAdditionAtMost reports whether after is before plus at most max new
+// rows, with every row of before still present unchanged.
+func pureRowAdditionAtMost(before, after tableSnapshot, maxAdded int) bool {
+	added := len(after.Rows) - len(before.Rows)
+	if added < 0 || added > maxAdded {
+		return false
+	}
+	have := make(map[string]int, len(after.Rows))
+	for _, r := range after.Rows {
+		have[r]++
+	}
+	for _, r := range before.Rows {
+		if have[r] == 0 {
+			return false
+		}
+		have[r]--
+	}
+	return true
+}
+
 // consumeFirstAccountsForDiff reports whether the entire before->after change
 // on this run is the op's declared single-use consumption and nothing else.
 func consumeFirstAccountsForDiff(in oracleInput) (*consumeFirstExemption, bool) {
@@ -275,6 +304,12 @@ func consumeFirstAccountsForDiff(in oracleInput) (*consumeFirstExemption, bool) 
 		}
 	}
 	excluded := append(append([]string{}, outcomeLogTables...), e.consumedByDeletion...)
+	if e.keepsLoginSlot {
+		if !pureRowAdditionAtMost(in.before.Tables["LoginAttempt"], in.after.Tables["LoginAttempt"], 1) {
+			return nil, false
+		}
+		excluded = append(excluded, "LoginAttempt")
+	}
 	if hashExcludingColumns(in.before, excluded, e.consumedColumns) !=
 		hashExcludingColumns(in.after, excluded, e.consumedColumns) {
 		return nil, false
