@@ -84,12 +84,19 @@ timeouts as above: mutual exclusion across replicas, the presence guard and the
 "a killed holder's lock is released" property hold
 (`TestPgBouncer_StorageSlice`, `TestPgBouncer_BlockingLocks_*`,
 `TestPgBouncer_Locks_SurviveServerTimeouts`, `TestPgBouncer_ServerGuard_*`).
-What they depend on, and what the server does not detect: a lock transaction
-ended from outside (PgBouncer timeouts below, a `pg_terminate_backend`, a
-PostgreSQL restart, a failover) drops its lock with no signal to the holder. A
-server whose presence lock was lost keeps running and an admin command could then
-start beside it. Detecting that (a periodic liveness check on the lock
-connection that stops the server) is not implemented yet.
+What they depend on: a lock transaction ended from outside (PgBouncer timeouts
+below, a `pg_terminate_backend`, a PostgreSQL restart, a failover) drops its
+lock. The server pings every lock connection every 5 seconds
+(`config.PinnedLockPingInterval`) and reports a dead one: a named, scheduler,
+bootstrap, audit-checkpoint or audit-index-build lock holder's context is
+cancelled with cause `ErrAdvisoryLockLost` and its call returns that error
+(joined with its own), so a critical section that ran without its lock never
+reports plain success; a server whose presence lock was lost logs it and shuts
+down with a failure status, so an admin command cannot start beside it. The
+check sees a dead connection, within one interval; the lock itself can only be
+dropped by ending the transaction, which ends the connection too. It does not
+cover direct and `pgbouncer-session` connections, where a lost session lock is
+still not detected.
 
 What does not change in any mode: the audit record of a secret read is
 committed before the secret is returned. At `audit_durability: strict` the

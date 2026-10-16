@@ -371,8 +371,11 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 
 	// Make this lock session available to any nested WithNamedLock call under
 	// a different key, for the remainder of this call chain.
+	// Cancelled with cause ErrAdvisoryLockLost if the lock connection dies
+	// (transaction shape); fn's own error is joined with it on return.
+	ctx, finish := sess.watch(ctx, "named lock "+lockKey)
 	ctx = context.WithValue(ctx, namedLockConnCtxKey{}, sess)
-	return fn(ctx)
+	return finish(fn(ctx))
 }
 
 // SetNamedLockDB gives WithNamedLock a pool of its own for the advisory-lock

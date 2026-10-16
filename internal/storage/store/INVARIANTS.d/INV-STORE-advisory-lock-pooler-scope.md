@@ -23,3 +23,11 @@
   `TestPgBouncer_AuditIndexBuild_LockFollowsThePooler` (all pg-gated; direct Postgres runs the
   transaction shape, `scripts/pgbouncer-matrix.sh` runs them through PgBouncer session /
   transaction / transaction+prepared; red on the base through PgBouncer transaction mode).
+  A pinned lock transaction whose backend dies is reported, not silently dropped: every
+  transaction-shape lock holder pings its connection every `config.PinnedLockPingInterval`
+  (`config.WatchPinnedLockConn`), cancels the critical section's context with cause
+  `ErrAdvisoryLockLost` and returns that error joined with its own; `serverguard.Presence.Lost`
+  closes and the server shuts down. Guard: `config` `TestWatchPinnedLockConn_*` (fake driver),
+  `internal/storage/store` `TestWithNamedLock_TransactionPooling_KilledLockBackendIsReported`,
+  `TestWithSchedulerLock_TransactionPooling_KilledLockBackendIsReported`, `internal/serverguard`
+  `TestPgBouncer_ServerGuard_LostPresenceLockIsReported` (pg-gated, `pg_terminate_backend`).

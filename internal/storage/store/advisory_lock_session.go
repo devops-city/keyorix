@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 
@@ -52,6 +54,41 @@ import (
 type advisoryLockSession struct {
 	conn *sql.Conn
 	xact bool
+}
+
+// ErrAdvisoryLockLost is returned (joined with the critical section's own
+// error, if any) by a lock holder whose lock transaction died while it held the
+// lock (transaction shape only; see advisoryLockSession.watch). The lock was
+// released by the database at that moment, so the critical section may have
+// overlapped another holder's: the caller must treat its result as unproven.
+var ErrAdvisoryLockLost = errors.New("advisory lock lost: the lock connection died while the lock was held")
+
+// watch starts the liveness check of the lock transaction (transaction shape;
+// call it once the lock is held) and returns the context the critical section
+// must run under, cancelled with cause ErrAdvisoryLockLost when the check finds
+// the connection gone, and finish. finish(err) stops the check, which must
+// happen before close, and returns err joined with ErrAdvisoryLockLost if the
+// lock was lost meanwhile (also when err is nil: the section ran without its
+// lock for part of its time). In session shape the connection is not pinned by
+// a transaction and watch is a pass-through.
+func (s *advisoryLockSession) watch(ctx context.Context, who string) (context.Context, func(error) error) {
+	if !s.xact {
+		return ctx, func(err error) error { return err }
+	}
+	wctx, cancel := context.WithCancelCause(ctx)
+	var lost atomic.Bool
+	stop := config.WatchPinnedLockConn(s.conn, who, func(err error) {
+		lost.Store(true)
+		cancel(fmt.Errorf("%w: %v", ErrAdvisoryLockLost, err))
+	})
+	return wctx, func(err error) error {
+		stop()
+		cancel(nil)
+		if lost.Load() {
+			return errors.Join(err, ErrAdvisoryLockLost)
+		}
+		return err
+	}
 }
 
 // openAdvisoryLockSession starts a lock session on conn. In transaction shape
