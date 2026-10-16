@@ -5,7 +5,8 @@
   pool drains however many distinct keys are held at once. It is not the scheduler lock pool
   (INV-STORE-scheduler-lock-own-pool): scheduler jobs take named locks inside their lock-held
   section, and one capped pool for both could pin every session waiting for one more. Lock
-  semantics are unchanged: per-key in-process FIFO first, then one blocking session advisory lock
+  semantics are unchanged: per-key in-process FIFO first (top-level calls only,
+  INV-STORE-named-lock-nested-no-queue), then one blocking session advisory lock
   per key (mutual exclusion across replicas), nested keys reuse the outer session (INV-STORE-05),
   unlocked before the session is pooled; a session whose unlock fails is discarded. Never call
   `WithNamedLock` while holding a request-pool connection (inside a transaction). `LocalStorage.Close`
