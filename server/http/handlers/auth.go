@@ -838,12 +838,13 @@ func (h *AuthHandler) admitCredentialCheck(w http.ResponseWriter, r *http.Reques
 
 // settleCredentialCheck settles admitCredentialCheck's slot by the check's
 // outcome, as the login handlers do (INV-HTTP-login-budget-counts-failures-only):
-// a rejected credential keeps it, anything else hands it back (success, a
-// refused new password or email, a storage fault before any verdict). A
-// rejected current password is audited like a failed login (auth.login_failed,
-// or auth.login_error when the password had matched and a storage fault
-// refused it); requireReauth's rejections are audited by core (mfa.failed /
-// mfa.error).
+// a rejected credential keeps it (a wrong one, a locked account, a post-verdict
+// fault: exactly what core counts toward the lockout), anything else hands it
+// back (success, a refused new password or email, a storage fault before any
+// verdict). A rejected current password is audited like a failed login
+// (auth.login_failed, or auth.login_error when the password had matched and a
+// storage fault refused it); the second-factor re-checks are audited by core
+// (mfa.failed / mfa.error).
 func (h *AuthHandler) settleCredentialCheck(r *http.Request, slot loginSlot, userCtx *middleware.UserContext, op string, err error) {
 	switch {
 	case errors.Is(err, core.ErrIncorrectCurrentPassword):
@@ -853,7 +854,7 @@ func (h *AuthHandler) settleCredentialCheck(r *http.Request, slot loginSlot, use
 		} else {
 			goSafe(func() { h.coreService.LogCurrentPasswordFailure(context.Background(), uid, username, ip, op) }) // #nosec G118
 		}
-	case errors.Is(err, core.ErrReauthRejected):
+	case errors.Is(err, core.ErrReauthRejected), errors.Is(err, core.ErrLoginPostVerdict):
 		// Core audited it; the slot stays counted.
 	default:
 		h.returnLoginSlot(r.Context(), slot)

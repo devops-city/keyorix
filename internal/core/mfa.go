@@ -750,20 +750,31 @@ func (c *KeyorixCore) auditMFAError(ctx context.Context, userID uint, phase stri
 		fmt.Sprintf("MFA %s for user %d could not be evaluated (storage error): %v", phase, userID, err))
 }
 
-// ErrReauthRejected marks requireReauth's refusals of the supplied code or
-// password: a wrong one, a post-verdict fault (both counted toward the lockout)
-// and a locked account. A transport keeps the caller's per-IP login-budget slot
-// for these, like a failed login, and hands it back for any other outcome
-// (ErrMFAVerificationStorageFailure: nothing was evaluated). Server-side only:
-// the error's text is exactly what it was before the sentinel existed.
+// ErrReauthRejected marks the refusals of an authenticated re-check of the
+// caller's code or password (requireReauth, VerifyMFAStepUp): a wrong one, a
+// post-verdict fault (both counted toward the lockout) and a locked account. A
+// transport keeps the caller's per-IP login-budget slot for these, like a failed
+// login, and hands it back for any other outcome (a storage fault before any
+// verdict: nothing was evaluated). Server-side only: the error's text is exactly
+// what it was before the sentinel existed.
 var ErrReauthRejected = errors.New("re-authentication rejected")
 
-// reauthRejectedError is ErrReauthRejected carrying requireReauth's unchanged
-// message, so a caller that renders err.Error() renders what it always did.
-type reauthRejectedError struct{ msg string }
+// reauthRejectedError is ErrReauthRejected with the refusal's unchanged text:
+// msg, or the wrapped error's when cause is set (which stays in the chain, so
+// errors.Is on it still holds).
+type reauthRejectedError struct {
+	msg   string
+	cause error
+}
 
-func (e *reauthRejectedError) Error() string      { return e.msg }
+func (e *reauthRejectedError) Error() string {
+	if e.cause != nil {
+		return e.cause.Error()
+	}
+	return e.msg
+}
 func (*reauthRejectedError) Is(target error) bool { return target == ErrReauthRejected }
+func (e *reauthRejectedError) Unwrap() error      { return e.cause }
 
 // requireReauth is the shared self-service re-authentication gate (#372) for
 // account-security-factor changes. Every caller (DisableMFA,
