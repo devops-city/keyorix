@@ -237,13 +237,22 @@ func hrSetup(t *testing.T, w *voWorld, roleID map[string]uint, n int, tc hrCase)
 		require.NoError(t, c.AssignUserRole(ctx, admin, reader, roleID["project_viewer"], projScope, false))
 	case "role-direct-expired":
 		require.NoError(t, c.AssignUserRole(ctx, admin, reader, roleID["project_viewer"], projScope, false))
-		// In UTC, as UserRole's BeforeSave stores it (G1619: SQLite compares strings).
-		require.NoError(t, db.Model(&models.UserRole{}).Where("user_id = ? AND project_id = ?", reader, proj.ID).Update("expires_at", past.UTC()).Error)
+		// Re-created through Create, so UserRole's BeforeSave stores the expiry in UTC
+		// (G1619: SQLite compares strings).
+		var ur models.UserRole
+		require.NoError(t, db.Where("user_id = ? AND project_id = ?", reader, proj.ID).First(&ur).Error)
+		require.NoError(t, db.Where("user_id = ? AND project_id = ?", reader, proj.ID).Delete(&models.UserRole{}).Error)
+		ur.ExpiresAt = &past
+		require.NoError(t, db.Create(&ur).Error)
 	case "role-group", "role-group-expired":
 		g := group()
 		require.NoError(t, c.AssignRoleToGroup(ctx, admin, g, roleID["project_viewer"], projScope, false))
 		if tc.grant == "role-group-expired" {
-			require.NoError(t, db.Model(&models.GroupRole{}).Where("group_id = ?", g).Update("expires_at", past.UTC()).Error)
+			var gr models.GroupRole
+			require.NoError(t, db.Where("group_id = ?", g).First(&gr).Error)
+			require.NoError(t, db.Where("group_id = ?", g).Delete(&models.GroupRole{}).Error)
+			gr.ExpiresAt = &past
+			require.NoError(t, db.Create(&gr).Error)
 		}
 	case "owner-live":
 		require.NoError(t, c.AssignUserRole(ctx, admin, reader, roleID["project_developer"], projScope, false))
