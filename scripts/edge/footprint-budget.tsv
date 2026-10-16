@@ -20,3 +20,5 @@ linux/amd64	full	90500000	-
 linux/amd64	airgap	63200000	-
 linux/arm64	full	82500000	-
 linux/arm64	airgap	58600000	-
+linux/arm	full	84800000	-
+linux/arm	airgap	60200000	-

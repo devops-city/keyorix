@@ -13,7 +13,15 @@
 
 - **Binary.** Release builds exist for Linux on `amd64` and `arm64`
   ([RELEASING.md](../RELEASING.md)). A Raspberry Pi needs a 64-bit OS to run the
-  `arm64` build. On a device that runs no cloud connectors or cloud KMS, use
+  `arm64` build. Every shipped component (server, air-gapped server, CLI,
+  `migrate`, the Kubernetes operator, `keyorix-k8s-sync`, `keyorix-mcp`) also
+  compiles and links for 32-bit `linux/arm` (armv7); that build is not
+  published or run in CI, so on a 32-bit board you build it yourself
+  (`scripts/edge/cross-build.sh`) and treat it as unproven until you have run
+  your own commissioning on it. There is nothing to cross-compile in C: all
+  builds are `CGO_ENABLED=0`, and SQLite is the pure-Go `modernc.org/sqlite`
+  driver ([ADR-048](adr-048-cgo-free-sqlite-driver.md)), so a Go toolchain on
+  any machine is enough. On a device that runs no cloud connectors or cloud KMS, use
   the `keyorix-server-airgap` binary: the cloud SDKs are compiled out, which
   gives a smaller binary and SBOM
   ([ARCHITECTURE.md](ARCHITECTURE.md#full-vs-air-gapped-build-profiles)).
