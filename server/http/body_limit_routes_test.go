@@ -159,3 +159,38 @@ func TestDeeplyNestedJSON_RefusedAsClientError(t *testing.T) {
 		t.Fatalf("deeply nested JSON: status %d, want a 4xx", w.Code)
 	}
 }
+
+// TestSecretValueRoutes_TighterBodyCapThroughRouter: create, update and rotate (the
+// three routes that carry a secret value) are capped at
+// config.DeriveMaxRequestBodySize(max_secret_size), well under the API default,
+// through the real router with a real admin session. The handler-level tests
+// (handlers/secret_size_cap_test.go) wrap the middleware themselves and cannot see
+// whether router.go wires it.
+func TestSecretValueRoutes_TighterBodyCapThroughRouter(t *testing.T) {
+	require.NoError(t, i18n.InitializeForTesting())
+	t.Cleanup(i18n.ResetForTesting)
+	cfg := &config.Config{}
+	c := newTestCore(t)
+	router, err := NewRouter(cfg, c)
+	require.NoError(t, err)
+	token := createTestToken(t, c)
+
+	limit := config.DeriveMaxRequestBodySize(cfg.Secrets.Limits.MaxSecretSize)
+	require.Less(t, limit, cfg.Server.HTTP.EffectiveMaxRequestBodyBytes(), "the secret class must be tighter than the API default")
+	for _, rt := range []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/secrets/"},
+		{http.MethodPut, "/api/v1/secrets/1"},
+		{http.MethodPost, "/api/v1/secrets/1/rotate"},
+	} {
+		req := httptest.NewRequest(rt.method, rt.path, nil)
+		req.Body = io.NopCloser(strings.NewReader(""))
+		req.ContentLength = limit + 1
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s %s authenticated, %d bytes (secret cap %d): status %d, want 413", rt.method, rt.path, limit+1, limit, w.Code)
+		}
+	}
+}

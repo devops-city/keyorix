@@ -373,6 +373,7 @@ var nonHandlerJSONWriters = map[string]string{
 	"server/middleware/auth.go:projectMFARequiredResponse":       "403 ProjectMFARequired envelope",
 	"server/middleware/auth.go:notFoundResponse":                 "404 envelope",
 	"server/middleware/auth.go:badRequestResponse":               "400 envelope",
+	"server/middleware/body_limit.go:writePayloadTooLarge":       "413 envelope",
 	"server/middleware/rate_limit.go:middleware":                 "429 envelope",
 	"server/middleware/scim.go:scimError":                        "SCIM error envelope",
 	"server/middleware/recovery.go:Recovery":                     "500 envelope after a recovered panic",
