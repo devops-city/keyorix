@@ -95,7 +95,6 @@ var knownUncoveredUserPaths = map[string]string{
 	"POST /api/v1/admin/jobs/check-read-quotas":       "see coverage.go skipList -- deployment-wide job trigger",
 	"POST /api/v1/admin/jobs/compliance-digest":       "see coverage.go skipList -- deployment-wide job trigger with real side effects",
 	"POST /api/v1/admin/jobs/expiry-reminders":        "see coverage.go skipList -- deployment-wide job trigger with real side effects",
-	"POST /api/v1/admin/jobs/purge-audit-logs":        "see coverage.go skipList -- deletes real audit rows this run's own chain check depends on",
 	"POST /api/v1/admin/jobs/role-expiry-check":       "see coverage.go skipList -- may expire/notify real role grants other groups rely on",
 	"POST /api/v1/admin/jobs/rotation-reminders":      "see coverage.go skipList -- deployment-wide job trigger with real side effects",
 	"POST /api/v1/admin/jobs/run-alert-escalation":    "see coverage.go skipList -- deployment-wide job trigger with real side effects",
