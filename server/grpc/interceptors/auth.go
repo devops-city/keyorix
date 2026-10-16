@@ -342,7 +342,7 @@ func authenticateRequest(ctx context.Context, coreService *core.KeyorixCore, req
 		// roles is retryable, not a bad token — answer Unavailable and don't
 		// count it against the peer's brute-force budget, matching the HTTP
 		// middleware's 503 for the same error.
-		if errors.Is(err, core.ErrRoleResolutionUnavailable) {
+		if core.IsAuthTransient(err) {
 			return nil, nil, status.Error(codes.Unavailable, "authentication temporarily unavailable, please retry")
 		}
 		return nil, nil, grpcAuthFailure(ctx)
@@ -442,7 +442,7 @@ func validateGRPCMachineToken(ctx context.Context, coreService *core.KeyorixCore
 		// the user-credential path above does for the same sentinel (#1944).
 		// Without this the machine path would turn a role-lookup blip into a
 		// permanent-looking 401 plus a strike against the caller's egress IP.
-		if errors.Is(err, core.ErrRoleResolutionUnavailable) {
+		if core.IsAuthTransient(err) {
 			return nil, nil, status.Error(codes.Unavailable, "authentication temporarily unavailable, please retry")
 		}
 		return nil, nil, grpcAuthFailure(ctx)
