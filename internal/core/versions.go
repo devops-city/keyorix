@@ -407,15 +407,23 @@ func (c *KeyorixCore) RollbackSecret(ctx context.Context, secretID uint, targetV
 	if err != nil {
 		return nil, fmt.Errorf("failed to read version %d: %w", targetVersion, err)
 	}
-	secret, err := c.RotateSecret(ctx, secretID, val, actorID, actorName)
-	if err != nil {
-		return nil, err
-	}
-	uid := actorID
-	sid := secretID
-	c.writeAuditEvent(ctx, EventSecretRolledBack, &uid, &sid,
-		fmt.Sprintf("rolled back secret %q to the value of version %d", secret.Name, targetVersion))
-	return secret, nil
+	// AUDIT-MUTATION-TX-1: secret.rolled_back commits with the re-instated version,
+	// always (every caller is a user-initiated rollback), so a rollback never lands
+	// without its row; a failed audit write stores nothing.
+	return c.rotateSecret(ctx, secretID, val, actorID, actorName, true, func(s *models.SecretNode) (mutationAuditRow, bool) {
+		uid := actorID
+		row := mutationAuditRow{
+			eventType:   EventSecretRolledBack,
+			userID:      &uid,
+			secretID:    s.ID,
+			projectID:   s.ProjectID,
+			description: fmt.Sprintf("rolled back secret %q to the value of version %d", s.Name, targetVersion),
+		}
+		if a, ok := secretMutationAuditFromContext(ctx); ok {
+			row.ip, row.userAgent, row.clientOrigin = a.IP, a.UserAgent, a.ClientOrigin
+		}
+		return row, true
+	})
 }
 
 // GetSecretValueByVersionWithPermissionCheck retrieves the decrypted value of a specific version with permission validation.

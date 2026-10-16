@@ -85,10 +85,10 @@ func breakGlassAPIClient() (*apiclient.ClientWithResponses, error) {
 
 func runBGActivate(_ *cobra.Command, _ []string) error {
 	if bgProject == 0 {
-		return fmt.Errorf("--project-id is required")
+		return usageErrorf("--project-id is required")
 	}
 	if bgJustify == "" {
-		return fmt.Errorf("--justification is required")
+		return usageErrorf("--justification is required")
 	}
 	client, err := breakGlassAPIClient()
 	if err != nil {
@@ -144,7 +144,7 @@ func printBreakGlassEffect(client *apiclient.ClientWithResponses, projectID uint
 
 func runBGList(_ *cobra.Command, _ []string) error {
 	if bgProject == 0 {
-		return fmt.Errorf("--project-id is required")
+		return usageErrorf("--project-id is required")
 	}
 	client, err := breakGlassAPIClient()
 	if err != nil {
@@ -199,7 +199,7 @@ func runBGList(_ *cobra.Command, _ []string) error {
 
 func runBGRevoke(_ *cobra.Command, _ []string) error {
 	if bgProject == 0 || bgActivation == 0 {
-		return fmt.Errorf("--project-id and --activation-id are required")
+		return usageErrorf("--project-id and --activation-id are required")
 	}
 	client, err := breakGlassAPIClient()
 	if err != nil {

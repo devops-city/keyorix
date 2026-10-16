@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -477,8 +478,9 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 			// Single-use within the validity window: atomically advance the last-used
 			// step. A code already accepted at this (or a later) step is a replay and
 			// MarkTOTPStepUsed returns false, so it is rejected — closing the ~90s
-			// replay window the bare totp validation left open.
-			if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, ch.UserID, step); ferr != nil {
+			// replay window the bare totp validation left open. A panic in the
+			// write is denied like its error (#3277, markTOTPStepUsedAfterMatch).
+			if fresh, ferr := c.markTOTPStepUsedAfterMatch(ctx, ch.UserID, step); ferr != nil {
 				storageErr = ferr
 			} else if fresh {
 				verified = true
@@ -547,6 +549,29 @@ func (c *KeyorixCore) VerifyMFACredentials(ctx context.Context, challenge, code 
 	return user, usedRecovery, consumedTOTPStep, ch.LoginAttemptID, nil
 }
 
+// markTOTPStepUsedAfterMatch is MarkTOTPStepUsed for a login whose TOTP code
+// has just matched. A panic in the write comes back as an error wrapping
+// ErrLoginWritePanicked (#3277), so VerifyMFACredentials denies it through the
+// same codeMatched branch as the write's error: the wrong-code response, the
+// lockout counted, the slot kept, mfa.error audited. A panic used to reach the
+// Recovery middleware instead: a 500 a wrong code can never get (it never
+// reaches the mark), so the status code answered "was the code correct?".
+//
+// Commit-aware: the mark may have landed before the panic. Nothing on the
+// denial path gives a step back, so a mark that landed keeps the code burned; a
+// mark that did not land leaves the code unconsumed, exactly as the error kind
+// does, and the login was refused, so the code was never accepted.
+func (c *KeyorixCore) markTOTPStepUsedAfterMatch(ctx context.Context, userID uint, step int64) (fresh bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: TOTP anti-replay write for user %d panicked after the code matched; "+
+				"denying it as a post-verdict fault: %v\n%s", userID, r, debug.Stack())
+			fresh, err = false, fmt.Errorf("%w: TOTP step write for user %d: %v", ErrLoginWritePanicked, userID, r)
+		}
+	}()
+	return c.storage.MarkTOTPStepUsed(ctx, userID, step)
+}
+
 // VerifyMFALogin consumes a challenge, verifies a TOTP code or a recovery code,
 // and on success mints and returns the session (the second login step) together
 // with the response identity.
@@ -609,7 +634,8 @@ func (c *KeyorixCore) VerifyMFALoginPending(ctx context.Context, challenge, code
 	}
 	lc := c.newLoginCompletion(user)
 	lc.holdLoginSlots(heldSlot)
-	session, err := c.mintSession(ctx, user.ID, userAgent, ip)
+	// A panic in the insert is denied like its error (#3277, mintLoginSession).
+	session, err := c.mintLoginSession(ctx, user.ID, userAgent, ip, false)
 	if err != nil {
 		// #2567: VerifyMFACredentials already consumed the TOTP step (anti-replay)
 		// before this, independent mintSession/CreateSession call. A failure here
@@ -620,7 +646,11 @@ func (c *KeyorixCore) VerifyMFALoginPending(ctx context.Context, challenge, code
 		// failure must not mask the real mintSession error, and must never
 		// retroactively weaken anti-replay for a step a LATER request already
 		// legitimately consumed.
-		if consumedTOTPStep != nil {
+		//
+		// Not after a PANIC in the insert (#3277): the row's absence then rests
+		// on createSession's best-effort delete, which can fail, so the code
+		// that was accepted stays used and the user retries with the next one.
+		if consumedTOTPStep != nil && !errors.Is(err, ErrLoginWritePanicked) {
 			if _, rerr := c.storage.ReleaseTOTPStepIfUnchanged(ctx, user.ID, *consumedTOTPStep); rerr != nil {
 				log.Printf("VerifyMFALogin: failed to release TOTP step after mintSession failure for user %d: %v", user.ID, rerr)
 			}

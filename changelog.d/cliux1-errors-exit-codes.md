@@ -1,0 +1,6 @@
+### Changed
+- **The CLI exits with a code that says why it failed, and every failure names the next step.** `0` ok, `1` refused/failed, `2` usage error, `3` not logged in or session rejected (HTTP 401), `4` permission denied (403), `5` not found (404), `6` server unreachable or TLS certificate refused. The table is in `keyorix --help`. Before, every failure exited 1.
+- **Plain-language messages instead of Go errors.** "not logged in: run `keyorix login --server <url>`" replaces `no server configured ... lstat ...`; a down server, a wrong hostname, a private-CA certificate and an https URL against a plain-http server each get one sentence with the fix (`--ca-file`, `keyorix status`) instead of `Get "...": dial tcp ...`; a 401 says to run `keyorix login`, a 403 says how to request access. A panic prints a one-line internal error (stack trace only with `KEYORIX_DEBUG=1`).
+
+### Fixed
+- **A mistyped subcommand of a group now fails.** `keyorix secret lst` printed the group's help and exited 0; it now says `unknown command "lst" for "keyorix secret"`, suggests `list` and exits 2. A stray positional argument on a command that takes none (`keyorix secret get 42`) is refused instead of silently ignored.

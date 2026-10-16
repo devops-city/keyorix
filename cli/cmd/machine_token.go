@@ -78,7 +78,7 @@ func init() {
 
 func runMachineTokenIssue(cmd *cobra.Command, args []string) error {
 	if machineTokenIssueName == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {

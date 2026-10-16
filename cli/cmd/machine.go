@@ -130,7 +130,7 @@ func init() {
 
 func runMachineCreate(cmd *cobra.Command, args []string) error {
 	if machineCreateName == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {
@@ -368,7 +368,7 @@ func init() {
 
 func runMachineGrantRole(cmd *cobra.Command, args []string) error {
 	if machineGrantRoleName == "" {
-		return fmt.Errorf("--role is required")
+		return usageErrorf("--role is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {
@@ -414,7 +414,7 @@ func init() {
 
 func runMachineRevokeRole(cmd *cobra.Command, args []string) error {
 	if machineRevokeRoleName == "" {
-		return fmt.Errorf("--role is required")
+		return usageErrorf("--role is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {
