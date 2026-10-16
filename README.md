@@ -61,6 +61,8 @@ See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) for production setup (TLS,
 backups, upgrades, and the all-important encryption-key handling), and
 [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full `keyorix.yaml`
 reference (encryption/KEK providers, MFA, WebAuthn, dynamic secrets, OIDC, …).
+Running on edge or industrial devices, unattended or air-gapped sites:
+[docs/edge-deployment.md](docs/edge-deployment.md).
 
 **Or start just the server binary:**
 
