@@ -63,8 +63,9 @@ Ask the user for these first (none of them is a secret):
   is encrypted to it. If the user has none, the user generates the key themselves
   in step 12.
 
-Requirements: Linux or macOS, `git`, `make`, `curl`, Go 1.27+ and a C compiler (for
-SQLite). The server listens on `127.0.0.1:8080` (HTTPS) and `127.0.0.1:9090` (gRPC).
+Requirements: Linux or macOS, `git`, `make`, `curl` and Go 1.27+ (the SQLite driver is
+pure Go; no C compiler is needed). The server listens on `127.0.0.1:8080` (HTTPS);
+the generated config leaves gRPC off.
 
 Run every command from the install directory `~/keyorix` (step 2 onwards). If your
 shell does not keep the working directory between commands, start each one with
@@ -95,9 +96,9 @@ cp ~/keyorix-src/bin/keyorix ~/keyorix-src/bin/keyorix-server bin/
 The last command must print the help text. If it says `unknown command`, the
 binary is too old: stop.
 
-If something else already listens on port 8080 or 9090
-(`curl -s localhost:8080` or `ss -ltn` shows it), choose two free ports now and use
-them in step 4 and wherever this page says `8080`.
+If something else already listens on port 8080
+(`curl -s localhost:8080` or `ss -ltn` shows it), choose a free port now and use
+it in step 4 and wherever this page says `8080`.
 
 ### 3. Generate the install secrets
 
@@ -116,9 +117,9 @@ Creates `secrets/master_password`, `secrets/bootstrap_token` and
 
 This writes the secure-baseline config (TLS required, rate limiting, MFA required,
 `/metrics` behind a token), a self-signed certificate `certs/server.crt` with its
-key, and `secrets/metrics_token`, all 0600, nothing printed. Only if you chose other
-ports in step 2, change them now, e.g.
-`sed -i.bak 's/port: "8080"/port: "18080"/; s/port: "9090"/port: "19090"/' keyorix.yaml`
+key, and `secrets/metrics_token`, all 0600, nothing printed. Only if you chose another
+port in step 2, change it now, e.g.
+`sed -i.bak 's/port: "8080"/port: "18080"/' keyorix.yaml`
 (`keyorix.yaml` holds no secrets; it only names files).
 
 ### 5. Generate the encryption keys and the database
