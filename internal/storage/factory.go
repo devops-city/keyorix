@@ -688,7 +688,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	opened = append(opened, namedLockDB)
 	applyLockPoolSettings(namedLockDB, NamedLockPoolSize, &cfg.Storage.Database)
 
-	nativeReads, err := openPostgresNativeReadPool(&cfg.Storage.Database, nativeReadPoolSize(effectiveMaxOpenConns(db, &cfg.Storage.Database)))
+	nativeReads, err := openPostgresNativeReadPool(&cfg.Storage.Database, nativeReadPoolSize(effectiveMaxOpenConns(db, &cfg.Storage.Database), cfg.Storage.Database.NativeReadPoolMax))
 	if err != nil {
 		return nil, err
 	}
@@ -849,13 +849,18 @@ const NamedLockPoolSize = 8
 // runs at most two of them, each one short statement, so a few connections
 // carry them at any request rate the request pool can feed. Never more than the
 // request pool's own cap (nativeReadPoolSize), so an operator who sizes
-// max_open_conns small keeps a small footprint. Not configurable, like the lock
-// pools.
-const NativeReadPoolMaxSize = 8
+// max_open_conns small keeps a small footprint. This is the default;
+// storage.database.native_read_pool_max raises or lowers it (the lock pools are
+// not configurable).
+const NativeReadPoolMaxSize = config.DefaultNativeReadPoolMax
 
-// nativeReadPoolSize is the native read pool's cap for a request pool of maxOpen.
-func nativeReadPoolSize(maxOpen int) int {
-	return min(maxOpen, NativeReadPoolMaxSize)
+// nativeReadPoolSize is the native read pool's cap for a request pool of maxOpen
+// and a configured native_read_pool_max (0: NativeReadPoolMaxSize).
+func nativeReadPoolSize(maxOpen, configured int) int {
+	if configured <= 0 {
+		configured = NativeReadPoolMaxSize
+	}
+	return min(maxOpen, configured)
 }
 
 // lockPoolMaxIdleTime closes lock sessions left idle, so the lock pools do not
@@ -889,17 +894,17 @@ func warnPostgresPoolHeadroom(db *gorm.DB, dbCfg *config.DatabaseConfig) {
 	if err := db.Raw("SELECT current_setting('superuser_reserved_connections')::int").Scan(&reserved).Error; err != nil {
 		return
 	}
-	if msg := postgresPoolHeadroomWarning(effectiveMaxOpenConns(db, dbCfg), maxConn, reserved); msg != "" {
+	if msg := postgresPoolHeadroomWarning(effectiveMaxOpenConns(db, dbCfg), dbCfg.NativeReadPoolMax, maxConn, reserved); msg != "" {
 		log.Print(msg)
 	}
 }
 
 // postgresPoolHeadroomWarning is warnPostgresPoolHeadroom's decision, separated so
 // it is testable without a server. Empty means no warning.
-// The process opens maxOpen plus extraPoolsSize(maxOpen) connections at most.
-func postgresPoolHeadroomWarning(maxOpen, maxConnections, reserved int) string {
+// The process opens maxOpen plus extraPoolsSize(maxOpen, nativeReadPoolMax) connections at most.
+func postgresPoolHeadroomWarning(maxOpen, nativeReadPoolMax, maxConnections, reserved int) string {
 	usable := maxConnections - reserved
-	extra := extraPoolsSize(maxOpen)
+	extra := extraPoolsSize(maxOpen, nativeReadPoolMax)
 	if maxConnections <= 0 || maxOpen+extra <= usable {
 		return ""
 	}
@@ -913,8 +918,8 @@ func postgresPoolHeadroomWarning(maxOpen, maxConnections, reserved int) string {
 
 // extraPoolsSize is the most connections the pools beside the request pool open
 // together: the scheduler and named lock pools and the native read pool.
-func extraPoolsSize(maxOpen int) int {
-	return lockPoolsSize + nativeReadPoolSize(maxOpen)
+func extraPoolsSize(maxOpen, nativeReadPoolMax int) int {
+	return lockPoolsSize + nativeReadPoolSize(maxOpen, nativeReadPoolMax)
 }
 
 // lockPoolsSize is the most connections the scheduler and named lock pools open together.

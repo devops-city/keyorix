@@ -292,8 +292,9 @@ func (c *KeyorixCore) mintPasswordLogin(ctx context.Context, req *LoginRequest, 
 	lc := c.newLoginCompletion(user)
 	// #3024: an account that owes both setup steps (restricted AND no second factor
 	// under security.require_mfa) gets a setup-only session: short-lived, confined to
-	// the setup steps, revoked once they are done (account_setup.go).
-	created, err := c.mintSessionWith(ctx, user.ID, req.UserAgent, req.IPAddress, c.needsSetupSession(user))
+	// the setup steps, revoked once they are done (account_setup.go). A panic in
+	// the insert is denied here like its error (#3277, mintLoginSession).
+	created, err := c.mintLoginSession(ctx, user.ID, req.UserAgent, req.IPAddress, c.needsSetupSession(user))
 	if err != nil {
 		lc.Failed(ctx)
 		return nil, user, nil, fmt.Errorf("%w: %w", ErrLoginPostVerdict, err)

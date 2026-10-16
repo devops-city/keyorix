@@ -115,7 +115,7 @@ that transaction and never reaches another client.
   one PgBouncer server connection. Per Keyorix replica, allow for:
   1 (presence lock, permanent) + up to 4 (scheduler job locks) + up to 8 (named
   locks) + the request traffic (`max_open_conns`, default 25, and the native
-  read pool, up to 8). The lock connections are held only while a lock is held.
+  read pool, 8 by default: `native_read_pool_max`). The lock connections are held only while a lock is held.
 - Keep startup parameters out of the DSN (`search_path`, `options`, ...).
   PgBouncer refuses unknown startup parameters (or drops them, with
   `ignore_startup_parameters`), and a transaction-mode pooler cannot keep a

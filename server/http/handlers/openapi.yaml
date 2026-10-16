@@ -7133,7 +7133,7 @@ paths:
         The caller's own home dashboard (secret/share counts, expiring secrets).
         Requires the universal system.read baseline (every real principal holds it).
         The deployment-wide aggregate fields (activeUsers, auditEvents30d,
-        auditLogins30d, auditSecretReads30d, failedAuthAttempts24h, inactiveUsers) and
+        auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins), refusedSecretReads24h, inactiveUsers) and
         the full recentActivity feed are additionally scoped to audit.read — a
         baseline-only caller gets zeroed aggregates and an activity feed limited to
         their own events.
@@ -7144,7 +7144,7 @@ paths:
           description: >-
             Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe,
             activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d,
-            failedAuthAttempts24h, inactiveUsers; optional trend objects
+            failedAuthAttempts24h (failed logins), refusedSecretReads24h, inactiveUsers; optional trend objects
             (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}),
             expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and
             recentActivity[] (id, type, secretName, timestamp, actor).

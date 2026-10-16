@@ -248,8 +248,10 @@ postgresql:
     username: keyorix
     database: keyorix
     # Password for the bundled DB. REQUIRED when postgresql.enabled and no
-    # auth.existingSecret is set.
-    password: ""
+    # auth.existingSecret is set. Deliberately has no default (no empty
+    # placeholder value either): the chart fails the render when it is unset.
+    # Pass it with --set postgresql.auth.password=... or a values file.
+    # password:
   persistence:
     enabled: true
     size: 8Gi
@@ -303,6 +305,15 @@ postgresql:
       cpu: 1
       memory: 1Gi
       ephemeral-storage: 512Mi
+
+# auditDurability is the server's storage.database.audit_durability: whether an
+# audit entry's commit waits for the disk sync before the secret is returned.
+#   ""         (default) leave it unset: the backend default applies.
+#   "strict"   wait for the disk sync.
+#   "standard" do not wait for the disk sync.
+# Anything else is rejected (values.schema.json). Not a PostgreSQL setting: see
+# postgresql.settings.
+auditDurability: ""
 
 # Used when postgresql.enabled is false.
 externalDatabase:

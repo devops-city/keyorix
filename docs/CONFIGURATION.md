@@ -281,6 +281,11 @@ storage:
     #   see "PostgreSQL password precedence" below
     # max_open_conns: 8          # default: 8 for SQLite, 25 for Postgres (see below)
     # max_idle_conns: 8          # default: the effective max_open_conns
+    # native_read_pool_max: 8    # POSTGRES ONLY. Cap of the separate pool the machine
+    #   credential lookup and the node-stamp read run on. Default 8 (unchanged); 1 to
+    #   1000, and never more than max_open_conns. Counted in the boot-time connection
+    #   headroom warning. Raise it only if pg_stat_activity shows requests waiting on
+    #   that pool; each unit is one more PostgreSQL connection per replica.
     conn_max_lifetime_minutes: 30
     # audit_flusher_linger_window: ""  # e.g. "1ms"; default "" (0, no deliberate
     #   wait — the audit-chain batching flusher commits whatever is already

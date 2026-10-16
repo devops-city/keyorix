@@ -177,14 +177,24 @@ describe('DashboardPage — stat cards', () => {
 
 describe('DashboardPage — operational signals', () => {
     it.each([
-        ['Failed Auth (24h)', '/audit?tab=audit&filter=failed'],
+        ['Failed Logins (24h)', '/audit?tab=audit&filter=failed'],
         ['Inactive Users', '/admin/users?filter=inactive'],
         ['Expiring Secrets', '/secrets?sort=expiry_asc&filter=expiring'],
         ['Secret Reads (30d)', '/audit?tab=audit&filter=reads'],
+        ['Refused Secret Reads (24h)', '/audit?tab=audit&filter=failed'],
     ])('navigates from the "%s" signal', (label, expectedUrl) => {
         render(<DashboardPage />);
         fireEvent.click(screen.getByText(label).closest('button')!);
         expect(navigateMock).toHaveBeenCalledWith(expectedUrl);
+    });
+
+    it('shows failed logins and refused secret reads as separate counts', () => {
+        mockHooks({ stats: { ...baseStats, failedAuthAttempts24h: 3, refusedSecretReads24h: 7 } });
+        render(<DashboardPage />);
+        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
+        const reads = screen.getByText('Refused Secret Reads (24h)').closest('button')!;
+        expect(within(logins).getByText('3')).toBeInTheDocument();
+        expect(within(reads).getByText('7')).toBeInTheDocument();
     });
 
     it('shows the inactive-users count', () => {
@@ -208,7 +218,7 @@ describe('DashboardPage — operational signals', () => {
         useUIStore.setState({ theme: 'light' });
         mockHooks({ stats: { ...baseStats, failedAuthAttempts24h: 5 } });
         render(<DashboardPage />);
-        const card = screen.getByText('Failed Auth (24h)').closest('button')!;
+        const card = screen.getByText('Failed Logins (24h)').closest('button')!;
         expect(card).toHaveStyle({
             backgroundColor: 'rgba(239,68,68,0.06)',
             borderColor: 'rgba(239,68,68,0.30)',
@@ -593,7 +603,7 @@ describe('DashboardPage — tiles the user cannot see (DEMO-UI-1)', () => {
             'Active Users',
             'Audit Events (30d)',
             'Security',
-            'Failed Auth (24h)',
+            'Failed Logins (24h)',
             'Inactive Users',
             'Secret Reads (30d)',
         ]) {

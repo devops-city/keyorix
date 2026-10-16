@@ -28,6 +28,7 @@
 //
 // Run via scripts/e2e/web-real-smoke.sh, never directly.
 import { test, expect, Page } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { DIALOGS, type DialogCase } from './dialog-inventory';
 
 const ADMIN_USERNAME = process.env.KEYORIX_E2E_ADMIN_USERNAME;
@@ -119,7 +120,7 @@ test('the tallest dialog (Create User) can actually be filled in and submitted a
     await shared.setViewportSize({ width: 1280, height: 720 });
 
     // Unique per run so a repeat run against a persistent DB does not collide.
-    const stamp = Math.floor(Math.random() * 1_000_000);
+    const stamp = randomInt(1_000_000);
     const username = `viewportuser${stamp}`;
     // Deliberately shares no 3+-character word with the username, email or
     // display name -- internal/core/rules' password policy rejects a password

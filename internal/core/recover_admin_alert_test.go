@@ -42,7 +42,7 @@ func TestRunRecoverAdminAlerting_NewEventNotifiesAndAdvancesMark(t *testing.T) {
 	// RunRecoverAdminAlerting now calls via recover_admin_alert.go) decrypts
 	// ch.URLEnc into ch.URL -- a fixture that only set the latter would read
 	// back empty, and postJSONToURL below would never actually reach tr.
-	ch := &models.NotificationChannel{ID: 1, Name: "ops-webhook", Type: "webhook", URLEnc: plaintextURLEnc("http://fake-webhook.test/hook"), Enabled: true}
+	ch := &models.NotificationChannel{ID: 1, Name: "ops-webhook", Type: "webhook", URLEnc: plaintextURLEnc("https://fake-webhook.test/hook"), Enabled: true}
 
 	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("", false, nil)
 	store.On("GetAuditLogs", mock.Anything, mock.AnythingOfType("*storage.AuditFilter")).
@@ -147,7 +147,7 @@ func TestRunRecoverAdminAlerting_Integration_ExactlyOneAlertNoDuplicateAfterRest
 	// URLEnc, not URL (#2433): URL is gorm:"-" (not a persisted column) -- a
 	// raw db.Create setting only URL would silently persist no URL at all.
 	require.NoError(t, db.Create(&models.NotificationChannel{
-		Name: "ops-webhook", Type: "webhook", URLEnc: plaintextURLEnc("http://fake-webhook.test/hook"), Enabled: true,
+		Name: "ops-webhook", Type: "webhook", URLEnc: plaintextURLEnc("https://fake-webhook.test/hook"), Enabled: true,
 	}).Error)
 	uid := uint(1)
 	ok := true
