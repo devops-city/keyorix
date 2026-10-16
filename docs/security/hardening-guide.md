@@ -241,12 +241,11 @@ option there, but it does not bundle the key-material files.
   application config. An external supervisor that explicitly raises
   `LimitCORE=`/`ulimit -c` before exec-ing the process is outside this
   control's reach; don't do that in a production unit file.
-- **CLI local mode is equivalent to direct database access** (see
-  `threat-model.md` §5.2) — restrict local-mode CLI access to exactly the set
-  of people/systems you'd trust with a raw database connection, not the
-  broader set you'd trust with API access. This changes once ADR-108's
-  CLI/server split ships; until then, treat it as unaudited, unrate-limited
-  DB access, because it is.
+- **The CLI has no local mode** (ADR-108 Decision A, see `threat-model.md`
+  §5.2): it only talks to the API, so it is subject to authorization, audit and
+  rate limits like any client. Shell access to the server host
+  (`keyorix-server admin …`) and a raw database connection are still direct
+  access to the data; restrict them to people you would trust with every secret.
 
 ## 8. Kubernetes delivery (operator / sync agent / ESO)
 

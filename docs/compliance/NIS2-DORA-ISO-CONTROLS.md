@@ -176,8 +176,8 @@ functions; NIS2 supply-chain security (Art. 21(2)(d)); ISO 27001 Annex A 5.19–
   and restorable, preserving audit and ownership history rather than hard-erasing
   it.
 
-**Status:** Shipped. (Automated purge schedulers for soft-deleted records are
-config-present but not yet wired — Roadmap.)
+**Status:** Shipped. (The retention purge scheduler for soft-deleted records is
+wired and opt-in: `purge.enabled`, default off; it skips while a legal hold applies.)
 
 ---
 
