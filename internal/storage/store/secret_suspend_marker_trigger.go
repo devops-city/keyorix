@@ -25,9 +25,9 @@ import (
 )
 
 // SecretSuspendMarkerTrigger is the trigger's name, exported for tests.
-const SecretSuspendMarkerTrigger = "trg_secret_nodes_suspend_marker"
+const SecretSuspendMarkerTrigger = "trg_secret_nodes_suspend_marker" // #nosec G101 -- trigger name, not a credential
 
-const secretSuspendMarkerFunc = "keyorix_clear_suspend_marker"
+const secretSuspendMarkerFunc = "keyorix_clear_suspend_marker" // #nosec G101 -- function name, not a credential
 
 // postgresSuspendMarkerLockKey serialises concurrent installers (CREATE OR
 // REPLACE FUNCTION races on the pg_proc tuple). "KEYASUSP".
