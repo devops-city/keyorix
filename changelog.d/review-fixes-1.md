@@ -5,7 +5,7 @@
 - **Nested named locks no longer stall every named lock on a replica (#3358).** A nested `WithNamedLock` call waited in the in-process queue while holding one of the 8 named-lock pool sessions; with enough concurrent role changes for one user across projects, every named lock in the process (secret creation's included) waited until the request contexts ended. A nested call on PostgreSQL now waits in PostgreSQL on the session it already holds.
 
 ### Documentation
-- **Helm quick start keeps secrets off the command line.** The chart README now creates the Secret from owner-only files and installs with `auth.existingSecret` (values file or `--set-file` as alternatives), and the install NOTES warn when the passwords came from Helm values.
+- **Helm quick start keeps secrets off the command line.** The chart README now creates the Secret from owner-only files and installs with `auth.existingSecret` (values file or `--set-file` as alternatives), and the install NOTES warn when the passwords came from Helm values. `docs/operator/j8-kubernetes.md` follows the same steps.
 
 ### Testing
 - **The Helm pod-hardening guard checks every container (#3360).** Container-level `runAsUser: 0` / `runAsNonRoot: false` and any `capabilities.add` beyond `NET_BIND_SERVICE` now fail it, and it is calibrated against the opt-in root `postgresql.migrateOwnership` init container.

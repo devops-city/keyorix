@@ -11,11 +11,35 @@ below was run for real against a fresh `kind` cluster while writing this page.
 
 ## 1. Install with defaults
 
+Never pass a password on the command line (`--set auth.masterPassword=...`,
+`kubectl create secret --from-literal=...`): while the command runs, every local
+user can read its arguments (`ps`), and afterwards they stay in shell history and
+CI logs. Put each secret in an owner-only file, create the Secret from the files,
+and point the chart at it with `auth.existingSecret` (same steps as the chart
+README's "Quick start"). The admin password must meet the bootstrap policy: at
+least 16 characters, with upper and lower case, a digit and a special character.
+
+> The commands in this step and in step 4 were changed to this form after the
+> `kind` run described above; the chart README's quick start is the reference.
+
 ```bash
-helm install keyorix ./deploy/helm/keyorix \
-  --set auth.masterPassword='change-me-and-keep-it' \
-  --set postgresql.auth.password='a-strong-db-password' \
-  --set auth.adminPassword='Admin123!'
+umask 077                      # new files: owner-only (0600 / 0700)
+mkdir keyorix-secrets
+# `read -s` does not echo (bash and zsh), and printf is a shell builtin, so no
+# secret reaches a process's argv. The file name is the key in the Secret.
+printf 'Master password (keep it, it derives the KEK): '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_MASTER_PASSWORD
+printf 'Database password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_DB_PASSWORD
+printf 'Admin password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_ADMIN_PASSWORD
+unset v
+
+kubectl create secret generic keyorix-auth --from-file=keyorix-secrets/
+helm install keyorix ./deploy/helm/keyorix --set auth.existingSecret=keyorix-auth
+
+# Once the master password is in your password manager:
+rm -r keyorix-secrets
 ```
 
 Expected — the chart installs and prints clear next steps:
@@ -76,13 +100,12 @@ Log in with the admin credentials you set in step 1.
 ## 4. Upgrade
 
 `helm upgrade` itself works correctly independent of the issue above — verified by
-re-running the same install command as `helm upgrade` with no chart-level error:
+re-running the same install command as `helm upgrade` with no chart-level error. The
+passwords stay in the `keyorix-auth` Secret, so the upgrade passes none:
 
 ```bash
 helm upgrade keyorix ./deploy/helm/keyorix \
-  --set auth.masterPassword='change-me-and-keep-it' \
-  --set postgresql.auth.password='a-strong-db-password' \
-  --set auth.adminPassword='Admin123!' \
+  --set auth.existingSecret=keyorix-auth \
   --set web.replicaCount=2
 ```
 
