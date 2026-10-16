@@ -509,32 +509,45 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// clear lock-contention error, before it ever touches a key file. Refuses
 	// to start if another live holder (another server instance, or an
 	// in-progress rotation) already has it.
-	if err := svc.AcquireExclusiveKeyLock(); err != nil {
-		return nil, fmt.Errorf("failed to acquire the encryption key lock: %w", err)
+	//
+	// storage.encryption.key_dir_lock: database (several replicas on PostgreSQL,
+	// docs/multi-replica-keys.md) takes no flock: the same steps run under a
+	// PostgreSQL advisory lock instead (initializeKeysUnderDatabaseLock).
+	if !cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		if err := svc.AcquireExclusiveKeyLock(); err != nil {
+			return nil, fmt.Errorf("failed to acquire the encryption key lock: %w", err)
+		}
 	}
 	// Recover any interrupted DEK-sweep rotation BEFORE Initialize, so Initialize loads the
-	// correct (possibly just-promoted) active DEK. Runs under the exclusive key lock acquired
-	// above. For a local backend it consults the DB's redo marker to decide whether to promote
+	// correct (possibly just-promoted) active DEK. Runs under the key lock (above, or the
+	// database one). For a local backend it consults the DB's redo marker to decide whether to promote
 	// the pending DEK (a rotation that committed its re-encryption sweep but crashed before the
 	// dek.key file rename) or discard a stray pending file; for remote storage there is no
 	// local sweep, so it falls back to the leftover-cleanup behavior.
-	if cfg.Storage.Type == "remote" {
-		svc.CleanPendingDEK()
-	} else {
+	bootKeys := func() error {
+		if cfg.Storage.Type == "remote" {
+			svc.CleanPendingDEK()
+			return initializeKeys(svc, passphrase)
+		}
 		recoverDB, derr := appstorage.OpenGormDB(cfg)
 		if derr != nil {
-			return nil, fmt.Errorf("failed to open database for DEK-rotation crash recovery: %w", derr)
+			return fmt.Errorf("failed to open database for DEK-rotation crash recovery: %w", derr)
 		}
 		rerr := svc.RecoverInterruptedRotation(recoverDB)
 		if sqlDB, e := recoverDB.DB(); e == nil {
 			_ = sqlDB.Close()
 		}
 		if rerr != nil {
-			return nil, fmt.Errorf("DEK-rotation crash recovery failed: %w", rerr)
+			return fmt.Errorf("DEK-rotation crash recovery failed: %w", rerr)
 		}
+		return initializeKeys(svc, passphrase)
 	}
-	if err := svc.Initialize(passphrase); err != nil {
-		return nil, fmt.Errorf("failed to initialize encryption (KEK derivation): %w", err)
+	if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		if err := initializeKeysUnderDatabaseLock(cfg, svc, bootKeys); err != nil {
+			return nil, err
+		}
+	} else if err := bootKeys(); err != nil {
+		return nil, err
 	}
 
 	kekSource := providerType

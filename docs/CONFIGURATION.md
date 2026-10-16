@@ -561,6 +561,16 @@ storage:
     dek_path: /app/keys/data.key  # wrapped DEK (never the raw key)
     salt_path: /app/keys/kek.salt # KEK salt (password provider only)
 
+    # key_dir_lock — how a server shares the key files with other processes.
+    #   flock (default): exclusive flock on <key dir>/dek.lock for the server's
+    #     lifetime; exactly one server per key directory.
+    #   database: PostgreSQL only, for several replicas (docs/multi-replica-keys.md).
+    #     No key-directory lock; PostgreSQL advisory locks coordinate first boot,
+    #     crash recovery and admin commands. The key directory may be a shared
+    #     ReadWriteMany volume without working flock, or read-only. Admin --force
+    #     is refused in this mode.
+    # key_dir_lock: database
+
     # key_provider — default is "password" when omitted.
     key_provider:
       type: password              # password | file | env | exec | aws-kms | gcp-kms | azure-kms

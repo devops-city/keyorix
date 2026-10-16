@@ -90,3 +90,27 @@ func TestAcquireDatabaseLock_ForceProceedsOnAnyFailure(t *testing.T) {
 		t.Fatalf("expected a nil lock when --force bypasses a failed acquisition, got: %v", lock)
 	}
 }
+
+// storage.encryption.key_dir_lock: database (docs/multi-replica-keys.md): live
+// replicas hold no key-directory flock, so --force must not drop the exclusive
+// lock; the same failure that --force bypasses above is refused here.
+func TestAcquireDatabaseLock_ForceRefusedWithDatabaseKeyDirLock(t *testing.T) {
+	forceFlag = true
+	defer func() { forceFlag = false }()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Type: "postgres",
+			Database: config.DatabaseConfig{
+				Host: "127.0.0.1", Port: "1", Name: "nonexistent", User: "nouser", SSLMode: "disable",
+			},
+			Encryption: config.EncryptionConfig{KeyDirLock: config.KeyDirLockDatabase},
+		},
+	}
+	lock, err := acquireDatabaseLock(cfg)
+	if err == nil {
+		t.Fatalf("--force proceeded with key_dir_lock: database (lock=%v)", lock)
+	}
+	if !strings.Contains(err.Error(), "--force cannot override it with storage.encryption.key_dir_lock: database") {
+		t.Fatalf("unexpected refusal wording: %v", err)
+	}
+}

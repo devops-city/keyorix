@@ -1,0 +1,87 @@
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/encryption"
+	"github.com/keyorixhq/keyorix/internal/serverguard"
+	appstorage "github.com/keyorixhq/keyorix/internal/storage"
+	"github.com/keyorixhq/keyorix/internal/storage/models"
+)
+
+// keyInitLockWait bounds how long a replica waits for a sibling holding the
+// key-initialisation lock (first-boot key generation or rotation crash
+// recovery, each well under a minute) before it gives up and exits.
+const keyInitLockWait = 2 * time.Minute
+
+// initializeKeys runs svc.Initialize with initializeEncryption's error wording.
+func initializeKeys(svc *encryption.Service, passphrase string) error {
+	if err := svc.Initialize(passphrase); err != nil {
+		return fmt.Errorf("failed to initialize encryption (KEK derivation): %w", err)
+	}
+	return nil
+}
+
+// initializeKeysUnderDatabaseLock runs boot (rotation crash recovery, then
+// Initialize) for storage.encryption.key_dir_lock: database
+// (docs/multi-replica-keys.md). No key-directory flock is taken, at boot or
+// afterwards:
+//
+//   - Two replicas starting on one fresh shared key directory serialise on the
+//     key-initialisation advisory lock (serverguard.WithKeyInitLock). The first
+//     generates the key files; the second waits, then finds and loads them.
+//   - Key-changing admin commands (rotate, rotate-kek, migrate-provider,
+//     restore, ...) are kept out for the server's lifetime by the shared
+//     server-presence lock main() took before this runs: they need it
+//     exclusively. --force cannot bypass it in this mode (server/admin).
+//
+// It also refuses first-boot key generation when the database already holds
+// encrypted secret versions. Under the flock a replica with its own empty key
+// directory (a per-pod volume, a Secret that failed to mount) could not reach
+// this point next to a sibling on the shared directory; here it can, and
+// generating a new DEK would split the deployment into replicas writing under
+// two DEKs.
+func initializeKeysUnderDatabaseLock(cfg *config.Config, svc *encryption.Service, boot func() error) error {
+	return serverguard.WithKeyInitLock(cfg, keyInitLockWait, func() error {
+		if !svc.WrappedDEKExists() {
+			if err := refuseKeyGenerationOverEncryptedData(cfg); err != nil {
+				return err
+			}
+		}
+		return boot()
+	})
+}
+
+// refuseKeyGenerationOverEncryptedData returns an error when cfg's database
+// already holds at least one secret version. Called only when the wrapped DEK
+// is missing, i.e. when Initialize would generate a new one.
+//
+// Checks secret_versions only: it is where every secret value lives, so a
+// database whose DEK was ever used for a secret is caught. A database with
+// encrypted MFA or dynamic-secret rows but no secret version at all is not.
+func refuseKeyGenerationOverEncryptedData(cfg *config.Config) error {
+	db, err := appstorage.OpenGormDB(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to open database to check for existing encrypted data: %w", err)
+	}
+	if sqlDB, e := db.DB(); e == nil {
+		defer func() { _ = sqlDB.Close() }()
+	}
+	if !db.Migrator().HasTable(&models.SecretVersion{}) {
+		return nil
+	}
+	// Raw, not db.Model: GORM's soft-delete scope would skip deleted rows, which
+	// are still encrypted under the existing DEK.
+	var exists bool
+	if err := db.Raw("SELECT EXISTS (SELECT 1 FROM secret_versions)").Scan(&exists).Error; err != nil {
+		return fmt.Errorf("failed to check for existing encrypted data: %w", err)
+	}
+	if exists {
+		return fmt.Errorf("no wrapped DEK at %q, but the database already holds encrypted secret versions: refusing to generate a new DEK. "+
+			"With storage.encryption.key_dir_lock: database every replica must read the same key files (one shared volume, or the same mounted Secret); "+
+			"copy the key set from a running replica or restore it from backup (docs/multi-replica-keys.md)", cfg.Storage.Encryption.DEKPath)
+	}
+	return nil
+}

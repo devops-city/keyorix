@@ -425,6 +425,13 @@ func (s *Service) AcquireExclusiveKeyLock() error {
 	return nil
 }
 
+// WrappedDEKExists reports whether the wrapped DEK file is already on disk, i.e.
+// whether Initialize will load existing key material rather than generate it.
+// Read it before Initialize (AuthEncryption.WrappedDEKExists is the same check).
+func (s *Service) WrappedDEKExists() bool {
+	return s.keyManager.wrappedDEKExists()
+}
+
 // AcquireSharedKeyLock takes a shared, non-blocking OS advisory lock on the same
 // key-directory lock file AcquireExclusiveKeyLock uses (#196). It is for local,
 // short-lived CLI commands that read (or, for upgrade-aad, write under) the

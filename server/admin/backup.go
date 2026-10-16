@@ -37,6 +37,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/encryption"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
 	"github.com/keyorixhq/keyorix/internal/secretenv"
+	"github.com/keyorixhq/keyorix/internal/serverguard"
 	"github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/spf13/cobra"
@@ -148,6 +149,17 @@ func runAdminBackup(cmd *cobra.Command, args []string) error {
 				"(a live backup without downtime needs Postgres): %w", err)
 		}
 		defer lock.Release() //nolint:errcheck
+	} else if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		// key_dir_lock: database (docs/multi-replica-keys.md): the key-file
+		// flocks below may not be enforced across nodes, so hold the shared
+		// server-presence lock, as a replica does, for the whole backup. A key
+		// rotation or restore needs it exclusively and cannot run meanwhile;
+		// live replicas share it and are not blocked.
+		presence, perr := serverguard.AcquirePresence(cfg)
+		if perr != nil {
+			return fmt.Errorf("a key rotation or another admin command holds this database -- retry the backup after it completes: %w", perr)
+		}
+		defer presence.Release() //nolint:errcheck
 	}
 
 	if err := preflightBackupFreeSpace(cfg); err != nil {

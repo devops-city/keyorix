@@ -121,6 +121,12 @@ func loadConfig() (*config.Config, error) {
 // stoppedServerHint is appended to the held-lock refusal: the Docker Compose
 // sequence docs/SELF_HOSTING.md documents for running an admin command with the
 // server stopped (#2540). `exec` runs inside the live backend, so it can never work.
+// keyDirLockEmergencySQL lists the backends holding the server-presence lock
+// (internal/serverguard, key 872342) so an operator can tell live replicas from a
+// stuck connection before terminating one.
+const keyDirLockEmergencySQL = "SELECT pid, granted, mode FROM pg_locks WHERE locktype = 'advisory' AND objid = 872342; " +
+	"then, only for a connection that is not a live replica, SELECT pg_terminate_backend(<pid>)"
+
 const stoppedServerHint = "With Docker Compose, run admin commands in a throwaway container while the server is stopped:\n" +
 	"  docker compose stop backend\n" +
 	"  docker compose run --rm backend ./keyorix-server admin <command>\n" +
@@ -150,6 +156,13 @@ func acquireDatabaseLock(cfg *config.Config) (*serverguard.Exclusive, error) {
 	lock, err := serverguard.AcquireExclusive(cfg)
 	if err != nil {
 		if forceFlag {
+			// key_dir_lock: database (docs/multi-replica-keys.md): live servers
+			// hold no key-directory flock, so this lock is the only thing that
+			// keeps an admin command (a DEK rotation, a restore) off the key
+			// files and data that running replicas use. --force cannot drop it.
+			if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+				return nil, fmt.Errorf("could not acquire this database's exclusive lock (%v), and --force cannot override it with storage.encryption.key_dir_lock: database: running replicas hold no key-directory lock, so this lock is what keeps admin commands away from them. Stop every replica first (scale to 0); a lock left by a dead connection is released when PostgreSQL closes it (emergency SQL: %s)", err, keyDirLockEmergencySQL)
+			}
 			// single_writer: --force never runs next to a single-writer server.
 			// Its write fence would refuse this command's writes to the
 			// security tables anyway; refusing up front keeps a forced command
