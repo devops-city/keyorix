@@ -44,6 +44,7 @@ Client IP is the TCP peer unless `server.http.trusted_proxies` names the peer
 | Any `/api/v1/*` bearer credential (session, PAT, machine token, OIDC/Kubernetes JWT) | failed-token budget | fixed | 10, then 1/s | `server/http/failure_budget_routes_test.go:TestBearerTokenGuessingThrottledThroughRouter`, `server/middleware/rate_limit_test.go:TestIPFailureLimiter_StillEnforcesBudget` |
 | OIDC federation: unknown-`kid` JWKS refetch (outbound amplification) | per issuer | fixed `jwksMinRefetchInterval` | 1/min | `internal/core/oidc_jwks_test.go:TestHTTPJWKSResolver_UnknownKidRefetchRateLimited`, `internal/core/oidc_jwks_test.go:TestHTTPJWKSResolver_ColdCacheRefetchRateLimited` |
 | `POST /auth/mfa/stepup`, WebAuthn re-auth, MFA disable / recovery-code regenerate (second factor re-checked) | account lockout | `security.login_lockout.*` | on | `internal/core/mfa_stepup_test.go:TestVerifyMFAStepUp_AccountLocked`, `internal/core/mfa_test.go:TestDisableMFA_FailedCodesFeedAccountLockout`, `internal/core/mfa_test.go:TestRegenerateMFARecoveryCodes_FailedCodesFeedAccountLockout` |
+| Real server: bearer guessing gets 429; idempotent `/system/init` after init never throttled | built `keyorix-server`, SQLite | as above | as above | `scripts/e2e/rate_limits_test.go:TestRateLimits_SQLite` |
 | Per-principal request budget (nuisance backstop, not an authz boundary) | `PrincipalRateLimit` | `server.http.ratelimit.*` | off | `server/middleware/rate_limit_test.go:TestPrincipalRateLimit_EnforcesPerPrincipalBudget` |
 
 ## gRPC
