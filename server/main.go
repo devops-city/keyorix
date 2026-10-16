@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -133,8 +134,19 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// remaining non-interactive and interactive cases. KEYORIX_MASTER_PASSWORD
 	// keeps working as the last-resort fallback -- see ADR-099 for why it's the
 	// weakest option.
-	flag.IntVar(&masterPassphraseSource.FD, "passphrase-fd", 0,
-		"Read the master passphrase from this already-open file descriptor")
+	// flag.Func, not IntVar: ResolvePassphrase only honours the fd when FDSet is
+	// true, and IntVar never sets it, so --passphrase-fd was silently ignored and
+	// the server reported "no master passphrase available". FDSet is true exactly
+	// when the flag was passed, including --passphrase-fd=0.
+	flag.Func("passphrase-fd", "Read the master passphrase from this already-open file descriptor",
+		func(s string) error {
+			n, err := strconv.Atoi(s)
+			if err != nil || n < 0 {
+				return fmt.Errorf("invalid file descriptor %q", s)
+			}
+			masterPassphraseSource.FD, masterPassphraseSource.FDSet = n, true
+			return nil
+		})
 	flag.StringVar(&masterPassphraseSource.FilePath, "passphrase-file", "",
 		"Read the master passphrase from this file (refused if group- or world-readable)")
 	flag.BoolVar(&masterPassphraseSource.Stdin, "passphrase-stdin", false,
