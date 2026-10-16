@@ -23,6 +23,14 @@ import (
 // both transports. Streaming RPCs are exempt (see TimeoutInterceptor).
 const grpcUnaryTimeout = 60 * time.Second
 
+// grpcMaxConcurrentStreams caps in-flight RPCs per connection. StreamAuditLogs
+// additionally caps held-open streams per principal (acquireStreamSlot).
+const grpcMaxConcurrentStreams = 128
+
+// grpcMaxHeaderListSize caps a request's metadata (HTTP/2 header list), matching
+// the HTTP listener's 64 KiB MaxHeaderBytes.
+const grpcMaxHeaderListSize = 64 << 10
+
 // NewServer creates a new gRPC server. The auth interceptor validates session
 // tokens against the shared core service. Service registration is wired in a
 // later phase; until then the server runs with interceptors only.
@@ -192,6 +200,9 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 			// establishment stays valid for the entire connection lifetime.
 			MaxConnectionAge:      ka.GetMaxConnectionAge(),
 			MaxConnectionAgeGrace: ka.GetMaxConnectionAgeGrace(),
+			// Close a connection with no RPC in flight: a live client acks the
+			// keepalive pings above, so pings alone never reclaim an idle connection.
+			MaxConnectionIdle: ka.GetMaxConnectionIdle(),
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			// Reject a client that pings more often than this as abusive (GOAWAY
@@ -203,6 +214,17 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 			// streamless pings are rejected outright rather than tolerated.
 			PermitWithoutStream: ka.PermitWithoutStream,
 		}),
+		// grpc-go waits 120s by default for a new connection's TLS handshake and
+		// HTTP/2 preface: a client that opens TCP and sends nothing holds a
+		// connection (and goroutine) that long.
+		grpc.ConnectionTimeout(ka.GetHandshakeTimeout()),
+		// grpc-go's default is unlimited concurrent streams per connection; one
+		// connection could otherwise open any number of in-flight RPCs, each with
+		// its own handler goroutine.
+		grpc.MaxConcurrentStreams(grpcMaxConcurrentStreams),
+		// grpc-go's default header-list cap is 16 MiB; metadata here is an
+		// authorization token and a few short keys.
+		grpc.MaxHeaderListSize(grpcMaxHeaderListSize),
 	)
 
 	// Add TLS if enabled

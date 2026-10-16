@@ -1977,20 +1977,7 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 		return fmt.Errorf("%w: failed to create HTTP router: %v", errHTTPServerFailedToStart, err)
 	}
 
-	// Create HTTP server
-	server := &http.Server{
-		Addr:    cfg.Server.HTTP.ListenAddr(),
-		Handler: router,
-		// ReadHeaderTimeout bounds how long a client can dribble in request headers one
-		// byte at a time before the connection is dropped (gosec G112 / slowloris-style
-		// DoS via a client that never finishes sending headers, holding the connection —
-		// and a worker goroutine — open indefinitely). Shorter than ReadTimeout since
-		// headers should arrive promptly even for a slow body upload.
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(cfg.Server.HTTP.ListenAddr(), router)
 
 	// Configure TLS if enabled
 	if cfg.Server.HTTP.TLS.Enabled {

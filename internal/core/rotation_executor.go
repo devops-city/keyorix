@@ -600,9 +600,14 @@ func (c *KeyorixCore) RotateSecretOnDemand(ctx context.Context, id uint, newValu
 	// and Keyorix store is visible in the audit trail as an orphaned "started" event.
 	oidSid := id
 	pid := secret.ProjectID
-	c.writeAuditEventFull(ctx, EventSecretRotateBackendStarted, nil, &oidSid, &pid, "",
+	// AUDIT-MUTATION-TX-1: fail closed here too. The upstream change cannot share a
+	// database transaction, so its record has to exist before it happens: if the
+	// started row cannot be written, the upstream credential is not touched.
+	if !c.writeAuditEventFull(ctx, EventSecretRotateBackendStarted, nil, &oidSid, &pid, "",
 		fmt.Sprintf("on-demand rotation: calling upstream backend %q ref %q for secret %q",
-			secret.RotationBackend, secret.RotationRef, secret.Name))
+			secret.RotationBackend, secret.RotationRef, secret.Name)) {
+		return nil, ErrSecretMutationAuditUnavailable
+	}
 	upstreamVal, berr := c.applyBackendRotation(ctx, secret, string(newValue))
 	var partial *ports.RotationPartialError
 	switch {
