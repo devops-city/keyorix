@@ -88,7 +88,7 @@ func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *m
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			logAuditEmitPanic(event, r)
+			logAuditEmitPanic(ctx, event, r)
 			persisted = false
 		}
 	}()
@@ -97,7 +97,7 @@ func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *m
 	}
 	prepareAuditEventForEmit(ctx, event)
 	if err := tgt.st.LogAuditEvent(ctx, event); err != nil {
-		logAuditEmitFailure(event, err)
+		logAuditEmitFailure(ctx, event, err)
 		return false
 	}
 	tgt.sink.persisted = append(tgt.sink.persisted, event)
