@@ -128,7 +128,10 @@ func (h *SecretHandler) RotateSecret(w http.ResponseWriter, r *http.Request) {
 	// credential too (the same machinery the auto-rotation scheduler uses) rather than
 	// just overwriting the stored value — never report success while the real,
 	// potentially compromised credential is still live untouched upstream.
-	secret, err := h.coreService.RotateSecretOnDemand(r.Context(), uint(id), []byte(reqBody.NewValue), userCtx.UserID, userCtx.Username)
+	// The secret.rotated row commits with the new version (AUDIT-MUTATION-TX-1), so
+	// the rotation inspector, the activity feed and a client that refetches History
+	// right after the response all see it, and a rotation is never stored without it.
+	secret, err := h.coreService.RotateSecretOnDemand(secretMutationAuditContext(r, userCtx), uint(id), []byte(reqBody.NewValue), userCtx.UserID, userCtx.Username)
 	if err != nil {
 		if h.trySendSecretSizeError(w, err) {
 			return
@@ -155,14 +158,6 @@ func (h *SecretHandler) RotateSecret(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	// Audit the rotation (async, detached) so the rotation inspector and the
-	// activity feed have an attributable secret.rotated event.
-	ip, ua := clientIP(r), r.Header.Get("User-Agent")
-	auditCtx := core.DetachedAuditContext(r.Context())
-	goSafe(func() {
-		h.coreService.LogSecretRotatedWithProject(auditCtx, userCtx.UserID, uint(id), secret.ProjectID, userCtx.Username, secret.Name, ip, ua)
-	}) // #nosec G118
 
 	h.sendSuccess(w, newSecretNodeWire(secret), "Secret rotated successfully")
 }
@@ -194,7 +189,7 @@ func (h *SecretHandler) RollbackSecret(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, "ValidationError", "version must be a positive version number", http.StatusBadRequest, nil)
 		return
 	}
-	secret, err := h.coreService.RollbackSecret(r.Context(), uint(id), reqBody.Version, userCtx.UserID, userCtx.Username)
+	secret, err := h.coreService.RollbackSecret(secretMutationAuditContext(r, userCtx), uint(id), reqBody.Version, userCtx.UserID, userCtx.Username)
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrSecretVersionContentionExhausted):

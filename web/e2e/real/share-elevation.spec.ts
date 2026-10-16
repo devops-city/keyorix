@@ -155,7 +155,7 @@ async function openProjectSecrets(page: Page) {
 }
 
 function secretRow(page: Page, name: string) {
-    return page.getByRole('row', { name: new RegExp(name) });
+    return page.getByRole('row', { name });
 }
 
 // openShareDialog + fillShare drive the Share dialog for `recipient` at `permission`.
@@ -169,7 +169,7 @@ async function openShareDialog(page: Page, secretName: string) {
 async function fillShare(page: Page, recipient: Persona, permission: 'read' | 'write') {
     const dialog = page.getByRole('dialog');
     await dialog.locator('#recipient-input').fill(recipient.username);
-    await dialog.getByRole('button', { name: new RegExp(`@${recipient.username}`) }).click();
+    await dialog.getByRole('button', { name: `@${recipient.username}` }).click();
     await dialog.locator('#permission-select').selectOption(permission);
     const answered = page.waitForResponse(
         (r) => /\/api\/v1\/secrets\/\d+\/share$/.test(new URL(r.url()).pathname) && r.request().method() === 'POST'
@@ -405,8 +405,12 @@ test("the viewer's detail page offers Edit and Rotate on A, like the row, and ed
     await openProjectSecrets(viewerPage);
     await secretRow(viewerPage, secretBName).getByTitle('View').click();
     await expect(viewerPage.getByTestId('secret-header')).toContainText(secretBName, { timeout: 15_000 });
-    await expect(viewerPage.getByTestId('secret-actions').getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
-    await expect(viewerPage.getByTestId('secret-actions').getByRole('button', { name: 'Rotate', exact: true })).toHaveCount(0);
+    await expect(
+        viewerPage.getByTestId('secret-actions').getByRole('button', { name: 'Edit', exact: true })
+    ).toHaveCount(0);
+    await expect(
+        viewerPage.getByTestId('secret-actions').getByRole('button', { name: 'Rotate', exact: true })
+    ).toHaveCount(0);
 
     // Put A back to the value the later steps expect (still through the elevation).
     const back = await bearer(viewerToken, 'PUT', `/api/v1/secrets/${secretA}`, { value: valueA1 });

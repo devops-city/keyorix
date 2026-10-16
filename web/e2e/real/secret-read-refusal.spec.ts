@@ -58,7 +58,7 @@ function notTodayOrTomorrow(): string {
 
 async function openSecret(name: string) {
     await page.goto(`/projects/${projectId}/secrets?env=${envName}`);
-    const row = page.getByRole('row', { name: new RegExp(name) });
+    const row = page.getByRole('row', { name });
     await expect(row).toBeVisible({ timeout: 15_000 });
     return row;
 }

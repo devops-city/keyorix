@@ -36,7 +36,7 @@ the request to secrets that are already suspended without it.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if projectFreezeID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -77,7 +77,7 @@ var projectResumeSecretsCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if projectThawID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {

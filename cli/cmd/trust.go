@@ -71,7 +71,7 @@ var trustKeygenCmd = &cobra.Command{
 		}
 		keyID := strings.TrimSpace(trustKeygenKeyID)
 		if keyID == "" {
-			return fmt.Errorf("--key-id is required (e.g. %s-2026)", purpose)
+			return usageErrorf("--key-id is required (e.g. %s-2026)", purpose)
 		}
 
 		privPath := filepath.Join(trustKeygenDir, keyID+".private.pem")

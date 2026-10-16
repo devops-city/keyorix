@@ -17,8 +17,19 @@
   `server/faultops/TestPostVerdictIdentityReadPanic_AnsweredLikeItsError`, the
   panic subtests of the handler tests below, run through
   `middleware.Recovery`, and `internal/core/TestLoginIdentityReadPanic_DeniedLikeItsError`).
-  A panic in a post-verdict WRITE (the anti-replay mark, the session mint)
-  still reaches the Recovery middleware: UNGUARDED, #3277. Why: #2894 — `checkLockAndClearLoginFailures` cleared the counter
+  The same holds for a PANIC in a post-verdict WRITE (#3277), commit-aware:
+  the session insert goes through `mintLoginSession` (createSession has
+  already deleted a row that landed; no token is returned) and the TOTP
+  anti-replay mark through `markTOTPStepUsedAfterMatch` (never given back,
+  so a mark that landed keeps the code burned); after a session-insert
+  panic VerifyMFALoginPending does NOT release the consumed step, unlike
+  the error kind. Each is denied through its error kind's branch and
+  audited as that kind is (`auth.login_error`; `mfa.error` for the mark)
+  (guards: `server/faultops/TestPostVerdictWritePanic_AnsweredLikeItsError`,
+  the CreateSession/MarkTOTPStepUsed panic subtests of the handler tests
+  below, `server/http/handlers/TestVerifyMFA_WritePanicKeepsTheCodeBurned`,
+  and `internal/core/TestLoginWritePanic_DeniedLikeItsError`, which also
+  panics after the write committed). Why: #2894 — `checkLockAndClearLoginFailures` cleared the counter
   on its way past the TOCTOU re-check, which put the clear BEFORE every
   remaining fallible step of every login path (`internal/core/auth.go`,
   `mfa.go`, `webauthn.go` ×2, `mfa_stepup.go`), and the `completeLogin` failure

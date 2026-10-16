@@ -5,6 +5,15 @@
 
 keyorix is the Keyorix CLI. It talks to a Keyorix server exclusively over the REST API; it has no local database mode. Host-side operations (config/keys/database setup, encryption key rotation) are "keyorix-server admin", a separate command.
 
+Exit codes:
+  0  success
+  1  the request was refused or failed (conflict, validation error, server error)
+  2  usage error: unknown command, bad or missing flag or argument
+  3  not logged in, or the session was rejected (HTTP 401): run "keyorix login"
+  4  permission denied (HTTP 403)
+  5  not found (HTTP 404)
+  6  the server could not be reached (network, TLS certificate refused, redirect)
+
 ## Global flags
 
 | Flag | Type | Default | Description |

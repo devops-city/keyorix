@@ -5,8 +5,9 @@
 // is added here, but only for a secret the caller may read: the list is gated on
 // secrets.read at some scope, not on every secret it lists (a received share, a PAT
 // confined to one project, a project the owner has left). Each distinct secret goes
-// through AuthorizeSecret(secrets.read) — ACL, role, share, PAT restriction — the same
-// decision GET /secrets/{id} makes. A secret that fails it (or no longer resolves)
+// through the secrets.read decision — ACL, role, share, PAT restriction — the same
+// one GET /secrets/{id} makes (AuthorizeSecret), decided for the whole page at once by
+// AuthorizeSecretsBatch. A secret that fails it (or no longer resolves)
 // keeps SecretID only: no name, no project. Fails closed: an authorization or lookup
 // error leaves the name out, it never returns the list with a name unchecked.
 package core
@@ -31,16 +32,17 @@ func (c *KeyorixCore) annotateShareViewSecrets(ctx context.Context, userID uint,
 	if err != nil {
 		return // no names rather than unchecked names
 	}
+	// One batch decision for the page, equal to AuthorizeSecret(secrets.read) per secret
+	// (SHARES-BATCH-AUTHZ-1); a failed read leaves every name out.
+	allowed, aerr := c.AuthorizeSecretsBatch(ctx, userID, permSecretsRead, secrets)
+	if aerr != nil {
+		return
+	}
 	readable := make(map[uint]*models.SecretNode, len(secrets))
 	for _, sec := range secrets {
-		if sec == nil {
-			continue
+		if sec != nil && allowed[sec.ID] {
+			readable[sec.ID] = sec
 		}
-		ok, aerr := c.AuthorizeSecret(ctx, userID, sec.ID, permSecretsRead)
-		if aerr != nil || !ok {
-			continue
-		}
-		readable[sec.ID] = sec
 	}
 	projectNames := map[uint]string{}
 	for i := range views {

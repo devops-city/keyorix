@@ -75,7 +75,7 @@ var legalHoldPlaceCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if legalHoldPlaceReason == "" {
-			return fmt.Errorf("--reason is required")
+			return usageErrorf("--reason is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -109,7 +109,7 @@ var legalHoldLiftCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if legalHoldLiftReason == "" {
-			return fmt.Errorf("--reason is required")
+			return usageErrorf("--reason is required")
 		}
 		if !legalHoldLiftYes {
 			fmt.Print("Lift the active legal hold? This immediately re-arms purge/retention/JIT-expiry\njobs and cannot be undone from here. Type 'yes' to confirm: ")
