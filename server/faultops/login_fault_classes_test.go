@@ -337,8 +337,10 @@ func TestConsumeFirst_ClassBTuplesAreAcceptedOnlyThroughTheLedger(t *testing.T) 
 //     VerifyMFACredentials is class B in the ledger too. A global "looks
 //     consume-shaped" rule would accept it.
 //   - a real post-verdict PANIC on /auth/mfa/verify (#3048's tuple, its diff
-//     MFASecret's consumption plus or minus the slot) is refused by the
-//     consume-first lookup and fails the oracle.
+//     MFASecret's consumption plus the slot and the audit) is refused by the
+//     consume-first lookup. Since #3277 core denies it like its error, which is
+//     the decided outcome, so the oracle accepts it, but only through its own
+//     reviewed KindPanic by-design row: with that row removed it fails again.
 func TestConsumeFirst_NonExemptOpStillFailsTheOracle(t *testing.T) {
 	exempt, outcome, reason := driveFaultCase(t, "REST POST /api/v1/auth/mfa/stepup", "MarkTOTPStepUsed", 1, faultstorage.KindEffectThenError)
 	if outcome != driveObserved {
@@ -372,10 +374,15 @@ func TestConsumeFirst_NonExemptOpStillFailsTheOracle(t *testing.T) {
 	if _, ok := consumeFirstAccountsForDiff(real); ok {
 		t.Error("consume-first accepted /auth/mfa/verify's post-verdict panic")
 	}
-	if f := oracleFindingsWithout(t, real, func() func() { return func() {} }); len(f) == 0 {
-		t.Errorf("the oracle ACCEPTED /auth/mfa/verify CreateSession#1/panic (diff %v, %q): a post-verdict panic "+
-			"is not the decided outcome (500, no audit) and must stay visible", diffTables(real.before, real.after),
-			real.result.Detail)
+	if f := oracleFindingsWithout(t, real, func() func() { return func() {} }); len(f) > 0 {
+		t.Errorf("calibration: /auth/mfa/verify CreateSession#1/panic is denied like its error since #3277 and has "+
+			"a reviewed by-design row, but the oracle reports it: %v", f)
+	}
+	row := oracleAByDesignError{op: "REST POST /auth/mfa/verify", method: "CreateSession", kind: faultstorage.KindPanic, nth: 1}
+	if f := oracleFindingsWithout(t, real, func() func() { return withoutByDesignRow(row) }); len(f) == 0 {
+		t.Errorf("with its KindPanic by-design row removed the oracle STILL accepts /auth/mfa/verify CreateSession#1/panic "+
+			"(diff %v, %q): something other than the reviewed row (consume-first?) covers a post-verdict panic",
+			diffTables(real.before, real.after), real.result.Detail)
 	}
 }
 
