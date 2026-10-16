@@ -198,13 +198,15 @@ bring_up_postgres() {
   # entrypoint creates the admin (idempotent) from admin_password + bootstrap_token;
   # the POST /system/init below then just confirms it (200, already initialised).
   local secrets_dir="$SCRATCH/demo-secrets"
+  # The server refuses a pinned bootstrap token shorter than 32 characters (#3341): generate one per run.
+  : "${DEMO_CHECK_BOOTSTRAP_TOKEN:=$(openssl rand -hex 32)}"
   mkdir -p "$secrets_dir"
   (
     umask 037
     printf '%s\n' "demo-check-db-password-2026" > "$secrets_dir/db_password"
     printf '%s\n' "demo-check-master-passphrase-2026" > "$secrets_dir/master_password"
     printf '%s\n' "Correct-Horse-Battery-2026" > "$secrets_dir/admin_password"
-    printf '%s\n' "demo-check-bootstrap-token" > "$secrets_dir/bootstrap_token"
+    printf '%s\n' "$DEMO_CHECK_BOOTSTRAP_TOKEN" > "$secrets_dir/bootstrap_token"
   )
   chmod 750 "$secrets_dir"
   # The Postgres TLS certificate and key (docker-compose.yml: the bundled postgres
@@ -267,7 +269,7 @@ EOF
 
   local init_ok=false
   for _ in $(seq 1 10); do
-    req POST /system/init "" '{"username":"admin","email":"admin@keyorix.demo","password":"Correct-Horse-Battery-2026","bootstrap_token":"demo-check-bootstrap-token"}'
+    req POST /system/init "" '{"username":"admin","email":"admin@keyorix.demo","password":"Correct-Horse-Battery-2026","bootstrap_token":"'"$DEMO_CHECK_BOOTSTRAP_TOKEN"'"}'
     [ "$HTTP_CODE" = "200" ] && { init_ok=true; break; }
     sleep 1
   done
