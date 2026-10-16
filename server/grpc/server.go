@@ -9,6 +9,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/server/grpc/interceptors"
 	"github.com/keyorixhq/keyorix/server/grpc/services"
 	pb "github.com/keyorixhq/keyorix/server/proto/pb"
@@ -270,11 +271,7 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 // every gRPC TLS listener, regardless of how its certificate is sourced, UNLESS the
 // operator has explicitly configured tls.allowed_ciphers (#333) — in which case that
 // configured list is honored instead (see applyTLSHardening).
-var hardenedCipherSuites = []uint16{
-	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-}
+var hardenedCipherSuites = config.DefaultCipherSuites
 
 // applyTLSHardening layers the hardened MinVersion/CipherSuites onto tlsConfig in
 // place. The protocol-version floor and cipher-suite allowlist are independent of how
@@ -319,13 +316,14 @@ func createGRPCTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return tlsConfig, nil
 	}
 
-	// Load certificate and key
-	cert, err := tls.LoadX509KeyPair(cfg.Server.GRPC.TLS.CertFile, cfg.Server.GRPC.TLS.KeyFile)
+	// Served through tlsreload so a pair rotated on disk is picked up without a
+	// restart (new connections; MaxConnectionAge recycles the existing ones).
+	reloader, err := tlsreload.New(cfg.Server.GRPC.TLS.CertFile, cfg.Server.GRPC.TLS.KeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load gRPC TLS certificate: %w", err)
 	}
 
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path, same as createGRPCTLSConfig's AutoCert branch above
+	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path, same as createGRPCTLSConfig's AutoCert branch above
 	if err := applyTLSHardening(tlsConfig, cfg.Server.GRPC.TLS, cfg.Server.GRPC.TLSMode); err != nil {
 		return nil, err
 	}
