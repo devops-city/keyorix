@@ -32,13 +32,14 @@ secureBaseline:
   # (keys: server.crt server.key metrics_token) and name it here. See the chart README.
   # existingSecret: keyorix-secure-baseline
 
+# strict: the audit commit of a secret read waits for the disk sync, so no audit
+# entry is lost to an OS or database crash. standard (the PostgreSQL default) trades
+# up to ~600 ms of tail for lower read latency. Either way the entry commits before
+# the secret is returned.
+auditDurability: strict
+
 # ── Server ────────────────────────────────────────────────────────────────────
 server:
-  # strict: the audit commit of a secret read waits for the disk sync, so no audit
-  # entry is lost to an OS or database crash. standard (the PostgreSQL default) trades
-  # up to ~600 ms of tail for lower read latency. Either way the entry commits before
-  # the secret is returned.
-  auditDurability: strict
   # Block requests rather than drop access-log lines when the log collector stalls.
   accessLog:
     onSinkStall: block

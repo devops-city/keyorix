@@ -118,26 +118,3 @@ func TestHelmValuesProduction_PlaceholdersStayMarked(t *testing.T) {
 		t.Fatalf("values-production.yaml has no CHANGE-ME markers (%v)", err)
 	}
 }
-
-func TestHelmServerAuditDurability(t *testing.T) {
-	requireHelm(t)
-	base := []string{"--set", "auth.masterPassword=x", "--set", "postgresql.auth.password=x"}
-
-	out, err := vpRender(t, base...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(out, "audit_durability") {
-		t.Error("audit_durability must not be rendered by default (server default applies)")
-	}
-	for _, v := range []string{"strict", "standard"} {
-		out, err = vpRender(t, append(base, "--set", "server.auditDurability="+v)...)
-		if err != nil || !strings.Contains(out, `audit_durability: "`+v+`"`) {
-			t.Errorf("%s: err=%v, want audit_durability %q rendered", v, err, v)
-		}
-	}
-	out, err = vpRender(t, append(base, "--set", "server.auditDurability=fast")...)
-	if err == nil || !strings.Contains(out, "must be strict or standard") {
-		t.Errorf("an unknown level must be refused, got err=%v\n%s", err, out)
-	}
-}

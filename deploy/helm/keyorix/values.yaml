@@ -172,12 +172,6 @@ server:
   # Go >= 1.25 sets it from the cgroup CPU limit.
   goMemLimit: ""
   goMemLimitPercent: 85
-  # storage.database.audit_durability: "strict" (the audit commit waits for the disk
-  # sync; no audit entry is lost to a crash) or "standard" (does not wait; an OS or
-  # PostgreSQL crash can lose up to ~600 ms of audit entries as a tail, never a gap).
-  # Empty (default) leaves the server's own default (standard on PostgreSQL). Either
-  # way the audit record commits before a secret is returned.
-  auditDurability: ""
   nodeSelector: {}
   tolerations: []
   affinity: {}

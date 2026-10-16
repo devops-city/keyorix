@@ -172,7 +172,7 @@ your own `extraRules`.
 
 Start from [`values-production.yaml`](values-production.yaml): external PostgreSQL
 with `verify-full` TLS, credentials from your own Secret (`auth.existingSecret`),
-TLS on the ingress and between pods (secure baseline), `server.auditDurability:
+TLS on the ingress and between pods (secure baseline), `auditDurability:
 strict`, Guaranteed-QoS server resources. It is rendered by a test on every change;
 replace each `CHANGE-ME`.
 

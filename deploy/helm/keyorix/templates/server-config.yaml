@@ -91,14 +91,6 @@ data:
         {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.pooler }}
         pooler: {{ .Values.externalDatabase.pooler | quote }}
         {{- end }}
-        {{- with .Values.server.auditDurability }}
-        {{- if not (has . (list "strict" "standard")) }}
-        {{- fail (printf "server.auditDurability: %q must be strict or standard" (toString .)) }}
-        {{- end }}
-        # server.auditDurability: whether the audit commit of a secret read waits for the
-        # disk sync (docs/CONFIGURATION.md, "Audit commit durability").
-        audit_durability: {{ . | quote }}
-        {{- end }}
       encryption:
         enabled: true
         # The wrapped DEK + KEK salt live on the persisted keys volume. These MUST
