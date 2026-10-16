@@ -141,7 +141,37 @@ func TestGetDashboardStats_DegradedOnAuditLogsQueryError(t *testing.T) {
 	assert.True(t, containsSubstring(stats.DegradedReasons, "audit_count"), "expected an audit_count entry, got %v", stats.DegradedReasons)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "audit_logins"), "expected an audit_logins entry, got %v", stats.DegradedReasons)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "audit_secret_reads"), "expected an audit_secret_reads entry, got %v", stats.DegradedReasons)
-	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_auth_24h"), "expected a failed_auth_24h entry, got %v", stats.DegradedReasons)
+	assert.Zero(t, stats.RefusedSecretReads24h)
+	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_logins_24h"), "expected a failed_logins_24h entry, got %v", stats.DegradedReasons)
+	assert.True(t, containsSubstring(stats.DegradedReasons, "refused_secret_reads_24h"), "expected a refused_secret_reads_24h entry, got %v", stats.DegradedReasons)
+}
+
+// DASH-FAILED-AUTH-LABEL: the dashboard used to count every success=false audit event
+// as a "failed auth attempt", so since #3274 a refused secret read inflated the
+// brute-force signal. Failed logins and refused secret reads are now counted apart,
+// and other failed events (here a failed export) count in neither.
+func TestGetDashboardStats_FailedLoginsAndRefusedReadsCountedApart(t *testing.T) {
+	t.Parallel()
+	c, st := newBootstrappedCore(t)
+	ctx := context.Background()
+	auditorID := seedUserWithRole(t, st, "auditor-split", "system_auditor", storage.Scope{})
+
+	for range 2 {
+		c.writeAuditEventFailed(ctx, "auth.login_failed", nil, nil, "192.0.2.1", "bad password")
+	}
+	for range 3 {
+		c.writeAuditEventFailed(ctx, "secret.read", &auditorID, nil, "192.0.2.2", "refused")
+	}
+	c.writeAuditEventFailed(ctx, "secret.export", &auditorID, nil, "192.0.2.3", "unrelated failure")
+	// A successful read and a successful login must count in neither.
+	c.writeAuditEvent(ctx, "secret.read", &auditorID, nil, "ok read")
+	c.writeAuditEvent(ctx, "auth.login", &auditorID, nil, "ok login")
+
+	stats, err := c.GetDashboardStats(ctx, auditorID, "auditor-split", auditorID)
+	require.NoError(t, err)
+	assert.False(t, stats.Degraded, "reasons: %v", stats.DegradedReasons)
+	assert.Equal(t, int64(2), stats.FailedAuthAttempts24h, "failed logins only")
+	assert.Equal(t, int64(3), stats.RefusedSecretReads24h, "refused secret reads only")
 }
 
 func TestGetDashboardStats_DegradedOnActiveUsersQueryError(t *testing.T) {

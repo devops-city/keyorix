@@ -92,6 +92,13 @@ data:
         {{- with include "keyorix.externalDatabase.sslRootCert" . }}
         ssl_root_cert: {{ . | quote }}
         {{- end }}
+        {{- with .Values.auditDurability }}
+        {{- if not (has . (list "strict" "standard")) }}
+        {{- fail (printf "auditDurability: %q must be strict or standard (or empty for the backend default)" (toString .)) }}
+        {{- end }}
+        # auditDurability: whether an audit entry's commit waits for the disk sync.
+        audit_durability: {{ . | quote }}
+        {{- end }}
         {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.pooler }}
         pooler: {{ .Values.externalDatabase.pooler | quote }}
         {{- end }}

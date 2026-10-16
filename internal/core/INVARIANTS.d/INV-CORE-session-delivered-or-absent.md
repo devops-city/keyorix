@@ -8,7 +8,9 @@
   (`createSession`, `sessionWriteLanded` in `session_undelivered.go`): a row that landed is
   delivered, an absent one keeps the error, a lookup that fails keeps the error and is audited
   `auth.undelivered_session_unresolved`; a write that panics has its row deleted
-  (`auth.undelivered_session_revoked`) before the panic continues. Session inserts go through
+  (`auth.undelivered_session_revoked`) before the panic continues; on the four login paths
+  `mintLoginSession` then returns it as a post-verdict error with no token (#3277,
+  `TestLoginWritePanic_DeniedLikeItsError`). Session inserts go through
   `createSession` (mintSession's seven callers, StartImpersonation); RefreshSession applies (3)
   to `RotateSession`. Handler-side, `completeLogin` (ConsumeSetup only) revokes on a panic as
   well as an error. Why: #2844 — a reported-failure login left a live session the owner could

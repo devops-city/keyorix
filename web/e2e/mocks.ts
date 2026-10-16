@@ -95,6 +95,7 @@ export async function mockDashboardData(page: Page) {
                     auditLogins30d: 0,
                     auditSecretReads30d: 0,
                     failedAuthAttempts24h: 0,
+                    refusedSecretReads24h: 0,
                     inactiveUsers: 0,
                 },
                 message: '',
