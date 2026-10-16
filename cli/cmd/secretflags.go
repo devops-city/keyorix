@@ -27,6 +27,7 @@ type secretFlag struct {
 	Instead string // what to do instead, in a sentence fragment
 }
 
+// #nosec G101 -- the NAME of an environment variable, not a credential.
 const allowInsecureSecretFlagsEnv = "KEYORIX_ALLOW_INSECURE_SECRET_FLAGS"
 
 var refusedSecretFlags = []secretFlag{
@@ -49,6 +50,8 @@ var refusedSecretFlags = []secretFlag{
 // secret but whose value is not one. Every entry says why; TestSecretFlagsAreAllClassified
 // fails for a secret-looking name that is in neither list, so a new `--api-key` has to be
 // either refused or explained here.
+//
+// #nosec G101 -- flag names and one-line reasons, no credentials.
 var notSecretFlags = map[string]string{
 	"notification channel add --url":                              "the server returns a channel's URL to administrators (channel get prints it), so it is configuration, not a credential",
 	"notification channel update --url":                           "same as notification channel add --url",
