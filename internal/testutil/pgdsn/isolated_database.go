@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" database/sql driver
 )
 
@@ -32,7 +33,9 @@ func IsolatedDatabase(tb testing.TB, base, prefix string) string {
 		tb.Fatalf("open %s: %v", prefix, err)
 	}
 	defer func() { _ = admin.Close() }()
-	if _, err := admin.Exec("CREATE DATABASE " + name); err != nil { //nolint:gosec // name is prefix+pid+counter, not external input
+	// A database name cannot be a bind parameter; quote it as an identifier.
+	ident := pgx.Identifier{name}.Sanitize()
+	if _, err := admin.Exec("CREATE DATABASE " + ident); err != nil { //nolint:gosec // nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli -- DDL takes no bind parameters; ident is a quoted identifier built from the caller's prefix, the pid and a counter, never external input
 		tb.Fatalf("create database %s: %v", name, err)
 	}
 	tb.Cleanup(func() {
@@ -42,7 +45,7 @@ func IsolatedDatabase(tb testing.TB, base, prefix string) string {
 		}
 		defer func() { _ = cleaner.Close() }()
 		// FORCE (PG 13+) also ends connections a failed test left open.
-		_, _ = cleaner.Exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)") //nolint:gosec // as above
+		_, _ = cleaner.Exec("DROP DATABASE IF EXISTS " + ident + " WITH (FORCE)") //nolint:gosec // nosemgrep: go.lang.security.audit.sqli.gosql-sqli.gosql-sqli -- as CREATE DATABASE above
 	})
 	return PGReplaceDBName(base, name)
 }
