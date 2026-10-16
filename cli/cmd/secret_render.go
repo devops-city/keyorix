@@ -38,7 +38,7 @@ Examples:
 
 func runSecretRender(_ *cobra.Command, args []string) error {
 	if renderProject == 0 {
-		return fmt.Errorf("--project is required")
+		return usageErrorf("--project is required")
 	}
 
 	var tmpl []byte

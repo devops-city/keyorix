@@ -363,21 +363,14 @@ func (c *KeyorixCore) validateNotificationChannel(ch *models.NotificationChannel
 // It requires an https scheme and rejects destinations that resolve to RFC 1918,
 // loopback, link-local, or IMDS (169.254.0.0/16) addresses.
 func validateWebhookURL(raw string) error {
-	u, err := url.Parse(raw)
+	u, err := parseWebhookURLLiteral(raw)
 	if err != nil {
-		return fmt.Errorf("notification channel: invalid URL %q: %w", raw, err)
+		return err
 	}
-	if u.Scheme != "https" {
-		return fmt.Errorf("notification channel: URL must use https (got %q)", u.Scheme)
+	if net.ParseIP(u.Hostname()) != nil {
+		return nil // literal already vetted by parseWebhookURLLiteral
 	}
-	host := u.Hostname()
-	if ip := net.ParseIP(host); ip != nil {
-		if isChannelDisallowedIP(ip) {
-			return fmt.Errorf("notification channel: URL targets a private/link-local address; refusing internal destination")
-		}
-		return nil
-	}
-	addrs, err := channelLookupIPAddr(context.Background(), host)
+	addrs, err := channelLookupIPAddr(context.Background(), u.Hostname())
 	if err != nil {
 		return fmt.Errorf("notification channel: could not resolve URL hostname to verify it is not private/internal: %w", err)
 	}
@@ -387,6 +380,34 @@ func validateWebhookURL(raw string) error {
 		}
 	}
 	return nil
+}
+
+// validateWebhookSendTimeURL is the send-time half of validateWebhookURL
+// (postJSONToURL): scheme and IP-literal checks only. Hostnames are NOT
+// resolved here -- escalationTransport resolves and re-validates them at dial
+// time and connects to the checked IP, so a second lookup here would only
+// add a TOCTOU window. It exists so a stored URL that is (or was edited into)
+// a literal 169.254.169.254 / 127.0.0.1 is refused even when a caller
+// supplied its own *http.Client (c.httpClient) that bypasses the dial guard.
+func validateWebhookSendTimeURL(raw string) error {
+	_, err := parseWebhookURLLiteral(raw)
+	return err
+}
+
+// parseWebhookURLLiteral parses raw and enforces the https scheme and the
+// private/link-local/loopback policy for an IP-literal host.
+func parseWebhookURLLiteral(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("notification channel: invalid URL %q: %w", raw, err)
+	}
+	if u.Scheme != "https" {
+		return nil, fmt.Errorf("notification channel: URL must use https (got %q)", u.Scheme)
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && isChannelDisallowedIP(ip) {
+		return nil, fmt.Errorf("notification channel: URL targets a private/link-local address; refusing internal destination")
+	}
+	return u, nil
 }
 
 // channelLookupIPAddr resolves a hostname to its IP addresses — a var (like

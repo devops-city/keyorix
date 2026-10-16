@@ -348,7 +348,7 @@ func (c *KeyorixCore) ValidateMachineToken(ctx context.Context, raw string) (*mo
 	}
 	cred, err := c.storage.GetMachineIdentityCredentialByHash(ctx, sha256Hex(raw))
 	if err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("invalid token")
+		return nil, nil, nil, 0, credentialLookupError(err, "invalid token")
 	}
 	if cred.Revoked {
 		return nil, nil, nil, 0, ErrMachineTokenRevoked
@@ -358,7 +358,7 @@ func (c *KeyorixCore) ValidateMachineToken(ctx context.Context, raw string) (*mo
 	}
 	m, err := c.storage.GetMachineIdentity(ctx, cred.MachineIdentityID)
 	if err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("machine identity not found")
+		return nil, nil, nil, 0, credentialLookupError(err, "machine identity not found")
 	}
 	if m.State != MachineActive {
 		// Same sentinel as CurrentMachineTokenRestriction's identical check

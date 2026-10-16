@@ -320,14 +320,14 @@ describe('SecretsHealthPage', () => {
         render(<SecretsHealthPage />);
         expect(screen.getByText('Secret reads (last 30d)')).toBeInTheDocument();
         expect(screen.getByText('340')).toBeInTheDocument();
-        expect(screen.getByText('Failed auth attempts (24h)')).toBeInTheDocument();
+        expect(screen.getByText('Failed logins (24h)')).toBeInTheDocument();
         expect(screen.getByText('Inactive users (no login 30d)')).toBeInTheDocument();
     });
 
     it('shows a brute-force warning button when failed auth attempts are high, and navigates on click', () => {
         mockUseSecretsHealth.mockReturnValue(makeHealth({ access: { ...baseHealth.access, failedAuth24h: 7 } }));
         render(<SecretsHealthPage />);
-        const warning = screen.getByText(/High number of failed auth attempts/);
+        const warning = screen.getByText(/High number of failed logins/);
         expect(warning).toBeInTheDocument();
         fireEvent.click(warning);
         expect(navigateMock).toHaveBeenCalledWith('/audit?tab=audit&filter=failed');
@@ -336,7 +336,7 @@ describe('SecretsHealthPage', () => {
     it('does not show the brute-force warning below the threshold', () => {
         mockUseSecretsHealth.mockReturnValue(makeHealth({ access: { ...baseHealth.access, failedAuth24h: 4 } }));
         render(<SecretsHealthPage />);
-        expect(screen.queryByText(/High number of failed auth attempts/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/High number of failed logins/)).not.toBeInTheDocument();
     });
 
     it('shows an amber dot for inactive users when there are any', () => {
@@ -473,7 +473,7 @@ describe('SecretsHealthPage', () => {
         expect(screen.getByText(/2 secrets have already expired/)).toHaveStyle({ color: '#991b1b' });
         expect(screen.getByText('DB_PASSWORD')).toHaveStyle({ color: '#991b1b' });
         expect(screen.getByText('Auto: vault')).toHaveStyle({ backgroundColor: '#dbeafe', color: '#1e40af' });
-        expect(screen.getByText(/High number of failed auth attempts/)).toHaveStyle({ color: '#991b1b' });
+        expect(screen.getByText(/High number of failed logins/)).toHaveStyle({ color: '#991b1b' });
         expect(screen.getByText('1 active anomaly')).toHaveStyle({ color: '#991b1b' });
         expect(screen.getByText('Frequency spike')).toHaveStyle({ color: '#991b1b' });
         expect(screen.getByText(/^S ·/)).toHaveStyle({ color: '#b91c1c' });
