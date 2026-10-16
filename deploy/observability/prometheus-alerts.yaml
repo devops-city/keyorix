@@ -1,0 +1,306 @@
+# Prometheus alerting rules for a Keyorix server.
+#
+# Load with `rule_files:` in prometheus.yml, or wrap in a PrometheusRule for the
+# Prometheus Operator (spec.groups is this file's `groups`). Every alert links to its
+# section in runbook.md next to this file. Metric names, types and labels are in
+# docs/operations/metrics.md; internal/metricsdoc checks that every keyorix_* name used
+# here exists and that label matchers use labels that metric has.
+#
+# Scrape setup this file assumes:
+#   * job "keyorix": GET /metrics (unauthenticated by default, or with metrics_token).
+#   * job "keyorix-protected": GET /api/v1/admin/scheduler-metrics with a bearer token that
+#     holds system.write. Only the four audit-verification alerts below need it; those
+#     metrics are deliberately NOT on /metrics (they would tell an anonymous reader when an
+#     integrity check last ran and whether it found a break).
+# Edit the job names in `up{...}` if yours differ. Thresholds are starting points.
+
+groups:
+  - name: keyorix-availability
+    rules:
+      - alert: KeyorixDown
+        expr: up{job="keyorix"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix {{ $labels.instance }} is not scraping"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for 2 minutes: the server is down, unreachable, or /metrics requires a token the scrape job lacks."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixdown"
+
+      - alert: KeyorixHighErrorRate
+        expr: |
+          sum(rate(keyorix_http_requests_total{status=~"5.."}[5m]))
+            /
+          sum(rate(keyorix_http_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of Keyorix HTTP requests fail with 5xx"
+          description: "{{ $value | humanizePercentage }} of requests over the last 5 minutes returned a 5xx status."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixhigherrorrate"
+
+      - alert: KeyorixHighLatency
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(keyorix_http_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix p99 request latency above 2s"
+          description: "p99 HTTP latency is {{ $value | humanizeDuration }} over the last 5 minutes."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixhighlatency"
+
+  - name: keyorix-audit
+    rules:
+      - alert: KeyorixAuditWriteFailures
+        expr: increase(keyorix_audit_write_failures_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix failed to write audit events"
+          description: "{{ $value }} audit appends returned an error in the last 5 minutes on {{ $labels.instance }}. The audited operation may already have committed, so this is an audit gap, not just an error rate."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditwritefailures"
+
+      - alert: KeyorixAuditWriteSlow
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(keyorix_audit_write_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix audit appends are slow"
+          description: "p99 audit append latency is {{ $value | humanizeDuration }}. Every secret read waits for its audit append, so this slows the whole API."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditwriteslow"
+
+      - alert: KeyorixAuditGroupCommitBacklog
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(keyorix_audit_group_commit_wait_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix audit events queue for a long time before committing"
+          description: "p95 time an audit event waits in the group-commit queue is {{ $value | humanizeDuration }}; the flusher cannot keep up with the write rate."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditgroupcommitbacklog"
+
+      - alert: KeyorixAuditChainBreakRecorded
+        expr: max(keyorix_audit_verify_failure_recorded) == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix recorded an audit-chain verification failure"
+          description: "A verification found a break in the tamper-evident audit chain. The flag stays set until a passing full verification. Treat as a possible integrity incident."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditchainbreakrecorded"
+
+      - alert: KeyorixAuditVerifyStateRejected
+        expr: max(keyorix_audit_verify_state_rejected) == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix found its audit verification state untrusted"
+          description: "The stored verification state failed its signature or looked replayed or rolled back, so audit status is not_proven until a full verification passes."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditverifystaterejected"
+
+      - alert: KeyorixAuditVerifyStale
+        expr: |
+          time() - max(keyorix_audit_verify_last_success_timestamp_seconds{check="tail"}) > 2 * 86400
+          or
+          time() - max(keyorix_audit_verify_last_success_timestamp_seconds{check="full"}) > 10 * 86400
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix audit verification has not passed recently"
+          description: "No passing tail check for 2 days, or no passing full verification for 10 days. With defaults the tail check runs daily and a full re-walk completes weekly."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditverifystale"
+
+      - alert: KeyorixAuditVerifyNeverPassed
+        expr: absent(keyorix_audit_verify_last_success_timestamp_seconds{check="tail"})
+        for: 2d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix has never recorded a passing audit verification"
+          description: "No tail check has passed in 2 days of scraping. Either the checkpoint scheduler is off, there is no checkpoint signing key, or the keyorix-protected scrape job is missing."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditverifyneverpassed"
+
+  - name: keyorix-database
+    rules:
+      - alert: KeyorixDBPoolSaturated
+        expr: |
+          max by (instance, pool) (keyorix_db_pool_connections{state="in_use"})
+            /
+          (max by (instance, pool) (keyorix_db_pool_max_connections) > 0) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix database pool {{ $labels.pool }} is above 90% in use"
+          description: "Pool {{ $labels.pool }} on {{ $labels.instance }} is {{ $value | humanizePercentage }} in use; callers will start queueing for a connection."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixdbpoolsaturated"
+
+      - alert: KeyorixDBPoolWaiting
+        expr: sum by (instance, pool) (rate(keyorix_db_pool_wait_seconds_total[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Requests are waiting for a Keyorix database connection"
+          description: "On average {{ $value }} goroutines were blocked waiting for a connection from pool {{ $labels.pool }} on {{ $labels.instance }}."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixdbpoolwaiting"
+
+  - name: keyorix-security
+    rules:
+      - alert: KeyorixTokenAuthFailureFlood
+        expr: sum by (instance) (rate(keyorix_rate_limit_rejections_total{limiter=~"token_auth_failure|grpc_token_auth_failure"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained invalid-token attempts against Keyorix"
+          description: "Callers are being refused at {{ $value }} requests/s for sending invalid tokens; this looks like credential guessing or a broken client."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixtokenauthfailureflood"
+
+      - alert: KeyorixLoginBruteForce
+        expr: sum by (budget) (rate(keyorix_auth_budget_rejections_total{budget=~"login|account_lockout"}[10m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained login rate-limiting or lockouts"
+          description: "Budget {{ $labels.budget }} is refusing {{ $value }} checks/s. Many accounts being locked out or one source retrying passwords."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixloginbruteforce"
+
+      - alert: KeyorixAPIRateLimited
+        expr: sum by (instance) (rate(keyorix_rate_limit_rejections_total{limiter=~"principal|grpc_principal"}[5m])) > 5
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Keyorix is rate-limiting API callers"
+          description: "{{ $value }} requests/s are refused by the per-principal limiter. Raise server.http.ratelimit if the traffic is legitimate."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixapiratelimited"
+
+  - name: keyorix-encryption
+    rules:
+      - alert: KeyorixEncryptionDisabled
+        expr: keyorix_encryption_state{state="disabled"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix is running with encryption disabled"
+          description: "{{ $labels.instance }} stores secrets as plaintext. Only acceptable for local development."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixencryptiondisabled"
+
+      - alert: KeyorixEncryptionNotReady
+        expr: keyorix_encryption_state{state="uninitialized"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix encryption service is not initialised"
+          description: "{{ $labels.instance }} is up but cannot encrypt or decrypt secrets."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixencryptionnotready"
+
+      - alert: KeyorixDecryptFailures
+        expr: increase(keyorix_encryption_operation_failures_total{op="decrypt"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix failed to decrypt stored data"
+          description: "{{ $value }} decrypt failures on {{ $labels.instance }} in 10 minutes: wrong key after a restore or key change, corrupt rows, or tampering."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixdecryptfailures"
+
+      - alert: KeyorixKEKProviderDowngrade
+        expr: increase(keyorix_encryption_kek_provider_downgrades_total[1h]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix fell back to a weaker KEK provider"
+          description: "The configured KEK fallback chain fired on {{ $labels.instance }}: key material is now sourced from a weaker provider than the primary."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixkekproviderdowngrade"
+
+      - alert: KeyorixTLSCertificateExpiringSoon
+        expr: keyorix_tls_certificate_not_after_timestamp_seconds - time() < 14 * 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix {{ $labels.listener }} TLS certificate expires within 14 days"
+          description: "The certificate served by the {{ $labels.listener }} listener on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}. Certificates are loaded at start, so a renewed file needs a restart."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixtlscertificateexpiringsoon"
+
+      - alert: KeyorixTLSCertificateExpiryImminent
+        expr: keyorix_tls_certificate_not_after_timestamp_seconds - time() < 3 * 86400
+        labels:
+          severity: critical
+        annotations:
+          summary: "Keyorix {{ $labels.listener }} TLS certificate expires within 3 days"
+          description: "The certificate served by the {{ $labels.listener }} listener on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixtlscertificateexpiryimminent"
+
+  - name: keyorix-ha
+    rules:
+      - alert: KeyorixSingleWriterNotAuthoritative
+        expr: keyorix_single_writer_state{state="authoritative"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix single_writer guard is not authoritative"
+          description: "{{ $labels.instance }} has single_writer on but its guard is not authoritative (lease lapsed or polls failing). It stays correct but serves slower, because caches must confirm every read."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixsinglewriternotauthoritative"
+
+      - alert: KeyorixSingleWriterUnattributedWrites
+        expr: increase(keyorix_single_writer_unattributed_bumps_total[15m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Something other than this Keyorix server wrote to the fenced tables"
+          description: "The write epoch moved with no in-process write to account for it on {{ $labels.instance }}."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixsinglewriterunattributedwrites"
+
+  - name: keyorix-jobs
+    rules:
+      - alert: KeyorixSchedulerFailing
+        expr: sum by (scheduler) (increase(keyorix_scheduler_runs_total{outcome="failure"}[1h])) > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix background job {{ $labels.scheduler }} keeps failing"
+          description: "Scheduler {{ $labels.scheduler }} has had failed ticks every check for an hour. A skipped tick on a follower replica is not a failure and is not counted here."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixschedulerfailing"
+
+      - alert: KeyorixSIEMForwardFailures
+        expr: sum(increase(keyorix_siem_forwards_total{outcome=~"failed|dropped|spool_corrupt"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix is not delivering audit events to the SIEM"
+          description: "{{ $value }} audit events failed, were dropped or hit a corrupt spool in 15 minutes."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixsiemforwardfailures"
+
+      - alert: KeyorixNotificationDeliveryFailures
+        expr: sum by (channel) (increase(keyorix_notify_deliveries_total{outcome=~"failed|dropped"}[30m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix notifications to {{ $labels.channel }} are failing"
+          description: "{{ $value }} notifications to {{ $labels.channel }} failed or were dropped in 30 minutes."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixnotificationdeliveryfailures"
+
+      - alert: KeyorixBestEffortStepFailing
+        expr: sum by (step) (increase(keyorix_best_effort_failures_total[15m])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A Keyorix post-commit step keeps failing: {{ $labels.step }}"
+          description: "Step {{ $labels.step }} runs after a commit succeeded and failed again. The primary operation was not affected, but the follow-up work (history, cleanup, bookkeeping) is being lost."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixbesteffortstepfailing"
