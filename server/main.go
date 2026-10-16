@@ -441,6 +441,7 @@ const (
 	schedLockMFAGrantPrune     int64 = 0x4B455953_4D464147 // "KEYSMFAG"
 	schedLockRecoverAdminAlert int64 = 0x4B455953_52435652 // "KEYSRCVR"
 	schedLockBreakGlassReview  int64 = 0x4B455953_42475256 // "KEYSBGRV"
+	schedLockOwedAudit         int64 = 0x4B455953_4F574544 // "KEYSOWED"
 )
 
 // initializeEncryption sources the KEK per the configured key provider (ADR-038)
@@ -1884,6 +1885,18 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// cadence/window ratio login_attempt_prune uses, since grant rows are
 	// created far less often (once per MFA step-up verification, not once per
 	// rate-limit check).
+	// Owed audit rows (core audit_owed.go): a plain secret suspend never waits for
+	// the audit log, so a secret.suspended row the audit log refused is kept in
+	// pending_audit_events and written here once the audit log accepts writes
+	// again. Every minute; single-replica-gated, and exactly-once anyway (the
+	// claim and the append share a transaction).
+	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
+		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func() error {
+			_, berr := coreService.BackfillPendingAuditEvents(ctx)
+			return berr
+		})
+	})
+
 	mfaGrantRetention := time.Duration(cfg.Classification.GetMFAStepUpGrantRetentionDays()) * 24 * time.Hour
 	runScheduler(ctx, "mfa_stepup_grant_prune", 6*time.Hour, func() middleware.SchedulerOutcome {
 		return lockedRun(ctx, coreService.Storage(), schedLockMFAGrantPrune, "MFA step-up grant prune", func() error {

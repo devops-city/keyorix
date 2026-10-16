@@ -1698,6 +1698,17 @@ type Storage interface {
 	GetSystemMetadata(ctx context.Context, key string) (value string, found bool, err error)
 	// SetSystemMetadata upserts a system-metadata key/value (last write wins).
 	SetSystemMetadata(ctx context.Context, key, value string) error
+
+	// Pending audit events (models.PendingAuditEvent): audit rows owed by an
+	// operation that took effect without waiting for the audit log (a plain secret
+	// suspend). Created in the operation's own transaction; ClaimPendingAuditEvent
+	// (a delete reporting whether this call removed the row) runs in the same
+	// transaction as the owed row's append, so each owed row is written once.
+	CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error
+	ListPendingAuditEvents(ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error)
+	ClaimPendingAuditEvent(ctx context.Context, id uint) (claimed bool, err error)
+	RecordPendingAuditEventFailure(ctx context.Context, id uint, reason string) error
+	CountPendingAuditEvents(ctx context.Context) (int64, error)
 	// GetRecoveryKeyRecord returns the local admin recovery key's verifier
 	// record (docs/design-b2-recover-admin.md §2); found is false on an
 	// install that predates this feature or has never generated one.

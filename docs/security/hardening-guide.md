@@ -184,6 +184,25 @@ It is set in the config file only (no environment variable, API or CLI flag).
 A compliance profile refuses it. Rows that are still written follow
 `audit_durability` as usual.
 
+### 5c. Suspending a secret while the audit log refuses writes
+
+Suspending a secret (without clearing synced copies) blocks reads at once and is
+never blocked or delayed by the audit log. Its `secret.suspended` audit row is
+still never silently lost. The suspension and a record of the owed row commit
+together (table `pending_audit_events`). If the audit log then refuses the row:
+
+- the server logs a `SECURITY: audit event "secret.suspended" could not be written
+  ... queued for backfill` line with the actor, secret and reason;
+- `GET /api/v1/system/info` reports `security.audit_owed` (`pending`, and
+  `failures_since_start` for this process) to `system.write` callers;
+- the web UI shows a warning bar to those callers while `pending` is above 0;
+- the `audit_owed_backfill` job (every minute, one replica at a time) writes the
+  row, exactly once, as soon as the audit log accepts writes again. The row is
+  dated when it is written, and its description says when the suspension happened.
+
+A suspend that also clears synced copies is different: it is refused (nothing
+changes) when its audit row cannot be written. See `docs/k8s-operator.md`.
+
 ## 6. Backup and key-material custody
 
 `keyorix-server admin backup`/`admin restore` (ADR-108 §B3) is the supported

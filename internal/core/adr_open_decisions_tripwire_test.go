@@ -1,7 +1,7 @@
 // adr_open_decisions_tripwire_test.go — general mechanism for "an ADR records
 // a security-relevant decision, declines to resolve it, and nothing forces
 // that resolution to happen." ADR-101 already proves the specific shape works
-// (TestCurrentSchemaEpoch_Is2_SeeADR101, internal/storage/schema_epoch_
+// (TestCurrentSchemaEpoch_Is3_SeeADR101, internal/storage/schema_epoch_
 // tripwire_test.go) — this generalizes it to an explicit, extensible registry
 // rather than one bespoke test per ADR, after a 2026-09-07 review
 // (keyorix-private/adversarial-review/ADR-CORPUS-REVIEW-2026-09-07.md,
