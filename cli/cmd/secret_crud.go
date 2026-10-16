@@ -830,7 +830,7 @@ func init() {
 	secretListCmd.Flags().IntVar(&secretListLimit, "limit", 50, "Maximum number of results")
 	secretListCmd.Flags().IntVar(&secretListOffset, "offset", 0, "Number of results to skip")
 	secretListCmd.Flags().StringVar(&secretListSearch, "search", "", "Search query")
-	addOutputFlag(secretListCmd, &secretListFormat)
+	addOutputFlagWithFormatAlias(secretListCmd, &secretListFormat)
 	SecretCmd.AddCommand(secretListCmd)
 }
 

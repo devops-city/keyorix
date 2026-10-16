@@ -70,7 +70,7 @@ func TestWriteStructured_YAMLCarriesTheSameKeysAsJSON(t *testing.T) {
 func TestAddOutputFlag_FormatIsAHiddenDeprecatedAlias(t *testing.T) {
 	var format string
 	c := &cobra.Command{Use: "probe"}
-	addOutputFlag(c, &format)
+	addOutputFlagWithFormatAlias(c, &format)
 
 	out := c.Flags().Lookup("output")
 	if out == nil || out.Shorthand != "o" || out.DefValue != "table" {

@@ -822,6 +822,9 @@ var rejectionTemplatesListCmd = &cobra.Command{
 }
 
 func runRejectionTemplatesList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(rejectionListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -840,14 +843,16 @@ func runRejectionTemplatesList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if len(data.Templates) == 0 {
-		fmt.Println("No rejection-reason templates defined.")
+	return emitList(rejectionListFormat, data.Templates, func() error {
+		if len(data.Templates) == 0 {
+			fmt.Println("No rejection-reason templates defined.")
+			return nil
+		}
+		for _, t := range data.Templates {
+			fmt.Printf("  id=%-4d  name=%-30s  reason=%s\n", t.ID, t.Name, t.Reason)
+		}
 		return nil
-	}
-	for _, t := range data.Templates {
-		fmt.Printf("  id=%-4d  name=%-30s  reason=%s\n", t.ID, t.Name, t.Reason)
-	}
-	return nil
+	})
 }
 
 var (

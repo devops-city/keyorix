@@ -15,6 +15,12 @@ var (
 	channelListFormat string
 	shareListFormat   string
 	roleListFormat    string
+
+	rotationListFormat, dynListFormat, patExpiredFormat, folderListFormat, envListFormat   string
+	rejectionListFormat, tokenListFormat, bindingListFormat, anomalyListFormat             string
+	escalationListFormat, userRolesFormat, permsFormat, groupRolesFormat, inviteListFormat string
+	aclListFormat, templateListFormat, sodListFormat, riskListFormat, commentListFormat    string
+	campaignListFormat, depsListFormat                                                     string
 )
 
 func init() {
@@ -27,6 +33,27 @@ func init() {
 	addOutputFlag(channelListCmd, &channelListFormat)
 	addOutputFlag(shareListCmd, &shareListFormat)
 	addOutputFlag(rbacListRolesCmd, &roleListFormat)
+	addOutputFlag(rotListCmd, &rotationListFormat)
+	addOutputFlag(dynListCmd, &dynListFormat)
+	addOutputFlag(patListExpiredCmd, &patExpiredFormat)
+	addOutputFlag(secretFolderListCmd, &folderListFormat)
+	addOutputFlag(envListCmd, &envListFormat)
+	addOutputFlag(rejectionTemplatesListCmd, &rejectionListFormat)
+	addOutputFlag(machineTokenListCmd, &tokenListFormat)
+	addOutputFlag(machineBindingListCmd, &bindingListFormat)
+	addOutputFlag(anomalyListCmd, &anomalyListFormat)
+	addOutputFlag(escalationListCmd, &escalationListFormat)
+	addOutputFlag(rbacListUserRolesCmd, &userRolesFormat)
+	addOutputFlag(rbacListPermissionsCmd, &permsFormat)
+	addOutputFlag(rbacListGroupRolesCmd, &groupRolesFormat)
+	addOutputFlag(inviteListCmd, &inviteListFormat)
+	addOutputFlag(secretACLListCmd, &aclListFormat)
+	addOutputFlag(secretTemplateListCmd, &templateListFormat)
+	addOutputFlag(sodPolicyListCmd, &sodListFormat)
+	addOutputFlag(riskListCmd, &riskListFormat)
+	addOutputFlag(versionCommentListCmd, &commentListFormat)
+	addOutputFlag(accessReviewCampaignListCmd, &campaignListFormat)
+	addOutputFlag(secretDepsListCmd, &depsListFormat)
 }
 
 // emitList prints items as json or yaml, or calls table for the human layout. A nil slice

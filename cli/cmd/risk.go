@@ -49,6 +49,9 @@ var riskListCmd = &cobra.Command{
 	Short:        "List risk exceptions (active by default; --all includes expired)",
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
+		if err := checkOutputFormat(riskListFormat); err != nil {
+			return err
+		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
 		if err != nil {
@@ -68,20 +71,22 @@ var riskListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if len(out.Exceptions) == 0 {
-			fmt.Println("No risk exceptions.")
-			return nil
-		}
-		for _, e := range out.Exceptions {
-			approval := "pending approval"
-			if e.Approved {
-				approval = "approved"
+		return emitList(riskListFormat, out.Exceptions, func() error {
+			if len(out.Exceptions) == 0 {
+				fmt.Println("No risk exceptions.")
+				return nil
 			}
-			fmt.Printf("[%s, %s] #%d %s (category=%s, ref=%q)\n", e.Status, approval, e.ID,
-				cliout.SanitizeForTerminal(e.Title), cliout.SanitizeForTerminal(e.Category), cliout.SanitizeForTerminal(e.Reference))
-			fmt.Printf("        expires %s — %s\n", e.ExpiresAt, cliout.SanitizeForTerminal(e.Justification))
-		}
-		return nil
+			for _, e := range out.Exceptions {
+				approval := "pending approval"
+				if e.Approved {
+					approval = "approved"
+				}
+				fmt.Printf("[%s, %s] #%d %s (category=%s, ref=%q)\n", e.Status, approval, e.ID,
+					cliout.SanitizeForTerminal(e.Title), cliout.SanitizeForTerminal(e.Category), cliout.SanitizeForTerminal(e.Reference))
+				fmt.Printf("        expires %s — %s\n", e.ExpiresAt, cliout.SanitizeForTerminal(e.Justification))
+			}
+			return nil
+		})
 	},
 }
 

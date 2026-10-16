@@ -21,18 +21,24 @@ const (
 const outputFlagUsage = "Output format: table, json or yaml"
 
 // addOutputFlag registers the canonical -o/--output flag on a command that lists or
-// reports things, bound to dst. Commands that used to call this flag --format keep
-// working: --format stays as a hidden, deprecated alias bound to the same variable.
+// reports things, bound to dst, with shell completion for the three formats.
 //
 // Commands whose --output is a file path (compliance export, secret export, ...) do
 // not use this; they are the writers, and say "--output FILE" in their own usage.
 func addOutputFlag(cmd *cobra.Command, dst *string) {
 	cmd.Flags().StringVarP(dst, "output", "o", outputTable, outputFlagUsage)
-	cmd.Flags().StringVar(dst, "format", outputTable, outputFlagUsage)
-	_ = cmd.Flags().MarkDeprecated("format", "use --output (-o) instead")
 	_ = cmd.RegisterFlagCompletionFunc("output", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return []string{outputTable, outputJSON, outputYAML}, cobra.ShellCompDirectiveNoFileComp
 	})
+}
+
+// addOutputFlagWithFormatAlias is addOutputFlag for a command that used to call this flag
+// --format: --format stays as a hidden, deprecated alias bound to the same variable, so
+// existing scripts keep working (with a notice on stderr).
+func addOutputFlagWithFormatAlias(cmd *cobra.Command, dst *string) {
+	addOutputFlag(cmd, dst)
+	cmd.Flags().StringVar(dst, "format", outputTable, outputFlagUsage)
+	_ = cmd.Flags().MarkDeprecated("format", "use --output (-o) instead")
 }
 
 // checkOutputFormat rejects anything but table, json and yaml, naming the choices.

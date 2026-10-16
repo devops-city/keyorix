@@ -371,6 +371,9 @@ var accessReviewCampaignListCmd = &cobra.Command{
 	Short:        "List a project's access-review campaigns",
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
+		if err := checkOutputFormat(campaignListFormat); err != nil {
+			return err
+		}
 		if campaignProject <= 0 {
 			return fmt.Errorf("--project-id is required")
 		}
@@ -396,25 +399,27 @@ var accessReviewCampaignListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Count == 0 {
-			fmt.Printf("No access-review campaigns for project %d.\n", campaignProject)
-			return nil
-		}
-		fmt.Printf("Access-review campaigns — project %d:\n\n", campaignProject)
-		fmt.Printf("%-5s %-8s %-28s %s\n", "ID", "STATE", "NAME", "PROGRESS")
-		anyDegraded := false
-		for _, c := range out.Campaigns {
-			state := c.Campaign.State
-			if c.Campaign.Degraded {
-				state += "*"
-				anyDegraded = true
+		return emitList(campaignListFormat, out.Campaigns, func() error {
+			if out.Count == 0 {
+				fmt.Printf("No access-review campaigns for project %d.\n", campaignProject)
+				return nil
 			}
-			fmt.Printf("%-5d %-8s %-28s %s\n", c.Campaign.ID, state, accessReviewTruncate(cliout.SanitizeForTerminal(c.Campaign.Name), 28), progressStr(c.Progress))
-		}
-		if anyDegraded {
-			fmt.Println("\n(* = degraded snapshot; run `campaign show` on it for details)")
-		}
-		return nil
+			fmt.Printf("Access-review campaigns — project %d:\n\n", campaignProject)
+			fmt.Printf("%-5s %-8s %-28s %s\n", "ID", "STATE", "NAME", "PROGRESS")
+			anyDegraded := false
+			for _, c := range out.Campaigns {
+				state := c.Campaign.State
+				if c.Campaign.Degraded {
+					state += "*"
+					anyDegraded = true
+				}
+				fmt.Printf("%-5d %-8s %-28s %s\n", c.Campaign.ID, state, accessReviewTruncate(cliout.SanitizeForTerminal(c.Campaign.Name), 28), progressStr(c.Progress))
+			}
+			if anyDegraded {
+				fmt.Println("\n(* = degraded snapshot; run `campaign show` on it for details)")
+			}
+			return nil
+		})
 	},
 }
 

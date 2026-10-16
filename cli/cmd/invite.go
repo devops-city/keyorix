@@ -162,6 +162,9 @@ func init() {
 }
 
 func runInviteList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(inviteListFormat); err != nil {
+		return err
+	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {
 		return err
@@ -170,7 +173,9 @@ func runInviteList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Target: %s (project %q, id=%d)\n", serverURL, projectName, projectID)
+	if inviteListFormat == outputTable {
+		fmt.Printf("Target: %s (project %q, id=%d)\n", serverURL, projectName, projectID)
+	}
 
 	resp, err := client.ListProjectInvitationsWithResponse(context.Background(), projectID)
 	if err != nil {
@@ -190,8 +195,10 @@ func runInviteList(cmd *cobra.Command, args []string) error {
 		}
 		invitations = filtered
 	}
-	printInvitations(invitations)
-	return nil
+	return emitList(inviteListFormat, invitations, func() error {
+		printInvitations(invitations)
+		return nil
+	})
 }
 
 // printInvitations renders the invitation table, matching the old CLI's format exactly.

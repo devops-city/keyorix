@@ -50,7 +50,7 @@ func init() {
 	billingReportCmd.Flags().StringVar(&billingReportFrom, "from", "", "Start of billing window, RFC3339 (e.g. 2026-01-01T00:00:00Z) — required")
 	billingReportCmd.Flags().StringVar(&billingReportTo, "to", "", "End of billing window, RFC3339 (e.g. 2026-02-01T00:00:00Z) — required")
 	billingReportCmd.Flags().StringVar(&billingReportProjectID, "project-id", "", "Comma-separated project IDs to include (omit for all)")
-	addOutputFlag(billingReportCmd, &billingReportFormat)
+	addOutputFlagWithFormatAlias(billingReportCmd, &billingReportFormat)
 	if err := billingReportCmd.MarkFlagRequired("from"); err != nil {
 		panic(err)
 	}

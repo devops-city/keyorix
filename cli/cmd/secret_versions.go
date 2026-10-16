@@ -27,7 +27,7 @@ var secretVersionsCmd = &cobra.Command{
 
 func init() {
 	secretVersionsCmd.Flags().IntVar(&secretVersionsID, "id", 0, "Secret ID (required)")
-	addOutputFlag(secretVersionsCmd, &secretVersionsFormat)
+	addOutputFlagWithFormatAlias(secretVersionsCmd, &secretVersionsFormat)
 	SecretCmd.AddCommand(secretVersionsCmd)
 }
 
@@ -318,6 +318,9 @@ var versionCommentListCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(2),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := checkOutputFormat(commentListFormat); err != nil {
+			return err
+		}
 		secretID, err := parseSecretArg(args[0])
 		if err != nil {
 			return fmt.Errorf("invalid secret ID %q: %w", args[0], err)
@@ -339,19 +342,21 @@ var versionCommentListCmd = &cobra.Command{
 		}
 		comments := derefVersionCommentSlice(resp.JSON200.Data.Comments)
 		total := derefSecretInt(resp.JSON200.Data.Total)
-		if total == 0 {
-			fmt.Println("No comments found.")
-			return nil
-		}
-		fmt.Printf("Comments for secret %s, version %s (%d total):\n", args[0], args[1], total)
-		for _, c := range comments {
-			when := ""
-			if c.CreatedAt != nil {
-				when = c.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+		return emitList(commentListFormat, comments, func() error {
+			if total == 0 {
+				fmt.Println("No comments found.")
+				return nil
 			}
-			fmt.Printf("  [%d] %s (%s): %s\n", derefSecretInt(c.Id), derefStr(c.Username), when, derefStr(c.Comment))
-		}
-		return nil
+			fmt.Printf("Comments for secret %s, version %s (%d total):\n", args[0], args[1], total)
+			for _, c := range comments {
+				when := ""
+				if c.CreatedAt != nil {
+					when = c.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+				}
+				fmt.Printf("  [%d] %s (%s): %s\n", derefSecretInt(c.Id), derefStr(c.Username), when, derefStr(c.Comment))
+			}
+			return nil
+		})
 	},
 }
 

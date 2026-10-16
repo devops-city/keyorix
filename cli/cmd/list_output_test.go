@@ -39,42 +39,73 @@ func TestEmitList(t *testing.T) {
 	}
 }
 
-// Every list command that takes -o validates the format before it contacts the server.
-func TestListCommandsTakeOutputAndRefuseBadFormatsFirst(t *testing.T) {
+// listOutputPending are list commands that do not take -o yet, each with the reason. The
+// list may only shrink: TestEveryListCommandTakesOutput fails for a list command that is in
+// neither this map nor converted, and for an entry that has since been converted.
+var listOutputPending = map[string]string{
+	"break-glass list": "prints a scope banner (own vs all activations) before the table; needs its own record shape",
+}
+
+func listCommands() []*cobra.Command {
+	var out []*cobra.Command
+	var walk func(c *cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, s := range c.Commands() {
+			walk(s)
+		}
+		n := c.Name()
+		if (n == "list" || strings.HasPrefix(n, "list-")) && !c.HasSubCommands() {
+			out = append(out, c)
+		}
+	}
+	walk(rootCmd)
+	return out
+}
+
+// TestEveryListCommandTakesOutput is the family guard for item 1's "--output where it
+// lists things": every command named list or list-* has -o/--output, validates the value before contacting
+// the server, and a command can
+// only be left out by being named in listOutputPending.
+func TestEveryListCommandTakesOutput(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
 	defer srv.Close()
 	setSystemCreds(t, srv)
 
-	for _, tc := range []struct {
-		cmd *cobra.Command
-		set *string
-	}{
-		{projectListCmd, &projectListFormat},
-		{userListCmd, &userListFormat},
-		{groupListCmd, &groupListFormat},
-		{machineListCmd, &machineListFormat},
-		{patListCmd, &patListFormat},
-		{requestListCmd, &requestListFormat},
-		{channelListCmd, &channelListFormat},
-		{shareListCmd, &shareListFormat},
-		{rbacListRolesCmd, &roleListFormat},
-	} {
-		name := tc.cmd.CommandPath()
-		if f := tc.cmd.Flags().Lookup("output"); f == nil || f.Shorthand != "o" {
-			t.Errorf("%s: no -o/--output flag", name)
+	cmds := listCommands()
+	if len(cmds) < 25 {
+		t.Fatalf("only %d list commands found; the walk is broken", len(cmds))
+	}
+	seenPending := map[string]bool{}
+	for _, c := range cmds {
+		name := strings.TrimPrefix(c.CommandPath(), rootCmd.Name()+" ")
+		out := c.Flags().Lookup("output")
+		if _, pending := listOutputPending[name]; pending {
+			seenPending[name] = true
+			if out != nil {
+				t.Errorf("%s takes -o now: delete it from listOutputPending", name)
+			}
+			continue
 		}
-		if f := tc.cmd.Flags().Lookup("format"); f == nil || !f.Hidden {
-			t.Errorf("%s: --format should remain as a hidden alias", name)
+		if out == nil || out.Shorthand != "o" {
+			t.Errorf("%s: no -o/--output flag (add addOutputFlag in list_output.go, or name it in listOutputPending with a reason)", name)
+			continue
 		}
-		*tc.set = "xml"
-		err := tc.cmd.RunE(tc.cmd, nil)
-		*tc.set = "table"
+		if err := c.Flags().Set("output", "xml"); err != nil {
+			t.Fatal(err)
+		}
+		err := c.RunE(c, nil)
+		_ = c.Flags().Set("output", "table")
 		if err == nil || !strings.Contains(err.Error(), "table, json or yaml") {
 			t.Errorf("%s: a bad format must be refused naming the choices, got %v", name, err)
 		}
 	}
 	if called {
-		t.Error("the server was contacted before the format was validated")
+		t.Error("a server was contacted before a format was validated")
+	}
+	for name := range listOutputPending {
+		if !seenPending[name] {
+			t.Errorf("listOutputPending names %q, which is not a list command", name)
+		}
 	}
 }

@@ -144,6 +144,69 @@ func TestJourney_CLIListCommandsOutputFormats(t *testing.T) {
 		}
 	})
 
+	// The remaining list commands: whatever they hold (mostly nothing on a fresh server),
+	// json and yaml must be valid documents holding an array, and an empty list is [].
+	t.Run("the other list commands print valid json and yaml", func(t *testing.T) {
+		pidArg := strconv.Itoa(pid)
+		others := []struct {
+			args    []string
+			wrapKey string // set when the document is an object holding the array
+			object  bool   // the document is one object, not a list
+		}{
+			{args: []string{"rotation", "list"}},
+			{args: []string{"pat", "list-expired"}},
+			{args: []string{"secret", "folder", "list", "--project", pidArg}},
+			{args: []string{"project", "env", "list", "--project", proj}},
+			{args: []string{"rbac", "list-user-roles", "--user", "smoketestadmin@example.invalid"}},
+			{args: []string{"rbac", "list-permissions", "--user", "smoketestadmin@example.invalid"}},
+			{args: []string{"rbac", "list-group-roles", "--group", "list-out-group"}},
+			{args: []string{"secret", "acl", "list", sid}},
+			{args: []string{"secret", "template", "list"}},
+			{args: []string{"sod", "policy", "list"}},
+			{args: []string{"risk", "list"}},
+			{args: []string{"anomalies", "list"}},
+			{args: []string{"anomalies", "escalation", "list"}},
+			{args: []string{"request", "rejection-templates", "list"}},
+			{args: []string{"machine", "token", "list", "list-out-machine", "--project", proj}},
+			{args: []string{"machine", "binding", "list", "list-out-machine", "--project", proj}},
+			{args: []string{"invite", "list", "--project", proj}},
+			{args: []string{"access-review", "campaign", "list", "--project-id", pidArg}},
+			{args: []string{"secret", "deps", "list", sid}, object: true},
+		}
+		for _, c := range others {
+			for _, format := range []string{"json", "yaml"} {
+				args := append(append([]string{}, c.args...), "-o", format)
+				out, errOut, err := runCLIStdout(t, cliBin, aEnv, args...)
+				if err != nil {
+					t.Errorf("keyorix %s: %v\n%s%s", strings.Join(args, " "), err, out, errOut)
+					continue
+				}
+				var doc any
+				if format == "json" {
+					err = json.Unmarshal([]byte(out), &doc)
+				} else {
+					err = yaml.Unmarshal([]byte(out), &doc)
+				}
+				if err != nil {
+					t.Errorf("keyorix %s: not %s: %v\n%s", strings.Join(args, " "), format, err, out)
+					continue
+				}
+				switch doc.(type) {
+				case []any:
+					if c.object {
+						t.Errorf("keyorix %s: want one object, got a list", strings.Join(args, " "))
+					}
+				case map[string]any:
+					if !c.object {
+						t.Errorf("keyorix %s: want a list, got an object:\n%s", strings.Join(args, " "), out)
+					}
+				default:
+					t.Errorf("keyorix %s: unexpected document %T:\n%s", strings.Join(args, " "), doc, out)
+				}
+			}
+		}
+	})
+
 	t.Run("a bad format is refused for every list command", func(t *testing.T) {
 		for _, c := range cases {
 			args := append(append([]string{}, c.args...), "-o", "xml")

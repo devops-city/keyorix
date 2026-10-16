@@ -205,6 +205,9 @@ func runPATRevoke(cmd *cobra.Command, args []string) error {
 }
 
 func runPATListExpired(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(patExpiredFormat); err != nil {
+		return err
+	}
 	client, err := patAPIClient()
 	if err != nil {
 		return err
@@ -213,16 +216,22 @@ func runPATListExpired(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
-		fmt.Println("You have no expired personal access tokens.")
-		return nil
+	var tokens []apiclient.PATToken
+	if resp.JSON200 != nil && resp.JSON200.Data != nil {
+		tokens = *resp.JSON200.Data
 	}
-	t := cliout.NewStdoutTable("ID", "NAME", "PREFIX", "CREATED", "EXPIRED", "SCOPE")
-	for _, tok := range *resp.JSON200.Data {
-		t.Row(derefInt(tok.Id), derefStr(tok.Name), derefStr(tok.TokenPrefix)+"…",
-			patTimeDate(tok.CreatedAt), patTimeDate(tok.ExpiresAt), describePATScope(tok))
-	}
-	return t.Flush()
+	return emitList(patExpiredFormat, tokens, func() error {
+		if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
+			fmt.Println("You have no expired personal access tokens.")
+			return nil
+		}
+		t := cliout.NewStdoutTable("ID", "NAME", "PREFIX", "CREATED", "EXPIRED", "SCOPE")
+		for _, tok := range *resp.JSON200.Data {
+			t.Row(derefInt(tok.Id), derefStr(tok.Name), derefStr(tok.TokenPrefix)+"…",
+				patTimeDate(tok.CreatedAt), patTimeDate(tok.ExpiresAt), describePATScope(tok))
+		}
+		return t.Flush()
+	})
 }
 
 func runPATCleanupExpired(cmd *cobra.Command, args []string) error {

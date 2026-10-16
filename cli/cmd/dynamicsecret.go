@@ -239,6 +239,9 @@ func runDynCreateConfig(_ *cobra.Command, _ []string) error {
 }
 
 func runDynList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(dynListFormat); err != nil {
+		return err
+	}
 	client, err := dynamicSecretAPIClient()
 	if err != nil {
 		return err
@@ -254,16 +257,22 @@ func runDynList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
-		fmt.Println("No dynamic-secret configs found.")
+	var configs []apiclient.DynamicSecretConfig
+	if resp.JSON200 != nil && resp.JSON200.Data != nil {
+		configs = *resp.JSON200.Data
+	}
+	return emitList(dynListFormat, configs, func() error {
+		if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
+			fmt.Println("No dynamic-secret configs found.")
+			return nil
+		}
+		fmt.Printf("%-5s %-24s %-10s %-8s %-8s\n", "ID", "NAME", "BACKEND", "TTL", "MAXTTL")
+		for _, cfg := range *resp.JSON200.Data {
+			fmt.Printf("%-5d %-24s %-10s %-8d %-8d\n", derefUint32(cfg.Id), derefStr(cfg.Name),
+				derefStr((*string)(cfg.BackendType)), derefInt(cfg.DefaultTtlSeconds), derefInt(cfg.MaxTtlSeconds))
+		}
 		return nil
-	}
-	fmt.Printf("%-5s %-24s %-10s %-8s %-8s\n", "ID", "NAME", "BACKEND", "TTL", "MAXTTL")
-	for _, cfg := range *resp.JSON200.Data {
-		fmt.Printf("%-5d %-24s %-10s %-8d %-8d\n", derefUint32(cfg.Id), derefStr(cfg.Name),
-			derefStr((*string)(cfg.BackendType)), derefInt(cfg.DefaultTtlSeconds), derefInt(cfg.MaxTtlSeconds))
-	}
-	return nil
+	})
 }
 
 func runDynGetConfig(_ *cobra.Command, args []string) error {

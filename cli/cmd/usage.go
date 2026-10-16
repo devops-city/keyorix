@@ -47,7 +47,7 @@ given reporting window (GET /admin/usage). Requires audit.read.`,
 func init() {
 	usageShowCmd.Flags().IntVar(&usageShowDays, "days", 30, "Reporting window in days (1-365)")
 	usageShowCmd.Flags().IntVar(&usageShowProjectID, "project-id", 0, "Scope to a single project (0 = all)")
-	addOutputFlag(usageShowCmd, &usageShowFormat)
+	addOutputFlagWithFormatAlias(usageShowCmd, &usageShowFormat)
 	usageCmd.AddCommand(usageShowCmd)
 }
 

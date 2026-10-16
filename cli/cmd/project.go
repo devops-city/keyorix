@@ -383,7 +383,7 @@ var projectStatsCmd = &cobra.Command{
 }
 
 func init() {
-	addOutputFlag(projectStatsCmd, &projectStatsFormat)
+	addOutputFlagWithFormatAlias(projectStatsCmd, &projectStatsFormat)
 }
 
 func runProjectStats(_ *cobra.Command, args []string) error {
@@ -554,7 +554,7 @@ var projectHealthCmd = &cobra.Command{
 
 func init() {
 	projectHealthCmd.Flags().IntVar(&projectHealthLimit, "limit", 20, "Maximum number of secrets to display (1-100)")
-	addOutputFlag(projectHealthCmd, &projectHealthFormat)
+	addOutputFlagWithFormatAlias(projectHealthCmd, &projectHealthFormat)
 }
 
 func runProjectHealth(_ *cobra.Command, args []string) error {
@@ -709,6 +709,9 @@ var envListCmd = &cobra.Command{
 }
 
 func runEnvList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(envListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -722,8 +725,10 @@ func runEnvList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	printEnvironmentTable(envs, name)
-	return nil
+	return emitList(envListFormat, envs, func() error {
+		printEnvironmentTable(envs, name)
+		return nil
+	})
 }
 
 func printEnvironmentTable(envs []environmentItem, projectName string) {

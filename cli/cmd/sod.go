@@ -60,6 +60,9 @@ var sodPolicyListCmd = &cobra.Command{
 	Short:        "List separation-of-duties policies",
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
+		if err := checkOutputFormat(sodListFormat); err != nil {
+			return err
+		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
 		if err != nil {
@@ -79,15 +82,17 @@ var sodPolicyListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if out.Count == 0 {
-			fmt.Println("No separation-of-duties policies defined.")
+		return emitList(sodListFormat, out.Policies, func() error {
+			if out.Count == 0 {
+				fmt.Println("No separation-of-duties policies defined.")
+				return nil
+			}
+			fmt.Printf("%-5s %-26s %-22s %s\n", "ID", "NAME", "PERMISSION A", "PERMISSION B")
+			for _, p := range out.Policies {
+				fmt.Printf("%-5d %-26s %-22s %s\n", p.ID, truncateRunes(cliout.SanitizeForTerminal(p.Name), 26), p.PermissionA, p.PermissionB)
+			}
 			return nil
-		}
-		fmt.Printf("%-5s %-26s %-22s %s\n", "ID", "NAME", "PERMISSION A", "PERMISSION B")
-		for _, p := range out.Policies {
-			fmt.Printf("%-5d %-26s %-22s %s\n", p.ID, truncateRunes(cliout.SanitizeForTerminal(p.Name), 26), p.PermissionA, p.PermissionB)
-		}
-		return nil
+		})
 	},
 }
 
