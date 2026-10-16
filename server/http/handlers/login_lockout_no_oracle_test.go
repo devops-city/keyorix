@@ -390,22 +390,30 @@ func TestLogin_SuspendBetweenPasswordCheckAndSessionInsertCostsTheSameAsAWrongPa
 // the handler then issues the challenge. If that write fails, the client gets
 // the wrong-password 401 -- so the lockout cost has to match too, which is what
 // RecordPostVerdictLoginFailure is for.
+//
+// #3277 follow-up: the PANIC kind too, through the production Recovery
+// middleware (postLogin). Before, it got the Recovery 500 and an uncounted
+// lockout, which a wrong password never gets.
 func TestLogin_CreateMFAChallengeFaultCostsTheSameAsAWrongPassword(t *testing.T) {
-	ctrlEnv := newLockoutOracleEnvWithMFA(t)
-	ctrlEnv.driveToThresholdMinusOne(t)
-	control := ctrlEnv.observe(t, ctrlEnv.postLogin(t, "still-not-her-password"))
-	require.True(t, control.locked, "control: a wrong password at threshold-1 must lock the account")
+	for _, kind := range []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindPanic} {
+		t.Run(kind.String(), func(t *testing.T) {
+			ctrlEnv := newLockoutOracleEnvWithMFA(t)
+			ctrlEnv.driveToThresholdMinusOne(t)
+			control := ctrlEnv.observe(t, ctrlEnv.postLogin(t, "still-not-her-password"))
+			require.True(t, control.locked, "control: a wrong password at threshold-1 must lock the account")
 
-	probeEnv := newLockoutOracleEnvWithMFA(t)
-	probeEnv.driveToThresholdMinusOne(t)
-	probeEnv.fs.Arm(&faultstorage.FaultSpec{
-		Method: "CreateMFAChallenge", NthCall: 1, Kind: faultstorage.KindError, Err: assert.AnError,
-	})
-	w := probeEnv.postLogin(t, lockoutOracleTestPassword)
-	require.True(t, probeEnv.fs.Fired(), "the armed CreateMFAChallenge fault must actually have fired")
-	probe := probeEnv.observe(t, w)
+			probeEnv := newLockoutOracleEnvWithMFA(t)
+			probeEnv.driveToThresholdMinusOne(t)
+			probeEnv.fs.Arm(&faultstorage.FaultSpec{
+				Method: "CreateMFAChallenge", NthCall: 1, Kind: kind, Err: assert.AnError,
+			})
+			w := probeEnv.postLogin(t, lockoutOracleTestPassword)
+			require.True(t, probeEnv.fs.Fired(), "the armed CreateMFAChallenge fault must actually have fired")
+			probe := probeEnv.observe(t, w)
 
-	requireIndistinguishable(t, control, probe, "login/CreateMFAChallenge")
+			requireIndistinguishable(t, control, probe, "login/CreateMFAChallenge/"+kind.String())
+		})
+	}
 }
 
 // TestLogin_PostVerdictFaultAuditsLoginErrorNotLoginFailed is the other half of
