@@ -232,6 +232,11 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		log.Fatalf("transport security: %v", err)
 	}
 
+	// No-NTP edge devices: warn when the clock is implausible or the TLS
+	// certificate window does not contain it (never refuses to start).
+	warnClockAndCertificate(cfg)
+	go watchClockSteps(ctx, 15*time.Second, realClockSample(), log.Printf)
+
 	// Refuse (or warn) when key material on disk is readable beyond its owner.
 	if err := enforceKeyFilePermissions(cfg); err != nil {
 		log.Fatalf("key file security: %v", err)

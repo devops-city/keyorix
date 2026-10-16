@@ -146,6 +146,51 @@ Qualitative only; measure on your hardware.
 - **Time.** The audit trail and checkpoint schedule use the device clock.
   Give an unattended device a reliable clock source (a local NTP server, or an
   RTC with a battery) so that a long power-off does not leave timestamps wrong.
+  What a wrong or corrected clock does, and what to do about it, is in
+  [§5a](#5a-no-ntp-what-a-bad-clock-does).
+
+### 5a. No NTP: what a bad clock does
+
+A device with no battery-backed clock and no time source boots at the epoch or
+at the time it was last switched off. Keyorix keeps working, but several
+decisions depend on the clock, and the server protects itself against a clock
+that goes backwards in ways an operator has to know about. The cases below are
+exercised with injected clocks (`internal/core/edge_clock_skew_test.go`,
+`internal/clockcheck`, `server/clock_warnings_test.go`); the long-running
+session, token and lease properties are fuzzed (`FuzzClockJumpNeverAuthorizesExpired`).
+
+**The rule: set the clock before the service starts, and restart the service
+if you ever step it backwards.** Order the service after `time-sync.target`
+(it only waits when a time-sync service is enabled); on a site with no time
+source, set the clock once at commissioning and put an RTC battery in the
+device.
+
+| What happens to the clock | Effect | What to do |
+|---|---|---|
+| Wrong at start-up (before the build date of the binary, for example the epoch) | The server starts and logs a warning on every start. TOTP codes fail (the authenticator and the device must agree to within one 30 s step). A TLS certificate minted by this clock would be useless, so `admin init` refuses to generate one and says why. | Set the clock, then restart. |
+| Stepped **forward** | Sessions, tokens and leases that expire inside the jump expire at once; secrets with an expiry date in the jump are expired; the server logs the step. | Users log in again. Nothing is lost. |
+| Stepped **backward** by 30 s or less | Nothing; this is the tolerance for ordinary NTP corrections. | None. |
+| Stepped **backward** by more than 30 s | By design the server will not trust a clock that went back. Until the clock passes the latest time the process had seen, or the service restarts: **every secret value read is refused** (it answers as "expired", even for secrets that never expire) and **every second-factor login is refused** (recovery codes too). The server logs a warning when it sees the step. A TOTP code for the corrected time is also refused until the corrected clock passes the highest time-step already accepted; after a restart, log in with a recovery code, or wait. | **Restart the service** right after correcting a clock that had run ahead. |
+| Clock stepped back **before** the server ever saw a credential's expiry | The credential is judged on the device's clock and lives as long as the step back. This is inherent to absolute expiry times ([ADR-094](adr-094-time-handling.md)). | Keep the clock from running backwards; revoke credentials you do not trust. |
+
+Other things the clock touches:
+
+- **Audit entries.** Each entry carries the device clock's time, but the chain
+  is ordered by its hashes, not by time: a trail whose timestamps jump around
+  (clock set, epoch boot, correction) still verifies, and a rewritten timestamp
+  still breaks it. Treat timestamps as unreliable across any clock correction.
+  The checkpoint anchor you keep off the device is the only independent record
+  of when an entry existed.
+- **TLS certificates.** The self-signed certificate from `admin init` lasts a
+  little over a year and is not renewed by the server. On every start the server
+  warns when the certificate is expired, not valid yet on this clock (a clock
+  that is behind), or within 30 days of expiry. A certificate issued while the
+  clock was wrong has to be replaced, not waited out.
+- **Scheduled jobs.** Periodic jobs tick on the process's monotonic clock, so a
+  clock step does not make them run early or late; what they decide to do (what
+  is due, what has expired) uses the wall clock.
+- **Licence.** Evaluated locally against the device clock, offline, and degrades
+  rather than denies ([ADR-094](adr-094-time-handling.md)).
 
 ## 6. Backup and restore
 
