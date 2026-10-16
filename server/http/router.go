@@ -1432,11 +1432,9 @@ func writeJSONError(w http.ResponseWriter, status int, errType, message string) 
 // references) but unnecessary and inconsistent with serving no directory index.
 func noDirListing(fsys http.FileSystem, h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		upath := req.URL.Path
-		if !strings.HasPrefix(upath, "/") {
-			upath = "/" + upath
-		}
-		f, err := fsys.Open(path.Clean(upath))
+		// Rooted before Clean, so ".." can never climb above fsys's root (which
+		// http.FileSystem confines the open to anyway).
+		f, err := fsys.Open(path.Clean("/" + strings.Trim(req.URL.Path, "/")))
 		if err != nil {
 			// A missing asset: the JSON 404, not http.FileServer's text/plain one.
 			writeJSONNotFound(w)
