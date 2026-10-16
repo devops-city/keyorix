@@ -174,7 +174,11 @@ delete the copy in the container's `/tmp` (a 64 MiB tmpfs: raise `size=` in
   then `docker compose start backend` (create `anchors/` first, writable by uid 1001).
   [AIRGAP_RUNBOOK.md](../AIRGAP_RUNBOOK.md).
 - **Rehearse a restore** on a spare host before the pilot starts and after any upgrade
-  (`admin restore` runs `verify-audit` and fails if the chain is broken). A restore into a
+  (`admin restore` runs `verify-audit` and fails if the chain is broken).
+  `scripts/drills/backup-restore.sh` runs the whole cycle on a throwaway instance
+  ([operator/drill-backup-restore.md](../operator/drill-backup-restore.md)). Your recovery
+  point is your backup interval, so choose it with that in mind
+  ([SELF_HOSTING.md §5](../SELF_HOSTING.md#5-backup-and-restore), "Recovery point"). A restore into a
   host that has already progressed past the backup is refused unless you pass
   `--allow-rollback`. Procedure and caveats:
   [SELF_HOSTING.md §5](../SELF_HOSTING.md#5-backup-and-restore).
