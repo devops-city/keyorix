@@ -86,7 +86,7 @@ func init() {
 
 func runRBACAssignRoleToGroup(cmd *cobra.Command, args []string) error {
 	if rbacGroupRoleGroupFlag == "" || rbacGroupRoleName == "" {
-		return fmt.Errorf("--group and --role are required")
+		return usageErrorf("--group and --role are required")
 	}
 	if rbacGroupRoleTTL < 0 {
 		return fmt.Errorf("--ttl must be positive")
@@ -173,7 +173,7 @@ func init() {
 
 func runRBACRemoveRoleFromGroup(cmd *cobra.Command, args []string) error {
 	if rbacRemoveGroupRoleGroupFlag == "" || rbacRemoveGroupRoleName == "" {
-		return fmt.Errorf("--group and --role are required")
+		return usageErrorf("--group and --role are required")
 	}
 	if rbacRemoveGroupRoleEnv != "" && rbacRemoveGroupRoleProject == "" {
 		return fmt.Errorf("--environment requires --project")
@@ -237,7 +237,7 @@ func init() {
 
 func runRBACListGroupRoles(cmd *cobra.Command, args []string) error {
 	if rbacListGroupRolesGroupFlag == "" {
-		return fmt.Errorf("--group is required")
+		return usageErrorf("--group is required")
 	}
 	client, err := rbacAPIClient()
 	if err != nil {

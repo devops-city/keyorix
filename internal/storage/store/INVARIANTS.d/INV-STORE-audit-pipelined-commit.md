@@ -2,9 +2,10 @@
   (`commitBatchAttemptPipelined`) runs the same statements in the same order as the GORM
   transaction (`commitBatchAttemptTx`), in two pipelined flights: BEGIN, the fast-mode
   `SET LOCAL` (only when enabled), `pg_advisory_xact_lock(KEYAUDIT)`, the id-DESC head read
-  and the event-id allocation; then the INSERTs (GORM's own SQL), with the link check
-  (`auditLinkCheckSQL`: the stored rows link onto the head in id order) between the events
-  INSERT and the access-log INSERT, and COMMIT. When the chain-head cache is armed the
+  and the event-id allocation; then the INSERTs (GORM's own SQL), the events INSERT in one
+  statement with the head and link checks (`auditInsertCheckSQL`: the head is still the row
+  flight 1 read and the stored rows link onto it in id order; `auditLinkCheckSQL` after the
+  INSERTs for a batch too large for one INSERT), then the access-log INSERT, and COMMIT. When the chain-head cache is armed the
   transaction goes in one flight instead (`INV-STORE-audit-one-flight-commit`). Three rules
   hold. (1) The head is read by its own statement after the lock statement, so it sees every
   batch committed before the lock was granted. (2) Nothing that decides whether to commit

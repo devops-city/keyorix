@@ -21,6 +21,10 @@ keyorix-server admin backup --output backup-$(date +%F).tar.gz
 rollback drill, air-gapped drill, version-skip proof), each time producing a
 valid, restorable v2 archive.
 
+To rehearse an upgrade first, on a throwaway instance with your old and new
+binaries (SQLite or PostgreSQL), run `scripts/drills/upgrade.sh`; see
+[operator/drill-upgrade.md](operator/drill-upgrade.md).
+
 ## 2. Upgrading from v0.95.x → v0.95.2
 
 (The steps are the same for every v0.95.x → v0.95.y upgrade, and for the Compose
@@ -251,11 +255,22 @@ Postgres is a 3-hop procedure, not a direct restore:
 2. Take a fresh v2 backup of that intermediate SQLite database.
 3. Restore that v2 archive into the real Postgres target.
 
+`admin backup` and `admin restore` have no flags for a database path or DSN: the
+target is always the one the `--config` file names. So each hop uses its own
+config (`intermediate.yaml`: `storage.type: sqlite` with its own `path` and key
+paths; `target.yaml`: `storage.type: postgres` and an empty database), with the
+same `KEYORIX_MASTER_PASSWORD` throughout:
+
 ```sh
-keyorix-server admin restore --input old-v1-backup.tar.gz --output-db ./intermediate.sqlite
-keyorix-server admin backup --db ./intermediate.sqlite --output intermediate-v2.tar.gz
-keyorix-server admin restore --input intermediate-v2.tar.gz --target-dsn "$POSTGRES_DSN"
+keyorix-server admin restore --config intermediate.yaml --input old-v1-backup.tar.gz
+keyorix-server admin backup  --config intermediate.yaml --output intermediate-v2.tar.gz
+keyorix-server admin restore --config target.yaml --input intermediate-v2.tar.gz
 ```
+
+(An earlier revision of this page showed `--output-db`, `--db` and `--target-dsn`;
+those flags do not exist. The second and third commands are exercised by
+`scripts/drills/backup-restore.sh` for v2 archives, SQLite and PostgreSQL targets;
+the v1 first hop has not been re-run since.)
 
 **VERIFIED** — run end to end with a real, downloaded v0.95.0 release
 binary and the actual v0.95.2 build against a real PostgreSQL 16 instance:

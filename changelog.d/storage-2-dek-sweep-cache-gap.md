@@ -1,0 +1,2 @@
+### Testing
+- **DEK sweep vs. read-path value cache.** The named gap (a DEK rotation sweep rewrites `secret_versions.encrypted_value` without moving the latest-version cache generation) is now pinned by a test, including a two-replica case, the retired-DEK case and the TTL bound, and documented as safe (same plaintext for the only holder of the entry; fail closed for a new-key-only holder). No behaviour change.
