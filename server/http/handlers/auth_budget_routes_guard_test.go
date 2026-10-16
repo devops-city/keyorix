@@ -55,7 +55,7 @@ const (
 type authRouteClass struct {
 	kind    authRouteKind
 	handler string // AuthHandler method router.go mounts
-	budget  string // routeIPBudget: "login" | "password_reset" | "sso_begin"
+	budget  string // routeIPBudget: "login" | "password_reset" | "sso_begin"; routeAuthenticated: "login" when the handler checks the caller's password or second factor
 	why     string // routeExempt: the reason
 }
 
@@ -86,8 +86,8 @@ var authRouteClasses = map[string]authRouteClass{
 	"GET /auth/saml/{provider}/metadata":       {kind: routeExempt, handler: "AuthHandler.SAMLMetadata", why: "static SP metadata, no input"},
 	"POST /auth/saml/{provider}/acs":           {kind: routeExempt, handler: "AuthHandler.CompleteSAML", why: "consumes an IdP-signed assertion bound to a request minted by the budgeted begin"},
 	"GET /auth/profile":                        {kind: routeAuthenticated, handler: "AuthHandler.Profile"},
-	"PUT /auth/profile":                        {kind: routeAuthenticated, handler: "AuthHandler.UpdateProfile"},
-	"POST /auth/change-password":               {kind: routeAuthenticated, handler: "AuthHandler.ChangePassword"},
+	"PUT /auth/profile":                        {kind: routeAuthenticated, handler: "AuthHandler.UpdateProfile", budget: "login"},
+	"POST /auth/change-password":               {kind: routeAuthenticated, handler: "AuthHandler.ChangePassword", budget: "login"},
 	"POST /auth/mfa/enroll":                    {kind: routeAuthenticated, handler: "AuthHandler.EnrollMFA"},
 	"POST /auth/mfa/activate":                  {kind: routeAuthenticated, handler: "AuthHandler.ActivateMFA"},
 	"POST /auth/mfa/disable":                   {kind: routeAuthenticated, handler: "AuthHandler.DisableMFA"},
@@ -278,12 +278,26 @@ func TestEveryAuthRoute_IsClassifiedAndBudgeted(t *testing.T) {
 			assert.True(t, callsSelector(fd.Body, entry),
 				"%s: %s no longer calls %s, so this public route has no %s budget", key, cls.handler, entry, cls.budget)
 		case routeAuthenticated:
-			// Checked above, on the router: chi authenticates before the handler.
+			// Authentication is checked above, on the router. A handler that
+			// checks the caller's credential spends the login budget too
+			// (AUTH-PW-BUDGET): admitted before the check, settled after it.
+			if cls.budget != "" {
+				require.Equal(t, "login", cls.budget, "%s: authenticated credential checks share the login budget", key)
+				assert.True(t, callsSelector(fd.Body, "admitCredentialCheck") && callsSelector(fd.Body, "settleCredentialCheck"),
+					"%s: %s checks a credential but no longer calls admitCredentialCheck/settleCredentialCheck, so a stolen session can guess it without the login budget", key, cls.handler)
+			}
 		case routeExempt:
 			assert.NotEmpty(t, cls.why, "%s: an exempt route must say why it needs no budget", key)
 		default:
 			t.Errorf("%s: unclassified kind", key)
 		}
+	}
+	// The authenticated credential checks reach the shared limiter through one
+	// helper; pin that it still does.
+	admit, ok := methods["AuthHandler.admitCredentialCheck"]
+	if assert.True(t, ok, "AuthHandler.admitCredentialCheck not found") {
+		assert.True(t, callsSelector(admit.Body, "checkLoginRateLimit") && callsSelector(admit.Body, "reserveLoginAttempt"),
+			"admitCredentialCheck must check the login budget and reserve its slot before the credential check")
 	}
 	var stale []string
 	for key := range authRouteClasses {

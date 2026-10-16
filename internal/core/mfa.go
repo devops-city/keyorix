@@ -750,6 +750,21 @@ func (c *KeyorixCore) auditMFAError(ctx context.Context, userID uint, phase stri
 		fmt.Sprintf("MFA %s for user %d could not be evaluated (storage error): %v", phase, userID, err))
 }
 
+// ErrReauthRejected marks requireReauth's refusals of the supplied code or
+// password: a wrong one, a post-verdict fault (both counted toward the lockout)
+// and a locked account. A transport keeps the caller's per-IP login-budget slot
+// for these, like a failed login, and hands it back for any other outcome
+// (ErrMFAVerificationStorageFailure: nothing was evaluated). Server-side only:
+// the error's text is exactly what it was before the sentinel existed.
+var ErrReauthRejected = errors.New("re-authentication rejected")
+
+// reauthRejectedError is ErrReauthRejected carrying requireReauth's unchanged
+// message, so a caller that renders err.Error() renders what it always did.
+type reauthRejectedError struct{ msg string }
+
+func (e *reauthRejectedError) Error() string      { return e.msg }
+func (*reauthRejectedError) Is(target error) bool { return target == ErrReauthRejected }
+
 // requireReauth is the shared self-service re-authentication gate (#372) for
 // account-security-factor changes. Every caller (DisableMFA,
 // RegenerateMFARecoveryCodes, ActivateMFA, FinishWebAuthnRegistration,
@@ -821,7 +836,7 @@ func (c *KeyorixCore) auditMFAError(ctx context.Context, userID uint, phase stri
 // and its siblings (mfa_stepup_grant_single_use_test.go).
 func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, codeOrPassword, phase string) error {
 	if c.loginLocked(user) {
-		return fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
+		return &reauthRejectedError{msg: "account temporarily locked due to repeated failed logins; try again later"}
 	}
 	secondFactorEnrolled := user.MFAEnabled || user.WebAuthnEnabled
 	ok := false
@@ -920,11 +935,11 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 			// lockout-wise, than a wrong one.
 			c.auditMFAError(ctx, user.ID, phase, postVerdictErr)
 			c.recordFailedLogin(ctx, user)
-			return fmt.Errorf("invalid code or password")
+			return &reauthRejectedError{msg: "invalid code or password"}
 		}
 		c.auditMFAFailed(ctx, user.ID, phase)
 		c.recordFailedLogin(ctx, user) // count the failed re-auth attempt toward the lockout
-		return fmt.Errorf("invalid code or password")
+		return &reauthRejectedError{msg: "invalid code or password"}
 	}
 	c.clearLoginFailures(ctx, user)
 	uid := user.ID

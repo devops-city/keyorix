@@ -787,8 +787,22 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "BadRequest", errInvalidRequestBody, http.StatusBadRequest, nil)
 		return
 	}
+	// AUTH-PW-BUDGET: a request carrying current_password is a password guess
+	// (core checks it for an email change) and spends the login budget. One
+	// without it guesses nothing: an empty password never matches, so a plain
+	// display-name edit is not throttled.
+	var slot loginSlot
+	if body.CurrentPassword != "" {
+		var admitted bool
+		if slot, admitted = h.admitCredentialCheck(w, r); !admitted {
+			return
+		}
+	}
 
 	user, err := h.coreService.UpdateOwnProfile(r.Context(), userCtx.UserID, body.DisplayName, body.Email, body.CurrentPassword)
+	if body.CurrentPassword != "" {
+		h.settleCredentialCheck(r, slot, userCtx, "email_change", err)
+	}
 	if err != nil {
 		if errors.Is(err, core.ErrIncorrectCurrentPassword) {
 			sendError(w, "Unauthorized", "Current password is incorrect", http.StatusUnauthorized, nil)
@@ -803,6 +817,47 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendSuccess(w, userProfileMap(user, h.userIdentity(r, userCtx.UserID)), "Profile updated")
+}
+
+// admitCredentialCheck puts an AUTHENTICATED request that checks the caller's
+// password (or second factor) under the same per-IP login budget /auth/login
+// uses (AUTH-PW-BUDGET): refused with 429 once the IP's budget is spent,
+// otherwise a slot is reserved before the slow check, as reserveLoginAttempt
+// requires. The per-account lockout is core's (verifyCurrentPassword,
+// requireReauth). Without both, a stolen session or PAT could guess the
+// account's password at bcrypt speed: the per-principal budget is off by default.
+// Reports false when it has answered the request.
+func (h *AuthHandler) admitCredentialCheck(w http.ResponseWriter, r *http.Request) (loginSlot, bool) {
+	ip := clientIP(r)
+	if h.checkLoginRateLimit(r.Context(), ip) {
+		sendError(w, "TooManyRequests", "Too many attempts. Try again later.", http.StatusTooManyRequests, nil)
+		return loginSlot{}, false
+	}
+	return h.reserveLoginAttempt(r.Context(), ip), true
+}
+
+// settleCredentialCheck settles admitCredentialCheck's slot by the check's
+// outcome, as the login handlers do (INV-HTTP-login-budget-counts-failures-only):
+// a rejected credential keeps it, anything else hands it back (success, a
+// refused new password or email, a storage fault before any verdict). A
+// rejected current password is audited like a failed login (auth.login_failed,
+// or auth.login_error when the password had matched and a storage fault
+// refused it); requireReauth's rejections are audited by core (mfa.failed /
+// mfa.error).
+func (h *AuthHandler) settleCredentialCheck(r *http.Request, slot loginSlot, userCtx *middleware.UserContext, op string, err error) {
+	switch {
+	case errors.Is(err, core.ErrIncorrectCurrentPassword):
+		ip, uid, username := clientIP(r), userCtx.UserID, userCtx.Username
+		if errors.Is(err, core.ErrLoginPostVerdict) {
+			goSafe(func() { h.coreService.LogCurrentPasswordError(context.Background(), uid, username, ip, op, err) }) // #nosec G118
+		} else {
+			goSafe(func() { h.coreService.LogCurrentPasswordFailure(context.Background(), uid, username, ip, op) }) // #nosec G118
+		}
+	case errors.Is(err, core.ErrReauthRejected):
+		// Core audited it; the slot stays counted.
+	default:
+		h.returnLoginSlot(r.Context(), slot)
+	}
 }
 
 type changePasswordRequestBody struct {
@@ -823,9 +878,15 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "BadRequest", errInvalidRequestBody, http.StatusBadRequest, nil)
 		return
 	}
+	// AUTH-PW-BUDGET: the current-password check spends the login budget.
+	slot, admitted := h.admitCredentialCheck(w, r)
+	if !admitted {
+		return
+	}
 
 	token := extractBearerToken(r)
 	err := h.coreService.ChangePassword(r.Context(), userCtx.UserID, body.CurrentPassword, body.NewPassword, token)
+	h.settleCredentialCheck(r, slot, userCtx, "change_password", err)
 	if err != nil {
 		if errors.Is(err, core.ErrIncorrectCurrentPassword) {
 			sendError(w, "Unauthorized", "Current password is incorrect", http.StatusUnauthorized, nil)

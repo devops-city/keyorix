@@ -742,6 +742,30 @@ func (c *KeyorixCore) LogAuthNotEvaluated(ctx context.Context, username, ip stri
 		fmt.Sprintf("Login for username %q could not be evaluated: storage error before any credential was checked: %v", username, err))
 }
 
+// LogCurrentPasswordFailure writes the auth.login_failed event a wrong password
+// on /auth/login writes (Success=false, the client IP), for a wrong current
+// password on a self-service credential change (op: "change_password",
+// "email_change"). AUTH-PW-BUDGET: those checks now spend the same lockout and
+// per-IP budget as a login, so they are audited with the same event, and a
+// password guessed through a stolen session shows up wherever failed logins are
+// counted (the dashboard's FailedAuthAttempts24h). The account is known here,
+// so it is recorded as the event's user too.
+func (c *KeyorixCore) LogCurrentPasswordFailure(ctx context.Context, userID uint, username, ip, op string) {
+	uid := userID
+	c.writeAuditEventFailed(ctx, "auth.login_failed", &uid, nil, ip,
+		fmt.Sprintf("Failed current-password check for username: %s (%s)", username, op))
+}
+
+// LogCurrentPasswordError is LogAuthError's counterpart for the same checks: the
+// current password matched and the lock re-check after it failed on storage, so
+// the change was refused like a wrong password (and counted) while the audit
+// says what really happened.
+func (c *KeyorixCore) LogCurrentPasswordError(ctx context.Context, userID uint, username, ip, op string, err error) {
+	uid := userID
+	c.writeAuditEventFailed(ctx, "auth.login_error", &uid, nil, ip,
+		fmt.Sprintf("Current-password check for username %s (%s) denied by a storage error AFTER the password matched: %v", username, op, err))
+}
+
 // LogAuthLogout writes an auth.logout audit event.
 func (c *KeyorixCore) LogAuthLogout(ctx context.Context, userID uint, username, ip, ua string) {
 	uid := userID

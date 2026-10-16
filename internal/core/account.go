@@ -35,6 +35,9 @@ func (c *KeyorixCore) UpdateOwnProfile(ctx context.Context, userID uint, display
 	if userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
 	}
+	// reauthed is the account whose bare current password (no second factor)
+	// authorised an email change; its lockout clear follows the update.
+	var reauthed *models.User
 	if email != "" {
 		user, err := c.storage.GetUser(ctx, userID)
 		if err != nil {
@@ -57,17 +60,66 @@ func (c *KeyorixCore) UpdateOwnProfile(ctx context.Context, userID uint, display
 				if err := c.requireReauth(ctx, user, currentPassword, "email_change"); err != nil {
 					return nil, err
 				}
-			} else if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
-				return nil, fmt.Errorf("%w: current password is incorrect", ErrIncorrectCurrentPassword)
+			} else if err := c.verifyCurrentPassword(ctx, user, currentPassword); err != nil {
+				return nil, err
+			} else {
+				reauthed = user
 			}
 		}
 	}
-	return c.UpdateUser(ctx, &UpdateUserRequest{
+	updated, err := c.UpdateUser(ctx, &UpdateUserRequest{
 		ID:          userID,
 		ActorID:     userID,
 		DisplayName: displayName,
 		Email:       email,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if reauthed != nil {
+		// The password was full authentication for this account (no second
+		// factor) and the change has committed: reset the lockout like a
+		// delivered password login does (AUTH-PW-BUDGET).
+		c.clearLoginFailures(ctx, reauthed)
+	}
+	return updated, nil
+}
+
+// verifyCurrentPassword checks the caller's current password for a self-service
+// credential change (ChangePassword, and UpdateOwnProfile's email change on an
+// account with no second factor) against the same per-account lockout a password
+// login uses (AUTH-PW-BUDGET). Both endpoints are reachable with nothing but a
+// bearer token, and used a bare bcrypt comparison: a stolen session could guess
+// the account's password with no bound at all.
+//
+// It is VerifyPasswordCredentials' lockout handling for a caller that is already
+// identified: refused while the account is locked, even with the right password
+// (spending an equivalent bcrypt first, so the lock is not a timing signal); a
+// wrong password is counted by recordFailedLogin; a match re-checks the lock
+// under recordFailedLogin's serialization (recheckLockAfterCredentialMatched),
+// as authenticatePasswordLogin does before it mints.
+//
+// Every refusal wraps ErrIncorrectCurrentPassword, so the client gets the answer
+// a wrong password already got: a locked account, and a storage fault in the
+// re-check after a match (counted; ErrLoginPostVerdict stays in the chain for
+// the audit), look exactly like a wrong password, as on /auth/login. It never
+// clears the counter: the caller does that once its change has committed, and
+// only when the password alone is full authentication (no second factor). A
+// correct password on an MFA account must not reset the counter its second
+// factor's guesses feed, exactly as the password step of an MFA login does not.
+func (c *KeyorixCore) verifyCurrentPassword(ctx context.Context, user *models.User, password string) error {
+	if c.loginLocked(user) {
+		_ = bcrypt.CompareHashAndPassword(*dummyBcryptHash.Load(), []byte(password))
+		return fmt.Errorf("%w: account temporarily locked due to repeated failed logins", ErrIncorrectCurrentPassword)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		c.recordFailedLogin(ctx, user)
+		return fmt.Errorf("%w: current password is incorrect", ErrIncorrectCurrentPassword)
+	}
+	if err := c.recheckLockAfterCredentialMatched(ctx, user, true); err != nil {
+		return fmt.Errorf("%w: %w", ErrIncorrectCurrentPassword, err)
+	}
+	return nil
 }
 
 // ChangePassword verifies the caller's current password and sets a new one. On
@@ -84,8 +136,10 @@ func (c *KeyorixCore) ChangePassword(ctx context.Context, userID uint, current, 
 	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(current)); err != nil {
-		return fmt.Errorf("%w: current password is incorrect", ErrIncorrectCurrentPassword)
+	// Lockout-checked and counted like a login (AUTH-PW-BUDGET); see
+	// verifyCurrentPassword.
+	if err := c.verifyCurrentPassword(ctx, user, current); err != nil {
+		return err
 	}
 	// Enforce policy + history after the current-password check so an attacker can't
 	// probe the policy without already holding valid credentials (ADR-025).
@@ -94,6 +148,14 @@ func (c *KeyorixCore) ChangePassword(ctx context.Context, userID uint, current, 
 	}
 	if err := c.applyNewPassword(ctx, user, newPassword); err != nil {
 		return err
+	}
+	// The change has committed. Reset the lockout as a delivered password login
+	// does, but only where the password alone is full authentication: with a
+	// second factor enrolled, a correct password plus a refused new password
+	// must not wipe the count that factor's guesses feed (see
+	// verifyCurrentPassword).
+	if !user.MFAEnabled && !user.WebAuthnEnabled {
+		c.clearLoginFailures(ctx, user)
 	}
 
 	// Drop OTHER sessions and evict them from the auth cache, so a thief holding a
