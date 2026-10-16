@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,4 +138,18 @@ func sourceLine(src []byte, line int) string {
 		return ""
 	}
 	return lines[line-1]
+}
+
+// TestErrorMessageFor_FiveXXIsGeneric: a 4xx keeps core's message (the caller needs
+// it to fix the request), a 5xx never carries the error text.
+func TestErrorMessageFor_FiveXXIsGeneric(t *testing.T) {
+	err := errors.New(`pq: duplicate key value violates unique constraint "secret_nodes_pkey"`)
+	if got := errorMessageFor(http.StatusBadRequest, err); got != err.Error() {
+		t.Errorf("4xx message = %q, want the error text", got)
+	}
+	for _, status := range []int{http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable} {
+		if got := errorMessageFor(status, err); strings.Contains(got, "pq:") || got != clientSafe(err) {
+			t.Errorf("%d message = %q, want the generic text", status, got)
+		}
+	}
 }
