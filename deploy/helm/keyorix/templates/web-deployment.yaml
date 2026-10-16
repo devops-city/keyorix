@@ -112,6 +112,9 @@ spec:
               cpu: 500m
               memory: 128Mi
             {{- end }}
+      {{- with include "keyorix.topologySpread" (list . "web" .Values.web.topologySpreadConstraints .Values.web.replicas) }}
+      {{- . | nindent 6 }}
+      {{- end }}
       volumes:
         - name: nginx-config
           configMap:

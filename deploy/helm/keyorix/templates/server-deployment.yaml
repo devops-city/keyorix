@@ -16,10 +16,20 @@ metadata:
     # required by the ReadWriteOnce ownership model.
     kube-score/ignore: "deployment-strategy,deployment-replicas"
 spec:
-  # Single instance: the keys volume is ReadWriteOnce and the KEK is per-instance.
-  replicas: 1
+  {{- $replicas := int (include "keyorix.server.replicas" .) }}
+  # One replica (default): the keys volume is ReadWriteOnce and the KEK is
+  # per-instance. More replicas are the ADR-039 HA topology and render only on a
+  # shared ReadWriteMany keys volume (keyorix.server.replicas refuses the rest).
+  replicas: {{ $replicas }}
   strategy:
+    {{- if gt $replicas 1 }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+    {{- else }}
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
@@ -298,4 +308,7 @@ spec:
       {{- with .Values.server.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with include "keyorix.topologySpread" (list . "server" .Values.server.topologySpreadConstraints $replicas) }}
+      {{- . | nindent 6 }}
       {{- end }}

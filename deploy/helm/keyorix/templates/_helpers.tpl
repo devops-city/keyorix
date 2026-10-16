@@ -406,3 +406,66 @@ default off.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The server replica count, validated. One replica (the default) is the
+single-instance deployment: Recreate strategy, one ReadWriteOnce keys volume. More
+than one is the HA topology of ADR-039 and is refused unless it can work:
+  - storage.database.single_writer means exactly one server (docs/single-writer.md:
+    a second server refuses to start), so server.singleWriter and replicas > 1
+    exclude each other;
+  - every replica must read the SAME wrapped DEK and KEK salt, so the keys volume
+    must be persistent and shared (ReadWriteMany). A per-pod or ReadWriteOnce volume
+    gives each replica its own keys, or leaves the extra pods Pending/unable to
+    decrypt what a sibling wrote.
+The chart renders PostgreSQL only (storage.type is not configurable), so SQLite,
+which is single-process, cannot be combined with replicas here.
+*/}}
+{{- define "keyorix.server.replicas" -}}
+{{- $r := 1 -}}
+{{- if hasKey .Values.server "replicas" -}}{{- $r = int .Values.server.replicas -}}{{- end -}}
+{{- if lt $r 1 -}}
+{{- fail (printf "server.replicas: %d must be at least 1" $r) -}}
+{{- end -}}
+{{- if gt $r 1 -}}
+{{- if .Values.server.singleWriter -}}
+{{- fail (printf "server.replicas=%d with server.singleWriter=true: single-writer mode allows exactly one Keyorix server (docs/single-writer.md); set server.replicas=1 or server.singleWriter=false" $r) -}}
+{{- end -}}
+{{- if not .Values.server.keysPersistence.enabled -}}
+{{- fail (printf "server.replicas=%d needs server.keysPersistence.enabled=true on a ReadWriteMany volume: replicas must share one wrapped DEK and KEK salt" $r) -}}
+{{- end -}}
+{{- if ne (toString .Values.server.keysPersistence.accessMode) "ReadWriteMany" -}}
+{{- fail (printf "server.replicas=%d needs server.keysPersistence.accessMode=ReadWriteMany (got %q): replicas must share one wrapped DEK and KEK salt" $r (toString .Values.server.keysPersistence.accessMode)) -}}
+{{- end -}}
+{{- end -}}
+{{- $r -}}
+{{- end -}}
+
+{{/*
+topologySpreadConstraints for a component with more than one replica: the user's
+list verbatim when given, otherwise spread over nodes and zones as a preference
+(ScheduleAnyway), so a one-node or one-zone cluster still schedules every replica.
+Called as (include "keyorix.topologySpread" (list . "server" <user list> <replicas>));
+renders nothing for a single replica, where a constraint has nothing to spread.
+*/}}
+{{- define "keyorix.topologySpread" -}}
+{{- $ctx := index . 0 -}}
+{{- $component := index . 1 -}}
+{{- $user := index . 2 -}}
+{{- if gt (int (index . 3)) 1 -}}
+topologySpreadConstraints:
+{{- if $user }}
+{{ toYaml $user | indent 2 }}
+{{- else }}
+{{- range $key := list "kubernetes.io/hostname" "topology.kubernetes.io/zone" }}
+  - maxSkew: 1
+    topologyKey: {{ $key }}
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/instance: {{ $ctx.Release.Name }}
+        app.kubernetes.io/component: {{ $component }}
+{{- end }}
+{{- end }}
+{{- end -}}
+{{- end -}}

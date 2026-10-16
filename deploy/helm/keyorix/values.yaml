@@ -100,9 +100,34 @@ server:
     # tag.
     digest: ""
     pullPolicy: IfNotPresent
-  # The server holds the encryption keys on a single ReadWriteOnce volume and is
-  # a single logical instance — do not scale beyond 1 replica.
+  # One replica (default): the single-instance deployment, keys on a ReadWriteOnce
+  # volume, Recreate rollouts. More than one is the HA topology of ADR-039 and the
+  # render FAILS unless it can work:
+  #   - keysPersistence.enabled with accessMode ReadWriteMany: every replica must
+  #     read the same wrapped DEK and KEK salt (a per-pod or ReadWriteOnce volume
+  #     gives each replica its own keys);
+  #   - singleWriter must be false (single-writer mode allows exactly one server).
+  # The chart renders PostgreSQL only, so SQLite (single-process) cannot be
+  # combined with replicas here. With replicas > 1 the chart also renders a
+  # PodDisruptionBudget, topologySpreadConstraints, RollingUpdate rollouts and sets
+  # security.auth_rate_limit_fallback.replicas. Use an external PostgreSQL
+  # (postgresql.enabled=false): the bundled one is a single evaluation pod.
   replicas: 1
+  # storage.database.single_writer (docs/single-writer.md): this one server is the
+  # database's only writer, which buys cheaper warm reads. Needs PostgreSQL, no
+  # externalDatabase.pooler=pgbouncer-transaction, and exactly one replica.
+  singleWriter: false
+  # PodDisruptionBudget, rendered only for replicas > 1 (a budget on a singleton
+  # could only block its one drain). minAvailable wins when both are set; to use
+  # maxUnavailable instead, set `minAvailable: null` too.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # topologySpreadConstraints for replicas > 1. Empty (default) = spread over nodes
+  # and zones as a preference (ScheduleAnyway) so a small cluster still schedules
+  # every replica; a list here replaces that default verbatim (include your own
+  # labelSelector: app.kubernetes.io/component=server plus the release instance).
+  topologySpreadConstraints: []
   service:
     port: 8080
   # trustedProxies is the server's own server.http.trusted_proxies: IPs/CIDRs of the
@@ -188,6 +213,9 @@ web:
     digest: ""
     pullPolicy: IfNotPresent
   replicas: 1
+  # topologySpreadConstraints for replicas > 1; same default and override rules as
+  # server.topologySpreadConstraints (labelSelector: component=web).
+  topologySpreadConstraints: []
   service:
     type: ClusterIP
     port: 80

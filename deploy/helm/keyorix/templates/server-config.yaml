@@ -61,9 +61,20 @@ data:
           requests_per_second: 25
           burst: 50
         metrics_token_file: "/app/run/tls/metrics_token"
-    security:
-      require_transport_tls: true
         {{- end }}
+    {{- $replicas := int (include "keyorix.server.replicas" .) }}
+    {{- if or .Values.secureBaseline.enabled (gt $replicas 1) }}
+    security:
+      {{- if .Values.secureBaseline.enabled }}
+      require_transport_tls: true
+      {{- end }}
+      {{- if gt $replicas 1 }}
+      # Each replica enforces 1/N of the auth rate limits while the database is
+      # unreachable (docs/CONFIGURATION.md, "Auth rate limits during a database fault").
+      auth_rate_limit_fallback:
+        replicas: {{ $replicas }}
+      {{- end }}
+    {{- end }}
     storage:
       type: postgres
       database:
@@ -83,6 +94,13 @@ data:
         {{- end }}
         {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.pooler }}
         pooler: {{ .Values.externalDatabase.pooler | quote }}
+        {{- end }}
+        {{- if .Values.server.singleWriter }}
+        {{- if eq (toString .Values.externalDatabase.pooler) "pgbouncer-transaction" }}
+        {{- fail "server.singleWriter=true is refused by the server with externalDatabase.pooler=pgbouncer-transaction (docs/single-writer.md); use pgbouncer-session or no pooler" }}
+        {{- end }}
+        # server.singleWriter: exactly one Keyorix server (docs/single-writer.md).
+        single_writer: true
         {{- end }}
       encryption:
         enabled: true
