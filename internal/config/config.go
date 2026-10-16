@@ -505,6 +505,15 @@ type GRPCKeepaliveConfig struct {
 	// MaxConnectionAgeGrace is how long after MaxConnectionAge the server waits for
 	// active RPCs to finish before force-closing. Default 30s when unset/unparseable.
 	MaxConnectionAgeGrace string `yaml:"max_connection_age_grace,omitempty"`
+	// MaxConnectionIdle closes a connection that has had no RPC in flight for this
+	// long. Keepalive pings alone never reclaim it: a live client acks them, so an
+	// authenticated caller could otherwise park idle connections until the server
+	// runs out of descriptors. Default 15m when unset/unparseable.
+	MaxConnectionIdle string `yaml:"max_connection_idle,omitempty"`
+	// HandshakeTimeout bounds a new connection's TLS handshake plus HTTP/2 preface.
+	// grpc-go's own default is 120s, which lets a client that opens TCP and sends
+	// nothing hold a connection for two minutes. Default 10s when unset/unparseable.
+	HandshakeTimeout string `yaml:"handshake_timeout,omitempty"`
 }
 
 // defaultGRPCKeepaliveTime/Timeout/MinTime are the server-side keepalive defaults
@@ -515,6 +524,8 @@ const (
 	defaultGRPCKeepaliveMinTime      = 5 * time.Minute
 	defaultGRPCMaxConnectionAge      = 1 * time.Hour
 	defaultGRPCMaxConnectionAgeGrace = 30 * time.Second
+	defaultGRPCMaxConnectionIdle     = 15 * time.Minute
+	defaultGRPCHandshakeTimeout      = 10 * time.Second
 )
 
 // GetTime returns the idle-before-ping interval (default 5m).
@@ -540,6 +551,18 @@ func (c GRPCKeepaliveConfig) GetMaxConnectionAge() time.Duration {
 
 func (c GRPCKeepaliveConfig) GetMaxConnectionAgeGrace() time.Duration {
 	return parseDurationDefault(c.MaxConnectionAgeGrace, defaultGRPCMaxConnectionAgeGrace)
+}
+
+// GetMaxConnectionIdle returns how long a connection may sit with no RPC in flight
+// before the server closes it (default 15m).
+func (c GRPCKeepaliveConfig) GetMaxConnectionIdle() time.Duration {
+	return parseDurationDefault(c.MaxConnectionIdle, defaultGRPCMaxConnectionIdle)
+}
+
+// GetHandshakeTimeout returns the bound on a new connection's TLS handshake and
+// HTTP/2 preface (default 10s).
+func (c GRPCKeepaliveConfig) GetHandshakeTimeout() time.Duration {
+	return parseDurationDefault(c.HandshakeTimeout, defaultGRPCHandshakeTimeout)
 }
 
 // defaultMaxRequestBodyBytes is the request-body cap when none is configured.
