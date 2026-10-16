@@ -9,7 +9,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -382,10 +381,13 @@ var projectStatsCmd = &cobra.Command{
 }
 
 func init() {
-	projectStatsCmd.Flags().StringVar(&projectStatsFormat, "format", "table", "Output format (table, json)")
+	addOutputFlag(projectStatsCmd, &projectStatsFormat)
 }
 
 func runProjectStats(_ *cobra.Command, args []string) error {
+	if err := checkOutputFormat(projectStatsFormat); err != nil {
+		return err
+	}
 	name := args[0]
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -412,20 +414,11 @@ func runProjectStats(_ *cobra.Command, args []string) error {
 }
 
 func printProjectStats(projectName string, s *projectStats) error {
-	switch projectStatsFormat {
-	case "json":
-		b, err := json.Marshal(s)
-		if err != nil {
-			return fmt.Errorf("failed to marshal stats: %w", err)
-		}
-		fmt.Println(string(b))
-		return nil
-	case "table":
+	if projectStatsFormat == outputTable {
 		printProjectStatsTable(projectName, s)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", projectStatsFormat)
 	}
+	return printStructured(projectStatsFormat, s)
 }
 
 func printProjectStatsTable(projectName string, s *projectStats) {
@@ -559,10 +552,13 @@ var projectHealthCmd = &cobra.Command{
 
 func init() {
 	projectHealthCmd.Flags().IntVar(&projectHealthLimit, "limit", 20, "Maximum number of secrets to display (1-100)")
-	projectHealthCmd.Flags().StringVar(&projectHealthFormat, "format", "table", "Output format (table, json)")
+	addOutputFlag(projectHealthCmd, &projectHealthFormat)
 }
 
 func runProjectHealth(_ *cobra.Command, args []string) error {
+	if err := checkOutputFormat(projectHealthFormat); err != nil {
+		return err
+	}
 	name := args[0]
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -594,20 +590,11 @@ func runProjectHealth(_ *cobra.Command, args []string) error {
 }
 
 func printProjectHealth(projectName string, s *projectHealthSummary) error {
-	switch projectHealthFormat {
-	case "json":
-		b, err := json.Marshal(s)
-		if err != nil {
-			return fmt.Errorf("failed to marshal health summary: %w", err)
-		}
-		fmt.Println(string(b))
-		return nil
-	case "table":
+	if projectHealthFormat == outputTable {
 		printProjectHealthTable(projectName, s)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", projectHealthFormat)
 	}
+	return printStructured(projectHealthFormat, s)
 }
 
 func printProjectHealthTable(projectName string, s *projectHealthSummary) {

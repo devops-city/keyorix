@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -29,11 +27,14 @@ var secretVersionsCmd = &cobra.Command{
 
 func init() {
 	secretVersionsCmd.Flags().IntVar(&secretVersionsID, "id", 0, "Secret ID (required)")
-	secretVersionsCmd.Flags().StringVar(&secretVersionsFormat, "format", "table", "Output format (table, json)")
+	addOutputFlag(secretVersionsCmd, &secretVersionsFormat)
 	SecretCmd.AddCommand(secretVersionsCmd)
 }
 
 func runSecretVersions(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(secretVersionsFormat); err != nil {
+		return err
+	}
 	if secretVersionsID == 0 {
 		return fmt.Errorf("secret ID is required (use --id)")
 	}
@@ -63,15 +64,11 @@ func runSecretVersions(cmd *cobra.Command, args []string) error {
 	versions := derefSecretVersionSlice(vresp.JSON200.Data.Versions)
 	totalReads := vresp.JSON200.Data.TotalReads
 
-	switch secretVersionsFormat {
-	case "json":
-		return displayVersionsJSON(secret, versions, totalReads)
-	case "table":
+	if secretVersionsFormat == outputTable {
 		displayVersionsTable(secret, versions, totalReads)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", secretVersionsFormat)
 	}
+	return displayVersionsStructured(secretVersionsFormat, secret, versions, totalReads)
 }
 
 // displayVersionsTable omits the size/algorithm columns the old CLI's
@@ -126,7 +123,7 @@ type jsonVersionEntry struct {
 	CreatedAt     string `json:"created_at"`
 }
 
-func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVersion, totalReads *int) error {
+func displayVersionsStructured(format string, secret *apiclient.Secret, versions []apiclient.SecretVersion, totalReads *int) error {
 	var out struct {
 		Secret struct {
 			ID   int    `json:"id"`
@@ -150,9 +147,7 @@ func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVe
 		}
 		out.Versions = append(out.Versions, entry)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return printStructured(format, out)
 }
 
 // ── diff ────────────────────────────────────────────────────────────────────────

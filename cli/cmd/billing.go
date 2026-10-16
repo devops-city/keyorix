@@ -8,7 +8,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -51,7 +50,7 @@ func init() {
 	billingReportCmd.Flags().StringVar(&billingReportFrom, "from", "", "Start of billing window, RFC3339 (e.g. 2026-01-01T00:00:00Z) — required")
 	billingReportCmd.Flags().StringVar(&billingReportTo, "to", "", "End of billing window, RFC3339 (e.g. 2026-02-01T00:00:00Z) — required")
 	billingReportCmd.Flags().StringVar(&billingReportProjectID, "project-id", "", "Comma-separated project IDs to include (omit for all)")
-	billingReportCmd.Flags().StringVar(&billingReportFormat, "format", "table", "Output format: table or json")
+	addOutputFlag(billingReportCmd, &billingReportFormat)
 	if err := billingReportCmd.MarkFlagRequired("from"); err != nil {
 		panic(err)
 	}
@@ -62,6 +61,9 @@ func init() {
 }
 
 func runBillingReport(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(billingReportFormat); err != nil {
+		return err
+	}
 	from, err := time.Parse(time.RFC3339, billingReportFrom)
 	if err != nil {
 		return fmt.Errorf("invalid --from value %q: must be RFC3339 (e.g. 2026-01-01T00:00:00Z)", billingReportFrom)
@@ -92,10 +94,8 @@ func runBillingReport(_ *cobra.Command, _ []string) error {
 }
 
 func printBillingReport(report *apiclient.BillingReport) error {
-	if billingReportFormat == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(report)
+	if billingReportFormat != outputTable {
+		return printStructured(billingReportFormat, report)
 	}
 
 	projects := []apiclient.BillingProjectStat{}
