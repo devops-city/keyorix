@@ -1398,13 +1398,28 @@ func isBackendRoute(p string) bool {
 	return false
 }
 
-// writeJSONNotFound sends a JSON 404, for a NotFound request whose Accept
-// header indicates the caller is not a browser expecting the SPA shell.
+// writeJSONNotFound sends a JSON 404: for an unmatched backend route, and for a
+// NotFound request whose Accept header indicates the caller is not a browser
+// expecting the SPA shell.
 func writeJSONNotFound(w http.ResponseWriter) {
+	writeJSONError(w, http.StatusNotFound, "NotFound", "not found")
+}
+
+// writeJSONError writes the API's error body (the same shape handlers.sendError
+// and the middleware envelopes use) for responses the router itself produces:
+// 404, 405, and the /metrics 401. Without it these were net/http's text/plain
+// "404 page not found", an empty 405 and a text/plain 401, so a client could not
+// parse every error the same way.
+//
+// Cache-Control is reset to no-store: setCacheHeaders has already marked a static
+// asset path cacheable for a year before the file server finds it missing, and a
+// cached 404 would outlive the next deploy that adds the file.
+func writeJSONError(w http.ResponseWriter, status int, errType, message string) {
+	w.Header().Set(hdrCacheControl, "no-store")
 	w.Header().Set(hdrContentType, "application/json")
-	w.WriteHeader(http.StatusNotFound)
+	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"error": "NotFound", "message": "not found", "code": http.StatusNotFound,
+		"success": false, "error": errType, "message": message, "code": status,
 	})
 }
 
@@ -1421,13 +1436,17 @@ func noDirListing(fsys http.FileSystem, h http.Handler) http.Handler {
 		if !strings.HasPrefix(upath, "/") {
 			upath = "/" + upath
 		}
-		if f, err := fsys.Open(path.Clean(upath)); err == nil {
-			fi, statErr := f.Stat()
-			_ = f.Close()
-			if statErr == nil && fi.IsDir() {
-				http.NotFound(w, req)
-				return
-			}
+		f, err := fsys.Open(path.Clean(upath))
+		if err != nil {
+			// A missing asset: the JSON 404, not http.FileServer's text/plain one.
+			writeJSONNotFound(w)
+			return
+		}
+		fi, statErr := f.Stat()
+		_ = f.Close()
+		if statErr == nil && fi.IsDir() {
+			writeJSONNotFound(w)
+			return
 		}
 		h.ServeHTTP(w, req)
 	})
@@ -1452,9 +1471,14 @@ func registerWebUI(r chi.Router, fsys http.FileSystem) {
 	}
 	serveStatic("/assets/*", assetServer, setCacheHeaders)
 	serveStatic("/static/*", assetServer, setCacheHeaders)
-	serveStatic("/sw.js", fileServer)
-	serveStatic("/manifest.json", fileServer)
-	serveStatic("/favicon.ico", fileServer)
+	serveStatic("/sw.js", assetServer)
+	serveStatic("/manifest.json", assetServer)
+	serveStatic("/favicon.ico", assetServer)
+
+	// A known path with an unregistered method: JSON 405 (chi's default is an empty body).
+	r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSONError(w, http.StatusMethodNotAllowed, "MethodNotAllowed", "method not allowed")
+	})
 
 	// SPA fallback: serve index.html for any non-API route that didn't match a
 	// registered handler, so client-side routes (e.g. /admin/users) resolve. Only for
@@ -1463,12 +1487,12 @@ func registerWebUI(r chi.Router, fsys http.FileSystem) {
 		// An unmatched path under any known backend route family is a 404
 		// regardless of method — never the SPA shell.
 		if isBackendRoute(req.URL.Path) {
-			http.NotFound(w, req)
+			writeJSONNotFound(w)
 			return
 		}
 		// A mutating method to a non-backend, unmatched path is not a page load.
 		if req.Method != http.MethodGet && req.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeJSONError(w, http.StatusMethodNotAllowed, "MethodNotAllowed", "method not allowed")
 			return
 		}
 		// A client asking for something other than HTML — an OpenAPI-driven
@@ -1483,13 +1507,13 @@ func registerWebUI(r chi.Router, fsys http.FileSystem) {
 		}
 		f, err := fsys.Open("index.html")
 		if err != nil {
-			http.NotFound(w, req)
+			writeJSONNotFound(w)
 			return
 		}
 		defer func() { _ = f.Close() }()
 		fi, err := f.Stat()
 		if err != nil {
-			http.NotFound(w, req)
+			writeJSONNotFound(w)
 			return
 		}
 		w.Header().Set(hdrCacheControl, cacheNoCache)
@@ -1575,7 +1599,7 @@ func metricsHandlerFor(inst config.ServerInstanceConfig) http.Handler {
 	tok, err := inst.ResolveMetricsToken()
 	if err != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized", "unauthorized")
 		})
 	}
 	if tok == "" {
@@ -1584,7 +1608,7 @@ func metricsHandlerFor(inst config.ServerInstanceConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		auth := req.Header.Get("Authorization")
 		if len(auth) < 8 || auth[:7] != "Bearer " || subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(tok)) != 1 {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, "Unauthorized", "unauthorized")
 			return
 		}
 		metricsHandler.ServeHTTP(w, req)
