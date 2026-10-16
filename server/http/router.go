@@ -103,7 +103,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// opinion of their own keep the safe no-store default instead of silently having none.
 	r.Use(customMiddleware.NoStore)
 	r.Use(customMiddleware.PrometheusMiddleware)
-	r.Use(customMiddleware.MaxBodyBytes(cfg.Server.HTTP.EffectiveMaxRequestBodyBytes()))
+	r.Use(customMiddleware.MaxBodyBytesFor(requestBodyLimit(cfg.Server.HTTP.EffectiveMaxRequestBodyBytes())))
 	r.Use(middleware.Timeout(60 * time.Second))
 	// RESIL-1 (#2637 follow-up): a request whose write timed out on the SQLite write
 	// gate answers 503 + Retry-After instead of a generic 500. Inside Timeout (it must
