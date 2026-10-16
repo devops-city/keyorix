@@ -488,6 +488,53 @@ UNVERIFIED as an upgrade drill; the behaviour is covered by
 `TestAuditDurability_PostgresEndToEnd` and
 `TestSecurityPostureSnapshot_AuditsAuditDurabilityLevelChange`.
 
+## 6d. Refused secret-value reads are now audited
+
+A refused native secret-value read (REST `GET /secrets/{id}?include_value=true`,
+`/secrets/value`, render, copy, environment copy and clone, and gRPC
+`GetSecretValue`) now writes a `secret.read` audit row with `success=false`,
+`outcome=denied` and a `reason=` class (`forbidden`, `not_found`,
+`outside_schedule`, `expired`, `suspended`, `max_reads_exhausted`,
+`classification_gate`, `mfa_required`; a read that breaks is `internal_error`
+with `outcome=failed`). Before, only federated (`connect.secret_read`) denials
+were audited. API responses are unchanged. A burst is aggregated per principal,
+reason, path and target (the first refusal at once, then one summary row per
+60 seconds), so expect a somewhat higher audit volume under probing, and an
+audit export or report that filtered on `event_type=secret.read` now also sees
+`success=false` rows: filter on `success=true` for "secrets disclosed". The
+dashboard read counts, top readers, billing machine reads and access-review
+activity count only successful reads. The row is best-effort: if it cannot be
+written, the refusal stands and the failure is logged.
+
+## 6e. New opt-out: `storage.database.insecure_audit_skip_reads`
+
+`storage.database.insecure_audit_skip_reads` (ADR-112 Amendment 4) defaults to
+`false`, so an upgrade changes nothing. Do not set it unless you accept that
+successful secret reads leave no audit row and no access-log row (writes,
+authentication, denied reads, admin and break-glass actions are still audited;
+read history, read counts, usage reports and anomaly detection do not see
+reads). It is config-file only and a compliance profile refuses it. When on,
+every start logs a `WARNING` and writes `admin.audit_reads_skipped_at_startup`,
+`admin validate` and `admin validate --posture` report a deviation,
+`GET /api/v1/system/info` returns `security.audit_reads_skipped: true`, and the
+web UI shows a banner that cannot be dismissed. It is independent of
+`audit_durability` (§6c). See [`security/hardening-guide.md`](security/hardening-guide.md) §5b.
+
+## 6f. New opt-in: `storage.database.single_writer` (PostgreSQL)
+
+`storage.database.single_writer` defaults to `false`; with it off nothing changes
+except that a start-up refuses while a single-writer server holds the database
+and removes a fence one left behind. Turning it on declares this server the
+database's only writer: it takes a per-schema advisory lock (a second server, a
+server without the setting, and `admin --force` are refused while it runs),
+installs triggers that refuse direct writes to the security tables from any
+other session, and may then serve warm machine-token secret reads without
+re-running the confirming statement. If the fence cannot be installed and
+verified, the server refuses to start. Read [`single-writer.md`](single-writer.md)
+(including the emergency procedure for a direct database change) before
+enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
+`admin validate --posture` afterwards.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:
