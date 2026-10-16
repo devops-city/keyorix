@@ -19,6 +19,9 @@ import (
 // Examples never put a secret value on the command line (the CLI prompts, or reads
 // KEYORIX_* environment variables / files, for those); the test enforces that too.
 // A command that already sets its own Example keeps it.
+//
+// #nosec G101 -- command-line examples for --help: some name a secret (DB_PASSWORD) or
+// use words like "password", but none holds a credential (TestHelpExamples refuses one).
 var helpExamples = map[string]string{
 	"access-review attest": `# Attest that a role grant is still needed
 keyorix access-review attest --project-id 3 --source role --role-id 4 --principal-id 12`,
