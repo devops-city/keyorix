@@ -133,6 +133,12 @@ Qualitative only; measure on your hardware.
   ([PERFORMANCE.md](PERFORMANCE.md#sqlite-settings)). A 64-bit Pi-class board
   with a good disk is a reasonable fit for a site's own secrets and a modest
   number of local clients; it is not a hub for a large fleet.
+- **Footprint is guarded, not promised.** `scripts/edge/footprint.sh` measures
+  the release binary (full and air-gapped builds) and the peak memory of a
+  started, idle server against a budget kept in the repository, so growth is a
+  visible decision rather than an accident. It is the idle floor: a loaded
+  server needs more ([runtime-tuning.md](runtime-tuning.md)), and what your
+  hardware needs is yours to measure.
 - **Disable swap** ([hardening guide §7](security/hardening-guide.md#7-process-and-host-hardening)).
   On a small-RAM board this means leaving headroom rather than relying on
   swap, so keep co-located services to a minimum.
