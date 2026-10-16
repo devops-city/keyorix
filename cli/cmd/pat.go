@@ -103,7 +103,7 @@ func patAPIClient() (*apiclient.ClientWithResponses, error) {
 
 func runPATCreate(cmd *cobra.Command, args []string) error {
 	if strings.TrimSpace(patCreateName) == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	if patCreateEnv > 0 && patCreateProject == 0 {
 		return fmt.Errorf("--environment-id requires --project-id (an environment belongs to a project)")
