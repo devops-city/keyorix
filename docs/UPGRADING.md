@@ -535,6 +535,27 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
+## 6g. `server.grpc.tls.auto_cert: true` now refuses to start
+
+Automatic (ACME) certificates exist only for the HTTP listener. On gRPC the flag
+never obtained a certificate: with `server.grpc.tls.enabled: true` the server
+started and every gRPC TLS handshake failed, and with `enabled: false` the gRPC
+listener served plaintext. A config that sets `server.grpc.tls.auto_cert: true`
+is now refused at start-up with a message naming the key (AUTH-2).
+
+If your config has the line, remove it and either give gRPC a certificate:
+
+```yaml
+server:
+  grpc:
+    tls:
+      enabled: true
+      cert_file: /etc/keyorix/grpc.crt
+      key_file: /etc/keyorix/grpc.key
+```
+
+or terminate gRPC TLS at a proxy. `server.http.tls.auto_cert` is unchanged.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

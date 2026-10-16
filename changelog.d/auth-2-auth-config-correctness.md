@@ -1,0 +1,2 @@
+### Changed
+- **`server.grpc.tls.auto_cert: true` is refused at start-up.** gRPC has no ACME client: with gRPC TLS enabled the server started and every handshake failed, and with it disabled the listener served plaintext. `Config.Validate` and the gRPC server now both refuse the flag with a message naming the key; set `cert_file`/`key_file` instead (docs/UPGRADING.md §6g). `server.http.tls.auto_cert` is unchanged.

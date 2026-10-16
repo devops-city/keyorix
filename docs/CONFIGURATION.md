@@ -189,7 +189,9 @@ server:
 `auto_cert` is ACME — it needs a public domain and inbound 80/443, so it does not work
 for a local, internal-only, or air-gapped deployment. For those, set `cert_file`/
 `key_file` to a PEM cert and key instead (gRPC's `tls:` block takes the same two
-fields; `domains`/`cert_cache_dir`/`allowed_ciphers` apply to HTTP only). A quick
+fields; `domains`/`cert_cache_dir`/`allowed_ciphers` apply to HTTP only). `auto_cert`
+is HTTP-only: `server.grpc.tls.auto_cert: true` is refused at start-up, because gRPC has
+no ACME client and the flag used to start a listener whose every handshake failed. A quick
 self-signed pair for local use:
 
 ```sh
