@@ -35,11 +35,13 @@ func TestUpdateSecretWrites_AreColumnScoped(t *testing.T) {
 		{"secrets.go", "UpdateSecret"},
 		{"secrets_versions.go", "updateSecretWithNewVersion"},
 	} {
-		// updateSecretWithNewVersion and transferOwnership (#3102: the owner write and
-		// the share re-stamp share one transaction) write through their transaction
-		// handle, so the required receiver is "tx" there and "storage" everywhere else.
+		// updateSecretWithNewVersion, transferOwnership (#3102: the owner write and
+		// the share re-stamp share one transaction) and UpdateSecret (AUDIT-MUTATION-TX-1:
+		// the field write and its audit row share one transaction) write through their
+		// transaction handle, so the required receiver is "tx" there and "storage"
+		// everywhere else.
 		recv := "storage"
-		if c.fn == "updateSecretWithNewVersion" || c.fn == "transferOwnership" {
+		if c.fn == "updateSecretWithNewVersion" || c.fn == "transferOwnership" || c.fn == "UpdateSecret" {
 			recv = "tx"
 		}
 		assertCoreWritesOnlyVia(t, c.file, c.fn, recv, "UpdateSecretFields", "Save", "UpdateSecret")
