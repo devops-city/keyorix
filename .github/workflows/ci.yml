@@ -150,6 +150,23 @@ jobs:
   # gitleaks is NOT gated by this: a secret pasted into a markdown file is
   # exactly the class of leak gitleaks exists to catch, so it always runs
   # regardless of docs_only.
+  #
+  # Two CI profiles (CI-LIGHT-1, 2026-10-16: GitHub runners were the
+  # bottleneck, ~60 concurrent jobs fully used and ~31,000 runner-minutes a
+  # day, measured in ~/proj/prompts/reports/SESSION-CI-LIGHT-1.md):
+  #   - FAST: a pull_request without the ci:full label. Build, vet, lint,
+  #     gosec/govulncheck, the guard and freshness checks, the changelog and
+  #     ledger checks (adr-numbers), test-quick, gitleaks, plus the jobs whose
+  #     inputs the PR actually touched (operator/, migrate/, cli/, go.mod,
+  #     deploy/helm/, the OpenAPI spec).
+  #   - FULL: merge_group, push to main/release, schedule, workflow_dispatch,
+  #     and a pull_request carrying ci:full. Every job, exactly as before:
+  #     the 21-leg -race test-suite, e2e/web-e2e/boot/demo smokes, fuzz-targets/
+  #     fuzz-reach, the QUICK_START smoke, every module and chart job.
+  # Every check that ran on pull_request before still runs before anything
+  # reaches main: either still on the PR, or in the merge queue (FULL). Jobs
+  # skipped in FAST report "skipped", which satisfies a required check; the
+  # merge queue then runs them for real against the merge result.
   changes:
     runs-on: ubuntu-latest
     permissions:
@@ -159,6 +176,20 @@ jobs:
       # (lists this workflow's own merge_group runs for github.sha).
       actions: read
     outputs:
+      # 'true' = FULL profile (see above), 'false' = FAST. Only a pull_request
+      # without the ci:full label is FAST.
+      full_profile: ${{ steps.filter.outputs.full_profile }}
+      # Path relevance for the FAST profile's conditional jobs: each is true
+      # when the PR touches that job's inputs (or ci.yml itself, same
+      # self-skip-proofing rule as every positive-match output below), and
+      # always true outside pull_request and when the file list is unknown.
+      # A FULL run ignores them (every job runs).
+      operator_changed: ${{ steps.filter.outputs.operator_changed }}
+      migrate_changed: ${{ steps.filter.outputs.migrate_changed }}
+      cli_changed: ${{ steps.filter.outputs.cli_changed }}
+      deps_changed: ${{ steps.filter.outputs.deps_changed }}
+      helm_changed: ${{ steps.filter.outputs.helm_changed }}
+      openapi_changed: ${{ steps.filter.outputs.openapi_changed }}
       docs_only: ${{ steps.filter.outputs.docs_only }}
       # True only on a push to main whose EXACT commit (github.sha) already
       # passed this workflow on the merge_group event. The merge queue
@@ -218,12 +249,11 @@ jobs:
       # skip them -- the one case that most needs to exercise them; see the
       # filter step's own comment for how this was actually caught live, not
       # just reasoned about). Gates docker-boot-smoke/helm-boot-smoke below
-      # so they don't run on every unrelated PR (a docs-only or web-only
-      # change can't affect either). Always true for a non-pull_request run
-      # (push to main, merge_group, workflow_dispatch) -- there is no PR
-      # file list to check, and both jobs are fast enough (~30-60s) that
-      # running them on every push to main is the safer default over
-      # silently skipping.
+      # so they don't run on every unrelated change (a docs-only or web-only
+      # change can't affect either). Those jobs are FULL-profile only since
+      # CI-LIGHT-1: on merge_group this is computed from the whole group diff
+      # (same regex), true for push/workflow_dispatch/schedule (no file list),
+      # and true whenever the file list could not be read (fail-safe).
       boot_smoke_relevant: ${{ steps.filter.outputs.boot_smoke_relevant }}
       # True (POSITIVE match, same shape as boot_smoke_relevant) when this
       # run could plausibly affect the real-backend web UI smoke
@@ -264,34 +294,48 @@ jobs:
     steps:
       - name: Detect docs-only / web-only / go-unaffected / operator-only / boot-smoke-relevant changes
         id: filter
+        # Every GitHub context value reaches the script through env:, never
+        # as an expression interpolated into the script text (CI-ENV-INTERP,
+        # code-scanning #1198): branch names, labels and SHAs are data here,
+        # never shell syntax.
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          HAS_CI_FULL_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full') }}
         run: |
-          if [ "${{ github.event_name }}" = "merge_group" ]; then
+          # FAST only for a pull_request without ci:full; everything else is FULL.
+          full_profile=true
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "$HAS_CI_FULL_LABEL" != "true" ]; then
+            full_profile=false
+          fi
+          echo "full_profile=$full_profile"
+          echo "full_profile=$full_profile" >> "$GITHUB_OUTPUT"
+
+          if [ "$EVENT_NAME" = "merge_group" ]; then
             # Merge queue (2026-09-28): classify the WHOLE group diff (main's
             # tip .. the group commit, which includes every earlier PR in the
             # same group), so a docs-only / web-only group skips the 18-shard
             # test matrix exactly like the same PR already does on
             # pull_request. Fail-safe: the compare API lists at most 300
             # files; at or above that, or on any API error, `changed` is
-            # emptied, and every *_only output below treats an empty list as
-            # "false" (full suite runs). boot_smoke_relevant stays true here,
-            # unchanged from before.
-            changed=$(gh api "repos/${{ github.repository }}/compare/${{ github.event.merge_group.base_sha }}...${{ github.event.merge_group.head_sha }}" --jq '.files[].filename') || changed=""
+            # emptied, and every output below treats an empty list as "run":
+            # *_only false, *_relevant and *_changed true.
+            changed=$(gh api "repos/$REPO/compare/$MG_BASE_SHA...$MG_HEAD_SHA" --jq '.files[].filename') || changed=""
             if [ "$(printf '%s\n' "$changed" | grep -c .)" -ge 300 ]; then
               changed=""
             fi
             echo "Changed files (merge group):"
             echo "$changed"
-            {
-              echo "boot_smoke_relevant=true"
-              echo "web_e2e_relevant=true"
-              echo "demo_smoke_relevant=true"
-            } >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" != "pull_request" ]; then
+          elif [ "$EVENT_NAME" != "pull_request" ]; then
             queue_verified=false
-            if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              n=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?event=merge_group&head_sha=${{ github.sha }}&status=success&per_page=1" --jq '.total_count') || n=0
+            if [ "$EVENT_NAME" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+              n=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?event=merge_group&head_sha=$SHA&status=success&per_page=1" --jq '.total_count') || n=0
               if [ "${n:-0}" -ge 1 ] 2>/dev/null; then
                 queue_verified=true
               fi
@@ -307,37 +351,59 @@ jobs:
               echo "web_e2e_relevant=true"
               echo "demo_smoke_relevant=true"
               echo "fault_tolerance_relevant=true"
+              echo "operator_changed=true"
+              echo "migrate_changed=true"
+              echo "cli_changed=true"
+              echo "deps_changed=true"
+              echo "helm_changed=true"
+              echo "openapi_changed=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           else
-            changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --paginate --jq '.[].filename')
+            changed=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename') || changed=""
           fi
           echo "Changed files:"
           echo "$changed"
-          # A change to ci.yml itself must always run these two jobs too --
-          # same reasoning as go_unaffected's identical ci.yml special case
-          # below: this file defines the gating logic FOR these jobs, so a
-          # change to it (e.g. these jobs' own definitions) is exactly the
-          # case that must not be able to skip itself. Confirmed live: a PR
-          # touching only ci.yml (adding these jobs) evaluated the path
-          # regex against ci.yml's own path, matched nothing, and both jobs
-          # showed "skipping" -- the one PR that most needed to exercise them.
-          if [ "${{ github.event_name }}" = "merge_group" ]; then
-            : # already written above
-          elif echo "$changed" | grep -qx '\.github/workflows/ci\.yml'; then
-            echo "boot_smoke_relevant=true" >> "$GITHUB_OUTPUT"
-          elif [ -n "$changed" ] && echo "$changed" | grep -qE '^(Dockerfile|docker-compose|keyorix\.docker\.yaml$|deploy/helm/|internal/encryption/|server/)'; then
-            echo "boot_smoke_relevant=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "boot_smoke_relevant=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$changed" | grep -qx '\.github/workflows/ci\.yml'; then
-            echo "demo_smoke_relevant=true" >> "$GITHUB_OUTPUT"
-          elif [ -n "$changed" ] && echo "$changed" | grep -qE '^(scripts/demo/|server/Dockerfile$|server/webui/|web/src/|server/http/)'; then
-            echo "demo_smoke_relevant=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "demo_smoke_relevant=false" >> "$GITHUB_OUTPUT"
-          fi
+
+          # relevant NAME REGEX: NAME=true when the list is unknown (empty:
+          # API error or the 300-file cap), when ci.yml itself changed, or
+          # when any changed file matches REGEX; else false. A change to
+          # ci.yml itself must always run these jobs: this file defines the
+          # gating logic FOR them, so a change to it (e.g. these jobs' own
+          # definitions) is exactly the case that must not be able to skip
+          # itself. Confirmed live before this helper existed: a PR touching
+          # only ci.yml (adding the boot-smoke jobs) evaluated the path regex
+          # against ci.yml's own path, matched nothing, and both jobs showed
+          # "skipping" -- the one PR that most needed to exercise them.
+          relevant() {
+            if [ -z "$changed" ] || echo "$changed" | grep -qx '\.github/workflows/ci\.yml' || echo "$changed" | grep -qE "$2"; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+            fi
+          }
+          relevant boot_smoke_relevant '^(Dockerfile|docker-compose|keyorix\.docker\.yaml$|deploy/helm/|internal/encryption/|server/)'
+          relevant demo_smoke_relevant '^(scripts/demo/|server/Dockerfile$|server/webui/|web/src/|server/http/)'
+          # scripts/e2e/web-real-smoke.sh IS the harness web-e2e-real-smoke
+          # runs (#2738): a change confined to it previously skipped the one
+          # job that would exercise it.
+          relevant web_e2e_relevant '^(web/|server/http/|scripts/e2e/web-real-smoke\.sh$)'
+          relevant fault_tolerance_relevant '^server/faultops/|^scripts/check-fault-tolerance-issues\.sh$'
+          # FAST-profile path gates. operator/ and migrate/ are separate Go
+          # modules with no dependency on the root module (no replace to
+          # ../), so only their own tree changes them. cli/ imports the root
+          # module, but test-quick-cli already runs the affected cli packages'
+          # tests on every Go PR; this gates the cli module's own vet/lint/
+          # gosec job. deps_changed gates go-licenses (it reads the module
+          # graph). helm_changed is everything the three helm-chart jobs read.
+          # openapi_changed is everything openapi-lint reads.
+          relevant operator_changed '^operator/'
+          relevant migrate_changed '^migrate/'
+          relevant cli_changed '^cli/'
+          relevant deps_changed '(^|/)go\.(mod|sum|work|work\.sum)$'
+          relevant helm_changed '^(deploy/helm/|\.github/testdata/helm)'
+          relevant openapi_changed '^(server/http/handlers/openapi\.yaml$|\.vacuum\.yaml$|devtools/vacuum/)'
+
           if [ -z "$changed" ] || echo "$changed" | grep -vE '(\.md$|^docs/)' > /dev/null; then
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
           else
@@ -368,22 +434,6 @@ jobs:
             echo "operator_only=false" >> "$GITHUB_OUTPUT"
           else
             echo "operator_only=true" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$changed" | grep -qx '\.github/workflows/ci\.yml'; then
-            echo "web_e2e_relevant=true" >> "$GITHUB_OUTPUT"
-          # scripts/e2e/web-real-smoke.sh IS the harness this job runs (#2738): a change
-          # confined to it previously skipped the one job that would exercise it.
-          elif [ -n "$changed" ] && echo "$changed" | grep -qE '^(web/|server/http/|scripts/e2e/web-real-smoke\.sh$)'; then
-            echo "web_e2e_relevant=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "web_e2e_relevant=false" >> "$GITHUB_OUTPUT"
-          fi
-          if echo "$changed" | grep -qx '\.github/workflows/ci\.yml'; then
-            echo "fault_tolerance_relevant=true" >> "$GITHUB_OUTPUT"
-          elif [ -n "$changed" ] && echo "$changed" | grep -qE '^server/faultops/|^scripts/check-fault-tolerance-issues\.sh$'; then
-            echo "fault_tolerance_relevant=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "fault_tolerance_relevant=false" >> "$GITHUB_OUTPUT"
           fi
 
   # web/ (ADR-070) has its own pnpm-workspace.yaml. pnpm resolves its
@@ -519,6 +569,8 @@ jobs:
   # pnpm-workspace-root-guard's reasoning for staying ungated.
   adr-numbers:
     needs: [changes]
+    # Skipped only on a push to main the merge queue already passed (queue_verified): same SHA, same result (CI-LIGHT-1).
+    if: needs.changes.outputs.queue_verified != 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1441,16 +1493,18 @@ jobs:
   # server on a freshly migrated database and calls every REST route, failing
   # on any 5xx. It exists for the bug class #2258 fixed (7 shipped features
   # that 500'd on every fresh install because no test used a fresh database).
-  # Runs on pull_request too (Andrei 2026-10-11): while it ran on merge_group
-  # / push / dispatch only, a smoke failure first showed up inside the merge
-  # queue, where it ejected the PR and every entry queued behind it (5 of 5
-  # PRs failed their first merge_group run on 2026-10-11). On the PR the
-  # failure is visible before the PR is queued. Same docs/web/go-unaffected
-  # gating as the test matrix. The slower PostgreSQL, upgrade-path and web UI
-  # legs run nightly in e2e-nightly.yml.
+  # FULL profile only (CI-LIGHT-1, 2026-10-16): merge_group, push to main when
+  # the queue did not already pass the SHA, schedule, workflow_dispatch, and a
+  # PR labeled ci:full. It ran on every pull_request push from 2026-10-11
+  # (Andrei: a smoke failure first showing up inside the merge queue ejected
+  # the PR and every entry queued behind it); runner capacity is now the
+  # tighter constraint, so a PR author who wants this signal before queueing
+  # adds ci:full. Same docs/web/go-unaffected gating as the test matrix. The
+  # slower PostgreSQL, upgrade-path and web UI legs run nightly in
+  # e2e-nightly.yml.
   e2e-smoke:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.full_profile == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -1507,9 +1561,13 @@ jobs:
   #
   # The matrix job is web-e2e-real-smoke-shard; web-e2e-real-smoke further down
   # is the aggregate under the original name.
+  #
+  # FULL profile only (CI-LIGHT-1, 2026-10-16): merge_group and a PR labeled
+  # ci:full. A FAST pull_request run skips both shards and the aggregate (web
+  # unit tests still run there in web-ci.yml).
   web-e2e-real-smoke-shard:
     needs: [changes]
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
     name: web-e2e-real-smoke-shard (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1573,7 +1631,7 @@ jobs:
   # skipped exactly when the shards are (same gate as the shards).
   web-e2e-real-smoke:
     needs: [changes, web-e2e-real-smoke-shard]
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -1665,16 +1723,15 @@ jobs:
   # itself and the whole run takes seconds, so it isn't worth sharding or
   # reusing another job's build artifact.
   #
-  # Skipped on merge_group (CI-1, 2026-10-03): this job carries no event
-  # gating, so it already runs on every pull_request push AND on every push
-  # to main -- a merge_group run re-validates the exact same commit content
-  # a second time for zero new signal (unlike e2e-smoke just above, which is
-  # deliberately pull_request-skipped so merge_group is the only place it
-  # ever runs for real). Not a required context either, so this can't stall
-  # the merge queue. Measured over 3 days / 82 merge_group runs: 0 failures.
+  # FULL profile only (CI-LIGHT-1, 2026-10-16), so it moved from pull_request
+  # into merge_group: the merge queue is now where it gates what reaches main
+  # (it was skipped on merge_group from 2026-10-03, CI-1, because every
+  # pull_request push already ran it). A push to main skips it when the queue
+  # already passed that exact SHA (queue_verified), like test-suite. Not a
+  # required context, so it cannot stall the queue on its own.
   smoke:
     needs: [changes]
-    if: github.event_name != 'merge_group' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.full_profile == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1698,17 +1755,17 @@ jobs:
   # every single boot) in about 15 seconds instead of shipping it invisibly.
   # Not a required check (the coordinator decides that separately) and
   # path-filtered via boot_smoke_relevant so it doesn't run on every
-  # unrelated PR. Restricted to pull_request (+ workflow_dispatch for a
-  # manual run) -- coordinator review of this PR's own first CI run: an
-  # earlier version of boot_smoke_relevant defaulted to true for every
-  # non-pull_request event, which would have run this (~5-8 min of runner
-  # time) on every merge_group event too, for a job that isn't even a
-  # required check -- pure runner-capacity cost at this repo's job-count
-  # limit, not caught by the boot_smoke_relevant path filter itself (that
-  # output is real either way; this is a separate, event-level gate).
+  # unrelated change. FULL profile only (CI-LIGHT-1, 2026-10-16): merge_group,
+  # schedule, workflow_dispatch and a PR labeled ci:full; never on push.
+  # Before, it ran on pull_request only, because boot_smoke_relevant used to
+  # be hard-wired true for merge_group (coordinator review: ~5-8 min of
+  # runner time on every group for a non-required job). merge_group now
+  # computes boot_smoke_relevant from the group diff with the same regex, so
+  # a group runs this exactly when one of its PRs would have.
+  # demo-up-smoke and helm-boot-smoke below follow the same rule.
   docker-boot-smoke:
     needs: [changes]
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.boot_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.boot_smoke_relevant == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1787,10 +1844,10 @@ jobs:
   # (already proven standalone, 2026-09-28 -- this wires it into CI instead
   # of only ever running by hand). Path-filtered via demo_smoke_relevant, the
   # same shape as boot_smoke_relevant just above, so it doesn't run on every
-  # unrelated PR.
+  # unrelated change. FULL profile only, like docker-boot-smoke above.
   demo-up-smoke:
     needs: [changes]
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.demo_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.demo_smoke_relevant == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1858,11 +1915,11 @@ jobs:
   # reach Ready -- the check that would have caught the second, independent
   # defect item 1 fixed (dek.lock landing outside the one writable PVC mount
   # for the relative dek_path/salt_path convention under readOnlyRootFilesystem).
-  # Restricted to pull_request (+ workflow_dispatch) -- see docker-boot-smoke's
-  # identical comment just above for why.
+  # FULL profile only, gated on boot_smoke_relevant -- see docker-boot-smoke's
+  # comment just above.
   helm-boot-smoke:
     needs: [changes]
-    if: (github.event_name == 'pull_request' && needs.changes.outputs.boot_smoke_relevant == 'true') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.boot_smoke_relevant == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1982,7 +2039,8 @@ jobs:
     # Deliberately NOT gated on operator_only -- that flag means the diff is
     # CONFINED to operator/, which is exactly the case this job must still
     # run for.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # FAST profile: only when the PR touches operator/ (a separate module, no dependency on the root module); FULL: always (CI-LIGHT-1).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.operator_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2046,7 +2104,8 @@ jobs:
     needs: [changes]
     # Deliberately NOT gated on any *_only flag -- same reasoning as operator above: a diff
     # confined elsewhere still needs this job's own build/test/depguard result reported.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # FAST profile: only when the PR touches cli/ (test-quick-cli already runs the affected cli tests on every Go PR); FULL: always (CI-LIGHT-1).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.cli_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2116,7 +2175,8 @@ jobs:
   # setting both is harmless and is the only way one `services:` block covers both legs.
   migrate:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # FAST profile: only when the PR touches migrate/ (a separate module, no dependency on the root module); FULL: always (CI-LIGHT-1).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.migrate_changed == 'true')
     strategy:
       fail-fast: false
       matrix:
@@ -2215,7 +2275,8 @@ jobs:
     # Deliberately NOT gated on operator_only -- this job checks FuzzXxx
     # functions in BOTH the root and operator modules, and an operator-only
     # diff could add/remove/rename one there.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # FULL profile only (CI-LIGHT-1). Required context: skipped satisfies it on a FAST PR run, the merge queue runs it.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2319,7 +2380,8 @@ jobs:
   # CI-safe floor gate. Rationale: claude/2026-09-16-ai-fuzzing-best-practices-benchmark.md.
   fuzz-reach:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # FULL profile only (CI-LIGHT-1). Required context: skipped satisfies it on a FAST PR run, the merge queue runs it.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2359,7 +2421,8 @@ jobs:
     # Deliberately NOT gated on operator_only -- this job checks BOTH the
     # root and operator modules' dependency licenses, and an operator-only
     # diff could add a new operator/go.mod dependency.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # FAST profile: only when a go.mod/go.sum changed; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.deps_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2469,7 +2532,8 @@ jobs:
 
   helm-chart:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2755,7 +2819,8 @@ jobs:
   # against the same rendered chart output.
   helm-chart-security:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2875,7 +2940,8 @@ jobs:
   # at this runtime there's no CI-minute budget reason to narrow it further.
   helm-chart-policy:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -3027,14 +3093,16 @@ jobs:
   # equivalent of npm ci against a lockfile. The canary step proves the
   # ruleset is loaded and error rules fire.
   #
-  # Skipped on merge_group (CI-1, 2026-10-03): same reasoning as smoke's own
-  # comment above -- no event gating, already runs on every pull_request push
-  # and on push to main, a structural contract lint with no cross-PR
-  # integration risk a synthetic merge commit could newly expose. Not a
+  # FULL profile (merge_group, push to main not already queue-verified, ...),
+  # and on pull_request only when the PR touches what it reads
+  # (openapi_changed: the spec, .vacuum.yaml, devtools/vacuum/; or ci:full),
+  # since CI-LIGHT-1: its result is a pure function of those files. It moved
+  # back into merge_group (skipped there since CI-1, 2026-10-03) so that it
+  # still runs before every merge to main, at ~40 s per group. Not a
   # required context. Measured over 3 days / 82 merge_group runs: 0 failures.
   openapi-lint:
     needs: [changes]
-    if: github.event_name != 'merge_group' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.openapi_changed == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
