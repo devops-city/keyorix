@@ -1,0 +1,5 @@
+### Security
+- **Every listener now bounds its connections.** REST/web: request headers capped at 64 KiB (was net/http's 1 MiB, 431 above it), and the response write deadline is now longer than the 60s handler deadline, so a timed-out request gets its 504 instead of a reset connection. gRPC: a new connection must finish its handshake within `server.grpc.keepalive.handshake_timeout` (default 10s, grpc-go's own default was 120s), a connection with no RPC in flight is closed after `server.grpc.keepalive.max_connection_idle` (default 15m, was never), at most 128 concurrent RPCs per connection (was unlimited) and 64 KiB of metadata (was 16 MiB). The `keyorix-k8s-sync` probe listener sets read, write and idle timeouts and a header cap. Neither new key can be set to 0 to switch the bound off.
+
+### Documentation
+- **Production-hardening matrix.** `docs/security/production-hardening-matrix.md` lists what each network listener enforces, with setting, default and the test that proves it; `TestHardeningMatrixRowsNameExistingTests` fails when a row names a test that does not exist.
