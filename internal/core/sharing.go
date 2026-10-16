@@ -90,25 +90,35 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 		Permission:  req.Permission,
 		ExpiresAt:   req.ExpiresAt,
 	}
-	createdShare, err := c.storage.CreateShareRecord(ctx, shareRecord)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-2: the share record and its share_created / group_share_created
+	// row commit in ONE transaction; notifications run after the commit.
+	var createdShare *models.ShareRecord
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if createdShare, err = tx.CreateShareRecord(ctx, shareRecord); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		eventType := ShareAuditEventCreated
+		if req.IsGroup {
+			eventType = ShareAuditEventGroupCreated
+		}
+		c.logShareCreatedOn(ctx, tgt, eventType, &ShareAuditContext{
+			ActorID:     req.SharedBy,
+			SecretID:    secret.ID,
+			RecipientID: req.RecipientID,
+			IsGroup:     req.IsGroup,
+			Permission:  req.Permission,
+			ShareID:     createdShare.ID,
+		})
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
-	auditCtx := &ShareAuditContext{
-		ActorID:     req.SharedBy,
-		SecretID:    secret.ID,
-		RecipientID: req.RecipientID,
-		IsGroup:     req.IsGroup,
-		Permission:  req.Permission,
-		ShareID:     createdShare.ID,
-	}
 	if req.IsGroup {
-		c.LogGroupShareCreated(ctx, auditCtx)
 		// Fan the "shared with you" notice out to each group member. Best-effort.
 		c.notifyGroupSecretShared(ctx, secret, req.RecipientID, req.SharedBy, req.Permission)
 	} else {
-		c.LogShareCreated(ctx, auditCtx)
 		// Tell the recipient they've been granted access. Best-effort.
 		c.notifySecretShared(ctx, secret, req.RecipientID, req.SharedBy, req.Permission)
 	}
@@ -155,24 +165,30 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 
 	oldPermission := shareRecord.Permission
 	shareRecord.Permission = req.Permission
-	updatedShare, err := c.storage.UpdateShareRecord(ctx, shareRecord)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-
-	auditCtx := &ShareAuditContext{
-		ActorID:       req.UpdatedBy,
-		SecretID:      updatedShare.SecretID,
-		RecipientID:   updatedShare.RecipientID,
-		IsGroup:       updatedShare.IsGroup,
-		Permission:    updatedShare.Permission,
-		OldPermission: oldPermission,
-		ShareID:       updatedShare.ID,
-	}
-	if updatedShare.IsGroup {
-		c.LogGroupShareUpdated(ctx, auditCtx)
-	} else {
-		c.LogShareUpdated(ctx, auditCtx)
+	// AUDIT-TX-2: an update can widen a share (permission or expiry), so it
+	// commits with its share_updated / group_share_updated row or not at all.
+	var updatedShare *models.ShareRecord
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if updatedShare, err = tx.UpdateShareRecord(ctx, shareRecord); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		eventType := ShareAuditEventUpdated
+		if updatedShare.IsGroup {
+			eventType = ShareAuditEventGroupUpdated
+		}
+		c.logShareUpdatedOn(ctx, tgt, eventType, &ShareAuditContext{
+			ActorID:       req.UpdatedBy,
+			SecretID:      updatedShare.SecretID,
+			RecipientID:   updatedShare.RecipientID,
+			IsGroup:       updatedShare.IsGroup,
+			Permission:    updatedShare.Permission,
+			OldPermission: oldPermission,
+			ShareID:       updatedShare.ID,
+		})
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	return updatedShare, nil

@@ -38,6 +38,8 @@ func TestListSecretAccessors(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		// The role and ACL terms of the effective level (ListSecretAccessors) read these.
@@ -122,6 +124,8 @@ func TestListSecretAccessors_StrongestGrantWins(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		// The role and ACL terms of the effective level (ListSecretAccessors) read these.
@@ -189,6 +193,8 @@ func TestListSecretAccessors_DegradedOnGroupMembersError(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		// The role and ACL terms of the effective level (ListSecretAccessors) read these.
@@ -256,6 +262,8 @@ func TestListSecretAccessors_EffectiveIsMaxOfRoleAndShare(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
@@ -322,6 +330,8 @@ func TestListSecretAccessors_RosterNeedsUsersRead(t *testing.T) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
@@ -394,6 +404,8 @@ func accessListFixture(t *testing.T) (*gorm.DB, *KeyorixCore, time.Time) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},

@@ -165,8 +165,11 @@ func (c *KeyorixCore) IssueMachineToken(ctx context.Context, projectID, machineI
 	// token was discarded along with the error) while the old credential the caller
 	// believed was being replaced stayed live. Wrapping both means a revoke failure
 	// now leaves NEITHER change applied, matching the error message's own claim.
+	//
+	// AUDIT-TX-2: the token_issued / token_rotated row is the last statement of
+	// that same transaction, so a credential never commits unaudited.
 	var created *models.MachineIdentityCredential
-	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		created, cerr = tx.CreateMachineIdentityCredential(ctx, cred)
 		if cerr != nil {
@@ -176,7 +179,10 @@ func (c *KeyorixCore) IssueMachineToken(ctx context.Context, projectID, machineI
 			if rerr := tx.RevokeMachineIdentityCredential(ctx, projectID, params.ReplaceCredentialID); rerr != nil {
 				return fmt.Errorf("failed to revoke old credential %d: %w", params.ReplaceCredentialID, rerr)
 			}
+			c.logMachineEventOn(ctx, tgt, "machine_identity.token_rotated", m, actorID)
+			return nil
 		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity.token_issued", m, actorID)
 		return nil
 	})
 	if err != nil {
@@ -184,10 +190,8 @@ func (c *KeyorixCore) IssueMachineToken(ctx context.Context, projectID, machineI
 	}
 
 	if params.ReplaceCredentialID != 0 {
-		c.logMachineEvent(ctx, "machine_identity.token_rotated", m, actorID)
 		return &IssueMachineTokenResult{Credential: created, PlainToken: raw, ReplacedTokenHash: oldCredHash}, nil
 	}
-	c.logMachineEvent(ctx, "machine_identity.token_issued", m, actorID)
 	return &IssueMachineTokenResult{Credential: created, PlainToken: raw}, nil
 }
 
@@ -547,11 +551,14 @@ func (c *KeyorixCore) AssignMachineRole(ctx context.Context, machineID, roleID u
 		if err := c.requireMachineGrantNoSoDViolation(ctx, machineID, roleID); err != nil {
 			return err
 		}
-		if err := c.storage.AssignMachineRole(ctx, machineID, roleID, scope); err != nil {
-			return err
-		}
-		c.logMachineEvent(ctx, "machine_identity.role_granted", m, actorID)
-		return nil
+		// AUDIT-TX-2: the grant and its role_granted row commit together.
+		return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			if err := tx.AssignMachineRole(ctx, machineID, roleID, scope); err != nil {
+				return err
+			}
+			c.logMachineEventOn(ctx, tgt, "machine_identity.role_granted", m, actorID)
+			return nil
+		})
 	})
 }
 

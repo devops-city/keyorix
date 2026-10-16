@@ -256,12 +256,14 @@ func (h *CatalogHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// AUDIT-TX-2: core writes project.created inside the create's transaction.
+	ctx := core.WithMutationAuditActor(r.Context(), actor.UserID)
 	var project *models.Project
 	var err error
 	if len(envs) > 0 {
-		project, err = h.coreService.CreateProjectWithEnvs(r.Context(), body.Name, body.Description, envs)
+		project, err = h.coreService.CreateProjectWithEnvs(ctx, body.Name, body.Description, envs)
 	} else {
-		project, err = h.coreService.CreateProject(r.Context(), body.Name, body.Description)
+		project, err = h.coreService.CreateProject(ctx, body.Name, body.Description)
 	}
 	if err != nil {
 		log.Printf("Error creating project: %v", err)
@@ -275,7 +277,6 @@ func (h *CatalogHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.coreService.LogProjectCreated(r.Context(), actor.UserID, project.ID, project.Name)
 	sendCreated(w, newProjectWire(project), "Project created")
 }
 
@@ -445,7 +446,8 @@ func (h *CatalogHandler) CreateProjectEnvironment(w http.ResponseWriter, r *http
 		sendError(w, "NotFound", "Project not found", http.StatusNotFound, nil)
 		return
 	}
-	env, err := h.coreService.CreateEnvironment(r.Context(), uint(id), body.Name)
+	// AUDIT-TX-2: core writes environment.created inside the create's transaction.
+	env, err := h.coreService.CreateEnvironment(core.WithMutationAuditActor(r.Context(), actorID(r)), uint(id), body.Name)
 	if err != nil {
 		log.Printf("Error creating environment for project %d: %v", id, err)
 		if strings.Contains(err.Error(), i18n.T("ErrorValidation", nil)) {
@@ -455,7 +457,6 @@ func (h *CatalogHandler) CreateProjectEnvironment(w http.ResponseWriter, r *http
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	h.coreService.LogEnvironmentCreated(r.Context(), actorID(r), env.ID, uint(id), env.Name)
 	sendCreated(w, newEnvironmentWire(env), "Environment created")
 }
 

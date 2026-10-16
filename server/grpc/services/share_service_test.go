@@ -48,6 +48,8 @@ func newShareTestRig(t *testing.T) *shareTestRig {
 		&models.SecretVersion{}, &models.User{}, &models.Role{}, &models.ShareRecord{},
 		&models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{}, &models.ProjectMembership{},
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 	))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "default"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "development"}).Error)

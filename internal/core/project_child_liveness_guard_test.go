@@ -72,7 +72,9 @@ func TestProjectChildWrites_RecheckProjectLivenessInATransaction(t *testing.T) {
 
 		transactional := false
 		for _, name := range calls {
-			if name == "WithTransaction" || name == "Transaction" {
+			// mutationTx / withAuditedMutation (AUDIT-TX-2, mutation_audit_tx.go)
+			// open the transaction themselves: plain, or with the audit rows in it.
+			if name == "WithTransaction" || name == "Transaction" || name == "mutationTx" || name == "withAuditedMutation" {
 				transactional = true
 			}
 		}

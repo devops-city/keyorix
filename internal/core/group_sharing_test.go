@@ -378,6 +378,8 @@ func TestShareSecretWithGroup_CrossProjectRefused(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 	))
