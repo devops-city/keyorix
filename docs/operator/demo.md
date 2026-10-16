@@ -41,7 +41,9 @@ migrated successfully.
 
 ```bash
 export KEYORIX_CONFIG_PATH=./keyorix.yaml
-export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
+mkdir -p -m 700 secrets
+(umask 077 && openssl rand -hex 32 > secrets/bootstrap_token)
+export KEYORIX_BOOTSTRAP_TOKEN_FILE="$PWD/secrets/bootstrap_token"
 ./bin/keyorix-server &
 
 ./bin/keyorix system init --server http://localhost:8080 \
@@ -49,8 +51,11 @@ export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
   --admin-email admin@keyorix.local
 ```
 
-The CLI reads the bootstrap token from `KEYORIX_BOOTSTRAP_TOKEN` (exported above),
-so there is no `--bootstrap-token` argument to leak.
+The bootstrap token is 64 random hex characters in a 0600 file (the server
+refuses a token shorter than 32 characters). Both the server and the CLI read it
+from `KEYORIX_BOOTSTRAP_TOKEN_FILE` (exported above), so the token is never on a
+command line or in your shell history and there is no `--bootstrap-token`
+argument to leak.
 
 Omitting `--admin-password` makes the CLI prompt for it interactively
 (hidden input) instead of putting it on the command line, where it would be
