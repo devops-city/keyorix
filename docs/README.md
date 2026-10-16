@@ -9,6 +9,7 @@ Complete documentation for the production-ready Keyorix secret management system
 | [Main README](../README.md) | Project overview and quick start | ✅ Updated |
 | [Quick Start Guide](../QUICK_START.md) | Get running in 5 minutes | ✅ Updated |
 | [API Reference](./API_REFERENCE.md) | Complete API documentation | ✅ New |
+| [CLI reference](./cli-reference.md) | Every `keyorix` command, flag and example (generated from the command tree; man page: [man/keyorix.1](./man/keyorix.1)) | ✅ New |
 | [Security Guide](./SECURITY.md) | Security features and best practices | ✅ New |
 | [Performance Guide](./PERFORMANCE.md) | Performance metrics and optimization | ✅ New |
 | [Deployment Guide](../DEPLOYMENT_GUIDE.md) | Production deployment instructions | ✅ Updated |
