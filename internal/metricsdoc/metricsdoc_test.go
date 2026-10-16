@@ -31,8 +31,14 @@ import (
 	_ "github.com/keyorixhq/keyorix/internal/audit/siem"
 	"github.com/keyorixhq/keyorix/internal/besteffort"
 	_ "github.com/keyorixhq/keyorix/internal/core"
+	_ "github.com/keyorixhq/keyorix/internal/encryption"
 	_ "github.com/keyorixhq/keyorix/internal/notifychan"
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
+	_ "github.com/keyorixhq/keyorix/internal/ratelimitmetrics"
+	_ "github.com/keyorixhq/keyorix/internal/solewriter"
+	_ "github.com/keyorixhq/keyorix/internal/storage"
 	_ "github.com/keyorixhq/keyorix/internal/storage/store"
+	_ "github.com/keyorixhq/keyorix/internal/tlsmetrics"
 	"github.com/keyorixhq/keyorix/server/grpc/interceptors"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
@@ -53,7 +59,13 @@ var boundedLabels = map[string]string{
 	"budget":    "name of a built-in auth rate-limit budget (fixed set in internal/core)",
 	"step":      "string literal at each besteffort.Run call site (fixed set in source)",
 	"channel":   "notification channel type (webhook/email/slack/... fixed set)",
-	"state":     "closed enum of source states (suspended/expired/expiring)",
+	"state":     "closed enum: source states (suspended/expired/expiring), pool connection state (in_use/idle), single_writer guard state (settling/authoritative/confirming), encryption state (disabled/uninitialized/ready)",
+	"pool":      "fixed names of the database pools (request, scheduler_lock, named_lock; storage/db_pool_metrics.go)",
+	"limiter":   "closed set of rate limiters (ratelimitmetrics.Limiter: principal, token_auth_failure, grpc_principal, grpc_token_auth_failure)",
+	"check":     "closed set: tail, full (audit verification kinds)",
+	"listener":  "closed set: http, grpc (tlsmetrics.HTTP / tlsmetrics.GRPC)",
+	"op":        "closed set: encrypt, decrypt",
+	"provider":  "KEK provider type normalised to the 9 known provider names plus `other` (encryption.providerLabel)",
 	"reason":    "closed enum documented in the metric help (unreachable/timeout/server_error)",
 }
 
@@ -68,15 +80,9 @@ var forbiddenLabelTokens = []string{
 	"org", "account", "machine", "identity", "version",
 }
 
-// constTypeOverrides gives the type of NewDesc-based collectors (a Desc has none).
-var constTypeOverrides = map[string]string{
-	"keyorix_grpc_requests_total":                 "counter",
-	"keyorix_grpc_request_duration_seconds_total": "counter",
-}
-
 const (
 	epPublic    = "server `GET /metrics` (unauthenticated; keep inside your perimeter)"
-	epScheduler = "server `GET /api/v1/admin/scheduler-metrics` (needs `system.write`; NOT on `/metrics`)"
+	epScheduler = "server `GET /api/v1/admin/scheduler-metrics` (needs `system.write`; NOT on `/metrics`): metrics that would reveal security-job timing or integrity-check results to an anonymous reader"
 	epOperator  = "operator manager metrics endpoint (controller-runtime registry)"
 )
 
@@ -84,6 +90,11 @@ const (
 var endpointOverrides = map[string]string{
 	"keyorix_scheduler_last_run_timestamp_seconds":     epScheduler,
 	"keyorix_scheduler_last_success_timestamp_seconds": epScheduler,
+
+	// internal/protectedmetrics.Registry (TestProtectedMetricsAreDocumentedAndNotPublic).
+	"keyorix_audit_verify_last_success_timestamp_seconds": epScheduler,
+	"keyorix_audit_verify_failure_recorded":               epScheduler,
+	"keyorix_audit_verify_state_rejected":                 epScheduler,
 }
 
 func endpointOf(d metricDef) string {
@@ -96,22 +107,13 @@ func endpointOf(d metricDef) string {
 	return epPublic
 }
 
-func finalize(defs []metricDef) []metricDef {
-	for i := range defs {
-		if t, ok := constTypeOverrides[defs[i].Name]; ok && defs[i].Type == "const" {
-			defs[i].Type = t
-		}
-	}
-	return defs
-}
-
 func scanned(t *testing.T) []metricDef {
 	t.Helper()
 	defs, err := scanRepo(repoRoot())
 	if err != nil {
 		t.Fatalf("metric scan failed: %v", err)
 	}
-	return finalize(defs)
+	return defs
 }
 
 func render(defs []metricDef) string {
@@ -130,7 +132,7 @@ func render(defs []metricDef) string {
 
 	groups := []struct{ title, ep string }{
 		{"Server: public `/metrics`", epPublic},
-		{"Server: authenticated scheduler timings", epScheduler},
+		{"Server: authenticated-only (`/api/v1/admin/scheduler-metrics`)", epScheduler},
 		{"Operator", epOperator},
 	}
 	for _, g := range groups {
@@ -214,7 +216,7 @@ func TestMetricNamesAndLabelsAreBounded(t *testing.T) {
 			t.Errorf("%s (%s): empty Help", d.Name, d.File)
 		}
 		if d.Type == "const" {
-			t.Errorf("%s (%s): NewDesc collector has no type; add it to constTypeOverrides", d.Name, d.File)
+			t.Errorf("%s (%s): NewDesc collector type not found; the Desc must be a struct field passed to prometheus.MustNewConstMetric with a Counter/Gauge/UntypedValue", d.Name, d.File)
 		}
 		for _, l := range d.Labels {
 			if why := forbiddenLabel(l); why != "" {
@@ -223,11 +225,6 @@ func TestMetricNamesAndLabelsAreBounded(t *testing.T) {
 			if _, ok := boundedLabels[l]; !ok {
 				t.Errorf("%s (%s): label %q is not in boundedLabels; add it with a justification of why its values are a small closed set", d.Name, d.File, l)
 			}
-		}
-	}
-	for k := range constTypeOverrides {
-		if _, ok := seen[k]; !ok {
-			t.Errorf("constTypeOverrides names unknown metric %s", k)
 		}
 	}
 	for k := range endpointOverrides {
@@ -341,5 +338,40 @@ func TestStaticScanMatchesLiveRegistry(t *testing.T) {
 	}
 	if live == 0 {
 		t.Fatal("no keyorix_* metric visible on the live registry; the cross-check is vacuous")
+	}
+}
+
+// TestProtectedMetricsAreDocumentedAndNotPublic: whatever is registered on the
+// protected registry must be documented as authenticated-only, and must not also be
+// reachable on the public /metrics registry. Conversely, nothing the doc calls
+// authenticated-only may be on the default registry.
+func TestProtectedMetricsAreDocumentedAndNotPublic(t *testing.T) {
+	protected, err := protectedmetrics.Registry.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(protected) == 0 {
+		t.Fatal("protected registry is empty; the check is vacuous")
+	}
+	public, err := prometheus.DefaultGatherer.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	onPublic := map[string]bool{}
+	for _, mf := range public {
+		onPublic[mf.GetName()] = true
+	}
+	for _, mf := range protected {
+		if endpointOverrides[mf.GetName()] != epScheduler {
+			t.Errorf("%s is on the protected registry but not documented as authenticated-only in endpointOverrides", mf.GetName())
+		}
+		if onPublic[mf.GetName()] {
+			t.Errorf("%s is on BOTH the protected and the public registry", mf.GetName())
+		}
+	}
+	for name, ep := range endpointOverrides {
+		if ep == epScheduler && onPublic[name] {
+			t.Errorf("%s is documented as authenticated-only but is served on the public /metrics registry", name)
+		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/tlsmetrics"
 	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/server/grpc/interceptors"
 	"github.com/keyorixhq/keyorix/server/grpc/services"
@@ -323,7 +324,7 @@ func createGRPCTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, fmt.Errorf("failed to load gRPC TLS certificate: %w", err)
 	}
 
-	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate, MinVersion: tls.VersionTLS12} // raised to TLS 1.3 by applyTLSHardening in strict mode
+	tlsConfig := &tls.Config{GetCertificate: tlsmetrics.Wrap(tlsmetrics.GRPC, reloader.GetCertificate), MinVersion: tls.VersionTLS12} // raised to TLS 1.3 by applyTLSHardening in strict mode
 	if err := applyTLSHardening(tlsConfig, cfg.Server.GRPC.TLS, cfg.Server.GRPC.TLSMode); err != nil {
 		return nil, err
 	}

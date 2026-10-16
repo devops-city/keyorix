@@ -72,6 +72,7 @@ import (
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	localstore "github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/tlsmetrics"
 	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/pkg/trust"
@@ -511,6 +512,7 @@ const (
 // falls back to logging only.
 func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*encryption.Service, error) {
 	if !cfg.Storage.Encryption.Enabled {
+		encryption.RegisterDisabledMetrics()
 		return nil, nil
 	}
 
@@ -542,6 +544,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// first-boot key generation.
 	baseDir := "."
 	svc := encryption.NewService(&cfg.Storage.Encryption, baseDir)
+	encryption.RegisterMetrics(svc)
 	if auditSink != nil {
 		svc.SetAuditSink(auditSink)
 	}
@@ -2694,7 +2697,7 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
+	tlsConfig := &tls.Config{GetCertificate: tlsmetrics.Wrap(tlsmetrics.HTTP, reloader.GetCertificate)} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
 	if err := applyTLSHardening(tlsConfig, cfg.Server.HTTP.TLS, cfg.Server.HTTP.TLSMode); err != nil {
 		return nil, err
 	}

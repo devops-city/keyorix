@@ -39,6 +39,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
 )
 
 // SchedulerOutcome is the result of a single scheduler tick. Its string value is used
@@ -108,7 +110,9 @@ func RegisterScheduler(name string) {
 // endpoint (see the doc comment on schedulerTimingRegistry) and wired instead behind
 // an authenticated route for operators who legitimately need this visibility.
 func SchedulerMetricsHandler() http.Handler {
-	return promhttp.HandlerFor(schedulerTimingRegistry, promhttp.HandlerOpts{})
+	// The scheduler timing gauges plus every other authenticated-only metric
+	// (internal/protectedmetrics: audit-verification timestamps and failure flags).
+	return promhttp.HandlerFor(prometheus.Gatherers{schedulerTimingRegistry, protectedmetrics.Registry}, promhttp.HandlerOpts{})
 }
 
 // RecordSchedulerRun records the outcome and (for ticks that ran) the duration of a

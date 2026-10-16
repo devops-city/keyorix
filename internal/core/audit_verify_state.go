@@ -202,6 +202,20 @@ func (c *KeyorixCore) bumpAuditVerifyGen(gen uint64) {
 // rollback), only its generation, sticky failure and job are kept (a failure
 // only ever makes the verdict stricter). Only a storage failure is an error.
 func (c *KeyorixCore) loadAuditVerifyState(ctx context.Context) (st *auditVerifyState, reason string, err error) {
+	st, reason, err = c.loadAuditVerifyStateUnobserved(ctx)
+	switch {
+	case err != nil:
+	case reason != "":
+		observeAuditVerifyStateUntrusted()
+	case c.AuditCheckpointsAvailable():
+		observeAuditVerifyState(st)
+	}
+	return st, reason, err
+}
+
+// loadAuditVerifyStateUnobserved is loadAuditVerifyState without publishing the
+// result to the audit-verify metrics.
+func (c *KeyorixCore) loadAuditVerifyStateUnobserved(ctx context.Context) (st *auditVerifyState, reason string, err error) {
 	if !c.AuditCheckpointsAvailable() {
 		return &auditVerifyState{V: 1}, "", nil
 	}
@@ -293,6 +307,7 @@ func (c *KeyorixCore) saveAuditVerifyState(ctx context.Context, st *auditVerifyS
 		return err
 	}
 	c.bumpAuditVerifyGen(st.Gen)
+	observeAuditVerifyState(st)
 	return nil
 }
 

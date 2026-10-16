@@ -304,7 +304,8 @@ func (s *Service) EvidenceSignKey() (key []byte, keyVersion string, ok bool) {
 }
 
 // EncryptSecret encrypts plaintext and returns (encryptedBytes, metadataBytes, error).
-func (s *Service) EncryptSecret(plaintext []byte) ([]byte, []byte, error) {
+func (s *Service) EncryptSecret(plaintext []byte) (_, _ []byte, err error) {
+	defer func() { noteOp(opEncrypt, err) }()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -331,7 +332,8 @@ func (s *Service) EncryptSecret(plaintext []byte) ([]byte, []byte, error) {
 
 // EncryptSecretWithAAD encrypts plaintext bound to the given AAD.
 // Use SecretAAD(secretID, projectID, versionNumber) to construct the AAD.
-func (s *Service) EncryptSecretWithAAD(plaintext, aad []byte) ([]byte, []byte, error) {
+func (s *Service) EncryptSecretWithAAD(plaintext, aad []byte) (_, _ []byte, err error) {
+	defer func() { noteOp(opEncrypt, err) }()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -357,7 +359,8 @@ func (s *Service) EncryptSecretWithAAD(plaintext, aad []byte) ([]byte, []byte, e
 }
 
 // DecryptSecret decrypts a secret from encryptedData bytes.
-func (s *Service) DecryptSecret(encryptedData []byte) ([]byte, error) {
+func (s *Service) DecryptSecret(encryptedData []byte) (_ []byte, err error) {
+	defer func() { noteOp(opDecrypt, err) }()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -374,7 +377,8 @@ func (s *Service) DecryptSecret(encryptedData []byte) ([]byte, error) {
 // DecryptSecretWithAAD decrypts a secret, using AAD for v1 rows and falling
 // back to legacy nil-AAD for rows encrypted before the AAD migration.
 // Logs a warning on the legacy path — schedule re-encryption in the M2 sweep.
-func (s *Service) DecryptSecretWithAAD(encryptedData, aad []byte) ([]byte, error) {
+func (s *Service) DecryptSecretWithAAD(encryptedData, aad []byte) (_ []byte, err error) {
+	defer func() { noteOp(opDecrypt, err) }()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -393,7 +397,8 @@ func (s *Service) DecryptSecretWithAAD(encryptedData, aad []byte) ([]byte, error
 }
 
 // EncryptLargeSecret encrypts large secrets using chunking.
-func (s *Service) EncryptLargeSecret(plaintext []byte, chunkSizeKB int) ([][]byte, [][]byte, error) {
+func (s *Service) EncryptLargeSecret(plaintext []byte, chunkSizeKB int) (_, _ [][]byte, err error) {
+	defer func() { noteOp(opEncrypt, err) }()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -424,7 +429,8 @@ func (s *Service) EncryptLargeSecret(plaintext []byte, chunkSizeKB int) ([][]byt
 }
 
 // DecryptLargeSecret decrypts a chunked large secret.
-func (s *Service) DecryptLargeSecret(encryptedChunks [][]byte) ([]byte, error) {
+func (s *Service) DecryptLargeSecret(encryptedChunks [][]byte) (_ []byte, err error) {
+	defer func() { noteOp(opDecrypt, err) }()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

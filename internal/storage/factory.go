@@ -640,6 +640,9 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 	if err := applyPoolSettings(db, &cfg.Storage.Database); err != nil {
 		return nil, err
 	}
+	if sqlDB, dbErr := db.DB(); dbErr == nil {
+		registerPoolMetrics(poolRequest, sqlDB)
+	}
 
 	if err := withMigrationLock(db, false, dbPath, f.migrateSQLite); err != nil {
 		return nil, migrateError(err)
@@ -707,6 +710,11 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	}
 	opened = append(opened, namedLockDB)
 	applyLockPoolSettings(namedLockDB, NamedLockPoolSize, &cfg.Storage.Database)
+	if len(opened) > 0 {
+		registerPoolMetrics(poolRequest, opened[0])
+	}
+	registerPoolMetrics(poolSchedulerLock, schedulerLockDB)
+	registerPoolMetrics(poolNamedLock, namedLockDB)
 
 	nativeReads, err := openPostgresNativeReadPool(&cfg.Storage.Database, nativeReadPoolSize(effectiveMaxOpenConns(db, &cfg.Storage.Database), cfg.Storage.Database.NativeReadPoolMax))
 	if err != nil {
