@@ -45,9 +45,20 @@ type auditForwardSink struct {
 
 // Flush runs the deferred side effects, in write order. Call it ONLY after the
 // transaction committed; on rollback, drop the sink and call nothing.
+//
+// A panic in a side effect (a misbehaving forwarder) is recovered per event, as
+// emitAudit's own recover does for the inline case: the transaction has already
+// committed, so it must not turn a completed operation into a failure.
 func (s *auditForwardSink) Flush(c *KeyorixCore) {
 	for _, e := range s.persisted {
-		c.afterAuditEventPersisted(e)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logAuditEmitPanic(e, r)
+				}
+			}()
+			c.afterAuditEventPersisted(e)
+		}()
 	}
 	s.persisted = nil
 }
