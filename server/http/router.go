@@ -10,7 +10,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -104,7 +103,8 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	r.Use(customMiddleware.NoStore)
 	r.Use(customMiddleware.PrometheusMiddleware)
 	r.Use(customMiddleware.MaxBodyBytes(cfg.Server.HTTP.EffectiveMaxRequestBodyBytes()))
-	r.Use(middleware.Timeout(60 * time.Second))
+	// RequestTimeout (timeouts.go): keyorix-server's http.Server WriteTimeout must exceed it.
+	r.Use(middleware.Timeout(RequestTimeout))
 	// RESIL-1 (#2637 follow-up): a request whose write timed out on the SQLite write
 	// gate answers 503 + Retry-After instead of a generic 500. Inside Timeout (it must
 	// see the context the handlers see) and outside every handler; the credential
