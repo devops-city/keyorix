@@ -28,8 +28,9 @@ sha256sum -c --ignore-missing checksums.txt && chmod +x keyorix-server_linux_amd
 
 A release binary is the release's own behaviour: this page tracks `main`, so a
 command below can be newer than the release (for example `keyorix mfa enroll`
-does not exist in v0.95.3). `keyorix-server` has no `--version` or `--config`
-flag (the server reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
+does not exist in v0.95.3). `keyorix-server --version` (or `keyorix-server admin version`)
+prints the version, commit, build date and Go version. The server itself has no
+`--config` flag (it reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
 `keyorix-server admin ...` subcommands take `--config`); the CLI has
 `keyorix version`.
 
@@ -40,7 +41,8 @@ make build
 ```
 
 Produces `./bin/keyorix` (CLI) and `./bin/keyorix-server` (API server).
-Go 1.27+ (see `go.mod`) and a C toolchain for SQLite are the only requirements.
+Go 1.27+ (see `go.mod`) is the only requirement: the SQLite driver is pure Go
+(`modernc.org/sqlite`), so no C toolchain is needed and `CGO_ENABLED=0` builds work.
 
 `make build` does **not** include the web UI: the server then logs
 `Web UI not bundled in this build; serving API only` and shows a placeholder page

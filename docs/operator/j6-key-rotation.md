@@ -2,10 +2,12 @@
 
 Two independent rotations exist: the **DEK** (data encryption key — what actually
 encrypts secret values) and the **KEK** (key-encryption key, derived from your master
-passphrase — what wraps the DEK at rest). Every command below was run for real against a
-fresh SQLite install with a real secret in it while writing this page.
+passphrase — what wraps the DEK at rest). The output shown below is illustrative
+(version numbers and fingerprints differ on your install).
 
-Both commands need exclusive access to the database — stop the server first.
+Both commands need exclusive access to the database — stop the server first. They read the
+current master passphrase from `KEYORIX_MASTER_PASSWORD`, `KEYORIX_MASTER_PASSWORD_FILE`,
+`--passphrase-file`, `--passphrase-fd` or `--passphrase-stdin`.
 
 ## Rotate the DEK (re-encrypts every secret)
 
@@ -44,8 +46,8 @@ half-rotated database.
 This re-wraps the DEK under a new passphrase; it does **not** touch any database row.
 
 ```bash
-keyorix-server admin encryption rotate-kek --config ./keyorix.yaml --confirm --new-passphrase-stdin
-# (enter the new passphrase when prompted, or pipe it in)
+keyorix-server admin encryption rotate-kek --config ./keyorix.yaml --confirm --new-passphrase-file ./new_master_password
+# or --new-passphrase-stdin / --new-passphrase-fd; the file must be mode 0600
 ```
 
 Expected:
@@ -58,9 +60,10 @@ KEK rotation complete.
 Update the master passphrase in your deployment configuration to the new value before restarting the server.
 ```
 
-The env var to update is `KEYORIX_MASTER_PASSWORD` (or your `key_provider`'s equivalent) —
-the command's own output doesn't name it explicitly, so: whatever you use to set the
-passphrase today, set it to the new value before the next start.
+The variable to update is `KEYORIX_MASTER_PASSWORD` or the file `KEYORIX_MASTER_PASSWORD_FILE`
+points at (or your `key_provider`'s equivalent). The command's own output doesn't name it, so:
+whatever you use to set the passphrase today, set it to the new value before the next start,
+and update your offline copy of the passphrase.
 
 Note: evidence packs and audit checkpoints signed **before** this rotation will report as
 "superseded key version" (not tampered) under `compliance verify` afterward — expected,
@@ -69,7 +72,7 @@ not a problem.
 ## Verify nothing broke
 
 ```bash
-KEYORIX_MASTER_PASSWORD='<new passphrase>' KEYORIX_CONFIG_PATH=./keyorix.yaml keyorix-server   # restart with the NEW passphrase after rotate-kek (the server has no --config flag)
+KEYORIX_MASTER_PASSWORD_FILE=./new_master_password KEYORIX_CONFIG_PATH=./keyorix.yaml keyorix-server   # restart with the NEW passphrase after rotate-kek (the server has no --config flag)
 keyorix secret get --id <id> --show-value
 keyorix audit logs --limit 20
 ```

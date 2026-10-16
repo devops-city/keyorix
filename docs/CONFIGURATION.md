@@ -290,21 +290,18 @@ storage:
     # audit_flusher_linger_window: ""  # e.g. "1ms"; default "" (0, no deliberate
     #   wait — the audit-chain batching flusher commits whatever is already
     #   queued immediately, instead of waiting for more writers to join the
-    #   same batch). A nonzero window increases audit-commit throughput under
-    #   HIGH concurrency (c=50-class load) at the cost of added per-request
-    #   latency at LOW concurrency and, on Postgres specifically, a measured
-    #   throughput REGRESSION at MODERATE concurrency (c=10-class) — see
-    #   SESSION-PERF's PR #2420 for the full before/after data. Left at its
-    #   safe default; only set this if production
+    #   same batch). A nonzero window trades per-request latency for larger
+    #   audit batches. Leave it at the default unless the
     #   keyorix_audit_flusher_batch_size/_flushes_total metrics (exposed on
-    #   the server's /metrics endpoint) justify it for your own load shape.
+    #   the server's /metrics endpoint) show a reason for your own load shape.
     # audit_durability: standard   # strict | standard. Default: standard on
     #   PostgreSQL; SQLite runs strict only (standard REFUSES TO START there).
     #   strict: the audit commit waits for the disk sync, no audit entry is lost
     #   to any crash. standard: the audit row is still committed before the
     #   secret is returned (a failed audit write still fails the request), but
-    #   the disk sync is not awaited; an OS crash or power loss can lose up to
-    #   ~600 ms of audit entries as a tail. Config file only. See
+    #   the disk sync is not awaited; an OS crash or power loss can lose the
+    #   last few hundred ms of audit entries as a tail (about 3 x PostgreSQL's
+    #   wal_writer_delay, 600 ms at its default). Config file only. See
     #   docs/security/hardening-guide.md §5a. The old
     #   insecure_audit_skip_durable_sync (true = standard, false = strict) is a
     #   deprecated alias for one minor release.

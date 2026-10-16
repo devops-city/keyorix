@@ -1,9 +1,10 @@
 # Upgrading Keyorix
 
-**Verification status of this guide:** commands below are marked either
-UNVERIFIED or VERIFIED. VERIFIED means it was run end to end against a real
-environment (real binaries, a real kind cluster, or a real PostgreSQL 16
-instance) as part of this release's QA pass. UNVERIFIED means it has not.
+**What is exercised automatically.** The release QA scenarios in
+`scripts/release-qa/` (see its README) cover a fresh install, a SQLite lifecycle
+and the version-skip path onto PostgreSQL (section 3); the rest of this guide
+is written from the code and the changelog, not from a drill of every step. Read
+the release notes and take a backup first.
 
 ## 1. Always back up first
 
@@ -16,10 +17,6 @@ Docker-Compose/Postgres procedure.
 ```sh
 keyorix-server admin backup --output backup-$(date +%F).tar.gz
 ```
-
-**VERIFIED** — run repeatedly during this release's QA (fresh install,
-rollback drill, air-gapped drill, version-skip proof), each time producing a
-valid, restorable v2 archive.
 
 ## 2. Upgrading from v0.95.x → v0.95.2
 
@@ -45,7 +42,7 @@ admin version`; in Compose, `docker compose run --rm backend ./keyorix-server
 --version`): it prints the version, commit, build date and Go version, and needs no
 config file.
 
-**What you will see when moving a v0.95.3 install to v0.96.0 or later** (verified, SQLite
+**What you will see when moving a v0.95.3 install to v0.96.0 or later** (SQLite
 single binary and Compose + Postgres): a secret written by v0.95.3 reads back
 unchanged, `admin verify-audit` is VALID, and the first start logs
 `ADR-112 grace period: security.require_mfa now defaults to true, but this is an
@@ -84,7 +81,7 @@ binary: a remaining problem is listed as a `database-tls` deviation. See
 is unchanged. A PostgreSQL connection-service file (`service=` in the dsn, or the
 `PGSERVICE` environment variable) is refused too, because the file could set the
 TLS mode and CA behind this check: move its settings into `storage.database`.
-UNVERIFIED as an upgrade drill; the refusal itself is covered by tests.
+The refusal itself is covered by tests.
 
 **PostgreSQL: two more TLS settings now refuse to start** (the server, and
 every `admin` command that connects). (1) An `ssl_mode` outside `disable`,
@@ -109,15 +106,7 @@ Schema migrations run on boot. If a rolling multi-replica upgrade hits
 expected mid-rollout (see `docs/SELF_HOSTING.md` §9 troubleshooting table) —
 not applicable to the bundled Helm chart, which is pinned to 1 replica.
 
-**VERIFIED** — a real, downloaded v0.95.1 release binary provisioned a
-SQLite database, stopped, then the v0.95.2 binary migrated and booted that
-same database in place and passed a full API smoke sweep with
-`verify-audit: VALID` afterward.
-
 ### Upgrading Docker Compose or Helm from v0.95.x to v0.96.0
-
-Not yet run end to end against a published v0.95.3 stack; the fresh-install path
-was booted on the e2e VM (see the v0.96.0 release PR).
 
 - **Compose: the secure baseline is now `docker-compose.yml`.** `docker-compose.secure.yml`
   and `keyorix.docker.secure.yaml` no longer exist; remove `-f docker-compose.secure.yml`
@@ -174,11 +163,6 @@ was booted on the e2e VM (see the v0.96.0 release PR).
   "Bundled PostgreSQL uid". Compose volumes need nothing.
 
 ### Upgrading Docker Compose from v0.96.x to the next release: Postgres over TLS
-
-**VERIFIED** on the e2e VM: a real v0.96.0 Compose stack (ghcr.io images, existing
-Postgres volume) was moved to this change in place. The Postgres data, the admin
-and every table were unchanged, and `pg_stat_ssl` showed the server's connections
-on TLSv1.3 afterwards (before: all plaintext).
 
 The bundled Postgres now serves TLS, and the server connects to it with
 `ssl_mode: verify-full`. `ssl_mode: prefer` (the v0.96.0 `keyorix.docker.yaml`) fell
@@ -251,17 +235,21 @@ Postgres is a 3-hop procedure, not a direct restore:
 2. Take a fresh v2 backup of that intermediate SQLite database.
 3. Restore that v2 archive into the real Postgres target.
 
+The target of each step is chosen by `--config` (there is no `--db`, `--output-db`
+or `--target-dsn` flag): `sqlite-intermediate.yaml` is a config with
+`storage.type: sqlite` and an empty data directory, `postgres-target.yaml` is
+the real Postgres config. Both configs use the same `dek_path`/`salt_path` as
+the old install, and the target database and key files start empty (restore
+writes them, so no `admin init` is needed). Export the old install's
+`KEYORIX_MASTER_PASSWORD` (or use `--passphrase-file`) for each command.
+
 ```sh
-keyorix-server admin restore --input old-v1-backup.tar.gz --output-db ./intermediate.sqlite
-keyorix-server admin backup --db ./intermediate.sqlite --output intermediate-v2.tar.gz
-keyorix-server admin restore --input intermediate-v2.tar.gz --target-dsn "$POSTGRES_DSN"
+keyorix-server admin restore --config ./sqlite-intermediate.yaml --input old-v1-backup.tar.gz
+keyorix-server admin backup  --config ./sqlite-intermediate.yaml --output intermediate-v2.tar.gz
+keyorix-server admin restore --config ./postgres-target.yaml     --input intermediate-v2.tar.gz
 ```
 
-**VERIFIED** — run end to end with a real, downloaded v0.95.0 release
-binary and the actual v0.95.2 build against a real PostgreSQL 16 instance:
-the secret value decrypted byte-identical to what the old binary encrypted,
-the audit chain verified at every stage, and two authz probes (one ALLOWED,
-one DENIED) matched the old binary's answers exactly after the restore.
+`scripts/release-qa/scenario_version_skip_postgres.sh` runs exactly this sequence.
 
 If you're going from v0.94/v0.93 straight to v0.95.2, the same 3-hop shape
 should still apply mechanically (v1 read support doesn't change), but that
@@ -302,12 +290,6 @@ skip.
   own pre-rotation staged key files and restores/verifies exactly as it did
   before, decrypting under the very same (unchanged) KEK. You do not need
   to re-take or migrate old backups because of a DEK rotation.
-  **VERIFIED** — ran a real `admin encryption rotate --confirm` against a
-  live install (real v0.95.2 binary), then restored a backup taken *before*
-  that rotation: the restore's manifest-signature verification succeeded
-  using the same `KEYORIX_MASTER_PASSWORD`, `verify-audit` reported VALID,
-  and the pre-rotation secret was readable, byte-identical, after booting
-  against the restored data.
 - **Tamper detection:** v1's archive-level checksums only catch corruption
   (a bad copy, a truncated transfer, bit rot) — anyone with write access to
   the archive can recompute them to match tampered content. v2's HMAC-signed
@@ -365,15 +347,6 @@ from a 0.95.x release, see the v0.96.0 section above).
     back to an older chart afterwards needs the volume chowned back to `999`.
   Compose volumes need nothing: the compose stack always ran as `70`.
 
-**VERIFIED** — real `helm install` and `helm upgrade` against a kind
-cluster with locally built server/web images: the password-length gate
-correctly refuses render on a too-short password; a password that passes
-the chart's length check but still trips the server's own username-
-substring rule fails bootstrap cleanly (403, pod stays `Ready`) and a
-retry with a compliant password completes the install immediately, no
-wipe needed; `helm upgrade` with identical values regenerated no new
-bootstrap token (byte-identical) and preserved existing data.
-
 ## 6. Air-gapped image rename
 
 The published air-gapped image tag is renamed from `keyorix-server-lean` to
@@ -390,26 +363,6 @@ ghcr.io/keyorixhq/keyorix-server-lean:0.95.1
 # new
 ghcr.io/keyorixhq/keyorix-server:0.95.2-airgap
 ```
-
-**VERIFIED** — both the pre-release build+drill and, after v0.95.2 was
-tagged and its release workflow finished, the real published artifact:
-`docker pull ghcr.io/keyorixhq/keyorix-server:0.95.2-airgap` succeeded, its
-SLSA provenance attestation verified (`gh attestation verify
-oci://ghcr.io/keyorixhq/keyorix-server:0.95.2-airgap --repo
-keyorixhq/keyorix`, subject digest matched the pulled image exactly), and
-it booted healthy under `docker run --network none` (genuine air-gapped
-mode), bootstrapped, and served a real secret create/read. Earlier,
-pre-tag: building the exact same profile locally (`docker build
---build-arg BUILD_TAGS=noaws,noazure,nogcp`) and running the full
-`scripts/airgap-e2e.sh` disaster-recovery drill against it end to end —
-real bootstrap, real secret, `admin backup`/`admin restore` with the
-checkpoint anchor cross-check, secret value round-tripped, and the
-tampered-archive negative leg correctly refused.
-
-Also confirmed the air-gapped profile links **zero** AWS/Azure/GCP SDK
-packages (`go list -tags "noaws noazure nogcp" -deps ./server`, 666 total
-packages, none matching; cross-checked those three SDK families ARE
-present in the unfiltered dependency graph, so this isn't a vacuous pass).
 
 ## 6a. BREAKING: the server now binds 127.0.0.1 by default
 
@@ -457,7 +410,7 @@ install that sets neither key moves from `strict` to `standard` on upgrade:**
 the audit row for a secret read is still committed before the secret is
 returned, and a failed audit write still fails the request, but the commit no
 longer waits for the disk sync, so an OS crash, power loss or PostgreSQL crash
-can lose up to ~600 ms of audit entries (a tail, never a gap). A server process
+can lose the last few hundred ms of audit entries (a tail, never a gap). A server process
 crash still loses nothing, and secret writes, revocations and rotations still
 commit durably. SQLite installs are unaffected: SQLite runs `strict` only.
 
@@ -484,7 +437,7 @@ no longer returns `security.audit_durable_sync_skipped` or
 `security.audit_durable_sync_skip_not_in_effect_reason`, and the per-start
 `admin.audit_durable_sync_skipped_at_startup` audit event is no longer written.
 
-UNVERIFIED as an upgrade drill; the behaviour is covered by
+The behaviour is covered by
 `TestAuditDurability_PostgresEndToEnd` and
 `TestSecurityPostureSnapshot_AuditsAuditDurabilityLevelChange`.
 
@@ -559,15 +512,6 @@ If an upgrade goes wrong:
    schema epoch N is newer than this binary's schema epoch M`) — this is
    why step 2 restores data from before the failed upgrade rather than
    attempting to run the new binary's data on the old binary.
-
-**VERIFIED** — a full rollback drill: took a backup, then simulated a bad
-upgrade (deleted the pre-backup secret, wrote a new one that should not
-survive), then restored the backup in place. The restore was correctly
-**refused** without `--allow-rollback` (the archive was behind the host's
-own audit high-water mark — exactly the rollback-protection design doing
-its job); retrying with `--allow-rollback` succeeded, recorded the override
-to the audit trail, and booting against the restored data confirmed the
-pre-upgrade secret was back and the post-upgrade one was gone.
 
 ## 8. See also
 
