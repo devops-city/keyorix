@@ -543,7 +543,7 @@ func (c *KeyorixCore) revertFailedActivation(ctx context.Context, m *models.Proj
 		err = fmt.Errorf("%w", ErrMembershipStateConflict)
 	}
 	if err != nil {
-		c.auditProjectScoped(ctx, "membership.activation_race_revert_failed", m.UserID, m.ProjectID,
+		c.auditProjectScopedFailed(ctx, "membership.activation_race_revert_failed", m.UserID, m.ProjectID,
 			fmt.Sprintf("failed to revert orphaned active membership %d for user %d in project %d (state %s) after a role-grant failure: %v — MANUAL CLEANUP REQUIRED",
 				m.ID, m.UserID, m.ProjectID, toState, err))
 		return

@@ -556,6 +556,19 @@ server:
 
 or terminate gRPC TLS at a proxy. `server.http.tls.auto_cert` is unchanged.
 
+## 6h. Failure audit events are now stored with `success = false`
+
+`mfa.failed`, `mfa.error`, `webauthn.failed` and the other audit events whose name
+records a failure (`auth.session_revocation_failed`, `auth.keep_session_lookup_failed`,
+`auth.session_revocation_panicked`, `secret.rotate_failed`, `dynamic_lease.revoke_failed`,
+`notification.failed`, and the rest of the `*_failed` / `*.failed` / `*_panicked`
+family) were written with `success = true`, so a wrong TOTP code or a failed passkey
+assertion was invisible to `success = false` filters, SIEM rules and exports (#3363).
+New rows have `success = false`. **Rows written before the upgrade keep
+`success = true`**: audit rows are hash-chained and never rewritten. A query or SIEM
+rule that must cover older history should match on `event_type` as well as
+`success`. `access_request.rejected` is unchanged (it records a successful decision).
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

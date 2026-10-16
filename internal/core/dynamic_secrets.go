@@ -699,7 +699,7 @@ func (c *KeyorixCore) cleanupOrphanedRole(ctx context.Context, cfg *models.Dynam
 			pid := cfg.ProjectID
 			pidPtr = &pid
 		}
-		c.writeAuditEventFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, pidPtr, "",
+		c.writeAuditEventFailedFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, pidPtr, "",
 			fmt.Sprintf("FAILED to clean up orphaned dynamic role %s after an aborted issue (config=%q): %v — drop it manually", roleName, cfg.Name, err))
 	}
 }
@@ -763,7 +763,7 @@ func (c *KeyorixCore) RevokeLease(ctx context.Context, leaseID string, userID ui
 				"persisted (matched=%v, err=%s) — the credential is still live with no row recording it",
 				lease.LeaseID, matched, ports.SanitizeErrorMessage(rrerr))
 		}
-		c.writeAuditEventFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, &pid, "",
+		c.writeAuditEventFailedFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, &pid, "",
 			fmt.Sprintf("FAILED to revoke dynamic lease %s (role %s): %v", lease.LeaseID, lease.RoleName, rerr))
 		return fmt.Errorf("failed to revoke on target: %w", rerr)
 	}

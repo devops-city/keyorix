@@ -248,7 +248,7 @@ func (c *KeyorixCore) completeInvitationAccept(ctx context.Context, tok *models.
 		// see models.User's own doc comments), so this is safe: a subsequent
 		// CreateUser for the same address does not collide with the deleted row.
 		if derr := c.storage.DeleteUser(ctx, user.ID); derr != nil {
-			c.auditProjectScoped(ctx, "invitation.accept_orphaned_account_cleanup_failed", user.ID, inv.ProjectID,
+			c.auditProjectScopedFailed(ctx, "invitation.accept_orphaned_account_cleanup_failed", user.ID, inv.ProjectID,
 				fmt.Sprintf("invitation %d: grants failed for %s (user %d): %v -- AND cleaning up the resulting ungranted account also failed: %v -- MANUAL CLEANUP REQUIRED (delete or complete this account by hand, or the invitee is stuck)", inv.ID, inv.Email, user.ID, err, derr))
 		}
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)

@@ -736,7 +736,7 @@ func (c *KeyorixCore) validateTOTPStep(secret, code string) (int64, bool) {
 
 func (c *KeyorixCore) auditMFAFailed(ctx context.Context, userID uint, phase string) {
 	uid := userID
-	c.writeAuditEventFull(ctx, "mfa.failed", &uid, nil, nil, "", fmt.Sprintf("failed MFA %s for user %d", phase, userID))
+	c.writeAuditEventFailedFull(ctx, "mfa.failed", &uid, nil, nil, "", fmt.Sprintf("failed MFA %s for user %d", phase, userID))
 }
 
 // auditMFAError records that an MFA attempt could not be conclusively evaluated
@@ -746,7 +746,7 @@ func (c *KeyorixCore) auditMFAFailed(ctx context.Context, userID uint, phase str
 // (docs/findings/2026-10-02-FINDING-mfa-login-getmfasecret-storage-error-counted-as-wrong-code.md).
 func (c *KeyorixCore) auditMFAError(ctx context.Context, userID uint, phase string, err error) {
 	uid := userID
-	c.writeAuditEventFull(ctx, "mfa.error", &uid, nil, nil, "",
+	c.writeAuditEventFailedFull(ctx, "mfa.error", &uid, nil, nil, "",
 		fmt.Sprintf("MFA %s for user %d could not be evaluated (storage error): %v", phase, userID, err))
 }
 

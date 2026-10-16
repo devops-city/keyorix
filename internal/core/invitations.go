@@ -547,7 +547,7 @@ func (c *KeyorixCore) revokeInvitationGrants(ctx context.Context, inv *models.Pr
 	}
 	// Project-scoped invite: revert the single project membership/role.
 	if err := c.RemoveProjectMember(ctx, 0, inv.ProjectID, userID); err != nil {
-		c.auditProjectScoped(ctx, eventInvitationRaceRevokeFailed, userID, inv.ProjectID,
+		c.auditProjectScopedFailed(ctx, eventInvitationRaceRevokeFailed, userID, inv.ProjectID,
 			fmt.Sprintf("failed to revert project role %q granted to user %d by invitation %d: %v — MANUAL CLEANUP REQUIRED", inv.Role, userID, inv.ID, err))
 	}
 }
@@ -561,7 +561,7 @@ func (c *KeyorixCore) revokeSystemRoleGrant(ctx context.Context, inv *models.Pro
 		return
 	}
 	if err := c.RemoveUserRole(ctx, 0, userID, role.ID, Scope{ProjectID: 0}); err != nil {
-		c.auditProjectScoped(ctx, eventInvitationRaceRevokeFailed, userID, 0,
+		c.auditProjectScopedFailed(ctx, eventInvitationRaceRevokeFailed, userID, 0,
 			fmt.Sprintf("failed to revert system role %q granted to user %d by invitation %d: %v — MANUAL CLEANUP REQUIRED", inv.SystemRole, userID, inv.ID, err))
 	}
 }
@@ -576,7 +576,7 @@ func (c *KeyorixCore) revokeAssignmentGrants(ctx context.Context, inv *models.Pr
 	}
 	for _, a := range assignments {
 		if err := c.RemoveProjectMember(ctx, 0, a.ProjectID, userID); err != nil {
-			c.auditProjectScoped(ctx, eventInvitationRaceRevokeFailed, userID, a.ProjectID,
+			c.auditProjectScopedFailed(ctx, eventInvitationRaceRevokeFailed, userID, a.ProjectID,
 				fmt.Sprintf("failed to revert project assignment %q granted to user %d by invitation %d: %v — MANUAL CLEANUP REQUIRED", a.Role, userID, inv.ID, err))
 		}
 	}
@@ -1224,4 +1224,11 @@ func (c *KeyorixCore) WithdrawAccessRequest(ctx context.Context, requestID, user
 func (c *KeyorixCore) auditProjectScoped(ctx context.Context, eventType string, actorID, projectID uint, description string) {
 	aid, pid := actorID, projectID
 	c.writeAuditEventFull(ctx, eventType, &aid, nil, &pid, "", description)
+}
+
+// auditProjectScopedFailed is auditProjectScoped for an event that records a
+// failure: stored with Success=false (#3363).
+func (c *KeyorixCore) auditProjectScopedFailed(ctx context.Context, eventType string, actorID, projectID uint, description string) {
+	aid, pid := actorID, projectID
+	c.writeAuditEventFailedFull(ctx, eventType, &aid, nil, &pid, "", description)
 }

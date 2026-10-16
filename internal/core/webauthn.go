@@ -852,7 +852,7 @@ func (c *KeyorixCore) FinishWebAuthnPasswordlessLoginPending(ctx context.Context
 		return nil, nil, UserIdentity{}, nil, fmt.Errorf("%w: loading the passkey's user: %w", ErrWebAuthnLoginNotEvaluated, notEvaluated)
 	}
 	if err != nil || resolved == nil {
-		c.writeAuditEventFull(ctx, "webauthn.failed", nil, nil, nil, ip, "failed passwordless WebAuthn login")
+		c.writeAuditEventFailedFull(ctx, "webauthn.failed", nil, nil, nil, ip, "failed passwordless WebAuthn login")
 		return nil, nil, UserIdentity{}, nil, fmt.Errorf("assertion verification failed: %w", err)
 	}
 	// Clone-detection (#212): refuse before any other gate — a signature-counter
@@ -1137,6 +1137,6 @@ func (c *KeyorixCore) persistUpdatedCredential(ctx context.Context, userID uint,
 
 func (c *KeyorixCore) auditWebAuthnFailed(ctx context.Context, userID uint, phase string) {
 	uid := userID
-	c.writeAuditEventFull(ctx, "webauthn.failed", &uid, nil, nil, "",
+	c.writeAuditEventFailedFull(ctx, "webauthn.failed", &uid, nil, nil, "",
 		fmt.Sprintf("failed WebAuthn %s for user %d", phase, userID))
 }

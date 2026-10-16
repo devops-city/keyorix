@@ -336,13 +336,29 @@ func (c *KeyorixCore) writeAuditEventDiff(ctx context.Context, eventType string,
 // the source -- and a derived fact goes red if someone deletes it, where an
 // exemption row would have kept pardoning the call sites.
 func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string) (persisted bool) { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
+	return c.writeAuditEventOutcomeOn(ctx, tgt, eventType, userID, secretID, projectID, ip, description, diff, true)
+}
+
+// writeAuditEventFailedFull is writeAuditEventFull for an event that records a
+// FAILURE: stored with Success=false (#3363), so success=false queries, SIEM
+// rules and exports see it. Unlike writeAuditEventFailed it takes a secret ID
+// and keeps this writer family's own panic recovery and client-origin note.
+// TestFailureNamedAuditEvents_AreWrittenWithSuccessFalse requires it (or
+// writeAuditEventFailed) for every event whose name ends in a failure word.
+func (c *KeyorixCore) writeAuditEventFailedFull(ctx context.Context, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string) bool {
+	return c.writeAuditEventOutcomeOn(ctx, c.auditNow(), eventType, userID, secretID, projectID, ip, description, "", false)
+}
+
+// writeAuditEventOutcomeOn is the one body behind writeAuditEventDiffOn
+// (Success=true) and writeAuditEventFailedFull (Success=false).
+func (c *KeyorixCore) writeAuditEventOutcomeOn(ctx context.Context, tgt auditTarget, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string, success bool) (persisted bool) { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r)
 			persisted = false
 		}
 	}()
-	t := true
+	t := success
 	event := &models.AuditEvent{
 		EventType:    eventType,
 		UserID:       userID,

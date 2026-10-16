@@ -442,7 +442,7 @@ func (c *KeyorixCore) SetUserRoles(ctx context.Context, actorID, userID uint, ro
 			}
 		}
 		if len(revertErrs) > 0 {
-			c.auditProjectScoped(ctx, "rbac.set_user_roles_revert_failed", actorID, scope.ProjectID,
+			c.auditProjectScopedFailed(ctx, "rbac.set_user_roles_revert_failed", actorID, scope.ProjectID,
 				fmt.Sprintf("SetUserRoles for user %d failed (%v) and reverting the partial apply also failed (%v) — MANUAL CLEANUP REQUIRED: the user's role set is neither the old nor the new one", userID, cause, revertErrs))
 		}
 		return cause

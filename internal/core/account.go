@@ -313,7 +313,7 @@ func (c *KeyorixCore) resolveKeepSession(ctx context.Context, userID uint, keepS
 	s, serr := c.getKeepSession(ctx, keepSessionToken)
 	if serr != nil {
 		log.Printf("SECURITY: %s: could not resolve the caller's own session (%v) -- purging ALL sessions for user %d instead of sparing the caller's", reason, serr, userID)
-		c.writeAuditEventFull(ctx, EventKeepSessionLookupFailed, &userID, nil, nil, "",
+		c.writeAuditEventFailedFull(ctx, EventKeepSessionLookupFailed, &userID, nil, nil, "",
 			fmt.Sprintf("%s: the caller's own session could not be resolved (%v), so the session purge included it too instead of sparing it", reason, serr))
 		return 0, ""
 	}
@@ -348,7 +348,7 @@ func (c *KeyorixCore) getKeepSession(ctx context.Context, token string) (s *mode
 func (c *KeyorixCore) deleteSessionsForUserAndEvict(ctx context.Context, userID, keepID uint, keepHash string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.writeAuditEventFull(ctx, EventSessionRevocationPanicked, &userID, nil, nil, "",
+			c.writeAuditEventFailedFull(ctx, EventSessionRevocationPanicked, &userID, nil, nil, "",
 				fmt.Sprintf("panic revoking sessions for user %d: %v — sessions may not have been fully revoked, review manually", userID, r))
 			log.Printf("SECURITY: deleteSessionsForUserAndEvict panicked for user %d (best-effort, primary operation already succeeded): %v\n%s", userID, r, debug.Stack())
 			err = nil
@@ -358,7 +358,7 @@ func (c *KeyorixCore) deleteSessionsForUserAndEvict(ctx context.Context, userID,
 	err = c.storage.DeleteSessionsForUserExcept(ctx, userID, keepID)
 	if err != nil {
 		log.Printf("SECURITY: deleteSessionsForUserAndEvict failed to purge sessions for user %d (best-effort, primary operation already succeeded): %v", userID, err)
-		c.writeAuditEventFull(ctx, EventSessionRevocationFailed, &userID, nil, nil, "",
+		c.writeAuditEventFailedFull(ctx, EventSessionRevocationFailed, &userID, nil, nil, "",
 			fmt.Sprintf("failed to purge sessions for user %d: %v — sessions may not have been fully revoked, review manually", userID, err))
 	}
 	for _, h := range hashes {
