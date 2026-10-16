@@ -1,0 +1,7 @@
+### Added
+- **Native demo without Docker, a live anomaly demo, and a repeatable scenario catalogue.** `scripts/demo/native-up.sh` runs the same calm demo on host binaries (SQLite or PostgreSQL); `scripts/demo/seed-demo.sh STATE_DIR` is the non-interactive, idempotent seed (MFA stays required; the admin's TOTP key goes to a 0600 file, the bootstrap token is generated). `scripts/demo/trigger-anomaly.sh` triggers real detections (bulk read, read burst, off-hours, new source, plus the audit-only failed-login burst and refused-read probing) and resets to calm; `scripts/demo/anomaly-check.sh` proves it. `scripts/demo/scenario-*.sh` script twelve demo scenarios; `docs/demo.md` is the talk track.
+
+### Fixed
+- **`keyorix run --var` read every secret in the environment.** It fetched (and audited as `secret.read`) the value of all secrets in the project and environment and then filtered, so a CI identity injecting one secret looked like it had read the whole project and tripped the `principal_breadth` anomaly rule. It now reads only the secrets named by `--var`; `--derive-names` is unchanged.
+- **`keyorix compliance verify` rejected every genuine evidence pack.** The server binds the signature to the pack's canonical filename (carried in the `.sig`), but the CLI never sent it, so verification always failed with "presented under the wrong filename". The CLI now sends it.
+- **Demo seed no longer leaves a red `principal_breadth` alert.** The seed's own setup calls (13 secrets) are acknowledged with the other first-observation alerts.

@@ -254,8 +254,13 @@ for a in json.loads(sys.argv[1])['data'].get('alerts') or []:
 # from the server log; without it the worst case (5 min) is waited.
 demo_settle_anomalies() {
   local base="$1" token="$2" container="${3:-}" need=320 line d up wait tries=0 acked=0 left=0
-  if [ -n "$container" ]; then
-    line="$(docker logs "$container" 2>&1 | grep -m1 'Anomaly detection: first pass in' || true)"
+  if [ -n "$container" ] || [ -n "${DEMO_SERVER_LOG:-}" ]; then
+    # DEMO_SERVER_LOG (native-up.sh) is the server's log file; otherwise the docker log.
+    if [ -n "${DEMO_SERVER_LOG:-}" ]; then
+      line="$(grep -m1 'Anomaly detection: first pass in' "$DEMO_SERVER_LOG" 2>/dev/null || true)"
+    else
+      line="$(docker logs "$container" 2>&1 | grep -m1 'Anomaly detection: first pass in' || true)"
+    fi
     d="$(printf '%s' "$line" | sed -n 's/.*first pass in \([0-9hms.]*\),.*/\1/p')"
     [ -n "$d" ] && d="$(demo_duration_seconds "$d")"
     [ -n "$d" ] && need=$((d + 20))
@@ -280,7 +285,10 @@ demo_settle_anomalies() {
     case "$type:$sev:$who" in
       new_user:low:admin|new_user:low:alice|new_user:low:security-officer|new_user:low:ci-app|\
       new_ip:low:admin|new_ip:low:alice|new_ip:low:security-officer|new_ip:low:ci-app|\
-      off_hours:medium:admin|off_hours:medium:alice|off_hours:medium:security-officer|off_hours:medium:ci-app)
+      off_hours:medium:admin|off_hours:medium:alice|off_hours:medium:security-officer|off_hours:medium:ci-app|\
+      principal_breadth:high:admin|principal_breadth:medium:admin)
+        # principal_breadth:*:admin - the admin creating and classifying the seed's 13 secrets
+        # is "one principal touching >= 5 secrets it never read" to the detector.
         demo_api POST "$base" "/api/v1/audit/anomalies/$id/acknowledge" "$token" "{}"
         if [ "$DEMO_HTTP_CODE" = "200" ]; then acked=$((acked + 1)); else left=$((left + 1)); fi
         ;;
