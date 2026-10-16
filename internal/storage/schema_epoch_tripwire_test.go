@@ -21,20 +21,19 @@ package storage
 
 import "testing"
 
-func TestCurrentSchemaEpoch_Is2_SeeADR101(t *testing.T) {
-	if currentSchemaEpoch != 2 {
+func TestCurrentSchemaEpoch_Is3_SeeADR101(t *testing.T) {
+	if currentSchemaEpoch != 3 {
 		t.Fatalf(
-			"currentSchemaEpoch is now %d (expected 2) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
+			"currentSchemaEpoch is now %d (expected 3) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
 				"requires every bump to also decide minCompatibleSchemaEpoch (additive-and-safe leaves it "+
 				"unchanged; a migration an older binary cannot safely run against raises it to the new epoch). "+
 				"Make that decision in factory.go, THEN update this test's expected value alongside your "+
 				"epoch bump -- do not just raise the constant here.",
 			currentSchemaEpoch)
 	}
-	if minCompatibleSchemaEpoch != 2 {
-		t.Fatalf("minCompatibleSchemaEpoch is %d; the purge_at column (epoch 2) is NOT safe for an epoch-1 binary: its "+
-			"RestoreSecret/RestoreProject do not clear purge_at and its DeleteSecret does not re-stamp it, so a restore+re-delete "+
-			"on an old replica leaves a stale date and the new purge job hard-deletes before the date shown (irreversible). "+
-			"The floor must be 2 so epoch-1 binaries refuse to start (INV-STORE-secret-purge-never-before-shown-date)", minCompatibleSchemaEpoch)
+	if minCompatibleSchemaEpoch != 3 {
+		t.Fatalf("minCompatibleSchemaEpoch is %d; the floor must be 3. Epoch-1 binaries mishandle purge_at "+
+			"(INV-STORE-secret-purge-never-before-shown-date), and epoch-2 binaries rewrite the v2 audit retention anchor as v1, "+
+			"dropping the purged count (#3359), and never write secret_nodes.suspend_clear_synced_copies (#3362)", minCompatibleSchemaEpoch)
 	}
 }
