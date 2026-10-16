@@ -21,6 +21,10 @@ keyorix-server admin backup --output backup-$(date +%F).tar.gz
 rollback drill, air-gapped drill, version-skip proof), each time producing a
 valid, restorable v2 archive.
 
+To rehearse an upgrade first, on a throwaway instance with your old and new
+binaries (SQLite or PostgreSQL), run `scripts/drills/upgrade.sh`; see
+[operator/drill-upgrade.md](operator/drill-upgrade.md).
+
 ## 2. Upgrading from v0.95.x → v0.95.2
 
 (The steps are the same for every v0.95.x → v0.95.y upgrade, and for the Compose
