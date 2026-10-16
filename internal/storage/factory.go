@@ -667,6 +667,9 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	if err := refuseUndeclaredTransactionPooler(&cfg.Storage.Database); err != nil {
 		return nil, err
 	}
+	if err := refuseNonOriginReplicationRole(db); err != nil {
+		return nil, err
+	}
 
 	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migrateDatabase); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)

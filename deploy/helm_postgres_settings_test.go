@@ -67,10 +67,22 @@ func TestHelmPostgresSettings(t *testing.T) {
 		"postgresql.settings.listen_addresses=0.0.0.0",
 		"postgresql.settings.password_encryption=md5",
 		"postgresql.settings.archive_command=sh",
+		// #3361: replica mode turns off foreign keys and ordinary triggers
+		// (the read cache's cache-epoch trigger among them). Refused whatever
+		// the value: the server accepts only 'origin', which is the default.
+		"postgresql.settings.session_replication_role=replica",
+		"postgresql.settings.session_replication_role=origin",
 	} {
 		if out, err := render(bad); err == nil {
 			t.Errorf("--set-string %s must refuse to render, got:\n%s", bad, out)
 		}
+	}
+
+	// #3361: values.schema.json refuses session_replication_role on its own,
+	// before any template runs (helm lint and helm install --dry-run too).
+	if out, err := render("postgresql.settings.session_replication_role=replica"); err == nil ||
+		!strings.Contains(out, "schema") || !strings.Contains(out, "/postgresql/settings") {
+		t.Errorf("values.schema.json must refuse postgresql.settings.session_replication_role, got (err=%v):\n%s", err, out)
 	}
 
 	// A whole number from a values file is a float to Helm; it must render as

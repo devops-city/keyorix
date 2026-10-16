@@ -315,7 +315,9 @@ postgresql:
   # Settings that would override the secure baseline or run commands are refused:
   # ssl and ssl_*, hba_file, ident_file, listen_addresses, port,
   # password_encryption, data_directory, config_file, archive_command,
-  # archive_library, restore_command.
+  # archive_library, restore_command. session_replication_role is refused too: in
+  # 'replica' mode PostgreSQL enforces no foreign keys and fires no ordinary
+  # trigger, and the server refuses to start unless it is 'origin' (#3361).
   settings: {}
   resources:
     requests:

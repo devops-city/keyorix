@@ -347,6 +347,10 @@ bundled PostgreSQL. Keys must be plain setting names.
   ssl and every ssl_* setting, hba_file, ident_file, listen_addresses, port,
   password_encryption, data_directory, config_file, archive_command,
   archive_library, restore_command.
+- session_replication_role is refused (#3361): in 'replica' mode PostgreSQL
+  enforces no foreign keys and fires no ordinary trigger, so Keyorix's caches
+  would serve rows the database has changed. The server refuses to start unless
+  its sessions are in 'origin'; values.schema.json refuses the key as well.
 - Whole-number values are printed as integers (a values file's 10000000 is a
   float to Helm and would otherwise render as 1e+07).
 */}}
@@ -364,6 +368,9 @@ bundled PostgreSQL. Keys must be plain setting names.
 {{- end -}}
 {{- if or (has $k $denied) (hasPrefix "ssl_" $k) -}}
 {{- fail (printf "postgresql.settings.%s is not settable here: it would override the chart's secure baseline (TLS, authentication, listen address) or run a command" $k) -}}
+{{- end -}}
+{{- if eq $k "session_replication_role" -}}
+{{- fail "postgresql.settings.session_replication_role is not settable here: anything but 'origin' turns off foreign keys and the triggers Keyorix's caches depend on, and the server refuses to start with it (#3361)" -}}
 {{- end -}}
 {{- if hasKey $durable $k -}}
 {{- if not (has (toString $v) (get $durable $k)) -}}

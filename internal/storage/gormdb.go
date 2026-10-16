@@ -49,6 +49,13 @@ func OpenGormDB(cfg *config.Config) (*gorm.DB, error) {
 		if err := applyPoolSettings(db, &cfg.Storage.Database); err != nil {
 			return nil, err
 		}
+		// #3361: the DEK rotation sweep writes, so the same refusal as the server.
+		if err := refuseNonOriginReplicationRole(db); err != nil {
+			if sqlDB, dbErr := db.DB(); dbErr == nil {
+				_ = sqlDB.Close()
+			}
+			return nil, err
+		}
 		return db, nil
 	// #1640: "sqlite" is an accepted alias for "local" -- see the matching
 	// comment in internal/storage/factory.go's CreateStorage switch. This
