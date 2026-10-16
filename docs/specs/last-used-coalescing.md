@@ -103,3 +103,5 @@ none); the next request records again.
   `TestLastUsed_RejectedRequestRecordsNothing`.
 - `TestLastUsed_ReadersSeeUseWithinBound`: every reader in §1.3 reports the use
   after one flush.
+- `TestLastUsed_OnlyTheCoalescerCallsTheStoreTouches`: static; no non-test code in
+  `internal/core` or `server` calls the store's Touch* methods except the coalescer.

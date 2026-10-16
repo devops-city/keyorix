@@ -37,6 +37,7 @@ package core
 // in-memory value (pendingAt), not the column alone.
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"sync"
@@ -182,16 +183,10 @@ func (a *lastUsedCoalescer) flush(ctx context.Context) {
 	// Deterministic order (kind, id): replicas flushing overlapping sets
 	// touch rows in the same order.
 	slices.SortFunc(keys, func(x, y lastUsedKey) int {
-		if x.kind != y.kind {
-			return int(x.kind) - int(y.kind)
+		if c := cmp.Compare(x.kind, y.kind); c != 0 {
+			return c
 		}
-		switch {
-		case x.id < y.id:
-			return -1
-		case x.id > y.id:
-			return 1
-		}
-		return 0
+		return cmp.Compare(x.id, y.id)
 	})
 
 	var failed map[lastUsedKey]time.Time

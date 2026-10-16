@@ -535,6 +535,20 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
+## 6g. "Last used" / "last seen" are written in the background
+
+`last_used_at` on personal access tokens and machine credentials, and
+`last_seen_at` on sessions, are no longer written by the request itself. Each
+server records uses in memory and writes them at most once per credential every
+30 seconds, and on a graceful stop. Nothing to configure. What you may notice:
+a token's first use can take up to about 30 seconds to show in the PAT list,
+the machine token list or My Account → Sessions (before, the first use showed
+at once and later ones could already lag by 30 seconds). A server killed
+without a graceful stop loses up to 30 seconds of these stamps. With several
+replicas each writes its own observations and the stored value only moves
+forward. No access decision uses these columns; the stale-credential and
+hygiene reports work in days. Details: [`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
+
 ## 7. Rollback
 
 If an upgrade goes wrong:
