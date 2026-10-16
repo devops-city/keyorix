@@ -145,5 +145,5 @@ the others crash-loop on the key lock.
   `server/admin/backup_key_dir_lock_postgres_test.go` (pg-gated), plus
   `TestAcquireDatabaseLock_ForceRefusedWithDatabaseKeyDirLock` and `TestValidate_KeyDirLock`
   (default CI). Red runs are recorded in the PR.
-- **Pending e2e VM:** `scripts/e2e/kind-multi-replica.sh`, two replicas on an RWX volume in kind,
+- **Pending e2e VM:** `scripts/k8s-e2e/multi-replica.sh`, two replicas on an RWX volume in kind,
   with the server `server.replicas=2` + `key_dir_lock: database`.

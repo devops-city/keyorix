@@ -400,6 +400,79 @@ build — the secret read back unchanged, `verify-audit` VALID, schema epoch
 matches. See [UPGRADING.md](UPGRADING.md) for what changes on upgrade (MFA
 grace period).
 
+### Running more than one replica
+
+Several API replicas behind one load balancer is the ADR-039 topology. This is
+what it needs, what the replicas share, and the order to upgrade them in.
+
+**Requirements**
+
+- **PostgreSQL** (SQLite is single-process). Use an HA PostgreSQL you operate (managed,
+  Patroni, ...). With a pooler, use `pgbouncer-session` or declare
+  `pgbouncer-transaction` (`storage.database.pooler`, docs/postgresql-poolers.md).
+- **`storage.encryption.key_dir_lock: database`** on every replica. With the default
+  `flock`, every server holds an exclusive flock on its key directory, so a second
+  replica on a shared volume refuses to start, or runs unprotected where the
+  filesystem does not enforce flock across nodes. Design and key-file inventory:
+  [multi-replica-keys.md](multi-replica-keys.md).
+- **The same key set on every replica**: `dek_path`, and `salt_path` or the KMS/TPM
+  wrapped KEK, with the same master password or KEK source. Either share one
+  ReadWriteMany volume (the first replica generates the keys, the others wait and
+  load them), or mount identical read-only copies, for example one Kubernetes
+  Secret. A replica that finds no DEK while the database already holds secrets
+  refuses to start and does not generate a second one.
+- **Identical configuration** on every replica, `storage.database.single_writer`
+  off, and `security.auth_rate_limit_fallback.replicas` set to the replica count.
+  Enforce login rate limits at the load balancer as well; the in-memory limits are
+  per replica.
+
+**What is shared, and what is per replica**
+
+| Shared through PostgreSQL | Per replica (in memory) |
+|---|---|
+| secrets, sessions, tokens, audit chain (one append lock), scheduler leadership (one advisory lock per job), the server-presence lock, the key-initialisation lock, the DEK-rotation redo marker, the schema epoch | the DEK (loaded at start-up), 30-second token/session caches, the negative-auth cache, rate-limit windows |
+
+**Key operations.** A DEK or KEK rotation, `migrate-provider`, and `admin restore`
+all need **every replica stopped**. The admin command takes the presence lock
+exclusively and is refused while any replica runs. With `key_dir_lock: database`,
+`--force` cannot override that. Run the command once (a Kubernetes Job on the
+keys volume), update read-only key copies if you use them, then start the
+replicas again. A live `admin backup` (Postgres, no `--exclusive`) runs next to
+the replicas.
+
+**Upgrade order**
+
+1. Back up (section 5).
+2. Roll the replicas to the new image one at a time (RollingUpdate,
+   `maxUnavailable: 1`). The first new replica migrates the schema at start-up.
+3. While old and new replicas run side by side:
+   - Old replicas keep serving. Right after the migration, an old replica can
+     answer a few requests with 500 (`cached plan must not change result type`)
+     when the new release added columns to a table. Each pooled connection fails
+     once per affected query and recovers.
+   - When the release raises the schema-epoch floor (this release: 3, see
+     [UPGRADING.md §6g](UPGRADING.md)), an old replica that restarts is refused at
+     start-up and stays down until replaced by the new image. That is the intended
+     state; it does not rejoin.
+   - Do not run audit purges (`POST /api/v1/admin/jobs/purge-audit-logs`), key
+     rotations or restores until the rollout has finished. A purge that lands on an
+     old replica is refused. After a purge, old replicas report the audit chain
+     "broken" until they are replaced.
+4. Add new configuration keys (for example `key_dir_lock` when moving from one
+   replica to several) only **after** every replica runs a release that knows them,
+   in a second rollout. An older binary refuses to start on a config file with a
+   key it does not know. In Kubernetes, a pod of the old ReplicaSet that is
+   rescheduled mid-rollout reads the new ConfigMap.
+5. Rollback across a raised floor is a restore (UPGRADING.md §7), not an image
+   downgrade.
+
+Tested natively: a v0.96.1 and a current server against one PostgreSQL database,
+with concurrent writes, cross-version reads, a restart of the old one, audit purge
+and verification, and a DEK rotation (`scripts/e2e/mixed_version_test.go`).
+**Pending live verification:** the same on Kubernetes (two replicas on a
+ReadWriteMany keys volume, kind), `scripts/k8s-e2e/multi-replica.sh`, waiting for
+the e2e VM.
+
 ## 7. TLS
 
 **Secure baseline (the default since v0.96.0).** `docker compose up -d` runs the
