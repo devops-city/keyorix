@@ -95,7 +95,7 @@ func openPostgresNativeReadPool(d *config.DatabaseConfig, maxConns int) (*pgxpoo
 	}
 	pc.ConnConfig = cc
 	pc.AfterConnect = postgresAfterConnect(cc)
-	pc.MaxConns = int32(maxConns) // #nosec G115 -- at most NativeReadPoolMaxSize (nativeReadPoolSize)
+	pc.MaxConns = int32(maxConns) // #nosec G115 -- at most native_read_pool_max, validated to MaxNativeReadPoolMax (nativeReadPoolSize)
 	pc.MinConns = 0
 	if d.ConnMaxLifetimeMinutes > 0 {
 		pc.MaxConnLifetime = time.Duration(d.ConnMaxLifetimeMinutes) * time.Minute
