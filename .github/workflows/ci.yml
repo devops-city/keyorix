@@ -425,6 +425,10 @@ jobs:
             # go_unaffected skipped e2e-smoke on the very PRs that change
             # those tests (#2681 merged with its assertion never executed).
             echo "go_unaffected=false" >> "$GITHUB_OUTPUT"
+          elif echo "$changed" | grep -q '^scripts/edge/'; then
+            # scripts/edge/ drives Go builds (edge-builds: ARM cross-build and
+            # the footprint guard), so it is not Go-free either.
+            echo "go_unaffected=false" >> "$GITHUB_OUTPUT"
           elif [ -z "$changed" ] || echo "$changed" | grep -vE '^(scripts/|\.semgrep/|demo/|integrations/|\.github/workflows/|\.gitignore$|\.gitattributes$|LICENSE$|COPYRIGHT$)' > /dev/null; then
             echo "go_unaffected=false" >> "$GITHUB_OUTPUT"
           else
@@ -3134,6 +3138,47 @@ jobs:
             exit 1
           fi
 
+  # EDGE-1 CI wiring (#3343; coordinator 2026-10-16): the ARM cross-build of
+  # every shipped component (linux/arm64 + linux/arm GOARM=7, CGO off) and
+  # the edge footprint guard (binary-size budgets for darwin/arm64,
+  # linux/amd64, linux/arm64 and linux/arm; idle peak RSS for the host only,
+  # skipped with a message until scripts/edge/footprint-budget.tsv has a
+  # linux row -- fill it from this job's log with `footprint.sh --print`).
+  # Both take minutes, so FULL profile only, never in the FAST pull_request
+  # profile. Not a required context. Until #3343 lands, the scripts are not
+  # on the ref and each step says so and passes: the step's job is to run
+  # them once they exist, not to prove their absence.
+  edge-builds:
+    needs: [changes]
+    if: needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: ARM cross-build (scripts/edge/cross-build.sh)
+        run: |
+          if [ ! -f scripts/edge/cross-build.sh ]; then
+            echo "::notice::scripts/edge/cross-build.sh is not on this ref (it lands with #3343); nothing to cross-build yet."
+            exit 0
+          fi
+          bash scripts/edge/cross-build.sh
+
+      - name: Edge footprint guard (scripts/edge/footprint.sh)
+        run: |
+          if [ ! -f scripts/edge/footprint.sh ]; then
+            echo "::notice::scripts/edge/footprint.sh is not on this ref (it lands with #3343); nothing to check yet."
+            exit 0
+          fi
+          bash scripts/edge/footprint.sh --targets darwin/arm64,linux/amd64,linux/arm64,linux/arm
+
   # Nightly failure report. Runs only for the scheduled run, after every other
   # job, and only when at least one of them failed. Opens an issue titled
   # "Nightly main CI failed", or comments on the existing open one so a
@@ -3179,6 +3224,7 @@ jobs:
       - helm-chart-security
       - helm-chart-policy
       - openapi-lint
+      - edge-builds
     if: always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:
