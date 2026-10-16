@@ -190,6 +190,21 @@ spec:
               mountPath: {{ include "keyorix.externalDatabase.caDir" . }}
               readOnly: true
             {{- end }}
+          {{- $probes := .Values.server.probes | default dict }}
+          # startupProbe holds liveness and readiness off until the server listens
+          # (first boot runs the database migrations and the admin bootstrap before
+          # it does): up to 36 x 5s = 3 min, instead of a liveness initialDelay that
+          # is either too short for a first boot or too slow to notice a crash later.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+              {{- if .Values.secureBaseline.enabled }}
+              scheme: HTTPS
+              {{- end }}
+            {{- include "keyorix.probeTiming" (list (dict "periodSeconds" 5 "timeoutSeconds" 3 "failureThreshold" 36) $probes.startup) | nindent 12 }}
+          # liveness: /health never touches the database, so a database blip does not
+          # restart the pod (server/http/handlers/readiness.go).
           livenessProbe:
             httpGet:
               path: /health
@@ -197,8 +212,9 @@ spec:
               {{- if .Values.secureBaseline.enabled }}
               scheme: HTTPS
               {{- end }}
-            initialDelaySeconds: 15
-            periodSeconds: 20
+            {{- include "keyorix.probeTiming" (list (dict "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 3) $probes.liveness) | nindent 12 }}
+          # readiness: /readyz pings the database (cached 1s server-side) and answers
+          # 503 while it is unreachable, so traffic stops without a restart.
           readinessProbe:
             httpGet:
               path: /readyz
@@ -206,8 +222,7 @@ spec:
               {{- if .Values.secureBaseline.enabled }}
               scheme: HTTPS
               {{- end }}
-            initialDelaySeconds: 5
-            periodSeconds: 10
+            {{- include "keyorix.probeTiming" (list (dict "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 3 "successThreshold" 1) $probes.readiness) | nindent 12 }}
           resources:
             {{- if .Values.server.resources }}
             {{- toYaml .Values.server.resources | nindent 12 }}
