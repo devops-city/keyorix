@@ -172,6 +172,27 @@ server:
   # Go >= 1.25 sets it from the cgroup CPU limit.
   goMemLimit: ""
   goMemLimitPercent: 85
+  # Probe timing for the server container. Endpoints are fixed: startup and liveness
+  # use GET /health (never touches the database, so a database blip does not restart
+  # the pod), readiness uses GET /readyz (pings the database; 503 takes the pod out
+  # of the Service without restarting it). Any field a probe accepts may be set here
+  # (e.g. server.probes.startup.failureThreshold); unset fields keep these defaults.
+  # The startup probe gives a first boot (migrations, admin bootstrap) 36 x 5s = 3 min
+  # before liveness takes over; raise failureThreshold for a very large database.
+  probes:
+    startup:
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 36
+    liveness:
+      periodSeconds: 20
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -248,8 +269,10 @@ postgresql:
     username: keyorix
     database: keyorix
     # Password for the bundled DB. REQUIRED when postgresql.enabled and no
-    # auth.existingSecret is set.
-    password: ""
+    # auth.existingSecret is set. Deliberately has no default (no empty
+    # placeholder value either): the chart fails the render when it is unset.
+    # Pass it with --set postgresql.auth.password=... or a values file.
+    # password:
   persistence:
     enabled: true
     size: 8Gi

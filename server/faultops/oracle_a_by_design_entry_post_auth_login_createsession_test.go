@@ -13,11 +13,10 @@ func init() {
 	// mfa.error audit written. The effect-then-error rows are oracle (d)'s; for a
 	// read the "effect" is the read itself, so the state is the error kind's.
 	//
-	// NOT pinned here: the PANIC kind of the same tuples. A post-verdict panic
-	// reaches the Recovery middleware and answers 500 with no audit event (and on
-	// /auth/mfa/verify also hands the slot back, #3048), which is not the decided
-	// outcome. Those tuples still fail the oracle on purpose (NEEDS ANDREI in
-	// SESSION-ORPHAN-2.md).
+	// The PANIC kind of these tuples has its own rows (*_panic_test.go): since
+	// #3267 (identity reads) and #3277 (the writes) core denies a post-verdict
+	// panic exactly like its error, which TestPostVerdictIdentityReadPanic_AnsweredLikeItsError
+	// and TestPostVerdictWritePanic_AnsweredLikeItsError check as families.
 	registerOracleAByDesign("post_auth_login_createsession", oracleAByDesignError{
 		op: "REST POST /auth/login", method: "CreateSession", kind: faultstorage.KindError, nth: 1,
 		tables: []string{"LoginAttempt"}, outcomeLogs: []string{"AuditEvent"},

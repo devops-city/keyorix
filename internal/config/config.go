@@ -670,6 +670,12 @@ type DatabaseConfig struct {
 	MaxIdleConns           int `yaml:"max_idle_conns"`
 	ConnMaxLifetimeMinutes int `yaml:"conn_max_lifetime_minutes"`
 
+	// NativeReadPoolMax caps the Postgres pool the hottest read-path statements
+	// run on (the machine credential lookup and the node-stamp read; see
+	// storage.NativeReadPoolMaxSize). 0 or unset is DefaultNativeReadPoolMax.
+	// Never more than the request pool's own cap. Postgres only.
+	NativeReadPoolMax int `yaml:"native_read_pool_max"`
+
 	// AuditFlusherLingerWindow (SESSION-PERF, #2420 follow-up) is how long the
 	// audit-chain batching flusher deliberately waits, after its first queued
 	// item, for more items to arrive before committing — a Go duration string
@@ -2830,6 +2836,9 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	}
 
 	if err := validatePooler(c.Storage.Type, &c.Storage.Database); err != nil {
+		return err
+	}
+	if err := validateNativeReadPoolMax(c.Storage.Type, &c.Storage.Database); err != nil {
 		return err
 	}
 	// ADR-112 Amendment 3: a known level, no conflict with the deprecated

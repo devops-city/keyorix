@@ -297,6 +297,7 @@ storage.database.insecure_audit_skip_reads
 storage.database.max_idle_conns
 storage.database.max_open_conns
 storage.database.name
+storage.database.native_read_pool_max
 storage.database.password
 storage.database.path
 storage.database.pooler
