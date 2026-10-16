@@ -18,6 +18,8 @@
 // What it does NOT see: anything sent over TLS. The proxied DSN is forced to
 // sslmode=disable, and an SSLRequest from a client is refused with 'N', so a
 // client that insists on TLS fails to connect rather than going uncounted.
+//
+// Nothing outside *_test.go files may import this package.
 package pgwirecount
 
 import (
