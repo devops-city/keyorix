@@ -290,7 +290,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 			}
 		}
 	} else {
-		permitted, err = h.coreService.GetSecretForValueRead(r.Context(), uint(id), userCtx.UserID)
+		permitted, err = h.coreService.GetSecretForRead(r.Context(), uint(id), userCtx.UserID, r.URL.Query().Get("include_value") == "true")
 		if err == nil {
 			secret = permitted.Secret()
 		}

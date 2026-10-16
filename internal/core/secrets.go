@@ -392,7 +392,7 @@ func unexpiredSecret(secret *models.SecretNode) (*models.SecretNode, error) {
 // then the access schedule, then GetSecret's expiration check, evaluated here at the
 // same point it used to be.
 func (c *KeyorixCore) GetSecretWithPermissionCheck(ctx context.Context, id, userID uint) (*models.SecretNode, error) {
-	_, secret, err := c.checkSecretPermission(ctx, id, userID, PermissionRead, "")
+	secret, err := c.checkSecretReadPermission(ctx, id, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -400,6 +400,23 @@ func (c *KeyorixCore) GetSecretWithPermissionCheck(ctx context.Context, id, user
 		return nil, err
 	}
 	return unexpiredSecret(secret)
+}
+
+// checkSecretReadPermission is checkSecretPermission(PermissionRead, no action) that
+// returns the secret it decided on. When the request's own gate has already allowed
+// this user secrets.read on this secret (gate_read_decision.go), that decision and the
+// row it was made on are used instead of evaluating the same terms again; the PAT
+// restriction is still checked against the secret's scope, as checkSecretPermission
+// does first.
+func (c *KeyorixCore) checkSecretReadPermission(ctx context.Context, id, userID uint) (*models.SecretNode, error) {
+	if id != 0 && userID != 0 {
+		if secret := takeGateReadAllow(ctx, userID, id); secret != nil &&
+			patRestrictionFromContext(ctx).Allows(permSecretsRead, Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}) {
+			return secret, nil
+		}
+	}
+	_, secret, err := c.checkSecretPermission(ctx, id, userID, PermissionRead, "")
+	return secret, err
 }
 
 // GetSecretByName resolves a secret by its name within a project/environment. Like
