@@ -664,6 +664,9 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 		return nil, err
 	}
 	warnPostgresPoolHeadroom(db, &cfg.Storage.Database)
+	if msg := config.PoolerStartupParamWarning(&cfg.Storage.Database); msg != "" {
+		log.Print(msg)
+	}
 	if err := refuseUndeclaredTransactionPooler(&cfg.Storage.Database); err != nil {
 		return nil, err
 	}
