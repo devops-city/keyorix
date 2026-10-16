@@ -79,7 +79,7 @@ func (r mapRegistry[V]) add(key string, v V) {
 }
 
 var (
-	knownOpenTolerancesReg = &sliceRegistry[knownOpenTolerance]{table: &knownOpenTolerances, label: "knownOpenTolerances"}
+	knownOpenTolerancesReg = &sliceRegistry[knownOpenTolerance]{table: &knownOpenTolerances, label: "knownOpenTolerances"} //nolint:unused // empty since AUDIT-MUTATION-TX-1; the next row is a new file, see REGISTRY-ENTRIES.md
 	opScopedBestEffortReg  = &sliceRegistry[opScopedBestEffortTable]{table: &opScopedBestEffortTables, label: "opScopedBestEffortTables"}
 	effectThenErrorExclReg = &sliceRegistry[effectThenErrorExclusion]{table: &effectThenErrorExtraExclusions, label: "effectThenErrorExtraExclusions"}
 	nonLoadBearingReg      = &sliceRegistry[nonLoadBearingException]{table: &nonLoadBearingAuthzReadExceptions, label: "nonLoadBearingAuthzReadExceptions"}
@@ -87,7 +87,7 @@ var (
 	bestEffortTablesReg    = mapRegistry[[]string]{table: bestEffortTables, label: "bestEffortTables"}
 )
 
-func registerKnownOpenTolerance(name string, e knownOpenTolerance) {
+func registerKnownOpenTolerance(name string, e knownOpenTolerance) { //nolint:unused // see REGISTRY-ENTRIES.md
 	knownOpenTolerancesReg.add(name, e)
 }
 func registerOpScopedBestEffort(name string, e opScopedBestEffortTable) {
