@@ -299,6 +299,29 @@ Restore refuses a non-empty target by default (`--overwrite-existing` to
 proceed anyway on a genuine disaster-recovery restore) — the normal flow is
 restoring into a fresh database, not overwriting a live one.
 
+**Recovery point (RPO).** The recovery point is the backup itself: a restore
+brings back exactly what the archive's snapshot held (on PostgreSQL the instant the
+`REPEATABLE READ` snapshot was taken, on SQLite the moment the server was stopped),
+including the audit chain up to and including the archive's own
+`admin.backup_created` event, and nothing written afterwards. Your worst-case data
+loss is therefore your backup interval plus the time to notice. Keyorix does not
+replay a write-ahead log: to shrink the interval below what scheduled `admin backup`
+runs give you, add PostgreSQL point-in-time recovery on your own infrastructure
+(not provided or verified here; the encryption keys still need the `admin backup`
+archive or your own copy). Take a backup after every key rotation. The recovery time
+is dominated by `admin restore` (it migrates, loads every table and re-verifies the
+audit chain) plus your own provisioning; measure it on your data with the drill below
+rather than trusting a number from this page.
+
+**Rehearse it:** `scripts/drills/backup-restore.sh` runs the whole cycle on a
+throwaway instance (SQLite or PostgreSQL) and checks that a restore into a fresh
+target decrypts every secret, keeps MFA logins, shares and machine tokens working,
+verifies the audit chain against an off-host anchor, does not contain what was
+written after the backup, and that a tampered archive, a populated target and a
+stale backup are all refused. See [operator/drill-backup-restore.md](operator/drill-backup-restore.md).
+The `docker compose` commands above are the same operations in containers; that
+variant of the drill is pending a run on the e2e VM.
+
 **Manual `pg_dump`/`psql`** is still a reasonable choice if you already have
 a Postgres backup pipeline built around it and don't need the archive's
 built-in authentication/audit-verification — it works exactly as before:

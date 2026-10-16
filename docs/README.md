@@ -11,7 +11,7 @@ Complete documentation for the production-ready Keyorix secret management system
 | [API Reference](./API_REFERENCE.md) | Complete API documentation | ✅ New |
 | [Security Guide](./SECURITY.md) | Security features and best practices | ✅ New |
 | [Performance Guide](./PERFORMANCE.md) | Performance metrics and optimization | ✅ New |
-| [Deployment Guide](../DEPLOYMENT_GUIDE.md) | Production deployment instructions | ✅ Updated |
+| [Self-Hosting Guide](./SELF_HOSTING.md) | Production deployment instructions | ✅ Updated |
 | [Migration Guide](./MIGRATION.md) | Import secrets from Vault / AWS / Azure / files | ✅ New |
 | [CI/CD Guide](./CI_CD.md) | Fetch secrets in GitHub Actions / GitLab CI / CircleCI | ✅ New |
 | [Helm chart](../deploy/helm/keyorix/README.md) | Deploy Keyorix on Kubernetes | ✅ New |
@@ -21,7 +21,7 @@ Complete documentation for the production-ready Keyorix secret management system
 ### Getting Started
 - **[README.md](../README.md)** - Project overview, features, and quick start
 - **[QUICK_START.md](../QUICK_START.md)** - 5-minute setup guide
-- **[DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)** - Production deployment
+- **[SELF_HOSTING.md](./SELF_HOSTING.md)** - Production deployment
 
 ### API Documentation
 - **[API_REFERENCE.md](./API_REFERENCE.md)** - REST API reference (complete) and gRPC (partial surface, work in progress)
@@ -37,7 +37,6 @@ Complete documentation for the production-ready Keyorix secret management system
 - **[PERFORMANCE.md](./PERFORMANCE.md)** - Performance metrics and optimization
 - **[edge-deployment.md](./edge-deployment.md)** - Edge and industrial devices: SQLite, audit durability, power loss, air-gapped updates, hardening
 - **[TESTING_FRAMEWORK.md](./TESTING_FRAMEWORK.md)** - Testing strategy and results
-- **[COMPREHENSIVE_TEST_RESULTS.md](../COMPREHENSIVE_TEST_RESULTS.md)** - Complete test report
 
 ### Development & Architecture
 - **[TESTING_BEST_PRACTICES.md](./TESTING_BEST_PRACTICES.md)** - Testing guidelines
@@ -53,7 +52,7 @@ Complete documentation for the production-ready Keyorix secret management system
 4. **Security**: [SECURITY.md](./SECURITY.md)
 
 ### For DevOps/SRE
-1. **Deployment**: [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)
+1. **Deployment**: [SELF_HOSTING.md](./SELF_HOSTING.md)
 2. **Performance**: [PERFORMANCE.md](./PERFORMANCE.md)
 3. **Security**: [SECURITY.md](./SECURITY.md)
 4. **Monitoring**: Health checks at `/health`
@@ -68,8 +67,8 @@ Complete documentation for the production-ready Keyorix secret management system
 ### For Security Teams
 1. **Security Overview**: [SECURITY.md](./SECURITY.md)
 2. **Sharing Security**: [security/architecture.md](./security/architecture.md)
-3. **API Security**: [API_REFERENCE.md](./API_REFERENCE.md#authentication)
-4. **Test Results**: [COMPREHENSIVE_TEST_RESULTS.md](../COMPREHENSIVE_TEST_RESULTS.md)
+3. **API Security**: [API_REFERENCE.md](./API_REFERENCE.md#-authentication)
+4. **Hardening**: [security/hardening-guide.md](./security/hardening-guide.md)
 
 ## 📊 **System Status**
 

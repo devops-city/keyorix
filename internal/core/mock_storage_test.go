@@ -1420,6 +1420,30 @@ func (m *MockStorage) IsProjectMember(ctx context.Context, userID, projectID uin
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockStorage) ProjectMembershipsAmong(ctx context.Context, userID uint, projectIDs []uint) (map[uint]bool, error) {
+	args := m.Called(ctx, userID, projectIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]bool), args.Error(1)
+}
+
+func (m *MockStorage) ListUserRoleGrants(ctx context.Context, userID uint) ([]storage.UserRoleGrant, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]storage.UserRoleGrant), args.Error(1)
+}
+
+func (m *MockStorage) ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]storage.UserGroupMembershipAt, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]storage.UserGroupMembershipAt), args.Error(1)
+}
+
 func (m *MockStorage) IsGroupProjectScoped(ctx context.Context, groupID, projectID uint) (bool, error) {
 	args := m.Called(ctx, groupID, projectID)
 	return args.Bool(0), args.Error(1)

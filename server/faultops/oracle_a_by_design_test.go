@@ -630,9 +630,18 @@ func classifyToleranceStaleness(t *testing.T) toleranceStaleness {
 // correct classifier must call it dead. Deliberately NOT asserted: which real
 // rows land where — that changes every time a bug is fixed or a tolerance
 // added, and pinning it would make this test a second copy of the list.
+//
+// The live half needs at least one real row, so it applies only while the list
+// is non-empty. AUDIT-MUTATION-TX-1 removed the last one (#2842: a rollback now
+// commits its version, timestamp and audit row in one transaction). With no
+// rows, a signal stuck at "not consulted" hides nothing — there is no row to
+// misclassify — and the moment a row is added the live half applies again, while
+// TestKnownOpenTolerances_AreLoadBearing would report that new row dead. The
+// dangerous direction, stuck at "consulted", is still caught below by the
+// planted row reading dead, rows or no rows.
 func TestKnownToleranceStaleness_DetectsDeadAndLiveRows(t *testing.T) {
 	c := classifyToleranceStaleness(t)
-	if len(c.live) == 0 {
+	if len(knownOpenTolerances) > 0 && len(c.live) == 0 {
 		t.Errorf("the staleness classifier found NO load-bearing tolerance among %d entries. Either every "+
 			"tolerance really is dead (then TestKnownOpenTolerances_AreLoadBearing is already failing and "+
 			"says which), or the `consulted` signal is broken — observeKnownOpenMatch is no longer called "+

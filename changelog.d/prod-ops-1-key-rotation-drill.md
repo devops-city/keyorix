@@ -1,0 +1,2 @@
+### Testing
+- **Key rotation drill.** `scripts/drills/key-rotation.sh` rehearses DEK rotation (dry run, refusal beside a live server, SIGKILL during the sweep), KEK rotation (old passphrase refused, pre-rotation archive still restores) and `migrate-provider` password to file and back, on SQLite and PostgreSQL, checking data, logins, tokens and the audit chain after each step. Runbook: `docs/operator/j6-key-rotation.md`.

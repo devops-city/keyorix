@@ -63,3 +63,11 @@ GET /metrics needs the token in the same Secret (key metrics_token).
     The PVC "{{ include "keyorix.server.fullname" . }}-keys" holds the wrapped DEK
     and KEK salt. It is annotated helm.sh/resource-policy: keep, but if you lose it
     OR change auth.masterPassword, every stored secret becomes undecryptable.
+
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.egress.enabled (not .Values.postgresql.enabled) (not .Values.networkPolicy.egress.databaseTo) (not .Values.networkPolicy.egress.extraRules) }}
+
+⚠️  NetworkPolicy egress is on and the database is external, but
+    networkPolicy.egress.databaseTo is empty: the server pod is denied egress to
+    {{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }} unless networkPolicy.egress.extraRules allows it. Set databaseTo to
+    the database's IPs/CIDRs (a NetworkPolicy cannot match a host name).
+{{- end }}
