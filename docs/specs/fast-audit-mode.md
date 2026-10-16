@@ -241,14 +241,15 @@ three states),
 `TestMakeSystemInfoHandler_AuditDurableSyncSkippedReflectsConfig`,
 `TestAuditDurableSyncStatus` (the rule itself).
 
-**S7 — A SQLite backend refuses to start.** `storage.database.insecure_audit_skip_durable_sync`
-with `storage.type: local`/`sqlite` fails config validation with
-`storage.database.insecure_audit_skip_durable_sync is only supported with
-PostgreSQL; remove it or switch storage to postgres`. No silent ignore.
-*Tests:* `TestConfigValidate_RejectsFastAuditModeOnSQLite` (both directions —
-the same SQLite config without the setting still validates),
-`TestConfigValidate_AllowsFastAuditModeOnPostgres`,
-`TestFastAuditMode_SQLiteRefusesToStartEndToEnd` (the real binary's process
+**S7 — A SQLite backend refuses to start.** `storage.database.audit_durability: standard`
+(or the deprecated alias `insecure_audit_skip_durable_sync: true`, which maps to
+`standard`) with `storage.type: local`/`sqlite` fails config validation with
+`storage.database.audit_durability: standard is only supported with PostgreSQL;
+SQLite runs strict only -- remove the setting or set it to strict`. No silent
+ignore.
+*Tests:* `TestConfigValidate_RejectsStandardAuditDurabilityOnSQLite` (the same
+SQLite config without the setting still validates),
+`TestAuditDurability_SQLiteRefusesStandardEndToEnd` (the real binary's process
 exits non-zero rather than serving).
 
 ### Error and concurrency cases

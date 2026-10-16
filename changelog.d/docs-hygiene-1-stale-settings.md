@@ -1,0 +1,2 @@
+### Documentation
+- **Audit durability spec: current SQLite refusal.** `docs/specs/fast-audit-mode.md` S7 quoted the removed `insecure_audit_skip_durable_sync` refusal message and test names; it now matches `storage.database.audit_durability` and the tests that exist. The other docs already agree with `config_surface_leaves.txt` (`audit_durability`, deprecated alias, `security.audit_durability` / `audit_reads_skipped` in `/system/info`, `security.one_time_password_ttl` / `recovery_one_time_password_ttl`).
