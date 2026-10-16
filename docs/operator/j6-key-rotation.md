@@ -5,7 +5,7 @@ encrypts secret values) and the **KEK** (key-encryption key, derived from your m
 passphrase — what wraps the DEK at rest). Every command below was run for real against a
 fresh SQLite install with a real secret in it while writing this page.
 
-Both commands need exclusive access to the database — stop the server first.
+Both commands need exclusive access to the database — stop the server first (every replica, if you run several; see below).
 
 ## Rotate the DEK (re-encrypts every secret)
 
@@ -38,6 +38,44 @@ Expected:
 A kill at any point during this is safe — the design guarantees exactly one of the old or
 new DEK stays consistently active and every row stays decryptable under it, never a
 half-rotated database.
+
+## Several server replicas (PostgreSQL)
+
+With more than one server on one PostgreSQL database (ADR-039; Helm
+`server.replicas > 1`), each replica holds the DEK in memory and may have its
+own copy of `dek.key`. The rotation only replaces `dek.key` on the host it runs
+on. The database records which DEK it is encrypted under (the DEK epoch, a
+fingerprint in `system_metadata`, not key material), and every replica checks it:
+
+1. Upgrade every replica to a release with the DEK epoch check first (an older
+   binary does not check it).
+2. Stop **every** replica, not only the local one. `rotate` refuses while any
+   server is attached to the database.
+3. Run `rotate --dry-run`, then `rotate --confirm`, on one host. On PostgreSQL
+   it first fences encrypted writes on every replica, waits about 10 seconds,
+   then re-encrypts with the encrypted tables locked against writes (reads
+   continue) and records the new epoch in the same transaction.
+4. Copy the new `dek.key` (and `kek.salt` with the password provider) from that
+   host to every other replica's key directory, or confirm they share the
+   volume (Helm `ReadWriteMany` keys volume).
+5. Start the replicas.
+
+A replica whose `dek.key` is still the old one refuses to start:
+
+```
+refusing to start: this server's DEK is not the DEK the database is encrypted under:
+the database's DEK epoch is "…", this server's DEK fingerprint is "…". …
+```
+
+Copy the current key files to it and start it again. Nothing was written under
+the old DEK. A replica that was left running (`rotate --force`, or a lost presence
+lock) refuses encrypted writes (`encryption refused: this server cannot confirm
+that its DEK is the database's current DEK …`) within a few seconds of the
+fence and keeps serving reads and revocations; restart it with the new key files.
+
+If a rotation fails before its sweep commits, it lifts the fence itself; a
+fence left by a killed rotation is lifted by the next server start that holds
+the old DEK, or by re-running `rotate`. SQLite (single server) is unchanged.
 
 ## Rotate the KEK (change the master passphrase)
 
