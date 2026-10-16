@@ -5874,6 +5874,23 @@ func (w *FaultyStorage) MarkTOTPStepUsed(ctx context.Context, userID uint, step 
 	return w.real.MarkTOTPStepUsed(ctx, userID, step)
 }
 
+func (w *FaultyStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	fire, kind, injected := w.check("MaxAuditEventID")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 uint
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.MaxAuditEventID(ctx)
+			return rv1, injected
+		}
+	}
+	return w.real.MaxAuditEventID(ctx)
+}
+
 func (w *FaultyStorage) MigrateAuditChainEncoding(ctx context.Context, dryRun bool, anchor *storage.AuditChainAnchor) (*storage.AuditChainMigrationResult, error) {
 	fire, kind, injected := w.check("MigrateAuditChainEncoding")
 	if fire {

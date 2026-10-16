@@ -1621,6 +1621,11 @@ type Storage interface {
 	ListUnalertedAnomalyAlerts(ctx context.Context) ([]models.AnomalyAlert, error)
 	MarkAnomalyAlertAlerted(ctx context.Context, id uint) error
 	GetAuditLogs(ctx context.Context, filter *AuditFilter) ([]*models.AuditEvent, int64, error)
+	// MaxAuditEventID returns the highest audit_events.id (0 when the table is
+	// empty): an O(1) read of the primary key's right edge. Scheduler jobs that
+	// keep an id high-water mark read it first and bound their scan with
+	// AuditFilter.UpToID, so a run costs O(rows added since the last run).
+	MaxAuditEventID(ctx context.Context) (uint, error)
 	// AuditRetentionStats returns the total audit event count and the oldest /
 	// newest event timestamps. Keyorix never purges audit events, so these raw
 	// aggregates let an operator demonstrate how far back the trail reaches
@@ -2404,6 +2409,9 @@ type AuditFilter struct {
 	// forward cursor), ignoring Page. Use with the /audit/export endpoint.
 	AfterID   *uint
 	Ascending bool
+	// UpToID, when set, adds id <= *UpToID (inclusive upper bound). With AfterID
+	// it bounds the scan to the primary-key range (AfterID, UpToID].
+	UpToID *uint
 
 	// IPAddress filters events by the exact IP address that originated the request.
 	IPAddress *string

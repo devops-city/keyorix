@@ -1689,6 +1689,11 @@ func (m *MockStorage) SaveAnomalyConfig(ctx context.Context, cfg *models.Anomaly
 	return m.Called(ctx, cfg).Error(0)
 }
 
+func (m *MockStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(uint), args.Error(1)
+}
+
 func (m *MockStorage) GetAuditLogs(ctx context.Context, filter *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
 	args := m.Called(ctx, filter)
 	if args.Get(0) == nil {
