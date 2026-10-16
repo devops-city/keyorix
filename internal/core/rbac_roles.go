@@ -200,7 +200,7 @@ func (c *KeyorixCore) UpdateRole(ctx context.Context, actorID uint, role *models
 	var finalPermissions []*models.Permission
 	txErr := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
-		updated, finalPermissions, removedPermissionIDs, assignedPermissionIDs, err = updateRoleTx(ctx, tx, role, newPermissionIDs)
+		updated, finalPermissions, removedPermissionIDs, assignedPermissionIDs, err = c.updateRoleTx(ctx, tx, role, newPermissionIDs)
 		if err != nil {
 			return err
 		}
@@ -229,7 +229,7 @@ func (c *KeyorixCore) UpdateRole(ctx context.Context, actorID uint, role *models
 // permission set (F3d: read INSIDE the transaction, so a failure there rolls
 // the whole update back instead of reporting an error for a committed change).
 // It returns which permissions it removed and assigned, for the audit rows.
-func updateRoleTx(ctx context.Context, tx storage.Storage, role *models.Role, newPermissionIDs *[]uint) (updated *models.Role, final []*models.Permission, removed, assigned []uint, err error) {
+func (c *KeyorixCore) updateRoleTx(ctx context.Context, tx storage.Storage, role *models.Role, newPermissionIDs *[]uint) (updated *models.Role, final []*models.Permission, removed, assigned []uint, err error) {
 	if updated, err = tx.UpdateRole(ctx, role); err != nil {
 		return nil, nil, nil, nil, err
 	}
