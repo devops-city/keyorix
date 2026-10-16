@@ -257,6 +257,27 @@ The web container's nginx makes its own HSTS decision and strips the backend's
 header from proxied API responses ([SELF_HOSTING.md](SELF_HOSTING.md), "HSTS
 behind a TLS-terminating load balancer").
 
+### gRPC keepalive and connection limits (`server.grpc.keepalive`)
+
+Durations are Go duration strings (`"15m"`); an unset or unparseable value takes the
+default. Only the gRPC server reads this block (the keys parse under `server.http` too,
+but have no effect there).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `time` | `5m` | idle time before the server pings the client |
+| `timeout` | `20s` | how long the server waits for the ping ack before closing |
+| `min_time` | `5m` | the shortest ping interval the server accepts from a client |
+| `permit_without_stream` | `false` | accept client pings while no RPC is in flight |
+| `max_connection_age` | `1h` | a connection is asked to close after this age |
+| `max_connection_age_grace` | `30s` | time for in-flight RPCs after that |
+| `max_connection_idle` | `15m` | close a connection with no RPC in flight (keepalive acks alone never reclaim it); new in v0.97.0 (#3312) |
+| `handshake_timeout` | `10s` | a new connection must finish its TLS handshake and HTTP/2 preface in this time; new in v0.97.0 (#3312) |
+
+The two new keys cannot be set to 0 to switch the bound off. The server also caps a gRPC
+connection at 128 concurrent RPCs and 64 KiB of metadata, and REST request headers at
+64 KiB (not configurable).
+
 ## storage
 
 ```yaml
