@@ -37,6 +37,11 @@ func TestCreateStorage_Postgres_RefusesNonOriginReplicationRole(t *testing.T) {
 			return dsn
 		}},
 		{"startup parameter in the DSN", func(t *testing.T, dsn, _ string) string {
+			// Both DSN forms KEYORIX_TEST_PG_DSN may take (see pgdsn): a URL
+			// gets a query parameter, keyword/value gets one more field.
+			if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {
+				return dsn + " session_replication_role=replica"
+			}
 			sep := "?"
 			if strings.Contains(dsn, "?") {
 				sep = "&"
