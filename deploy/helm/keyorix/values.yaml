@@ -248,8 +248,10 @@ postgresql:
     username: keyorix
     database: keyorix
     # Password for the bundled DB. REQUIRED when postgresql.enabled and no
-    # auth.existingSecret is set.
-    password: ""
+    # auth.existingSecret is set. Deliberately has no default (no empty
+    # placeholder value either): the chart fails the render when it is unset.
+    # Pass it with --set postgresql.auth.password=... or a values file.
+    # password:
   persistence:
     enabled: true
     size: 8Gi
