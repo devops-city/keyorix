@@ -1228,16 +1228,16 @@ type SecurityConfig struct {
 	// RecoverAdmin configures `keyorix-server admin recover-admin`
 	// (docs/design-b2-recover-admin.md §5).
 	RecoverAdmin RecoverAdminConfig `yaml:"recover_admin"`
-	// RecoveryOneTimePasswordExpiry is how long the one-time password printed by
+	// RecoveryOTPLifetime is how long the one-time password printed by
 	// `keyorix-server admin recover-admin` stays valid, as a Go duration (e.g.
 	// "24h", "90m"). Empty means the 24h default; a set value must be a duration
 	// in (0, MaxOneTimePasswordExpiry] or Validate refuses it. There is no way to
 	// configure "never expires" (OTP-EXPIRY-1).
-	RecoveryOneTimePasswordExpiry string `yaml:"recovery_one_time_password_ttl"`
-	// OneTimePasswordExpiry is the same for admin-created one-time passwords
+	RecoveryOTPLifetime string `yaml:"recovery_one_time_password_ttl"`
+	// OTPLifetime is the same for admin-created one-time passwords
 	// (`keyorix user create --one-time-password`). Empty means the 72h default;
 	// the same range check applies.
-	OneTimePasswordExpiry string `yaml:"one_time_password_ttl"`
+	OTPLifetime string `yaml:"one_time_password_ttl"`
 }
 
 // Defaults for the one-time-password lifetimes (see SecurityConfig). They mirror
@@ -1251,13 +1251,13 @@ const (
 // GetRecoveryOneTimePasswordExpiry returns the validity of a recover-admin one-time
 // password, falling back to the default for an empty or invalid value.
 func (s *SecurityConfig) GetRecoveryOneTimePasswordExpiry() time.Duration {
-	return parseDurationDefault(s.RecoveryOneTimePasswordExpiry, DefaultRecoveryOneTimePasswordExpiry)
+	return parseDurationDefault(s.RecoveryOTPLifetime, DefaultRecoveryOneTimePasswordExpiry)
 }
 
 // GetOneTimePasswordExpiry returns the validity of an admin-created one-time
 // password, falling back to the default for an empty or invalid value.
 func (s *SecurityConfig) GetOneTimePasswordExpiry() time.Duration {
-	return parseDurationDefault(s.OneTimePasswordExpiry, DefaultOneTimePasswordExpiry)
+	return parseDurationDefault(s.OTPLifetime, DefaultOneTimePasswordExpiry)
 }
 
 // RecoverAdminConfig configures `keyorix-server admin recover-admin`
@@ -2975,8 +2975,8 @@ const MaxOneTimePasswordExpiry = 7 * 24 * time.Hour
 // duration: say "168h"). Empty is valid and means the default.
 func validateOneTimePasswordExpiries(s SecurityConfig) error {
 	for _, f := range []struct{ key, raw string }{
-		{"security.one_time_password_ttl", s.OneTimePasswordExpiry},
-		{"security.recovery_one_time_password_ttl", s.RecoveryOneTimePasswordExpiry},
+		{"security.one_time_password_ttl", s.OTPLifetime},
+		{"security.recovery_one_time_password_ttl", s.RecoveryOTPLifetime},
 	} {
 		if f.raw == "" {
 			continue
