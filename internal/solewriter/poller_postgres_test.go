@@ -33,9 +33,12 @@ func TestPoll_ReentryAfterALapseCallsOnReenter(t *testing.T) {
 	require.Zero(t, reentries.Load(), "a poll inside the lease is not a re-entry")
 
 	require.Eventually(t, func() bool { return !g.Authoritative() }, LeaseDuration+500*time.Millisecond, 20*time.Millisecond)
+	filled := g.Tracker().BeginFill() // an entry filled before the lapse ended
+	require.True(t, filled.Store())
 	g.pollOnce(context.Background())
 	require.True(t, g.Authoritative())
 	require.Equal(t, int64(1), reentries.Load(), "a good poll after the lease ran out must call OnReenter")
+	require.False(t, g.Valid(filled.Gen()), "nothing filled before a lapse may be served after it")
 
 	g.pollOnce(context.Background())
 	require.Equal(t, int64(1), reentries.Load(), "only the first poll after a lapse is a re-entry")

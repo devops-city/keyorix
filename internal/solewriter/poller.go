@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/keyorixhq/keyorix/internal/solewriter/swstate"
 )
 
 // Settle waits until every transaction that was in progress when it was
@@ -54,6 +56,9 @@ func (g *Guard) Settle(ctx context.Context) error {
 // in its own goroutine.
 func (g *Guard) Run(ctx context.Context) {
 	current.Store(g)
+	// From here on the storage layer may skip a confirming read when the
+	// guard vouches for it (swstate, local_folded_credential_memo.go).
+	swstate.Set(g)
 	g.running.Store(true)
 	go func() {
 		defer close(g.done)
@@ -160,6 +165,11 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	if !g.permanent {
 		reenter = g.state == StateAuthoritative && g.lapsedLocked(sentMono, sentWall)
 		g.state, g.reason = StateAuthoritative, ""
+	}
+	if reenter && g.tracker != nil {
+		// Back from a lapse: nothing filled before it is trusted. Under g.mu,
+		// before the lease is renewed, like the epoch-move flush below.
+		g.tracker.Flush()
 	}
 	// Not value equality alone: a session that passes the fence can move n
 	// back in the transaction that wrote (REVIEW-SINGLE-WRITER-2 N3). Every
@@ -299,6 +309,13 @@ func (g *Guard) lapsedLocked(now, wall time.Time) bool {
 	w := wall.Sub(g.lastGoodWall)
 	return mono < 0 || mono >= LeaseDuration || w <= -LeaseDuration || w >= LeaseDuration
 }
+
+// BeginFill implements swstate.Authority.
+func (g *Guard) BeginFill() swstate.Fill { return g.tracker.BeginFill() }
+
+// Valid implements swstate.Authority: authoritative now, no fenced write in
+// flight, and none finished since gen.
+func (g *Guard) Valid(gen uint64) bool { return g.Authoritative() && g.tracker.Valid(gen) }
 
 // Epoch is the last polled write epoch.
 func (g *Guard) Epoch() int64 {

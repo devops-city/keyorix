@@ -98,6 +98,17 @@ derived from, and so lets it skip that statement.
   fenced table) and SQL-level `PREPARE` / `EXECUTE` (unused); a write either of them made would be caught
   by the epoch flush within one poll. A cascading FK from an unfenced parent into a fenced table is
   forbidden by `TestFencedTables_NoCascadeFromUnfencedParent`.
+- **Authoritative caches (PR 3) are one memo, not four cache changes.** On a warm machine-token
+  secret read the only confirming statement is the folded credential statement (credential, identity
+  state, node stamp, the machine's roles at the node's scope, the role->permission generation,
+  schedule/versions). While the guard vouches for it (`swstate`: authoritative, lease fresh, no fenced
+  write in flight or finished since the fill), the store serves that statement's last answer for the
+  same text and binds (`local_folded_credential_memo.go`). Every decision is still made by the same
+  code on the same rows. Revocation, expiry against the request's clock, identity state, node stamp,
+  roles and the schedule window are all judged per request. The middleware and core are unchanged. Every
+  table the statement reads is fenced (`TestFoldedCredentialSQL_ReadsOnlyFencedTables`). The cold and
+  first-hit paths (slow-path validation, the plain credential re-check before a (machine, secret) pair is
+  folded) are not memoized: steady state is what is measured. Sessions and PATs are untouched.
 - **PgBouncer**: `storage.database.pooler: pgbouncer-transaction` (#3254) is refused at config
   validation; `pgbouncer-session` is allowed. The Helm `fail` guard is a follow-up.
 
@@ -456,6 +467,13 @@ a test named "cross-replica" must not share one LocalStorage). Each guard gets a
   check that p99 doesn't regress.
 - Go criteria: B vs A c=1 p50 ≤ −0.25 ms **and** c=50 rps ≥ +6 %, with no p99 regression > 5 % in the churn arm.
   ≥ 10 interleaved repetitions per cell. If it misses, no-go: the complexity isn't justified by less.
+- Harness hygiene (REVIEW-SINGLE-WRITER-1): set `anomaly_alerts.schedule` to the same value in every arm, or
+  `anomaly_alerts.enabled: false` in all of them, so no arm samples `pg_stat_statements` during an
+  anomaly-detection pass the others don't run. Record pgss `mean_exec_time` and `total_plan_time` per
+  statement, not only calls. The churn arm also measures the flush on every epoch move (F4 fix).
+- The magnitude is rig-specific. The first A/B measured ≈ 0.68 ms of PostgreSQL CPU per confirming statement on
+  the bench VM, against ≈ 0.045 ms above `SELECT 1` locally and the ≈ 0.2 ms this design assumed. The direction
+  is trustworthy (same image, every rep); quote no percentage externally until a second rig reproduces it.
 
 ## 6. Recommendation
 

@@ -86,24 +86,24 @@ func (ls *LocalStorage) getMachineCredentialFolded(ctx context.Context, hash str
 	}
 	q := foldedCredentialSQL(nodeTriggerExistsExpr(ls.db), rolePermGenerationExpr(ls.db, "gen"), pf.WantScheduleVersion)
 	args := foldedCredentialArgs(pf, secretID, cached.node, hash)
-	var rows rowScanner
-	if ls.nativeReads != nil {
-		// Postgres: the same statement on the native pool (native_reads.go).
-		nrows, err := ls.queryNative(ctx, q, args)
-		if err != nil {
-			return nil, "", nil, false
+	query := func() (rowScanner, func(), error) {
+		if ls.nativeReads != nil {
+			// Postgres: the same statement on the native pool (native_reads.go).
+			nrows, err := ls.queryNative(ctx, q, args)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nrows, nrows.Close, nil
 		}
-		defer nrows.Close()
-		rows = nrows
-	} else {
 		srows, err := ls.db.WithContext(ctx).Raw(q, args...).Rows()
 		if err != nil {
-			return nil, "", nil, false
+			return nil, nil, err
 		}
-		defer func() { _ = srows.Close() }()
-		rows = srows
+		return srows, func() { _ = srows.Close() }, nil
 	}
-	c, identityState, nodeRows, ok := scanFoldedCredentialRows(rows, pf.WantScheduleVersion)
+	// single_writer: the statement's last answer when the guard vouches for
+	// it (local_folded_credential_memo.go); otherwise the statement runs.
+	c, identityState, nodeRows, ok := ls.foldedStatement(ctx, q, args, pf.WantScheduleVersion, query)
 	if !ok {
 		// No credential row (or a failure): the plain statement answers, with
 		// its own error.

@@ -237,6 +237,9 @@ type LocalStorage struct {
 	// secret_metadata_cache.go's own header for why this must NOT be a package-level
 	// global instead.
 	secretMetaCache *secretMetadataCache
+	// foldMemo is single_writer's memo of the folded credential statement
+	// (local_folded_credential_memo.go). Root store only, like the native pool.
+	foldMemo *foldMemo
 	// rolePermCache backs RoleSetHasPermission's read-path cache (PERF-3,
 	// docs/specs/read-path-caching.md PR-2). A pointer so a transaction-scoped
 	// LocalStorage (see WithTransaction) shares the SAME cache as its parent,
@@ -390,6 +393,7 @@ func NewLocalStorage(db *gorm.DB) *LocalStorage {
 		auditHead:             newAuditChainHeadCache(),
 		rawStmts:              &rawStatements{},
 		secretMetaCache:       newSecretMetadataCache(),
+		foldMemo:              newFoldMemo(),
 		rolePermCache:         newRolePermissionCache(),
 		softDeleteDays:        &atomic.Int64{},
 		// The ONLY place this is set. See the field's doc comment: every derived
