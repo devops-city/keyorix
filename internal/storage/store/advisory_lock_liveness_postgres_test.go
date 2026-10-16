@@ -18,9 +18,12 @@ import (
 
 func shortPinnedLockPing(t *testing.T) {
 	t.Helper()
-	old := config.PinnedLockPingInterval
+	oldInterval, oldTimeout := config.PinnedLockPingInterval, config.PinnedLockPingTimeout
 	config.PinnedLockPingInterval = 100 * time.Millisecond
-	t.Cleanup(func() { config.PinnedLockPingInterval = old })
+	config.PinnedLockPingTimeout = 300 * time.Millisecond
+	t.Cleanup(func() {
+		config.PinnedLockPingInterval, config.PinnedLockPingTimeout = oldInterval, oldTimeout
+	})
 }
 
 // terminateLockBackend ends the backend holding advisory lock key and returns
@@ -92,4 +95,68 @@ func TestWithSchedulerLock_TransactionPooling_KilledLockBackendIsReported(t *tes
 	})
 	require.True(t, ran)
 	require.ErrorIs(t, err, ErrAdvisoryLockLost)
+}
+
+// pinnedLockKeyHeld reports whether some backend holds advisory lock key,
+// seen from a session of its own.
+func pinnedLockKeyHeld(t *testing.T, ctx context.Context, base string, key int64) bool {
+	t.Helper()
+	var n int
+	require.NoError(t, pgOpen(t, base).WithContext(ctx).Raw(`SELECT count(*) FROM pg_locks
+			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = ? AND objid = ?`,
+		int64(uint32(uint64(key)>>32)), int64(uint32(uint64(key)&0xFFFFFFFF))).Scan(&n).Error)
+	return n > 0
+}
+
+// TestWithNamedLock_TransactionPooling_NestedWaitIsNotALoss (REVIEW-2 on
+// #3299): a nested WithNamedLock under another key waits in Postgres on the
+// outer call's pinned session while another replica holds the inner key. The
+// liveness check must not share that connection with the waiting lock
+// statement: a ping queued behind it ran with an expired timeout, pgx closed
+// the connection, the pinning transaction ended and both locks were dropped,
+// reported as ErrAdvisoryLockLost. The wait here is longer than one ping
+// timeout; nothing may be reported, and the outer lock is still held after
+// the inner one is granted.
+func TestWithNamedLock_TransactionPooling_NestedWaitIsNotALoss(t *testing.T) {
+	base := pgTestDSN(t)
+	shortPinnedLockPing(t)
+	dsn := pgIsolatedSchemaDSN(t, base)
+	replicaA := NewLocalStorage(pgOpen(t, dsn))
+	replicaA.SetTransactionPooling(true)
+	replicaB := NewLocalStorage(pgOpen(t, dsn))
+	replicaB.SetTransactionPooling(true)
+	ctx := context.Background()
+	const outerKey, innerKey = "liveness-nested-outer", "liveness-nested-inner"
+	innerHold := config.PinnedLockPingTimeout + 2*time.Second
+
+	innerHeld := make(chan struct{})
+	aDone := make(chan error, 1)
+	go func() {
+		aDone <- replicaA.WithNamedLock(ctx, innerKey, func(context.Context) error {
+			close(innerHeld)
+			time.Sleep(innerHold)
+			return nil
+		})
+	}()
+	<-innerHeld
+
+	var outerHeldAfterInner bool
+	err := replicaB.WithNamedLock(ctx, outerKey, func(ctx context.Context) error {
+		waitStart := time.Now()
+		if err := replicaB.WithNamedLock(ctx, innerKey, func(ctx context.Context) error {
+			// Several ping intervals while both keys are held.
+			time.Sleep(500 * time.Millisecond)
+			return ctx.Err()
+		}); err != nil {
+			return err
+		}
+		if waited := time.Since(waitStart); waited < config.PinnedLockPingTimeout {
+			return errors.New("the nested call did not wait longer than one ping timeout: test proves nothing")
+		}
+		outerHeldAfterInner = pinnedLockKeyHeld(t, ctx, base, namedLockKey(outerKey))
+		return context.Cause(ctx)
+	})
+	require.NoError(t, <-aDone)
+	require.NoError(t, err)
+	require.True(t, outerHeldAfterInner, "the outer advisory lock was dropped while its holder was still inside")
 }

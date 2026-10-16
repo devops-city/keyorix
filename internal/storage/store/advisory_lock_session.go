@@ -51,9 +51,16 @@ import (
 // critical section: VACUUM keeps dead rows, and every CREATE INDEX
 // CONCURRENTLY (the audit index build, which runs under this lock) waits for
 // it to end.
+//
+// The lock statements and the liveness ping (watch) share conn, so each lock
+// statement holds gate while it runs and the ping is only sent while gate is
+// free (config.PinnedConnGate): a ping queued behind a nested lock wait
+// would time out before it was sent, and the driver would close the healthy
+// connection, ending the transaction and every lock on it.
 type advisoryLockSession struct {
 	conn *sql.Conn
 	xact bool
+	gate config.PinnedConnGate
 }
 
 // ErrAdvisoryLockLost is returned (joined with the critical section's own
@@ -77,7 +84,7 @@ func (s *advisoryLockSession) watch(ctx context.Context, who string) (context.Co
 	}
 	wctx, cancel := context.WithCancelCause(ctx)
 	var lost atomic.Bool
-	stop := config.WatchPinnedLockConn(s.conn, who, func(err error) {
+	stop := config.WatchPinnedLockConnGated(s.conn, s.gate, who, func(err error) {
 		lost.Store(true)
 		cancel(fmt.Errorf("%w: %v", ErrAdvisoryLockLost, err))
 	})
@@ -94,7 +101,7 @@ func (s *advisoryLockSession) watch(ctx context.Context, who string) (context.Co
 // openAdvisoryLockSession starts a lock session on conn. In transaction shape
 // it opens the pinning transaction; the caller must call close.
 func openAdvisoryLockSession(ctx context.Context, conn *sql.Conn, xact bool) (*advisoryLockSession, error) {
-	s := &advisoryLockSession{conn: conn, xact: xact}
+	s := &advisoryLockSession{conn: conn, xact: xact, gate: config.NewPinnedConnGate()}
 	if !xact {
 		return s, nil
 	}
@@ -109,6 +116,10 @@ func openAdvisoryLockSession(ctx context.Context, conn *sql.Conn, xact bool) (*a
 
 // lock blocks until the exclusive advisory lock key is held.
 func (s *advisoryLockSession) lock(ctx context.Context, key int64) error {
+	if err := s.gate.Enter(ctx); err != nil {
+		return err
+	}
+	defer s.gate.Leave()
 	if s.xact {
 		_, err := s.conn.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", pgx.QueryExecModeSimpleProtocol, key)
 		return err
@@ -119,6 +130,10 @@ func (s *advisoryLockSession) lock(ctx context.Context, key int64) error {
 
 // tryLock takes the exclusive advisory lock key if no one else holds it.
 func (s *advisoryLockSession) tryLock(ctx context.Context, key int64) (bool, error) {
+	if err := s.gate.Enter(ctx); err != nil {
+		return false, err
+	}
+	defer s.gate.Leave()
 	var locked bool
 	if s.xact {
 		err := s.conn.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock($1)", pgx.QueryExecModeSimpleProtocol, key).Scan(&locked)

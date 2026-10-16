@@ -93,7 +93,10 @@ cancelled with cause `ErrAdvisoryLockLost` and its call returns that error
 (joined with its own), so a critical section that ran without its lock never
 reports plain success; a server whose presence lock was lost logs it and shuts
 down with a failure status, so an admin command cannot start beside it. The
-check sees a dead connection, within one interval; the lock itself can only be
+ping is skipped while a lock statement is using the connection (a nested named
+lock waiting for its key on the outer call's session), so it never queues
+behind that wait and never disturbs it; a wait on a dead connection fails by
+itself. The check sees a dead connection, within one interval; the lock itself can only be
 dropped by ending the transaction, which ends the connection too. It does not
 cover direct and `pgbouncer-session` connections, where a lost session lock is
 still not detected.

@@ -122,3 +122,56 @@ func TestWatchPinnedLockConn_StopEndsWatchWithoutReport(t *testing.T) {
 		t.Fatal("the watcher kept pinging after stop")
 	}
 }
+
+// TestWatchPinnedLockConnGated_NoPingWhileGateHeld: while a statement holds the
+// gate (a lock statement waiting in PostgreSQL on the shared connection) no
+// ping is sent, so no ping can queue behind the statement and time out before
+// it reaches the wire; once the gate is free, pings resume and a dead
+// connection is still reported.
+func TestWatchPinnedLockConnGated_NoPingWhileGateHeld(t *testing.T) {
+	shortPingInterval(t)
+	d, conn := openPingConn(t)
+	gate := NewPinnedConnGate()
+	lost := make(chan struct{})
+	stop := WatchPinnedLockConnGated(conn, gate, "test", func(error) { close(lost) })
+	defer stop()
+
+	if err := gate.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond) // a ping already past TryEnter finishes
+	before := d.pings.Load()
+	time.Sleep(80 * time.Millisecond)
+	if got := d.pings.Load(); got != before {
+		t.Fatalf("%d pings sent while the gate was held", got-before)
+	}
+	gate.Leave()
+
+	d.fail.Store(true)
+	select {
+	case <-lost:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a dead connection was not reported after the gate was released")
+	}
+}
+
+// TestPinnedConnGate_EnterHonoursContext: a statement waiting for the gate
+// gives up with its context.
+func TestPinnedConnGate_EnterHonoursContext(t *testing.T) {
+	gate := NewPinnedConnGate()
+	if !gate.TryEnter() {
+		t.Fatal("a new gate is not free")
+	}
+	if gate.TryEnter() {
+		t.Fatal("the gate was taken twice")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := gate.Enter(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Enter on a held gate = %v, want context.DeadlineExceeded", err)
+	}
+	gate.Leave()
+	if err := gate.Enter(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
