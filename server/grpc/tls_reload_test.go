@@ -114,3 +114,45 @@ func TestNewServer_TLS_ECDSAOverTLS12_H2_AndCertReload(t *testing.T) {
 		t.Fatalf("after rotating the files: serial %d, want 2", got)
 	}
 }
+
+// TestNewServer_TLS_StrictModeRefusesTLS12: server.grpc.tls_mode: strict pins the
+// gRPC listener to TLS 1.3 over the wire (the HTTP side has its own handshake tests,
+// server/tls_mode_handshake_test.go; gRPC had none).
+func TestNewServer_TLS_StrictModeRefusesTLS12(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
+	writeECDSAPairGRPC(t, certFile, keyFile, 1)
+	h := testhelper.NewRBACTestHelper(t)
+	t.Cleanup(h.Cleanup)
+	cfg := &config.Config{}
+	cfg.Server.GRPC.TLS = config.TLSConfig{Enabled: true, CertFile: certFile, KeyFile: keyFile}
+	cfg.Server.GRPC.TLSMode = config.TLSModeStrict
+	srv, err := NewServer(cfg, h.CoreService)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(srv.Stop)
+
+	tlsDial := func(maxVersion uint16) error {
+		conn, err := tls.Dial("tcp", ln.Addr().String(), &tls.Config{
+			InsecureSkipVerify: true, // #nosec G402 -- throwaway self-signed test cert
+			MaxVersion:         maxVersion,
+			NextProtos:         []string{"h2"},
+		})
+		if err == nil {
+			_ = conn.Close()
+		}
+		return err
+	}
+	if err := tlsDial(tls.VersionTLS12); err == nil {
+		t.Fatal("strict mode accepted a TLS 1.2 handshake")
+	}
+	if err := tlsDial(tls.VersionTLS13); err != nil {
+		t.Fatalf("strict mode refused TLS 1.3: %v", err)
+	}
+}
