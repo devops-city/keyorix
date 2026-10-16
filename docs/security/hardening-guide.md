@@ -186,13 +186,14 @@ A compliance profile refuses it. Rows that are still written follow
 
 ## 6. Backup and key-material custody
 
-For local/SQLite installs, `keyorix-server admin backup`/`admin restore`
-(ADR-108 §B3) is the supported mechanism — see
+`keyorix-server admin backup`/`admin restore` (ADR-108 §B3) is the supported
+mechanism on both SQLite and Postgres installs — see
 [`../AIRGAP_RUNBOOK.md`](../AIRGAP_RUNBOOK.md) for the full drill procedure.
-For a Postgres-backed deployment, `admin backup` refuses (loudly, not
-silently) and points at the manual `pg_dump` path in
-[`../SELF_HOSTING.md`](../SELF_HOSTING.md) §5 instead — Postgres support is
-explicitly out of scope for the command today.
+On SQLite the command needs the database to itself (stop the server first); on
+Postgres it reads a single `REPEATABLE READ` snapshot beside the live server by
+default, or takes the exclusive lock with `--exclusive`
+([`../SELF_HOSTING.md`](../SELF_HOSTING.md) §5). A manual `pg_dump` remains an
+option there, but it does not bundle the key-material files.
 
 - **A complete backup is the database plus every encryption key-material
   file, bundled into one archive** (`admin backup --output <path>`) — neither
