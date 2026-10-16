@@ -160,7 +160,8 @@ jobs:
   #     inputs the PR actually touched (operator/, migrate/, cli/, go.mod,
   #     deploy/helm/, the OpenAPI spec).
   #   - FULL: merge_group, push to main/release, schedule, workflow_dispatch,
-  #     and a pull_request carrying ci:full. Every job, exactly as before:
+  #     a pull_request carrying ci:full, and every pull_request into release/**
+  #     (no merge queue there, so the PR run is the last gate). Every job, exactly as before:
   #     the 21-leg -race test-suite, e2e/web-e2e/boot/demo smokes, fuzz-targets/
   #     fuzz-reach, the QUICK_START smoke, every module and chart job.
   # Every check that ran on pull_request before still runs before anything
@@ -177,7 +178,7 @@ jobs:
       actions: read
     outputs:
       # 'true' = FULL profile (see above), 'false' = FAST. Only a pull_request
-      # without the ci:full label is FAST.
+      # without the ci:full label, into a branch other than release/**, is FAST.
       full_profile: ${{ steps.filter.outputs.full_profile }}
       # Path relevance for the FAST profile's conditional jobs: each is true
       # when the PR touches that job's inputs (or ci.yml itself, same
@@ -308,11 +309,17 @@ jobs:
           MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           MG_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           HAS_CI_FULL_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          # FAST only for a pull_request without ci:full; everything else is FULL.
+          # FAST only for a pull_request without ci:full; everything else is
+          # FULL. A PR into release/** is always FULL: only main has a merge
+          # queue, so for a release branch the PR run is the last gate.
           full_profile=true
           if [ "$EVENT_NAME" = "pull_request" ] && [ "$HAS_CI_FULL_LABEL" != "true" ]; then
-            full_profile=false
+            case "$BASE_REF" in
+              release/*) ;;
+              *) full_profile=false ;;
+            esac
           fi
           echo "full_profile=$full_profile"
           echo "full_profile=$full_profile" >> "$GITHUB_OUTPUT"
