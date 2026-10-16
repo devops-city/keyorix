@@ -9,7 +9,7 @@ func TestRetryJitterN_Bounds(t *testing.T) {
 	if got := retryJitterN(-5); got != 0 {
 		t.Fatalf("n<0: got %d", got)
 	}
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if got := retryJitterN(10); got < 0 || got >= 10 {
 			t.Fatalf("out of [0,10): %d", got)
 		}
