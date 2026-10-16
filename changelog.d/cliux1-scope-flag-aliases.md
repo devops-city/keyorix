@@ -1,0 +1,2 @@
+### Changed
+- **`--project` and `--env` are accepted on every CLI command that names a project or an environment.** Commands that defined `--project-id`, `--environment` or `--environment-id` keep those spellings and now also take the canonical one (`keyorix pat create --project 3 --env 5`). Commands that define both `--project` and `--project-id` with different meanings (`run`, `request`) are unchanged.
