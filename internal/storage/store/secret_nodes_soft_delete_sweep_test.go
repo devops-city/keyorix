@@ -98,6 +98,11 @@ var secretNodesSweepExemptFiles = map[string]string{
 	// (readLiveNodeStamp and GetSecret both go through Model(&SecretNode{}),
 	// which auto-scopes deleted_at IS NULL), not in the trigger.
 	"internal/storage/store/secret_node_cache_epoch.go": "cache_epoch DDL and trigger body: schema changes and the trigger's own nested UPDATE must reach every row, soft-deleted included",
+	// #3362: the suspend-marker trigger is DDL (no WHERE), and the installer's
+	// one-off cleanup clears a stale marker on every non-suspended row: a
+	// soft-deleted secret keeps its status, so a stale marker on it would come
+	// back with a restore.
+	"internal/storage/store/secret_suspend_marker_trigger.go": "suspend-marker trigger DDL and its stale-marker cleanup: must reach soft-deleted rows too, or a restore revives a stale clear-copies marker",
 }
 
 // secretNodesSoftDeleteAllowlist names query sites that deliberately do NOT
