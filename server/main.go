@@ -68,6 +68,7 @@ import (
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	localstore "github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 	"github.com/keyorixhq/keyorix/server/admin"
@@ -2028,7 +2029,9 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 				server.TLSConfig = autoCertTLSConfig
 				serveErr = server.ServeTLS(ln, "", "")
 			} else {
-				serveErr = server.ServeTLS(ln, cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
+				// Empty file names: the certificate comes from TLSConfig.GetCertificate
+				// (tlsreload). Passing the files here would pin the pair loaded now.
+				serveErr = server.ServeTLS(ln, "", "")
 			}
 		} else {
 			serveErr = server.Serve(ln)
@@ -2556,13 +2559,14 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	// Load certificate and key
-	cert, err := tls.LoadX509KeyPair(cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
+	// The certificate is served through tlsreload so a pair rotated on disk is
+	// picked up without a restart; a pair that does not load still fails here.
+	reloader, err := tlsreload.New(cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+		return nil, err
 	}
 
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
 	if err := applyTLSHardening(tlsConfig, cfg.Server.HTTP.TLS, cfg.Server.HTTP.TLSMode); err != nil {
 		return nil, err
 	}
@@ -2573,11 +2577,7 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 // every HTTP TLS listener, regardless of how its certificate is sourced, UNLESS the
 // operator has explicitly configured tls.allowed_ciphers (#333) — in which case that
 // configured list is honored instead (see applyTLSHardening).
-var hardenedCipherSuites = []uint16{
-	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-}
+var hardenedCipherSuites = config.DefaultCipherSuites
 
 // applyTLSHardening layers the hardened MinVersion/CipherSuites onto tlsConfig in
 // place. The protocol-version floor and cipher-suite allowlist are independent of how
