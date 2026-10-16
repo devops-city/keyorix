@@ -209,7 +209,10 @@ export interface DashboardStats {
     auditEvents30d: number;
     auditLogins30d: number;
     auditSecretReads30d: number;
+    /** Failed logins in the last 24h (the name is kept for API compatibility). */
     failedAuthAttempts24h: number;
+    /** Refused secret reads in the last 24h (absent on older servers). */
+    refusedSecretReads24h?: number;
     inactiveUsers: number;
     prevTotalSecrets?: number;
     totalSecretsTrend?: StatTrend;

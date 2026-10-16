@@ -239,7 +239,7 @@ the single static binary serves both the API and the web UI with nothing else
 required. Three specific mechanisms extend this to updates and licensing,
 where an internet-connected product would normally phone home:
 
-- **Signed, offline-verifiable update bundles** (`internal/cli/bundle`,
+- **Signed, offline-verifiable update bundles** (`internal/bundle`,
   ADR-062) — a single tarball wrapping release artifacts (images, CLI/agent/
   operator/MCP binaries, charts, CRDs, migrations) with a `manifest.json`
   pinning every component by SHA-256 and an `ed25519` signature verified
@@ -260,7 +260,7 @@ where an internet-connected product would normally phone home:
 
 **Status note:** ADR-062 itself is recorded as "Accepted (design), implementation
 phased" — the license (Phase 2a/2b/2c) and bundle-verify mechanisms above are
-confirmed present in code (`internal/license`, `internal/cli/bundle`); this
+confirmed present in code (`internal/license`, `internal/bundle`); this
 document does not claim every phase named in that ADR's original design is
 complete, only what is independently verified to exist.
 

@@ -281,6 +281,11 @@ func (c *KeyorixCore) postJSONToURL(_ context.Context, rawURL string, payload an
 	if u, perr := url.Parse(rawURL); perr == nil {
 		redactedURL = u.Redacted()
 	}
+	// Send-time re-validation (#1209): the create/update-time check can be stale
+	// and c.httpClient may not carry the dial-time guard.
+	if verr := validateWebhookSendTimeURL(rawURL); verr != nil {
+		return fmt.Errorf("POST %s: refused: %w", redactedURL, verr)
+	}
 	resp, err := client.Post(rawURL, "application/json", bytes.NewReader(body)) // #nosec G107 -- URL is operator-configured; SSRF-guarded at write time
 	if err != nil {
 		return fmt.Errorf("POST %s: %w", redactedURL, err)

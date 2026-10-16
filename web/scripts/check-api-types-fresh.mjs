@@ -19,7 +19,7 @@ let committed;
 try {
     committed = readFileSync(COMMITTED_PATH, 'utf8');
 } catch (err) {
-    console.error(`[api-types] could not read ${COMMITTED_PATH}:`, err.message);
+    console.error('[api-types] could not read %s:', COMMITTED_PATH, err.message);
     console.error('[api-types] run `pnpm generate:api-types` and commit the result.');
     process.exit(1);
 }

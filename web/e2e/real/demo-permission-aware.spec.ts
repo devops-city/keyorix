@@ -73,7 +73,7 @@ test.describe('least-privilege user (alice)', () => {
         await page.goto('/dashboard');
         await settle(page);
         const main = page.locator('main');
-        for (const label of ['Active Users', 'Audit Events (30d)', 'Failed Auth (24h)']) {
+        for (const label of ['Active Users', 'Audit Events (30d)', 'Failed Logins (24h)']) {
             const card = main
                 .getByText(label, { exact: true })
                 .locator('xpath=ancestor::*[contains(@class,"rounded")][1]');

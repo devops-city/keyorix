@@ -69,6 +69,21 @@ therefore serialized:
 The transaction reads the current chain head (`entry_hash` of the highest-`id`
 row), computes the new `entry_hash`, and inserts — all under the lock.
 
+**Appends inside a business transaction (AUDIT-MUTATION-TX-1).** Secret create,
+update, rotate, rollback and delete (folders included) append their audit row
+through the transaction-scoped store, as the last statement of the mutation's
+own transaction, so the change and its row commit together or not at all; a
+failed append rolls the mutation back and fails the request
+(`internal/core/secret_mutation_audit.go`). The chain stays in commit order: on
+PostgreSQL the append takes `pg_advisory_xact_lock(KEYAUDIT)` inside that
+transaction, so every other append (the group-commit flusher included) waits
+until it commits or rolls back, and the head it read is still the head when it
+commits; on SQLite every transaction is `BEGIN IMMEDIATE`, so the writer lock is
+held from the first statement. Because the lock is held to COMMIT, nothing may
+run between the append and the COMMIT. Such a transaction never inherits
+`audit_durability: standard`'s `SET LOCAL synchronous_commit = off` (ADR-112
+Amendment 3): it commits durably, audit row included.
+
 ### Verification
 
 `VerifyAuditChain` walks events by ascending `id` in bounded batches and, for

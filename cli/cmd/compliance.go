@@ -356,7 +356,7 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if complianceVerifyFile == "" {
-			return fmt.Errorf("--file is required")
+			return usageErrorf("--file is required")
 		}
 		sigPath := complianceVerifySig
 		if sigPath == "" {
