@@ -22,6 +22,9 @@ func init() {
 }
 
 func runRBACListRoles(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(roleListFormat); err != nil {
+		return err
+	}
 	client, err := rbacAPIClient()
 	if err != nil {
 		return err
@@ -30,15 +33,17 @@ func runRBACListRoles(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(roles) == 0 {
-		fmt.Println("No roles found")
+	return emitList(roleListFormat, roles, func() error {
+		if len(roles) == 0 {
+			fmt.Println("No roles found")
+			return nil
+		}
+		fmt.Println("Available roles:")
+		for _, role := range roles {
+			fmt.Printf("  - %s: %s\n", derefStr(role.Name), derefStr(role.Description))
+		}
 		return nil
-	}
-	fmt.Println("Available roles:")
-	for _, role := range roles {
-		fmt.Printf("  - %s: %s\n", derefStr(role.Name), derefStr(role.Description))
-	}
-	return nil
+	})
 }
 
 // ── list-user-roles ─────────────────────────────────────────────────────────────

@@ -289,6 +289,9 @@ func init() {
 }
 
 func runRequestList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(requestListFormat); err != nil {
+		return err
+	}
 	projectID, projectName, err := requestProjectTarget(requestListProjectID, requestListProject)
 	if err != nil {
 		return err
@@ -305,21 +308,23 @@ func runRequestList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list access requests: %w", err)
 	}
-	if len(requests) == 0 {
-		fmt.Println("No access requests found.")
-		return nil
-	}
-	fmt.Printf("%-6s %-24s %-14s %-14s %-11s %-10s %s\n", "ID", "USER", "SUGGESTED", "GRANTED", "STATE", "SECRET", "REASON")
-	for _, req := range requests {
-		secretCol := "-"
-		if req.SecretID != nil {
-			secretCol = fmt.Sprintf("#%d", *req.SecretID)
+	return emitList(requestListFormat, requests, func() error {
+		if len(requests) == 0 {
+			fmt.Println("No access requests found.")
+			return nil
 		}
-		fmt.Printf("%-6d %-24s %-14s %-14s %-11s %-10s %s\n",
-			req.ID, requestUserLabel(ctx, client, req.UserID), dashIfEmpty(req.SuggestedRole),
-			dashIfEmpty(req.GrantedRole), req.State, secretCol, dashIfEmpty(req.Reason))
-	}
-	return nil
+		fmt.Printf("%-6s %-24s %-14s %-14s %-11s %-10s %s\n", "ID", "USER", "SUGGESTED", "GRANTED", "STATE", "SECRET", "REASON")
+		for _, req := range requests {
+			secretCol := "-"
+			if req.SecretID != nil {
+				secretCol = fmt.Sprintf("#%d", *req.SecretID)
+			}
+			fmt.Printf("%-6d %-24s %-14s %-14s %-11s %-10s %s\n",
+				req.ID, requestUserLabel(ctx, client, req.UserID), dashIfEmpty(req.SuggestedRole),
+				dashIfEmpty(req.GrantedRole), req.State, secretCol, dashIfEmpty(req.Reason))
+		}
+		return nil
+	})
 }
 
 // ── request withdraw ─────────────────────────────────────────────────────────

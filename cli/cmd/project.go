@@ -155,6 +155,9 @@ var projectListCmd = &cobra.Command{
 }
 
 func runProjectList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(projectListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -164,8 +167,7 @@ func runProjectList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	printProjects(projects)
-	return nil
+	return emitList(projectListFormat, projects, func() error { printProjects(projects); return nil })
 }
 
 // listProjects GETs /api/v1/projects, shared by every command below that needs to resolve
