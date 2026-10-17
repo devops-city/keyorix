@@ -1,0 +1,2 @@
+### Changed
+- **Fewer statements per audited request on PostgreSQL.** The audit group commit now inserts the batch's audit events and checks that they chain onto the current head, in id order, in one statement instead of three (the head check, the INSERT and the link check). The checks are unchanged and still run inside the transaction under the KEYAUDIT lock, before COMMIT. Statement counts per audited read/write are pinned by `TestAuditStatementsPerRequest_Postgres`.

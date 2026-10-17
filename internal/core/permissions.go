@@ -291,30 +291,40 @@ func (c *KeyorixCore) hasRequiredPermission(userPermission, requiredPermission P
 // global or scoped to secretProjectID (#G01) — GetUserGroupsAt, not the
 // unscoped GetUserGroups, so a membership scoped to a different project can't
 // grant access to a secret it was never meant to reach.
-func (c *KeyorixCore) CheckGroupPermissions(ctx context.Context, secretID, userID uint, shares []*models.ShareRecord, secretProjectID uint) (PermissionLevel, *uint, error) { // NOSONAR -- cognitive complexity 16, suppress go:S3776
+func (c *KeyorixCore) CheckGroupPermissions(ctx context.Context, secretID, userID uint, shares []*models.ShareRecord, secretProjectID uint) (PermissionLevel, *uint, error) {
 	userGroups, err := c.storage.GetUserGroupsAt(ctx, userID, Scope{ProjectID: secretProjectID})
 	if err != nil {
 		return PermissionNone, nil, err
 	}
+	groupIDs := make(map[uint]struct{}, len(userGroups))
+	for _, g := range userGroups {
+		groupIDs[g.ID] = struct{}{}
+	}
+	level, shareID := c.highestGroupShare(shares, groupIDs)
+	return level, shareID, nil
+}
 
+// highestGroupShare is CheckGroupPermissions' decision once the user's groups are
+// known: the highest-level group share among shares whose recipient group is in
+// groupIDs (a later share of an equal level wins), by the raw stored level. The batch
+// authoriser (AuthorizeSecretsBatch) calls it too, so the two cannot drift.
+func (c *KeyorixCore) highestGroupShare(shares []*models.ShareRecord, groupIDs map[uint]struct{}) (PermissionLevel, *uint) {
 	highestPermission := PermissionNone
 	var shareID *uint
-
 	for _, share := range shares {
-		if share.IsGroup {
-			for _, group := range userGroups {
-				if group.ID == share.RecipientID {
-					permission := PermissionLevel(share.Permission)
-					if c.hasRequiredPermission(permission, highestPermission) {
-						highestPermission = permission
-						shareID = &share.ID
-					}
-				}
-			}
+		if !share.IsGroup {
+			continue
+		}
+		if _, member := groupIDs[share.RecipientID]; !member {
+			continue
+		}
+		permission := PermissionLevel(share.Permission)
+		if c.hasRequiredPermission(permission, highestPermission) {
+			highestPermission = permission
+			shareID = &share.ID
 		}
 	}
-
-	return highestPermission, shareID, nil
+	return highestPermission, shareID
 }
 
 // EnforceSecretReadPermission enforces read permission for secret operations.

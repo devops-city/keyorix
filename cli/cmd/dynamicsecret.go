@@ -197,14 +197,14 @@ func readDynamicAdminDSN(backend string) (string, error) {
 	}
 	dsn := strings.TrimSpace(string(b))
 	if dsn == "" {
-		return "", fmt.Errorf("admin DSN is required")
+		return "", usageErrorf("admin DSN is required")
 	}
 	return dsn, nil
 }
 
 func runDynCreateConfig(_ *cobra.Command, _ []string) error {
 	if dynCfgName == "" || dynCfgProjectID == 0 || dynCfgBackend == "" {
-		return fmt.Errorf("--name, --project-id and --backend are required")
+		return usageErrorf("--name, --project-id and --backend are required")
 	}
 	adminDSN, err := readDynamicAdminDSN(dynCfgBackend)
 	if err != nil {

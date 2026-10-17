@@ -1355,6 +1355,20 @@ type Storage interface {
 	// project itself (project_id = projectID), directly or via a group — i.e. real
 	// membership. A global/install-wide role (project_id = 0) does NOT count.
 	IsProjectMember(ctx context.Context, userID, projectID uint) (bool, error)
+	// ProjectMembershipsAmong is IsProjectMember for many projects at once
+	// (SHARES-BATCH-AUTHZ-1): the subset of projectIDs the user is a live member of,
+	// by exactly IsProjectMember's rules (project 0 is never a membership; a global
+	// role does not count; expired grants and soft-deleted groups do not count).
+	ProjectMembershipsAmong(ctx context.Context, userID uint, projectIDs []uint) (map[uint]bool, error)
+	// ListUserRoleGrants returns every live role grant of userID, direct and via a live
+	// group, each with its own scope, so a caller can derive the role set at any number
+	// of scopes in memory (SHARES-BATCH-AUTHZ-1). Applying UserRoleGrant.AppliesAt to
+	// the rows yields exactly the role set ResolveUserPermissionAt reads at that scope.
+	ListUserRoleGrants(ctx context.Context, userID uint) ([]UserRoleGrant, error)
+	// ListUserLiveGroupMemberships returns userID's memberships in non-deleted groups
+	// with the project each membership is scoped to (0 = global): the rows
+	// GetUserGroupsAt filters by scope, for every scope at once.
+	ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]UserGroupMembershipAt, error)
 	// IsGroupProjectScoped reports whether groupID itself holds a LIVE role grant
 	// scoped to the project (group_roles.project_id = projectID) — the group-share
 	// counterpart to IsProjectMember, used to reject group shares whose recipient

@@ -95,7 +95,7 @@ var secretTemplateCreateCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretTmplName == "" {
-			return fmt.Errorf("--name is required")
+			return usageErrorf("--name is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
