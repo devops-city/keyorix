@@ -56,12 +56,15 @@ func TestPgBouncer_AuditIndexBuild_LockFollowsThePooler(t *testing.T) {
 	waitForLockWait(t, direct)
 
 	// The one backend holding the build lock, read directly from PostgreSQL.
+	// In this test's database only: pg_locks lists every database's locks, and
+	// another package's test may hold the same key in its own.
 	var holders []struct {
 		State string
 		Query string
 	}
 	require.NoError(t, direct.Raw(`SELECT a.state, a.query FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
-		WHERE l.locktype = 'advisory' AND l.granted AND l.classid = ? AND l.objid = ? AND l.objsubid = 1`,
+		WHERE l.locktype = 'advisory' AND l.granted AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		AND l.classid = ? AND l.objid = ? AND l.objsubid = 1`,
 		store.AuditIndexBuildLockClassID, store.AuditIndexBuildLockObjID).Scan(&holders).Error)
 	require.Len(t, holders, 1, "exactly one backend holds the build lock")
 	if xact {
@@ -83,6 +86,7 @@ func TestPgBouncer_AuditIndexBuild_LockFollowsThePooler(t *testing.T) {
 	require.Less(t, time.Since(start), 10*time.Second, "Close stalled releasing the build lock")
 	var held int64
 	require.NoError(t, direct.Raw(`SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted
+		AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
 		AND classid = ? AND objid = ? AND objsubid = 1`,
 		store.AuditIndexBuildLockClassID, store.AuditIndexBuildLockObjID).Scan(&held).Error)
 	require.Zero(t, held, "Close returned while a backend still held the audit index build lock")

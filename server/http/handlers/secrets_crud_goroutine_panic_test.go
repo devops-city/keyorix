@@ -12,8 +12,10 @@
 // core.AuditForwarder whose Forward implementation panics — the same
 // injectable seam SetAuditForwarder wires a real SIEM through) and prove each
 // of CreateSecret/UpdateSecret/DeleteSecret still (a) returns its normal
-// successful HTTP response and (b) does not crash the test process — the
-// goSafe wrapper added at each call site recovers the panic instead.
+// successful HTTP response and (b) does not crash the test process. Since
+// AUDIT-MUTATION-TX-1 the audit row commits inside the mutation's transaction
+// and the forward runs after the commit, on the request goroutine, from
+// auditForwardSink.Flush, whose per-event recover is what keeps (a) and (b).
 //
 // GetSecret (audit: secret.read) is the one exception, since SESSION-PERF
 // #2403 follow-up (item 3, audit-before-disclosure): its audit write is no

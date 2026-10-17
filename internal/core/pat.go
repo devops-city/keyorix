@@ -158,7 +158,7 @@ func (c *KeyorixCore) ValidatePATToken(ctx context.Context, raw string) (*models
 	}
 	pat, err := c.storage.GetPersonalAccessTokenByHash(ctx, sha256Hex(raw))
 	if err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("invalid token")
+		return nil, nil, nil, 0, credentialLookupError(err, "invalid token")
 	}
 	if pat.Revoked {
 		return nil, nil, nil, 0, ErrPATRevoked
@@ -169,7 +169,7 @@ func (c *KeyorixCore) ValidatePATToken(ctx context.Context, raw string) (*models
 	}
 	user, err := c.storage.GetUser(ctx, pat.UserID)
 	if err != nil {
-		return nil, nil, nil, 0, fmt.Errorf("user not found")
+		return nil, nil, nil, 0, credentialLookupError(err, "user not found")
 	}
 	if !user.IsActive {
 		return nil, nil, nil, 0, fmt.Errorf("user inactive")

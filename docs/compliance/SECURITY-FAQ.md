@@ -40,7 +40,7 @@ terminated at the server for the single-binary deployment. HSTS and a strict CSP
 (`script-src 'self'`) ship by default.
 
 **Can we rotate encryption keys?**
-Yes. `keyorix encryption rotate` performs a full re-encryption sweep across all
+Yes. `keyorix-server admin encryption rotate` performs a full re-encryption sweep across all
 DEK-encrypted tables, promotes the new key to disk, and survives restart — covered
 by an end-to-end integration test (ADR-010).
 

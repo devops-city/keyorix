@@ -1,0 +1,2 @@
+### Changed
+- **A start-up warning for connection parameters PgBouncer refuses.** With `storage.database.pooler` set to `pgbouncer-session` or `pgbouncer-transaction`, the server now logs a warning when the DSN or connection fields carry a startup parameter such as `search_path` or `options`, naming it and pointing at `ALTER ROLE ... SET`. Nothing is refused: PgBouncer's `ignore_startup_parameters` may be set. See `docs/postgresql-poolers.md`.

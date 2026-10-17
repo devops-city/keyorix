@@ -58,7 +58,7 @@ func init() {
 
 func runMachineBindingAdd(cmd *cobra.Command, args []string) error {
 	if machineBindingIssuer == "" || machineBindingSubject == "" {
-		return fmt.Errorf("--issuer and --subject are required")
+		return usageErrorf("--issuer and --subject are required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {

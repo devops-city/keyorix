@@ -2,9 +2,8 @@
 
 A copy-paste demo script for a newcomer on a fresh machine: install, store a
 secret, give an app access to it and revoke that access, then prove a backup
-actually restores. Every command below was run for real against a fresh
-SQLite install while writing this page — the expected output shown is what
-you should actually see, not a paraphrase.
+actually restores. The expected output shown is illustrative: ids, byte and row
+counts and times differ on your install.
 
 A few of the steps below work around gaps that are still open in the CLI
 (tracked in the UX track's report); they're called out inline so you know
@@ -41,7 +40,9 @@ migrated successfully.
 
 ```bash
 export KEYORIX_CONFIG_PATH=./keyorix.yaml
-export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
+mkdir -p -m 700 secrets
+(umask 077 && openssl rand -hex 32 > secrets/bootstrap_token)
+export KEYORIX_BOOTSTRAP_TOKEN_FILE="$PWD/secrets/bootstrap_token"
 ./bin/keyorix-server &
 
 ./bin/keyorix system init --server http://localhost:8080 \
@@ -49,8 +50,11 @@ export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
   --admin-email admin@keyorix.local
 ```
 
-The CLI reads the bootstrap token from `KEYORIX_BOOTSTRAP_TOKEN` (exported above),
-so there is no `--bootstrap-token` argument to leak.
+The bootstrap token is 64 random hex characters in a 0600 file (the server
+refuses a token shorter than 32 characters). Both the server and the CLI read it
+from `KEYORIX_BOOTSTRAP_TOKEN_FILE` (exported above), so the token is never on a
+command line or in your shell history and there is no `--bootstrap-token`
+argument to leak.
 
 Omitting `--admin-password` makes the CLI prompt for it interactively
 (hidden input) instead of putting it on the command line, where it would be
@@ -88,6 +92,20 @@ TLS for you.
 Enter `Correct-Horse-Battery9` (or whatever you chose in step 2) at the
 `Password:` prompt — same reasoning as above: omitting `--password` keeps it
 out of shell history and process listings.
+
+`--dev` relaxes TLS, rate limiting and `/metrics`, but not MFA: until the admin
+enrols a second factor, the session can only reach the enrolment endpoints and
+every command below fails with `This deployment requires multi-factor
+authentication`. Enrol once (QUICK_START.md,
+[Enrol MFA](../../QUICK_START.md#enrol-mfa-required-on-first-login)):
+
+```bash
+./bin/keyorix mfa enroll      # prints an otpauth:// URI and a base32 secret for your authenticator app
+./bin/keyorix mfa activate    # prompts for the app's code, then your password; save the recovery codes
+```
+
+The session you activated from stays signed in; a later `login` asks for a code
+after the password (the restore check in step 6 included).
 
 ```bash
 ./bin/keyorix secret create --name my-first-secret --interactive
@@ -155,11 +173,6 @@ A `write` share is different: share with `--permission write` and alice, a
 suspend, move or anything else a role would grant); `share revoke` takes exactly
 that away again while her role's read stays.
 
-(Skipping the two `rbac assign-role` lines and going straight to
-`share create` is what QUICK_START.md's own sharing example currently shows
-— it fails with a bare `HTTP 403` and no explanation. Filed for a fix; use
-the four commands above until it lands.)
-
 ## 5. Give an app access, then revoke it (2 min)
 
 ```bash
@@ -224,7 +237,7 @@ kill %1                                         # stop the server (job from step
 ./bin/keyorix-server admin backup --config ./keyorix.yaml --output ./backup1.kxbak
 ```
 
-Expected: `Backup written to ./backup1.kxbak (database N bytes, 2 key file(s))`
+Expected: `Backup written to ./backup1.kxbak (N table(s), N row(s) total, 2 key file(s))`
 plus a reminder to store the archive off this host.
 
 Simulate a wiped host — a fresh directory with only the server binary, the
@@ -238,7 +251,7 @@ export KEYORIX_MASTER_PASSWORD='choose-a-strong-passphrase'
 ./keyorix-server admin restore --config ./keyorix.yaml --input ./backup1.kxbak
 ```
 
-Expected: migrations applied, `Restored database (N bytes) and 2 key file(s)`,
+Expected: migrations applied, `Restored N table(s), N row(s), 2 key file(s) from ./backup1.kxbak`,
 and — automatically, as part of the same command — `verify-audit on the
 restored database: VALID`. That last line is the actual proof the restore is
 trustworthy, not just present: it re-walks the tamper-evident audit hash

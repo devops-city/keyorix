@@ -47,13 +47,13 @@ encryption:
 
 ```bash
 # Initialize encryption keys
-keyorix encryption init
+keyorix-server admin encryption init
 
 # Check encryption status
-keyorix encryption status
+keyorix-server admin encryption status
 
 # Validate encryption setup
-keyorix encryption validate
+keyorix-server admin encryption validate
 ```
 
 ### Programmatic Usage
@@ -103,19 +103,19 @@ decrypted, _ := secretEncryption.RetrieveSecret(version.ID)
 
 ## CLI Commands
 
-### `keyorix encryption init`
+### `keyorix-server admin encryption init`
 Initialize encryption keys if they don't exist.
 
-### `keyorix encryption status`
+### `keyorix-server admin encryption status`
 Display current encryption configuration and status.
 
-### `keyorix encryption rotate`
+### `keyorix-server admin encryption rotate`
 Rotate encryption keys and update key version.
 
-### `keyorix encryption validate`
+### `keyorix-server admin encryption validate`
 Validate encryption setup and key file permissions.
 
-### `keyorix encryption fix-perms`
+### `keyorix-server admin encryption fix-perms`
 Automatically fix key file permissions.
 
 ## Security Features
@@ -179,8 +179,8 @@ This will demonstrate:
 
 ### Common Issues
 
-1. **Permission Denied**: Run `keyorix encryption fix-perms`
-2. **Key Not Found**: Run `keyorix encryption init`
+1. **Permission Denied**: Run `keyorix-server admin encryption fix-perms`
+2. **Key Not Found**: Run `keyorix-server admin encryption init`
 3. **Invalid Configuration**: Check `config.yaml` encryption settings
 4. **Database Errors**: Ensure proper database migration
 
@@ -196,9 +196,9 @@ export KEYORIX_DEBUG=true
 To migrate existing unencrypted secrets:
 
 1. Enable encryption in configuration
-2. Run `keyorix encryption init`
+2. Run `keyorix-server admin encryption init`
 3. Use the rotation command to re-encrypt existing secrets
-4. Validate the setup with `keyorix encryption validate`
+4. Validate the setup with `keyorix-server admin encryption validate`
 
 ## Best Practices
 

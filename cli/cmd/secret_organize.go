@@ -27,7 +27,7 @@ Use --to 0 (or omit --to) to move the node to the root (no parent).`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretMoveID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -72,7 +72,7 @@ secret with the source's value, type, classification, and description.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretCopyID == 0 || secretCopyToEnv == 0 {
-			return fmt.Errorf("--id and --to-environment are required")
+			return usageErrorf("--id and --to-environment are required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -118,7 +118,7 @@ single call. Name clashes in the target are skipped, never overwritten.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretCopyEnvProject == 0 || secretCopyEnvFrom == 0 || secretCopyEnvTo == 0 {
-			return fmt.Errorf("--project, --from-environment and --to-environment are required")
+			return usageErrorf("--project, --from-environment and --to-environment are required")
 		}
 		if secretCopyEnvFrom == secretCopyEnvTo {
 			return fmt.Errorf("--from-environment and --to-environment must differ")

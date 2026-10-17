@@ -275,6 +275,7 @@ func (c *KeyorixCore) CreateSecret(ctx context.Context, req *CreateSecretRequest
 	// then acquires the lock and blindly inserts anyway" -- hence the second
 	// existence check INSIDE the lock, immediately before the transaction.
 	var createdSecret *models.SecretNode
+	sink := &auditForwardSink{}
 	if err := c.withEnvironmentSecretGuard(ctx, req.EnvironmentID, func(ctx context.Context) error {
 		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
 			var err error
@@ -320,11 +321,18 @@ func (c *KeyorixCore) CreateSecret(ctx context.Context, req *CreateSecretRequest
 				return fmt.Errorf("%s: project %d was deleted while this secret was being created",
 					i18n.T("ErrorNotFound", nil), secret.ProjectID)
 			}
+			// AUDIT-MUTATION-TX-1: the secret.created row commits with the secret, as
+			// the transaction's last statement (secret_mutation_audit.go).
+			if row, ok := mutationAuditRowFor(ctx, "secret.created", "create", "created",
+				createdSecret.ID, createdSecret.ProjectID, createdSecret.Name); ok {
+				return c.writeMutationAuditTx(ctx, tx, sink, row)
+			}
 			return nil
 		})
 	}); err != nil {
 		return nil, err
 	}
+	sink.Flush(c)
 
 	// Apply the create-time tags (#390) now that the secret and its first version both
 	// exist. Calling the storage layer directly (not the core SetSecretTags wrapper)
@@ -392,7 +400,7 @@ func unexpiredSecret(secret *models.SecretNode) (*models.SecretNode, error) {
 // then the access schedule, then GetSecret's expiration check, evaluated here at the
 // same point it used to be.
 func (c *KeyorixCore) GetSecretWithPermissionCheck(ctx context.Context, id, userID uint) (*models.SecretNode, error) {
-	_, secret, err := c.checkSecretPermission(ctx, id, userID, PermissionRead, "")
+	secret, err := c.checkSecretReadPermission(ctx, id, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -400,6 +408,23 @@ func (c *KeyorixCore) GetSecretWithPermissionCheck(ctx context.Context, id, user
 		return nil, err
 	}
 	return unexpiredSecret(secret)
+}
+
+// checkSecretReadPermission is checkSecretPermission(PermissionRead, no action) that
+// returns the secret it decided on. When the request's own gate has already allowed
+// this user secrets.read on this secret (gate_read_decision.go), that decision and the
+// row it was made on are used instead of evaluating the same terms again; the PAT
+// restriction is still checked against the secret's scope, as checkSecretPermission
+// does first.
+func (c *KeyorixCore) checkSecretReadPermission(ctx context.Context, id, userID uint) (*models.SecretNode, error) {
+	if id != 0 && userID != 0 {
+		if secret := takeGateReadAllow(ctx, userID, id); secret != nil &&
+			patRestrictionFromContext(ctx).Allows(permSecretsRead, Scope{ProjectID: secret.ProjectID, EnvironmentID: secret.EnvironmentID}) {
+			return secret, nil
+		}
+	}
+	_, secret, err := c.checkSecretPermission(ctx, id, userID, PermissionRead, "")
+	return secret, err
 }
 
 // GetSecretByName resolves a secret by its name within a project/environment. Like
@@ -453,6 +478,7 @@ func (c *KeyorixCore) UpdateSecret(ctx context.Context, req *UpdateSecretRequest
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorSecretNotFound", nil), err)
 	}
+	before := *secret // the pre-update record, for the audit diff
 	if err := applyUpdateSecretFields(secret, req); err != nil {
 		return nil, err
 	}
@@ -471,14 +497,34 @@ func (c *KeyorixCore) UpdateSecret(ctx context.Context, req *UpdateSecretRequest
 	}
 	fields.UpdatedAt = &now
 
+	// AUDIT-MUTATION-TX-1: the secret.updated row (with its before/after diff)
+	// commits in the same transaction as the update, on both branches below.
+	sink := &auditForwardSink{}
+	var auditInTx func(tx storage.Storage) error
+	if row, ok := mutationAuditRowFor(ctx, evtSecretUpdated, "update", "updated", secret.ID, secret.ProjectID, secret.Name); ok {
+		row.diff = BuildSecretUpdateDiff(&before, req, len(req.Value) > 0)
+		auditInTx = func(tx storage.Storage) error { return c.writeMutationAuditTx(ctx, tx, sink, row) }
+	}
+
 	if len(req.Value) == 0 {
-		matched, uerr := c.storage.UpdateSecretFields(ctx, secret.ID, fields)
+		var matched bool
+		uerr := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+			var err error
+			if matched, err = tx.UpdateSecretFields(ctx, secret.ID, fields); err != nil || !matched {
+				return err
+			}
+			if auditInTx != nil {
+				return auditInTx(tx)
+			}
+			return nil
+		})
 		if uerr != nil {
 			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
 		}
 		if !matched {
 			return nil, fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
 		}
+		sink.Flush(c)
 		return secret, nil
 	}
 
@@ -491,10 +537,11 @@ func (c *KeyorixCore) UpdateSecret(ctx context.Context, req *UpdateSecretRequest
 	// a freshly re-read version number instead, same as RotateSecret, and shares one
 	// transaction between the version write and this row update — see that function's
 	// doc comment for why.
-	updatedSecret, err := c.updateSecretWithNewVersion(ctx, secret, req.Value, fields)
+	updatedSecret, err := c.updateSecretWithNewVersion(ctx, secret, req.Value, fields, auditInTx)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
+	sink.Flush(c)
 	return updatedSecret, nil
 }
 
@@ -624,7 +671,21 @@ const EventSecretRotateNoop = "secret.rotate_noop"
 // (auto-rotation), which is the same "no identifiable user" sentinel
 // enforceSecretReadGuards' classification gate already denies restricted
 // reads for.
+//
+// A context tagged with WithSecretMutationAudit gets its secret.rotated row in the
+// same transaction as the new version (AUDIT-MUTATION-TX-1).
 func (c *KeyorixCore) RotateSecret(ctx context.Context, id uint, newValue []byte, actorID uint, rotatedBy string) (*models.SecretNode, error) {
+	return c.rotateSecret(ctx, id, newValue, actorID, rotatedBy, false, func(s *models.SecretNode) (mutationAuditRow, bool) {
+		return mutationAuditRowFor(ctx, "secret.rotated", "rotate", "rotated", s.ID, s.ProjectID, s.Name)
+	})
+}
+
+// rotateSecret is RotateSecret with the audit row chosen by the caller: auditRow
+// returns the row to commit with the new version, or ok=false for none
+// (RollbackSecret writes secret.rolled_back there instead of secret.rotated).
+// rollback marks a version rollback, which never follows an upstream rotation, so
+// it is always one transaction (see the comment at the write below).
+func (c *KeyorixCore) rotateSecret(ctx context.Context, id uint, newValue []byte, actorID uint, rotatedBy string, rollback bool, auditRow func(*models.SecretNode) (mutationAuditRow, bool)) (*models.SecretNode, error) {
 	if err := c.secretValuePolicy.Validate(newValue); err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), err)
 	}
@@ -678,31 +739,55 @@ func (c *KeyorixCore) RotateSecret(ctx context.Context, id uint, newValue []byte
 	// failed) as DRIFT rather than a plain failure. See updateSecretWithNewVersion's own
 	// doc comment for why UpdateSecret's identical-shaped write does not have this
 	// consideration and is made atomic.
-	if err := c.storeNextSecretVersion(ctx, secret, newValue); err != nil {
+	//
+	// AUDIT-MUTATION-TX-1: that reason only exists when an upstream credential was
+	// rotated first, i.e. for a backend-bound secret. Otherwise (no backend, and every
+	// rollback: rollbackApplied) nothing outside Keyorix changed, so the version, the
+	// timestamp and the audit row commit as one transaction and a failure anywhere
+	// leaves the secret exactly as it was (#2842). For a backend-bound rotation the
+	// audit row still commits with the version — the version is the change, the
+	// timestamp is bookkeeping — so a version never lands without its row.
+	now := time.Now()
+	if !valueUnchanged {
+		secret.LastRotatedAt = &now
+	}
+	secret.UpdatedAt = now
+	// #2695: RotateSecret owns last_rotated_at and updated_at, nothing else.
+	// SetLastRotatedAt is explicit because the no-op case deliberately WITHHOLDS the
+	// stamp (#408) — passing secret.LastRotatedAt unconditionally is correct
+	// precisely because that case left it at its prior value.
+	stamp := storage.SecretFieldUpdate{SetLastRotatedAt: true, LastRotatedAt: secret.LastRotatedAt, UpdatedAt: &now}
+	oneTx := secret.RotationBackend == "" || rollback
+	row, audited := auditRow(secret)
+	sink := &auditForwardSink{}
+	var inTx func(tx storage.Storage) error
+	if oneTx || audited {
+		inTx = func(tx storage.Storage) error {
+			if oneTx {
+				if err := updateRotationStamp(ctx, tx, secret.ID, stamp); err != nil {
+					return err
+				}
+			}
+			if audited {
+				return c.writeMutationAuditTx(ctx, tx, sink, row)
+			}
+			return nil
+		}
+	}
+	if err := c.storeNextSecretVersion(ctx, secret, newValue, inTx); err != nil {
 		return nil, fmt.Errorf("failed to store rotated secret: %w", err)
 	}
-	now := time.Now()
+	sink.Flush(c)
 	if valueUnchanged {
 		log.Printf("rotate secret %d: new value identical to the current version; version stored but last_rotated_at was NOT updated", id)
 		sid := id
 		c.writeAuditEvent(ctx, EventSecretRotateNoop, nil, &sid,
 			fmt.Sprintf("rotation of secret %q by %s submitted a value identical to the current version: a new version was stored for audit-trail completeness, but last_rotated_at was not updated", secret.Name, rotatedBy))
-	} else {
-		secret.LastRotatedAt = &now
 	}
-	secret.UpdatedAt = now
-	// #2695: RotateSecret owns last_rotated_at and updated_at, nothing else.
-	// SetLastRotatedAt is explicit because the no-op branch above deliberately
-	// WITHHOLDS the stamp (#408) — passing secret.LastRotatedAt unconditionally
-	// here is correct precisely because that branch left it at its prior value.
-	matched, uerr := c.storage.UpdateSecretFields(ctx, secret.ID, storage.SecretFieldUpdate{
-		SetLastRotatedAt: true, LastRotatedAt: secret.LastRotatedAt, UpdatedAt: &now,
-	})
-	if uerr != nil {
-		return nil, fmt.Errorf("failed to update rotation timestamp: %w", uerr)
-	}
-	if !matched {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
+	if !oneTx {
+		if err := updateRotationStamp(ctx, c.storage, secret.ID, stamp); err != nil {
+			return nil, err
+		}
 	}
 	updatedSecret := secret
 	// Refresh the cached certificate expiry immediately for a certificate-typed secret
@@ -711,6 +796,19 @@ func (c *KeyorixCore) RotateSecret(ctx context.Context, id uint, newValue []byte
 	// re-decryption is needed; a no-op for non-certificate secrets.
 	c.refreshCertNotAfterCache(ctx, secret, newValue)
 	return updatedSecret, nil
+}
+
+// updateRotationStamp writes a rotation's last_rotated_at/updated_at through st
+// (the rotation's transaction, or c.storage for a backend-bound rotation).
+func updateRotationStamp(ctx context.Context, st storage.Storage, id uint, stamp storage.SecretFieldUpdate) error {
+	matched, err := st.UpdateSecretFields(ctx, id, stamp)
+	if err != nil {
+		return fmt.Errorf("failed to update rotation timestamp: %w", err)
+	}
+	if !matched {
+		return fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
+	}
+	return nil
 }
 
 // DeleteSecret soft-deletes a secret by ID.
@@ -722,13 +820,31 @@ func (c *KeyorixCore) DeleteSecret(ctx context.Context, id uint) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorSecretNotFound", nil), err)
 	}
-	if err := c.storage.DeleteSecret(ctx, id); err != nil {
+	// AUDIT-MUTATION-TX-1: a tagged delete (secret or folder) commits its
+	// secret.deleted row in the delete's transaction. The soft-delete note reads
+	// versions and dependency edges, which the delete does not change, so it is built
+	// before the transaction and the audit append stays its last statement.
+	sink := &auditForwardSink{}
+	row, audited := mutationAuditRowFor(ctx, "secret.deleted", "delete", "deleted", id, secret.ProjectID, secret.Name)
+	if audited {
+		row.description += c.softDeleteNote(ctx, id, secret.ProjectID)
+	}
+	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		if err := tx.DeleteSecret(ctx, id); err != nil {
+			return err
+		}
+		if audited {
+			return c.writeMutationAuditTx(ctx, tx, sink, row)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
+	sink.Flush(c)
 	// Emit an audit event for every dependency edge incident to this secret so
 	// operators know which rotation plans are affected (best-effort; the delete
 	// already succeeded). actorID 0 here because DeleteSecret itself has no actor
-	// context — the HTTP handler's LogSecretDeleted carries the authenticated user.
+	// parameter — the secret.deleted row above carries the authenticated user.
 	c.emitDependencyLifecycleEvents(ctx, EventSecretDependencyInvalidated, 0, id, secret.ProjectID, secret.Name)
 	return nil
 }

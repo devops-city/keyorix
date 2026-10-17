@@ -1355,6 +1355,20 @@ type Storage interface {
 	// project itself (project_id = projectID), directly or via a group — i.e. real
 	// membership. A global/install-wide role (project_id = 0) does NOT count.
 	IsProjectMember(ctx context.Context, userID, projectID uint) (bool, error)
+	// ProjectMembershipsAmong is IsProjectMember for many projects at once
+	// (SHARES-BATCH-AUTHZ-1): the subset of projectIDs the user is a live member of,
+	// by exactly IsProjectMember's rules (project 0 is never a membership; a global
+	// role does not count; expired grants and soft-deleted groups do not count).
+	ProjectMembershipsAmong(ctx context.Context, userID uint, projectIDs []uint) (map[uint]bool, error)
+	// ListUserRoleGrants returns every live role grant of userID, direct and via a live
+	// group, each with its own scope, so a caller can derive the role set at any number
+	// of scopes in memory (SHARES-BATCH-AUTHZ-1). Applying UserRoleGrant.AppliesAt to
+	// the rows yields exactly the role set ResolveUserPermissionAt reads at that scope.
+	ListUserRoleGrants(ctx context.Context, userID uint) ([]UserRoleGrant, error)
+	// ListUserLiveGroupMemberships returns userID's memberships in non-deleted groups
+	// with the project each membership is scoped to (0 = global): the rows
+	// GetUserGroupsAt filters by scope, for every scope at once.
+	ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]UserGroupMembershipAt, error)
 	// IsGroupProjectScoped reports whether groupID itself holds a LIVE role grant
 	// scoped to the project (group_roles.project_id = projectID) — the group-share
 	// counterpart to IsProjectMember, used to reject group shares whose recipient
@@ -1607,6 +1621,11 @@ type Storage interface {
 	ListUnalertedAnomalyAlerts(ctx context.Context) ([]models.AnomalyAlert, error)
 	MarkAnomalyAlertAlerted(ctx context.Context, id uint) error
 	GetAuditLogs(ctx context.Context, filter *AuditFilter) ([]*models.AuditEvent, int64, error)
+	// MaxAuditEventID returns the highest audit_events.id (0 when the table is
+	// empty): an O(1) read of the primary key's right edge. Scheduler jobs that
+	// keep an id high-water mark read it first and bound their scan with
+	// AuditFilter.UpToID, so a run costs O(rows added since the last run).
+	MaxAuditEventID(ctx context.Context) (uint, error)
 	// AuditRetentionStats returns the total audit event count and the oldest /
 	// newest event timestamps. Keyorix never purges audit events, so these raw
 	// aggregates let an operator demonstrate how far back the trail reaches
@@ -1698,6 +1717,17 @@ type Storage interface {
 	GetSystemMetadata(ctx context.Context, key string) (value string, found bool, err error)
 	// SetSystemMetadata upserts a system-metadata key/value (last write wins).
 	SetSystemMetadata(ctx context.Context, key, value string) error
+
+	// Pending audit events (models.PendingAuditEvent): audit rows owed by an
+	// operation that took effect without waiting for the audit log (a plain secret
+	// suspend). Created in the operation's own transaction; ClaimPendingAuditEvent
+	// (a delete reporting whether this call removed the row) runs in the same
+	// transaction as the owed row's append, so each owed row is written once.
+	CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error
+	ListPendingAuditEvents(ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error)
+	ClaimPendingAuditEvent(ctx context.Context, id uint) (claimed bool, err error)
+	RecordPendingAuditEventFailure(ctx context.Context, id uint, reason string) error
+	CountPendingAuditEvents(ctx context.Context) (int64, error)
 	// GetRecoveryKeyRecord returns the local admin recovery key's verifier
 	// record (docs/design-b2-recover-admin.md §2); found is false on an
 	// install that predates this feature or has never generated one.
@@ -2390,6 +2420,9 @@ type AuditFilter struct {
 	// forward cursor), ignoring Page. Use with the /audit/export endpoint.
 	AfterID   *uint
 	Ascending bool
+	// UpToID, when set, adds id <= *UpToID (inclusive upper bound). With AfterID
+	// it bounds the scan to the primary-key range (AfterID, UpToID].
+	UpToID *uint
 
 	// IPAddress filters events by the exact IP address that originated the request.
 	IPAddress *string

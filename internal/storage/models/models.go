@@ -1711,6 +1711,26 @@ type Setting struct {
 	Value  string
 }
 
+// PendingAuditEvent is an audit event owed by an operation that has already taken
+// effect but must never wait for, or fail on, the audit log (a plain secret suspend:
+// revocation first). It is written in the SAME transaction as that effect, so an
+// effect never commits without either its audit row or this record of the missing
+// one. The audit row and the deletion of this record then commit together; when that
+// fails the record stays and core's backfill writes the row once the audit log
+// accepts writes again (exactly once: the deletion is the claim).
+type PendingAuditEvent struct {
+	ID        uint   `gorm:"primaryKey"`
+	EventType string `gorm:"size:100;not null"`
+	// Event is the JSON of the models.AuditEvent the operation would have written,
+	// built by the same writer, so the backfilled row carries the same attribution.
+	Event string `gorm:"type:text;not null"`
+	// LastError is the most recent reason the audit row could not be written.
+	LastError string    `gorm:"type:text"`
+	Attempts  int       `gorm:"not null;default:0"`
+	CreatedAt time.Time `gorm:"index"`
+	UpdatedAt time.Time
+}
+
 type SystemMetadata struct {
 	Key       string `gorm:"primaryKey"`
 	Value     string

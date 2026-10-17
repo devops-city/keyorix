@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -68,6 +69,7 @@ import (
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	localstore "github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 	"github.com/keyorixhq/keyorix/server/admin"
@@ -133,8 +135,19 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// remaining non-interactive and interactive cases. KEYORIX_MASTER_PASSWORD
 	// keeps working as the last-resort fallback -- see ADR-099 for why it's the
 	// weakest option.
-	flag.IntVar(&masterPassphraseSource.FD, "passphrase-fd", 0,
-		"Read the master passphrase from this already-open file descriptor")
+	// flag.Func, not IntVar: ResolvePassphrase only honours the fd when FDSet is
+	// true, and IntVar never sets it, so --passphrase-fd was silently ignored and
+	// the server reported "no master passphrase available". FDSet is true exactly
+	// when the flag was passed, including --passphrase-fd=0.
+	flag.Func("passphrase-fd", "Read the master passphrase from this already-open file descriptor",
+		func(s string) error {
+			n, err := strconv.Atoi(s)
+			if err != nil || n < 0 {
+				return fmt.Errorf("invalid file descriptor %q", s)
+			}
+			masterPassphraseSource.FD, masterPassphraseSource.FDSet = n, true
+			return nil
+		})
 	flag.StringVar(&masterPassphraseSource.FilePath, "passphrase-file", "",
 		"Read the master passphrase from this file (refused if group- or world-readable)")
 	flag.BoolVar(&masterPassphraseSource.Stdin, "passphrase-stdin", false,
@@ -446,6 +459,7 @@ const (
 	schedLockMFAGrantPrune     int64 = 0x4B455953_4D464147 // "KEYSMFAG"
 	schedLockRecoverAdminAlert int64 = 0x4B455953_52435652 // "KEYSRCVR"
 	schedLockBreakGlassReview  int64 = 0x4B455953_42475256 // "KEYSBGRV"
+	schedLockOwedAudit         int64 = 0x4B455953_4F574544 // "KEYSOWED"
 )
 
 // initializeEncryption sources the KEK per the configured key provider (ADR-038)
@@ -712,7 +726,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	if needs, berr := coreService.SystemNeedsBootstrap(context.Background()); berr == nil && needs && bootstrapToken != "" {
 		if bootstrapTokenGenerated {
 			masked := bootstrapToken[:8] + "***" + bootstrapToken[len(bootstrapToken)-4:]
-			log.Printf("system not initialised — run `keyorix system init` with this one-time bootstrap token (set KEYORIX_BOOTSTRAP_TOKEN to pin your own):\n    BOOTSTRAP TOKEN: %s\n    (first 8 + last 4 chars shown; retrieve the full token from KEYORIX_BOOTSTRAP_TOKEN or reboot with it pre-set)", masked)
+			log.Print(generatedBootstrapTokenHint(masked))
 		} else {
 			log.Printf("system not initialised — run `keyorix system init` with the configured KEYORIX_BOOTSTRAP_TOKEN")
 		}
@@ -1897,6 +1911,18 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// cadence/window ratio login_attempt_prune uses, since grant rows are
 	// created far less often (once per MFA step-up verification, not once per
 	// rate-limit check).
+	// Owed audit rows (core audit_owed.go): a plain secret suspend never waits for
+	// the audit log, so a secret.suspended row the audit log refused is kept in
+	// pending_audit_events and written here once the audit log accepts writes
+	// again. Every minute; single-replica-gated, and exactly-once anyway (the
+	// claim and the append share a transaction).
+	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
+		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func() error {
+			_, berr := coreService.BackfillPendingAuditEvents(ctx)
+			return berr
+		})
+	})
+
 	mfaGrantRetention := time.Duration(cfg.Classification.GetMFAStepUpGrantRetentionDays()) * 24 * time.Hour
 	runScheduler(ctx, "mfa_stepup_grant_prune", 6*time.Hour, func() middleware.SchedulerOutcome {
 		return lockedRun(ctx, coreService.Storage(), schedLockMFAGrantPrune, "MFA step-up grant prune", func() error {
@@ -1990,20 +2016,7 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 		return fmt.Errorf("%w: failed to create HTTP router: %v", errHTTPServerFailedToStart, err)
 	}
 
-	// Create HTTP server
-	server := &http.Server{
-		Addr:    cfg.Server.HTTP.ListenAddr(),
-		Handler: router,
-		// ReadHeaderTimeout bounds how long a client can dribble in request headers one
-		// byte at a time before the connection is dropped (gosec G112 / slowloris-style
-		// DoS via a client that never finishes sending headers, holding the connection —
-		// and a worker goroutine — open indefinitely). Shorter than ReadTimeout since
-		// headers should arrive promptly even for a slow body upload.
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(cfg.Server.HTTP.ListenAddr(), router)
 
 	// Configure TLS if enabled
 	if cfg.Server.HTTP.TLS.Enabled {
@@ -2041,7 +2054,9 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 				server.TLSConfig = autoCertTLSConfig
 				serveErr = server.ServeTLS(ln, "", "")
 			} else {
-				serveErr = server.ServeTLS(ln, cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
+				// Empty file names: the certificate comes from TLSConfig.GetCertificate
+				// (tlsreload). Passing the files here would pin the pair loaded now.
+				serveErr = server.ServeTLS(ln, "", "")
 			}
 		} else {
 			serveErr = server.Serve(ln)
@@ -2308,6 +2323,19 @@ func groupOrOtherReadable(paths []string) []string {
 	return out
 }
 
+// generatedBootstrapTokenHint is the log line printed on an uninitialised install when no
+// bootstrap token was configured and one was generated for this run. The generated value is
+// only ever shown masked, so the line must say how to get a token the operator actually
+// holds, not point back at a variable they never set (FIRST-RUN-1).
+func generatedBootstrapTokenHint(masked string) string {
+	return "system not initialised — no bootstrap token was configured, so this run generated one " +
+		"(first 8 + last 4 chars shown; the full value is never logged and cannot be recovered):\n" +
+		"    BOOTSTRAP TOKEN: " + masked + "\n" +
+		"    To create the first admin, stop the server and start it again with a token you hold: " +
+		"set KEYORIX_BOOTSTRAP_TOKEN_FILE to a 0600 file containing it (`keyorix-server admin generate-secrets` creates one), " +
+		"then run `keyorix system init --server <url>`"
+}
+
 // resolveBootstrapToken returns the operator-pinned bootstrap token from
 // KEYORIX_BOOTSTRAP_TOKEN or the file named by KEYORIX_BOOTSTRAP_TOKEN_FILE, or
 // "" when neither is set (the caller then generates a one-time token). Both set,
@@ -2569,13 +2597,14 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	// Load certificate and key
-	cert, err := tls.LoadX509KeyPair(cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
+	// The certificate is served through tlsreload so a pair rotated on disk is
+	// picked up without a restart; a pair that does not load still fails here.
+	reloader, err := tlsreload.New(cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+		return nil, err
 	}
 
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
 	if err := applyTLSHardening(tlsConfig, cfg.Server.HTTP.TLS, cfg.Server.HTTP.TLSMode); err != nil {
 		return nil, err
 	}
@@ -2586,11 +2615,7 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 // every HTTP TLS listener, regardless of how its certificate is sourced, UNLESS the
 // operator has explicitly configured tls.allowed_ciphers (#333) — in which case that
 // configured list is honored instead (see applyTLSHardening).
-var hardenedCipherSuites = []uint16{
-	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-}
+var hardenedCipherSuites = config.DefaultCipherSuites
 
 // applyTLSHardening layers the hardened MinVersion/CipherSuites onto tlsConfig in
 // place. The protocol-version floor and cipher-suite allowlist are independent of how

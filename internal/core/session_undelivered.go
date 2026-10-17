@@ -99,12 +99,14 @@ func (c *KeyorixCore) revokeUndeliveredSession(ctx context.Context, token string
 	})
 }
 
-// ErrLoginWritePanicked marks a login denied because a storage write after the
-// credential matched panicked (#3277): the session insert (mintLoginSession) or
-// the TOTP anti-replay mark (markTOTPStepUsedAfterMatch). It always travels
-// with that write's ordinary post-verdict error sentinel, so the transport
-// answers it like a wrong credential; on its own it only tells
-// VerifyMFALoginPending not to give the consumed TOTP step back.
+// ErrLoginWritePanicked marks a request denied because a storage write after
+// the credential matched panicked (#3277): the session insert
+// (mintLoginSession, createImpersonationSession), the TOTP anti-replay mark
+// (markTOTPStepUsedAfterMatch), the MFA challenge
+// (CreateMFAChallengeHoldingLoginSlot) or the step-up grant
+// (createStepUpGrant). It always travels with that write's ordinary error, so
+// the transport answers it exactly as it answers the error; on its own it only
+// tells VerifyMFALoginPending not to give the consumed TOTP step back.
 var ErrLoginWritePanicked = errors.New("a post-verdict login write panicked")
 
 // mintLoginSession is mintSessionWith for a login whose credential has already
@@ -121,8 +123,8 @@ var ErrLoginWritePanicked = errors.New("a post-verdict login write panicked")
 // if that could not be done), and no token is returned, so the denial leaves no
 // usable session. Nothing in mintSessionWith after the insert can panic out
 // (EnforceSessionLimit is besteffort.Run), so a recovered panic never follows
-// a delivered row. Only login paths use this; setup consume, SSO and
-// impersonation keep mintSession's propagation.
+// a delivered row. The login paths and setup consume use this (impersonation
+// has createImpersonationSession); SSO still calls mintSession and propagates.
 func (c *KeyorixCore) mintLoginSession(ctx context.Context, userID uint, userAgent, ip string, setupOnly bool) (session *models.Session, err error) {
 	defer func() {
 		if r := recover(); r != nil {

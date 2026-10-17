@@ -100,7 +100,13 @@ func isVersionConflict(err error) bool {
 // partial commit here (version stored, row update fails) must be preserved rather than
 // rolled back. UpdateSecret has the same-shaped write but no such consideration and
 // uses updateSecretWithNewVersion below instead, which makes the two writes atomic.
-func (c *KeyorixCore) storeNextSecretVersion(ctx context.Context, secret *models.SecretNode, value []byte) error {
+//
+// inTx, when non-nil, runs last in the version write's transaction (AUDIT-MUTATION-TX-1):
+// the rotation's audit row, and for a rotation that changed nothing upstream (no
+// rotation backend, or a rollback) the timestamp write too, so only a backend-bound
+// rotation still keeps the split described above. A version is never stored without
+// its audit row and a failed inTx stores nothing.
+func (c *KeyorixCore) storeNextSecretVersion(ctx context.Context, secret *models.SecretNode, value []byte, inTx func(tx storage.Storage) error) error {
 	var lastErr error
 	for range maxRotateVersionAttempts {
 		latestVersion, err := c.storage.GetLatestSecretVersion(ctx, secret.ID)
@@ -114,7 +120,16 @@ func (c *KeyorixCore) storeNextSecretVersion(ctx context.Context, secret *models
 			// A real read failure, not "no versions yet" - don't guess.
 			return err
 		}
-		lastErr = c.storeSecretVersion(ctx, c.storage, secret, value, nextVersionNumber)
+		if inTx == nil {
+			lastErr = c.storeSecretVersion(ctx, c.storage, secret, value, nextVersionNumber)
+		} else {
+			lastErr = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+				if err := c.storeSecretVersion(ctx, tx, secret, value, nextVersionNumber); err != nil {
+					return err
+				}
+				return inTx(tx)
+			})
+		}
 		if lastErr == nil {
 			return nil
 		}
@@ -150,7 +165,11 @@ func (c *KeyorixCore) storeNextSecretVersion(ctx context.Context, secret *models
 // guess, so there was a concrete row to roll back — and unlike RotateSecret, there is
 // no external upstream credential whose already-applied change that version would be
 // the only record of, so rolling it back loses nothing.
-func (c *KeyorixCore) updateSecretWithNewVersion(ctx context.Context, secret *models.SecretNode, value []byte, fields storage.SecretFieldUpdate) (*models.SecretNode, error) {
+//
+// inTx, when non-nil, runs last inside each attempt's transaction: the caller's
+// audit row (AUDIT-MUTATION-TX-1), so a failed audit write rolls the version and
+// the row update back with it.
+func (c *KeyorixCore) updateSecretWithNewVersion(ctx context.Context, secret *models.SecretNode, value []byte, fields storage.SecretFieldUpdate, inTx func(tx storage.Storage) error) (*models.SecretNode, error) {
 	var updated *models.SecretNode
 	var lastErr error
 	for range maxRotateVersionAttempts {
@@ -181,6 +200,11 @@ func (c *KeyorixCore) updateSecretWithNewVersion(ctx context.Context, secret *mo
 			}
 			if !matched {
 				return fmt.Errorf("%s", i18n.T("ErrorSecretNotFound", nil))
+			}
+			if inTx != nil {
+				if err := inTx(tx); err != nil {
+					return err
+				}
 			}
 			updated = secret
 			return nil
