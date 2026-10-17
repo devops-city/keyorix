@@ -244,7 +244,7 @@ func awWriteWalk(t *testing.T, backend string) {
 				code, resp := awDo(r, rt.Method, w.tokens[persona], path, body)
 				after := awTakeDigest(t, r.db, tables)
 				switch {
-				case code == http.StatusNotImplemented && strings.Contains(resp, "not enabled"):
+				case awFeatureOff(code, resp):
 					// A feature switched off in this fixture (WebAuthn), answered 501 after
 					// the principal check: a deployment fact, not a server fault.
 				case code >= 500 && awKnownOpen[persona+" "+rt.key()] != "":

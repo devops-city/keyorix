@@ -644,3 +644,9 @@ func awBrief(vals map[string]any) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// awFeatureOff reports the 501 a handler answers, after its principal check, when its
+// feature is switched off in this fixture (WebAuthn): a deployment fact, not a fault.
+func awFeatureOff(code int, resp string) bool {
+	return code == http.StatusNotImplemented && strings.Contains(resp, "not enabled")
+}
