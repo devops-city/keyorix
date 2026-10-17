@@ -5175,7 +5175,7 @@ export interface components {
              * @description The 30-day hard stop (RFC 3339).
              */
             ends_at: string;
-            /** @description Whole days left until ends_at */
+            /** @description Whole days left until ends_at, rounded up (1 on the last day). */
             days_left: number;
         };
         /** @description The password (or setup token) was correct, but a second factor is required -- core.ErrMFARequired. The client must complete POST /auth/mfa/verify (TOTP/recovery code) with this challenge, or the WebAuthn login ceremony, to get a real session. */

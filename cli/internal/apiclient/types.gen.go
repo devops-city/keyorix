@@ -625,7 +625,7 @@ type MFAChallengeDataMfaRequired bool
 
 // MFAGrace ADR-112's security.require_mfa upgrade grace period (#2923), present only while it runs and the account has no second factor. MFA is not enforced until ends_at, or until the first administrator enrols a second factor if that comes first; after that this account is sent to MFA enrolment when it signs in (not locked out). Clients show it as a persistent banner.
 type MFAGrace struct {
-	// DaysLeft Whole days left until ends_at
+	// DaysLeft Whole days left until ends_at, rounded up (1 on the last day).
 	DaysLeft int `json:"days_left"`
 
 	// EndsAt The 30-day hard stop (RFC 3339).

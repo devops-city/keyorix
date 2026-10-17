@@ -7818,7 +7818,7 @@ components:
         it signs in (not locked out). Clients show it as a persistent banner.
       properties:
         ends_at: {type: string, format: date-time, description: The 30-day hard stop (RFC 3339).}
-        days_left: {type: integer, description: Whole days left until ends_at, rounded up (1 on the last day).}
+        days_left: {type: integer, description: 'Whole days left until ends_at, rounded up (1 on the last day).'}
     MFAChallengeData:
       type: object
       description: >-
