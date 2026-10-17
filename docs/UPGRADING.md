@@ -528,6 +528,8 @@ If an upgrade goes wrong:
   restore), §6 (upgrades), §9 (troubleshooting).
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
+- `docs/rolling-upgrade-columns.md` for why a column added by one release does
+  not break the previous release's replicas during a rolling upgrade.
 - `CHANGELOG.md` and the GitHub release notes for the full list of changes
   in this release.
 - `design-b3-backup-v2.md` for the full backup-v2 design (§3 format, §5
