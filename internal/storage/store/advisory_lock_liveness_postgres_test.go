@@ -34,7 +34,8 @@ func terminateLockBackend(t *testing.T, ctx context.Context, base string, key in
 	var n int
 	require.NoError(t, admin.WithContext(ctx).Raw(`SELECT count(*) FROM (
 			SELECT pg_terminate_backend(pid) FROM pg_locks
-			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = ? AND objid = ?) k`,
+			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = ? AND objid = ?
+			  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())) k`,
 		int64(uint32(uint64(key)>>32)), int64(uint32(uint64(key)&0xFFFFFFFF))).Scan(&n).Error)
 	return n
 }
@@ -103,7 +104,8 @@ func pinnedLockKeyHeld(t *testing.T, ctx context.Context, base string, key int64
 	t.Helper()
 	var n int
 	require.NoError(t, pgOpen(t, base).WithContext(ctx).Raw(`SELECT count(*) FROM pg_locks
-			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = ? AND objid = ?`,
+			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = ? AND objid = ?
+			  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
 		int64(uint32(uint64(key)>>32)), int64(uint32(uint64(key)&0xFFFFFFFF))).Scan(&n).Error)
 	return n > 0
 }

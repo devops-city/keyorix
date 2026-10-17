@@ -50,7 +50,8 @@ func TestPgBouncer_ServerGuard_LostPresenceLockIsReported(t *testing.T) {
 	var killed int
 	err = direct.QueryRowContext(context.Background(), `SELECT count(*) FROM (
 			SELECT pg_terminate_backend(pid) FROM pg_locks
-			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = $1 AND objid = $2) k`,
+			WHERE locktype = 'advisory' AND granted AND objsubid = 1 AND classid = $1 AND objid = $2
+			  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())) k`,
 		serverPresenceLockKey>>32, serverPresenceLockKey&0xFFFFFFFF).Scan(&killed)
 	if err != nil || killed != 1 {
 		t.Fatalf("terminate the presence lock backend: killed=%d err=%v", killed, err)
