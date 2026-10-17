@@ -43,6 +43,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -402,7 +403,7 @@ func (w *awWorld) awPaths(route string) []string {
 	for id := range pool {
 		uni = append(uni, id)
 	}
-	sort.Slice(uni, func(i, j int) bool { return uni[i] < uni[j] })
+	slices.Sort(uni)
 	for _, id := range uni {
 		add(awParamRe.ReplaceAllString(route, fmt.Sprint(id)))
 	}
@@ -518,7 +519,7 @@ func awTakeDigest(t *testing.T, db *gorm.DB, tables []string) *awDigest {
 			sort.Strings(keys)
 			h := sha256.New()
 			for _, k := range keys {
-				fmt.Fprintf(h, "%s=%v\x00", k, r[k])
+				_, _ = fmt.Fprintf(h, "%s=%v\x00", k, r[k])
 			}
 			out = append(out, awRow{hash: hex.EncodeToString(h.Sum(nil)), vals: r})
 		}
