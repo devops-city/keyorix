@@ -522,6 +522,40 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
+## 6h. The first run after upgrade scans the audit history once
+
+The recover-admin alert (`admin.recover_admin` use is always notified to your
+notification channels) now remembers how far through the audit table it has looked,
+instead of re-reading the whole table every 10 minutes. On an install that has no
+such mark yet, which is every install the first time it runs this version, the first
+pass has nothing to resume from and **reads the audit table from its first row to
+its last, once**. On a large audit table this takes a while.
+
+What bounds it, from the code (`internal/core/recover_admin_alert.go`):
+
+- The scan walks the audit ids in windows of 100,000 ids (about 100,000 rows, as audit
+  ids are dense). Each window is its own short read, so no long read snapshot is held
+  (on SQLite that would otherwise hold back the WAL checkpoint).
+- The whole catch-up runs in that one pass: it is `ceil(audit rows / 100,000)` windows
+  back to back, not one window per 10-minute tick. Time grows with the row count; it
+  is a one-time cost, and it runs in the background scheduler, not in the start-up
+  path, so the server answers requests while it runs.
+- It is resumable. The position (the system metadata key
+  `recover_admin_alert_last_notified_id`) is saved after every window, so a restart or
+  a handover to another replica continues from the last finished window, not from the
+  beginning. Stopping the server mid-scan loses at most the window in flight.
+- Afterwards every run reads only the rows added since the previous run.
+- A pass alerts on at most 200 `admin.recover_admin` events at a time; if a window holds
+  that many, the pass stops there and the next tick (10 minutes later) continues. This
+  needs 200 unnotified uses of recover-admin, so it does not happen in normal operation.
+- Nothing is deleted or changed in the audit table. An install that already notified
+  recover-admin uses keeps its saved position, so those events are not notified again.
+
+The "last used" lookups of the access recertification are not part of this scan: they
+have no first-run pass. Each lookup reads only the review period, at most 366 days,
+through the `(project_id, event_time)` index (see 6g), so their cost follows the size
+of that window for the project, not the size of the whole audit table.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:
