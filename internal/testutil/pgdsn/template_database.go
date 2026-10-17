@@ -218,7 +218,7 @@ func migrateInto(dsn string, migrate Migrator) error {
 // cloneDatabase creates name from template tpl, under the advisory lock.
 func cloneDatabase(ctx context.Context, base, tpl, name string) error {
 	return withLock(ctx, base, func(conn *sql.Conn) error {
-		stmt := "CREATE DATABASE " + quoteIdent(name) + " TEMPLATE " + quoteIdent(tpl)
+		stmt := "CREATE DATABASE " + quoteIdent(name) + " TEMPLATE " + quoteIdent(tpl) // #nosec G202 -- both names go through pgx.Identifier.Sanitize; DDL cannot take bind parameters
 		var err error
 		for range 20 {
 			if _, err = conn.ExecContext(ctx, stmt); err == nil {
@@ -392,7 +392,7 @@ func SourceFingerprint(extra ...string) string {
 	sort.Strings(files)
 	h := sha256.New()
 	for _, p := range files {
-		b, err := os.ReadFile(p) //nolint:gosec // paths come from walking this repo's own tree
+		b, err := os.ReadFile(p) // #nosec G304 -- paths come from walking this repo's own tree
 		if err != nil {
 			return ""
 		}
