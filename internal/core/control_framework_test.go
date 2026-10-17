@@ -64,6 +64,8 @@ func TestEvaluateControls_GapsFromPosture(t *testing.T) {
 	assert.Equal(t, ControlStatusGap, findControl(t, controls, "audit-trail-integrity").Status)
 	assert.Equal(t, ControlStatusGap, findControl(t, controls, "access-recertification").Status)
 	assert.Equal(t, ControlStatusGap, findControl(t, controls, "dormant-access").Status)
+	// RECERT-BOUND-1: the evidence says which period "dormant" means.
+	assert.Equal(t, "3 dormant role grant(s) (no use in the last 90 days)", findControl(t, controls, "dormant-access").Detail)
 	assert.Equal(t, ControlStatusGap, findControl(t, controls, "separation-of-duties").Status)
 	assert.Equal(t, ControlStatusGap, findControl(t, controls, "second-factor").Status)
 	assert.Equal(t, ControlStatusGap, findControl(t, controls, "secret-rotation").Status)

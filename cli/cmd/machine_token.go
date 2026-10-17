@@ -122,6 +122,9 @@ func runMachineTokenIssue(cmd *cobra.Command, args []string) error {
 }
 
 func runMachineTokenList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(tokenListFormat); err != nil {
+		return err
+	}
 	client, err := machineAPIClient()
 	if err != nil {
 		return err
@@ -146,27 +149,29 @@ func runMachineTokenList(cmd *cobra.Command, args []string) error {
 	if resp.JSON200 != nil && resp.JSON200.Data != nil && resp.JSON200.Data.Tokens != nil {
 		rows = *resp.JSON200.Data.Tokens
 	}
-	if len(rows) == 0 {
-		fmt.Println("No tokens found.")
+	return emitList(tokenListFormat, rows, func() error {
+		if len(rows) == 0 {
+			fmt.Println("No tokens found.")
+			return nil
+		}
+		fmt.Printf("%-6s %-22s %-20s %-18s %-12s %s\n", "ID", "NAME", "PREFIX", "LAST USED", "EXPIRES", "REVOKED")
+		for _, r := range rows {
+			lastUsed := "-"
+			if r.LastUsedAt != nil && !r.LastUsedAt.IsZero() {
+				lastUsed = r.LastUsedAt.Format("2006-01-02 15:04")
+			}
+			expires := "never"
+			if r.ExpiresAt != nil && !r.ExpiresAt.IsZero() {
+				expires = r.ExpiresAt.Format("2006-01-02")
+			}
+			revoked := "false"
+			if derefBool(r.Revoked) {
+				revoked = "true"
+			}
+			fmt.Printf("%-6d %-22s %-20s %-18s %-12s %s\n", derefInt(r.Id), derefStr(r.Name), derefStr(r.Prefix), lastUsed, expires, revoked)
+		}
 		return nil
-	}
-	fmt.Printf("%-6s %-22s %-20s %-18s %-12s %s\n", "ID", "NAME", "PREFIX", "LAST USED", "EXPIRES", "REVOKED")
-	for _, r := range rows {
-		lastUsed := "-"
-		if r.LastUsedAt != nil && !r.LastUsedAt.IsZero() {
-			lastUsed = r.LastUsedAt.Format("2006-01-02 15:04")
-		}
-		expires := "never"
-		if r.ExpiresAt != nil && !r.ExpiresAt.IsZero() {
-			expires = r.ExpiresAt.Format("2006-01-02")
-		}
-		revoked := "false"
-		if derefBool(r.Revoked) {
-			revoked = "true"
-		}
-		fmt.Printf("%-6d %-22s %-20s %-18s %-12s %s\n", derefInt(r.Id), derefStr(r.Name), derefStr(r.Prefix), lastUsed, expires, revoked)
-	}
-	return nil
+	})
 }
 
 func runMachineTokenRevoke(cmd *cobra.Command, args []string) error {

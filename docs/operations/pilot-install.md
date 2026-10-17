@@ -151,6 +151,12 @@ fix it before real secrets go in ([CONFIGURATION.md](../CONFIGURATION.md#securit
 [hardening guide](../security/hardening-guide.md)). Then store a first secret and read it
 back ([QUICK_START.md](../../QUICK_START.md#use-it)).
 
+To check the connection from your workstation at any time, run `keyorix status` (server,
+logged in, health, version compatibility). There is no `keyorix doctor`; the host-side
+checks are `keyorix-server admin diagnose` (stop the backend first, like every `admin`
+command) and the posture check above. The `keyorix` CLI also runs on a Mac: the release has
+`keyorix_darwin_arm64` and `keyorix_darwin_amd64` ([QUICK_START.md](../../QUICK_START.md#get-the-binaries)).
+
 ## 8. Backups
 
 A complete backup is the database **and** the encryption keys in one archive. On

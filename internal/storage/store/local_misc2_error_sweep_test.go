@@ -61,7 +61,7 @@ func TestLastUserSecretActivity_SkipsRealZeroUserID(t *testing.T) {
 	// unlike a nil *uint field (which never reaches the query result at all).
 	require.NoError(t, ls.db.Exec("UPDATE audit_events SET user_id = 0 WHERE user_id = ?", uid).Error)
 
-	m, err := ls.LastUserSecretActivity(ctx, pid)
+	m, err := ls.LastUserSecretActivity(ctx, pid, time.Time{})
 	require.NoError(t, err)
 	assert.NotContains(t, m, uint(0))
 	assert.Empty(t, m)

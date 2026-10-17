@@ -1,0 +1,2 @@
+### Fixed
+- **Server integration tests no longer need port 8080 (or 8099) to be free.** The tests that boot the built `keyorix-server` binary from an `admin init` config (`TestAdminGuard_RefusesWhileServerRunning_ThenForceOverrides`, the `recover-admin`, audit-durability and `insecure_audit_skip_reads` end-to-end tests, and the PostgreSQL audit-durability test) now rewrite the config's HTTP port to a free ephemeral one before the first boot, so they pass while another server holds the default port. Test-only change; the product default port is unchanged.

@@ -287,6 +287,28 @@ describe('ProjectAccessReviewCampaigns', () => {
         expect(info).toEqual({ label: 'used 90d ago', dormant: true });
     });
 
+    // RECERT-BOUND-1: the lookup covers the recertification period only, so "no last use"
+    // must say "within the last N days", never "never used".
+    it('says "no use in the last N days" when there is no use inside the look-back window', () => {
+        expect(lastUsedInfo({ principalType: 'user', activityWindowDays: 90 })).toEqual({
+            label: 'no use in the last 90d',
+            dormant: true,
+        });
+        // An explicit window (a campaign's) wins over the entry's own.
+        expect(lastUsedInfo({ principalType: 'user', activityWindowDays: 90 }, 45)).toEqual({
+            label: 'no use in the last 45d',
+            dormant: true,
+        });
+    });
+
+    it('keeps "never used" only for a campaign opened before the window existed (whole history)', () => {
+        expect(lastUsedInfo({ principalType: 'user' }, 0)).toEqual({ label: 'never used', dormant: true });
+    });
+
+    it('does not claim "never" when the window is unknown', () => {
+        expect(lastUsedInfo({ principalType: 'user' })).toEqual({ label: 'no recent use', dormant: true });
+    });
+
     it('returns an empty, non-dormant label for group principals (no aggregated last-use)', () => {
         const info = lastUsedInfo({ principalType: 'group', lastUsedAt: undefined });
         expect(info).toEqual({ label: '', dormant: false });

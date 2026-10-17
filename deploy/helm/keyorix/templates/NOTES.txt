@@ -59,6 +59,16 @@ server directly with the CLI, trust that certificate:
 GET /metrics needs the token in the same Secret (key metrics_token).
 {{- end }}
 
+{{- if not .Values.auth.existingSecret }}
+
+⚠️  This release's passwords came from Helm values, so Helm keeps them in its
+    release record (helm get values). Prefer creating the Secret yourself from
+    owner-only (0600) files and setting auth.existingSecret (chart README,
+    "Quick start"). Never pass a password with --set or --from-literal: a
+    command line is readable by every local user while it runs (ps) and stays
+    in shell history and CI logs.
+{{- end }}
+
 ⚠️  CRITICAL — back up the encryption keys volume
     The PVC "{{ include "keyorix.server.fullname" . }}-keys" holds the wrapped DEK
     and KEK salt. It is annotated helm.sh/resource-policy: keep, but if you lose it

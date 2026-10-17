@@ -71,7 +71,14 @@ func (h *CatalogHandler) ExportAccessReviewCampaignCSV(w http.ResponseWriter, r 
 	_ = cw.Write([]string{
 		"principal_type", "principal", "email", "source", "role", "access_level",
 		"environment_id", "secret", "last_used_at", "decision", "reason", "decided_by", "decided_at",
+		// What an empty last_used_at means: no use within this many days before the
+		// campaign was opened ("all_history" for a campaign opened before the window).
+		"last_used_window_days",
 	})
+	window := "all_history"
+	if detail.Campaign != nil && detail.Campaign.ActivityWindowDays > 0 {
+		window = strconv.Itoa(detail.Campaign.ActivityWindowDays)
+	}
 	for _, it := range detail.Items {
 		_ = cw.Write([]string{
 			csvSafe(it.PrincipalType),
@@ -87,6 +94,7 @@ func (h *CatalogHandler) ExportAccessReviewCampaignCSV(w http.ResponseWriter, r 
 			csvSafe(it.Reason),
 			csvSafe(deciderName[it.DecidedBy]),
 			tstr(it.DecidedAt),
+			window,
 		})
 	}
 }

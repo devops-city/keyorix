@@ -230,7 +230,8 @@ func BuildAuditListIndexesPostgres(ctx context.Context, db *sql.DB, xact bool, l
 		return err
 	}
 	defer func() { _ = conn.Close() }()
-	return buildAuditListIndexes(ctx, conn, logf)
+	wctx, finish := sess.watch(ctx, "audit index build lock")
+	return finish(buildAuditListIndexes(wctx, conn, logf))
 }
 
 // buildAuditListIndexes is BuildAuditListIndexesPostgres' DDL on conn, run with

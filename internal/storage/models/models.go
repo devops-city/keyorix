@@ -380,6 +380,12 @@ type AccessReviewCampaign struct {
 	// (recertification.go) would silently treat a rushed, incomplete force-close as
 	// satisfying a full review cycle and push the next-due date out just as far.
 	ForcedIncomplete bool `gorm:"default:false" json:"forced_incomplete"`
+	// ActivityWindowDays is the look-back of the items' LastUsedAt, fixed when the
+	// campaign was opened: each item's last_used_at is the principal's most recent
+	// use within the last N days before CreatedAt, and an item without one had no
+	// use in that window. 0 = a campaign opened before the window existed, whose
+	// last_used_at looked back over the whole audit history. Evidence exports quote it.
+	ActivityWindowDays int `gorm:"default:0" json:"activity_window_days"`
 }
 
 // BeforeSave normalises ClosedAt to UTC so SQLite string comparisons are
@@ -1213,6 +1219,16 @@ type SecretVersion struct {
 	// activity lives in the audit log (secret.read), not here. See docs/API_REFERENCE.md.
 	ReadCount int
 	CreatedAt time.Time
+	// CacheEpoch is a term of the read-path latest-version cache's generation
+	// (store.liveVersionsGeneration: SUM(cache_epoch) over the secret's versions).
+	// It is raised by exactly one writer, the DEK-rotation sweep, in the same
+	// UPDATE that rewrites EncryptedValue/EncryptionMetadata in place, because
+	// that rewrite changes no other term of the generation (count, max version
+	// number, sum of read_count). Read-only to GORM (`<-:false`) so no struct
+	// write can reset it (GORM drops such a column from any update too); the sweep
+	// raises it with an explicit UPDATE statement.
+	// Guarded by TestSecretVersionCacheEpoch_*. json:"-": internal bookkeeping.
+	CacheEpoch int64 `gorm:"<-:false;not null;default:0" json:"-"`
 }
 
 // DynamicSecretConfig (ADR-035) defines an on-demand database-credential source:
