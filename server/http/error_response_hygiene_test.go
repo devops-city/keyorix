@@ -59,8 +59,14 @@ func TestEveryErrorResponse_HeadersNoStoreAndJSONBody(t *testing.T) {
 	router, err := NewRouter(cfg, newTestCore(t))
 	require.NoError(t, err)
 
+	// The route walk spends the per-client /metrics failure budget (one 401 per method),
+	// so the explicit cases below come from a second client address.
+	remoteAddr := ""
 	send := func(method, path, auth string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader("{}"))
+		if remoteAddr != "" {
+			req.RemoteAddr = remoteAddr
+		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		if auth != "" {
@@ -92,6 +98,7 @@ func TestEveryErrorResponse_HeadersNoStoreAndJSONBody(t *testing.T) {
 	require.Greater(t, walked, 200, "walked only %d routes", walked)
 	require.Greater(t, errors, 200, "only %d error responses: the walk is not reaching the auth gate", errors)
 
+	remoteAddr = "192.0.2.77:4321"
 	for _, tc := range []struct {
 		method, path, auth string
 		want               int
