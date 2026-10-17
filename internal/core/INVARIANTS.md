@@ -263,11 +263,22 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   `recover()` confirmed at `account.go:161,196`, `audit_context.go:197`, `auth.go:200`,
   `auth_bootstrap.go:469`, `break_glass.go:439`, `catalog.go:278,641`,
   `classification_gate.go:484`, `machine_identities.go:272`, `secret_dependencies.go:366`,
-  `service.go:662`, `users.go:222,264`. **No structural completeness guard enumerates every
-  best-effort post-commit call site** — each was a point-fix after a live finding. UNGUARDED
-  as a class (#issue: an AST sweep analogous to `atomicity_guard_test.go` that requires every
-  deferred/best-effort post-commit call to be wrapped in `recover()` or be on a reviewed
-  allowlist).
+  `service.go:662`, `users.go:222,264`. Structural completeness (INVARIANT-GUARDS-1):
+  `besteffort_callsite_guard_test.go:TestBestEffortCallSites_EveryCallProtectedOrAllowlisted` —
+  an AST sweep over `internal/core` non-test files that establishes the best-effort set (functions
+  that recover their own panic, callees that are the single statement of a `besteffort.Run`
+  closure, and the seeds named above) and requires every call to a member to be inside a
+  `besteffort.Run`/`goSafe` closure, in a function with a top-level recovering defer, or to a
+  self-recovering callee, else to carry a reviewed row
+  (`besteffort_callsite_allow_entry_<slug>_test.go`). Its doc comment lists the recognised call forms
+  and what it does NOT see (multi-hop `c.storage.X(...)`, nested defers, transitive protection,
+  subpackages). Red proof is a permanent test: `TestBestEffortCallSites_MutationKillsRecoverWrapper`
+  breaks one recover wrapper in a copy and requires the guard to report the callers;
+  `TestBestEffortCallSites_ScannerFixture` plants each violation form. Complements GUARD-1
+  (`besteffort_guard_test.go`, which keys on discards after a write, not on the callee). Open
+  finding: three MFA handlers (`requireReauth`, `VerifyMFAStepUp`, `FinishWebAuthnReauth`) call
+  `clearLoginFailures` bare after the grant committed, where `sso.go` wraps it in `besteffort.Run`;
+  allowlisted with a reason and reported to the coordinator (FIX-3277 owns the handlers).
 
 ## Atomicity / transactions
 
