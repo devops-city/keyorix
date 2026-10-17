@@ -54,7 +54,9 @@ func (s *auditForwardSink) Flush(c *KeyorixCore) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logAuditEmitPanic(e, r)
+					// Flush runs after the commit with no request context to
+					// correlate against; log without a request ID.
+					logAuditEmitPanic(context.Background(), e, r)
 				}
 			}()
 			c.afterAuditEventPersisted(e)
