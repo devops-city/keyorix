@@ -30,25 +30,18 @@ import (
 func TestPostCommitDiscardedWritePanic_IsNotReportedAsFailure(t *testing.T) {
 	cases := []struct {
 		op, method string
-		// fullOracle runs checkOraclesReporting on the driven case. It is off
-		// only for the SAML ACS op, whose fixture mints a random SAML subject
-		// per world, so its success-branch comparison against the independent
-		// reference world can never match (#2934: pre-existing, reproduces on
-		// main with kind=error, which this change does not touch). For that
-		// case the effect is asserted directly instead.
-		fullOracle bool
 	}{
-		{op: "GRPC keyorix.v1.UserService.CreateUser", method: "AddPasswordHistory", fullOracle: true},
-		{op: "REST POST /api/v1/auth/change-password", method: "PrunePasswordHistory", fullOracle: true},
-		{op: "REST POST /api/v1/auth/change-password", method: "AddPasswordHistory", fullOracle: true},
+		{op: "GRPC keyorix.v1.UserService.CreateUser", method: "AddPasswordHistory"},
+		{op: "REST POST /api/v1/auth/change-password", method: "PrunePasswordHistory"},
+		{op: "REST POST /api/v1/auth/change-password", method: "AddPasswordHistory"},
 		{op: "REST POST /auth/saml/{provider}/acs", method: "UpdateLastLogin"},
 		// #2844 sweep: resolveKeepSession's GetSession runs after the MFA
 		// change has committed; its panic escaped, reported the change as
 		// failed and skipped the session purge that must follow it.
 		// (change-password's GetSession#1 is the auth middleware's, before
 		// anything commits, so it is correctly a failure and not listed.)
-		{op: "REST POST /api/v1/auth/mfa/activate", method: "GetSession", fullOracle: true},
-		{op: "REST POST /api/v1/auth/mfa/disable", method: "GetSession", fullOracle: true},
+		{op: "REST POST /api/v1/auth/mfa/activate", method: "GetSession"},
+		{op: "REST POST /api/v1/auth/mfa/disable", method: "GetSession"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.op+"/"+tc.method, func(t *testing.T) {
@@ -62,9 +55,7 @@ func TestPostCommitDiscardedWritePanic_IsNotReportedAsFailure(t *testing.T) {
 					"but the operation had already committed. Route the call through besteffort.Run, "+
 					"not a bare `_ =`", tc.op, tc.method, in.result.Detail)
 			}
-			if tc.fullOracle {
-				checkOraclesReporting(t, in)
-			}
+			checkOraclesReporting(t, in)
 		})
 	}
 }
