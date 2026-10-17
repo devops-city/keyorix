@@ -144,6 +144,13 @@ def load_packages():
     packages, dec, i = {}, json.JSONDecoder(), 0
     while i < len(out):
         obj, end = dec.raw_decode(out, i)
+        # `go list ./...` names the dependencies of ./server (a main package
+        # another package's tests import) as variants: "internal/core
+        # [github.com/keyorixhq/keyorix/server]". Strip the bracket, or no
+        # changed package would ever match server's Deps.
+        for key in ("Deps", "TestImports", "XTestImports"):
+            if obj.get(key):
+                obj[key] = [d.split(" [", 1)[0] for d in obj[key]]
         packages[obj["ImportPath"]] = obj
         i = end
         while i < len(out) and out[i].isspace():
@@ -366,7 +373,12 @@ def decide(base, head, changed=None):
     def touched(pred):
         return any(pred(f) for f in changed)
 
-    server = SERVER_MAIN in affected
+    # The server binary changed when compiled code it links changed: a CODE
+    # seed among ./server and its Deps. A test seed there (a _test.go file,
+    # testdata, a docs file its tests read) does not touch the image the
+    # boot/demo/web smokes run. No ./server package at all: open the gates.
+    server_obj = packages.get(SERVER_MAIN)
+    server = server_obj is None or bool(code_seeds & ({SERVER_MAIN} | set(server_obj.get("Deps") or [])))
     web = touched(lambda f: f.startswith("web/"))
     cli = touched(lambda f: f.startswith("cli/"))
     image = touched(lambda f: f in ("server/Dockerfile", ".dockerignore", "web/Dockerfile", "web/.dockerignore", "Makefile"))

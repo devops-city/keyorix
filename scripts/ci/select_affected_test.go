@@ -142,6 +142,12 @@ func TestSelectAffected_CodeChangeSelectsImporters(t *testing.T) {
 			t.Errorf("gate %s closed although ./server imports internal/core", g)
 		}
 	}
+	// ./server (root-3) is a main package; `go list ./...` reports its Deps
+	// as "pkg [github.com/keyorixhq/keyorix/server]" variants, which must be
+	// normalised or the package never counts as an importer.
+	if !slices.Contains(strings.Fields(s.Legs["root-3"]), "github.com/keyorixhq/keyorix/server") {
+		t.Errorf("root-3 runs %q, want it to include ./server (imports internal/core)", s.Legs["root-3"])
+	}
 }
 
 // A data file outside every package is selected through the tests that name
@@ -150,6 +156,21 @@ func TestSelectAffected_DataFileSelectsItsReaders(t *testing.T) {
 	s := changed(t, "docs/full-row-write-exempt.tsv")
 	if _, ok := s.Legs["storage-store-1"]; !ok {
 		t.Errorf("storage-store-1 not selected for its guard's ledger; legs=%v seeds=%v", legNames(s), s.Seeds)
+	}
+}
+
+// A file only server tests read (server/admin's docs test reads the
+// self-hosting guide) changes no compiled code of the server binary, so the
+// image smokes stay skipped while server/admin's own leg runs.
+func TestSelectAffected_TestSeedInServerDepsKeepsImageGatesClosed(t *testing.T) {
+	s := changed(t, filepath.Join("docs", "SELF_HOSTING.md"))
+	if _, ok := s.Seeds["github.com/keyorixhq/keyorix/server/admin"]; !ok {
+		t.Fatalf("server/admin (its docs test reads the file) not selected; seeds=%v", s.Seeds)
+	}
+	for _, g := range []string{"docker_boot", "helm_boot", "demo", "web_e2e"} {
+		if s.Gates[g] {
+			t.Errorf("gate %s open for a docs file only tests read", g)
+		}
 	}
 }
 
