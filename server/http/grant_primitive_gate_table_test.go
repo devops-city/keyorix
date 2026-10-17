@@ -27,6 +27,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -410,7 +411,7 @@ func TestGrantPrimitives_NameTheirGate(t *testing.T) {
 					}
 					ok := false
 					for _, c := range calls {
-						if callName(c) == gate.grpc.authorizer && contains(stringArgs(c), gate.grpc.perm) {
+						if callName(c) == gate.grpc.authorizer && slices.Contains(stringArgs(c), gate.grpc.perm) {
 							before := true
 							for _, s := range row.symbols {
 								if p := firstCall(fd, s); p != token.NoPos && p < c.Pos() {
@@ -427,15 +428,6 @@ func TestGrantPrimitives_NameTheirGate(t *testing.T) {
 	}
 }
 
-func contains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
-}
-
 // The in-core gate the table leans on: requireGranterHoldsRolePermissions must still demand
 // roles.assign at the scope itself (the F6 baseline), not only the role's bundled permissions.
 func TestRequireGranterHoldsRolePermissions_DemandsRolesAssignBaseline(t *testing.T) {
@@ -446,7 +438,7 @@ func TestRequireGranterHoldsRolePermissions_DemandsRolesAssignBaseline(t *testin
 	ok := false
 	ast.Inspect(fd, func(n ast.Node) bool {
 		if c, isCall := n.(*ast.CallExpr); isCall && callName(c) == "checkGranterHoldsPermission" {
-			ok = ok || contains(stringArgs(c), "roles.assign")
+			ok = ok || slices.Contains(stringArgs(c), "roles.assign")
 		}
 		return true
 	})

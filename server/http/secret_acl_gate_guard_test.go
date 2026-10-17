@@ -33,6 +33,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -235,15 +236,13 @@ func skipSecretACLDir(root, path string, d fs.DirEntry) bool {
 	case ".git", "node_modules", ".scratch", "vendor", "web":
 		return true
 	}
-	for _, p := range []string{
+	if slices.Contains([]string{
 		"internal/storage",      // the storage implementations: ListSecretACLs there IS the data layer
 		"internal/faultstorage", // generated storage wrapper
 		"internal/core/storage", // the storage interface declaration
 		"server/proto",          // generated gRPC stubs (they dispatch to the services checked here)
-	} {
-		if rel == p {
-			return true
-		}
+	}, rel) {
+		return true
 	}
 	// A nested module (cli/, scripts/...) is a different build; it has no access to core.
 	if rel != "." {
