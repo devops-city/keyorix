@@ -75,7 +75,7 @@ func (c *Client) ListProjects(ctx context.Context) ([]accessplan.ProjectRef, err
 
 // ListEnvironments returns every environment under projectID, for PathMapper construction.
 func (c *Client) ListEnvironments(ctx context.Context, projectID int) ([]accessplan.EnvironmentRef, error) {
-	if projectID < 0 || projectID > math.MaxUint32 {
+	if projectID < 0 || int64(projectID) > math.MaxUint32 { // int64: on 32-bit targets an int cannot be compared with a constant above MaxInt32
 		return nil, fmt.Errorf("list environments: project id %d out of range", projectID)
 	}
 	resp, err := c.api.ListProjectEnvironmentsWithResponse(ctx, uint32(projectID), nil)

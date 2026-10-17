@@ -25,6 +25,8 @@ if [ -f "$WORKDIR/.env" ]; then
 fi
 # shellcheck source=/dev/null
 . "$WORKDIR/lib-alert.sh"
+# shellcheck source=/dev/null
+. "$WORKDIR/lib-http.sh"
 
 record_heartbeat() {
     local rc=$?
@@ -48,9 +50,8 @@ SCAN_SHA="$("$WORKDIR/refresh-src.sh")"
 
 mint_token() {
     local user="$1" pass="$2"
-    curl -sf -X POST http://localhost:8080/auth/login \
-        -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$user\",\"password\":\"$pass\"}" \
+    dast_post_json http://localhost:8080/auth/login \
+        "{\"username\":\"$user\",\"password\":\"$pass\"}" -sf \
         2>/dev/null | jq -r '.data.token // empty'
 }
 
@@ -138,8 +139,8 @@ else
             total=$((total + 1))
             url="http://localhost:8080${path}"
             anon_code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" "$url" || echo 000)
-            user_code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" -H "Authorization: Bearer $USER_TOKEN" "$url" || echo 000)
-            admin_code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" -H "Authorization: Bearer $ADMIN_TOKEN" "$url" || echo 000)
+            user_code=$(dast_curl_bearer "$USER_TOKEN" -s -o /dev/null -w '%{http_code}' -X "$method" "$url" || echo 000)
+            admin_code=$(dast_curl_bearer "$ADMIN_TOKEN" -s -o /dev/null -w '%{http_code}' -X "$method" "$url" || echo 000)
             [ "$anon_code" != "401" ] && anon_non401=$((anon_non401 + 1))
             [ "$user_code" != "401" ] && user_non401=$((user_non401 + 1))
             [ "$admin_code" != "401" ] && admin_non401=$((admin_non401 + 1))

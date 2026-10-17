@@ -62,7 +62,7 @@ func TestResolveLoginPassword_NoInputNamesTheFileForm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer devNull.Close()
+	defer func() { _ = devNull.Close() }()
 	os.Stdin = devNull
 	defer func() { os.Stdin = oldStdin }()
 	_, err = resolveLoginPassword(loginCmd)
