@@ -7,6 +7,9 @@ Helpers used by CI workflows, or run locally next to them.
 | `failure-issue.sh` | scheduled workflows | Opens one GitHub issue per failing scheduled job, comments on repeat failures, and closes the issue when the job goes green. |
 | `check-bug-origin-block.sh` | CI (`ci.yml`) | Checks that a `fix(...)` PR has filled in its "Bug origin" block (Introduced-by, Detected-by, Class, Severity). |
 | `precheck-open-prs.sh` | the merge coordinator, **locally** | Rebases each listed open PR onto current `main` in a throwaway worktree and runs the checks that tend to fail only inside the merge queue. |
+| `select-affected.py` | CI (`ci.yml`: `select`, on merge_group) | Merge-queue selection: from the entry's diff against `merge_group.base_sha`, the affected root-module packages (changed + importers), the test-suite legs that run, and the path gates of the heavy jobs. Full suite on go.mod/go.sum, `internal/testutil/**`, `ci.yml`, `scripts/ci/**`, the leg definitions or a generated-code input, and on any error. Pinned by `select_affected_test.go`. |
+| `run-guards.sh` | CI (`ci.yml`: repo-guards, on a selected merge_group run) | Every repo-wide guard, whatever the entry touches: the named guards (`*Guard`/`*Sweep`/`*Completeness`/`TestEvery*`/`TestNoRaw*`) and every source-scanning test in the root module, plus `global-guards.txt`. |
+| `global-guards.txt` | `run-guards.sh` | Mirror of the coordinator preflight's global guard package list; keep both identical. |
 | `install-gosec.sh` | CI (`ci.yml`: static-analysis, operator, cli, migrate) | Installs gosec in a throwaway module that also requires a newer `golang.org/x/tools`, so MVS picks that instead of gosec's own (older) requirement -- see the script header for why. |
 
 ## precheck-open-prs.sh

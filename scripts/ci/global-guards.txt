@@ -1,0 +1,26 @@
+# Packages whose static guard tests run on EVERY merge-queue run, whatever the
+# group touches (ci.yml repo-guards job, scripts/ci/run-guards.sh). These guards
+# scan the whole repo, so a PR can break them without touching their package
+# (#3299 vs TestSharedDatabaseLockGuard; new routes vs
+# TestEveryErrorResponse_HeadersNoStoreAndJSONBody / TestNoRawErrorTextOnServerErrors).
+#
+# Mirror of the coordinator's ~/proj/prompts/watchdog/global-guards.txt (the
+# list its preflight runs before a PR is queued). Keep the two identical: add a
+# package to both in the same change. run-guards.sh also runs every other
+# source-scanning test in the root module, so this list is a floor, not the
+# whole set.
+./internal/core
+./internal/storage/store
+./server/http/handlers
+./server/http
+./internal/encryption
+./internal/config
+./server/grpc/services
+./internal/storage
+./server/grpc
+./internal/testutil/pgdsn
+./internal/storage/models
+./internal/keyfiles
+./internal/crypto
+./cli/cmd
+./internal/testutil/sqlitetest
