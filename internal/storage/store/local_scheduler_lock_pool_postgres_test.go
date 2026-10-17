@@ -38,7 +38,7 @@ func TestWithSchedulerLock_LockPool_JobRunsOnAOneConnectionRequestPool(t *testin
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	ran, err := ls.WithSchedulerLock(ctx, 0x504f4f4c31, func() error {
+	ran, err := ls.WithSchedulerLock(ctx, 0x504f4f4c31, func(context.Context) error {
 		var one int
 		return ls.db.WithContext(ctx).Raw("SELECT 1").Scan(&one).Error
 	})
@@ -73,7 +73,7 @@ func TestWithSchedulerLock_LockPool_ExactlyOneRunsAtOnce(t *testing.T) {
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
-			acquired, err := ls.WithSchedulerLock(context.Background(), key, func() error {
+			acquired, err := ls.WithSchedulerLock(context.Background(), key, func(context.Context) error {
 				n := atomic.AddInt32(&running, 1)
 				for {
 					m := atomic.LoadInt32(&maxConcurrent)
@@ -81,7 +81,7 @@ func TestWithSchedulerLock_LockPool_ExactlyOneRunsAtOnce(t *testing.T) {
 						break
 					}
 				}
-				again, err := ls.WithSchedulerLock(context.Background(), key, func() error { return nil })
+				again, err := ls.WithSchedulerLock(context.Background(), key, func(context.Context) error { return nil })
 				if err != nil {
 					return err
 				}
@@ -103,7 +103,7 @@ func TestWithSchedulerLock_LockPool_ExactlyOneRunsAtOnce(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&acquiredCount), "exactly one replica may win the advisory lock for this tick")
 	assert.False(t, sameProcessRan.Load(), "a second attempt in the holder's own process must skip")
 
-	ran, err := stores[0].WithSchedulerLock(context.Background(), key, func() error { return nil })
+	ran, err := stores[0].WithSchedulerLock(context.Background(), key, func(context.Context) error { return nil })
 	require.NoError(t, err)
 	assert.True(t, ran, "the lock must be released (and its session pooled clean) once the job returns")
 }

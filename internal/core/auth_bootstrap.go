@@ -228,7 +228,7 @@ const systemInitializedKey = "system_initialized" // #nosec G101 -- metadata key
 // race; the lock closes the authenticated one, across every replica.
 func (c *KeyorixCore) BootstrapSystem(ctx context.Context, req *BootstrapRequest) (*BootstrapResult, error) { // NOSONAR -- cognitive complexity 28, suppress go:S3776
 	var result *BootstrapResult
-	err := c.storage.WithBootstrapLock(ctx, func() error {
+	err := c.storage.WithBootstrapLock(ctx, func(ctx context.Context) error {
 		res, berr := c.bootstrapSystemLocked(ctx, req)
 		result = res
 		return berr

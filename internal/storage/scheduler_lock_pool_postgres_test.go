@@ -55,7 +55,7 @@ func TestWithSchedulerLock_Postgres_SmallPool_JobsAndReadsComplete(t *testing.T)
 		go func(key int64) {
 			defer wg.Done()
 			<-start
-			_, err := st.WithSchedulerLock(ctx, key, func() error {
+			_, err := st.WithSchedulerLock(ctx, key, func(context.Context) error {
 				// Hold the lock long enough that every job's lock acquisition has
 				// happened before any job asks the pool for its work connection.
 				time.Sleep(100 * time.Millisecond)

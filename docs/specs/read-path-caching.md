@@ -268,10 +268,12 @@ failing) is **always** treated as a miss: fall through to the full live read/joi
 as a cold cache would. Never serve a cached value past an error, and never deny a request
 because the cache layer errored when the underlying live path would have succeeded — the
 cache is strictly an optimization on top of a path that must work identically with the cache
-removed entirely. This mirrors `server/middleware/auth.go`'s own degrade behavior
-(INV-MW-05: "a transient storage error degrades to the stale cached snapshot rather than
-failing open or closed" — the inverse direction, same principle: an error never produces a
-decision the live path wouldn't have reached on its own).
+removed entirely. (This once cited `server/middleware/auth.go`'s cache-hit degrade
+behavior, INV-MW-05's former transient half, as the same principle. Since
+CACHE-FAILCLOSED-1 a failed cache-hit re-check of a credential's revocation state refuses
+the request with 503 instead — INV-MW-cache-hit-recheck-fails-closed — which is still the
+same principle: the live slow path would also answer 503 when it cannot read the
+credential.)
 
 ## Finding outside this session's scope (recorded for the coordinator, not fixed here)
 

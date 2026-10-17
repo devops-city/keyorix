@@ -45,12 +45,6 @@ func TestNoStarSelectInProductionSQL(t *testing.T) {
 			"internal/storage/sqlitedialect/migrator.go", "FROM PRAGMA_index_list",
 			"SQLite's own table-valued pragma, not an application table: a migration adding a column to one of ours cannot change its shape.",
 		},
-		{
-			"internal/storage/store/local_machine_credentials.go", "c.*, m.state",
-			"GORM fallback of the credential lookup (the raw path in credential_lookup_raw.go names its columns). " +
-				"The file belongs to OPT-READPATH-2's read-path work; replace with " +
-				"modelColumns(ls.db, &models.MachineIdentityCredential{}, \"c\") once that merges, then delete this entry.",
-		},
 	}
 
 	root := filepath.Join("..", "..")

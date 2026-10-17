@@ -39,6 +39,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/i18n"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -155,7 +156,7 @@ func TestCreateLocalStorage_RequireExistingPath_InMemoryExempt(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	defer i18n.ResetForTesting()
 
-	for _, dsn := range []string{":memory:", "file:fix2inmem?mode=memory&cache=shared"} {
+	for _, dsn := range []string{":memory:", sqlitetest.DSN("fix2inmem_")} {
 		t.Run(dsn, func(t *testing.T) {
 			assert.NoError(t, bootLocalStorage(t, dsn, true),
 				"an in-memory DSN has no file to pre-exist; require_existing_path must not refuse it")

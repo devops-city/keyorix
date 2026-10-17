@@ -25,9 +25,9 @@ import (
 // It runs before migrations, on the request pool. The lock pools and the native
 // read pool connect with the same configuration, so their sessions start in
 // the same mode. A setting changed after start-up reaches only new
-// connections; the read cache's trigger proof (store.pgCacheEpochTriggerFires)
-// refuses to trust a stamp on such a session, and the next restart refuses to
-// start.
+// connections; the read caches' trigger proofs (store.pgTriggerFiresForEveryWriter)
+// refuse to trust a stamp or a generation on such a session, and the next
+// restart refuses to start.
 func refuseNonOriginReplicationRole(db *gorm.DB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

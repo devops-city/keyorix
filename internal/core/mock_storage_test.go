@@ -27,8 +27,8 @@ type MockStorage struct {
 }
 
 // WithSchedulerLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithSchedulerLock(_ context.Context, _ int64, fn func() error) (bool, error) {
-	return true, fn()
+func (m *MockStorage) WithSchedulerLock(ctx context.Context, _ int64, fn func(context.Context) error) (bool, error) {
+	return true, fn(ctx)
 }
 
 // TryAcquireSchedulerLock/ReleaseSchedulerLock are no-ops in tests (single
@@ -41,13 +41,13 @@ func (m *MockStorage) ReleaseSchedulerLock(_ context.Context, _ int64, _ string)
 }
 
 // WithAuditCheckpointLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithAuditCheckpointLock(_ context.Context, fn func() error) error {
-	return fn()
+func (m *MockStorage) WithAuditCheckpointLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 // WithBootstrapLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithBootstrapLock(_ context.Context, fn func() error) error {
-	return fn()
+func (m *MockStorage) WithBootstrapLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 // WithNamedLock runs fn directly in tests (single instance, no DB lock).
@@ -841,6 +841,14 @@ func (m *MockStorage) CountExpiringSecretsByProject(ctx context.Context, project
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[uint]int), args.Error(1)
+}
+
+func (m *MockStorage) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	args := m.Called(ctx, envIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]int64), args.Error(1)
 }
 
 func (m *MockStorage) ListLiveSecretNamesByProject(ctx context.Context, projectIDs []uint, limit int) ([]storage.SecretNameRow, bool, error) {

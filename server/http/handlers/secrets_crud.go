@@ -555,7 +555,8 @@ func (h *SecretHandler) RestoreSecret(w http.ResponseWriter, r *http.Request) {
 		h.sendError(w, "InvalidParameter", errInvalidSecretID, http.StatusBadRequest, nil)
 		return
 	}
-	if err := h.coreService.RestoreSecret(r.Context(), userCtx.UserID, uint(id)); err != nil {
+	// The secret.restored row commits with the restore (secretMutationAuditContext).
+	if err := h.coreService.RestoreSecret(secretMutationAuditContext(r, userCtx), userCtx.UserID, uint(id)); err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		if strings.Contains(msg, errNotFound) {

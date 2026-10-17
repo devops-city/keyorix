@@ -5897,6 +5897,11 @@ export interface components {
             id?: number;
             project_id?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+             */
+            secret_count?: number;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */

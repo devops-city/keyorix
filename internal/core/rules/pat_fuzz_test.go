@@ -25,10 +25,11 @@ import (
 // This harness re-derives the expected branch independently from raw JSON and
 // asserts: (a) Verify never panics/hangs (Guard); (b) an empty column decodes to
 // nil; (c) a non-empty column that fails json.Unmarshal decodes to a NON-EMPTY
-// result (fail closed), never nil/[]; (d) a cleanly-parsing column mirrors what
-// json.Unmarshal yields. Note "null" and "[]" are valid JSON that legitimately
-// decode to no scopes — those hit branch (d), not (c), and are intentionally not
-// flagged (EncodePATScopes never emits either).
+// result (fail closed), never nil/[]; (d) a cleanly-parsing column that names
+// nothing ("null", "[]", a blank entry -- EncodePATScopes never emits any of
+// them) decodes to the PATScopeCorrupted sentinel too (REVIEW-COVERAGE-1: before,
+// it decoded to an empty list, which reads as unrestricted); (e) any other
+// cleanly-parsing column mirrors what json.Unmarshal yields.
 func FuzzDecodePATScopes(f *testing.F) {
 	seeds := []string{
 		"",                                 // empty column -> unrestricted (nil)
@@ -37,8 +38,8 @@ func FuzzDecodePATScopes(f *testing.F) {
 		`["secrets.read"]`,                 // single scope
 		`["secrets.read","secrets.write"]`, // multiple scopes
 		`["secrets.read","audit.read"]`,    // realistic reporting PAT
-		`[]`,                               // valid empty array (no scopes)
-		"null",                             // valid JSON null -> nil
+		`[]`,                               // names nothing -> corrupted sentinel (encoder never writes it)
+		"null",                             // names nothing -> corrupted sentinel
 		`["a","a"]`,                        // duplicate entries
 		`[""]`,                             // empty-string scope
 		`["secrets.read"`,                  // truncated JSON -> corrupted sentinel
@@ -77,6 +78,14 @@ func FuzzDecodePATScopes(f *testing.F) {
 			}
 			return
 		}
+		// A clean parse that names nothing (null, [], a blank entry) is a column
+		// the encoder never writes: also the sentinel, never an empty list.
+		if blankOrEmpty(parsed) {
+			if !slices.Equal(got, PATScopeCorrupted) {
+				t.Fatalf("SCOPE FAIL-OPEN: scopes column %q names nothing and decoded to %#v; must be the PATScopeCorrupted sentinel", raw, got)
+			}
+			return
+		}
 		if !slices.Equal(got, parsed) {
 			t.Fatalf("DecodePATScopes(%q) = %#v, want %#v (must mirror json.Unmarshal on a cleanly-parsing column)", raw, got, parsed)
 		}
@@ -103,8 +112,8 @@ func FuzzDecodePATCIDRs(f *testing.F) {
 		`["192.168.1.1/32"]`,              // host route (v4)
 		`["2001:db8::/32"]`,               // IPv6 CIDR
 		`["::1/128"]`,                     // IPv6 host route
-		`[]`,                              // valid empty array
-		"null",                            // valid null -> nil
+		`[]`,                              // names nothing -> corrupted sentinel
+		"null",                            // names nothing -> corrupted sentinel
 		`["10.0.0.0/8"`,                   // truncated -> corrupted sentinel
 		`10.0.0.0/8`,                      // bare string, not JSON -> corrupted
 		`["not-a-cidr"]`,                  // parses as JSON strings (decoder does not re-validate CIDRs)
@@ -139,8 +148,23 @@ func FuzzDecodePATCIDRs(f *testing.F) {
 			}
 			return
 		}
+		if blankOrEmpty(parsed) {
+			if !slices.Equal(got, PATCIDRCorrupted) {
+				t.Fatalf("CIDR FAIL-OPEN: AllowedCIDRs column %q names nothing and decoded to %#v; must be the PATCIDRCorrupted sentinel", raw, got)
+			}
+			return
+		}
 		if !slices.Equal(got, parsed) {
 			t.Fatalf("DecodePATCIDRs(%q) = %#v, want %#v (must mirror json.Unmarshal on a cleanly-parsing column)", raw, got, parsed)
 		}
 	})
+}
+
+// blankOrEmpty is the fuzz oracle's own statement of "names nothing" (kept
+// separate from the decoder's namesSomething on purpose).
+func blankOrEmpty(list []string) bool {
+	if len(list) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(list, func(s string) bool { return strings.TrimSpace(s) == "" })
 }
