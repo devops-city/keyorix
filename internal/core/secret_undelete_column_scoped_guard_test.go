@@ -20,7 +20,7 @@ import (
 // project, never a Save of a pre-read row (whose upsert would also revert
 // concurrent column writes), and core.RestoreSecret persists only through it.
 //
-// Hops checked: KeyorixCore.RestoreSecret -> c.storage.RestoreSecret -> its
+// Hops checked: KeyorixCore.RestoreSecret -> tx.RestoreSecret -> its
 // LocalStorage body. The helper's required Update/Updates is satisfied by
 // Update("deleted_at", nil) (a single named column).
 func TestRestoreSecret_IsColumnScoped(t *testing.T) {
@@ -44,7 +44,9 @@ func TestRestoreSecret_IsColumnScoped(t *testing.T) {
 	if !where || !update {
 		t.Errorf("LocalStorage.RestoreSecret no longer issues a conditional column-scoped UPDATE (Where=%v, Update*=%v)", where, update)
 	}
-	assertCoreWritesOnlyVia(t, "secrets.go", "RestoreSecret", "storage", "RestoreSecret",
+	// RESTORE-SECRET-AUDIT-TX: the restore runs inside WithTransaction, so the call
+	// is tx.RestoreSecret (the transaction-scoped storage), not c.storage.RestoreSecret.
+	assertCoreWritesOnlyVia(t, "secrets.go", "RestoreSecret", "tx", "RestoreSecret",
 		"Save", "UpdateSecret", "UpdateSecretFields", "TransitionSecretStatus")
 }
 
