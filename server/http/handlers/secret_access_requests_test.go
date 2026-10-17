@@ -55,7 +55,7 @@ func newSecretAccessRequestFixture(t *testing.T) *secretAccessRequestFixture {
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SystemMetadata{},
 		&models.MachineIdentity{}, &models.MachineIdentityRole{},
-		&models.PersonalAccessToken{}, &models.Session{}, &models.ShareRecord{},
+		&models.PersonalAccessToken{}, &models.Session{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.AuditEvent{}, &models.Notification{},
 		&models.AccessRequest{}, &models.AccessRequestApproval{}, &models.ProjectMembership{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.DynamicSecretConfig{}, &models.SoDPolicy{},
