@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -65,9 +64,8 @@ func TestBootstrapSystem_AdminHoldsSystemViewerBaseline(t *testing.T) {
 // Skips (does not fail) when KEYORIX_TEST_PG_DSN is unset.
 func TestBootstrapSystem_AdminHoldsSystemViewerBaseline_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	dsn := pgIsolatedSchemaDSN(t, base)
+	dsn := pgMigratedDatabaseDSN(t, base)
 	db := pgOpen(t, dsn)
-	require.NoError(t, kxstorage.MigrateExisting(db))
 
 	st := store.NewLocalStorage(db)
 	c := NewKeyorixCore(st)

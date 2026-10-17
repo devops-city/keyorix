@@ -197,9 +197,8 @@ func TestConcurrency_DeleteEnvironment_NeverOrphans_Postgres(t *testing.T) {
 
 	newPgFixture := func(t *testing.T) (dbA, dbB *gorm.DB, projectID, envID uint) {
 		t.Helper()
-		dsn := pgIsolatedSchemaDSN(t, base)
+		dsn := pgMigratedDatabaseDSN(t, base)
 		admin := pgOpen(t, dsn)
-		require.NoError(t, kxstorage.MigrateExisting(admin))
 
 		proj := &models.Project{Name: "proj"}
 		require.NoError(t, admin.Create(proj).Error)
