@@ -207,19 +207,28 @@ else:
 " "$1"
 }
 
-# demo_uptime_seconds BASE_URL — how long the server process has been up (GET /health),
-# '' when it cannot be read.
+# demo_uptime_seconds BASE_URL TOKEN — how long the server process has been up, from the
+# system.read-gated GET /api/v1/system/info ("uptime", a Go duration). Not from /health:
+# that is unauthenticated and never carried a documented uptime contract, and behind the
+# Postgres compose stack nginx answers /health itself with a static "healthy" (web/nginx.conf),
+# so it can never reach the backend (DEMO-UPTIME-1). Prints whole seconds. When it cannot
+# read them it prints nothing on stdout, returns 1 and says on stderr what it got (HTTP
+# status, body head), so a drifted endpoint or a dropped field is obvious in the log.
 demo_uptime_seconds() {
-  local d body
-  # The /health body is only PARSED as JSON below, never executed; it goes to
-  # python3's stdin from a variable rather than straight off the curl pipe.
-  body="$(curl -s --max-time 5 "$1/health" || true)"
-  d="$(python3 -c 'import sys, json
-try:
-    print(json.load(sys.stdin).get("uptime", ""))
-except Exception:
-    print("")' <<<"$body")"
-  [ -n "$d" ] && demo_duration_seconds "$d"
+  local d secs
+  demo_api GET "$1" "/api/v1/system/info" "${2:-}"
+  if [ "$DEMO_HTTP_CODE" != "200" ]; then
+    echo "demo_uptime_seconds: GET $1/api/v1/system/info returned HTTP ${DEMO_HTTP_CODE:-none}: $(printf '%.300s' "$DEMO_BODY")" >&2
+    return 1
+  fi
+  d="$(demo_json "d['data']['uptime']" "$DEMO_BODY")"
+  secs=""
+  [ -n "$d" ] && secs="$(demo_duration_seconds "$d")"
+  if [ -z "$secs" ]; then
+    echo "demo_uptime_seconds: no parseable data.uptime in GET $1/api/v1/system/info (uptime='${d}'): $(printf '%.300s' "$DEMO_BODY")" >&2
+    return 1
+  fi
+  echo "$secs"
 }
 
 # demo_open_anomalies BASE_URL TOKEN — prints one "ID TYPE SEVERITY ACCESSED_BY SECRET" line per
@@ -269,8 +278,7 @@ demo_settle_anomalies() {
     [ -n "$d" ] && need=$((d + 20))
   fi
   while :; do
-    up="$(demo_uptime_seconds "$base")"
-    [ -n "$up" ] || { echo "settle: could not read the server uptime; skipping" >&2; return 0; }
+    up="$(demo_uptime_seconds "$base" "$token")" || { echo "settle: could not read the server uptime (detail above); skipping" >&2; return 0; }
     [ "$up" -ge "$need" ] && break
     wait=$((need - up)); [ "$wait" -gt 10 ] && wait=10
     sleep "$wait"

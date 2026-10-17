@@ -63,5 +63,6 @@ func (ls *LocalStorage) WithAuditCheckpointLock(ctx context.Context, fn func() e
 	// Release before the deferred Close so the pooled connection carries no lock.
 	defer sess.unlock(ctx, int64(auditCheckpointAdvisoryLockKey), "audit-checkpoint lock")
 
-	return fn()
+	_, finish := sess.watch(ctx, "audit-checkpoint lock")
+	return finish(fn())
 }

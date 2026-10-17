@@ -27,8 +27,8 @@ func TestValidate_OneTimePasswordExpiries(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			c := validLocalConfig()
-			c.Security.RecoveryOneTimePasswordExpiry = tc.recovery
-			c.Security.OneTimePasswordExpiry = tc.otp
+			c.Security.RecoveryOTPLifetime = tc.recovery
+			c.Security.OTPLifetime = tc.otp
 			err := c.Validate()
 			if tc.wantErr == "" {
 				require.NoError(t, err)

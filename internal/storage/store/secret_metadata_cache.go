@@ -34,8 +34,8 @@
 //     cache is disabled outright rather than trusted — see
 //     SecretNodeCacheEpochTriggerPresent.
 //   - secret_versions, for GetLatestSecretVersion: (count, max(version_number),
-//     sum(read_count)) over the secret's own versions — content-derived, no
-//     clock. A new version moves count and max immediately, a purge moves
+//     sum(read_count), sum(cache_epoch)) over the secret's own versions —
+//     content-derived, no clock. A new version moves count and max immediately, a purge moves
 //     count, and a read_count increment moves the sum. Deliberately NOT a
 //     second trigger: this table has no residual tie risk that a trigger would
 //     close, except the one named below, and a second column+trigger doubles
@@ -51,29 +51,23 @@
 //     and leaves NO residual gap — a tie then means the two schedules are the
 //     same policy, and serving the cached one is correct.
 //
-// Known gap, decided safe and pinned by secret_metadata_cache_dek_sweep_test.go:
-// internal/encryption/sweep.go's DEK rotation sweep rewrites
-// secret_versions.encrypted_value without changing count, max(version_number) or
-// sum(read_count), so a warm latest-version entry outlives a sweep and keeps
-// serving the pre-sweep (old-DEK) ciphertext. Why that is not a correctness or
-// key-retirement problem:
-//   - The only process that can hold such an entry is one that still holds the
-//     OLD DEK in memory (the DEK is unwrapped once per process, at Initialize).
-//     The entry decrypts, with that DEK, to the same plaintext the new row does.
-//     A holder of only the new DEK fails to decrypt it: fail closed, never wrong
-//     data.
-//   - On the sweeping host no server is running (a server holds dek.lock
-//     exclusively for its lifetime), so there is no warm cache there. A replica
-//     on ANOTHER host sharing only the database cannot decrypt any non-cached
-//     post-sweep row either until restarted; the cache does not create that
-//     hazard, it only delays it by at most secretMetaCacheTTL.
-//   - The retired-DEK ciphertext copy cannot outlive the retired DEK in the same
-//     process: it is dropped at TTL expiry or process exit.
-//
-// A secret_versions.cache_epoch trigger with a SUM(cache_epoch) term would make
-// the entry miss at once, but only turns "decrypts for up to the TTL" into "fails
-// at once" on a replica that is already unusable after a sweep; not worth the
-// migration surface. Revisit if the DEK ever becomes reloadable at runtime.
+// The DEK-rotation sweep (internal/encryption/sweep.go) is the one writer that
+// rewrites secret_versions.encrypted_value IN PLACE, which moves none of count,
+// max(version_number) or sum(read_count). It therefore raises
+// secret_versions.cache_epoch in the same UPDATE, and the generation sums it
+// (versionsGeneration.sumCacheEpoch; secret_version_cache_epoch.go): a warm entry
+// misses on its next hit, on this replica and on every other one, because the
+// signal is read from the database like the other terms — no cross-process
+// message and no extra statement, the term rides in the aggregate the hit
+// already issues. This closes the gap named here since #2764 (DEK-SWEEP-CACHE-1):
+// before it a warm entry kept serving the pre-sweep ciphertext for up to
+// secretMetaCacheTTL, harmless while the process still held the old DEK (same
+// plaintext) but a decrypt error once it held only the new one. A reader that
+// still holds only the OLD key after a sweep now fails at the sweep instead of
+// up to the TTL later; that is the same failure every non-cached post-sweep row
+// already gave it, and a decrypt failure stays an error (never a fallback).
+// TestSecretVersionCiphertextWriters_AreOnlyTheSweep fails if another writer of
+// the ciphertext appears without raising the epoch.
 //
 // Deliberately a FIELD on *LocalStorage, not a package-level global: a
 // package-level cache would be silently shared across every LocalStorage
@@ -165,7 +159,19 @@ type versionsGeneration struct {
 	count            int64
 	maxVersionNumber int64
 	sumReadCount     int64
+	// sumCacheEpoch is SUM(secret_versions.cache_epoch): raised by the DEK
+	// rotation sweep when it rewrites a version's ciphertext in place, which moves
+	// none of the other three terms (secret_version_cache_epoch.go).
+	sumCacheEpoch int64
 }
+
+// versionsAggregateSQL is the select list that produces a versionsGeneration,
+// over `FROM secret_versions WHERE secret_node_id = ?`. One definition for every
+// statement that reads the generation (liveVersionsGeneration,
+// scheduleAndVersionsSQL, the read-path prefetch statements), so they cannot
+// disagree about which terms exist.
+const versionsAggregateSQL = "COUNT(*) AS cnt, COALESCE(MAX(version_number), 0) AS max_ver, " +
+	"COALESCE(SUM(read_count), 0) AS sum_rc, COALESCE(SUM(cache_epoch), 0) AS sum_ce"
 
 type secretNodeCacheEntry struct {
 	generation nodeGeneration
@@ -388,14 +394,15 @@ func liveVersionsGeneration(ctx context.Context, db *gorm.DB, secretNodeID uint)
 		Cnt    int64
 		MaxVer int64
 		SumRc  int64
+		SumCe  int64
 	}
 	err := db.WithContext(ctx).Model(&models.SecretVersion{}).
-		Select("COUNT(*) AS cnt, COALESCE(MAX(version_number), 0) AS max_ver, COALESCE(SUM(read_count), 0) AS sum_rc").
+		Select(versionsAggregateSQL).
 		Where(sqlWhereSecretNodeID, secretNodeID).Take(&row).Error
 	if err != nil {
 		return versionsGeneration{}, err
 	}
-	return versionsGeneration{count: row.Cnt, maxVersionNumber: row.MaxVer, sumReadCount: row.SumRc}, nil
+	return versionsGeneration{count: row.Cnt, maxVersionNumber: row.MaxVer, sumReadCount: row.SumRc, sumCacheEpoch: row.SumCe}, nil
 }
 
 // liveScheduleGeneration is the schedule table's stamp-only read, used ONLY to

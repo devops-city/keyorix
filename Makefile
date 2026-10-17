@@ -343,6 +343,14 @@ e2e-smoke-upgrade:
 e2e-web-smoke:
 	@./scripts/e2e/web-real-smoke.sh
 
+# e2e-web-demo: DEMO-E2E-1 -- the demo catalogue (docs/demo.md journeys) as Playwright
+# specs under web/e2e/demo/, run against a real server by the same harness (one fresh
+# server per spec file). NOT part of e2e-web-smoke and not run by the fast PR profile;
+# CI runs it in the full profile (merge queue, push to main, ci:full label) only. Honour
+# KEYORIX_E2E_SHARD=i/n to split it across jobs.
+e2e-web-demo:
+	@KEYORIX_E2E_SPEC_DIR=e2e/demo ./scripts/e2e/web-real-smoke.sh
+
 # e2e-smoke-all: everything above in one run -- SQLite, the upgrade path,
 # and the web UI (NOT the Postgres leg, which needs a docker container the
 # other three don't -- run e2e-smoke-postgres separately once one is up).

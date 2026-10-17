@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 )
 
@@ -88,43 +91,46 @@ var roleManagementActivityEventTypes = []string{
 // confers beyond plain read/write.
 var secretsDeletionActivityEventTypes = []string{"secret.deleted"}
 
-// lastUserActivityByEventTypes is the shared query behind LastUserSecretActivity,
-// LastUserRoleManagementActivity and LastUserSecretDeletionActivity: the most
-// recent matching-event time per user in the project, read from audit_events.
-//
-// It selects the typed event_time column ordered newest-first and keeps the first
-// row seen per user (rather than SQL MAX(), whose result is an untyped string that
-// SQLite can't scan into time.Time). No row cap — a user's only activity could be
-// old, and capping would mis-report them as never-active (a silent-truncation bug).
-//
-// #G44: flagged for "no row cap" — a naive LIMIT is intentionally NOT applied here.
-// Because rows are ordered newest-first and results are deduped per-user in Go,
-// a LIMIT returns the N most recent events ACROSS ALL USERS, not the most recent
-// event PER USER — a project with more than N recent events from a few active
-// users would silently drop every dormant user from the result entirely (the
-// exact bug this function's own comment above already guards against). A correct
-// bound here needs either a per-user-windowed query (ROW_NUMBER() OVER PARTITION
-// BY user_id, unused elsewhere in this codebase and untested against both SQLite
-// and Postgres dialects) or a domain decision on how far back "last activity"
-// needs to look before a user is presumed dormant regardless. Left unfixed
-// pending that decision — see REMEDIATION-STATUS.md G44.
-func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projectID uint, eventTypes []string) (map[uint]time.Time, error) {
-	type row struct {
-		UserID    uint
-		EventTime time.Time
-	}
-	var rows []row
-	err := ls.db.WithContext(ctx).
+// lastActivityQuery is the one statement behind every LastUser*Activity lookup (a
+// builder so the plan tests can EXPLAIN exactly what runs).
+func lastActivityQuery(db *gorm.DB, projectID uint, eventTypes []string, since time.Time) *gorm.DB {
+	return db.
 		Table("audit_events").
 		Select("user_id, event_time").
 		Where("project_id = ?", projectID).
+		// The window: event_time >= since, with since clamped to the hard maximum
+		// lookback. Next to project_id = ? this is a range on the existing
+		// idx_audit_events_project_event_time, so the rows read are the window's, not
+		// the table's. event_time is always stored in UTC (AuditEvent.BeforeSave).
+		Where("event_time >= ?", storage.ClampActivitySince(time.Now(), since)).
 		Where("event_type IN ?", eventTypes).
 		// A refused attempt (success=false, e.g. a refused secret.read, #3273) is
 		// not use of the grant; NULL is a legacy row that predates the column.
 		Where("success IS NULL OR success = ?", true).
 		Where("user_id IS NOT NULL").
-		Order("event_time DESC").
-		Scan(&rows).Error
+		Order("event_time DESC")
+}
+
+// lastUserActivityByEventTypes is the shared query behind the LastUser*Activity
+// lookups: the most recent matching-event time per user in the project, read from
+// audit_events, over the window starting at `since` (the recertification period,
+// clamped to storage.ActivityLookbackMaxDays; see lastActivityQuery).
+//
+// It selects the typed event_time column ordered newest-first and keeps the first
+// row seen per user (rather than SQL MAX(), whose result is an untyped string that
+// SQLite can't scan into time.Time). There is deliberately no LIMIT: rows are
+// deduplicated per user in Go, so a LIMIT would return the N newest events across
+// ALL users and could drop every quiet user from the result. The bound is the time
+// window instead (the G44 decision, RECERT-BOUND-1): "last activity" means within
+// the review period, so a user with no event in the window is absent from the map,
+// i.e. "no activity within the last N days", never "no activity ever".
+func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projectID uint, eventTypes []string, since time.Time) (map[uint]time.Time, error) {
+	type row struct {
+		UserID    uint
+		EventTime time.Time
+	}
+	var rows []row
+	err := lastActivityQuery(ls.db.WithContext(ctx), projectID, eventTypes, since).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
@@ -142,35 +148,35 @@ func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projec
 
 // LastUserSecretActivity returns the most recent secret-access time per user in the
 // project, read from audit_events (where the read events carry user_id + project_id).
-func (ls *LocalStorage) LastUserSecretActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, accessActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, accessActivityEventTypes, since)
 }
 
 // LastUserRoleManagementActivity returns the most recent time, per user, that they
 // performed a role-management action (granting/revoking a role or group-role) in
 // the project. See roleManagementActivityEventTypes for exactly which events count.
-func (ls *LocalStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, roleManagementActivityEventTypes)
+func (ls *LocalStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, roleManagementActivityEventTypes, since)
 }
 
 // LastUserSecretDeletionActivity returns the most recent time, per user, that they
 // deleted a secret in the project. See secretsDeletionActivityEventTypes for
 // exactly which events count.
-func (ls *LocalStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, secretsDeletionActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, secretsDeletionActivityEventTypes, since)
 }
 
 // LastUserSecretReadActivity returns the most recent secret.read time per user in
 // the project — the secrets.read half of plain-tier dormant-role-grant detection
 // (#487 round 112). See secretReadActivityEventTypes.
-func (ls *LocalStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, secretReadActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, secretReadActivityEventTypes, since)
 }
 
 // LastUserSecretWriteActivity returns the most recent
 // secret.created/updated/rotated time per user in the project — the
 // secrets.write half of plain-tier dormant-role-grant detection (#487 round
 // 112). See secretWriteActivityEventTypes.
-func (ls *LocalStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, secretWriteActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, secretWriteActivityEventTypes, since)
 }

@@ -18,10 +18,8 @@ import (
 	"errors"
 	"fmt"
 
-	// Used only for retry-backoff jitter (see the #nosec G404 at its call site below),
-	// never for a security-sensitive value such as a token, key, or ID -- not used
-	// anywhere security-sensitive.
-	mathrand "math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
+	"crypto/rand"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync"
@@ -416,8 +414,7 @@ func (ls *LocalStorage) logAuditEventDirect(ctx context.Context, event *models.A
 		if txErr == nil || !isSQLiteBusyErr(txErr) {
 			return txErr
 		}
-		// #nosec G404 -- jitter for retry timing, not a security-sensitive value.
-		jittered := delay/2 + time.Duration(mathrand.Int63n(int64(delay/2+1)))
+		jittered := delay/2 + time.Duration(retryJitterN(int64(delay/2+1)))
 		select {
 		case <-ctx.Done():
 			return txErr
@@ -781,8 +778,7 @@ func (ls *LocalStorage) commitBatchWithBusyRetry(ctx context.Context, batch []*a
 		if err == nil || !isSQLiteBusyErr(err) {
 			return err
 		}
-		// #nosec G404 -- jitter for retry timing, not a security-sensitive value.
-		jittered := delay/2 + time.Duration(mathrand.Int63n(int64(delay/2+1)))
+		jittered := delay/2 + time.Duration(retryJitterN(int64(delay/2+1)))
 		select {
 		case <-ctx.Done():
 			return err
@@ -1276,4 +1272,18 @@ func brokenChain(r *storage.AuditChainVerification, id uint, reason string) *sto
 	r.FirstBrokenID = &idCopy
 	r.Reason = reason
 	return r
+}
+
+// retryJitterN returns a uniform value in [0, n) for retry-backoff jitter.
+// It reads crypto/rand so no math/rand generator is involved; on a (never
+// expected) entropy failure it returns 0, i.e. the minimum backoff.
+func retryJitterN(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(n))
+	if err != nil {
+		return 0
+	}
+	return v.Int64()
 }

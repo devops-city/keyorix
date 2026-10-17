@@ -205,14 +205,12 @@ fi
 # gitignored CLI-home dir, owner-only, and removed by down.sh --wipe.
 mkdir -p "$CLI_HOME"
 # The bootstrap token is generated once per demo into a 0600 file and reaches the container through
-# an env file, never a fixed value and never on a command line (HARDEN-HTTP-1: the server refuses a
+# a 0600 --env-file (CONTAINER_ENV_FILE below), never a fixed value and never on a command line (HARDEN-HTTP-1: the server refuses a
 # pinned token shorter than 32 characters).
 command -v openssl >/dev/null 2>&1 || { echo "openssl is required to generate the bootstrap token" >&2; exit 1; }
 BOOTSTRAP_TOKEN_FILE="$CLI_HOME/bootstrap-token"
-BOOTSTRAP_ENV_FILE="$CLI_HOME/container.env"
 [ -s "$BOOTSTRAP_TOKEN_FILE" ] || ( umask 077; openssl rand -hex 32 > "$BOOTSTRAP_TOKEN_FILE" )
 BOOTSTRAP_TOKEN="$(cat "$BOOTSTRAP_TOKEN_FILE")"
-( umask 077; printf 'KEYORIX_BOOTSTRAP_TOKEN=%s\n' "$BOOTSTRAP_TOKEN" > "$BOOTSTRAP_ENV_FILE" )
 ( umask 077
   {
     echo "# DEMO ONLY — throwaway local demo credential written by scripts/demo/up.sh."
@@ -245,8 +243,10 @@ discard_unfinished_seed() {
   rm -f "$STATE_FILE"
   rm -rf "$REPO_ROOT/.demo-2-cli-home"
 }
+CONTAINER_ENV_FILE=""
 on_exit() {
   local rc=$?
+  [ -z "$CONTAINER_ENV_FILE" ] || rm -f "$CONTAINER_ENV_FILE"
   if [ "$rc" -ne 0 ] && [ "$SEED_IN_PROGRESS" = true ]; then
     echo >&2
     echo "Demo setup failed (exit $rc). Removing the unfinished container and data volume so nothing half-seeded is left behind; fix the error above and re-run scripts/demo/up.sh." >&2
@@ -272,12 +272,15 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     docker rm -f "$CONTAINER_NAME" >/dev/null
   fi
   step "Starting the air-gapped container (network enabled for the demo itself; see docs/demo/GOLDEN-PATH.md for the offline proof with --network none)"
+  # Secrets reach the container through a 0600 --env-file, never as `-e NAME=value` (argv is
+  # visible in ps). The file only has to exist for the duration of `docker run`.
+  CONTAINER_ENV_FILE="$(mktemp)"
+  ( umask 077; printf 'KEYORIX_MASTER_PASSWORD=%s\nKEYORIX_BOOTSTRAP_TOKEN=%s\n' "$MASTER_PASSWORD" "$BOOTSTRAP_TOKEN" > "$CONTAINER_ENV_FILE" )
   docker run -d --name "$CONTAINER_NAME" \
     -p "${PORT}:8080" \
     -v "$VOLUME_NAME:/app/data" \
     -w /app/data \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PASSWORD" \
-    --env-file "$BOOTSTRAP_ENV_FILE" \
+    --env-file "$CONTAINER_ENV_FILE" \
     -e KEYORIX_CONFIG_PATH=keyorix.yaml \
     --entrypoint /bin/sh \
     "$IMAGE_TAG" \
@@ -305,6 +308,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
       fi
       exec /app/keyorix-server
     ' >/dev/null
+  rm -f "$CONTAINER_ENV_FILE"
   ok "Container started"
 fi
 

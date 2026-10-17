@@ -23,22 +23,22 @@ cli	keyorix __hold-lock-for-test	server/admin/testhook.go	20	runHoldLockForTest	
 cli	keyorix access-review	cli/cmd/accessreview.go	19	runAccessReview	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix access-review attest	cli/cmd/accessreview.go	246	<expr>	D	accessreview.go:253 RunE closure calls runAccessReviewDecision(ctx, client, "attest"), which makes exactly one API call (AttestProjectAccessReviewWithResponse) and nothing else; scanner flagged it only because it could not resolve the anonymous cobra closure, not because of a real write sequence.
 cli	keyorix access-review campaign	cli/cmd/accessreview.go	326		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix access-review campaign close	cli/cmd/accessreview.go	504	<expr>	D	accessreview.go:504-535 closure makes exactly one mutating call, CloseAccessReviewCampaignWithResponse, then only decodes/prints the response (reads); single-call CLI wrapper.
-cli	keyorix access-review campaign decide	cli/cmd/accessreview.go	471	<expr>	D	accessreview.go:471-502 closure makes exactly one mutating call, DecideAccessReviewCampaignItemWithResponse, then prints; single-call CLI wrapper.
+cli	keyorix access-review campaign close	cli/cmd/accessreview.go	509	<expr>	D	accessreview.go:504-535 closure makes exactly one mutating call, CloseAccessReviewCampaignWithResponse, then only decodes/prints the response (reads); single-call CLI wrapper.
+cli	keyorix access-review campaign decide	cli/cmd/accessreview.go	476	<expr>	D	accessreview.go:471-502 closure makes exactly one mutating call, DecideAccessReviewCampaignItemWithResponse, then prints; single-call CLI wrapper.
 cli	keyorix access-review campaign list	cli/cmd/accessreview.go	369	<expr>	D	accessreview.go:369-419 closure makes exactly one read-only call, ListAccessReviewCampaignsWithResponse; no writes at all, pure report.
 cli	keyorix access-review campaign open	cli/cmd/accessreview.go	334	<expr>	D	accessreview.go:334-367 closure makes exactly one mutating call, OpenAccessReviewCampaignWithResponse, then only prints; single-call CLI wrapper.
-cli	keyorix access-review campaign show	cli/cmd/accessreview.go	421	<expr>	D	accessreview.go:421-469 closure makes exactly one read-only call, GetAccessReviewCampaignWithResponse; no writes at all, pure report.
+cli	keyorix access-review campaign show	cli/cmd/accessreview.go	426	<expr>	D	accessreview.go:421-469 closure makes exactly one read-only call, GetAccessReviewCampaignWithResponse; no writes at all, pure report.
 cli	keyorix access-review revoke	cli/cmd/accessreview.go	228	<expr>	D	accessreview.go:236-244 closure calls runAccessReviewDecision(ctx, client, "revoke"), which makes exactly one API call (RevokeProjectAccessReviewWithResponse); single-call CLI wrapper.
 cli	keyorix anomalies	cli/cmd/anomalies.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix anomalies acknowledge	cli/cmd/anomalies.go	118	runAnomalyAcknowledge	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies acknowledge	cli/cmd/anomalies.go	123	runAnomalyAcknowledge	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix anomalies config	cli/cmd/anomalies.go	27		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix anomalies config get	cli/cmd/anomalies.go	167	runAnomalyConfigGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix anomalies config set	cli/cmd/anomalies.go	207	runAnomalyConfigSet	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies config get	cli/cmd/anomalies.go	172	runAnomalyConfigGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies config set	cli/cmd/anomalies.go	212	runAnomalyConfigSet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix anomalies escalation	cli/cmd/anomalies.go	32		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix anomalies escalation create	cli/cmd/anomalies.go	392	runEscalationCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix anomalies escalation delete	cli/cmd/anomalies.go	437	runEscalationDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix anomalies escalation list	cli/cmd/anomalies.go	332	runEscalationList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix anomalies escalation run	cli/cmd/anomalies.go	465	runEscalationRun	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies escalation create	cli/cmd/anomalies.go	402	runEscalationCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies escalation delete	cli/cmd/anomalies.go	447	runEscalationDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies escalation list	cli/cmd/anomalies.go	337	runEscalationList	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix anomalies escalation run	cli/cmd/anomalies.go	475	runEscalationRun	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix anomalies list	cli/cmd/anomalies.go	48	runAnomalyList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix audit	server/admin/audit.go	17	runAdminAudit	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix audit	cli/cmd/audit.go	24		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
@@ -51,8 +51,8 @@ cli	keyorix audit migrate-chain-encoding	cli/cmd/audit.go	441	runAuditMigrateCha
 cli	keyorix audit search	cli/cmd/audit.go	715	runAuditSearch	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix audit verify	cli/cmd/audit.go	43	runAuditVerify	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix backup	server/admin/backup.go	74	runAdminBackup	REVIEW	6 write-shaped call(s) found by a 1-hop scan of the handler body: storage.OpenGormDB, os.OpenFile, f.Close, os.Remove, f.Close, os.Remove
-cli	keyorix billing	cli/cmd/billing.go	24		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix billing report	cli/cmd/billing.go	40	runBillingReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix billing	cli/cmd/billing.go	23		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix billing report	cli/cmd/billing.go	39	runBillingReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix break-glass	cli/cmd/breakglass.go	19		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix break-glass activate	cli/cmd/breakglass.go	37	runBGActivate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix break-glass list	cli/cmd/breakglass.go	44	runBGList	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -79,6 +79,7 @@ cli	keyorix config get	cli/cmd/config.go	38	runConfigGet	none	single/no write-sh
 cli	keyorix config set	cli/cmd/config.go	31	runConfigSet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix config unset	cli/cmd/config.go	45	runConfigUnset	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix diagnose	server/admin/diagnose.go	28	runAdminDiagnose	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix doctor	cli/cmd/doctor.go	80	runDoctor	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix dynamic-secret	cli/cmd/dynamicsecret.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix dynamic-secret classify	cli/cmd/dynamicsecret.go	142	runDynClassify	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix dynamic-secret create	cli/cmd/dynamicsecret.go	51	runDynCreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -108,20 +109,20 @@ cli	keyorix encryption upgrade-aad	server/admin/encryption.go	159	runEncUpgradeA
 cli	keyorix encryption validate	server/admin/encryption.go	187	runEncValidate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix generate-secrets	server/admin/generate_secrets.go	55	runGenerateSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group	cli/cmd/group.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix group add-member	cli/cmd/group.go	360	runGroupAddMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix group add-member	cli/cmd/group.go	365	runGroupAddMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group create	cli/cmd/group.go	56	runGroupCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group delete	cli/cmd/group.go	201	runGroupDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group get	cli/cmd/group.go	98	runGroupGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group list	cli/cmd/group.go	271	runGroupList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix group members	cli/cmd/group.go	305	runGroupMembers	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix group remove-member	cli/cmd/group.go	415	runGroupRemoveMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix group members	cli/cmd/group.go	310	runGroupMembers	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix group remove-member	cli/cmd/group.go	420	runGroupRemoveMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix group update	cli/cmd/group.go	143	runGroupUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix hygiene	cli/cmd/hygiene.go	43	<expr>	D	hygiene.go:52-64 is fully read-only (one GET).
 cli	keyorix init	server/admin/init.go	34	runAdminInit	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix invite	cli/cmd/invite.go	24		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix invite list	cli/cmd/invite.go	151	runInviteList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix invite resend	cli/cmd/invite.go	276	runInviteResend	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix invite revoke	cli/cmd/invite.go	231	runInviteRevoke	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix invite resend	cli/cmd/invite.go	283	runInviteResend	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix invite revoke	cli/cmd/invite.go	238	runInviteRevoke	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix invite send	cli/cmd/invite.go	93	runInviteSend	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix legal-hold	cli/cmd/legalhold.go	16		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix legal-hold lift	cli/cmd/legalhold.go	106	<expr>	D	legalhold.go:110-137: confirmation prompt is local-only, then exactly one mutating call.
@@ -139,14 +140,14 @@ cli	keyorix machine binding add	cli/cmd/machine_binding.go	28	runMachineBindingA
 cli	keyorix machine binding list	cli/cmd/machine_binding.go	35	runMachineBindingList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine binding rm	cli/cmd/machine_binding.go	42	runMachineBindingRm	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine create	cli/cmd/machine.go	116	runMachineCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix machine describe	cli/cmd/machine.go	215	runMachineDescribe	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix machine grant-role	cli/cmd/machine.go	355	runMachineGrantRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix machine describe	cli/cmd/machine.go	220	runMachineDescribe	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix machine grant-role	cli/cmd/machine.go	360	runMachineGrantRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine list	cli/cmd/machine.go	171	runMachineList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix machine migrate-from-user	cli/cmd/machine.go	285	runMachineMigrateFromUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix machine migrate-from-user	cli/cmd/machine.go	290	runMachineMigrateFromUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine reactivate	cli/cmd/machine_lifecycle.go	23	<expr>	D	machine_lifecycle.go:49-65: two read helpers then exactly one mutating call via transitionMachine.
 cli	keyorix machine revoke	cli/cmd/machine_lifecycle.go	32	runMachineRevoke	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix machine revoke-role	cli/cmd/machine.go	401	runMachineRevokeRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix machine roles	cli/cmd/machine.go	447	runMachineRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix machine revoke-role	cli/cmd/machine.go	406	runMachineRevokeRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix machine roles	cli/cmd/machine.go	452	runMachineRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine suspend	cli/cmd/machine_lifecycle.go	16	<expr>	D	machine_lifecycle.go:49-65: same shape, exactly one mutating call.
 cli	keyorix machine token	cli/cmd/machine_token.go	16		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix machine token issue	cli/cmd/machine_token.go	30	runMachineTokenIssue	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -160,11 +161,11 @@ cli	keyorix mfa stepup	cli/cmd/mfa.go	52	runMFAStepUp	none	single/no write-shape
 cli	keyorix migrate	server/admin/migrate.go	17	runAdminMigrate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix notification	cli/cmd/notification.go	17		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix notification channel	cli/cmd/notification.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix notification channel add	cli/cmd/notification.go	104	runChannelAdd	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix notification channel delete	cli/cmd/notification.go	280	runChannelDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix notification channel get	cli/cmd/notification.go	150	runChannelGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix notification channel add	cli/cmd/notification.go	109	runChannelAdd	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix notification channel delete	cli/cmd/notification.go	285	runChannelDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix notification channel get	cli/cmd/notification.go	155	runChannelGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix notification channel list	cli/cmd/notification.go	62	runChannelList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix notification channel update	cli/cmd/notification.go	207	runChannelUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix notification channel update	cli/cmd/notification.go	212	runChannelUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix pat	cli/cmd/pat.go	20		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix pat cleanup-expired	cli/cmd/pat.go	60	runPATCleanupExpired	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix pat create	cli/cmd/pat.go	35	runPATCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -172,33 +173,33 @@ cli	keyorix pat hygiene	cli/cmd/pat.go	68	runPATHygiene	none	single/no write-sha
 cli	keyorix pat list	cli/cmd/pat.go	41	runPATList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix pat list-expired	cli/cmd/pat.go	54	runPATListExpired	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix pat revoke	cli/cmd/pat.go	47	runPATRevoke	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project	cli/cmd/project.go	27		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix project create	cli/cmd/project.go	71	runProjectCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project current	cli/cmd/project.go	258	runProjectCurrent	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project describe	cli/cmd/project.go	309	runProjectDescribe	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project env	cli/cmd/project.go	33		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix project env clone	cli/cmd/project.go	859	runEnvClone	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project env create	cli/cmd/project.go	755	runEnvCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project env delete	cli/cmd/project.go	798	runEnvDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project env list	cli/cmd/project.go	716	runEnvList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project environments	cli/cmd/project.go	652	runProjectEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project health	cli/cmd/project.go	552	runProjectHealth	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project hygiene	cli/cmd/project.go	479	runProjectHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix project list	cli/cmd/project.go	152	runProjectList	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project	cli/cmd/project.go	26		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix project create	cli/cmd/project.go	70	runProjectCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project current	cli/cmd/project.go	259	runProjectCurrent	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project describe	cli/cmd/project.go	310	runProjectDescribe	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project env	cli/cmd/project.go	32		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix project env clone	cli/cmd/project.go	853	runEnvClone	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project env create	cli/cmd/project.go	749	runEnvCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project env delete	cli/cmd/project.go	792	runEnvDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project env list	cli/cmd/project.go	705	runEnvList	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project environments	cli/cmd/project.go	641	runProjectEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project health	cli/cmd/project.go	547	runProjectHealth	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project hygiene	cli/cmd/project.go	474	runProjectHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project list	cli/cmd/project.go	151	runProjectList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix project resume-secrets	cli/cmd/project_freeze.go	74	<expr>	D	project_freeze.go projectResumeSecretsCmd.RunE makes exactly one write call, client.ResumeProjectSecretsWithResponse; the fan-out is server-side.
-cli	keyorix project stats	cli/cmd/project.go	376	runProjectStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project stats	cli/cmd/project.go	377	runProjectStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix project suspend-secrets	cli/cmd/project_freeze.go	22	<expr>	D	project_freeze.go projectSuspendSecretsCmd.RunE makes exactly one write call, client.SuspendProjectSecretsWithResponse; the per-secret fan-out and its single audit event are server-side (the REST row for POST /projects/{id}/secrets/suspend-all).
-cli	keyorix project use	cli/cmd/project.go	209	runProjectUse	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix project use	cli/cmd/project.go	210	runProjectUse	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac	cli/cmd/rbac.go	30		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix rbac assign-role	cli/cmd/rbac.go	216	runRBACAssignRole	D	rbac.go:251-308: four read helpers build one request body; exactly one mutating call, AssignUserRoleWithResponse.
 cli	keyorix rbac assign-role-to-group	cli/cmd/rbac_group_roles.go	65	runRBACAssignRoleToGroup	D	rbac_group_roles.go:87-144: read helpers build one body; exactly one mutating call, AssignRoleToGroupWithResponse.
 cli	keyorix rbac audit-logs	cli/cmd/rbac_audit.go	25	runRBACAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix rbac check-permission	cli/cmd/rbac_roles.go	139	runRBACCheckPermission	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix rbac check-permission	cli/cmd/rbac_roles.go	154	runRBACCheckPermission	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac export-matrix	cli/cmd/rbac_audit.go	116	runRBACExportMatrix	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac list-group-roles	cli/cmd/rbac_group_roles.go	226	runRBACListGroupRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix rbac list-permissions	cli/cmd/rbac_roles.go	92	runRBACListPermissions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix rbac list-permissions	cli/cmd/rbac_roles.go	102	runRBACListPermissions	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac list-roles	cli/cmd/rbac_roles.go	13	runRBACListRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix rbac list-user-roles	cli/cmd/rbac_roles.go	48	runRBACListUserRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix rbac list-user-roles	cli/cmd/rbac_roles.go	53	runRBACListUserRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac remove-role	cli/cmd/rbac.go	308	runRBACRemoveRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix rbac remove-role-from-group	cli/cmd/rbac_group_roles.go	155	runRBACRemoveRoleFromGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix recover-admin	server/admin/recover_admin.go	41	runRecoverAdmin	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -206,22 +207,22 @@ cli	keyorix recovery-key	server/admin/recovery_key.go	25		none	no RunE/Run set o
 cli	keyorix recovery-key rotate	server/admin/recovery_key.go	40	runRotateRecoveryKey	C	recovery_key.go:76-240: primary write store.SetRecoveryKeyRecord commits first, with --recipient/--output validated/reserved beforehand so failures there leave the OLD key valid; notifyAllAdmins and recordAdminAction afterward are explicitly-commented best-effort trailing side effects whose errors are only logged.
 cli	keyorix request	cli/cmd/request.go	32		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix request access	cli/cmd/request.go	189	runRequestAccess	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request bulk-approve	cli/cmd/request.go	662	runRequestBulkApprove	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request bulk-reject	cli/cmd/request.go	745	runRequestBulkReject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request bulk-approve	cli/cmd/request.go	667	runRequestBulkApprove	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request bulk-reject	cli/cmd/request.go	750	runRequestBulkReject	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix request list	cli/cmd/request.go	279	runRequestList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request rejection-templates	cli/cmd/request.go	798		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix request rejection-templates add	cli/cmd/request.go	853	runRejectionTemplatesAdd	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request rejection-templates delete	cli/cmd/request.go	892	runRejectionTemplatesDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request rejection-templates list	cli/cmd/request.go	813	runRejectionTemplatesList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request review	cli/cmd/request.go	393	runRequestReview	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request secret-access	cli/cmd/request.go	534	runRequestSecretAccess	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix request withdraw	cli/cmd/request.go	333	runRequestWithdraw	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request rejection-templates	cli/cmd/request.go	803		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix request rejection-templates add	cli/cmd/request.go	863	runRejectionTemplatesAdd	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request rejection-templates delete	cli/cmd/request.go	902	runRejectionTemplatesDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request rejection-templates list	cli/cmd/request.go	818	runRejectionTemplatesList	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request review	cli/cmd/request.go	398	runRequestReview	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request secret-access	cli/cmd/request.go	539	runRequestSecretAccess	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix request withdraw	cli/cmd/request.go	338	runRequestWithdraw	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix restore	server/admin/restore.go	70	runAdminRestore	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix risk	cli/cmd/risk.go	17		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix risk add	cli/cmd/risk.go	92	<expr>	D	risk.go:92-136 makes exactly one mutating call.
-cli	keyorix risk approve	cli/cmd/risk.go	140	<expr>	D	risk.go:140-167 makes exactly one mutating call.
+cli	keyorix risk add	cli/cmd/risk.go	97	<expr>	D	risk.go:92-136 makes exactly one mutating call.
+cli	keyorix risk approve	cli/cmd/risk.go	145	<expr>	D	risk.go:140-167 makes exactly one mutating call.
 cli	keyorix risk list	cli/cmd/risk.go	47	<expr>	D	risk.go:47-86 is fully read-only.
-cli	keyorix risk revoke	cli/cmd/risk.go	171	<expr>	D	risk.go:171-194 makes exactly one mutating call.
+cli	keyorix risk revoke	cli/cmd/risk.go	176	<expr>	D	risk.go:171-194 makes exactly one mutating call.
 cli	keyorix rotation	cli/cmd/rotation.go	18		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix rotation create	cli/cmd/rotation.go	50	runRotCreate	D	rotation.go:183-232: exactly one mutating API call, CreateRotationPolicyWithResponse -- project/environment only toggle fields on one body, not two sequential writes.
 cli	keyorix rotation delete	cli/cmd/rotation.go	63	runRotDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -235,9 +236,9 @@ cli	keyorix secret	cli/cmd/secret.go	34		none	no RunE/Run set on this cobra.Comm
 cli	keyorix secret access	cli/cmd/secret_access.go	17	<expr>	D	secret_access.go:16-48 is fully read-only.
 cli	keyorix secret access-log	cli/cmd/secret_access.go	82	<expr>	D	secret_access.go:55-94 is fully read-only.
 cli	keyorix secret acl	cli/cmd/secret_acl.go	15		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix secret acl grant	cli/cmd/secret_acl.go	68	<expr>	D	secret_acl.go:68 secretACLGrantCmd.RunE makes exactly one write call, client.GrantSecretACLWithResponse; everything else is flag validation and print.
+cli	keyorix secret acl grant	cli/cmd/secret_acl.go	73	<expr>	D	secret_acl.go:68 secretACLGrantCmd.RunE makes exactly one write call, client.GrantSecretACLWithResponse; everything else is flag validation and print.
 cli	keyorix secret acl list	cli/cmd/secret_acl.go	28	<expr>	D	secret_acl.go:28 secretACLListCmd.RunE is read-only: one call to client.ListSecretACLsWithResponse, then formatting; no writes at all.
-cli	keyorix secret acl revoke	cli/cmd/secret_acl.go	105	<expr>	D	secret_acl.go:105 secretACLRevokeCmd.RunE makes exactly one write call, client.RevokeSecretACLWithResponse; flag checks precede it, print follows.
+cli	keyorix secret acl revoke	cli/cmd/secret_acl.go	110	<expr>	D	secret_acl.go:105 secretACLRevokeCmd.RunE makes exactly one write call, client.RevokeSecretACLWithResponse; flag checks precede it, print follows.
 cli	keyorix secret audit	cli/cmd/secret_risk.go	211	runSecretAudit	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret auto-rotate	cli/cmd/secret_rotation.go	146	runSecretAutoRotate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret blast-radius	cli/cmd/secret_risk.go	80	runSecretBlastRadius	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -247,28 +248,28 @@ cli	keyorix secret bulk-rotate	cli/cmd/secret_bulk.go	30	runSecretBulkRotate	non
 cli	keyorix secret cert	cli/cmd/secret_risk.go	139	runSecretCert	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret classify	cli/cmd/secret_metadata.go	243	<expr>	D	secret_metadata.go:243 secretClassifyCmd.RunE makes exactly one write call, client.ClassifySecretWithResponse; the switch over --level values is validation, not a second write.
 cli	keyorix secret clear-schedule	cli/cmd/secret_schedule.go	124	<expr>	D	secret_schedule.go:123 secretClearScheduleCmd.RunE makes exactly one write call, client.DeleteSecretScheduleWithResponse.
-cli	keyorix secret comment	cli/cmd/secret_versions.go	276		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix secret comment add	cli/cmd/secret_versions.go	281	<expr>	D	secret_versions.go:269 versionCommentAddCmd.RunE makes exactly one write call, client.AddSecretVersionCommentWithResponse; args parsing precedes it.
+cli	keyorix secret comment	cli/cmd/secret_versions.go	271		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix secret comment add	cli/cmd/secret_versions.go	276	<expr>	D	secret_versions.go:269 versionCommentAddCmd.RunE makes exactly one write call, client.AddSecretVersionCommentWithResponse; args parsing precedes it.
 cli	keyorix secret comment delete	cli/cmd/secret_versions.go	363	<expr>	D	secret_versions.go:351 versionCommentDeleteCmd.RunE makes exactly one write call, client.DeleteSecretVersionCommentWithResponse.
-cli	keyorix secret comment list	cli/cmd/secret_versions.go	320	<expr>	D	secret_versions.go:308 versionCommentListCmd.RunE is read-only: one call to client.ListSecretVersionCommentsWithResponse, then formatting.
+cli	keyorix secret comment list	cli/cmd/secret_versions.go	315	<expr>	D	secret_versions.go:308 versionCommentListCmd.RunE is read-only: one call to client.ListSecretVersionCommentsWithResponse, then formatting.
 cli	keyorix secret copy	cli/cmd/secret_organize.go	66	<expr>	D	secret_organize.go:66 secretCopyCmd.RunE makes exactly one write call, client.CopySecretWithResponse; the whole copy happens server-side in one request.
 cli	keyorix secret copy-environment	cli/cmd/secret_organize.go	112	<expr>	D	secret_organize.go:112 secretCopyEnvironmentCmd.RunE makes exactly one write call, client.CopyEnvironmentSecretsWithResponse; bulk per-secret copy/skip logic is server-side in a single request, not multiple client writes.
 cli	keyorix secret create	cli/cmd/secret_crud.go	35	runSecretCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret delete	cli/cmd/secret_crud.go	564	runSecretDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret deps	cli/cmd/secret_deps.go	17		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix secret deps add	cli/cmd/secret_deps.go	56	<expr>	D	secret_deps.go:56 secretDepsAddCmd.RunE makes exactly one write call, client.AddSecretDependencyWithResponse.
-cli	keyorix secret deps impact	cli/cmd/secret_deps.go	126	<expr>	D	secret_deps.go:121 secretDepsImpactCmd.RunE is read-only: one call to client.GetSecretImpactWithResponse, then formatting.
+cli	keyorix secret deps add	cli/cmd/secret_deps.go	63	<expr>	D	secret_deps.go:56 secretDepsAddCmd.RunE makes exactly one write call, client.AddSecretDependencyWithResponse.
+cli	keyorix secret deps impact	cli/cmd/secret_deps.go	133	<expr>	D	secret_deps.go:121 secretDepsImpactCmd.RunE is read-only: one call to client.GetSecretImpactWithResponse, then formatting.
 cli	keyorix secret deps list	cli/cmd/secret_deps.go	30	<expr>	D	secret_deps.go:30 secretDepsListCmd.RunE is read-only: one call to client.ListSecretDependenciesWithResponse, then formatting.
-cli	keyorix secret deps rm	cli/cmd/secret_deps.go	90	<expr>	D	secret_deps.go:90 secretDepsRemoveCmd.RunE makes exactly one write call, client.RemoveSecretDependencyWithResponse.
+cli	keyorix secret deps rm	cli/cmd/secret_deps.go	97	<expr>	D	secret_deps.go:90 secretDepsRemoveCmd.RunE makes exactly one write call, client.RemoveSecretDependencyWithResponse.
 cli	keyorix secret description	cli/cmd/secret_metadata.go	182	<expr>	D	secret_metadata.go:182 secretDescriptionCmd.RunE: at most one write (client.DescribeSecretWithResponse, only when --set changed) followed unconditionally by a read-only GetSecretWithResponse used only to print the current value; only ever one real write.
-cli	keyorix secret diff	cli/cmd/secret_versions.go	166	runSecretDiff	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret diff	cli/cmd/secret_versions.go	161	runSecretDiff	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret expiring	cli/cmd/secret_hygiene.go	21	runSecretExpiring	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret explain	cli/cmd/secret_explain.go	17	runSecretExplain	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret export	cli/cmd/secret_export.go	31	runSecretExport	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret fix	cli/cmd/secret_fix.go	20	runSecretFix	C	secret_fix.go:51 runSecretFix is a local source-tree rewriter (no REST calls): loops over independent fixPlan entries, printing an error and continuing past any single file's failure, then separately best-effort appends a stub line to .env. A mid-loop crash leaves some files fixed and others untouched, visible in printed output and safely re-runnable; no shared state can be left inconsistent.
 cli	keyorix secret folder	cli/cmd/secret_folder.go	17		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix secret folder create	cli/cmd/secret_folder.go	36	runSecretFolderCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix secret folder delete	cli/cmd/secret_folder.go	165	runSecretFolderDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret folder delete	cli/cmd/secret_folder.go	171	runSecretFolderDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret folder list	cli/cmd/secret_folder.go	100	runSecretFolderList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret get	cli/cmd/secret_crud.go	231	runSecretGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix secret get-schedule	cli/cmd/secret_schedule.go	93	<expr>	D	secret_schedule.go:92 secretGetScheduleCmd.RunE is read-only: one call to client.GetSecretScheduleWithResponse, then formatting.
@@ -293,13 +294,13 @@ cli	keyorix secret set-schedule	cli/cmd/secret_schedule.go	51	<expr>	D	secret_sc
 cli	keyorix secret suspend	cli/cmd/secret_lifecycle.go	23	<expr>	D	secret_lifecycle.go:21 secretSuspendCmd.RunE makes exactly one write call, client.SuspendSecretWithResponse.
 cli	keyorix secret tags	cli/cmd/secret_metadata.go	106	<expr>	D	secret_metadata.go:106 secretTagsCmd.RunE branches mutually exclusively on cmd.Flags().Changed("set"): either one write or one read; never both in the same invocation.
 cli	keyorix secret template	cli/cmd/secret_templates.go	14		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix secret template create	cli/cmd/secret_templates.go	92	<expr>	D	secret_templates.go:92 secretTemplateCreateCmd.RunE makes exactly one write call, client.CreateSecretTemplateWithResponse.
-cli	keyorix secret template delete	cli/cmd/secret_templates.go	132	<expr>	D	secret_templates.go:132 secretTemplateDeleteCmd.RunE does a read (resolve name->id) followed by exactly one write (client.DeleteSecretTemplateWithResponse); a crash before it just means nothing was deleted.
-cli	keyorix secret template get	cli/cmd/secret_templates.go	52	<expr>	D	secret_templates.go:52 secretTemplateGetCmd.RunE is read-only: one list call, then a local name match and print; no writes.
+cli	keyorix secret template create	cli/cmd/secret_templates.go	97	<expr>	D	secret_templates.go:92 secretTemplateCreateCmd.RunE makes exactly one write call, client.CreateSecretTemplateWithResponse.
+cli	keyorix secret template delete	cli/cmd/secret_templates.go	137	<expr>	D	secret_templates.go:132 secretTemplateDeleteCmd.RunE does a read (resolve name->id) followed by exactly one write (client.DeleteSecretTemplateWithResponse); a crash before it just means nothing was deleted.
+cli	keyorix secret template get	cli/cmd/secret_templates.go	57	<expr>	D	secret_templates.go:52 secretTemplateGetCmd.RunE is read-only: one list call, then a local name match and print; no writes.
 cli	keyorix secret template list	cli/cmd/secret_templates.go	24	<expr>	D	secret_templates.go:24 secretTemplateListCmd.RunE is read-only: one call to client.ListSecretTemplatesWithResponse, then formatting.
 cli	keyorix secret trash	cli/cmd/secret_lifecycle.go	107	<expr>	D	secret_lifecycle.go:90 secretTrashCmd.RunE is read-only: one call to client.ListDeletedSecretsWithResponse, then formatting (soft-delete recycle-bin listing, unrelated to the backup/restore subsystem).
 cli	keyorix secret update	cli/cmd/secret_crud.go	466	runSecretUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix secret versions	cli/cmd/secret_versions.go	24	runSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix secret versions	cli/cmd/secret_versions.go	22	runSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix share	cli/cmd/share.go	25		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix share create	cli/cmd/share.go	39	runShareCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix share group-shares	cli/cmd/share.go	100	runGroupShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -310,10 +311,10 @@ cli	keyorix share shared-secrets	cli/cmd/share.go	92	runSharedSecrets	none	singl
 cli	keyorix share update	cli/cmd/share.go	69	runShareUpdate	D	share.go:61/261 runShareUpdate makes exactly one write call, client.UpdateSharePermissionWithResponse; expiry validation beforehand is pure local struct-building, not an additional write.
 cli	keyorix sod	cli/cmd/sod.go	17		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix sod policy	cli/cmd/sod.go	23		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix sod policy create	cli/cmd/sod.go	94	<expr>	D	sod.go:94 sodPolicyCreateCmd.RunE makes exactly one write call, client.CreateSoDPolicyWithResponse.
-cli	keyorix sod policy delete	cli/cmd/sod.go	128	<expr>	D	sod.go:128 sodPolicyDeleteCmd.RunE makes exactly one write call, client.DeleteSoDPolicyWithResponse.
+cli	keyorix sod policy create	cli/cmd/sod.go	99	<expr>	D	sod.go:94 sodPolicyCreateCmd.RunE makes exactly one write call, client.CreateSoDPolicyWithResponse.
+cli	keyorix sod policy delete	cli/cmd/sod.go	133	<expr>	D	sod.go:128 sodPolicyDeleteCmd.RunE makes exactly one write call, client.DeleteSoDPolicyWithResponse.
 cli	keyorix sod policy list	cli/cmd/sod.go	58	<expr>	D	sod.go:58 sodPolicyListCmd.RunE is read-only: one call to client.ListSoDPoliciesWithResponse, then formatting.
-cli	keyorix sod violations	cli/cmd/sod.go	153	<expr>	D	sod.go:153 sodViolationsCmd.RunE is read-only: one call to client.ListSoDViolationsWithResponse, then formatting (including a degraded-scan warning path, still read-only).
+cli	keyorix sod violations	cli/cmd/sod.go	158	<expr>	D	sod.go:153 sodViolationsCmd.RunE is read-only: one call to client.ListSoDViolationsWithResponse, then formatting (including a degraded-scan warning path, still read-only).
 cli	keyorix status	cli/cmd/status.go	12	runStatus	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix system	cli/cmd/system.go	43		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix system info	cli/cmd/system.go	76	<expr>	D	system.go:57 systemInfoCmd.RunE is read-only: one call to client.GetSystemInfoWithResponse, then formatting.
@@ -322,20 +323,20 @@ cli	keyorix system role-expiry-check	cli/cmd/system.go	137	<expr>	D	system.go:11
 cli	keyorix system token-expiry-check	cli/cmd/system.go	175	<expr>	D	system.go:154 systemTokenExpiryCheckCmd.RunE makes exactly one call, client.RunTokenExpiryCheckWithResponse, a single POST that triggers a server-side job; no sequential client-side writes.
 cli	keyorix trust	cli/cmd/trust.go	32		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix trust keygen	cli/cmd/trust.go	57	<expr>	C	cli/cmd/trust.go:124-129 writes private.pem then public.pem via two independent securefiles writes; a crash between leaves an orphaned private key with no public key -- a local air-gapped signing-key artifact, not corrupted server state; operator reruns with --force to complete, or discards and starts over.
-cli	keyorix usage	cli/cmd/usage.go	24		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix usage show	cli/cmd/usage.go	39	runUsageShow	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix usage	cli/cmd/usage.go	23		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix usage show	cli/cmd/usage.go	38	runUsageShow	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix user	cli/cmd/user.go	37		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix user create	cli/cmd/user.go	101	runUserCreate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix user delete	cli/cmd/user.go	404	runUserDelete	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix user force-password-reset	cli/cmd/user.go	546	<expr>	D	cli/cmd/user.go:539-553 RunE validates flags and calls runAccountStateChange, a thin wrapper issuing ONE REST call (RequirePasswordResetWithResponse) per action; no local state writes.
+cli	keyorix user force-password-reset	cli/cmd/user.go	559	<expr>	D	cli/cmd/user.go:539-553 RunE validates flags and calls runAccountStateChange, a thin wrapper issuing ONE REST call (RequirePasswordResetWithResponse) per action; no local state writes.
 cli	keyorix user get	cli/cmd/user.go	266	runUserGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix user list	cli/cmd/user.go	459	runUserList	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix user reactivate	cli/cmd/user.go	531	<expr>	D	cli/cmd/user.go:524-537 RunE validates flags and calls runAccountStateChange -> ReactivateUserWithResponse, a single REST call; no local writes.
-cli	keyorix user reissue-one-time-password	cli/cmd/user.go	740	runUserReissueOneTimePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix user resend-setup-link	cli/cmd/user.go	684	<expr>	D	cli/cmd/user.go:677-722 RunE makes a single REST call (ResendSetupLinkWithResponse) then prints the result; no local state writes.
-cli	keyorix user revoke-sessions	cli/cmd/user.go	567	<expr>	D	cli/cmd/user.go:560-601 RunE makes a single REST call (RevokeUserSessionsWithResponse) then decodes/prints the response; no local state writes.
-cli	keyorix user suspend	cli/cmd/user.go	516	<expr>	D	cli/cmd/user.go:509-521 RunE validates flags and calls runAccountStateChange -> SuspendUserWithResponse, a single REST call; server-side SuspendUser atomicity is deferred-AT separately (see POST /api/v1/users/{id}/suspend).
-cli	keyorix user suspend-inactive	cli/cmd/user.go	835	runUserSuspendInactive	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix user reactivate	cli/cmd/user.go	544	<expr>	D	cli/cmd/user.go:524-537 RunE validates flags and calls runAccountStateChange -> ReactivateUserWithResponse, a single REST call; no local writes.
+cli	keyorix user reissue-one-time-password	cli/cmd/user.go	753	runUserReissueOneTimePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix user resend-setup-link	cli/cmd/user.go	697	<expr>	D	cli/cmd/user.go:677-722 RunE makes a single REST call (ResendSetupLinkWithResponse) then prints the result; no local state writes.
+cli	keyorix user revoke-sessions	cli/cmd/user.go	580	<expr>	D	cli/cmd/user.go:560-601 RunE makes a single REST call (RevokeUserSessionsWithResponse) then decodes/prints the response; no local state writes.
+cli	keyorix user suspend	cli/cmd/user.go	529	<expr>	D	cli/cmd/user.go:509-521 RunE validates flags and calls runAccountStateChange -> SuspendUserWithResponse, a single REST call; server-side SuspendUser atomicity is deferred-AT separately (see POST /api/v1/users/{id}/suspend).
+cli	keyorix user suspend-inactive	cli/cmd/user.go	848	runUserSuspendInactive	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix user update	cli/cmd/user.go	326	runUserUpdate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix validate	server/admin/validate.go	18	runAdminValidate	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix verify-audit	server/admin/audit_verify.go	50	runVerifyAudit	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -427,26 +428,26 @@ grpc	UserService.GetUser	server/proto/keyorix.proto	93	GetUser	none	single/no wr
 grpc	UserService.ListUsers	server/proto/keyorix.proto	102	ListUsers	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.ReissueOneTimePassword	server/proto/keyorix.proto	108	ReissueOneTimePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.UpdateUser	server/proto/keyorix.proto	96	UpdateUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	anomaly_detection	server/main.go	1448		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	audit_checkpoint	server/main.go	1776		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	audit_owed_backfill	server/main.go	1906		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	auto_rotation	server/main.go	1654		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	break_glass_review_reminder	server/main.go	1956		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	certificate_expiry	server/main.go	1609		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	compliance_digest	server/main.go	1676		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	data_retention	server/main.go	1537		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	dynamic_secret_sweep	server/main.go	1842		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	evidence_delivery	server/main.go	1729		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	expiry_reminder	server/main.go	1587		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	jit_access_expiry	server/main.go	1801		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
-job	license_expiry	server/main.go	1632		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	login_attempt_prune	server/main.go	1867		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	mfa_stepup_grant_prune	server/main.go	1914		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	read_quota_alerts	server/main.go	1969		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recertification	server/main.go	1702		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recover_admin_alert	server/main.go	1930		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	retention_purge	server/main.go	1494		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
-job	rotation_reminder	server/main.go	1565		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	anomaly_detection	server/main.go	1480		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	audit_checkpoint	server/main.go	1808		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	audit_owed_backfill	server/main.go	1938		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	auto_rotation	server/main.go	1686		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	break_glass_review_reminder	server/main.go	1988		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	certificate_expiry	server/main.go	1641		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	compliance_digest	server/main.go	1708		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	data_retention	server/main.go	1569		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	dynamic_secret_sweep	server/main.go	1874		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	evidence_delivery	server/main.go	1761		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	expiry_reminder	server/main.go	1619		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	jit_access_expiry	server/main.go	1833		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
+job	license_expiry	server/main.go	1664		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	login_attempt_prune	server/main.go	1899		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	mfa_stepup_grant_prune	server/main.go	1946		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	read_quota_alerts	server/main.go	2001		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recertification	server/main.go	1734		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recover_admin_alert	server/main.go	1962		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	retention_purge	server/main.go	1526		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
+job	rotation_reminder	server/main.go	1597		none	single/no write-shaped call found by a 1-hop scan of the handler body
 mcp	keyorix_get_secret	internal/mcp/tools.go	63		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 mcp	keyorix_list_secrets	internal/mcp/tools.go	65		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 rest	DELETE /api/v1/alert-escalation-policies/{id}	server/http/router.go	425	alertEscalationHandler.Delete	C	server/http/handlers/alert_escalation.go:174-195: DeleteAlertEscalationPolicy is the primary write; LogAlertEscalationPolicyDeleted runs after it as a synchronous audit-trail write -- the policy deletion has already committed by the time the audit call happens.

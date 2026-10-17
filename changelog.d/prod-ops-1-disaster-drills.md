@@ -1,0 +1,2 @@
+### Testing
+- **Disaster drills.** `scripts/drills/disaster.sh` rehearses SIGKILL under write load (SQLite and PostgreSQL), a PostgreSQL outage and recovery (via a TCP forwarder, `scripts/drills/tools/tcpproxy.go`) and a full SQLite data directory (`ulimit -f`), checking that acknowledged writes survive, the server recovers or fails closed with a clear message, no secret value is disclosed without its audit row, and `admin verify-audit` stays VALID. Runbook: `docs/operator/drill-disaster.md`.

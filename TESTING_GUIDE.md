@@ -162,6 +162,17 @@ against the real backend, kept separate from the mocked specs under
   real UI against the real backend, asserting no console errors and no
   failed network requests, across secrets/projects/users/roles/groups/
   sharing/audit/notifications/compliance/settings pages.
+- **Demo journeys** (`web/e2e/demo/*.spec.ts`, `make e2e-web-demo`): the demo
+  catalogue as eight Playwright specs on the same harness (one fresh server
+  per file): login and forced MFA enrolment, secret create/rotate/history/
+  rollback, share with expiry and revoke, machine identity and token, audit
+  search, compliance evidence export and verify, an anomaly after a trigger,
+  and break-glass in the audit log. Kept out of `web/e2e/real/` on purpose, so
+  the pull_request profile's `web-e2e-real-smoke` job does not run them. They
+  are meant for the full CI profile only (merge queue, push to `main`,
+  `ci:full`); that needs its own job in `ci.yml`, which is not part of this
+  change. Until then, run them with `make e2e-web-demo`. The anomaly journey
+  waits for the detector's first pass (about a minute).
 
 ### Running it
 

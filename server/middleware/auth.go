@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -1503,6 +1504,18 @@ func RequireRole(role string) func(next http.Handler) http.Handler {
 func buildRequestContext(parent context.Context, userCtx *UserContext, coreService *core.KeyorixCore) context.Context {
 	ctx := context.WithValue(parent, userContextKey, userCtx)
 	ctx = context.WithValue(ctx, coreServiceContextKey, coreService)
+	// Tell the request's log fields who this is (logging.Holder is shared by pointer,
+	// so the access log and core's log lines see it).
+	if h := logging.HolderFrom(parent); h != nil {
+		switch {
+		case userCtx == nil:
+			h.SetPrincipalType(logging.PrincipalAnonymous)
+		case userCtx.MachineIdentityID != nil:
+			h.SetPrincipalType(logging.PrincipalMachine)
+		default:
+			h.SetPrincipalType(logging.PrincipalUser)
+		}
+	}
 	if userCtx != nil && userCtx.ImpersonatedBy != nil {
 		ctx = core.WithImpersonation(ctx, *userCtx.ImpersonatedBy)
 	}

@@ -21,8 +21,10 @@
 //     secretFlags flag followed by a value on a non-comment line is a hit. There is
 //     no allowlist: a script that needs a secret uses KEYORIX_* env vars (the
 //     *_FILE form where a file is natural), --from-file, or a stdin pipe. This
-//     covers flag-style argv only: a secret in curl -H/-d, docker -e, helm --set,
-//     kubectl --from-literal or an interpreter's argv is NOT detected here.
+//     also catches (SCRIPTS-SECRETS-2) a credential in curl -H/-d/--json/-u and in
+//     docker -e NAME=VALUE; the exact shapes and what is NOT recognised (variable-held
+//     headers/bodies, helm --set, kubectl --from-literal, interpreter argv) are listed
+//     above findSecretArgvShape.
 //   - Only the flags in secretFlags. A new secret-carrying flag must be added.
 //
 // An intentional "don't do this" example opts out per line with the marker
@@ -151,8 +153,9 @@ func scanTextForSecrets(content string) []docsSecretHit {
 }
 
 // scanShellForSecrets flags a secretFlags flag with a value on any non-comment line of a
-// shell script. Comment-only lines are skipped (they document, they do not execute); a
-// trailing comment on a code line is still scanned, and the explicit marker opts a line out.
+// shell script, and the tool-specific argv shapes in findSecretArgvShape. Comment-only
+// lines are skipped (they document, they do not execute); a trailing comment on a code
+// line is still scanned, and the explicit marker opts a line out.
 func scanShellForSecrets(content string) []docsSecretHit {
 	var hits []docsSecretHit
 	for i, line := range strings.Split(content, "\n") {
@@ -161,9 +164,95 @@ func scanShellForSecrets(content string) []docsSecretHit {
 		}
 		if f := findSecretOnCommandLine(line, false); f != "" {
 			hits = append(hits, docsSecretHit{i + 1, f, strings.TrimSpace(line)})
+			continue
+		}
+		if f := findSecretArgvShape(line); f != "" {
+			hits = append(hits, docsSecretHit{i + 1, f, strings.TrimSpace(line)})
 		}
 	}
 	return hits
+}
+
+// SCRIPTS-SECRETS-2: the argv shapes that are not "--secret-flag value".
+//
+// Recognised (one line at a time, comment-only lines already skipped):
+//   - curl/wget header flag (-H, --header) whose header NAME is a credential header
+//     (Authorization, Proxy-Authorization, Cookie, and any X-*Token / *Key / *Secret /
+//     *Auth / *Password header, e.g. X-Vault-Token, X-Keyorix-Bootstrap-Token).
+//     `-H @file` is the safe form. The header value is not inspected: a
+//     credential header on argv is the problem whatever it expands to.
+//   - curl body flags (-d, --data, --data-raw, --data-binary, --data-urlencode,
+//     --data-ascii, --json) whose literal value (the next quoted word, or bare word)
+//     does not start with '@' and mentions a credential word (password, passphrase,
+//     token, secret, totp, mfa, otp, api key, credential). `--data-binary @-`
+//     and `-d @file` are the safe forms.
+//   - docker/podman env flag (-e, --env) with NAME=VALUE where NAME contains
+//     PASSWORD, PASSWD, TOKEN, SECRET, PASSPHRASE, API_KEY, MFA, TOTP or CODE.
+//     `-e NAME` (inherit from the environment) and `--env-file` are the safe forms.
+//   - curl -u/--user USER:PASS.
+//
+// NOT recognised, so a green run is not more than this: a header or body held in a
+// variable ("$hdr", "$body") or built by a function; a header split from its flag by a
+// line continuation; helm --set, kubectl --from-literal and an interpreter's argv
+// (python3 -c / jq --arg). `NAME=value cmd` environment prefixes are not argv and are
+// deliberately allowed.
+var (
+	credHeaderFlagRE = regexp.MustCompile(`(?i)(?:^|[\s(])(?:-H|--header)(?:=|\s+)["']?(?:Authorization|Proxy-Authorization|Cookie|X-[A-Za-z0-9-]*(?:Token|Key|Secret|Auth|Password)[A-Za-z0-9-]*)\s*:`)
+	curlBodyFlagRE   = regexp.MustCompile(`(?:^|[\s(])(-d|--data|--data-raw|--data-binary|--data-urlencode|--data-ascii|--json)(?:=|\s+)(\S.*)$`)
+	credWordRE       = regexp.MustCompile(`(?i)pass(?:word|wd|phrase)?|token|totp|mfa|otp|api[_-]?key|credential|secret[_-]?(?:value|key|id)|client_secret|\\?"value\\?"`)
+	envFlagCredRE    = regexp.MustCompile(`(?:^|[\s(])(?:-e|--env)(?:=|\s+)["']?[A-Za-z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|PASSPHRASE|API_?KEY|MFA|TOTP|CODE)[A-Za-z0-9_]*=`)
+	curlUserFlagRE   = regexp.MustCompile(`(?:^|[\s(])(?:-u|--user)(?:=|\s+)["']?[^\s"':@]+:[^\s"']`)
+)
+
+// firstWord returns the first shell word of s: a quoted string (to its closing quote,
+// honouring backslash escapes inside double quotes) or a bare run up to whitespace.
+func firstWord(s string) string {
+	if s == "" {
+		return ""
+	}
+	q := s[0]
+	if q != '"' && q != '\'' {
+		if i := strings.IndexAny(s, " \t"); i >= 0 {
+			return s[:i]
+		}
+		return s
+	}
+	for i := 1; i < len(s); i++ {
+		if q == '"' && s[i] == '\\' {
+			i++
+			continue
+		}
+		if s[i] == q {
+			return s[1:i]
+		}
+	}
+	return s[1:]
+}
+
+func findSecretArgvShape(line string) string {
+	if strings.Contains(line, docsSecretsAllowMarker) {
+		return ""
+	}
+	if m := credHeaderFlagRE.FindString(line); m != "" {
+		return "credential header on argv: " + strings.TrimSpace(m)
+	}
+	for _, m := range curlBodyFlagRE.FindAllStringSubmatch(line, -1) {
+		val := firstWord(m[2])
+		if strings.HasPrefix(val, "@") {
+			continue
+		}
+		if credWordRE.MatchString(val) {
+			return "credential in " + m[1] + " body on argv"
+		}
+	}
+	if m := envFlagCredRE.FindString(line); m != "" {
+		return "credential container env on argv: " + strings.TrimSpace(m)
+	}
+	// -u means "UTC" to date and "unique" to sort, so only a line that names curl counts.
+	if strings.Contains(line, "curl") && curlUserFlagRE.MatchString(line) {
+		return "credential in curl -u on argv"
+	}
+	return ""
 }
 
 var docsSecretsSkipDirs = map[string]bool{
@@ -279,6 +368,22 @@ func TestDocsSecretGuardCalibration(t *testing.T) {
 		"pat token":        `keyorix-migrate vault plan-access --server "$S" --token "$PAT"`,
 		"equals form":      `"$CLI" login --password="$PW"`,
 		"trailing comment": `"$CLI" login --password "$PW" # not a comment-only line`,
+		// SCRIPTS-SECRETS-2 shapes.
+		"bearer header":        `curl -s -H "Authorization: Bearer $TOKEN" "$URL/api/v1/x"`,
+		"bearer header equals": `curl -s --header="Authorization: Bearer $TOKEN" "$URL"`,
+		"header array":         `H=(-H "X-Vault-Token: ${ROOT_TOKEN}")`,
+		"header in args+=":     `[ -n "$t" ] && args+=(-H "Authorization: Bearer $t")`,
+		"vault token single":   `curl -sf -H 'X-Vault-Token: abc' "$A"`,
+		"cookie header":        `curl -H "Cookie: session=$S" "$URL"`,
+		"bootstrap header":     `curl -H "X-Keyorix-Bootstrap-Token: ${T:-}" "$URL"`,
+		"login json body":      `curl -s -X POST "$URL" -d "{\"username\":\"a\",\"password\":\"$PW\"}"`,
+		"data-raw body":        `curl -s --data-raw '{"password":"x"}' "$URL"`,
+		"json flag body":       `curl -s --json "{\"mfa_code\":\"$C\"}" "$URL"`,
+		"urlencode body":       `curl --data-urlencode "token=$T" "$URL"`,
+		"docker env password":  `docker run -d -e KEYORIX_MASTER_PASSWORD="$PW" img`,
+		"docker env token":     `    -e KEYORIX_BOOTSTRAP_TOKEN="$TOK" \`,
+		"docker env long":      `docker run --env POSTGRES_PASSWORD=x img`,
+		"curl user":            `curl -u "admin:$PW" "$URL"`,
 	} {
 		if len(scanShellForSecrets(sh)) == 0 {
 			t.Errorf("shell guard missed (%s): %q", name, sh)
@@ -292,6 +397,22 @@ func TestDocsSecretGuardCalibration(t *testing.T) {
 		"comment only":   `# the old form was --password "$PW" and leaked into ps`,
 		"flag then flag": `"$CLI" secret create --value --name x`,
 		"allow marker":   `"$CLI" login --password "$PW" # docs-secrets:allow (fixture)`,
+		// SCRIPTS-SECRETS-2 safe forms.
+		"header file":          `curl -s -H @"$hdr" "$URL/api/v1/x"`,
+		"header file plain":    `curl -s -H @.hdr "$URL"`,
+		"content type header":  `curl -s -H "Content-Type: application/json" "$URL"`,
+		"data from stdin":      `printf '%s' "$body" | curl -s --data-binary @- "$URL"`,
+		"data from file":       `curl -s -d @"$f" "$URL"`,
+		"quoted at file":       `curl -s -d "@$f" "$URL"`,
+		"data without secret":  `curl -s -X POST -d '{"name":"p1"}' "$URL"`,
+		"tr -d":                `printf x | tr -d '\n'`,
+		"docker env-file":      `docker run --env-file "$envf" img`,
+		"docker env inherit":   `docker run -e KEYORIX_MASTER_PASSWORD img`,
+		"docker env plain":     `docker run -e TZ=UTC -e LOG_LEVEL=debug img`,
+		"bootstrap env prefix": `KEYORIX_BOOTSTRAP_TOKEN="$T" "$CLI" system init`,
+		"test -e":              `[ -e "$TOKEN_FILE" ] && echo ok`,
+		"curl user no pass":    `curl -u admin "$URL"`,
+		"allow marker curl":    `curl -H "Authorization: Bearer $T" "$URL" # docs-secrets:allow (fixture)`,
 	} {
 		if hits := scanShellForSecrets(sh); len(hits) != 0 {
 			t.Errorf("shell guard false positive (%s): %q -> %+v", name, sh, hits)
