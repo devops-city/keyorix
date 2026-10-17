@@ -7773,7 +7773,7 @@ func (w *FaultyStorage) VerifyAuditChainSegment(ctx context.Context, seg storage
 	return w.real.VerifyAuditChainSegment(ctx, seg)
 }
 
-func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func() error) error {
+func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func(context.Context) error) error {
 	fire, kind, injected := w.check("WithAuditCheckpointLock")
 	if fire {
 		switch kind {
@@ -7789,7 +7789,7 @@ func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func() e
 	return w.real.WithAuditCheckpointLock(ctx, fn)
 }
 
-func (w *FaultyStorage) WithBootstrapLock(ctx context.Context, fn func() error) error {
+func (w *FaultyStorage) WithBootstrapLock(ctx context.Context, fn func(context.Context) error) error {
 	fire, kind, injected := w.check("WithBootstrapLock")
 	if fire {
 		switch kind {
@@ -7821,7 +7821,7 @@ func (w *FaultyStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 	return w.real.WithNamedLock(ctx, lockKey, fn)
 }
 
-func (w *FaultyStorage) WithSchedulerLock(ctx context.Context, key int64, fn func() error) (bool, error) {
+func (w *FaultyStorage) WithSchedulerLock(ctx context.Context, key int64, fn func(context.Context) error) (bool, error) {
 	fire, kind, injected := w.check("WithSchedulerLock")
 	if fire {
 		switch kind {

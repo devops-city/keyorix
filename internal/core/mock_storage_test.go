@@ -27,8 +27,8 @@ type MockStorage struct {
 }
 
 // WithSchedulerLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithSchedulerLock(_ context.Context, _ int64, fn func() error) (bool, error) {
-	return true, fn()
+func (m *MockStorage) WithSchedulerLock(ctx context.Context, _ int64, fn func(context.Context) error) (bool, error) {
+	return true, fn(ctx)
 }
 
 // TryAcquireSchedulerLock/ReleaseSchedulerLock are no-ops in tests (single
@@ -41,13 +41,13 @@ func (m *MockStorage) ReleaseSchedulerLock(_ context.Context, _ int64, _ string)
 }
 
 // WithAuditCheckpointLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithAuditCheckpointLock(_ context.Context, fn func() error) error {
-	return fn()
+func (m *MockStorage) WithAuditCheckpointLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 // WithBootstrapLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithBootstrapLock(_ context.Context, fn func() error) error {
-	return fn()
+func (m *MockStorage) WithBootstrapLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 // WithNamedLock runs fn directly in tests (single instance, no DB lock).

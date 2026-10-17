@@ -126,7 +126,7 @@ func TestWithSchedulerLock_S29_FnErrorPropagates(t *testing.T) {
 
 	want := assert.AnError
 	ran := false
-	got, gotErr := ls.WithSchedulerLock(context.Background(), 99, func() error {
+	got, gotErr := ls.WithSchedulerLock(context.Background(), 99, func(context.Context) error {
 		ran = true
 		return want
 	})
@@ -150,7 +150,7 @@ func TestWithAuditCheckpointLock_S29_FnError(t *testing.T) {
 	ls := NewLocalStorage(db)
 
 	want := assert.AnError
-	gotErr := ls.WithAuditCheckpointLock(context.Background(), func() error { return want })
+	gotErr := ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error { return want })
 	require.ErrorIs(t, gotErr, want)
 }
 
@@ -167,8 +167,8 @@ func TestWithAuditCheckpointLock_S29_Serializes(t *testing.T) {
 	ctx := context.Background()
 
 	var seq []int
-	require.NoError(t, ls.WithAuditCheckpointLock(ctx, func() error { seq = append(seq, 1); return nil }))
-	require.NoError(t, ls.WithAuditCheckpointLock(ctx, func() error { seq = append(seq, 2); return nil }))
+	require.NoError(t, ls.WithAuditCheckpointLock(ctx, func(context.Context) error { seq = append(seq, 1); return nil }))
+	require.NoError(t, ls.WithAuditCheckpointLock(ctx, func(context.Context) error { seq = append(seq, 2); return nil }))
 	assert.Equal(t, []int{1, 2}, seq)
 }
 

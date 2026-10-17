@@ -319,7 +319,12 @@ storage:
     # pooler: none                # none (default) | pgbouncer-session | pgbouncer-transaction.
     #   POSTGRES ONLY. Names the connection pooler in front of PostgreSQL;
     #   pgbouncer-transaction changes how statements and advisory locks are
-    #   run. See docs/postgresql-poolers.md.
+    #   run. Only PgBouncer is supported; other poolers and proxies (PgCat,
+    #   Odyssey, RDS Proxy, Supavisor, pgpool-II, ...) are not tested and not
+    #   supported. A lost advisory lock (backend killed, failover, partition)
+    #   stops its holder in every mode; a lost server-presence or single_writer
+    #   lock shuts the server down with exit status 1. See
+    #   docs/postgresql-poolers.md.
 ```
 
 ### PostgreSQL TLS

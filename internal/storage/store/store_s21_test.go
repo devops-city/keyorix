@@ -42,7 +42,7 @@ func TestWithSchedulerLock_S21_HappyPath(t *testing.T) {
 	ls := newS21UniqueStore(t)
 	called := false
 
-	ran, err := ls.WithSchedulerLock(context.Background(), 1, func() error {
+	ran, err := ls.WithSchedulerLock(context.Background(), 1, func(context.Context) error {
 		called = true
 		return nil
 	})
@@ -58,7 +58,7 @@ func TestWithSchedulerLock_S21_HappyPath(t *testing.T) {
 func TestWithSchedulerLock_S21_PanicRecovery(t *testing.T) {
 	ls := newS21UniqueStore(t)
 
-	ran, err := ls.WithSchedulerLock(context.Background(), 2, func() error {
+	ran, err := ls.WithSchedulerLock(context.Background(), 2, func(context.Context) error {
 		panic("simulated scheduler panic")
 	})
 
@@ -70,21 +70,21 @@ func TestWithSchedulerLock_S21_PanicRecovery(t *testing.T) {
 // TestRunProtected_S21_NilReturn verifies that runProtected returns nil when fn
 // returns nil (basic success path).
 func TestRunProtected_S21_NilReturn(t *testing.T) {
-	err := runProtected(func() error { return nil })
+	err := runProtected(context.Background(), func(context.Context) error { return nil })
 	require.NoError(t, err)
 }
 
 // TestRunProtected_S21_ErrorReturn verifies that runProtected propagates fn's error.
 func TestRunProtected_S21_ErrorReturn(t *testing.T) {
 	sentinel := errors.New("fn error")
-	err := runProtected(func() error { return sentinel })
+	err := runProtected(context.Background(), func(context.Context) error { return sentinel })
 	require.ErrorIs(t, err, sentinel)
 }
 
 // TestRunProtected_S21_PanicToError verifies that runProtected converts a panic
 // value into a non-nil error.
 func TestRunProtected_S21_PanicToError(t *testing.T) {
-	err := runProtected(func() error { panic("boom") })
+	err := runProtected(context.Background(), func(context.Context) error { panic("boom") })
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "panicked")
 }
@@ -99,7 +99,7 @@ func TestWithAuditCheckpointLock_S21_HappyPath(t *testing.T) {
 	ls := newS21UniqueStore(t)
 	called := false
 
-	err := ls.WithAuditCheckpointLock(context.Background(), func() error {
+	err := ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error {
 		called = true
 		return nil
 	})
