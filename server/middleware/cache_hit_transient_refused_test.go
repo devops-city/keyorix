@@ -1,12 +1,13 @@
-// cache_hit_transient_degrade_test.go — INV-MW-05's transient half (#2518).
+// cache_hit_transient_refused_test.go — the transient half of the cache-hit
+// re-check (INV-MW-cache-hit-recheck-fails-closed, CACHE-FAILCLOSED-1; it was
+// INV-MW-05's "degrade to the stale snapshot" half, #2518, until then).
 //
 // serveAuthCacheHit re-reads every revocation-relevant field on each cache hit
 // (#G18). A DEFINITIVE revocation signal denies and evicts —
 // g18_cache_hit_revocation_test.go covers that half. An INDETERMINATE one (the
 // re-read itself failed: a storage error, not a verdict on the credential) must
-// degrade to the cached snapshot: the request proceeds with the stale cached
-// principal, it is neither failed closed (401/500) nor failed open (the stale
-// snapshot's own restrictions still apply), and the entry is not evicted.
+// refuse the request as temporarily unavailable (503 + Retry-After), never
+// serve the cached principal, and must not evict the entry.
 //
 // auth_transient_error_test.go covers only the SLOW path's transient handling
 // (a cache MISS whose validateToken fails transiently → 503, no negative
@@ -14,10 +15,13 @@
 //
 // The storage error is produced by dropping the table the cache-hit re-read
 // queries after the entry is cached — a real error out of the real
-// LocalStorage → core path, not a mock. What this does NOT cover: a context
-// deadline during the re-read (same code path — serveAuthCacheHit does not
-// distinguish error kinds beyond the revocation sentinels — so not separately
-// exercised), and RemoteStorage (never wired into the server, ADR-083).
+// LocalStorage → core path, not a mock. cache_hit_fail_closed_test.go covers
+// the same contract with internal/faultstorage on each branch's exact re-check
+// method, including recovery and a revoked credential. What neither covers: a
+// context deadline during the re-read (same code path — serveAuthCacheHit does
+// not distinguish error kinds beyond the revocation sentinels — so not
+// separately exercised), and RemoteStorage (never wired into the server,
+// ADR-083).
 package middleware
 
 import (
@@ -55,12 +59,11 @@ func requirePositiveCacheEntry(t *testing.T, raw string) {
 	require.NotNil(t, entry.userCtx, "a transient re-read error must not replace the entry with a negative tombstone")
 }
 
-// TestCacheHit_PATTransientStorageError_DegradesToStaleSnapshot: the PAT
-// table becomes unreadable after the entry is cached. CurrentPATRestriction
-// fails with a non-sentinel error, so the request proceeds on the cached
-// principal — and the CACHED CIDR restriction (10.0.0.0/8, from the slow path)
-// still applies, proving this is degrade-to-stale, not fail-open.
-func TestCacheHit_PATTransientStorageError_DegradesToStaleSnapshot(t *testing.T) {
+// TestCacheHit_PATTransientStorageError_Refused: the PAT table becomes
+// unreadable after the entry is cached. CurrentPATRestriction fails with a
+// non-sentinel error, so the request is refused 503 from every network — the
+// in-allowlist one included (it used to be served from the cached principal).
+func TestCacheHit_PATTransientStorageError_Refused(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -84,16 +87,16 @@ func TestCacheHit_PATTransientStorageError_DegradesToStaleSnapshot(t *testing.T)
 	require.NotErrorIs(t, reErr, core.ErrPATRevoked)
 	require.NotErrorIs(t, reErr, core.ErrPATExpired)
 
-	require.Equal(t, http.StatusOK, serveFrom(handler, raw, "10.1.2.3:5555"),
-		"a transient storage error on a cache hit must degrade to the cached principal, not 401/500")
-	require.Equal(t, http.StatusForbidden, serveFrom(handler, raw, "203.0.113.9:5555"),
-		"degrading to the stale snapshot must still enforce the snapshot's own network restriction (not fail open)")
+	require.Equal(t, http.StatusServiceUnavailable, serveFrom(handler, raw, "10.1.2.3:5555"),
+		"a transient storage error on a cache hit must refuse the request, not authenticate from the cache")
+	require.Equal(t, http.StatusServiceUnavailable, serveFrom(handler, raw, "203.0.113.9:5555"),
+		"the refusal does not depend on the network the request came from")
 	requirePositiveCacheEntry(t, raw)
 }
 
-// TestCacheHit_MachineTokenTransientStorageError_DegradesToStaleSnapshot is the
-// machine-token branch (CurrentMachineTokenRestriction).
-func TestCacheHit_MachineTokenTransientStorageError_DegradesToStaleSnapshot(t *testing.T) {
+// TestCacheHit_MachineTokenTransientStorageError_Refused is the machine-token
+// branch (CurrentMachineTokenRestriction).
+func TestCacheHit_MachineTokenTransientStorageError_Refused(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
@@ -117,14 +120,15 @@ func TestCacheHit_MachineTokenTransientStorageError_DegradesToStaleSnapshot(t *t
 	require.NotErrorIs(t, reErr, core.ErrMachineTokenRevoked)
 	require.NotErrorIs(t, reErr, core.ErrMachineTokenExpired)
 
-	require.Equal(t, http.StatusOK, serveG18(handler, raw),
-		"a transient storage error on a machine-token cache hit must degrade to the cached principal, not 401/500")
+	require.Equal(t, http.StatusServiceUnavailable, serveG18(handler, raw),
+		"a transient storage error on a machine-token cache hit must refuse the request, not authenticate from the cache")
 	requirePositiveCacheEntry(t, raw)
 }
 
-// TestCacheHit_SessionTransientStorageError_DegradesToStaleSnapshot is the
-// interactive-session branch (AccountUsabilityAndState).
-func TestCacheHit_SessionTransientStorageError_DegradesToStaleSnapshot(t *testing.T) {
+// TestCacheHit_SessionTransientStorageError_Refused is the interactive-session
+// branch (the account half of SessionCacheHitLiveness): the users table is
+// gone, so the account read fails while the session row still reads live.
+func TestCacheHit_SessionTransientStorageError_Refused(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	resetTokenCacheG18(validToken)
 	t.Cleanup(func() { resetTokenCacheG18(validToken) })
@@ -143,18 +147,18 @@ func TestCacheHit_SessionTransientStorageError_DegradesToStaleSnapshot(t *testin
 	_, _, reErr := coreService.AccountUsabilityAndState(t.Context(), 1)
 	require.Error(t, reErr, "precondition: the cache-hit re-read must actually fail")
 
-	require.Equal(t, http.StatusOK, serveG18(handler, validToken),
-		"a transient storage error on a session cache hit must degrade to the cached principal, not 401/500")
+	require.Equal(t, http.StatusServiceUnavailable, serveG18(handler, validToken),
+		"a transient storage error on a session cache hit must refuse the request, not authenticate from the cache")
 	requirePositiveCacheEntry(t, validToken)
 }
 
 // TestCacheHit_MachineIdentityInactive_IsDefinitiveNotTransient pins the
-// boundary between the two halves of INV-MW-05: CurrentMachineTokenRestriction's
+// boundary between the definitive half (INV-MW-05) and the transient half: CurrentMachineTokenRestriction's
 // doc comment says a no-longer-active machine identity is one of three signals
 // the caller "must treat as deny the request, not a transient lookup failure to
 // degrade past" — but it used to be returned as a plain fmt.Errorf, and
 // serveAuthCacheHit only denied on the two revoked/expired sentinels, so it fell
-// into the degrade-to-stale branch. On the replica that ran the suspension the
+// into the (then) degrade-to-stale branch. On the replica that ran the suspension the
 // token cache is flushed (SetMachineTokenCacheFlusher), so the stale accept was
 // visible on every OTHER replica (and wherever the flusher is not wired) for up
 // to validTokenTTL.

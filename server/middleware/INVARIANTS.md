@@ -37,16 +37,19 @@ Format: `INV-MW-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   Guard: `auth.go` lines ~563-568; cross-package
   `server/http/session_revoke_race_test.go:TestSessionRevoke_ConcurrentRevokeDoesNotResurrectCachedAuth`,
   `TestSessionRevoke_SecondReplicaNeverInvalidatedCacheHitDenied`.
-- **INV-MW-05** A definitive revocation signal (revoked/expired/inactive/session-gone) on a
-  cache hit denies AND evicts (`denyRevokedCacheHit` → `InvalidateTokenCacheByHash`); a
-  transient storage error degrades to the stale cached snapshot — with that snapshot's own
-  restrictions still applied — rather than failing open or closed. Every definitive signal is
-  a TYPED sentinel so the two halves are distinguishable by `errors.Is`, not by message.
+- **INV-MW-05** A definitive revocation signal (revoked/expired/inactive/session-gone/
+  account-gone) on a cache hit denies AND evicts (`denyRevokedCacheHit` →
+  `InvalidateTokenCacheByHash`). Every definitive signal is a TYPED sentinel (or, for the
+  account row, `storage.IsUserNotFound`) so it is distinguishable from a failed read by
+  `errors.Is`, not by message. The transient half — a failed re-read — is SUPERSEDED by
+  INV-MW-cache-hit-recheck-fails-closed (CACHE-FAILCLOSED-1, 2026-10-17): it used to degrade
+  to the stale cached snapshot, and now refuses the request with 503.
   Why: #146's philosophy generalized by #G18; `docs/findings/2026-09-20-FINDING-session-revoke-cache-race.md`.
   Guard: `g18_cache_hit_revocation_test.go` (definitive half),
-  `cache_hit_transient_degrade_test.go` (transient half, #2579 — note
-  `auth_transient_error_test.go` covers only the SLOW path and never reaches
-  `serveAuthCacheHit`), `internal/core/machine_identity_not_active_sentinel_test.go`
+  `cache_hit_fail_closed_test.go` (`TestCacheHit_RevokedCredentialAndStorageError_NeverAccepted`:
+  a revocation is denied and evicted on the first readable re-check after an outage;
+  `TestCacheHit_SessionAccountGone_DeniedNotRefused`),
+  `internal/core/machine_identity_not_active_sentinel_test.go`
   (the sentinels themselves, with both calibration directions).
   Closed 2026-10-05 (#2518): `inactive` was listed in this invariant but not actually
   enforced. `CurrentMachineTokenRestriction` returned a no-longer-active owning machine
