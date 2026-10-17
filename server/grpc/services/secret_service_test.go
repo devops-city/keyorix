@@ -53,6 +53,9 @@ func newSecretTestRig(t *testing.T) *secretTestRig {
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.DynamicSecretConfig{}, &models.SecretACL{}, &models.SecretAccessSchedule{},
 		&models.MachineIdentity{}, &models.MachineIdentityRole{},
+		// Secret mutations write their audit row in their own transaction and fail
+		// without it (AUDIT-MUTATION-TX-1).
+		&models.AuditEvent{}, &models.SecretAccessLog{},
 	))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "default"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "development"}).Error)

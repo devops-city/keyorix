@@ -29,7 +29,7 @@ can renew or rotate them before they lapse. Requires secrets.read at the project
 
 func runSecretExpiring(_ *cobra.Command, _ []string) error {
 	if expiringProject == 0 {
-		return fmt.Errorf("--project is required")
+		return usageErrorf("--project is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -88,7 +88,7 @@ Requires secrets.read at the project scope.`,
 
 func runSecretOrphaned(_ *cobra.Command, _ []string) error {
 	if orphanedProject == 0 {
-		return fmt.Errorf("--project is required")
+		return usageErrorf("--project is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -272,7 +272,7 @@ the transfer, and when. Requires secrets.read at the secret's scope.`,
 
 func runSecretOwnershipHistory(_ *cobra.Command, _ []string) error {
 	if ownershipHistoryID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -327,7 +327,7 @@ as a role grant, not secrets.write); each secret is authorized individually.`,
 
 func runSecretReassignOwner(_ *cobra.Command, _ []string) error {
 	if reassignProject == 0 || reassignFrom == 0 || reassignTo == 0 {
-		return fmt.Errorf("--project, --from and --to are all required")
+		return usageErrorf("--project, --from and --to are all required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {

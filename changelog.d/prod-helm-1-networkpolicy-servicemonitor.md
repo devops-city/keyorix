@@ -1,0 +1,3 @@
+### Added
+- Helm chart: `networkPolicy.ingress.controllerNamespaceSelector` restricts the web pods to the ingress controller's namespace, `networkPolicy.ingress.monitoringNamespaceSelector` admits Prometheus to the server port, and `networkPolicy.egress.databaseTo` / `kmsTo` / `kmsPorts` name the external PostgreSQL and key-management endpoints the server may reach. `helm install` warns when egress is restricted, the database is external and no destination is given.
+- Helm chart: optional Prometheus Operator `ServiceMonitor` (`monitoring.serviceMonitor.enabled`) scraping `/metrics` over verified HTTPS with the generated bearer token.

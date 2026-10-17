@@ -12,6 +12,6 @@
   `TestAuditLogs_QueryCountDoesNotGrowWithActors`, `TestUsersList_QueryCountDoesNotGrowWithPageSize`,
   `TestProjectAccessReview_QueryCountDoesNotGrowWithSecrets`, `TestSecretsInventoryCSV_QueryCountDoesNotGrowWithOwners`,
   `TestMachineAuditReport_QueryCountDoesNotGrowWithIdentities`.
-  **Not covered**: `annotateShareViewSecrets` still runs `AuthorizeSecret` once per share's secret
-  (the shares list stays per-row until authorization has a batch form); `collectFolderDescendants`
-  lists children per folder of an ACL grant.
+  `annotateShareViewSecrets` decides the page's secret readability with `AuthorizeSecretsBatch`
+  (INV-CORE-batch-secret-authz-equals-per-row).
+  **Not covered**: `collectFolderDescendants` lists children per folder of an ACL grant.
