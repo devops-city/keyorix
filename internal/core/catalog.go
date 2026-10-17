@@ -488,6 +488,12 @@ func (c *KeyorixCore) ListEnvironments(ctx context.Context) ([]*models.Environme
 	return c.storage.ListEnvironments(ctx)
 }
 
+// CountSecretsByEnvironment returns the live-secret count per environment id in
+// one grouped query (DASH-SIGNALS-1). Environments with no secrets are absent.
+func (c *KeyorixCore) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	return c.storage.CountSecretsByEnvironment(ctx, envIDs)
+}
+
 // ListEnvironmentsByProject returns environments scoped to a specific project.
 func (c *KeyorixCore) ListEnvironmentsByProject(ctx context.Context, projectID uint) ([]*models.Environment, error) {
 	return c.storage.ListEnvironmentsByProject(ctx, projectID)
