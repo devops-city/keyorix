@@ -10,7 +10,6 @@ import (
 	"net/http"
 
 	"github.com/keyorixhq/keyorix/internal/core"
-	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
 // PATExpiryHandler handles self-service expired-token cleanup.
@@ -26,9 +25,8 @@ func NewPATExpiryHandler(coreService *core.KeyorixCore) *PATExpiryHandler {
 // ListExpiredPATs handles GET /auth/tokens/expired — returns the caller's
 // non-revoked PATs whose ExpiresAt is in the past.
 func (h *PATExpiryHandler) ListExpiredPATs(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserFromContext(r.Context())
-	if userCtx == nil {
-		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+	userCtx, ok := mustGetHumanUser(w, r)
+	if !ok {
 		return
 	}
 	tokens, err := h.coreService.ListExpiredOwnPATs(r.Context(), userCtx.UserID)
@@ -46,9 +44,8 @@ func (h *PATExpiryHandler) ListExpiredPATs(w http.ResponseWriter, r *http.Reques
 // BulkRevokeExpiredPATs handles DELETE /auth/tokens/expired — bulk-revokes all
 // the caller's non-revoked, expired PATs and returns 204 No Content on success.
 func (h *PATExpiryHandler) BulkRevokeExpiredPATs(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserFromContext(r.Context())
-	if userCtx == nil {
-		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+	userCtx, ok := mustGetHumanUser(w, r)
+	if !ok {
 		return
 	}
 	_, err := h.coreService.BulkRevokeExpiredOwnPATs(r.Context(), userCtx.UserID)
