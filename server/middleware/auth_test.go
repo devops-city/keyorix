@@ -103,12 +103,12 @@ func (fakeValidator) ValidateMachineToken(_ context.Context, token string) (*mod
 
 func (fakeValidator) OIDCEnabled() bool { return true }
 
-func (fakeValidator) ValidateOIDCToken(_ context.Context, token string) (*models.MachineIdentity, []string, error) {
+func (fakeValidator) ValidateOIDCToken(_ context.Context, token string) (*models.MachineIdentity, []string, time.Time, error) {
 	// A three-segment dotted token whose middle segment marks it valid.
 	if token == "header.valid.sig" {
-		return &models.MachineIdentity{ID: 11, Name: "k8s-sa", State: "active"}, []string{"project_viewer"}, nil
+		return &models.MachineIdentity{ID: 11, Name: "k8s-sa", State: "active"}, []string{"project_viewer"}, time.Now().Add(time.Hour), nil
 	}
-	return nil, nil, fmt.Errorf("invalid token")
+	return nil, nil, time.Time{}, fmt.Errorf("invalid token")
 }
 
 // newTestAuthMiddleware builds the Authentication middleware with the fake
