@@ -1,0 +1,2 @@
+### Testing
+- **gRPC low-privilege method walk.** Every registered RPC (unary and streaming, read from `GetServiceInfo`) is now called as a zero-grant machine token, a project viewer user and a project-restricted PAT with canary ids bound; each must be refused or return an empty result, never leak canary data, and never change table content (`server/grpc/authz_walk_lowpriv_test.go`, `INV-GRPC-lowpriv-method-walk`).
