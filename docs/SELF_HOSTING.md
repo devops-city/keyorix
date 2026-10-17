@@ -5,6 +5,10 @@ outbound telemetry. This guide covers a Docker Compose deployment (web UI + API
 server + PostgreSQL), the production concerns that actually matter (encryption
 keys, backups, upgrades, TLS), and how to recover.
 
+If the server refuses to start (a configuration error, a key-file permission, a schema
+epoch newer than the binary, a lock held by another process), the message and the fix
+are in [operator/startup-refusals.md](operator/startup-refusals.md).
+
 The stack is three containers:
 
 | Service    | Image                              | Purpose                                  |
