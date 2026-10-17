@@ -168,7 +168,7 @@ func TestConcurrency_PurgeDeletedProjectsBefore_RestoreWinsRace(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.UserRole{}, &models.Group{}, &models.GroupRole{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.UserRole{}, &models.Group{}, &models.GroupRole{}, &models.MachineIdentityRole{}))
 	ls := NewLocalStorage(db)
 	ctx := context.Background()
 

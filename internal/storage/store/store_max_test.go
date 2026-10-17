@@ -1020,7 +1020,7 @@ func newPurgeStore(t *testing.T) *LocalStorage {
 		&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.PersonalAccessToken{}, &models.Session{},
 		&models.Project{}, &models.Environment{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretDependency{},
-		&models.GroupRole{}, &models.Group{},
+		&models.GroupRole{}, &models.Group{}, &models.MachineIdentityRole{},
 		&models.AnomalyAlert{},
 		&models.AccessReviewCampaign{}, &models.AccessReviewItem{},
 		&models.BreakGlassActivation{},

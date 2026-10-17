@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -136,4 +137,37 @@ func TestDeleteProjectCascade_RevokesSecretACLs_NotRevivedByRestoreProject(t *te
 	acls, err := ls.ListSecretACLs(ctx, secretID)
 	require.NoError(t, err)
 	assert.Empty(t, acls)
+}
+
+// #2795: PurgeDeletedProjectsBefore hard-deleted the project but left its
+// machine_identity_roles rows behind, and GetMachineRoleIDsAt's LEFT JOIN on projects
+// then read the missing project (NULL deleted_at) as live, so the machine kept a role at
+// a project that no longer exists.
+func TestPurgeDeletedProjectsBefore_RemovesMachineIdentityRoles(t *testing.T) {
+	ctx := context.Background()
+	ls := newPurgeTestStore(t)
+	old := time.Now().AddDate(0, 0, -40)
+	cutoff := time.Now().AddDate(0, 0, -30)
+
+	require.NoError(t, ls.db.Create(&models.Project{ID: 1, Name: "doomed"}).Error)
+	require.NoError(t, ls.db.Unscoped().Model(&models.Project{}).Where("id = ?", 1).Update("deleted_at", old).Error)
+	require.NoError(t, ls.db.Create(&models.Project{ID: 2, Name: "live"}).Error)
+	require.NoError(t, ls.db.Create(&models.MachineIdentityRole{MachineIdentityID: 7, RoleID: 3, ProjectID: 1}).Error)
+	require.NoError(t, ls.db.Create(&models.MachineIdentityRole{MachineIdentityID: 7, RoleID: 4, ProjectID: 2}).Error)
+
+	n, err := ls.PurgeDeletedProjectsBefore(ctx, cutoff)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n)
+
+	ids, err := ls.GetMachineRoleIDsAt(ctx, 7, storage.Scope{ProjectID: 1})
+	require.NoError(t, err)
+	assert.Empty(t, ids, "the machine must hold no role at a purged project")
+
+	var rows int64
+	require.NoError(t, ls.db.Model(&models.MachineIdentityRole{}).Where("project_id = ?", 1).Count(&rows).Error)
+	assert.Zero(t, rows, "the purged project's machine_identity_roles rows must be deleted")
+
+	ids, err = ls.GetMachineRoleIDsAt(ctx, 7, storage.Scope{ProjectID: 2})
+	require.NoError(t, err)
+	assert.Equal(t, []uint{4}, ids, "a live project's machine grant must survive the purge")
 }

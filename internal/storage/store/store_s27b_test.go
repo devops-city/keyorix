@@ -151,7 +151,7 @@ func TestPurgeDeletedUsersBefore_S27b_PurgesUser(t *testing.T) {
 // TestPurgeDeletedProjectsBefore_S27b_ZeroProjects verifies early-return when
 // no projects are eligible.
 func TestPurgeDeletedProjectsBefore_S27b_ZeroProjects(t *testing.T) {
-	ls := newS27bStore(t, &models.Project{}, &models.UserRole{}, &models.GroupRole{})
+	ls := newS27bStore(t, &models.Project{}, &models.UserRole{}, &models.GroupRole{}, &models.MachineIdentityRole{})
 	n, err := ls.PurgeDeletedProjectsBefore(context.Background(), time.Now().Add(-time.Hour))
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), n)
@@ -160,7 +160,7 @@ func TestPurgeDeletedProjectsBefore_S27b_ZeroProjects(t *testing.T) {
 // TestPurgeDeletedProjectsBefore_S27b_PurgesProject verifies that a soft-deleted
 // project is hard-deleted along with its scoped role grants.
 func TestPurgeDeletedProjectsBefore_S27b_PurgesProject(t *testing.T) {
-	ls := newS27bStore(t, &models.Project{}, &models.UserRole{}, &models.GroupRole{})
+	ls := newS27bStore(t, &models.Project{}, &models.UserRole{}, &models.GroupRole{}, &models.MachineIdentityRole{})
 	ctx := context.Background()
 	past := time.Now().Add(-24 * time.Hour)
 
