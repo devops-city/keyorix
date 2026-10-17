@@ -497,6 +497,31 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
+## 6g. "Last used" in access recertification now means "within the review period"
+
+The per-user "last used" of the project access review (and of the items a campaign
+snapshots from it) used to be the user's most recent secret activity anywhere in the
+audit log. It now looks back over the recertification period only,
+`recertification.cadence_days` (default 90, at most 366). The meaning changes from
+"no activity ever" to **"no activity within the last N days"**: a user whose last
+activity is older than the period now shows no last use, so they read as dormant where
+before they showed an old date. Expect more entries flagged dormant after the upgrade
+if your cadence is shorter than your longest-idle users' last activity. Nothing is
+deleted; raise `cadence_days` (up to 366) for a longer look-back.
+
+- API: `GET /api/v1/projects/{id}/access-review` adds `activity_window_days`, and
+  campaigns carry `activity_window_days`.
+- Campaign CSV export: a new last column, `last_used_window_days` (a CSV parser that
+  reads columns by position is unaffected; one that rejects extra columns is not).
+  Campaigns opened before the upgrade say `all_history`: their `last_used_at` was
+  computed over the whole log and stays as recorded.
+- The `dormant-access` control and the digest now say "no use in the last 90 days"; the
+  dormant-grant count itself is unchanged (it was always judged against 90 days).
+- The campaigns table gets one column, `activity_window_days`, added automatically at
+  start-up (nothing to run); a rollback to the previous binary ignores it.
+
+Details: [recertification-activity-window.md](recertification-activity-window.md).
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

@@ -36,8 +36,9 @@ type AccessReviewEntry struct {
 	SecretID      uint   `json:"secret_id,omitempty"`
 	SecretName    string `json:"secret_name,omitempty"`
 	// LastUsedAt is the principal's most recent secret access in the project (from
-	// the audit trail) — nil = no recorded activity, the signal for dormant standing
-	// access. Set for user principals only; group last-use is not aggregated.
+	// the audit trail) within the report's ActivityWindowDays — nil = no recorded
+	// activity in that window, the signal for dormant standing access. Set for user
+	// principals only; group last-use is not aggregated.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
 
@@ -56,6 +57,11 @@ type AccessReviewReport struct {
 	Degraded bool `json:"degraded"`
 	// DegradedReasons names the failed sub-query with its underlying error.
 	DegradedReasons []string `json:"degraded_reasons,omitempty"`
+	// ActivityWindowDays is the look-back of every entry's LastUsedAt: the last N days
+	// of the audit trail, the recertification period (capped at
+	// storage.ActivityLookbackMaxDays). A nil LastUsedAt means no activity WITHIN this
+	// window, not no activity ever.
+	ActivityWindowDays int `json:"activity_window_days"`
 }
 
 // degrade records that a sub-query of the access review could not be answered:
@@ -438,10 +444,14 @@ func (c *KeyorixCore) appendSecretGrantEntries(ctx context.Context, secrets []*m
 }
 
 // annotateLastUsedAt stamps each user entry with their most recent secret-access time
-// (dormant-access detection). #453: a lookup failure must degrade the report rather
-// than silently leave every LastUsedAt nil — that would read as "genuinely never used."
+// within the recertification period (dormant-access detection): an entry with no
+// activity in the last report.ActivityWindowDays days keeps a nil LastUsedAt.
+// #453: a lookup failure must degrade the report rather than silently leave every
+// LastUsedAt nil — that would read as "no activity in the window."
 func (c *KeyorixCore) annotateLastUsedAt(ctx context.Context, entries []*AccessReviewEntry, report *AccessReviewReport, projectID uint) {
-	activity, err := c.storage.LastUserSecretActivity(ctx, projectID)
+	days := storage.ActivityLookbackDays(c.recertCadence())
+	report.ActivityWindowDays = days
+	activity, err := c.storage.LastUserSecretActivity(ctx, projectID, storage.ActivityLookbackSince(c.now(), days))
 	if err != nil {
 		report.degrade(fmt.Sprintf("last_used:project=%d", projectID), err)
 		return

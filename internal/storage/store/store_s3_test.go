@@ -437,7 +437,7 @@ func TestLastUserSecretActivity(t *testing.T) {
 	// Event for a different project — should not appear.
 	insertAuditEvent(t, ls, 1, 99, "secret.read", now)
 
-	result, err := ls.LastUserSecretActivity(ctx, 10)
+	result, err := ls.LastUserSecretActivity(ctx, 10, time.Time{})
 	require.NoError(t, err)
 	assert.Contains(t, result, uint(1))
 	assert.Contains(t, result, uint(2))
@@ -455,7 +455,7 @@ func TestLastUserRoleManagementActivity(t *testing.T) {
 	// Non-role event — must not appear.
 	insertAuditEvent(t, ls, 3, 20, "secret.read", now)
 
-	result, err := ls.LastUserRoleManagementActivity(ctx, 20)
+	result, err := ls.LastUserRoleManagementActivity(ctx, 20, time.Time{})
 	require.NoError(t, err)
 	require.Contains(t, result, uint(3))
 	// Most recent role event was "removed" at -30m.
@@ -470,7 +470,7 @@ func TestLastUserSecretDeletionActivity(t *testing.T) {
 	insertAuditEvent(t, ls, 4, 30, "secret.deleted", now.Add(-time.Hour))
 	insertAuditEvent(t, ls, 5, 30, "secret.read", now)
 
-	result, err := ls.LastUserSecretDeletionActivity(ctx, 30)
+	result, err := ls.LastUserSecretDeletionActivity(ctx, 30, time.Time{})
 	require.NoError(t, err)
 	assert.Contains(t, result, uint(4), "user who deleted must appear")
 	assert.NotContains(t, result, uint(5), "user who only read must not appear")
@@ -484,7 +484,7 @@ func TestLastUserSecretReadActivity(t *testing.T) {
 	insertAuditEvent(t, ls, 6, 40, "secret.read", now.Add(-time.Hour))
 	insertAuditEvent(t, ls, 6, 40, "secret.created", now) // write, not read
 
-	result, err := ls.LastUserSecretReadActivity(ctx, 40)
+	result, err := ls.LastUserSecretReadActivity(ctx, 40, time.Time{})
 	require.NoError(t, err)
 	require.Contains(t, result, uint(6))
 	// Most recent read event is -1h, not now.
@@ -500,7 +500,7 @@ func TestLastUserSecretWriteActivity(t *testing.T) {
 	insertAuditEvent(t, ls, 7, 50, "secret.updated", now.Add(-time.Hour))
 	insertAuditEvent(t, ls, 7, 50, "secret.rotated", now)
 
-	result, err := ls.LastUserSecretWriteActivity(ctx, 50)
+	result, err := ls.LastUserSecretWriteActivity(ctx, 50, time.Time{})
 	require.NoError(t, err)
 	require.Contains(t, result, uint(7))
 	// Most recent write is "rotated" at now.
