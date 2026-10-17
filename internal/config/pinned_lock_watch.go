@@ -9,23 +9,36 @@ import (
 )
 
 // PinnedLockPingInterval is how often WatchPinnedLockConn checks that the
-// connection holding a transaction-scoped advisory lock is still alive. A
+// connection holding an advisory lock across statements is still alive. A
 // variable so tests can shorten it; read when a watch starts.
 var PinnedLockPingInterval = 5 * time.Second
 
 // PinnedLockPingTimeout bounds one ping. A pinned connection that does not
 // answer in this time is treated as lost: the driver closes a connection whose
-// statement was cancelled, which ends the transaction and the lock with it. A
-// variable so tests can shorten it; read when a watch starts.
+// statement was cancelled, which ends the backend (or the pinning transaction)
+// and the lock with it. A variable so tests can shorten it; read when a watch
+// starts.
 var PinnedLockPingTimeout = 5 * time.Second
 
-// WatchPinnedLockConn pings conn, which holds a transaction-scoped advisory
-// lock (BeginPinnedLockTx), every PinnedLockPingInterval until stop is called.
-// The first failed ping means the lock transaction is gone (a
-// pg_terminate_backend, a PostgreSQL restart or failover, a PgBouncer timeout
-// or restart): the lock is no longer held, and nothing else would tell the
-// holder. onLost is then called once, from the watcher goroutine, with the
-// ping error, and the watch ends.
+// ReportAdvisoryLockLost is the one log line every advisory-lock holder writes
+// when it finds its lock gone (WatchPinnedLockConnGated, and the single_writer
+// poller, which checks the lock itself): who names the holder, err is what
+// showed the loss. One wording, so an operator can search for every kind of
+// lock loss at once.
+func ReportAdvisoryLockLost(who string, err error) {
+	log.Printf("%s: the connection holding the advisory lock is gone, so the lock is lost: %v", who, err)
+}
+
+// WatchPinnedLockConn pings conn, which holds an advisory lock across
+// statements, every PinnedLockPingInterval until stop is called: a
+// transaction-scoped lock in its pinning transaction (BeginPinnedLockTx), or a
+// session lock on a connection checked out for the lock's whole life. The
+// first failed ping means the backend, and the lock with it, is gone (a
+// pg_terminate_backend, a PostgreSQL restart or failover, a network partition,
+// a PgBouncer timeout or restart): nothing else would tell the holder, since
+// the critical section's own queries run on other connections. onLost is then
+// called once, from the watcher goroutine, with the ping error, and the watch
+// ends.
 //
 // The ping is the driver's empty statement over the simple query protocol, so
 // it holds no snapshot in the open transaction (see advisoryLockSession).
@@ -121,7 +134,7 @@ func WatchPinnedLockConnGated(conn *sql.Conn, gate PinnedConnGate, who string, o
 			if err == nil {
 				continue
 			}
-			log.Printf("%s: the connection holding the advisory lock is gone, so the lock is lost: %v", who, err)
+			ReportAdvisoryLockLost(who, err)
 			onLost(err)
 			return
 		}

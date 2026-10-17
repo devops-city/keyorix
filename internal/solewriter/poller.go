@@ -3,6 +3,7 @@ package solewriter
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -133,6 +134,7 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 			// (system.write only).
 			logf("holder lock lost: %v", err)
 			g.leaveLocked(lockSessionGone)
+			g.lockLost(fmt.Errorf("the holder session is gone: %w", pingErr))
 		}
 		return
 	}
@@ -142,6 +144,7 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	switch {
 	case pid != g.pid || !held:
 		reason = fmt.Sprintf("holder lock lost (connection backend pid %d, was %d, held=%v)", pid, g.pid, held)
+		g.lockLost(errors.New(reason))
 	case holderPID.Int64 != int64(g.pid) || holderHash.String != nonceHash(g.nonce) || holderXmin.String != g.holderXmin:
 		// Only a session that passed the fence (one with the holder's tag) can
 		// write the row; this boot never rewrites it. A different pid or hash
@@ -360,8 +363,9 @@ type Status struct {
 
 // EmergencySQL is the documented two-step for an emergency change made
 // directly in the database while the server runs.
-const EmergencySQL = "SELECT pg_terminate_backend(holder_pid) FROM " + HolderTable + "; then run the change. " +
-	"The server stops trusting its caches within 1 s and does not resume until it is restarted."
+const EmergencySQL = "SELECT pg_terminate_backend(holder_pid) FROM " + HolderTable + "; then run the change, in the same psql call. " +
+	"The server stops trusting its caches within 1 s, shuts down and exits 1 (its lock is gone); " +
+	"its supervisor restarts it, which closes the fence again."
 
 // Status snapshots the guard.
 func (g *Guard) Status() Status {

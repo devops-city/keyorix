@@ -2512,7 +2512,7 @@ export interface paths {
         put?: never;
         /**
          * Suspend a secret
-         * @description Block value reads without deleting the secret. Versions, shares, and the audit trail are preserved. Requires secrets.write.
+         * @description Block value reads without deleting the secret. Versions, shares, and the audit trail are preserved. Requires secrets.write. A request with `clear_synced_copies` is refused with 500 and error `SuspendAuditUnavailable` when its audit event cannot be recorded; nothing is changed. The message says what to do now: suspend again without `clear_synced_copies` to cut access immediately (a plain suspend is never blocked by the audit log); clearing the synced copies needs the audit log back. There is no gRPC twin: the gRPC API has no secret suspend.
          */
         post: operations["suspendSecret"];
         delete?: never;
@@ -5897,6 +5897,11 @@ export interface components {
             id?: number;
             project_id?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+             */
+            secret_count?: number;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -9521,7 +9526,7 @@ export interface operations {
                 "application/json": {
                     /** @description Optional reason recorded in the audit events. */
                     reason?: string;
-                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. */
+                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. That refusal, and one that stops the run early because a secret's own audit event was refused (`details` then holds `suspended` and `failed`), answer 500 with error `SuspendAuditUnavailable`; suspend again without `clear_synced_copies` to cut access immediately. */
                     clear_synced_copies?: boolean;
                 };
             };
@@ -10608,6 +10613,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            500: components["responses"]["Error"];
         };
     };
     resumeSecret: {

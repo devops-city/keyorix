@@ -860,6 +860,9 @@ func (c *KeyorixCore) DeleteSecretWithPermissionCheck(ctx context.Context, id, u
 	return c.DeleteSecret(ctx, id)
 }
 
+// EventSecretRestored is RestoreSecret's audit event, the inverse of secret.deleted.
+const EventSecretRestored = "secret.restored"
+
 // RestoreSecret clears a soft-deleted secret's deleted_at (ADR-033), bringing it
 // back within the retention window. actorID is the admin performing it (0 = no
 // authenticated principal). Audited as secret.restored — the inverse of the
@@ -876,11 +879,39 @@ func (c *KeyorixCore) RestoreSecret(ctx context.Context, actorID, id uint) error
 		// row and return a proper error if the id is unknown.
 		secret = nil
 	}
-	if err := c.storage.RestoreSecret(ctx, id); err != nil {
+	// RESTORE-SECRET-AUDIT-TX: the restore and its secret.restored row commit in ONE
+	// transaction, the append last (secret_mutation_audit.go), so a failed append
+	// rolls the restore back. The storage restore takes the environment's named lock
+	// around its own transaction; here that lock is taken FIRST, outside the
+	// transaction, in the same order (lock, then transaction), and the nested
+	// storage call finds it already held. Taking it inside the transaction would
+	// invert that order (SQLite: the writer lock is held from BEGIN IMMEDIATE).
+	row := mutationAuditRow{eventType: EventSecretRestored, userID: actorPtr(actorID), secretID: id}
+	if a, ok := secretMutationAuditFromContext(ctx); ok {
+		row.username, row.ip, row.userAgent, row.clientOrigin = a.Username, a.IP, a.UserAgent, a.ClientOrigin
+	}
+	sink := &auditForwardSink{}
+	restore := func(ctx context.Context) error {
+		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+			if err := tx.RestoreSecret(ctx, id); err != nil {
+				return err
+			}
+			if secret != nil {
+				row.projectID = secret.ProjectID
+			}
+			row.description = c.auditRef(ctx, tx, auditKindSecret, id) + " restored"
+			return c.writeMutationAuditTx(ctx, tx, sink, row)
+		})
+	}
+	if secret != nil && secret.EnvironmentID != 0 {
+		err = c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(secret.EnvironmentID), restore)
+	} else {
+		err = restore(ctx)
+	}
+	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	sid := id
-	c.writeAuditEvent(ctx, "secret.restored", actorPtr(actorID), &sid, c.auditRef(ctx, c.storage, auditKindSecret, id)+" restored")
+	sink.Flush(c)
 	// Emit an audit event for every dependency edge that is now re-active so
 	// operators know which rotation plans are unblocked (best-effort).
 	if secret != nil {

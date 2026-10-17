@@ -45,7 +45,8 @@ Not supported, refused at start-up: SQLite, `security.auth_rate_limit_fallback.r
   that names the server's backend pid and this page.
 - A direct write after the fence has been deliberately bypassed in SQL, or after the server lost its
   lock, takes effect **within 1 second**. In both cases the server notices and stops trusting its
-  caches until it is restarted. "Bypassed in SQL" covers a table owner or superuser who disables,
+  caches until it is restarted; after a lost lock it also shuts down and exits 1 at once (see
+  "Emergency SQL"). "Bypassed in SQL" covers a table owner or superuser who disables,
   drops, re-creates or replaces a fence trigger or function, even inside one transaction that puts
   everything back before it commits; one who adds a table inheriting from a fenced table, or makes a
   fenced table the child or partition of another; and one who rewrites or renames a fenced table's
@@ -63,7 +64,7 @@ Not supported, refused at start-up: SQLite, `security.auth_rate_limit_fallback.r
 ## Emergency SQL
 
 To change a security table directly while the server runs (for example, revoke a credential with
-`psql` because the API is unavailable to you), use two steps:
+`psql` because the API is unavailable to you), use two steps, in one `psql` call:
 
 ```sql
 -- 1. End the server's lock session. The fence opens at once.
@@ -72,10 +73,13 @@ SELECT pg_terminate_backend(holder_pid) FROM keyorix_sole_writer;
 UPDATE machine_identity_credentials SET revoked = true WHERE id = 42;
 ```
 
-The server sees within 1 second that its lock is gone. From then on it confirms every read against
-the database, as a server without the setting does, and it does not trust its caches again until it
-is restarted. Restart it when you are done. The same text is in the refusal's HINT and in
-`keyorix-server admin validate --posture`.
+The server sees within 1 second that its lock is gone. Without the lock nothing stops a second
+single-writer server from starting beside it, so it stops trusting its caches, shuts down gracefully
+and exits with status 1 (docs/postgresql-poolers.md, "When a lock is lost"). Its supervisor
+(systemd, Kubernetes, Docker's restart policy) starts it again, and the new process takes the lock
+and closes the fence again before it serves: that is why both statements go in one call. Without a
+supervisor, start it again yourself when you are done. The first step is in the refusal's HINT and,
+with this, in `keyorix-server admin validate --posture`.
 
 Stopping the server first is the other way: with no server running, the fence lets every write
 through.

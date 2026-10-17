@@ -1,7 +1,7 @@
 - **INV-STORE-cache-epoch-trigger-fires-for-every-writer** On PostgreSQL the secret-node read
   cache trusts a `cache_epoch` stamp only when the `secret_nodes` cache-epoch trigger is ENABLE
   ALWAYS (`tgenabled = 'A'`) and the reading connection's `session_replication_role` is `'origin'`
-  (`pgCacheEpochTriggerFires`, used by `SecretNodeCacheEpochTriggerPresent` and every statement
+  (`pgTriggerFiresForEveryWriter`, used by `SecretNodeCacheEpochTriggerPresent` and every statement
   built on `nodeTriggerExistsExpr`). The migration (`EnsureSecretNodeCacheEpoch`) installs the
   trigger ENABLE ALWAYS and converges an ordinary one back to it. The server refuses to start
   unless its sessions are in `'origin'` (`internal/storage` `refuseNonOriginReplicationRole`, also
@@ -15,6 +15,6 @@
   `..._ProofFailsClosedInReplicaSession_Postgres`, `..._ReplicaOnlyTriggerIsNotTrusted_Postgres`,
   `..._MigrationConvergesToEnableAlways_Postgres`; all red on the base) and `internal/storage`
   `TestCreateStorage_Postgres_RefusesNonOriginReplicationRole` (per-database, per-role-in-database
-  and DSN settings); chart: `deploy` `TestHelmPostgresSettings`. Not covered: the
-  role-permission generation proof (`rolePermGenerationTriggersPresentExpr`, triggers already
-  ENABLE ALWAYS) still accepts `tgenabled = 'R'` and does not read the session's mode.
+  and DSN settings); chart: `deploy` `TestHelmPostgresSettings`. The role-permission generation
+  proof (`rolePermGenerationTriggersPresentExpr`) uses the same condition since STORAGE-HARDEN-1
+  (INV-STORE-role-permission-generation-trigger-maintained).

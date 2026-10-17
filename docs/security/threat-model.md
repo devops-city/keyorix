@@ -343,11 +343,17 @@ Carried forward from `security-review-2026-09.md` rather than re-litigated:
   `PasswordKeyProvider`'s own long-lived string stays open **by design** — it
   can legitimately be asked for the KEK a second time during in-process
   rotation, so wiping after the first call would break the second.
-- **Authentication cache window (~30s).** A revoked token or suspended
-  account can remain valid for up to this TTL; logout and password-change
-  evict immediately, and suspension purges DB sessions immediately — the
-  cached-validity window is the only lag. A documented tradeoff, tunable by
-  reducing the TTL.
+- **Authentication cache window (~30s), narrowed.** Every cache hit
+  re-checks the credential's revocation state live (session row, account
+  state, PAT, machine token, federated machine identity), so a revocation is
+  honoured on the next request on every replica. Since CACHE-FAILCLOSED-1
+  (2026-10-17) a re-check that cannot read the database refuses the request
+  (503 / `Unavailable`) instead of serving the cached login, so an outage no
+  longer hides a revocation; the cost is that a brief database outage rejects
+  cached credentials. Still held for up to the cache TTL: an impersonation
+  session's admin-ceiling re-check (slow path only, behind its own
+  60s cache) and a federated JWT's own
+  `exp`. See `threat-models/authentication.md` AUTH-1 and AUTH-11.
 - **CLI local mode** — removed (ADR-108 Decision A, §5.2); no longer an open item.
 - **API response wire-hygiene** — an open, in-progress internal finding
   (§4, B3/B4 information-disclosure row) covering PascalCase/snake_case

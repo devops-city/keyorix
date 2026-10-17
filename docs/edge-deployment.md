@@ -126,13 +126,11 @@ How this is tested, and what that does not cover:
 - `kill -9` stops the process, not the disk. It exercises the "server crash"
   case, not a power cut; a power-cut run needs a device that drops unsynced
   writes and has not been done yet.
-- **Known gap.** The audit row for a create, update or delete is written just
-  after that change commits, not in the same transaction. A crash in that
-  window leaves an acknowledged change with no audit row (the chain still
-  verifies; it is a missing entry, not a broken one). Reads are not affected:
-  their audit row is committed before the value is returned. The soak reports
-  this and fails on it when run with `--strict-mutation-audit`; the fix is
-  tracked as its own work item.
+- The audit row for a create, update, delete or restore is written in the same
+  transaction as that change, so a crash cannot leave an acknowledged change
+  with no audit row. Reads are not affected: their audit row is committed
+  before the value is returned. The soak fails on a missing row by default;
+  `--lenient-mutation-audit` only logs it.
 
 What the software cannot do for you:
 
@@ -284,6 +282,41 @@ Updating an unattended device over a flaky power supply is when to use a UPS or
 a maintenance window; an interrupted binary swap is the part this page cannot
 make atomic for you, so keep the previous binary until the new one has started
 and `admin validate` is clean.
+
+## 7a. Unattended operation: start at boot, recover without anyone
+
+**Start at boot.** Ready-to-adapt service definitions are in
+[`deploy/edge/`](../deploy/edge/): `keyorix-server.service` (systemd) and
+`io.keyorix.server.plist` (launchd, a LaunchDaemon so it runs with nobody
+logged in). Both restart the server after any exit and run it as an
+unprivileged user from the data directory, where `keyorix.yaml`, the database
+and the key files live together. The systemd unit hands the master passphrase
+over as a credential file (`LoadCredential=` +
+`--passphrase-file=${CREDENTIALS_DIRECTORY}/…`), so it is neither in the
+environment nor on the command line
+([ADR-099](adr-099-master-passphrase-sourcing.md)), waits for the data volume
+to be mounted, and never gives up retrying. `deploy/edge/edge_units_test.go`
+runs the unit's real `ExecStart` line against the built server, kills it and
+runs it again, and pins the directives above; it does not boot a real systemd
+or launchd (pending the e2e VM).
+
+**Recovering from stuck states.** Each of these is exercised against the real
+binary (`server/edge_unattended_integration_test.go`, `scripts/edge/crash-soak.sh`):
+
+| State after an unclean stop | What happens | Operator action |
+|---|---|---|
+| Stale lock files (`*.lock` beside the database and in the key directory) | Every lock is a kernel `flock`, released when the process dies; only the empty file stays, and its content is never read. | None. Do not delete them by hand while the server runs. |
+| Interrupted first-time or upgrade migration (power cut mid-start) | The schema is built idempotently; the next start finishes it. | None. Do not restore an older database to "fix" it. |
+| Data volume full | Writes fail with an error response (HTTP 500) and are not acknowledged; nothing acknowledged earlier is lost and the database is not damaged. | Free space, then restart the service. A real full filesystem has not been run yet (pending the e2e VM): the tests simulate failing writes. |
+| Crash or `kill -9` at any point | See [§4](#4-power-loss-what-to-expect). | None; run `admin verify-audit` if you care. |
+
+**What an operator must still do.** Monitor free space on the data volume and
+alert before it is full: a full disk stops writes, and with them reads that
+must be audited. Ship `admin verify-audit --json` and the checkpoint anchor off
+the device. Keep the master passphrase credential, the config and the
+recovery key backed up separately ([§6](#6-backup-and-restore)). A unit file
+only restarts the process: it cannot tell a healthy server from one that is up
+and refusing every request, so watch `/health` from outside.
 
 ## 8. Securing physical access
 
