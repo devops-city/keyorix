@@ -166,6 +166,7 @@ server:
       burst: 100
     metrics_token: ""             # GET /metrics then requires "Authorization: Bearer <token>"
     metrics_token_file: ""        # or read the token from this file (secret-file rules, see below); set one, not both
+    max_request_body_bytes: 0     # cap on each request body; 0 = built-in default (10 MiB). INSECURE when negative: a negative value removes the cap (memory-exhaustion DoS)
   access_log:
     on_sink_stall: block          # block (default) | drop — what a request does when the access-log sink stalls (see below)
   log:
@@ -182,6 +183,7 @@ server:
     tls:
       enabled: false
     tls_mode: ""                  # same two values as server.http.tls_mode above
+    max_request_body_bytes: 0     # same meaning as server.http.max_request_body_bytes; bounds each gRPC message (request and response)
     ratelimit:
       enabled: true
       requests_per_second: 25
