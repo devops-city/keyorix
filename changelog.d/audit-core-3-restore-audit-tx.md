@@ -1,0 +1,3 @@
+### Security
+- **Restoring a deleted secret can no longer commit without its `secret.restored` audit record.** `RestoreSecret` now writes the audit row in the same database transaction as the undelete, on SQLite and PostgreSQL; if the row cannot be written the request fails and the secret stays deleted. Guarded by the `restore` kind of `TestSecretMutationAudit_RowExistsIffMutationCommitted` and the restore op of `TestSecretMutationAuditFailure_FailsClosedChangesNothing`.
+- **The edge crash soak now fails on a missing mutation audit row by default.** `scripts/edge/crash-soak.sh` no longer needs `--strict-mutation-audit`; `--lenient-mutation-audit` (or `KEYORIX_SOAK_STRICT_MUTATION_AUDIT=0`) restores the old log-only behaviour.
