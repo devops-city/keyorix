@@ -3,4 +3,4 @@
 - **Scheduler jobs that read audit-sized tables must declare their bound.** `server/scheduler_audit_read_registry_test.go` derives, from the code, every scheduler job that can reach a read of `audit_events` or `secret_access_logs` and fails on one without a registry entry (one file per job, `server/REGISTRY-ENTRIES.md`) naming its bound: high-water mark, time window, id window, or a named conditional full walk.
 
 ### Documentation
-- `docs/UPGRADING.md` §6h: the first `recover_admin_alert` run after the upgrade reads the audit history once, in 100,000-id windows, resumably. `docs/PERFORMANCE.md`: SQLite long readers, and what not to run against a live database file.
+- `docs/UPGRADING.md` §6i: the first `recover_admin_alert` run after the upgrade reads the audit history once, in 100,000-id windows, resumably. `docs/PERFORMANCE.md`: SQLite long readers, and what not to run against a live database file.

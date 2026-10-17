@@ -540,7 +540,7 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
-## 6h. First start after the upgrade: recover-admin alerting reads the audit history once
+## 6i. First start after the upgrade: recover-admin alerting reads the audit history once
 
 The `recover_admin_alert` job (at start-up, then every 10 minutes) now keeps a
 high-water mark of the last audit row it examined and reads only newer rows on
