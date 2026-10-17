@@ -48,7 +48,7 @@ func TestWithAuditCheckpointLock_S24_SQLiteRunsFn(t *testing.T) {
 	ctx := context.Background()
 
 	called := false
-	err := ls.WithAuditCheckpointLock(ctx, func() error {
+	err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error {
 		called = true
 		return nil
 	})
@@ -63,7 +63,7 @@ func TestWithAuditCheckpointLock_S24_SQLiteErrorPropagates(t *testing.T) {
 	ctx := context.Background()
 
 	sentinel := errors.New("checkpoint write failure")
-	err := ls.WithAuditCheckpointLock(ctx, func() error { return sentinel })
+	err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error { return sentinel })
 	require.ErrorIs(t, err, sentinel,
 		"WithAuditCheckpointLock must propagate fn's error")
 }
@@ -85,7 +85,7 @@ func TestWithAuditCheckpointLock_S24_SQLiteSerializesConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			errs[idx] = ls.WithAuditCheckpointLock(ctx, func() error {
+			errs[idx] = ls.WithAuditCheckpointLock(ctx, func(context.Context) error {
 				mu.Lock()
 				counter++
 				mu.Unlock()
@@ -111,11 +111,11 @@ func TestWithAuditCheckpointLock_S24_SQLiteReentrantAfterRelease(t *testing.T) {
 	ctx := context.Background()
 
 	// First call
-	err := ls.WithAuditCheckpointLock(ctx, func() error { return nil })
+	err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error { return nil })
 	require.NoError(t, err, "first call must succeed")
 
 	// Second call — would deadlock if the mutex were not released.
-	err = ls.WithAuditCheckpointLock(ctx, func() error { return nil })
+	err = ls.WithAuditCheckpointLock(ctx, func(context.Context) error { return nil })
 	require.NoError(t, err, "second sequential call must not deadlock")
 }
 
@@ -132,7 +132,7 @@ func TestWithSchedulerLock_S24_MultipleKeys(t *testing.T) {
 	// Each different key value must run fn.
 	for _, key := range []int64{0, 1, -1, 999, 1<<62 - 1} {
 		ran := false
-		got, err := ls.WithSchedulerLock(ctx, key, func() error {
+		got, err := ls.WithSchedulerLock(ctx, key, func(context.Context) error {
 			ran = true
 			return nil
 		})
@@ -150,7 +150,7 @@ func TestWithSchedulerLock_S24_FnErrorReturnsTrueAndError(t *testing.T) {
 	ctx := context.Background()
 
 	sentinel := errors.New("scheduler fn error")
-	got, err := ls.WithSchedulerLock(ctx, 42, func() error { return sentinel })
+	got, err := ls.WithSchedulerLock(ctx, 42, func(context.Context) error { return sentinel })
 	assert.True(t, got, "SQLite must always return ran=true even on fn error")
 	require.ErrorIs(t, err, sentinel)
 }
@@ -161,7 +161,7 @@ func TestWithSchedulerLock_S24_NilFnReturnsTrueNoError(t *testing.T) {
 	ls := newS24Store(t)
 	ctx := context.Background()
 
-	got, err := ls.WithSchedulerLock(ctx, 7, func() error { return nil })
+	got, err := ls.WithSchedulerLock(ctx, 7, func(context.Context) error { return nil })
 	assert.True(t, got)
 	require.NoError(t, err)
 }

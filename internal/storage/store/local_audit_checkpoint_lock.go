@@ -34,12 +34,12 @@ const auditCheckpointAdvisoryLockKey = 0x4B455941_43484B50 // "KEYACHKP"
 // actually run their checkpoint decision against state left by the previous
 // writer, not silently no-op, or an operator-triggered write racing the
 // scheduler would just be dropped instead of serialized.
-func (ls *LocalStorage) WithAuditCheckpointLock(ctx context.Context, fn func() error) error {
+func (ls *LocalStorage) WithAuditCheckpointLock(ctx context.Context, fn func(ctx context.Context) error) error {
 	ls.auditCheckpointMu.Lock()
 	defer ls.auditCheckpointMu.Unlock()
 
 	if ls.db.Dialector.Name() != "postgres" {
-		return fn()
+		return fn(ctx)
 	}
 
 	sqlDB, err := ls.db.DB()
@@ -63,6 +63,6 @@ func (ls *LocalStorage) WithAuditCheckpointLock(ctx context.Context, fn func() e
 	// Release before the deferred Close so the pooled connection carries no lock.
 	defer sess.unlock(ctx, int64(auditCheckpointAdvisoryLockKey), "audit-checkpoint lock")
 
-	_, finish := sess.watch(ctx, "audit-checkpoint lock")
-	return finish(fn())
+	wctx, finish := sess.watch(ctx, "audit-checkpoint lock")
+	return finish(fn(wctx))
 }

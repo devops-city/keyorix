@@ -408,13 +408,13 @@ func soakCheckLedger(t *testing.T, a *soakAPI, led *soakLedger, cycle int) {
 	}
 }
 
-// soakStrictMutationAudit turns the known mutation-audit gap into a failure.
-// Today secret.created / secret.updated / secret.deleted are written AFTER the
-// mutation commits and the failure is only logged (internal/core/audit.go,
-// "fire-and-forget"), so a kill between the commit and that write leaves an
-// acknowledged mutation with no audit row. AUDIT-MUTATION-TX-1 moves them into
-// the mutation's transaction; when it merges, flip this default to on.
-func soakStrictMutationAudit() bool { return os.Getenv("KEYORIX_SOAK_STRICT_MUTATION_AUDIT") == "1" }
+// soakStrictMutationAudit makes a missing mutation audit row a failure. The
+// secret.created / secret.updated / secret.deleted / secret.restored rows are
+// written in the mutation's own transaction (AUDIT-MUTATION-TX-1, #3297; restore
+// in AUDIT-CORE-3), so a kill can never leave an acknowledged mutation without
+// its row. On by default; KEYORIX_SOAK_STRICT_MUTATION_AUDIT=0 opts out and
+// only logs the gap.
+func soakStrictMutationAudit() bool { return os.Getenv("KEYORIX_SOAK_STRICT_MUTATION_AUDIT") != "0" }
 
 // soakCheckAuditRows opens the database exactly as the kill left it (server is
 // dead).
@@ -423,7 +423,7 @@ func soakStrictMutationAudit() bool { return os.Getenv("KEYORIX_SOAK_STRICT_MUTA
 // audit row -- that is what strict audit durability promises (audit commits
 // and syncs before the value is released).
 //
-// Enforced only with KEYORIX_SOAK_STRICT_MUTATION_AUDIT=1, otherwise logged:
+// Enforced unless KEYORIX_SOAK_STRICT_MUTATION_AUDIT=0 (then only logged):
 // the audit row of an acknowledged create/update/delete (see
 // soakStrictMutationAudit).
 func soakCheckAuditRows(t *testing.T, dbPath string, led *soakLedger, cycle int) {

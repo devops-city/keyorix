@@ -49,7 +49,7 @@ func TestConcurrency_WithBootstrapLock_MultiInstancePostgres_ExactlyOneRunsAtOnc
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
-			err := ls.WithBootstrapLock(context.Background(), func() error {
+			err := ls.WithBootstrapLock(context.Background(), func(context.Context) error {
 				n := running.Add(1)
 				for {
 					m := maxConcurrent.Load()
@@ -86,7 +86,7 @@ func TestConcurrency_WithBootstrapLock_MultiInstancePostgres_ErrorStillReleases(
 
 	first := NewLocalStorage(pgOpen(t, dsn))
 	sentinel := assert.AnError
-	err := first.WithBootstrapLock(context.Background(), func() error {
+	err := first.WithBootstrapLock(context.Background(), func(context.Context) error {
 		return sentinel
 	})
 	require.ErrorIs(t, err, sentinel)
@@ -95,7 +95,7 @@ func TestConcurrency_WithBootstrapLock_MultiInstancePostgres_ErrorStillReleases(
 	ran := false
 	done := make(chan error, 1)
 	go func() {
-		done <- second.WithBootstrapLock(context.Background(), func() error {
+		done <- second.WithBootstrapLock(context.Background(), func(context.Context) error {
 			ran = true
 			return nil
 		})

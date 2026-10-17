@@ -11,6 +11,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
@@ -28,11 +30,15 @@ import (
 // newAnomalyConfigTestServer boots a real core, bootstraps an admin user, and
 // returns an httptest.Server wired with GetAnomalyConfig/UpdateAnomalyConfig
 // behind middleware.Authentication, plus a bearer token for that admin and
-// the core itself (so a caller can reach into storage, e.g. to force a
-// storage-error branch by closing the underlying DB after auth completes).
-func newAnomalyConfigTestServer(t *testing.T, name string) (*httptest.Server, string, *core.KeyorixCore) {
+// the FaultyStorage under the core (so a caller can arm a fault on exactly the
+// handler's own storage call; closing the DB would also fail the auth
+// cache-hit live re-check, which answers 503 by design).
+func newAnomalyConfigTestServer(t *testing.T, name string) (*httptest.Server, string, *faultstorage.FaultyStorage) {
 	t.Helper()
-	cs := freshCoreS7(t)
+	ls, ok := freshCoreS7(t).Storage().(*store.LocalStorage)
+	require.True(t, ok)
+	fs := faultstorage.NewFaultyStorage(ls, nil)
+	cs := core.NewKeyorixCore(fs)
 	mux := chi.NewRouter()
 	mux.Use(middleware.Authentication(cs))
 	mux.Get("/api/v1/admin/anomaly-config", GetAnomalyConfig)
@@ -53,7 +59,7 @@ func newAnomalyConfigTestServer(t *testing.T, name string) (*httptest.Server, st
 	session, _, err := cs.Login(ctx, &core.LoginRequest{Username: name, Password: "Kx#Vr9$Mn2!Zp4@Qw"})
 	require.NoError(t, err)
 
-	return ts, session.SessionToken, cs
+	return ts, session.SessionToken, fs
 }
 
 func TestGetAnomalyConfig_NoCoreService(t *testing.T) {
@@ -141,11 +147,13 @@ func TestUpdateAnomalyConfig_ValidationError_S1546(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "an out-of-range knob is a bad request, not a server failure")
 }
 
-// TestGetAnomalyConfig_StorageError closes the underlying DB after auth
-// completes so coreService.GetAnomalyConfig's own storage read fails with a
-// genuine (non-record-not-found) error, exercising the handler's 500 branch.
+// TestGetAnomalyConfig_StorageError arms a fault on coreService.GetAnomalyConfig's
+// own storage read after auth is cached, so it fails with a genuine
+// (non-record-not-found) error, exercising the handler's 500 branch. The DB
+// stays open: a closed DB would also fail the auth cache-hit re-check, which
+// fails closed with 503 (CACHE-FAILCLOSED-1) and never reaches the handler.
 func TestGetAnomalyConfig_StorageError(t *testing.T) {
-	ts, token, cs := newAnomalyConfigTestServer(t, "s_anomalycfg_geterr")
+	ts, token, fs := newAnomalyConfigTestServer(t, "s_anomalycfg_geterr")
 
 	newGetReq := func() *http.Request {
 		r, rerr := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/anomaly-config", nil)
@@ -155,20 +163,15 @@ func TestGetAnomalyConfig_StorageError(t *testing.T) {
 	}
 
 	// Warm-up request first: middleware.Authentication positive-caches a
-	// validated session token, so once cached, closing the DB below fails
-	// GetAnomalyConfig's own storage read without also failing session
-	// validation on the SAME request (which would produce a 401, not the 500
-	// this test targets).
+	// validated session token, so the request below is a cache hit whose live
+	// re-check succeeds and only GetAnomalyConfig's own storage read is armed
+	// to fail (a 500 from the handler, not the middleware's 503).
 	warmup, err := ts.Client().Do(newGetReq())
 	require.NoError(t, err)
 	_ = warmup.Body.Close()
 	require.Equal(t, http.StatusOK, warmup.StatusCode)
 
-	ls, ok := cs.Storage().(*store.LocalStorage)
-	require.True(t, ok)
-	sqlDB, err := ls.DB().DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
+	fs.Arm(&faultstorage.FaultSpec{Method: "GetAnomalyConfig", NthCall: 1, Kind: faultstorage.KindError, Err: errors.New("injected storage failure")})
 
 	resp, err := ts.Client().Do(newGetReq())
 	require.NoError(t, err)
@@ -176,17 +179,18 @@ func TestGetAnomalyConfig_StorageError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
 
-// TestUpdateAnomalyConfig_StorageError closes the underlying DB after auth
-// completes so a within-bounds config (passes validateAnomalyConfig, so the
-// #G44 400 branch is NOT taken) fails at the SaveAnomalyConfig write instead
-// -- the plain "InternalError" 500 branch.
+// TestUpdateAnomalyConfig_StorageError arms a fault on SaveAnomalyConfig after
+// auth is cached, so a within-bounds config (passes validateAnomalyConfig, so
+// the #G44 400 branch is NOT taken) fails at the write instead -- the plain
+// "InternalError" 500 branch. The DB stays open so the auth cache-hit re-check
+// still succeeds.
 func TestUpdateAnomalyConfig_StorageError(t *testing.T) {
-	ts, token, cs := newAnomalyConfigTestServer(t, "s_anomalycfg_puterr")
+	ts, token, fs := newAnomalyConfigTestServer(t, "s_anomalycfg_puterr")
 
 	// Warm-up GET first for the same reason as
 	// TestGetAnomalyConfig_StorageError: populate the session-token cache
-	// before the DB is closed, so the PUT below fails at SaveAnomalyConfig,
-	// not at session validation.
+	// before the fault is armed, so the PUT below fails at SaveAnomalyConfig,
+	// not at the auth re-check.
 	warmupReq, err := http.NewRequest(http.MethodGet, ts.URL+"/api/v1/admin/anomaly-config", nil)
 	require.NoError(t, err)
 	warmupReq.Header.Set("Authorization", "Bearer "+token)
@@ -195,11 +199,7 @@ func TestUpdateAnomalyConfig_StorageError(t *testing.T) {
 	_ = warmup.Body.Close()
 	require.Equal(t, http.StatusOK, warmup.StatusCode)
 
-	ls, ok := cs.Storage().(*store.LocalStorage)
-	require.True(t, ok)
-	sqlDB, err := ls.DB().DB()
-	require.NoError(t, err)
-	require.NoError(t, sqlDB.Close())
+	fs.Arm(&faultstorage.FaultSpec{Method: "SaveAnomalyConfig", NthCall: 1, Kind: faultstorage.KindError, Err: errors.New("injected storage failure")})
 
 	body := `{"lookback_days":14}`
 	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/admin/anomaly-config", strings.NewReader(body))

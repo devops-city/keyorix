@@ -27,7 +27,7 @@ func TestWithSchedulerLock_SQLiteAlwaysRuns(t *testing.T) {
 	ctx := context.Background()
 
 	ran := false
-	got, err := ls.WithSchedulerLock(ctx, 123, func() error {
+	got, err := ls.WithSchedulerLock(ctx, 123, func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -37,12 +37,12 @@ func TestWithSchedulerLock_SQLiteAlwaysRuns(t *testing.T) {
 
 	// fn's error propagates, still ran=true.
 	sentinel := errors.New("boom")
-	got, err = ls.WithSchedulerLock(ctx, 123, func() error { return sentinel })
+	got, err = ls.WithSchedulerLock(ctx, 123, func(context.Context) error { return sentinel })
 	assert.True(t, got)
 	require.ErrorIs(t, err, sentinel)
 
 	// Re-entrant: a second call still runs (no held lock on SQLite).
-	got, err = ls.WithSchedulerLock(ctx, 123, func() error { return nil })
+	got, err = ls.WithSchedulerLock(ctx, 123, func(context.Context) error { return nil })
 	require.NoError(t, err)
 	assert.True(t, got)
 }
@@ -51,7 +51,7 @@ func TestWithSchedulerLock_SQLiteAlwaysRuns(t *testing.T) {
 // scheduler goroutine.
 func TestWithSchedulerLock_RecoversPanic(t *testing.T) {
 	ls := newSchedLockStore(t)
-	got, err := ls.WithSchedulerLock(context.Background(), 7, func() error {
+	got, err := ls.WithSchedulerLock(context.Background(), 7, func(context.Context) error {
 		panic("kaboom")
 	})
 	assert.True(t, got)
