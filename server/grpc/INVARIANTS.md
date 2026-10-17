@@ -15,9 +15,18 @@ Format: `INV-GRPC-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
 - **INV-GRPC-01** gRPC cannot bypass a control that HTTP enforces, because secret-read
   enforcement (expiry, suspension, access schedule, MFA-step-up-gated `restricted` reads) is
   implemented in `internal/core`, not the HTTP handler layer. Why: ADR-105 §"What is not
-  wrong" — verified by a manual end-to-end trace for `GetSecretValue`, not an automated test.
-  UNGUARDED (#issue: nothing fails if a future core refactor moves this gate behind a
-  transport-specific wrapper; the manual trace doesn't re-run itself).
+  wrong" — verified by a manual end-to-end trace for `GetSecretValue`. Guard (the secrets.read
+  gate for a human caller): `internal/core/secret_value_read_core_gate_test.go:TestSecretValueRead_CoreRefusesCallerWithoutSecretsRead`
+  calls the two core entry points the gRPC handler uses (`GetSecretForValueRead`,
+  `GetPermittedSecretValue`) with a bare `context.Background()` — no server, no interceptor, no
+  `UserContext` — for a caller with no role, with `secrets.read` on another project only, and with
+  a role on this project that lacks it, and requires core itself to refuse each (and a positive
+  control to be served), so moving the gate into a transport wrapper goes red. Red-proved by making
+  `checkSecretReadPermission` skip its check (`go test -overlay`). **Not covered**: the machine
+  branch. `GetSecretValueResolved` takes no principal by design, so for a machine the secrets.read
+  call (`authorizeSecretScoped` -> `core.AuthorizeSecretPrincipalForSecretAction`) is enforced in
+  the handler; moving that call out of the handler is not caught here. Expiry, suspension,
+  schedule and restricted-read are core-guarded by their own tests, not re-asserted here.
 - **INV-GRPC-02** gRPC/REST decision parity for secret reads: given the same principal and
   secret, gRPC and HTTP reach the same allow/deny decision. Guard: cross-package —
   `server/http/grpc_rest_authz_parity_fuzz_test.go:FuzzGRPCRESTSecretReadAuthzParity` (filed
@@ -78,11 +87,17 @@ Format: `INV-GRPC-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
 - **INV-GRPC-09** A machine-authenticated caller and an impersonating admin are both correctly
   attributed in gRPC-originated audit events (actor kind, `MachineIdentityID`,
   `ImpersonatedBy`) — previously silently dropped both tags on the gRPC transport. Guard:
-  `interceptors/auth.go` lines ~196-240 (`withAuditAttribution`). UNGUARDED at the interceptor
-  level specifically (#issue: no interceptor-package test isolates `withAuditAttribution`
-  itself — likely covered incidentally by `services`-level tests like
-  `role_service_test.go:TestRoleService_LifecycleAuditedOverGRPC`; confirm or add a direct
-  interceptor-level test).
+  `interceptors/auth.go` `withAuditAttribution`, observed through a real audit row (the tags'
+  context keys are core-private): `interceptors/audit_attribution_test.go`
+  (`TestWithAuditAttribution_StampsAuditFields` over every principal shape,
+  `TestStreamAuthInterceptor_MachineTokenStampsMachineActorInAudit`,
+  `TestStreamAuthInterceptor_ImpersonationSessionStampsAdminInAudit`) and, for the unary
+  `AuthInterceptor` with a real machine token and a real impersonation session,
+  `interceptors/audit_attribution_unary_test.go:TestAuthInterceptor_UnaryAuditRowCarriesActorKindMachineIDAndImpersonator`
+  (actor kind, `MachineIdentityID`, `ImpersonatedBy`, `Impersonation` together). Red-proved by
+  dropping `core.WithMachineActor` and, separately, `core.WithImpersonation` from
+  `withAuditAttribution` with `go test -overlay` (`auth.go` itself is not edited): the machine and
+  impersonation subtests go red respectively.
 - **INV-GRPC-10** `TimeoutInterceptor` caps unary RPC duration (mirrors HTTP's request-timeout
   middleware); deliberately NOT applied to the stream chain since streaming RPCs (e.g.
   `StreamAuditLogs`) are legitimately long-lived; `context.WithTimeout` only ever shortens an
