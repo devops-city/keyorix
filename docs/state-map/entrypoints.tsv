@@ -18,7 +18,7 @@
 #
 # kind	id	file	line	handler	class	reason
 cli	keyorix	cli/cmd/root.go	9		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix	server/admin/admin.go	31		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix	server/admin/admin.go	32		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix __hold-lock-for-test	server/admin/testhook.go	20	runHoldLockForTest	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix access-review	cli/cmd/accessreview.go	19	runAccessReview	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix access-review attest	cli/cmd/accessreview.go	246	<expr>	D	accessreview.go:253 RunE closure calls runAccessReviewDecision(ctx, client, "attest"), which makes exactly one API call (AttestProjectAccessReviewWithResponse) and nothing else; scanner flagged it only because it could not resolve the anonymous cobra closure, not because of a real write sequence.
@@ -46,9 +46,9 @@ cli	keyorix audit checkpoint	cli/cmd/audit.go	385	runAuditCheckpoint	none	single
 cli	keyorix audit export	cli/cmd/audit.go	258	runAuditExport	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix audit export-checkpoint	server/admin/audit_export_checkpoint.go	35	runExportCheckpoint	C	audit_export_checkpoint.go runExportCheckpoint: primary artifact write is f.Write(data) to the --output file, committed and reported to the operator first; recordAdminAction is a trailing audit-log write after the export already succeeded on disk -- its failure cannot un-write or corrupt the already-exported checkpoint file.
 cli	keyorix audit export-checkpoint-key	server/admin/audit_export_checkpoint_key.go	32	runExportCheckpointKey	C	audit_export_checkpoint_key.go runExportCheckpointKey: primary artifact write is f.Write(encoded) of the derived key to the --output file (0600, O_EXCL; removed again if the write or close fails); recordAdminAction is a trailing audit-log write after the key file already exists on disk -- its failure cannot un-write or corrupt it.
-cli	keyorix audit logs	cli/cmd/audit.go	517	runAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix audit logs	cli/cmd/audit.go	519	runAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix audit migrate-chain-encoding	cli/cmd/audit.go	441	runAuditMigrateChain	none	single/no write-shaped call found by a 1-hop scan of the handler body
-cli	keyorix audit search	cli/cmd/audit.go	683	runAuditSearch	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix audit search	cli/cmd/audit.go	715	runAuditSearch	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix audit verify	cli/cmd/audit.go	43	runAuditVerify	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix backup	server/admin/backup.go	74	runAdminBackup	REVIEW	6 write-shaped call(s) found by a 1-hop scan of the handler body: storage.OpenGormDB, os.OpenFile, f.Close, os.Remove, f.Close, os.Remove
 cli	keyorix billing	cli/cmd/billing.go	24		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
@@ -64,15 +64,15 @@ cli	keyorix change-password	cli/cmd/change_password.go	26	runChangePassword	none
 cli	keyorix check-admin-password	server/admin/check_admin_password.go	45	runCheckAdminPassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix clear-login-lockout	server/admin/login_lockout.go	38	runClearLoginLockout	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix compliance	cli/cmd/compliance.go	38		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix compliance controls	cli/cmd/compliance.go	470	<expr>	D	compliance.go:469-518: if/else on --csv is a single mutually-exclusive branch, each branch makes exactly one HTTP GET call; no writes.
-cli	keyorix compliance credential-trends	cli/cmd/compliance.go	820	<expr>	D	compliance.go:819-861 makes exactly one HTTP GET call, then prints a table; no writes.
-cli	keyorix compliance digest	cli/cmd/compliance.go	533	<expr>	D	compliance.go:532-585: --send is a mutually exclusive branch from the default path -- never both in one run.
+cli	keyorix compliance controls	cli/cmd/compliance.go	477	<expr>	D	compliance.go:469-518: if/else on --csv is a single mutually-exclusive branch, each branch makes exactly one HTTP GET call; no writes.
+cli	keyorix compliance credential-trends	cli/cmd/compliance.go	827	<expr>	D	compliance.go:819-861 makes exactly one HTTP GET call, then prints a table; no writes.
+cli	keyorix compliance digest	cli/cmd/compliance.go	540	<expr>	D	compliance.go:532-585: --send is a mutually exclusive branch from the default path -- never both in one run.
 cli	keyorix compliance export	cli/cmd/compliance.go	263	<expr>	C	compliance.go:271-327: writes the evidence pack file then the detached .sig file, both local operator-disk files; explicit loud partial-failure handling ("written, but failed to write its detached signature"), safe to re-run.
-cli	keyorix compliance inventory	cli/cmd/compliance.go	760	<expr>	D	compliance.go:759-798: project-scoped vs deployment-wide is mutually exclusive, each branch one HTTP GET + emitCSV.
-cli	keyorix compliance permission-baseline	cli/cmd/compliance.go	697	<expr>	D	compliance.go:696-749: json/csv switch is mutually exclusive, each branch one GET + at most one optional local write.
-cli	keyorix compliance permission-changes	cli/cmd/compliance.go	615	<expr>	D	compliance.go:614-686 is fully read-only.
+cli	keyorix compliance inventory	cli/cmd/compliance.go	767	<expr>	D	compliance.go:759-798: project-scoped vs deployment-wide is mutually exclusive, each branch one HTTP GET + emitCSV.
+cli	keyorix compliance permission-baseline	cli/cmd/compliance.go	704	<expr>	D	compliance.go:696-749: json/csv switch is mutually exclusive, each branch one GET + at most one optional local write.
+cli	keyorix compliance permission-changes	cli/cmd/compliance.go	622	<expr>	D	compliance.go:614-686 is fully read-only.
 cli	keyorix compliance report	cli/cmd/compliance.go	162	<expr>	D	compliance.go:161-253 is fully read-only.
-cli	keyorix compliance rotation-by-backend	cli/cmd/compliance.go	880	<expr>	D	compliance.go:879-923 is fully read-only.
+cli	keyorix compliance rotation-by-backend	cli/cmd/compliance.go	887	<expr>	D	compliance.go:879-923 is fully read-only.
 cli	keyorix compliance verify	cli/cmd/compliance.go	349	<expr>	D	compliance.go:348-408: two local file reads plus one verify-only HTTP call; no state-changing writes.
 cli	keyorix config	cli/cmd/config.go	19		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix config get	cli/cmd/config.go	37	runConfigGet	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -349,22 +349,22 @@ grpc	AuditService.WriteAuditCheckpoint	server/proto/keyorix.proto	155	WriteAudit
 grpc	BreakGlassService.ActivateBreakGlass	server/proto/keyorix.proto	178	ActivateBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	BreakGlassService.ListBreakGlassActivations	server/proto/keyorix.proto	183	ListBreakGlassActivations	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	BreakGlassService.RevokeBreakGlass	server/proto/keyorix.proto	186	RevokeBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ComplianceService.GetComplianceControls	server/proto/keyorix.proto	1381	GetComplianceControls	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ComplianceService.GetCompliancePosture	server/proto/keyorix.proto	1378	GetCompliancePosture	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.CreateRefGrant	server/proto/keyorix.proto	1530	CreateRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.DeleteRefGrant	server/proto/keyorix.proto	1532	DeleteRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.ListConnectors	server/proto/keyorix.proto	1524	ListConnectors	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.ListRefGrants	server/proto/keyorix.proto	1528	ListRefGrants	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ConnectService.ReadSecret	server/proto/keyorix.proto	1526	ReadSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.ClassifyConfig	server/proto/keyorix.proto	1251	ClassifyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.CreateConfig	server/proto/keyorix.proto	1248	CreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.GetConfig	server/proto/keyorix.proto	1245	GetConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.IssueLease	server/proto/keyorix.proto	1254	IssueLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.ListConfigs	server/proto/keyorix.proto	1242	ListConfigs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.ListLeases	server/proto/keyorix.proto	1257	ListLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.RenewLease	server/proto/keyorix.proto	1263	RenewLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.RevokeAllLeases	server/proto/keyorix.proto	1266	RevokeAllLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	DynamicSecretService.RevokeLease	server/proto/keyorix.proto	1260	RevokeLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ComplianceService.GetComplianceControls	server/proto/keyorix.proto	1393	GetComplianceControls	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ComplianceService.GetCompliancePosture	server/proto/keyorix.proto	1390	GetCompliancePosture	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.CreateRefGrant	server/proto/keyorix.proto	1542	CreateRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.DeleteRefGrant	server/proto/keyorix.proto	1544	DeleteRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.ListConnectors	server/proto/keyorix.proto	1536	ListConnectors	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.ListRefGrants	server/proto/keyorix.proto	1540	ListRefGrants	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ConnectService.ReadSecret	server/proto/keyorix.proto	1538	ReadSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.ClassifyConfig	server/proto/keyorix.proto	1263	ClassifyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.CreateConfig	server/proto/keyorix.proto	1260	CreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.GetConfig	server/proto/keyorix.proto	1257	GetConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.IssueLease	server/proto/keyorix.proto	1266	IssueLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.ListConfigs	server/proto/keyorix.proto	1254	ListConfigs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.ListLeases	server/proto/keyorix.proto	1269	ListLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.RenewLease	server/proto/keyorix.proto	1275	RenewLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.RevokeAllLeases	server/proto/keyorix.proto	1278	RevokeAllLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	DynamicSecretService.RevokeLease	server/proto/keyorix.proto	1272	RevokeLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.AddGroupMember	server/proto/keyorix.proto	207	AddGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.CreateGroup	server/proto/keyorix.proto	196	CreateGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.DeleteGroup	server/proto/keyorix.proto	200	DeleteGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -374,23 +374,23 @@ grpc	GroupService.ListGroups	server/proto/keyorix.proto	192	ListGroups	none	sing
 grpc	GroupService.RemoveGroupMember	server/proto/keyorix.proto	209	RemoveGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.RestoreGroup	server/proto/keyorix.proto	202	RestoreGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	GroupService.UpdateGroup	server/proto/keyorix.proto	198	UpdateGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.ClassifyMachineIdentity	server/proto/keyorix.proto	1129	ClassifyMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.ClassifyMachineToken	server/proto/keyorix.proto	1141	ClassifyMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.CreateMachineIdentity	server/proto/keyorix.proto	1123	CreateMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.IssueMachineToken	server/proto/keyorix.proto	1132	IssueMachineToken	D	server/grpc/services/machine_identity_service.go:153-184: the scanner's second "write" is time.Time.AddDate (line 166) matching the write-verb regex by accident, not a real write. Only one real state-changing call exists: s.core.IssueMachineToken.
-grpc	MachineIdentityService.ListMachineIdentities	server/proto/keyorix.proto	1120	ListMachineIdentities	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.ListMachineTokens	server/proto/keyorix.proto	1135	ListMachineTokens	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.RevokeMachineToken	server/proto/keyorix.proto	1138	RevokeMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	MachineIdentityService.TransitionMachineIdentity	server/proto/keyorix.proto	1126	TransitionMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.CreateProject	server/proto/keyorix.proto	1041	CreateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.DeleteProject	server/proto/keyorix.proto	1047	DeleteProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetDeploymentRotationPlan	server/proto/keyorix.proto	1058	GetDeploymentRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetProject	server/proto/keyorix.proto	1038	GetProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetProjectRotationOrder	server/proto/keyorix.proto	1051	GetProjectRotationOrder	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.GetProjectRotationPlan	server/proto/keyorix.proto	1055	GetProjectRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.ListEnvironments	server/proto/keyorix.proto	1061	ListEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.ListProjects	server/proto/keyorix.proto	1035	ListProjects	none	single/no write-shaped call found by a 1-hop scan of the handler body
-grpc	ProjectService.UpdateProject	server/proto/keyorix.proto	1044	UpdateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.ClassifyMachineIdentity	server/proto/keyorix.proto	1141	ClassifyMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.ClassifyMachineToken	server/proto/keyorix.proto	1153	ClassifyMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.CreateMachineIdentity	server/proto/keyorix.proto	1135	CreateMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.IssueMachineToken	server/proto/keyorix.proto	1144	IssueMachineToken	D	server/grpc/services/machine_identity_service.go:153-184: the scanner's second "write" is time.Time.AddDate (line 166) matching the write-verb regex by accident, not a real write. Only one real state-changing call exists: s.core.IssueMachineToken.
+grpc	MachineIdentityService.ListMachineIdentities	server/proto/keyorix.proto	1132	ListMachineIdentities	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.ListMachineTokens	server/proto/keyorix.proto	1147	ListMachineTokens	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.RevokeMachineToken	server/proto/keyorix.proto	1150	RevokeMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	MachineIdentityService.TransitionMachineIdentity	server/proto/keyorix.proto	1138	TransitionMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.CreateProject	server/proto/keyorix.proto	1053	CreateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.DeleteProject	server/proto/keyorix.proto	1059	DeleteProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetDeploymentRotationPlan	server/proto/keyorix.proto	1070	GetDeploymentRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetProject	server/proto/keyorix.proto	1050	GetProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetProjectRotationOrder	server/proto/keyorix.proto	1063	GetProjectRotationOrder	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.GetProjectRotationPlan	server/proto/keyorix.proto	1067	GetProjectRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.ListEnvironments	server/proto/keyorix.proto	1073	ListEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.ListProjects	server/proto/keyorix.proto	1047	ListProjects	none	single/no write-shaped call found by a 1-hop scan of the handler body
+grpc	ProjectService.UpdateProject	server/proto/keyorix.proto	1056	UpdateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	RoleService.AssignRole	server/proto/keyorix.proto	129	AssignRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	RoleService.CreateRole	server/proto/keyorix.proto	114	CreateRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	RoleService.DeleteRole	server/proto/keyorix.proto	123	DeleteRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -427,25 +427,25 @@ grpc	UserService.GetUser	server/proto/keyorix.proto	93	GetUser	none	single/no wr
 grpc	UserService.ListUsers	server/proto/keyorix.proto	102	ListUsers	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.ReissueOneTimePassword	server/proto/keyorix.proto	108	ReissueOneTimePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.UpdateUser	server/proto/keyorix.proto	96	UpdateUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	anomaly_detection	server/main.go	1411		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	audit_checkpoint	server/main.go	1739		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	auto_rotation	server/main.go	1617		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	break_glass_review_reminder	server/main.go	1907		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	certificate_expiry	server/main.go	1572		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	compliance_digest	server/main.go	1639		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	data_retention	server/main.go	1500		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	dynamic_secret_sweep	server/main.go	1805		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	evidence_delivery	server/main.go	1692		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	expiry_reminder	server/main.go	1550		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	jit_access_expiry	server/main.go	1764		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
-job	license_expiry	server/main.go	1595		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	login_attempt_prune	server/main.go	1830		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	mfa_stepup_grant_prune	server/main.go	1865		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	read_quota_alerts	server/main.go	1920		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recertification	server/main.go	1665		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recover_admin_alert	server/main.go	1881		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	retention_purge	server/main.go	1457		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
-job	rotation_reminder	server/main.go	1528		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	anomaly_detection	server/main.go	1434		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	audit_checkpoint	server/main.go	1762		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	auto_rotation	server/main.go	1640		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	break_glass_review_reminder	server/main.go	1930		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	certificate_expiry	server/main.go	1595		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	compliance_digest	server/main.go	1662		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	data_retention	server/main.go	1523		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	dynamic_secret_sweep	server/main.go	1828		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	evidence_delivery	server/main.go	1715		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	expiry_reminder	server/main.go	1573		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	jit_access_expiry	server/main.go	1787		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
+job	license_expiry	server/main.go	1618		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	login_attempt_prune	server/main.go	1853		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	mfa_stepup_grant_prune	server/main.go	1888		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	read_quota_alerts	server/main.go	1943		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recertification	server/main.go	1688		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recover_admin_alert	server/main.go	1904		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	retention_purge	server/main.go	1480		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
+job	rotation_reminder	server/main.go	1551		none	single/no write-shaped call found by a 1-hop scan of the handler body
 mcp	keyorix_get_secret	internal/mcp/tools.go	63		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 mcp	keyorix_list_secrets	internal/mcp/tools.go	65		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 rest	DELETE /api/v1/alert-escalation-policies/{id}	server/http/router.go	425	alertEscalationHandler.Delete	C	server/http/handlers/alert_escalation.go:174-195: DeleteAlertEscalationPolicy is the primary write; LogAlertEscalationPolicyDeleted runs after it as a synchronous audit-trail write -- the policy deletion has already committed by the time the audit call happens.
@@ -454,12 +454,12 @@ rest	DELETE /api/v1/auth/tokens/expired	server/http/router.go	399	patExpiryHandl
 rest	DELETE /api/v1/auth/tokens/{id}	server/http/router.go	396	patHandler.RevokePAT	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	DELETE /api/v1/auth/webauthn/credentials/{id}	server/http/router.go	382	authHandler.DeleteWebAuthnCredential	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	DELETE /api/v1/connect/ref-grants/{id}	server/http/router.go	477	connectHandler.DeleteRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/environments/{id}	server/http/router.go	678	catalogHandler.DeleteEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/folders/{id}	server/http/router.go	850	folderHandler.DeleteFolder	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/groups/{id}	server/http/router.go	1009	groupHandler.DeleteGroup	REVIEW	ambiguous: 2 functions named "DeleteGroup" found (server/http/handlers/groups_handler.go, server/http/handlers/scim_groups.go) -- resolved by exact name only, ambiguity not broken by receiver type
-rest	DELETE /api/v1/groups/{id}/members/{userId}	server/http/router.go	1025	groupHandler.RemoveGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/groups/{id}/roles/{roleId}	server/http/router.go	1035	rbacHandler.RemoveRoleFromGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/legal-hold	server/http/router.go	1215	dashboardHandler.LiftLegalHold	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/environments/{id}	server/http/router.go	683	catalogHandler.DeleteEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/folders/{id}	server/http/router.go	864	folderHandler.DeleteFolder	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/groups/{id}	server/http/router.go	1023	groupHandler.DeleteGroup	REVIEW	ambiguous: 2 functions named "DeleteGroup" found (server/http/handlers/groups_handler.go, server/http/handlers/scim_groups.go) -- resolved by exact name only, ambiguity not broken by receiver type
+rest	DELETE /api/v1/groups/{id}/members/{userId}	server/http/router.go	1039	groupHandler.RemoveGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/groups/{id}/roles/{roleId}	server/http/router.go	1049	rbacHandler.RemoveRoleFromGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/legal-hold	server/http/router.go	1229	dashboardHandler.LiftLegalHold	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	DELETE /api/v1/notification-channels/{id}	server/http/router.go	415	notificationChannelHandler.Delete	D	server/http/handlers/notification_channels.go:160-180: single write call DeleteNotificationChannel, then sendSuccess -- no second write or audit call in this handler.
 rest	DELETE /api/v1/projects/{id}	server/http/router.go	489	catalogHandler.DeleteProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	DELETE /api/v1/projects/{id}/invitations/{invitationId}	server/http/router.go	540	catalogHandler.RevokeInvitation	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -468,83 +468,83 @@ rest	DELETE /api/v1/projects/{id}/machine-identities/{machineId}/roles/{roleId}	
 rest	DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}	server/http/router.go	618	catalogHandler.RevokeMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	DELETE /api/v1/projects/{id}/members/{userId}	server/http/router.go	531	catalogHandler.RemoveProjectMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	DELETE /api/v1/rejection-reason-templates/{id}	server/http/router.go	578	catalogHandler.DeleteRejectionReasonTemplate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/risk-exceptions/{id}	server/http/router.go	1242	dashboardHandler.RevokeRiskException	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/roles/{id}	server/http/router.go	1055	rbacHandler.DeleteRole	REVIEW	ambiguous: 2 functions named "DeleteRole" found (server/http/handlers/rbac.go, server/http/handlers/rbac.go) -- resolved by exact name only, ambiguity not broken by receiver type
-rest	DELETE /api/v1/roles/{id}/permissions/{permissionId}	server/http/router.go	1058	rbacHandler.RemovePermissionFromRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/rotation-policies/{id}	server/http/router.go	873	rotationPolicyHandler.Delete	D	server/http/handlers/rotation_policies_handler.go:287-312: single write call DeleteRotationPolicy, then w.WriteHeader -- no second write or audit call.
-rest	DELETE /api/v1/secret-templates/{id}	server/http/router.go	884	secretTemplateHandler.Delete	C	server/http/handlers/secret_templates.go:168-190: DeleteSecretTemplate is the primary write; LogSecretTemplateDeleted runs after it as a synchronous audit-trail write on the already-deleted record.
-rest	DELETE /api/v1/secrets/{id}	server/http/router.go	819	secretHandler.DeleteSecret	C	server/http/handlers/secrets_crud.go:563-628: primary delete is one of two mutually exclusive branches by actor kind; the trailing write is an async audit log (LogSecretDeletedWithProject) on a DetachedAuditContext after the delete already committed.
-rest	DELETE /api/v1/secrets/{id}/acl/{aclId}	server/http/router.go	778	secretHandler.RevokeSecretACL	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/secrets/{id}/dependencies/{depId}	server/http/router.go	761	secretHandler.RemoveSecretDependency	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/secrets/{id}/schedule	server/http/router.go	783	secretHandler.DeleteSecretSchedule	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/secrets/{id}/self-share	server/http/router.go	817	shareHandler.RemoveSelfFromShare	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/secrets/{id}/versions/{versionId}/comments/{commentId}	server/http/router.go	745	versionCommentHandler.DeleteComment	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/shares/{id}	server/http/router.go	837	shareHandler.RevokeShare	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/sod/policies/{id}	server/http/router.go	1250	catalogHandler.DeleteSoDPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	DELETE /api/v1/user-roles/	server/http/router.go	1101	rbacHandler.RemoveRole	REVIEW	ambiguous: 2 functions named "RemoveRole" found (server/http/handlers/rbac.go, server/http/handlers/rbac.go) -- resolved by exact name only, ambiguity not broken by receiver type
-rest	DELETE /api/v1/users/{id}	server/http/router.go	948	handlers.DeleteUser	REVIEW	ambiguous: 3 functions named "DeleteUser" found (server/http/handlers/scim.go, server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
+rest	DELETE /api/v1/risk-exceptions/{id}	server/http/router.go	1256	dashboardHandler.RevokeRiskException	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/roles/{id}	server/http/router.go	1069	rbacHandler.DeleteRole	REVIEW	ambiguous: 2 functions named "DeleteRole" found (server/http/handlers/rbac.go, server/http/handlers/rbac.go) -- resolved by exact name only, ambiguity not broken by receiver type
+rest	DELETE /api/v1/roles/{id}/permissions/{permissionId}	server/http/router.go	1072	rbacHandler.RemovePermissionFromRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/rotation-policies/{id}	server/http/router.go	887	rotationPolicyHandler.Delete	D	server/http/handlers/rotation_policies_handler.go:287-312: single write call DeleteRotationPolicy, then w.WriteHeader -- no second write or audit call.
+rest	DELETE /api/v1/secret-templates/{id}	server/http/router.go	898	secretTemplateHandler.Delete	C	server/http/handlers/secret_templates.go:168-190: DeleteSecretTemplate is the primary write; LogSecretTemplateDeleted runs after it as a synchronous audit-trail write on the already-deleted record.
+rest	DELETE /api/v1/secrets/{id}	server/http/router.go	833	secretHandler.DeleteSecret	C	server/http/handlers/secrets_crud.go:563-628: primary delete is one of two mutually exclusive branches by actor kind; the trailing write is an async audit log (LogSecretDeletedWithProject) on a DetachedAuditContext after the delete already committed.
+rest	DELETE /api/v1/secrets/{id}/acl/{aclId}	server/http/router.go	789	secretHandler.RevokeSecretACL	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/secrets/{id}/dependencies/{depId}	server/http/router.go	772	secretHandler.RemoveSecretDependency	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/secrets/{id}/schedule	server/http/router.go	794	secretHandler.DeleteSecretSchedule	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/secrets/{id}/self-share	server/http/router.go	831	shareHandler.RemoveSelfFromShare	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/secrets/{id}/versions/{versionId}/comments/{commentId}	server/http/router.go	756	versionCommentHandler.DeleteComment	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/shares/{id}	server/http/router.go	851	shareHandler.RevokeShare	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/sod/policies/{id}	server/http/router.go	1264	catalogHandler.DeleteSoDPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	DELETE /api/v1/user-roles/	server/http/router.go	1115	rbacHandler.RemoveRole	REVIEW	ambiguous: 2 functions named "RemoveRole" found (server/http/handlers/rbac.go, server/http/handlers/rbac.go) -- resolved by exact name only, ambiguity not broken by receiver type
+rest	DELETE /api/v1/users/{id}	server/http/router.go	962	handlers.DeleteUser	REVIEW	ambiguous: 3 functions named "DeleteUser" found (server/http/handlers/scim.go, server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
 rest	DELETE /scim/v2/Groups/{id}	server/http/router.go	321	scimHandler.DeleteGroup	REVIEW	ambiguous: 2 functions named "DeleteGroup" found (server/http/handlers/groups_handler.go, server/http/handlers/scim_groups.go) -- resolved by exact name only, ambiguity not broken by receiver type
 rest	DELETE /scim/v2/Users/{id}	server/http/router.go	315	scimHandler.DeleteUser	REVIEW	ambiguous: 3 functions named "DeleteUser" found (server/http/handlers/scim.go, server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
-rest	GET /api/v1/admin/anomaly-config/	server/http/router.go	1327	handlers.GetAnomalyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/admin/billing/report	server/http/router.go	1271	adminBillingHandler.GetBillingReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/admin/scheduler-metrics	server/http/router.go	1149	<expr>.ServeHTTP	D	router.go:1086 wires customMiddleware.SchedulerMetricsHandler().ServeHTTP; server/middleware/scheduler_metrics.go:110-112 shows that's a stock promhttp.HandlerFor exposition endpoint, pure read.
-rest	GET /api/v1/admin/usage	server/http/router.go	1262	adminUsageHandler.GetUsageReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/admin/anomaly-config/	server/http/router.go	1341	handlers.GetAnomalyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/admin/billing/report	server/http/router.go	1285	adminBillingHandler.GetBillingReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/admin/scheduler-metrics	server/http/router.go	1163	<expr>.ServeHTTP	D	router.go:1086 wires customMiddleware.SchedulerMetricsHandler().ServeHTTP; server/middleware/scheduler_metrics.go:110-112 shows that's a stock promhttp.HandlerFor exposition endpoint, pure read.
+rest	GET /api/v1/admin/usage	server/http/router.go	1276	adminUsageHandler.GetUsageReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/alert-escalation-policies	server/http/router.go	422	alertEscalationHandler.List	D	server/http/handlers/alert_escalation.go:100-112 List only calls ListAlertEscalationPolicies and writes the JSON response -- no state writes.
 rest	GET /api/v1/alert-escalation-policies/{id}	server/http/router.go	423	alertEscalationHandler.Get	D	server/http/handlers/alert_escalation.go:115-131 Get only calls GetAlertEscalationPolicy and writes the JSON response -- no state writes.
-rest	GET /api/v1/audit/anomalies	server/http/router.go	1136	handlers.ListAnomalyAlerts	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/export	server/http/router.go	1119	auditHandler.ExportAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/export.csv	server/http/router.go	1120	auditHandler.ExportAuditLogsCSV	D	server/http/handlers/audit_export_csv.go:22-62: the 3 flagged calls are w.Header().Set (Content-Type/X-Content-Type-Options/Content-Disposition) before streaming a read-only CSV. No state writes.
-rest	GET /api/v1/audit/logs	server/http/router.go	1108	auditHandler.GetAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/rbac-logs	server/http/router.go	1121	auditHandler.GetRBACAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/retention	server/http/router.go	1122	auditHandler.GetAuditRetention	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/search	server/http/router.go	1109	auditHandler.SearchAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/verify	server/http/router.go	1123	auditHandler.VerifyAuditChain	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/audit/verify/jobs/{id}	server/http/router.go	1125	auditHandler.GetAuditVerifyJob	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/anomalies	server/http/router.go	1150	handlers.ListAnomalyAlerts	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/export	server/http/router.go	1133	auditHandler.ExportAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/export.csv	server/http/router.go	1134	auditHandler.ExportAuditLogsCSV	D	server/http/handlers/audit_export_csv.go:22-62: the 3 flagged calls are w.Header().Set (Content-Type/X-Content-Type-Options/Content-Disposition) before streaming a read-only CSV. No state writes.
+rest	GET /api/v1/audit/logs	server/http/router.go	1122	auditHandler.GetAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/rbac-logs	server/http/router.go	1135	auditHandler.GetRBACAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/retention	server/http/router.go	1136	auditHandler.GetAuditRetention	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/search	server/http/router.go	1123	auditHandler.SearchAuditLogs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/verify	server/http/router.go	1137	auditHandler.VerifyAuditChain	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/audit/verify/jobs/{id}	server/http/router.go	1139	auditHandler.GetAuditVerifyJob	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/auth/mfa/recovery-codes	server/http/router.go	367	authHandler.RecoveryCodesStatus	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/auth/profile	server/http/router.go	357	authHandler.Profile	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/auth/sessions	server/http/router.go	390	authHandler.ListSessions	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/auth/tokens	server/http/router.go	392	patHandler.ListPATs	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/auth/tokens/expired	server/http/router.go	398	patExpiryHandler.ListExpiredPATs	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/auth/webauthn/credentials	server/http/router.go	377	authHandler.ListWebAuthnCredentials	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/controls	server/http/router.go	1190	dashboardHandler.GetComplianceControls	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/controls.csv	server/http/router.go	1193	dashboardHandler.ExportComplianceControlsCSV	D	server/http/handlers/compliance_controls_csv.go:20-53: 3 w.Header().Set calls before streaming a read-only CSV. No state writes.
-rest	GET /api/v1/compliance/credential-trends	server/http/router.go	1181	hygieneTrendsHandler.GetCredentialTrends	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/digest	server/http/router.go	1196	dashboardHandler.GetComplianceDigest	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/evidence	server/http/router.go	1222	dashboardHandler.GetComplianceEvidence	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/permission-baseline	server/http/router.go	1229	dashboardHandler.GetPermissionBaseline	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/permission-baseline.csv	server/http/router.go	1230	dashboardHandler.GetPermissionBaselineCSV	D	server/http/handlers/permission_baseline.go:38-68: 3 w.Header().Set calls before streaming a read-only CSV. No state writes.
-rest	GET /api/v1/compliance/permission-changes	server/http/router.go	1235	dashboardHandler.GetPermissionChangeAudit	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/posture	server/http/router.go	1183	dashboardHandler.GetCompliancePosture	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/rotation-by-backend	server/http/router.go	1188	secretHandler.RotationByBackend	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/compliance/snapshots	server/http/router.go	1209	dashboardHandler.ListComplianceSnapshots	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/controls	server/http/router.go	1204	dashboardHandler.GetComplianceControls	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/controls.csv	server/http/router.go	1207	dashboardHandler.ExportComplianceControlsCSV	D	server/http/handlers/compliance_controls_csv.go:20-53: 3 w.Header().Set calls before streaming a read-only CSV. No state writes.
+rest	GET /api/v1/compliance/credential-trends	server/http/router.go	1195	hygieneTrendsHandler.GetCredentialTrends	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/digest	server/http/router.go	1210	dashboardHandler.GetComplianceDigest	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/evidence	server/http/router.go	1236	dashboardHandler.GetComplianceEvidence	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/permission-baseline	server/http/router.go	1243	dashboardHandler.GetPermissionBaseline	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/permission-baseline.csv	server/http/router.go	1244	dashboardHandler.GetPermissionBaselineCSV	D	server/http/handlers/permission_baseline.go:38-68: 3 w.Header().Set calls before streaming a read-only CSV. No state writes.
+rest	GET /api/v1/compliance/permission-changes	server/http/router.go	1249	dashboardHandler.GetPermissionChangeAudit	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/posture	server/http/router.go	1197	dashboardHandler.GetCompliancePosture	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/rotation-by-backend	server/http/router.go	1202	secretHandler.RotationByBackend	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/compliance/snapshots	server/http/router.go	1223	dashboardHandler.ListComplianceSnapshots	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/connect/connectors	server/http/router.go	470	connectHandler.ListConnectors	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/connect/ref-grants	server/http/router.go	475	connectHandler.ListRefGrants	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/dashboard/activity	server/http/router.go	444	dashboardHandler.GetActivity	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/dashboard/stats	server/http/router.go	441	dashboardHandler.GetStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/dynamic-secrets/configs	server/http/router.go	901	dynamicSecretHandler.ListConfigs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/dynamic-secrets/configs/{id}	server/http/router.go	902	dynamicSecretHandler.GetConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/dynamic-secrets/configs/{id}/leases	server/http/router.go	906	dynamicSecretHandler.ListLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/environments	server/http/router.go	683	catalogHandler.ListEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/folders/	server/http/router.go	848	folderHandler.ListFolders	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/groups/	server/http/router.go	1003	groupHandler.ListGroups	D	server/http/handlers/groups_handler.go:45-62 ListGroups only calls ListGroups and writes the JSON response -- no state writes.
-rest	GET /api/v1/groups/{id}	server/http/router.go	1007	groupHandler.GetGroup	D	server/http/handlers/groups_handler.go:109-130 GetGroup only calls GetGroup and writes the JSON response -- no state writes.
-rest	GET /api/v1/groups/{id}/members	server/http/router.go	1014	groupHandler.GetGroupMembers	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/groups/{id}/roles	server/http/router.go	1033	rbacHandler.GetGroupRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/groups/{id}/shared-secrets	server/http/router.go	1017	shareHandler.ListGroupSharedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/groups/{id}/shares	server/http/router.go	1020	shareHandler.ListGroupShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/hygiene	server/http/router.go	1172	secretHandler.DeploymentHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/legal-hold	server/http/router.go	1213	dashboardHandler.GetLegalHold	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/license/status	server/http/router.go	1152	licenseHandler.GetLicenseStatus	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/machine-identities/audit	server/http/router.go	1167	machineAuditHandler.GetMachineAuditReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/machine-identities/audit.csv	server/http/router.go	1168	machineAuditHandler.GetMachineAuditReportCSV	D	server/http/handlers/machine_audit.go:47-77: 3 w.Header().Set calls before streaming a read-only CSV. No state writes.
-rest	GET /api/v1/machine-token-hygiene	server/http/router.go	1163	catalogHandler.MachineTokenHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/dynamic-secrets/configs	server/http/router.go	915	dynamicSecretHandler.ListConfigs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/dynamic-secrets/configs/{id}	server/http/router.go	916	dynamicSecretHandler.GetConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/dynamic-secrets/configs/{id}/leases	server/http/router.go	920	dynamicSecretHandler.ListLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/environments	server/http/router.go	688	catalogHandler.ListEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/folders/	server/http/router.go	862	folderHandler.ListFolders	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/groups/	server/http/router.go	1017	groupHandler.ListGroups	D	server/http/handlers/groups_handler.go:45-62 ListGroups only calls ListGroups and writes the JSON response -- no state writes.
+rest	GET /api/v1/groups/{id}	server/http/router.go	1021	groupHandler.GetGroup	D	server/http/handlers/groups_handler.go:109-130 GetGroup only calls GetGroup and writes the JSON response -- no state writes.
+rest	GET /api/v1/groups/{id}/members	server/http/router.go	1028	groupHandler.GetGroupMembers	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/groups/{id}/roles	server/http/router.go	1047	rbacHandler.GetGroupRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/groups/{id}/shared-secrets	server/http/router.go	1031	shareHandler.ListGroupSharedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/groups/{id}/shares	server/http/router.go	1034	shareHandler.ListGroupShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/hygiene	server/http/router.go	1186	secretHandler.DeploymentHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/legal-hold	server/http/router.go	1227	dashboardHandler.GetLegalHold	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/license/status	server/http/router.go	1166	licenseHandler.GetLicenseStatus	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/machine-identities/audit	server/http/router.go	1181	machineAuditHandler.GetMachineAuditReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/machine-identities/audit.csv	server/http/router.go	1182	machineAuditHandler.GetMachineAuditReportCSV	D	server/http/handlers/machine_audit.go:47-77: 3 w.Header().Set calls before streaming a read-only CSV. No state writes.
+rest	GET /api/v1/machine-token-hygiene	server/http/router.go	1177	catalogHandler.MachineTokenHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/notification-channels	server/http/router.go	411	notificationChannelHandler.List	D	server/http/handlers/notification_channels.go:49-61 List only calls ListNotificationChannels and writes the JSON response -- no state writes.
 rest	GET /api/v1/notification-channels/{id}	server/http/router.go	413	notificationChannelHandler.Get	D	server/http/handlers/notification_channels.go:108-124 Get only calls GetNotificationChannel and writes the JSON response -- no state writes.
 rest	GET /api/v1/notification-channels/{id}/retry-policy	server/http/router.go	417	notificationChannelHandler.GetRetryPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/notifications	server/http/router.go	404	notificationHandler.List	D	server/http/handlers/notifications_handler.go:48-73 List (notificationHandler, not notificationChannelHandler) only calls ListNotifications then UnreadNotificationCount, both reads, and writes the JSON response.
-rest	GET /api/v1/pat-hygiene	server/http/router.go	1159	patHandler.PATHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/permissions/	server/http/router.go	1070	rbacHandler.ListPermissions	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/permissions/{id}	server/http/router.go	1077	rbacHandler.GetPermission	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/pat-hygiene	server/http/router.go	1173	patHandler.PATHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/permissions/	server/http/router.go	1084	rbacHandler.ListPermissions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/permissions/{id}	server/http/router.go	1091	rbacHandler.GetPermission	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects	server/http/router.go	485	catalogHandler.ListProjects	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}	server/http/router.go	486	catalogHandler.GetProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/access-requests	server/http/router.go	549	catalogHandler.ListAccessRequests	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -554,9 +554,9 @@ rest	GET /api/v1/projects/{id}/access-review/campaigns/{campaignId}	server/http/
 rest	GET /api/v1/projects/{id}/access-review/campaigns/{campaignId}/export.csv	server/http/router.go	528	catalogHandler.ExportAccessReviewCampaignCSV	D	server/http/handlers/access_review_campaign_export_csv.go:22-57: calls GetAccessReviewCampaign and per-decider GetUser lookups (reads), then streams CSV with header writes only; no state writes.
 rest	GET /api/v1/projects/{id}/break-glass	server/http/router.go	586	catalogHandler.ListBreakGlassActivations	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/drift	server/http/router.go	494	catalogHandler.GetProjectDrift	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/projects/{id}/environments	server/http/router.go	671	catalogHandler.ListProjectEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/projects/{id}/environments	server/http/router.go	676	catalogHandler.ListProjectEnvironments	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/health	server/http/router.go	497	secretHandler.GetProjectHealth	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/projects/{id}/hygiene	server/http/router.go	629	secretHandler.ProjectHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/projects/{id}/hygiene	server/http/router.go	632	secretHandler.ProjectHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/invitations	server/http/router.go	538	catalogHandler.ListInvitations	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/machine-identities	server/http/router.go	601	catalogHandler.ListMachineIdentities	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/machine-identities/stale	server/http/router.go	602	catalogHandler.ListStaleMachineIdentities	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -567,82 +567,82 @@ rest	GET /api/v1/projects/{id}/members	server/http/router.go	506	catalogHandler.
 rest	GET /api/v1/projects/{id}/memberships	server/http/router.go	534	catalogHandler.ListProjectMemberships	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/rotation-order	server/http/router.go	495	secretHandler.GetProjectRotationOrder	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/rotation-plan	server/http/router.go	496	secretHandler.GetProjectRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/projects/{id}/secrets/deleted	server/http/router.go	627	secretHandler.DeletedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/projects/{id}/secrets/expiring	server/http/router.go	630	secretHandler.ExpiringSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/projects/{id}/secrets/inventory.csv	server/http/router.go	633	secretHandler.SecretsInventoryCSV	D	server/http/handlers/secrets_inventory_csv.go:19-54: the 3 flagged calls are w.Header().Set (Content-Type/X-Content-Type-Options/Content-Disposition) before streaming a read-only CSV. No state writes.
-rest	GET /api/v1/projects/{id}/secrets/name-conformance	server/http/router.go	636	secretHandler.SecretNameConformance	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/projects/{id}/secrets/orphaned	server/http/router.go	628	secretHandler.OrphanedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/projects/{id}/secrets/deleted	server/http/router.go	630	secretHandler.DeletedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/projects/{id}/secrets/expiring	server/http/router.go	633	secretHandler.ExpiringSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/projects/{id}/secrets/inventory.csv	server/http/router.go	636	secretHandler.SecretsInventoryCSV	D	server/http/handlers/secrets_inventory_csv.go:19-54: the 3 flagged calls are w.Header().Set (Content-Type/X-Content-Type-Options/Content-Disposition) before streaming a read-only CSV. No state writes.
+rest	GET /api/v1/projects/{id}/secrets/name-conformance	server/http/router.go	639	secretHandler.SecretNameConformance	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/projects/{id}/secrets/orphaned	server/http/router.go	631	secretHandler.OrphanedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/share-recipients	server/http/router.go	512	shareHandler.SearchShareRecipients	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/projects/{id}/stats	server/http/router.go	498	secretHandler.GetProjectStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/rbac/permission-matrix	server/http/router.go	1065	rbacHandler.GetPermissionMatrix	D	RBACHandler.GetPermissionMatrix (server/http/handlers/rbac.go:1023) is read-only: one GetPermissionMatrix read, then branches on format to write a CSV or JSON body; flagged "writes" are w.Header().Set calls.
+rest	GET /api/v1/rbac/permission-matrix	server/http/router.go	1079	rbacHandler.GetPermissionMatrix	D	RBACHandler.GetPermissionMatrix (server/http/handlers/rbac.go:1023) is read-only: one GetPermissionMatrix read, then branches on format to write a CSV or JSON body; flagged "writes" are w.Header().Set calls.
 rest	GET /api/v1/rejection-reason-templates	server/http/router.go	577	catalogHandler.ListRejectionReasonTemplates	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/risk-exceptions	server/http/router.go	1239	dashboardHandler.ListRiskExceptions	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/roles/	server/http/router.go	1041	rbacHandler.ListRoles	D	RBACHandler.ListRoles (server/http/handlers/rbac.go:117) only calls coreService.ListRolesWithPermissions (read) then sendSuccess; no storage write calls.
-rest	GET /api/v1/roles/by-name	server/http/router.go	1052	rbacHandler.GetRoleByName	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/roles/{id}	server/http/router.go	1053	rbacHandler.GetRole	D	RBACHandler.GetRole (server/http/handlers/rbac.go:223) only calls coreService.GetRoleWithPermissions (read) then sendSuccess; purely read-only.
-rest	GET /api/v1/roles/{id}/permissions	server/http/router.go	1056	rbacHandler.GetRolePermissions	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/rotation-calendar	server/http/router.go	860	rotationCalendarHandler.Get	D	RotationCalendarHandler.Get (server/http/handlers/rotation_calendar_handler.go:30) parses query params and calls coreService.GetRotationCalendar (read) once, then sendSuccess; no writes.
+rest	GET /api/v1/risk-exceptions	server/http/router.go	1253	dashboardHandler.ListRiskExceptions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/roles/	server/http/router.go	1055	rbacHandler.ListRoles	D	RBACHandler.ListRoles (server/http/handlers/rbac.go:117) only calls coreService.ListRolesWithPermissions (read) then sendSuccess; no storage write calls.
+rest	GET /api/v1/roles/by-name	server/http/router.go	1066	rbacHandler.GetRoleByName	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/roles/{id}	server/http/router.go	1067	rbacHandler.GetRole	D	RBACHandler.GetRole (server/http/handlers/rbac.go:223) only calls coreService.GetRoleWithPermissions (read) then sendSuccess; purely read-only.
+rest	GET /api/v1/roles/{id}/permissions	server/http/router.go	1070	rbacHandler.GetRolePermissions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/rotation-calendar	server/http/router.go	874	rotationCalendarHandler.Get	D	RotationCalendarHandler.Get (server/http/handlers/rotation_calendar_handler.go:30) parses query params and calls coreService.GetRotationCalendar (read) once, then sendSuccess; no writes.
 rest	GET /api/v1/rotation-plan	server/http/router.go	502	secretHandler.GetDeploymentRotationPlan	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/rotation-policies/	server/http/router.go	867	rotationPolicyHandler.List	D	RotationPolicyHandler.List (server/http/handlers/rotation_policies_handler.go:86) calls coreService.ListRotationPolicies (read) once then sendSuccess; no writes.
-rest	GET /api/v1/rotation-policies/evaluate	server/http/router.go	868	rotationPolicyHandler.Evaluate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/rotation-policies/status	server/http/router.go	869	rotationPolicyHandler.Status	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/rotation-policies/{id}	server/http/router.go	870	rotationPolicyHandler.Get	D	RotationPolicyHandler.Get (server/http/handlers/rotation_policies_handler.go:199) calls coreService.GetRotationPolicy (read) once then sendSuccess; no writes.
+rest	GET /api/v1/rotation-policies/	server/http/router.go	881	rotationPolicyHandler.List	D	RotationPolicyHandler.List (server/http/handlers/rotation_policies_handler.go:86) calls coreService.ListRotationPolicies (read) once then sendSuccess; no writes.
+rest	GET /api/v1/rotation-policies/evaluate	server/http/router.go	882	rotationPolicyHandler.Evaluate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/rotation-policies/status	server/http/router.go	883	rotationPolicyHandler.Status	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/rotation-policies/{id}	server/http/router.go	884	rotationPolicyHandler.Get	D	RotationPolicyHandler.Get (server/http/handlers/rotation_policies_handler.go:199) calls coreService.GetRotationPolicy (read) once then sendSuccess; no writes.
 rest	GET /api/v1/secret-access-requests	server/http/router.go	570	catalogHandler.ListSecretAccessRequests	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/secret-access-requests/{requestId}	server/http/router.go	571	catalogHandler.GetSecretAccessRequest	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secret-templates/	server/http/router.go	880	secretTemplateHandler.List	D	SecretTemplateHandler.List (server/http/handlers/secret_templates.go:85) calls coreService.ListSecretTemplates (read) once then sendSuccess; no writes.
-rest	GET /api/v1/secret-templates/{id}	server/http/router.go	882	secretTemplateHandler.Get	D	SecretTemplateHandler.Get (server/http/handlers/secret_templates.go:96) calls coreService.GetSecretTemplate (read) once then sendSuccess; no writes.
-rest	GET /api/v1/secrets/	server/http/router.go	700	secretHandler.ListSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/by-name	server/http/router.go	736	secretHandler.GetSecretByName	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/inventory.csv	server/http/router.go	720	secretHandler.DeploymentSecretsInventoryCSV	D	SecretHandler.DeploymentSecretsInventoryCSV (server/http/handlers/secrets_inventory_deployment_csv.go:21) calls coreService.DeploymentSecretsInventory (read) once; flagged "3-writes" are w.Header().Set x3 for the CSV attachment response.
-rest	GET /api/v1/secrets/name-conformance	server/http/router.go	725	secretHandler.DeploymentSecretNameConformance	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/policy	server/http/router.go	702	secretHandler.SecretPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/quota-report	server/http/router.go	713	secretHandler.GetQuotaReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/usage/most-accessed	server/http/router.go	704	secretHandler.UsageMostAccessed	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/usage/unused	server/http/router.go	705	secretHandler.UsageUnused	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/value	server/http/router.go	731	secretHandler.GetSecretValueByRef	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}	server/http/router.go	737	secretHandler.GetSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/access	server/http/router.go	748	secretHandler.ListAccessors	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/access-log	server/http/router.go	749	secretHandler.AccessHistory	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/access-log/export	server/http/router.go	750	secretHandler.ExportAccessLog	D	SecretHandler.ExportAccessLog (server/http/handlers/secret_access_log_export_handler.go:19) calls coreService.ExportSecretAccessLog (read) once; flagged "3-writes" are w.Header().Set x3 for the download response.
-rest	GET /api/v1/secrets/{id}/acl	server/http/router.go	776	secretHandler.ListSecretACLs	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/audit	server/http/router.go	753	secretHandler.AuditTrail	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/blast-radius	server/http/router.go	764	secretHandler.GetBlastRadius	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/certificate	server/http/router.go	793	secretHandler.GetSecretCertificate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/dependencies	server/http/router.go	759	secretHandler.ListSecretDependencies	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/impact	server/http/router.go	762	secretHandler.GetSecretImpact	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/impact-preview	server/http/router.go	768	secretHandler.GetSecretImpactPreview	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/ownership-history	server/http/router.go	754	secretHandler.OwnershipHistory	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/read-summary	server/http/router.go	766	secretHandler.GetSecretReadSummary	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/risk	server/http/router.go	746	secretHandler.GetSecretRisk	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/rotation-state	server/http/router.go	773	rotationPolicyHandler.GetRotationState	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/schedule	server/http/router.go	781	secretHandler.GetSecretSchedule	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/shares	server/http/router.go	747	shareHandler.ListSecretShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/stats	server/http/router.go	752	secretHandler.GetSecretAccessStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/tags	server/http/router.go	755	secretHandler.GetTags	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/versions	server/http/router.go	738	secretHandler.GetSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/versions/{from}/diff/{to}	server/http/router.go	739	secretHandler.DiffSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/secrets/{id}/versions/{versionId}/comments	server/http/router.go	742	versionCommentHandler.ListComments	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/shared-secrets	server/http/router.go	841	shareHandler.ListSharedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/shares/	server/http/router.go	828	shareHandler.ListShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/shares/owned	server/http/router.go	834	shareHandler.ListOwnedShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/sod/policies	server/http/router.go	1248	catalogHandler.ListSoDPolicies	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/sod/violations	server/http/router.go	1251	catalogHandler.ListSoDViolations	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secret-templates/	server/http/router.go	894	secretTemplateHandler.List	D	SecretTemplateHandler.List (server/http/handlers/secret_templates.go:85) calls coreService.ListSecretTemplates (read) once then sendSuccess; no writes.
+rest	GET /api/v1/secret-templates/{id}	server/http/router.go	896	secretTemplateHandler.Get	D	SecretTemplateHandler.Get (server/http/handlers/secret_templates.go:96) calls coreService.GetSecretTemplate (read) once then sendSuccess; no writes.
+rest	GET /api/v1/secrets/	server/http/router.go	705	secretHandler.ListSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/by-name	server/http/router.go	744	secretHandler.GetSecretByName	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/inventory.csv	server/http/router.go	725	secretHandler.DeploymentSecretsInventoryCSV	D	SecretHandler.DeploymentSecretsInventoryCSV (server/http/handlers/secrets_inventory_deployment_csv.go:21) calls coreService.DeploymentSecretsInventory (read) once; flagged "3-writes" are w.Header().Set x3 for the CSV attachment response.
+rest	GET /api/v1/secrets/name-conformance	server/http/router.go	730	secretHandler.DeploymentSecretNameConformance	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/policy	server/http/router.go	707	secretHandler.SecretPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/quota-report	server/http/router.go	718	secretHandler.GetQuotaReport	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/usage/most-accessed	server/http/router.go	709	secretHandler.UsageMostAccessed	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/usage/unused	server/http/router.go	710	secretHandler.UsageUnused	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/value	server/http/router.go	736	secretHandler.GetSecretValueByRef	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}	server/http/router.go	745	secretHandler.GetSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/access	server/http/router.go	759	secretHandler.ListAccessors	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/access-log	server/http/router.go	760	secretHandler.AccessHistory	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/access-log/export	server/http/router.go	761	secretHandler.ExportAccessLog	D	SecretHandler.ExportAccessLog (server/http/handlers/secret_access_log_export_handler.go:19) calls coreService.ExportSecretAccessLog (read) once; flagged "3-writes" are w.Header().Set x3 for the download response.
+rest	GET /api/v1/secrets/{id}/acl	server/http/router.go	787	secretHandler.ListSecretACLs	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/audit	server/http/router.go	764	secretHandler.AuditTrail	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/blast-radius	server/http/router.go	775	secretHandler.GetBlastRadius	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/certificate	server/http/router.go	804	secretHandler.GetSecretCertificate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/dependencies	server/http/router.go	770	secretHandler.ListSecretDependencies	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/impact	server/http/router.go	773	secretHandler.GetSecretImpact	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/impact-preview	server/http/router.go	779	secretHandler.GetSecretImpactPreview	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/ownership-history	server/http/router.go	765	secretHandler.OwnershipHistory	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/read-summary	server/http/router.go	777	secretHandler.GetSecretReadSummary	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/risk	server/http/router.go	757	secretHandler.GetSecretRisk	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/rotation-state	server/http/router.go	784	rotationPolicyHandler.GetRotationState	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/schedule	server/http/router.go	792	secretHandler.GetSecretSchedule	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/shares	server/http/router.go	758	shareHandler.ListSecretShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/stats	server/http/router.go	763	secretHandler.GetSecretAccessStats	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/tags	server/http/router.go	766	secretHandler.GetTags	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/versions	server/http/router.go	749	secretHandler.GetSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/versions/{from}/diff/{to}	server/http/router.go	750	secretHandler.DiffSecretVersions	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/secrets/{id}/versions/{versionId}/comments	server/http/router.go	753	versionCommentHandler.ListComments	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/shared-secrets	server/http/router.go	855	shareHandler.ListSharedSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/shares/	server/http/router.go	842	shareHandler.ListShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/shares/owned	server/http/router.go	848	shareHandler.ListOwnedShares	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/sod/policies	server/http/router.go	1262	catalogHandler.ListSoDPolicies	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/sod/violations	server/http/router.go	1265	catalogHandler.ListSoDViolations	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/system/auth-config	server/http/router.go	451	<expr>	D	router.go:440 wires handlers.MakeAuthConfigHandler(cfg): a closure returning a redacted config summary directly from in-memory cfg -- no storage access.
 rest	GET /api/v1/system/encryption-config	server/http/router.go	452	<expr>	D	router.go:441 wires handlers.MakeEncryptionConfigHandler(cfg), same shape as auth-config: redacted in-memory config summary, no storage access.
 rest	GET /api/v1/system/info	server/http/router.go	459	<expr>	D	router.go:448 wires handlers.MakeSystemInfoHandler(cfg, coreService); returns version/build/runtime/metrics info, a read-only reporting endpoint.
 rest	GET /api/v1/system/metrics	server/http/router.go	460	handlers.GetMetrics	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/user-roles/user/{userId}	server/http/router.go	1102	rbacHandler.GetUserRoles	D	RBACHandler.GetUserRoles (server/http/handlers/rbac.go:525) calls coreService.GetUserRoleAssignment (read) once then sendSuccess; no writes.
-rest	GET /api/v1/users/	server/http/router.go	915	handlers.ListUsers	D	UserHandler.ListUsers (server/http/handlers/users_list.go:29) calls coreService.ListUsers (read) then attachProjectCounts (a best-effort read-only query merge); no writes.
-rest	GET /api/v1/users/by-email	server/http/router.go	931	handlers.GetUserByEmail	D	UserHandler.GetUserByEmail (server/http/handlers/users_crud.go:256) calls coreService.GetUserByEmail (read) + attachProjectCounts (read-only); no writes.
-rest	GET /api/v1/users/by-external-id	server/http/router.go	939	handlers.GetUserByExternalID	D	UserHandler.GetUserByExternalID (server/http/handlers/users_crud.go:313) calls coreService.GetUserByExternalID (read) + attachProjectCounts (read-only); no writes.
-rest	GET /api/v1/users/by-username	server/http/router.go	938	handlers.GetUserByUsername	D	UserHandler.GetUserByUsername (server/http/handlers/users_crud.go:285) calls coreService.GetUserByUsername (read) + attachProjectCounts (read-only); no writes.
-rest	GET /api/v1/users/search	server/http/router.go	921	handlers.SearchUsers	D	UserHandler.SearchUsers (server/http/handlers/users_list.go:104) calls coreService.ListUsers (read) with a search filter then sendSuccess; no writes.
-rest	GET /api/v1/users/stale	server/http/router.go	923	handlers.StaleAccounts	D	UserHandler.StaleAccounts (server/http/handlers/users_list.go:166) calls coreService.StaleAccounts (read) once then sendSuccess; no writes.
-rest	GET /api/v1/users/{id}	server/http/router.go	940	handlers.GetUser	D	UserHandler.GetUser (server/http/handlers/users_crud.go:218) calls coreService.GetUser (read) + attachProjectCounts (read-only); no writes.
-rest	GET /api/v1/users/{id}/memberships	server/http/router.go	979	usersRolesHandler.GetUserMembershipsForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/users/{id}/permissions	server/http/router.go	974	usersRolesHandler.GetUserPermissionsForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/users/{id}/roles	server/http/router.go	970	usersRolesHandler.GetUserRolesForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	GET /api/v1/users/{id}/shared-secrets	server/http/router.go	992	shareHandler.ListSharedSecretsForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/user-roles/user/{userId}	server/http/router.go	1116	rbacHandler.GetUserRoles	D	RBACHandler.GetUserRoles (server/http/handlers/rbac.go:525) calls coreService.GetUserRoleAssignment (read) once then sendSuccess; no writes.
+rest	GET /api/v1/users/	server/http/router.go	929	handlers.ListUsers	D	UserHandler.ListUsers (server/http/handlers/users_list.go:29) calls coreService.ListUsers (read) then attachProjectCounts (a best-effort read-only query merge); no writes.
+rest	GET /api/v1/users/by-email	server/http/router.go	945	handlers.GetUserByEmail	D	UserHandler.GetUserByEmail (server/http/handlers/users_crud.go:256) calls coreService.GetUserByEmail (read) + attachProjectCounts (read-only); no writes.
+rest	GET /api/v1/users/by-external-id	server/http/router.go	953	handlers.GetUserByExternalID	D	UserHandler.GetUserByExternalID (server/http/handlers/users_crud.go:313) calls coreService.GetUserByExternalID (read) + attachProjectCounts (read-only); no writes.
+rest	GET /api/v1/users/by-username	server/http/router.go	952	handlers.GetUserByUsername	D	UserHandler.GetUserByUsername (server/http/handlers/users_crud.go:285) calls coreService.GetUserByUsername (read) + attachProjectCounts (read-only); no writes.
+rest	GET /api/v1/users/search	server/http/router.go	935	handlers.SearchUsers	D	UserHandler.SearchUsers (server/http/handlers/users_list.go:104) calls coreService.ListUsers (read) with a search filter then sendSuccess; no writes.
+rest	GET /api/v1/users/stale	server/http/router.go	937	handlers.StaleAccounts	D	UserHandler.StaleAccounts (server/http/handlers/users_list.go:166) calls coreService.StaleAccounts (read) once then sendSuccess; no writes.
+rest	GET /api/v1/users/{id}	server/http/router.go	954	handlers.GetUser	D	UserHandler.GetUser (server/http/handlers/users_crud.go:218) calls coreService.GetUser (read) + attachProjectCounts (read-only); no writes.
+rest	GET /api/v1/users/{id}/memberships	server/http/router.go	993	usersRolesHandler.GetUserMembershipsForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/users/{id}/permissions	server/http/router.go	988	usersRolesHandler.GetUserPermissionsForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/users/{id}/roles	server/http/router.go	984	usersRolesHandler.GetUserRolesForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /api/v1/users/{id}/shared-secrets	server/http/router.go	1006	shareHandler.ListSharedSecretsForUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /api/v1/version	server/http/router.go	238	<expr>	D	router.go:233 wires handlers.MakeVersionHandler(cfg) (server/http/handlers/version.go:33): builds a VersionInfo struct from in-memory cfg/version constants and JSON-encodes it; no storage access.
 rest	GET /auth/saml/{provider}/login	server/http/router.go	226	authHandler.BeginSAML	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /auth/saml/{provider}/metadata	server/http/router.go	225	authHandler.SAMLMetadata	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -651,7 +651,7 @@ rest	GET /auth/sso/providers	server/http/router.go	220	authHandler.ListSSOProvid
 rest	GET /auth/sso/{provider}/callback	server/http/router.go	222	authHandler.CompleteSSO	D	AuthHandler.CompleteSSO (server/http/handlers/sso.go:107) has exactly one real storage write (coreService.CompleteSSO); setSessionCookies and the frag.Set x3 calls only build the HTTP response (cookie header + redirect fragment), not storage writes.
 rest	GET /auth/sso/{provider}/login	server/http/router.go	221	authHandler.BeginSSO	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /health	server/http/router.go	232	<expr>	D	handlers.HealthCheck (server/http/handlers/health.go:17) builds a status map from time.Now()/uptime and JSON-encodes it after two w.Header().Set calls; trivially read-only.
-rest	GET /openapi.yaml	server/http/router.go	1339	handlers.OpenAPISpec	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	GET /openapi.yaml	server/http/router.go	1353	handlers.OpenAPISpec	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	GET /readyz	server/http/router.go	242	<expr>	D	router.go:237 wires handlers.ReadinessCheck(coreService) (server/http/handlers/readiness.go:44): the only "writes" are an in-process mutex-guarded readinessCache struct, not storage.
 rest	GET /scim/v2/Groups	server/http/router.go	316	scimHandler.ListGroups	D	SCIMHandler.ListGroups (server/http/handlers/scim_groups.go:85) calls coreService.ListGroups/ListSCIMGroupsPage and GetGroupMembers per page item -- all reads; no writes.
 rest	GET /scim/v2/Groups/{id}	server/http/router.go	318	scimHandler.GetGroup	D	SCIMHandler.GetGroup (server/http/handlers/scim_groups.go:154) calls coreService.GetGroup (read) then renderGroup (response serialization); no writes.
@@ -660,34 +660,34 @@ rest	GET /scim/v2/Users	server/http/router.go	310	scimHandler.ListUsers	D	SCIMHa
 rest	GET /scim/v2/Users/{id}	server/http/router.go	312	scimHandler.GetUser	D	SCIMHandler.GetUser (server/http/handlers/scim.go:216) calls coreService.GetSCIMUser (read) then writeSCIM; no writes.
 rest	GET /status	server/http/router.go	264	<expr>	D	router.go:259 closure: on success serves a static status.html via http.ServeFile after two w.Header().Set calls, else falls back to handlers.HealthCheck (itself D, read-only); no storage access.
 rest	GET /status-es	server/http/router.go	280	<expr>	D	router.go:275 closure: identical shape to /status for the Spanish status page; no storage access.
-rest	PATCH /api/v1/dynamic-secrets/configs/{id}/classification	server/http/router.go	903	dynamicSecretHandler.ClassifyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PATCH /api/v1/dynamic-secrets/configs/{id}/enabled	server/http/router.go	904	dynamicSecretHandler.SetConfigEnabled	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PATCH /api/v1/dynamic-secrets/configs/{id}/classification	server/http/router.go	917	dynamicSecretHandler.ClassifyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PATCH /api/v1/dynamic-secrets/configs/{id}/enabled	server/http/router.go	918	dynamicSecretHandler.SetConfigEnabled	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PATCH /api/v1/projects/{id}/machine-identities/{machineId}/classification	server/http/router.go	610	catalogHandler.ClassifyMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PATCH /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}/classification	server/http/router.go	611	catalogHandler.ClassifyMachineToken	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PATCH /api/v1/secrets/{id}/auto-rotate	server/http/router.go	803	secretHandler.SetAutoRotate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PATCH /api/v1/secrets/{id}/classification	server/http/router.go	798	secretHandler.ClassifySecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PATCH /api/v1/secrets/{id}/description	server/http/router.go	799	secretHandler.DescribeSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PATCH /api/v1/secrets/{id}/retention	server/http/router.go	790	secretHandler.SetRetentionOverride	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PATCH /api/v1/secrets/{id}/auto-rotate	server/http/router.go	817	secretHandler.SetAutoRotate	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PATCH /api/v1/secrets/{id}/classification	server/http/router.go	809	secretHandler.ClassifySecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PATCH /api/v1/secrets/{id}/description	server/http/router.go	810	secretHandler.DescribeSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PATCH /api/v1/secrets/{id}/retention	server/http/router.go	801	secretHandler.SetRetentionOverride	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PATCH /scim/v2/Groups/{id}	server/http/router.go	320	scimHandler.PatchGroup	D	SCIMHandler.PatchGroup (server/http/handlers/scim_groups.go:228): `if replaceAll { ReplaceSCIMGroup } else { PatchSCIMGroup }` -- confirmed a single real if/else branch; only one of the two calls ever executes per request.
 rest	PATCH /scim/v2/Users/{id}	server/http/router.go	314	scimHandler.PatchUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/access-requests/bulk-approve	server/http/router.go	555	catalogHandler.BulkApproveAccessRequests	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/access-requests/bulk-reject	server/http/router.go	556	catalogHandler.BulkRejectAccessRequests	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/impersonate	server/http/router.go	997	impersonationHandler.Start	D	ImpersonationHandler.Start (server/http/handlers/admin_impersonation.go:55) has one real storage write (coreService.StartImpersonation); SetSessionCookie/SetAdminSessionCookie/SetCSRFCookie only set HTTP response cookies, not storage writes.
-rest	POST /api/v1/admin/jobs/anomaly-alerts	server/http/router.go	1296	adminJobsHandler.RunAnomalyAlerts	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/check-read-quotas	server/http/router.go	1311	adminJobsHandler.RunReadQuotaCheck	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/compliance-digest	server/http/router.go	1301	adminJobsHandler.RunComplianceDigest	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/expiry-reminders	server/http/router.go	1298	adminJobsHandler.RunExpiryReminders	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/purge-audit-logs	server/http/router.go	1321	adminJobsHandler.PurgeAuditLogsJob	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/record-hygiene-snapshot	server/http/router.go	1304	hygieneTrendsHandler.RecordHygieneSnapshot	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/role-expiry-check	server/http/router.go	1308	adminJobsHandler.RunRoleExpiryCheck	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/rotation-reminders	server/http/router.go	1297	adminJobsHandler.RunRotationReminders	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/run-alert-escalation	server/http/router.go	1315	alertEscalationHandler.RunEscalation	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/suspend-inactive-users	server/http/router.go	1319	adminJobsHandler.SuspendInactiveUsers	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/admin/jobs/token-expiry-check	server/http/router.go	1316	adminJobsHandler.RunTokenExpiryCheck	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/impersonate	server/http/router.go	1011	impersonationHandler.Start	D	ImpersonationHandler.Start (server/http/handlers/admin_impersonation.go:55) has one real storage write (coreService.StartImpersonation); SetSessionCookie/SetAdminSessionCookie/SetCSRFCookie only set HTTP response cookies, not storage writes.
+rest	POST /api/v1/admin/jobs/anomaly-alerts	server/http/router.go	1310	adminJobsHandler.RunAnomalyAlerts	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/check-read-quotas	server/http/router.go	1325	adminJobsHandler.RunReadQuotaCheck	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/compliance-digest	server/http/router.go	1315	adminJobsHandler.RunComplianceDigest	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/expiry-reminders	server/http/router.go	1312	adminJobsHandler.RunExpiryReminders	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/purge-audit-logs	server/http/router.go	1335	adminJobsHandler.PurgeAuditLogsJob	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/record-hygiene-snapshot	server/http/router.go	1318	hygieneTrendsHandler.RecordHygieneSnapshot	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/role-expiry-check	server/http/router.go	1322	adminJobsHandler.RunRoleExpiryCheck	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/rotation-reminders	server/http/router.go	1311	adminJobsHandler.RunRotationReminders	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/run-alert-escalation	server/http/router.go	1329	alertEscalationHandler.RunEscalation	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/suspend-inactive-users	server/http/router.go	1333	adminJobsHandler.SuspendInactiveUsers	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/admin/jobs/token-expiry-check	server/http/router.go	1330	adminJobsHandler.RunTokenExpiryCheck	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/alert-escalation-policies	server/http/router.go	421	alertEscalationHandler.Create	C	AlertEscalationHandler.Create (server/http/handlers/alert_escalation.go:56): coreService.CreateAlertEscalationPolicy is the primary write and is checked for error/return before proceeding; coreService.LogAlertEscalationPolicyCreated (internal/core/alert_escalation.go:339) runs only after that succeeds, with its return value discarded -- a best-effort audit side effect.
-rest	POST /api/v1/audit/anomalies/{id}/acknowledge	server/http/router.go	1140	handlers.AcknowledgeAnomalyAlert	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/audit/checkpoint	server/http/router.go	1128	auditHandler.WriteAuditCheckpoint	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/audit/migrate-chain-encoding	server/http/router.go	1132	auditHandler.MigrateAuditChainEncoding	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/audit/anomalies/{id}/acknowledge	server/http/router.go	1154	handlers.AcknowledgeAnomalyAlert	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/audit/checkpoint	server/http/router.go	1142	auditHandler.WriteAuditCheckpoint	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/audit/migrate-chain-encoding	server/http/router.go	1146	auditHandler.MigrateAuditChainEncoding	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/auth/change-password	server/http/router.go	359	authHandler.ChangePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/auth/end-impersonation	server/http/router.go	401	impersonationHandler.End	D	ImpersonationHandler.End (server/http/handlers/admin_impersonation.go:121) has one real storage write (coreService.EndImpersonation); InvalidateTokenCache is an in-memory cache evict and the 5 cookie Set/Clear calls are HTTP response-only, not storage writes.
 rest	POST /api/v1/auth/mfa/activate	server/http/router.go	365	authHandler.ActivateMFA	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -700,23 +700,23 @@ rest	POST /api/v1/auth/webauthn/reauth/begin	server/http/router.go	388	authHandl
 rest	POST /api/v1/auth/webauthn/reauth/finish	server/http/router.go	389	authHandler.FinishWebAuthnReauth	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/auth/webauthn/register/begin	server/http/router.go	375	authHandler.BeginWebAuthnRegistration	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/auth/webauthn/register/finish	server/http/router.go	376	authHandler.FinishWebAuthnRegistration	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/compliance/digest/send	server/http/router.go	1205	dashboardHandler.SendComplianceDigest	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/compliance/evidence/verify	server/http/router.go	1224	dashboardHandler.VerifyComplianceEvidence	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/compliance/snapshots	server/http/router.go	1208	dashboardHandler.TakeComplianceSnapshot	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/compliance/digest/send	server/http/router.go	1219	dashboardHandler.SendComplianceDigest	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/compliance/evidence/verify	server/http/router.go	1238	dashboardHandler.VerifyComplianceEvidence	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/compliance/snapshots	server/http/router.go	1222	dashboardHandler.TakeComplianceSnapshot	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/connect/ref-grants	server/http/router.go	476	connectHandler.CreateRefGrant	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/connect/{name}/secret:read	server/http/router.go	471	connectHandler.ReadSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/dynamic-secrets/configs	server/http/router.go	900	dynamicSecretHandler.CreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/dynamic-secrets/configs/{id}/issue	server/http/router.go	905	dynamicSecretHandler.IssueLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/dynamic-secrets/configs/{id}/revoke-all	server/http/router.go	907	dynamicSecretHandler.RevokeAllLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/dynamic-secrets/leases/{leaseID}/renew	server/http/router.go	908	dynamicSecretHandler.RenewLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/dynamic-secrets/leases/{leaseID}/revoke	server/http/router.go	909	dynamicSecretHandler.RevokeLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/folders/	server/http/router.go	849	folderHandler.CreateFolder	D	FolderHandler.CreateFolder (server/http/handlers/folders_handler.go:64) has one real storage write (coreService.CreateFolder); AuthorizePrincipal/ProjectMFABlocked are read-only checks, sendCreated's w.Header().Set x2 are response headers.
-rest	POST /api/v1/groups/	server/http/router.go	1006	groupHandler.CreateGroup	D	GroupHandler.CreateGroup (server/http/handlers/groups_handler.go:65) calls coreService.CreateGroup exactly once; no second write call exists despite the "ambiguous" scanner flag.
-rest	POST /api/v1/groups/{id}/members	server/http/router.go	1024	groupHandler.AddGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/groups/{id}/restore	server/http/router.go	1013	groupHandler.RestoreGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/groups/{id}/roles	server/http/router.go	1034	rbacHandler.AssignRoleToGroup	D	RBACHandler.AssignRoleToGroup (server/http/handlers/rbac.go:753): `if body.ExpiresAt != nil { AssignGroupRoleWithExpiry } else { AssignRoleToGroup }` -- confirmed a genuine if/else on a single request field; only one call executes per request.
+rest	POST /api/v1/dynamic-secrets/configs	server/http/router.go	914	dynamicSecretHandler.CreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/dynamic-secrets/configs/{id}/issue	server/http/router.go	919	dynamicSecretHandler.IssueLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/dynamic-secrets/configs/{id}/revoke-all	server/http/router.go	921	dynamicSecretHandler.RevokeAllLeases	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/dynamic-secrets/leases/{leaseID}/renew	server/http/router.go	922	dynamicSecretHandler.RenewLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/dynamic-secrets/leases/{leaseID}/revoke	server/http/router.go	923	dynamicSecretHandler.RevokeLease	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/folders/	server/http/router.go	863	folderHandler.CreateFolder	D	FolderHandler.CreateFolder (server/http/handlers/folders_handler.go:64) has one real storage write (coreService.CreateFolder); AuthorizePrincipal/ProjectMFABlocked are read-only checks, sendCreated's w.Header().Set x2 are response headers.
+rest	POST /api/v1/groups/	server/http/router.go	1020	groupHandler.CreateGroup	D	GroupHandler.CreateGroup (server/http/handlers/groups_handler.go:65) calls coreService.CreateGroup exactly once; no second write call exists despite the "ambiguous" scanner flag.
+rest	POST /api/v1/groups/{id}/members	server/http/router.go	1038	groupHandler.AddGroupMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/groups/{id}/restore	server/http/router.go	1027	groupHandler.RestoreGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/groups/{id}/roles	server/http/router.go	1048	rbacHandler.AssignRoleToGroup	D	RBACHandler.AssignRoleToGroup (server/http/handlers/rbac.go:753): `if body.ExpiresAt != nil { AssignGroupRoleWithExpiry } else { AssignRoleToGroup }` -- confirmed a genuine if/else on a single request field; only one call executes per request.
 rest	POST /api/v1/invitations	server/http/router.go	545	catalogHandler.CreateGlobalInvitation	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/legal-hold	server/http/router.go	1214	dashboardHandler.PlaceLegalHold	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/legal-hold	server/http/router.go	1228	dashboardHandler.PlaceLegalHold	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/notification-channels	server/http/router.go	412	notificationChannelHandler.Create	C	notification_channels.go Create (line 64) makes one call to core.CreateNotificationChannel; that core function (notification_channels.go:55) does one storage.CreateNotificationChannel write, then a separate sequential audit-log write -- a trailing best-effort side effect.
 rest	POST /api/v1/notifications/read-all	server/http/router.go	405	notificationHandler.MarkAllRead	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/notifications/{id}/read	server/http/router.go	406	notificationHandler.MarkRead	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -731,9 +731,9 @@ rest	POST /api/v1/projects/{id}/access-review/revoke	server/http/router.go	518	c
 rest	POST /api/v1/projects/{id}/break-glass	server/http/router.go	585	catalogHandler.ActivateBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/break-glass/{activationId}/review	server/http/router.go	599	catalogHandler.ReviewBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/break-glass/{activationId}/revoke	server/http/router.go	587	catalogHandler.RevokeBreakGlass	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/environments	server/http/router.go	672	catalogHandler.CreateProjectEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/environments/{envId}/clone	server/http/router.go	667	catalogHandler.CloneEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/environments/{envId}/copy-secrets	server/http/router.go	660	secretHandler.CopyEnvironmentSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/environments	server/http/router.go	677	catalogHandler.CreateProjectEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/environments/{envId}/clone	server/http/router.go	671	catalogHandler.CloneEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/environments/{envId}/copy-secrets	server/http/router.go	663	secretHandler.CopyEnvironmentSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/invitations	server/http/router.go	539	catalogHandler.CreateInvitation	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/invitations/{invitationId}/resend	server/http/router.go	542	catalogHandler.ResendInvitation	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/machine-identities	server/http/router.go	603	catalogHandler.CreateMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -744,50 +744,50 @@ rest	POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens	server/htt
 rest	POST /api/v1/projects/{id}/members	server/http/router.go	529	catalogHandler.AddProjectMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/memberships	server/http/router.go	535	catalogHandler.InviteMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/restore	server/http/router.go	493	catalogHandler.RestoreProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/bulk-delete	server/http/router.go	652	secretHandler.BulkDeleteSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/bulk-rename	server/http/router.go	648	secretHandler.BulkRenameSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/bulk-rotate	server/http/router.go	650	secretHandler.BulkRotateSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/extend-expiring	server/http/router.go	646	secretHandler.ExtendExpiringSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/reassign-owner	server/http/router.go	644	secretHandler.ReassignOwner	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/bulk-delete	server/http/router.go	655	secretHandler.BulkDeleteSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/bulk-rename	server/http/router.go	651	secretHandler.BulkRenameSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/bulk-rotate	server/http/router.go	653	secretHandler.BulkRotateSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/extend-expiring	server/http/router.go	649	secretHandler.ExtendExpiringSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/reassign-owner	server/http/router.go	647	secretHandler.ReassignOwner	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/projects/{id}/secrets/render	server/http/router.go	626	secretHandler.RenderTemplate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/resume-all	server/http/router.go	638	secretHandler.ResumeProjectSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{id}/secrets/suspend-all	server/http/router.go	637	secretHandler.SuspendProjectSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/projects/{projectId}/environments/{id}/restore	server/http/router.go	677	catalogHandler.RestoreEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/resume-all	server/http/router.go	641	secretHandler.ResumeProjectSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{id}/secrets/suspend-all	server/http/router.go	640	secretHandler.SuspendProjectSecrets	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/projects/{projectId}/environments/{id}/restore	server/http/router.go	682	catalogHandler.RestoreEnvironment	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/rejection-reason-templates	server/http/router.go	576	catalogHandler.CreateRejectionReasonTemplate	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/risk-exceptions	server/http/router.go	1240	dashboardHandler.CreateRiskException	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/risk-exceptions/{id}/approve	server/http/router.go	1241	dashboardHandler.ApproveRiskException	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/roles/	server/http/router.go	1042	rbacHandler.CreateRole	C	rbac.go CreateRole (134-189): resolveAndAuthorizePermissions only reads; the one state-changing call, h.coreService.CreateRole, runs the role-row create and permission-bundling in one transaction and audits only after that transaction commits -- a sequential trailing write.
-rest	POST /api/v1/roles/{id}/permissions	server/http/router.go	1057	rbacHandler.AssignPermissionToRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/rotation-policies/	server/http/router.go	871	rotationPolicyHandler.Create	C	rotation_policies_handler.go Create (126): single call h.coreService.CreateRotationPolicy; core (rotation_policies.go:57-110) does one storage.CreateRotationPolicy write then a separate c.writeAuditEvent call after it succeeds.
+rest	POST /api/v1/risk-exceptions	server/http/router.go	1254	dashboardHandler.CreateRiskException	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/risk-exceptions/{id}/approve	server/http/router.go	1255	dashboardHandler.ApproveRiskException	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/roles/	server/http/router.go	1056	rbacHandler.CreateRole	C	rbac.go CreateRole (134-189): resolveAndAuthorizePermissions only reads; the one state-changing call, h.coreService.CreateRole, runs the role-row create and permission-bundling in one transaction and audits only after that transaction commits -- a sequential trailing write.
+rest	POST /api/v1/roles/{id}/permissions	server/http/router.go	1071	rbacHandler.AssignPermissionToRole	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/rotation-policies/	server/http/router.go	885	rotationPolicyHandler.Create	C	rotation_policies_handler.go Create (126): single call h.coreService.CreateRotationPolicy; core (rotation_policies.go:57-110) does one storage.CreateRotationPolicy write then a separate c.writeAuditEvent call after it succeeds.
 rest	POST /api/v1/secret-access-requests	server/http/router.go	569	catalogHandler.CreateSecretAccessRequest	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	POST /api/v1/secret-access-requests/{requestId}/withdraw	server/http/router.go	573	catalogHandler.WithdrawSecretAccessRequest	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secret-templates/	server/http/router.go	881	secretTemplateHandler.Create	C	secret_templates.go Create (36-82): single call h.coreService.CreateSecretTemplate; core (secret_templates.go:84-124) does one storage.CreateSecretTemplate write then a separate c.writeAuditEvent call after it succeeds -- trailing, best-effort.
-rest	POST /api/v1/secret-templates/{id}/apply	server/http/router.go	885	secretTemplateHandler.Apply	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/	server/http/router.go	796	secretHandler.CreateSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/acl	server/http/router.go	777	secretHandler.GrantSecretACL	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/copy	server/http/router.go	802	secretHandler.CopySecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/dependencies	server/http/router.go	760	secretHandler.AddSecretDependency	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/move	server/http/router.go	810	secretHandler.MoveSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/restore	server/http/router.go	821	secretHandler.RestoreSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/resume	server/http/router.go	812	secretHandler.ResumeSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/rollback	server/http/router.go	808	secretHandler.RollbackSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/rotate	server/http/router.go	804	secretHandler.RotateSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/rotation/simulate	server/http/router.go	807	secretHandler.SimulateRotation	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/share	server/http/router.go	813	shareHandler.ShareSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/suspend	server/http/router.go	811	secretHandler.SuspendSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/transfer-ownership	server/http/router.go	809	secretHandler.TransferOwnership	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/secrets/{id}/versions/{versionId}/comments	server/http/router.go	743	versionCommentHandler.CreateComment	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/sod/policies	server/http/router.go	1249	catalogHandler.CreateSoDPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	POST /api/v1/user-roles/	server/http/router.go	1100	rbacHandler.AssignRole	C	rbac.go AssignRole (437-490): req.ExpiresAt selects exactly one of AssignUserRoleWithExpiry/AssignUserRole (mutually exclusive); AssignUserRole (rbac_management.go:512-531) does storage.AssignRole then, inside the same WithNamedLock closure with its return value ignored, c.LogRoleAssigned -- a trailing audit write that doesn't gate the function's success.
-rest	POST /api/v1/users/	server/http/router.go	920	handlers.CreateUser	C	users_crud.go CreateUser dispatches (mutually exclusive) to createUserWithOTP/createUserWithSetupLink/createUserClassic; createUserClassic's no-assignment branch calls h.coreService.CreateUser then sequentially h.coreService.LogUserCreated -- a trailing, best-effort audit call after the user row already committed.
-rest	POST /api/v1/users/{id}/reactivate	server/http/router.go	955	handlers.ReactivateUser	C	Via accountStateAction dispatcher calling the single core.ReactivateUser (account_state.go:224), which delegates to setAccountState: the state write (+session/PAT eviction) runs inside one storage.WithTransaction, and c.writeAuditEventFull runs AFTER that commits -- trailing, best-effort.
-rest	POST /api/v1/users/{id}/reissue-one-time-password	server/http/router.go	962	handlers.ReissueOneTimePassword	C	users_crud.go ReissueOneTimePassword calls core.ReissueOneTimePassword (reissue_otp.go): the primary write is ONE transaction (account state, password hash, OTP expiry, lockout reset, session deletion -- all or nothing, validated on the user row lock); after commit come the auth-cache eviction (idempotent), a best-effort password-history row and two audit events (user.one_time_password_reissued, credential.displayed_out_of_band) -- trailing steps after the durable credential change, none of which can undo it. The handler method resolves ambiguously only because the package-level dispatcher shares its name.
-rest	POST /api/v1/users/{id}/require-password-reset	server/http/router.go	956	handlers.RequirePasswordReset	C	Same accountStateAction dispatcher calling core.RequirePasswordReset (account_state.go:230), same setAccountState shape as ReactivateUser -- transactional primary write + trailing writeAuditEventFull after commit.
-rest	POST /api/v1/users/{id}/resend-setup-link	server/http/router.go	958	handlers.ResendSetupLink	C	users_crud.go ResendSetupLink (586) calls core.ResendAccountSetupLink -> provisionSetupLink (setup_delivery.go:82-97): IssueSetupToken (creates the setup-token row, the primary write) runs first, then deliverSetupLink relays the link and calls writeAuditEventFull("setup_link.delivered") -- a trailing delivery/audit step after the token row is already durably created.
-rest	POST /api/v1/users/{id}/restore	server/http/router.go	949	handlers.RestoreUser	C	users_crud.go RestoreUser (449) calls core.RestoreUser (users.go:978-1017): RestoreUser+UpdateUser run inside one storage.WithTransaction (doc comment notes this used to be sequential and was fixed for that reason), then c.writeAuditEvent runs after commit -- trailing, best-effort.
-rest	POST /api/v1/users/{id}/revoke-sessions	server/http/router.go	952	handlers.RevokeSessions	C	users_crud.go RevokeSessions (550) calls core.RevokeUserSessions (account_sessions.go:42-85): ListSessionTokenHashesForUser (read) -> DeleteSessionsForUserExcept (the one primary write) -> c.invalidateTokenCache (cache, not storage) -> c.writeAuditEventFull (a second, trailing storage write) -- the audit write is best-effort and cannot undo the already-committed session deletion.
-rest	POST /api/v1/users/{id}/suspend	server/http/router.go	954	handlers.SuspendUser	REVIEW	ambiguous: 2 functions named "SuspendUser" found (server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
-rest	POST /api/v1/users/{id}/unlock	server/http/router.go	950	handlers.UnlockUser	C	users_crud.go UnlockUser (477) calls core.UnlockUser (login_lockout.go:254-273): storage.UpdateLoginLockoutState (the one primary write) followed by c.writeAuditEventFull -- a trailing audit write. UnlockUser is deliberately NOT last-admin/ceiling-gated (grants no privilege).
+rest	POST /api/v1/secret-templates/	server/http/router.go	895	secretTemplateHandler.Create	C	secret_templates.go Create (36-82): single call h.coreService.CreateSecretTemplate; core (secret_templates.go:84-124) does one storage.CreateSecretTemplate write then a separate c.writeAuditEvent call after it succeeds -- trailing, best-effort.
+rest	POST /api/v1/secret-templates/{id}/apply	server/http/router.go	899	secretTemplateHandler.Apply	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/	server/http/router.go	807	secretHandler.CreateSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/acl	server/http/router.go	788	secretHandler.GrantSecretACL	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/copy	server/http/router.go	813	secretHandler.CopySecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/dependencies	server/http/router.go	771	secretHandler.AddSecretDependency	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/move	server/http/router.go	824	secretHandler.MoveSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/restore	server/http/router.go	835	secretHandler.RestoreSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/resume	server/http/router.go	826	secretHandler.ResumeSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/rollback	server/http/router.go	822	secretHandler.RollbackSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/rotate	server/http/router.go	818	secretHandler.RotateSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/rotation/simulate	server/http/router.go	821	secretHandler.SimulateRotation	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/share	server/http/router.go	827	shareHandler.ShareSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/suspend	server/http/router.go	825	secretHandler.SuspendSecret	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/transfer-ownership	server/http/router.go	823	secretHandler.TransferOwnership	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/secrets/{id}/versions/{versionId}/comments	server/http/router.go	754	versionCommentHandler.CreateComment	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/sod/policies	server/http/router.go	1263	catalogHandler.CreateSoDPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	POST /api/v1/user-roles/	server/http/router.go	1114	rbacHandler.AssignRole	C	rbac.go AssignRole (437-490): req.ExpiresAt selects exactly one of AssignUserRoleWithExpiry/AssignUserRole (mutually exclusive); AssignUserRole (rbac_management.go:512-531) does storage.AssignRole then, inside the same WithNamedLock closure with its return value ignored, c.LogRoleAssigned -- a trailing audit write that doesn't gate the function's success.
+rest	POST /api/v1/users/	server/http/router.go	934	handlers.CreateUser	C	users_crud.go CreateUser dispatches (mutually exclusive) to createUserWithOTP/createUserWithSetupLink/createUserClassic; createUserClassic's no-assignment branch calls h.coreService.CreateUser then sequentially h.coreService.LogUserCreated -- a trailing, best-effort audit call after the user row already committed.
+rest	POST /api/v1/users/{id}/reactivate	server/http/router.go	969	handlers.ReactivateUser	C	Via accountStateAction dispatcher calling the single core.ReactivateUser (account_state.go:224), which delegates to setAccountState: the state write (+session/PAT eviction) runs inside one storage.WithTransaction, and c.writeAuditEventFull runs AFTER that commits -- trailing, best-effort.
+rest	POST /api/v1/users/{id}/reissue-one-time-password	server/http/router.go	976	handlers.ReissueOneTimePassword	C	users_crud.go ReissueOneTimePassword calls core.ReissueOneTimePassword (reissue_otp.go): the primary write is ONE transaction (account state, password hash, OTP expiry, lockout reset, session deletion -- all or nothing, validated on the user row lock); after commit come the auth-cache eviction (idempotent), a best-effort password-history row and two audit events (user.one_time_password_reissued, credential.displayed_out_of_band) -- trailing steps after the durable credential change, none of which can undo it. The handler method resolves ambiguously only because the package-level dispatcher shares its name.
+rest	POST /api/v1/users/{id}/require-password-reset	server/http/router.go	970	handlers.RequirePasswordReset	C	Same accountStateAction dispatcher calling core.RequirePasswordReset (account_state.go:230), same setAccountState shape as ReactivateUser -- transactional primary write + trailing writeAuditEventFull after commit.
+rest	POST /api/v1/users/{id}/resend-setup-link	server/http/router.go	972	handlers.ResendSetupLink	C	users_crud.go ResendSetupLink (586) calls core.ResendAccountSetupLink -> provisionSetupLink (setup_delivery.go:82-97): IssueSetupToken (creates the setup-token row, the primary write) runs first, then deliverSetupLink relays the link and calls writeAuditEventFull("setup_link.delivered") -- a trailing delivery/audit step after the token row is already durably created.
+rest	POST /api/v1/users/{id}/restore	server/http/router.go	963	handlers.RestoreUser	C	users_crud.go RestoreUser (449) calls core.RestoreUser (users.go:978-1017): RestoreUser+UpdateUser run inside one storage.WithTransaction (doc comment notes this used to be sequential and was fixed for that reason), then c.writeAuditEvent runs after commit -- trailing, best-effort.
+rest	POST /api/v1/users/{id}/revoke-sessions	server/http/router.go	966	handlers.RevokeSessions	C	users_crud.go RevokeSessions (550) calls core.RevokeUserSessions (account_sessions.go:42-85): ListSessionTokenHashesForUser (read) -> DeleteSessionsForUserExcept (the one primary write) -> c.invalidateTokenCache (cache, not storage) -> c.writeAuditEventFull (a second, trailing storage write) -- the audit write is best-effort and cannot undo the already-committed session deletion.
+rest	POST /api/v1/users/{id}/suspend	server/http/router.go	968	handlers.SuspendUser	REVIEW	ambiguous: 2 functions named "SuspendUser" found (server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
+rest	POST /api/v1/users/{id}/unlock	server/http/router.go	964	handlers.UnlockUser	C	users_crud.go UnlockUser (477) calls core.UnlockUser (login_lockout.go:254-273): storage.UpdateLoginLockoutState (the one primary write) followed by c.writeAuditEventFull -- a trailing audit write. UnlockUser is deliberately NOT last-admin/ceiling-gated (grants no privilege).
 rest	POST /auth/login	server/http/router.go	189	authHandler.Login	D	auth.go Login (137-197): CreateMFAChallenge only runs on the ErrMFARequired sentinel branch (no session/record-login ever happens on that path), while RecordLogin/LogAuthLogin only run (async via goSafe) on the success branch after a session was already minted -- genuinely mutually exclusive, never sequential in the same request.
 rest	POST /auth/logout	server/http/router.go	195	authHandler.Logout	D	auth.go Logout (340-371): the scanner-flagged pair, middleware.ClearSessionCookie/ClearCSRFCookie, are cookie-header writes, not state writes. The one real storage write is core.Logout (session delete); LogAuthLogout runs via goSafe (a fully detached goroutine) afterward.
 rest	POST /auth/mfa/verify	server/http/router.go	200	authHandler.VerifyMFA	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -802,10 +802,10 @@ rest	POST /auth/webauthn/passwordless/finish	server/http/router.go	208	authHandl
 rest	POST /scim/v2/Groups	server/http/router.go	317	scimHandler.CreateGroup	C	scim_groups.go CreateGroup (168) calls core.ProvisionSCIMGroup (scim_groups.go:110-160): the group-create + initial-member-adds run in one storage.WithTransaction, then c.writeAuditEvent runs after commit -- trailing, best-effort.
 rest	POST /scim/v2/Users	server/http/router.go	311	scimHandler.CreateUser	C	scim.go CreateUser (230) calls core.ProvisionSCIMUser (scim.go:106-196): user-create + baseline-role-assign run in one storage.WithTransaction (tied to the #2295 "user with zero roles" bootstrap fix), then c.writeAuditEvent runs after commit -- trailing, best-effort.
 rest	POST /system/init	server/http/router.go	209	authHandler.InitSystem	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PUT /api/v1/admin/anomaly-config/	server/http/router.go	1328	handlers.UpdateAnomalyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PUT /api/v1/admin/anomaly-config/	server/http/router.go	1342	handlers.UpdateAnomalyConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /api/v1/alert-escalation-policies/{id}	server/http/router.go	424	alertEscalationHandler.Update	C	alert_escalation.go Update (134-171): before,_ := GetAlertEscalationPolicy (read, error ignored) then h.coreService.UpdateAlertEscalationPolicy (the one primary write) then h.coreService.LogAlertEscalationPolicyUpdated (trailing audit call, return value discarded) -- the comment explicitly says a failure in the before-fetch "must not block the update."
 rest	PUT /api/v1/auth/profile	server/http/router.go	358	authHandler.UpdateProfile	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PUT /api/v1/groups/{id}	server/http/router.go	1008	groupHandler.UpdateGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PUT /api/v1/groups/{id}	server/http/router.go	1022	groupHandler.UpdateGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /api/v1/notification-channels/{id}	server/http/router.go	414	notificationChannelHandler.Update	C	notification_channels.go Update (127-157): single call h.coreService.UpdateNotificationChannel; core does GetNotificationChannel(read) -> storage.UpdateNotificationChannel (primary write) -> c.writeConfigChangeAuditEvent (trailing, best-effort audit-diff write).
 rest	PUT /api/v1/notification-channels/{id}/retry-policy	server/http/router.go	416	notificationChannelHandler.SetRetryPolicy	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /api/v1/projects/{id}	server/http/router.go	488	catalogHandler.UpdateProject	none	single/no write-shaped call found by a 1-hop scan of the handler body
@@ -813,16 +813,16 @@ rest	PUT /api/v1/projects/{id}/access-requests/{requestId}	server/http/router.go
 rest	PUT /api/v1/projects/{id}/machine-identities/{machineId}	server/http/router.go	609	catalogHandler.TransitionMachineIdentity	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /api/v1/projects/{id}/members/{userId}	server/http/router.go	530	catalogHandler.UpdateProjectMember	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /api/v1/projects/{id}/memberships/{membershipId}	server/http/router.go	536	catalogHandler.TransitionMembership	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PUT /api/v1/roles/{id}	server/http/router.go	1054	rbacHandler.UpdateRole	C	rbac.go UpdateRole (290-368): authorizeAndCollectPermissions only reads/authorizes; the one state-changing call, h.coreService.UpdateRole, runs the role-row update and permission replacement in one transaction and audits only after that transaction commits, matching CreateRole.
-rest	PUT /api/v1/rotation-policies/{id}	server/http/router.go	872	rotationPolicyHandler.Update	C	rotation_policies_handler.go Update (228-284): single call h.coreService.UpdateRotationPolicy; core does GetRotationPolicy(read) -> storage.UpdateRotationPolicy (primary write) -> c.writeAuditEvent (trailing, best-effort).
+rest	PUT /api/v1/roles/{id}	server/http/router.go	1068	rbacHandler.UpdateRole	C	rbac.go UpdateRole (290-368): authorizeAndCollectPermissions only reads/authorizes; the one state-changing call, h.coreService.UpdateRole, runs the role-row update and permission replacement in one transaction and audits only after that transaction commits, matching CreateRole.
+rest	PUT /api/v1/rotation-policies/{id}	server/http/router.go	886	rotationPolicyHandler.Update	C	rotation_policies_handler.go Update (228-284): single call h.coreService.UpdateRotationPolicy; core does GetRotationPolicy(read) -> storage.UpdateRotationPolicy (primary write) -> c.writeAuditEvent (trailing, best-effort).
 rest	PUT /api/v1/secret-access-requests/{requestId}	server/http/router.go	572	catalogHandler.ResolveSecretAccessRequest	D	secret_access_requests.go ResolveSecretAccessRequest (122-179): body.Action switches between ApproveSecretAccessRequest and RejectSecretAccessRequest -- genuinely mutually exclusive -- consistent with the pre-existing atomicity-exempt.tsv classification of ApproveSecretAccessRequest as D.
-rest	PUT /api/v1/secret-templates/{id}	server/http/router.go	883	secretTemplateHandler.Update	C	secret_templates.go Update (116-165): h.coreService.UpdateSecretTemplate (primary write) is followed sequentially, at the handler level, by h.coreService.LogSecretTemplateUpdated (trailing audit call, return value discarded).
-rest	PUT /api/v1/secrets/{id}	server/http/router.go	797	secretHandler.UpdateSecret	C	secrets_crud.go UpdateSecret (451-560): isMachine selects exactly one of UpdateSecret/UpdateSecretWithPermissionCheck (mutually exclusive), but either way the primary write is followed sequentially by a goSafe-wrapped (async) call to h.coreService.LogSecretUpdatedWithDiff -- a trailing, best-effort audit write common to both branches.
-rest	PUT /api/v1/secrets/{id}/schedule	server/http/router.go	782	secretHandler.SetSecretSchedule	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PUT /api/v1/secrets/{id}/tags	server/http/router.go	756	secretHandler.SetTags	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PUT /api/v1/shares/{id}	server/http/router.go	836	shareHandler.UpdateSharePermission	none	single/no write-shaped call found by a 1-hop scan of the handler body
-rest	PUT /api/v1/users/{id}	server/http/router.go	944	handlers.UpdateUser	REVIEW	ambiguous: 2 functions named "UpdateUser" found (server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
-rest	PUT /api/v1/users/{id}/roles	server/http/router.go	977	usersRolesHandler.UpdateUserRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PUT /api/v1/secret-templates/{id}	server/http/router.go	897	secretTemplateHandler.Update	C	secret_templates.go Update (116-165): h.coreService.UpdateSecretTemplate (primary write) is followed sequentially, at the handler level, by h.coreService.LogSecretTemplateUpdated (trailing audit call, return value discarded).
+rest	PUT /api/v1/secrets/{id}	server/http/router.go	808	secretHandler.UpdateSecret	C	secrets_crud.go UpdateSecret (451-560): isMachine selects exactly one of UpdateSecret/UpdateSecretWithPermissionCheck (mutually exclusive), but either way the primary write is followed sequentially by a goSafe-wrapped (async) call to h.coreService.LogSecretUpdatedWithDiff -- a trailing, best-effort audit write common to both branches.
+rest	PUT /api/v1/secrets/{id}/schedule	server/http/router.go	793	secretHandler.SetSecretSchedule	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PUT /api/v1/secrets/{id}/tags	server/http/router.go	767	secretHandler.SetTags	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PUT /api/v1/shares/{id}	server/http/router.go	850	shareHandler.UpdateSharePermission	none	single/no write-shaped call found by a 1-hop scan of the handler body
+rest	PUT /api/v1/users/{id}	server/http/router.go	958	handlers.UpdateUser	REVIEW	ambiguous: 2 functions named "UpdateUser" found (server/http/handlers/users_crud.go, server/http/handlers/users_handler.go) -- resolved by exact name only, ambiguity not broken by receiver type
+rest	PUT /api/v1/users/{id}/roles	server/http/router.go	991	usersRolesHandler.UpdateUserRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /scim/v2/Groups/{id}	server/http/router.go	319	scimHandler.ReplaceGroup	none	single/no write-shaped call found by a 1-hop scan of the handler body
 rest	PUT /scim/v2/Users/{id}	server/http/router.go	313	scimHandler.ReplaceUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
 gap	operator/ reconcile loops	operator/	0		gap	operator/ is a separate Go module (its own go.mod, controller-runtime reconcile-loop entry points, not REST/gRPC/CLI/job in this codebase's sense) and is on SESSION-AT's MUST-NOT-EDIT list. Not enumerated here; recommend a follow-up session scoped to operator/ specifically, using its own entry-point shape (Reconcile methods on each controller).
