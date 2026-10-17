@@ -403,6 +403,16 @@ func intToU32(v int) uint32 {
 	return x
 }
 
+// uintToU32 narrows a uint (a model ID) to the proto's uint32 without going
+// through int, saturating to 0 on overflow like intToU32.
+func uintToU32(v uint) uint32 {
+	x, err := safeconv.UintToUint32(v)
+	if err != nil {
+		return 0
+	}
+	return x
+}
+
 func i64ToU32(v int64) uint32 {
 	if v < 0 {
 		return 0

@@ -1,0 +1,2 @@
+### Security
+- **Code-scanning cleanup (Go).** Model IDs are narrowed to uint32 in the gRPC services without an `int` round trip (`uintToU32`); retry/scheduler jitter uses `crypto/rand`; the gRPC TLS configs set `MinVersion` in the literal; the invitation resend-throttle response sends a fixed message constant instead of `err.Error()`; the one-time-password lifetime config fields are renamed in Go (YAML keys unchanged).
