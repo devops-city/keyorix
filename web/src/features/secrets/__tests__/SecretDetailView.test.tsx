@@ -861,6 +861,26 @@ describe('SecretDetailView secret value reveal', () => {
         expect(screen.getByText('Secret value copied to clipboard.')).toBeInTheDocument();
     });
 
+    // #2450 regression on the reveal path itself: the page once decoded a field the versions
+    // endpoint never returns with atob() and threw on Reveal. Versions are metadata-only here
+    // (no value / EncryptedValue), and the value comes only from the include_value read.
+    it('reveals when the version list carries no value field, without decoding anything', () => {
+        const atobSpy = vi.spyOn(globalThis, 'atob');
+        mockVersions = [
+            { VersionNumber: 1, CreatedAt: '2026-06-10T00:00:00Z' },
+            { VersionNumber: 2, CreatedAt: '2026-06-14T00:00:00Z' },
+        ];
+        mockSecretValue = 'sup3r-secret';
+        render(<SecretDetailView secret={makeSecret()} />);
+
+        expect(() => fireEvent.click(screen.getByRole('button', { name: /^Reveal$/i }))).not.toThrow();
+
+        expect(screen.getByText('sup3r-secret')).toBeInTheDocument();
+        expect(atobSpy).not.toHaveBeenCalled();
+        atobSpy.mockRestore();
+        mockVersions = [];
+    });
+
     it('logs and does not crash when the clipboard write fails', async () => {
         const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('denied'));
