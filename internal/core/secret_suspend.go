@@ -75,12 +75,16 @@ func (c *KeyorixCore) SuspendSecretWithOptions(ctx context.Context, secretID, ac
 		desc += ": " + reason
 	}
 	if !opts.ClearSyncedCopies {
-		// A plain freeze keeps its long-standing best-effort audit: an audit outage
-		// must not stop a responder from blocking reads.
-		if err := transitionSuspend(ctx, c.storage, secret, fromStatus); err != nil {
+		// A plain freeze is never blocked or delayed by the audit log: an audit outage
+		// must not stop a responder from blocking reads. Its secret.suspended row is
+		// still never silently lost: it is owed (audit_owed.go), so a failure is loud
+		// and the row is backfilled once the audit log accepts writes again.
+		event := buildAuditEvent(ctx, EventSecretSuspended, &uid, &sid, nil, "", desc, "")
+		if err := c.commitOwingAudit(ctx, func(st storage.Storage) error {
+			return transitionSuspend(ctx, st, secret, fromStatus)
+		}, event); err != nil {
 			return nil, err
 		}
-		c.writeAuditEvent(ctx, EventSecretSuspended, &uid, &sid, desc)
 		return secret, nil
 	}
 	// Clearing the synced copies destroys data in clusters, so it never takes effect

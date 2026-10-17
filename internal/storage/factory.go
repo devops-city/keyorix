@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 2
+const currentSchemaEpoch = 3
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -68,6 +68,9 @@ const schemaEpochMetadataKey = "schema_epoch"
 // secret_nodes.purge_at and its DeleteSecret does not re-stamp it, so a
 // restore + re-delete on an old replica would leave a stale date that the
 // epoch-2 purge job honours, hard-deleting before the date shown (#3021).
+// Epoch 3 (pending_audit_events) left it at 2: the table is additive, an
+// epoch-2 replica never reads or writes it, and rows it leaves behind are
+// drained by the next epoch-3 replica's backfill.
 const minCompatibleSchemaEpoch = 2
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
@@ -1954,6 +1957,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	deploymentStatsSnapshotExists := tableExists(db, "deployment_stats_snapshots")
 	secretACLExists := tableExists(db, "secret_acls")
 	scheduleExists := tableExists(db, "secret_access_schedules")
+	pendingAuditExists := tableExists(db, "pending_audit_events")
 	secretTemplateExists := tableExists(db, "secret_templates")
 	alertEscalationExists := tableExists(db, "alert_escalation_policies")
 	secretVersionCommentExists := tableExists(db, "secret_version_comments")
@@ -2366,6 +2370,14 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if !scheduleExists {
 		if err := db.AutoMigrate(&models.SecretAccessSchedule{}); err != nil {
 			return fmt.Errorf("failed to migrate secret_access_schedules table: %w", err)
+		}
+	}
+
+	// Create pending_audit_events if missing (audit rows owed by a plain secret
+	// suspend that took effect while the audit log refused writes; additive).
+	if !pendingAuditExists {
+		if err := db.AutoMigrate(&models.PendingAuditEvent{}); err != nil {
+			return fmt.Errorf("failed to migrate pending_audit_events table: %w", err)
 		}
 	}
 
