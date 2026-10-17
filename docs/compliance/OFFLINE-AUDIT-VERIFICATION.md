@@ -22,7 +22,10 @@ chain; see that package's own design note in
 ## Quick start
 
 ```sh
-# Against a detached copy of a SQLite deployment (never touches a running server):
+# Against a detached copy of a SQLite deployment (never touches a running server).
+# Copy keyorix.db together with its -wal and -shm files (committed rows can still be in
+# the -wal after a stop; the main file alone may be nearly empty), or use an `admin backup`:
+
 keyorix-server admin verify-audit --db /path/to/keyorix.db
 
 # Against a Postgres deployment directly:

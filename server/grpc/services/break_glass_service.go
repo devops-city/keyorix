@@ -112,10 +112,10 @@ func (s *BreakGlassGRPCService) RevokeBreakGlass(ctx context.Context, req *pb.Re
 
 func breakGlassToProto(a *models.BreakGlassActivation) *pb.BreakGlassActivation {
 	out := &pb.BreakGlassActivation{
-		Id:            intToU32(int(a.ID)),
-		ProjectId:     intToU32(int(a.ProjectID)),
-		UserId:        intToU32(int(a.UserID)),
-		RoleId:        intToU32(int(a.RoleID)),
+		Id:            uintToU32(a.ID),
+		ProjectId:     uintToU32(a.ProjectID),
+		UserId:        uintToU32(a.UserID),
+		RoleId:        uintToU32(a.RoleID),
 		RoleName:      a.RoleName,
 		Justification: a.Justification,
 		State:         a.State,

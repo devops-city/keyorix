@@ -428,11 +428,10 @@ func TestSecretNodeCacheEpoch_CrossSchemaTriggerDoesNotMaskADroppedOne_Postgres(
 // read tgenabled cannot distinguish a disabled trigger from a working one, so
 // it would report "present" for a stamp that has permanently stopped moving.
 //
-// Known, documented gap this does NOT cover: session_replication_role =
-// replica suppresses ordinary triggers for the whole session without touching
-// tgenabled at all, so a disabled-session check could still read "present"
-// while nothing fires for that session. See SecretNodeCacheEpochTriggerPresent's
-// doc comment.
+// session_replication_role (which suppresses ordinary triggers without
+// touching tgenabled) is covered separately since #3361: the trigger is ENABLE
+// ALWAYS and the proof requires an 'origin' session
+// (store/secret_node_cache_epoch_replication_role_postgres_test.go).
 func TestSecretNodeCacheEpoch_DisabledTriggerIsNotTrusted_Postgres(t *testing.T) {
 	dsn := os.Getenv("KEYORIX_TEST_PG_DSN")
 	if dsn == "" {

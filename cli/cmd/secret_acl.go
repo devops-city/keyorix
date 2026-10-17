@@ -31,6 +31,9 @@ var secretACLListCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, args []string) error {
+		if err := checkOutputFormat(aclListFormat); err != nil {
+			return err
+		}
 		id, err := parseSecretArg(args[0])
 		if err != nil {
 			return err
@@ -47,15 +50,17 @@ var secretACLListCmd = &cobra.Command{
 			return httpStatusError("list secret ACLs", resp.StatusCode(), resp.Body)
 		}
 		acls := derefSecretACLSlice(resp.JSON200.Data)
-		if len(acls) == 0 {
-			fmt.Println("No ACL grants for this secret.")
+		return emitList(aclListFormat, acls, func() error {
+			if len(acls) == 0 {
+				fmt.Println("No ACL grants for this secret.")
+				return nil
+			}
+			fmt.Printf("%-6s %-10s %-12s %s\n", "ID", "USER_ID", "GRANTED_BY", "PERMISSIONS")
+			for _, a := range acls {
+				fmt.Printf("%-6d %-10d %-12d %s\n", derefSecretInt(a.Id), derefSecretInt(a.UserId), derefSecretInt(a.GrantedBy), strings.Join(derefStrSlice(a.Permissions), ","))
+			}
 			return nil
-		}
-		fmt.Printf("%-6s %-10s %-12s %s\n", "ID", "USER_ID", "GRANTED_BY", "PERMISSIONS")
-		for _, a := range acls {
-			fmt.Printf("%-6d %-10d %-12d %s\n", derefSecretInt(a.Id), derefSecretInt(a.UserId), derefSecretInt(a.GrantedBy), strings.Join(derefStrSlice(a.Permissions), ","))
-		}
-		return nil
+		})
 	},
 }
 

@@ -9,7 +9,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -48,11 +47,14 @@ given reporting window (GET /admin/usage). Requires audit.read.`,
 func init() {
 	usageShowCmd.Flags().IntVar(&usageShowDays, "days", 30, "Reporting window in days (1-365)")
 	usageShowCmd.Flags().IntVar(&usageShowProjectID, "project-id", 0, "Scope to a single project (0 = all)")
-	usageShowCmd.Flags().StringVar(&usageShowFormat, "format", "table", "Output format: table or json")
+	addOutputFlagWithFormatAlias(usageShowCmd, &usageShowFormat)
 	usageCmd.AddCommand(usageShowCmd)
 }
 
 func runUsageShow(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(usageShowFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -74,10 +76,8 @@ func runUsageShow(_ *cobra.Command, _ []string) error {
 }
 
 func printUsageReport(report *apiclient.UsageReport) error {
-	if usageShowFormat == "json" {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(report)
+	if usageShowFormat != outputTable {
+		return printStructured(usageShowFormat, report)
 	}
 
 	projects := []apiclient.ProjectUsageStat{}

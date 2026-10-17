@@ -1,0 +1,2 @@
+### Added
+- Helm chart: `server.replicas` is now honoured (it was ignored and pinned to 1). More than one replica renders a PodDisruptionBudget, node/zone `topologySpreadConstraints` (also for `web.replicas > 1`), RollingUpdate rollouts and `security.auth_rate_limit_fallback.replicas`, and is refused at render time unless the keys volume is persistent `ReadWriteMany` and `server.singleWriter` is off. New `server.singleWriter` renders `storage.database.single_writer`.

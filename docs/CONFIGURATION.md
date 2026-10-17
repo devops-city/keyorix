@@ -168,6 +168,8 @@ server:
     metrics_token_file: ""        # or read the token from this file (secret-file rules, see below); set one, not both
   access_log:
     on_sink_stall: block          # block (default) | drop — what a request does when the access-log sink stalls (see below)
+  log:
+    format: text                  # text (default) | json — one JSON object per log line; see docs/operations/logging.md
   grpc:
     # Partial surface, off by default. HTTP is the complete interface; enable this
     # only if you need it, and read docs/adr-105-grpc-scope-and-parity.md first —
@@ -525,6 +527,13 @@ deviation. Comparison with Vault/OpenBao's file audit device and how to choose:
 `insecure_audit_skip_durable_sync` is a deprecated alias for one minor release
 (`true` = `standard`, `false` = `strict`); it logs a deprecation line, and
 setting both keys to conflicting levels refuses to start.
+### Log format (`server.log.format`)
+
+`text` (default) keeps the existing human-readable lines. `json` writes every log line as
+one JSON object with `ts`, `level` and `msg`, and the HTTP access log and panic lines also
+carry `request_id`, `principal_type` and `route`. Any other value refuses to start. Fields,
+request-id behaviour and what is and is not redacted: [operations/logging.md](operations/logging.md).
+
 ### Access log when the sink stalls (`server.access_log.on_sink_stall`)
 
 The HTTP access log is written through a 1 MiB in-memory queue to the process
@@ -1357,6 +1366,12 @@ opening a campaign is a create, not a delete, so it runs even under a legal hold
 The cadence also drives the compliance posture's **projects-overdue** count (and
 `keyorix compliance report` → Access governance → "overdue for recert"), so the
 overdue signal is visible to auditors even before you enable `auto_open`.
+
+`cadence_days` is also the **look-back of the "last used" column** in the access review
+and in a campaign's items: a user with no secret activity in the last `cadence_days`
+days (at most 366) shows no last use, meaning "none within the review period", not
+"never". It applies whether or not the scheduler is enabled. See
+[recertification-activity-window.md](recertification-activity-window.md).
 
 ```yaml
 recertification:

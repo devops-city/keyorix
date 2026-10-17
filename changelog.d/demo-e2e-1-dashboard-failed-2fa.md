@@ -1,0 +1,2 @@
+### Changed
+- **Admin dashboard: "Failed Logins (24h)" now also counts a refused second factor** (`mfa.failed` and `webauthn.failed`), and shows the split "N wrong password · M wrong second factor". `GET /api/v1/dashboard/stats` gains `failedLoginsWrongPassword24h` and `failedLoginsWrongSecondFactor24h`; `failedAuthAttempts24h` is their sum. The second-factor events are counted by action, so rows written before they were stored with `success=false` still count. `mfa.error` (a fault, no verdict) and refused secret reads stay out.

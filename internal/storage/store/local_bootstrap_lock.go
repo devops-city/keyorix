@@ -64,5 +64,6 @@ func (ls *LocalStorage) WithBootstrapLock(ctx context.Context, fn func() error) 
 	// Release before the deferred Close so the pooled connection carries no lock.
 	defer sess.unlock(ctx, int64(bootstrapAdvisoryLockKey), "bootstrap lock")
 
-	return fn()
+	_, finish := sess.watch(ctx, "bootstrap lock")
+	return finish(fn())
 }

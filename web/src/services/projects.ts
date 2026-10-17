@@ -55,9 +55,12 @@ export interface AccessReviewEntry {
     environmentId: number;
     secretId: number;
     secretName: string;
-    // The user principal's most recent secret access in the project; absent = no
-    // recorded activity (dormant standing access). Groups never carry it.
+    // The user principal's most recent secret access in the project within the last
+    // activityWindowDays days (the recertification period); absent = no recorded
+    // activity in that window (dormant standing access). Groups never carry it.
     lastUsedAt?: string;
+    // The report-level look-back of lastUsedAt, copied onto each entry.
+    activityWindowDays?: number;
 }
 
 // A recertification decision identifying one entry to attest (keep) or revoke.
@@ -93,6 +96,9 @@ export interface AccessReviewCampaign {
     state: 'open' | 'closed';
     createdAt: string;
     closedAt?: string;
+    // Look-back of the items' lastUsedAt, fixed when the campaign was opened; 0 = opened
+    // before the window existed (the whole audit history).
+    activityWindowDays?: number;
 }
 
 export interface CampaignProgress {
@@ -134,6 +140,7 @@ const normalizeCampaign = (c: any): AccessReviewCampaign => ({
     state: c.state ?? c.State ?? 'open',
     createdAt: c.created_at ?? c.createdAt ?? '',
     closedAt: c.closed_at ?? c.closedAt ?? undefined,
+    activityWindowDays: c.activity_window_days ?? c.activityWindowDays ?? undefined,
 });
 
 const normalizeProgress = (p: any): CampaignProgress => ({
@@ -375,7 +382,8 @@ export const projectsApi = {
     async accessReview(projectId: number): Promise<AccessReviewEntry[]> {
         const response = await apiClient.get(`/api/v1/projects/${projectId}/access-review`);
         const entries = response.data.data?.entries ?? response.data.entries ?? [];
-        return entries.map(normalizeAccessReviewEntry);
+        const windowDays = response.data.data?.activity_window_days ?? response.data.activity_window_days ?? undefined;
+        return entries.map((e: any) => ({ ...normalizeAccessReviewEntry(e), activityWindowDays: windowDays }));
     },
 
     async attestAccessReview(projectId: number, decision: AccessReviewDecision): Promise<void> {

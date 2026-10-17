@@ -56,6 +56,9 @@
 #   own freshly-booted server -- for iterating on one spec without booting a
 #   server for every other file. Paths are relative to web/ (e.g.
 #   e2e/real/mfa-disable-dialog.spec.ts).
+#   KEYORIX_E2E_SPEC_DIR=e2e/demo (what `make e2e-web-demo` sets) runs the demo-catalogue
+#   journeys under web/e2e/demo instead (DEMO-E2E-1), on the same per-spec fresh server. The
+#   default, e2e/real, is the suite the pull_request and merge_group jobs run.
 #   Requires: go, pnpm, a working `pnpm exec playwright install` (browsers
 #   already cached locally is fine -- this script does not re-install them).
 set -euo pipefail
@@ -64,6 +67,22 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SERVER_BIN="$REPO_ROOT/bin/keyorix-server"
 WEB_DIR="$REPO_ROOT/web"
 MAX_SPECS_PER_GROUP=1
+
+# KEYORIX_E2E_SPEC_DIR picks the spec directory (relative to web/) whose *.spec.ts files the
+# no-argument run discovers. Default e2e/real: the suite the pull_request and merge_group jobs
+# run. `make e2e-web-demo` sets e2e/demo (DEMO-E2E-1): the demo-catalogue journeys, which run
+# in the full CI profile only. The same server boot, seeding and `// e2e-server:` directives
+# apply to both. run_group tells playwright.config.real.ts which testDir to use
+# (KEYORIX_E2E_TEST_DIR) from the directory of the group's spec, so explicit spec paths
+# (arguments, KEYORIX_E2E_SPECS) work for either suite. Any other directory is refused.
+SPEC_DIR="${KEYORIX_E2E_SPEC_DIR:-e2e/real}"
+case "$SPEC_DIR" in
+e2e/real | e2e/demo) ;;
+*)
+    echo "KEYORIX_E2E_SPEC_DIR must be e2e/real or e2e/demo, got: $SPEC_DIR" >&2
+    exit 1
+    ;;
+esac
 
 # KEYORIX_E2E_SPECS optionally narrows the run to a space-separated list of
 # spec paths (relative to web/), for iterating on one file without paying for
@@ -82,9 +101,9 @@ elif [ "$#" -gt 0 ]; then
         [ -f "$WEB_DIR/$spec" ] || { echo "no such spec file: $WEB_DIR/$spec" >&2; exit 1; }
     done
 else
-    mapfile -t ALL_SPECS < <(cd "$WEB_DIR" && find e2e/real -maxdepth 1 -name '*.spec.ts' | sort)
+    mapfile -t ALL_SPECS < <(cd "$WEB_DIR" && find "$SPEC_DIR" -maxdepth 1 -name '*.spec.ts' | sort)
 fi
-[ "${#ALL_SPECS[@]}" -gt 0 ] || { echo "no e2e/real/*.spec.ts files found under $WEB_DIR" >&2; exit 1; }
+[ "${#ALL_SPECS[@]}" -gt 0 ] || { echo "no $SPEC_DIR/*.spec.ts files found under $WEB_DIR" >&2; exit 1; }
 
 # KEYORIX_E2E_SHARD=i/n (CI: 1/2 and 2/2 as parallel jobs) runs only shard i of n.
 # Spec k (0-based, in the sorted ALL_SPECS order) belongs to shard (k % n) + 1:
@@ -211,13 +230,20 @@ seed_demo_data() {
     local group_label="$1" server_url="$2" token="$3" project_name="$4"
     local lowpriv_username="$5" lowpriv_password="$6"
 
+    # The bearer token travels in a 0600 header file (`-H @file`) and the JSON body (which can
+    # carry a password) on stdin, never on curl's argv (SCRIPTS-SECRETS-2).
     api() { # api METHOD PATH [JSON-BODY]
+        local hdr rc=0
+        hdr="$(mktemp)"
+        printf 'Authorization: Bearer %s\n' "$token" >"$hdr"
         if [ -n "${3:-}" ]; then
-            curl -s -X "$1" "$server_url$2" -H "Authorization: Bearer $token" \
-                -H "Content-Type: application/json" -d "$3"
+            printf '%s' "$3" | curl -s -X "$1" "$server_url$2" -H "@$hdr" \
+                -H "Content-Type: application/json" --data-binary @- || rc=$?
         else
-            curl -s -X "$1" "$server_url$2" -H "Authorization: Bearer $token"
+            curl -s -X "$1" "$server_url$2" -H "@$hdr" || rc=$?
         fi
+        rm -f "$hdr"
+        return "$rc"
     }
 
     echo "==> [group $group_label] seeding project \"$project_name\""
@@ -447,6 +473,25 @@ run_group() {
             fail "[group $group_label] could not set storage.database.insecure_audit_skip_reads in $config_path (did configs/keyorix.yaml.tpl change?)"
     fi
 
+    # The anomaly detection pass runs hourly by default, which no browser test can wait for. A spec
+    # that needs an alert to appear declares `// e2e-server: anomaly_schedule=15s` in its own file;
+    # its group then appends the one and only `anomaly_alerts:` section with that cadence (the
+    # first pass is deferred a few seconds plus up to one interval of jitter, then it repeats).
+    # The detector's scan window is floored at one hour whatever the cadence, so a short schedule
+    # changes only how soon a pass happens, never what a pass looks at. Every other group is untouched.
+    local anomaly_schedule=""
+    for spec in "${specs[@]}"; do
+        if grep -q '^// e2e-server: anomaly_schedule=[0-9]*s$' "$WEB_DIR/$spec"; then
+            anomaly_schedule="$(grep -m1 '^// e2e-server: anomaly_schedule=' "$WEB_DIR/$spec" | sed -E 's/.*anomaly_schedule=([0-9]+s)$/\1/')"
+        fi
+    done
+    if [ -n "$anomaly_schedule" ]; then
+        echo "==> [group $group_label] ${specs[*]} asks for anomaly_alerts.schedule=$anomaly_schedule"
+        [ "$(grep -c '^anomaly_alerts:' "$config_path")" = 0 ] ||
+            fail "[group $group_label] $config_path already has an anomaly_alerts: section"
+        printf '\nanomaly_alerts:\n  enabled: true\n  schedule: %s\n' "$anomaly_schedule" >>"$config_path"
+    fi
+
     echo "==> [group $group_label] keyorix-server admin encryption init"
     (cd "$smoke_dir" && "$SERVER_BIN" admin encryption init --config "$config_rel") ||
         fail "admin encryption init exited non-zero"
@@ -485,10 +530,13 @@ run_group() {
 
     echo "==> [group $group_label] bootstrapping admin via POST /system/init"
     local init_code
-    init_code="$(curl -s -o "$smoke_dir/init-response.json" -w '%{http_code}' -X POST "$server_url/system/init" \
-        -H "Content-Type: application/json" \
-        -H "X-Keyorix-Bootstrap-Token: $bootstrap_token" \
-        -d "{\"username\":\"$admin_username\",\"email\":\"$admin_email\",\"password\":\"$admin_password\",\"display_name\":\"Web E2E Admin\"}")"
+    # Bootstrap token in a 0600 header file, JSON body on stdin: neither is on curl's argv.
+    local bootstrap_hdr="$smoke_dir/bootstrap.hdr"
+    (umask 077 && printf 'X-Keyorix-Bootstrap-Token: %s\n' "$bootstrap_token" >"$bootstrap_hdr")
+    init_code="$(printf '%s' "{\"username\":\"$admin_username\",\"email\":\"$admin_email\",\"password\":\"$admin_password\",\"display_name\":\"Web E2E Admin\"}" |
+        curl -s -o "$smoke_dir/init-response.json" -w '%{http_code}' -X POST "$server_url/system/init" \
+            -H "Content-Type: application/json" -H "@$bootstrap_hdr" --data-binary @-)"
+    rm -f "$bootstrap_hdr"
     [ "$init_code" = "200" ] || fail "[group $group_label] POST /system/init returned $init_code: $(cat "$smoke_dir/init-response.json")"
 
     echo "==> [group $group_label] creating a project + secret so the real pages have something to show"
@@ -496,9 +544,9 @@ run_group() {
     # so a login that FAILS reports the server's own error instead of a Python
     # KeyError on "data" -- the shape every non-200 login response takes.
     local token
-    curl -s -X POST "$server_url/auth/login" -H "Content-Type: application/json" \
-        -d "{\"username\":\"$admin_username\",\"password\":\"$admin_password\"}" \
-        -o "$smoke_dir/login-response.json"
+    printf '%s' "{\"username\":\"$admin_username\",\"password\":\"$admin_password\"}" |
+        curl -s -X POST "$server_url/auth/login" -H "Content-Type: application/json" \
+            --data-binary @- -o "$smoke_dir/login-response.json"
     token="$(python3 -c 'import sys,json
 try:
     print(json.load(open(sys.argv[1]))["data"]["token"])
@@ -525,6 +573,11 @@ except Exception:
     export KEYORIX_E2E_LOWPRIV_PASSWORD="$lowpriv_password"
     export KEYORIX_E2E_PROJECT_NAME="$seed_project_name"
     export KEYORIX_E2E_WEB_PORT="$web_port"
+    # Which suite's directory Playwright resolves the spec paths against (playwright.config.real.ts).
+    case "${specs[0]}" in
+    e2e/demo/*) export KEYORIX_E2E_TEST_DIR="./e2e/demo" ;;
+    *) export KEYORIX_E2E_TEST_DIR="./e2e/real" ;;
+    esac
 
     (cd "$WEB_DIR" && pnpm exec playwright test --config=playwright.config.real.ts "${specs[@]}") ||
         fail "[group $group_label] Playwright real-backend specs failed"

@@ -52,6 +52,7 @@ type readPathPrefetchRow struct {
 	Cnt               int64
 	MaxVer            int64
 	SumRc             int64
+	SumCe             int64
 	SchedID           *uint
 	SchedSecretNodeID *uint
 	SchedAllowedDays  *string
@@ -64,7 +65,7 @@ type readPathPrefetchRow struct {
 
 func (r readPathPrefetchRow) scheduleAndVersions() scheduleAndVersionsRow {
 	return scheduleAndVersionsRow{
-		Cnt: r.Cnt, MaxVer: r.MaxVer, SumRc: r.SumRc,
+		Cnt: r.Cnt, MaxVer: r.MaxVer, SumRc: r.SumRc, SumCe: r.SumCe,
 		SchedID: r.SchedID, SchedSecretNodeID: r.SchedSecretNodeID, SchedAllowedDays: r.SchedAllowedDays,
 		SchedStartHour: r.SchedStartHour, SchedEndHour: r.SchedEndHour, SchedTimezone: r.SchedTimezone,
 		SchedCreatedAt: r.SchedCreatedAt, SchedUpdatedAt: r.SchedUpdatedAt,
@@ -88,7 +89,7 @@ func readPathPrefetchPartsFor(triggerExpr, genExpr string, wantScheduleVersion b
 	cols := "n.cache_epoch AS cache_epoch, " + triggerExpr + " AS trigger_present,\n" +
 		" ids.role_id AS role_id, " + genExpr + " AS generation"
 	if wantScheduleVersion {
-		cols += ",\n v.cnt AS cnt, v.max_ver AS max_ver, v.sum_rc AS sum_rc," +
+		cols += ",\n v.cnt AS cnt, v.max_ver AS max_ver, v.sum_rc AS sum_rc, v.sum_ce AS sum_ce," +
 			" s.id AS sched_id, s.secret_node_id AS sched_secret_node_id, s.allowed_days AS sched_allowed_days," +
 			" s.start_hour AS sched_start_hour, s.end_hour AS sched_end_hour, s.timezone AS sched_timezone," +
 			" s.created_at AS sched_created_at, s.updated_at AS sched_updated_at"
@@ -103,7 +104,7 @@ func readPathPrefetchPartsFor(triggerExpr, genExpr string, wantScheduleVersion b
 		") ids ON 1 = 1\n" +
 		"LEFT JOIN system_metadata gen ON gen.key = ?"
 	if wantScheduleVersion {
-		joins += "\nLEFT JOIN (SELECT COUNT(*) AS cnt, COALESCE(MAX(version_number), 0) AS max_ver, COALESCE(SUM(read_count), 0) AS sum_rc" +
+		joins += "\nLEFT JOIN (SELECT " + versionsAggregateSQL +
 			" FROM secret_versions WHERE secret_node_id = ?) v ON 1 = 1\n" +
 			"LEFT JOIN secret_access_schedules s ON s.secret_node_id = n.id"
 	}
@@ -170,7 +171,7 @@ type readPathPrefetchTail struct {
 func (t *readPathPrefetchTail) dest(dst []any, r *readPathPrefetchRow, wantScheduleVersion bool) []any {
 	dst = append(dst, &r.RoleID, &r.Generation)
 	if wantScheduleVersion {
-		dst = append(dst, &r.Cnt, &r.MaxVer, &r.SumRc,
+		dst = append(dst, &r.Cnt, &r.MaxVer, &r.SumRc, &r.SumCe,
 			&r.SchedID, &r.SchedSecretNodeID, &r.SchedAllowedDays,
 			&r.SchedStartHour, &r.SchedEndHour, &r.SchedTimezone,
 			&t.createdAt, &t.updatedAt)

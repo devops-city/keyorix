@@ -55,5 +55,5 @@ v0.96.1 to main, SQLite and PostgreSQL 16: every check passed. The new binary
 logged the audit index rebuild on PostgreSQL and (PostgreSQL only) the
 `audit durability: standard` line described in `UPGRADING.md` §6c. The v0.96.1
 binary started on the migrated data (the two releases shared schema epoch 2).
-Since HA-READY-1, main is schema epoch 3 with floor 3 (`UPGRADING.md` §6g), so step 5
+Since HA-READY-1, main is schema epoch 3 with floor 3 (`UPGRADING.md` §6h), so step 5
 now expects the old binary to refuse with the schema-epoch message; not re-run yet.

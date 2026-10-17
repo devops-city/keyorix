@@ -4024,7 +4024,7 @@ func (w *FaultyStorage) IsProjectMember(ctx context.Context, userID uint, projec
 	return w.real.IsProjectMember(ctx, userID, projectID)
 }
 
-func (w *FaultyStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
+func (w *FaultyStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
 	fire, kind, injected := w.check("LastUserRoleManagementActivity")
 	if fire {
 		switch kind {
@@ -4034,14 +4034,14 @@ func (w *FaultyStorage) LastUserRoleManagementActivity(ctx context.Context, proj
 			var zero1 map[uint]time.Time
 			return zero1, injected
 		case KindEffectThenError:
-			rv1, _ := w.real.LastUserRoleManagementActivity(ctx, projectID)
+			rv1, _ := w.real.LastUserRoleManagementActivity(ctx, projectID, since)
 			return rv1, injected
 		}
 	}
-	return w.real.LastUserRoleManagementActivity(ctx, projectID)
+	return w.real.LastUserRoleManagementActivity(ctx, projectID, since)
 }
 
-func (w *FaultyStorage) LastUserSecretActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
+func (w *FaultyStorage) LastUserSecretActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
 	fire, kind, injected := w.check("LastUserSecretActivity")
 	if fire {
 		switch kind {
@@ -4051,14 +4051,14 @@ func (w *FaultyStorage) LastUserSecretActivity(ctx context.Context, projectID ui
 			var zero1 map[uint]time.Time
 			return zero1, injected
 		case KindEffectThenError:
-			rv1, _ := w.real.LastUserSecretActivity(ctx, projectID)
+			rv1, _ := w.real.LastUserSecretActivity(ctx, projectID, since)
 			return rv1, injected
 		}
 	}
-	return w.real.LastUserSecretActivity(ctx, projectID)
+	return w.real.LastUserSecretActivity(ctx, projectID, since)
 }
 
-func (w *FaultyStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
+func (w *FaultyStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
 	fire, kind, injected := w.check("LastUserSecretDeletionActivity")
 	if fire {
 		switch kind {
@@ -4068,14 +4068,14 @@ func (w *FaultyStorage) LastUserSecretDeletionActivity(ctx context.Context, proj
 			var zero1 map[uint]time.Time
 			return zero1, injected
 		case KindEffectThenError:
-			rv1, _ := w.real.LastUserSecretDeletionActivity(ctx, projectID)
+			rv1, _ := w.real.LastUserSecretDeletionActivity(ctx, projectID, since)
 			return rv1, injected
 		}
 	}
-	return w.real.LastUserSecretDeletionActivity(ctx, projectID)
+	return w.real.LastUserSecretDeletionActivity(ctx, projectID, since)
 }
 
-func (w *FaultyStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
+func (w *FaultyStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
 	fire, kind, injected := w.check("LastUserSecretReadActivity")
 	if fire {
 		switch kind {
@@ -4085,14 +4085,14 @@ func (w *FaultyStorage) LastUserSecretReadActivity(ctx context.Context, projectI
 			var zero1 map[uint]time.Time
 			return zero1, injected
 		case KindEffectThenError:
-			rv1, _ := w.real.LastUserSecretReadActivity(ctx, projectID)
+			rv1, _ := w.real.LastUserSecretReadActivity(ctx, projectID, since)
 			return rv1, injected
 		}
 	}
-	return w.real.LastUserSecretReadActivity(ctx, projectID)
+	return w.real.LastUserSecretReadActivity(ctx, projectID, since)
 }
 
-func (w *FaultyStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
+func (w *FaultyStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
 	fire, kind, injected := w.check("LastUserSecretWriteActivity")
 	if fire {
 		switch kind {
@@ -4102,11 +4102,11 @@ func (w *FaultyStorage) LastUserSecretWriteActivity(ctx context.Context, project
 			var zero1 map[uint]time.Time
 			return zero1, injected
 		case KindEffectThenError:
-			rv1, _ := w.real.LastUserSecretWriteActivity(ctx, projectID)
+			rv1, _ := w.real.LastUserSecretWriteActivity(ctx, projectID, since)
 			return rv1, injected
 		}
 	}
-	return w.real.LastUserSecretWriteActivity(ctx, projectID)
+	return w.real.LastUserSecretWriteActivity(ctx, projectID, since)
 }
 
 func (w *FaultyStorage) LatestAuditCheckpoint(ctx context.Context) (*models.AuditCheckpoint, error) {

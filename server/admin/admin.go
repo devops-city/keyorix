@@ -112,6 +112,11 @@ func loadConfig() (*config.Config, error) {
 	if cfg.Storage.Type == "" {
 		cfg.Storage.Type = "local"
 	}
+	// The same *_FILE permission policy the server applies at boot, so an admin
+	// command fails early on a file the server would refuse to start with.
+	if _, err := cfg.EnforceSecretFilePermissions(); err != nil {
+		return nil, fmt.Errorf("secret file security: %w", err)
+	}
 	// server/main.go's boot path always calls this before touching storage;
 	// admin commands never went through that path, so any storage call that
 	// happens to localize an error message (e.g. GetUserByEmail's not-found

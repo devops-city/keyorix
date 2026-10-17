@@ -119,6 +119,12 @@ server:
   # access_log:
   #   on_sink_stall: block
 
+  # Log line format. "text" (default): the existing human-readable lines. "json": one
+  # JSON object per line (ts, level, msg; the access log also carries request_id,
+  # principal_type, route). See docs/operations/logging.md.
+  # log:
+  #   format: json
+
 storage:
   type: sqlite  # options: sqlite, postgres. For PostgreSQL change THIS line to "type: postgres" (the backend selector is storage.type, not a key under database:)
 
