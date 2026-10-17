@@ -1348,6 +1348,12 @@ The cadence also drives the compliance posture's **projects-overdue** count (and
 `keyorix compliance report` → Access governance → "overdue for recert"), so the
 overdue signal is visible to auditors even before you enable `auto_open`.
 
+`cadence_days` is also the **look-back of the "last used" column** in the access review
+and in a campaign's items: a user with no secret activity in the last `cadence_days`
+days (at most 366) shows no last use, meaning "none within the review period", not
+"never". It applies whether or not the scheduler is enabled. See
+[recertification-activity-window.md](recertification-activity-window.md).
+
 ```yaml
 recertification:
   enabled: true
