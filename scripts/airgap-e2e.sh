@@ -105,6 +105,17 @@ ADMIN_EMAIL="airgap-admin@keyorix.invalid"
 SECRET_NAME="airgap-e2e-secret"
 SECRET_VALUE="airgap-e2e-value-$(rand_hex 12)"
 
+# Container secrets travel in 0600 --env-file files kept OUTSIDE the bind-mounted data dirs,
+# never as `-e NAME=value` (that lands in the argv of `docker run`, visible in ps and
+# `docker inspect`-adjacent tooling). SCRIPTS-SECRETS-2.
+MASTER_ENV_FILE="$WORK_DIR/master.env"
+SERVER_ENV_FILE="$WORK_DIR/server.env"
+(
+    umask 077
+    printf 'KEYORIX_MASTER_PASSWORD=%s\n' "$MASTER_PW" >"$MASTER_ENV_FILE"
+    printf 'KEYORIX_MASTER_PASSWORD=%s\nKEYORIX_BOOTSTRAP_TOKEN=%s\n' "$MASTER_PW" "$BOOTSTRAP_TOKEN" >"$SERVER_ENV_FILE"
+)
+
 # --- 3. minimal config: RELATIVE db/key paths (internal/keyfiles.SafePath
 # and encryption.Service both reject absolute ones outright), resolved
 # against --workdir /app/data on every container invocation below so they
@@ -149,7 +160,11 @@ api_get() {
     # api_get <container> <path> [bearer-token]
     local container="$1" path="$2" token="${3:-}"
     if [ -n "$token" ]; then
-        $ENGINE exec "$container" wget -q --header="Authorization: Bearer $token" -O- "http://127.0.0.1:8080$path"
+        # The bearer token goes in over stdin and is read into a shell variable inside the
+        # container, so it never appears in the argv of `exec` (visible in ps / docker inspect).
+        printf 'Authorization: Bearer %s\n' "$token" |
+            $ENGINE exec -i "$container" sh -c \
+                'IFS= read -r h; exec wget -q --header="$h" -O- "$1"' sh "http://127.0.0.1:8080$path"
     else
         $ENGINE exec "$container" wget -q -O- "http://127.0.0.1:8080$path"
     fi
@@ -162,8 +177,10 @@ api_post() {
     # -- this only POSTs it, it does not build it.
     local container="$1" path="$2" mounted_path="$3" token="${4:-}"
     if [ -n "$token" ]; then
-        $ENGINE exec "$container" wget -q --header="Content-Type: application/json" \
-            --header="Authorization: Bearer $token" --post-file="$mounted_path" -O- "http://127.0.0.1:8080$path"
+        printf 'Authorization: Bearer %s\n' "$token" |
+            $ENGINE exec -i "$container" sh -c \
+                'IFS= read -r h; exec wget -q --header="Content-Type: application/json" --header="$h" --post-file="$2" -O- "$1"' \
+                sh "http://127.0.0.1:8080$path" "$mounted_path"
     else
         $ENGINE exec "$container" wget -q --header="Content-Type: application/json" \
             --post-file="$mounted_path" -O- "http://127.0.0.1:8080$path"
@@ -189,8 +206,7 @@ echo "==> Starting the source server (--network none, loopback only)"
 $ENGINE run -d --name "$SERVER_CONTAINER" --network none --workdir /app/data \
     -v "$SRC_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
-    -e KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    --env-file "$SERVER_ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" >/dev/null
 wait_for_health "$SERVER_CONTAINER"
@@ -252,7 +268,7 @@ echo "==> Extracting the checkpoint verification key (admin audit export-checkpo
 $ENGINE run --rm --network none --workdir /app/data \
     -v "$SRC_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --env-file "$MASTER_ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" admin --config /app/data/keyorix.yaml audit export-checkpoint-key --output /app/data/checkpoint.key >/dev/null \
     || fail "admin audit export-checkpoint-key failed"
@@ -263,7 +279,7 @@ echo "==> admin backup (--network none)"
 $ENGINE run --rm --network none --workdir /app/data \
     -v "$SRC_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --env-file "$MASTER_ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" admin --config /app/data/keyorix.yaml backup --output /app/data/backup.tar.gz \
     || fail "admin backup failed"
@@ -295,7 +311,7 @@ cp "$WORK_DIR/backup.tar.gz" "$DST_DIR/backup.tar.gz"
 $ENGINE run --rm --network none --workdir /app/data \
     -v "$DST_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --env-file "$MASTER_ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" admin --config /app/data/keyorix.yaml restore --input /app/data/backup.tar.gz \
     || fail "admin restore (positive leg) failed"
@@ -322,7 +338,7 @@ echo "==> Booting a server against the RESTORED data to confirm the secret VALUE
 $ENGINE run -d --name "$RESTORE_CONTAINER" --network none --workdir /app/data \
     -v "$DST_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --env-file "$MASTER_ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" >/dev/null
 wait_for_health "$RESTORE_CONTAINER"
@@ -392,7 +408,7 @@ set +e
 $ENGINE run --rm --network none --workdir /app/data \
     -v "$NEG_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --env-file "$MASTER_ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" admin --config /app/data/keyorix.yaml restore --input /app/data/backup.tar.gz
 NEG_STATUS=$?

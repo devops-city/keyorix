@@ -37,8 +37,15 @@ ROOT_TOKEN="mig1-root-token"
 NAME="mig1-${BACKEND}-$$"
 
 echo "▶ starting ${BACKEND} (${NAME})"
+# The root token reaches the container through a 0600 --env-file and curl through a 0600
+# `-H @file`, never as `-e NAME=value` / `-H "X-Vault-Token: ..."` on an argv (SCRIPTS-SECRETS-2).
+SECRET_TMP="$(mktemp -d)"
+trap 'rm -rf "$SECRET_TMP"' EXIT
+( umask 077
+  printf '%s=%s\n' "${ROOT_TOKEN_VAR}" "${ROOT_TOKEN}" >"$SECRET_TMP/vault.env"
+  printf 'X-Vault-Token: %s\n' "${ROOT_TOKEN}" >"$SECRET_TMP/vault.hdr" )
 docker run -d --rm --name "$NAME" --cap-add=IPC_LOCK -p 127.0.0.1:0:8200 \
-  -e "${ROOT_TOKEN_VAR}=${ROOT_TOKEN}" -e "${LISTEN_VAR}=0.0.0.0:8200" \
+  --env-file "$SECRET_TMP/vault.env" -e "${LISTEN_VAR}=0.0.0.0:8200" \
   "$IMAGE" >/dev/null
 
 HOST_PORT="$(docker port "$NAME" 8200/tcp | grep 127.0.0.1 | head -1 | cut -d: -f2)"
@@ -48,7 +55,7 @@ for _ in $(seq 1 30); do curl -sf "${ADDR}/v1/sys/health" >/dev/null 2>&1 && bre
 curl -sf "${ADDR}/v1/sys/health" >/dev/null 2>&1 || { echo "${BACKEND} never became healthy"; docker logs "$NAME"; exit 1; }
 echo "✓ ${BACKEND} healthy at ${ADDR}"
 
-H=(-H "X-Vault-Token: ${ROOT_TOKEN}")
+H=(-H "@${SECRET_TMP}/vault.hdr")
 
 urlencode_path() { # percent-encodes each "/"-separated segment, preserving the separators --
   # split, encode and re-join in jq so no IFS juggling is needed (and the shell's
@@ -155,10 +162,11 @@ echo "▶ audit device"
 req PUT "sys/audit/mig1-file-audit" '{"type":"file","options":{"file_path":"stdout"}}' >/dev/null
 
 echo "▶ bulk KV v2 secrets under secret/bulk/ (count=${SEED_SIZE}, for pagination/perf coverage)"
+export SEED_HDR_FILE="$SECRET_TMP/vault.hdr" SEED_ADDR="$ADDR"
 seq 1 "$SEED_SIZE" | xargs -P 8 -I{} bash -c '
-  curl -sf -H "X-Vault-Token: '"${ROOT_TOKEN}"'" -X POST \
-    "'"${ADDR}"'/v1/secret/data/bulk/secret-{}" \
-    -d "{\"data\":{\"value\":\"mig1-bulk-value-{}\"}}" >/dev/null
+  printf "{\"data\":{\"value\":\"mig1-bulk-value-{}\"}}" | curl -sf -H "@$SEED_HDR_FILE" -X POST \
+    "$SEED_ADDR/v1/secret/data/bulk/secret-{}" \
+    --data-binary @- >/dev/null
 '
 echo "✓ seeded ${SEED_SIZE} bulk secrets"
 

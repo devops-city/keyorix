@@ -83,11 +83,19 @@ RESP_BODY=""
 req() { # req METHOD PATH [BEARER_TOKEN] [JSON_BODY]
   local method="$1" path="$2" token="${3:-}" body="${4:-}"
   local args=(-s -o "$SCRATCH/resp.json" -w '%{http_code}' --max-time 10 -X "$method" "${SERVER_URL}${path}")
-  [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
-  if [ -n "$body" ]; then
-    args+=(-H "Content-Type: application/json" -d "$body")
+  # Credentials never go on argv (visible in ps): the bearer token is read from a 0600 header
+  # file (`-H @file`) and the JSON body, which can carry a password or MFA code, from stdin.
+  if [ -n "$token" ]; then
+    ( umask 077; printf 'Authorization: Bearer %s\n' "$token" >"$SCRATCH/req.hdr" )
+    args+=(-H "@$SCRATCH/req.hdr")
   fi
-  HTTP_CODE="$(curl "${args[@]}")"
+  if [ -n "$body" ]; then
+    args+=(-H "Content-Type: application/json" --data-binary @-)
+    HTTP_CODE="$(printf '%s' "$body" | curl "${args[@]}")"
+  else
+    HTTP_CODE="$(curl "${args[@]}")"
+  fi
+  rm -f "$SCRATCH/req.hdr"
   RESP_BODY="$(cat "$SCRATCH/resp.json" 2>/dev/null || true)"
 }
 jget() { # jget '<python expr over d, e.g. d["data"]["token"]>' -- reads $RESP_BODY
@@ -777,10 +785,12 @@ step_latency() {
   local n=50 times_file="$SCRATCH/latencies.txt"
   : > "$times_file"
   local ref; ref="$(urlenc "default/development/stripe-api-key")"
+  ( umask 077; printf 'Authorization: Bearer %s\n' "$ADMIN_TOKEN" >"$SCRATCH/latency.hdr" )
   for _ in $(seq 1 "$n"); do
     curl -s -o /dev/null -w '%{time_total}\n' --max-time 5 \
-      -H "Authorization: Bearer $ADMIN_TOKEN" "${SERVER_URL}/api/v1/secrets/value?ref=$ref" >>"$times_file"
+      -H "@$SCRATCH/latency.hdr" "${SERVER_URL}/api/v1/secrets/value?ref=$ref" >>"$times_file"
   done
+  rm -f "$SCRATCH/latency.hdr"
   local p50; p50="$(sort -n "$times_file" | awk -v n="$n" 'NR==int(n/2)+1{print; exit}')"
   [ -n "$p50" ] || { echo "could not measure any secret-read latency samples"; return 1; }
   LAST_P50_MS="$(python3 -c "print(round(float('$p50')*1000,1))")"
