@@ -366,8 +366,8 @@ func (c *KeyorixCore) fetchAdminDashboardStats(ctx context.Context, stats *Dashb
 // failed_second_factor_24h) instead of reading as a clean zero.
 func (c *KeyorixCore) countFailedLogins24h(ctx context.Context, stats *DashboardStats, since time.Time) int64 {
 	successFalse := false
-	wrongPassword := "auth.login_failed"
-	_, wrongPasswordCount, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &since, Action: &wrongPassword, Success: &successFalse, Page: 1, PageSize: 1})
+	loginFailedAction := "auth.login_failed"
+	_, wrongPasswordCount, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &since, Action: &loginFailedAction, Success: &successFalse, Page: 1, PageSize: 1})
 	if err != nil {
 		stats.degrade("failed_logins_24h", err)
 	}
