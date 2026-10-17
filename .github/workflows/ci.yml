@@ -3464,13 +3464,21 @@ jobs:
   # multi-night outage is one thread, not one issue per night. No labels.
   #
   # The ONLY job in this workflow with issues: write (job-level, so nothing else
-  # inherits it). No checkout and no contents/actions scope: the failing jobs
-  # are named from `needs` (job ids; a matrix such as test-suite is reported
-  # under its job id) rather than from the Actions jobs API, which would need
-  # actions: read. The run link points at the per-leg detail.
+  # inherits it). No checkout: the failing jobs are named from `needs` (job
+  # ids; a matrix such as test-suite is reported under its job id). The run
+  # link points at the per-leg detail.
+  #
+  # CI-SELECT-1: the merge queue now tests only what each PR can affect, and
+  # this nightly run is the full-suite safety net behind it. The issue names
+  # the PRs merged since the last green nightly run, so a failure here that
+  # selection let through is traceable to its candidates. That lookup needs
+  # actions: read (this workflow's last successful scheduled run) and
+  # contents: read (the compare between that commit and this one), both
+  # read-only; a failed lookup says so in the issue instead of failing the job.
   nightly-failure-issue:
     needs:
       - changes
+      - select
       - pnpm-workspace-root-guard
       - base-branch-check
       - bug-origin-block-check
@@ -3508,6 +3516,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      actions: read
+      contents: read
     steps:
       - name: Open or update the "Nightly main CI failed" issue
         env:
@@ -3519,8 +3529,20 @@ jobs:
         run: |
           set -euo pipefail
           failed=$(printf '%s' "$NEEDS_JSON" | jq -r 'to_entries[] | select(.value.result == "failure") | "- " + .key')
+          # PRs merged since the last green nightly (CI-SELECT-1): every merge
+          # commit main gained between that run's commit and this one. The
+          # queue merges with merge commits ("Merge pull request #N from ...").
+          last_green=$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?event=schedule&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty') || last_green=""
+          if [ -z "$last_green" ]; then
+            merged="PRs merged since the last green full run: unknown (no successful scheduled run found)."
+          elif prs=$(gh api --paginate "repos/$GH_REPO/compare/${last_green}...${RUN_SHA}?per_page=100" --jq '.commits[].commit.message | capture("^Merge pull request #(?<n>[0-9]+)") | "#" + .n' | sort -u | paste -sd ' ' -); then
+            total=$(gh api "repos/$GH_REPO/compare/${last_green}...${RUN_SHA}?per_page=1" --jq '.total_commits') || total="?"
+            merged="PRs merged since the last green full run (${last_green:0:10}, ${total} commits; the merge queue tests only what each PR can affect, so a selection miss is one of these): ${prs:-none}"
+          else
+            merged="PRs merged since the last green full run (${last_green:0:10}): lookup failed."
+          fi
           title="Nightly main CI failed"
-          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\nA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed")
+          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\n%s\n\nA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed" "$merged")
           existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
