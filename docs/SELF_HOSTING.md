@@ -247,7 +247,8 @@ docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
 > command fails with `failed to acquire the encryption key lock (another process
 > is using it)`. With those older images (a stack still pinned to them) stop `backend` first and use
 > `docker compose run --rm -v "$PWD/backups:/out" backend ./keyorix-server admin backup --output /out/keyorix-backup.tar.gz`
-> (`mkdir -m 777 backups` first: the container user is uid 1001).
+> (`mkdir -m 700 backups` and `sudo chown 1001 backups` first: the container user is uid 1001,
+> and the archive holds the database and the wrapped key files, so keep it owner-only).
 
 On Postgres, this reads through a single `REPEATABLE READ` snapshot
 transaction by default — every table sees the identical point-in-time view,
@@ -276,11 +277,14 @@ running one). The throwaway container has its own filesystem, so mount the
 archive into it with `-v` (a `docker compose cp` into the stopped `backend`
 container is not visible to `run`, and fails outright after `down -v` because
 no container exists). The container user is uid 1001: the archive must be
-readable by it (`chmod 644`).
+readable by it: give it to that user (`chown 1001`) and keep the mode owner-only
+(`chmod 600`) — the archive holds the database and the wrapped key files, so it
+must not be group- or world-readable.
 
 ```sh
 docker compose stop backend            # (no-op on a freshly wiped host)
-chmod 644 ./keyorix-backup-YYYY-MM-DD.tar.gz
+sudo chown 1001 ./keyorix-backup-YYYY-MM-DD.tar.gz
+chmod 600 ./keyorix-backup-YYYY-MM-DD.tar.gz
 docker compose run --rm -v "$PWD/keyorix-backup-YYYY-MM-DD.tar.gz:/tmp/backup.tar.gz:ro" \
   backend ./keyorix-server admin restore --input /tmp/backup.tar.gz
 docker compose up -d

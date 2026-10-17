@@ -581,7 +581,7 @@ storage:
       # file_path: /etc/keyorix/kek.key
 
       # type: env — read the KEK (hex or base64) from the named env var's value.
-      # env_var: KEYORIX_KEK
+      # env_var: MY_KEK_HEX         # any variable name you choose; Keyorix defines no fixed name
 
       # type: exec — run a resolver command and read the KEK (32 raw bytes, or
       # hex/base64) from its stdout. argv form (no shell); fetches from any
