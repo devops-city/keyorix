@@ -9,6 +9,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/server/grpc/interceptors"
 	"github.com/keyorixhq/keyorix/server/grpc/services"
 	pb "github.com/keyorixhq/keyorix/server/proto/pb"
@@ -23,6 +24,14 @@ import (
 // both transports. Streaming RPCs are exempt (see TimeoutInterceptor).
 const grpcUnaryTimeout = 60 * time.Second
 
+// grpcMaxConcurrentStreams caps in-flight RPCs per connection. StreamAuditLogs
+// additionally caps held-open streams per principal (acquireStreamSlot).
+const grpcMaxConcurrentStreams = 128
+
+// grpcMaxHeaderListSize caps a request's metadata (HTTP/2 header list), matching
+// the HTTP listener's 64 KiB MaxHeaderBytes.
+const grpcMaxHeaderListSize = 64 << 10
+
 // NewServer creates a new gRPC server. The auth interceptor validates session
 // tokens against the shared core service. Service registration is wired in a
 // later phase; until then the server runs with interceptors only.
@@ -32,14 +41,6 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 
 	// Create server options
 	opts := []grpc.ServerOption{
-		// Consistent with the HTTP API's secret-write-route body limit
-		// (server/http/router.go's secretBodyLimit) — both are derived from the
-		// same secrets.limits.max_secret_size via config.DeriveMaxRequestBodySize,
-		// so a caller cannot bypass the HTTP transport's tighter limit by
-		// switching to gRPC. gRPC's default MaxRecvMsgSize (4 MiB) would
-		// otherwise silently let a request through this transport that the HTTP
-		// API already rejects at the wire level for the same secret.
-		grpc.MaxRecvMsgSize(int(config.DeriveMaxRequestBodySize(cfg.Secrets.Limits.MaxSecretSize))),
 		// grpc.ChainUnaryInterceptor/ChainStreamInterceptor run interceptors in the
 		// order listed: the first is OUTERMOST (executes first on the way in, last on
 		// the way out), wrapping every interceptor listed after it. RecoveryInterceptor
@@ -167,6 +168,14 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 	// exists (nor is one warranted): server.grpc.max_request_body_bytes is documented
 	// as "the max gRPC message size" without a request/response distinction, so the
 	// same configured/defaulted value applies to both directions.
+	//
+	// This is the only message-size cap on this transport: grpc-go has one per-server
+	// value, not one per method, so it cannot mirror the HTTP secret-value routes'
+	// tighter secretBodyLimit at the wire. (A MaxRecvMsgSize derived from
+	// secrets.limits.max_secret_size used to be listed first in opts; the option
+	// below, applied later, always replaced it.) An oversized secret value is refused
+	// by core's max_secret_size check instead (codes.ResourceExhausted,
+	// services/secret_size_cap_test.go).
 	maxMsg := min(cfg.Server.GRPC.EffectiveMaxRequestBodyBytes(), math.MaxInt32)
 	opts = append(opts,
 		grpc.MaxRecvMsgSize(int(maxMsg)),
@@ -192,6 +201,9 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 			// establishment stays valid for the entire connection lifetime.
 			MaxConnectionAge:      ka.GetMaxConnectionAge(),
 			MaxConnectionAgeGrace: ka.GetMaxConnectionAgeGrace(),
+			// Close a connection with no RPC in flight: a live client acks the
+			// keepalive pings above, so pings alone never reclaim an idle connection.
+			MaxConnectionIdle: ka.GetMaxConnectionIdle(),
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			// Reject a client that pings more often than this as abusive (GOAWAY
@@ -203,6 +215,17 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 			// streamless pings are rejected outright rather than tolerated.
 			PermitWithoutStream: ka.PermitWithoutStream,
 		}),
+		// grpc-go waits 120s by default for a new connection's TLS handshake and
+		// HTTP/2 preface: a client that opens TCP and sends nothing holds a
+		// connection (and goroutine) that long.
+		grpc.ConnectionTimeout(ka.GetHandshakeTimeout()),
+		// grpc-go's default is unlimited concurrent streams per connection; one
+		// connection could otherwise open any number of in-flight RPCs, each with
+		// its own handler goroutine.
+		grpc.MaxConcurrentStreams(grpcMaxConcurrentStreams),
+		// grpc-go's default header-list cap is 16 MiB; metadata here is an
+		// authorization token and a few short keys.
+		grpc.MaxHeaderListSize(grpcMaxHeaderListSize),
 	)
 
 	// Add TLS if enabled
@@ -248,11 +271,7 @@ func NewServer(cfg *config.Config, coreService *core.KeyorixCore) (*grpc.Server,
 // every gRPC TLS listener, regardless of how its certificate is sourced, UNLESS the
 // operator has explicitly configured tls.allowed_ciphers (#333) — in which case that
 // configured list is honored instead (see applyTLSHardening).
-var hardenedCipherSuites = []uint16{
-	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-}
+var hardenedCipherSuites = config.DefaultCipherSuites
 
 // applyTLSHardening layers the hardened MinVersion/CipherSuites onto tlsConfig in
 // place. The protocol-version floor and cipher-suite allowlist are independent of how
@@ -297,13 +316,14 @@ func createGRPCTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return tlsConfig, nil
 	}
 
-	// Load certificate and key
-	cert, err := tls.LoadX509KeyPair(cfg.Server.GRPC.TLS.CertFile, cfg.Server.GRPC.TLS.KeyFile)
+	// Served through tlsreload so a pair rotated on disk is picked up without a
+	// restart (new connections; MaxConnectionAge recycles the existing ones).
+	reloader, err := tlsreload.New(cfg.Server.GRPC.TLS.CertFile, cfg.Server.GRPC.TLS.KeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load gRPC TLS certificate: %w", err)
 	}
 
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path, same as createGRPCTLSConfig's AutoCert branch above
+	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path, same as createGRPCTLSConfig's AutoCert branch above
 	if err := applyTLSHardening(tlsConfig, cfg.Server.GRPC.TLS, cfg.Server.GRPC.TLSMode); err != nil {
 		return nil, err
 	}

@@ -71,7 +71,7 @@ stop_server() {
 REAL_HOME="$HOME"
 export HOME="$WORK_DIR"
 export KEYORIX_MASTER_PASSWORD="qavs-master-password-$$-${RANDOM}"
-BOOTSTRAP_TOKEN="qavs-bootstrap-token-$$-${RANDOM}"
+BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
 ADMIN_PASSWORD="Qavs-Test-Op3rator-Passw0rd!-$$-${RANDOM}"
 
 # The CLI caches its session token in $HOME's OS config dir

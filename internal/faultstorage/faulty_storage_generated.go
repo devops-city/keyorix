@@ -5524,6 +5524,23 @@ func (w *FaultyStorage) ListUnreviewedBreakGlassActivationsBefore(ctx context.Co
 	return w.real.ListUnreviewedBreakGlassActivationsBefore(ctx, cutoff)
 }
 
+func (w *FaultyStorage) ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]storage.UserGroupMembershipAt, error) {
+	fire, kind, injected := w.check("ListUserLiveGroupMemberships")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []storage.UserGroupMembershipAt
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListUserLiveGroupMemberships(ctx, userID)
+			return rv1, injected
+		}
+	}
+	return w.real.ListUserLiveGroupMemberships(ctx, userID)
+}
+
 func (w *FaultyStorage) ListUserProjectMemberships(ctx context.Context, userID uint) ([]*models.ProjectMembership, error) {
 	fire, kind, injected := w.check("ListUserProjectMemberships")
 	if fire {
@@ -5556,6 +5573,23 @@ func (w *FaultyStorage) ListUserProjectMembershipsByUserIDs(ctx context.Context,
 		}
 	}
 	return w.real.ListUserProjectMembershipsByUserIDs(ctx, userIDs)
+}
+
+func (w *FaultyStorage) ListUserRoleGrants(ctx context.Context, userID uint) ([]storage.UserRoleGrant, error) {
+	fire, kind, injected := w.check("ListUserRoleGrants")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []storage.UserRoleGrant
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListUserRoleGrants(ctx, userID)
+			return rv1, injected
+		}
+	}
+	return w.real.ListUserRoleGrants(ctx, userID)
 }
 
 func (w *FaultyStorage) ListUsers(ctx context.Context, filter *storage.UserFilter) ([]*models.User, int64, error) {
@@ -5840,6 +5874,23 @@ func (w *FaultyStorage) MarkTOTPStepUsed(ctx context.Context, userID uint, step 
 	return w.real.MarkTOTPStepUsed(ctx, userID, step)
 }
 
+func (w *FaultyStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	fire, kind, injected := w.check("MaxAuditEventID")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 uint
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.MaxAuditEventID(ctx)
+			return rv1, injected
+		}
+	}
+	return w.real.MaxAuditEventID(ctx)
+}
+
 func (w *FaultyStorage) MigrateAuditChainEncoding(ctx context.Context, dryRun bool, anchor *storage.AuditChainAnchor) (*storage.AuditChainMigrationResult, error) {
 	fire, kind, injected := w.check("MigrateAuditChainEncoding")
 	if fire {
@@ -5889,6 +5940,23 @@ func (w *FaultyStorage) PrincipalSecretFirstSeen(ctx context.Context, since time
 		}
 	}
 	return w.real.PrincipalSecretFirstSeen(ctx, since)
+}
+
+func (w *FaultyStorage) ProjectMembershipsAmong(ctx context.Context, userID uint, projectIDs []uint) (map[uint]bool, error) {
+	fire, kind, injected := w.check("ProjectMembershipsAmong")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]bool
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ProjectMembershipsAmong(ctx, userID, projectIDs)
+			return rv1, injected
+		}
+	}
+	return w.real.ProjectMembershipsAmong(ctx, userID, projectIDs)
 }
 
 func (w *FaultyStorage) PruneLoginAttempts(ctx context.Context, before time.Time) (int64, error) {

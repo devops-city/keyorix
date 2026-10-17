@@ -51,15 +51,29 @@
 //     and leaves NO residual gap — a tie then means the two schedules are the
 //     same policy, and serving the cached one is correct.
 //
-// Known gap, named rather than left implicit: internal/encryption/sweep.go's
-// DEK rotation sweep rewrites secret_versions.encrypted_value without changing
-// count, max(version_number) or sum(read_count), so a warm latest-version entry
-// can outlive a rewrap. That sweep runs only under the exclusive key lock
-// (ADR-010, RotateDEKWithSweep), the operator-triggered stopped-server class,
-// and its failure mode is a decrypt error against a retired key — fail-closed,
-// not a disclosure. A secret_versions.cache_epoch trigger with a
-// SUM(cache_epoch) term would close it; recommended as a follow-up rather than
-// bundled here.
+// Known gap, decided safe and pinned by secret_metadata_cache_dek_sweep_test.go:
+// internal/encryption/sweep.go's DEK rotation sweep rewrites
+// secret_versions.encrypted_value without changing count, max(version_number) or
+// sum(read_count), so a warm latest-version entry outlives a sweep and keeps
+// serving the pre-sweep (old-DEK) ciphertext. Why that is not a correctness or
+// key-retirement problem:
+//   - The only process that can hold such an entry is one that still holds the
+//     OLD DEK in memory (the DEK is unwrapped once per process, at Initialize).
+//     The entry decrypts, with that DEK, to the same plaintext the new row does.
+//     A holder of only the new DEK fails to decrypt it: fail closed, never wrong
+//     data.
+//   - On the sweeping host no server is running (a server holds dek.lock
+//     exclusively for its lifetime), so there is no warm cache there. A replica
+//     on ANOTHER host sharing only the database cannot decrypt any non-cached
+//     post-sweep row either until restarted; the cache does not create that
+//     hazard, it only delays it by at most secretMetaCacheTTL.
+//   - The retired-DEK ciphertext copy cannot outlive the retired DEK in the same
+//     process: it is dropped at TTL expiry or process exit.
+//
+// A secret_versions.cache_epoch trigger with a SUM(cache_epoch) term would make
+// the entry miss at once, but only turns "decrypts for up to the TTL" into "fails
+// at once" on a replica that is already unusable after a sweep; not worth the
+// migration surface. Revisit if the DEK ever becomes reloadable at runtime.
 //
 // Deliberately a FIELD on *LocalStorage, not a package-level global: a
 // package-level cache would be silently shared across every LocalStorage

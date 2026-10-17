@@ -68,6 +68,7 @@ import (
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	localstore "github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 	"github.com/keyorixhq/keyorix/server/admin"
@@ -707,7 +708,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	if needs, berr := coreService.SystemNeedsBootstrap(context.Background()); berr == nil && needs && bootstrapToken != "" {
 		if bootstrapTokenGenerated {
 			masked := bootstrapToken[:8] + "***" + bootstrapToken[len(bootstrapToken)-4:]
-			log.Printf("system not initialised — run `keyorix system init` with this one-time bootstrap token (set KEYORIX_BOOTSTRAP_TOKEN to pin your own):\n    BOOTSTRAP TOKEN: %s\n    (first 8 + last 4 chars shown; retrieve the full token from KEYORIX_BOOTSTRAP_TOKEN or reboot with it pre-set)", masked)
+			log.Print(generatedBootstrapTokenHint(masked))
 		} else {
 			log.Printf("system not initialised — run `keyorix system init` with the configured KEYORIX_BOOTSTRAP_TOKEN")
 		}
@@ -1977,20 +1978,7 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 		return fmt.Errorf("%w: failed to create HTTP router: %v", errHTTPServerFailedToStart, err)
 	}
 
-	// Create HTTP server
-	server := &http.Server{
-		Addr:    cfg.Server.HTTP.ListenAddr(),
-		Handler: router,
-		// ReadHeaderTimeout bounds how long a client can dribble in request headers one
-		// byte at a time before the connection is dropped (gosec G112 / slowloris-style
-		// DoS via a client that never finishes sending headers, holding the connection —
-		// and a worker goroutine — open indefinitely). Shorter than ReadTimeout since
-		// headers should arrive promptly even for a slow body upload.
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(cfg.Server.HTTP.ListenAddr(), router)
 
 	// Configure TLS if enabled
 	if cfg.Server.HTTP.TLS.Enabled {
@@ -2028,7 +2016,9 @@ func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.
 				server.TLSConfig = autoCertTLSConfig
 				serveErr = server.ServeTLS(ln, "", "")
 			} else {
-				serveErr = server.ServeTLS(ln, cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
+				// Empty file names: the certificate comes from TLSConfig.GetCertificate
+				// (tlsreload). Passing the files here would pin the pair loaded now.
+				serveErr = server.ServeTLS(ln, "", "")
 			}
 		} else {
 			serveErr = server.Serve(ln)
@@ -2295,6 +2285,19 @@ func groupOrOtherReadable(paths []string) []string {
 	return out
 }
 
+// generatedBootstrapTokenHint is the log line printed on an uninitialised install when no
+// bootstrap token was configured and one was generated for this run. The generated value is
+// only ever shown masked, so the line must say how to get a token the operator actually
+// holds, not point back at a variable they never set (FIRST-RUN-1).
+func generatedBootstrapTokenHint(masked string) string {
+	return "system not initialised — no bootstrap token was configured, so this run generated one " +
+		"(first 8 + last 4 chars shown; the full value is never logged and cannot be recovered):\n" +
+		"    BOOTSTRAP TOKEN: " + masked + "\n" +
+		"    To create the first admin, stop the server and start it again with a token you hold: " +
+		"set KEYORIX_BOOTSTRAP_TOKEN_FILE to a 0600 file containing it (`keyorix-server admin generate-secrets` creates one), " +
+		"then run `keyorix system init --server <url>`"
+}
+
 // resolveBootstrapToken returns the operator-pinned bootstrap token from
 // KEYORIX_BOOTSTRAP_TOKEN or the file named by KEYORIX_BOOTSTRAP_TOKEN_FILE, or
 // "" when neither is set (the caller then generates a one-time token). Both set,
@@ -2556,13 +2559,14 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, nil
 	}
 
-	// Load certificate and key
-	cert, err := tls.LoadX509KeyPair(cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
+	// The certificate is served through tlsreload so a pair rotated on disk is
+	// picked up without a restart; a pair that does not load still fails here.
+	reloader, err := tlsreload.New(cfg.Server.HTTP.TLS.CertFile, cfg.Server.HTTP.TLS.KeyFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
+		return nil, err
 	}
 
-	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
 	if err := applyTLSHardening(tlsConfig, cfg.Server.HTTP.TLS, cfg.Server.HTTP.TLSMode); err != nil {
 		return nil, err
 	}
@@ -2573,11 +2577,7 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 // every HTTP TLS listener, regardless of how its certificate is sourced, UNLESS the
 // operator has explicitly configured tls.allowed_ciphers (#333) — in which case that
 // configured list is honored instead (see applyTLSHardening).
-var hardenedCipherSuites = []uint16{
-	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-}
+var hardenedCipherSuites = config.DefaultCipherSuites
 
 // applyTLSHardening layers the hardened MinVersion/CipherSuites onto tlsConfig in
 // place. The protocol-version floor and cipher-suite allowlist are independent of how

@@ -379,8 +379,11 @@ func (h *AuthHandler) loginResponseFromIdentity(session *models.Session, user *m
 //
 // The revoke also runs when the identity read PANICS (#2844): before, only an
 // error was compensated, and a panic unwound past this function to the
-// recovery middleware's 500 with the session still live. The panic is re-raised
-// after the revoke, so the caller-visible response is unchanged.
+// recovery middleware's 500 with the session still live. Since #3277's
+// follow-up the panic is then returned as the error, not re-raised: the only
+// caller (ConsumeSetup) reaches here once the setup token was confirmed valid,
+// so the Recovery 500 told the caller the token was valid, where every other
+// failure gets the generic 400.
 //
 // #2888 (#2740 option C): this used to write its OWN 500 "Login could not be
 // completed" response directly. Its caller reaches this point only once the
@@ -394,7 +397,7 @@ func (h *AuthHandler) loginResponseFromIdentity(session *models.Session, user *m
 // lc.Succeeded() once the response is built. lc may be nil for a flow with no
 // per-account lockout stake (the setup-token consume path) — both methods are
 // nil-safe.
-func (h *AuthHandler) completeLogin(w http.ResponseWriter, r *http.Request, session *models.Session, user *models.User, lc *core.LoginCompletion) (loginResponseBody, error) {
+func (h *AuthHandler) completeLogin(w http.ResponseWriter, r *http.Request, session *models.Session, user *models.User, lc *core.LoginCompletion) (resp loginResponseBody, err error) {
 	built := false
 	defer func() {
 		if built {
@@ -402,10 +405,11 @@ func (h *AuthHandler) completeLogin(w http.ResponseWriter, r *http.Request, sess
 		}
 		if p := recover(); p != nil {
 			h.revokeUndeliveredLogin(r.Context(), session, user, fmt.Sprint(p))
-			panic(p)
+			lc.Failed(r.Context())
+			resp, err = loginResponseBody{}, fmt.Errorf("login response identity read panicked: %v", p)
 		}
 	}()
-	resp, err := h.buildLoginResponse(r.Context(), session, user)
+	resp, err = h.buildLoginResponse(r.Context(), session, user)
 	built = true
 	if err != nil {
 		h.revokeUndeliveredLogin(r.Context(), session, user, err.Error())

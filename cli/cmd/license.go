@@ -78,7 +78,7 @@ func init() {
 
 func runLicenseInstall(cmd *cobra.Command, args []string) error {
 	if licenseInstallDest == "" {
-		return fmt.Errorf("--dest is required")
+		return usageErrorf("--dest is required")
 	}
 	token, err := readLicenseToken(args[0])
 	if err != nil {

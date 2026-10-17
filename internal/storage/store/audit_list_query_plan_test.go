@@ -30,6 +30,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
 func (c *anomalySQLCapture) reset() {
@@ -55,7 +56,10 @@ func newAuditPlanWorld(t *testing.T, pg bool) *auditPlanWorld {
 	var db *gorm.DB
 	var err error
 	if pg {
-		db, err = gorm.Open(postgres.Open(pgIsolatedSchemaDSN(t, pgTestDSN(t))), &gorm.Config{Logger: cap})
+		// Its own database, not a schema: the index build takes the
+		// database-wide audit index build lock, which other packages' tests
+		// take too when they run at the same time (#3295).
+		db, err = gorm.Open(postgres.Open(pgdsn.IsolatedDatabase(t, pgTestDSN(t), "store_audit_plan")), &gorm.Config{Logger: cap})
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			if sqlDB, e := db.DB(); e == nil {

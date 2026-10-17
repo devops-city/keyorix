@@ -1420,6 +1420,30 @@ func (m *MockStorage) IsProjectMember(ctx context.Context, userID, projectID uin
 	return args.Bool(0), args.Error(1)
 }
 
+func (m *MockStorage) ProjectMembershipsAmong(ctx context.Context, userID uint, projectIDs []uint) (map[uint]bool, error) {
+	args := m.Called(ctx, userID, projectIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]bool), args.Error(1)
+}
+
+func (m *MockStorage) ListUserRoleGrants(ctx context.Context, userID uint) ([]storage.UserRoleGrant, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]storage.UserRoleGrant), args.Error(1)
+}
+
+func (m *MockStorage) ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]storage.UserGroupMembershipAt, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]storage.UserGroupMembershipAt), args.Error(1)
+}
+
 func (m *MockStorage) IsGroupProjectScoped(ctx context.Context, groupID, projectID uint) (bool, error) {
 	args := m.Called(ctx, groupID, projectID)
 	return args.Bool(0), args.Error(1)
@@ -1663,6 +1687,11 @@ func (m *MockStorage) GetAnomalyConfig(ctx context.Context) (*models.AnomalyConf
 
 func (m *MockStorage) SaveAnomalyConfig(ctx context.Context, cfg *models.AnomalyConfigRecord) error {
 	return m.Called(ctx, cfg).Error(0)
+}
+
+func (m *MockStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(uint), args.Error(1)
 }
 
 func (m *MockStorage) GetAuditLogs(ctx context.Context, filter *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {

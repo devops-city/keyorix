@@ -40,7 +40,7 @@ func (h *SecretHandler) SuspendSecret(w http.ResponseWriter, r *http.Request) {
 		core.SuspendOptions{ClearSyncedCopies: reqBody.ClearSyncedCopies})
 	if err != nil {
 		if errors.Is(err, core.ErrSuspendAuditUnavailable) {
-			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; the secret was not suspended", http.StatusInternalServerError, nil)
+			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; the secret was not suspended. Retry, or "+core.SuspendWithoutClearingHint, http.StatusInternalServerError, nil)
 		} else if strings.Contains(err.Error(), "not found") {
 			h.sendError(w, "NotFound", "Secret not found", http.StatusNotFound, nil)
 		} else {

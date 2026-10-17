@@ -97,7 +97,7 @@ var sodPolicyCreateCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if sodName == "" || sodPermA == "" || sodPermB == "" {
-			return fmt.Errorf("--name, --permission-a and --permission-b are required")
+			return usageErrorf("--name, --permission-a and --permission-b are required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -131,7 +131,7 @@ var sodPolicyDeleteCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if sodID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
