@@ -24,7 +24,7 @@ func TestSuspendResumeProjectSecrets(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{},
-		&models.SecretAccessLog{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
+		&models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
 		&models.GroupRole{}, &models.SecretACL{},
 	))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}
@@ -106,7 +106,7 @@ func TestSuspendResumeProjectSecrets_PerSecretAuthzReCheck(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{},
-		&models.SecretAccessLog{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
+		&models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
 		&models.GroupRole{}, &models.SecretACL{}, &models.User{},
 	))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}

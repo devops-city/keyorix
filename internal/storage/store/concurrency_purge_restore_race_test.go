@@ -48,7 +48,7 @@ func TestConcurrency_PurgeDeletedSecretsBefore_RestoreWinsRace(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(append([]any{&models.Project{}, &models.Environment{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretDependency{}, &models.SecretACL{}}, secretPurgeCascadeModels()...)...))
+		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretDependency{}, &models.SecretACL{}, &models.AccessRequest{}}, secretPurgeCascadeModels()...)...))
 	ls := NewLocalStorage(db)
 	ctx := context.Background()
 
@@ -113,7 +113,7 @@ func TestConcurrency_PurgeDeletedUsersBefore_RestoreWinsRace(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.UserRole{}, &models.UserGroup{},
-		&models.ShareRecord{}, &models.PersonalAccessToken{}, &models.Session{}, &models.SecretACL{}))
+		&models.ShareRecord{}, &models.PersonalAccessToken{}, &models.Session{}, &models.SecretACL{}, &models.AccessRequest{}))
 	ls := NewLocalStorage(db)
 	ctx := context.Background()
 

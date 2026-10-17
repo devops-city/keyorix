@@ -42,7 +42,7 @@ func setupBulkDeleteDB(t *testing.T) (*KeyorixCore, func(name string) uint, uint
 		&models.Environment{},
 		&models.AuditEvent{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretACL{},
 		&models.SecretAccessSchedule{},
 		// #G31: BulkDeleteSecrets now goes through GetSecretWithPermissionCheck /
@@ -252,7 +252,7 @@ func TestBulkDeleteSecrets_CrossProjectGuard(t *testing.T) {
 		&models.Environment{},
 		&models.AuditEvent{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretACL{},
 		&models.SecretAccessSchedule{},
 		&models.User{}, &models.Role{}, &models.UserRole{},
@@ -389,7 +389,7 @@ func TestBulkDeleteSecrets_AuditLogWriteIsSynchronous(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.Project{}, &models.Environment{},
-		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.SecretACL{},
+		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretAccessSchedule{}, &models.User{}, &models.Role{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 	))

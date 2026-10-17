@@ -35,7 +35,7 @@ func freshFolderCoreDB(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
 		&models.AuditEvent{}, &models.SecretVersion{}, &models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "test-proj"}).Error)
