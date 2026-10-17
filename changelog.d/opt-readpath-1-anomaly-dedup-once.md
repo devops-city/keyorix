@@ -1,0 +1,2 @@
+### Changed
+- **Anomaly detection checks each alert key once per pass.** A detection pass used to run the duplicate-alert check (a count over `anomaly_alerts` in its own transaction) for every access-log row in its window, so under a steady read load it cost one database transaction per read. It now runs once per alert key (secret, type, principal, IP) per pass and records the same alerts. Per-access alerts now carry the pass's start time as `detected_at`, like the per-secret and ML alerts already did (a difference of at most the pass's own runtime).

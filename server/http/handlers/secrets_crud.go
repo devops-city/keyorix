@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -107,7 +106,7 @@ func (h *SecretHandler) CreateSecret(w http.ResponseWriter, r *http.Request) {
 		req.OwnerMachineIdentityID = *userCtx.MachineIdentityID
 	}
 
-	response, err := h.coreService.CreateSecret(r.Context(), req)
+	response, err := h.coreService.CreateSecret(secretMutationAuditContext(r, userCtx), req)
 	if err != nil {
 		log.Printf("Error creating secret: %v", err)
 		if h.trySendSecretSizeError(w, err) {
@@ -125,16 +124,25 @@ func (h *SecretHandler) CreateSecret(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uid, sID, uname, sname := userCtx.UserID, response.ID, userCtx.Username, response.Name
-	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
-	// #2545: a client-asserted origin (e.g. keyorix-migrate's source path) is recorded as a
-	// labelled note on the audit event — never as attribution; see core.ClientOriginHeader.
-	auditCtx := core.WithClientOrigin(core.DetachedAuditContext(r.Context()), r.Header.Get(core.ClientOriginHeader))
-	goSafe(func() {
-		h.coreService.LogSecretCreatedWithProject(auditCtx, uid, sID, response.ProjectID, uname, sname, ip, ua)
-	}) // #nosec G118
-
+	// The secret.created row committed with the secret (secretMutationAuditContext).
 	sendCreated(w, newSecretNodeWire(response), i18n.T("SuccessSecretCreated", nil))
+}
+
+// secretMutationAuditContext tags the request context with the caller's audit
+// attribution, so the core mutation it is passed to (create, update, rotate,
+// delete, rollback, folder delete) commits its audit row in the same transaction
+// as the change and fails, changing nothing, when that row cannot be written
+// (AUDIT-MUTATION-TX-1). #2545: a client-asserted origin (e.g. keyorix-migrate's
+// source path) is recorded as a labelled note on that row — never as
+// attribution; see core.ClientOriginHeader.
+func secretMutationAuditContext(r *http.Request, userCtx *middleware.UserContext) context.Context {
+	return core.WithSecretMutationAudit(r.Context(), core.SecretMutationAudit{
+		UserID:       userCtx.UserID,
+		Username:     userCtx.Username,
+		IP:           clientIP(r),
+		UserAgent:    r.Header.Get(hdrUserAgent),
+		ClientOrigin: r.Header.Get(core.ClientOriginHeader),
+	})
 }
 
 // ClassifySecret handles PATCH /api/v1/secrets/{id}/classification — set or clear
@@ -290,7 +298,7 @@ func (h *SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) { // N
 			}
 		}
 	} else {
-		permitted, err = h.coreService.GetSecretForValueRead(r.Context(), uint(id), userCtx.UserID)
+		permitted, err = h.coreService.GetSecretForRead(r.Context(), uint(id), userCtx.UserID, r.URL.Query().Get("include_value") == "true")
 		if err == nil {
 			secret = permitted.Secret()
 		}
@@ -656,29 +664,19 @@ func (h *SecretHandler) UpdateSecret(w http.ResponseWriter, r *http.Request) {
 		req.Expiration = &exp
 	}
 
-	// Capture pre-update metadata for the audit diff (raw fetch, no read-count
-	// side effect). Best-effort: a miss just yields an empty diff.
-	oldSecret, _ := h.coreService.Storage().GetSecret(r.Context(), uint(id))
-
+	// The secret.updated row, with its before/after diff, commits with the update.
+	ctx := secretMutationAuditContext(r, userCtx)
 	var response *models.SecretNode
 	if isMachine {
-		response, err = h.coreService.UpdateSecret(r.Context(), req)
+		response, err = h.coreService.UpdateSecret(ctx, req)
 	} else {
-		response, err = h.coreService.UpdateSecretWithPermissionCheck(r.Context(), req)
+		response, err = h.coreService.UpdateSecretWithPermissionCheck(ctx, req)
 	}
 	if err != nil {
 		log.Printf("Error updating secret: %v", err)
 		h.sendUpdateSecretError(w, err)
 		return
 	}
-
-	uid, sID, uname, sname := userCtx.UserID, uint(id), userCtx.Username, response.Name
-	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
-	diff := core.BuildSecretUpdateDiff(oldSecret, req, reqBody.Value != "")
-	auditCtx := core.WithClientOrigin(core.DetachedAuditContext(r.Context()), r.Header.Get(core.ClientOriginHeader)) // #2545, see CreateSecret
-	goSafe(func() {
-		h.coreService.LogSecretUpdatedWithDiff(auditCtx, uid, sID, response.ProjectID, uname, sname, ip, ua, diff)
-	}) // #nosec G118
 
 	h.sendSuccess(w, newSecretNodeWire(response), i18n.T("SuccessSecretUpdated", nil))
 }
@@ -709,25 +707,14 @@ func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {
 	// delete unconditionally failed CheckSecretPermission's userID==0 guard.
 	isMachine := userCtx.MachineIdentityID != nil
 
-	// Pre-fetch name and project for audit log before the record is deleted. Plain,
-	// unauthorized read: authorization for this delete already happened above, via the
-	// route's RequireScopedSecretPermission middleware gate, and happens again below via
-	// DeleteSecretWithPermissionCheck itself — a second *WithPermissionCheck call here
-	// bought nothing but a second CheckSecretPermission storage round trip (see
-	// docs/findings/2026-09-23-FINDING-redundant-authz-prefetch.md).
-	prefetched, prefetchErr := h.coreService.GetSecret(r.Context(), uint(id))
-	secretName := fmt.Sprintf("id=%d", id)
-	var secretProjectID uint
-	if prefetchErr == nil {
-		secretName = prefetched.Name
-		secretProjectID = prefetched.ProjectID
-	}
-
+	// The secret.deleted row commits with the delete (secretMutationAuditContext); core
+	// reads the name and project for it from the row it deletes.
+	ctx := secretMutationAuditContext(r, userCtx)
 	var deleteErr error
 	if isMachine {
-		deleteErr = h.coreService.DeleteSecret(r.Context(), uint(id))
+		deleteErr = h.coreService.DeleteSecret(ctx, uint(id))
 	} else {
-		deleteErr = h.coreService.DeleteSecretWithPermissionCheck(r.Context(), uint(id), userCtx.UserID)
+		deleteErr = h.coreService.DeleteSecretWithPermissionCheck(ctx, uint(id), userCtx.UserID)
 	}
 	if deleteErr != nil {
 		log.Printf("Error deleting secret: %v", deleteErr)
@@ -740,13 +727,6 @@ func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	uid, sID, uname := userCtx.UserID, uint(id), userCtx.Username
-	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
-	auditCtx := core.DetachedAuditContext(r.Context())
-	goSafe(func() {
-		h.coreService.LogSecretDeletedWithProject(auditCtx, uid, sID, secretProjectID, uname, secretName, ip, ua)
-	}) // #nosec G118
 
 	// Tell the caller until when this delete is undoable. A failed read-back must not
 	// turn a completed delete into an error, so the header is simply omitted then.

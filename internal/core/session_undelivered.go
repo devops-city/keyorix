@@ -2,8 +2,10 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 
 	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -95,6 +97,43 @@ func (c *KeyorixCore) revokeUndeliveredSession(ctx context.Context, token string
 			fmt.Sprintf("%s failed for user %d after its session %d was written; the undelivered session was deleted", origin, userID, row.ID))
 		return nil
 	})
+}
+
+// ErrLoginWritePanicked marks a request denied because a storage write after
+// the credential matched panicked (#3277): the session insert
+// (mintLoginSession, createImpersonationSession), the TOTP anti-replay mark
+// (markTOTPStepUsedAfterMatch), the MFA challenge
+// (CreateMFAChallengeHoldingLoginSlot) or the step-up grant
+// (createStepUpGrant). It always travels with that write's ordinary error, so
+// the transport answers it exactly as it answers the error; on its own it only
+// tells VerifyMFALoginPending not to give the consumed TOTP step back.
+var ErrLoginWritePanicked = errors.New("a post-verdict login write panicked")
+
+// mintLoginSession is mintSessionWith for a login whose credential has already
+// matched. A panic in the session write comes back as an error wrapping
+// ErrLoginWritePanicked (#3277), so every caller denies it through the same
+// post-verdict branch as the write's error: the wrong-credential response, the
+// lockout counted, the slot kept, auth.login_error. A panic used to reach the
+// Recovery middleware instead: a 500 a wrong credential can never get (it never
+// reaches the insert), so the status code answered "was the credential
+// correct?", while the lockout went uncounted and nothing was audited.
+//
+// Commit-aware: by the time the panic gets here createSession has already
+// deleted the row if it landed (or audited auth.undelivered_session_unresolved
+// if that could not be done), and no token is returned, so the denial leaves no
+// usable session. Nothing in mintSessionWith after the insert can panic out
+// (EnforceSessionLimit is besteffort.Run), so a recovered panic never follows
+// a delivered row. The login paths and setup consume use this (impersonation
+// has createImpersonationSession); SSO still calls mintSession and propagates.
+func (c *KeyorixCore) mintLoginSession(ctx context.Context, userID uint, userAgent, ip string, setupOnly bool) (session *models.Session, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: login session write for user %d panicked after the credential matched; "+
+				"denying it as a post-verdict fault: %v\n%s", userID, r, debug.Stack())
+			session, err = nil, fmt.Errorf("%w: session write for user %d: %v", ErrLoginWritePanicked, userID, r)
+		}
+	}()
+	return c.mintSessionWith(ctx, userID, userAgent, ip, setupOnly)
 }
 
 // createSession is CreateSession with the rule above applied: on an error it

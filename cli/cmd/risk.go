@@ -95,10 +95,10 @@ var riskAddCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if riskAddTitle == "" || riskAddJustification == "" {
-			return fmt.Errorf("--title and --justification are required")
+			return usageErrorf("--title and --justification are required")
 		}
 		if riskAddExpires == "" {
-			return fmt.Errorf("--expires is required (RFC3339, e.g. 2026-12-31T00:00:00Z)")
+			return usageErrorf("--expires is required (RFC3339, e.g. 2026-12-31T00:00:00Z)")
 		}
 		expiresAt, err := time.Parse(time.RFC3339, riskAddExpires)
 		if err != nil {
@@ -147,7 +147,7 @@ unilaterally creating and self-approving a suppression of their own risk.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if riskApproveID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -174,7 +174,7 @@ var riskRevokeCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if riskRevokeID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)

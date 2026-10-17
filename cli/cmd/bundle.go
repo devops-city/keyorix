@@ -135,7 +135,7 @@ func runBundleVerify(cmd *cobra.Command, args []string) error {
 
 func runBundleImport(cmd *cobra.Command, args []string) error {
 	if bundleImportDest == "" {
-		return fmt.Errorf("--dest is required")
+		return usageErrorf("--dest is required")
 	}
 	reg, err := trust.DefaultRegistry()
 	if err != nil {
@@ -201,7 +201,7 @@ func requireBundleVerifyInstalledVersion() error {
 		return nil
 	}
 	if !bundleVerifyForce {
-		return fmt.Errorf("--installed-version is required to check the no-downgrade / anti-skip " +
+		return usageErrorf("--installed-version is required to check the no-downgrade / anti-skip " +
 			"(min-upgrade-from) guarantees for this deployment: pass --installed-version " +
 			"<currently-running-version>. Re-run with --force to verify only the signature and " +
 			"component digests, with no downgrade check")
@@ -229,7 +229,7 @@ func requireBundleImportInstalledVersion() error {
 		return nil
 	}
 	if !bundleImportForce {
-		return fmt.Errorf("--installed-version is required: no prior import was recorded at %q, so there is "+
+		return usageErrorf("--installed-version is required: no prior import was recorded at %q, so there is "+
 			"nothing to anchor the no-downgrade / anti-skip (min-upgrade-from) check against. Pass "+
 			"--installed-version <currently-running-version>. If this really is a first install with "+
 			"nothing yet to protect, re-run with --force to proceed without a downgrade check",

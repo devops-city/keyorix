@@ -43,6 +43,18 @@ export interface SystemSecurityInfo {
      * Drives AuditReadsSkippedBanner. Optional for older servers.
      */
     audit_reads_skipped?: boolean;
+    /**
+     * Audit rows owed by plain secret suspends that took effect while the audit
+     * log refused the write (server core audit_owed.go). Present only for
+     * system.write callers. pending is -1 when the server could not count them.
+     * Drives AuditOwedBanner.
+     */
+    audit_owed?: SystemAuditOwed;
+}
+
+export interface SystemAuditOwed {
+    pending: number;
+    failures_since_start: number;
 }
 
 export interface SystemInfo {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"strings"
 	"time"
@@ -41,6 +42,13 @@ const defaultMaxLeaseTTL = 90 * 24 * time.Hour
 // is comfortably below the overflow threshold while still far beyond any legitimate
 // lease TTL, matching the generous-headroom style of MaxInactiveDays.
 const maxDynamicTTLSeconds = 100 * 365 * 24 * 3600
+
+// maxDynamicTTLSecondsAsInt is maxDynamicTTLSeconds clamped to the platform's int
+// for comparing against int-typed TTL fields. On a 32-bit target (linux/arm) the
+// 100-year bound does not fit in an int, which is a compile error, and no int can
+// exceed math.MaxInt32 anyway, so the clamp changes no verdict there; on 64-bit
+// targets it is the bound itself.
+const maxDynamicTTLSecondsAsInt = min(maxDynamicTTLSeconds, math.MaxInt)
 
 // isPrivateIP reports whether ip is disallowed as an admin-DSN target — the
 // canonical private/loopback/link-local/IMDS/CGNAT check, shared (via
@@ -298,11 +306,11 @@ func validateCreateDynamicSecretConfigRequest(req *CreateDynamicSecretConfigRequ
 	// computation) with no upper bound otherwise, so an oversized value set here at
 	// config-create time would overflow int64 nanoseconds just the same as an oversized
 	// caller-supplied ttl_seconds override does. Reject both at the door.
-	if req.DefaultTTLSeconds > maxDynamicTTLSeconds {
-		return fmt.Errorf("default_ttl_seconds (%d) exceeds the maximum of %d seconds", req.DefaultTTLSeconds, maxDynamicTTLSeconds)
+	if req.DefaultTTLSeconds > maxDynamicTTLSecondsAsInt {
+		return fmt.Errorf("default_ttl_seconds (%d) exceeds the maximum of %d seconds", req.DefaultTTLSeconds, int64(maxDynamicTTLSeconds))
 	}
-	if req.MaxTTLSeconds > maxDynamicTTLSeconds {
-		return fmt.Errorf("max_ttl_seconds (%d) exceeds the maximum of %d seconds", req.MaxTTLSeconds, maxDynamicTTLSeconds)
+	if req.MaxTTLSeconds > maxDynamicTTLSecondsAsInt {
+		return fmt.Errorf("max_ttl_seconds (%d) exceeds the maximum of %d seconds", req.MaxTTLSeconds, int64(maxDynamicTTLSeconds))
 	}
 	if !IsValidClassification(req.Classification) {
 		return fmt.Errorf("classification must be one of public, internal, confidential, restricted (or empty)")
@@ -1005,8 +1013,8 @@ func (c *KeyorixCore) dynamicTTL(cfg *models.DynamicSecretConfig, override int) 
 	ttl := defaultDynamicTTL
 	switch {
 	case override > 0:
-		if override > maxDynamicTTLSeconds {
-			return 0, fmt.Errorf("ttl_seconds (%d) exceeds the maximum of %d seconds", override, maxDynamicTTLSeconds)
+		if override > maxDynamicTTLSecondsAsInt {
+			return 0, fmt.Errorf("ttl_seconds (%d) exceeds the maximum of %d seconds", override, int64(maxDynamicTTLSeconds))
 		}
 		ttl = time.Duration(override) * time.Second
 	case cfg.DefaultTTLSeconds > 0:

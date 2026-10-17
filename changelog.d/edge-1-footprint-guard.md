@@ -1,0 +1,2 @@
+### Testing
+- **Edge footprint guard.** `server/edge_footprint_test.go` and `scripts/edge/footprint.sh` measure the release server binary (full and air-gapped profiles, per platform) and the peak memory of a started, idle SQLite server, and fail above a budget kept in `scripts/edge/footprint-budget.tsv` (about 20% over the value when the guard was added). `--print` emits current values as budget rows; platforms without a measured memory baseline are skipped with a message.

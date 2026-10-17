@@ -90,6 +90,12 @@ type SecurityInfo struct {
 	// only whether one exists and its generation; see
 	// core.KeyorixCore.GetRecoveryKeyStatus.
 	RecoveryKey *core.RecoveryKeyStatus `json:"recovery_key,omitempty"`
+	// AuditOwed reports audit rows owed by plain secret suspends that took
+	// effect while the audit log refused the write (core audit_owed.go):
+	// pending (cluster-wide, -1 if unreadable) until the backfill writes them,
+	// and failures counted by this process since start. Like recovery_key, nil
+	// for any caller without system.write; the web UI warns while pending > 0.
+	AuditOwed *core.OwedAuditStatus `json:"audit_owed,omitempty"`
 }
 
 // SystemMetrics represents system performance metrics
@@ -203,6 +209,11 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				recoveryKeyStatus = status
 			}
 		}
+		var auditOwed *core.OwedAuditStatus
+		if canSystemWrite {
+			st := coreService.OwedAuditStatus(r.Context())
+			auditOwed = &st
+		}
 
 		tlsEnabled := cfg.Server.HTTP.TLS.Enabled
 		encryptionEnabled := cfg.Storage.Encryption.Enabled
@@ -247,6 +258,7 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				AccessLogOnSinkStall: cfg.Server.AccessLog.EffectiveOnSinkStall(),
 				AccessLogDropped:     middleware.AccessLogDropped(),
 				RecoveryKey:          recoveryKeyStatus,
+				AuditOwed:            auditOwed,
 			},
 		}
 

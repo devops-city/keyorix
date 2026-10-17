@@ -138,13 +138,9 @@ Vault and Kubernetes support stay in the air-gapped profile (Vault has no offici
 SDK to exclude; the Kubernetes dynamic-secrets backend is hand-rolled REST, not
 `client-go`).
 
-CI builds, tests, and publishes an SBOM for both profiles, and posts a full-vs-air-gapped
-dependency-count and binary-size diff as a job summary on every release-dry-run — see
-`docs/adr-109-core-depends-on-interfaces.md`'s "Step 6" section for the measured numbers
-(999→662 total packages, 145→0 cloud-SDK packages, 67.8MB→46.0MB binary) once that work
-lands. As of this page, that measured full air-gapped profile (and the CI wiring that
-produces it) is in an open, stacked PR series (#2218→#2223) — not yet on `main`. What
-*is* on `main` today is a narrower, older `-tags lean` build (excludes only
-`rotation`'s AWS-IAM backend and the evidence-sink/object-store connectors, not a
-complete cloud-SDK exclusion) and the per-package `noaws`/`noazure`/`nogcp` build-tag
-infrastructure the new profile is built from.
+`make build-server-airgap` builds the air-gapped profile locally and
+`scripts/airgap-dependency-guard.sh` fails if it links a cloud SDK. The published
+`-airgap` image and release binary use the same tags; CI runs the guard and the
+offline drill (`scripts/airgap-e2e.sh`, see
+[AIRGAP_RUNBOOK.md](AIRGAP_RUNBOOK.md)). `docs/adr-109-core-depends-on-interfaces.md`
+("Step 6") records how the profile was built.

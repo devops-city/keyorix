@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 2
+const currentSchemaEpoch = 3
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -68,6 +68,9 @@ const schemaEpochMetadataKey = "schema_epoch"
 // secret_nodes.purge_at and its DeleteSecret does not re-stamp it, so a
 // restore + re-delete on an old replica would leave a stale date that the
 // epoch-2 purge job honours, hard-deleting before the date shown (#3021).
+// Epoch 3 (pending_audit_events) left it at 2: the table is additive, an
+// epoch-2 replica never reads or writes it, and rows it leaves behind are
+// drained by the next epoch-3 replica's backfill.
 const minCompatibleSchemaEpoch = 2
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
@@ -664,6 +667,9 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 		return nil, err
 	}
 	warnPostgresPoolHeadroom(db, &cfg.Storage.Database)
+	if msg := config.PoolerStartupParamWarning(&cfg.Storage.Database); msg != "" {
+		log.Print(msg)
+	}
 	if err := refuseUndeclaredTransactionPooler(&cfg.Storage.Database); err != nil {
 		return nil, err
 	}
@@ -685,7 +691,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	opened = append(opened, namedLockDB)
 	applyLockPoolSettings(namedLockDB, NamedLockPoolSize, &cfg.Storage.Database)
 
-	nativeReads, err := openPostgresNativeReadPool(&cfg.Storage.Database, nativeReadPoolSize(effectiveMaxOpenConns(db, &cfg.Storage.Database)))
+	nativeReads, err := openPostgresNativeReadPool(&cfg.Storage.Database, nativeReadPoolSize(effectiveMaxOpenConns(db, &cfg.Storage.Database), cfg.Storage.Database.NativeReadPoolMax))
 	if err != nil {
 		return nil, err
 	}
@@ -846,13 +852,18 @@ const NamedLockPoolSize = 8
 // runs at most two of them, each one short statement, so a few connections
 // carry them at any request rate the request pool can feed. Never more than the
 // request pool's own cap (nativeReadPoolSize), so an operator who sizes
-// max_open_conns small keeps a small footprint. Not configurable, like the lock
-// pools.
-const NativeReadPoolMaxSize = 8
+// max_open_conns small keeps a small footprint. This is the default;
+// storage.database.native_read_pool_max raises or lowers it (the lock pools are
+// not configurable).
+const NativeReadPoolMaxSize = config.DefaultNativeReadPoolMax
 
-// nativeReadPoolSize is the native read pool's cap for a request pool of maxOpen.
-func nativeReadPoolSize(maxOpen int) int {
-	return min(maxOpen, NativeReadPoolMaxSize)
+// nativeReadPoolSize is the native read pool's cap for a request pool of maxOpen
+// and a configured native_read_pool_max (0: NativeReadPoolMaxSize).
+func nativeReadPoolSize(maxOpen, configured int) int {
+	if configured <= 0 {
+		configured = NativeReadPoolMaxSize
+	}
+	return min(maxOpen, configured)
 }
 
 // lockPoolMaxIdleTime closes lock sessions left idle, so the lock pools do not
@@ -886,17 +897,17 @@ func warnPostgresPoolHeadroom(db *gorm.DB, dbCfg *config.DatabaseConfig) {
 	if err := db.Raw("SELECT current_setting('superuser_reserved_connections')::int").Scan(&reserved).Error; err != nil {
 		return
 	}
-	if msg := postgresPoolHeadroomWarning(effectiveMaxOpenConns(db, dbCfg), maxConn, reserved); msg != "" {
+	if msg := postgresPoolHeadroomWarning(effectiveMaxOpenConns(db, dbCfg), dbCfg.NativeReadPoolMax, maxConn, reserved); msg != "" {
 		log.Print(msg)
 	}
 }
 
 // postgresPoolHeadroomWarning is warnPostgresPoolHeadroom's decision, separated so
 // it is testable without a server. Empty means no warning.
-// The process opens maxOpen plus extraPoolsSize(maxOpen) connections at most.
-func postgresPoolHeadroomWarning(maxOpen, maxConnections, reserved int) string {
+// The process opens maxOpen plus extraPoolsSize(maxOpen, nativeReadPoolMax) connections at most.
+func postgresPoolHeadroomWarning(maxOpen, nativeReadPoolMax, maxConnections, reserved int) string {
 	usable := maxConnections - reserved
-	extra := extraPoolsSize(maxOpen)
+	extra := extraPoolsSize(maxOpen, nativeReadPoolMax)
 	if maxConnections <= 0 || maxOpen+extra <= usable {
 		return ""
 	}
@@ -910,8 +921,8 @@ func postgresPoolHeadroomWarning(maxOpen, maxConnections, reserved int) string {
 
 // extraPoolsSize is the most connections the pools beside the request pool open
 // together: the scheduler and named lock pools and the native read pool.
-func extraPoolsSize(maxOpen int) int {
-	return lockPoolsSize + nativeReadPoolSize(maxOpen)
+func extraPoolsSize(maxOpen, nativeReadPoolMax int) int {
+	return lockPoolsSize + nativeReadPoolSize(maxOpen, nativeReadPoolMax)
 }
 
 // lockPoolsSize is the most connections the scheduler and named lock pools open together.
@@ -1946,6 +1957,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	deploymentStatsSnapshotExists := tableExists(db, "deployment_stats_snapshots")
 	secretACLExists := tableExists(db, "secret_acls")
 	scheduleExists := tableExists(db, "secret_access_schedules")
+	pendingAuditExists := tableExists(db, "pending_audit_events")
 	secretTemplateExists := tableExists(db, "secret_templates")
 	alertEscalationExists := tableExists(db, "alert_escalation_policies")
 	secretVersionCommentExists := tableExists(db, "secret_version_comments")
@@ -2358,6 +2370,14 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if !scheduleExists {
 		if err := db.AutoMigrate(&models.SecretAccessSchedule{}); err != nil {
 			return fmt.Errorf("failed to migrate secret_access_schedules table: %w", err)
+		}
+	}
+
+	// Create pending_audit_events if missing (audit rows owed by a plain secret
+	// suspend that took effect while the audit log refused writes; additive).
+	if !pendingAuditExists {
+		if err := db.AutoMigrate(&models.PendingAuditEvent{}); err != nil {
+			return fmt.Errorf("failed to migrate pending_audit_events table: %w", err)
 		}
 	}
 

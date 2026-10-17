@@ -26,7 +26,7 @@ implicit access and are not listed. Requires secrets.read.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretAccessID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -86,7 +86,7 @@ var secretAccessLogCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretAccessLogID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {

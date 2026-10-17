@@ -97,9 +97,14 @@ func TestConsumeSetup_IdentityReadPanic_LeavesNoSession(t *testing.T) {
 	nth := lastIdentityReadNth(t, h, c, fs, st, adminID)
 
 	fs.Arm(&faultstorage.FaultSpec{Method: "GetUserPermissions", NthCall: nth, Kind: faultstorage.KindPanic, Err: errors.New("injected")})
-	_, uid, panicked := consumeSetupFor(t, h, c, adminID, "undeliveredpanic")
+	w, uid, panicked := consumeSetupFor(t, h, c, adminID, "undeliveredpanic")
 	require.True(t, fs.Fired(), "the armed fault must fire on the post-mint identity read")
-	assert.NotNil(t, panicked, "the panic still propagates to the recovery middleware (unchanged 500)")
+	// #3277 follow-up: completeLogin returns the panic as its error after the
+	// revoke, so the caller answers the generic setup failure, not the Recovery
+	// 500 that only a valid token could reach.
+	assert.Nil(t, panicked, "the panic must not reach the recovery middleware")
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "This setup link could not be completed", "same response as the generic setup failure")
 	assert.Zero(t, countSessions(t, st, uid), "a setup consume that reported failure left a live session the client never received")
 }
 

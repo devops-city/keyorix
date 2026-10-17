@@ -160,11 +160,7 @@ func runAgent(cfg *k8ssync.Config, fetcher k8ssync.Fetcher, sink k8ssync.Sink, o
 
 	// Health/readiness server for Kubernetes probes (/healthz, /readyz, /status).
 	status := k8ssync.NewStatus()
-	healthSrv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.GetHealthPort()),
-		Handler:           status.HandlerWithToken(metricsBearerToken),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	healthSrv := newHealthServer(fmt.Sprintf(":%d", cfg.GetHealthPort()), status.HandlerWithToken(metricsBearerToken))
 	go func() {
 		if err := healthSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Printf("k8s-sync: health server error: %v", err)
@@ -185,6 +181,21 @@ func runAgent(cfg *k8ssync.Config, fetcher k8ssync.Fetcher, sink k8ssync.Sink, o
 	k8ssync.Run(ctx, engine, cfg.Mappings, cfg.GetInterval(), log.Printf, status)
 	log.Println("k8s-sync: stopped")
 	return 0
+}
+
+// newHealthServer builds the probe/metrics listener. Every connection-level
+// timeout is set: with only ReadHeaderTimeout, a client could hold a connection
+// open indefinitely by never reading the response or by idling on keep-alive.
+func newHealthServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
 }
 
 // flagOrEnv returns the value of the string flag name when it was given on the

@@ -235,7 +235,7 @@ changing one without the other makes existing secrets permanently
 undecryptable while leaving stale, now-unreadable data in place.
 
 **Password policy**: `KEYORIX_ADMIN_PASSWORD` and `KEYORIX_TESTUSER_PASSWORD`
-must satisfy Keyorix's own ADR-025 policy (`internal/core/password_policy.go`
+must satisfy Keyorix's own ADR-025 policy (`internal/core/rules/password_policy.go`
 at the time this was written: 16+ chars, upper+lower+digit+special, must not
 contain the account's own username/email/display-name). A value that's valid
 shell/URL-safe text but fails that policy makes `/system/init` silently

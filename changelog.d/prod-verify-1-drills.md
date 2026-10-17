@@ -1,0 +1,2 @@
+### Testing
+- **Two more operational drills.** `scripts/drills/rotation-under-load.sh` runs the documented stop, rotate, start procedure for the DEK while a read/write/delete load generator is running, and `scripts/drills/kill9-soak.sh` kills the server with SIGKILL at random points under the same load (SQLite or PostgreSQL). Both check every acknowledged write, the seeded data and `verify-audit` afterwards. Shared load generator: `scripts/drills/load.sh`.

@@ -1,1 +1,2 @@
 deploy/edge	none	-	test-only package: deploy/edge asserts the unattended-operation directives of the shipped systemd unit and launchd plist from the files themselves (no non-test Go code)	test-helper
+deploy/edge	none	-	test-only package: arm_build_test.go checks the ARM cross-build script and footprint wiring (no non-test Go code)	test-helper

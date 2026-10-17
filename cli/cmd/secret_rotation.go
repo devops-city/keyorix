@@ -26,7 +26,7 @@ var secretRotateCmd = &cobra.Command{
 
 func runSecretRotate(cmd *cobra.Command, _ []string) error {
 	if rotateID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 
 	warnInsecureFlag(cmd, "value", "omit the flag to be prompted instead.")
@@ -39,7 +39,7 @@ func runSecretRotate(cmd *cobra.Command, _ []string) error {
 		value = v
 	}
 	if value == "" {
-		return fmt.Errorf("secret value is required (use --value or enter it at the prompt)")
+		return usageErrorf("secret value is required (use --value or enter it at the prompt)")
 	}
 
 	client, err := secretAPIClient()
@@ -87,7 +87,7 @@ Requires secrets.read at the secret's scope.`,
 
 func runSecretRotationSimulate(_ *cobra.Command, _ []string) error {
 	if rotationSimulateID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -158,7 +158,7 @@ value without touching any upstream system. Requires secrets.write at the secret
 
 func runSecretAutoRotate(_ *cobra.Command, _ []string) error {
 	if autoRotateID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	switch autoRotateCharset {
 	case "", "alphanumeric", "lower_alphanumeric", "hex", "alphanumeric_symbols":
@@ -166,7 +166,7 @@ func runSecretAutoRotate(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("--charset must be alphanumeric, lower_alphanumeric, hex, or alphanumeric_symbols")
 	}
 	if (autoRotateBackend == "") != (autoRotateRef == "") {
-		return fmt.Errorf("--backend and --ref must be set together (or both omitted)")
+		return usageErrorf("--backend and --ref must be set together (or both omitted)")
 	}
 
 	client, err := secretAPIClient()
