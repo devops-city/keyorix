@@ -133,9 +133,12 @@ func writeEntrypoints(path string, entries []statemap.Entry) error {
 	b.WriteString("# class-overrides.tsv, mirroring atomicity-exempt.tsv's TEMP-A precedent for \"flagged, not\n")
 	b.WriteString("# yet triaged\") | gap (an entry-point CATEGORY this generator does not enumerate at all --\n")
 	b.WriteString("# see internal/statemap.KnownGapRows for why, and whether it's covered elsewhere).\n")
-	b.WriteString("#\n# kind\tid\tfile\tline\thandler\tclass\treason\n")
+	b.WriteString("# There is deliberately no line-number column: any unrelated edit above a route or command\n")
+	b.WriteString("# would shift it and rewrite the row (102 rows had gone stale this way before this was\n")
+	b.WriteString("# dropped). Find the definition from file + id; the extractor's Entry.Line is not persisted.\n")
+	b.WriteString("#\n# kind\tid\tfile\thandler\tclass\treason\n")
 	for _, e := range entries {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%d\t%s\t%s\t%s\n", e.Kind, e.ID, e.File, e.Line, tsvSafe(e.Handler), e.Class, tsvSafe(e.Reason))
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Kind, e.ID, e.File, tsvSafe(e.Handler), e.Class, tsvSafe(e.Reason))
 	}
 	return os.WriteFile(path, []byte(b.String()), 0644) // #nosec G306 -- generated docs artifact, not sensitive; world-readable like any other checked-in doc
 }
