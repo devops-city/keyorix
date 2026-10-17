@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/keyorixhq/keyorix/internal/besteffort"
+	"github.com/keyorixhq/keyorix/internal/logging"
 )
 
 // Actor types stamped on every audit event (ADR-023). They distinguish a human
@@ -165,6 +166,11 @@ func DetachedAuditContext(parent context.Context) context.Context {
 	}
 	if origin, ok := clientOriginFromContext(parent); ok {
 		ctx = WithClientOrigin(ctx, origin)
+	}
+	// Keep the request's log fields (request id, principal type, route) so a log line
+	// written by a detached audit write still correlates with the request that caused it.
+	if h := logging.HolderFrom(parent); h != nil {
+		ctx = logging.WithExistingHolder(ctx, h)
 	}
 	return ctx
 }

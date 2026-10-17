@@ -58,6 +58,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
 	"github.com/keyorixhq/keyorix/internal/license"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/netutil"
 	"github.com/keyorixhq/keyorix/internal/notary"
 	"github.com/keyorixhq/keyorix/internal/notifychan"
@@ -178,6 +179,13 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// Schema/sanity validation (ports, TLS cert/key presence, storage DSN/path) — always
 	// enforced, independent of any security flag: a malformed config should never boot.
 	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration is invalid: %v", err)
+	}
+
+	// server.log.format: from here on every log line is a JSON object when "json".
+	// Before this point (config load/validation failures) lines are plain text. Must
+	// precede NewRouter: the access logger picks its formatter when the router is built.
+	if err := logging.Setup(cfg.Server.Log.EffectiveFormat(), os.Stderr); err != nil {
 		log.Fatalf("Configuration is invalid: %v", err)
 	}
 

@@ -360,6 +360,38 @@ type ServerConfig struct {
 	HTTP      ServerInstanceConfig `yaml:"http"`
 	GRPC      ServerInstanceConfig `yaml:"grpc"`
 	AccessLog AccessLogConfig      `yaml:"access_log,omitempty"`
+	Log       LogConfig            `yaml:"log,omitempty"`
+}
+
+// Values of server.log.format.
+const (
+	LogFormatText = "text"
+	LogFormatJSON = "json"
+)
+
+// LogConfig configures the server's log output format (not the audit trail).
+type LogConfig struct {
+	// Format is "" or "text" (default: the existing human-readable lines) or "json"
+	// (one JSON object per line with ts, level, msg and, where known, request_id,
+	// principal_type and route; see docs/operations/logging.md). Any other value is
+	// rejected by Validate.
+	Format string `yaml:"format,omitempty"`
+}
+
+// EffectiveFormat returns the format in effect: "text" when unset.
+func (l LogConfig) EffectiveFormat() string {
+	if l.Format == "" {
+		return LogFormatText
+	}
+	return l.Format
+}
+
+func validateLogFormat(v string) error {
+	switch v {
+	case "", LogFormatText, LogFormatJSON:
+		return nil
+	}
+	return fmt.Errorf("server.log.format: unknown value %q (want %q or %q)", v, LogFormatText, LogFormatJSON)
 }
 
 // Values of server.access_log.on_sink_stall.
@@ -2853,6 +2885,9 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		return err
 	}
 	if err := validateTLSMode("server.grpc.tls_mode", c.Server.GRPC.TLSMode); err != nil {
+		return err
+	}
+	if err := validateLogFormat(c.Server.Log.Format); err != nil {
 		return err
 	}
 	if err := validateAccessLogOnSinkStall(c.Server.AccessLog.OnSinkStall); err != nil {
