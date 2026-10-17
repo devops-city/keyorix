@@ -281,8 +281,35 @@ test('secret detail History and Recent access update after rotate and reveal, wi
 
     await page.getByRole('button', { name: 'Rotate', exact: true }).click();
     await page.getByLabel('New value').fill(`rotated-${unique}`);
+    // #3276: anchor the wait to the server, not to a timer. The server commits the
+    // secret.rotated row together with the new version (AUDIT-MUTATION-TX-1), so the first
+    // History GET the page issues AFTER the rotate response must already carry it. Register
+    // both waiters before the click; the audit one only counts GETs that start after the
+    // rotate response, so the initial load's fetch cannot satisfy it.
+    let rotateDone = false;
+    // The flag flips inside the rotate predicate, which Playwright evaluates in event order,
+    // so any audit response that arrives after it is, by construction, a post-rotate fetch.
+    const rotateResponse = page.waitForResponse((r) => {
+        const isRotate =
+            r.request().method() === 'POST' && /\/api\/v1\/secrets\/\d+\/rotate$/.test(new URL(r.url()).pathname);
+        if (isRotate) rotateDone = true;
+        return isRotate;
+    });
+    const auditAfterRotate = page.waitForResponse(
+        (r) =>
+            rotateDone &&
+            r.request().method() === 'GET' &&
+            /\/api\/v1\/secrets\/\d+\/audit$/.test(new URL(r.url()).pathname)
+    );
     await page.getByRole('button', { name: 'Rotate secret' }).click();
+    expect((await rotateResponse).status()).toBe(200);
     await expect(page.getByText(`Rotate ${secretName}`)).not.toBeVisible({ timeout: 10_000 });
+    // A product regression (audit written after the response again) fails HERE, saying so,
+    // instead of as a bare "Rotated not visible" timeout.
+    const trail = await (await auditAfterRotate).text();
+    expect(trail, 'History GET after the rotate response must already contain secret.rotated').toContain(
+        'secret.rotated'
+    );
     // No reload, no navigation: the rotation shows up in History by itself.
     await expect(history.getByText('Rotated', { exact: true })).toBeVisible({ timeout: 10_000 });
 
