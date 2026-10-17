@@ -126,13 +126,11 @@ How this is tested, and what that does not cover:
 - `kill -9` stops the process, not the disk. It exercises the "server crash"
   case, not a power cut; a power-cut run needs a device that drops unsynced
   writes and has not been done yet.
-- **Known gap.** The audit row for a create, update or delete is written just
-  after that change commits, not in the same transaction. A crash in that
-  window leaves an acknowledged change with no audit row (the chain still
-  verifies; it is a missing entry, not a broken one). Reads are not affected:
-  their audit row is committed before the value is returned. The soak reports
-  this and fails on it when run with `--strict-mutation-audit`; the fix is
-  tracked as its own work item.
+- The audit row for a create, update, delete or restore is written in the same
+  transaction as that change, so a crash cannot leave an acknowledged change
+  with no audit row. Reads are not affected: their audit row is committed
+  before the value is returned. The soak fails on a missing row by default;
+  `--lenient-mutation-audit` only logs it.
 
 What the software cannot do for you:
 

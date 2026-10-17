@@ -57,13 +57,32 @@ func DecodePATScopes(raw string) []string {
 		return nil
 	}
 	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || !namesSomething(out) {
 		// Non-empty but unparseable: fail CLOSED — return a sentinel that no
 		// real permission string will ever match, so the PAT is denied everywhere
 		// rather than silently granted full owner access on a corrupted row.
+		// Same for a column that parses but names nothing (`null`, `[]`, `[""]`):
+		// EncodePATScopes writes "" for "no restriction" and never emits those,
+		// and an empty list reads as "unrestricted" downstream
+		// (TestDecodePAT_NonEmptyColumnThatNamesNothingFailsClosed).
 		return PATScopeCorrupted
 	}
 	return out
+}
+
+// namesSomething reports whether a decoded allowlist is one the encoders could
+// have written: at least one entry, and no blank entry (both encoders drop
+// blanks and encode an empty result as "").
+func namesSomething(list []string) bool {
+	if len(list) == 0 {
+		return false
+	}
+	for _, s := range list {
+		if strings.TrimSpace(s) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 // EncodePATCIDRs validates and JSON-encodes a CIDR allowlist for storage. Each entry must
@@ -123,10 +142,12 @@ func DecodePATCIDRs(raw string) []string {
 		return nil
 	}
 	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || !namesSomething(out) {
 		// Non-empty but unparseable: fail CLOSED — return a sentinel that no real
 		// CIDR will ever match, so the PAT is denied from all networks rather than
-		// silently granted global network access on a corrupted row.
+		// silently granted global network access on a corrupted row. Same for a
+		// column that parses but names nothing (`null`, `[]`): the middleware's
+		// `len(AllowedCIDRs) > 0` reads an empty list as "no network restriction".
 		return PATCIDRCorrupted
 	}
 	return out

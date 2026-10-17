@@ -321,7 +321,12 @@ storage:
     # pooler: none                # none (default) | pgbouncer-session | pgbouncer-transaction.
     #   POSTGRES ONLY. Names the connection pooler in front of PostgreSQL;
     #   pgbouncer-transaction changes how statements and advisory locks are
-    #   run. See docs/postgresql-poolers.md.
+    #   run. Only PgBouncer is supported; other poolers and proxies (PgCat,
+    #   Odyssey, RDS Proxy, Supavisor, pgpool-II, ...) are not tested and not
+    #   supported. A lost advisory lock (backend killed, failover, partition)
+    #   stops its holder in every mode; a lost server-presence or single_writer
+    #   lock shuts the server down with exit status 1. See
+    #   docs/postgresql-poolers.md.
 ```
 
 ### PostgreSQL TLS
@@ -1268,6 +1273,14 @@ session:
   access_ttl: "30m"     # access-token window before a refresh is needed (default 24h)
   absolute_ttl: "12h"   # hard cap on total session lifetime; "" or "0" = no ceiling
 ```
+
+**Authentication cache and database outages (not configurable).** A validated
+session, PAT or machine token is cached for about 30 seconds per replica, and
+every cached request still re-checks the credential's revocation state against
+the database. If that re-check fails (database down, failover, pool exhausted),
+the request is refused with `503` and `Retry-After` instead of being served from
+the cache, so a revocation is never hidden by an outage; clients should retry.
+See [UPGRADING.md](UPGRADING.md) §6h.
 
 ## password_policy
 

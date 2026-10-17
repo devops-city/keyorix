@@ -491,7 +491,7 @@ func TestWithAuditCheckpointLock_FnSuccess(t *testing.T) {
 	ls := NewLocalStorage(db)
 
 	called := false
-	err = ls.WithAuditCheckpointLock(context.Background(), func() error {
+	err = ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error {
 		called = true
 		return nil
 	})

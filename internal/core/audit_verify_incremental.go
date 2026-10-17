@@ -498,7 +498,7 @@ func (c *KeyorixCore) WriteAuditCheckpointIncremental(ctx context.Context) (*mod
 	var newCP *models.AuditCheckpoint
 	var failed *auditVerifyFailure
 	var rejected *auditVerifyRejection
-	err := c.storage.WithAuditCheckpointLock(ctx, func() error {
+	err := c.storage.WithAuditCheckpointLock(ctx, func(ctx context.Context) error {
 		// An untrusted state row is replaced by one that records the rejection
 		// (not_proven until a later full verification, plus an audit event); the
 		// tail check stands on the signed checkpoint alone.
@@ -753,7 +753,7 @@ func (c *KeyorixCore) StartAuditFullVerification(ctx context.Context) (jobID str
 		return id, false, nil
 	}
 	// Probe the cross-replica lock: held means another replica is running one.
-	free, err := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func() error { return nil })
+	free, err := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func(context.Context) error { return nil })
 	if err != nil {
 		c.auditVerifyJobMu.Unlock()
 		return "", false, err
@@ -805,7 +805,7 @@ func (c *KeyorixCore) runAuditFullVerification(parent context.Context, id string
 	defer cancel()
 	var rep *AuditVerifyReport
 	var v *storage.AuditChainVerification
-	ran, err := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func() error {
+	ran, err := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func(ctx context.Context) error {
 		var verr error
 		v, verr = c.VerifyAuditChain(ctx)
 		return verr
@@ -865,7 +865,7 @@ func (c *KeyorixCore) AuditFullVerificationJob(ctx context.Context, id string) (
 	out := &AuditVerifyJobStatus{JobID: j.ID, State: j.State, StartedAt: j.StartedAt, FinishedAt: j.FinishedAt, Error: j.Error, Result: j.Result}
 	if j.State == AuditVerifyJobRunning {
 		if local, _ := c.auditVerifyJobID.Load().(string); local != id {
-			free, perr := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func() error { return nil })
+			free, perr := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func(context.Context) error { return nil })
 			// On SQLite the lock always "runs" (single process): not ours → dead.
 			if perr == nil && free {
 				out.State = AuditVerifyJobInterrupted
