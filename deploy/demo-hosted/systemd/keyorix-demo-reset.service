@@ -1,0 +1,9 @@
+[Unit]
+Description=Keyorix hosted demo: full reset back to the demo seed
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/keyorix-demo reset
+TimeoutStartSec=900

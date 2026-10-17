@@ -1,0 +1,2 @@
+### Documentation
+- **Prometheus metrics reference.** `docs/operations/metrics.md` lists every metric the server and operator define (name, type, labels, meaning, endpoint), generated from the Go definitions. `internal/metricsdoc` fails CI if a metric is added or relabelled without regenerating it, and if any label is not on a bounded-label allowlist (no secret names, paths or user ids as labels).

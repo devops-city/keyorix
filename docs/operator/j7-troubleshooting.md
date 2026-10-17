@@ -1,7 +1,12 @@
 # Troubleshooting common startup failures
 
-What each of these actually looks like, and what to do about it. Every scenario below was
-reproduced for real while writing this page.
+What each of these looks like, and what to do about it. The messages are quoted from the
+server; paths and addresses differ on your install.
+
+First step for any start-up failure: `keyorix-server admin diagnose --config ./keyorix.yaml`
+runs the checks server start-up depends on (config parse, encryption key access, database
+open, migration state) and reports which one fails, without starting a listener. It needs
+the master passphrase like the server does.
 
 ## Wrong or typo'd config value
 
