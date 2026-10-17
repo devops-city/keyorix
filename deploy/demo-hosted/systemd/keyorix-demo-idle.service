@@ -1,0 +1,8 @@
+[Unit]
+Description=Keyorix hosted demo: stop when idle
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/keyorix-demo idle-check

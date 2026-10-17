@@ -234,8 +234,10 @@ discard_unfinished_seed() {
   rm -f "$STATE_FILE"
   rm -rf "$REPO_ROOT/.demo-2-cli-home"
 }
+CONTAINER_ENV_FILE=""
 on_exit() {
   local rc=$?
+  [ -z "$CONTAINER_ENV_FILE" ] || rm -f "$CONTAINER_ENV_FILE"
   if [ "$rc" -ne 0 ] && [ "$SEED_IN_PROGRESS" = true ]; then
     echo >&2
     echo "Demo setup failed (exit $rc). Removing the unfinished container and data volume so nothing half-seeded is left behind; fix the error above and re-run scripts/demo/up.sh." >&2
@@ -261,12 +263,15 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     docker rm -f "$CONTAINER_NAME" >/dev/null
   fi
   step "Starting the air-gapped container (network enabled for the demo itself; see docs/demo/GOLDEN-PATH.md for the offline proof with --network none)"
+  # Secrets reach the container through a 0600 --env-file, never as `-e NAME=value` (argv is
+  # visible in ps). The file only has to exist for the duration of `docker run`.
+  CONTAINER_ENV_FILE="$(mktemp)"
+  ( umask 077; printf 'KEYORIX_MASTER_PASSWORD=%s\nKEYORIX_BOOTSTRAP_TOKEN=%s\n' "$MASTER_PASSWORD" "$BOOTSTRAP_TOKEN" > "$CONTAINER_ENV_FILE" )
   docker run -d --name "$CONTAINER_NAME" \
     -p "${PORT}:8080" \
     -v "$VOLUME_NAME:/app/data" \
     -w /app/data \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PASSWORD" \
-    -e KEYORIX_BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+    --env-file "$CONTAINER_ENV_FILE" \
     -e KEYORIX_CONFIG_PATH=keyorix.yaml \
     --entrypoint /bin/sh \
     "$IMAGE_TAG" \
@@ -294,6 +299,7 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
       fi
       exec /app/keyorix-server
     ' >/dev/null
+  rm -f "$CONTAINER_ENV_FILE"
   ok "Container started"
 fi
 
@@ -462,7 +468,7 @@ ok "ci-app machine identity, project_viewer on default"
 
 step "Populating an audit trail (reveal + rotate + a machine read already happened above)"
 "$CLI_BIN" secret get --id 1 --show-value >/dev/null
-curl -s -H "Authorization: Bearer $MACHINE_TOKEN" "http://localhost:${PORT}/api/v1/secrets/1?include_value=true" >/dev/null
+demo_api GET "$SERVER_URL" "/api/v1/secrets/1?include_value=true" "$MACHINE_TOKEN"
 demo_api GET "$SERVER_URL" "/api/v1/secrets/value?ref=backend-api%2Fdevelopment%2Fdb-password" "$ALICE_TOKEN"
 [ "$DEMO_HTTP_CODE" = "200" ] || { echo "alice could not read backend-api/development/db-password ($DEMO_HTTP_CODE): $DEMO_BODY" >&2; exit 1; }
 ok "Audit trail populated — 'keyorix audit logs' now has real events to show"

@@ -1,0 +1,24 @@
+# Footprint budget for the edge guard (server/edge_footprint_test.go, scripts/edge/footprint.sh).
+#
+# One row per <goos>/<goarch> and build profile (full; airgap = -tags noaws,noazure,nogcp).
+# Columns, TAB-separated:
+#   platform  profile  max_binary_bytes  max_idle_peak_rss_kib
+# "-" means no budget yet: a missing binary budget FAILS the test, a missing RSS
+# budget skips it with a message (RSS needs a baseline measured ON that platform).
+#
+# The binary is the release build (CGO_ENABLED=0 -trimpath -ldflags "-s -w").
+# The RSS is the peak resident size of a freshly initialised SQLite server that
+# has been up and idle for a few seconds (start-up spike included), in KiB.
+#
+# Each budget is the value measured when the guard was added plus about 20%. It
+# is a tripwire for accidental growth, not a target: when growth is intended,
+# raise the row in the PR that causes it and say why. Refresh the measured values
+# with `scripts/edge/footprint.sh --print`.
+darwin/arm64	full	85200000	66700
+darwin/arm64	airgap	60300000	-
+linux/amd64	full	90500000	-
+linux/amd64	airgap	63200000	-
+linux/arm64	full	82500000	-
+linux/arm64	airgap	58600000	-
+linux/arm	full	84800000	-
+linux/arm	airgap	60200000	-

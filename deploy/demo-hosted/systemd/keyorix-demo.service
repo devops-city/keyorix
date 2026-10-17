@@ -1,0 +1,14 @@
+[Unit]
+Description=Keyorix hosted demo: bring the stack up at boot
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/keyorix-demo up
+ExecStop=/usr/local/sbin/keyorix-demo down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
