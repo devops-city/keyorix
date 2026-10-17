@@ -365,8 +365,15 @@ func sqliteDSN(dbPath string) string {
 // ciphertext, token hashes, and other sensitive bound parameters would otherwise
 // get written to stdout/logs on any query error or slow query. Silence it here
 // so that never happens by default (#464).
+//
+// QueryFields makes every model read select its columns by name instead of
+// SELECT *. During a rolling upgrade, release N-1 replicas keep running against a
+// schema release N already migrated; a star-expanded plan then fails (Postgres
+// SQLSTATE 0A000, "cached plan must not change result type") or silently scans a
+// shape it never saw. Named columns make an added column invisible to N-1
+// (INV-STORE-explicit-column-reads).
 func gormConfig() *gorm.Config {
-	return &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	return &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), QueryFields: true}
 }
 
 // StorageFactory creates storage instances based on configuration
@@ -674,7 +681,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 		return nil, err
 	}
 
-	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migrateDatabase); err != nil {
+	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migratePostgres); err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %w", err)
 	}
 
@@ -723,7 +730,31 @@ func (f *DefaultStorageFactory) migrateSQLite(db *gorm.DB) error {
 	if err := f.migrateDatabase(db); err != nil {
 		return err
 	}
-	return store.EnsureAuditListIndexesSQLite(db, log.Printf)
+	if err := store.EnsureAuditListIndexesSQLite(db, log.Printf); err != nil {
+		return err
+	}
+	return runAfterMigrateHook(db)
+}
+
+// migratePostgres is migrateDatabase plus the test-only after-migrate hook.
+func (f *DefaultStorageFactory) migratePostgres(db *gorm.DB) error {
+	if err := f.migrateDatabase(db); err != nil {
+		return err
+	}
+	return runAfterMigrateHook(db)
+}
+
+// afterMigrateHook is nil in every build except `-tags nplus1`
+// (factory_nplus1_hook.go), where it adds one extra column to every table so the
+// suites can prove the current binary tolerates a schema one release ahead
+// (QUERYFIELDS-1, INV-STORE-explicit-column-reads). Nothing in production sets it.
+var afterMigrateHook func(db *gorm.DB) error
+
+func runAfterMigrateHook(db *gorm.DB) error {
+	if afterMigrateHook == nil {
+		return nil
+	}
+	return afterMigrateHook(db)
 }
 
 // auditIndexSyncBuildMaxRows is the audit_events size (row estimate) below
