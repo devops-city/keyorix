@@ -496,12 +496,15 @@ func collectAdminMFAPosture(ctx context.Context, requireMFAInGrace bool, coreSer
 }
 
 // collectRequireMFAPosture reports security.require_mfa itself, and whether it
-// is in ADR-112's upgrade grace period. Same facts the server uses at boot
-// (server/adr112_grace.go): the key is absent from the config, the database
-// already has users, and the config.ADR112RequireMFAEnforcedMarker row is
-// absent. In that state the server does NOT enforce MFA, whatever Load()
-// resolved the field to, so it is a deviation even when every admin happens to
-// be enrolled. An explicit false is a deviation of its own.
+// is in ADR-112's upgrade grace period. Same facts the server uses
+// (server/adr112_grace.go, internal/core/mfa_upgrade_grace.go): the key is
+// absent from the config, the database already has users, the
+// config.ADR112RequireMFAEnforcedMarker row is absent, and the grace period has
+// not ended yet (#2923: it ends at the first administrator with a second factor
+// or 30 days after the recorded start, whichever comes first). In that state
+// the server does NOT enforce MFA, whatever Load() resolved the field to, so it
+// is a deviation even when every admin happens to be enrolled. An explicit
+// false is a deviation of its own.
 func collectRequireMFAPosture(ctx context.Context, cfg *config.Config, store corestorage.Storage, report *postureReport) (inGrace bool, err error) {
 	sec := cfg.Security
 	if !sec.RequireMFA {
@@ -522,12 +525,75 @@ func collectRequireMFAPosture(ctx context.Context, cfg *config.Config, store cor
 	if !inGrace {
 		return false, nil // fresh install: the server enforces require_mfa from its first start
 	}
+	window, err := requireMFAGraceWindow(ctx, store)
+	if err != nil {
+		return false, err
+	}
+	if window != "" {
+		enrolled, err := core.NewKeyorixCore(store).AnyAdminHasSecondFactor(ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to check whether an administrator has enrolled MFA for the require_mfa grace check: %w", err)
+		}
+		switch {
+		case strings.HasPrefix(window, "ended"):
+			report.info("security.require_mfa's ADR-112 upgrade grace period " + window + ": the server enforces MFA")
+			return false, nil
+		case enrolled:
+			report.info("security.require_mfa's ADR-112 upgrade grace period has ended (an administrator has enrolled a second factor): the server enforces MFA")
+			return false, nil
+		}
+	}
 	// #2986: the registry entry security.insecure_disable_mfa_requirement reads
 	// this flag (collectInsecureSettingsPosture runs after this), the same way
 	// the server's boot sets it in applyADR112UpgradeGrace.
 	cfg.Security.RequireMFAUpgradeGrace = true
-	report.deviateShippedDefault("grace-period", "security.require_mfa is in its ADR-112 upgrade grace period: this upgraded deployment never set it, so the server does NOT enforce MFA yet. Have every interactive admin enrol, then set security.require_mfa: true explicitly (#2923 tracks an automatic end condition)")
+	detail := "security.require_mfa is in its ADR-112 upgrade grace period: this upgraded deployment never set it, so the server does NOT enforce MFA yet. "
+	if window == "" {
+		detail += "The 30-day grace period starts at the next server boot. "
+	} else {
+		detail += "It " + window + ", or as soon as the first administrator enrols a second factor, whichever comes first; users without MFA are then sent to MFA enrolment. "
+	}
+	report.deviateShippedDefault("grace-period", detail+"Have every interactive admin enrol now, or set security.require_mfa explicitly")
 	return true, nil
+}
+
+// requireMFAGraceWindow describes the recorded require_mfa grace window: ""
+// when no boot has started it yet, "ends at <time> (<n> day(s) left)" while it
+// runs, "ended at <time>" once the grace clock (the later of now and the
+// recorded high-water mark) has passed the deadline. A recorded value that does
+// not parse is an error: the server fails closed on it.
+func requireMFAGraceWindow(ctx context.Context, store corestorage.Storage) (string, error) {
+	readTime := func(key string) (time.Time, bool, error) {
+		v, found, err := store.GetSystemMetadata(ctx, key)
+		if err != nil || !found {
+			return time.Time{}, false, err
+		}
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return time.Time{}, false, fmt.Errorf("%s holds %q, not an RFC 3339 time (the server fails closed on it and enforces MFA)", key, v)
+		}
+		return t, true, nil
+	}
+	start, found, err := readTime(config.ADR112RequireMFAGraceStartedKey)
+	if err != nil || !found {
+		return "", err
+	}
+	clock, _, err := readTime(config.ADR112RequireMFAGraceClockKey)
+	if err != nil {
+		return "", err
+	}
+	now := time.Now()
+	for _, t := range []time.Time{start, clock} {
+		if t.After(now) {
+			now = t
+		}
+	}
+	deadline := start.Add(config.ADR112RequireMFAGracePeriod)
+	if !now.Before(deadline) {
+		return "ended at " + deadline.UTC().Format(time.RFC3339), nil
+	}
+	days := int((deadline.Sub(now) + 24*time.Hour - 1) / (24 * time.Hour))
+	return fmt.Sprintf("ends at %s (%d day(s) left)", deadline.UTC().Format(time.RFC3339), days), nil
 }
 
 // collectBreakGlassReviewPosture is the two findings Andrei decided on #2461:

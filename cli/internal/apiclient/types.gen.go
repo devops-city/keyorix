@@ -538,7 +538,10 @@ type Environment struct {
 	Id        *int       `json:"id,omitempty"`
 	Name      *string    `json:"name,omitempty"`
 	ProjectId *int       `json:"project_id,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// SecretCount Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+	SecretCount *int64     `json:"secret_count,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 // ExpiringSecretEntry defines model for ExpiringSecretEntry.
@@ -579,12 +582,15 @@ type GroupRoleGrant struct {
 // LoginSuccessData defines model for LoginSuccessData.
 type LoginSuccessData struct {
 	// AbsoluteExpiresAt Hard ceiling past which refresh is refused
-	AbsoluteExpiresAt      *time.Time `json:"absolute_expires_at,omitempty"`
-	AccountState           *string    `json:"account_state,omitempty"`
-	DisplayName            *string    `json:"display_name,omitempty"`
-	Email                  *string    `json:"email,omitempty"`
-	ExpiresAt              *time.Time `json:"expires_at,omitempty"`
-	PasswordChangeRequired *bool      `json:"password_change_required,omitempty"`
+	AbsoluteExpiresAt *time.Time `json:"absolute_expires_at,omitempty"`
+	AccountState      *string    `json:"account_state,omitempty"`
+	DisplayName       *string    `json:"display_name,omitempty"`
+	Email             *string    `json:"email,omitempty"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+
+	// MfaGrace ADR-112's security.require_mfa upgrade grace period (#2923), present only while it runs and the account has no second factor. MFA is not enforced until ends_at, or until the first administrator enrols a second factor if that comes first; after that this account is sent to MFA enrolment when it signs in (not locked out). Clients show it as a persistent banner.
+	MfaGrace               *MFAGrace `json:"mfa_grace,omitempty"`
+	PasswordChangeRequired *bool     `json:"password_change_required,omitempty"`
 
 	// PendingSteps Account-setup steps this session still owes (omitted when none). While present the session is confined to those steps' endpoints (account-setup gate, #3024), so a client should route straight to the setup page rather than render protected pages. Informational: it changes nothing about what the session may access.
 	PendingSteps *[]LoginSuccessDataPendingSteps `json:"pending_steps,omitempty"`
@@ -616,6 +622,15 @@ type MFAChallengeData struct {
 
 // MFAChallengeDataMfaRequired defines model for MFAChallengeData.MfaRequired.
 type MFAChallengeDataMfaRequired bool
+
+// MFAGrace ADR-112's security.require_mfa upgrade grace period (#2923), present only while it runs and the account has no second factor. MFA is not enforced until ends_at, or until the first administrator enrols a second factor if that comes first; after that this account is sent to MFA enrolment when it signs in (not locked out). Clients show it as a persistent banner.
+type MFAGrace struct {
+	// DaysLeft Whole days left until ends_at
+	DaysLeft int `json:"days_left"`
+
+	// EndsAt The 30-day hard stop (RFC 3339).
+	EndsAt time.Time `json:"ends_at"`
+}
 
 // MachineAuditReport Deployment-wide machine identity audit report (GET /machine-identities/audit).
 type MachineAuditReport struct {
