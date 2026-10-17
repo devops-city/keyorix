@@ -46,7 +46,7 @@ func TestWithSchedulerLock_FnError(t *testing.T) {
 	ls := newS17Store(t)
 	sentinel := errors.New("scheduler job failed")
 
-	ran, err := ls.WithSchedulerLock(context.Background(), 42, func() error {
+	ran, err := ls.WithSchedulerLock(context.Background(), 42, func(context.Context) error {
 		return sentinel
 	})
 
@@ -64,7 +64,7 @@ func TestWithAuditCheckpointLock_S17_FnError(t *testing.T) {
 	ls := newS17Store(t)
 	sentinel := errors.New("checkpoint write failed")
 
-	err := ls.WithAuditCheckpointLock(context.Background(), func() error {
+	err := ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error {
 		return sentinel
 	})
 

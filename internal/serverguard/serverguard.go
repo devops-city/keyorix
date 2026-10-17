@@ -131,13 +131,14 @@ type Presence struct {
 	lost    chan struct{} // closed when the lock is found lost; nil if it cannot be
 }
 
-// Lost is closed when the presence lock is found lost while held: with
-// storage.database.pooler: pgbouncer-transaction the lock lives in an open
-// transaction, and a pg_terminate_backend, a PostgreSQL restart or failover or
-// a PgBouncer timeout ends it without any other signal to the holder. From that
+// Lost is closed when the PostgreSQL presence lock is found lost while held:
+// a pg_terminate_backend, a PostgreSQL restart or failover, a network
+// partition or (pgbouncer-transaction) a PgBouncer timeout ends the lock's
+// backend or its transaction without any other signal to the holder. From that
 // moment an admin command can start beside this server, so the caller should
-// stop serving. Never closed in the other modes and for remote storage (a nil
-// channel: a receive blocks forever), and never after Release.
+// stop serving. A nil channel (a receive blocks forever) for SQLite, whose
+// flock lives as long as the process, and for remote storage; never closed
+// after Release.
 func (p *Presence) Lost() <-chan struct{} {
 	if p == nil {
 		return nil
@@ -362,12 +363,10 @@ func acquirePostgresPresence(cfg *config.Config) (*Presence, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("an admin operation is running against this database (postgres advisory lock %d); retry when it finishes", serverPresenceLockKey)
 	}
-	var lost chan struct{}
-	stopWatch := func() {}
-	if xact {
-		lost = make(chan struct{})
-		stopWatch = config.WatchPinnedLockConn(conn, "serverguard presence lock", func(error) { close(lost) })
-	}
+	// Watched in both shapes: a session lock ends with its backend exactly as
+	// the transaction-scoped one does, and nothing runs on conn to notice.
+	lost := make(chan struct{})
+	stopWatch := config.WatchPinnedLockConn(conn, "serverguard presence lock", func(error) { close(lost) })
 	return &Presence{lost: lost, release: func() error {
 		stopWatch() // before the ROLLBACK below, which needs the connection to itself
 		relCtx, relCancel := context.WithTimeout(context.Background(), 10*time.Second)

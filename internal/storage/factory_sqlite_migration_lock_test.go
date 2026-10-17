@@ -6,6 +6,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/i18n"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +52,7 @@ func TestAcquireSQLiteMigrationLock_SecondAttemptFails(t *testing.T) {
 // on disk whose name embeds literal "?"/"&"/":" characters from the DSN.
 func TestAcquireSQLiteMigrationLock_InMemoryDSN_SkipsLocking(t *testing.T) {
 	for _, dbPath := range []string{
-		"file:sometest?mode=memory&cache=shared",
+		sqlitetest.DSN("sometest_"),
 		"file:sometest?mode=memory",
 		":memory:",
 	} {

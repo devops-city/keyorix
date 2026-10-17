@@ -16,10 +16,8 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-// bulkDeleteDBSeq makes each in-memory DB unique within the process.
-var bulkDeleteDBSeq atomic.Int64
 
 // setupBulkDeleteDB opens an in-memory SQLite DB, migrates the necessary models,
 // and returns a core instance plus a factory for creating test secrets.
@@ -29,11 +27,7 @@ func setupBulkDeleteDB(t *testing.T) (*KeyorixCore, func(name string) uint, uint
 
 	// Use a unique in-memory DSN per invocation to avoid shared state across tests
 	// and across repeated invocations of the same test (e.g. go test -count=N).
-	dsn := fmt.Sprintf("file:bulkdelete_%d?mode=memory&cache=shared&_busy_timeout=5000", bulkDeleteDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulkdelete_", sqlite.Open, &gorm.Config{})
 
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{},
@@ -239,11 +233,7 @@ func TestBulkDeleteSecrets_CrossProjectGuard(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	ctx := context.Background()
 
-	dsn := fmt.Sprintf("file:bulkdelete_crossproject_%d?mode=memory&cache=shared&_busy_timeout=5000", bulkDeleteDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulkdelete_crossproject_", sqlite.Open, &gorm.Config{})
 
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{},
@@ -382,11 +372,7 @@ func (s *slowAuditLogStorage) CreateSecretAccessLog(ctx context.Context, entry *
 func TestBulkDeleteSecrets_AuditLogWriteIsSynchronous(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, i18n.InitializeForTesting())
-	dsn := fmt.Sprintf("file:bulkdelete_sync_%d?mode=memory&cache=shared&_busy_timeout=5000", bulkDeleteDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulkdelete_sync_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.Project{}, &models.Environment{},
 		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},

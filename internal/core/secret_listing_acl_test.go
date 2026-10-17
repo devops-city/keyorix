@@ -9,8 +9,6 @@ package core
 
 import (
 	"context"
-	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,20 +20,15 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-var aclListDBCounter atomic.Int64
 
 // newACLListCore returns a KeyorixCore on a fresh in-memory SQLite DB with all
 // tables required for the listing-with-ACL tests already migrated.
 func newACLListCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
-	dsn := fmt.Sprintf("file:kxacl_list_%d?mode=memory&cache=shared", aclListDBCounter.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "kxacl_list_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{},
 		&models.SecretACL{},

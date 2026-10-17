@@ -988,7 +988,7 @@ func TestWithAuditCheckpointLock_FnError(t *testing.T) {
 	ls := NewLocalStorage(db)
 
 	sentinel := fmt.Errorf("lock-fn-error")
-	err = ls.WithAuditCheckpointLock(context.Background(), func() error { return sentinel })
+	err = ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error { return sentinel })
 	require.ErrorIs(t, err, sentinel)
 }
 

@@ -309,11 +309,12 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		}
 		log.Fatalf("%v", err)
 	}
-	// Registered first so it runs last: a lost presence lock ends the process
-	// with a failure status after the normal shutdown (see presence.Lost below).
-	var presenceLost atomic.Bool
+	// Registered first so it runs last: a lost process-wide lock (presence or
+	// single_writer, see awaitShutdown below) ends the process with a failure
+	// status after the normal shutdown.
+	var lockLost atomic.Bool
 	defer func() {
-		if presenceLost.Load() {
+		if lockLost.Load() {
 			os.Exit(1)
 		}
 	}()
@@ -430,18 +431,14 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		})
 	}
 
-	// Wait for shutdown signal
-	select {
-	case <-sigChan:
-		log.Println("Shutdown signal received, gracefully shutting down...")
-	case <-presence.Lost():
-		// pgbouncer-transaction only: the transaction holding the presence lock
-		// ended (backend terminated, PostgreSQL or PgBouncer restarted, a pooler
-		// timeout), so an admin command could now start beside this server.
-		// Stop serving rather than run unguarded; the supervisor restarts the
-		// process, which takes the lock again or fails while an admin command runs.
-		presenceLost.Store(true)
-		log.Println("ERROR: the server-presence lock was lost (its database connection died); shutting down so an admin command cannot run beside this server")
+	// Wait for a shutdown signal, or the loss of a lock that guards the whole
+	// process (lock_loss.go): the presence lock's or the single_writer holder
+	// lock's backend died (terminated, PostgreSQL or PgBouncer restarted, a
+	// failover, a pooler timeout), so an admin command or a second single
+	// writer could now start beside this server. Stop serving rather than run
+	// unguarded; the supervisor restarts the process.
+	if awaitShutdown(sigChan, presence.Lost(), swGuard.Lost()) != "" {
+		lockLost.Store(true)
 	}
 
 	// Cancel context to signal shutdown
@@ -1478,7 +1475,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		firstDelay := anomalyFirstPassDelay(interval, defaultRandN)
 		log.Printf("Anomaly detection: first pass in %s, then every %s", firstDelay.Round(time.Second), interval)
 		runSchedulerAfter(ctx, "anomaly_detection", interval, firstDelay, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockAnomaly, "Anomaly detection", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockAnomaly, "Anomaly detection", func(ctx context.Context) error {
 				// Hotload: re-apply the persisted config before each pass so an operator's
 				// runtime change takes effect without a restart. Best-effort: a transient
 				// storage failure here is logged but does not skip the detection pass.
@@ -1528,7 +1525,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 				return middleware.SchedulerSkipped
 			}
 			// Single-replica-gated (ADR-039): only one replica runs the purge.
-			return lockedRun(ctx, coreService.Storage(), schedLockPurge, "Retention purge", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockPurge, "Retention purge", func(ctx context.Context) error {
 				// UTC so the cutoff is exactly the inverse of models.PurgeAtFor
 				// (deleted_at + N days in UTC): a local zone with DST would let a
 				// legacy (un-stamped) secret go an hour before its displayed purge date.
@@ -1570,7 +1567,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 				if legalHoldBlocks("Data-retention purge") {
 					return middleware.SchedulerSkipped
 				}
-				return lockedRun(ctx, coreService.Storage(), schedLockRetention, "Data-retention", func() error {
+				return lockedRun(ctx, coreService.Storage(), schedLockRetention, "Data-retention", func(ctx context.Context) error {
 					res, err := coreService.PurgeExpiredComplianceRecords(ctx, time.Now(), policy)
 					if err != nil {
 						log.Printf("Data-retention purge error: %v", err)
@@ -1595,7 +1592,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.RotationReminders.GetInterval()
 		log.Printf("Rotation-reminder scheduler enabled: every %s", interval)
 		runScheduler(ctx, "rotation_reminder", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockRotationRmdr, "Rotation-reminder", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockRotationRmdr, "Rotation-reminder", func(ctx context.Context) error {
 				n, rerr := coreService.SendRotationReminders(ctx)
 				if rerr != nil {
 					log.Printf("Rotation-reminder error: %v", rerr)
@@ -1617,7 +1614,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		leadDays := cfg.ExpiryReminders.LeadDays
 		log.Printf("Expiry-reminder scheduler enabled: every %s (lead %dd)", interval, leadDays)
 		runScheduler(ctx, "expiry_reminder", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockExpiryRmdr, "Expiry-reminder", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockExpiryRmdr, "Expiry-reminder", func(ctx context.Context) error {
 				n, rerr := coreService.SendExpiryReminders(ctx, leadDays)
 				if rerr != nil {
 					log.Printf("Expiry-reminder error: %v", rerr)
@@ -1639,7 +1636,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		leadDays := cfg.CertificateExpiry.LeadDays
 		log.Printf("Certificate-expiry scan enabled: every %s (lead %dd)", interval, leadDays)
 		runScheduler(ctx, "certificate_expiry", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockCertExpiry, "Certificate-expiry", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockCertExpiry, "Certificate-expiry", func(ctx context.Context) error {
 				n, rerr := coreService.ScanCertificateExpiry(ctx, leadDays)
 				if rerr != nil {
 					log.Printf("Certificate-expiry scan error: %v", rerr)
@@ -1662,7 +1659,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		leadDays := cfg.LicenseExpiry.LeadDays
 		log.Printf("License-expiry reminder enabled: every %s (lead %dd)", interval, leadDays)
 		runScheduler(ctx, "license_expiry", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockLicenseExp, "License-expiry", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockLicenseExp, "License-expiry", func(ctx context.Context) error {
 				n, rerr := coreService.ScanLicenseExpiry(ctx, leadDays)
 				if rerr != nil {
 					log.Printf("License-expiry reminder error: %v", rerr)
@@ -1684,7 +1681,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.AutoRotation.GetInterval()
 		log.Printf("Auto-rotation scheduler enabled: every %s", interval)
 		runScheduler(ctx, "auto_rotation", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockAutoRotate, "Auto-rotation", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockAutoRotate, "Auto-rotation", func(ctx context.Context) error {
 				n, rerr := coreService.RunAutoRotation(ctx)
 				if rerr != nil {
 					log.Printf("Auto-rotation error: %v", rerr)
@@ -1706,7 +1703,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.ComplianceDigest.GetInterval()
 		log.Printf("Compliance-digest scheduler enabled: every %s", interval)
 		runScheduler(ctx, "compliance_digest", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockDigest, "Compliance-digest", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockDigest, "Compliance-digest", func(ctx context.Context) error {
 				sent, derr := coreService.SendComplianceDigest(ctx, 0)
 				if derr != nil {
 					log.Printf("Compliance-digest error: %v", derr)
@@ -1732,7 +1729,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		autoOpen := cfg.Recertification.AutoOpen
 		log.Printf("Recertification scheduler enabled: every %s (cadence %dd, auto_open=%t)", interval, cadence, autoOpen)
 		runScheduler(ctx, "recertification", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockRecertify, "Recertification", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockRecertify, "Recertification", func(ctx context.Context) error {
 				res, rerr := coreService.RunScheduledRecertification(ctx, cadence, autoOpen)
 				if rerr != nil {
 					log.Printf("Recertification error: %v", rerr)
@@ -1759,7 +1756,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 			interval := cfg.EvidenceDelivery.GetInterval()
 			log.Printf("Evidence-delivery scheduler enabled: every %s (dir=%q, webhook=%t)", interval, outputDir, cfg.EvidenceDelivery.Webhook.Enabled)
 			runScheduler(ctx, "evidence_delivery", interval, func() middleware.SchedulerOutcome {
-				return lockedRun(ctx, coreService.Storage(), schedLockEvidence, "Evidence-delivery", func() error {
+				return lockedRun(ctx, coreService.Storage(), schedLockEvidence, "Evidence-delivery", func(ctx context.Context) error {
 					res, err := coreService.ExportComplianceEvidence(ctx, outputDir)
 					if err != nil {
 						log.Printf("Evidence-delivery error: %v", err)
@@ -1806,7 +1803,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		log.Printf("Audit-checkpoint scheduler enabled (forgery resistance active): every %s, full re-walk every %s, first tick in %s",
 			interval, interval*time.Duration(segments), firstDelay.Round(time.Second))
 		runSchedulerAfter(ctx, "audit_checkpoint", interval, firstDelay, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockAuditCkpt, "Audit-checkpoint", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockAuditCkpt, "Audit-checkpoint", func(ctx context.Context) error {
 				res, werr := coreService.RunAuditVerificationTick(ctx)
 				if res != nil && res.Written {
 					log.Printf("Audit checkpoint written: #%d head=%d events=%d", res.Checkpoint.ID, res.Checkpoint.HeadID, res.Checkpoint.ChainedEvents)
@@ -1837,7 +1834,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 				return middleware.SchedulerSkipped
 			}
 			// Single-replica-gated (ADR-039): one replica sweeps per tick.
-			return lockedRun(ctx, coreService.Storage(), schedLockJITExpiry, "JIT access-expiry", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockJITExpiry, "JIT access-expiry", func(ctx context.Context) error {
 				now := time.Now()
 				n, rerr := coreService.RemoveExpiredRoleGrants(ctx, now)
 				if rerr != nil {
@@ -1874,7 +1871,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		runScheduler(ctx, "dynamic_secret_sweep", interval, func() middleware.SchedulerOutcome {
 			// Single-replica-gated (ADR-039): one replica revokes per tick, so
 			// replicas don't storm the target DBs revoking the same leases.
-			return lockedRun(ctx, coreService.Storage(), schedLockDynamicSweep, "Dynamic-secrets sweep", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockDynamicSweep, "Dynamic-secrets sweep", func(ctx context.Context) error {
 				// EffectiveNow, not a bare time.Now(): sources this sweep's cutoff from
 				// this process's injected/testable clock (#1983 investigation finding).
 				n, rerr := coreService.RevokeExpiredLeases(ctx, coreService.EffectiveNow())
@@ -1897,7 +1894,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// failing logins from rotating IPs would exhaust disk). The rate-limit window is
 	// 15 minutes, so a 15-minute cadence keeps the table at roughly one window of rows.
 	runScheduler(ctx, "login_attempt_prune", 15*time.Minute, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockLoginPrune, "Login-attempt prune", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockLoginPrune, "Login-attempt prune", func(ctx context.Context) error {
 			// Zero `before` and a zero actorID: PruneLoginAttempts resolves the
 			// cutoff itself (now - LoginWindow) and attributes the event to no
 			// human/machine principal. System-actored via WithActorType so the
@@ -1936,7 +1933,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// again. Every minute; single-replica-gated, and exactly-once anyway (the
 	// claim and the append share a transaction).
 	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func(ctx context.Context) error {
 			_, berr := coreService.BackfillPendingAuditEvents(ctx)
 			return berr
 		})
@@ -1944,7 +1941,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 
 	mfaGrantRetention := time.Duration(cfg.Classification.GetMFAStepUpGrantRetentionDays()) * 24 * time.Hour
 	runScheduler(ctx, "mfa_stepup_grant_prune", 6*time.Hour, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockMFAGrantPrune, "MFA step-up grant prune", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockMFAGrantPrune, "MFA step-up grant prune", func(ctx context.Context) error {
 			_, perr := coreService.PruneMFAStepUpGrants(ctx, mfaGrantRetention, time.Time{})
 			return perr
 		})
@@ -1960,7 +1957,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// replica whose own process never restarted). Single-replica-gated
 	// (ADR-039) so admins aren't notified N times in an HA deployment.
 	runScheduler(ctx, "recover_admin_alert", 10*time.Minute, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockRecoverAdminAlert, "Recover-admin alert", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockRecoverAdminAlert, "Recover-admin alert", func(ctx context.Context) error {
 			n, aerr := coreService.RunRecoverAdminAlerting(ctx)
 			if aerr != nil {
 				return aerr
@@ -1986,7 +1983,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// why ADR-112's "enforced" is a posture deviation plus this warning, and
 	// explicitly NOT a lockout.
 	runScheduler(ctx, "break_glass_review_reminder", 6*time.Hour, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockBreakGlassReview, "Break-glass review reminder", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockBreakGlassReview, "Break-glass review reminder", func(ctx context.Context) error {
 			_, rerr := coreService.RunBreakGlassReviewReminder(ctx)
 			return rerr
 		})
@@ -1999,7 +1996,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.ReadQuotaAlerts.GetInterval()
 		log.Printf("Read-quota alert scheduler enabled: every %s", interval)
 		runScheduler(ctx, "read_quota_alerts", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockReadQuota, "Read-quota alerts", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockReadQuota, "Read-quota alerts", func(ctx context.Context) error {
 				result, rerr := coreService.CheckReadQuotas(ctx)
 				if rerr != nil {
 					log.Printf("Read-quota alert scan error: %v", rerr)

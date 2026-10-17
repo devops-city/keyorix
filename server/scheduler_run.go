@@ -96,8 +96,11 @@ func runSchedulerAfter(ctx context.Context, name string, interval, firstDelay ti
 // lockedRun executes fn under scheduler advisory lock key and maps the result to a
 // metric outcome: skipped when another replica holds the lock (a follower, by design),
 // failure when fn errors or the lock cannot be acquired (logged via errLabel), success
-// otherwise. The error log line mirrors the pre-refactor per-job wording.
-func lockedRun(ctx context.Context, storage corestorage.Storage, key int64, errLabel string, fn func() error) middleware.SchedulerOutcome {
+// otherwise. The error log line mirrors the pre-refactor per-job wording. fn runs
+// under the ctx it is passed, which is cancelled with cause store.ErrAdvisoryLockLost
+// if the lock's connection dies mid-tick, so the job stops instead of running on
+// beside the replica that takes the lock next.
+func lockedRun(ctx context.Context, storage corestorage.Storage, key int64, errLabel string, fn func(ctx context.Context) error) middleware.SchedulerOutcome {
 	ran, err := storage.WithSchedulerLock(ctx, key, fn)
 	if err != nil {
 		log.Printf("%s scheduler error: %v", errLabel, err)

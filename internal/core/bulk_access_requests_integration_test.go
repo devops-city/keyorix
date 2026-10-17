@@ -7,7 +7,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,13 +17,8 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-// bulkAccessDBSeq makes each in-memory DB unique within the process. t.Name()
-// alone repeats across `go test -count=N` iterations of the same test, which
-// would otherwise attach to the same SQLite shared-cache in-memory database
-// left open by a prior iteration and collide on the seeded fixture rows.
-var bulkAccessDBSeq atomic.Int64
 
 // setupBulkAccessDB opens a uniquely-named in-memory SQLite DB, migrates all
 // tables needed for access-request approval/rejection (roles, permissions,
@@ -34,11 +28,7 @@ func setupBulkAccessDB(t *testing.T) (k *KeyorixCore, db *gorm.DB, approverID, r
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
 
-	dsn := fmt.Sprintf("file:bulkaccess_%s_%d?mode=memory&cache=shared&_busy_timeout=5000", t.Name(), bulkAccessDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db = sqlitetest.OpenWithDialector(t, "bulkaccess_", sqlite.Open, &gorm.Config{})
 
 	require.NoError(t, db.AutoMigrate(
 		&models.User{},
