@@ -96,13 +96,27 @@ seen=()
 rc=0
 for _ in 1 2 3 4 5 6 7 8; do
     b="$(pick_port_base)"
-    if [ "$b" -lt 20000 ] || [ "$b" -gt 58999 ]; then rc=1; fi
+    if [ "$b" -lt 10000 ] || [ "$b" -gt 29999 ]; then rc=1; fi
     seen+=("$b")
 done
-check "default base is within 20000..58999" "$rc"
+check "default base is within 10000..29999" "$rc"
 uniq_n="$(printf "%s\n" "${seen[@]}" | sort -u | wc -l | tr -d ' ')"
 rc=0; [ "$uniq_n" -gt 1 ] || rc=1
 check "default base varies between runs ($uniq_n distinct of 8)" "$rc"
+
+# 8. #3353 self-check: no port a run can touch may be in an OS ephemeral range. Linux
+# ephemeral starts at 32768, macOS/IANA at 49152; the highest port a run touches is
+# BASE + 1000 (web) + 1000 (free_port scan) + the group number (groups are small; 100
+# is generous). Checks the constants and a sample of real draws.
+worst=$((PORT_BASE_MAX + 2000 + 100))
+rc=0; [ "$worst" -lt 32768 ] || rc=1
+check "highest default port ($worst) is below the Linux ephemeral floor 32768" "$rc"
+rc=0
+for _ in $(seq 1 200); do
+    b="$(pick_port_base)"
+    [ $((b + 2100)) -lt 32768 ] || rc=1
+done
+check "200 default bases all keep the whole run below 32768" "$rc"
 
 [ "$fails" = 0 ] || { echo "$fails check(s) failed" >&2; exit 1; }
 echo "all free-port checks passed"
