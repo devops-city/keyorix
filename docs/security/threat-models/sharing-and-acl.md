@@ -12,7 +12,7 @@
 > Evidence cells name a function or file and the test that proves it. A
 > mitigation with no proving test on `main` is written as a **GAP**, not a
 > claim. `TestThreatModelEvidence_CitedFilesAndTestsExist`
-> (`internal/docsdrift`) checks that every cited path and `Test` function
+> (`internal/threatmodelcheck`) checks that every cited path and `Test` function
 > exists; it does not check that the test proves the mitigation.
 
 ## 1. System context
