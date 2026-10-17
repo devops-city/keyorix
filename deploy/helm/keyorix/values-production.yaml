@@ -1,0 +1,105 @@
+# Production example for the Keyorix chart. Copy it, replace every CHANGE-ME, then:
+#
+#   helm install keyorix deploy/helm/keyorix -n keyorix -f my-values.yaml
+#
+# Not a hardened guarantee: it is a starting point that is rendered and checked by
+# deploy/helm_values_production_test.go, so it cannot silently rot. Read the comments
+# in values.yaml for every key used here.
+#
+# Before installing, create the Secrets (names below are examples):
+#
+#   kubectl -n keyorix create secret generic keyorix-auth \
+#     --from-literal=KEYORIX_MASTER_PASSWORD="$(openssl rand -base64 32)" \
+#     --from-literal=KEYORIX_DB_PASSWORD='<password of the keyorix database user>'
+#   kubectl -n keyorix create secret generic keyorix-db-ca --from-file=ca.crt=<your-db-ca.pem>
+#
+# KEYORIX_MASTER_PASSWORD derives the encryption key: back it up with the keys PVC and
+# the database; losing any one of the three makes stored secrets unrecoverable.
+
+# ── Credentials: your own Secret, read by the pods as files, never as env ─────
+auth:
+  existingSecret: keyorix-auth
+  # Which optional keys keyorix-auth carries. `helm install` detects them itself;
+  # these matter for `helm template` and GitOps renderers (Argo CD, Flux).
+  existingSecretKeys:
+    adminPassword: false     # create the first admin with `keyorix system init` instead
+    bootstrapToken: false
+
+# ── Secure baseline: TLS between every pod, posture-clean config (the default) ──
+secureBaseline:
+  enabled: true
+  # GitOps renderers cannot `lookup` the generated certificates: pre-create the Secret
+  # (keys: server.crt server.key metrics_token) and name it here. See the chart README.
+  # existingSecret: keyorix-secure-baseline
+
+# strict: the audit commit of a secret read waits for the disk sync, so no audit
+# entry is lost to an OS or database crash. standard (the PostgreSQL default) trades
+# up to ~600 ms of tail for lower read latency. Either way the entry commits before
+# the secret is returned.
+auditDurability: strict
+
+# ── Server ────────────────────────────────────────────────────────────────────
+server:
+  # Block requests rather than drop access-log lines when the log collector stalls.
+  accessLog:
+    onSinkStall: block
+  # Peers whose X-Forwarded-* headers the server honours: only needed when something
+  # other than the web pod reaches the server through a TLS-terminating load balancer.
+  trustedProxies: []
+  keysPersistence:
+    enabled: true
+    size: 1Gi
+    storageClass: CHANGE-ME    # a class with backups/snapshots; losing this volume loses the keys
+  # Guaranteed QoS (requests == limits): the only control keeping decrypted secret
+  # memory out of swap (ADR-100). GOMEMLIMIT follows limits.memory (goMemLimitPercent).
+  resources:
+    requests: { cpu: "1", memory: 1Gi, ephemeral-storage: 64Mi }
+    limits:   { cpu: "1", memory: 1Gi, ephemeral-storage: 256Mi }
+
+# ── Web UI behind the ingress ─────────────────────────────────────────────────
+web:
+  replicas: 2
+  # The ingress controller pods as the web nginx sees them (TCP peer). With this set the
+  # web layer sends HSTS for TLS-terminated requests; keep it equal to the server's list.
+  trustedProxies:
+    - 10.0.0.0/8             # CHANGE-ME: your ingress controller's pod CIDR
+  hsts:
+    mode: "on"               # fail the render if trustedProxies is empty
+
+ingress:
+  enabled: true
+  className: nginx           # CHANGE-ME
+  host: keyorix.example.com  # CHANGE-ME
+  annotations: {}
+  tls:
+    - secretName: keyorix-tls   # a kubernetes.io/tls Secret, e.g. issued by cert-manager
+      hosts:
+        - keyorix.example.com   # CHANGE-ME
+
+# ── Database: external, verified TLS ──────────────────────────────────────────
+postgresql:
+  enabled: false             # the bundled PostgreSQL is a single evaluation pod
+
+externalDatabase:
+  host: CHANGE-ME.db.internal
+  port: 5432
+  database: keyorix
+  user: keyorix
+  sslMode: verify-full       # encrypt AND verify the server certificate and host name
+  caSecret:
+    name: keyorix-db-ca
+    key: ca.crt
+  pooler: ""
+
+# ── Network policy ────────────────────────────────────────────────────────────
+# On by default. With an external database the server's egress is denied unless you
+# allow it: a NetworkPolicy cannot match a host name, so give the database's address.
+networkPolicy:
+  enabled: true
+  egress:
+    enabled: true
+    extraRules:
+      - to:
+          - ipBlock: { cidr: 10.20.0.10/32 }   # CHANGE-ME: the database address
+        ports:
+          - { protocol: TCP, port: 5432 }

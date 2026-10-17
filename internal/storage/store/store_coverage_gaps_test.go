@@ -72,7 +72,7 @@ func TestLastUserActivityByEventTypes_SkipsZeroUserID(t *testing.T) {
 		EventTime: now.Add(-time.Minute),
 	}).Error)
 
-	m, err := ls.lastUserActivityByEventTypes(ctx, pid, []string{"secret.read"})
+	m, err := ls.lastUserActivityByEventTypes(ctx, pid, []string{"secret.read"}, time.Time{})
 	require.NoError(t, err)
 
 	// user 7 is present.

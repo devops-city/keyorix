@@ -89,6 +89,9 @@ func runMachineBindingAdd(cmd *cobra.Command, args []string) error {
 }
 
 func runMachineBindingList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(bindingListFormat); err != nil {
+		return err
+	}
 	client, err := machineAPIClient()
 	if err != nil {
 		return err
@@ -113,19 +116,21 @@ func runMachineBindingList(cmd *cobra.Command, args []string) error {
 	if resp.JSON200 != nil && resp.JSON200.Data != nil && resp.JSON200.Data.Bindings != nil {
 		rows = *resp.JSON200.Data.Bindings
 	}
-	if len(rows) == 0 {
-		fmt.Printf("No OIDC bindings for machine %q.\n", derefStr(m.Name))
-		return nil
-	}
-	t := cliout.NewStdoutTable("ID", "ISSUER", "SUBJECT", "CREATED AT")
-	for _, b := range rows {
-		created := "—"
-		if b.CreatedAt != nil && !b.CreatedAt.IsZero() {
-			created = b.CreatedAt.Format("2006-01-02 15:04:05")
+	return emitList(bindingListFormat, rows, func() error {
+		if len(rows) == 0 {
+			fmt.Printf("No OIDC bindings for machine %q.\n", derefStr(m.Name))
+			return nil
 		}
-		t.Row(derefInt(b.Id), derefStr(b.Issuer), derefStr(b.Subject), created)
-	}
-	return t.Flush()
+		t := cliout.NewStdoutTable("ID", "ISSUER", "SUBJECT", "CREATED AT")
+		for _, b := range rows {
+			created := "—"
+			if b.CreatedAt != nil && !b.CreatedAt.IsZero() {
+				created = b.CreatedAt.Format("2006-01-02 15:04:05")
+			}
+			t.Row(derefInt(b.Id), derefStr(b.Issuer), derefStr(b.Subject), created)
+		}
+		return t.Flush()
+	})
 }
 
 func runMachineBindingRm(cmd *cobra.Command, args []string) error {

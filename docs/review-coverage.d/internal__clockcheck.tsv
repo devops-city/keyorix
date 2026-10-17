@@ -1,0 +1,1 @@
+internal/clockcheck	none	-	new in EDGE-1: build-date clock plausibility floor and TLS certificate validity-window check; start-up warnings only, no auth or storage decisions; unit-tested in clockcheck_test.go	pending

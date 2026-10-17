@@ -114,6 +114,9 @@ spec:
               memory: 128Mi
               ephemeral-storage: 128Mi
             {{- end }}
+      {{- with include "keyorix.topologySpread" (list . "web" .Values.web.topologySpreadConstraints .Values.web.replicas) }}
+      {{- . | nindent 6 }}
+      {{- end }}
       volumes:
         - name: nginx-config
           configMap:

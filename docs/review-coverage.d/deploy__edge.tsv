@@ -1,0 +1,1 @@
+deploy/edge	none	-	test-only package: arm_build_test.go checks the ARM cross-build script and footprint wiring (no non-test Go code)	test-helper

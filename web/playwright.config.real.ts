@@ -28,7 +28,10 @@ if (!backendURL) {
 const webPort = process.env.KEYORIX_E2E_WEB_PORT || '18190';
 
 export default defineConfig({
-    testDir: './e2e/real',
+    // e2e/real is the suite the pull_request and merge_group jobs run; e2e/demo (DEMO-E2E-1) is the
+    // demo-catalogue journeys, run by `make e2e-web-demo` in the full CI profile. The harness sets
+    // KEYORIX_E2E_TEST_DIR from the directory of the spec it is running.
+    testDir: process.env.KEYORIX_E2E_TEST_DIR || './e2e/real',
     fullyParallel: false,
     forbidOnly: !!process.env.CI,
     retries: 0,
