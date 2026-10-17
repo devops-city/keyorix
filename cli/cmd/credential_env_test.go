@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,29 @@ func TestResolveLoginPassword_EnvAndFileBothSetIsAnError(t *testing.T) {
 	t.Setenv("KEYORIX_PASSWORD_FILE", f)
 	if _, err := resolveLoginPassword(loginCmd); err == nil {
 		t.Fatal("expected an error when both KEYORIX_PASSWORD and KEYORIX_PASSWORD_FILE are set")
+	}
+}
+
+// FIRST-RUN-1: with no flag, no env and no input (a first-run script, an AI-driven install),
+// the bare "read password: EOF" left the user guessing; the error must name the file form.
+func TestResolveLoginPassword_NoInputNamesTheFileForm(t *testing.T) {
+	loginPassword = ""
+	t.Setenv("KEYORIX_PASSWORD", "")
+	t.Setenv("KEYORIX_PASSWORD_FILE", "")
+	oldStdin := os.Stdin
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer devNull.Close()
+	os.Stdin = devNull
+	defer func() { os.Stdin = oldStdin }()
+	_, err = resolveLoginPassword(loginCmd)
+	if err == nil {
+		t.Fatal("expected an error with no password source")
+	}
+	if !strings.Contains(err.Error(), "KEYORIX_PASSWORD_FILE") {
+		t.Fatalf("error does not name KEYORIX_PASSWORD_FILE: %v", err)
 	}
 }
 

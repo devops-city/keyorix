@@ -708,7 +708,7 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	if needs, berr := coreService.SystemNeedsBootstrap(context.Background()); berr == nil && needs && bootstrapToken != "" {
 		if bootstrapTokenGenerated {
 			masked := bootstrapToken[:8] + "***" + bootstrapToken[len(bootstrapToken)-4:]
-			log.Printf("system not initialised — run `keyorix system init` with this one-time bootstrap token (set KEYORIX_BOOTSTRAP_TOKEN to pin your own):\n    BOOTSTRAP TOKEN: %s\n    (first 8 + last 4 chars shown; retrieve the full token from KEYORIX_BOOTSTRAP_TOKEN or reboot with it pre-set)", masked)
+			log.Print(generatedBootstrapTokenHint(masked))
 		} else {
 			log.Printf("system not initialised — run `keyorix system init` with the configured KEYORIX_BOOTSTRAP_TOKEN")
 		}
@@ -2283,6 +2283,19 @@ func groupOrOtherReadable(paths []string) []string {
 		}
 	}
 	return out
+}
+
+// generatedBootstrapTokenHint is the log line printed on an uninitialised install when no
+// bootstrap token was configured and one was generated for this run. The generated value is
+// only ever shown masked, so the line must say how to get a token the operator actually
+// holds, not point back at a variable they never set (FIRST-RUN-1).
+func generatedBootstrapTokenHint(masked string) string {
+	return "system not initialised — no bootstrap token was configured, so this run generated one " +
+		"(first 8 + last 4 chars shown; the full value is never logged and cannot be recovered):\n" +
+		"    BOOTSTRAP TOKEN: " + masked + "\n" +
+		"    To create the first admin, stop the server and start it again with a token you hold: " +
+		"set KEYORIX_BOOTSTRAP_TOKEN_FILE to a 0600 file containing it (`keyorix-server admin generate-secrets` creates one), " +
+		"then run `keyorix system init --server <url>`"
 }
 
 // resolveBootstrapToken returns the operator-pinned bootstrap token from
