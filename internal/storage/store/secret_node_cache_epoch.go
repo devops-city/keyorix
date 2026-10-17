@@ -314,8 +314,8 @@ func SecretNodeCacheEpochTriggerPresent(db *gorm.DB) bool {
 		// same-named trigger left on a table in a DIFFERENT schema of the same
 		// database — which would report "present" while the real secret_nodes
 		// has no trigger at all. The firing condition is load-bearing too; see
-		// pgCacheEpochTriggerFires.
-		q = "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND " + pgCacheEpochTriggerFires
+		// pgTriggerFiresForEveryWriter.
+		q = "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND " + pgTriggerFiresForEveryWriter
 	}
 	if err := db.Raw(q, SecretNodeCacheEpochTrigger).Scan(&count).Error; err != nil {
 		return false
@@ -426,9 +426,11 @@ type nodeStampRead struct {
 	trusted bool
 }
 
-// pgCacheEpochTriggerFires is the PostgreSQL condition, over a pg_trigger row,
-// under which the cache-epoch trigger fires for EVERY write to secret_nodes, so
-// its stamp can be trusted (#3361). Both halves are load-bearing:
+// pgTriggerFiresForEveryWriter is the PostgreSQL condition, over a pg_trigger
+// row, under which a cache-validating trigger fires for EVERY write to its
+// table, so what it maintains can be trusted (#3361). Shared by the cache-epoch
+// proof here and the role-permission generation proof
+// (rolePermGenerationTriggersPresentExpr). Both halves are load-bearing:
 //
 //   - tgenabled = 'A' (ENABLE ALWAYS, which the migration installs): it fires
 //     whatever the writing session's session_replication_role is. 'D'
@@ -448,7 +450,7 @@ type nodeStampRead struct {
 //     after start-up, which only new connections pick up.
 //
 // No bind parameter, so the statements that embed it keep their bind order.
-const pgCacheEpochTriggerFires = "tgenabled = 'A' AND current_setting('session_replication_role') = 'origin'"
+const pgTriggerFiresForEveryWriter = "tgenabled = 'A' AND current_setting('session_replication_role') = 'origin'"
 
 // nodeTriggerExistsExpr is the one-bind (trigger name) boolean expression that
 // proves the cache_epoch trigger is present and firing on THIS connection's
@@ -459,8 +461,8 @@ func nodeTriggerExistsExpr(db *gorm.DB) string {
 		// and for the same reason: tgname alone can match a same-named trigger on
 		// a different table (even in a different schema), and a trigger that does
 		// not fire for every writer still appears in pg_trigger
-		// (pgCacheEpochTriggerFires). Still exactly one bind: the trigger name.
-		return "EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND " + pgCacheEpochTriggerFires + ")"
+		// (pgTriggerFiresForEveryWriter). Still exactly one bind: the trigger name.
+		return "EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND " + pgTriggerFiresForEveryWriter + ")"
 	}
 	return "EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?)"
 }

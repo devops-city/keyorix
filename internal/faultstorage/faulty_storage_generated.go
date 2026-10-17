@@ -648,6 +648,23 @@ func (w *FaultyStorage) CountSecretReadsBySecretIDs(ctx context.Context, secretI
 	return w.real.CountSecretReadsBySecretIDs(ctx, secretIDs, since)
 }
 
+func (w *FaultyStorage) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	fire, kind, injected := w.check("CountSecretsByEnvironment")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]int64
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.CountSecretsByEnvironment(ctx, envIDs)
+			return rv1, injected
+		}
+	}
+	return w.real.CountSecretsByEnvironment(ctx, envIDs)
+}
+
 func (w *FaultyStorage) CountSetupTokensSince(ctx context.Context, purpose string, email string, since time.Time) (int64, error) {
 	fire, kind, injected := w.check("CountSetupTokensSince")
 	if fire {

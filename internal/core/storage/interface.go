@@ -943,6 +943,12 @@ type Storage interface {
 	// ListSecrets(ExpiresBefore) count ProjectHygieneSummary uses per-project
 	// (#393). A project absent from the result has zero expiring secrets.
 	CountExpiringSecretsByProject(ctx context.Context, projectIDs []uint, expiresBefore time.Time) (map[uint]int, error)
+	// CountSecretsByEnvironment returns, for every environment in envIDs in a
+	// single grouped query, the number of live secrets (folders and soft-deleted
+	// rows excluded) — the server-side source of the environment list's
+	// secret_count (DASH-SIGNALS-1). An environment absent from the result has
+	// zero secrets.
+	CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error)
 	// ListLiveSecretNamesByProject returns every live secret (folders excluded)
 	// across every project in projectIDs — id/name/type/classification/environment
 	// plus its project ID — in a SINGLE query ordered by project then name, capped at
