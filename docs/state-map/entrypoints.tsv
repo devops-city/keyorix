@@ -79,6 +79,7 @@ cli	keyorix config get	cli/cmd/config.go	38	runConfigGet	none	single/no write-sh
 cli	keyorix config set	cli/cmd/config.go	31	runConfigSet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix config unset	cli/cmd/config.go	45	runConfigUnset	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix diagnose	server/admin/diagnose.go	28	runAdminDiagnose	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix doctor	cli/cmd/doctor.go	80	runDoctor	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix dynamic-secret	cli/cmd/dynamicsecret.go	22		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix dynamic-secret classify	cli/cmd/dynamicsecret.go	142	runDynClassify	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix dynamic-secret create	cli/cmd/dynamicsecret.go	51	runDynCreateConfig	none	single/no write-shaped call found by a 1-hop scan of the handler body

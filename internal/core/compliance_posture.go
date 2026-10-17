@@ -21,7 +21,11 @@ import (
 
 // dormantThreshold is how long without a secret access marks a standing grant
 // dormant in the posture roll-up.
-const dormantThreshold = 90 * 24 * time.Hour
+const dormantThreshold = dormantThresholdDays * 24 * time.Hour
+
+// dormantThresholdDays is dormantThreshold in days (the look-back of the dormant-grant
+// lookups, and the figure the compliance surfaces quote).
+const dormantThresholdDays = 90
 
 // AuditIntegrityPosture summarises the tamper-evident audit trail (ADR-029).
 type AuditIntegrityPosture struct {
@@ -1045,22 +1049,27 @@ func (c *KeyorixCore) countDormantRoleGrants(ctx context.Context, projectID uint
 		cp.degrade(fmt.Sprintf("dormant_role_grants:assignments:project=%d", projectID), err)
 		return 0
 	}
-	readActivity, err := c.storage.LastUserSecretReadActivity(ctx, projectID)
+	// Look back exactly as far as the dormancy threshold the result is judged against
+	// below (cutoff): activity older than that cannot change the verdict, so reading it
+	// would only cost. "Dormant" therefore means no use within the last
+	// dormantThresholdDays days.
+	since := storage.ActivityLookbackSince(c.now(), dormantThresholdDays)
+	readActivity, err := c.storage.LastUserSecretReadActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:read_activity:project=%d", projectID), err)
 		return 0
 	}
-	writeActivity, err := c.storage.LastUserSecretWriteActivity(ctx, projectID)
+	writeActivity, err := c.storage.LastUserSecretWriteActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:write_activity:project=%d", projectID), err)
 		return 0
 	}
-	roleMgmtActivity, err := c.storage.LastUserRoleManagementActivity(ctx, projectID)
+	roleMgmtActivity, err := c.storage.LastUserRoleManagementActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:role_management_activity:project=%d", projectID), err)
 		return 0
 	}
-	secretsDeletionActivity, err := c.storage.LastUserSecretDeletionActivity(ctx, projectID)
+	secretsDeletionActivity, err := c.storage.LastUserSecretDeletionActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:secrets_deletion_activity:project=%d", projectID), err)
 		return 0

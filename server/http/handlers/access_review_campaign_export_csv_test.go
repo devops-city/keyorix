@@ -60,13 +60,35 @@ func TestExportAccessReviewCampaignCSV(t *testing.T) {
 		body := w.Body.String()
 		lines := strings.Split(strings.TrimSpace(body), "\n")
 		require.Len(t, lines, 3, "header + two items")
-		assert.Equal(t, "principal_type,principal,email,source,role,access_level,environment_id,secret,last_used_at,decision,reason,decided_by,decided_at", strings.TrimSpace(lines[0]))
+		assert.Equal(t, "principal_type,principal,email,source,role,access_level,environment_id,secret,last_used_at,decision,reason,decided_by,decided_at,last_used_window_days", strings.TrimSpace(lines[0]))
+		for _, l := range lines[1:] {
+			assert.True(t, strings.HasSuffix(strings.TrimSpace(l), ",all_history"), "a campaign opened before the window existed says its last_used_at looked back over the whole history: %q", l)
+		}
 		assert.Contains(t, body, "alice")
 		assert.Contains(t, body, "attested")
 		assert.Contains(t, body, "bob")
 		assert.Contains(t, body, "revoked")
 		assert.Contains(t, body, "left team")
 		assert.Contains(t, body, "auditor", "decider username is resolved")
+	})
+
+	t.Run("states the look-back window the campaign was opened with", func(t *testing.T) {
+		require.NoError(t, db.Create(&models.AccessReviewCampaign{
+			ID: 8, ProjectID: 1, Name: "Q2 2027", State: "closed", CreatedBy: 1, CreatedAt: time.Now(), ActivityWindowDays: 45,
+		}).Error)
+		require.NoError(t, db.Create(&models.AccessReviewItem{
+			ID: 9, CampaignID: 8, PrincipalType: "user", PrincipalID: 20, PrincipalName: "dora",
+			Source: "role", RoleName: "viewer", AccessLevel: "read", Decision: "attested", DecidedBy: 1, DecidedAt: &decided,
+		}).Error)
+		req := withChiParams(withUserCtx(httptest.NewRequest(http.MethodGet,
+			"/api/v1/projects/1/access-review/campaigns/8/export.csv", nil)),
+			map[string]string{"id": "1", "campaignId": "8"})
+		w := httptest.NewRecorder()
+		h.ExportAccessReviewCampaignCSV(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+		lines := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
+		require.Len(t, lines, 2)
+		assert.True(t, strings.HasSuffix(strings.TrimSpace(lines[1]), ",45"), "the row carries the campaign's window: %q", lines[1])
 	})
 
 	t.Run("neutralizes formula-injection payloads in attacker/reviewer-controlled fields", func(t *testing.T) {

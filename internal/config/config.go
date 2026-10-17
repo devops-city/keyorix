@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -359,6 +360,38 @@ type ServerConfig struct {
 	HTTP      ServerInstanceConfig `yaml:"http"`
 	GRPC      ServerInstanceConfig `yaml:"grpc"`
 	AccessLog AccessLogConfig      `yaml:"access_log,omitempty"`
+	Log       LogConfig            `yaml:"log,omitempty"`
+}
+
+// Values of server.log.format.
+const (
+	LogFormatText = "text"
+	LogFormatJSON = "json"
+)
+
+// LogConfig configures the server's log output format (not the audit trail).
+type LogConfig struct {
+	// Format is "" or "text" (default: the existing human-readable lines) or "json"
+	// (one JSON object per line with ts, level, msg and, where known, request_id,
+	// principal_type and route; see docs/operations/logging.md). Any other value is
+	// rejected by Validate.
+	Format string `yaml:"format,omitempty"`
+}
+
+// EffectiveFormat returns the format in effect: "text" when unset.
+func (l LogConfig) EffectiveFormat() string {
+	if l.Format == "" {
+		return LogFormatText
+	}
+	return l.Format
+}
+
+func validateLogFormat(v string) error {
+	switch v {
+	case "", LogFormatText, LogFormatJSON:
+		return nil
+	}
+	return fmt.Errorf("server.log.format: unknown value %q (want %q or %q)", v, LogFormatText, LogFormatJSON)
 }
 
 // Values of server.access_log.on_sink_stall.
@@ -2513,6 +2546,47 @@ func (c *Config) SecretFilePaths() []string {
 	return paths
 }
 
+// EnforceSecretFilePermissions applies the key-material permission policy
+// (secretenv.CheckPermissions: 0600/0400, plus group-read only for an
+// orchestrator-owned file in a group the process holds) to the files named by
+// SecretFilePaths. It is the one implementation behind both the server's boot
+// check and every `keyorix-server admin` command, so the two refuse the same
+// file with the same message.
+//
+// Key-material secrets (master password, KEK, Shamir shares) are refused
+// unconditionally where they are read (secretenv.LookupChecked, no grace); this
+// covers the rest, which follow the ADR-112 upgrade grace like the key files:
+// refuse when security.enable_file_permission_check is on and
+// allow_unsafe_file_permissions is off, otherwise warn. graceSoftened is true
+// when the upgrade grace turned a refusal into a warning, so the caller can
+// avoid recording that boot as "enforced".
+func (c *Config) EnforceSecretFilePermissions() (graceSoftened bool, err error) {
+	var problems []string
+	for _, p := range c.SecretFilePaths() {
+		if err := secretenv.CheckPermissions(p); err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
+	if len(problems) == 0 {
+		return false, nil
+	}
+	msg := strings.Join(problems, "; ")
+	if c.Security.EnableFilePermissionCheck && !c.Security.AllowUnsafeFilePermissions {
+		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
+		// config/TLS files are softened there). The one exception is the upgrade
+		// grace period, same as for the key files in enforceKeyFilePermissions:
+		// warn, and record that this boot was softened. Key material never gets
+		// here -- LookupChecked has already refused it.
+		if c.Security.EnableFilePermissionCheckUpgradeGrace {
+			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+			return true, nil
+		}
+		return false, fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
+	}
+	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
+	return false, nil
+}
+
 const appRootDir = "."
 
 // ResolvedPath returns the config file path Load(path) would read, without
@@ -2811,6 +2885,9 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		return err
 	}
 	if err := validateTLSMode("server.grpc.tls_mode", c.Server.GRPC.TLSMode); err != nil {
+		return err
+	}
+	if err := validateLogFormat(c.Server.Log.Format); err != nil {
 		return err
 	}
 	if err := validateAccessLogOnSinkStall(c.Server.AccessLog.OnSinkStall); err != nil {

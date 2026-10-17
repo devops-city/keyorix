@@ -115,7 +115,25 @@ var ErrSuspendAuditUnavailable = errors.New("could not record the suspension in 
 // clear-synced-copies suspend (ErrSuspendAuditUnavailable, ErrBulkSuspendAuditUnavailable):
 // a plain suspend is never blocked by the audit log, so it cuts access now; the copies can
 // be cleared with a second suspend once the audit log is back.
-const SuspendWithoutClearingHint = "suspend without clearing to cut access now"
+const SuspendWithoutClearingHint = "suspend without clearing synced copies to cut access immediately; clearing needs the audit log back"
+
+// SuspendAuditUnavailableCode is the stable error code (the envelope's "error" field)
+// every transport answers a refused clear-synced-copies suspend with, whichever of
+// ErrSuspendAuditUnavailable / ErrBulkSuspendAuditUnavailable / an audit-refused
+// BulkSuspendPartialError caused it. Clients branch on it; the text may change.
+const SuspendAuditUnavailableCode = "SuspendAuditUnavailable"
+
+// SuspendAuditUnavailableMessage is the fixed message that goes with the code. It never
+// carries the underlying error text, and does not say whether anything was suspended
+// (a bulk run may have suspended some secrets: that count travels in the details).
+const SuspendAuditUnavailableMessage = "The audit log could not record this suspension, so clearing synced copies was refused. Retry, or " + SuspendWithoutClearingHint + "."
+
+// IsSuspendAuditRefusal reports whether err is a clear-synced-copies suspend refused
+// because its audit event could not be recorded, for the single-secret and the
+// project-wide paths alike.
+func IsSuspendAuditRefusal(err error) bool {
+	return errors.Is(err, ErrSuspendAuditUnavailable) || errors.Is(err, ErrBulkSuspendAuditUnavailable)
+}
 
 // transitionSuspend is the conditional status write shared by both suspend paths.
 func transitionSuspend(ctx context.Context, st storage.Storage, secret *models.SecretNode, fromStatus string) error {

@@ -144,6 +144,8 @@ func TestGetDashboardStats_DegradedOnAuditLogsQueryError(t *testing.T) {
 	assert.Zero(t, stats.RefusedSecretReads24h)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_logins_24h"), "expected a failed_logins_24h entry, got %v", stats.DegradedReasons)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "refused_secret_reads_24h"), "expected a refused_secret_reads_24h entry, got %v", stats.DegradedReasons)
+	assert.Zero(t, stats.FailedLoginsWrongSecondFactor24h)
+	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_second_factor_24h"), "expected a failed_second_factor_24h entry, got %v", stats.DegradedReasons)
 }
 
 // DASH-FAILED-AUTH-LABEL: the dashboard used to count every success=false audit event
@@ -172,6 +174,37 @@ func TestGetDashboardStats_FailedLoginsAndRefusedReadsCountedApart(t *testing.T)
 	assert.False(t, stats.Degraded, "reasons: %v", stats.DegradedReasons)
 	assert.Equal(t, int64(2), stats.FailedAuthAttempts24h, "failed logins only")
 	assert.Equal(t, int64(3), stats.RefusedSecretReads24h, "refused secret reads only")
+}
+
+// DASH-FAILED-2FA: "Failed Logins (24h)" also counts a refused second factor (mfa.failed,
+// webauthn.failed), with the wrong-password / wrong-second-factor split. Rows written
+// before #3363 carry success=true and must still count; mfa.error (a fault, no verdict)
+// and refused secret reads must not.
+func TestGetDashboardStats_FailedLoginsSplitWrongPasswordFromWrongSecondFactor(t *testing.T) {
+	t.Parallel()
+	c, st := newBootstrappedCore(t)
+	ctx := context.Background()
+	auditorID := seedUserWithRole(t, st, "auditor-2fa", "system_auditor", storage.Scope{})
+
+	for range 2 {
+		c.writeAuditEventFailed(ctx, "auth.login_failed", nil, nil, "192.0.2.1", "bad password")
+	}
+	c.writeAuditEventFailed(ctx, "mfa.failed", &auditorID, nil, "192.0.2.2", "wrong code")
+	// A pre-#3363 row: the same event stored by the success writer.
+	c.writeAuditEvent(ctx, "mfa.failed", &auditorID, nil, "wrong code, historical row")
+	c.writeAuditEventFailed(ctx, "webauthn.failed", &auditorID, nil, "192.0.2.3", "bad assertion")
+	// Counted in neither bucket.
+	c.writeAuditEventFailed(ctx, "mfa.error", &auditorID, nil, "192.0.2.4", "storage fault before a verdict")
+	c.writeAuditEventFailed(ctx, "secret.read", &auditorID, nil, "192.0.2.5", "refused")
+	c.writeAuditEvent(ctx, "auth.login", &auditorID, nil, "ok login")
+
+	stats, err := c.GetDashboardStats(ctx, auditorID, "auditor-2fa", auditorID)
+	require.NoError(t, err)
+	assert.False(t, stats.Degraded, "reasons: %v", stats.DegradedReasons)
+	assert.Equal(t, int64(2), stats.FailedLoginsWrongPassword24h, "auth.login_failed only")
+	assert.Equal(t, int64(3), stats.FailedLoginsWrongSecondFactor24h, "mfa.failed (both rows) + webauthn.failed")
+	assert.Equal(t, int64(5), stats.FailedAuthAttempts24h, "the headline is the sum of the two buckets")
+	assert.Equal(t, int64(1), stats.RefusedSecretReads24h, "refused reads stay apart")
 }
 
 func TestGetDashboardStats_DegradedOnActiveUsersQueryError(t *testing.T) {

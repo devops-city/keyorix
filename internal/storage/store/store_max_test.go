@@ -736,7 +736,7 @@ func newAAStore(t *testing.T) *LocalStorage {
 // lastUserActivityByEventTypes — empty result (no events).
 func TestLastUserActivityByEventTypes_NoEvents(t *testing.T) {
 	ls := newAAStore(t)
-	m, err := ls.LastUserSecretActivity(context.Background(), 1)
+	m, err := ls.LastUserSecretActivity(context.Background(), 1, time.Time{})
 	require.NoError(t, err)
 	assert.Empty(t, m)
 }
