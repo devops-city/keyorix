@@ -397,5 +397,41 @@ networkPolicy:
     #         - protocol: TCP
     #           port: 5432
     extraRules: []
+    # databaseTo: with postgresql.enabled=false the server's egress to the external
+    # PostgreSQL is DENIED unless you name it here (a NetworkPolicy cannot match a
+    # host name, so give the database's IPs/CIDRs or its in-cluster pods). A list of
+    # NetworkPolicyPeer entries; the port is externalDatabase.port. Example:
+    #   databaseTo:
+    #     - ipBlock: { cidr: 10.20.0.0/24 }
+    databaseTo: []
+    # kmsTo / kmsPorts: the key-management or secret-backend endpoints the server calls
+    # (Vault/OpenBao, a cloud KMS), same peer format, TCP on kmsPorts (default 443).
+    kmsTo: []
+    kmsPorts: [443]
+  ingress:
+    # controllerNamespaceSelector: labels of the ingress controller's namespace. When
+    # set, the web pods accept traffic only from that namespace and this release's own
+    # pods (the server and postgresql policies already restrict their ingress). Unset
+    # (default) = web ingress unrestricted. Example (ingress-nginx):
+    #   controllerNamespaceSelector:
+    #     kubernetes.io/metadata.name: ingress-nginx
+    controllerNamespaceSelector: {}
+    # monitoringNamespaceSelector: labels of the namespace Prometheus scrapes from; it
+    # may then reach the server port (/metrics). Needed for monitoring.serviceMonitor.
+    monitoringNamespaceSelector: {}
+
+# ── Monitoring ────────────────────────────────────────────────────────────────
+monitoring:
+  # Prometheus Operator ServiceMonitor for the server's /metrics. Needs the
+  # monitoring.coreos.com CRDs. With the secure baseline the scrape is HTTPS with the
+  # chart's certificate as CA and the generated /metrics bearer token; the
+  # ServiceMonitor then lives in the release namespace (leave namespace empty).
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    # Extra labels, e.g. the release label your Prometheus selects ServiceMonitors by.
+    labels: {}
 
 imagePullSecrets: []

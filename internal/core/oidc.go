@@ -272,7 +272,7 @@ func (c *KeyorixCore) ValidateOIDCToken(ctx context.Context, raw string) (*model
 	}
 	m, err := c.storage.GetMachineByOIDCSubject(ctx, issuer, subject)
 	if err != nil {
-		return nil, nil, fmt.Errorf("no machine identity bound to this token")
+		return nil, nil, credentialLookupError(err, "no machine identity bound to this token")
 	}
 	if m.State != MachineActive {
 		// #2518: the same typed sentinel the opaque-token paths return for this

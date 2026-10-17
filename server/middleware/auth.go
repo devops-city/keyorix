@@ -510,7 +510,10 @@ func isTransientValidationError(ctx context.Context, err error) bool {
 	}
 	// #1944: the credential validated but the owner's roles could not be read
 	// — a storage-side failure, not a verdict on the token.
-	if errors.Is(err, core.ErrRoleResolutionUnavailable) {
+	if core.IsAuthTransient(err) {
+		// ErrRoleResolutionUnavailable, or ErrAuthStorageUnavailable: a credential/
+		// account/identity lookup failed (database down), which is no verdict on the
+		// token either.
 		return true
 	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)

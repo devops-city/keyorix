@@ -204,8 +204,10 @@ server.grpc.domain
 server.grpc.enabled
 server.grpc.host
 server.grpc.hsts_preload
+server.grpc.keepalive.handshake_timeout
 server.grpc.keepalive.max_connection_age
 server.grpc.keepalive.max_connection_age_grace
+server.grpc.keepalive.max_connection_idle
 server.grpc.keepalive.min_time
 server.grpc.keepalive.permit_without_stream
 server.grpc.keepalive.time
@@ -235,8 +237,10 @@ server.http.domain
 server.http.enabled
 server.http.host
 server.http.hsts_preload
+server.http.keepalive.handshake_timeout
 server.http.keepalive.max_connection_age
 server.http.keepalive.max_connection_age_grace
+server.http.keepalive.max_connection_idle
 server.http.keepalive.min_time
 server.http.keepalive.permit_without_stream
 server.http.keepalive.time

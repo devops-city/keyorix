@@ -35,7 +35,7 @@ that is already suspended adds the request.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretSuspendID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -70,7 +70,7 @@ var secretResumeCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretResumeID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -113,7 +113,7 @@ with 'secret restore --id <id>'. Requires secrets.read at the project scope.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretTrashProject == 0 {
-			return fmt.Errorf("--project is required")
+			return usageErrorf("--project is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -160,7 +160,7 @@ live list. Find restorable secrets with 'secret trash --project <id>'.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretRestoreID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
