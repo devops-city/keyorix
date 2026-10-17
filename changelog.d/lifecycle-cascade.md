@@ -1,0 +1,5 @@
+### Security
+- **Deleting a project no longer leaves secret ACL grants to come back on restore.** `deleteProjectCascade` revoked shares but not `SecretACL` rows, so a grantee regained access after `RestoreProject` with no re-authorization; the cascade now deletes the ACLs of every project secret in the same transaction (#2798).
+- **Approved secret-scoped access requests no longer revive on restore.** `DeleteSecret` and the project delete cascade now move approved restricted-read requests to `expired` in the delete transaction, so `RestoreSecret`/`RestoreProject` cannot re-open the approval gate (#2797).
+- **A suspended secret can no longer be resumed inside a deleted environment or project.** `ResumeSecret` takes the environment secret guard and re-checks project liveness in the same transaction as the status write, like the create paths (#2794).
+- **Purging a deleted project now removes its machine-identity role grants.** `PurgeDeletedProjectsBefore` left `machine_identity_roles` rows that `GetMachineRoleIDsAt` read as live (#2795).
