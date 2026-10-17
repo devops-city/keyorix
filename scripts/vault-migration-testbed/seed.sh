@@ -51,12 +51,9 @@ echo "✓ ${BACKEND} healthy at ${ADDR}"
 H=(-H "X-Vault-Token: ${ROOT_TOKEN}")
 
 urlencode_path() { # percent-encodes each "/"-separated segment, preserving the separators --
-  local path="$1" IFS=/ seg out=()
-  read -ra parts <<<"$path"
-  for seg in "${parts[@]}"; do
-    out+=("$(jq -rn --arg s "$seg" '$s|@uri')")
-  done
-  (IFS=/; echo "${out[*]}")
+  # split, encode and re-join in jq so no IFS juggling is needed (and the shell's
+  # field splitting is never altered).
+  jq -rn --arg p "$1" '$p | split("/") | map(@uri) | join("/")'
 }
 
 req() { # method path json-body-or-empty -- path segments are percent-encoded (unicode/spaces in

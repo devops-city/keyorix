@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -123,6 +125,36 @@ func TestJourney_SecretSuspendClearSyncedCopiesCLI(t *testing.T) {
 		runCLI(t, cliBin, aEnv, "secret", "suspend", "--id", strconv.Itoa(id), "--clear-synced-copies")
 		if _, _, clear := refusal(ref); !clear {
 			t.Fatal("suspending again with the flag must add the choice")
+		}
+	})
+
+	// The audit log refuses secret.suspended rows (a trigger in the live server's own
+	// SQLite file): the clearing suspend is refused, changes nothing, and tells the
+	// responder the way to cut access now; that way (a plain suspend) still works.
+	t.Run("audit log down: refused with the way to cut access now, which works", func(t *testing.T) {
+		id, ref := newSecret("j-auditdown")
+		dbPath := filepath.Join(s.Dir, "keyorix.db")
+		sqlite := func(stmt string) {
+			t.Helper()
+			out, err := exec.Command("sqlite3", dbPath, stmt).CombinedOutput() // #nosec G204 -- this test's own tempdir DB path and a fixed statement
+			if err != nil {
+				t.Fatalf("sqlite3 %q: %v\n%s", stmt, err, out)
+			}
+		}
+		sqlite(`CREATE TRIGGER j_refuse_suspend_audit BEFORE INSERT ON audit_events WHEN NEW.event_type = 'secret.suspended' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;`)
+		t.Cleanup(func() { sqlite(`DROP TRIGGER IF EXISTS j_refuse_suspend_audit;`) })
+
+		out := runCLIExpectErr(t, cliBin, aEnv, "secret", "suspend", "--id", strconv.Itoa(id), "--clear-synced-copies")
+		if !strings.Contains(out, "suspend without clearing to cut access now") {
+			t.Fatalf("the refusal must say how to cut access now:\n%s", out)
+		}
+		if status, _, _ := refusal(ref); status != http.StatusOK {
+			t.Fatalf("a refused suspend must change nothing, but the reader got HTTP %d", status)
+		}
+
+		runCLI(t, cliBin, aEnv, "secret", "suspend", "--id", strconv.Itoa(id))
+		if status, code, clear := refusal(ref); status != http.StatusConflict || code != "SecretSuspended" || clear {
+			t.Fatalf("after the plain suspend the reader sees status=%d code=%q clear=%v; want 409 SecretSuspended clear=false", status, code, clear)
 		}
 	})
 }

@@ -689,7 +689,8 @@ func (c *KeyorixCore) FinishWebAuthnLoginPending(ctx context.Context, challenge,
 	// #2936 item 4: the password step's slot (on the challenge) and Begin's (on
 	// the ceremony row) go back only if this login is delivered.
 	lc.holdLoginSlots(ch.LoginAttemptID, sess.LoginAttemptID)
-	session, err := c.mintSession(ctx, ch.UserID, userAgent, ip)
+	// A panic in the insert is denied like its error (#3277, mintLoginSession).
+	session, err := c.mintLoginSession(ctx, ch.UserID, userAgent, ip, false)
 	if err != nil {
 		lc.Failed(ctx)
 		return nil, wu.user, UserIdentity{}, nil, fmt.Errorf("%w: %w", ErrLoginPostVerdict, err)
@@ -889,7 +890,8 @@ func (c *KeyorixCore) FinishWebAuthnPasswordlessLoginPending(ctx context.Context
 		lc.Failed(ctx)
 		return nil, resolved, UserIdentity{}, nil, fmt.Errorf("%w: %w", ErrLoginPostVerdict, err)
 	}
-	session, err := c.mintSession(ctx, resolved.ID, userAgent, ip)
+	// A panic in the insert is denied like its error (#3277, mintLoginSession).
+	session, err := c.mintLoginSession(ctx, resolved.ID, userAgent, ip, false)
 	if err != nil {
 		lc.Failed(ctx)
 		return nil, resolved, UserIdentity{}, nil, fmt.Errorf("%w: %w", ErrLoginPostVerdict, err)

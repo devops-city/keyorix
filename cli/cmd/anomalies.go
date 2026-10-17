@@ -404,7 +404,7 @@ func init() {
 
 func runEscalationCreate(_ *cobra.Command, _ []string) error {
 	if escalationName == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)

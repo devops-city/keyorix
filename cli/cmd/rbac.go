@@ -239,7 +239,7 @@ func init() {
 
 func runRBACAssignRole(cmd *cobra.Command, args []string) error {
 	if rbacUserEmail == "" || rbacRoleName == "" {
-		return fmt.Errorf("--user and --role are required")
+		return usageErrorf("--user and --role are required")
 	}
 	if rbacRoleTTL < 0 {
 		return fmt.Errorf("--ttl must be positive")
@@ -326,7 +326,7 @@ func init() {
 
 func runRBACRemoveRole(cmd *cobra.Command, args []string) error {
 	if rbacRemoveUserEmail == "" || rbacRemoveRoleName == "" {
-		return fmt.Errorf("--user and --role are required")
+		return usageErrorf("--user and --role are required")
 	}
 	if rbacRemoveEnv != "" && rbacRemoveProject == "" {
 		return fmt.Errorf("--environment requires --project")

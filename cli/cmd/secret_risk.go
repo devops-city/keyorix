@@ -29,7 +29,7 @@ factors: rotation age (30%), expiry (30%), usage (20%), and exposure (20%).`,
 
 func runSecretScore(_ *cobra.Command, _ []string) error {
 	if scoreID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -220,7 +220,7 @@ Requires secrets.read at the secret's scope. Never prints a plaintext value.`,
 
 func runSecretAudit(_ *cobra.Command, _ []string) error {
 	if auditID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
