@@ -19,7 +19,8 @@ const configKeyCAFile = "ca_file"
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Show or change CLI settings stored with your credentials",
-	Long: `config reads and writes CLI settings kept in the credentials file (see "keyorix status --help").
+	Long: `config reads and writes CLI settings kept in the credentials file (keyorix/credentials.yaml under the OS user config
+directory: ~/.config on Linux, ~/Library/Application Support on macOS).
 
 Keys:
   ca_file   PEM CA/certificate file trusted for the server's TLS certificate, instead of

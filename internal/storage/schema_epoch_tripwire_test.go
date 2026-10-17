@@ -17,14 +17,17 @@
 // History: 1 -> 2 for secret_nodes.purge_at (#3021), an additive nullable column an
 // older binary neither reads nor maintains. That is NOT safe (an epoch-1 restore/delete
 // leaves a stale purge_at), so minCompatibleSchemaEpoch is raised to 2.
+// 2 -> 3 for pending_audit_events (SUSPEND-AUDIT-LOUD), an additive table an epoch-2
+// binary never reads or writes; rows it leaves are drained by the next epoch-3
+// replica's backfill, so the floor stays 2.
 package storage
 
 import "testing"
 
-func TestCurrentSchemaEpoch_Is2_SeeADR101(t *testing.T) {
-	if currentSchemaEpoch != 2 {
+func TestCurrentSchemaEpoch_Is3_SeeADR101(t *testing.T) {
+	if currentSchemaEpoch != 3 {
 		t.Fatalf(
-			"currentSchemaEpoch is now %d (expected 2) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
+			"currentSchemaEpoch is now %d (expected 3) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
 				"requires every bump to also decide minCompatibleSchemaEpoch (additive-and-safe leaves it "+
 				"unchanged; a migration an older binary cannot safely run against raises it to the new epoch). "+
 				"Make that decision in factory.go, THEN update this test's expected value alongside your "+

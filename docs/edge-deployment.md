@@ -13,7 +13,15 @@
 
 - **Binary.** Release builds exist for Linux on `amd64` and `arm64`
   ([RELEASING.md](../RELEASING.md)). A Raspberry Pi needs a 64-bit OS to run the
-  `arm64` build. On a device that runs no cloud connectors or cloud KMS, use
+  `arm64` build. Every shipped component (server, air-gapped server, CLI,
+  `migrate`, the Kubernetes operator, `keyorix-k8s-sync`, `keyorix-mcp`) also
+  compiles and links for 32-bit `linux/arm` (armv7); that build is not
+  published or run in CI, so on a 32-bit board you build it yourself
+  (`scripts/edge/cross-build.sh`) and treat it as unproven until you have run
+  your own commissioning on it. There is nothing to cross-compile in C: all
+  builds are `CGO_ENABLED=0`, and SQLite is the pure-Go `modernc.org/sqlite`
+  driver ([ADR-048](adr-048-cgo-free-sqlite-driver.md)), so a Go toolchain on
+  any machine is enough. On a device that runs no cloud connectors or cloud KMS, use
   the `keyorix-server-airgap` binary: the cloud SDKs are compiled out, which
   gives a smaller binary and SBOM
   ([ARCHITECTURE.md](ARCHITECTURE.md#full-vs-air-gapped-build-profiles)).
@@ -22,12 +30,11 @@
   one file, no database server to patch, monitor or keep running on a small
   board. PostgreSQL is the right choice only if the edge site already operates
   one (see [§3](#3-using-postgresql-at-the-edge)).
-- **No outbound traffic is required.** With every non-loopback packet dropped,
-  the core product served logins and returned stored secrets, and made no
-  outbound connection attempts
-  ([AIRGAP_RUNBOOK.md](AIRGAP_RUNBOOK.md), "Egress-blocked check"). Features that
-  talk to other systems (SSO, SIEM, webhooks, connectors) are off until you
-  configure them.
+- **No outbound traffic is required.** The core product needs no internet access;
+  the backup, restore and audit-verify flow runs in a container with
+  `--network none` in `scripts/airgap-e2e.sh`
+  ([AIRGAP_RUNBOOK.md](AIRGAP_RUNBOOK.md)). Features that talk to other systems
+  (SSO, SIEM, webhooks, connectors) are off until you configure them.
 
 ## 2. SQLite on the edge: strict audit durability only
 
@@ -133,6 +140,12 @@ Qualitative only; measure on your hardware.
   ([PERFORMANCE.md](PERFORMANCE.md#sqlite-settings)). A 64-bit Pi-class board
   with a good disk is a reasonable fit for a site's own secrets and a modest
   number of local clients; it is not a hub for a large fleet.
+- **Footprint is guarded, not promised.** `scripts/edge/footprint.sh` measures
+  the release binary (full and air-gapped builds) and the peak memory of a
+  started, idle server against a budget kept in the repository, so growth is a
+  visible decision rather than an accident. It is the idle floor: a loaded
+  server needs more ([runtime-tuning.md](runtime-tuning.md)), and what your
+  hardware needs is yours to measure.
 - **Disable swap** ([hardening guide §7](security/hardening-guide.md#7-process-and-host-hardening)).
   On a small-RAM board this means leaving headroom rather than relying on
   swap, so keep co-located services to a minimum.
@@ -146,6 +159,51 @@ Qualitative only; measure on your hardware.
 - **Time.** The audit trail and checkpoint schedule use the device clock.
   Give an unattended device a reliable clock source (a local NTP server, or an
   RTC with a battery) so that a long power-off does not leave timestamps wrong.
+  What a wrong or corrected clock does, and what to do about it, is in
+  [§5a](#5a-no-ntp-what-a-bad-clock-does).
+
+### 5a. No NTP: what a bad clock does
+
+A device with no battery-backed clock and no time source boots at the epoch or
+at the time it was last switched off. Keyorix keeps working, but several
+decisions depend on the clock, and the server protects itself against a clock
+that goes backwards in ways an operator has to know about. The cases below are
+exercised with injected clocks (`internal/core/edge_clock_skew_test.go`,
+`internal/clockcheck`, `server/clock_warnings_test.go`); the long-running
+session, token and lease properties are fuzzed (`FuzzClockJumpNeverAuthorizesExpired`).
+
+**The rule: set the clock before the service starts, and restart the service
+if you ever step it backwards.** Order the service after `time-sync.target`
+(it only waits when a time-sync service is enabled); on a site with no time
+source, set the clock once at commissioning and put an RTC battery in the
+device.
+
+| What happens to the clock | Effect | What to do |
+|---|---|---|
+| Wrong at start-up (before the build date of the binary, for example the epoch) | The server starts and logs a warning on every start. TOTP codes fail (the authenticator and the device must agree to within one 30 s step). A TLS certificate minted by this clock would be useless, so `admin init` refuses to generate one and says why. | Set the clock, then restart. |
+| Stepped **forward** | Sessions, tokens and leases that expire inside the jump expire at once; secrets with an expiry date in the jump are expired; the server logs the step. | Users log in again. Nothing is lost. |
+| Stepped **backward** by 30 s or less | Nothing; this is the tolerance for ordinary NTP corrections. | None. |
+| Stepped **backward** by more than 30 s | By design the server will not trust a clock that went back. Until the clock passes the latest time the process had seen, or the service restarts: **every secret value read is refused** (it answers as "expired", even for secrets that never expire) and **every second-factor login is refused** (recovery codes too). The server logs a warning when it sees the step. A TOTP code for the corrected time is also refused until the corrected clock passes the highest time-step already accepted; after a restart, log in with a recovery code, or wait. | **Restart the service** right after correcting a clock that had run ahead. |
+| Clock stepped back **before** the server ever saw a credential's expiry | The credential is judged on the device's clock and lives as long as the step back. This is inherent to absolute expiry times ([ADR-094](adr-094-time-handling.md)). | Keep the clock from running backwards; revoke credentials you do not trust. |
+
+Other things the clock touches:
+
+- **Audit entries.** Each entry carries the device clock's time, but the chain
+  is ordered by its hashes, not by time: a trail whose timestamps jump around
+  (clock set, epoch boot, correction) still verifies, and a rewritten timestamp
+  still breaks it. Treat timestamps as unreliable across any clock correction.
+  The checkpoint anchor you keep off the device is the only independent record
+  of when an entry existed.
+- **TLS certificates.** The self-signed certificate from `admin init` lasts a
+  little over a year and is not renewed by the server. On every start the server
+  warns when the certificate is expired, not valid yet on this clock (a clock
+  that is behind), or within 30 days of expiry. A certificate issued while the
+  clock was wrong has to be replaced, not waited out.
+- **Scheduled jobs.** Periodic jobs tick on the process's monotonic clock, so a
+  clock step does not make them run early or late; what they decide to do (what
+  is due, what has expired) uses the wall clock.
+- **Licence.** Evaluated locally against the device clock, offline, and degrades
+  rather than denies ([ADR-094](adr-094-time-handling.md)).
 
 ## 6. Backup and restore
 
@@ -163,12 +221,12 @@ keyorix-server admin audit export-checkpoint --output /media/usb2/checkpoint-$(d
   lost with the cabinet. Removable media carried off-site is a normal answer
   at air-gapped sites.
 - **Hold the checkpoint anchor separately** from the archive, ideally on
-  write-once media. The archive's checksums catch corruption, not tampering;
+  write-once media. The archive's signed manifest catches a tampered archive, not a rewritten history;
   an externally-held anchor is what constrains someone with the whole device.
 - **Record the master passphrase separately** from both (or, for a TPM- or
   Shamir-based KEK, the custody described in [§9](#9-recommended-hardening)).
 - **Restore into a fresh, empty data directory with the same config.**
-  `admin restore --input <archive>` verifies every checksum, refuses a
+  `admin restore --input <archive>` verifies the manifest signature, refuses a
   key-file set that does not match your encryption settings, writes
   atomically, applies pending migrations and runs `admin verify-audit`
   automatically, failing if the chain is broken. `--overwrite-existing` moves
@@ -218,7 +276,7 @@ security design, not an extra.
   ([hardening guide §2](security/hardening-guide.md#2-encryption-key-management)).
   A KEK that is not stored on the data disk is what makes a stolen disk
   insufficient.
-- **TPM provider (`encryption.key_provider.type: tpm`)** seals the KEK to the
+- **TPM provider (`storage.encryption.key_provider.type: tpm`)** seals the KEK to the
   device's TPM 2.0; only the sealed blob is on disk, so a disk pulled from the
   device cannot be decrypted alone, and no passphrase is needed at boot. Two
   limits to state to anyone relying on it: the seal is to that TPM chip, not
@@ -240,8 +298,10 @@ security design, not an extra.
   from external media, and use full-disk encryption on the data volume as a
   second layer. These are host controls Keyorix cannot enforce; see
   [hardening guide §11](security/hardening-guide.md#11-what-this-guide-does-not-cover).
-- **CLI local mode is equivalent to direct database access.** Keep it for
-  the people you would trust with the raw database.
+- **Shell access to the device is database access.** The `keyorix` CLI is
+  REST-only, but `keyorix-server admin ...` runs on the device with the
+  database and key files. Keep shell access for the people you would trust with
+  the raw database.
 - **Core dumps are suppressed unconditionally** (`RLIMIT_CORE=0`). Do not
   override it in a service unit.
 

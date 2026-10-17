@@ -147,7 +147,10 @@ sed -i.bak "s/port: \"8080\"/port: \"${KEYORIX_PORT}\"/" "${WORKDIR}/keyorix.yam
 (cd "$WORKDIR" && "${BIN}/keyorix-server" admin encryption init --config "$KX_CONFIG" >/dev/null)
 (cd "$WORKDIR" && "${BIN}/keyorix-server" admin migrate --config "$KX_CONFIG" >/dev/null)
 
-export KEYORIX_BOOTSTRAP_TOKEN="demo-bootstrap-token-$$"
+# A random 64-hex-char bootstrap token in a 0600 file; the server and the CLI read it
+# via KEYORIX_BOOTSTRAP_TOKEN_FILE, so it is never in argv or the environment.
+(umask 077 && openssl rand -hex 32 >"${WORKDIR}/bootstrap_token")
+export KEYORIX_BOOTSTRAP_TOKEN_FILE="${WORKDIR}/bootstrap_token"
 (
   cd "$WORKDIR"
   KEYORIX_CONFIG_PATH="$KX_CONFIG" "${BIN}/keyorix-server" >"${WORKDIR}/server.log" 2>&1 &
@@ -158,7 +161,7 @@ for _ in $(seq 1 30); do curl -sf "http://localhost:${KEYORIX_PORT}/health" >/de
 curl -sf "http://localhost:${KEYORIX_PORT}/health" >/dev/null 2>&1 || { echo "keyorix-server never became healthy" >&2; cat "${WORKDIR}/server.log"; exit 1; }
 
 # The admin password and bootstrap token go by environment variable, not argv.
-# (KEYORIX_BOOTSTRAP_TOKEN is already exported above.) Assignments are prefixed to the
+# (KEYORIX_BOOTSTRAP_TOKEN_FILE is already exported above.) Assignments are prefixed to the
 # command itself, not passed through `env`, whose own argv would carry them.
 DEMO_ADMIN_PASSWORD='Demo-Correct-Horse-9'
 HOME="$WORKDIR" KEYORIX_ADMIN_PASSWORD="$DEMO_ADMIN_PASSWORD" \

@@ -38,10 +38,15 @@ fi
 ENGINE="${CONTAINER_ENGINE:-docker}"
 CONTAINER="keyorix-webui-check-$$"
 WORK_DIR="$(mktemp -d)"
+# The master password goes to the container via a 0600 --env-file kept outside the
+# bind-mounted WORK_DIR, never as `-e NAME=value` on the docker argv (SCRIPTS-SECRETS-2).
+ENV_FILE="$(mktemp)"
+chmod 600 "$ENV_FILE"
 
 cleanup() {
     $ENGINE rm -f "$CONTAINER" >/dev/null 2>&1 || true
     rm -rf "$WORK_DIR"
+    rm -f "$ENV_FILE"
 }
 trap cleanup EXIT
 
@@ -59,6 +64,7 @@ fail() {
 chmod 777 "$WORK_DIR"
 
 MASTER_PW="webui-check-master-password-$$"
+printf 'KEYORIX_MASTER_PASSWORD=%s\n' "$MASTER_PW" >"$ENV_FILE"
 
 # Same bootstrap sequence scripts/airgap-e2e.sh uses, and the same one QUICK_START.md
 # documents: the server refuses to start without a config, and admin init only creates
@@ -66,7 +72,7 @@ MASTER_PW="webui-check-master-password-$$"
 run_admin() {
     $ENGINE run --rm --network none --workdir /app/data \
         -v "$WORK_DIR:/app/data" \
-        -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+        --env-file "$ENV_FILE" \
         --entrypoint /app/keyorix-server \
         "$IMAGE" "$@"
 }
@@ -81,7 +87,7 @@ echo "==> starting $IMAGE (--network none)"
 $ENGINE run -d --name "$CONTAINER" --network none --workdir /app/data \
     -v "$WORK_DIR:/app/data" \
     -e KEYORIX_CONFIG_PATH=/app/data/keyorix.yaml \
-    -e KEYORIX_MASTER_PASSWORD="$MASTER_PW" \
+    --env-file "$ENV_FILE" \
     --entrypoint /app/keyorix-server \
     "$IMAGE" >/dev/null
 

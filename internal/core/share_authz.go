@@ -374,10 +374,11 @@ type ShareElevationRecorder struct {
 
 type shareElevationRecorderKey struct{}
 
-// WithShareElevationRecorder returns ctx carrying a fresh recorder.
+// WithShareElevationRecorder returns ctx carrying a fresh recorder, and a fresh
+// request-scoped memo of the gate's read decision (gate_read_decision.go).
 func WithShareElevationRecorder(ctx context.Context) (context.Context, *ShareElevationRecorder) {
 	rec := &ShareElevationRecorder{}
-	return context.WithValue(ctx, shareElevationRecorderKey{}, rec), rec
+	return context.WithValue(withGateReadDecision(ctx), shareElevationRecorderKey{}, rec), rec
 }
 
 func shareElevationRecorderFrom(ctx context.Context) *ShareElevationRecorder {
