@@ -110,6 +110,9 @@ func init() {
 }
 
 func runSecretFolderList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(folderListFormat); err != nil {
+		return err
+	}
 	client, err := secretAPIClient()
 	if err != nil {
 		return err
@@ -128,8 +131,11 @@ func runSecretFolderList(cmd *cobra.Command, args []string) error {
 	if resp.JSON200 == nil {
 		return httpStatusError("failed to list folders", resp.StatusCode(), resp.Body)
 	}
-	printFolderList(derefSecretSlice(resp.JSON200.Data))
-	return nil
+	folders := derefSecretSlice(resp.JSON200.Data)
+	return emitList(folderListFormat, folders, func() error {
+		printFolderList(derefSecretSlice(resp.JSON200.Data))
+		return nil
+	})
 }
 
 func printFolderList(folders []apiclient.Secret) {

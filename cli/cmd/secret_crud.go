@@ -830,11 +830,14 @@ func init() {
 	secretListCmd.Flags().IntVar(&secretListLimit, "limit", 50, "Maximum number of results")
 	secretListCmd.Flags().IntVar(&secretListOffset, "offset", 0, "Number of results to skip")
 	secretListCmd.Flags().StringVar(&secretListSearch, "search", "", "Search query")
-	secretListCmd.Flags().StringVar(&secretListFormat, "format", "table", "Output format (table, json)")
+	addOutputFlagWithFormatAlias(secretListCmd, &secretListFormat)
 	SecretCmd.AddCommand(secretListCmd)
 }
 
 func runSecretList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(secretListFormat); err != nil {
+		return err
+	}
 	client, err := secretAPIClient()
 	if err != nil {
 		return err
@@ -883,15 +886,11 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	switch secretListFormat {
-	case "json":
-		return displaySecretsJSON(secrets, total, page, secretListLimit)
-	case "table":
+	if secretListFormat == outputTable {
 		displaySecretsTable(secrets, total, page, secretListLimit)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", secretListFormat)
 	}
+	return displaySecretsStructured(secretListFormat, secrets, total, page, secretListLimit)
 }
 
 func displaySecretsTable(secrets []apiclient.SecretListEntry, total int64, page, pageSize int) {
@@ -967,7 +966,7 @@ type jsonSecretsOutput struct {
 	Secrets []jsonSecretEntry `json:"secrets"`
 }
 
-func displaySecretsJSON(secrets []apiclient.SecretListEntry, total int64, page, pageSize int) error {
+func displaySecretsStructured(format string, secrets []apiclient.SecretListEntry, total int64, page, pageSize int) error {
 	offset := (page - 1) * pageSize
 	out := jsonSecretsOutput{Total: total, Offset: offset, Limit: pageSize, Count: len(secrets), Secrets: make([]jsonSecretEntry, 0, len(secrets))}
 	for _, s := range secrets {
@@ -988,9 +987,7 @@ func displaySecretsJSON(secrets []apiclient.SecretListEntry, total int64, page, 
 		}
 		out.Secrets = append(out.Secrets, entry)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return printStructured(format, out)
 }
 
 func truncateSecretString(s string, maxLen int) string {
