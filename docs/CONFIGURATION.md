@@ -1278,6 +1278,14 @@ session:
   absolute_ttl: "12h"   # hard cap on total session lifetime; "" or "0" = no ceiling
 ```
 
+**Authentication cache and database outages (not configurable).** A validated
+session, PAT or machine token is cached for about 30 seconds per replica, and
+every cached request still re-checks the credential's revocation state against
+the database. If that re-check fails (database down, failover, pool exhausted),
+the request is refused with `503` and `Retry-After` instead of being served from
+the cache, so a revocation is never hidden by an outage; clients should retry.
+See [UPGRADING.md](UPGRADING.md) §6h.
+
 ## password_policy
 
 Password rules (ADR-025). Absent = conservative built-in defaults; when present,
