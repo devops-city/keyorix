@@ -47,7 +47,7 @@ func run() error {
 	ctx := context.Background()
 	switch mode {
 	case "exec":
-		res, err := db.ExecContext(ctx, stmt, params...)
+		res, err := db.ExecContext(ctx, stmt, params...) // #nosec G701 -- demo helper: the statement is the operator's own argv and the DSN is theirs too, no privilege boundary; values are bound parameters
 		if err != nil {
 			return err
 		}
@@ -55,7 +55,7 @@ func run() error {
 		fmt.Printf("%d row(s) affected\n", n)
 		return nil
 	case "query":
-		rows, err := db.QueryContext(ctx, stmt, params...)
+		rows, err := db.QueryContext(ctx, stmt, params...) // #nosec G701 -- demo helper: the statement is the operator's own argv and the DSN is theirs too, no privilege boundary; values are bound parameters
 		if err != nil {
 			return err
 		}
