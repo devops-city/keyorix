@@ -179,8 +179,20 @@ replace each `CHANGE-ME`.
 - **External database:** set `postgresql.enabled=false` and `externalDatabase.host`
   (+ `externalDatabase.password` via `auth.existingSecret`), pointing at a managed
   or HA PostgreSQL. The bundled Postgres is single-instance, for evaluation.
-- **Single server instance:** the server is pinned to 1 replica — it owns the
-  ReadWriteOnce keys volume and a per-instance KEK; it is not horizontally scalable.
+- **Single server instance (default):** `server.replicas: 1` with Recreate rollouts
+  — the server owns a ReadWriteOnce keys volume and a per-instance KEK.
+- **More than one server replica (ADR-039 HA):** `server.replicas: N` renders only
+  when it can work, and the render fails otherwise: the keys volume must be
+  persistent and `ReadWriteMany` (every replica reads the same wrapped DEK and KEK
+  salt), and `server.singleWriter` must be false (single-writer mode allows exactly
+  one server). Use an external PostgreSQL (the bundled one is a single pod); the chart
+  renders PostgreSQL only, so SQLite cannot be combined with replicas. With N > 1 the
+  chart adds a PodDisruptionBudget (`server.podDisruptionBudget`), node/zone
+  `topologySpreadConstraints` (`server.topologySpreadConstraints` to override),
+  RollingUpdate rollouts and `security.auth_rate_limit_fallback.replicas: N`. A
+  rolling upgrade across a schema-epoch bump can briefly crash-loop an old replica
+  (ADR-039, ADR-101). The web Deployment spreads the same way when
+  `web.replicas > 1`. Not covered by a live multi-replica test in this chart.
 - **Backups:** back up both the database and the `*-server-keys` PVC. You need
   both (plus the master password) to recover.
 - **TLS:** terminate at the ingress (`ingress.tls` + cert-manager annotations).
