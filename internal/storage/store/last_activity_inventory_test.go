@@ -34,8 +34,8 @@ var lastActivityInventory = map[string]string{
 func TestLastActivityInventory_CoversEveryStorageMethod(t *testing.T) {
 	var found []string
 	st := reflect.TypeFor[storage.Storage]()
-	for i := range st.NumMethod() {
-		name := st.Method(i).Name
+	for m := range st.Methods() {
+		name := m.Name
 		if strings.HasPrefix(name, "LastUser") && strings.HasSuffix(name, "Activity") {
 			found = append(found, name)
 		}

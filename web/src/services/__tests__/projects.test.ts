@@ -497,6 +497,16 @@ describe('projectsApi.accessReview', () => {
         ]);
     });
 
+    it('copies the report-level look-back window onto every entry (RECERT-BOUND-1)', async () => {
+        mocked.get.mockResolvedValueOnce({
+            data: { data: { activity_window_days: 45, entries: [{ source: 'role' }, { source: 'owner' }] } },
+        });
+
+        const result = await projectsApi.accessReview(9);
+
+        expect(result.map((e) => e.activityWindowDays)).toEqual([45, 45]);
+    });
+
     it('returns [] when entries is missing', async () => {
         mocked.get.mockResolvedValueOnce({ data: { data: {} } });
 
