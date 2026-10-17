@@ -41,6 +41,16 @@ func TestPostgresCredentialsReachTheDriverOnlyAsParsedConfig(t *testing.T) {
 	if testing.Short() {
 		t.Skip("type-checks the whole module")
 	}
+	if raceEnabled {
+		// #3354: under -race (Go 1.27.2, x/tools v0.51.0) packages.Load type-checks
+		// packages concurrently (one goroutine per package, bounded by a GOMAXPROCS
+		// semaphore inside x/tools) and the race detector reports a DATA RACE inside
+		// go/types itself, ~1 run in 15. The race is in the toolchain, not in this
+		// test or in keyorix code, and the loader's concurrency is not configurable
+		// from packages.Config. The guard keeps running in every non-race leg.
+		// Remove this skip when #3354 is closed by a toolchain/x/tools fix.
+		t.Skip("go/types data race under -race inside x/tools go/packages (#3354); runs in non-race legs")
+	}
 	const cfgPkg = "github.com/keyorixhq/keyorix/internal/config"
 	pkgs, err := packages.Load(&packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes |
