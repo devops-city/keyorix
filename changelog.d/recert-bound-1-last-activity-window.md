@@ -1,0 +1,5 @@
+### Changed
+- **"Last used" in access recertification is bounded to the review period.** The per-user last-activity lookups behind the project access review, campaign items and the dormant-grant count no longer scan the whole audit log: they read `event_time >= now - N days` on the existing `(project_id, event_time)` index, where N is `recertification.cadence_days` (default 90, at most 366; the dormant-grant count uses its 90-day threshold). "No activity" now means "no activity within the last N days", not "ever": the API (`activity_window_days`), the web UI, the campaign CSV (`last_used_window_days`, `all_history` for older campaigns) and the `dormant-access` control state the window. New default-0 column `access_review_campaigns.activity_window_days`, added automatically. See `docs/UPGRADING.md` §6g and `docs/recertification-activity-window.md`.
+
+### Testing
+- Period-boundary, hard-maximum and large-table plan tests for the five `LastUser*Activity` lookups on SQLite and PostgreSQL, and a guard that every such lookup is listed in the inventory.

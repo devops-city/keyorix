@@ -70,12 +70,13 @@ func runSkipReadsEndToEnd(t *testing.T, bin string, on bool) {
 
 	// Start 1 (bootstraps the admin), then start 2: both must warn and both
 	// must write the start-up event.
-	bootstrapAdminViaHTTP(t, bin, dir, env, "8080", "skipreadsadmin", "skip-reads@example.com", "InitialPassw0rd!")
+	port := pinFreeHTTPPort(t, dir)
+	bootstrapAdminViaHTTP(t, bin, dir, env, port, "skipreadsadmin", "skip-reads@example.com", "InitialPassw0rd!")
 	firstLog, err := os.ReadFile(filepath.Join(dir, "bootstrap-server.log")) //nolint:gosec // test-generated path
 	if err != nil {
 		t.Fatalf("read server log: %v", err)
 	}
-	secondLog := runServerExpectingItToStayUp(t, bin, dir, append(append([]string{}, env...), "KEYORIX_CONFIG_PATH=./keyorix.yaml"), "8080")
+	secondLog := runServerExpectingItToStayUp(t, bin, dir, append(append([]string{}, env...), "KEYORIX_CONFIG_PATH=./keyorix.yaml"), port)
 
 	const warning = "WARNING: storage.database.insecure_audit_skip_reads is in effect (true; config: " +
 		"storage.database.insecure_audit_skip_reads) — secret reads are NOT audited"

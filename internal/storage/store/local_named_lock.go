@@ -251,19 +251,26 @@ func heldNamedLockSession(ctx context.Context) *advisoryLockSession {
 // fn's own queries use. The advisory-lock session comes from the dedicated
 // named-lock pool (SetNamedLockDB, wired by the storage factory), never from the
 // request pool, so the request pool always drains whatever the number of keys
-// held at once. A caller waiting for a lock session holds nothing, so nothing
-// can deadlock on it; callers beyond that pool's cap queue and run a little
-// later. Two layers keep the lock pool's own use bounded:
+// held at once. Callers beyond that pool's cap queue and run a little later.
+// Two rules keep the lock pool's own use bounded and free of hold-and-wait:
 //
-//   - Layer 1: at most one goroutine per key per process is ever past the
-//     queue, so at most one lock session per key is ever parked on
-//     pg_advisory_lock. Waiters hold nothing; a cancelled waiter leaves the
-//     queue having touched no connection at all. (Before layer 1, every waiter
-//     parked a connection for its whole wait; M callers on one key exhausted a
-//     pool of M and the holder could not finish.)
+//   - Layer 1, top-level calls only: at most one top-level goroutine per key
+//     per process is ever past the queue, so at most one NEW lock session per
+//     key is ever parked on pg_advisory_lock. Queued waiters hold nothing; a
+//     cancelled waiter leaves the queue having touched no connection at all.
+//     (Before layer 1, every waiter parked a connection for its whole wait; M
+//     callers on one key exhausted a pool of M and the holder could not
+//     finish.)
 //   - A nested call under a different key reuses the outer call's lock session
 //     (namedLockConnCtxKey), so a call chain needs one lock session however
-//     many keys it nests.
+//     many keys it nests, and it waits for the inner key in Postgres on that
+//     session, never in the layer-1 queue (#3358). Waiting in-process while
+//     holding a lock session was hold-and-wait: the top-level owner of the
+//     inner key in-process waited for a lock session, and with every session
+//     held by nested callers, nothing moved. So no caller ever waits in layer
+//     1 holding a lock session, and a caller waiting for a lock session holds
+//     only layer-1 ownership, which no session holder waits for.
+//     Guard: TestWithNamedLock_NestedCallerHoldingEveryLockSession_DoesNotDeadlock.
 //
 // Before NAMEDLOCK-POOL-1 the lock session came from the request pool: one key
 // held per pool connection, each holder's fn waiting for one more, a permanent
@@ -308,9 +315,32 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 	next[lockKey] = true
 	ctx = context.WithValue(ctx, namedLockHeldCtxKey{}, next)
 
-	// #2853: queue IN-PROCESS FIRST, before any pooled connection is taken, on
-	// Postgres as well as SQLite. This is what bounds the connection cost of
-	// contention — see the connection budget note above.
+	// Reuse an outer call's already-checked-out lock session if this call chain
+	// has one (see namedLockConnCtxKey) -- a nested call under a different key
+	// must still acquire its OWN advisory lock, but never needs a SECOND
+	// lock session to do it.
+	//
+	// #3358: a nested call does NOT pass through the in-process queue. It
+	// already holds a lock session, and waiting in-process while holding one
+	// is hold-and-wait: the top-level owner of this key in-process may itself
+	// be waiting for a lock session, and with every session of the pool held
+	// by nested callers like this one, neither side can move (and every other
+	// key in the process waits for a session too). Blocking in Postgres on the
+	// session we already hold takes nothing new, and pg_advisory_lock still
+	// excludes every other holder of the key, in this process or any other.
+	// heldNamedLockSession is only ever set on the Postgres path below.
+	if sess := heldNamedLockSession(ctx); sess != nil {
+		key := namedLockKey(lockKey)
+		if err := sess.lock(ctx, key); err != nil {
+			return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
+		}
+		defer sess.unlock(ctx, key, "named lock")
+		return fn(ctx)
+	}
+
+	// #2853: a top-level call queues IN-PROCESS FIRST, before any pooled
+	// connection is taken, on Postgres as well as SQLite. This is what bounds
+	// the connection cost of contention — see the connection budget note above.
 	entry, err := ls.namedLockMu.acquire(ctx, lockKey)
 	if err != nil {
 		return fmt.Errorf("failed to acquire named lock %q: %w", lockKey, err)
@@ -322,18 +352,6 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 	}
 
 	key := namedLockKey(lockKey)
-
-	// Reuse an outer call's already-checked-out lock session if this call chain
-	// has one (see namedLockConnCtxKey) -- a nested call under a different key
-	// must still acquire its OWN advisory lock, but never needs a SECOND
-	// lock session to do it.
-	if sess := heldNamedLockSession(ctx); sess != nil {
-		if err := sess.lock(ctx, key); err != nil {
-			return fmt.Errorf("failed to acquire named advisory lock %q: %w", lockKey, err)
-		}
-		defer sess.unlock(ctx, key, "named lock")
-		return fn(ctx)
-	}
 
 	// The lock session comes from the dedicated named-lock pool (SetNamedLockDB),
 	// never from the request pool fn's own queries use: see the connection
@@ -371,8 +389,11 @@ func (ls *LocalStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 
 	// Make this lock session available to any nested WithNamedLock call under
 	// a different key, for the remainder of this call chain.
+	// Cancelled with cause ErrAdvisoryLockLost if the lock connection dies
+	// (transaction shape); fn's own error is joined with it on return.
+	ctx, finish := sess.watch(ctx, "named lock "+lockKey)
 	ctx = context.WithValue(ctx, namedLockConnCtxKey{}, sess)
-	return fn(ctx)
+	return finish(fn(ctx))
 }
 
 // SetNamedLockDB gives WithNamedLock a pool of its own for the advisory-lock

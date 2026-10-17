@@ -497,7 +497,7 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
-## 6g. A database outage now rejects cached credentials (503)
+## 6h. A database outage now rejects cached credentials (503)
 
 Behaviour change, no setting. On an HTTP request whose credential is in the
 server's ~30-second auth cache, the server re-checks the credential's
@@ -514,6 +514,31 @@ evicted, so requests are served from the cache again as soon as the database
 answers. A session whose user row was deleted is now refused `401` on its next
 request instead of being served until the cache entry expired. See
 [`security/threat-models/authentication.md`](security/threat-models/authentication.md) AUTH-11.
+
+## 6g. "Last used" in access recertification now means "within the review period"
+
+The per-user "last used" of the project access review (and of the items a campaign
+snapshots from it) used to be the user's most recent secret activity anywhere in the
+audit log. It now looks back over the recertification period only,
+`recertification.cadence_days` (default 90, at most 366). The meaning changes from
+"no activity ever" to **"no activity within the last N days"**: a user whose last
+activity is older than the period now shows no last use, so they read as dormant where
+before they showed an old date. Expect more entries flagged dormant after the upgrade
+if your cadence is shorter than your longest-idle users' last activity. Nothing is
+deleted; raise `cadence_days` (up to 366) for a longer look-back.
+
+- API: `GET /api/v1/projects/{id}/access-review` adds `activity_window_days`, and
+  campaigns carry `activity_window_days`.
+- Campaign CSV export: a new last column, `last_used_window_days` (a CSV parser that
+  reads columns by position is unaffected; one that rejects extra columns is not).
+  Campaigns opened before the upgrade say `all_history`: their `last_used_at` was
+  computed over the whole log and stays as recorded.
+- The `dormant-access` control and the digest now say "no use in the last 90 days"; the
+  dormant-grant count itself is unchanged (it was always judged against 90 days).
+- The campaigns table gets one column, `activity_window_days`, added automatically at
+  start-up (nothing to run); a rollback to the previous binary ignores it.
+
+Details: [recertification-activity-window.md](recertification-activity-window.md).
 
 ## 7. Rollback
 
@@ -546,6 +571,8 @@ If an upgrade goes wrong:
   restore), §6 (upgrades), §9 (troubleshooting).
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
+- `docs/rolling-upgrade-columns.md` for why a column added by one release does
+  not break the previous release's replicas during a rolling upgrade.
 - `CHANGELOG.md` and the GitHub release notes for the full list of changes
   in this release.
 - `design-b3-backup-v2.md` for the full backup-v2 design (§3 format, §5

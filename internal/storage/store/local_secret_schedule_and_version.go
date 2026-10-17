@@ -38,11 +38,11 @@ import (
 // yields exactly one row (an aggregate without GROUP BY), so the LEFT JOIN
 // yields exactly one row too: schedule columns NULL when there is no schedule.
 // The aggregate expressions are liveVersionsGeneration's, verbatim.
-const scheduleAndVersionsSQL = `SELECT v.cnt AS cnt, v.max_ver AS max_ver, v.sum_rc AS sum_rc,
+const scheduleAndVersionsSQL = `SELECT v.cnt AS cnt, v.max_ver AS max_ver, v.sum_rc AS sum_rc, v.sum_ce AS sum_ce,
  s.id AS sched_id, s.secret_node_id AS sched_secret_node_id, s.allowed_days AS sched_allowed_days,
  s.start_hour AS sched_start_hour, s.end_hour AS sched_end_hour, s.timezone AS sched_timezone,
  s.created_at AS sched_created_at, s.updated_at AS sched_updated_at
-FROM (SELECT COUNT(*) AS cnt, COALESCE(MAX(version_number), 0) AS max_ver, COALESCE(SUM(read_count), 0) AS sum_rc
+FROM (SELECT ` + versionsAggregateSQL + `
  FROM secret_versions WHERE secret_node_id = ?) v
 LEFT JOIN secret_access_schedules s ON s.secret_node_id = ?`
 
@@ -50,6 +50,7 @@ type scheduleAndVersionsRow struct {
 	Cnt               int64
 	MaxVer            int64
 	SumRc             int64
+	SumCe             int64
 	SchedID           *uint
 	SchedSecretNodeID *uint
 	SchedAllowedDays  *string
@@ -79,7 +80,7 @@ func readScheduleAndVersionsGeneration(ctx context.Context, db *gorm.DB, secretN
 
 // scheduleAndVersionsFromRow decodes one scheduleAndVersionsSQL-shaped row.
 func scheduleAndVersionsFromRow(row scheduleAndVersionsRow) (*models.SecretAccessSchedule, versionsGeneration) {
-	gen := versionsGeneration{count: row.Cnt, maxVersionNumber: row.MaxVer, sumReadCount: row.SumRc}
+	gen := versionsGeneration{count: row.Cnt, maxVersionNumber: row.MaxVer, sumReadCount: row.SumRc, sumCacheEpoch: row.SumCe}
 	if row.SchedID == nil {
 		return nil, gen
 	}

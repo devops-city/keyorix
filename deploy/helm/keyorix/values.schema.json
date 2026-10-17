@@ -6,6 +6,18 @@
       "description": "storage.database.audit_durability: strict | standard; empty leaves the backend default.",
       "type": "string",
       "enum": ["", "strict", "standard"]
+    },
+    "postgresql": {
+      "type": "object",
+      "properties": {
+        "settings": {
+          "description": "Extra postgres -c settings for the bundled PostgreSQL. session_replication_role is refused: anything but 'origin' turns off foreign keys and the triggers Keyorix's caches depend on (#3361).",
+          "type": ["object", "null"],
+          "not": {
+            "required": ["session_replication_role"]
+          }
+        }
+      }
     }
   }
 }

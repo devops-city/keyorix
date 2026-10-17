@@ -114,6 +114,26 @@ With `strict` (always on SQLite):
 - SQLite in WAL mode recovers on the next open; there is no manual repair
   step.
 
+How this is tested, and what that does not cover:
+
+- `scripts/edge/crash-soak.sh` runs the real server on SQLite under mixed
+  create / update / delete / read traffic, `kill -9`s it at random points
+  (including during start-up), restarts it with nothing but its config and
+  environment, and checks that it comes back with no manual step, that every
+  write the server acknowledged is still there, that `admin verify-audit`
+  reports the chain valid on the files exactly as the kill left them, and that
+  every value that was returned has its audit row.
+- `kill -9` stops the process, not the disk. It exercises the "server crash"
+  case, not a power cut; a power-cut run needs a device that drops unsynced
+  writes and has not been done yet.
+- **Known gap.** The audit row for a create, update or delete is written just
+  after that change commits, not in the same transaction. A crash in that
+  window leaves an acknowledged change with no audit row (the chain still
+  verifies; it is a missing entry, not a broken one). Reads are not affected:
+  their audit row is committed before the value is returned. The soak reports
+  this and fails on it when run with `--strict-mutation-audit`; the fix is
+  tracked as its own work item.
+
 What the software cannot do for you:
 
 - **Storage that acknowledges writes it has not made durable** (some SD cards,

@@ -16,6 +16,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/keyorixhq/keyorix/internal/core/ports"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 )
@@ -746,7 +747,7 @@ func (c *KeyorixCore) emitAudit(ctx context.Context, event *models.AuditEvent) (
 	// way the existing returned-error handling below already does.
 	defer func() {
 		if r := recover(); r != nil {
-			logAuditEmitPanic(event, r)
+			logAuditEmitPanic(ctx, event, r)
 			persisted = false
 		}
 	}()
@@ -762,7 +763,7 @@ func (c *KeyorixCore) emitAudit(ctx context.Context, event *models.AuditEvent) (
 	// those three still vulnerable. See store.auditWriteContext's doc comment for the
 	// full rationale.
 	if err := c.storage.LogAuditEvent(ctx, event); err != nil {
-		logAuditEmitFailure(event, err)
+		logAuditEmitFailure(ctx, event, err)
 		return false
 	}
 	c.afterAuditEventPersisted(event)
@@ -775,8 +776,10 @@ func (c *KeyorixCore) emitAudit(ctx context.Context, event *models.AuditEvent) (
 // condition two different ways — an operator grepping for one of these strings
 // must find every occurrence of the condition, not whichever path happened to be
 // taken.
-func logAuditEmitPanic(event *models.AuditEvent, r any) {
-	log.Printf("SECURITY: emitAudit panicked persisting audit event %q (success=%v, best-effort, primary operation already succeeded): %v", event.EventType, event.Success, r)
+func logAuditEmitPanic(ctx context.Context, event *models.AuditEvent, r any) {
+	logging.Event(ctx, logging.LevelError,
+		fmt.Sprintf("SECURITY: emitAudit panicked persisting audit event %q (success=%v, best-effort, primary operation already succeeded): %v", event.EventType, event.Success, r),
+		"event_type", event.EventType)
 }
 
 // A failed chain-write is an audit gap that VerifyAuditChain cannot detect — a
@@ -785,8 +788,10 @@ func logAuditEmitPanic(event *models.AuditEvent, r any) {
 // off-box mirror must reflect the durable chain, not events that never landed.
 // (auditForwardSink extends that same rule to an event written inside a
 // transaction that later rolls back.)
-func logAuditEmitFailure(event *models.AuditEvent, err error) {
-	log.Printf("SECURITY: failed to persist audit event %q (success=%v): %v", event.EventType, event.Success, err)
+func logAuditEmitFailure(ctx context.Context, event *models.AuditEvent, err error) {
+	logging.Event(ctx, logging.LevelError,
+		fmt.Sprintf("SECURITY: failed to persist audit event %q (success=%v): %v", event.EventType, event.Success, err),
+		"event_type", event.EventType)
 }
 
 // prepareAuditEventForEmit applies the mutations emitAudit/emitAuditWithAccessLog

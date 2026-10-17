@@ -300,7 +300,7 @@ type failingSecretWriteActivityStore struct {
 	*store.LocalStorage
 }
 
-func (s *failingSecretWriteActivityStore) LastUserSecretWriteActivity(_ context.Context, _ uint) (map[uint]time.Time, error) {
+func (s *failingSecretWriteActivityStore) LastUserSecretWriteActivity(_ context.Context, _ uint, _ time.Time) (map[uint]time.Time, error) {
 	return nil, errors.New("simulated db failure")
 }
 
@@ -329,7 +329,7 @@ type failingRoleManagementActivityStore struct {
 	*store.LocalStorage
 }
 
-func (s *failingRoleManagementActivityStore) LastUserRoleManagementActivity(_ context.Context, _ uint) (map[uint]time.Time, error) {
+func (s *failingRoleManagementActivityStore) LastUserRoleManagementActivity(_ context.Context, _ uint, _ time.Time) (map[uint]time.Time, error) {
 	return nil, errors.New("simulated db failure")
 }
 
@@ -356,7 +356,7 @@ type failingSecretsDeletionActivityStore struct {
 	*store.LocalStorage
 }
 
-func (s *failingSecretsDeletionActivityStore) LastUserSecretDeletionActivity(_ context.Context, _ uint) (map[uint]time.Time, error) {
+func (s *failingSecretsDeletionActivityStore) LastUserSecretDeletionActivity(_ context.Context, _ uint, _ time.Time) (map[uint]time.Time, error) {
 	return nil, errors.New("simulated db failure")
 }
 

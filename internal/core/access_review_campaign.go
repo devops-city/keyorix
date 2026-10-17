@@ -109,6 +109,7 @@ func (c *KeyorixCore) OpenAccessReviewCampaign(ctx context.Context, actorID, act
 			CreatedAt:                  c.now(),
 			Degraded:                   report.Degraded,
 			DegradedReasons:            report.DegradedReasons,
+			ActivityWindowDays:         report.ActivityWindowDays,
 		})
 		if cerr != nil {
 			return cerr

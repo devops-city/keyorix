@@ -480,7 +480,7 @@ func (ls *LocalStorage) ListProjectRoleAssignments(ctx context.Context, projectI
 
 	var groupRows []models.GroupRole
 	if err := ls.db.WithContext(ctx).Table("group_roles").
-		Select("group_roles.*").
+		Select(modelColumns(ls.db, &models.GroupRole{}, "group_roles")).
 		// A soft-deleted group confers no roles/authority — exclude its grant rows,
 		// matching GetUserGroupRoleIDsAt's authorization resolution. Without this a
 		// deleted group's still-present group_roles row kept showing up as a "live"

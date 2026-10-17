@@ -304,10 +304,10 @@ func mapShareError(err error) error {
 
 func shareRecordToProto(r *models.ShareRecord) *pb.ShareRecord {
 	return &pb.ShareRecord{
-		Id:          intToU32(int(r.ID)),
-		SecretId:    intToU32(int(r.SecretID)),
-		OwnerId:     intToU32(int(r.OwnerID)),
-		RecipientId: intToU32(int(r.RecipientID)),
+		Id:          uintToU32(r.ID),
+		SecretId:    uintToU32(r.SecretID),
+		OwnerId:     uintToU32(r.OwnerID),
+		RecipientId: uintToU32(r.RecipientID),
 		IsGroup:     r.IsGroup,
 		Permission:  r.Permission,
 		CreatedAt:   timestamppb.New(r.CreatedAt),

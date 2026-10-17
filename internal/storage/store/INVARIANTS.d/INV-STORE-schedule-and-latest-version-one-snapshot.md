@@ -1,7 +1,8 @@
 - **INV-STORE-schedule-and-latest-version-one-snapshot** `GetSecretScheduleAndLatestVersion`
   answers exactly what `GetSecretAccessSchedule` + `GetLatestSecretVersion` answer for the
   same secret, from ONE statement: the versions aggregate (`count, max(version_number),
-  sum(read_count)`, the same generation `liveVersionsGeneration` reads) LEFT JOIN the
+  sum(read_count), sum(cache_epoch)`, the same generation `liveVersionsGeneration` reads;
+  see INV-STORE-version-cache-sees-ciphertext-rewrite) LEFT JOIN the
   schedule row. The version row is read only on a version-cache miss, after the
   generation, and published under it (`readLatestSecretVersionRow`, shared with
   `GetLatestSecretVersion`). The schedule is read live in full and published/evicted with

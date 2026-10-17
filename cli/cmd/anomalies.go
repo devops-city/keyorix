@@ -73,6 +73,9 @@ type anomalyListResponse struct {
 }
 
 func runAnomalyList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(anomalyListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -94,25 +97,27 @@ func runAnomalyList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if len(result.Alerts) == 0 {
-		fmt.Println("No anomaly alerts found.")
-		return nil
-	}
-	fmt.Printf("Anomaly Alerts (%d total)\n", result.Total)
-	fmt.Println("======================")
-	for _, a := range result.Alerts {
-		ack := ""
-		if a.Acknowledged {
-			ack = " [ACK]"
+	return emitList(anomalyListFormat, result.Alerts, func() error {
+		if len(result.Alerts) == 0 {
+			fmt.Println("No anomaly alerts found.")
+			return nil
 		}
-		fmt.Printf("[%d] %s | %s | %s%s\n", a.ID, a.Severity, a.AlertType, a.DetectedAt[:min(16, len(a.DetectedAt))], ack)
-		// #G69: secret name/accessed-by/description are all attacker-controlled
-		// free text -- they must not be able to hide or spoof their own alert row.
-		fmt.Printf("    Secret: %s | User: %s | IP: %s\n",
-			cliout.SanitizeForTerminal(a.SecretName), cliout.SanitizeForTerminal(a.AccessedBy), cliout.SanitizeForTerminal(a.IPAddress))
-		fmt.Printf("    %s\n\n", cliout.SanitizeForTerminal(a.Description))
-	}
-	return nil
+		fmt.Printf("Anomaly Alerts (%d total)\n", result.Total)
+		fmt.Println("======================")
+		for _, a := range result.Alerts {
+			ack := ""
+			if a.Acknowledged {
+				ack = " [ACK]"
+			}
+			fmt.Printf("[%d] %s | %s | %s%s\n", a.ID, a.Severity, a.AlertType, a.DetectedAt[:min(16, len(a.DetectedAt))], ack)
+			// #G69: secret name/accessed-by/description are all attacker-controlled
+			// free text -- they must not be able to hide or spoof their own alert row.
+			fmt.Printf("    Secret: %s | User: %s | IP: %s\n",
+				cliout.SanitizeForTerminal(a.SecretName), cliout.SanitizeForTerminal(a.AccessedBy), cliout.SanitizeForTerminal(a.IPAddress))
+			fmt.Printf("    %s\n\n", cliout.SanitizeForTerminal(a.Description))
+		}
+		return nil
+	})
 }
 
 var anomalyAcknowledgeCmd = &cobra.Command{
@@ -349,6 +354,9 @@ type escalationListResponse struct {
 }
 
 func runEscalationList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(escalationListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -365,21 +373,23 @@ func runEscalationList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if len(result.Policies) == 0 {
-		fmt.Println("No alert escalation policies found.")
-		return nil
-	}
-	fmt.Printf("Alert Escalation Policies (%d)\n", len(result.Policies))
-	fmt.Println("================================")
-	for _, p := range result.Policies {
-		enabled := ""
-		if !p.Enabled {
-			enabled = " [disabled]"
+	return emitList(escalationListFormat, result.Policies, func() error {
+		if len(result.Policies) == 0 {
+			fmt.Println("No alert escalation policies found.")
+			return nil
 		}
-		fmt.Printf("[%.0f] %s — min_severity=%s, after=%d min, channels=%q%s\n",
-			p.ID, p.Name, p.MinSeverity, int(p.EscalateAfterMinutes), p.ChannelIDs, enabled)
-	}
-	return nil
+		fmt.Printf("Alert Escalation Policies (%d)\n", len(result.Policies))
+		fmt.Println("================================")
+		for _, p := range result.Policies {
+			enabled := ""
+			if !p.Enabled {
+				enabled = " [disabled]"
+			}
+			fmt.Printf("[%.0f] %s — min_severity=%s, after=%d min, channels=%q%s\n",
+				p.ID, p.Name, p.MinSeverity, int(p.EscalateAfterMinutes), p.ChannelIDs, enabled)
+		}
+		return nil
+	})
 }
 
 var (
