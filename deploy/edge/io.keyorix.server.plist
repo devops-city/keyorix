@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  io.keyorix.server.plist: start Keyorix at boot and keep it running on an
+  unattended macOS device (docs/edge-deployment.md, "Unattended operation").
+
+  Install (as root; a LaunchDaemon, not a LaunchAgent, so it runs with nobody
+  logged in):
+    sysadminctl -addUser keyorix -home /var/lib/keyorix ...   (or any service user)
+    install -d -o keyorix -m 0700 /var/lib/keyorix
+    install -m 0600 -o keyorix /dev/stdin /var/lib/keyorix/master-password
+    install -m 0644 io.keyorix.server.plist /Library/LaunchDaemons/
+    launchctl bootstrap system /Library/LaunchDaemons/io.keyorix.server.plist
+
+  The config file, database and key files live together in /var/lib/keyorix
+  (what `keyorix-server admin init` writes when run there). The passphrase file
+  must be readable by its owner only; the server refuses a group- or
+  world-readable one (ADR-099).
+
+  Not run on a real launchd host in CI: deploy/edge/edge_units_test.go checks
+  the structure of this file only.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.keyorix.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/keyorix-server</string>
+    <string>--passphrase-file</string>
+    <string>/var/lib/keyorix/master-password</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KEYORIX_CONFIG_PATH</key>
+    <string>/var/lib/keyorix/keyorix.yaml</string>
+  </dict>
+  <key>UserName</key>
+  <string>keyorix</string>
+  <key>WorkingDirectory</key>
+  <string>/var/lib/keyorix</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Restart after any exit, crash or kill. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>/var/log/keyorix-server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/keyorix-server.log</string>
+</dict>
+</plist>
