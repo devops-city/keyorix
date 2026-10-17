@@ -30,18 +30,13 @@ import (
 func TestPostCommitDiscardedWritePanic_IsNotReportedAsFailure(t *testing.T) {
 	cases := []struct {
 		op, method string
-		// fullOracle runs checkOraclesReporting on the driven case. It is off
-		// only for the SAML ACS op, whose fixture mints a random SAML subject
-		// per world, so its success-branch comparison against the independent
-		// reference world can never match (#2934: pre-existing, reproduces on
-		// main with kind=error, which this change does not touch). For that
-		// case the effect is asserted directly instead.
+		// fullOracle runs checkOraclesReporting on the driven case.
 		fullOracle bool
 	}{
 		{op: "GRPC keyorix.v1.UserService.CreateUser", method: "AddPasswordHistory", fullOracle: true},
 		{op: "REST POST /api/v1/auth/change-password", method: "PrunePasswordHistory", fullOracle: true},
 		{op: "REST POST /api/v1/auth/change-password", method: "AddPasswordHistory", fullOracle: true},
-		{op: "REST POST /auth/saml/{provider}/acs", method: "UpdateLastLogin"},
+		{op: "REST POST /auth/saml/{provider}/acs", method: "UpdateLastLogin", fullOracle: true},
 		// #2844 sweep: resolveKeepSession's GetSession runs after the MFA
 		// change has committed; its panic escaped, reported the change as
 		// failed and skipped the session purge that must follow it.
