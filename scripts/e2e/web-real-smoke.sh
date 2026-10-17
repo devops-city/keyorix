@@ -211,13 +211,20 @@ seed_demo_data() {
     local group_label="$1" server_url="$2" token="$3" project_name="$4"
     local lowpriv_username="$5" lowpriv_password="$6"
 
+    # The bearer token travels in a 0600 header file (`-H @file`) and the JSON body (which can
+    # carry a password) on stdin, never on curl's argv (SCRIPTS-SECRETS-2).
     api() { # api METHOD PATH [JSON-BODY]
+        local hdr rc=0
+        hdr="$(mktemp)"
+        printf 'Authorization: Bearer %s\n' "$token" >"$hdr"
         if [ -n "${3:-}" ]; then
-            curl -s -X "$1" "$server_url$2" -H "Authorization: Bearer $token" \
-                -H "Content-Type: application/json" -d "$3"
+            printf '%s' "$3" | curl -s -X "$1" "$server_url$2" -H "@$hdr" \
+                -H "Content-Type: application/json" --data-binary @- || rc=$?
         else
-            curl -s -X "$1" "$server_url$2" -H "Authorization: Bearer $token"
+            curl -s -X "$1" "$server_url$2" -H "@$hdr" || rc=$?
         fi
+        rm -f "$hdr"
+        return "$rc"
     }
 
     echo "==> [group $group_label] seeding project \"$project_name\""
@@ -485,10 +492,13 @@ run_group() {
 
     echo "==> [group $group_label] bootstrapping admin via POST /system/init"
     local init_code
-    init_code="$(curl -s -o "$smoke_dir/init-response.json" -w '%{http_code}' -X POST "$server_url/system/init" \
-        -H "Content-Type: application/json" \
-        -H "X-Keyorix-Bootstrap-Token: $bootstrap_token" \
-        -d "{\"username\":\"$admin_username\",\"email\":\"$admin_email\",\"password\":\"$admin_password\",\"display_name\":\"Web E2E Admin\"}")"
+    # Bootstrap token in a 0600 header file, JSON body on stdin: neither is on curl's argv.
+    local bootstrap_hdr="$smoke_dir/bootstrap.hdr"
+    (umask 077 && printf 'X-Keyorix-Bootstrap-Token: %s\n' "$bootstrap_token" >"$bootstrap_hdr")
+    init_code="$(printf '%s' "{\"username\":\"$admin_username\",\"email\":\"$admin_email\",\"password\":\"$admin_password\",\"display_name\":\"Web E2E Admin\"}" |
+        curl -s -o "$smoke_dir/init-response.json" -w '%{http_code}' -X POST "$server_url/system/init" \
+            -H "Content-Type: application/json" -H "@$bootstrap_hdr" --data-binary @-)"
+    rm -f "$bootstrap_hdr"
     [ "$init_code" = "200" ] || fail "[group $group_label] POST /system/init returned $init_code: $(cat "$smoke_dir/init-response.json")"
 
     echo "==> [group $group_label] creating a project + secret so the real pages have something to show"
@@ -496,9 +506,9 @@ run_group() {
     # so a login that FAILS reports the server's own error instead of a Python
     # KeyError on "data" -- the shape every non-200 login response takes.
     local token
-    curl -s -X POST "$server_url/auth/login" -H "Content-Type: application/json" \
-        -d "{\"username\":\"$admin_username\",\"password\":\"$admin_password\"}" \
-        -o "$smoke_dir/login-response.json"
+    printf '%s' "{\"username\":\"$admin_username\",\"password\":\"$admin_password\"}" |
+        curl -s -X POST "$server_url/auth/login" -H "Content-Type: application/json" \
+            --data-binary @- -o "$smoke_dir/login-response.json"
     token="$(python3 -c 'import sys,json
 try:
     print(json.load(open(sys.argv[1]))["data"]["token"])
