@@ -140,7 +140,9 @@ func runSystemInit(cmd *cobra.Command, _ []string) error {
 	fmt.Printf("  +-- Environments: %s\n", envList)
 	fmt.Printf("  +-- Admin user: %s (change password after first login)\n", username)
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  keyorix login --server %s\n", server)
+	fmt.Printf("  keyorix login --server %s --username %s\n", server, username)
+	fmt.Printf("  keyorix mfa enroll      (required by default: secrets stay locked until the admin has a second factor)\n")
+	fmt.Printf("  keyorix mfa activate\n")
 	fmt.Printf("  keyorix secret create --name my-first-secret --interactive\n")
 	return nil
 }

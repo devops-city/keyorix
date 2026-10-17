@@ -87,7 +87,11 @@ treat as suspended-with-clear (an expired secret that is *not* suspended with th
 still keeps its copies). The
 choice lives only as long as the suspension: resuming removes it and the next reconcile
 restores the data. It needs the same permission as suspending and is recorded in the
-`secret.suspended` audit event (`clear_synced_copies=true`). Suspending only blocks reads
+`secret.suspended` audit event (`clear_synced_copies=true`), committed in the same
+transaction as the status change and the choice: if the audit log cannot record it, the
+request fails (500) and nothing changes, and the error says to *suspend without clearing to
+cut access now*. A plain suspend is never blocked by the audit log, so it blocks reads at
+once; repeat the suspend with the choice once the audit log is back. Suspending only blocks reads
 from Keyorix: a copy already in a cluster, a log or a build stays valid until the secret
 is rotated at its source, so rotate after a compromise. An operator that predates this
 field ignores the detail and follows `spec.onSuspend` (the safe direction: it never clears
@@ -104,7 +108,9 @@ sees the same `details.clear_synced_copies` per secret. One `secret.bulk_suspend
 audit event records the choice and how many secrets were targeted before any secret is
 touched (if it cannot be recorded, nothing is suspended); each secret also gets its own
 `secret.suspended` event, committed in the same transaction as that secret's status change
-and marker (a secret whose event cannot be recorded stays active and is not counted).
+and marker (a secret whose event cannot be recorded stays active and is not counted, and the
+freeze stops there). Both refusals answer 500 with the same advice: *suspend without
+clearing to cut access now* (a plain freeze).
 `resume-all` removes the choice from every secret it resumes.
 
 A confirmed 404/403 is a different signal and still follows `spec.prunePolicy` (see

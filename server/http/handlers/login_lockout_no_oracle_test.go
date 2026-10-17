@@ -272,7 +272,7 @@ func (e *lockoutOracleEnv) driveToThresholdMinusOne(t *testing.T) {
 // #3267: the PANIC kind of the identity read is here too, answered through
 // the production Recovery middleware (postLogin). Before the fix it got the
 // Recovery 500 and an uncounted lockout, both of which a wrong password never
-// gets.
+// gets. #3277: the same for a PANIC in the session insert.
 func TestLogin_PostVerdictFaultCostsTheSameAsAWrongPassword(t *testing.T) {
 	for _, c := range []struct {
 		method string
@@ -285,6 +285,7 @@ func TestLogin_PostVerdictFaultCostsTheSameAsAWrongPassword(t *testing.T) {
 		{"GetUserRoles", faultstorage.KindEffectThenError},
 		{"GetUserPermissions", faultstorage.KindPanic},
 		{"GetUserRoles", faultstorage.KindPanic},
+		{"CreateSession", faultstorage.KindPanic}, // #3277
 	} {
 		method, kind := c.method, c.kind
 		t.Run(method+"/"+kind.String(), func(t *testing.T) {
@@ -389,22 +390,30 @@ func TestLogin_SuspendBetweenPasswordCheckAndSessionInsertCostsTheSameAsAWrongPa
 // the handler then issues the challenge. If that write fails, the client gets
 // the wrong-password 401 -- so the lockout cost has to match too, which is what
 // RecordPostVerdictLoginFailure is for.
+//
+// #3277 follow-up: the PANIC kind too, through the production Recovery
+// middleware (postLogin). Before, it got the Recovery 500 and an uncounted
+// lockout, which a wrong password never gets.
 func TestLogin_CreateMFAChallengeFaultCostsTheSameAsAWrongPassword(t *testing.T) {
-	ctrlEnv := newLockoutOracleEnvWithMFA(t)
-	ctrlEnv.driveToThresholdMinusOne(t)
-	control := ctrlEnv.observe(t, ctrlEnv.postLogin(t, "still-not-her-password"))
-	require.True(t, control.locked, "control: a wrong password at threshold-1 must lock the account")
+	for _, kind := range []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindPanic} {
+		t.Run(kind.String(), func(t *testing.T) {
+			ctrlEnv := newLockoutOracleEnvWithMFA(t)
+			ctrlEnv.driveToThresholdMinusOne(t)
+			control := ctrlEnv.observe(t, ctrlEnv.postLogin(t, "still-not-her-password"))
+			require.True(t, control.locked, "control: a wrong password at threshold-1 must lock the account")
 
-	probeEnv := newLockoutOracleEnvWithMFA(t)
-	probeEnv.driveToThresholdMinusOne(t)
-	probeEnv.fs.Arm(&faultstorage.FaultSpec{
-		Method: "CreateMFAChallenge", NthCall: 1, Kind: faultstorage.KindError, Err: assert.AnError,
-	})
-	w := probeEnv.postLogin(t, lockoutOracleTestPassword)
-	require.True(t, probeEnv.fs.Fired(), "the armed CreateMFAChallenge fault must actually have fired")
-	probe := probeEnv.observe(t, w)
+			probeEnv := newLockoutOracleEnvWithMFA(t)
+			probeEnv.driveToThresholdMinusOne(t)
+			probeEnv.fs.Arm(&faultstorage.FaultSpec{
+				Method: "CreateMFAChallenge", NthCall: 1, Kind: kind, Err: assert.AnError,
+			})
+			w := probeEnv.postLogin(t, lockoutOracleTestPassword)
+			require.True(t, probeEnv.fs.Fired(), "the armed CreateMFAChallenge fault must actually have fired")
+			probe := probeEnv.observe(t, w)
 
-	requireIndistinguishable(t, control, probe, "login/CreateMFAChallenge")
+			requireIndistinguishable(t, control, probe, "login/CreateMFAChallenge/"+kind.String())
+		})
+	}
 }
 
 // TestLogin_PostVerdictFaultAuditsLoginErrorNotLoginFailed is the other half of
@@ -523,6 +532,8 @@ func TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 	// got the Recovery 500 (a wrong code never reaches the identity read, so a
 	// 500 meant "the code was right"), the lockout went uncounted and nothing
 	// was audited, while the TOTP step stayed burned and the slot stayed spent.
+	// #3277: the same for a PANIC in the two post-verdict writes, the
+	// anti-replay mark and the session insert.
 	for _, c := range []struct {
 		method string
 		kind   faultstorage.FaultKind
@@ -536,6 +547,8 @@ func TestVerifyMFA_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 		{"MarkTOTPStepUsed", faultstorage.KindEffectThenError},
 		{"GetUserPermissions", faultstorage.KindPanic},
 		{"GetUserRoles", faultstorage.KindPanic},
+		{"MarkTOTPStepUsed", faultstorage.KindPanic}, // #3277
+		{"CreateSession", faultstorage.KindPanic},    // #3277
 	} {
 		method, kind := c.method, c.kind
 		t.Run(method+"/"+kind.String(), func(t *testing.T) {
@@ -626,6 +639,63 @@ func TestVerifyMFA_IdentityReadPanicAuditsLoginErrorAndKeepsTheCodeBurned(t *tes
 			var sessions int64
 			require.NoError(t, env.db.Model(&models.Session{}).Count(&sessions).Error)
 			assert.Zero(t, sessions, "neither the panicked attempt nor the replay may mint a session")
+		})
+	}
+}
+
+// TestVerifyMFA_WritePanicKeepsTheCodeBurned is the rest of #3277's decided
+// outcome for a PANIC in a post-verdict write on /auth/mfa/verify, through the
+// production Recovery middleware: the audit record the same write's error kind
+// writes (mfa.error for the anti-replay mark, auth.login_error for the session
+// insert), no session, and the TOTP step. For CreateSession the step was
+// consumed before the panic and must stay consumed (the error kind gives it
+// back, the panic kind must not: after a panic the absence of the session row
+// rests on a best-effort delete), so a replay of the same code is refused.
+// MarkTOTPStepUsed's mark never landed here (FaultyStorage panics in place of
+// the call), so that code was never accepted; internal/core's
+// TestLoginWritePanic_DeniedLikeItsError covers a mark that landed and then
+// panicked.
+func TestVerifyMFA_WritePanicKeepsTheCodeBurned(t *testing.T) {
+	for _, c := range []struct {
+		method, auditEvent string
+		replayRefused      bool
+	}{
+		{"MarkTOTPStepUsed", "mfa.error", false},
+		{"CreateSession", "auth.login_error", true},
+	} {
+		t.Run(c.method, func(t *testing.T) {
+			env := newLockoutOracleEnvWithMFA(t)
+			code, err := totp.GenerateCode(env.totpSecret, env.clock)
+			require.NoError(t, err)
+
+			ch, err := env.h.coreService.CreateMFAChallenge(context.Background(), 1)
+			require.NoError(t, err)
+			env.fs.Arm(&faultstorage.FaultSpec{Method: c.method, NthCall: 1, Kind: faultstorage.KindPanic})
+			w := env.postVerify(t, ch, code)
+			require.True(t, env.fs.Fired(), "the armed %s panic must actually have fired", c.method)
+			env.fs.Arm(nil)
+			require.Equal(t, http.StatusUnauthorized, w.Code, "a post-verdict panic must get the wrong-code 401, not the Recovery 500: %s", w.Body.String())
+			assert.Empty(t, w.Result().Cookies(), "a denied login sets no session cookie")
+
+			assert.Equal(t, int64(1), waitForAuditEvent(t, env.db, c.auditEvent),
+				"a post-verdict %s panic must be audited %s, like the same fault returned as an error", c.method, c.auditEvent)
+
+			var sessions int64
+			require.NoError(t, env.db.Model(&models.Session{}).Count(&sessions).Error)
+			require.Zero(t, sessions, "the panicked attempt must leave no session")
+
+			replay, err := env.h.coreService.CreateMFAChallenge(context.Background(), 1)
+			require.NoError(t, err)
+			w = env.postVerify(t, replay, code)
+			if c.replayRefused {
+				assert.Equal(t, http.StatusUnauthorized, w.Code,
+					"the code was accepted before the session insert panicked, so its TOTP step must stay burned: a replay must be refused")
+				require.NoError(t, env.db.Model(&models.Session{}).Count(&sessions).Error)
+				assert.Zero(t, sessions, "neither the panicked attempt nor the replay may mint a session")
+			} else {
+				assert.Equal(t, http.StatusOK, w.Code,
+					"calibration: the mark never landed, so the code was never accepted and is still good once: %s", w.Body.String())
+			}
 		})
 	}
 }

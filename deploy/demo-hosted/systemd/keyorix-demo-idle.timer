@@ -1,0 +1,10 @@
+[Unit]
+Description=Keyorix hosted demo: idle check every 5 minutes
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=5min
+Unit=keyorix-demo-idle.service
+
+[Install]
+WantedBy=timers.target

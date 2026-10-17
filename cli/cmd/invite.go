@@ -106,7 +106,7 @@ func init() {
 
 func runInviteSend(cmd *cobra.Command, args []string) error {
 	if inviteSendEmail == "" || inviteSendRole == "" {
-		return fmt.Errorf("--email and --role are required")
+		return usageErrorf("--email and --role are required")
 	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {
@@ -243,7 +243,7 @@ func init() {
 
 func runInviteRevoke(cmd *cobra.Command, args []string) error {
 	if inviteRevokeID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {
@@ -290,7 +290,7 @@ func init() {
 
 func runInviteResend(cmd *cobra.Command, args []string) error {
 	if inviteResendID == 0 {
-		return fmt.Errorf("invitation id is required (use --id)")
+		return usageErrorf("invitation id is required (use --id)")
 	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {

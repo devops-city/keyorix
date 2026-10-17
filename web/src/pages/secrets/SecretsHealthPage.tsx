@@ -319,7 +319,7 @@ const AccessCardContent: React.FC<AccessCardContentProps> = ({ access, isDark, o
     return (
         <>
             <StatRow label="Secret reads (last 30d)" value={access.reads30d} dot="neutral" />
-            <StatRow label="Failed auth attempts (24h)" value={access.failedAuth24h} dot={failedAuthDot} />
+            <StatRow label="Failed logins (24h)" value={access.failedAuth24h} dot={failedAuthDot} />
             <StatRow
                 label="Inactive users (no login 30d)"
                 value={access.inactiveUsers}
@@ -338,7 +338,7 @@ const AccessCardContent: React.FC<AccessCardContentProps> = ({ access, isDark, o
                     onClick={onFailedAuthClick}
                 >
                     <ExclamationTriangleIcon className="h-4 w-4 shrink-0" />
-                    High number of failed auth attempts. Review audit log for potential brute-force activity.
+                    High number of failed logins. Review audit log for potential brute-force activity.
                 </button>
             )}
         </>

@@ -182,7 +182,7 @@ func runRotList(_ *cobra.Command, _ []string) error {
 
 func runRotCreate(_ *cobra.Command, _ []string) error {
 	if strings.TrimSpace(rotCName) == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	if rotCScope != "project" && rotCScope != "environment" {
 		return fmt.Errorf("--scope must be 'project' or 'environment'")
@@ -191,10 +191,10 @@ func runRotCreate(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("--interval-days must be between 1 and 365")
 	}
 	if rotCScope == "project" && rotCProject == 0 {
-		return fmt.Errorf("--project-id is required when --scope project")
+		return usageErrorf("--project-id is required when --scope project")
 	}
 	if rotCScope == "environment" && rotCEnv == 0 {
-		return fmt.Errorf("--environment-id is required when --scope environment")
+		return usageErrorf("--environment-id is required when --scope environment")
 	}
 
 	body := apiclient.CreateRotationPolicyJSONRequestBody{

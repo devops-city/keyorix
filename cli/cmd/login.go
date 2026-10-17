@@ -32,7 +32,12 @@ var loginCmd = &cobra.Command{
 	Short: "Authenticate to a Keyorix server and store the resulting token",
 	Long: `login exchanges a username and password for a session token via POST /auth/login,
 verifies it against GET /api/v1/auth/profile, and stores it (with the server URL) at the
-one credential-file location this CLI uses (see "keyorix status --help").
+one credential-file location this CLI uses: keyorix/credentials.yaml under the OS user
+config directory (~/.config on Linux, ~/Library/Application Support on macOS).
+
+The password is read from, in order: --password (insecure: visible in ps and shell
+history), KEYORIX_PASSWORD or the file named by KEYORIX_PASSWORD_FILE, then a no-echo
+prompt. With no terminal and neither variable set, login stops with an error.
 
 When the account has TOTP multi-factor authentication enabled, /auth/login answers with a
 second-factor challenge instead of a token; login then asks for an authenticator code (or
@@ -45,7 +50,7 @@ is never echoed, never logged, and never written to the credential file.`,
 func init() {
 	loginCmd.Flags().StringVar(&loginServerURL, "server", "", "Server base URL (or set KEYORIX_SERVER)")
 	loginCmd.Flags().StringVar(&loginUsername, "username", "", "Username")
-	loginCmd.Flags().StringVar(&loginPassword, "password", "", "Password (omit to be prompted)")
+	loginCmd.Flags().StringVar(&loginPassword, "password", "", "Password (INSECURE on the command line -- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted)")
 	loginCmd.Flags().StringVar(&loginMFACode, "mfa-code", "", "Authenticator (TOTP) code or an unused recovery code, for an MFA-enabled account (omit to be prompted)")
 }
 
@@ -373,7 +378,7 @@ func resolveLoginPassword(cmd *cobra.Command) (string, error) {
 	}
 	p, err := promptPassword("Password: ")
 	if err != nil {
-		return "", fmt.Errorf("read password: %w", err)
+		return "", fmt.Errorf("read password: %w (no password given and no terminal to prompt on: set KEYORIX_PASSWORD_FILE to a 0600 file holding it, or pipe it on stdin)", err)
 	}
 	return p, nil
 }

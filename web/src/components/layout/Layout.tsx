@@ -6,6 +6,7 @@ import { Footer } from './Footer';
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { ImpersonationBanner } from './ImpersonationBanner';
 import { AuditReadsSkippedBanner } from './AuditReadsSkippedBanner';
+import { AuditOwedBanner } from './AuditOwedBanner';
 import { CmdKSearch } from '../ui/CmdKSearch';
 import { isPaletteShortcut } from '../../utils/platform';
 import { useAuthStore } from '../../store/authStore';
@@ -55,6 +56,9 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
 
                     {/* Persistent while secret reads are not audited (ADR-112 Amendment 4) */}
                     <AuditReadsSkippedBanner />
+
+                    {/* While suspensions are missing from the audit log (system.write only) */}
+                    <AuditOwedBanner />
 
                     {/* Header */}
                     <Header onMenuClick={() => setSidebarOpen(true)} />
