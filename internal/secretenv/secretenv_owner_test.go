@@ -78,3 +78,80 @@ func TestLookup_ForeignNonRootOwner_LeftToCaller(t *testing.T) {
 	assert.True(t, found)
 	assert.Equal(t, "TOPSECRET", v)
 }
+
+// withOwner makes every file report owner uid/gid and the process run as euid,
+// holding the file's group.
+func withOwner(t *testing.T, uid, gid, euid int) {
+	t.Helper()
+	oldUID, oldGroups, oldOwner := processUID, processGroups, fileOwner
+	t.Cleanup(func() { processUID, processGroups, fileOwner = oldUID, oldGroups, oldOwner })
+	fileOwner = func(os.FileInfo) (int, int, bool) { return uid, gid, true }
+	processUID = func() int { return euid }
+	processGroups = func() []int { return []int{gid} }
+}
+
+// The second shape in #3393: a group-readable file in a group the process holds
+// used to pass whenever its owner was anyone but the running user. Only root
+// (the kubelet, Docker Swarm) is a trusted foreign owner now.
+func TestCheckPermissions_GroupReadableForeignNonRootOwner_Refuses(t *testing.T) {
+	for _, mode := range []os.FileMode{0o440, 0o640} {
+		p := writeSecret(t, "x", mode)
+		withOwner(t, 1000, 4242, 1001)
+		err := CheckPermissions(p)
+		require.Error(t, err, "mode %04o", mode)
+		assert.Contains(t, err.Error(), "uid 1000")
+		assert.Contains(t, err.Error(), "uid 1001")
+	}
+}
+
+func TestCheckPermissions_TrustedOwners(t *testing.T) {
+	cases := []struct {
+		name           string
+		mode           os.FileMode
+		uid, euid      int
+		wantErrContain string
+	}{
+		{"0400 root-owned, server non-root", 0o400, 0, 1001, ""},
+		{"0440 root-owned, server non-root (k8s fsGroup)", 0o440, 0, 1001, ""},
+		{"0600 root-owned, server root", 0o600, 0, 0, ""},
+		{"0600 own file", 0o600, 1001, 1001, ""},
+		{"0400 own file", 0o400, 1001, 1001, ""},
+		{"0400 owned by uid 1000, server root", 0o400, 1000, 0, "uid 1000"},
+		{"0600 owned by uid 1000, server 1001", 0o600, 1000, 1001, "uid 1000"},
+		{"0440 root-owned, server root: group-readable own file", 0o440, 0, 0, "owned by the running user"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := writeSecret(t, "x", tc.mode)
+			withOwner(t, tc.uid, 4242, tc.euid)
+			err := CheckPermissions(p)
+			if tc.wantErrContain == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErrContain)
+		})
+	}
+}
+
+func TestLookupChecked_RootOwnedFileAccepted(t *testing.T) {
+	p := writeSecret(t, "TOPSECRET\n", 0o400)
+	withOwner(t, 0, 4242, 1001)
+	t.Setenv(testVar+"_FILE", p)
+	v, found, err := LookupChecked(testVar)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, "TOPSECRET", v)
+}
+
+// Fail closed when the platform does not say who owns the file.
+func TestCheckPermissions_UnknownOwner_Refuses(t *testing.T) {
+	p := writeSecret(t, "x", 0o600)
+	old := fileOwner
+	t.Cleanup(func() { fileOwner = old })
+	fileOwner = func(os.FileInfo) (int, int, bool) { return 0, 0, false }
+	err := CheckPermissions(p)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "owner cannot be determined")
+}
