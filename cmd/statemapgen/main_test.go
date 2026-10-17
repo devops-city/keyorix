@@ -56,7 +56,7 @@ func readLines(t *testing.T, path string) []string {
 func diffLines(want, got []string) []string {
 	var out []string
 	n := max(len(want), len(got))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var w, g string
 		if i < len(want) {
 			w = want[i]
