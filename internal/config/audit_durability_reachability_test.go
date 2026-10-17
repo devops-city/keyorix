@@ -38,9 +38,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // auditDurabilityRawFieldAllowedFiles is the exhaustive, reasoned inventory of
@@ -60,10 +61,7 @@ var auditDurabilityRawFieldAllowedFiles = map[string]string{}
 // file's own location (internal/config/..), so the scan works regardless of
 // the test runner's working directory.
 func repoRootForFastAuditScan() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "audit_durability_reachability_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 

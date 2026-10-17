@@ -47,11 +47,12 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/stretchr/testify/require"
 )
@@ -199,10 +200,7 @@ func beforeSaveHookedFields(t *testing.T, fset *token.FileSet) map[string]map[st
 // location on disk, so the guard works regardless of the test runner's
 // working directory.
 func repoRootG1619() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "g1619_beforesave_bypass_guard_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 }
 
