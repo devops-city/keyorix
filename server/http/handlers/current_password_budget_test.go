@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,6 +23,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
@@ -31,7 +31,7 @@ const currentPwNew = "Brandnew#Passw0rd!y"
 
 func openCurrentPasswordDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxcurpwbudget%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
+	db := openLoginBudgetDB(t, sqlitetest.DSN("kxcurpwbudget"))
 	require.NoError(t, db.AutoMigrate(&models.PersonalAccessToken{}))
 	return db
 }
