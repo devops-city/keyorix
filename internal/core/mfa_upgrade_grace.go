@@ -223,6 +223,10 @@ func (g *mfaUpgradeGrace) end(ctx context.Context, c *KeyorixCore, now time.Time
 	if _, found, err := c.storage.GetSystemMetadata(ctx, g.w.EnforcedMarkerKey); err == nil && found {
 		return
 	}
+	// Audited once per deployment: the replica that writes the marker. The
+	// start-to-start settings diff records the same transition at the next boot.
+	c.writeAuditEventFull(ctx, "security.require_mfa_grace_ended", nil, nil, nil, "",
+		"ADR-112 require_mfa upgrade grace period ended ("+why+"); MFA is now enforced for interactive logins")
 	if err := c.storage.SetSystemMetadata(ctx, g.w.EnforcedMarkerKey, now.UTC().Format(time.RFC3339)); err != nil {
 		log.Printf("WARNING: ADR-112: could not record the %s marker (%v); MFA stays enforced on this server, and the next boot re-derives the end", g.w.EnforcedMarkerKey, err)
 	}

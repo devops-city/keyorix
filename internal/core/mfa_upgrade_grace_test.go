@@ -69,7 +69,7 @@ type graceFixture struct {
 var graceModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-	&models.SystemMetadata{},
+	&models.SystemMetadata{}, &models.AuditEvent{},
 }
 
 // runGraceBackends runs fn on SQLite and, when KEYORIX_TEST_PG_DSN is set, on
@@ -153,6 +153,9 @@ func TestMFAUpgradeGrace_ActiveUntilFirstAdminEnrolment(t *testing.T) {
 			"after the grace period a user without a second factor is sent to enrolment")
 		_, found := f.marker(t)
 		assert.True(t, found, "the end writes the enforcement marker, so no later boot grants the grace period")
+		var ended int64
+		require.NoError(t, f.db.Model(&models.AuditEvent{}).Where("event_type = ?", "security.require_mfa_grace_ended").Count(&ended).Error)
+		assert.EqualValues(t, 1, ended, "the end of the grace period is audited once")
 
 		// The admin dropping the passkey again does not reopen it.
 		require.NoError(t, f.db.Model(&models.User{}).Where("id = ?", 1).Update("web_authn_enabled", false).Error)
