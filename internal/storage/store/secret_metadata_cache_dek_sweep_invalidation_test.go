@@ -27,6 +27,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"testing"
 	"time"
@@ -40,6 +41,23 @@ import (
 )
 
 const sweepCachePlaintext = "the-secret-value"
+
+func newSweepTestEncSvc(t *testing.T) *encryption.EncryptionService {
+	t.Helper()
+	dek := make([]byte, 32)
+	_, err := rand.Read(dek)
+	require.NoError(t, err)
+	svc, err := encryption.NewEncryptionService(dek)
+	require.NoError(t, err)
+	return svc
+}
+
+func decryptVersion(t *testing.T, svc *encryption.EncryptionService, v *models.SecretVersion, aad []byte) ([]byte, error) {
+	t.Helper()
+	enc, err := encryption.DeserializeEncryptedData(v.EncryptedValue)
+	require.NoError(t, err)
+	return svc.DecryptWithAAD(enc, aad)
+}
 
 // sweepCacheWorld is one secret with one version encrypted under oldSvc, warm in
 // every replica's cache.

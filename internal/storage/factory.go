@@ -1599,6 +1599,13 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 			return err
 		}
 	}
+	// DEK-SWEEP-CACHE-1: secret_versions.cache_epoch, the latest-version cache
+	// generation term the DEK sweep raises. UPGRADE call site (a fresh install gets
+	// the column from models.SecretVersion; the tail below covers that path too).
+	// No-op until secret_versions exists.
+	if err := store.EnsureSecretVersionCacheEpoch(db); err != nil {
+		return err
+	}
 	// #3259: the triggers that move role_permissions_generation on every write to
 	// role_permissions/permissions, direct SQL included. The UPGRADE call site,
 	// for the same reason as cache_epoch's above (the tail below only runs on a
@@ -2984,6 +2991,11 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// could drift — and so they fail loudly instead of running against a
 		// trigger-less schema, i.e. a stamp that never moves, passing vacuously.
 		if err := store.EnsureSecretNodeCacheEpoch(tx); err != nil {
+			return err
+		}
+		// DEK-SWEEP-CACHE-1: no-op when AutoMigrate already created the column from
+		// models.SecretVersion; covers a half-migrated install.
+		if err := store.EnsureSecretVersionCacheEpoch(tx); err != nil {
 			return err
 		}
 		// #3259: the role->permission cache generation triggers (fresh-install

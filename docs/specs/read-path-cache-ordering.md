@@ -143,13 +143,17 @@ costs a column, a trigger pair, an upgrade path and a fail-closed probe per tabl
 - `secret_access_schedules` — the row is small enough that the stamp covers the *whole* policy
   (`allowed_days`, `start_hour`, `end_hour`, `timezone`) at no cost, leaving no residual gap: a
   tie implies an identical policy, so serving the cached one is correct.
-- `secret_versions` — the aggregate `(count, max(version_number), sum(read_count))` has no clock
-  in it and one known residual exception (a DEK rewrap rewrites `encrypted_value` without moving
-  any term). **Decided safe, no trigger** (STORAGE-2): a warm entry can only live in a process
-  that still holds the old DEK, where it decrypts to the same plaintext; a holder of only the new
-  DEK fails closed; the copy is bounded by the cache TTL and process lifetime. Pinned by
-  `TestDEKSweep_WarmLatestVersionCacheServesOldCiphertextSamePlaintext`; reasoning in the
-  `secret_metadata_cache.go` header.
+- `secret_versions` — the aggregate `(count, max(version_number), sum(read_count),
+  sum(cache_epoch))` has no clock in it. The one writer that rewrites `encrypted_value` in place,
+  the DEK-rotation sweep, moves none of the first three terms, so it raises `cache_epoch` on every
+  row it rewrites, in its own transaction (DEK-SWEEP-CACHE-1; STORAGE-2 had decided the gap safe
+  and pinned it, which this replaces). A plain column set by its one writer, not a trigger:
+  nothing else rewrites the ciphertext, and
+  `TestSecretVersionCiphertextWriters_AreOnlyTheSweep` fails if something starts to. The term
+  rides in the aggregate the hit already issues, so the read path gains no statement, and the
+  ordering rule of section 1 is untouched (generation first, then the row). Another replica learns
+  of the rewrap the same way it learns of a new version: its next hit reads the changed
+  aggregate. Pinned by `TestDEKSweepCache_*` and `TestSingleWriter_DEKSweepVsLatestVersionCache`.
 
 The test: **is the row wide enough that reading a content stamp approaches reading the row?** If
 yes, trigger. If no, derive from content and state the residual gap.
@@ -482,9 +486,12 @@ The method, for the record and for the `role_permissions` half:
    `bumpRolePermissionsGenerationTx` in the writer's own transaction.
 3. Add a table row (item 3) per writer *type*: version create, schedule set, schedule delete,
    role-permission grant, revoke, role delete, soft-delete, restore, status transition.
-4. Writers that only run with the server stopped, under the exclusive key lock (the DEK
-   rotation sweep and friends), are acceptable without a bump — **but they get named in the
-   doc**, with the reason, so "we checked and decided" is distinguishable from "we missed it".
+4. Writers that only run with the server stopped, under the exclusive key lock, are acceptable
+   without a bump only if no replica can hold a warm entry across them — **and they get named in
+   the doc**, with the reason, so "we checked and decided" is distinguishable from "we missed
+   it". The DEK-rotation sweep was listed here as such a writer and was wrong: a replica on
+   another host sharing only the database keeps its cache across the sweep, so the sweep now
+   raises `secret_versions.cache_epoch` (section 1.1).
 
 Two specific things this enumeration was expected to have an answer for. Both now have one, on
 the record:
