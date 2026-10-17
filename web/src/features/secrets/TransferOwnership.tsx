@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Alert } from '../../components/ui/Alert';
+import { useConfirm } from '../../components/ui/useConfirm';
 import { useTransferOwnership } from './api';
 import { usersApi } from '../../services/users';
 import { Recipient } from '../../types';
@@ -22,6 +23,7 @@ export const TransferOwnership: React.FC<TransferOwnershipProps> = ({ secretId, 
     const [selected, setSelected] = useState<Recipient | null>(null);
     const [done, setDone] = useState(false);
     const transfer = useTransferOwnership(secretId);
+    const { requestConfirm, confirmDialog } = useConfirm();
 
     // Search users as the query changes (only users can own a secret, not groups).
     useEffect(() => {
@@ -53,10 +55,14 @@ export const TransferOwnership: React.FC<TransferOwnershipProps> = ({ secretId, 
         transfer.reset();
     };
 
-    const handleTransfer = () => {
+    const handleTransfer = async () => {
         if (!selected) return;
-        if (!window.confirm(`Transfer ownership of this secret to ${selected.name}? You will no longer own it.`))
-            return;
+        const ok = await requestConfirm({
+            title: 'Transfer ownership',
+            message: `Transfer ownership of this secret to ${selected.name}? You will no longer own it.`,
+            confirmText: 'Transfer',
+        });
+        if (!ok) return;
         transfer.mutate(selected.id, {
             onSuccess: () => {
                 setDone(true);
@@ -144,6 +150,7 @@ export const TransferOwnership: React.FC<TransferOwnershipProps> = ({ secretId, 
                     {transfer.isPending ? 'Transferring…' : 'Transfer'}
                 </Button>
             </div>
+            {confirmDialog}
         </div>
     );
 };

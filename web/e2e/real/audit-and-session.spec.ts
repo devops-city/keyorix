@@ -81,7 +81,6 @@ test("the audit log shows create/rotate/delete operations on a real secret, and 
     await page.getByRole('button', { name: 'Rotate secret' }).click();
     await expect(page.getByText(`Rotate ${secretName}`)).not.toBeVisible({ timeout: 10_000 });
 
-    page.on('dialog', (d) => d.accept());
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(page.getByText('Delete Secret')).toBeVisible();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '../../../test/test-utils';
 import { TransferOwnership } from '../TransferOwnership';
 import { usersApi } from '../../../services/users';
+import { answerConfirm, answerConfirmSync, queryConfirm } from '../../../test/confirm';
 
 const mockMutate = vi.fn();
 const mockReset = vi.fn();
@@ -47,7 +48,7 @@ describe('TransferOwnership', () => {
     });
 
     it('searches users (excluding groups) and transfers to the chosen one', async () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        const confirmSpy = vi.spyOn(window, 'confirm');
         render(<TransferOwnership secretId={1} currentOwner="bob" />);
 
         fireEvent.click(screen.getByText('Transfer ownership'));
@@ -59,21 +60,24 @@ describe('TransferOwnership', () => {
 
         fireEvent.click(alice);
         fireEvent.click(screen.getByRole('button', { name: /^Transfer$/i }));
+        expect(mockMutate).not.toHaveBeenCalled(); // nothing happens until the dialog is answered
+        await answerConfirm('Transfer ownership of this secret to alice? You will no longer own it.', 'accept');
 
         await waitFor(() => expect(mockMutate).toHaveBeenCalled());
         expect(mockMutate.mock.calls[0][0]).toBe(5); // new owner id
+        expect(confirmSpy).not.toHaveBeenCalled(); // in-app dialog, not window.confirm
         confirmSpy.mockRestore();
     });
 
     it('does not transfer when the confirm is declined', async () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
         render(<TransferOwnership secretId={1} currentOwner="bob" />);
         fireEvent.click(screen.getByText('Transfer ownership'));
         fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'a' } });
         fireEvent.click(await screen.findByText(/alice/));
         fireEvent.click(screen.getByRole('button', { name: /^Transfer$/i }));
+        await answerConfirm(/Transfer ownership of this secret to alice\?/, 'cancel');
+        await waitFor(() => expect(queryConfirm(/Transfer ownership of this secret to alice\?/)).toBeNull());
         expect(mockMutate).not.toHaveBeenCalled();
-        confirmSpy.mockRestore();
     });
 
     it('renders a result without an email as just the name', async () => {
@@ -187,7 +191,6 @@ describe('TransferOwnership', () => {
         vi.useFakeTimers();
         const onSuccess = vi.fn();
         mockMutate.mockImplementationOnce((_id: number, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.());
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
         render(<TransferOwnership secretId={1} currentOwner="bob" onSuccess={onSuccess} />);
         fireEvent.click(screen.getByText('Transfer ownership'));
         fireEvent.change(screen.getByPlaceholderText(/Search by name/i), { target: { value: 'a' } });
@@ -198,6 +201,10 @@ describe('TransferOwnership', () => {
 
         fireEvent.click(screen.getByText(/alice/));
         fireEvent.click(screen.getByRole('button', { name: /^Transfer$/i }));
+        answerConfirmSync(/Transfer ownership of this secret to alice\?/, 'accept');
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0); // let the confirm promise resolve
+        });
 
         expect(screen.getByText('Transferred')).toBeInTheDocument();
         expect(onSuccess).toHaveBeenCalledTimes(1);
@@ -207,7 +214,6 @@ describe('TransferOwnership', () => {
         });
 
         expect(screen.getByText('Transfer ownership')).toBeInTheDocument();
-        confirmSpy.mockRestore();
     });
 
     // NOTE: handleTransfer's `if (!selected) return;` guard (line 56) is not exercised
