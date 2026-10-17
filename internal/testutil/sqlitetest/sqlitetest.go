@@ -57,6 +57,7 @@ var dbSeq atomic.Int64
 // opened through database/sql directly) — they must cap their own pool to one
 // connection, which is the whole reason to prefer Open.
 func DSN(prefix string) string {
+	// sqlitetest: deliberate cache=shared (the one sanctioned shared-cache DSN).
 	return fmt.Sprintf("file:%s%d?mode=memory&cache=shared&_busy_timeout=30000", prefix, dbSeq.Add(1))
 }
 

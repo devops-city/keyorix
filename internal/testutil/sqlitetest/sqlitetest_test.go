@@ -116,6 +116,7 @@ func TestOpen_ConcurrentAccessIsNeverLocked(t *testing.T) {
 // timeout drives the busy handler, which shared-cache SQLITE_LOCKED never
 // consults.
 func TestUncappedSharedCachePool_StillLocks(t *testing.T) {
+	// sqlitetest: deliberate cache=shared (the uncapped pre-#2906 shape this control must reproduce).
 	dsn := fmt.Sprintf("file:sqlitetestcontrol%d?mode=memory&cache=shared&_timeout=30000", dbSeq.Add(1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
