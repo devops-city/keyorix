@@ -80,7 +80,7 @@ func modulePath(goMod string) string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, "module"); ok && rest != line {
 			return strings.Trim(strings.TrimSpace(rest), `"`)
