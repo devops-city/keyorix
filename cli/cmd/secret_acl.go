@@ -71,13 +71,13 @@ var secretACLGrantCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretACLGrantSecret == 0 {
-			return fmt.Errorf("--secret <id> is required")
+			return usageErrorf("--secret <id> is required")
 		}
 		if secretACLGrantUser == 0 {
-			return fmt.Errorf("--user <user-id> is required")
+			return usageErrorf("--user <user-id> is required")
 		}
 		if len(secretACLGrantPerms) == 0 {
-			return fmt.Errorf("--perm <permission> is required (e.g. --perm secrets.read)")
+			return usageErrorf("--perm <permission> is required (e.g. --perm secrets.read)")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -108,10 +108,10 @@ var secretACLRevokeCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretACLRevokeSecret == 0 {
-			return fmt.Errorf("--secret <id> is required")
+			return usageErrorf("--secret <id> is required")
 		}
 		if secretACLRevokeACL == 0 {
-			return fmt.Errorf("--acl <acl-id> is required")
+			return usageErrorf("--acl <acl-id> is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {

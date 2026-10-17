@@ -107,6 +107,12 @@ func (c *KeyorixCore) SuspendSecretWithOptions(ctx context.Context, secretID, ac
 // record its audit event, so nothing was changed. Retry once the audit store is back.
 var ErrSuspendAuditUnavailable = errors.New("could not record the suspension in the audit log; nothing was changed, retry")
 
+// SuspendWithoutClearingHint is the next step every transport gives with a refused
+// clear-synced-copies suspend (ErrSuspendAuditUnavailable, ErrBulkSuspendAuditUnavailable):
+// a plain suspend is never blocked by the audit log, so it cuts access now; the copies can
+// be cleared with a second suspend once the audit log is back.
+const SuspendWithoutClearingHint = "suspend without clearing to cut access now"
+
 // transitionSuspend is the conditional status write shared by both suspend paths.
 func transitionSuspend(ctx context.Context, st storage.Storage, secret *models.SecretNode, fromStatus string) error {
 	matched, err := st.TransitionSecretStatus(ctx, secret, fromStatus)

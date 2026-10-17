@@ -126,10 +126,10 @@ func init() {
 
 func runUserCreate(cmd *cobra.Command, _ []string) error {
 	if userCreateUsername == "" {
-		return errors.New("username is required (use --username)")
+		return usageErrorf("username is required (use --username)")
 	}
 	if userCreateEmail == "" {
-		return errors.New("email is required (use --email)")
+		return usageErrorf("email is required (use --email)")
 	}
 	if userCreateSetupLink && userCreateOneTimePassword {
 		return errors.New("use either --setup-link or --one-time-password, not both")
@@ -142,7 +142,7 @@ func runUserCreate(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 		if pw == "" {
-			return errors.New("password is required (use --password, KEYORIX_INITIAL_PASSWORD, or the interactive prompt), or use --setup-link or --one-time-password")
+			return usageErrorf("password is required (use --password, KEYORIX_INITIAL_PASSWORD, or the interactive prompt), or use --setup-link or --one-time-password")
 		}
 		password = pw
 	}
@@ -339,7 +339,7 @@ func init() {
 
 func runUserUpdate(_ *cobra.Command, _ []string) error {
 	if userUpdateID == 0 {
-		return errors.New("user id is required (use --id)")
+		return usageErrorf("user id is required (use --id)")
 	}
 	if userUpdateUsername == "" && userUpdateEmail == "" && userUpdateDisplayName == "" && userUpdateActiveStr == "" {
 		return errors.New("provide at least one of --username, --email, --display-name, --active")
@@ -417,10 +417,10 @@ func init() {
 
 func runUserDelete(_ *cobra.Command, _ []string) error {
 	if userDeleteID == 0 {
-		return errors.New("user id is required (use --id)")
+		return usageErrorf("user id is required (use --id)")
 	}
 	if userDeleteBy == "" {
-		return errors.New("acting admin email is required (use --by)")
+		return usageErrorf("acting admin email is required (use --by)")
 	}
 
 	ctx := context.Background()
@@ -519,10 +519,10 @@ var userSuspendCmd = &cobra.Command{
 	Long:  "Suspend a user account. A suspended user is refused login entirely until reactivated.",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if userSuspendID == 0 {
-			return errors.New("user id is required (use --id)")
+			return usageErrorf("user id is required (use --id)")
 		}
 		if userSuspendBy == "" {
-			return errors.New("acting admin email is required (use --by)")
+			return usageErrorf("acting admin email is required (use --by)")
 		}
 		return runAccountStateChange(userSuspendID, "suspend", "Suspending", "suspended")
 	},
@@ -534,10 +534,10 @@ var userReactivateCmd = &cobra.Command{
 	Long:  "Return a suspended (or otherwise non-active) user to the active state.",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if userReactivateID == 0 {
-			return errors.New("user id is required (use --id)")
+			return usageErrorf("user id is required (use --id)")
 		}
 		if userReactivateBy == "" {
-			return errors.New("acting admin email is required (use --by)")
+			return usageErrorf("acting admin email is required (use --by)")
 		}
 		return runAccountStateChange(userReactivateID, "reactivate", "Reactivating", "reactivated")
 	},
@@ -550,10 +550,10 @@ var userForcePasswordResetCmd = &cobra.Command{
 		"They can authenticate but every endpoint except change-password is blocked until then.",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if userForcePasswordResetID == 0 {
-			return errors.New("user id is required (use --id)")
+			return usageErrorf("user id is required (use --id)")
 		}
 		if userForcePasswordResetBy == "" {
-			return errors.New("acting admin email is required (use --by)")
+			return usageErrorf("acting admin email is required (use --by)")
 		}
 		return runAccountStateChange(userForcePasswordResetID, "require-password-reset", "Requiring a password reset for", "required to reset their password")
 	},
@@ -572,10 +572,10 @@ var userRevokeSessionsCmd = &cobra.Command{
 		"re-authenticating. To block login entirely, use 'suspend' instead.",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if userRevokeSessionsID == 0 {
-			return errors.New("user id is required (use --id)")
+			return usageErrorf("user id is required (use --id)")
 		}
 		if userRevokeSessionsBy == "" {
-			return errors.New("acting admin email is required (use --by)")
+			return usageErrorf("acting admin email is required (use --by)")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -689,10 +689,10 @@ var userResendSetupLinkCmd = &cobra.Command{
 		"the ADR-028 resend limits.",
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if userResendSetupLinkID == 0 {
-			return errors.New("user id is required (use --id)")
+			return usageErrorf("user id is required (use --id)")
 		}
 		if userResendSetupLinkBy == "" {
-			return errors.New("acting admin email is required (use --by)")
+			return usageErrorf("acting admin email is required (use --by)")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)

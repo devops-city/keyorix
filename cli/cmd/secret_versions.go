@@ -35,7 +35,7 @@ func init() {
 
 func runSecretVersions(cmd *cobra.Command, args []string) error {
 	if secretVersionsID == 0 {
-		return fmt.Errorf("secret ID is required (use --id)")
+		return usageErrorf("secret ID is required (use --id)")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -207,7 +207,7 @@ func runSecretDiff(_ *cobra.Command, args []string) error {
 	id := secretDiffID
 	if id == 0 {
 		if secretDiffProject == 0 || secretDiffEnv == 0 {
-			return fmt.Errorf("--project and --environment are required to resolve <name> (or pass --id directly)")
+			return usageErrorf("--project and --environment are required to resolve <name> (or pass --id directly)")
 		}
 		resp, nerr := client.GetSecretByNameWithResponse(ctx, &apiclient.GetSecretByNameParams{
 			Name: name, ProjectId: secretDiffProject, EnvironmentId: secretDiffEnv,
@@ -421,7 +421,7 @@ as a NEW version (history stays append-only, so the rollback itself can be undon
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretRollbackID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		if secretRollbackVersion <= 0 {
 			return fmt.Errorf("--version must be a positive version number")

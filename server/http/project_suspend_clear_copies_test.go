@@ -154,6 +154,7 @@ func TestSuspendProjectSecrets_ClearSyncedCopies_OverTheRouter(t *testing.T) {
 
 		res := postJSON(w, suspendAll, w.tokens["session"], map[string]any{"clear_synced_copies": true})
 		assert.Equal(t, http.StatusInternalServerError, res.code, res.body)
+		assert.Contains(t, refusalMessage(t, res.body), core.SuspendWithoutClearingHint)
 		cur := stored(t, a.ID)
 		assert.Equal(t, core.SecretStatusActive, cur.Status)
 		assert.False(t, cur.SuspendClearSyncedCopies)
@@ -179,6 +180,7 @@ func TestSuspendProjectSecrets_ClearSyncedCopies_OverTheRouter(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal([]byte(res.body), &env), res.body)
 		assert.Contains(t, env.Message, "audit event could not be recorded")
+		assert.Contains(t, env.Message, core.SuspendWithoutClearingHint)
 		assert.Equal(t, 0, env.Details.Suspended, "every secret's own audit row is refused, so none is suspended")
 		assert.Equal(t, int(total), env.Details.Failed, res.body)
 		for _, id := range ids {
