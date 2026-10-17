@@ -19,6 +19,13 @@ func (c *KeyorixCore) validateShareSecretRequest(req *ShareSecretRequest) error 
 	if req.SharedBy == 0 {
 		return fmt.Errorf("sharedBy is required")
 	}
+	// #3422: ShareSecret has no group-scope check; a group recipient must go through
+	// ShareSecretWithGroup, which enforces IsGroupProjectScoped.
+	// #3422: ShareSecret has no group-scope check; a group recipient must go through
+	// ShareSecretWithGroup, which enforces IsGroupProjectScoped.
+	if req.IsGroup {
+		return fmt.Errorf("group shares must use ShareSecretWithGroup")
+	}
 	// #252: a self-share (sharing a secret with yourself) is meaningless at best and
 	// a landmine at worst — it inflates share/audit counts and confuses risk-scoring
 	// with no real access-boundary crossed. Only applies to direct (non-group) shares:
