@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -57,6 +58,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
 	"github.com/keyorixhq/keyorix/internal/license"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/netutil"
 	"github.com/keyorixhq/keyorix/internal/notary"
 	"github.com/keyorixhq/keyorix/internal/notifychan"
@@ -180,6 +182,13 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		log.Fatalf("Configuration is invalid: %v", err)
 	}
 
+	// server.log.format: from here on every log line is a JSON object when "json".
+	// Before this point (config load/validation failures) lines are plain text. Must
+	// precede NewRouter: the access logger picks its formatter when the router is built.
+	if err := logging.Setup(cfg.Server.Log.EffectiveFormat(), os.Stderr); err != nil {
+		log.Fatalf("Configuration is invalid: %v", err)
+	}
+
 	// ADR-112 opt-out rule (item 2): a deprecated alias (an old key renamed to its
 	// current insecure_ form) found in this config file gets a warning on EVERY
 	// start — never silent. See warnDeprecatedSettingAliases below.
@@ -245,6 +254,11 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		log.Fatalf("transport security: %v", err)
 	}
 
+	// No-NTP edge devices: warn when the clock is implausible or the TLS
+	// certificate window does not contain it (never refuses to start).
+	warnClockAndCertificate(cfg)
+	go watchClockSteps(ctx, 15*time.Second, realClockSample(), log.Printf)
+
 	// Refuse (or warn) when key material on disk is readable beyond its owner.
 	if err := enforceKeyFilePermissions(cfg); err != nil {
 		log.Fatalf("key file security: %v", err)
@@ -295,6 +309,14 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		}
 		log.Fatalf("%v", err)
 	}
+	// Registered first so it runs last: a lost presence lock ends the process
+	// with a failure status after the normal shutdown (see presence.Lost below).
+	var presenceLost atomic.Bool
+	defer func() {
+		if presenceLost.Load() {
+			os.Exit(1)
+		}
+	}()
 	presence, err := serverguard.AcquirePresence(cfg)
 	if err != nil {
 		if authErr, ok := errors.AsType[*config.PostgresAuthError](err); ok {
@@ -409,8 +431,18 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	}
 
 	// Wait for shutdown signal
-	<-sigChan
-	log.Println("Shutdown signal received, gracefully shutting down...")
+	select {
+	case <-sigChan:
+		log.Println("Shutdown signal received, gracefully shutting down...")
+	case <-presence.Lost():
+		// pgbouncer-transaction only: the transaction holding the presence lock
+		// ended (backend terminated, PostgreSQL or PgBouncer restarted, a pooler
+		// timeout), so an admin command could now start beside this server.
+		// Stop serving rather than run unguarded; the supervisor restarts the
+		// process, which takes the lock again or fails while an admin command runs.
+		presenceLost.Store(true)
+		log.Println("ERROR: the server-presence lock was lost (its database connection died); shutting down so an admin command cannot run beside this server")
+	}
 
 	// Cancel context to signal shutdown
 	cancel()
@@ -2358,32 +2390,16 @@ func resolveVaultToken(tokenEnv string) (string, error) {
 // Same warn-vs-refuse matrix as enforceKeyFilePermissions: refuse
 // when security.enable_file_permission_check is on and
 // allow_unsafe_file_permissions is off, otherwise warn.
+//
+// The policy itself lives in config.Config.EnforceSecretFilePermissions, shared
+// with every `keyorix-server admin` command (admin.loadConfig); this wrapper
+// only records a grace-softened boot.
 func enforceSecretFilePermissions(cfg *config.Config) error {
-	var problems []string
-	for _, p := range cfg.SecretFilePaths() {
-		if err := secretenv.CheckPermissions(p); err != nil {
-			problems = append(problems, err.Error())
-		}
+	softened, err := cfg.EnforceSecretFilePermissions()
+	if softened {
+		adr112GraceSoftened.Store(true)
 	}
-	if len(problems) == 0 {
-		return nil
-	}
-	msg := strings.Join(problems, "; ")
-	if cfg.Security.EnableFilePermissionCheck && !cfg.Security.AllowUnsafeFilePermissions {
-		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
-		// config/TLS files are softened there). The one exception is the upgrade
-		// grace period, same as for the key files in enforceKeyFilePermissions:
-		// warn, and record that this boot was softened. Key material never gets
-		// here -- LookupChecked has already refused it.
-		if cfg.Security.EnableFilePermissionCheckUpgradeGrace {
-			adr112GraceSoftened.Store(true)
-			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
-			return nil
-		}
-		return fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
-	}
-	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
-	return nil
+	return err
 }
 
 // verifyKeyFileSetConsistency is the boot-time key-file-set consistency check

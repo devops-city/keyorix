@@ -66,6 +66,9 @@ var channelListCmd = &cobra.Command{
 }
 
 func runChannelList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(channelListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -75,23 +78,25 @@ func runChannelList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if len(channels) == 0 {
-		fmt.Println("No notification channels configured.")
+	return emitList(channelListFormat, channels, func() error {
+		if len(channels) == 0 {
+			fmt.Println("No notification channels configured.")
+			return nil
+		}
+		fmt.Printf("%-5s %-24s %-8s %-8s %s\n", "ID", "NAME", "TYPE", "ENABLED", "EVENTS")
+		for _, ch := range channels {
+			enabled := "no"
+			if ch.Enabled {
+				enabled = "yes"
+			}
+			events := ch.Events
+			if events == "" {
+				events = "*"
+			}
+			fmt.Printf("%-5d %-24s %-8s %-8s %s\n", ch.ID, ch.Name, ch.Type, enabled, events)
+		}
 		return nil
-	}
-	fmt.Printf("%-5s %-24s %-8s %-8s %s\n", "ID", "NAME", "TYPE", "ENABLED", "EVENTS")
-	for _, ch := range channels {
-		enabled := "no"
-		if ch.Enabled {
-			enabled = "yes"
-		}
-		events := ch.Events
-		if events == "" {
-			events = "*"
-		}
-		fmt.Printf("%-5d %-24s %-8s %-8s %s\n", ch.ID, ch.Name, ch.Type, enabled, events)
-	}
-	return nil
+	})
 }
 
 var (

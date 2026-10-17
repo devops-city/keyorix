@@ -76,8 +76,8 @@ func formatComplianceDigest(p *CompliancePosture, controls []ControlState) (titl
 	if gap > 0 {
 		fmt.Fprintf(&b, "Open gaps: %s.\n", strings.Join(gaps, ", "))
 	}
-	fmt.Fprintf(&b, "Access: %d project(s) overdue for recertification, %d never reviewed, %d SoD violation(s), %d dormant grant(s).\n",
-		ag.ProjectsOverdue, ag.ProjectsNeverReviewed, ag.SoDViolations, ag.DormantRoleGrants)
+	fmt.Fprintf(&b, "Access: %d project(s) overdue for recertification, %d never reviewed, %d SoD violation(s), %d dormant grant(s) (no use in the last %d days).\n",
+		ag.ProjectsOverdue, ag.ProjectsNeverReviewed, ag.SoDViolations, ag.DormantRoleGrants, dormantThresholdDays)
 	fmt.Fprintf(&b, "Rotation: %d overdue, %d due soon. Second factor: %d%% of active users.\n",
 		p.Rotation.Overdue, p.Rotation.DueSoon, p.Identity.SecondFactorPercent)
 	fmt.Fprintf(&b, "Classification: %d of %d secrets unclassified. Anomalies: %d open (%d high).\n",

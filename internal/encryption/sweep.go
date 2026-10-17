@@ -212,6 +212,19 @@ func sweepSecretVersions(tx *gorm.DB, oldSvc *EncryptionService, newSvc *Encrypt
 				}).Error; err != nil {
 					return totalSwept, totalLegacyUpgraded, fmt.Errorf("failed to update re-encrypted secret_version id=%d: %w", version.ID, err)
 				}
+				// Raise cache_epoch in the same transaction as the rewrite: it is the term
+				// of the read-path latest-version cache's generation that moves when a
+				// row is rewritten in place (count, max(version_number) and
+				// sum(read_count) do not), so every cache, on every replica, misses on
+				// its next hit instead of serving the pre-sweep ciphertext.
+				// store.TestSecretVersionCiphertextWriters_AreOnlyTheSweep fails if this
+				// statement goes away. Explicit SQL, not part of the Updates above: the
+				// model field is read-only to GORM (`<-:false`, so a struct Save can
+				// never reset it) and GORM silently drops such a column from any update,
+				// map and UpdateColumn included.
+				if err := tx.Exec("UPDATE secret_versions SET cache_epoch = cache_epoch + 1 WHERE id = ?", version.ID).Error; err != nil {
+					return totalSwept, totalLegacyUpgraded, fmt.Errorf("failed to raise cache_epoch of re-encrypted secret_version id=%d: %w", version.ID, err)
+				}
 			}
 
 			totalSwept++

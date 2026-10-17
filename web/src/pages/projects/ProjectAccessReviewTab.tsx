@@ -117,7 +117,7 @@ export const ProjectAccessReviewTab: React.FC<ProjectAccessReviewTabProps> = ({ 
                                             title={
                                                 dormant
                                                     ? 'Dormant — review whether this standing access is still needed'
-                                                    : 'Last secret access in this project'
+                                                    : `Last secret access in this project${e.activityWindowDays ? ` (last ${e.activityWindowDays} days)` : ''}`
                                             }
                                         >
                                             {label}

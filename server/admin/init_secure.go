@@ -30,9 +30,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/clockcheck"
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/securefiles"
+	"github.com/keyorixhq/keyorix/internal/version"
 )
+
+// adminNow is the clock ensureSelfSignedCert reads; a variable so a test can
+// show a device whose clock was never set.
+var adminNow = time.Now
 
 // selfSignedCertValidity: one year and a month, the longest leaf lifetime
 // browsers accept (398 days). init prints the expiry date.
@@ -116,6 +122,17 @@ func ensureSelfSignedCert(certPath, keyPath string, extraDNSNames []string) erro
 		return fmt.Errorf("TLS: only one of %s and %s exists; provide both, or remove the other so admin init can generate a matching pair", certPath, keyPath)
 	}
 
+	// A certificate's validity window is stamped from the clock at this moment.
+	// On a device with no battery-backed RTC and no NTP the clock is the epoch
+	// or a stale time: the certificate would be valid for a year starting in
+	// 1970 and be expired the day the clock is corrected, taking the whole
+	// TLS-only server with it. Refuse instead, and say what to do.
+	now := adminNow()
+	if ok, floor := clockcheck.Plausible(now, version.BuildDate); !ok {
+		return fmt.Errorf("refusing to generate a TLS certificate: %s. Alternatively place your own certificate and key at %s and %s and run init again",
+			clockcheck.ImplausibleMessage(now, floor), certPath, keyPath)
+	}
+
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return fmt.Errorf("generate TLS key: %w", err)
@@ -137,7 +154,6 @@ func ensureSelfSignedCert(certPath, keyPath string, extraDNSNames []string) erro
 			dnsNames = append(dnsNames, n)
 		}
 	}
-	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "keyorix-server (self-signed by admin init)"},

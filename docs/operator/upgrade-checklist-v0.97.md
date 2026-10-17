@@ -47,8 +47,8 @@ server or an `admin` command at start-up with a message that names the key.
 |---|---|---|---|
 | PostgreSQL TLS | `ssl_mode` is `verify-full`/`verify-ca` with no `ssl_root_cert`; `ssl_mode` outside the allowed list; `ssl_mode` next to a `dsn` with a different or missing `sslmode`; a `service=`/`PGSERVICE` file | set `ssl_root_cert` (a PEM path, or `system`); make `dsn` and `ssl_mode` agree | §2 |
 | PostgreSQL `session_replication_role` **(pending #3366)** | the server's sessions report anything but `origin` (server default, database, role, `PGOPTIONS`, DSN option) | run the two queries in §6n and `RESET` the setting | §6n |
-| Bootstrap token **(pending #3341)** | `KEYORIX_BOOTSTRAP_TOKEN` (or `_FILE`) is set and shorter than 32 characters | `openssl rand -hex 32`, or unset it on an initialised install | §6g (in #3341) |
-| gRPC `auto_cert` **(pending #3365)** | `server.grpc.tls.auto_cert: true` | remove the line; give gRPC `cert_file`/`key_file` | §6g (in #3365) |
+| Bootstrap token **(pending #3341)** | `KEYORIX_BOOTSTRAP_TOKEN` (or `_FILE`) is set and shorter than 32 characters | `openssl rand -hex 32`, or unset it on an initialised install | section in #3341 |
+| gRPC `auto_cert` **(pending #3365)** | `server.grpc.tls.auto_cert: true` | remove the line; give gRPC `cert_file`/`key_file` | section in #3365 |
 | Audit durability | `audit_durability: standard` on SQLite; `audit_durability` and the old `insecure_audit_skip_durable_sync` set to different levels | remove one, or use `strict` on SQLite | §6c |
 | Multi-replica | `single_writer: true` with several replicas; `pooler: pgbouncer-transaction` with `single_writer` | leave `single_writer` off | §6f |
 | Non-regular files | a FIFO or device at a key, CA, license or backup path | point it at a regular file | §6p |
@@ -69,7 +69,7 @@ deviation. Fix refusals before the real start. (Run it after the binary swap in 
 - [ ] Clients that retry on 503 but stop on 401, or that match a 500 on a refused
   secret read (§6p).
 - [ ] SIEM rules and reports that filter on `success` for `mfa.failed` and the other
-  `*_failed` events **(pending #3365)** (§6h in #3365). Old rows keep `success=true`.
+  `*_failed` events **(pending #3365)** (section in #3365). Old rows keep `success=true`.
 - [ ] Automation that grants access, and your break-glass procedure, can cope with
   `could not record the change in the audit log; nothing was changed, retry`
   **(pending #3367)** (§6o).

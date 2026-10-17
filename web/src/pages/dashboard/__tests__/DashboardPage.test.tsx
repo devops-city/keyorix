@@ -197,6 +197,43 @@ describe('DashboardPage — operational signals', () => {
         expect(within(reads).getByText('7')).toBeInTheDocument();
     });
 
+    // DASH-FAILED-2FA: the headline is wrong password + wrong second factor, with the split as the hint.
+    it('breaks the failed-login count down into wrong password and wrong second factor', () => {
+        mockHooks({
+            stats: {
+                ...baseStats,
+                failedAuthAttempts24h: 5,
+                failedLoginsWrongPassword24h: 2,
+                failedLoginsWrongSecondFactor24h: 3,
+            },
+        });
+        render(<DashboardPage />);
+        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
+        expect(within(logins).getByText('5')).toBeInTheDocument();
+        expect(within(logins).getByText('2 wrong password · 3 wrong second factor')).toBeInTheDocument();
+    });
+
+    it('keeps the generic hint when the server sends no failed-login breakdown', () => {
+        mockHooks({ stats: { ...baseStats, failedAuthAttempts24h: 3 } });
+        render(<DashboardPage />);
+        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
+        expect(within(logins).getByText('unsuccessful sign-ins')).toBeInTheDocument();
+    });
+
+    it('shows zero in both failed-login buckets as an explicit breakdown', () => {
+        mockHooks({
+            stats: {
+                ...baseStats,
+                failedAuthAttempts24h: 0,
+                failedLoginsWrongPassword24h: 0,
+                failedLoginsWrongSecondFactor24h: 0,
+            },
+        });
+        render(<DashboardPage />);
+        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
+        expect(within(logins).getByText('0 wrong password · 0 wrong second factor')).toBeInTheDocument();
+    });
+
     it('shows the inactive-users count', () => {
         render(<DashboardPage />);
         const card = screen.getByText('Inactive Users').closest('button')!;

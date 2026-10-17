@@ -10,8 +10,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"log"
-	"math/rand/v2"
+	"math/big"
 	"sync"
 	"time"
 
@@ -132,5 +133,14 @@ func anomalyFirstPassDelay(interval time.Duration, randN func(time.Duration) tim
 }
 
 // defaultRandN is the production randN for anomalyFirstPassDelay. Scheduling jitter,
-// not a security value, so math/rand is appropriate.
-func defaultRandN(n time.Duration) time.Duration { return rand.N(n) } // #nosec G404 -- scheduling jitter, not security-sensitive
+// not a security value (crypto/rand keeps scanners quiet).
+func defaultRandN(n time.Duration) time.Duration {
+	if n <= 0 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return time.Duration(v.Int64())
+}

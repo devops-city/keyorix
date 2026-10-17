@@ -497,6 +497,31 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
+## 6g. "Last used" in access recertification now means "within the review period"
+
+The per-user "last used" of the project access review (and of the items a campaign
+snapshots from it) used to be the user's most recent secret activity anywhere in the
+audit log. It now looks back over the recertification period only,
+`recertification.cadence_days` (default 90, at most 366). The meaning changes from
+"no activity ever" to **"no activity within the last N days"**: a user whose last
+activity is older than the period now shows no last use, so they read as dormant where
+before they showed an old date. Expect more entries flagged dormant after the upgrade
+if your cadence is shorter than your longest-idle users' last activity. Nothing is
+deleted; raise `cadence_days` (up to 366) for a longer look-back.
+
+- API: `GET /api/v1/projects/{id}/access-review` adds `activity_window_days`, and
+  campaigns carry `activity_window_days`.
+- Campaign CSV export: a new last column, `last_used_window_days` (a CSV parser that
+  reads columns by position is unaffected; one that rejects extra columns is not).
+  Campaigns opened before the upgrade say `all_history`: their `last_used_at` was
+  computed over the whole log and stays as recorded.
+- The `dormant-access` control and the digest now say "no use in the last 90 days"; the
+  dormant-grant count itself is unchanged (it was always judged against 90 days).
+- The campaigns table gets one column, `activity_window_days`, added automatically at
+  start-up (nothing to run); a rollback to the previous binary ignores it.
+
+Details: [recertification-activity-window.md](recertification-activity-window.md).
+
 ## 6k. v0.97.0: breaking changes at a glance
 
 Read this table, then the sections it points to, before upgrading to v0.97.0.
@@ -511,15 +536,16 @@ checklist to follow is [operator/upgrade-checklist-v0.97.md](operator/upgrade-ch
 | `session_replication_role` must be `origin` (pending #3366) | §6n |
 | Grants and break-glass fail closed when the audit row cannot be written (pending #3367) | §6o |
 | Audit list paging limits, listener limits, refused-read status codes, 503 on a database outage | §6p |
-| `KEYORIX_BOOTSTRAP_TOKEN` shorter than 32 characters refused (pending #3341) | §6g, written in #3341 |
-| `server.grpc.tls.auto_cert: true` refused (pending #3365, AUTH-2) | §6g, written in #3365 |
-| `mfa.failed` and other `*_failed` audit rows stored with `success=false` (pending #3365, AUTH-2) | §6h, written in #3365 |
-| Schema epoch 3, compatibility floor 3: no binary downgrade (pending #3364) | §6g, written in #3364 |
+| `KEYORIX_BOOTSTRAP_TOKEN` shorter than 32 characters refused (pending #3341) | written in #3341 (heading number assigned when it merges) |
+| `server.grpc.tls.auto_cert: true` refused (pending #3365, AUTH-2) | written in #3365 (heading number assigned when it merges) |
+| `mfa.failed` and other `*_failed` audit rows stored with `success=false` (pending #3365, AUTH-2) | written in #3365 (heading number assigned when it merges) |
+| Schema epoch 3, compatibility floor 3: no binary downgrade (pending #3364) | written in #3364 (heading number assigned when it merges) |
 | `audit_durability` defaults to `standard` on PostgreSQL (#3268) | §6c |
 | `ssl_root_cert`, the `ssl_mode` allowlist, Compose Postgres over TLS (#3162, #3189, #3203) | §2 |
 
-The §6g and §6h headings are claimed by three open pull requests (#3341, #3365,
-#3364); whichever merges later renumbers its section. No Helm value was renamed
+§6g is taken on main (access-recertification window). The sections of the three
+open pull requests (#3341, #3365, #3364) take the next free heading numbers
+when they merge. No Helm value was renamed
 or removed in this window; the chart's new values are additive (see
 `deploy/helm/keyorix/values.yaml`).
 
@@ -718,6 +744,8 @@ If an upgrade goes wrong:
   restore), §6 (upgrades), §9 (troubleshooting).
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
+- `docs/rolling-upgrade-columns.md` for why a column added by one release does
+  not break the previous release's replicas during a rolling upgrade.
 - `CHANGELOG.md` and the GitHub release notes for the full list of changes
   in this release.
 - `design-b3-backup-v2.md` for the full backup-v2 design (§3 format, §5

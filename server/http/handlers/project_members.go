@@ -48,6 +48,9 @@ func (h *CatalogHandler) GetProjectAccessReview(w http.ResponseWriter, r *http.R
 		"count":            len(report.Entries),
 		"degraded":         report.Degraded,
 		"degraded_reasons": report.DegradedReasons,
+		// The look-back of every entry's last_used_at (the recertification period):
+		// an absent last_used_at means no activity within this many days.
+		"activity_window_days": report.ActivityWindowDays,
 	}, "")
 }
 
