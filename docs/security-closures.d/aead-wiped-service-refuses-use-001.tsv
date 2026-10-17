@@ -1,0 +1,1 @@
+aead-wiped-service-refuses-use-001	./internal/encryption/aead	TestWipeDEK_ServiceRefusesUseAfterWipe	default-ci	pending-merge	-	REVIEW-COVERAGE-1: WipeDEK zeroed dek but the GCM key schedule kept working, so a wiped EncryptionService still sealed/opened under the superseded DEK; every operation now returns ErrDEKWiped (INV-ENCRYPTION-wiped-service-refuses-use)

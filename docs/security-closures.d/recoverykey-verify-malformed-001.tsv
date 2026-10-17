@@ -1,0 +1,1 @@
+recoverykey-verify-malformed-001	./internal/recoverykey	TestVerify_RefusesMalformedKeyEvenWhenHashMatches	default-ci	pending-merge	-	REVIEW-COVERAGE-1: Verify accepted any string whose SHA-256 matched the stored KeyHash, so a record holding the digest of an empty/short string was satisfied by typing it; Verify now refuses input that does not normalise to 52 key-alphabet symbols

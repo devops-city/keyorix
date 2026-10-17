@@ -14,12 +14,26 @@ import (
 // pg_terminate_backend (a failover, a PgBouncer restart or timeout look the
 // same to the holder) drops it with no other signal. Presence.Lost must close
 // promptly so the server can stop; while the backend lives it must stay open;
-// Release after a loss must still work.
+// Release after a loss must still work. Through PgBouncer session mode the
+// lock is a session lock, watched the same way.
 func TestPgBouncer_ServerGuard_LostPresenceLockIsReported(t *testing.T) {
-	cfg, pooler := poolerGuardCfg(t)
-	if pooler != "pgbouncer-transaction" {
-		t.Skipf("pooler %s keeps a session lock, which has no lock transaction to watch", pooler)
+	cfg, _ := poolerGuardCfg(t)
+	assertLostPresenceLockIsReported(t, cfg)
+}
+
+// TestPostgres_ServerGuard_LostSessionPresenceLockIsReported: the same on a
+// direct connection (storage.database.pooler unset), where the presence lock
+// is a session lock (LOCKLOSS-SESSION-1): its backend ending is just as silent.
+func TestPostgres_ServerGuard_LostSessionPresenceLockIsReported(t *testing.T) {
+	cfg := pgCfg(t)
+	if cfg.Storage.Database.TransactionPooling() {
+		t.Fatal("this test is about the session shape")
 	}
+	assertLostPresenceLockIsReported(t, cfg)
+}
+
+func assertLostPresenceLockIsReported(t *testing.T, cfg *config.Config) {
+	t.Helper()
 	old := config.PinnedLockPingInterval
 	config.PinnedLockPingInterval = 100 * time.Millisecond
 	t.Cleanup(func() { config.PinnedLockPingInterval = old })
