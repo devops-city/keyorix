@@ -54,11 +54,12 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,8 +138,7 @@ var permissionSweepAllowlist = map[string]string{
 // the process cwd), so the sweep works regardless of how `go test` is invoked.
 func permissionSweepRepoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must resolve this test file's path")
+	thisFile := filepath.Join(srcpath.PkgDir(), "permission_sweep_test.go")
 	// this file lives at server/http/permission_sweep_test.go
 	root, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	require.NoError(t, err)
