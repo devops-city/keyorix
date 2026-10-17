@@ -38,19 +38,19 @@ func (h *SecretHandler) SuspendProjectSecrets(w http.ResponseWriter, r *http.Req
 	n, err := h.coreService.SuspendProjectSecretsWithOptions(r.Context(), uint(id), userCtx.UserID, reqBody.Reason,
 		core.SuspendOptions{ClearSyncedCopies: reqBody.ClearSyncedCopies})
 	if err != nil {
-		if errors.Is(err, core.ErrBulkSuspendAuditUnavailable) {
-			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; no secret was suspended. Retry, or "+core.SuspendWithoutClearingHint, http.StatusInternalServerError, nil)
-			return
-		}
 		if partial, ok := errors.AsType[*core.BulkSuspendPartialError](err); ok {
 			// Already-suspended secrets stay suspended; the counts let the operator retry.
-			msg := "Some secrets could not be suspended and are still readable; retry"
+			counts := map[string]int{"suspended": partial.Suspended, "failed": partial.Failed}
 			if partial.AuditRefused {
-				msg = "An audit event could not be recorded; the suspension stopped early. Retry, or " + core.SuspendWithoutClearingHint
+				h.sendError(w, core.SuspendAuditUnavailableCode, core.SuspendAuditUnavailableMessage, http.StatusInternalServerError, counts)
+				return
 			}
-			h.sendError(w, "InternalError", msg,
-				http.StatusInternalServerError,
-				map[string]int{"suspended": partial.Suspended, "failed": partial.Failed})
+			h.sendError(w, "InternalError", "Some secrets could not be suspended and are still readable; retry",
+				http.StatusInternalServerError, counts)
+			return
+		}
+		if core.IsSuspendAuditRefusal(err) {
+			h.sendError(w, core.SuspendAuditUnavailableCode, core.SuspendAuditUnavailableMessage, http.StatusInternalServerError, nil)
 			return
 		}
 		h.sendError(w, "InternalError", "Failed to suspend project secrets", http.StatusInternalServerError, nil)

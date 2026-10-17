@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,10 +16,8 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-// bulkRotateDBSeq makes each in-memory DB unique within the process.
-var bulkRotateDBSeq atomic.Int64
 
 // bulkRotateDBRaw sets up an isolated in-memory SQLite DB and returns the core and the
 // raw LocalStorage for tests that need more granular control (cross-project, folder-node,
@@ -46,11 +43,7 @@ func bulkRotateDBRaw(t *testing.T) (*KeyorixCore, *store.LocalStorage) {
 // tests and returns a core + a helper to create test secrets.
 func bulkRotateDB(t *testing.T) (*KeyorixCore, func(name, classification string, autoRotate bool) uint) {
 	t.Helper()
-	dsn := fmt.Sprintf("file:bulk_rotate_shared_%d?mode=memory&cache=shared&_journal_mode=WAL", bulkRotateDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulk_rotate_shared_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{},
 		&models.SecretNode{}, &models.SecretVersion{},
