@@ -10,14 +10,45 @@ persistent volume, the web UI proxying to it, and a bundled (or external) Postgr
 From a published release (the chart is pushed to GHCR as an OCI artifact on each
 `vX.Y.Z` tag):
 
+Never put a password on the command line (`--set auth.masterPassword=...`,
+`kubectl create secret --from-literal=...`): while the command runs, every
+user and process on the machine can read its arguments (`ps`, the process's
+`cmdline` in `/proc`), and afterwards they stay in your shell history and in
+CI logs. Write each secret to a file only you can read, and create the Secret
+from the files:
+
 ```sh
+umask 077                      # new files: owner-only (0600 / 0700)
+mkdir keyorix-secrets
+# `read -s` does not echo (bash and zsh), and printf is a shell builtin, so no secret reaches
+# a process's argv. The file name is the key in the Secret.
+printf 'Master password (keep it, it derives the KEK): '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_MASTER_PASSWORD
+printf 'Database password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_DB_PASSWORD
+printf 'Admin password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_ADMIN_PASSWORD
+unset v
+
+kubectl create secret generic keyorix-auth --from-file=keyorix-secrets/
 helm install keyorix oci://ghcr.io/keyorixhq/charts/keyorix \
-  --set auth.masterPassword='change-me-and-keep-it' \
-  --set postgresql.auth.password='a-strong-db-password' \
-  --set auth.adminPassword='S3cure-Passphrase!9'
+  --set auth.existingSecret=keyorix-auth
+
+# Once the master password is in your password manager, delete the files:
+rm -r keyorix-secrets
 ```
 
-> `auth.adminPassword` must satisfy the server's own admin-bootstrap password
+With `auth.existingSecret` the passwords never enter the Helm release either.
+If you would rather keep them in values, put them in a values file only you can
+read (`umask 077`, then edit `keyorix-secrets.yaml` with `auth.masterPassword`,
+`postgresql.auth.password` and `auth.adminPassword`) and pass it with
+`helm install ... -f keyorix-secrets.yaml`, or pass single files with
+`--set-file auth.masterPassword=keyorix-secrets/KEYORIX_MASTER_PASSWORD`. Either
+way Helm stores the values in the release record in the namespace (readable
+with `helm get values` by anyone allowed to read Secrets there), which
+`auth.existingSecret` avoids.
+
+> The admin password (`KEYORIX_ADMIN_PASSWORD`, or `auth.adminPassword`) must satisfy the server's own admin-bootstrap password
 > policy (`POST /system/init`): **at least 16 characters, with an uppercase
 > letter, a lowercase letter, a digit, and a special character — and it must
 > not contain the admin username, email, or display name as a substring**
