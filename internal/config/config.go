@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -2511,6 +2512,47 @@ func (c *Config) SecretFilePaths() []string {
 		}
 	}
 	return paths
+}
+
+// EnforceSecretFilePermissions applies the key-material permission policy
+// (secretenv.CheckPermissions: 0600/0400, plus group-read only for an
+// orchestrator-owned file in a group the process holds) to the files named by
+// SecretFilePaths. It is the one implementation behind both the server's boot
+// check and every `keyorix-server admin` command, so the two refuse the same
+// file with the same message.
+//
+// Key-material secrets (master password, KEK, Shamir shares) are refused
+// unconditionally where they are read (secretenv.LookupChecked, no grace); this
+// covers the rest, which follow the ADR-112 upgrade grace like the key files:
+// refuse when security.enable_file_permission_check is on and
+// allow_unsafe_file_permissions is off, otherwise warn. graceSoftened is true
+// when the upgrade grace turned a refusal into a warning, so the caller can
+// avoid recording that boot as "enforced".
+func (c *Config) EnforceSecretFilePermissions() (graceSoftened bool, err error) {
+	var problems []string
+	for _, p := range c.SecretFilePaths() {
+		if err := secretenv.CheckPermissions(p); err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
+	if len(problems) == 0 {
+		return false, nil
+	}
+	msg := strings.Join(problems, "; ")
+	if c.Security.EnableFilePermissionCheck && !c.Security.AllowUnsafeFilePermissions {
+		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
+		// config/TLS files are softened there). The one exception is the upgrade
+		// grace period, same as for the key files in enforceKeyFilePermissions:
+		// warn, and record that this boot was softened. Key material never gets
+		// here -- LookupChecked has already refused it.
+		if c.Security.EnableFilePermissionCheckUpgradeGrace {
+			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+			return true, nil
+		}
+		return false, fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
+	}
+	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
+	return false, nil
 }
 
 const appRootDir = "."

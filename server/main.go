@@ -2363,32 +2363,16 @@ func resolveVaultToken(tokenEnv string) (string, error) {
 // Same warn-vs-refuse matrix as enforceKeyFilePermissions: refuse
 // when security.enable_file_permission_check is on and
 // allow_unsafe_file_permissions is off, otherwise warn.
+//
+// The policy itself lives in config.Config.EnforceSecretFilePermissions, shared
+// with every `keyorix-server admin` command (admin.loadConfig); this wrapper
+// only records a grace-softened boot.
 func enforceSecretFilePermissions(cfg *config.Config) error {
-	var problems []string
-	for _, p := range cfg.SecretFilePaths() {
-		if err := secretenv.CheckPermissions(p); err != nil {
-			problems = append(problems, err.Error())
-		}
+	softened, err := cfg.EnforceSecretFilePermissions()
+	if softened {
+		adr112GraceSoftened.Store(true)
 	}
-	if len(problems) == 0 {
-		return nil
-	}
-	msg := strings.Join(problems, "; ")
-	if cfg.Security.EnableFilePermissionCheck && !cfg.Security.AllowUnsafeFilePermissions {
-		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
-		// config/TLS files are softened there). The one exception is the upgrade
-		// grace period, same as for the key files in enforceKeyFilePermissions:
-		// warn, and record that this boot was softened. Key material never gets
-		// here -- LookupChecked has already refused it.
-		if cfg.Security.EnableFilePermissionCheckUpgradeGrace {
-			adr112GraceSoftened.Store(true)
-			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
-			return nil
-		}
-		return fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
-	}
-	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
-	return nil
+	return err
 }
 
 // verifyKeyFileSetConsistency is the boot-time key-file-set consistency check
