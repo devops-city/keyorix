@@ -37,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -300,6 +301,14 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		}
 		log.Fatalf("%v", err)
 	}
+	// Registered first so it runs last: a lost presence lock ends the process
+	// with a failure status after the normal shutdown (see presence.Lost below).
+	var presenceLost atomic.Bool
+	defer func() {
+		if presenceLost.Load() {
+			os.Exit(1)
+		}
+	}()
 	presence, err := serverguard.AcquirePresence(cfg)
 	if err != nil {
 		if authErr, ok := errors.AsType[*config.PostgresAuthError](err); ok {
@@ -414,8 +423,18 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	}
 
 	// Wait for shutdown signal
-	<-sigChan
-	log.Println("Shutdown signal received, gracefully shutting down...")
+	select {
+	case <-sigChan:
+		log.Println("Shutdown signal received, gracefully shutting down...")
+	case <-presence.Lost():
+		// pgbouncer-transaction only: the transaction holding the presence lock
+		// ended (backend terminated, PostgreSQL or PgBouncer restarted, a pooler
+		// timeout), so an admin command could now start beside this server.
+		// Stop serving rather than run unguarded; the supervisor restarts the
+		// process, which takes the lock again or fails while an admin command runs.
+		presenceLost.Store(true)
+		log.Println("ERROR: the server-presence lock was lost (its database connection died); shutting down so an admin command cannot run beside this server")
+	}
 
 	// Cancel context to signal shutdown
 	cancel()
