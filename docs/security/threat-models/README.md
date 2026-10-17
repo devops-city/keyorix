@@ -30,6 +30,12 @@ should be filed as an issue.
 | [`web-ui.md`](web-ui.md) | Session-cookie delivery, CSRF, CSP, client-side state — with the same narrower-scope caveat the system-wide document states |
 | [`ha-consistency.md`](ha-consistency.md) | Cross-replica check-then-act races — a threat class no competitor-published security model surveyed names at all |
 | [`mcp-server.md`](mcp-server.md) | `keyorix-mcp`: prompt injection and exfiltration modeled as first-class threats, not a one-line disclaimer |
+| [`sharing-and-acl.md`](sharing-and-acl.md) | Direct and group shares, `SecretACL` grants, share elevation (a viewer holding a write share), revoke, ownership transfer, and the soft-delete / restore cascade |
+| [`break-glass.md`](break-glass.md) | Self-service emergency access: activation gates, expiry, the owed-audit degraded path, alert recipients, independent review, PAT-restricted callers |
+| [`scim-and-sso-accounts.md`](scim-and-sso-accounts.md) | The SCIM bearer token, SCIM ownership of accounts, deprovision (sessions and PATs), SSO account binding and group reconcile, an SSO-managed sole administrator |
+| [`dynamic-secrets-and-leases.md`](dynamic-secrets-and-leases.md) | Lease issue and revoke, the admin DSN at rest, SSRF guards on the target, ephemeral backends that cannot be revoked early, lease versus project delete |
+| [`notifications-webhooks.md`](notifications-webhooks.md) | Channel URL as a bearer credential (encrypted at rest, #2433), SSRF on outbound delivery, redaction in audit diffs and logs, alert loss and replay |
+| [`rate-limits-and-lockout.md`](rate-limits-and-lockout.md) | The login budget, per-account lockout, per-IP versus per-principal limits, the in-memory-per-replica residual, lockout clear audit |
 
 ## What's not here
 
