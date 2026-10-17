@@ -1784,9 +1784,16 @@ jobs:
   # FULL profile only (CI-LIGHT-1, 2026-10-16): merge_group and a PR labeled
   # ci:full. A FAST pull_request run skips both shards and the aggregate (web
   # unit tests still run there in web-ci.yml).
+  #
+  # Merge-queue gate (CI-SELECT-1): on merge_group the shards run when the
+  # `select` job's gate_web_e2e is true -- the server binary (./server or
+  # anything it imports), web/**, cli/**, scripts/e2e/**, server/Dockerfile,
+  # .dockerignore or the Makefile changed. That replaces web_e2e_relevant's
+  # narrower path list there (a change in internal/core reaches the real
+  # backend this drives). Outside merge_group the gate is always true.
   web-e2e-real-smoke-shard:
-    needs: [changes]
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    needs: [changes, select]
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.web_e2e_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_web_e2e == 'true'
     name: web-e2e-real-smoke-shard (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1849,8 +1856,8 @@ jobs:
   # keeps working: it fails if either shard failed or was cancelled, and is
   # skipped exactly when the shards are (same gate as the shards).
   web-e2e-real-smoke:
-    needs: [changes, web-e2e-real-smoke-shard]
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    needs: [changes, select, web-e2e-real-smoke-shard]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.web_e2e_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_web_e2e == 'true'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -1998,9 +2005,18 @@ jobs:
   # computes boot_smoke_relevant from the group diff with the same regex, so
   # a group runs this exactly when one of its PRs would have.
   # demo-up-smoke and helm-boot-smoke below follow the same rule.
+  #
+  # Merge-queue gate (CI-SELECT-1): on merge_group this runs when the
+  # `select` job's gate_docker_boot is true -- the server binary (./server or
+  # anything it imports: the image compiles the whole root module), web/**
+  # (the web image), docker-compose*, keyorix.docker.yaml, scripts/selfhost/**,
+  # server/Dockerfile, web/Dockerfile, .dockerignore or the Makefile changed.
+  # That replaces boot_smoke_relevant's narrower server/|internal/encryption/
+  # regex there: a change in internal/config or internal/storage can stop the
+  # container booting just as well. Outside merge_group the gate is true.
   docker-boot-smoke:
-    needs: [changes]
-    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.boot_smoke_relevant == 'true'
+    needs: [changes, select]
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && (needs.changes.outputs.boot_smoke_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_docker_boot == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2080,9 +2096,15 @@ jobs:
   # of only ever running by hand). Path-filtered via demo_smoke_relevant, the
   # same shape as boot_smoke_relevant just above, so it doesn't run on every
   # unrelated change. FULL profile only, like docker-boot-smoke above.
+  #
+  # Merge-queue gate (CI-SELECT-1): gate_demo -- the server binary and what it
+  # imports, web/**, cli/** (up.sh builds and drives the CLI), scripts/demo/**,
+  # scripts/totpgen/**, scripts/airgap-e2e.sh, server/Dockerfile,
+  # .dockerignore or the Makefile. Replaces demo_smoke_relevant on
+  # merge_group only, like docker-boot-smoke above.
   demo-up-smoke:
-    needs: [changes]
-    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.demo_smoke_relevant == 'true'
+    needs: [changes, select]
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && (needs.changes.outputs.demo_smoke_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_demo == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2152,9 +2174,14 @@ jobs:
   # for the relative dek_path/salt_path convention under readOnlyRootFilesystem).
   # FULL profile only, gated on boot_smoke_relevant -- see docker-boot-smoke's
   # comment just above.
+  #
+  # Merge-queue gate (CI-SELECT-1): gate_helm_boot -- deploy/helm/** or
+  # .github/testdata/helm* (the chart), plus everything docker-boot-smoke's
+  # gate covers for the two images it builds. Replaces boot_smoke_relevant on
+  # merge_group only.
   helm-boot-smoke:
-    needs: [changes]
-    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.boot_smoke_relevant == 'true'
+    needs: [changes, select]
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && (needs.changes.outputs.boot_smoke_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_helm_boot == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2270,12 +2297,17 @@ jobs:
   # controller-runtime/client-go dependency tree stays out of the server/CLI build.
   # It is therefore not covered by the root `go ./...` jobs above; gate it here.
   operator:
-    needs: [changes]
+    needs: [changes, select]
     # Deliberately NOT gated on operator_only -- that flag means the diff is
     # CONFINED to operator/, which is exactly the case this job must still
     # run for.
     # FAST profile: only when the PR touches operator/ (a separate module, no dependency on the root module); FULL: always (CI-LIGHT-1).
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.operator_changed == 'true')
+    # Merge-queue gate (CI-SELECT-1): gate_operator -- operator/** (its own
+    # module, no dependency on the root module), .golangci.yml (the lint
+    # config it inherits), or a file outside operator/ that its Go code names
+    # by path (e.g. a CRD under deploy/helm/). ci.yml and scripts/ci/** make
+    # every gate true.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.operator_changed == 'true') && needs.select.outputs.gate_operator == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2409,9 +2441,11 @@ jobs:
   # from the matrix (only values can), and each image ignores the other's variable names, so
   # setting both is harmless and is the only way one `services:` block covers both legs.
   migrate:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches migrate/ (a separate module, no dependency on the root module); FULL: always (CI-LIGHT-1).
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.migrate_changed == 'true')
+    # Merge-queue gate (CI-SELECT-1): gate_migrate -- migrate/**,
+    # .golangci.yml, or a file outside migrate/ its Go code names by path.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.migrate_changed == 'true') && needs.select.outputs.gate_migrate == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -2506,12 +2540,16 @@ jobs:
   # Go-only (there's no JS/TS equivalent to Go's native fuzzing engine), so a
   # web/-only PR is guaranteed to produce the exact same true-targets.txt.
   fuzz-targets:
-    needs: [changes]
+    needs: [changes, select]
     # Deliberately NOT gated on operator_only -- this job checks FuzzXxx
     # functions in BOTH the root and operator modules, and an operator-only
     # diff could add/remove/rename one there.
     # FULL profile only (CI-LIGHT-1). Required context: skipped satisfies it on a FAST PR run, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true'
+    # Merge-queue gate (CI-SELECT-1): gate_fuzz_targets -- scripts/fuzzing/**,
+    # or a changed .go file (any module) that has a `func Fuzz` line before
+    # or after the change (an added, removed, renamed or build-tag-moved fuzz
+    # target is the only thing this job's comparison can see change).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true' && needs.select.outputs.gate_fuzz_targets == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2614,9 +2652,13 @@ jobs:
   # The deeper sibling/coverage-delta comparison is rig-only (--fuzz); this is the
   # CI-safe floor gate. Rationale: claude/2026-09-16-ai-fuzzing-best-practices-benchmark.md.
   fuzz-reach:
-    needs: [changes]
+    needs: [changes, select]
     # FULL profile only (CI-LIGHT-1). Required context: skipped satisfies it on a FAST PR run, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true'
+    # Merge-queue gate (CI-SELECT-1): gate_fuzz_reach -- scripts/fuzzing/**, or
+    # an affected (changed or importing a changed) package among the TARGETS
+    # packages of scripts/fuzzing/harness-acceptance.sh (read at run time; an
+    # unreadable list opens the gate).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true' && needs.select.outputs.gate_fuzz_reach == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2766,9 +2808,13 @@ jobs:
           ./gitleaks detect --source . --verbose --redact --log-opts="HEAD"
 
   helm-chart:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
+    # Merge-queue gate (CI-SELECT-1, same for helm-chart-security and
+    # helm-chart-policy): gate_helm -- deploy/helm/** or .github/testdata/helm*,
+    # everything these helm lint/template/kubeconform/checkov/kube-score steps
+    # read (plus ci.yml itself, which opens every gate).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true') && needs.select.outputs.gate_helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -3053,9 +3099,10 @@ jobs:
   # This job closes that gap by running checkov's Kubernetes policy checks
   # against the same rendered chart output.
   helm-chart-security:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
+    # Merge-queue gate: gate_helm (see helm-chart).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true') && needs.select.outputs.gate_helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -3174,9 +3221,10 @@ jobs:
   # relevant changes), not further restricted to deploy/helm/** specifically:
   # at this runtime there's no CI-minute budget reason to narrow it further.
   helm-chart-policy:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1).
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
+    # Merge-queue gate: gate_helm (see helm-chart).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true') && needs.select.outputs.gate_helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
