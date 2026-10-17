@@ -244,6 +244,14 @@ func deleteProjectCascade(tx *gorm.DB, id uint, softDeleteDays int) error {
 		Delete(&models.ShareRecord{}).Error; err != nil {
 		return fmt.Errorf("failed to revoke project secret shares: %w", err)
 	}
+	// CWE-284 (#2798): SecretACL grants get the same treatment as DeleteSecret's
+	// per-secret path. They are a separate lifecycle from SecretNode, so left alone
+	// they would come back live on RestoreProject with zero re-authorization. Same
+	// raw subquery as ShareRecord above, so it reaches the just-soft-deleted nodes.
+	if err := tx.Where("secret_id IN (SELECT id FROM secret_nodes WHERE project_id = ?)", id).
+		Delete(&models.SecretACL{}).Error; err != nil {
+		return fmt.Errorf("failed to revoke project secret ACLs: %w", err)
+	}
 	// UserRole/GroupRole grants scoped to this project are deliberately left
 	// untouched here, unlike ShareRecord above. Both are plain composite-primary-key
 	// join rows (UserID/GroupID, RoleID, ProjectID, EnvironmentID) with no DeletedAt

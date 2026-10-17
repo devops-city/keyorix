@@ -188,7 +188,7 @@ func TestGetProjectByName_BrokenDB(t *testing.T) {
 
 func TestDeleteProjectCascade_EnvironmentUpdateFails(t *testing.T) {
 	t.Parallel()
-	ls := newPartialSecretsDB(t, &models.Project{}, &models.SecretNode{}, &models.ShareRecord{})
+	ls := newPartialSecretsDB(t, &models.Project{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{})
 	ctx := context.Background()
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "casc-env"})
 	require.NoError(t, err)
@@ -200,7 +200,7 @@ func TestDeleteProjectCascade_EnvironmentUpdateFails(t *testing.T) {
 
 func TestDeleteProjectCascade_DynamicConfigUpdateFails(t *testing.T) {
 	t.Parallel()
-	ls := newPartialSecretsDB(t, &models.Project{}, &models.SecretNode{}, &models.ShareRecord{}, &models.Environment{})
+	ls := newPartialSecretsDB(t, &models.Project{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.Environment{})
 	ctx := context.Background()
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "casc-dyn"})
 	require.NoError(t, err)
@@ -212,7 +212,7 @@ func TestDeleteProjectCascade_DynamicConfigUpdateFails(t *testing.T) {
 
 func TestDeleteProjectCascade_ProjectUpdateFails(t *testing.T) {
 	t.Parallel()
-	ls := newPartialSecretsDB(t, &models.Project{}, &models.SecretNode{}, &models.ShareRecord{},
+	ls := newPartialSecretsDB(t, &models.Project{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{},
 		&models.Environment{}, &models.DynamicSecretConfig{})
 	ctx := context.Background()
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "casc-proj"})

@@ -58,7 +58,7 @@ func newProjectSecretsStore(t *testing.T) *LocalStorage {
 	t.Helper()
 	return newStoreS3(t, "proj_sec_"+t.Name(),
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.SecretVersion{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+		&models.SecretVersion{}, &models.ShareRecord{}, &models.SecretACL{}, &models.DynamicSecretConfig{})
 }
 
 func TestDeleteProjectIfEmpty_NoSecrets(t *testing.T) {
