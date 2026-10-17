@@ -42,6 +42,21 @@ var SecureCipherSuiteNames = map[string]uint16{
 	"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305":  tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
 }
 
+// DefaultCipherSuites is the TLS 1.2 suite list both listeners offer when
+// tls.allowed_ciphers is unset: forward-secret AEAD only, for RSA AND ECDSA
+// certificates. With only the ECDHE_RSA suites (the list before HARDEN-HTTP-1), a
+// server holding an ECDSA certificate (cert-manager's and many ACME setups' default)
+// had no TLS 1.2 suite it could sign with, so every TLS 1.2 client failed the
+// handshake and only TLS 1.3 worked.
+var DefaultCipherSuites = []uint16{
+	tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+	tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+	tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+	tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+	tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+	tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+}
+
 // ResolveCipherSuites turns the operator-configured tls.allowed_ciphers list (a list of
 // cipher-suite NAMES, e.g. "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384") into the resolved
 // []uint16 IDs the standard library's tls.Config.CipherSuites expects (#333).

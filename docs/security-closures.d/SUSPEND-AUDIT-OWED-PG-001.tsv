@@ -1,0 +1,1 @@
+SUSPEND-AUDIT-OWED-PG-001	./internal/core	TestSuspendSecret_PlainSuspendAuditOwed_ConcurrentBackfillWritesOnce_Postgres	pg-gated	pending	-	On PostgreSQL several replicas backfilling the same owed secret.suspended rows at once write each exactly once, and the audit chain verifies.

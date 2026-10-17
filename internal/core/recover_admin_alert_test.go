@@ -4,6 +4,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -45,6 +46,7 @@ func TestRunRecoverAdminAlerting_NewEventNotifiesAndAdvancesMark(t *testing.T) {
 	ch := &models.NotificationChannel{ID: 1, Name: "ops-webhook", Type: "webhook", URLEnc: plaintextURLEnc("https://fake-webhook.test/hook"), Enabled: true}
 
 	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("", false, nil)
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(42), nil)
 	store.On("GetAuditLogs", mock.Anything, mock.AnythingOfType("*storage.AuditFilter")).
 		Return([]*models.AuditEvent{ev}, int64(1), nil)
 	store.On("ListNotificationChannels", mock.Anything).Return([]*models.NotificationChannel{ch}, nil)
@@ -65,23 +67,83 @@ func TestRunRecoverAdminAlerting_NewEventNotifiesAndAdvancesMark(t *testing.T) {
 	store.AssertExpectations(t)
 }
 
-// TestRunRecoverAdminAlerting_NoNewEventsIsNoOp verifies an empty result
-// from the audit-log query short-circuits before listing channels or
-// touching the high-water mark -- the common, steady-state tick.
-func TestRunRecoverAdminAlerting_NoNewEventsIsNoOp(t *testing.T) {
+// TestRunRecoverAdminAlerting_NoNewAuditRowsIsNoOp verifies that when the
+// highest audit id is not past the mark (the common steady-state tick), the run
+// reads no audit rows and writes nothing.
+func TestRunRecoverAdminAlerting_NoNewAuditRowsIsNoOp(t *testing.T) {
 	store := new(MockStorage)
 	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("42", true, nil)
-	store.On("GetAuditLogs", mock.Anything, mock.Anything).Return([]*models.AuditEvent{}, int64(0), nil)
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(42), nil)
 
 	c := NewKeyorixCore(store)
 	n, err := c.RunRecoverAdminAlerting(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 
-	// Neither ListNotificationChannels nor SetSystemMetadata should ever be
-	// called -- AssertExpectations below confirms every registered call
-	// happened, but doesn't forbid extra ones, so assert directly.
+	store.AssertNotCalled(t, "GetAuditLogs", mock.Anything, mock.Anything)
 	store.AssertNotCalled(t, "ListNotificationChannels", mock.Anything)
+	store.AssertNotCalled(t, "SetSystemMetadata", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestRunRecoverAdminAlerting_NoMatchAdvancesMarkToHighestExamined is the core
+// of AUDIT-SCAN-FIX-1: new audit rows but none a recover-admin use. Nothing is
+// alerted, yet the mark moves to the highest id examined so the next run starts
+// there instead of re-reading the range.
+func TestRunRecoverAdminAlerting_NoMatchAdvancesMarkToHighestExamined(t *testing.T) {
+	store := new(MockStorage)
+	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("42", true, nil)
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(5000), nil)
+	store.On("GetAuditLogs", mock.Anything, mock.MatchedBy(func(f *storage.AuditFilter) bool {
+		return f.AfterID != nil && *f.AfterID == 42 && f.UpToID != nil && *f.UpToID == 5000
+	})).Return([]*models.AuditEvent{}, int64(0), nil)
+	store.On("SetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey, "5000").Return(nil)
+
+	c := NewKeyorixCore(store)
+	n, err := c.RunRecoverAdminAlerting(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+	store.AssertExpectations(t)
+	store.AssertNotCalled(t, "ListNotificationChannels", mock.Anything)
+}
+
+// TestRunRecoverAdminAlerting_FullBatchAdvancesOnlyToLastEvent verifies that a
+// full batch does not skip the matches beyond it: the mark stops at the batch's
+// last event, not at the highest id.
+func TestRunRecoverAdminAlerting_FullBatchAdvancesOnlyToLastEvent(t *testing.T) {
+	events := make([]*models.AuditEvent, recoverAdminAlertBatchSize)
+	for i := range events {
+		events[i] = recoverAdminEvent(uint(100 + i))
+	}
+	last := events[len(events)-1].ID
+
+	store := new(MockStorage)
+	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("42", true, nil)
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(9000), nil)
+	store.On("GetAuditLogs", mock.Anything, mock.Anything).Return(events, int64(0), nil)
+	store.On("ListNotificationChannels", mock.Anything).Return([]*models.NotificationChannel{}, nil)
+	store.On("SetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey, fmt.Sprint(last)).Return(nil)
+
+	c := NewKeyorixCore(store)
+	n, err := c.RunRecoverAdminAlerting(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, recoverAdminAlertBatchSize, n)
+	store.AssertExpectations(t)
+}
+
+// TestRunRecoverAdminAlerting_MarkNeverMovesBack verifies the monotonic write: a
+// run that lost the scheduler lease to a replica which already advanced the mark
+// must not overwrite it with an older value.
+func TestRunRecoverAdminAlerting_MarkNeverMovesBack(t *testing.T) {
+	store := new(MockStorage)
+	// Read at start: 42. Re-read just before the write: another replica moved it to 9000.
+	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("42", true, nil).Once()
+	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("9000", true, nil).Once()
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(5000), nil)
+	store.On("GetAuditLogs", mock.Anything, mock.Anything).Return([]*models.AuditEvent{}, int64(0), nil)
+
+	c := NewKeyorixCore(store)
+	_, err := c.RunRecoverAdminAlerting(context.Background())
+	require.NoError(t, err)
 	store.AssertNotCalled(t, "SetSystemMetadata", mock.Anything, mock.Anything, mock.Anything)
 }
 
@@ -91,9 +153,11 @@ func TestRunRecoverAdminAlerting_NoNewEventsIsNoOp(t *testing.T) {
 func TestRunRecoverAdminAlerting_ResumesFromHighWaterMark(t *testing.T) {
 	store := new(MockStorage)
 	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("42", true, nil)
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(100), nil)
 	store.On("GetAuditLogs", mock.Anything, mock.MatchedBy(func(f *storage.AuditFilter) bool {
 		return f.AfterID != nil && *f.AfterID == 42
 	})).Return([]*models.AuditEvent{}, int64(0), nil)
+	store.On("SetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey, "100").Return(nil)
 
 	c := NewKeyorixCore(store)
 	_, err := c.RunRecoverAdminAlerting(context.Background())
@@ -107,7 +171,9 @@ func TestRunRecoverAdminAlerting_ResumesFromHighWaterMark(t *testing.T) {
 func TestRunRecoverAdminAlerting_CorruptMarkTreatedAsZero(t *testing.T) {
 	store := new(MockStorage)
 	store.On("GetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey).Return("not-a-number", true, nil)
+	store.On("MaxAuditEventID", mock.Anything).Return(uint(7), nil)
 	store.On("GetAuditLogs", mock.Anything, mock.Anything).Return([]*models.AuditEvent{}, int64(0), nil)
+	store.On("SetSystemMetadata", mock.Anything, recoverAdminAlertHighWaterKey, "7").Return(nil)
 
 	c := NewKeyorixCore(store)
 	n, err := c.RunRecoverAdminAlerting(context.Background())

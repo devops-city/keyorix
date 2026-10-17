@@ -29,7 +29,12 @@
   the CreateSession/MarkTOTPStepUsed panic subtests of the handler tests
   below, `server/http/handlers/TestVerifyMFA_WritePanicKeepsTheCodeBurned`,
   and `internal/core/TestLoginWritePanic_DeniedLikeItsError`, which also
-  panics after the write committed). Why: #2894 — `checkLockAndClearLoginFailures` cleared the counter
+  panics after the write committed). The same rule covers the step-up's two
+  writes (`VerifyMFAStepUp`: the mark and `createStepUpGrant`) and the MFA
+  challenge the password step writes for a second-factor account
+  (`CreateMFAChallengeHoldingLoginSlot`; guards: the panic cases of
+  `TestMFAStepUp_PostVerdictFaultIsIdenticalToAWrongCode` and
+  `TestLogin_CreateMFAChallengeFaultCostsTheSameAsAWrongPassword`). Why: #2894 — `checkLockAndClearLoginFailures` cleared the counter
   on its way past the TOCTOU re-check, which put the clear BEFORE every
   remaining fallible step of every login path (`internal/core/auth.go`,
   `mfa.go`, `webauthn.go` ×2, `mfa_stepup.go`), and the `completeLogin` failure
