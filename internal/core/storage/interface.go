@@ -1804,6 +1804,12 @@ type Storage interface {
 	CleanupExpiredSessions(ctx context.Context) error
 
 	// MFA / TOTP (per-user two-factor authentication).
+	// UpsertMFASecret stores s as the user's pending TOTP secret: it inserts the
+	// row, or replaces an existing row that is NOT activated. It never replaces an
+	// activated secret (#2692): the replace is conditional in the same statement,
+	// and an activated row yields ErrMFASecretActivated with nothing written. A
+	// caller's earlier read of MFAEnabled=false is therefore not what protects an
+	// enabled account; a concurrent ActivateMFA that commits first wins.
 	UpsertMFASecret(ctx context.Context, s *models.MFASecret) error
 	GetMFASecret(ctx context.Context, userID uint) (*models.MFASecret, error)
 	// ActivateMFASecret marks userID's TOTP secret activated only if its stored
