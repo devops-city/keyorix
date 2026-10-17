@@ -195,6 +195,34 @@ type Guard struct {
 	stop     chan struct{}
 	done     chan struct{} // closed when Run's poller returns
 	running  atomic.Bool   // Run started the poller
+	lostOnce sync.Once
+	lost     chan struct{} // closed when the poller finds the holder lock gone (Lost)
+}
+
+// Lost is closed when the poller finds the holder lock gone while this server
+// runs: the holder session died (a pg_terminate_backend, a PostgreSQL restart
+// or failover, a network partition), or the session answering is not the one
+// that took the lock, or it no longer holds it. From that moment another
+// server can take the lock and run as the single writer, so the caller must
+// stop serving (server/main.go shuts down and exits 1). Not closed for the
+// guard's other reasons to leave the authoritative state (a changed fence or
+// epoch, a settle timeout): the lock is still held then, and the guard keeps
+// serving with confirming caches. A nil Guard has a nil channel (a receive
+// blocks forever).
+func (g *Guard) Lost() <-chan struct{} {
+	if g == nil {
+		return nil
+	}
+	return g.lost
+}
+
+// lockLost reports the loss once (config.ReportAdvisoryLockLost, the same
+// line every advisory-lock holder writes) and closes Lost.
+func (g *Guard) lockLost(err error) {
+	g.lostOnce.Do(func() {
+		config.ReportAdvisoryLockLost("single_writer holder lock", err)
+		close(g.lost)
+	})
 }
 
 var current atomic.Pointer[Guard]
@@ -212,7 +240,7 @@ func SetCurrentForTest(g *Guard) (restore func()) {
 // whose last poll failed with lastPollError: for other packages' tests of
 // what they show from Status.
 func GuardForTest(lastPollError string) *Guard {
-	g := &Guard{state: StateConfirming, reason: "test", lastErr: lastPollError, stop: make(chan struct{}), done: make(chan struct{})}
+	g := &Guard{state: StateConfirming, reason: "test", lastErr: lastPollError, stop: make(chan struct{}), done: make(chan struct{}), lost: make(chan struct{})}
 	g.opts.defaults()
 	return g
 }
@@ -247,7 +275,7 @@ func Start(ctx context.Context, cfg *config.Config, opts Options) (*Guard, error
 	activeTracker.Store(tr)
 	config.SetSoleWriterQueryTracer(tr)
 	g := &Guard{opts: opts, nonce: nonce, bootID: bootID, state: StateSettling, reason: "starting", tracker: tr,
-		stop: make(chan struct{}), done: make(chan struct{})}
+		stop: make(chan struct{}), done: make(chan struct{}), lost: make(chan struct{})}
 	cc, err := config.ResolvePostgresConnConfig(&cfg.Storage.Database)
 	if err != nil {
 		return nil, err

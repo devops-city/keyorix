@@ -40,7 +40,7 @@ type skippedStorage struct {
 	corestorage.Storage // embed the interface so the type satisfies it at compile time
 }
 
-func (s *skippedStorage) WithSchedulerLock(_ context.Context, _ int64, _ func() error) (bool, error) {
+func (s *skippedStorage) WithSchedulerLock(_ context.Context, _ int64, _ func(context.Context) error) (bool, error) {
 	return false, nil // another replica holds the lock — caller should skip
 }
 
@@ -50,7 +50,7 @@ func (s *skippedStorage) WithSchedulerLock(_ context.Context, _ int64, _ func() 
 func TestLockedRun_S22_Skipped(t *testing.T) {
 	st := &skippedStorage{}
 	var fnCalled bool
-	outcome := lockedRun(context.Background(), st, 99, "test-skipped", func() error {
+	outcome := lockedRun(context.Background(), st, 99, "test-skipped", func(context.Context) error {
 		fnCalled = true
 		return nil
 	})

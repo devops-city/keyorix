@@ -325,7 +325,30 @@ func (h *CatalogHandler) ListEnvironments(w http.ResponseWriter, r *http.Request
 		}
 		environments = visible
 	}
-	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments)}, "")
+	counts, ok := h.environmentSecretCounts(w, r, environments)
+	if !ok {
+		return
+	}
+	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments, counts)}, "")
+}
+
+// environmentSecretCounts fetches the per-environment secret counts for a list
+// response in one grouped query (no per-environment round trip). On failure it
+// writes the 500 and returns ok=false.
+func (h *CatalogHandler) environmentSecretCounts(w http.ResponseWriter, r *http.Request, envs []*models.Environment) (map[uint]int64, bool) {
+	ids := make([]uint, 0, len(envs))
+	for _, e := range envs {
+		if e != nil {
+			ids = append(ids, e.ID)
+		}
+	}
+	counts, err := h.coreService.CountSecretsByEnvironment(r.Context(), ids)
+	if err != nil {
+		log.Printf("Error counting secrets per environment: %v", err)
+		sendError(w, "Failed to list environments", clientSafe(err), http.StatusInternalServerError, nil)
+		return nil, false
+	}
+	return counts, true
 }
 
 // UpdateProject handles PUT /api/v1/projects/:id
@@ -506,7 +529,11 @@ func (h *CatalogHandler) ListProjectEnvironments(w http.ResponseWriter, r *http.
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments)}, "")
+	counts, ok := h.environmentSecretCounts(w, r, environments)
+	if !ok {
+		return
+	}
+	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments, counts)}, "")
 }
 
 // CloneEnvironment handles POST /api/v1/projects/{id}/environments/{envId}/clone
