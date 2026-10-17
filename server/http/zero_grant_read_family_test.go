@@ -31,10 +31,18 @@
 //     names (machine identity, user, token) contains the canary, so a self-service
 //     route answering about the caller itself cannot trip it.
 //   - Personas (zeroGrantPersonas): a machine identity created IN the canary project
-//     with no role (the SDK contract's exact shape), and one created in the decoy
-//     project.
-//   - Non-vacuity: every persona authenticates (200 on GET /projects), and the admin
-//     session must see the canary on at least patGuardMinControlHits routes.
+//     with no role (the SDK contract's exact shape), one created in the decoy
+//     project, and a user stripped of every role (including the auto-assigned
+//     system_viewer baseline) holding PATs restricted to the canary project, to
+//     secrets.read, and unrestricted.
+//   - Revocation (TestZeroGrantAfterRevocation_CachedMachineTokenReadsNothing): a
+//     machine identity whose ONLY grant is removed, with its token reused inside the
+//     middleware token-cache TTL (validTokenTTL, 30s) — the walk runs immediately
+//     after the DELETE, so every request lands on a cache hit.
+//   - Non-vacuity: every persona authenticates (200 on GET /projects), the admin
+//     session must see the canary on at least patGuardMinControlHits routes, and the
+//     to-be-revoked machine must see it (GET /projects, GET /secrets/{id}) BEFORE the
+//     revocation, through the same token the walk reuses after it.
 //
 // What it does NOT cover, said plainly: non-GET routes; query parameters other than
 // project_id/environment_id; ids other than the seeded canary objects'; data the
@@ -70,6 +78,10 @@ import (
 var zeroGrantPersonas = []string{
 	"machine_in_canary_project", // the SDK contract's shape: created in the project, no role
 	"machine_in_decoy_project",
+	"zero_user_session",          // a user with every role removed, system_viewer included
+	"zero_user_pat_unrestricted", // that user's PATs
+	"zero_user_pat_canary_project",
+	"zero_user_pat_secrets_read",
 }
 
 // zeroGrantReadExempt maps a GET route to the reason a zero-grant credential may
@@ -141,6 +153,29 @@ func zeroGrantMachine(t *testing.T, w *patGuardWorld, projectID uint, name strin
 	return mi.Data.MachineIdentity.ID, tok.Data.Token
 }
 
+// zeroGrantUser creates a user, removes every role it holds (CreateUser
+// auto-assigns system_viewer), and mints its session and PATs into w.tokens.
+func zeroGrantUser(t *testing.T, w *patGuardWorld) {
+	t.Helper()
+	ctx := context.Background()
+	cs := w.core
+	const username = "zerouser"
+	id, sess := mkUserWithGlobalRole(t, cs, username, "")
+	require.NoError(t, cs.RemoveRoleFromUser(ctx, username+"@example.com", "system_viewer"))
+	roles, err := cs.GetUserRolesByID(ctx, id)
+	require.NoError(t, err)
+	require.Empty(t, roles, "fixture: the zero-grant user must hold no role at all")
+	w.tokens["zero_user_session"] = sess
+	mint := func(name string, scopes []string, pid uint) {
+		res, merr := cs.CreateOwnPAT(ctx, id, name, nil, scopes, pid, 0, nil)
+		require.NoError(t, merr)
+		w.tokens["zero_user_"+name] = res.PlainToken
+	}
+	mint("pat_unrestricted", nil, 0)
+	mint("pat_canary_project", nil, w.canaryPID)
+	mint("pat_secrets_read", []string{"secrets.read"}, 0)
+}
+
 // zeroGrantBackends are the storage backends every test here runs on. Postgres
 // skips without KEYORIX_TEST_PG_DSN (rrStorageConfig).
 var zeroGrantBackends = []string{"sqlite", "postgres"}
@@ -156,6 +191,7 @@ func newZeroGrantWorld(t *testing.T, backend string) *patGuardWorld {
 	zeroGrantSeedExtras(t, w)
 	_, w.tokens["machine_in_canary_project"] = zeroGrantMachine(t, w, w.canaryPID, "zg-machine-a")
 	_, w.tokens["machine_in_decoy_project"] = zeroGrantMachine(t, w, w.decoyPID, "zg-machine-b")
+	zeroGrantUser(t, w)
 	// Non-vacuity: every persona authenticates. A walk where every request is a 401
 	// would pass the leak oracle trivially.
 	for _, persona := range zeroGrantPersonas {
@@ -269,6 +305,56 @@ func testEveryGETRouteWithholdsDataFromZeroGrant(t *testing.T, backend string) {
 		assert.True(t, routeSet[route], "zeroGrantReadExempt entry %q is not a GET route any more: remove it", route)
 		assert.NotEmpty(t, strings.TrimSpace(reason), "zeroGrantReadExempt entry %q needs a reason", route)
 	}
+}
+
+// TestZeroGrantAfterRevocation_CachedMachineTokenReadsNothing: a machine identity
+// whose only grant is removed reads nothing with the token it already used, while
+// that token's middleware cache entry is still live (the walk starts immediately
+// after the DELETE, well inside validTokenTTL).
+func TestZeroGrantAfterRevocation_CachedMachineTokenReadsNothing(t *testing.T) {
+	for _, backend := range zeroGrantBackends {
+		t.Run(backend, func(t *testing.T) { testZeroGrantAfterRevocation(t, backend) })
+	}
+}
+
+func testZeroGrantAfterRevocation(t *testing.T, backend string) {
+	w := newZeroGrantWorld(t, backend)
+	admin := w.tokens["admin_session"]
+	machineID, token := zeroGrantMachine(t, w, w.canaryPID, "zg-machine-revoked")
+	w.tokens["machine_revoked"] = token
+
+	code, body := w.get(t, admin, "/api/v1/roles/by-name?name=project_viewer")
+	require.Equal(t, http.StatusOK, code, body)
+	var role struct {
+		Data struct {
+			ID uint `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &role), body)
+	require.NotZero(t, role.Data.ID, body)
+
+	rolesPath := fmt.Sprintf("/api/v1/projects/%d/machine-identities/%d/roles", w.canaryPID, machineID)
+	code, body = w.do(t, http.MethodPost, admin, rolesPath, []byte(fmt.Sprintf(`{"role_id":%d}`, role.Data.ID)))
+	require.Equal(t, http.StatusOK, code, body)
+
+	// Positive control through the SAME token, which also puts it in the token cache.
+	secretPath := fmt.Sprintf("/api/v1/secrets/%d", w.ownedSecret[""])
+	for _, p := range []string{"/api/v1/projects", secretPath} {
+		code, body = w.get(t, token, p)
+		require.True(t, leaks(code, body), "control: the granted machine must see the canary on %s before revocation: %d %s", p, code, body)
+	}
+
+	code, body = w.do(t, http.MethodDelete, admin, fmt.Sprintf("%s/%d", rolesPath, role.Data.ID), nil)
+	require.Equal(t, http.StatusOK, code, body)
+
+	// The first post-revocation requests, on the routes the control just used.
+	for _, p := range []string{"/api/v1/projects", secretPath} {
+		code, body = w.get(t, token, p)
+		assert.False(t, leaks(code, body), "revoked machine still reads %s: %d %s", p, code, body)
+	}
+
+	routes := patGuardGETRoutes(t, w.router)
+	reportZeroGrantViolations(t, zeroGrantWalk(t, w, routes, []string{"machine_revoked"}))
 }
 
 // TestZeroGrantMachine_ProjectListIsEmpty200 pins the status-code half of the SDK
