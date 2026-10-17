@@ -39,14 +39,14 @@ func (h *SecretHandler) SuspendProjectSecrets(w http.ResponseWriter, r *http.Req
 		core.SuspendOptions{ClearSyncedCopies: reqBody.ClearSyncedCopies})
 	if err != nil {
 		if errors.Is(err, core.ErrBulkSuspendAuditUnavailable) {
-			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; no secret was suspended", http.StatusInternalServerError, nil)
+			h.sendError(w, "InternalError", "The audit event for this request could not be recorded; no secret was suspended. Retry, or "+core.SuspendWithoutClearingHint, http.StatusInternalServerError, nil)
 			return
 		}
 		if partial, ok := errors.AsType[*core.BulkSuspendPartialError](err); ok {
 			// Already-suspended secrets stay suspended; the counts let the operator retry.
 			msg := "Some secrets could not be suspended and are still readable; retry"
 			if partial.AuditRefused {
-				msg = "An audit event could not be recorded; the suspension stopped early, retry"
+				msg = "An audit event could not be recorded; the suspension stopped early. Retry, or " + core.SuspendWithoutClearingHint
 			}
 			h.sendError(w, "InternalError", msg,
 				http.StatusInternalServerError,

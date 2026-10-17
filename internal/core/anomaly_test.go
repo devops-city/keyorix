@@ -240,7 +240,7 @@ func TestDetectAnomalies(t *testing.T) {
 			AccessedBy: "mallory",
 			AccessTime: time.Date(2026, 6, 17, 3, 0, 0, 0, time.UTC),
 		}
-		got := kindsOf(detectAnomalies(secret, lg, baseline, defaultOffHoursPolicy()))
+		got := kindsOf(detectAnomalies(secret, lg, baseline, defaultOffHoursPolicy(), time.Now().UTC()))
 		for _, want := range []string{"off_hours", "new_ip", "new_user"} {
 			if !got[want] {
 				t.Errorf("expected %s alert, got %v", want, got)
@@ -254,7 +254,7 @@ func TestDetectAnomalies(t *testing.T) {
 			AccessedBy: "alice",
 			AccessTime: time.Date(2026, 6, 17, 14, 0, 0, 0, time.UTC),
 		}
-		if alerts := detectAnomalies(secret, lg, baseline, defaultOffHoursPolicy()); len(alerts) != 0 {
+		if alerts := detectAnomalies(secret, lg, baseline, defaultOffHoursPolicy(), time.Now().UTC()); len(alerts) != 0 {
 			t.Fatalf("expected no alerts, got %v", kindsOf(alerts))
 		}
 	})
@@ -272,7 +272,7 @@ func TestDetectAnomalies(t *testing.T) {
 			AccessTime: time.Date(2026, 6, 17, 14, 0, 0, 0, time.UTC),
 		}
 		empty := accessBaseline{knownIPs: map[string]bool{}, knownUsers: map[string]bool{}}
-		alerts := detectAnomalies(secret, lg, empty, defaultOffHoursPolicy())
+		alerts := detectAnomalies(secret, lg, empty, defaultOffHoursPolicy(), time.Now().UTC())
 		got := kindsOf(alerts)
 		for _, want := range []string{"new_ip", "new_user"} {
 			if !got[want] {

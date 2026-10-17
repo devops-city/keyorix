@@ -1,0 +1,5 @@
+### Changed
+- **First-run messages lead a new user through the real steps.** The server's generated-bootstrap-token log line no longer says to "retrieve the full token from KEYORIX_BOOTSTRAP_TOKEN" (a variable the user never set; the token is only logged masked) and names `KEYORIX_BOOTSTRAP_TOKEN_FILE` and `admin generate-secrets` instead. `keyorix system init` prints the MFA enrolment steps and the `--username` to log in with (secrets stay locked until the admin has a second factor). `keyorix-server admin init` lists its next commands in the order that works (keys, schema, validate) and adds the recovery key. `keyorix login` says where credentials are stored and that `KEYORIX_PASSWORD[_FILE]` exists, and its no-input error names the file form. `keyorix mfa enroll` no longer says "scan" when it prints no QR code. No default or security check changed.
+
+### Documentation
+- **Added `docs/operations/quickstart-60s.md`:** the shortest path from the release download to reading back a first secret (one node, SQLite, no Docker), with the times measured on one Apple silicon Mac and what they exclude.

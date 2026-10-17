@@ -45,7 +45,7 @@ func (h *SecretHandler) ReassignOwner(w http.ResponseWriter, r *http.Request) {
 		case strings.Contains(err.Error(), "permission"), strings.Contains(err.Error(), "not authorized"):
 			status = http.StatusForbidden
 		}
-		h.sendError(w, "Error", err.Error(), status, nil)
+		h.sendError(w, "Error", errorMessageFor(status, err), status, nil)
 		return
 	}
 	h.sendSuccess(w, map[string]any{"reassigned": n}, "")

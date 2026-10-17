@@ -23,7 +23,7 @@ func TestNativeReadPool_UsesTheResolvedConnConfig(t *testing.T) {
 	want, err := config.ResolvePostgresConnConfig(d)
 	require.NoError(t, err)
 
-	pool, err := openPostgresNativeReadPool(d, nativeReadPoolSize(DefaultPostgresMaxOpenConns))
+	pool, err := openPostgresNativeReadPool(d, nativeReadPoolSize(DefaultPostgresMaxOpenConns, 0))
 	require.NoError(t, err)
 	defer pool.Close()
 	got := pool.Config()
@@ -44,5 +44,18 @@ func TestNativeReadPool_UsesTheResolvedConnConfig(t *testing.T) {
 	require.EqualValues(t, NativeReadPoolMaxSize, got.MaxConns)
 	require.Zero(t, got.MinConns, "no connection until first use")
 	require.Equal(t, 7*time.Minute, got.MaxConnLifetime)
-	require.Equal(t, 4, nativeReadPoolSize(4), "never more than the request pool")
+	require.Equal(t, 4, nativeReadPoolSize(4, 0), "never more than the request pool")
+	require.Equal(t, 4, nativeReadPoolSize(4, 16), "a configured cap is no exception")
+	require.Equal(t, 16, nativeReadPoolSize(25, 16), "native_read_pool_max raises the cap")
+	require.Equal(t, 2, nativeReadPoolSize(25, 2), "native_read_pool_max lowers the cap")
+}
+
+// TestNativeReadPool_ConfiguredMax: storage.database.native_read_pool_max sets
+// the pgxpool's cap, within the request pool's own.
+func TestNativeReadPool_ConfiguredMax(t *testing.T) {
+	d := &config.DatabaseConfig{DSN: "host=db.invalid port=5439 user=kx dbname=keyorix sslmode=disable", NativeReadPoolMax: 16}
+	pool, err := openPostgresNativeReadPool(d, nativeReadPoolSize(DefaultPostgresMaxOpenConns, d.NativeReadPoolMax))
+	require.NoError(t, err)
+	defer pool.Close()
+	require.EqualValues(t, 16, pool.Config().MaxConns)
 }

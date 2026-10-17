@@ -145,8 +145,11 @@ costs a column, a trigger pair, an upgrade path and a fail-closed probe per tabl
   tie implies an identical policy, so serving the cached one is correct.
 - `secret_versions` — the aggregate `(count, max(version_number), sum(read_count))` has no clock
   in it and one known residual exception (a DEK rewrap rewrites `encrypted_value` without moving
-  any term, under an exclusive key lock, failing closed). A `secret_versions.cache_epoch` trigger
-  would close it; it is a recommended follow-up, not a current requirement.
+  any term). **Decided safe, no trigger** (STORAGE-2): a warm entry can only live in a process
+  that still holds the old DEK, where it decrypts to the same plaintext; a holder of only the new
+  DEK fails closed; the copy is bounded by the cache TTL and process lifetime. Pinned by
+  `TestDEKSweep_WarmLatestVersionCacheServesOldCiphertextSamePlaintext`; reasoning in the
+  `secret_metadata_cache.go` header.
 
 The test: **is the row wide enough that reading a content stamp approaches reading the row?** If
 yes, trigger. If no, derive from content and state the residual gap.

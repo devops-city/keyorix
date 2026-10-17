@@ -210,12 +210,15 @@ else:
 # demo_uptime_seconds BASE_URL — how long the server process has been up (GET /health),
 # '' when it cannot be read.
 demo_uptime_seconds() {
-  local d
-  d="$(curl -s --max-time 5 "$1/health" | python3 -c 'import sys, json
+  local d body
+  # The /health body is only PARSED as JSON below, never executed; it goes to
+  # python3's stdin from a variable rather than straight off the curl pipe.
+  body="$(curl -s --max-time 5 "$1/health" || true)"
+  d="$(python3 -c 'import sys, json
 try:
     print(json.load(sys.stdin).get("uptime", ""))
 except Exception:
-    print("")')"
+    print("")' <<<"$body")"
   [ -n "$d" ] && demo_duration_seconds "$d"
 }
 

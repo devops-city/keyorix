@@ -25,7 +25,7 @@ value. Requires secrets.read at the secret's scope.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretInfoID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -115,7 +115,7 @@ Examples:
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretTagsID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -191,7 +191,7 @@ Examples:
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretDescID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -248,7 +248,7 @@ confidential, or restricted (or empty to clear). Requires secrets.write.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretClassifyID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		switch secretClassifyLevel {
 		case "", "public", "internal", "confidential", "restricted":
