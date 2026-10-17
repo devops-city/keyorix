@@ -797,8 +797,7 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 			return err
 		}
 	}
-	user, err := c.storage.GetUser(ctx, id)
-	if err != nil {
+	if _, err := c.storage.GetUser(ctx, id); err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
 	// #1646: guardLastAdminDeactivation's read and the deactivating write below
@@ -812,16 +811,42 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 		if err := c.guardLastAdminDeactivation(ctx, id); err != nil {
 			return err
 		}
-		user.IsActive = false
-		if NormalizeAccountState(user.AccountState) != AccountSuspended {
-			user.AccountState = AccountDeprovisioned
-		}
-		user.UpdatedAt = c.now()
 		sessionHashes, _ := c.storage.ListSessionTokenHashesForUser(ctx, id)
 		var patHashes []string
+		var user *models.User
 		if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-			if _, err := tx.UpdateUser(ctx, user); err != nil {
-				return err
+			// #2677: deprovision from the row as it is NOW, under its row lock,
+			// and write only the columns this changes. It used to set them on the
+			// GetUser result read before the lock and persist that whole struct
+			// (full-row Save), reverting a password change, suspension or MFA
+			// enable that committed in between; RestoreUser then let the old
+			// password in. Pattern: UpdateUser's UpdateUserIfActiveStateMatches
+			// plus the SCIM paths' SetAccountStateIfMatches (INV-STORE-21).
+			var lerr error
+			if user, lerr = tx.LockUserForUpdate(ctx, id); lerr != nil {
+				return lerr
+			}
+			now := c.now()
+			wasActive := user.IsActive
+			user.IsActive = false
+			user.UpdatedAt = now
+			matched, uerr := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
+			if uerr != nil {
+				return uerr
+			}
+			if !matched {
+				return fmt.Errorf("user %d: %w", id, ErrUserActiveStateConflict)
+			}
+			// A suspended account keeps its state (a later restore must not
+			// lose the suspension); anything else becomes deprovisioned.
+			if NormalizeAccountState(user.AccountState) != AccountSuspended {
+				matched, serr := tx.SetAccountStateIfMatches(ctx, id, user.AccountState, AccountDeprovisioned, now)
+				if serr != nil {
+					return serr
+				}
+				if !matched {
+					return fmt.Errorf("user %d: %w", id, ErrUserAccountStateConflict)
+				}
 			}
 			if err := tx.DeleteSessionsForUserExcept(ctx, id, 0); err != nil {
 				return err
@@ -1009,11 +1034,25 @@ func (c *KeyorixCore) RestoreUser(ctx context.Context, actorID, id uint) error {
 		if gerr != nil {
 			return gerr
 		}
+		// Column-scoped (#2677 sweep), like DeleteUser: is_active through the
+		// conditional profile write, account_state through SetAccountState (the
+		// new state does not depend on the one read). The row is already locked
+		// by tx.RestoreUser's UPDATE, so neither can miss a concurrent writer;
+		// the full-row Save this replaces was safe for that reason only, and it
+		// is gone so no internal/core caller of UpdateUser(full row) remains.
+		now := c.now()
+		wasActive := user.IsActive
 		user.IsActive = true
 		user.AccountState = AccountPasswordResetRequired
-		user.UpdatedAt = c.now()
-		_, uerr := tx.UpdateUser(ctx, user)
-		return uerr
+		user.UpdatedAt = now
+		matched, uerr := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
+		if uerr != nil {
+			return uerr
+		}
+		if !matched {
+			return fmt.Errorf("user %d: %w", id, ErrUserActiveStateConflict)
+		}
+		return tx.SetAccountState(ctx, id, AccountPasswordResetRequired, now)
 	})
 	if err != nil {
 		if storage.IsUserNotFound(err) {
