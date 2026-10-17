@@ -85,13 +85,19 @@ Rules (all enforced at startup; the server refuses to start rather than guess):
 - **File permissions -- key material is refused, other secrets follow the
   file-permission policy.** The rule is the one the KEK file and
   `--passphrase-file` already follow: `0600` or `0400`. One exception exists for
-  files an orchestrator mounts: a file *not owned by the running user* may also be
-  group-readable (`0440`, or `0640`) when its group is one the process belongs to --
-  which is exactly what a Kubernetes Secret volume with `fsGroup` produces (the
-  kubelet makes it root-owned, group = `fsGroup`, and adds group-read even with
+  files an orchestrator mounts: a file *owned by root* may also be group-readable
+  (`0440`, or `0640`) when its group is one the process belongs to -- which is
+  exactly what a Kubernetes Secret volume with `fsGroup` produces (the kubelet
+  makes it root-owned, group = `fsGroup`, and adds group-read even with
   `defaultMode: 0400`) and what a Docker secret with `group_add` looks like. Access
   for *other*, group-write and setuid/setgid/sticky are never accepted, and a
   group-readable file owned by the running user is refused.
+- **Owner: the running user or root, nobody else (#3393).** Whoever owns a file can
+  `chmod` and rewrite it, so a secret file owned by any other account is refused
+  whatever its mode: that account could swap the master password or KEK. The error
+  names the file and the owner uid. Fix it with `chown root:<group> <file>` (keeping
+  the group the process reads it through) or `chown <server user> <file>` for a
+  `0600`/`0400` file. There is no list of further trusted owners.
   - **Master password (`KEYORIX_MASTER_PASSWORD_FILE`), key-provider KEK
     (`key_provider.env_var`) and Shamir shares (`shamir_share_env`):** a file that
     breaks the rule is **always refused**, in the server, the CLI and every admin

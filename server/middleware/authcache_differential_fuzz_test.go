@@ -425,7 +425,7 @@ func (v acRoleFaultValidator) ValidateMachineToken(ctx context.Context, token st
 	return v.real.ValidateMachineToken(ctx, token)
 }
 
-func (v acRoleFaultValidator) ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, error) {
+func (v acRoleFaultValidator) ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, time.Time, error) {
 	return v.real.ValidateOIDCToken(ctx, token)
 }
 
