@@ -46,16 +46,6 @@ var deliberateSharedCacheLiterals = map[string]string{
 // that converts it. This list only shrinks: an entry whose file no longer has
 // a literal fails the guard until it is removed.
 var pendingSharedCacheLiterals = map[string]string{
-	// STORAGE-HARDEN-1 item 3 (internal/core).
-	"internal/core/bulk_access_requests_integration_test.go": "STORAGE-HARDEN-1 item 3",
-	"internal/core/bulk_delete_test.go":                      "STORAGE-HARDEN-1 item 3",
-	"internal/core/bulk_rotate_test.go":                      "STORAGE-HARDEN-1 item 3",
-	"internal/core/folder_test.go":                           "STORAGE-HARDEN-1 item 3",
-	"internal/core/membership_revert_timestamps_test.go":     "STORAGE-HARDEN-1 item 3",
-	"internal/core/secret_folder_test.go":                    "STORAGE-HARDEN-1 item 3",
-	"internal/core/secret_listing_acl_test.go":               "STORAGE-HARDEN-1 item 3",
-	"internal/core/sharing_integration_simple_test.go":       "STORAGE-HARDEN-1 item 3",
-	"internal/core/update_user_deactivation_test.go":         "STORAGE-HARDEN-1 item 3",
 	// Login / auth-budget / rate-limit tests, owned by running sessions.
 	"server/http/handlers/auth_budget_routes_guard_test.go":              "FIX-3277 / HARDEN-HTTP-1",
 	"server/http/handlers/health_auth_rate_limit_test.go":                "FIX-3277 / HARDEN-HTTP-1",
