@@ -13,6 +13,7 @@ import {
 import { usersApi } from '../../services/users';
 import { PROJECT_ROLES, ProjectMember } from '../../services/projects';
 import { useAuthStore } from '../../store/authStore';
+import { useConfirm } from '../../components/ui/useConfirm';
 import {
     useProject,
     useProjectMembers,
@@ -216,6 +217,7 @@ export const ProjectMembersTab: React.FC<ProjectMembersTabProps> = ({ projectId 
     const addMember = useAddProjectMember(projectId);
     const updateRole = useUpdateProjectMemberRole(projectId);
     const removeMember = useRemoveProjectMember(projectId);
+    const { requestConfirm, confirmDialog } = useConfirm();
 
     const [newUserId, setNewUserId] = useState('');
     const [newRole, setNewRole] = useState<string>(PROJECT_ROLES[2]); // project_viewer
@@ -233,7 +235,7 @@ export const ProjectMembersTab: React.FC<ProjectMembersTabProps> = ({ projectId 
     // would leave the project with nobody able to manage members or secrets.
     const adminCount = useMemo(() => members.filter((m) => m.roleName === 'project_admin').length, [members]);
 
-    const handleRemoveMember = (member: ProjectMember) => {
+    const handleRemoveMember = async (member: ProjectMember) => {
         const isLastAdmin = member.roleName === 'project_admin' && adminCount <= 1;
         if (isLastAdmin) {
             setError('Cannot remove the last admin from this project. Promote another member to Admin first.');
@@ -241,11 +243,13 @@ export const ProjectMembersTab: React.FC<ProjectMembersTabProps> = ({ projectId 
         }
 
         const isSelf = member.userId === user?.id;
-        const confirmed = window.confirm(
-            isSelf
+        const confirmed = await requestConfirm({
+            title: isSelf ? 'Leave project' : 'Remove member',
+            message: isSelf
                 ? 'Remove yourself from this project? You will lose access immediately.'
-                : `Remove ${member.displayName || member.username || 'this member'} from this project?`
-        );
+                : `Remove ${member.displayName || member.username || 'this member'} from this project?`,
+            confirmText: 'Remove',
+        });
         if (!confirmed) return;
 
         setError('');
@@ -541,6 +545,7 @@ export const ProjectMembersTab: React.FC<ProjectMembersTabProps> = ({ projectId 
                 projectId={projectId}
                 projectName={project?.name ?? 'project'}
             />
+            {confirmDialog}
         </div>
     );
 };

@@ -85,13 +85,13 @@ async function createProjectEnvAndSecret(
 }
 
 test('secrets lifecycle: project/env creation, reveal gating, update, delete, restore', async ({ page }) => {
-    // Auto-accept every window.confirm() this flow triggers (suspend) --
-    // this is Playwright's own browser context under full test automation,
-    // not an interactive session, so there is no "blocks all further
-    // events" hazard the way there is for the claude-in-chrome extension;
-    // page.on('dialog', ...) is the standard way Playwright tests handle
-    // confirm()/alert().
-    page.on('dialog', (d) => d.accept());
+    // Destructive actions use the in-app confirmation dialog (components/ui/useConfirm),
+    // not window.confirm(); a native browser dialog here is a regression (#3153).
+    let nativeDialog: string | null = null;
+    page.on('dialog', async (d) => {
+        nativeDialog = `${d.type()}: ${d.message()}`;
+        await d.dismiss();
+    });
 
     // The secret detail modal (web/src/features/secrets/SecretDetailView.tsx)
     // has no internal scroll container -- same real, no-scroll-on-tall-content
@@ -166,6 +166,9 @@ test('secrets lifecycle: project/env creation, reveal gating, update, delete, re
 
     // ── Roll back to v1: re-instates the ORIGINAL value as a new version ───
     await page.getByRole('button', { name: 'Roll back', exact: true }).click();
+    const rollbackConfirm = page.getByRole('dialog').filter({ hasText: 'Roll back to version 1?' });
+    await expect(rollbackConfirm).toContainText('Its value will be re-instated as a new version.');
+    await rollbackConfirm.getByRole('button', { name: 'Roll back', exact: true }).click();
     await expect(page.getByText('Rolling back…')).toHaveCount(0, { timeout: 10_000 });
     // Rollback force-hides the value (SecretDetailView's onSuccess handler) --
     // re-reveal to confirm the original content actually came back.
@@ -205,6 +208,8 @@ test('secrets lifecycle: project/env creation, reveal gating, update, delete, re
     await expect(page.getByText(new RegExp(`secret \\d+ \\("${secretName}"\\) restored`)).first()).toBeVisible({
         timeout: 15_000,
     });
+
+    expect(nativeDialog, 'no native browser dialog may appear; destructive actions use the in-app dialog').toBeNull();
 });
 
 test('revealing a secret value shows the plaintext without crashing the page (regression test for #2450)', async ({
