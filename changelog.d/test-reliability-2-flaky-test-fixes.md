@@ -1,0 +1,2 @@
+### Testing
+- **Test reliability (TEST-RELIABILITY-2).** The gRPC interceptor tests no longer share the per-IP failed-auth limiter across tests and `-count` repeats (#2945); `fuzzutil.Guard` reuses a runner goroutine and timer per call instead of spawning a goroutine and a 3s timer (#2431); the web `openapiDrift` exemptions are keyed by finding kind, so one written for optionality cannot hide a type change at the same path (#2868).
