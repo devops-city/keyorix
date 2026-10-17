@@ -404,19 +404,32 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   deleted_at IS NULL` matches 0 rows and it falls back to `INSERT ... ON CONFLICT (id) DO
   UPDATE SET <all columns>` including `deleted_at = NULL`; `Select("*").Updates(...)` reverts
   every column a narrower concurrent writer (`SetAccountState`, `SetPasswordHash`, …) changed.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guards:
+  Why: C-GUARD2-EXEMPT-REVIEW. Guards, one per instance (each `*_IsColumnScoped` test walks the
+  core method and its `LocalStorage` body, and is red-proved by planting a `Save` or an extra
+  column in a scratch clone):
   share permission update (#2648, fixed):
   `share_permission_column_scoped_guard_test.go:TestUpdateSharePermission_IsColumnScoped` +
-  `TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2650 secret undelete, #2651 dynamic config re-enable, #2653/#2654 user
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: secret auto-rotate config (#2650, fixed):
-  `secret_autorotate_column_scoped_guard_test.go:TestSetSecretAutoRotate_IsColumnScoped` +
-  `TestCTAReview_SetSecretAutoRotate_vs_DeleteSecret_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2648 share revoke, #2651 dynamic config re-enable, #2653/#2654 user
-  suspension/password revert.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: UNGUARDED (#2648 share revoke, #2650 secret undelete,
-  #2651 dynamic config re-enable, #2653/#2654 user suspension/password revert).
   `TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres` (pg-gated);
+  share revoke (#2648, the revoke side): `share_revoke_column_scoped_guard_test.go:TestRevokeShare_IsColumnScoped`
+  — `RevokeShare`, `RemoveSelfFromShare`, `DeleteShareRecord` and `DeleteExpiredShareRecords` stay
+  conditional soft deletes and never persist a pre-read share. **Open, not guarded**:
+  `createShareRecordTx` (`internal/storage/store/local_sharing.go`) still `Save`s an existing share
+  on the re-share path and in its unique-violation fallback, the same resurrection primitive on the
+  create side; owned by SHARE-CAS-1;
+  secret auto-rotate config (#2650, fixed):
+  `secret_autorotate_column_scoped_guard_test.go:TestSetSecretAutoRotate_IsColumnScoped` +
+  `TestCTAReview_SetSecretAutoRotate_vs_DeleteSecret_CrossReplicaPostgres` (pg-gated); secret
+  undelete (#2650): `secret_undelete_column_scoped_guard_test.go:TestRestoreSecret_IsColumnScoped`
+  (the one deliberate undelete clears `deleted_at` only, conditional on `deleted_at IS NOT NULL`)
+  and `TestUpdateSecretFullRowSave_HasNoProductionCaller` (sweep: nothing in `internal/core`,
+  `internal/storage/store` or `server` calls the full-row `UpdateSecret`), alongside
+  `update_secret_column_scoped_guard_test.go:TestUpdateSecretWrites_AreColumnScoped` (#2695);
+  dynamic config re-enable (#2651, fixed by the targeted `SetDynamicSecretConfigAdminDSN`):
+  `dynamic_config_reenable_column_scoped_guard_test.go:TestCreateDynamicSecretConfig_IsColumnScoped`
+  (the second write names exactly `admin_dsn_enc`, `admin_dsn_meta`, `updated_at`, never `disabled`) +
+  `TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgres` (pg-gated) and
+  `TestSetDynamicSecretConfigAdminDSN_LeavesDisabledAlone`; `dynamic_secret_column_scoped_guard_test.go`
+  (#2698) keeps the full-row `UpdateDynamicSecretConfig` caller-free;
   user profile writes (#2653/#2654, fixed):
   `user_profile_column_scoped_guard_test.go:TestUserProfileWrites_AreColumnScoped` +
   `TestCTAReview_UpdateUser_vs_SuspendUser_CrossReplicaPostgres` /
@@ -428,7 +441,6 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   (C-RACE-FIX-B2): `scim_account_state_conditional_guard_test.go:TestSCIMAccountStateWrites_AreConditional`,
   `scim_account_state_persisted_test.go`, and
   `TestCTAReview_SCIM_vs_SuspendUser_WithoutRowLock_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2650 secret undelete, #2651 dynamic config re-enable.
 - **INV-CORE-43** `ActivateMFA` only ever activates the TOTP secret the submitted code was
   validated against: `ActivateMFASecret` is a conditional write pinned to that row's
   ciphertext, and a mismatch (a concurrent `BeginMFAEnrollment` swapped the secret) fails the
@@ -547,23 +559,6 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   SUSPENDED user still holds their grants (suspension blocks login, not RBAC — the same
   live-holders-vs-grant-rows distinction as INV-CORE-15) and that a soft-deleted GROUP
   confers no membership. All default-ci.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: user profile writes (#2653/#2654, fixed):
-  `user_profile_column_scoped_guard_test.go:TestUserProfileWrites_AreColumnScoped` +
-  `TestCTAReview_UpdateUser_vs_SuspendUser_CrossReplicaPostgres` /
-  `TestCTAReview_UpdateOwnProfile_vs_ChangePassword_CrossReplicaPostgres` (pg-gated).
-  An operation whose NEW `account_state` is derived from the one it read (the SCIM lifecycle
-  paths: `scimUpdateUserTx`, `DeprovisionSCIMUser`) writes it only through
-  `SetAccountStateIfMatches` conditioned on that read value, never the blind
-  `SetAccountState`, and fails closed with `ErrUserAccountStateConflict` on a miss
-  (C-RACE-FIX-B2): `scim_account_state_conditional_guard_test.go:TestSCIMAccountStateWrites_AreConditional`,
-  `scim_account_state_persisted_test.go`, and
-  `TestCTAReview_SCIM_vs_SuspendUser_WithoutRowLock_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2648 share revoke, #2650 secret undelete, #2651 dynamic config re-enable.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: #2651 dynamic config re-enable is closed by a targeted
-  write (`SetDynamicSecretConfigAdminDSN`), guarded by
-  `TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgres` (pg-gated)
-  and `TestSetDynamicSecretConfigAdminDSN_LeavesDisabledAlone`. UNGUARDED: #2648 share
-  revoke, #2650 secret undelete, #2653/#2654 user suspension/password revert.
 
 ## Account-state / exhaustiveness
 
