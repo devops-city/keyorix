@@ -22,6 +22,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
 type auditPageWorld struct {
@@ -33,7 +34,10 @@ func newAuditPageWorld(t *testing.T, pg bool) *auditPageWorld {
 	t.Helper()
 	var db *gorm.DB
 	if pg {
-		db = pgOpen(t, pgIsolatedSchemaDSN(t, pgTestDSN(t)))
+		// Its own database, not a schema: the index build below takes the
+		// database-wide audit index build lock, which other packages' tests
+		// take too when they run at the same time (#3295).
+		db = pgOpen(t, pgdsn.IsolatedDatabase(t, pgTestDSN(t), "core_audit_page"))
 	} else {
 		var err error
 		db, err = gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

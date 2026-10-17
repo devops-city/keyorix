@@ -504,9 +504,10 @@ func TestValueReadAuthorizeOnce_CrossReplica(t *testing.T) {
 }
 
 // TestValueReadAuthorizeOnce_ChecksOnce is the red/green for the collapse: a human
-// value read evaluates CheckSecretPermission once. Measured as the per-secret share
+// value read evaluates its per-secret decision once. Measured as the per-secret share
 // lookup, which only CheckSecretPermission issues for a role-holding reader (the
-// middleware gate consults shares only after ACL and role both said no).
+// middleware gate consults shares only after ACL and role both said no); since
+// OPT-READPATH-2 the core read check reuses the gate's allow, so it issues none.
 func TestValueReadAuthorizeOnce_ChecksOnce(t *testing.T) {
 	for _, backend := range []string{"sqlite", "postgres"} {
 		t.Run(backend, func(t *testing.T) {
@@ -524,7 +525,10 @@ func TestValueReadAuthorizeOnce_ChecksOnce(t *testing.T) {
 			r.mu.Unlock()
 			require.Equal(t, http.StatusOK, out.Status)
 			t.Logf("%s: human value read issued %d read statements (GORM; audit flusher writes not counted)", backend, stmts)
-			assert.Equal(t, 1, shares, "CheckSecretPermission must run once per value read, not once for the metadata step and again for the value")
+			// OPT-READPATH-2: the core read check now reuses the gate's allow (the role
+			// granted it, so the gate never reached the share term), so no share lookup at
+			// all; before PERF-FIX-3 there were two, before OPT-READPATH-2 one.
+			assert.Equal(t, 0, shares, "the per-secret decision must be evaluated once per value read, by the gate")
 		})
 	}
 }

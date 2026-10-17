@@ -16,7 +16,8 @@ The stack is three containers:
 ## 1. Prerequisites
 
 - Docker Engine 24+ and the Compose plugin (`docker compose version`).
-- A host with at least 1 vCPU / 1 GB RAM for a small team.
+- A Linux host. The secrets layout in §3 (group-readable files, `KEYORIX_SECRETS_GID`)
+  is for Linux; Docker Desktop maps file ownership differently.
 
 ## 2. Quick start
 
@@ -34,9 +35,9 @@ Open **http://localhost:8088** and log in as `admin` with the password in
 > Building from source instead of pulling published images: edit
 > `docker-compose.yml` and swap the `backend` service's `image:` for the
 > commented-out `build:` block (the `web` image is still pulled). The first
-> `docker compose build backend` takes about 3 minutes and the first `up -d`
-> about 1–2 minutes more (image pulls); nothing is printed for the 15–35 s the
-> backend spends on first-boot migrations and key derivation.
+> `docker compose build backend` and the image pulls take a few minutes, and
+> nothing is printed while the backend runs first-boot migrations and key
+> derivation (`KEYORIX_READY_TIMEOUT`, below, bounds the wait).
 
 **First boot check.** With `KEYORIX_ADMIN_PASSWORD_FILE` + `KEYORIX_BOOTSTRAP_TOKEN_FILE` set
 (the shipped compose file does) the backend creates the admin by calling `/system/init` as soon as the server
@@ -52,8 +53,8 @@ Ns`, `Bootstrapping admin user` and `Admin bootstrap complete.` in
 `./secrets/bootstrap_token` exists and is the one the backend reads, then fix it and run
 `docker compose up -d` again (or create the admin by hand with
 `keyorix system init --server http://localhost:8088 --admin-username admin --admin-email admin@keyorix.local`
-with `KEYORIX_BOOTSTRAP_TOKEN` exported in your shell: the CLI reads the token
-and prompts for the admin password; neither goes on the command line).
+with `KEYORIX_BOOTSTRAP_TOKEN_FILE=./secrets/bootstrap_token` exported in your shell: the CLI reads the token
+from the file and prompts for the admin password; neither goes on the command line).
 `docker compose ps` shows `web` as `healthy`: its healthcheck probes
 `127.0.0.1` (busybox resolves `localhost` to IPv6 first and nginx listens on IPv4
 only).
@@ -67,11 +68,10 @@ login is confined to MFA enrolment, as in [QUICK_START.md](../QUICK_START.md#enr
 **Generate your admin recovery key now, before you need it.** If every admin
 account is ever locked out (lost password, lost MFA device), the only way back
 in is `keyorix-server admin recover-admin` on the server host — and by
-default it also requires this key (`security.recover_admin.insecure_keyless_admin_recovery`, formerly
-`keyless_mode`, is an
-explicit, less-secure opt-out documented in `configs/keyorix.yaml.tpl`, not the
-default, `security.recover_admin.insecure_keyless_admin_recovery: true` in server config opts
-out). No key exists until you generate one. Like every `keyorix-server admin`
+default it also requires this key. Setting
+`security.recover_admin.insecure_keyless_admin_recovery: true` in the server config
+opts out; that is a less-secure choice documented in `configs/keyorix.yaml.tpl`, not the
+default. No key exists until you generate one. Like every `keyorix-server admin`
 command except a Postgres backup, it needs the database to itself — it holds
 the exclusive admin lock for the whole rotation, so a concurrent
 `recover-admin` can never see a half-rotated key, and it refuses while the
@@ -226,12 +226,11 @@ the keys without the DB are useless.
 `keyorix-server admin backup --output <path>` / `admin restore --input <path>`
 bundle both into one archive, on **either** storage backend — SQLite or
 Postgres. Unlike a raw `pg_dump`/SQLite-file copy, the archive is
-authenticated (HMAC-signed, KEK-derived key, `docs/design-b3-backup-v2.md`
-§5) and its checksums catch corruption (a bad copy, a truncated transfer, bit
-rot); tampering is a different property a checksum alone can't provide, since
-anyone with write access to the archive can recompute one to match — so
-`admin restore` also runs `admin verify-audit` automatically against the
-restored database and fails if it reports the audit chain BROKEN. Also record
+authenticated (its manifest is HMAC-signed with a KEK-derived key,
+`docs/design-b3-backup-v2.md` §5, and `admin restore` checks the signature
+before writing anything), and `admin restore` also runs `admin verify-audit`
+automatically against the restored database and fails if it reports the audit
+chain BROKEN. Also record
 `KEYORIX_MASTER_PASSWORD` separately (it is required to derive the KEK that
 unwraps the backed-up DEK).
 
@@ -289,10 +288,8 @@ docker compose up -d
 
 `run` starts `postgres` for you and `restore` migrates and loads the empty
 database and the (also empty) `keyorix_keys` volume, then runs `verify-audit`
-(`verify-audit on the restored database: VALID`). Measured for the whole drill
-on a 2-vCPU VM with ~200 rows: backup 1.4 s, restore 24 s, back to serving about
-40 s after `up -d`. Restore into the wiped volumes before the first `up -d`,
-as above (a stack that has already booted holds a non-empty database and keys,
+(`verify-audit on the restored database: VALID`). Restore into the wiped volumes
+before the first `up -d`, as above (a stack that has already booted holds a non-empty database and keys,
 which restore refuses without `--overwrite-existing`).
 
 Restore refuses a non-empty target by default (`--overwrite-existing` to
@@ -334,8 +331,7 @@ docker compose exec -T postgres pg_dump -U keyorix keyorix | gzip > keyorix-db-$
 # with the project name, so the actual volume is <project>_keyorix_keys. If
 # your checkout directory has a different name, or you set
 # COMPOSE_PROJECT_NAME explicitly, run `docker volume ls | grep keyorix_keys`
-# first and substitute the real name below (verified against a real
-# non-"keyorix"-named checkout: ADR-109 step 6, B7 runbook validation).
+# first and substitute the real name below.
 docker run --rm -v keyorix_keyorix_keys:/keys -v "$PWD":/backup alpine \
   tar czf /backup/keyorix-keys-$(date +%F).tar.gz -C /keys .
 ```
@@ -351,12 +347,8 @@ docker run --rm -v keyorix_keyorix_keys:/keys -v "$PWD":/backup alpine \
 docker compose up -d
 ```
 
-Verified end to end (ADR-109 step 6, B7): a fresh Postgres-backed stack, real
-secret write, `pg_dump`/keys-volume backup, full teardown (`docker compose
-down -v`), restore into fresh volumes via `psql`/keys-volume-extract, and
-`keyorix-server admin verify-audit` reporting `VALID` against the restored
-database — the secret value round-tripped correctly and the audit chain
-carried across the dump/restore boundary intact.
+After a manual restore, run `docker compose run --rm backend ./keyorix-server admin verify-audit`
+(with `backend` stopped) and expect `VALID`.
 
 ### Moving from SQLite to Postgres
 
@@ -417,11 +409,8 @@ docker compose up -d         # recreate with the new images
 ```
 
 Schema migrations run automatically on boot and are additive. **Back up first**
-(section 5, mind its version note). Verified: a stack on the published `0.95.3`
-images with a secret in Postgres, then `docker compose up -d` on a `main`
-build — the secret read back unchanged, `verify-audit` VALID, schema epoch
-matches. See [UPGRADING.md](UPGRADING.md) for what changes on upgrade (MFA
-grace period).
+(section 5, mind its version note). See [UPGRADING.md](UPGRADING.md) for what
+changes on upgrade (MFA grace period).
 
 ## 7. TLS
 
@@ -465,7 +454,7 @@ export that root and point the CLI at it:
 then `keyorix --ca-file $PWD/caddy-root.crt login --server https://localhost ...`, or
 store it once with `keyorix config set ca_file $PWD/caddy-root.crt` (CLI releases
 after 0.95.3; with an older CLI, `SSL_CERT_FILE=$PWD/caddy-root.crt` works on Linux
-only) (verified: login over `https://localhost` works, `http://localhost` answers 308). When running the `tls` profile,
+only). When running the `tls` profile,
 don't also expose web's `8088` publicly — front everything through Caddy on
 80/443.
 
@@ -703,16 +692,21 @@ wrong credential, so the response cannot be used to confirm a guess.
 ## 10. Single-binary / air-gapped deployment
 
 For environments where Docker isn't available, `keyorix-server` is a single Go
-binary that runs against any PostgreSQL with `KEYORIX_MASTER_PASSWORD` +
-`KEYORIX_DB_PASSWORD` set — and it can serve the **web dashboard from the binary
+binary that runs against SQLite or PostgreSQL (a config with `storage.type: postgres`,
+see `admin init --storage-type postgres`, and `KEYORIX_MASTER_PASSWORD` +
+`KEYORIX_DB_PASSWORD` set) — and it can serve the **web dashboard from the binary
 itself**, so the whole product is one file plus a database. No web container, no
 nginx.
 
 ```sh
 make build-ui      # builds web/ (the dashboard, ADR-070) and embeds it into
                    # bin/keyorix-server
-KEYORIX_MASTER_PASSWORD=… KEYORIX_DB_PASSWORD=… ./bin/keyorix-server
+KEYORIX_CONFIG_PATH=./keyorix.yaml KEYORIX_MASTER_PASSWORD=… KEYORIX_DB_PASSWORD=… ./bin/keyorix-server
 ```
+
+(Write the config and keys first with `admin init`, `admin encryption init` and
+`admin migrate`, as in [QUICK_START.md](../QUICK_START.md); prefer the
+`KEYORIX_*_FILE` forms over putting secrets in the environment.)
 
 Copy `keyorix-server` to the target host, point it at PostgreSQL, and the API +
 UI are served on one port (default 8080). A config from `admin init` serves HTTPS

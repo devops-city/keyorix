@@ -1158,7 +1158,7 @@ const secretSizeEnvelopeHeadroomBytes = 16 * 1024
 // secret outright, roughly 33% before the JSON envelope is even counted. This
 // function exists specifically so that mistake has one place it can't be made:
 // every caller that needs a body-size limit derived from max_secret_size (the HTTP
-// router's per-route middleware, the gRPC server's MaxRecvMsgSize) calls this,
+// router's per-route secretBodyLimit middleware) calls this,
 // rather than each re-deriving (and potentially mis-deriving) its own.
 func DeriveMaxRequestBodySize(maxSecretSize int) int64 {
 	base64Size := ((maxSecretSize + 2) / 3) * 4 // ceil(n/3)*4: the exact base64 output length
