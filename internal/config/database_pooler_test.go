@@ -91,3 +91,35 @@ func TestPinnedLockTxSetupSQL(t *testing.T) {
 		}
 	}
 }
+
+// TestPoolerStartupParamWarning: with a pooler declared, startup parameters
+// PgBouncer refuses are named; tracked ones, no pooler, and unparsable settings
+// are quiet.
+func TestPoolerStartupParamWarning(t *testing.T) {
+	const base = "host=pgb user=kx dbname=keyorix sslmode=disable"
+	for _, tc := range []struct {
+		name, pooler, dsn string
+		want              []string // names the warning must contain; nil: no warning
+	}{
+		{"none declared", "", base + " search_path=kx", nil},
+		{"explicit none", "none", base + " search_path=kx", nil},
+		{"transaction, clean", "pgbouncer-transaction", base, nil},
+		{"transaction, application_name and time zone", "pgbouncer-transaction", base + " application_name=keyorix TimeZone=UTC", nil},
+		{"transaction, search_path", "pgbouncer-transaction", base + " search_path=kx", []string{"search_path"}},
+		{"session, options and search_path", "pgbouncer-session", base + " search_path=kx options=-cstatement_timeout=5s", []string{"options", "search_path"}},
+		{"url form", "pgbouncer-transaction", "postgres://kx@pgb/keyorix?sslmode=disable&search_path=kx", []string{"search_path"}},
+		{"unparsable", "pgbouncer-transaction", "host=pgb sslmode=banana", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := PoolerStartupParamWarning(&DatabaseConfig{DSN: tc.dsn, Pooler: tc.pooler})
+			if tc.want == nil {
+				require.Empty(t, got)
+				return
+			}
+			require.NotEmpty(t, got)
+			require.Contains(t, got, "WARNING: storage.database.pooler is "+tc.pooler)
+			require.Contains(t, got, strings.Join(tc.want, ", "))
+			require.Contains(t, got, "docs/postgresql-poolers.md")
+		})
+	}
+}
