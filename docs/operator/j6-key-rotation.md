@@ -104,6 +104,12 @@ MFA login, a share and a machine token still work, and `admin verify-audit` is V
    starts with no `KEYORIX_MASTER_PASSWORD`; the new passphrase on the way back comes from
    `KEYORIX_NEW_MASTER_PASSWORD`, never argv.
 
+`scripts/drills/rotation-under-load.sh` repeats the DEK rotation with a load generator
+(reads, writes, deletes) running. It shows that `rotate --confirm` beside the live server is
+refused without disturbing the load, that every failed request falls between the server stop
+and the server being healthy again, and that every write acknowledged around the rotation
+reads back afterwards. There is no online rewrap: the window is the server being stopped.
+
 Not covered (they need infrastructure the drill does not have): cloud KMS, TPM and Shamir
 providers, and any container or Kubernetes variant (pending a run on the e2e VM).
 Usage and environment are the same as the [upgrade drill](drill-upgrade.md); for PostgreSQL
