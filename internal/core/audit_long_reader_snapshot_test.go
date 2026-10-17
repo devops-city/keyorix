@@ -8,8 +8,10 @@
 // on read-mark 0, not at all) and the WAL cannot restart, so it grows with every
 // concurrent commit for as long as that snapshot is held. The probe issues
 // PRAGMA wal_checkpoint(PASSIVE) in a loop on its own connection; "progress" is
-// a probe that backfilled every frame in the WAL (checkpointed == log > 0) or
-// found the WAL restarted (log fell). The property: the longest stretch of the
+// a probe that backfilled every frame in the WAL (checkpointed == log > 0). A
+// WAL restart (log falling) is not progress: a reader on read-mark 0 (one that
+// started when the WAL was fully backfilled) still lets the WAL restart once,
+// then blocks every backfill after it. The property: the longest stretch of the
 // walk without progress is under half of the walk.
 //
 // PostgreSQL: a long snapshot holds back the xmin horizon (vacuum cannot remove
@@ -239,7 +241,7 @@ type longReaderObservation struct {
 	// longestWriterStall is the longest stretch of the walk without a commit
 	// (a walk that takes the write lock blocks writers instead of pinning).
 	longestWriterStall time.Duration
-	// SQLite: how many probes made full checkpoint progress, and the longest
+	// SQLite: how many probes backfilled the whole WAL, and the longest
 	// stretch of the walk without one (from its start, between two of them, or
 	// up to its end).
 	progress      int
@@ -303,7 +305,6 @@ func observeDuringWalk(t *testing.T, env *longReaderEnv, walk func(ctx context.C
 	wg.Wait()
 
 	obs.walk, obs.writes = end.Sub(start), writes.Load()-writesBefore
-	prevLog := int64(-1)
 	lastProgress := start
 	for _, s := range samples {
 		if s.at.Before(start) || s.at.After(end) {
@@ -312,12 +313,11 @@ func observeDuringWalk(t *testing.T, env *longReaderEnv, walk func(ctx context.C
 		obs.probes++
 		obs.oldestSnapshot = max(obs.oldestSnapshot, s.oldestSnapshot)
 		obs.maxWALBytes = max(obs.maxWALBytes, s.walBytes)
-		if (s.log > 0 && s.ckpt == s.log) || (prevLog >= 0 && s.log < prevLog) {
+		if s.log > 0 && s.ckpt == s.log {
 			obs.progress++
 			obs.longestPinned = max(obs.longestPinned, s.at.Sub(lastProgress))
 			lastProgress = s.at
 		}
-		prevLog = s.log
 	}
 	obs.longestPinned = max(obs.longestPinned, end.Sub(lastProgress))
 	lastCommit := start
@@ -344,7 +344,7 @@ func (o longReaderObservation) pinned() (bool, string) {
 			"a snapshot lived for %s of a %s walk (%d probes, %d concurrent commits)", o.oldestSnapshot, o.walk, o.probes, o.writes)
 	}
 	return o.longestPinned >= o.walk/2, fmt.Sprintf(
-		"for %s of a %s walk no PASSIVE checkpoint could backfill the WAL and the WAL never restarted (%d probes, %d concurrent commits, max WAL %d bytes)",
+		"for %s of a %s walk no PASSIVE checkpoint could backfill the whole WAL (%d probes, %d concurrent commits, max WAL %d bytes)",
 		o.longestPinned, o.walk, o.probes, o.writes, o.maxWALBytes)
 }
 
