@@ -311,7 +311,7 @@ func checkDoc(root, rel string, idx repoIndex, strict bool) (problems []string, 
 }
 
 func identInAny(files []string, ident string) bool {
-	for _, part := range strings.Split(ident, ".") {
+	for part := range strings.SplitSeq(ident, ".") {
 		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(part) + `\b`)
 		found := false
 		for _, f := range files {
