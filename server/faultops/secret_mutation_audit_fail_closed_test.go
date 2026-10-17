@@ -37,6 +37,7 @@ var secretMutationAuditOps = []string{
 	"REST POST /api/v1/secrets/{id}/rotate",
 	"REST POST /api/v1/secrets/{id}/rollback",
 	"REST DELETE /api/v1/folders/{id}",
+	"REST POST /api/v1/secrets/{id}/restore",
 	"GRPC keyorix.v1.SecretService.CreateSecret",
 	"GRPC keyorix.v1.SecretService.UpdateSecret",
 	"GRPC keyorix.v1.SecretService.DeleteSecret",

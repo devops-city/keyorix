@@ -35,12 +35,12 @@ const bootstrapAdvisoryLockKey = 0x4B455941_424F4F54 // "KEYABOOT"
 // winner's now-committed state, not silently no-op (which would leave its
 // caller waiting on a response that never seeds anything and never reports
 // AlreadyInitialized either).
-func (ls *LocalStorage) WithBootstrapLock(ctx context.Context, fn func() error) error {
+func (ls *LocalStorage) WithBootstrapLock(ctx context.Context, fn func(ctx context.Context) error) error {
 	ls.bootstrapMu.Lock()
 	defer ls.bootstrapMu.Unlock()
 
 	if ls.db.Dialector.Name() != "postgres" {
-		return fn()
+		return fn(ctx)
 	}
 
 	sqlDB, err := ls.db.DB()
@@ -64,6 +64,6 @@ func (ls *LocalStorage) WithBootstrapLock(ctx context.Context, fn func() error) 
 	// Release before the deferred Close so the pooled connection carries no lock.
 	defer sess.unlock(ctx, int64(bootstrapAdvisoryLockKey), "bootstrap lock")
 
-	_, finish := sess.watch(ctx, "bootstrap lock")
-	return finish(fn())
+	wctx, finish := sess.watch(ctx, "bootstrap lock")
+	return finish(fn(wctx))
 }

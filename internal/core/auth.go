@@ -914,10 +914,12 @@ func hashSessionTokenForLookup(token string) string {
 //     rotated away, or expired. Callers must deny and evict, exactly like the
 //     PAT/machine branches deny on ErrPATRevoked/ErrMachineTokenRevoked.
 //   - (false, err) / (_, err) for any other error: the LOOKUP failed — a
-//     transient storage error. Callers must fall back to the cached snapshot,
-//     exactly like the PAT/machine branches do on any err besides the
-//     specific revoked/expired sentinels — a DB blip must not lock out every
-//     session holder. (GetSessionByID also has no RemoteStorage implementation,
+//     transient storage error. Callers must refuse the request as temporarily
+//     unavailable without evicting, exactly like the PAT/machine branches do
+//     on any err besides the specific revoked/expired sentinels — never serve
+//     the cached snapshot, since this failed read is the one that would have
+//     seen a revocation (CACHE-FAILCLOSED-1; it used to degrade to the cached
+//     snapshot, INV-MW-05's former transient half). (GetSessionByID also has no RemoteStorage implementation,
 //     which would hit this same branch, but that combination cannot occur in a
 //     supported deployment: ADR-083 makes storage.type: remote a CLI/client
 //     mode only, never wired into the server's own HTTP handlers — see
@@ -959,8 +961,10 @@ func (c *KeyorixCore) sessionRowLiveForToken(storedHash string, rotatedAt, expir
 // the method it used to come from.
 //   - AccountErr / AccountUsable / AccountState: AccountUsabilityAndState's
 //     (err, usable, state). AccountErr non-nil means the account could not be
-//     read (absent, soft-deleted or a storage error): the caller keeps the
-//     cached snapshot for it, as before.
+//     read. Absent or soft-deleted (storage.IsUserNotFound) is definitive:
+//     the caller denies and evicts. Any other error is a failed read: the
+//     caller refuses the request as temporarily unavailable
+//     (CACHE-FAILCLOSED-1; it used to keep the cached snapshot).
 //   - SessionChecked: a session id was given (a cache entry filled before the
 //     liveness check existed has none; the caller skips the check then).
 //   - SessionErr / SessionLive: SessionLiveForToken's (live, err): SessionErr nil

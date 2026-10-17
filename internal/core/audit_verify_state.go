@@ -304,7 +304,7 @@ func (c *KeyorixCore) saveAuditVerifyState(ctx context.Context, st *auditVerifyS
 func (c *KeyorixCore) updateAuditVerifyState(ctx context.Context, fn func(st *auditVerifyState) (newFailure *auditVerifyFailure)) error {
 	var failed *auditVerifyFailure
 	var rejected *auditVerifyRejection
-	err := c.storage.WithAuditCheckpointLock(ctx, func() error {
+	err := c.storage.WithAuditCheckpointLock(ctx, func(ctx context.Context) error {
 		st, rej, err := c.loadAuditVerifyStateForWrite(ctx)
 		if err != nil {
 			return err
