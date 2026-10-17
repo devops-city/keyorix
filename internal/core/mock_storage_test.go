@@ -843,6 +843,14 @@ func (m *MockStorage) CountExpiringSecretsByProject(ctx context.Context, project
 	return args.Get(0).(map[uint]int), args.Error(1)
 }
 
+func (m *MockStorage) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	args := m.Called(ctx, envIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]int64), args.Error(1)
+}
+
 func (m *MockStorage) ListLiveSecretNamesByProject(ctx context.Context, projectIDs []uint, limit int) ([]storage.SecretNameRow, bool, error) {
 	args := m.Called(ctx, projectIDs, limit)
 	if args.Get(0) == nil {
