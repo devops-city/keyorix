@@ -1045,22 +1045,26 @@ func (c *KeyorixCore) countDormantRoleGrants(ctx context.Context, projectID uint
 		cp.degrade(fmt.Sprintf("dormant_role_grants:assignments:project=%d", projectID), err)
 		return 0
 	}
-	readActivity, err := c.storage.LastUserSecretReadActivity(ctx, projectID)
+	// Look back over the review period, but never less than the dormancy threshold the
+	// result is judged against below: a shorter window would call a grant dormant that
+	// was used inside the threshold.
+	since := storage.ActivityLookbackSince(c.now(), max(c.recertCadence(), int(dormantThreshold/(24*time.Hour))))
+	readActivity, err := c.storage.LastUserSecretReadActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:read_activity:project=%d", projectID), err)
 		return 0
 	}
-	writeActivity, err := c.storage.LastUserSecretWriteActivity(ctx, projectID)
+	writeActivity, err := c.storage.LastUserSecretWriteActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:write_activity:project=%d", projectID), err)
 		return 0
 	}
-	roleMgmtActivity, err := c.storage.LastUserRoleManagementActivity(ctx, projectID)
+	roleMgmtActivity, err := c.storage.LastUserRoleManagementActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:role_management_activity:project=%d", projectID), err)
 		return 0
 	}
-	secretsDeletionActivity, err := c.storage.LastUserSecretDeletionActivity(ctx, projectID)
+	secretsDeletionActivity, err := c.storage.LastUserSecretDeletionActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:secrets_deletion_activity:project=%d", projectID), err)
 		return 0

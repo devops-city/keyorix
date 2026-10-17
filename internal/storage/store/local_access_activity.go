@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/keyorixhq/keyorix/internal/i18n"
 )
 
@@ -88,6 +90,22 @@ var roleManagementActivityEventTypes = []string{
 // confers beyond plain read/write.
 var secretsDeletionActivityEventTypes = []string{"secret.deleted"}
 
+// lastActivityQuery is the one statement behind every LastUser*Activity lookup (a
+// builder so the plan tests can EXPLAIN exactly what runs).
+func lastActivityQuery(db *gorm.DB, projectID uint, eventTypes []string, since time.Time) *gorm.DB {
+	_ = since // not applied yet
+	return db.
+		Table("audit_events").
+		Select("user_id, event_time").
+		Where("project_id = ?", projectID).
+		Where("event_type IN ?", eventTypes).
+		// A refused attempt (success=false, e.g. a refused secret.read, #3273) is
+		// not use of the grant; NULL is a legacy row that predates the column.
+		Where("success IS NULL OR success = ?", true).
+		Where("user_id IS NOT NULL").
+		Order("event_time DESC")
+}
+
 // lastUserActivityByEventTypes is the shared query behind LastUserSecretActivity,
 // LastUserRoleManagementActivity and LastUserSecretDeletionActivity: the most
 // recent matching-event time per user in the project, read from audit_events.
@@ -108,23 +126,13 @@ var secretsDeletionActivityEventTypes = []string{"secret.deleted"}
 // and Postgres dialects) or a domain decision on how far back "last activity"
 // needs to look before a user is presumed dormant regardless. Left unfixed
 // pending that decision — see REMEDIATION-STATUS.md G44.
-func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projectID uint, eventTypes []string) (map[uint]time.Time, error) {
+func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projectID uint, eventTypes []string, since time.Time) (map[uint]time.Time, error) {
 	type row struct {
 		UserID    uint
 		EventTime time.Time
 	}
 	var rows []row
-	err := ls.db.WithContext(ctx).
-		Table("audit_events").
-		Select("user_id, event_time").
-		Where("project_id = ?", projectID).
-		Where("event_type IN ?", eventTypes).
-		// A refused attempt (success=false, e.g. a refused secret.read, #3273) is
-		// not use of the grant; NULL is a legacy row that predates the column.
-		Where("success IS NULL OR success = ?", true).
-		Where("user_id IS NOT NULL").
-		Order("event_time DESC").
-		Scan(&rows).Error
+	err := lastActivityQuery(ls.db.WithContext(ctx), projectID, eventTypes, since).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
 	}
@@ -142,35 +150,35 @@ func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projec
 
 // LastUserSecretActivity returns the most recent secret-access time per user in the
 // project, read from audit_events (where the read events carry user_id + project_id).
-func (ls *LocalStorage) LastUserSecretActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, accessActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, accessActivityEventTypes, since)
 }
 
 // LastUserRoleManagementActivity returns the most recent time, per user, that they
 // performed a role-management action (granting/revoking a role or group-role) in
 // the project. See roleManagementActivityEventTypes for exactly which events count.
-func (ls *LocalStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, roleManagementActivityEventTypes)
+func (ls *LocalStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, roleManagementActivityEventTypes, since)
 }
 
 // LastUserSecretDeletionActivity returns the most recent time, per user, that they
 // deleted a secret in the project. See secretsDeletionActivityEventTypes for
 // exactly which events count.
-func (ls *LocalStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, secretsDeletionActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, secretsDeletionActivityEventTypes, since)
 }
 
 // LastUserSecretReadActivity returns the most recent secret.read time per user in
 // the project — the secrets.read half of plain-tier dormant-role-grant detection
 // (#487 round 112). See secretReadActivityEventTypes.
-func (ls *LocalStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, secretReadActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, secretReadActivityEventTypes, since)
 }
 
 // LastUserSecretWriteActivity returns the most recent
 // secret.created/updated/rotated time per user in the project — the
 // secrets.write half of plain-tier dormant-role-grant detection (#487 round
 // 112). See secretWriteActivityEventTypes.
-func (ls *LocalStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	return ls.lastUserActivityByEventTypes(ctx, projectID, secretWriteActivityEventTypes)
+func (ls *LocalStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	return ls.lastUserActivityByEventTypes(ctx, projectID, secretWriteActivityEventTypes, since)
 }
