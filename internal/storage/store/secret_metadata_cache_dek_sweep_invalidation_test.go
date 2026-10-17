@@ -207,3 +207,28 @@ func TestDEKSweepCache_OldKeyDestroyed(t *testing.T) {
 		}
 	})
 }
+
+// TestDEKSweepCache_StaleKeyHolderFailsClosed pins that invalidation does not
+// turn into a fallback: a replica that still holds only the OLD key (not
+// restarted after a sweep) now reads the rewritten ciphertext at once, and
+// decrypting it is an error with no plaintext, on every read, with the cache
+// warm or cold. The storage layer never serves the pre-sweep copy to paper over
+// it, and nothing here retries under another key.
+func TestDEKSweepCache_StaleKeyHolderFailsClosed(t *testing.T) {
+	sweepCacheBackends(t, func(t *testing.T, w *sweepCacheWorld) {
+		ctx := context.Background()
+		rewritten := w.sweep(t)
+
+		for name, ls := range w.replicas {
+			for attempt := range 3 { // first read refills the cache, later ones hit it
+				got, err := ls.GetLatestSecretVersion(ctx, w.nodeID)
+				require.NoError(t, err, "%s attempt %d", name, attempt)
+				require.True(t, bytes.Equal(rewritten, got.EncryptedValue), "%s attempt %d: stale copy served", name, attempt)
+
+				pt, derr := decryptVersion(t, w.oldSvc, got, w.aad)
+				require.Error(t, derr, "%s attempt %d: the retired key must not open post-sweep ciphertext", name, attempt)
+				require.Empty(t, pt, "%s attempt %d: a failed decrypt must yield no plaintext", name, attempt)
+			}
+		}
+	})
+}
