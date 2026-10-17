@@ -36,6 +36,7 @@ port_in_use() {
 # BASE+2000+group. PORT_BASE_MIN..PORT_BASE_MAX keeps that below EPHEMERAL_FLOOR.
 PORT_BASE_MIN=10000
 PORT_BASE_MAX=29999
+# shellcheck disable=SC2034 # read by free-port_test.sh, which sources this file
 EPHEMERAL_FLOOR=32768
 
 # pick_port_base prints the base port for this run: KEYORIX_E2E_PORT_BASE if set

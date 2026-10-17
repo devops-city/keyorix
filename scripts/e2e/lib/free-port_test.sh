@@ -109,12 +109,12 @@ check "default base varies between runs ($uniq_n distinct of 8)" "$rc"
 # BASE + 1000 (web) + 1000 (free_port scan) + the group number (groups are small; 100
 # is generous). Checks the constants and a sample of real draws.
 worst=$((PORT_BASE_MAX + 2000 + 100))
-rc=0; [ "$worst" -lt 32768 ] || rc=1
-check "highest default port ($worst) is below the Linux ephemeral floor 32768" "$rc"
+rc=0; [ "$worst" -lt "$EPHEMERAL_FLOOR" ] || rc=1
+check "highest default port ($worst) is below the Linux ephemeral floor $EPHEMERAL_FLOOR" "$rc"
 rc=0
 for _ in $(seq 1 200); do
     b="$(pick_port_base)"
-    [ $((b + 2100)) -lt 32768 ] || rc=1
+    [ $((b + 2100)) -lt "$EPHEMERAL_FLOOR" ] || rc=1
 done
 check "200 default bases all keep the whole run below 32768" "$rc"
 
