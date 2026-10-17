@@ -105,17 +105,20 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   `project_admin` in the admin-role set, and that role is ordinarily held at PROJECT scope
   where ADR-084's bypass confers nothing install-wide. Miscounting one as a global backup
   would make the last REAL global admin's grant removable — the brick direction. Every
-  feeding query filters (`ListGlobalAdminAssignmentsForUpdate`: `project_id = 0 AND
-  environment_id = 0`; `ListProjectRoleAssignments(ctx, 0)`: `project_id = 0`). Guard:
+  feeding query filters `project_id = 0 AND environment_id = 0`
+  (`ListGlobalAdminAssignmentsForUpdate`, and `ListProjectRoleAssignments(ctx, 0)` since
+  #2857). Guard:
   `admin_role_structural_source_test.go:TestRemoveUserRole_ProjectScopedBypassIsNotAGlobalAdminBackup`
   plus its companion `..._GloballyScopedProjectAdminIsAGlobalAdminBackup`, which keeps the
   first from passing by simply excluding `project_admin` and reopening #2496's gap.
-  Known inconsistency, pre-existing and NOT introduced by #2496:
-  `ListProjectRoleAssignments(ctx, 0)` filters `project_id` only, so a grant at
-  `{ProjectID: 0, EnvironmentID: X}` is counted as a global holder by the core-side guards
-  while `ListGlobalAdminAssignmentsForUpdate` (the storage-side role-removal guard) also
-  requires `environment_id = 0`. The two disagree on that one shape for every admin role,
-  flagged rather than changed here.
+  The two queries used to disagree on a grant at `{ProjectID: 0, EnvironmentID: X}`: the
+  core-side guards counted it as a global holder although it applies only inside
+  environment X. That shape IS creatable (POST /api/v1/user-roles passes the scope through
+  unchecked), so the over-count let the last real global admin be suspended (#2857). Guard:
+  `last_admin_environment_scoped_grant_test.go:TestSuspendUser_EnvironmentScopedAdminGrantIsNotAGlobalAdminBackup`,
+  store `TestListProjectRoleAssignments_GlobalExcludesEnvironmentScopedGrant` (SQLite +
+  Postgres, asserts the two queries return the same rows), and the reachability premise
+  `server/http/user_roles_env_scoped_global_project_test.go`.
   Every path counts **live holders, not grant rows** (#2658): a user grant counts only for
   a non-deleted, `IsActive`, non-login-blocked user (not suspended/deprovisioned); a group
   grant only for a non-deleted group with at least one such global member. Core's

@@ -249,7 +249,10 @@ type Storage interface {
 	// ListProjectRoleAssignments returns every direct (user) and group role grant
 	// scoped to the project (project_id = projectID, any environment) — the raw
 	// rows for a project access review. Global (project 0) grants are excluded:
-	// those are install-level, reviewed separately.
+	// those are install-level, reviewed separately. projectID 0 is the global
+	// listing behind every core-side global-admin holder count: it returns only
+	// grants at exactly {0, 0}, agreeing with ListGlobalAdminAssignmentsForUpdate
+	// (#2857; a {0, X} grant does not apply at global scope).
 	ListProjectRoleAssignments(ctx context.Context, projectID uint) ([]RoleAssignment, error)
 	// ListProjectMachineRoleAssignments returns every machine-identity role grant
 	// scoped to the project (project_id = projectID, any environment) — the machine
