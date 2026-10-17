@@ -332,7 +332,8 @@ semantics).
 **Emergency SQL runbook** (docs/single-writer.md): either stop the server (preferred), or run
 `SELECT pg_terminate_backend(holder_pid) FROM keyorix_sole_writer`. The fence opens at once. The server
 loses its lease within ≤ 1 s, drops to `confirming` and **does not re-enter** `authoritative` until a
-restart. A revoking UPDATE issued after the terminate is therefore effective on the server's very next
+restart; since LOCKLOSS-SESSION-1 it also shuts down and exits 1 (a lost holder lock lets a second
+single writer start), and its supervisor restarts it, so the change goes in the same `psql` call. A revoking UPDATE issued after the terminate is therefore effective on the server's very next
 request once the lease is gone (≤ 1 s). The trade-off for operators: the "psql UPDATE ... SET
 revoked=true" emergency path still works, but it takes two statements instead of one, and the first
 attempt fails with an error that names the fix. **No security-critical path is silently delayed**:
@@ -396,7 +397,7 @@ docs/CONFIGURATION.md entry:
 
 | failure | detection | behaviour |
 |---|---|---|
-| Holder lock lost (backend killed, PG restart, partition, PgBouncer server-conn drop) | next poll fails or `pg_backend_pid()`/K1 proof changes; at the latest lease expiry | `confirming` within ≤ 1 s of the last good poll; **no re-entry until restart** (a terminate can be an operator's emergency action, §2); audit + deviation. Requests stay correct (today's path). |
+| Holder lock lost (backend killed, PG restart, partition, PgBouncer server-conn drop) | next poll fails or `pg_backend_pid()`/K1 proof changes; at the latest lease expiry | `confirming` within ≤ 1 s of the last good poll; **no re-entry until restart** (a terminate can be an operator's emergency action, §2); audit + deviation. Then graceful shutdown, exit 1 (`Guard.Lost`, LOCKLOSS-SESSION-1). Requests stay correct (today's path). |
 | Poll statement fails, same session | poll error | lease runs out → `confirming`. Re-entry is allowed only if a later poll succeeds **on the same backend pid** (same session ⇒ the lock was never released), followed by a full flush and a re-read of the epoch. A different pid means lock lost (row above). |
 | Poll goroutine stalls (GC, CPU starvation), clock jump, VM pause/SIGSTOP | lease checked against monotonic AND wall clock on every hit | expires → `confirming` until a fresh poll succeeds; no hit is ever served on an old lease |
 | Trigger census mismatch (dropped, disabled, `tgenabled != 'A'`, body changed) | poll | `confirming` until restart; deviation; the boot installer reinstalls the triggers on the next start |
