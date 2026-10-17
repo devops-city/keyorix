@@ -10,6 +10,37 @@
 > does and why, and [`../security/threat-model.md`](./threat-model.md) for the
 > risk each item addresses.
 
+## Reading `admin validate --posture`
+
+Every deviation line carries a category and an origin, `[category/origin]`:
+
+- **`explicit`** — the config file writes the setting. This includes a weakening
+  written under a deprecated pre-`insecure_` name (for example
+  `security.allow_unsafe_file_permissions`): the old name is mapped to its
+  current one with the same alias table the server uses when it loads the file
+  (`internal/config/insecure_settings_aliases.go`, fallback-chain entries
+  included), so renaming a key never turns an explicit choice into a default.
+- **`shipped-default`** — the file says nothing and the weak state is what the
+  server resolves an absent key to. Reported all the same; the fix is to set the
+  hardened value explicitly.
+
+Both origins count toward the exit code. The output also has a **WARN** section
+for findings that are not deviations from the baseline: they are printed, and
+never change the exit code. Currently one finding is reported there:
+
+- **Every administrator is managed by an identity provider.** An administrator
+  account created by SSO sign-in or provisioned by SCIM has an `external_id`; a
+  local account does not. If every global administrator has one, an identity
+  provider outage, or the provider deprovisioning those accounts, leaves no
+  administrator who can sign in. *Remediation:* keep at least one local
+  administrator account as a break-glass account (with MFA enrolled and its
+  credentials stored offline), and know the local recovery procedure,
+  `keyorix-server admin recover-admin`. The check does not warn when at least
+  one local administrator exists, or when there is no administrator at all.
+
+`keyorix-server admin migrate` runs the same configuration validation as
+`serve` and refuses a config `serve` refuses, before it opens the database.
+
 ## 1. Transport (TLS)
 
 | Setting | Key | Recommendation |
