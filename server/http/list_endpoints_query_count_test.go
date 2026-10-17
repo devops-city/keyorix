@@ -224,34 +224,12 @@ func TestListSecrets_ACLPathQueryCountDoesNotGrowWithGrants(t *testing.T) {
 	}
 }
 
-// leWithoutPerSecretAuthz drops the statements of the per-distinct-secret
-// AuthorizeSecret(secrets.read) call that annotates share views with secret names
-// (#3153): ACL rows and their folder ancestor walk, the single-row secret fetch, the
-// role resolution and the cache-epoch probe. That authorization is deliberately one
-// decision per secret, the same one GET /secrets/{id} makes, and batching it is a
-// separate change; what this guard pins is that the LOOKUPS (usernames, group names,
-// secrets, projects) stay batched. A new statement that is not one of these still counts.
-func leWithoutPerSecretAuthz(sqls []string) []string {
-	unquote := strings.NewReplacer("`", "", `"`, "")
-	out := make([]string, 0, len(sqls))
-	for _, s := range sqls {
-		q := unquote.Replace(s)
-		switch {
-		case strings.Contains(q, "FROM secret_acls"),
-			strings.Contains(q, "user_roles"),
-			strings.Contains(q, "cache_epoch"),
-			strings.Contains(q, "SELECT id,parent_id FROM secret_nodes"),
-			strings.Contains(q, "FROM secret_nodes WHERE secret_nodes.id = ") && strings.Contains(q, "LIMIT"): // Postgres parameterizes it ("LIMIT $2")
-			continue
-		}
-		out = append(out, s)
-	}
-	return out
-}
-
 // TestListShares_QueryCountDoesNotGrowWithShares: the shares list resolved each share's
-// secret, recipient and creator with its own statement. The admin's shares accumulate
-// across the two projects, so the second request lists many more rows than the first.
+// secret, recipient and creator with its own statement, and decided each secret's
+// readability with its own AuthorizeSecret (SHARES-BATCH-AUTHZ-1: now one batch
+// decision). Every statement counts, authorization included. The admin's shares
+// accumulate across the two projects, so the second request lists many more rows than
+// the first.
 func TestListShares_QueryCountDoesNotGrowWithShares(t *testing.T) {
 	for _, backend := range leBackends(t) {
 		t.Run(backend, func(t *testing.T) {
@@ -266,9 +244,8 @@ func TestListShares_QueryCountDoesNotGrowWithShares(t *testing.T) {
 			require.Equal(t, http.StatusOK, stS, bodyS)
 			require.Equal(t, http.StatusOK, stL, bodyL)
 			require.Contains(t, bodyL, "leshlarge-secret-", "the large set of shares must be listed")
-			lookupsS, lookupsL := leWithoutPerSecretAuthz(sqlS), leWithoutPerSecretAuthz(sqlL)
-			require.LessOrEqual(t, len(lookupsL), len(lookupsS)+3,
-				"%d lookup statements for %d shares vs %d for %d: the shares list issues statements per row", len(lookupsL), small+large, len(lookupsS), small)
+			require.LessOrEqual(t, len(sqlL), len(sqlS)+3,
+				"%d statements for %d shares vs %d for %d: the shares list issues statements per row", len(sqlL), small+large, len(sqlS), small)
 		})
 	}
 }

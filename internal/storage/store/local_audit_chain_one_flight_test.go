@@ -332,7 +332,8 @@ END $$ LANGUAGE plpgsql`).Error)
 	requireChainValid(t, ls, nil, 5)
 }
 
-// The two in-transaction checks raise only when they should: they pass on
+// The in-transaction checks (one statement with the events INSERT since
+// OPT-AUDIT-RT-1) raise only when they should: they pass on
 // every flight, including those after Postgres stops planning them per
 // execution, and they run from cached generic plans (a check that only raised
 // while being planned would fail here on every flight, and one that the
@@ -363,7 +364,7 @@ func TestOneFlight_PostgresChecksRunFromGenericPlans(t *testing.T) {
 		assert.LessOrEqual(t, r.CustomPlans, int64(5), "re-planned on every flight: %q", r.Statement)
 		assert.GreaterOrEqual(t, r.GenericPlans, int64(flights-5), "not run from its cached plan: %q", r.Statement)
 	}
-	require.Equal(t, 2, found, "the head check and the link check must both be cached: %+v", rows)
+	require.Equal(t, 1, found, "the events INSERT with its head and link checks must be cached: %+v", rows)
 }
 
 // Only a failure that provably wrote nothing is retried in two flights: an

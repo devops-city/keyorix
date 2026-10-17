@@ -129,20 +129,26 @@ func TestLogin_SessionWriteUnverifiable_FailsClosedAndAudits(t *testing.T) {
 		"a possibly-live undelivered session must be audited, not silent")
 }
 
-func TestLogin_SessionWritePanicsAfterCommit_RevokesTheRowAndRepanics(t *testing.T) {
+// #3277: on a login the panic no longer propagates. createSession still
+// deletes the committed row first; mintLoginSession then returns the panic as
+// a post-verdict error, so the login is denied like the insert's error (and a
+// panic is still never turned into a success).
+func TestLogin_SessionWritePanicsAfterCommit_RevokesTheRowAndDenies(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	before := len(adminSessions(t, st))
 	c.storage = &createSessionThenFail{Storage: st, panicAfter: true}
 
-	func() {
-		defer func() {
-			assert.NotNil(t, recover(), "the panic must still propagate: a panic is a bug, never turned into a success")
-		}()
-		_, _, _ = c.Login(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
-	}()
+	var session *models.Session
+	var err error
+	require.NotPanics(t, func() {
+		session, _, err = c.Login(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
+	})
+	require.ErrorIs(t, err, ErrLoginPostVerdict)
+	require.ErrorIs(t, err, ErrLoginWritePanicked)
+	assert.Nil(t, session, "no token may be returned for a row that was deleted")
 
-	assert.Len(t, adminSessions(t, st), before, "the committed row must be deleted before the panic propagates")
+	assert.Len(t, adminSessions(t, st), before, "the committed row must be deleted before the login is denied")
 	assert.EqualValues(t, 1, auditEventCount(t, st, EventUndeliveredSessionRevoked))
 }
 

@@ -1,0 +1,2 @@
+### Fixed
+- **Dashboard: failed logins and refused secret reads are counted apart.** The "failed auth attempts (24h)" figure counted every failed audit event, so since #3274 refused secret reads inflated it. `failedAuthAttempts24h` now counts failed logins (`auth.login_failed`) only, a new `refusedSecretReads24h` counts refused `secret.read` events, and the UI labels read "Failed Logins (24h)" and "Refused Secret Reads (24h)". The first dashboard snapshot after upgrade compares against an older, broader count, so its trend arrow for failed logins can read as a one-day drop.

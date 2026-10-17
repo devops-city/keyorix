@@ -48,7 +48,7 @@ func lookupSecretEnv(name string) (value string, found bool, err error) {
 	path := os.Getenv(fileVar)
 	switch {
 	case direct != "" && path != "":
-		return "", false, fmt.Errorf("both %s and %s are set; set exactly one", name, fileVar)
+		return "", false, usageErrorf("both %s and %s are set; set exactly one", name, fileVar)
 	case path != "":
 		v, err := readCheckedSecretFile(path)
 		if err != nil {
