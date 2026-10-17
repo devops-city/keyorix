@@ -17,7 +17,7 @@
 //     boot) bump the generation inside the writer's own transaction, so the new
 //     value becomes visible atomically with the change.
 //   - Every statement that READS the generation proves, in the same statement,
-//     that the triggers exist and are not disabled (rolePermGenerationExpr). A
+//     that the triggers exist and fire for every writer (rolePermGenerationExpr). A
 //     database without them (a restore that skipped triggers, a bare AutoMigrate
 //     fixture, an operator's DROP/DISABLE) reads the generation as NULL, which
 //     every caller treats as "cannot validate": the cache is neither consulted
@@ -28,12 +28,13 @@
 // it is what keeps an in-app write moving the generation on a database where
 // the triggers were removed, even though the cache is bypassed there anyway.
 //
-// Limit, stated: a session running with session_replication_role = replica
-// skips ordinary triggers. The PostgreSQL triggers are installed ENABLE ALWAYS
-// so they fire in such a session too; a later ALTER TABLE ... ENABLE TRIGGER
-// (which pg_restore --disable-triggers issues on its way out) turns them back
-// into ordinary triggers, which still fire for every normal session and still
-// pass the read-side proof.
+// A session running with session_replication_role = replica skips ordinary
+// triggers. The PostgreSQL triggers are installed ENABLE ALWAYS so they fire in
+// such a session too, and the read-side proof accepts only that state on a
+// connection in 'origin' (pgTriggerFiresForEveryWriter, shared with the
+// cache-epoch proof). A later ALTER TABLE ... ENABLE TRIGGER (which pg_restore
+// --disable-triggers issues on its way out) or ENABLE REPLICA TRIGGER makes the
+// proof fail closed until the next migration re-issues ENABLE ALWAYS.
 package store
 
 import (
@@ -184,7 +185,7 @@ func ensureSQLiteRolePermGenerationTriggers(tx *gorm.DB) error {
 // rolePermGenerationExpr is the SELECT-list expression every statement uses to
 // read the generation from the joined system_metadata row aliased genAlias:
 // the value ("" when the row does not exist yet) when the triggers are present
-// and enabled on THIS connection's tables, NULL otherwise. NULL means "cannot
+// and fire for every writer on THIS connection's tables, NULL otherwise. NULL means "cannot
 // validate" to every caller. No binds: the names are this file's constants.
 func rolePermGenerationExpr(db *gorm.DB, genAlias string) string {
 	key := db.Dialector.Name() + "\x00" + genAlias
@@ -201,16 +202,21 @@ func rolePermGenerationExpr(db *gorm.DB, genAlias string) string {
 var rolePermGenerationExprs sync.Map // dialect + alias -> string
 
 // rolePermGenerationTriggersPresentExpr is true when every trigger is present
-// and, on PostgreSQL, not disabled. tgrelid pins each one to the table this
-// connection resolves (the reasons are in SecretNodeCacheEpochTriggerPresent).
+// and, on PostgreSQL, fires for every writer: ENABLE ALWAYS, read on a
+// connection in 'origin' (pgTriggerFiresForEveryWriter, the cache-epoch
+// proof's condition). 'D', 'R' (fires only in replica sessions) and 'O'
+// (skipped by a replica-role writer) all read as untrusted until the next
+// migration converges them back to 'A'. tgrelid pins each one to the table
+// this connection resolves (the reasons are in
+// SecretNodeCacheEpochTriggerPresent).
 func rolePermGenerationTriggersPresentExpr(db *gorm.DB) string {
 	if db.Dialector.Name() == "postgres" {
 		var conds []string
 		for _, t := range rolePermGenerationTables {
 			conds = append(conds, "(tgrelid = '"+t.table+"'::regclass AND tgname = '"+t.trigger+"')")
 		}
-		return fmt.Sprintf("(SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgenabled <> 'D' AND (%s)) = %d",
-			strings.Join(conds, " OR "), len(rolePermGenerationTables))
+		return fmt.Sprintf("(SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND %s AND (%s)) = %d",
+			pgTriggerFiresForEveryWriter, strings.Join(conds, " OR "), len(rolePermGenerationTables))
 	}
 	var conds []string
 	for _, t := range rolePermGenerationTables {
@@ -223,7 +229,7 @@ func rolePermGenerationTriggersPresentExpr(db *gorm.DB) string {
 }
 
 // RolePermissionsGenerationTriggersPresent reports whether every generation
-// trigger exists (and, on PostgreSQL, is not disabled) on this connection's
+// trigger exists (and, on PostgreSQL, fires for every writer) on this connection's
 // tables: the same proof the read statements carry. Any error reads as false.
 func RolePermissionsGenerationTriggersPresent(db *gorm.DB) bool {
 	if db == nil {

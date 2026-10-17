@@ -47,7 +47,7 @@ func TestConcurrency_WithSchedulerLock_MultiInstancePostgres_ExactlyOneRunsAtOnc
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
-			acquired, err := ls.WithSchedulerLock(context.Background(), key, func() error {
+			acquired, err := ls.WithSchedulerLock(context.Background(), key, func(context.Context) error {
 				n := running.Add(1)
 				for {
 					m := maxConcurrent.Load()

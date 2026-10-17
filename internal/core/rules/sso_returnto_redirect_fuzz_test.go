@@ -2,6 +2,7 @@ package rules
 
 import (
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +32,16 @@ func FuzzReturnToOpenRedirectDifferential(f *testing.F) {
 		"/@evil.com",      // userinfo-looking
 		"/path?x=1#frag",  // query + fragment
 		"",                // empty
+		// REVIEW-COVERAGE-1 additions: encoded and scheme variants.
+		"\\\\evil.com",        // leading double backslash
+		"/%5Cevil.com",        // encoded backslash (stays in the path)
+		"/%2F%2Fevil.com",     // encoded double slash, upper case
+		"/%09/evil.com",       // encoded tab (not stripped by browsers)
+		"javascript:alert(1)", // script scheme
+		"JaVaScRiPt:alert(1)", // mixed case
+		"\x00//evil.com",      // leading C0 control
+		"/　/evil.com",         // ideographic space
+		"/／／evil.com",         // fullwidth solidus
 	} {
 		f.Add(s)
 	}
@@ -58,5 +69,30 @@ func FuzzReturnToOpenRedirectDifferential(f *testing.F) {
 			t.Fatalf("OPEN-REDIRECT: SanitizeReturnTo accepted %q; resolves off-origin to scheme=%q host=%q (want scheme=%q host=%q)",
 				s, resolved.Scheme, resolved.Hostname(), base.Scheme, base.Hostname())
 		}
+		// Second oracle (REVIEW-COVERAGE-1): url.ResolveReference is RFC 3986;
+		// a browser's WHATWG parser first trims leading/trailing C0 controls and
+		// spaces, removes every ASCII tab/newline, and (for http/https) reads '\'
+		// as '/'. Re-resolve the accepted value after those steps.
+		if norm := whatwgPreprocess(got); norm != got {
+			nref, err := url.Parse(norm)
+			if err != nil {
+				return // not a URL to Go either; the first oracle already passed on the raw value
+			}
+			nres := base.ResolveReference(nref)
+			if nres.Scheme != base.Scheme || nres.Hostname() != base.Hostname() {
+				t.Fatalf("OPEN-REDIRECT (browser normalisation): SanitizeReturnTo accepted %q; a browser reads it as %q -> scheme=%q host=%q",
+					s, norm, nres.Scheme, nres.Hostname())
+			}
+		}
 	})
+}
+
+// whatwgPreprocess applies the WHATWG URL parser's input clean-up steps that
+// RFC 3986 resolution does not model: strip leading/trailing C0 control or
+// space, remove ASCII tab and newline anywhere, and treat '\' as '/' (special
+// schemes, which the app origin is).
+func whatwgPreprocess(s string) string {
+	s = strings.TrimFunc(s, func(r rune) bool { return r <= 0x20 })
+	s = strings.NewReplacer("\t", "", "\n", "", "\r", "").Replace(s)
+	return strings.ReplaceAll(s, `\`, "/")
 }

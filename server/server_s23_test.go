@@ -40,7 +40,7 @@ type lockErrorStorage struct {
 	err error
 }
 
-func (s *lockErrorStorage) WithSchedulerLock(_ context.Context, _ int64, _ func() error) (bool, error) {
+func (s *lockErrorStorage) WithSchedulerLock(_ context.Context, _ int64, _ func(context.Context) error) (bool, error) {
 	return false, s.err
 }
 
@@ -50,7 +50,7 @@ func (s *lockErrorStorage) WithSchedulerLock(_ context.Context, _ int64, _ func(
 func TestLockedRun_S23_LockAcquisitionError(t *testing.T) {
 	st := &lockErrorStorage{err: errors.New("advisory lock unavailable")}
 	var fnCalled bool
-	outcome := lockedRun(context.Background(), st, 77, "lock-error-test", func() error {
+	outcome := lockedRun(context.Background(), st, 77, "lock-error-test", func(context.Context) error {
 		fnCalled = true
 		return nil
 	})
