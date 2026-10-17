@@ -11,6 +11,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -157,9 +158,20 @@ func runScanBoundedScenario(t *testing.T, db *gorm.DB, bigRows int) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 	assert.Equal(t, fmt.Sprint(big), mark(), "mark advances to the highest audit id examined even though nothing matched")
+	// The catch-up walks the existing rows in short id windows (no long read
+	// snapshot), each bounded on both sides and together covering (0, big].
 	first := probe.snapshot()
-	require.Len(t, first, 1)
-	assert.Contains(t, first[0].sql, "id <=", "the scan is bounded above by the id read at job start")
+	require.Len(t, first, (bigRows+recoverAdminAlertScanWindow-1)/recoverAdminAlertScanWindow)
+	prev := int64(0)
+	for _, s := range first {
+		assert.Contains(t, s.sql, "id <=", "the scan is bounded above by the id read at job start")
+		nums := s.numericVars()
+		require.GreaterOrEqual(t, len(nums), 2, "bound args: %v", s.vars)
+		assert.Equal(t, prev, nums[0], "windows are contiguous")
+		assert.LessOrEqual(t, nums[1]-nums[0], int64(recoverAdminAlertScanWindow))
+		prev = nums[1]
+	}
+	assert.Equal(t, big, prev, "the windows end at the highest id read at job start")
 
 	// Run 2 with no new audit rows: no list query at all.
 	probe.reset()
@@ -225,4 +237,64 @@ func TestRunRecoverAdminAlerting_LargeAuditTable_SecondRunReadsOnlyNewRows_Postg
 		Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"},
 	}))
 	runScanBoundedScenario(t, db, 300_000)
+}
+
+// TestRunRecoverAdminAlerting_ManyUsesAcrossWindows_EachAlertedExactlyOnce: more
+// recover-admin uses than one batch, spread over several scan windows, with
+// ordinary rows between them. Across runs every use is alerted exactly once, in
+// order, none skipped (the full-batch and window boundaries lose nothing).
+func TestRunRecoverAdminAlerting_ManyUsesAcrossWindows_EachAlertedExactlyOnce(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}, &models.SystemMetadata{}, &models.NotificationChannel{}))
+
+	var mu sync.Mutex
+	seen := map[uint]int{}
+	tr := &fakeWebhookTransport{capture: func(body []byte) {
+		var p struct {
+			ID uint `json:"audit_event_id"`
+		}
+		require.NoError(t, json.Unmarshal(body, &p))
+		mu.Lock()
+		seen[p.ID]++
+		mu.Unlock()
+	}}
+	c := NewKeyorixCore(store.NewLocalStorage(db))
+	c.httpClient = &http.Client{Transport: tr}
+	require.NoError(t, db.Create(&models.NotificationChannel{
+		Name: "ops-webhook", Type: "webhook", URLEnc: plaintextURLEnc("https://fake-webhook.test/hook"), Enabled: true,
+	}).Error)
+
+	// 250 uses packed into one window (more than one batch of 200, so a batch is
+	// full and the rest must wait for the next run), then 3 more separated by
+	// ~150k ordinary rows (each in a later scan window).
+	const dense, sparse = 250, 3
+	const uses = dense + sparse
+	for range dense {
+		bulkInsertAuditRows(t, db, 5, "secret.read")
+		bulkInsertAuditRows(t, db, 1, recoverAdminAuditEventType)
+	}
+	for range sparse {
+		bulkInsertAuditRows(t, db, recoverAdminAlertScanWindow+recoverAdminAlertScanWindow/2, "secret.read")
+		bulkInsertAuditRows(t, db, 1, recoverAdminAuditEventType)
+	}
+
+	ctx := context.Background()
+	total := 0
+	var counts []int
+	for range 10 {
+		n, err := c.RunRecoverAdminAlerting(ctx)
+		require.NoError(t, err)
+		counts = append(counts, n)
+		total += n
+		if n == 0 {
+			break
+		}
+	}
+	assert.Equal(t, uses, total, "runs: %v", counts)
+	assert.Equal(t, 0, counts[len(counts)-1], "the last run finds nothing new: %v", counts)
+	assert.Len(t, seen, uses, "every use alerted")
+	for id, n := range seen {
+		assert.Equal(t, 1, n, "audit event %d alerted %d times", id, n)
+	}
 }

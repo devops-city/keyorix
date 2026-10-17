@@ -39,6 +39,13 @@ const recoverAdminAlertHighWaterKey = "recover_admin_alert_last_notified_id"
 // batch of alerts if the high-water mark were ever reset or corrupted.
 const recoverAdminAlertBatchSize = 200
 
+// recoverAdminAlertScanWindow is the id span one list query covers. Audit ids
+// are dense, so it is about that many rows: a fraction of a second even for an
+// unindexed filter walk on SQLite (SQLITE-PERF-1 measured ~2.6 s per million
+// rows) -- short enough that no read snapshot is held long enough to hold back
+// the WAL checkpoint.
+const recoverAdminAlertScanWindow = 100_000
+
 // RunRecoverAdminAlerting finds every "admin.recover_admin" audit event
 // with ID greater than the stored high-water mark, sends one high-severity
 // alert per event to every enabled NotificationChannel, and advances the
@@ -46,9 +53,9 @@ const recoverAdminAlertBatchSize = 200
 //
 // Cost: the mark is "the highest audit id examined", not "the highest id
 // alerted". A run reads the current highest id once (an O(1) primary-key read),
-// scans only the id range (mark, highest] and stores highest, so the next run
-// starts there: every run reads O(rows added since the previous run), also on an
-// install that never used recover-admin. (Before, the mark moved only when an
+// scans only the id range (mark, highest], in windows of recoverAdminAlertScanWindow,
+// and stores highest, so the next run starts there: every run reads O(rows added
+// since the previous run), also on an install that never used recover-admin. (Before, the mark moved only when an
 // event matched, so such an install re-scanned the whole table, filtering the
 // unindexed event_type, every 10 minutes and held a read snapshot all the while.)
 //
@@ -70,7 +77,7 @@ const recoverAdminAlertBatchSize = 200
 // A full batch (recoverAdminAlertBatchSize events) advances only to its last
 // event, leaving the rest for the next run.
 func (c *KeyorixCore) RunRecoverAdminAlerting(ctx context.Context) (int, error) {
-	highWater, err := c.recoverAdminAlertHighWater(ctx)
+	cursor, err := c.recoverAdminAlertHighWater(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -81,58 +88,79 @@ func (c *KeyorixCore) RunRecoverAdminAlerting(ctx context.Context) (int, error) 
 	if err != nil {
 		return 0, fmt.Errorf("recover-admin alerting: read highest audit id: %w", err)
 	}
-	if highest <= highWater {
-		return 0, nil
-	}
 
 	action := recoverAdminAuditEventType
-	events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{
-		Action:    &action,
-		AfterID:   &highWater,
-		UpToID:    &highest,
-		Ascending: true,
-		Count:     storage.AuditCountNone,
-		PageSize:  recoverAdminAlertBatchSize,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("recover-admin alerting: list events: %w", err)
-	}
-	if len(events) == 0 {
-		// Nothing matched in (highWater, highest]: still record that range as
-		// examined so the next run does not read it again.
-		return 0, c.advanceRecoverAdminAlertMark(ctx, highest)
-	}
-
-	// ListNotificationChannels (the core-layer wrapper), not
-	// c.storage.ListNotificationChannels directly (#2433): the raw storage
-	// rows' URL is encrypted (URLEnc/URLMeta) -- only the wrapper decrypts it
-	// into ch.URL, which the postJSONToURL call below needs to actually dial.
-	channels, err := c.ListNotificationChannels(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("recover-admin alerting: list channels: %w", err)
-	}
-
-	maxID := highWater
-	for _, ev := range events {
-		c.broadcastRecoverAdminAlert(ctx, ev, channels)
-		if ev.ID > maxID {
-			maxID = ev.ID
+	var channels []*models.NotificationChannel
+	alerted := 0
+	// Walk (cursor, highest] in id windows: each window is its own short read
+	// (not one transaction over the whole range), and the mark is persisted per
+	// window, so even the one-off catch-up on an install with millions of existing
+	// audit rows holds no long read snapshot and a restart resumes where it was.
+	for cursor < highest {
+		if err := ctx.Err(); err != nil {
+			return alerted, err
 		}
+		upTo := highest
+		if highest-cursor > recoverAdminAlertScanWindow {
+			upTo = cursor + recoverAdminAlertScanWindow
+		}
+		after := cursor
+		events, _, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{
+			Action:    &action,
+			AfterID:   &after,
+			UpToID:    &upTo,
+			Ascending: true,
+			Count:     storage.AuditCountNone,
+			PageSize:  recoverAdminAlertBatchSize,
+		})
+		if err != nil {
+			return alerted, fmt.Errorf("recover-admin alerting: list events: %w", err)
+		}
+
+		// Everything in (cursor, upTo] was examined unless the batch was full, in
+		// which case more matches may remain beyond the last one returned.
+		next := upTo
+		if len(events) > 0 {
+			if channels == nil {
+				// ListNotificationChannels (the core-layer wrapper), not
+				// c.storage.ListNotificationChannels directly (#2433): the raw storage
+				// rows' URL is encrypted (URLEnc/URLMeta) -- only the wrapper decrypts it
+				// into ch.URL, which the postJSONToURL call below needs to actually dial.
+				channels, err = c.ListNotificationChannels(ctx)
+				if err != nil {
+					return alerted, fmt.Errorf("recover-admin alerting: list channels: %w", err)
+				}
+				if channels == nil {
+					channels = []*models.NotificationChannel{}
+				}
+			}
+			last := cursor
+			for _, ev := range events {
+				c.broadcastRecoverAdminAlert(ctx, ev, channels)
+				if ev.ID > last {
+					last = ev.ID
+				}
+			}
+			alerted += len(events)
+			if len(events) >= recoverAdminAlertBatchSize {
+				next = last
+			}
+		}
+		// Advance the mark even if some channel deliveries above failed
+		// (best-effort, logged) -- matches RunAlertEscalation's own delivery
+		// semantics: a down webhook must not make this scheduler retry the same
+		// event forever. An empty window is recorded too, so the next run does
+		// not read it again.
+		if err := c.advanceRecoverAdminAlertMark(ctx, next); err != nil {
+			return alerted, err
+		}
+		if next < upTo {
+			// Full batch: the rest of this window is left for the next run.
+			break
+		}
+		cursor = next
 	}
-	// Everything up to `highest` was examined unless the batch was full, in
-	// which case more matches may remain beyond the last one returned.
-	mark := highest
-	if len(events) >= recoverAdminAlertBatchSize {
-		mark = maxID
-	}
-	// Advance the mark even if some channel deliveries above failed
-	// (best-effort, logged) -- matches RunAlertEscalation's own delivery
-	// semantics: a down webhook must not make this scheduler retry the same
-	// event forever.
-	if err := c.advanceRecoverAdminAlertMark(ctx, mark); err != nil {
-		return len(events), err
-	}
-	return len(events), nil
+	return alerted, nil
 }
 
 // advanceRecoverAdminAlertMark stores mark as the high-water mark unless the
