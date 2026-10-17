@@ -11,7 +11,8 @@ External links (http, https, mailto) are not fetched. Fenced code blocks are
 skipped. Exit status 1 if anything is reported.
 
 Usage: scripts/check-doc-links.py [--refs] [paths...]   (default: docs/)
-Not wired into CI on purpose; run it by hand before a docs PR.
+The link and anchor rules are enforced by `go test ./internal/docsdrift`
+(links_test.go); this script remains the place for --refs and ad-hoc runs.
 """
 import os
 import re
