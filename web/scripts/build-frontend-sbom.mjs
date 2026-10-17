@@ -210,8 +210,24 @@ const prunedDependencies = (bom.dependencies ?? [])
         dependsOn: (dep.dependsOn ?? []).filter(ref => keptRefs.has(ref)),
     }));
 
+// 5. cdxgen records where each package sits on the build machine
+//    (`LocalNodeModulesPath`, an absolute path). That is not part of the
+//    component's identity and would publish the builder's directory layout in
+//    a release artifact, so drop every property whose value starts with the
+//    repository root and refuse to write anything that still mentions it.
+for (const c of kept) {
+    if (Array.isArray(c.properties)) {
+        c.properties = c.properties.filter(p => !(typeof p.value === 'string' && p.value.startsWith(repoRoot)));
+        if (c.properties.length === 0) delete c.properties;
+    }
+}
+
 bom.components = kept;
 bom.dependencies = prunedDependencies;
+
+if (JSON.stringify(bom).includes(repoRoot)) {
+    fail(`SBOM still contains the build machine's path (${repoRoot}); refusing to write it`);
+}
 
 writeFileSync(outputFile, JSON.stringify(bom, null, 2));
 console.log(`[frontend-sbom] wrote ${outputFile}: ${kept.length} production components`);

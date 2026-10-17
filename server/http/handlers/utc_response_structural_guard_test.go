@@ -363,7 +363,7 @@ func keysOf(m map[string]string) []string {
 // nonHandlerJSONWriters are the JSON response writers outside this package, by
 // "package-relative file:function". Each writes a fixed error envelope.
 var nonHandlerJSONWriters = map[string]string{
-	"server/http/router.go:writeJSONNotFound":                    "404 envelope: error/message/code literals",
+	"server/http/router.go:writeJSONError":                       "router 404/405/401 envelope: error/message/code literals",
 	"server/middleware/auth.go:accountSetupRequiredResponse":     "403 PasswordChangeRequired / MFAEnrollmentRequired envelope",
 	"server/middleware/auth.go:reauthenticationRequiredResponse": "401 ReauthenticationRequired envelope",
 	"server/middleware/auth.go:unauthorizedResponse":             "401 envelope",
@@ -373,6 +373,7 @@ var nonHandlerJSONWriters = map[string]string{
 	"server/middleware/auth.go:projectMFARequiredResponse":       "403 ProjectMFARequired envelope",
 	"server/middleware/auth.go:notFoundResponse":                 "404 envelope",
 	"server/middleware/auth.go:badRequestResponse":               "400 envelope",
+	"server/middleware/body_limit.go:writePayloadTooLarge":       "413 envelope",
 	"server/middleware/rate_limit.go:middleware":                 "429 envelope",
 	"server/middleware/scim.go:scimError":                        "SCIM error envelope",
 	"server/middleware/recovery.go:Recovery":                     "500 envelope after a recovered panic",

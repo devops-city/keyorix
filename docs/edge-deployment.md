@@ -22,12 +22,11 @@
   one file, no database server to patch, monitor or keep running on a small
   board. PostgreSQL is the right choice only if the edge site already operates
   one (see [§3](#3-using-postgresql-at-the-edge)).
-- **No outbound traffic is required.** With every non-loopback packet dropped,
-  the core product served logins and returned stored secrets, and made no
-  outbound connection attempts
-  ([AIRGAP_RUNBOOK.md](AIRGAP_RUNBOOK.md), "Egress-blocked check"). Features that
-  talk to other systems (SSO, SIEM, webhooks, connectors) are off until you
-  configure them.
+- **No outbound traffic is required.** The core product needs no internet access;
+  the backup, restore and audit-verify flow runs in a container with
+  `--network none` in `scripts/airgap-e2e.sh`
+  ([AIRGAP_RUNBOOK.md](AIRGAP_RUNBOOK.md)). Features that talk to other systems
+  (SSO, SIEM, webhooks, connectors) are off until you configure them.
 
 ## 2. SQLite on the edge: strict audit durability only
 
@@ -163,12 +162,12 @@ keyorix-server admin audit export-checkpoint --output /media/usb2/checkpoint-$(d
   lost with the cabinet. Removable media carried off-site is a normal answer
   at air-gapped sites.
 - **Hold the checkpoint anchor separately** from the archive, ideally on
-  write-once media. The archive's checksums catch corruption, not tampering;
+  write-once media. The archive's signed manifest catches a tampered archive, not a rewritten history;
   an externally-held anchor is what constrains someone with the whole device.
 - **Record the master passphrase separately** from both (or, for a TPM- or
   Shamir-based KEK, the custody described in [§9](#9-recommended-hardening)).
 - **Restore into a fresh, empty data directory with the same config.**
-  `admin restore --input <archive>` verifies every checksum, refuses a
+  `admin restore --input <archive>` verifies the manifest signature, refuses a
   key-file set that does not match your encryption settings, writes
   atomically, applies pending migrations and runs `admin verify-audit`
   automatically, failing if the chain is broken. `--overwrite-existing` moves
@@ -218,7 +217,7 @@ security design, not an extra.
   ([hardening guide §2](security/hardening-guide.md#2-encryption-key-management)).
   A KEK that is not stored on the data disk is what makes a stolen disk
   insufficient.
-- **TPM provider (`encryption.key_provider.type: tpm`)** seals the KEK to the
+- **TPM provider (`storage.encryption.key_provider.type: tpm`)** seals the KEK to the
   device's TPM 2.0; only the sealed blob is on disk, so a disk pulled from the
   device cannot be decrypted alone, and no passphrase is needed at boot. Two
   limits to state to anyone relying on it: the seal is to that TPM chip, not
@@ -240,8 +239,10 @@ security design, not an extra.
   from external media, and use full-disk encryption on the data volume as a
   second layer. These are host controls Keyorix cannot enforce; see
   [hardening guide §11](security/hardening-guide.md#11-what-this-guide-does-not-cover).
-- **CLI local mode is equivalent to direct database access.** Keep it for
-  the people you would trust with the raw database.
+- **Shell access to the device is database access.** The `keyorix` CLI is
+  REST-only, but `keyorix-server admin ...` runs on the device with the
+  database and key files. Keep shell access for the people you would trust with
+  the raw database.
 - **Core dumps are suppressed unconditionally** (`RLIMIT_CORE=0`). Do not
   override it in a service unit.
 

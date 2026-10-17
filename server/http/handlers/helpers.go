@@ -94,6 +94,19 @@ func clientSafe(err error) string {
 	return "an internal error occurred; please try again or contact support if the problem persists"
 }
 
+// errorMessageFor is the message for an error response whose status is decided at
+// run time: err's own text for a 4xx (the core validation message the caller needs
+// to correct the request), clientSafe's generic text for a 5xx, with err logged.
+// A raw err.Error() on a 500 branch would hand the client a storage or driver error
+// (TestNoRawErrorTextOnServerErrors).
+func errorMessageFor(status int, err error) string {
+	if status >= http.StatusInternalServerError {
+		log.Printf("internal error (HTTP %d), not sent to client: %v", status, err)
+		return clientSafe(err)
+	}
+	return err.Error()
+}
+
 // goSafe runs fn in a detached goroutine with panic recovery. Auth handlers
 // spawn "fire and forget" goroutines for side effects (audit logging,
 // last-login stamps) so the HTTP response isn't blocked on that I/O — but

@@ -60,7 +60,7 @@ cryptography).
   (AAD) binds each ciphertext to its project context, preventing
   cross-context ciphertext substitution.
 - **Key rotation** — operator-driven DEK rotation with a full re-encryption sweep
-  (`keyorix encryption rotate`), covering all DEK-encrypted tables, with
+  (`keyorix-server admin encryption rotate`), covering all DEK-encrypted tables, with
   promote-to-disk and restart-survival verified by an end-to-end integration
   test (ADR-010).
 - **Encryption in transit** — TLS terminated either by the bundled, opt-in Caddy

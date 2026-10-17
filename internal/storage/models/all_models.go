@@ -28,6 +28,7 @@ func AllTestModels() []any {
 		&Permission{},
 		&RolePermission{},
 		&SystemMetadata{},
+		&PendingAuditEvent{},
 		&LoginAttempt{},
 		&PasswordHistory{},
 		&PersonalAccessToken{},

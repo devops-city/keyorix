@@ -1,0 +1,13 @@
+[Unit]
+Description=Keyorix hosted demo: nightly reset
+
+[Timer]
+# install.sh overrides OnCalendar with --reset-time via a drop-in.
+OnCalendar=*-*-* 03:30:00 UTC
+# A VM that was powered off at 03:30 resets as soon as it boots, so a call
+# always starts from the calm seed.
+Persistent=true
+Unit=keyorix-demo-reset.service
+
+[Install]
+WantedBy=timers.target
