@@ -87,7 +87,7 @@ func TestWithSchedulerLock_TransactionPooling_KilledLockBackendIsReported(t *tes
 	ls.SetTransactionPooling(true)
 	const key int64 = 0x4B455953_4C495645 // "KEYSLIVE"
 
-	ran, err := ls.WithSchedulerLock(context.Background(), key, func() error {
+	ran, err := ls.WithSchedulerLock(context.Background(), key, func(context.Context) error {
 		if terminateLockBackend(t, context.Background(), base, key) != 1 {
 			return errors.New("no lock backend to terminate")
 		}

@@ -13,7 +13,9 @@
   secret and returns `*BulkSuspendPartialError{Suspended, Failed}` (secrets already suspended stay
   suspended, each with its own audit row), and `POST /projects/{id}/secrets/suspend-all` answers 500 with
   `details.suspended`/`details.failed`, never 200. Both audit refusals (bulk event, per-secret row) carry
-  `SuspendWithoutClearingHint` in their message. Any other per-secret failure in clear mode (a storage
+  `SuspendWithoutClearingHint` in their message, under the same stable code
+  `SuspendAuditUnavailableCode` as the single-secret refusal (`core.IsSuspendAuditRefusal`; the
+  per-secret one keeps its `details`). Any other per-secret failure in clear mode (a storage
   error in the write-permission re-check, a failed status transition or commit, a concurrent status
   change) is counted, the run continues, and it ends with `*BulkSuspendPartialError{Suspended, Failed}`
   (`AuditRefused` false) and the same 500: a secret left readable is never reported as suspended. Only a

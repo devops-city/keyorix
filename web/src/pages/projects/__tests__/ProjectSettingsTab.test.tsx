@@ -26,6 +26,9 @@ vi.mock('../../../services/client', () => ({
     },
     // Used by the freeze dialog to word a failed request.
     apiErrorMessage: (err: unknown, fallback: string) => (err instanceof Error && err.message ? err.message : fallback),
+    // The freeze dialog tells an audit-log refusal (SuspendAuditUnavailable) from other failures.
+    apiErrorCode: () => undefined,
+    SUSPEND_AUDIT_UNAVAILABLE: 'SuspendAuditUnavailable',
 }));
 
 const navigateMock = vi.fn();

@@ -192,6 +192,24 @@ func smaKinds() []smaKind {
 			},
 		},
 		{
+			// RESTORE-SECRET-AUDIT-TX: the undelete runs under the environment's named
+			// lock, and its secret.restored row commits inside the restore transaction.
+			name: "restore", eventType: EventSecretRestored,
+			prepare: func(w *smaWorld, tag string) (uint, string) {
+				s := w.secret("sma-" + tag)
+				require.NoError(w.t, w.c.DeleteSecret(context.Background(), s.ID))
+				return s.ID, s.Name
+			},
+			mutate: func(w *smaWorld, id uint, _ string) (uint, error) {
+				return id, w.c.RestoreSecret(w.ctx, w.f.adminID, id)
+			},
+			committed: func(w *smaWorld, id uint, _ string) bool {
+				var s models.SecretNode
+				require.NoError(w.t, w.db.Unscoped().First(&s, id).Error)
+				return !s.DeletedAt.Valid
+			},
+		},
+		{
 			name: "folder-delete", eventType: "secret.deleted",
 			prepare: func(w *smaWorld, tag string) (uint, string) {
 				fo, err := w.c.CreateFolder(context.Background(), w.f.adminID, "sma-"+tag, w.f.projectID, w.f.envID, nil)

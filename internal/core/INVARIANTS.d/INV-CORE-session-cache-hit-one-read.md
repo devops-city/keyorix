@@ -3,7 +3,8 @@
   answer, verdicts and error contract alike, from ONE storage call
   (`GetSessionAuthLiveness`): usable = active and not login-blocked (`accountUsableFromRow`,
   shared with `AccountUsabilityAndState`); the account read's error is reported as the
-  account error (the caller keeps its cached snapshot); live = the row's hash is the presented
+  account error (the caller denies on a missing row and refuses 503 on any other error,
+  INV-MW-cache-hit-recheck-fails-closed; it used to keep its cached snapshot); live = the row's hash is the presented
   token's, not rotated, inside idle and absolute expiry (`sessionRowLiveForToken`, shared with
   `SessionLiveForToken`); a missing session row is the DEFINITIVE "not live", any other session
   read error is indeterminate. A failure of the combined read is indeterminate on both halves,

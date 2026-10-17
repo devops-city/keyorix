@@ -1,0 +1,73 @@
+# keyorix-server.service -- start Keyorix on boot and keep it running on an
+# unattended edge device (docs/edge-deployment.md, "Unattended operation").
+#
+# Install:
+#   useradd --system --home-dir /var/lib/keyorix --shell /usr/sbin/nologin keyorix
+#   install -d -o keyorix -g keyorix -m 0700 /var/lib/keyorix
+#   install -m 0755 keyorix-server /usr/local/bin/keyorix-server
+#   install -d -m 0755 /etc/keyorix
+#   install -m 0600 /dev/stdin /etc/keyorix/master-password   # the master passphrase, root-owned
+#   install -m 0644 keyorix-server.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now keyorix-server
+#
+# Layout this unit assumes (what `keyorix-server admin init` writes when run in
+# that directory): the config file, the database and the key files all live in
+# /var/lib/keyorix, readable only by the service user. Keep the config's paths
+# relative so they resolve next to the config file.
+#
+# Not verified on a real systemd host yet (pending the e2e VM): the ExecStart
+# line is exercised by deploy/edge/edge_units_test.go, the sandboxing options
+# are standard systemd and have not been booted here.
+
+[Unit]
+Description=Keyorix server
+Documentation=https://github.com/keyorixhq/keyorix/blob/main/docs/edge-deployment.md
+# Do not start until the data volume is mounted: a missing volume must be an
+# outage, not a fresh empty installation (also set storage.database.
+# require_existing_path: true).
+RequiresMountsFor=/var/lib/keyorix
+After=local-fs.target time-sync.target
+# An unattended device has nobody to run `systemctl reset-failed`: never give up.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=keyorix
+Group=keyorix
+WorkingDirectory=/var/lib/keyorix
+Environment=KEYORIX_CONFIG_PATH=/var/lib/keyorix/keyorix.yaml
+# The master passphrase comes from a systemd credential: a root-owned 0600 file
+# that systemd copies into a private, in-memory directory readable by the
+# service user only ($CREDENTIALS_DIRECTORY). It is not in argv's value, not in
+# the environment, and the server refuses a group- or world-readable file
+# (ADR-099).
+LoadCredential=master-password:/etc/keyorix/master-password
+ExecStart=/usr/local/bin/keyorix-server --passphrase-file=${CREDENTIALS_DIRECTORY}/master-password
+
+# Crash, OOM kill, watchdog kill, panic: start again. SQLite in WAL mode
+# recovers on open and the server takes no stale lock (flock is released by the
+# kernel on exit), so a restart needs no cleanup step.
+Restart=always
+RestartSec=5
+# SIGTERM lets the server finish in-flight requests and close the database.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Core dumps are already suppressed by the server; do not override that here.
+LimitCORE=0
+# Leave headroom instead of relying on swap (docs/runtime-tuning.md).
+# MemoryMax=512M
+# Environment=GOMEMLIMIT=435MiB
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/keyorix
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

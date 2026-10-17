@@ -276,7 +276,7 @@ func TestLockedRun_Success(t *testing.T) {
 	st := store.NewLocalStorage(db)
 
 	var ran bool
-	outcome := lockedRun(context.Background(), st, 42, "test-success", func() error {
+	outcome := lockedRun(context.Background(), st, 42, "test-success", func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -292,7 +292,7 @@ func TestLockedRun_FnError(t *testing.T) {
 	db := openSchedulerTestDB(t)
 	st := store.NewLocalStorage(db)
 
-	outcome := lockedRun(context.Background(), st, 43, "test-fn-error", func() error {
+	outcome := lockedRun(context.Background(), st, 43, "test-fn-error", func(context.Context) error {
 		return errors.New("simulated failure")
 	})
 	if outcome != middleware.SchedulerFailure {

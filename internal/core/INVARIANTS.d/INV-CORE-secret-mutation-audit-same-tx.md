@@ -1,8 +1,9 @@
 - **INV-CORE-secret-mutation-audit-same-tx** A secret mutation called with
   `WithSecretMutationAudit` (every HTTP and gRPC create, update (both HTTP paths),
-  rotate, delete and folder delete) and every `RollbackSecret` writes its audit row
+  rotate, delete and folder delete), every `RollbackSecret` and every `RestoreSecret`
+  (undelete) writes its audit row
   (`secret.created` / `secret.updated` / `secret.rotated` / `secret.deleted` /
-  `secret.rolled_back`, plus the `secret_access_logs` row where it has one) through
+  `secret.rolled_back` / `secret.restored`, plus the `secret_access_logs` row where it has one) through
   the transaction-scoped store as the LAST statement of the mutation's own
   transaction (`writeMutationAuditTx`). A failed or panicking append returns
   `ErrSecretMutationAuditUnavailable`, the transaction rolls back, and nothing
@@ -25,5 +26,9 @@
   (pg-gated).
   **Not covered**: a caller that reaches these core methods without
   `WithSecretMutationAudit` writes no mutation row from core (bulk delete, copy,
-  bulk rename, the rotation scheduler audit separately and are unchanged), and
-  `RestoreSecret` (undelete) still appends `secret.restored` after its commit.
+  bulk rename, the rotation scheduler audit separately and are unchanged), except
+  `RestoreSecret`, which always writes `secret.restored` for its `actorID`, as it did
+  before; the context only adds username, IP and user agent. `RestoreSecret` takes the environment's named lock BEFORE its transaction (the
+  storage restore's own order: lock, then transaction) and the nested storage call
+  finds it held, so the append can be the transaction's last statement without
+  inverting the lock order (RESTORE-SECRET-AUDIT-TX).
