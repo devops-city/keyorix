@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -34,12 +35,12 @@ func withMachineCtxS10(r *http.Request) *http.Request {
 // newIsolatedCoreS10 creates a fresh in-memory SQLite DB with the full schema
 // including SecretVersion (not present in the shared s4 DB). Used only for tests
 // that actually create secrets, to avoid interference with the shared s4 DB.
-// Uses ":memory:" (no cache=shared) for a truly isolated DB per invocation.
+// sqlitetest gives each invocation its own database on a one-connection pool
+// (a raw ":memory:" pool hands every extra connection an empty database).
 func newIsolatedCoreS10(t *testing.T) *core.KeyorixCore {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err, "open isolated s10 DB")
-	err = db.AutoMigrate(
+	db := sqlitetest.OpenWithDialector(t, "s10iso_", sqlite.Open, &gorm.Config{})
+	err := db.AutoMigrate(
 		// exact same list as newHandlerCoreS4, plus SecretVersion
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{},
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
