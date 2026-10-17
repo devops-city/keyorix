@@ -219,9 +219,18 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   test or a structural check).
 - **INV-CORE-30** `SecretNode.DeletedAt` soft-delete is respected by every raw/Table/Joins
   query touching `secret_nodes` — GORM auto-scopes model-based queries but not raw SQL. Why:
-  ADR-033 (names six specific call sites). UNGUARDED (#issue: no repo-wide completeness sweep
-  exists over raw queries against `secret_nodes`, unlike the CSV-writer or account-state
-  exhaustiveness guards — only point tests like `catalog_delete_project_test.go` cover it).
+  ADR-033 (names six specific call sites). Guard:
+  `secret_nodes_soft_delete_guard_test.go:TestSecretNodesSoftDelete_RawSQLRespectsDeletedAt` — an AST
+  sweep over `internal/storage/store` and `internal/core` non-test files: every leaf statement whose
+  string literals make a source reference to `secret_nodes` (`FROM|JOIN|UPDATE|INTO secret_nodes`, or a
+  literal that is the table name, as `Table(...)` and `countByProject(ctx, "secret_nodes", ...)` carry)
+  must also say `deleted_at IS [NOT] NULL` on that table (or an alias of it) or call `.Unscoped()`,
+  else its function needs a reviewed row (`secret_nodes_allow_entry_<slug>_test.go`; today: the
+  offboarding ACL sweep, `RestoreProject`'s purge-date clear, and two label/DDL literals). The doc
+  comment lists the recognised forms and what it does not see (column qualifiers, `Model(&SecretNode{})`
+  plus `Unscoped()`, SQL split across statements, other packages). Red proof:
+  `TestSecretNodesSoftDelete_MutationKillsPredicate` deletes a real predicate in a copy of the store
+  sources and requires the scan to report that function; `_ScannerFixture` plants each shape.
 
 ## Secret dependency graph (ADR-052)
 

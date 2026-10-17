@@ -10,6 +10,7 @@ Full explanation: `registry_entries_test.go`.
 | `mfaStepUpPurposeAllowlist` | `mfa_stepup_purpose_allow_entry_<slug>_test.go` | `registerMFAStepUpPurposeAllow` |
 | `g4FuzzSeedPrograms` (FuzzCrossReplicaInvariants seeds) | `cross_replica_seed_entry_<issue>_test.go` | `registerG4FuzzSeed` |
 | `bestEffortCallAllowlist` (INV-CORE-34 call-site guard) | `besteffort_callsite_allow_entry_<slug>_test.go` | `registerBestEffortCallAllow` |
+| `secretNodesRawSQLAllowlist` (INV-CORE-30 sweep) | `secret_nodes_allow_entry_<slug>_test.go` | `registerSecretNodesRawSQLAllow` |
 | `pendingSeedFix` | `pending_seed_fix_entry_<issue>_test.go` | `registerPendingSeedFix` |
 
 Put the row's reasoning comment above the `register…` call, in that file. Do not
