@@ -214,8 +214,24 @@ const KIND: Record<string, Shape['kind']> = {
     object: 'object',
 };
 
-/** Exemptions: key is `<path>` (dotted field path under the pair) -> reason. */
+/**
+ * The kinds of finding `compare` reports. An exemption names ONE of them, so an
+ * exemption written about (say) optionality cannot also hide a type change at
+ * the same path (#2868).
+ */
+export type FindingKind =
+    | 'optionality' // TS optional/required disagrees with the schema's `required`
+    | 'not-in-schema' // declared in TS, absent from the schema
+    | 'not-in-ts' // in the schema, not declared in TS
+    | 'no-type' // schema has no usable "type"
+    | 'kind' // JSON kind differs
+    | 'nullability'
+    | 'enum';
+
+/** Exemptions: key is `<path>#<FindingKind>` (dotted field path under the pair) -> reason. */
 export type Allow = Record<string, string>;
+
+export const allowKey = (path: string, kind: FindingKind) => `${path}#${kind}`;
 
 export function compare(
     doc: Schema,
@@ -231,24 +247,31 @@ export function compare(
     // A oneOf/anyOf of object branches is compared as the merged object the TS
     // side models it with; anything else passes through untouched.
     const schema = flattenUnion(doc, resolved) ?? resolved;
-    const flag = (msg: string) => {
-        if (at in allow) used.add(at);
-        else out.push(`${at}: ${msg}`);
+    // report records one finding of one kind at one path, unless an exemption
+    // names exactly that path AND kind.
+    const report = (path: string, fk: FindingKind, msg: string) => {
+        const key = allowKey(path, fk);
+        if (key in allow) used.add(key);
+        else out.push(`${path}: ${msg}`);
     };
+    const flag = (fk: FindingKind, msg: string) => report(at, fk, msg);
     const kind = schema.type ? KIND[schema.type] : schema.properties ? 'object' : undefined;
-    if (!kind) return flag(`schema has no usable "type"`);
-    if (shape.kind !== kind) return flag(`TS kind is ${shape.kind}, schema type is ${schema.type}`);
+    if (!kind) return flag('no-type', `schema has no usable "type"`);
+    if (shape.kind !== kind) return flag('kind', `TS kind is ${shape.kind}, schema type is ${schema.type}`);
     if (shape.nullable !== (schema.nullable === true)) {
-        flag(`TS ${shape.nullable ? 'allows' : 'forbids'} null, schema nullable=${schema.nullable === true}`);
+        flag(
+            'nullability',
+            `TS ${shape.nullable ? 'allows' : 'forbids'} null, schema nullable=${schema.nullable === true}`
+        );
     }
     if (schema.enum) {
         const want = [...schema.enum].map(String).sort();
-        if (!shape.literals) flag(`schema enum [${want}] but TS is not a string-literal union`);
+        if (!shape.literals) flag('enum', `schema enum [${want}] but TS is not a string-literal union`);
         else if (JSON.stringify(want) !== JSON.stringify(shape.literals)) {
-            flag(`enum mismatch: TS [${shape.literals}] vs schema [${want}]`);
+            flag('enum', `enum mismatch: TS [${shape.literals}] vs schema [${want}]`);
         }
     } else if (shape.literals) {
-        flag(`TS is a literal union [${shape.literals}] but the schema declares no enum`);
+        flag('enum', `TS is a literal union [${shape.literals}] but the schema declares no enum`);
     }
     if (kind === 'array' && shape.items && schema.items) {
         compare(doc, shape.items, schema.items, `${at}[]`, allow, used, out, request);
@@ -259,8 +282,7 @@ export function compare(
         for (const [name, p] of Object.entries(shape.props)) {
             const here = `${at}.${name}`;
             if (!(name in sProps)) {
-                if (here in allow) used.add(here);
-                else out.push(`${here}: declared in TS but not in the schema (the server never sends it)`);
+                report(here, 'not-in-schema', 'declared in TS but not in the schema (the server never sends it)');
                 continue;
             }
             // A request body may be stricter than the server demands (a TS-required
@@ -269,19 +291,18 @@ export function compare(
                 ? p.optional && required?.includes(name)
                 : required && p.optional === required.includes(name);
             if (optionalityDrift) {
-                if (here in allow) used.add(here);
-                else
-                    out.push(
-                        `${here}: TS ${p.optional ? 'optional' : 'required'} but schema ${required.includes(name) ? 'requires' : 'does not require'} it`
-                    );
+                report(
+                    here,
+                    'optionality',
+                    `TS ${p.optional ? 'optional' : 'required'} but schema ${required.includes(name) ? 'requires' : 'does not require'} it`
+                );
             }
             compare(doc, p.shape, sProps[name], here, allow, used, out, request);
         }
         for (const name of Object.keys(sProps)) {
             const here = `${at}.${name}`;
             if (name in shape.props) continue;
-            if (here in allow) used.add(here);
-            else out.push(`${here}: sent by the server (in the schema) but not declared in TS`);
+            report(here, 'not-in-ts', 'sent by the server (in the schema) but not declared in TS');
         }
     }
 }

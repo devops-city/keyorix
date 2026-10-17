@@ -15,6 +15,8 @@
 //      WIRE_TYPES or in NOT_COMPARED with a reason -- a new interface cannot
 //      slip in unchecked.
 //   3. No exemption (ALLOW) is stale: each must still suppress a real mismatch.
+//      An exemption is keyed `<path>#<finding kind>` (allowKey), so it silences
+//      exactly one kind of finding at that path and nothing else (#2868).
 //
 // What this does NOT cover (stated, not implied): the NOT_COMPARED types; wire
 // bodies read as `any` inside services/*.ts mapping code; request/response
@@ -23,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
-import { Locator, compare, createProgram, exportedInterfaces, locate, toShape } from './openapiDriftLib';
+import { Locator, allowKey, compare, createProgram, exportedInterfaces, locate, toShape } from './openapiDriftLib';
 
 const TYPES_DIR = resolve(import.meta.dirname, '..');
 const FILES = ['index.ts', 'rbac.ts'].map((f) => resolve(TYPES_DIR, f));
@@ -31,7 +33,7 @@ const OPENAPI = resolve(import.meta.dirname, '../../../../server/http/handlers/o
 
 interface Pair {
     locate: Locator;
-    /** dotted field path (rooted at the interface name) -> why the mismatch is accepted. */
+    /** allowKey(dotted field path rooted at the interface name, finding kind) -> why the mismatch is accepted. */
     allow?: Record<string, string>;
 }
 
@@ -62,7 +64,7 @@ const WIRE_TYPES: Record<string, Pair> = {
     LoginResponse: {
         locate: { op: { path: '/auth/login', method: 'post' }, at: ['data'] },
         allow: {
-            'LoginResponse.token': TOKEN_NOT_READ,
+            [allowKey('LoginResponse.token', 'not-in-ts')]: TOKEN_NOT_READ,
             // #2848: /auth/login's 200 `data` is a oneOf of LoginSuccessData |
             // MFAChallengeData (both 200, disambiguated by data.mfa_required --
             // the response's own description says so). openapiDriftLib's
@@ -82,10 +84,10 @@ const WIRE_TYPES: Record<string, Pair> = {
             // needs the comparator to model TS unions too (toShape collapses a
             // union of object types to kind 'unknown'). Out of scope for a
             // main-is-red unblock; proposed as a follow-up on #2848.
-            'LoginResponse.expires_at': ONLY_ON_SUCCESS_BRANCH,
-            'LoginResponse.user_id': ONLY_ON_SUCCESS_BRANCH,
-            'LoginResponse.username': ONLY_ON_SUCCESS_BRANCH,
-            'LoginResponse.email': ONLY_ON_SUCCESS_BRANCH,
+            [allowKey('LoginResponse.expires_at', 'optionality')]: ONLY_ON_SUCCESS_BRANCH,
+            [allowKey('LoginResponse.user_id', 'optionality')]: ONLY_ON_SUCCESS_BRANCH,
+            [allowKey('LoginResponse.username', 'optionality')]: ONLY_ON_SUCCESS_BRANCH,
+            [allowKey('LoginResponse.email', 'optionality')]: ONLY_ON_SUCCESS_BRANCH,
             // The schema pins mfa_required to `enum: [true]` (a const-true
             // discriminator present only on the challenge branch). TS declares
             // `mfa_required?: boolean`, and toShape collapses a boolean literal
@@ -93,13 +95,13 @@ const WIRE_TYPES: Record<string, Pair> = {
             // can never match any TS boolean. Exempted rather than worked around:
             // narrowing TS to `mfa_required?: true` would not help until the
             // comparator carries single boolean literals.
-            'LoginResponse.mfa_required':
+            [allowKey('LoginResponse.mfa_required', 'enum')]:
                 'schema pins enum [true] on the challenge branch; toShape cannot express a const boolean (see #2848)',
         },
     },
     RefreshTokenResponse: {
         locate: { op: { path: '/auth/refresh', method: 'post' }, at: ['data'] },
-        allow: { 'RefreshTokenResponse.token': TOKEN_NOT_READ },
+        allow: { [allowKey('RefreshTokenResponse.token', 'not-in-ts')]: TOKEN_NOT_READ },
     },
     ApiError: { locate: { response: 'Error' } },
     Permission: { locate: { schema: 'Permission' } },
@@ -111,7 +113,7 @@ const WIRE_TYPES: Record<string, Pair> = {
     Group: {
         locate: { schema: 'Group' },
         allow: {
-            'Group.member_count':
+            [allowKey('Group.member_count', 'not-in-schema')]:
                 'the server never sends it (groupToAPIResponse), so GroupsPage\'s member-count column always renders "—"; ' +
                 'the column needs a real count source, not a type change',
         },
