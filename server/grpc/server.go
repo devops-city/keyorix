@@ -309,7 +309,7 @@ func createGRPCTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		// For gRPC, autocert (certificate acquisition) is more complex and typically
 		// not wired up here — but the hardened MinVersion/CipherSuites below must
 		// still apply, matching the non-AutoCert path's posture (#172).
-		tlsConfig := &tls.Config{} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path (TLS 1.3 in strict mode, TLS 1.2 otherwise) before this config is ever used
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} // raised to TLS 1.3 by applyTLSHardening in strict mode
 		if err := applyTLSHardening(tlsConfig, cfg.Server.GRPC.TLS, cfg.Server.GRPC.TLSMode); err != nil {
 			return nil, err
 		}
@@ -323,7 +323,7 @@ func createGRPCTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, fmt.Errorf("failed to load gRPC TLS certificate: %w", err)
 	}
 
-	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path, same as createGRPCTLSConfig's AutoCert branch above
+	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate, MinVersion: tls.VersionTLS12} // raised to TLS 1.3 by applyTLSHardening in strict mode
 	if err := applyTLSHardening(tlsConfig, cfg.Server.GRPC.TLS, cfg.Server.GRPC.TLSMode); err != nil {
 		return nil, err
 	}

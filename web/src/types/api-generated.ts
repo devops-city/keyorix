@@ -4649,7 +4649,7 @@ export interface paths {
         };
         /**
          * Dashboard summary statistics
-         * @description The caller's own home dashboard (secret/share counts, expiring secrets). Requires the universal system.read baseline (every real principal holds it). The deployment-wide aggregate fields (activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins), refusedSecretReads24h, inactiveUsers) and the full recentActivity feed are additionally scoped to audit.read — a baseline-only caller gets zeroed aggregates and an activity feed limited to their own events.
+         * @description The caller's own home dashboard (secret/share counts, expiring secrets). Requires the universal system.read baseline (every real principal holds it). The deployment-wide aggregate fields (activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins: wrong password + wrong second factor), failedLoginsWrongPassword24h, failedLoginsWrongSecondFactor24h, refusedSecretReads24h, inactiveUsers) and the full recentActivity feed are additionally scoped to audit.read — a baseline-only caller gets zeroed aggregates and an activity feed limited to their own events.
          */
         get: operations["getDashboardStats"];
         put?: never;
@@ -7513,7 +7513,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: {entries[], count}; each entry is {principal_type (user|group), principal_id, principal_name, email, source (role|owner|direct_share|group_share), role_id, role_name, access_level, environment_id, secret_id, secret_name, last_used_at (the user principal's most recent secret access in the project — absent = no recorded activity, i.e. dormant standing access)}. */
+            /** @description Envelope {data, message}. data: {entries[], count, degraded, degraded_reasons[], activity_window_days (the look-back of every last_used_at: the recertification period, default 90 days, at most 366)}; each entry is {principal_type (user|group), principal_id, principal_name, email, source (role|owner|direct_share|group_share), role_id, role_name, access_level, environment_id, secret_id, secret_name, last_used_at (the user principal's most recent secret access in the project within the last activity_window_days days — absent = no recorded activity in that window, i.e. dormant standing access)}. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -14298,7 +14298,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe, activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins), refusedSecretReads24h, inactiveUsers; optional trend objects (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}), expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and recentActivity[] (id, type, secretName, timestamp, actor). */
+            /** @description Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe, activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins: wrong password + wrong second factor), failedLoginsWrongPassword24h, failedLoginsWrongSecondFactor24h, refusedSecretReads24h, inactiveUsers; optional trend objects (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}), expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and recentActivity[] (id, type, secretName, timestamp, actor). */
             200: {
                 headers: {
                     [name: string]: unknown;

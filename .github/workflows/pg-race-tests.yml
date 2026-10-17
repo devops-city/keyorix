@@ -12,7 +12,8 @@ name: Cross-replica race tests (Postgres)
 # PR never actually proves anything until days later, whenever that PR
 # happens to pick up the ci:full label or lands on main. This workflow closes
 # that gap directly: path-filtered to the two packages this bug class lives
-# in, with its own Postgres service, on every relevant PR push, plus a
+# in, with its own Postgres service, on every relevant PR push (until
+# CI-LIGHT-1 moved that to the merge queue, see the `on:` comment below), plus a
 # nightly run against main so a regression introduced by a NON-internal/core
 # change (a shared helper, a migration) that only manifests through these
 # packages' tests still gets caught within a day.
@@ -34,12 +35,18 @@ name: Cross-replica race tests (Postgres)
 # Deliberately NOT run with -race: ci.yml's ci:full-labeled/merge_group path
 # already covers these same packages under -race separately. This workflow's
 # job is DSN coverage (does the test run at all), not race-detector coverage.
+#
+# No pull_request trigger since CI-LIGHT-1 (2026-10-16, Andrei: pg-gated race
+# tests belong to the FULL profile -- merge_group, push to main, ci:full).
+# The merge queue already runs every one of these tests WITH the DSN: ci.yml's
+# test-suite job sets KEYORIX_TEST_PG_DSN job-wide (all 21 legs, Postgres
+# service container), so the core, storage-store and root legs run every
+# pg-gated test in internal/core, internal/storage and internal/storage/store
+# under -race before anything reaches main, and so does a PR labeled
+# ci:full. This workflow keeps its nightly run against main and a manual
+# trigger, for a regression introduced by a NON-internal/core change that
+# only these packages' tests catch.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    # See ci.yml's own comment: also covers stacked-PR review chains.
-    branches: [main, 'adr082/**', 'feat/**', 'fix/**']
-    paths: ['internal/core/**.go', 'internal/storage/**.go']
   schedule:
     # 04:47 UTC nightly, off the round minute and distinct from this repo's
     # other scheduled slots (e2e-nightly 03:23, govulncheck-scheduled/
@@ -50,8 +57,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: pg-race-tests-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: pg-race-tests-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   pg-gated-race-tests:

@@ -75,7 +75,8 @@ func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn fun
 	// forces database/sql to physically close it instead of pooling it, which
 	// terminates the Postgres backend and releases every advisory lock it held.
 	defer sess.unlock(ctx, key, "scheduler")
-	return true, runProtected(fn)
+	_, finish := sess.watch(ctx, "scheduler lock")
+	return true, finish(runProtected(fn))
 }
 
 // SetSchedulerLockDB gives WithSchedulerLock a pool of its own for the advisory-

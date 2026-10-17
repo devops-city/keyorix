@@ -128,6 +128,21 @@ const serverLockSuffix = ".server.lock"
 // value (and a nil *Presence) is a safe no-op for remote storage.
 type Presence struct {
 	release func() error
+	lost    chan struct{} // closed when the lock is found lost; nil if it cannot be
+}
+
+// Lost is closed when the presence lock is found lost while held: with
+// storage.database.pooler: pgbouncer-transaction the lock lives in an open
+// transaction, and a pg_terminate_backend, a PostgreSQL restart or failover or
+// a PgBouncer timeout ends it without any other signal to the holder. From that
+// moment an admin command can start beside this server, so the caller should
+// stop serving. Never closed in the other modes and for remote storage (a nil
+// channel: a receive blocks forever), and never after Release.
+func (p *Presence) Lost() <-chan struct{} {
+	if p == nil {
+		return nil
+	}
+	return p.lost
 }
 
 // Release releases the presence lock. Safe to call on a nil Presence.
@@ -347,7 +362,14 @@ func acquirePostgresPresence(cfg *config.Config) (*Presence, error) {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("an admin operation is running against this database (postgres advisory lock %d); retry when it finishes", serverPresenceLockKey)
 	}
-	return &Presence{release: func() error {
+	var lost chan struct{}
+	stopWatch := func() {}
+	if xact {
+		lost = make(chan struct{})
+		stopWatch = config.WatchPinnedLockConn(conn, "serverguard presence lock", func(error) { close(lost) })
+	}
+	return &Presence{lost: lost, release: func() error {
+		stopWatch() // before the ROLLBACK below, which needs the connection to itself
 		relCtx, relCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer relCancel()
 		// Explicit and synchronous: by the time this call returns, the lock

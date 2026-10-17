@@ -38,7 +38,7 @@ func TestGenerateProjectAccessReview_DegradedOnShareLookupError(t *testing.T) {
 	}, nil)
 	ms.On("ListSharesBySecret", ctx, uint(501), mock.Anything).Return(nil, errors.New("connection reset"))
 	ms.On("GetGroupNamesByIDs", ctx, []uint{100}).Return(map[uint]string{100: "devs"}, nil)
-	ms.On("LastUserSecretActivity", ctx, proj).Return(map[uint]time.Time{}, nil)
+	ms.On("LastUserSecretActivity", ctx, proj, mock.Anything).Return(map[uint]time.Time{}, nil)
 
 	c := NewKeyorixCore(ms)
 	report, err := c.GenerateProjectAccessReview(ctx, proj)

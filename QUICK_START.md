@@ -14,21 +14,35 @@ passed by path.
 ## Get the binaries
 
 **From a release (no toolchain needed).** Each GitHub release publishes bare
-binaries, not tarballs: `keyorix-server_linux_amd64` (API server),
-`keyorix_linux_amd64` (CLI), the `-airgap` server variant, and `checksums.txt`
-(signed: `checksums.txt.sig` / `.pem`, verify with `cosign`). `install.sh` from the
-README installs only the CLI. For the server:
+binaries, not tarballs, for `linux` and `darwin` (macOS), each as `amd64` and
+`arm64`: `keyorix-server_<os>_<arch>` (API server) and `keyorix_<os>_<arch>` (CLI),
+plus `checksums.txt` (signed: `checksums.txt.sig` / `.pem`, verify with `cosign`).
+The `-airgap` server variant is Linux only. `install.sh` from the README installs
+only the CLI (Linux and macOS). For the server and CLI, pick your platform's suffix
+(`darwin_arm64` for Apple silicon, `darwin_amd64` for Intel Macs, `linux_amd64`,
+`linux_arm64`):
 
 ```bash
-V=v0.96.0   # the release you want (this one has `admin generate-secrets` and `mfa enroll`)
-curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/keyorix-server_linux_amd64
-curl -fsSLO https://github.com/keyorixhq/keyorix/releases/download/$V/checksums.txt
-sha256sum -c --ignore-missing checksums.txt && chmod +x keyorix-server_linux_amd64
+V=v0.96.1   # the release you want (this one has `admin generate-secrets` and `mfa enroll`)
+P=darwin_arm64   # your platform
+BASE=https://github.com/keyorixhq/keyorix/releases/download/$V
+curl -fsSLO $BASE/keyorix-server_$P
+curl -fsSLO $BASE/keyorix_$P
+curl -fsSLO $BASE/checksums.txt
+shasum -a 256 -c --ignore-missing checksums.txt   # macOS; on Linux: sha256sum -c --ignore-missing checksums.txt
+mv keyorix-server_$P keyorix-server && mv keyorix_$P keyorix
+chmod +x keyorix-server keyorix
 ```
 
+Both checksum lines must say `OK`. The commands below use `./bin/keyorix` and
+`./bin/keyorix-server` (the `make build` paths); with the release files in the
+current directory, drop the `bin/`: `./keyorix`, `./keyorix-server`.
+
 A release binary is the release's own behaviour: this page tracks `main`, so a
-command below can be newer than the release (for example `keyorix mfa enroll`
-does not exist in v0.95.3). `keyorix-server --version` (or `keyorix-server admin version`)
+command below can be newer than the release. For example `keyorix mfa enroll`
+does not exist in v0.95.3, and the v0.96.1 CLI has no `KEYORIX_PASSWORD_FILE` or
+`KEYORIX_MFA_CODE_FILE` (only `main` does): with a release CLI, type the password
+and the code at the prompts. `keyorix-server --version` (or `keyorix-server admin version`)
 prints the version, commit, build date and Go version. The server itself has no
 `--config` flag (it reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
 `keyorix-server admin ...` subcommands take `--config`); the CLI has
@@ -170,8 +184,12 @@ reports `already_initialized` on every call after the first. It creates the
 admin user, default RBAC roles, and a default workspace (a project with three
 seeded environments — development, staging, production — as IDs 1/2/3) in one
 call. Without `KEYORIX_BOOTSTRAP_TOKEN` (or `KEYORIX_BOOTSTRAP_TOKEN_FILE`) set
-before the server starts, the server generates a random token and logs only a
-masked form of it (first 8 and last 4 characters), so pin your own as shown above.
+before the server starts, the server generates a random one-time token and logs
+only a masked form of it (first 8 and last 4 characters). **That token cannot be
+exported or recovered from the log**, so pin your own as shown above, or let
+`keyorix-server admin generate-secrets` create `secrets/bootstrap_token` (0600) for
+you. If you started the server without one, stop it, set
+`KEYORIX_BOOTSTRAP_TOKEN_FILE`, and start it again.
 
 - Health: <https://localhost:8080/health>
 - OpenAPI spec: <https://localhost:8080/openapi.yaml> — only when
@@ -224,8 +242,20 @@ For Postgres instead of SQLite, `docker compose up -d postgres` starts one, and
 ```
 
 Stores the session token (and server URL) at the CLI's one credential-file
-location — see `keyorix status --help`. Every command below reads it from there;
-none of them take `--server` again.
+location: `~/.config/keyorix/credentials.yaml` on Linux,
+`~/Library/Application Support/keyorix/credentials.yaml` on macOS (`keyorix login
+--help` and `keyorix config --help` name it too). Every command below reads it from
+there; none of them take `--server` again.
+
+With no terminal (a script, CI), `login` reads `KEYORIX_PASSWORD` or the file named
+by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.1 release).
+
+There is no `keyorix doctor` command. To check the connection at any time, run
+`keyorix status` (server URL, whether you are logged in, health, version
+compatibility). On the server host, `keyorix-server admin diagnose` runs the checks
+server startup depends on (config parse, encryption-key access, database open,
+migration state); like every `admin` command it refuses while the server is
+running, so stop the server first.
 
 ## Enrol MFA (required on first login)
 
@@ -235,7 +265,7 @@ factor, this session can only reach the enrolment endpoints — every command in
 Enrol once, right after the first login:
 
 ```bash
-./bin/keyorix mfa enroll        # prints an otpauth:// URI (QR) and a base32 secret
+./bin/keyorix mfa enroll        # prints an otpauth:// URI and a base32 secret (no QR code is drawn)
 ./bin/keyorix mfa activate      # prompts for the code your authenticator app shows, then your password
 ```
 
@@ -306,6 +336,9 @@ role in the project the secret lives in — holding the global `admin` role from
 bootstrap is not enough:
 
 ```bash
+# The recipient must exist first (prints a one-time password to relay; a --setup-link
+# needs credential_delivery.base_url configured, so this form works on a fresh install)
+./bin/keyorix user create --username alice --email alice@keyorix.local --one-time-password
 ./bin/keyorix rbac assign-role --user admin@keyorix.local --role project_admin --project default
 ./bin/keyorix rbac assign-role --user alice@keyorix.local --role project_viewer --project default
 
@@ -337,7 +370,7 @@ adds a path; revoking it removes only that path.
 Because the recipient must already hold a role in the project to receive a share
 (above), a recipient with `project_viewer` can read every secret in the project
 through that role. So `share revoke` removes the share record — `share list` and
-the audit log (`share.revoked`) show it — but **alice keeps read access** until her
+the audit log (event `share_revoked`; `keyorix audit search --action share_revoked`) show it — but **alice keeps read access** until her
 role is removed too (`rbac remove-role`). Do not rely on a `write` share to let a
 read-only role edit a secret: when tried (`share create --permission write`, then
 `secret update` as a `project_viewer`) the update was still refused (#2941).

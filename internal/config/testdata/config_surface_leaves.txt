@@ -265,6 +265,7 @@ server.http.tls.key_file
 server.http.tls_mode
 server.http.trusted_proxies
 server.http.web_assets_path
+server.log.format
 session.absolute_ttl
 session.access_ttl
 soft_delete.enabled

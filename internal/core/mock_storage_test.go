@@ -389,34 +389,34 @@ func (m *MockStorage) RevertAccessReviewItemClaim(ctx context.Context, itemID ui
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	args := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	args := m.Called(ctx, projectID, since)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[uint]time.Time), args.Error(1)
 }
 
-func (m *MockStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
