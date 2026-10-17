@@ -102,7 +102,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// opinion of their own keep the safe no-store default instead of silently having none.
 	r.Use(customMiddleware.NoStore)
 	r.Use(customMiddleware.PrometheusMiddleware)
-	r.Use(customMiddleware.MaxBodyBytes(cfg.Server.HTTP.EffectiveMaxRequestBodyBytes()))
+	r.Use(customMiddleware.MaxBodyBytesFor(requestBodyLimit(cfg.Server.HTTP.EffectiveMaxRequestBodyBytes())))
 	// RequestTimeout (timeouts.go): keyorix-server's http.Server WriteTimeout must exceed it.
 	r.Use(middleware.Timeout(RequestTimeout))
 	// RESIL-1 (#2637 follow-up): a request whose write timed out on the SQLite write
