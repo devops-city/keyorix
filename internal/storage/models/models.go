@@ -1219,6 +1219,16 @@ type SecretVersion struct {
 	// activity lives in the audit log (secret.read), not here. See docs/API_REFERENCE.md.
 	ReadCount int
 	CreatedAt time.Time
+	// CacheEpoch is a term of the read-path latest-version cache's generation
+	// (store.liveVersionsGeneration: SUM(cache_epoch) over the secret's versions).
+	// It is raised by exactly one writer, the DEK-rotation sweep, in the same
+	// UPDATE that rewrites EncryptedValue/EncryptionMetadata in place, because
+	// that rewrite changes no other term of the generation (count, max version
+	// number, sum of read_count). Read-only to GORM (`<-:false`) so no struct
+	// write can reset it (GORM drops such a column from any update too); the sweep
+	// raises it with an explicit UPDATE statement.
+	// Guarded by TestSecretVersionCacheEpoch_*. json:"-": internal bookkeeping.
+	CacheEpoch int64 `gorm:"<-:false;not null;default:0" json:"-"`
 }
 
 // DynamicSecretConfig (ADR-035) defines an on-demand database-credential source:
