@@ -22,6 +22,8 @@ export interface ProjectEnvironment {
     name: string;
     projectId: number;
     deleted?: boolean;
+    /** Live secrets in the environment, computed by the server (absent on older servers). */
+    secretCount?: number;
 }
 
 // Generated from openapi.yaml's createProject/updateProject requestBody
@@ -304,6 +306,7 @@ const normalizeEnv = (e: any): ProjectEnvironment => ({
     name: e.name,
     projectId: e.project_id,
     deleted: Boolean(e.deleted_at),
+    secretCount: typeof e.secret_count === 'number' ? e.secret_count : undefined,
 });
 
 export const projectsApi = {

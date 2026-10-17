@@ -3,8 +3,6 @@ package core
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,14 +15,8 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-// updateUserDeactivationDBSeq makes each in-memory DB unique within the
-// process. Both tests below previously used the exact same literal DSN, so
-// under `go test -count=N` each repeated call attached to the same SQLite
-// shared-cache in-memory database left open by a prior call and collided on
-// the seeded fixture user IDs.
-var updateUserDeactivationDBSeq atomic.Int64
 
 // TestUpdateUser_Deactivation_RevokesSessionsAndPATs verifies that setting
 // IsActive=false via UpdateUser immediately terminates the user's active
@@ -36,11 +28,7 @@ func TestUpdateUser_Deactivation_RevokesSessionsAndPATs(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, i18n.InitializeForTesting())
 
-	dsn := fmt.Sprintf("file:kx_update_user_deactivation_%d?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000", updateUserDeactivationDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "kx_update_user_deactivation_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.User{},
 		&models.Session{},
@@ -128,11 +116,7 @@ func TestUpdateUser_NoRevocation_WhenAlreadyInactive(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, i18n.InitializeForTesting())
 
-	dsn := fmt.Sprintf("file:kx_update_user_deactivation_%d?mode=memory&cache=shared&_journal_mode=WAL&_busy_timeout=5000", updateUserDeactivationDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "kx_update_user_deactivation_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.User{},
 		&models.Session{},
@@ -169,7 +153,7 @@ func TestUpdateUser_NoRevocation_WhenAlreadyInactive(t *testing.T) {
 
 	// UpdateUser with IsActive=false on an already-inactive user.
 	inactive := false
-	_, err = c.UpdateUser(ctx, &UpdateUserRequest{
+	_, err := c.UpdateUser(ctx, &UpdateUserRequest{
 		ID:       43,
 		IsActive: &inactive,
 	})

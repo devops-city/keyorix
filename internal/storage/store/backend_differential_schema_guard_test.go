@@ -14,6 +14,7 @@ import (
 	storagefactory "github.com/keyorixhq/keyorix/internal/storage"
 	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
 
 // schemaGuardSeq is this file's own disposable-target counter — deliberately not shared
@@ -56,7 +57,9 @@ func TestBackendDifferentialHarnessSchema_MatchesProduction(t *testing.T) {
 		t.Skip("KEYORIX_TEST_PG_DSN not set — needs a real Postgres (rig-only)")
 	}
 
-	sqliteDSN := fmt.Sprintf("file:schemaguard_%d?mode=memory&cache=shared", schemaGuardSeq.Add(1))
+	// The factory migrates it and sdb below must reach the SAME database, so only
+	// the DSN comes from sqlitetest; sdb caps its own pool to one connection.
+	sqliteDSN := sqlitetest.DSN("schemaguard_")
 	if _, err := storagefactory.NewStorageFactory().CreateStorage(&config.Config{
 		Storage: config.StorageConfig{Type: "local", Database: config.DatabaseConfig{Path: sqliteDSN}},
 	}); err != nil {
@@ -65,6 +68,10 @@ func TestBackendDifferentialHarnessSchema_MatchesProduction(t *testing.T) {
 	sdb, err := gorm.Open(sqlite.Open(sqliteDSN), &gorm.Config{Logger: logger.Discard})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
+	}
+	if s, e := sdb.DB(); e == nil {
+		s.SetMaxOpenConns(1)
+		t.Cleanup(func() { _ = s.Close() })
 	}
 
 	schema := fmt.Sprintf("schemaguard_%d_%d", os.Getpid(), schemaGuardSeq.Add(1))

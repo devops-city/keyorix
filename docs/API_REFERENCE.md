@@ -330,6 +330,22 @@ DELETE /api/v1/shares/{id}
 Authorization: Bearer <token>
 ```
 
+## 🗂️ **Environments API**
+
+### List Environments
+```http
+GET /api/v1/environments
+GET /api/v1/projects/{id}/environments[?include_deleted=true]
+Authorization: Bearer <token>
+```
+Each environment carries `secret_count`: the number of live secrets in it (folders and
+soft-deleted secrets are not counted). The server computes all counts for a response in
+one grouped query, so a client does not need a secrets request per environment. An empty
+environment reports `0`; the field is always present.
+```json
+{ "id": 7, "project_id": 3, "name": "production", "secret_count": 12, "created_at": "...", "updated_at": "..." }
+```
+
 ## 👥 **User Management API**
 
 ### List Users

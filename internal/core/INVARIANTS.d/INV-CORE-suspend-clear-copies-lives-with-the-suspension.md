@@ -8,8 +8,10 @@
   the same per-secret path to every secret it affects. With the flag, the status change, the
   marker and the `secret.suspended` row commit in ONE transaction (`storage.WithTransaction` +
   `auditInto`): when the row cannot be written nothing changes and the call returns
-  `ErrSuspendAuditUnavailable`, which every transport answers with
-  `SuspendWithoutClearingHint` ("suspend without clearing to cut access now"). A plain suspend
+  `ErrSuspendAuditUnavailable`, which the REST transport answers with the stable code
+  `SuspendAuditUnavailableCode` and the fixed `SuspendAuditUnavailableMessage` (it carries
+  `SuspendWithoutClearingHint`: "suspend without clearing synced copies to cut access immediately;
+  clearing needs the audit log back"), never the raw error text (there is no gRPC secret suspend). A plain suspend
   (no flag) writes its status first and its audit row best-effort afterwards: revocation is never
   blocked or delayed by the audit log. Why: SUSPEND-PURGE-1, #3221. Guard:
   `secret_suspend_clear_copies_test.go` (`TestSuspendSecret_ClearSyncedCopies`),

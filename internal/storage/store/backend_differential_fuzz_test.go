@@ -21,6 +21,7 @@ import (
 	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
 
 // scope + role IDs the differential drives. There is no FK from user_roles to a
@@ -90,7 +91,9 @@ func FuzzStorageBackendDifferential(f *testing.F) {
 	}
 
 	// --- SQLite backend (shared-cache in-memory so the single logical DB persists) ---
-	sqliteDSN := fmt.Sprintf("file:difffuzz_%d?mode=memory&cache=shared", pgSchemaSeq.Add(1))
+	// The factory migrates it and sdb below must reach the SAME database, so only
+	// the DSN comes from sqlitetest; sdb caps its own pool to one connection.
+	sqliteDSN := sqlitetest.DSN("difffuzz_")
 	if _, err := storagefactory.NewStorageFactory().CreateStorage(&config.Config{
 		Storage: config.StorageConfig{Type: "local", Database: config.DatabaseConfig{Path: sqliteDSN}},
 	}); err != nil {

@@ -33,8 +33,8 @@ func (ls *LocalStorage) GetMachineIdentityCredentialByHash(ctx context.Context, 
 }
 
 // credentialWithIdentityState scans a JOIN row: the credential's own columns
-// (matched by name via the embedded struct, exactly as a plain `c.*` select
-// would -- kept in sync with models.MachineIdentityCredential automatically,
+// (matched by name via the embedded struct, selected through modelColumns --
+// kept in sync with models.MachineIdentityCredential automatically,
 // no hand-maintained column list to drift) plus one extra scalar from the
 // joined machine_identities row.
 type credentialWithIdentityState struct {
@@ -65,7 +65,7 @@ func (ls *LocalStorage) GetMachineIdentityCredentialWithIdentityStateByHash(ctx 
 	var row credentialWithIdentityState
 	err := ls.db.WithContext(ctx).
 		Table("machine_identity_credentials AS c").
-		Select("c.*, m.state AS identity_state").
+		Select(modelColumns(ls.db, &models.MachineIdentityCredential{}, "c")+", m.state AS identity_state").
 		Joins("JOIN machine_identities AS m ON m.id = c.machine_identity_id").
 		Where("c.token_hash = ?", hash).
 		First(&row).Error
