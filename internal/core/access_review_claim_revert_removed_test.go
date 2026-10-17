@@ -18,7 +18,7 @@ import (
 )
 
 func TestStorageInterface_HasNoAccessReviewItemClaimRevert(t *testing.T) {
-	st := reflect.TypeOf((*storage.Storage)(nil)).Elem()
+	st := reflect.TypeFor[storage.Storage]()
 	for _, name := range []string{"RevertAccessReviewItemClaim"} {
 		if _, ok := st.MethodByName(name); ok {
 			t.Errorf("storage.Storage has %s again (#2803): an item-claim revert must carry a campaign-is-open condition and a production caller; update this pin together with that change", name)
