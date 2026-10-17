@@ -3000,7 +3000,11 @@ paths:
                     `secret.bulk_suspend_attempted` audit event records the choice
                     (`clear_synced_copies=true`) and the number of secrets targeted
                     BEFORE any secret is touched; if that event cannot be recorded
-                    the request fails and nothing is suspended.
+                    the request fails and nothing is suspended. That refusal, and one
+                    that stops the run early because a secret's own audit event was
+                    refused (`details` then holds `suspended` and `failed`), answer 500
+                    with error `SuspendAuditUnavailable`; suspend again without
+                    `clear_synced_copies` to cut access immediately.
       responses:
         '200':
           description: Envelope `{data, message}`.
@@ -3960,6 +3964,12 @@ paths:
       description: >-
         Block value reads without deleting the secret. Versions, shares, and
         the audit trail are preserved. Requires secrets.write.
+        A request with `clear_synced_copies` is refused with 500 and error
+        `SuspendAuditUnavailable` when its audit event cannot be recorded; nothing is
+        changed. The message says what to do now: suspend again without
+        `clear_synced_copies` to cut access immediately (a plain suspend is never
+        blocked by the audit log); clearing the synced copies needs the audit log back.
+        There is no gRPC twin: the gRPC API has no secret suspend.
       operationId: suspendSecret
       security: [{bearerAuth: []}]
       parameters:
@@ -4000,6 +4010,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
   /api/v1/secrets/{id}/resume:
     post:
       tags: [Secrets]

@@ -89,8 +89,9 @@ choice lives only as long as the suspension: resuming removes it and the next re
 restores the data. It needs the same permission as suspending and is recorded in the
 `secret.suspended` audit event (`clear_synced_copies=true`), committed in the same
 transaction as the status change and the choice: if the audit log cannot record it, the
-request fails (500) and nothing changes, and the error says to *suspend without clearing to
-cut access now*. A plain suspend is never blocked by the audit log, so it blocks reads at
+request fails (500, error code `SuspendAuditUnavailable`) and nothing changes, and the error
+says to *suspend without clearing synced copies to cut access immediately* (the CLI names the
+command, the web dialog offers it as one click). A plain suspend is never blocked by the audit log, so it blocks reads at
 once; repeat the suspend with the choice once the audit log is back. Suspending only blocks reads
 from Keyorix: a copy already in a cluster, a log or a build stays valid until the secret
 is rotated at its source, so rotate after a compromise. An operator that predates this
