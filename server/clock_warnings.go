@@ -40,7 +40,7 @@ func logClockWarnings(cfg *config.Config, now time.Time, buildDate string, warn 
 			continue
 		}
 		seen[path] = true
-		raw, err := os.ReadFile(path) //nolint:gosec // operator-configured certificate path, the same file the listener loads
+		raw, err := os.ReadFile(path) // #nosec G304 -- operator-configured certificate path, the same file the listener loads
 		if err != nil {
 			continue // the listener's own load reports an unreadable certificate
 		}
