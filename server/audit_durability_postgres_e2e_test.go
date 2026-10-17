@@ -31,7 +31,7 @@ import (
 // on the pg-gated cluster, with dbLines added to storage.database. The schema
 // is created and dropped around the test, so a full AutoMigrate cannot collide
 // with another test's tables in the same database.
-func writePostgresAuditDurabilityConfig(t *testing.T, dir, baseDSN, schema string, dbLines ...string) string {
+func writePostgresAuditDurabilityConfig(t *testing.T, dir, baseDSN, schema, port string, dbLines ...string) string {
 	t.Helper()
 
 	admin, err := gorm.Open(postgres.Open(baseDSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
@@ -58,7 +58,7 @@ func writePostgresAuditDurabilityConfig(t *testing.T, dir, baseDSN, schema strin
 server:
   http:
     enabled: true
-    port: "8099"
+    port: %q
   grpc:
     enabled: false
 
@@ -74,7 +74,7 @@ storage:
 security:
   enable_file_permission_check: false
   require_transport_tls: false
-`, pgdsn.PGSearchPathDSN(baseDSN, schema), extra)
+`, port, pgdsn.PGSearchPathDSN(baseDSN, schema), extra)
 
 	// `admin init` would create this for the SQLite flow; this config is
 	// hand-written, so the key directory has to be made here or the encryption
@@ -109,7 +109,8 @@ func TestAuditDurability_PostgresEndToEnd(t *testing.T) {
 	// Clean slate: a leftover schema from an interrupted run would carry a
 	// previous settings snapshot.
 	dropSchema(t, baseDSN, schema)
-	writePostgresAuditDurabilityConfig(t, dir, baseDSN, schema)
+	port := freeTCPPort(t)
+	writePostgresAuditDurabilityConfig(t, dir, baseDSN, schema, port)
 
 	// `diagnose` creates the encryption key files and validates the config.
 	if out, err := runAdmin(t, bin, dir, env, "diagnose", "--config", "./keyorix.yaml"); err != nil {
@@ -120,7 +121,7 @@ func TestAuditDurability_PostgresEndToEnd(t *testing.T) {
 	}
 
 	// Start 1: neither key set.
-	serverLog := runServerExpectingItToStayUp(t, bin, dir, env, "8099")
+	serverLog := runServerExpectingItToStayUp(t, bin, dir, env, port)
 	const wantStandard = "INFO: audit durability: standard (PostgreSQL default; committed before every disclosure; " +
 		"up to ~600 ms of entries can be lost to an OS crash or power loss; set audit_durability: strict to wait for the disk sync)"
 	if !strings.Contains(serverLog, wantStandard) {
@@ -141,8 +142,8 @@ func TestAuditDurability_PostgresEndToEnd(t *testing.T) {
 	}
 
 	// Start 2: the operator switches to strict.
-	writePostgresAuditDurabilityConfig(t, dir, baseDSN, schema, "audit_durability: strict")
-	serverLog = runServerExpectingItToStayUp(t, bin, dir, env, "8099")
+	writePostgresAuditDurabilityConfig(t, dir, baseDSN, schema, port, "audit_durability: strict")
+	serverLog = runServerExpectingItToStayUp(t, bin, dir, env, port)
 	if !strings.Contains(serverLog, "INFO: audit durability: strict (committed and synced to disk before every disclosure") {
 		t.Errorf("a strict boot must log the strict INFO line. Server log:\n%s", serverLog)
 	}
