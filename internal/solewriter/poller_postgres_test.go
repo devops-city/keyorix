@@ -150,6 +150,41 @@ func heldPoll(t *testing.T, w *swWorld, g *Guard, during func() time.Time) (mark
 	return marked, g.Status().LastPollError == ""
 }
 
+// TestPoll_CanaryCountsACommitInThePollThatSeesItsMove: a tracked commit
+// counted after a poll's snapshot but before its answer is evaluated moves
+// the epoch only for the NEXT poll, so it must explain that poll, not this
+// one. Red with the commit count read after the answer (the canary then
+// counts this server's own write as unattributed two polls later; CI, run
+// 39059670855, TestTracker_EveryEpochMoveIsAWriteTheTrackerSaw).
+func TestPoll_CanaryCountsACommitInThePollThatSeesItsMove(t *testing.T) {
+	w := newSWWorld(t)
+	g := w.start(Options{})
+	require.Eventually(t, g.Authoritative, 2*time.Second, 20*time.Millisecond)
+	own := w.own()
+	stopPoller(g)
+	ctx := context.Background()
+	g.pollOnce(ctx)
+
+	e0 := w.epoch(w.foreign)
+	commits := g.Tracker().commits.Load()
+	pollAnsweredHook = func() {
+		pollAnsweredHook = nil // once
+		require.NoError(t, own.Exec("UPDATE machine_identity_credentials SET revoked = true WHERE id = ?", w.credID).Error)
+	}
+	t.Cleanup(func() { pollAnsweredHook = nil })
+	g.pollOnce(ctx) // answered before the write; the write is counted before the canary looks
+	require.Greater(t, g.Tracker().commits.Load(), commits, "precondition: the tracker saw the write")
+	require.NotEqual(t, e0, w.epoch(w.foreign), "precondition: the write moved the epoch")
+	require.NotEqual(t, w.epoch(w.foreign), g.Epoch(), "precondition: the poll did not see the move")
+
+	g.pollOnce(ctx) // sees the move
+	require.Equal(t, w.epoch(w.foreign), g.Epoch())
+	g.pollOnce(ctx) // and nothing since
+	g.pollOnce(ctx)
+	require.Zero(t, g.UnattributedBumps(), "the canary counted this server's own write as unattributed")
+	require.True(t, g.Authoritative())
+}
+
 // TestPoll_CallbacksRunOutsideTheGuardLock: a callback may call back into the
 // guard (a cache flush reads Epoch or Authoritative) without deadlocking the
 // poller.
