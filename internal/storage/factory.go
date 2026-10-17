@@ -69,6 +69,12 @@ const schemaEpochMetadataKey = "schema_epoch"
 // restore + re-delete on an old replica would leave a stale date that the
 // epoch-2 purge job honours, hard-deleting before the date shown (#3021).
 //
+// Epoch 3 is ONE epoch (no release has shipped between its two changes): the
+// pending_audit_events table, which is additive on its own (an epoch-2 replica
+// never reads or writes it, and rows it leaves behind are drained by the next
+// epoch-3 replica's backfill), and the HA-READY-1 formats below. The floor is
+// therefore 3, HA-READY-1's value.
+//
 // Currently 3 (HA-READY-1): epoch-2 binaries (v0.96.x) predate two formats
 // the database now holds. (1) The v2 audit retention anchor (#3258): an
 // epoch-2 binary reads it as malformed, reports the chain broken, and its
@@ -675,6 +681,9 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 		return nil, err
 	}
 	warnPostgresPoolHeadroom(db, &cfg.Storage.Database)
+	if msg := config.PoolerStartupParamWarning(&cfg.Storage.Database); msg != "" {
+		log.Print(msg)
+	}
 	if err := refuseUndeclaredTransactionPooler(&cfg.Storage.Database); err != nil {
 		return nil, err
 	}
@@ -1971,6 +1980,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	deploymentStatsSnapshotExists := tableExists(db, "deployment_stats_snapshots")
 	secretACLExists := tableExists(db, "secret_acls")
 	scheduleExists := tableExists(db, "secret_access_schedules")
+	pendingAuditExists := tableExists(db, "pending_audit_events")
 	secretTemplateExists := tableExists(db, "secret_templates")
 	alertEscalationExists := tableExists(db, "alert_escalation_policies")
 	secretVersionCommentExists := tableExists(db, "secret_version_comments")
@@ -2383,6 +2393,14 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if !scheduleExists {
 		if err := db.AutoMigrate(&models.SecretAccessSchedule{}); err != nil {
 			return fmt.Errorf("failed to migrate secret_access_schedules table: %w", err)
+		}
+	}
+
+	// Create pending_audit_events if missing (audit rows owed by a plain secret
+	// suspend that took effect while the audit log refused writes; additive).
+	if !pendingAuditExists {
+		if err := db.AutoMigrate(&models.PendingAuditEvent{}); err != nil {
+			return fmt.Errorf("failed to migrate pending_audit_events table: %w", err)
 		}
 	}
 

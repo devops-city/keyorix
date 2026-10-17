@@ -57,7 +57,10 @@ async function createProjectEnvAndSecret(
     await expect(page.getByText(opts.envName, { exact: false })).toBeVisible({ timeout: 10_000 });
 
     await page.goto(`${projectUrl}/secrets`);
-    await page.getByRole('button', { name: opts.envName, exact: true }).click();
+    // EnvironmentPills renders the name with its first letter upper-cased, and an
+    // exact name match is case-sensitive -- match the label it actually shows.
+    const pillLabel = opts.envName.charAt(0).toUpperCase() + opts.envName.slice(1);
+    await page.getByRole('button', { name: pillLabel, exact: true }).click();
     await expect(page).toHaveURL((url) => url.searchParams.get('env') === opts.envName, { timeout: 10_000 });
 
     // Two "New Secret" buttons render at once for a freshly-created, empty

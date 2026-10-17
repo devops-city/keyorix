@@ -1,0 +1,2 @@
+### Fixed
+- **`--passphrase-fd` was silently ignored.** The server binary and the `admin diagnose` / `backup` / `restore` / `audit export-checkpoint-key` commands declared `--passphrase-fd` so that it never marked the descriptor as given, so the master passphrase was not read from it and the command failed with "no master passphrase available" (fail-closed). This is the descriptor form ADR-099 recommends for systemd `LoadCredential=`. The flag now works, and a non-numeric value is refused with a clear error.

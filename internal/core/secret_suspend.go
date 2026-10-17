@@ -75,12 +75,16 @@ func (c *KeyorixCore) SuspendSecretWithOptions(ctx context.Context, secretID, ac
 		desc += ": " + reason
 	}
 	if !opts.ClearSyncedCopies {
-		// A plain freeze keeps its long-standing best-effort audit: an audit outage
-		// must not stop a responder from blocking reads.
-		if err := transitionSuspend(ctx, c.storage, secret, fromStatus); err != nil {
+		// A plain freeze is never blocked or delayed by the audit log: an audit outage
+		// must not stop a responder from blocking reads. Its secret.suspended row is
+		// still never silently lost: it is owed (audit_owed.go), so a failure is loud
+		// and the row is backfilled once the audit log accepts writes again.
+		event := buildAuditEvent(ctx, EventSecretSuspended, &uid, &sid, nil, "", desc, "")
+		if err := c.commitOwingAudit(ctx, func(st storage.Storage) error {
+			return transitionSuspend(ctx, st, secret, fromStatus)
+		}, event); err != nil {
 			return nil, err
 		}
-		c.writeAuditEvent(ctx, EventSecretSuspended, &uid, &sid, desc)
 		return secret, nil
 	}
 	// Clearing the synced copies destroys data in clusters, so it never takes effect
@@ -106,6 +110,12 @@ func (c *KeyorixCore) SuspendSecretWithOptions(ctx context.Context, secretID, ac
 // ErrSuspendAuditUnavailable: a suspend asking to clear the synced copies could not
 // record its audit event, so nothing was changed. Retry once the audit store is back.
 var ErrSuspendAuditUnavailable = errors.New("could not record the suspension in the audit log; nothing was changed, retry")
+
+// SuspendWithoutClearingHint is the next step every transport gives with a refused
+// clear-synced-copies suspend (ErrSuspendAuditUnavailable, ErrBulkSuspendAuditUnavailable):
+// a plain suspend is never blocked by the audit log, so it cuts access now; the copies can
+// be cleared with a second suspend once the audit log is back.
+const SuspendWithoutClearingHint = "suspend without clearing to cut access now"
 
 // transitionSuspend is the conditional status write shared by both suspend paths.
 func transitionSuspend(ctx context.Context, st storage.Storage, secret *models.SecretNode, fromStatus string) error {

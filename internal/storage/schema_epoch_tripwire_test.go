@@ -17,6 +17,9 @@
 // History: 1 -> 2 for secret_nodes.purge_at (#3021), an additive nullable column an
 // older binary neither reads nor maintains. That is NOT safe (an epoch-1 restore/delete
 // leaves a stale purge_at), so minCompatibleSchemaEpoch is raised to 2.
+// 2 -> 3 for pending_audit_events (SUSPEND-AUDIT-LOUD), an additive table an epoch-2
+// binary never reads or writes; rows it leaves are drained by the next epoch-3
+// replica's backfill, so the floor stays 2.
 package storage
 
 import "testing"

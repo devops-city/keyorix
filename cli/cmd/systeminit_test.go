@@ -235,6 +235,11 @@ func TestRunSystemInit_Success(t *testing.T) {
 	if !containsAll(out, "keyorix secret create --name my-first-secret") {
 		t.Fatalf("next-step hint is not a working command: %q", out)
 	}
+	// FIRST-RUN-1: security.require_mfa defaults on, so `secret create` is refused until the
+	// admin has enrolled; the hints must lead through MFA and name the username to log in as.
+	if !containsAll(out, "keyorix login --server "+srv.URL+" --username admin", "keyorix mfa enroll", "keyorix mfa activate") {
+		t.Fatalf("next steps do not lead through login and MFA enrolment: %q", out)
+	}
 }
 
 func TestRunSystemInit_AlreadyInitialized(t *testing.T) {

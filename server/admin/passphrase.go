@@ -12,10 +12,8 @@ import (
 // directly (task requirement 4) -- there is deliberately no --passphrase
 // flag here, matching the server binary's own flag set exactly.
 func registerPassphraseFlags(cmd *cobra.Command, src *crypto.PassphraseSource) {
-	cmd.Flags().IntVar(&src.FD, "passphrase-fd", 0,
-		"Read the master passphrase from this already-open file descriptor")
-	cmd.Flags().StringVar(&src.FilePath, "passphrase-file", "",
-		"Read the master passphrase from this file (refused if group- or world-readable)")
-	cmd.Flags().BoolVar(&src.Stdin, "passphrase-stdin", false,
-		"Read the master passphrase from stdin")
+	// RegisterPassphraseFlags, not IntVar: the fd is only honoured when
+	// src.FDSet is true, which only its custom flag value sets, so a plain
+	// IntVar silently ignored --passphrase-fd.
+	crypto.RegisterPassphraseFlags(cmd.Flags(), src, "", "master passphrase")
 }

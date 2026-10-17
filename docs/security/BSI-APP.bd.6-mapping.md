@@ -52,7 +52,7 @@ against Keyorix as shipped, not against Vault.
 
 | ID | Requirement | Status | Evidence link | Gap issue |
 |---|---|---|---|---|
-| A17 | Rotate the master key / shared keys on staff turnover (entry or departure). | **Met, operator-triggered.** `keyorix encryption rotate` performs a full DEK re-encryption sweep with verified completeness (a structural guard, not a hand-maintained list). Keyorix does not auto-trigger this on a personnel-roster change — the operator runs it as their own process, same expectation this requirement sets for Vault. | [ADR-010](../adr-010-kek-rotation-reencryption-sweep.md); [`architecture.md`](architecture.md) §2 | — |
+| A17 | Rotate the master key / shared keys on staff turnover (entry or departure). | **Met, operator-triggered.** `keyorix-server admin encryption rotate` performs a full DEK re-encryption sweep with verified completeness (a structural guard, not a hand-maintained list). Keyorix does not auto-trigger this on a personnel-roster change — the operator runs it as their own process, same expectation this requirement sets for Vault. | [ADR-010](../adr-010-kek-rotation-reencryption-sweep.md); [`architecture.md`](architecture.md) §2 | — |
 | A18 | Use resource quotas (max RPS, lease quotas) to protect against resource exhaustion/DoS. | **Met.** Rate limiting, request-body size caps, pagination, bulk-op batch caps, a bounded-BFS fix for dependency traversal. | [`threat-models/server-api.md`](threat-models/server-api.md); [`SECURE-CODING.md`](SECURE-CODING.md) §9 | — |
 
 ## Summary

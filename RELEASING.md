@@ -5,7 +5,13 @@ tag fires three workflows that publish everything a user consumes.
 
 ## Cut a release
 
-1. Make sure `main` is green, then assemble the changelog: run
+The step-by-step order with exact commands, a local rehearsal and the post-tag
+checks is [docs/releases/RELEASE-CHECKLIST.md](docs/releases/RELEASE-CHECKLIST.md).
+
+1. Make sure `main` is green. If a patch release was cut from a side branch since
+   the last minor, first run `scripts/changelog-dedupe.sh <previous-tag>` (add
+   `--delete` to remove the fragments that release already published, or they print
+   twice). Then assemble the changelog: run
    `scripts/changelog-assemble.sh vX.Y.Z` (optionally a second `YYYY-MM-DD`
    argument; default today). It merges every `changelog.d/*.md` fragment into
    `CHANGELOG.md` under a new `## vX.Y.Z — <date>` heading, keeps any legacy
