@@ -4,6 +4,7 @@ import { Spinner } from '../../components/ui/Loading';
 import { Alert } from '../../components/ui/Alert';
 import { Modal } from '../../components/ui/Modal';
 import { apiErrorMessage } from '../../services/client';
+import { SuspendAuditRefusal, isSuspendAuditRefusal } from '../secrets/SuspendAuditRefusal';
 
 interface FreezeProjectModalProps {
     isOpen: boolean;
@@ -68,7 +69,16 @@ export const FreezeProjectModal: React.FC<FreezeProjectModalProps> = ({
                     message="Freezing blocks reads from Keyorix, but a copy already in a cluster, a log or a build is still valid until each secret is rotated at its source."
                 />
 
-                {error ? (
+                <SuspendAuditRefusal
+                    error={error}
+                    pending={pending}
+                    actionLabel="Freeze without clearing synced copies"
+                    onPlainSuspend={() => {
+                        setClearCopies(false);
+                        onConfirm(false);
+                    }}
+                />
+                {error && !isSuspendAuditRefusal(error) ? (
                     <Alert
                         type="error"
                         title="Freeze failed"
