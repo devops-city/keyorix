@@ -339,7 +339,8 @@ run_group() {
     # live under the real HOME, not this isolated one).
     export HOME="$smoke_dir"
     export KEYORIX_MASTER_PASSWORD="web-e2e-master-password-$$-${RANDOM}"
-    local bootstrap_token="web-e2e-bootstrap-token-$$-${RANDOM}"
+    local bootstrap_token
+    bootstrap_token="$(openssl rand -hex 32)"
     # Deliberately unrelated to the username/email/display_name below --
     # internal/core/rules.DefaultPasswordPolicy rejects a password containing
     # any of those (see scripts/smoke.sh's own header comment on this exact trap).
