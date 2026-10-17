@@ -184,6 +184,8 @@ fix is to correct the value. **In place:** yes.
 | `connector(s) missing required "scope"` | every Connect connector needs `scope: project` or `platform` (ADR-082) |
 | `cross-seam audience collision` | an SSO `client_id` is also a machine-federation audience; use distinct ones |
 | `webauthn is enabled but rp_id is not set` | WebAuthn needs `rp_id` and `rp_origins` |
+| `keyorix has no SAML assertion-replay cache` | a provider sets `insecure_allow_idp_initiated_saml` (or `allow_idp_initiated`); IdP-initiated SAML is not supported, remove the key |
+| `refusing cross-host redirect to` | OIDC discovery was redirected to another host (a scheme downgrade is refused the same way); configure the issuer URL that serves its own discovery document |
 
 ### Two sources for one secret
 
@@ -310,6 +312,8 @@ cannot also apply. Put `sslrootcert=` in the dsn, or drop the dsn for the field 
 | `selects a PostgreSQL connection service` | `service=`/`servicefile=` in the dsn, or `PGSERVICE` set: the service file could override TLS settings; remove it |
 | `storage.database.dsn already contains a password and` | a password in the dsn and in the separate password setting or variable the message names; keep one |
 | `ssl_root_cert is set but storage.database.ssl_mode is disable` | a CA with TLS off; set a verify mode or remove the CA |
+| `when dsn is set it is used as-is and ssl_mode is ignored` | `ssl_mode` is set beside a dsn that has no or a different `sslmode`; put `sslmode=` in the dsn, or remove `ssl_mode` |
+| `the PostgreSQL driver's connection settings differ from what the TLS check validated` | the driver would read the TLS settings differently from Keyorix's own check (the message says what: for example the host name would not be verified); write `sslmode` and `sslrootcert` plainly in `storage.database` (or the dsn) |
 
 **In place:** yes (config edit, restart).
 
@@ -499,7 +503,7 @@ override. **In place:** yes.
 | `KEK salt file not found` | `storage.encryption.salt_path` points at nothing |
 | `wrapped DEK file not found` | `storage.encryption.dek_path` points at nothing |
 | `has invalid size` | salt is not 32 bytes: truncated or wrong file |
-| `is too small` | the wrapped DEK file is truncated |
+| `to be a valid wrapped key` | the wrapped DEK file is too small to be one: truncated |
 
 **In place:** no: restore from backup, do not recreate.
 
@@ -544,6 +548,7 @@ ADR-039 rather than pointing two servers at one key directory. **In place:** sto
 | `secret file is empty` | the file behind `KEYORIX_*_FILE` is empty |
 | `is group- or world-readable (mode` | `--passphrase-file` is not `0600` |
 | `secret-value encryption did not engage` | encryption is configured but did not start; the server refuses to store secrets in plaintext. Check the key provider settings and earlier log lines |
+| `refusing to start rather than leave a webhook credential unencrypted at rest` | the start-up pass that encrypts stored notification URLs failed; fix the database error shown first (permissions, disk) and restart |
 | `DEK-rotation crash recovery failed` | an interrupted `admin encryption rotate` could not be completed on start; do **not** delete files; see [j6](j6-key-rotation.md) |
 
 ---
@@ -824,6 +829,14 @@ target. **In place:** no. [drill-backup-restore.md](drill-backup-restore.md).
 | `restore refuses to mix backends` | an SQLite archive into PostgreSQL, or the reverse; see [SELF_HOSTING.md "Moving from SQLite to Postgres"](../SELF_HOSTING.md#moving-from-sqlite-to-postgres) |
 | `changed during the backup` | a key file changed while the backup ran (rotation in progress); nothing was written, retry |
 | `could not read the rollback-protection witness file` | the host's witness file is unreadable or corrupt; investigate before restoring, it is not treated as absent |
+| `restore refuses a partial/mismatched key-file set` | the archive holds a different number of key files than this config's encryption settings expect; restore with the config the backup was taken with |
+| `restore refuses a mismatched key-file set` | a key file in the archive is for another path than this config's `dek_path`/`salt_path` |
+| `backup archive's manifest signature is invalid` | the archive is corrupted or was altered; use another copy |
+| `restore refuses unlisted entries` | the archive contains a file its own manifest does not list; do not use it |
+| `restore refuses non-regular entries` | the archive contains a link or device entry; do not use it |
+| `refusing to generate a TLS certificate` | `admin init --secure-files` found the system clock implausible (a device with no RTC and no NTP reads a date long before this build); a certificate made now would expire when the clock is corrected. Set the clock, or place your own certificate and key at the paths the message names |
+| `already exists -- refusing to overwrite` | the `--output` file of `admin recovery-key rotate` already exists; choose another path or remove the old file deliberately |
+| `could not be checked because the config file failed to load` | `admin verify-audit` without `--anchor` could not read the config to see whether `audit.offline_anchor_path` is set, so it will not silently verify without it; pass `--anchor` or fix the config load error shown after it |
 
 ### Rotation commands — from code
 
