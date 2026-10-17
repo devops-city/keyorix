@@ -19,10 +19,11 @@
 //     different recovery story with no existing e2e coverage anywhere in this
 //     repo (confirmed: `grep -rl recover-admin scripts/e2e` found nothing before
 //     this file) — that gap is this journey's actual reason to exist.
-//   - Does not exercise MFA enrollment or a live-server admin backup/recovery-key
-//     command: both are open DEMO-1 findings (#2552, #2540/#2602) that fail by
-//     design today; this journey guards what currently works, not what's already
-//     tracked as broken. Extend it once those land.
+//   - Does not exercise MFA enrollment (the web flow; #2552 is fixed, proven by
+//     a web test, though the GitHub issue has not been closed) or a live-server
+//     admin backup (#2602, closed). The recovery-key step runs against a stopped
+//     server (#2540, closed). Extend it to MFA enrollment and a live backup if
+//     those paths need journey-level coverage.
 package journeys
 
 import (
