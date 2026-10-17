@@ -63,7 +63,7 @@ async function refusal(name: string) {
 
 async function openDetail(name: string) {
     await page.goto(`/projects/${projectId}/secrets?env=${envName}`);
-    const row = page.getByRole('row', { name: new RegExp(name) });
+    const row = page.getByRole('row', { name });
     await expect(row).toBeVisible({ timeout: 15_000 });
     await row.getByTitle('View').click();
     await expect(page.getByTestId('secret-header')).toBeVisible({ timeout: 10_000 });

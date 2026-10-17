@@ -394,20 +394,13 @@ func (h *SecretHandler) updateSecretViaDiff(w http.ResponseWriter, r *http.Reque
 		req.Metadata = metadata
 	}
 
-	response, err := h.coreService.UpdateSecretWithPermissionCheck(ctx, req)
+	// The secret.updated row, with its diff, commits with the update (AUDIT-MUTATION-TX-1).
+	response, err := h.coreService.UpdateSecretWithPermissionCheck(secretMutationAuditContext(r, userCtx), req)
 	if err != nil {
 		log.Printf("Error updating secret: %v", err)
 		h.sendUpdateSecretError(w, err)
 		return
 	}
-
-	uid, sID, uname, sname := userCtx.UserID, id, userCtx.Username, response.Name
-	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
-	auditDiff := core.BuildSecretUpdateDiff(authoritative, req, false)
-	auditCtx := core.DetachedAuditContext(ctx)
-	goSafe(func() {
-		h.coreService.LogSecretUpdatedWithDiff(auditCtx, uid, sID, response.ProjectID, uname, sname, ip, ua, auditDiff)
-	}) // #nosec G118
 
 	h.sendSuccess(w, newSecretNodeWire(response), i18n.T("SuccessSecretUpdated", nil))
 }

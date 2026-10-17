@@ -158,6 +158,9 @@ storage:
     # connection stays warm instead of being closed and re-opened (SESSION-PERF,
     # #2403 follow-up). Set it only to deliberately keep fewer idle.
     # max_idle_conns: 8
+    # Postgres only: cap of the separate pool the hottest read statements run on
+    # (default 8, never more than max_open_conns; docs/CONFIGURATION.md).
+    # native_read_pool_max: 8
     conn_max_lifetime_minutes: 30
 
   encryption:

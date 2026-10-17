@@ -50,7 +50,7 @@ carry only a `{"value":{"changed":true}}` marker (`AUDIT-LOG-PROVISIONS.md` §3)
 
 ## 2. Key rotation and the DEK re-encryption sweep
 
-`keyorix encryption rotate` performs a full re-encryption sweep of every
+`keyorix-server admin encryption rotate` performs a full re-encryption sweep of every
 DEK-encrypted table under a newly generated DEK, promotes the new key to disk,
 and survives a restart mid-sweep — covered by an end-to-end integration test
 (ADR-010). The sweep is **ordered by primary key**, closing a prior gap where
@@ -239,7 +239,7 @@ the single static binary serves both the API and the web UI with nothing else
 required. Three specific mechanisms extend this to updates and licensing,
 where an internet-connected product would normally phone home:
 
-- **Signed, offline-verifiable update bundles** (`internal/cli/bundle`,
+- **Signed, offline-verifiable update bundles** (`internal/bundle`,
   ADR-062) — a single tarball wrapping release artifacts (images, CLI/agent/
   operator/MCP binaries, charts, CRDs, migrations) with a `manifest.json`
   pinning every component by SHA-256 and an `ed25519` signature verified
@@ -260,7 +260,7 @@ where an internet-connected product would normally phone home:
 
 **Status note:** ADR-062 itself is recorded as "Accepted (design), implementation
 phased" — the license (Phase 2a/2b/2c) and bundle-verify mechanisms above are
-confirmed present in code (`internal/license`, `internal/cli/bundle`); this
+confirmed present in code (`internal/license`, `internal/bundle`); this
 document does not claim every phase named in that ADR's original design is
 complete, only what is independently verified to exist.
 

@@ -125,6 +125,10 @@ func TestCommitBatchAttempt_PostgresFlightCount(t *testing.T) {
 				assert.Equal(t, int64(want), writes.Load()-before, "a %d-item batch %s", n, what)
 				assert.Equal(t, batch[n-1].event.EntryHash, chainHeadHash(t, ls))
 			}
+			// A long-running server's chain is not empty: without this row the
+			// first warm-up batch below would start the chain, a shape (the
+			// genesis check) no later batch uses.
+			require.NoError(t, ls.commitBatchAttempt(ctx, buildMultiRowBatch(1, "boot")))
 			for _, n := range []int{1, 21} {
 				// Warm the connection's statement cache for this batch size in both
 				// shapes, as a long-running server's is; a first use adds a describe

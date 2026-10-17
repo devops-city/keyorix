@@ -34,6 +34,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
 // appendAuditAt appends one chained audit event with the given event_time via
@@ -218,7 +219,11 @@ func diffIDs(before, after []uint) []uint {
 // (a separate "replica") must fail pg_try_advisory_xact_lock(KEYAUDIT) while
 // the purge transaction is still open, and succeed once it has committed.
 func TestDeleteAuditLogsBefore_HoldsKEYAUDITUntilCommit_Postgres(t *testing.T) {
-	dsn := pgIsolatedSchemaDSN(t, pgTestDSN(t))
+	// Its own database, not a schema: KEYAUDIT is a database-wide advisory
+	// lock that every audit write takes, so a schema of the shared test
+	// database sees other packages' tests holding it ("precondition: KEYAUDIT
+	// is free" failed that way in CI run 38730384024).
+	dsn := pgdsn.IsolatedDatabase(t, pgTestDSN(t), "store_keyaudit_purge")
 	purgeDB := pgOpen(t, dsn)
 	otherDB := pgOpen(t, dsn)
 	require.NoError(t, purgeDB.AutoMigrate(&models.AuditEvent{}))

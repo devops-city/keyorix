@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -62,6 +64,42 @@ func validatePooler(storageType string, d *DatabaseConfig) error {
 		return fmt.Errorf("storage.database.pooler %q is not supported; use %q, %q or %q (see docs/postgresql-poolers.md)",
 			d.Pooler, PoolerNone, PoolerPgBouncerSession, PoolerPgBouncerTransaction)
 	}
+}
+
+// DefaultNativeReadPoolMax is the native read pool's cap when
+// storage.database.native_read_pool_max is unset.
+const DefaultNativeReadPoolMax = 8
+
+// MaxNativeReadPoolMax is the largest storage.database.native_read_pool_max
+// accepted. Far above any useful value (the pool never exceeds max_open_conns,
+// whose own default is 25); it keeps a typo from asking PostgreSQL for
+// thousands of connections.
+const MaxNativeReadPoolMax = 1000
+
+// EffectiveNativeReadPoolMax is the configured native read pool cap, or
+// DefaultNativeReadPoolMax when unset.
+func (d *DatabaseConfig) EffectiveNativeReadPoolMax() int {
+	if d.NativeReadPoolMax > 0 {
+		return d.NativeReadPoolMax
+	}
+	return DefaultNativeReadPoolMax
+}
+
+// validateNativeReadPoolMax refuses a negative or absurd native_read_pool_max,
+// and any value on a backend without a PostgreSQL connection, rather than
+// ignoring it.
+func validateNativeReadPoolMax(storageType string, d *DatabaseConfig) error {
+	if d.NativeReadPoolMax == 0 {
+		return nil
+	}
+	if d.NativeReadPoolMax < 0 || d.NativeReadPoolMax > MaxNativeReadPoolMax {
+		return fmt.Errorf("storage.database.native_read_pool_max %d is out of range; use 1 to %d, or leave it unset for the default of %d",
+			d.NativeReadPoolMax, MaxNativeReadPoolMax, DefaultNativeReadPoolMax)
+	}
+	if storageType != "postgres" && storageType != "postgresql" {
+		return fmt.Errorf("storage.database.native_read_pool_max applies only to storage.type postgres; remove it")
+	}
+	return nil
 }
 
 // applyPoolerConnConfig sets the pgx execution mode a transaction-mode pooler
@@ -133,4 +171,51 @@ func BeginPinnedLockTx(ctx context.Context, conn *sql.Conn) error {
 		}
 	}
 	return nil
+}
+
+// poolerTrackedStartupParams are the startup parameters PgBouncer accepts from
+// a client by default and tracks per client (lower case). Any other one in the
+// connection settings is refused by PgBouncer ("unsupported startup
+// parameter"), unless its ignore_startup_parameters or track_extra_parameters
+// names it; a transaction-mode pooler cannot keep a per-client setting anyway.
+var poolerTrackedStartupParams = map[string]bool{
+	"application_name":            true,
+	"client_encoding":             true,
+	"datestyle":                   true,
+	"timezone":                    true,
+	"standard_conforming_strings": true,
+}
+
+// PoolerStartupParamWarning returns a start-up warning when storage.database.pooler
+// names a pooler and the connection settings (DSN or fields) carry startup
+// parameters such as search_path or options, which PgBouncer refuses or drops
+// (docs/postgresql-poolers.md, "PgBouncer requirements"). Empty when there is
+// nothing to warn about, when no pooler is declared, or when the settings do
+// not parse (the connection error reports that). A warning, not a refusal: the
+// operator may have set ignore_startup_parameters on the pooler.
+func PoolerStartupParamWarning(d *DatabaseConfig) string {
+	switch d.Pooler {
+	case PoolerPgBouncerSession, PoolerPgBouncerTransaction:
+	default:
+		return ""
+	}
+	cc, err := ResolvePostgresConnConfig(d)
+	if err != nil {
+		return ""
+	}
+	var names []string
+	for k := range cc.RuntimeParams {
+		if !poolerTrackedStartupParams[strings.ToLower(k)] {
+			names = append(names, k)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	slices.Sort(names)
+	return fmt.Sprintf("WARNING: storage.database.pooler is %s, but the connection settings carry the startup parameter(s) %s. "+
+		"PgBouncer refuses a parameter it does not know (or drops it, with ignore_startup_parameters), and a transaction-mode "+
+		"pooler cannot keep a per-client setting. Remove them from the DSN and set them on the database role instead "+
+		"(ALTER ROLE ... SET ...); see docs/postgresql-poolers.md.",
+		d.Pooler, strings.Join(names, ", "))
 }

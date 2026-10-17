@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 
@@ -83,19 +82,25 @@ func (s *SecretGRPCService) CreateSecret(ctx context.Context, req *pb.CreateSecr
 		pID := uint(req.GetParentId())
 		coreReq.ParentID = &pID
 	}
-	secret, err := s.core.CreateSecret(ctx, coreReq)
+	// The secret.created row commits with the secret, as on the HTTP path.
+	secret, err := s.core.CreateSecret(secretMutationAuditContext(ctx, user), coreReq)
 	if err != nil {
 		return nil, mapSecretError(err)
 	}
-	// Audit the create the same way the HTTP handler does — the core method does not
-	// audit internally, so without this a secret created over gRPC left no audit
-	// trail. Detached + async (see GetSecretValue).
-	auditCtx := core.DetachedAuditContext(ctx)
-	ip, ua := interceptors.PeerIP(ctx), interceptors.ClientUserAgent(ctx)
-	goSafe(func() {
-		s.core.LogSecretCreatedWithProject(auditCtx, user.UserID, secret.ID, secret.ProjectID, user.Username, secret.Name, ip, ua)
-	}) // #nosec G118
 	return secretNodeToProto(secret), nil
+}
+
+// secretMutationAuditContext tags ctx with the caller's audit attribution, so the
+// core secret mutation commits its audit row in the same transaction as the change
+// and fails, changing nothing, when that row cannot be written (AUDIT-MUTATION-TX-1;
+// the HTTP handlers' function of the same name).
+func secretMutationAuditContext(ctx context.Context, user *interceptors.UserContext) context.Context {
+	return core.WithSecretMutationAudit(ctx, core.SecretMutationAudit{
+		UserID:    user.UserID,
+		Username:  user.Username,
+		IP:        interceptors.PeerIP(ctx),
+		UserAgent: interceptors.ClientUserAgent(ctx),
+	})
 }
 
 // GetSecret returns a secret's metadata (subject to ownership/share checks).
@@ -291,30 +296,20 @@ func (s *SecretGRPCService) UpdateSecret(ctx context.Context, req *pb.UpdateSecr
 		updateReq.Value = []byte(v)
 	}
 
-	// Capture pre-update metadata for the audit diff (raw fetch, no read-count side
-	// effect). Best-effort: a miss just yields an empty diff — same as the HTTP path.
-	oldSecret, _ := s.core.Storage().GetSecret(ctx, uint(req.GetId()))
-
 	// Machine principals are already authorized above by authorizeSecretScoped;
 	// the per-user owner/sharing check (and its user-id requirement) does not
-	// apply to them (W1 — see GetSecret).
+	// apply to them (W1 — see GetSecret). The secret.updated row, with its
+	// before/after diff, commits with the update, as on the HTTP path.
+	mctx := secretMutationAuditContext(ctx, user)
 	var secret *models.SecretNode
 	if user.ActorKind() == core.ActorTypeMachine {
-		secret, err = s.core.UpdateSecret(ctx, updateReq)
+		secret, err = s.core.UpdateSecret(mctx, updateReq)
 	} else {
-		secret, err = s.core.UpdateSecretWithPermissionCheck(ctx, updateReq)
+		secret, err = s.core.UpdateSecretWithPermissionCheck(mctx, updateReq)
 	}
 	if err != nil {
 		return nil, mapSecretError(err)
 	}
-	// Audit the update with a before/after diff, mirroring the HTTP handler — the
-	// core method does not audit internally. Detached + async (see GetSecretValue).
-	diff := core.BuildSecretUpdateDiff(oldSecret, updateReq, req.GetValue() != "")
-	auditCtx := core.DetachedAuditContext(ctx)
-	ip, ua := interceptors.PeerIP(ctx), interceptors.ClientUserAgent(ctx)
-	goSafe(func() {
-		s.core.LogSecretUpdatedWithDiff(auditCtx, user.UserID, uint(req.GetId()), secret.ProjectID, user.Username, secret.Name, ip, ua, diff)
-	}) // #nosec G118
 	return secretNodeToProto(secret), nil
 }
 
@@ -330,37 +325,19 @@ func (s *SecretGRPCService) DeleteSecret(ctx context.Context, req *pb.DeleteSecr
 	if err := authorizeSecretScoped(ctx, s.core, user, uint(req.GetId()), "secrets.delete"); err != nil {
 		return nil, err
 	}
-	// Pre-fetch name + project for the audit log before the record is gone, mirroring
-	// the HTTP handler. Plain, unauthorized read: authorizeSecretScoped above already
-	// authorized this delete, and DeleteSecretWithPermissionCheck below authorizes it
-	// again — a second *WithPermissionCheck call here bought nothing but a second
-	// CheckSecretPermission storage round trip (see
-	// docs/findings/2026-09-23-FINDING-redundant-authz-prefetch.md). Best-effort: a
-	// miss falls back to the id.
-	secretName := fmt.Sprintf("id=%d", req.GetId())
-	var secretProjectID uint
-	if sec, err := s.core.GetSecret(ctx, uint(req.GetId())); err == nil {
-		secretName = sec.Name
-		secretProjectID = sec.ProjectID
-	}
 	// Machine principals are already authorized above by authorizeSecretScoped;
 	// the per-user owner/sharing check (and its user-id requirement) does not
-	// apply to them (W1 — see GetSecret).
+	// apply to them (W1 — see GetSecret). The secret.deleted row commits with the
+	// delete, as on the HTTP path.
+	mctx := secretMutationAuditContext(ctx, user)
 	if user.ActorKind() == core.ActorTypeMachine {
-		err = s.core.DeleteSecret(ctx, uint(req.GetId()))
+		err = s.core.DeleteSecret(mctx, uint(req.GetId()))
 	} else {
-		err = s.core.DeleteSecretWithPermissionCheck(ctx, uint(req.GetId()), user.UserID)
+		err = s.core.DeleteSecretWithPermissionCheck(mctx, uint(req.GetId()), user.UserID)
 	}
 	if err != nil {
 		return nil, mapSecretError(err)
 	}
-	// Audit the delete the same way the HTTP handler does — the core method does not
-	// audit internally. Detached + async (see GetSecretValue).
-	auditCtx := core.DetachedAuditContext(ctx)
-	ip, ua := interceptors.PeerIP(ctx), interceptors.ClientUserAgent(ctx)
-	goSafe(func() {
-		s.core.LogSecretDeletedWithProject(auditCtx, user.UserID, uint(req.GetId()), secretProjectID, user.Username, secretName, ip, ua)
-	}) // #nosec G118
 	// The delete is done; a failed read-back of the purge date leaves it unset rather
 	// than failing a completed delete (same stance as the HTTP handler's header).
 	resp := &pb.DeleteSecretResponse{}

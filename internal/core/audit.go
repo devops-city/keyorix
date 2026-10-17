@@ -342,6 +342,12 @@ func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget
 			persisted = false
 		}
 	}()
+	return c.emitAuditOn(ctx, tgt, buildAuditEvent(ctx, eventType, userID, secretID, projectID, ip, description, diff))
+}
+
+// buildAuditEvent is the success-path event writeAuditEventDiffOn emits, built
+// without emitting it (an owed event is stored first, see audit_owed.go).
+func buildAuditEvent(ctx context.Context, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string) *models.AuditEvent { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
 	t := true
 	event := &models.AuditEvent{
 		EventType:    eventType,
@@ -361,7 +367,7 @@ func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget
 		event.ActingAs = userID
 		event.Impersonation = true
 	}
-	return c.emitAuditOn(ctx, tgt, event)
+	return event
 }
 
 // writeAuditEventFailed persists a failed audit event (Success=false), with

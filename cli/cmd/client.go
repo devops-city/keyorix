@@ -3,7 +3,9 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 
@@ -42,10 +44,15 @@ func resolveServerAndToken(store *credstore.FileStore) (serverURL, token string,
 		token = creds.Token
 	}
 	if serverURL == "" {
-		if loadErr != nil {
-			return "", "", fmt.Errorf("no server configured: run \"keyorix login\" first, or set KEYORIX_SERVER (%w)", loadErr)
+		// A missing credentials file is the ordinary "never logged in" case: say so
+		// plainly. Any other failure (wrong permissions, a symlink, bad YAML) is a
+		// problem with the file, and its message says how to fix it.
+		if loadErr != nil && !errors.Is(loadErr, fs.ErrNotExist) {
+			return "", "", withExitCode(exitAuth, fmt.Errorf("not logged in: %w. Next step: fix the credentials file, "+
+				"or run `keyorix login --server <url>` (or set KEYORIX_SERVER and KEYORIX_TOKEN)", loadErr))
 		}
-		return "", "", fmt.Errorf("no server configured: run \"keyorix login\" first, or set KEYORIX_SERVER")
+		return "", "", withExitCode(exitAuth, errors.New("not logged in: no server is configured. "+
+			"Next step: run `keyorix login --server <url>` (or set KEYORIX_SERVER and KEYORIX_TOKEN)"))
 	}
 	return serverURL, token, nil
 }
@@ -210,9 +217,20 @@ type apiErrorBody struct {
 func apiError(action string, statusCode int, body []byte) error {
 	var eb apiErrorBody
 	if err := json.Unmarshal(body, &eb); err == nil && eb.Message != "" {
-		return fmt.Errorf("%s failed: %s (HTTP %d)%s", action, cliout.SanitizeForTerminal(eb.Message), statusCode, nextStepHint(eb))
+		return withExitCode(statusExitCode(statusCode), fmt.Errorf("%s failed: %s (HTTP %d)%s",
+			action, cliout.SanitizeForTerminal(eb.Message), statusCode, hintFor(action, statusCode, eb)))
 	}
-	return fmt.Errorf("%s failed: HTTP %d", action, statusCode)
+	return withExitCode(statusExitCode(statusCode), fmt.Errorf("%s failed: HTTP %d%s",
+		action, statusCode, statusHint(action, statusCode)))
+}
+
+// hintFor picks the " Next step: ..." suffix for a failed call: the server's own error
+// code first (one fixed remedy), then the remedy for the HTTP status.
+func hintFor(action string, statusCode int, eb apiErrorBody) string {
+	if h := nextStepHint(eb); h != "" {
+		return h
+	}
+	return statusHint(action, statusCode)
 }
 
 // errCodeMFAEnrollmentRequired is the "error" code the server's auth middleware
@@ -264,7 +282,8 @@ func nextStepHint(eb apiErrorBody) string {
 func httpStatusError(what string, statusCode int, body []byte) error {
 	var eb apiErrorBody
 	if err := json.Unmarshal(body, &eb); err == nil && eb.Message != "" {
-		return fmt.Errorf("%s: %s (HTTP %d)%s", what, cliout.SanitizeForTerminal(eb.Message), statusCode, nextStepHint(eb))
+		return withExitCode(statusExitCode(statusCode), fmt.Errorf("%s: %s (HTTP %d)%s",
+			what, cliout.SanitizeForTerminal(eb.Message), statusCode, hintFor(what, statusCode, eb)))
 	}
-	return fmt.Errorf("%s: HTTP %d", what, statusCode)
+	return withExitCode(statusExitCode(statusCode), fmt.Errorf("%s: HTTP %d%s", what, statusCode, statusHint(what, statusCode)))
 }
