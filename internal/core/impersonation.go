@@ -15,6 +15,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -125,13 +127,30 @@ func (c *KeyorixCore) StartImpersonation(ctx context.Context, adminID, targetID 
 		LastSeenAt:             &now,
 		ExpiresAt:              &expiresAt,
 	}
-	created, err := c.createSession(ctx, session, ip, "impersonation start")
+	created, err := c.createImpersonationSession(ctx, session, ip)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create impersonation session: %w", err)
 	}
 	c.writeImpersonationEvent(ctx, EventImpersonationStart, adminID, targetID, ip,
 		fmt.Sprintf("%s started impersonating %s", admin.Username, target.Username), "")
 	return created, target, nil
+}
+
+// createImpersonationSession is createSession for StartImpersonation. A panic
+// in the insert comes back as an error wrapping ErrLoginWritePanicked (#3277
+// follow-up), so the handler answers it exactly like the insert's error ("Failed
+// to start impersonation") instead of the Recovery 500. createSession has
+// already deleted a row that landed, and no token is returned, so no
+// impersonation session survives the failure.
+func (c *KeyorixCore) createImpersonationSession(ctx context.Context, session *models.Session, ip string) (created *models.Session, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: impersonation session write for user %d panicked; refusing it like its error: %v\n%s",
+				session.UserID, r, debug.Stack())
+			created, err = nil, fmt.Errorf("%w: impersonation session write: %v", ErrLoginWritePanicked, r)
+		}
+	}()
+	return c.createSession(ctx, session, ip, "impersonation start")
 }
 
 // EndImpersonation terminates the impersonation session identified by token,

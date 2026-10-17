@@ -349,9 +349,12 @@ func TestStartAuditListIndexBuild_Postgres_CloseCancelsAndNextStartRebuilds(t *t
 	require.NoError(t, err)
 	// Close returning means the build's session is gone: no backend may still
 	// hold the build lock, or the next start sees ErrAuditIndexBuildLockHeld.
+	// Counted in this test's database only: pg_locks lists every database's
+	// locks, and another package's test may hold the same key in its own.
 	var held int
 	require.NoError(t, sqlDB.QueryRowContext(context.Background(),
 		`SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted
+		   AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
 		   AND classid = $1 AND objid = $2 AND objsubid = 1`,
 		store.AuditIndexBuildLockClassID, store.AuditIndexBuildLockObjID).Scan(&held))
 	require.Zero(t, held, "Close returned while a backend still held the audit index build lock")

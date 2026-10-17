@@ -132,6 +132,12 @@ that transaction and never reaches another client.
   per-client session setting anyway. `application_name` is fine. Set
   `search_path` on the database role instead (`ALTER ROLE keyorix SET
   search_path = ...`).
+  With `pgbouncer-session` or `pgbouncer-transaction` set, the server logs a
+  start-up warning naming any such parameter in the connection settings
+  (`application_name`, `client_encoding`, `DateStyle`, `TimeZone` and
+  `standard_conforming_strings` are the ones PgBouncer accepts by default). It is
+  a warning, not a refusal, because PgBouncer's `ignore_startup_parameters` may
+  be set.
 - Session mode only: keep `server_reset_query = DISCARD ALL` (the default), so
   a disconnected client's session state, advisory locks included, is cleared
   before the server connection is reused.
