@@ -44,12 +44,15 @@ func newProjectWire(p *models.Project) projectWire {
 }
 
 type environmentWire struct {
-	ID        uint       `json:"id"`
-	ProjectID uint       `json:"project_id"`
-	Name      string     `json:"name"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	ID        uint   `json:"id"`
+	ProjectID uint   `json:"project_id"`
+	Name      string `json:"name"`
+	// SecretCount is the number of live secrets (folders excluded) in the
+	// environment, computed by the server in one grouped query on the list routes.
+	SecretCount int64      `json:"secret_count"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	DeletedAt   *time.Time `json:"deleted_at,omitempty"`
 }
 
 func newEnvironmentWire(e *models.Environment) environmentWire {
@@ -67,10 +70,14 @@ func newEnvironmentWire(e *models.Environment) environmentWire {
 	return w
 }
 
-func newEnvironmentWireList(envs []*models.Environment) []environmentWire {
+// newEnvironmentWireList maps environments to their wire form, filling
+// secret_count from counts (an environment absent from the map has zero).
+func newEnvironmentWireList(envs []*models.Environment, counts map[uint]int64) []environmentWire {
 	out := make([]environmentWire, 0, len(envs))
 	for _, e := range envs {
-		out = append(out, newEnvironmentWire(e))
+		w := newEnvironmentWire(e)
+		w.SecretCount = counts[e.ID]
+		out = append(out, w)
 	}
 	return out
 }

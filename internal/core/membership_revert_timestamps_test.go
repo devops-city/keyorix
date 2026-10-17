@@ -4,7 +4,6 @@ package core
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,26 +16,18 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-var revertTSDBCounter atomic.Int64
 
 // newRevertTSCore is newBootstrappedCore's shape (real MigrateExisting, real
 // BootstrapSystem, so roles and permissions are the production ones) but also
 // hands back the *gorm.DB and the bootstrap admin's ID, both of which these
-// tests need. A shared-cache named DSN rather than ":memory:" so the fixture
-// is not pinned to a single connection.
+// tests need. sqlitetest gives it a process-unique database (the old
+// clock-plus-letter name repeated after 26 calls in the same second).
 func newRevertTSCore(t *testing.T) (*KeyorixCore, *gorm.DB, uint) {
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
-	n := revertTSDBCounter.Add(1)
-	db, err := gorm.Open(sqlite.Open(
-		"file:kxcore_revertts_"+time.Now().Format("150405")+"_"+string(rune('a'+int(n%26)))+"?mode=memory&cache=shared&_timeout=30000",
-	), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "kxcore_revertts_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, kxstorage.MigrateExisting(db))
 
 	c := NewKeyorixCore(store.NewLocalStorage(db))

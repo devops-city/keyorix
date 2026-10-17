@@ -2,10 +2,12 @@ package storage
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/i18n"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,9 +25,10 @@ func TestSQLiteDSN_NoPriorParams(t *testing.T) {
 // TestSQLiteDSN_WithExistingParams validates that the DSN appends (not clobbers)
 // pragmas when the operator already includes query parameters.
 func TestSQLiteDSN_WithExistingParams(t *testing.T) {
-	dsn := sqliteDSN("/data/secrets.db?cache=shared")
+	in := sqlitetest.DSN("routing_existing_params_")
+	dsn := sqliteDSN(in)
 	// Must use "&" as separator, not "?" (which would duplicate the query start).
-	assert.Contains(t, dsn, "cache=shared")
+	assert.True(t, strings.HasPrefix(dsn, in+"&"), "the operator's own parameters must survive unchanged, followed by &: %s", dsn)
 	assert.Contains(t, dsn, "_foreign_keys=1")
 	assert.Contains(t, dsn, "_journal_mode=WAL")
 }

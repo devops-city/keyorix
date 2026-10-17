@@ -451,12 +451,44 @@ func (c *KeyorixCore) CurrentMachineTokenRestriction(ctx context.Context, raw st
 	return machineRestrictionFrom(cred), nil
 }
 
+// CurrentFederatedMachineState re-reads, on an HTTP auth-cache hit, whether the
+// machine identity a federated OIDC / Kubernetes-JWT principal (ADR-031)
+// authenticated as is still active. That principal has no Keyorix credential
+// row to re-check (CurrentMachineTokenRestriction's job for opaque machine
+// tokens), so the identity's own state is the one revocation signal.
+// A no-longer-active identity, or one whose row is gone, is DEFINITIVE
+// (ErrMachineIdentityNotActive): the caller denies and evicts. Any other error
+// is a failed lookup: the caller refuses the request as temporarily
+// unavailable (CACHE-FAILCLOSED-1), never serves the cached principal.
+//
+// Before this the cache hit ran the session branch's account re-read for user
+// id 0, which never exists, so the re-check always failed and the cached
+// principal was served regardless: a suspended federated identity kept
+// authenticating for up to validTokenTTL on every replica that did not run
+// the suspension. Same single read as that account re-read, so no new round
+// trip.
+func (c *KeyorixCore) CurrentFederatedMachineState(ctx context.Context, machineIdentityID uint) error {
+	m, err := c.storage.GetMachineIdentity(ctx, machineIdentityID)
+	if err != nil {
+		if credentialRowGone(err) {
+			return fmt.Errorf("%w: identity not found", ErrMachineIdentityNotActive)
+		}
+		return err
+	}
+	if m.State != MachineActive {
+		return fmt.Errorf("%w: %s", ErrMachineIdentityNotActive, m.State)
+	}
+	return nil
+}
+
 // credentialRowGone reports whether a by-hash credential lookup failed because
 // no row matched: gorm.ErrRecordNotFound on the GORM path, sql.ErrNoRows on the
 // prepared-statement path (credential_lookup_raw.go). Both storage methods wrap
 // every failure in the same "not found" text, so only the wrapped cause tells a
-// vanished row apart from a transient storage error, which must keep degrading
-// (INV-MW-05).
+// vanished row apart from a transient storage error. The cache-hit caller
+// denies and evicts on the first and refuses with 503 on the second
+// (INV-MW-05, INV-MW-cache-hit-recheck-fails-closed): both refuse, but only a
+// definitive verdict may evict or count as a revocation.
 func credentialRowGone(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, sql.ErrNoRows)
 }
