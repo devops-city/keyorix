@@ -28,8 +28,9 @@ sha256sum -c --ignore-missing checksums.txt && chmod +x keyorix-server_linux_amd
 
 A release binary is the release's own behaviour: this page tracks `main`, so a
 command below can be newer than the release (for example `keyorix mfa enroll`
-does not exist in v0.95.3). `keyorix-server` has no `--version` or `--config`
-flag (the server reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
+does not exist in v0.95.3). `keyorix-server --version` (or `keyorix-server admin version`)
+prints the version, commit, build date and Go version. The server itself has no
+`--config` flag (it reads `KEYORIX_CONFIG_PATH`, else `./keyorix.yaml`; only the
 `keyorix-server admin ...` subcommands take `--config`); the CLI has
 `keyorix version`.
 
@@ -40,7 +41,8 @@ make build
 ```
 
 Produces `./bin/keyorix` (CLI) and `./bin/keyorix-server` (API server).
-Go 1.27+ (see `go.mod`) and a C toolchain for SQLite are the only requirements.
+Go 1.27+ (see `go.mod`) is the only requirement: the SQLite driver is pure Go
+(`modernc.org/sqlite`), so no C toolchain is needed and `CGO_ENABLED=0` builds work.
 
 `make build` does **not** include the web UI: the server then logs
 `Web UI not bundled in this build; serving API only` and shows a placeholder page
@@ -134,11 +136,14 @@ network, even on a single machine. Start the server, then bootstrap the first
 admin account and default workspace with `keyorix system init --server`:
 
 ```bash
-export KEYORIX_BOOTSTRAP_TOKEN='choose-a-bootstrap-token'
+mkdir -p -m 700 secrets
+(umask 077 && openssl rand -hex 32 > secrets/bootstrap_token)
+export KEYORIX_BOOTSTRAP_TOKEN_FILE="$PWD/secrets/bootstrap_token"
 KEYORIX_CONFIG_PATH=./keyorix.yaml ./bin/keyorix-server &
 
-# The admin password and bootstrap token come from the environment (or, if
-# KEYORIX_ADMIN_PASSWORD is unset, an interactive prompt) — never from flags.
+# The admin password comes from the environment (or, if KEYORIX_ADMIN_PASSWORD
+# is unset, an interactive prompt) and the bootstrap token from the 0600 file
+# above (the server refuses a token shorter than 32 characters) — never from flags.
 read -r -s -p 'Admin password: ' KEYORIX_ADMIN_PASSWORD; echo
 export KEYORIX_ADMIN_PASSWORD
 ./bin/keyorix system init --server https://localhost:8080 \
@@ -162,9 +167,9 @@ Two things about this command are not obvious from `--help` alone:
 reports `already_initialized` on every call after the first. It creates the
 admin user, default RBAC roles, and a default workspace (a project with three
 seeded environments — development, staging, production — as IDs 1/2/3) in one
-call. Without `KEYORIX_BOOTSTRAP_TOKEN` set before the server starts, the server
-generates and logs a random token instead — export that one as
-`KEYORIX_BOOTSTRAP_TOKEN` before running `system init`.
+call. Without `KEYORIX_BOOTSTRAP_TOKEN` (or `KEYORIX_BOOTSTRAP_TOKEN_FILE`) set
+before the server starts, the server generates a random token and logs only a
+masked form of it (first 8 and last 4 characters), so pin your own as shown above.
 
 - Health: <https://localhost:8080/health>
 - OpenAPI spec: <https://localhost:8080/openapi.yaml> — only when

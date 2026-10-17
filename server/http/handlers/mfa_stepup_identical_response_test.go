@@ -108,7 +108,9 @@ func stepUpParityEnv(t *testing.T, f stepUpFault) (h *AuthHandler, db *gorm.DB, 
 func postStepUp(h *AuthHandler, code string) *httptest.ResponseRecorder {
 	r := postJSON("/api/v1/auth/mfa/stepup", map[string]string{"code": code}, 1)
 	w := httptest.NewRecorder()
-	h.MFAStepUp(w, r)
+	// Through the production Recovery (#3277 follow-up), so a PANIC fault is
+	// answered here exactly as a client would see it.
+	throughProductionRecovery(h.MFAStepUp).ServeHTTP(w, r)
 	return w
 }
 
@@ -125,6 +127,10 @@ func TestMFAStepUp_PostVerdictFaultIsIdenticalToAWrongCode(t *testing.T) {
 		{name: "CreateMFAStepUpGrant", fault: stepUpFault{spec: &faultstorage.FaultSpec{Method: "CreateMFAStepUpGrant", NthCall: 1, Kind: faultstorage.KindError, Err: errors.New("injected: grant write")}}},
 		{name: "LockUserForUpdate recheck", fault: stepUpFault{spec: &faultstorage.FaultSpec{Method: "LockUserForUpdate", NthCall: 1, Kind: faultstorage.KindError, Err: errors.New("injected: recheck")}}},
 		{name: "MarkTOTPStepUsed and recovery lookup", fault: stepUpFault{recoveryDown: true, markTOTPFails: true}},
+		// #3277 follow-up: the PANIC kind of both post-verdict writes. Before,
+		// each got the Recovery 500 with the lockout uncounted.
+		{name: "CreateMFAStepUpGrant panic", fault: stepUpFault{spec: &faultstorage.FaultSpec{Method: "CreateMFAStepUpGrant", NthCall: 1, Kind: faultstorage.KindPanic, Err: errors.New("injected: grant write")}}},
+		{name: "MarkTOTPStepUsed panic", fault: stepUpFault{spec: &faultstorage.FaultSpec{Method: "MarkTOTPStepUsed", NthCall: 1, Kind: faultstorage.KindPanic, Err: errors.New("injected: mark")}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -136,6 +142,9 @@ func TestMFAStepUp_PostVerdictFaultIsIdenticalToAWrongCode(t *testing.T) {
 			requireIdenticalResponse(t, control, probe, "stepup/"+tc.name)
 			assert.NotContains(t, probe.body, "injected", "a storage error must never reach the client")
 			assert.NotContains(t, probe.body, "credential matched", "the response must not say the code was right")
+			var live int64
+			require.NoError(t, pdb.Model(&models.MFAStepUpGrant{}).Where("consumed_at IS NULL").Count(&live).Error)
+			assert.Zero(t, live, "a denied step-up must leave no live grant")
 		})
 	}
 

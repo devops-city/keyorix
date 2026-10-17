@@ -2,6 +2,44 @@ package storage
 
 import "context"
 
+// UserRoleGrant is one live role grant of a user (SHARES-BATCH-AUTHZ-1): ProjectID and
+// EnvironmentID are the grant's own scope (0 = global), the project and environment
+// rows it names are live (a missing row counts as live, as in the one-statement
+// query), and an expired grant or a grant through a deleted group is not listed.
+// ViaGroup grants also carry MemberProjectID, the project the user's membership of the
+// group is scoped to (0 = global). Bypass is the role's ADR-084 flag.
+type UserRoleGrant struct {
+	RoleID          uint
+	ProjectID       uint
+	EnvironmentID   uint
+	ViaGroup        bool
+	MemberProjectID uint
+	Bypass          bool
+}
+
+// AppliesAt reports whether the grant is part of the role set at scope: the same
+// WHERE clauses as ResolveUserPermissionAt's two subqueries, minus the liveness and
+// expiry tests the listing already applied.
+func (g UserRoleGrant) AppliesAt(scope Scope) bool {
+	if g.ProjectID != 0 && g.ProjectID != scope.ProjectID {
+		return false
+	}
+	if g.EnvironmentID != 0 && g.EnvironmentID != scope.EnvironmentID {
+		return false
+	}
+	if g.ViaGroup && g.MemberProjectID != 0 && g.MemberProjectID != scope.ProjectID {
+		return false
+	}
+	return true
+}
+
+// UserGroupMembershipAt is one membership of a user in a live group; ProjectID is the
+// project the membership is scoped to (0 = global).
+type UserGroupMembershipAt struct {
+	GroupID   uint
+	ProjectID uint
+}
+
 // UserRoleReads is the subset of Storage that ComposeUserPermissionAt reads.
 type UserRoleReads interface {
 	GetUserRoleIDsAt(ctx context.Context, userID uint, scope Scope) ([]uint, error)

@@ -59,6 +59,20 @@ func TestApplyPoolSettings_DialectDefaults(t *testing.T) {
 	})
 }
 
+// TestPostgresPoolHeadroomWarning_ConfiguredNativeReadPool: a configured
+// native_read_pool_max counts in the headroom check, up to the request pool's
+// own cap.
+func TestPostgresPoolHeadroomWarning_ConfiguredNativeReadPool(t *testing.T) {
+	// 25 + 12 (lock pools) + 8 (default native pool) = 45 fits 48 usable; 20 does not.
+	assert.Empty(t, postgresPoolHeadroomWarning(25, 0, 48+3, 3))
+	assert.NotEmpty(t, postgresPoolHeadroomWarning(25, 20, 48+3, 3))
+	// raising it past max_open_conns adds no more than max_open_conns
+	assert.Equal(t, postgresPoolHeadroomWarning(25, 25, 48+3, 3), postgresPoolHeadroomWarning(25, 400, 48+3, 3))
+	// lowering it frees slots: 25 + 12 + 2 = 39 fits 40 usable, the default 45 does not
+	assert.Empty(t, postgresPoolHeadroomWarning(25, 2, 40+3, 3))
+	assert.NotEmpty(t, postgresPoolHeadroomWarning(25, 0, 40+3, 3))
+}
+
 func TestPostgresPoolHeadroomWarning(t *testing.T) {
 	cases := []struct {
 		maxOpen, maxConn, reserved int
@@ -75,7 +89,7 @@ func TestPostgresPoolHeadroomWarning(t *testing.T) {
 		{100, 0, 0, false},  // setting unreadable/zero: never warn on garbage
 	}
 	for _, c := range cases {
-		got := postgresPoolHeadroomWarning(c.maxOpen, c.maxConn, c.reserved)
+		got := postgresPoolHeadroomWarning(c.maxOpen, 0, c.maxConn, c.reserved)
 		assert.Equal(t, c.warn, got != "", "maxOpen=%d maxConn=%d reserved=%d: %q", c.maxOpen, c.maxConn, c.reserved, got)
 		if c.warn {
 			assert.Contains(t, got, "53300")

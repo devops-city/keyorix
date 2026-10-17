@@ -95,11 +95,12 @@ func runMFAEnroll(cmd *cobra.Command, args []string) error {
 	}
 	data := resp.JSON200.Data
 
-	fmt.Println("Scan this into your authenticator app:")
+	fmt.Println("Add this to your authenticator app (no QR code is shown here: paste the otpauth:// link")
+	fmt.Println("into an app that accepts one, or use the secret below):")
 	fmt.Println()
 	fmt.Println("  " + data.OtpauthUri)
 	fmt.Println()
-	fmt.Println("Or enter this secret manually:")
+	fmt.Println("Or enter this secret manually (account type: time-based, 6 digits, SHA1):")
 	fmt.Println()
 	fmt.Println("  " + data.Secret)
 	fmt.Println()

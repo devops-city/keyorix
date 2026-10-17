@@ -21,12 +21,15 @@ func TestPgBouncer_ServerGuard_HeldLockKeepsNoSnapshot(t *testing.T) {
 	}
 	defer func() { _ = direct.Close() }()
 	// Holders of the presence lock (bigint key: classid high, objid low half),
-	// and how many of them hold back xmin.
+	// and how many of them hold back xmin. In this database only: pg_locks
+	// lists every database's locks, and a test in another database may hold
+	// the same key.
 	holders := func() (n, withXmin int) {
 		t.Helper()
 		err := direct.QueryRowContext(context.Background(), `SELECT count(*), count(a.backend_xmin)
 			FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
-			WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 AND l.classid = $1 AND l.objid = $2`,
+			WHERE l.locktype = 'advisory' AND l.granted AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+			AND l.objsubid = 1 AND l.classid = $1 AND l.objid = $2`,
 			serverPresenceLockKey>>32, serverPresenceLockKey&0xFFFFFFFF).Scan(&n, &withXmin)
 		if err != nil {
 			t.Fatal(err)

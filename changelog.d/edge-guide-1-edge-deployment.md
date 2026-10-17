@@ -1,0 +1,2 @@
+### Documentation
+- **Edge deployment guide.** New `docs/edge-deployment.md` for edge and industrial devices: SQLite as the edge backend (strict audit durability only), the `audit_durability` levels and the advice to set `strict` on PostgreSQL edge installs, power-loss behaviour, qualitative sizing, backup/restore, air-gapped updates, physical-access hardening and the `insecure_` settings that must stay off. Linked from `README.md` and `docs/README.md`.

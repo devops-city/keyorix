@@ -13,6 +13,7 @@
 // brief describes. Documented here and in the report rather than asserting
 // a UI state that doesn't exist.
 import { test, expect, Page } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { compliantPassword, personalInfoCandidates } from './support/password';
 
 const ADMIN_USERNAME = process.env.KEYORIX_E2E_ADMIN_USERNAME;
@@ -51,7 +52,7 @@ test('a limited (project_viewer) user cannot see or reach what their role denies
     // geometry, over every dialog in the app, at two real laptop heights.
 
     // Unique per run so repeat runs against a persistent dev DB don't collide.
-    const stamp = Math.floor(Math.random() * 1_000_000);
+    const stamp = randomInt(1_000_000);
     const projectName = `access-ctrl-${stamp}`;
     const limitedUsername = `limiteduser${stamp}`;
     // Deliberately NOT derived from `stamp` (or any other username/email/

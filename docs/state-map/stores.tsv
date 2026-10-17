@@ -52,6 +52,7 @@ Notification	db_table	internal/storage/models	1
 NotificationChannel	db_table	internal/storage/models	1
 PasswordHistory	db_table	internal/storage/models	1
 PasswordReset	db_table	internal/storage/models	1
+PendingAuditEvent	db_table	internal/storage/models	1
 Permission	db_table	internal/storage/models	1
 PersonalAccessToken	db_table	internal/storage/models	1
 Project	db_table	internal/storage/models	1

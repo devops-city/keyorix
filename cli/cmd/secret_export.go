@@ -60,7 +60,7 @@ type exportedSecret struct {
 
 func runSecretExport(_ *cobra.Command, _ []string) (retErr error) {
 	if exportProject == 0 || exportEnv == 0 {
-		return fmt.Errorf("--project and --env are both required")
+		return usageErrorf("--project and --env are both required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -130,7 +130,7 @@ func writeExportedSecrets(out io.Writer, format string, fetched []exportedSecret
 		return writeVault(out, fetched, exportEnv)
 	case fmtEncryptedJSON:
 		if encryptFor == "" {
-			return fmt.Errorf("--encrypt-for <pubkey.pem> is required for the encrypted-json format")
+			return usageErrorf("--encrypt-for <pubkey.pem> is required for the encrypted-json format")
 		}
 		return writeEncryptedJSON(out, fetched, encryptFor)
 	default:

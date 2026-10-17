@@ -10,11 +10,15 @@
 //
 //	BEGIN; [SET LOCAL synchronous_commit = off;]
 //	SELECT pg_advisory_xact_lock(KEYAUDIT);
-//	head check: raises unless the id-DESC head is exactly the cached row;
-//	INSERT audit_events ... (ids from the column default);
-//	link check: raises unless the rows above the cached head are exactly this
-//	            batch, linked prev_hash -> entry_hash in id order;
+//	WITH e AS (INSERT audit_events ... RETURNING ...) -- ids from the column default
+//	  head check: raises unless the id-DESC head is exactly the cached row;
+//	  link check: raises unless the stored rows are exactly this batch, above
+//	              the cached head, linked prev_hash -> entry_hash in id order;
 //	INSERT secret_access_logs ...; COMMIT
+//
+// The INSERT and both checks are one statement (auditInsertCheckSQL,
+// OPT-AUDIT-RT-1); before that they were three, and a batch too large for one
+// INSERT still sends them so (queueAuditEvents).
 //
 // The cache is a hint, never a source of truth. Both checks run inside the
 // transaction, after the lock statement, so they see exactly what the
@@ -33,9 +37,9 @@
 // before the INSERT (checkAuditInsertIDOrder, first id above the head). Here
 // the INSERT takes its ids from the column default, so the same two facts
 // (each row's id above the previous row's, the first above the head) are
-// checked in SQL after the INSERT and before COMMIT. Every entry_hash in the
-// batch is distinct, so the rows link in id order only if their ids follow
-// the batch order.
+// checked in SQL, on the rows the INSERT stored, before COMMIT. Every
+// entry_hash in the batch is distinct, so the rows link in id order only if
+// their ids follow the batch order.
 //
 // The two checks raise by casting a message to int (SQLSTATE 22P02): there is
 // no built-in RAISE outside PL/pgSQL, and creating a function would be a
@@ -55,6 +59,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"gorm.io/gorm/clause"
 )
 
 // auditChainHead is one audit_events row's place in the chain.
@@ -237,6 +242,161 @@ func auditLinkCheckStatement(table string, headID uint, headHash string, n int) 
 	return fmt.Sprintf(auditLinkCheckSQL, quoted, n+1), []any{headID, headHash, auditGenesisHash}
 }
 
+// auditInsertCheckSQL is the events INSERT %[1]s and both checks in ONE
+// statement (OPT-AUDIT-RT-1). %[1]s returns each stored row's id, prev_hash
+// and entry_hash; h is the id-DESC head of %[2]s. Every part of a statement
+// reads the same snapshot, and the rows a WITH INSERT writes are not in it, so
+// h is exactly the row the separate head check would read after the lock
+// statement, and e is exactly what the separate link check would read above
+// it. The checks are auditLinkCheckSQL's, run over h followed by e instead of
+// the top %[3]d rows of the table: the statement selects 0 when there are %[3]d
+// rows (so h exists), the lowest is the row ($%[4]d, $%[5]d) (so h is that row
+// and every stored id sorts above it), and each later row links prev_hash to
+// the previous row's entry_hash in id order (genesis $%[6]d after an unchained
+// row), and raises otherwise. It also returns the stored ids in ascending
+// order. $%[4]d.. follow the INSERT's own parameters.
+const auditInsertCheckSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_hash, entry_hash FROM %[2]s ORDER BY id DESC LIMIT 1)
+ SELECT CASE WHEN s.n = %[3]d AND s.unlinked = 0 AND s.base_id = $%[4]d::bigint AND s.base_hash = $%[5]d::text THEN 0
+ ELSE ('audit batch not chained onto row ' || $%[4]d::bigint || ' in id order: ' || s.n || ' rows read, ' || s.unlinked || ' unlinked, lowest is row ' || COALESCE(s.base_id::text, 'none'))::int END, s.ids
+ FROM (SELECT count(*) AS n, count(*) FILTER (WHERE w.rn > 1 AND w.prev_hash IS DISTINCT FROM COALESCE(NULLIF(w.lp, ''), $%[6]d::text)) AS unlinked,
+  min(w.id) AS base_id, (array_agg(w.entry_hash ORDER BY w.id))[1] AS base_hash, array_agg(w.id ORDER BY w.id) FILTER (WHERE w.rn > 1) AS ids
+  FROM (SELECT id, prev_hash, entry_hash, lag(entry_hash) OVER (ORDER BY id) AS lp, row_number() OVER (ORDER BY id) AS rn
+   FROM (SELECT id, prev_hash, entry_hash FROM h UNION ALL SELECT id, prev_hash, entry_hash FROM e) AS t) AS w) AS s`
+
+// auditInsertCheckGenesisSQL is auditInsertCheckSQL for a batch that starts
+// the chain: h must not exist (%[3]d rows, the batch alone), and the rows link
+// in id order, the first one to the genesis hash $%[4]d.
+const auditInsertCheckGenesisSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_hash, entry_hash FROM %[2]s ORDER BY id DESC LIMIT 1)
+ SELECT CASE WHEN s.n = %[3]d AND s.unlinked = 0 THEN 0
+ ELSE ('audit batch not chained from genesis in id order: ' || s.n || ' rows read, ' || s.unlinked || ' unlinked')::int END, s.ids
+ FROM (SELECT count(*) AS n, count(*) FILTER (WHERE w.prev_hash IS DISTINCT FROM COALESCE(w.lp, $%[4]d::text)) AS unlinked, array_agg(w.id ORDER BY w.id) AS ids
+  FROM (SELECT id, prev_hash, lag(entry_hash) OVER (ORDER BY id) AS lp
+   FROM (SELECT id, prev_hash, entry_hash FROM h UNION ALL SELECT id, prev_hash, entry_hash FROM e) AS t) AS w) AS s`
+
+// auditInsertCheckStatement wraps insertSQL (with its vars), the INSERT of n
+// events chained onto base, in auditInsertCheckSQL; base.id 0 means the batch
+// starts the chain at genesis.
+func auditInsertCheckStatement(table, insertSQL string, insertVars []any, base auditChainHead, n int) (string, []any) {
+	quoted := pgx.Identifier{table}.Sanitize()
+	next := len(insertVars) + 1
+	vars := slices.Clip(insertVars)
+	if base.id == 0 {
+		return fmt.Sprintf(auditInsertCheckGenesisSQL, insertSQL, quoted, n, next), append(vars, auditGenesisHash)
+	}
+	return fmt.Sprintf(auditInsertCheckSQL, insertSQL, quoted, n+1, next, next+1, next+2), append(vars, base.id, base.hash, auditGenesisHash)
+}
+
+// auditInsertCheckReturning is what the INSERT inside auditInsertCheckSQL
+// returns.
+var auditInsertCheckReturning = clause.Returning{Columns: []clause.Column{{Name: "id"}, {Name: "prev_hash"}, {Name: "entry_hash"}}}
+
+// queueAuditEvents queues on f the INSERT of events, chained onto base, and
+// the checks that the stored rows chain onto base in id order, and returns
+// the function that reads those results in order. A batch that fits one
+// INSERT (every flusher batch on Postgres:
+// TestAuditInsertRowsPerStatement_CoversAFullFlusherBatch) goes as the one
+// statement auditInsertCheckSQL. A larger one goes as before: the head check
+// (headCheck: the one-flight path, whose base is the cache's), the INSERTs
+// and the link check over the table. assigned means the events carry ids
+// allocated under the lock, which the stored ids must equal; otherwise the
+// stored ids are put back on the events in batch order, which the checks
+// proved is their id order.
+func queueAuditEvents(f *auditFlight, table string, events []*models.AuditEvent, base auditChainHead, assigned, headCheck bool) (func() error, error) {
+	perStmt, err := auditInsertRowsPerStatement(events[0])
+	if err != nil {
+		return nil, err
+	}
+	if len(events) <= perStmt {
+		st := f.ls.auditDryRun(f.ctx).Clauses(auditInsertCheckReturning).Create(&events)
+		if st.Error != nil {
+			return nil, st.Error
+		}
+		stmt := st.Statement
+		if s := stmt.Schema; s == nil || s.AfterCreate || s.AfterSave {
+			return nil, fmt.Errorf("audit pipeline: %T has after-create hooks", events[0])
+		}
+		if ret, ok := stmt.Clauses["RETURNING"].Expression.(clause.Returning); !ok || !slices.Equal(ret.Columns, auditInsertCheckReturning.Columns) {
+			return nil, fmt.Errorf("audit pipeline: INSERT into %s must return id, prev_hash, entry_hash, got %q", table, stmt.SQL.String())
+		}
+		checkSQL, checkArgs := auditInsertCheckStatement(table, stmt.SQL.String(), stmt.Vars, base, len(events))
+		f.queue(checkSQL, checkArgs...)
+		return func() error { return readAuditInsertCheck(f, events, assigned) }, nil
+	}
+
+	if headCheck {
+		f.queue(fmt.Sprintf(auditHeadCheckSQL, pgx.Identifier{table}.Sanitize()), base.id, base.hash)
+	}
+	var inserts []auditPipelineInsert
+	if err := forEachAuditInsertChunk(events, func(chunk []*models.AuditEvent) error {
+		ids := make([]*uint, len(chunk))
+		for i, e := range chunk {
+			ids[i] = &e.ID
+		}
+		ins, err := queueAuditInsert(f, chunk, ids, assigned)
+		inserts = append(inserts, ins)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	linkSQL, linkArgs := auditLinkCheckStatement(table, base.id, base.hash, len(events))
+	f.queue(linkSQL, linkArgs...)
+	return func() error {
+		if headCheck {
+			if err := f.exec(); err != nil {
+				return err
+			}
+		}
+		for _, ins := range inserts {
+			if err := readAuditInsert(f, ins); err != nil {
+				return err
+			}
+		}
+		if err := f.exec(); err != nil {
+			return err
+		}
+		if !assigned {
+			sortAuditEventIDs(events)
+		}
+		return nil
+	}, nil
+}
+
+// readAuditInsertCheck reads auditInsertCheckSQL's row: the check passed (it
+// raises otherwise) and the stored ids, ascending, which go onto events in
+// batch order.
+func readAuditInsertCheck(f *auditFlight, events []*models.AuditEvent, assigned bool) error {
+	var passed int32
+	var ids []uint
+	err := f.br.QueryRow().Scan(&passed, &ids)
+	if err == nil && len(ids) != len(events) {
+		err = fmt.Errorf("audit pipeline: INSERT stored %d rows, want %d", len(ids), len(events))
+	}
+	for i := 0; err == nil && i < len(ids); i++ {
+		switch id := ids[i]; {
+		case id == 0:
+			err = fmt.Errorf("audit pipeline: row %d was stored with id 0", i)
+		case assigned && events[i].ID != id:
+			err = fmt.Errorf("audit pipeline: row %d was assigned id %d but stored as %d", i, events[i].ID, id)
+		default:
+			events[i].ID = id
+		}
+	}
+	return f.done(int64(len(ids)), err)
+}
+
+// sortAuditEventIDs puts the ids RETURNING listed back on events in ascending
+// order, the order the link check proved they were stored in.
+func sortAuditEventIDs(events []*models.AuditEvent) {
+	ids := make([]uint, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
+	slices.Sort(ids)
+	for i, e := range events {
+		e.ID = ids[i]
+	}
+}
+
 // errAuditOneFlightRolledBack wraps a one-flight failure that provably wrote
 // nothing: the attempt failed before anything was sent, or Postgres reported
 // an error for a statement queued before COMMIT, so it ran COMMIT as a
@@ -273,7 +433,6 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 	if err != nil {
 		return auditChainHead{}, true, fmt.Errorf("%w: %w", errAuditNothingSent, err)
 	}
-	quoted := pgx.Identifier{table}.Sanitize()
 	events, accessLogs := chainAuditBatch(batch, head.hash)
 
 	f := &auditFlight{ls: ls, ctx: ctx}
@@ -282,23 +441,13 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 		f.queue(durability)
 	}
 	f.queue("SELECT pg_advisory_xact_lock($1)", int64(auditAdvisoryLockKey))
-	f.queue(fmt.Sprintf(auditHeadCheckSQL, quoted), head.id, head.hash)
 	preamble := len(f.stmts)
 
-	var eventInserts, logInserts []auditPipelineInsert
-	if err := forEachAuditInsertChunk(events, func(chunk []*models.AuditEvent) error {
-		ids := make([]*uint, len(chunk))
-		for i, e := range chunk {
-			ids[i] = &e.ID
-		}
-		ins, err := queueAuditInsert(f, chunk, ids, false)
-		eventInserts = append(eventInserts, ins)
-		return err
-	}); err != nil {
+	readEvents, err := queueAuditEvents(f, table, events, head, false, true)
+	if err != nil {
 		return auditChainHead{}, true, fmt.Errorf("%w: %w", errAuditNothingSent, err)
 	}
-	linkSQL, linkArgs := auditLinkCheckStatement(table, head.id, head.hash, len(events))
-	f.queue(linkSQL, linkArgs...)
+	var logInserts []auditPipelineInsert
 	if err := forEachAuditInsertChunk(accessLogs, func(chunk []*models.SecretAccessLog) error {
 		ids := make([]*uint, len(chunk))
 		for i, l := range chunk {
@@ -320,12 +469,7 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 				return err
 			}
 		}
-		for _, ins := range eventInserts {
-			if err := readAuditInsert(f, ins); err != nil {
-				return err
-			}
-		}
-		if err := f.exec(); err != nil {
+		if err := readEvents(); err != nil {
 			return err
 		}
 		for _, ins := range logInserts {
@@ -342,17 +486,6 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 	}()
 	if err := f.close(err); err != nil {
 		return auditChainHead{}, beforeCommit, err
-	}
-
-	// The link check proved the ids ascend in batch order, whatever order
-	// RETURNING listed them in; put each id back on its own row.
-	ids := make([]uint, len(events))
-	for i, e := range events {
-		ids[i] = e.ID
-	}
-	slices.Sort(ids)
-	for i, e := range events {
-		e.ID = ids[i]
 	}
 	tail := events[len(events)-1]
 	return auditChainHead{id: tail.ID, hash: tail.EntryHash}, false, nil
