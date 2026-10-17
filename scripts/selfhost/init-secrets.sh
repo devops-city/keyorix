@@ -228,8 +228,8 @@ echo "Back up $dir/master_password separately: losing it makes every stored secr
 # The server container runs as uid 1001 and REFUSES a group-readable secret file that
 # its own uid owns (the permission rule never trusts a file the process itself could
 # chmod). On a host where your uid is also 1001 the 0640 files above would be refused,
-# so say so now instead of at `docker compose up`. Another owner is fine: the group
-# bit is what the container uses.
+# so say so now instead of at `docker compose up`. The owner must be root (see the
+# NOTE below); the group bit is what the container reads through.
 #
 # INIT_SECRETS_SERVER_UID names the uid to refuse. Default 1001 (the shipped image). Set it
 # only if you rebuilt the image with a different server uid (operator override), or from
@@ -257,4 +257,21 @@ if [ -n "$bad" ]; then
     echo "init-secrets:   sudo chown root:$gid $dir/*" >&2
     echo "init-secrets: (or run this script as a different user)." >&2
     exit 1
+fi
+
+# The server also trusts a secret file only when root (or its own uid) owns it (#3393): an
+# account that owns the file can replace the master password or KEK. Files this script made
+# as a regular user are refused at `docker compose up` until they are handed to root.
+notroot=""
+for _f in db_password master_password admin_password bootstrap_token; do
+    _owner=$(stat -c %u "$dir/$_f" 2>/dev/null || stat -f %u "$dir/$_f" 2>/dev/null || echo "")
+    if [ -n "$_owner" ] && [ "$_owner" != 0 ]; then
+        notroot="$notroot $dir/$_f"
+    fi
+done
+if [ -n "$notroot" ]; then
+    echo >&2
+    echo "init-secrets: NOTE: the server only trusts secret files owned by root; hand these over before starting it:" >&2
+    echo "init-secrets:  $notroot" >&2
+    echo "init-secrets:   sudo chown root:$gid $dir/*" >&2
 fi

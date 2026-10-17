@@ -126,7 +126,7 @@ func TestValidateOIDCToken_RolesLookupFailure_ReturnsRetryableError(t *testing.T
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
 
-	m, roles, err := c.ValidateOIDCToken(ctx, raw)
+	m, roles, _, err := c.ValidateOIDCToken(ctx, raw)
 	require.ErrorIs(t, err, ErrRoleResolutionUnavailable)
 	assert.NotErrorIs(t, err, errRolesStorageDown)
 	assert.Nil(t, m)

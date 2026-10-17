@@ -16,7 +16,8 @@
 //     errors name the variable and the path only.
 //   - Permissions: Lookup leaves the policy to the caller (CheckPermissions plus
 //     the warn-or-refuse matrix); LookupChecked -- used for key material -- judges
-//     the mode on the opened descriptor and always refuses a file that is too open.
+//     the mode and owner on the opened descriptor and always refuses a file that
+//     is too open or owned by anyone but the running user or root (#3393).
 //
 // An empty variable counts as unset (`X=${X:-}` passthrough in compose files
 // is common, and the pre-existing resolvers already treated "" as unset).
@@ -233,12 +234,20 @@ func unwrapPathError(err error) error {
 	return err
 }
 
-// Test seams for the process identity the group rule compares against.
+// Test seams for the process identity the owner and group rules compare
+// against, and for the owner a file reports (a test cannot chown to root).
 var (
 	processUID    = os.Geteuid
 	processGroups = func() []int {
 		gs, _ := os.Getgroups()
 		return append(gs, os.Getegid())
+	}
+	fileOwner = func(info os.FileInfo) (uid, gid int, ok bool) {
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return 0, 0, false
+		}
+		return int(st.Uid), int(st.Gid), true
 	}
 )
 
@@ -253,7 +262,14 @@ var (
 // looks like with group_add. A file owned by the running user must be exactly
 // 0600 / 0400: nothing but the owner has a reason to read it.
 //
-// Always refused: any access for "other", group write, setuid/setgid/sticky.
+// Owner (#3393): the file must be owned by the running user or by root. Whoever
+// owns a file can chmod and rewrite it, so a file owned by any other account
+// lets that account substitute the secret (the KEK or master password of a
+// server running as root, for instance) whatever its mode. There is no
+// allowlist of further trusted owners.
+//
+// Always refused: any access for "other", group write, setuid/setgid/sticky,
+// an owner other than the running user or root.
 // The path is stat'd through symlinks (the Kubernetes layout), so the target's
 // mode is what is judged.
 func CheckPermissions(path string) error {
@@ -274,7 +290,7 @@ func checkInfo(info os.FileInfo) error {
 	mode := info.Mode()
 	perm := mode.Perm()
 	bad := func(why string) error {
-		return fmt.Errorf("mode %04o is too open (%s) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by another user (e.g. root) with a group the process belongs to (fsGroup / group_add) and mode 0440", perm, why)
+		return fmt.Errorf("mode %04o is too open (%s) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by root with a group the process belongs to (fsGroup / group_add) and mode 0440", perm, why)
 	}
 	if mode&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
 		return bad("setuid/setgid/sticky bit")
@@ -285,18 +301,22 @@ func checkInfo(info os.FileInfo) error {
 	if perm&0o020 != 0 {
 		return bad("writable by its group")
 	}
+	uid, gid, ok := fileOwner(info)
+	if !ok {
+		return errors.New("owner cannot be determined -- refusing to trust it")
+	}
+	euid := processUID()
+	if uid != euid && uid != 0 {
+		return fmt.Errorf("owned by uid %d, which is neither the running user (uid %d) nor root -- refusing to trust it (that account can replace the file); chown it to root, keeping the group the process reads it through, or to uid %d", uid, euid, euid)
+	}
 	if perm&0o050 == 0 {
 		return nil
 	}
-	// Group-readable: only an orchestrator-owned file with a group we hold.
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return bad("group-readable and its owner cannot be determined")
-	}
-	if int(st.Uid) == processUID() {
+	// Group-readable: only a root-owned (orchestrator) file with a group we hold.
+	if uid == euid {
 		return bad("group-readable but owned by the running user")
 	}
-	if slices.Contains(processGroups(), int(st.Gid)) {
+	if slices.Contains(processGroups(), gid) {
 		return nil
 	}
 	return bad("group-readable by a group the process does not belong to")
