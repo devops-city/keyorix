@@ -1,0 +1,2 @@
+### Fixed
+- `keyorix-server admin` commands now check for an undeclared transaction-mode connection pooler (PgBouncer `pool_mode=transaction` without `storage.database.pooler: pgbouncer-transaction`) before taking the exclusive database lock, as the server does. Previously the lock was taken first and a refusal could not release it on the pooler's shared server connection. `--force` does not override this refusal.

@@ -12,7 +12,8 @@
 //	          SELECT pg_advisory_xact_lock(KEYAUDIT);
 //	          SELECT id, entry_hash FROM audit_events ORDER BY id DESC LIMIT 1;
 //	          SELECT nextval(<audit_events id sequence>) FROM generate_series(1, n)
-//	flight 2: INSERT audit_events ...; link check; INSERT secret_access_logs ...; COMMIT
+//	flight 2: INSERT audit_events ... with the head and link checks (one
+//	          statement, auditInsertCheckSQL); INSERT secret_access_logs ...; COMMIT
 //
 // The statements and their order inside the transaction are what the GORM
 // path runs, and the INSERTs are GORM's own SQL (built in DryRun mode, hooks
@@ -29,8 +30,10 @@
 // after the head) runs on the final ids before anything is written. An error
 // in either flight makes Postgres skip the rest of it, COMMIT included, and the
 // attempt fails closed exactly like a failed GORM transaction. What the INSERT
-// actually stored is checked inside the transaction too: flight 2 runs the
-// link check (auditLinkCheckSQL) between the events INSERT and COMMIT.
+// actually stored is checked inside the transaction too: the events INSERT
+// in flight 2 is one statement with the head and link checks
+// (auditInsertCheckSQL), which raise unless the stored rows chain onto the
+// head flight 1 read, in id order.
 //
 // When the flusher already knows the head, the whole transaction goes in one
 // flight instead (local_audit_chain_one_flight.go).
@@ -356,34 +359,22 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 	// Flight 2: the INSERTs and COMMIT. Nothing below may be needed to decide
 	// whether to commit: COMMIT runs unless a statement before it fails.
 	commit := &auditFlight{ls: ls, ctx: ctx}
-	var inserts []auditPipelineInsert
-	queue := func(ins auditPipelineInsert, err error) error {
-		if err == nil {
-			inserts = append(inserts, ins)
-		}
-		return err
-	}
-	if err := forEachAuditInsertChunk(events, func(chunk []*models.AuditEvent) error {
-		ids := make([]*uint, len(chunk))
-		for i, e := range chunk {
-			ids[i] = &e.ID
-		}
-		return queue(queueAuditInsert(commit, chunk, ids, true))
-	}); err != nil {
+	// The ids were checked above, but only as assigned: what the INSERT stored
+	// is known once its result is read, after COMMIT is on the wire. The checks
+	// queued with it verify the stored rows inside the transaction instead.
+	readEvents, err := queueAuditEvents(commit, table, events, read, true, false)
+	if err != nil {
 		return read, last, err
 	}
-	eventInserts := len(inserts)
-	// The ids were checked above, but only as assigned: what the INSERT stored
-	// is known once its RETURNING is read, after COMMIT is on the wire. The link
-	// check verifies the stored rows inside the transaction instead.
-	linkSQL, linkArgs := auditLinkCheckStatement(table, headID, headHash, len(events))
-	commit.queue(linkSQL, linkArgs...)
+	var logInserts []auditPipelineInsert
 	if err := forEachAuditInsertChunk(accessLogs, func(chunk []*models.SecretAccessLog) error {
 		ids := make([]*uint, len(chunk))
 		for i, l := range chunk {
 			ids[i] = &l.ID
 		}
-		return queue(queueAuditInsert(commit, chunk, ids, false))
+		ins, err := queueAuditInsert(commit, chunk, ids, false)
+		logInserts = append(logInserts, ins)
+		return err
 	}); err != nil {
 		return read, last, err
 	}
@@ -391,18 +382,11 @@ func (ls *LocalStorage) runAuditPipeline(ctx context.Context, pc *pgx.Conn, batc
 
 	commit.send(pc)
 	err = func() error {
-		for i, ins := range inserts {
-			if i == eventInserts {
-				if err := commit.exec(); err != nil {
-					return err
-				}
-			}
-			if err := readAuditInsert(commit, ins); err != nil {
-				return err
-			}
+		if err := readEvents(); err != nil {
+			return err
 		}
-		if eventInserts == len(inserts) {
-			if err := commit.exec(); err != nil {
+		for _, ins := range logInserts {
+			if err := readAuditInsert(commit, ins); err != nil {
 				return err
 			}
 		}

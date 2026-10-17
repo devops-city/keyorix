@@ -319,11 +319,15 @@ func (c *KeyorixCore) AuthorizeSecretAction(ctx context.Context, userID, secretI
 		return deny, err
 	}
 	if hasACL {
+		noteGateReadAllow(ctx, userID, secret, perm, action)
 		return SecretDecision{Allowed: true}, nil
 	}
 	// Fall back to project-scope RBAC.
 	allowed, err := c.Authorize(ctx, userID, perm, scope)
 	if err != nil || allowed {
+		if err == nil {
+			noteGateReadAllow(ctx, userID, secret, perm, action)
+		}
 		return SecretDecision{Allowed: allowed}, err
 	}
 	// Share term (#2941): consulted only when ACL and role both said no, so the
@@ -343,6 +347,7 @@ func (c *KeyorixCore) AuthorizeSecretAction(ctx context.Context, userID, secretI
 	if !c.noteShareElevation(ctx, userID, secret, perm, action, grant) {
 		return deny, nil
 	}
+	noteGateReadAllow(ctx, userID, secret, perm, action)
 	return SecretDecision{Allowed: true}, nil
 }
 

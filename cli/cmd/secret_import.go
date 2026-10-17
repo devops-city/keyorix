@@ -68,10 +68,10 @@ type secretEntry struct {
 
 func runSecretImport(cmd *cobra.Command, _ []string) error {
 	if importFile == "" {
-		return fmt.Errorf("--file is required (this command only supports file-mode import — see --help)")
+		return usageErrorf("--file is required (this command only supports file-mode import — see --help)")
 	}
 	if importProject == 0 || importEnv == 0 {
-		return fmt.Errorf("--project and --env are both required")
+		return usageErrorf("--project and --env are both required")
 	}
 
 	entries, err := collectImportEntries()

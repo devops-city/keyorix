@@ -39,14 +39,17 @@ type StatTrend struct {
 // snapshot detectable instead of indistinguishable from a fully-clean one,
 // mirroring the CompliancePosture.Degraded convention (compliance_posture.go).
 type DashboardStats struct {
-	TotalSecrets               int64            `json:"totalSecrets"`
-	SharedSecrets              int              `json:"sharedSecrets"`
-	SecretsSharedWithMe        int              `json:"secretsSharedWithMe"`
-	ActiveUsers                int64            `json:"activeUsers"`
-	AuditEvents30d             int64            `json:"auditEvents30d"`
-	AuditLogins30d             int64            `json:"auditLogins30d"`
-	AuditSecretReads30d        int64            `json:"auditSecretReads30d"`
+	TotalSecrets        int64 `json:"totalSecrets"`
+	SharedSecrets       int   `json:"sharedSecrets"`
+	SecretsSharedWithMe int   `json:"secretsSharedWithMe"`
+	ActiveUsers         int64 `json:"activeUsers"`
+	AuditEvents30d      int64 `json:"auditEvents30d"`
+	AuditLogins30d      int64 `json:"auditLogins30d"`
+	AuditSecretReads30d int64 `json:"auditSecretReads30d"`
+	// FailedAuthAttempts24h counts failed LOGINS (auth.login_failed) in the last 24h;
+	// the name is kept for API compatibility. Refused secret reads are counted apart.
 	FailedAuthAttempts24h      int64            `json:"failedAuthAttempts24h"`
+	RefusedSecretReads24h      int64            `json:"refusedSecretReads24h"`
 	InactiveUsers              int64            `json:"inactiveUsers"`
 	PrevTotalSecrets           *int64           `json:"prevTotalSecrets,omitempty"`
 	TotalSecretsTrend          *StatTrend       `json:"totalSecretsTrend,omitempty"`
@@ -326,9 +329,17 @@ func (c *KeyorixCore) fetchAdminDashboardStats(ctx context.Context, stats *Dashb
 	}
 	twentyFourHoursAgo := time.Now().UTC().Add(-24 * time.Hour)
 	successFalse := false
-	_, failedAuth24h, auditErr = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &twentyFourHoursAgo, Success: &successFalse, Page: 1, PageSize: 1})
+	// Failed logins and refused secret reads are counted apart: since #3274 a refused
+	// read is an audit event with success=false, so counting every success=false event
+	// as a "failed auth attempt" mixed authorization refusals into the brute-force signal.
+	failedLoginAction := "auth.login_failed"
+	_, failedAuth24h, auditErr = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &twentyFourHoursAgo, Action: &failedLoginAction, Success: &successFalse, Page: 1, PageSize: 1})
 	if auditErr != nil {
-		stats.degrade("failed_auth_24h", auditErr)
+		stats.degrade("failed_logins_24h", auditErr)
+	}
+	_, stats.RefusedSecretReads24h, auditErr = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &twentyFourHoursAgo, Action: &secretReadAction, Success: &successFalse, Page: 1, PageSize: 1})
+	if auditErr != nil {
+		stats.degrade("refused_secret_reads_24h", auditErr)
 	}
 	inactiveCutoff := thirtyDaysAgo
 	_, inactiveUsers, auditErr = c.storage.ListUsers(ctx, &storage.UserFilter{InactiveSince: &inactiveCutoff, Page: 1, PageSize: 1})

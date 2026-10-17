@@ -75,7 +75,7 @@ type accessReviewEntry struct {
 
 func runAccessReview(_ *cobra.Command, _ []string) error {
 	if accessReviewProject <= 0 {
-		return fmt.Errorf("--project-id is required")
+		return usageErrorf("--project-id is required")
 	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -171,19 +171,19 @@ func addAccessReviewDecisionFlags(cmd *cobra.Command) {
 
 func runAccessReviewDecision(ctx context.Context, client *apiclient.ClientWithResponses, action string) error {
 	if decisionProject <= 0 {
-		return fmt.Errorf("--project-id is required")
+		return usageErrorf("--project-id is required")
 	}
 	if decisionSource == "" {
-		return fmt.Errorf("--source is required (role|direct_share|group_share)")
+		return usageErrorf("--source is required (role|direct_share|group_share)")
 	}
 	if decisionPrincipalID == 0 {
-		return fmt.Errorf("--principal-id is required")
+		return usageErrorf("--principal-id is required")
 	}
 	if decisionSource == "role" && decisionRoleID == 0 {
-		return fmt.Errorf("--role-id is required when --source=role")
+		return usageErrorf("--role-id is required when --source=role")
 	}
 	if (decisionSource == "direct_share" || decisionSource == "group_share") && decisionSecretID == 0 {
-		return fmt.Errorf("--secret-id is required when --source=%s", decisionSource)
+		return usageErrorf("--secret-id is required when --source=%s", decisionSource)
 	}
 	principalID := uint32(decisionPrincipalID) // #nosec G115 -- CLI-supplied uint flag, always small
 	roleID := uint32(decisionRoleID)           // #nosec G115 -- CLI-supplied uint flag, always small
@@ -337,7 +337,7 @@ var accessReviewCampaignOpenCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if campaignProject <= 0 {
-			return fmt.Errorf("--project-id is required")
+			return usageErrorf("--project-id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -372,7 +372,7 @@ var accessReviewCampaignListCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if campaignProject <= 0 {
-			return fmt.Errorf("--project-id is required")
+			return usageErrorf("--project-id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -424,7 +424,7 @@ var accessReviewCampaignShowCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if campaignProject <= 0 || campaignID <= 0 {
-			return fmt.Errorf("--project-id and --campaign-id are required")
+			return usageErrorf("--project-id and --campaign-id are required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -474,7 +474,7 @@ var accessReviewCampaignDecideCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if campaignProject <= 0 || campaignID <= 0 || campaignItem <= 0 {
-			return fmt.Errorf("--project-id, --campaign-id and --item-id are required")
+			return usageErrorf("--project-id, --campaign-id and --item-id are required")
 		}
 		if campaignAction != "attest" && campaignAction != "revoke" {
 			return fmt.Errorf("--action must be attest or revoke")
@@ -507,7 +507,7 @@ var accessReviewCampaignCloseCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if campaignProject <= 0 || campaignID <= 0 {
-			return fmt.Errorf("--project-id and --campaign-id are required")
+			return usageErrorf("--project-id and --campaign-id are required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)

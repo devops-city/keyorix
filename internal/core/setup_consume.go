@@ -13,6 +13,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"runtime/debug"
 	"strings"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -74,6 +76,31 @@ func (c *KeyorixCore) CompleteSetup(ctx context.Context, raw, newPassword, userA
 	if err != nil {
 		return nil, err
 	}
+	return c.completeValidSetupToken(ctx, tok, newPassword, userAgent, ip)
+}
+
+// completeValidSetupToken is everything CompleteSetup does once the token is
+// known to be valid. A PANIC anywhere in it comes back as an error (#3277
+// follow-up), which the HTTP layer answers with its generic "could not be
+// completed" 400, exactly as it answers this path's errors. A dead or forged
+// token never gets here, so the Recovery 500 a panic used to reach told the
+// caller the token was valid.
+//
+// Commit-aware the same way the error kinds are: a session written before the
+// panic is deleted by createSession and its token never returned
+// (mintLoginSession). Nothing that runs after the session is minted can panic
+// out (deleteSessionsForUserAndEvict and the audit writes recover their own),
+// so a recovered panic never follows a minted session. Whatever else committed
+// before the panic (the consumed token, the new password) is what the same
+// write's error leaves too.
+func (c *KeyorixCore) completeValidSetupToken(ctx context.Context, tok *models.SetupToken, newPassword, userAgent, ip string) (result *SetupConsumeResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: setup token %d completion panicked after the token was validated; "+
+				"refusing it like its error: %v\n%s", tok.ID, r, debug.Stack())
+			result, err = nil, fmt.Errorf("%s: setup completion panicked: %v", i18n.T("ErrorStorageFailed", nil), r)
+		}
+	}()
 	switch tok.Purpose {
 	case SetupPurposeAccountSetup, SetupPurposePasswordResetLink:
 		return c.completePasswordSetup(ctx, tok, newPassword, userAgent, ip)
@@ -137,7 +164,10 @@ func (c *KeyorixCore) completePasswordSetup(ctx context.Context, tok *models.Set
 		return &SetupConsumeResult{User: user}, ErrMFARequired
 	}
 
-	session, err := c.mintSession(ctx, user.ID, userAgent, ip)
+	// The token is spent: a panic in the insert is answered like its error
+	// (#3277 follow-up, mintLoginSession), never the Recovery 500 a dead token
+	// cannot get.
+	session, err := c.mintLoginSession(ctx, user.ID, userAgent, ip, false)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
@@ -281,7 +311,10 @@ func (c *KeyorixCore) completeInvitationAccept(ctx context.Context, tok *models.
 	c.auditProjectScoped(ctx, "invitation.accepted", user.ID, inv.ProjectID,
 		fmt.Sprintf("invitation %d accepted by %s (user %d)", inv.ID, inv.Email, user.ID))
 
-	session, err := c.mintSession(ctx, user.ID, userAgent, ip)
+	// The token is spent: a panic in the insert is answered like its error
+	// (#3277 follow-up, mintLoginSession), never the Recovery 500 a dead token
+	// cannot get.
+	session, err := c.mintLoginSession(ctx, user.ID, userAgent, ip, false)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}

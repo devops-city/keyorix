@@ -59,7 +59,7 @@ func init() {
 
 func runRBACListUserRoles(cmd *cobra.Command, args []string) error {
 	if rbacListUserRolesEmail == "" {
-		return fmt.Errorf("--user is required")
+		return usageErrorf("--user is required")
 	}
 	client, err := rbacAPIClient()
 	if err != nil {
@@ -103,7 +103,7 @@ func init() {
 
 func runRBACListPermissions(cmd *cobra.Command, args []string) error {
 	if rbacListPermissionsEmail == "" {
-		return fmt.Errorf("--user is required")
+		return usageErrorf("--user is required")
 	}
 	client, err := rbacAPIClient()
 	if err != nil {
@@ -151,7 +151,7 @@ func init() {
 
 func runRBACCheckPermission(cmd *cobra.Command, args []string) error {
 	if rbacCheckUserEmail == "" || rbacCheckPermName == "" {
-		return fmt.Errorf("--user and --permission are required")
+		return usageErrorf("--user and --permission are required")
 	}
 	// Validate the "resource.action" shape up front for a clear error, matching the old CLI.
 	if _, _, err := splitPermissionName(rbacCheckPermName); err != nil {

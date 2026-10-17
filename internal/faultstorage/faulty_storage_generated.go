@@ -276,6 +276,23 @@ func (w *FaultyStorage) CheckSharePermission(ctx context.Context, secretID uint,
 	return w.real.CheckSharePermission(ctx, secretID, userID, now)
 }
 
+func (w *FaultyStorage) ClaimPendingAuditEvent(ctx context.Context, id uint) (bool, error) {
+	fire, kind, injected := w.check("ClaimPendingAuditEvent")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 bool
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ClaimPendingAuditEvent(ctx, id)
+			return rv1, injected
+		}
+	}
+	return w.real.ClaimPendingAuditEvent(ctx, id)
+}
+
 func (w *FaultyStorage) ClaimUserExternalIDIfUnset(ctx context.Context, id uint, externalID string, updatedAt time.Time) (bool, error) {
 	fire, kind, injected := w.check("ClaimUserExternalIDIfUnset")
 	if fire {
@@ -561,6 +578,23 @@ func (w *FaultyStorage) CountPendingAccessReviewItems(ctx context.Context, campa
 		}
 	}
 	return w.real.CountPendingAccessReviewItems(ctx, campaignID)
+}
+
+func (w *FaultyStorage) CountPendingAuditEvents(ctx context.Context) (int64, error) {
+	fire, kind, injected := w.check("CountPendingAuditEvents")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 int64
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.CountPendingAuditEvents(ctx)
+			return rv1, injected
+		}
+	}
+	return w.real.CountPendingAuditEvents(ctx)
 }
 
 func (w *FaultyStorage) CountProjectMembershipsByUsers(ctx context.Context, userIDs []uint) (map[uint]storage.MembershipCounts, error) {
@@ -1163,6 +1197,22 @@ func (w *FaultyStorage) CreateOrUpdateSecretACL(ctx context.Context, acl *models
 		}
 	}
 	return w.real.CreateOrUpdateSecretACL(ctx, acl)
+}
+
+func (w *FaultyStorage) CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error {
+	fire, kind, injected := w.check("CreatePendingAuditEvent")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			return injected
+		case KindEffectThenError:
+			_ = w.real.CreatePendingAuditEvent(ctx, p)
+			return injected
+		}
+	}
+	return w.real.CreatePendingAuditEvent(ctx, p)
 }
 
 func (w *FaultyStorage) CreatePermission(ctx context.Context, permission *models.Permission) (*models.Permission, error) {
@@ -4860,6 +4910,23 @@ func (w *FaultyStorage) ListOrphanedSecrets(ctx context.Context, projectID uint)
 	return w.real.ListOrphanedSecrets(ctx, projectID)
 }
 
+func (w *FaultyStorage) ListPendingAuditEvents(ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error) {
+	fire, kind, injected := w.check("ListPendingAuditEvents")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []*models.PendingAuditEvent
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListPendingAuditEvents(ctx, afterID, limit)
+			return rv1, injected
+		}
+	}
+	return w.real.ListPendingAuditEvents(ctx, afterID, limit)
+}
+
 func (w *FaultyStorage) ListPermissions(ctx context.Context) ([]*models.Permission, error) {
 	fire, kind, injected := w.check("ListPermissions")
 	if fire {
@@ -5524,6 +5591,23 @@ func (w *FaultyStorage) ListUnreviewedBreakGlassActivationsBefore(ctx context.Co
 	return w.real.ListUnreviewedBreakGlassActivationsBefore(ctx, cutoff)
 }
 
+func (w *FaultyStorage) ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]storage.UserGroupMembershipAt, error) {
+	fire, kind, injected := w.check("ListUserLiveGroupMemberships")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []storage.UserGroupMembershipAt
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListUserLiveGroupMemberships(ctx, userID)
+			return rv1, injected
+		}
+	}
+	return w.real.ListUserLiveGroupMemberships(ctx, userID)
+}
+
 func (w *FaultyStorage) ListUserProjectMemberships(ctx context.Context, userID uint) ([]*models.ProjectMembership, error) {
 	fire, kind, injected := w.check("ListUserProjectMemberships")
 	if fire {
@@ -5556,6 +5640,23 @@ func (w *FaultyStorage) ListUserProjectMembershipsByUserIDs(ctx context.Context,
 		}
 	}
 	return w.real.ListUserProjectMembershipsByUserIDs(ctx, userIDs)
+}
+
+func (w *FaultyStorage) ListUserRoleGrants(ctx context.Context, userID uint) ([]storage.UserRoleGrant, error) {
+	fire, kind, injected := w.check("ListUserRoleGrants")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []storage.UserRoleGrant
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListUserRoleGrants(ctx, userID)
+			return rv1, injected
+		}
+	}
+	return w.real.ListUserRoleGrants(ctx, userID)
 }
 
 func (w *FaultyStorage) ListUsers(ctx context.Context, filter *storage.UserFilter) ([]*models.User, int64, error) {
@@ -5840,6 +5941,23 @@ func (w *FaultyStorage) MarkTOTPStepUsed(ctx context.Context, userID uint, step 
 	return w.real.MarkTOTPStepUsed(ctx, userID, step)
 }
 
+func (w *FaultyStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	fire, kind, injected := w.check("MaxAuditEventID")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 uint
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.MaxAuditEventID(ctx)
+			return rv1, injected
+		}
+	}
+	return w.real.MaxAuditEventID(ctx)
+}
+
 func (w *FaultyStorage) MigrateAuditChainEncoding(ctx context.Context, dryRun bool, anchor *storage.AuditChainAnchor) (*storage.AuditChainMigrationResult, error) {
 	fire, kind, injected := w.check("MigrateAuditChainEncoding")
 	if fire {
@@ -5889,6 +6007,23 @@ func (w *FaultyStorage) PrincipalSecretFirstSeen(ctx context.Context, since time
 		}
 	}
 	return w.real.PrincipalSecretFirstSeen(ctx, since)
+}
+
+func (w *FaultyStorage) ProjectMembershipsAmong(ctx context.Context, userID uint, projectIDs []uint) (map[uint]bool, error) {
+	fire, kind, injected := w.check("ProjectMembershipsAmong")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 map[uint]bool
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ProjectMembershipsAmong(ctx, userID, projectIDs)
+			return rv1, injected
+		}
+	}
+	return w.real.ProjectMembershipsAmong(ctx, userID, projectIDs)
 }
 
 func (w *FaultyStorage) PruneLoginAttempts(ctx context.Context, before time.Time) (int64, error) {
@@ -6090,6 +6225,22 @@ func (w *FaultyStorage) RecordLoginAttempt(ctx context.Context, ip string, at ti
 		}
 	}
 	return w.real.RecordLoginAttempt(ctx, ip, at)
+}
+
+func (w *FaultyStorage) RecordPendingAuditEventFailure(ctx context.Context, id uint, reason string) error {
+	fire, kind, injected := w.check("RecordPendingAuditEventFailure")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			return injected
+		case KindEffectThenError:
+			_ = w.real.RecordPendingAuditEventFailure(ctx, id, reason)
+			return injected
+		}
+	}
+	return w.real.RecordPendingAuditEventFailure(ctx, id, reason)
 }
 
 func (w *FaultyStorage) ReleaseLoginAttempt(ctx context.Context, id uint) error {

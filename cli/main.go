@@ -5,15 +5,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/keyorixhq/keyorix/cli/cmd"
 )
 
 func main() {
-	if err := cmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
-	}
+	os.Exit(cmd.Run(nil, os.Stderr))
 }
