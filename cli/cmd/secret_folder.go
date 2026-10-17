@@ -49,7 +49,7 @@ func init() {
 
 func runSecretFolderCreate(cmd *cobra.Command, args []string) error {
 	if secretFolderCreateName == "" {
-		return fmt.Errorf("folder name is required (use --name)")
+		return usageErrorf("folder name is required (use --name)")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -110,6 +110,9 @@ func init() {
 }
 
 func runSecretFolderList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(folderListFormat); err != nil {
+		return err
+	}
 	client, err := secretAPIClient()
 	if err != nil {
 		return err
@@ -128,8 +131,11 @@ func runSecretFolderList(cmd *cobra.Command, args []string) error {
 	if resp.JSON200 == nil {
 		return httpStatusError("failed to list folders", resp.StatusCode(), resp.Body)
 	}
-	printFolderList(derefSecretSlice(resp.JSON200.Data))
-	return nil
+	folders := derefSecretSlice(resp.JSON200.Data)
+	return emitList(folderListFormat, folders, func() error {
+		printFolderList(derefSecretSlice(resp.JSON200.Data))
+		return nil
+	})
 }
 
 func printFolderList(folders []apiclient.Secret) {
@@ -184,7 +190,7 @@ func confirmSecretFolderDeletion(prompt string) bool {
 
 func runSecretFolderDelete(cmd *cobra.Command, args []string) error {
 	if secretFolderDeleteID == 0 {
-		return fmt.Errorf("folder ID is required (use --id)")
+		return usageErrorf("folder ID is required (use --id)")
 	}
 	if !secretFolderDeleteForce {
 		prompt := fmt.Sprintf("Delete folder %d? This cannot be undone.", secretFolderDeleteID)

@@ -146,6 +146,9 @@ func rotScopeTarget(p apiclient.RotationPolicy) string {
 }
 
 func runRotList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(rotationListFormat); err != nil {
+		return err
+	}
 	client, err := rotationAPIClient()
 	if err != nil {
 		return err
@@ -161,28 +164,34 @@ func runRotList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
-		fmt.Println("No rotation policies.")
+	var policies []apiclient.RotationPolicy
+	if resp.JSON200 != nil && resp.JSON200.Data != nil {
+		policies = *resp.JSON200.Data
+	}
+	return emitList(rotationListFormat, policies, func() error {
+		if resp.JSON200 == nil || resp.JSON200.Data == nil || len(*resp.JSON200.Data) == 0 {
+			fmt.Println("No rotation policies.")
+			return nil
+		}
+		// Fixed-width fmt.Printf, not cliout.NewStdoutTable: the old CLI's listCmd
+		// rolls its own fixed-width columns here rather than using a shared
+		// tabwriter helper (unlike pat/machine list, which do use one and so
+		// happen to already match cliout's tabwriter output) -- matching it
+		// exactly is what makes this command's output byte-for-byte parity-
+		// checkable in scripts/cli-parity-check.sh, per this port's own mandate.
+		fmt.Printf("%-5s %-24s %-14s %-9s %-7s %s\n", "ID", "NAME", "TARGET", "INTERVAL", "ACTIVE", "ALERT")
+		for _, p := range *resp.JSON200.Data {
+			fmt.Printf("%-5d %-24s %-14s %-9s %-7t %dd\n",
+				derefUint32(p.Id), derefStr(p.Name), rotScopeTarget(p),
+				fmt.Sprintf("%dd", derefInt(p.IntervalDays)), derefBool(p.IsActive), derefInt(p.AlertDaysBefore))
+		}
 		return nil
-	}
-	// Fixed-width fmt.Printf, not cliout.NewStdoutTable: the old CLI's listCmd
-	// rolls its own fixed-width columns here rather than using a shared
-	// tabwriter helper (unlike pat/machine list, which do use one and so
-	// happen to already match cliout's tabwriter output) -- matching it
-	// exactly is what makes this command's output byte-for-byte parity-
-	// checkable in scripts/cli-parity-check.sh, per this port's own mandate.
-	fmt.Printf("%-5s %-24s %-14s %-9s %-7s %s\n", "ID", "NAME", "TARGET", "INTERVAL", "ACTIVE", "ALERT")
-	for _, p := range *resp.JSON200.Data {
-		fmt.Printf("%-5d %-24s %-14s %-9s %-7t %dd\n",
-			derefUint32(p.Id), derefStr(p.Name), rotScopeTarget(p),
-			fmt.Sprintf("%dd", derefInt(p.IntervalDays)), derefBool(p.IsActive), derefInt(p.AlertDaysBefore))
-	}
-	return nil
+	})
 }
 
 func runRotCreate(_ *cobra.Command, _ []string) error {
 	if strings.TrimSpace(rotCName) == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	if rotCScope != "project" && rotCScope != "environment" {
 		return fmt.Errorf("--scope must be 'project' or 'environment'")
@@ -191,10 +200,10 @@ func runRotCreate(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("--interval-days must be between 1 and 365")
 	}
 	if rotCScope == "project" && rotCProject == 0 {
-		return fmt.Errorf("--project-id is required when --scope project")
+		return usageErrorf("--project-id is required when --scope project")
 	}
 	if rotCScope == "environment" && rotCEnv == 0 {
-		return fmt.Errorf("--environment-id is required when --scope environment")
+		return usageErrorf("--environment-id is required when --scope environment")
 	}
 
 	body := apiclient.CreateRotationPolicyJSONRequestBody{

@@ -93,7 +93,7 @@ func resolveSecretCreateValue() ([]byte, error) {
 			return nil, err
 		}
 		if len(v) == 0 {
-			return nil, fmt.Errorf("secret value is required")
+			return nil, usageErrorf("secret value is required")
 		}
 		return v, nil
 	case secretCreateFromFile != "":
@@ -101,14 +101,14 @@ func resolveSecretCreateValue() ([]byte, error) {
 	case secretCreateValue != "":
 		return []byte(secretCreateValue), nil
 	default:
-		return nil, fmt.Errorf("secret value is required (use --value, --from-file, or --interactive)")
+		return nil, usageErrorf("secret value is required (use --value, --from-file, or --interactive)")
 	}
 }
 
 func runSecretCreate(cmd *cobra.Command, args []string) error {
 	warnInsecureFlag(cmd, "value", "use --interactive or --from-file instead.")
 	if secretCreateName == "" {
-		return fmt.Errorf("secret name is required (use --name)")
+		return usageErrorf("secret name is required (use --name)")
 	}
 	value, err := resolveSecretCreateValue()
 	if err != nil {
@@ -185,7 +185,7 @@ func defaultEnvironmentForProject(ctx context.Context, client *apiclient.ClientW
 			return int(e.ID), true, nil // #nosec G115 -- DB auto-increment ID
 		}
 	}
-	return 0, false, fmt.Errorf("project %d has no \"development\" environment, so --environment is required\n%s", projectID, validEnvironmentsHint(ctx, client, projectID))
+	return 0, false, usageErrorf("project %d has no \"development\" environment, so --environment is required\n%s", projectID, validEnvironmentsHint(ctx, client, projectID))
 }
 
 // validEnvironmentsHint names the environments a project does have, for the "environment N
@@ -257,10 +257,10 @@ func runSecretGet(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if selectors == 0 {
-		return fmt.Errorf("one of --id, --name, or --ref is required")
+		return usageErrorf("one of --id, --name, or --ref is required")
 	}
 	if selectors > 1 {
-		return fmt.Errorf("--id, --name, and --ref are mutually exclusive")
+		return usageErrorf("--id, --name, and --ref are mutually exclusive")
 	}
 	// A reference read is value-oriented (it resolves to one secret and returns its value).
 	showValue := secretGetShowValue || secretGetRef != ""
@@ -483,7 +483,7 @@ func init() {
 
 func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	if secretUpdateID == 0 {
-		return fmt.Errorf("secret ID is required (use --id)")
+		return usageErrorf("secret ID is required (use --id)")
 	}
 	warnInsecureFlag(cmd, "value", "use --interactive or --from-file instead.")
 
@@ -508,7 +508,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	}
 	switch {
 	case secretUpdateClearReads && secretUpdateMaxReads >= 0:
-		return fmt.Errorf("--max-reads and --clear-max-reads are mutually exclusive")
+		return usageErrorf("--max-reads and --clear-max-reads are mutually exclusive")
 	case secretUpdateClearReads:
 		t := true
 		body.ClearMaxReads = &t
@@ -579,7 +579,7 @@ func init() {
 
 func runSecretDelete(cmd *cobra.Command, args []string) error {
 	if secretDeleteID == 0 && secretDeleteName == "" {
-		return fmt.Errorf("either --id or --name is required")
+		return usageErrorf("either --id or --name is required")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -830,11 +830,14 @@ func init() {
 	secretListCmd.Flags().IntVar(&secretListLimit, "limit", 50, "Maximum number of results")
 	secretListCmd.Flags().IntVar(&secretListOffset, "offset", 0, "Number of results to skip")
 	secretListCmd.Flags().StringVar(&secretListSearch, "search", "", "Search query")
-	secretListCmd.Flags().StringVar(&secretListFormat, "format", "table", "Output format (table, json)")
+	addOutputFlagWithFormatAlias(secretListCmd, &secretListFormat)
 	SecretCmd.AddCommand(secretListCmd)
 }
 
 func runSecretList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(secretListFormat); err != nil {
+		return err
+	}
 	client, err := secretAPIClient()
 	if err != nil {
 		return err
@@ -883,15 +886,11 @@ func runSecretList(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	switch secretListFormat {
-	case "json":
-		return displaySecretsJSON(secrets, total, page, secretListLimit)
-	case "table":
+	if secretListFormat == outputTable {
 		displaySecretsTable(secrets, total, page, secretListLimit)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", secretListFormat)
 	}
+	return displaySecretsStructured(secretListFormat, secrets, total, page, secretListLimit)
 }
 
 func displaySecretsTable(secrets []apiclient.SecretListEntry, total int64, page, pageSize int) {
@@ -967,7 +966,7 @@ type jsonSecretsOutput struct {
 	Secrets []jsonSecretEntry `json:"secrets"`
 }
 
-func displaySecretsJSON(secrets []apiclient.SecretListEntry, total int64, page, pageSize int) error {
+func displaySecretsStructured(format string, secrets []apiclient.SecretListEntry, total int64, page, pageSize int) error {
 	offset := (page - 1) * pageSize
 	out := jsonSecretsOutput{Total: total, Offset: offset, Limit: pageSize, Count: len(secrets), Secrets: make([]jsonSecretEntry, 0, len(secrets))}
 	for _, s := range secrets {
@@ -988,9 +987,7 @@ func displaySecretsJSON(secrets []apiclient.SecretListEntry, total int64, page, 
 		}
 		out.Secrets = append(out.Secrets, entry)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return printStructured(format, out)
 }
 
 func truncateSecretString(s string, maxLen int) string {

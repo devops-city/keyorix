@@ -239,6 +239,9 @@ func runShareCreate(cmd *cobra.Command, args []string) error {
 }
 
 func runShareList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(shareListFormat); err != nil {
+		return err
+	}
 	client, err := shareAPIClient()
 	if err != nil {
 		return err
@@ -254,16 +257,18 @@ func runShareList(cmd *cobra.Command, args []string) error {
 	if resp.JSON200.Data != nil && resp.JSON200.Data.Shares != nil {
 		shares = *resp.JSON200.Data.Shares
 	}
-	if len(shares) == 0 {
-		fmt.Println("No shares found for this secret.")
-		return nil
-	}
-	t := cliout.NewStdoutTable("ID", "SECRET ID", "OWNER ID", "RECIPIENT ID", "IS GROUP", "PERMISSION", "CREATED AT", "EXPIRES AT")
-	for _, s := range shares {
-		t.Row(derefInt(s.Id), derefInt(s.SecretId), derefInt(s.OwnerId), derefInt(s.RecipientId),
-			derefBool(s.IsGroup), derefSharePermission(s.Permission), formatShareExpiry(s.CreatedAt), formatShareExpiry(s.ExpiresAt))
-	}
-	return t.Flush()
+	return emitList(shareListFormat, shares, func() error {
+		if len(shares) == 0 {
+			fmt.Println("No shares found for this secret.")
+			return nil
+		}
+		t := cliout.NewStdoutTable("ID", "SECRET ID", "OWNER ID", "RECIPIENT ID", "IS GROUP", "PERMISSION", "CREATED AT", "EXPIRES AT")
+		for _, s := range shares {
+			t.Row(derefInt(s.Id), derefInt(s.SecretId), derefInt(s.OwnerId), derefInt(s.RecipientId),
+				derefBool(s.IsGroup), derefSharePermission(s.Permission), formatShareExpiry(s.CreatedAt), formatShareExpiry(s.ExpiresAt))
+		}
+		return t.Flush()
+	})
 }
 
 func runShareUpdate(cmd *cobra.Command, args []string) error {
@@ -271,7 +276,7 @@ func runShareUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid permission: %s (must be 'read' or 'write')", shareUpdatePermission)
 	}
 	if shareUpdateClearExpiry && (shareUpdateExpires != "" || shareUpdateTTL != "") {
-		return fmt.Errorf("--clear-expiry cannot be combined with --expires or --ttl")
+		return usageErrorf("--clear-expiry cannot be combined with --expires or --ttl")
 	}
 	expiresAt, err := resolveShareExpiry(shareUpdateExpires, shareUpdateTTL)
 	if err != nil {

@@ -1,9 +1,11 @@
 # Recovering a locked-out admin
 
 What to do when every admin account is locked out, password-lost, or MFA-lost, and you
-still have shell access to the host running the server. Every command below was run for
-real against a fresh SQLite install with the shipped config (`security.require_mfa: true`,
-the default) while writing this page (#3024, 2026-10-10).
+still have shell access to the host running the server. The output below is illustrative
+(user ids, the key, the one-time password and times differ on your install); it assumes the
+shipped config (`security.require_mfa: true`, the default) and a server that serves TLS
+with the certificate `admin init` generated, so the CLI needs `--ca-file certs/server.crt`
+(or `keyorix config set ca_file`).
 
 ## 0. Before you're locked out: generate a recovery key
 
@@ -12,7 +14,7 @@ manager, a sealed envelope) — **not** in this terminal's scrollback or a log f
 shown exactly once.
 
 ```bash
-export KEYORIX_MASTER_PASSWORD='your-existing-passphrase'
+export KEYORIX_MASTER_PASSWORD_FILE=./secrets/master_password   # or KEYORIX_MASTER_PASSWORD, --passphrase-file, --passphrase-stdin
 keyorix-server admin recovery-key rotate --config ./keyorix.yaml
 ```
 
@@ -86,10 +88,10 @@ happens to be running when you do this.
 
 ```bash
 KEYORIX_CONFIG_PATH=./keyorix.yaml keyorix-server     # the server has no --config flag
-keyorix login --server http://localhost:8080 --username admin   # paste the one-time password at the hidden prompt
+keyorix login --server https://localhost:8080 --ca-file certs/server.crt --username admin   # paste the one-time password at the hidden prompt
 ```
 
-Expected: `Logged in to http://localhost:8080 as admin.` This is a **setup session**: it
+Expected: `Logged in to https://localhost:8080 as admin.` This is a **setup session**: it
 lasts at most 15 minutes (refreshing does not extend it) and can do exactly two things —
 set a new password and enrol a second factor. Everything else is refused:
 
@@ -137,10 +139,10 @@ flags to be prompted (no terminal echo); passing `--current-password`/`--new-pas
 ```
 $ keyorix secret list
 Error: failed to list secrets: HTTP 401          # the setup session is gone
-$ keyorix login --server http://localhost:8080 --username admin
+$ keyorix login --server https://localhost:8080 --ca-file certs/server.crt --username admin
 Password:                                        # the new password, no echo
 Authenticator code (or an unused recovery code):
-Logged in to http://localhost:8080 as admin.
+Logged in to https://localhost:8080 as admin.
 $ keyorix secret list
 Secrets List
 ...

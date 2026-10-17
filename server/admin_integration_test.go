@@ -404,6 +404,7 @@ func TestAdminGuard_RefusesWhileServerRunning_ThenForceOverrides(t *testing.T) {
 	if out, err := runAdmin(t, bin, dir, env, "init", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin init failed: %v\n%s", err, out)
 	}
+	pinFreeHTTPPort(t, dir)
 	// diagnose performs first-boot KEK derivation (creates keys/kek.salt and
 	// keys/dek.key) -- required before the real server below can pass its own
 	// startup validation and actually boot far enough to acquire the
@@ -561,6 +562,7 @@ func TestServerStartup_RefusedWhileAdminHoldsExclusiveLock_SQLite(t *testing.T) 
 	if out, err := runAdmin(t, bin, dir, env, "init", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin init failed: %v\n%s", err, out)
 	}
+	pinFreeHTTPPort(t, dir)
 	if out, err := runAdmin(t, bin, dir, env, "diagnose", "--config", "./keyorix.yaml"); err != nil {
 		t.Fatalf("admin diagnose (key derivation) failed: %v\n%s", err, out)
 	}

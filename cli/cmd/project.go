@@ -9,7 +9,6 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -83,7 +82,7 @@ func init() {
 
 func runProjectCreate(_ *cobra.Command, _ []string) error {
 	if projectCreateName == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -156,6 +155,9 @@ var projectListCmd = &cobra.Command{
 }
 
 func runProjectList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(projectListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -165,8 +167,7 @@ func runProjectList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	printProjects(projects)
-	return nil
+	return emitList(projectListFormat, projects, func() error { printProjects(projects); return nil })
 }
 
 // listProjects GETs /api/v1/projects, shared by every command below that needs to resolve
@@ -382,10 +383,13 @@ var projectStatsCmd = &cobra.Command{
 }
 
 func init() {
-	projectStatsCmd.Flags().StringVar(&projectStatsFormat, "format", "table", "Output format (table, json)")
+	addOutputFlagWithFormatAlias(projectStatsCmd, &projectStatsFormat)
 }
 
 func runProjectStats(_ *cobra.Command, args []string) error {
+	if err := checkOutputFormat(projectStatsFormat); err != nil {
+		return err
+	}
 	name := args[0]
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -412,20 +416,11 @@ func runProjectStats(_ *cobra.Command, args []string) error {
 }
 
 func printProjectStats(projectName string, s *projectStats) error {
-	switch projectStatsFormat {
-	case "json":
-		b, err := json.Marshal(s)
-		if err != nil {
-			return fmt.Errorf("failed to marshal stats: %w", err)
-		}
-		fmt.Println(string(b))
-		return nil
-	case "table":
+	if projectStatsFormat == outputTable {
 		printProjectStatsTable(projectName, s)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", projectStatsFormat)
 	}
+	return printStructured(projectStatsFormat, s)
 }
 
 func printProjectStatsTable(projectName string, s *projectStats) {
@@ -559,10 +554,13 @@ var projectHealthCmd = &cobra.Command{
 
 func init() {
 	projectHealthCmd.Flags().IntVar(&projectHealthLimit, "limit", 20, "Maximum number of secrets to display (1-100)")
-	projectHealthCmd.Flags().StringVar(&projectHealthFormat, "format", "table", "Output format (table, json)")
+	addOutputFlagWithFormatAlias(projectHealthCmd, &projectHealthFormat)
 }
 
 func runProjectHealth(_ *cobra.Command, args []string) error {
+	if err := checkOutputFormat(projectHealthFormat); err != nil {
+		return err
+	}
 	name := args[0]
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -594,20 +592,11 @@ func runProjectHealth(_ *cobra.Command, args []string) error {
 }
 
 func printProjectHealth(projectName string, s *projectHealthSummary) error {
-	switch projectHealthFormat {
-	case "json":
-		b, err := json.Marshal(s)
-		if err != nil {
-			return fmt.Errorf("failed to marshal health summary: %w", err)
-		}
-		fmt.Println(string(b))
-		return nil
-	case "table":
+	if projectHealthFormat == outputTable {
 		printProjectHealthTable(projectName, s)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", projectHealthFormat)
 	}
+	return printStructured(projectHealthFormat, s)
 }
 
 func printProjectHealthTable(projectName string, s *projectHealthSummary) {
@@ -720,6 +709,9 @@ var envListCmd = &cobra.Command{
 }
 
 func runEnvList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(envListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -733,8 +725,10 @@ func runEnvList(_ *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	printEnvironmentTable(envs, name)
-	return nil
+	return emitList(envListFormat, envs, func() error {
+		printEnvironmentTable(envs, name)
+		return nil
+	})
 }
 
 func printEnvironmentTable(envs []environmentItem, projectName string) {

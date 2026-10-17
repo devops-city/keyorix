@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -29,13 +27,16 @@ var secretVersionsCmd = &cobra.Command{
 
 func init() {
 	secretVersionsCmd.Flags().IntVar(&secretVersionsID, "id", 0, "Secret ID (required)")
-	secretVersionsCmd.Flags().StringVar(&secretVersionsFormat, "format", "table", "Output format (table, json)")
+	addOutputFlagWithFormatAlias(secretVersionsCmd, &secretVersionsFormat)
 	SecretCmd.AddCommand(secretVersionsCmd)
 }
 
 func runSecretVersions(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(secretVersionsFormat); err != nil {
+		return err
+	}
 	if secretVersionsID == 0 {
-		return fmt.Errorf("secret ID is required (use --id)")
+		return usageErrorf("secret ID is required (use --id)")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -63,15 +64,11 @@ func runSecretVersions(cmd *cobra.Command, args []string) error {
 	versions := derefSecretVersionSlice(vresp.JSON200.Data.Versions)
 	totalReads := vresp.JSON200.Data.TotalReads
 
-	switch secretVersionsFormat {
-	case "json":
-		return displayVersionsJSON(secret, versions, totalReads)
-	case "table":
+	if secretVersionsFormat == outputTable {
 		displayVersionsTable(secret, versions, totalReads)
 		return nil
-	default:
-		return fmt.Errorf("unsupported format: %s (use 'table' or 'json')", secretVersionsFormat)
 	}
+	return displayVersionsStructured(secretVersionsFormat, secret, versions, totalReads)
 }
 
 // displayVersionsTable omits the size/algorithm columns the old CLI's
@@ -126,7 +123,7 @@ type jsonVersionEntry struct {
 	CreatedAt     string `json:"created_at"`
 }
 
-func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVersion, totalReads *int) error {
+func displayVersionsStructured(format string, secret *apiclient.Secret, versions []apiclient.SecretVersion, totalReads *int) error {
 	var out struct {
 		Secret struct {
 			ID   int    `json:"id"`
@@ -150,9 +147,7 @@ func displayVersionsJSON(secret *apiclient.Secret, versions []apiclient.SecretVe
 		}
 		out.Versions = append(out.Versions, entry)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return printStructured(format, out)
 }
 
 // ── diff ────────────────────────────────────────────────────────────────────────
@@ -207,7 +202,7 @@ func runSecretDiff(_ *cobra.Command, args []string) error {
 	id := secretDiffID
 	if id == 0 {
 		if secretDiffProject == 0 || secretDiffEnv == 0 {
-			return fmt.Errorf("--project and --environment are required to resolve <name> (or pass --id directly)")
+			return usageErrorf("--project and --environment are required to resolve <name> (or pass --id directly)")
 		}
 		resp, nerr := client.GetSecretByNameWithResponse(ctx, &apiclient.GetSecretByNameParams{
 			Name: name, ProjectId: secretDiffProject, EnvironmentId: secretDiffEnv,
@@ -323,6 +318,9 @@ var versionCommentListCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(2),
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := checkOutputFormat(commentListFormat); err != nil {
+			return err
+		}
 		secretID, err := parseSecretArg(args[0])
 		if err != nil {
 			return fmt.Errorf("invalid secret ID %q: %w", args[0], err)
@@ -344,19 +342,21 @@ var versionCommentListCmd = &cobra.Command{
 		}
 		comments := derefVersionCommentSlice(resp.JSON200.Data.Comments)
 		total := derefSecretInt(resp.JSON200.Data.Total)
-		if total == 0 {
-			fmt.Println("No comments found.")
-			return nil
-		}
-		fmt.Printf("Comments for secret %s, version %s (%d total):\n", args[0], args[1], total)
-		for _, c := range comments {
-			when := ""
-			if c.CreatedAt != nil {
-				when = c.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+		return emitList(commentListFormat, comments, func() error {
+			if total == 0 {
+				fmt.Println("No comments found.")
+				return nil
 			}
-			fmt.Printf("  [%d] %s (%s): %s\n", derefSecretInt(c.Id), derefStr(c.Username), when, derefStr(c.Comment))
-		}
-		return nil
+			fmt.Printf("Comments for secret %s, version %s (%d total):\n", args[0], args[1], total)
+			for _, c := range comments {
+				when := ""
+				if c.CreatedAt != nil {
+					when = c.CreatedAt.UTC().Format("2006-01-02 15:04:05")
+				}
+				fmt.Printf("  [%d] %s (%s): %s\n", derefSecretInt(c.Id), derefStr(c.Username), when, derefStr(c.Comment))
+			}
+			return nil
+		})
 	},
 }
 
@@ -421,7 +421,7 @@ as a NEW version (history stays append-only, so the rollback itself can be undon
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if secretRollbackID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		if secretRollbackVersion <= 0 {
 			return fmt.Errorf("--version must be a positive version number")

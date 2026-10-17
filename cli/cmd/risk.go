@@ -49,6 +49,9 @@ var riskListCmd = &cobra.Command{
 	Short:        "List risk exceptions (active by default; --all includes expired)",
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
+		if err := checkOutputFormat(riskListFormat); err != nil {
+			return err
+		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
 		if err != nil {
@@ -68,20 +71,22 @@ var riskListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if len(out.Exceptions) == 0 {
-			fmt.Println("No risk exceptions.")
-			return nil
-		}
-		for _, e := range out.Exceptions {
-			approval := "pending approval"
-			if e.Approved {
-				approval = "approved"
+		return emitList(riskListFormat, out.Exceptions, func() error {
+			if len(out.Exceptions) == 0 {
+				fmt.Println("No risk exceptions.")
+				return nil
 			}
-			fmt.Printf("[%s, %s] #%d %s (category=%s, ref=%q)\n", e.Status, approval, e.ID,
-				cliout.SanitizeForTerminal(e.Title), cliout.SanitizeForTerminal(e.Category), cliout.SanitizeForTerminal(e.Reference))
-			fmt.Printf("        expires %s — %s\n", e.ExpiresAt, cliout.SanitizeForTerminal(e.Justification))
-		}
-		return nil
+			for _, e := range out.Exceptions {
+				approval := "pending approval"
+				if e.Approved {
+					approval = "approved"
+				}
+				fmt.Printf("[%s, %s] #%d %s (category=%s, ref=%q)\n", e.Status, approval, e.ID,
+					cliout.SanitizeForTerminal(e.Title), cliout.SanitizeForTerminal(e.Category), cliout.SanitizeForTerminal(e.Reference))
+				fmt.Printf("        expires %s — %s\n", e.ExpiresAt, cliout.SanitizeForTerminal(e.Justification))
+			}
+			return nil
+		})
 	},
 }
 
@@ -95,10 +100,10 @@ var riskAddCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if riskAddTitle == "" || riskAddJustification == "" {
-			return fmt.Errorf("--title and --justification are required")
+			return usageErrorf("--title and --justification are required")
 		}
 		if riskAddExpires == "" {
-			return fmt.Errorf("--expires is required (RFC3339, e.g. 2026-12-31T00:00:00Z)")
+			return usageErrorf("--expires is required (RFC3339, e.g. 2026-12-31T00:00:00Z)")
 		}
 		expiresAt, err := time.Parse(time.RFC3339, riskAddExpires)
 		if err != nil {
@@ -147,7 +152,7 @@ unilaterally creating and self-approving a suppression of their own risk.`,
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if riskApproveID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)
@@ -174,7 +179,7 @@ var riskRevokeCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		if riskRevokeID == 0 {
-			return fmt.Errorf("--id is required")
+			return usageErrorf("--id is required")
 		}
 		ctx := context.Background()
 		client, err := apiClientWithSkewCheck(ctx)

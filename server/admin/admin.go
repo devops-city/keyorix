@@ -49,6 +49,13 @@ var (
 	forceFlag      bool
 )
 
+// Seams for the lock-order test: acquireDatabaseLock must run the pooler check
+// before it takes the lock.
+var (
+	refuseTransactionPooler = storage.RefuseUndeclaredTransactionPooler
+	acquireExclusive        = serverguard.AcquireExclusive
+)
+
 func init() {
 	rootCmd.PersistentFlags().StringVar(&configPathFlag, "config", "", "Path to config file (defaults to $KEYORIX_CONFIG_PATH or keyorix.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&forceFlag, "force", false, "Run even if a live server appears to be attached to this database")
@@ -105,6 +112,11 @@ func loadConfig() (*config.Config, error) {
 	if cfg.Storage.Type == "" {
 		cfg.Storage.Type = "local"
 	}
+	// The same *_FILE permission policy the server applies at boot, so an admin
+	// command fails early on a file the server would refuse to start with.
+	if _, err := cfg.EnforceSecretFilePermissions(); err != nil {
+		return nil, fmt.Errorf("secret file security: %w", err)
+	}
 	// server/main.go's boot path always calls this before touching storage;
 	// admin commands never went through that path, so any storage call that
 	// happens to localize an error message (e.g. GetUserByEmail's not-found
@@ -147,7 +159,16 @@ const stoppedServerHint = "With Docker Compose, run admin commands in a throwawa
 // See internal/serverguard's package doc for the underlying detection
 // mechanism and its limits.
 func acquireDatabaseLock(cfg *config.Config) (*serverguard.Exclusive, error) {
-	lock, err := serverguard.AcquireExclusive(cfg)
+	// Before the lock, as the server does (server/main.go): behind an undeclared
+	// transaction-mode pooler the session advisory lock would stay on a server
+	// connection the pooler shares, and a refusal afterwards cannot release it.
+	// --force does not apply: it overrides a held lock, not an unsafe pooler. A probe
+	// that merely could not connect falls through; the lock attempt reports that
+	// itself (#2362).
+	if perr := refuseTransactionPooler(cfg); perr != nil && storage.IsUndeclaredTransactionPooler(perr) {
+		return nil, perr
+	}
+	lock, err := acquireExclusive(cfg)
 	if err != nil {
 		if forceFlag {
 			// single_writer: --force never runs next to a single-writer server.

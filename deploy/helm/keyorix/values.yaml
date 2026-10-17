@@ -100,9 +100,34 @@ server:
     # tag.
     digest: ""
     pullPolicy: IfNotPresent
-  # The server holds the encryption keys on a single ReadWriteOnce volume and is
-  # a single logical instance — do not scale beyond 1 replica.
+  # One replica (default): the single-instance deployment, keys on a ReadWriteOnce
+  # volume, Recreate rollouts. More than one is the HA topology of ADR-039 and the
+  # render FAILS unless it can work:
+  #   - keysPersistence.enabled with accessMode ReadWriteMany: every replica must
+  #     read the same wrapped DEK and KEK salt (a per-pod or ReadWriteOnce volume
+  #     gives each replica its own keys);
+  #   - singleWriter must be false (single-writer mode allows exactly one server).
+  # The chart renders PostgreSQL only, so SQLite (single-process) cannot be
+  # combined with replicas here. With replicas > 1 the chart also renders a
+  # PodDisruptionBudget, topologySpreadConstraints, RollingUpdate rollouts and sets
+  # security.auth_rate_limit_fallback.replicas. Use an external PostgreSQL
+  # (postgresql.enabled=false): the bundled one is a single evaluation pod.
   replicas: 1
+  # storage.database.single_writer (docs/single-writer.md): this one server is the
+  # database's only writer, which buys cheaper warm reads. Needs PostgreSQL, no
+  # externalDatabase.pooler=pgbouncer-transaction, and exactly one replica.
+  singleWriter: false
+  # PodDisruptionBudget, rendered only for replicas > 1 (a budget on a singleton
+  # could only block its one drain). minAvailable wins when both are set; to use
+  # maxUnavailable instead, set `minAvailable: null` too.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # topologySpreadConstraints for replicas > 1. Empty (default) = spread over nodes
+  # and zones as a preference (ScheduleAnyway) so a small cluster still schedules
+  # every replica; a list here replaces that default verbatim (include your own
+  # labelSelector: app.kubernetes.io/component=server plus the release instance).
+  topologySpreadConstraints: []
   service:
     port: 8080
   # trustedProxies is the server's own server.http.trusted_proxies: IPs/CIDRs of the
@@ -209,6 +234,9 @@ web:
     digest: ""
     pullPolicy: IfNotPresent
   replicas: 1
+  # topologySpreadConstraints for replicas > 1; same default and override rules as
+  # server.topologySpreadConstraints (labelSelector: component=web).
+  topologySpreadConstraints: []
   service:
     type: ClusterIP
     port: 80
@@ -315,7 +343,9 @@ postgresql:
   # Settings that would override the secure baseline or run commands are refused:
   # ssl and ssl_*, hba_file, ident_file, listen_addresses, port,
   # password_encryption, data_directory, config_file, archive_command,
-  # archive_library, restore_command.
+  # archive_library, restore_command. session_replication_role is refused too: in
+  # 'replica' mode PostgreSQL enforces no foreign keys and fires no ordinary
+  # trigger, and the server refuses to start unless it is 'origin' (#3361).
   settings: {}
   resources:
     requests:
@@ -397,5 +427,41 @@ networkPolicy:
     #         - protocol: TCP
     #           port: 5432
     extraRules: []
+    # databaseTo: with postgresql.enabled=false the server's egress to the external
+    # PostgreSQL is DENIED unless you name it here (a NetworkPolicy cannot match a
+    # host name, so give the database's IPs/CIDRs or its in-cluster pods). A list of
+    # NetworkPolicyPeer entries; the port is externalDatabase.port. Example:
+    #   databaseTo:
+    #     - ipBlock: { cidr: 10.20.0.0/24 }
+    databaseTo: []
+    # kmsTo / kmsPorts: the key-management or secret-backend endpoints the server calls
+    # (Vault/OpenBao, a cloud KMS), same peer format, TCP on kmsPorts (default 443).
+    kmsTo: []
+    kmsPorts: [443]
+  ingress:
+    # controllerNamespaceSelector: labels of the ingress controller's namespace. When
+    # set, the web pods accept traffic only from that namespace and this release's own
+    # pods (the server and postgresql policies already restrict their ingress). Unset
+    # (default) = web ingress unrestricted. Example (ingress-nginx):
+    #   controllerNamespaceSelector:
+    #     kubernetes.io/metadata.name: ingress-nginx
+    controllerNamespaceSelector: {}
+    # monitoringNamespaceSelector: labels of the namespace Prometheus scrapes from; it
+    # may then reach the server port (/metrics). Needed for monitoring.serviceMonitor.
+    monitoringNamespaceSelector: {}
+
+# ── Monitoring ────────────────────────────────────────────────────────────────
+monitoring:
+  # Prometheus Operator ServiceMonitor for the server's /metrics. Needs the
+  # monitoring.coreos.com CRDs. With the secure baseline the scrape is HTTPS with the
+  # chart's certificate as CA and the generated /metrics bearer token; the
+  # ServiceMonitor then lives in the release namespace (leave namespace empty).
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    interval: 30s
+    scrapeTimeout: 10s
+    # Extra labels, e.g. the release label your Prometheus selects ServiceMonitors by.
+    labels: {}
 
 imagePullSecrets: []

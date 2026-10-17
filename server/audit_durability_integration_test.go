@@ -185,7 +185,7 @@ func TestAuditDurability_SQLiteDefaultBootIsStrict(t *testing.T) {
 		t.Fatalf("admin migrate failed: %v\n%s", err, out)
 	}
 
-	bootstrapAdminViaHTTP(t, bin, dir, env, "8080", "defaultadmin", "fast-audit-default@example.com", "InitialPassw0rd!")
+	bootstrapAdminViaHTTP(t, bin, dir, env, pinFreeHTTPPort(t, dir), "defaultadmin", "fast-audit-default@example.com", "InitialPassw0rd!")
 
 	// After the boot: the encryption key files are created on first server
 	// start, not by `admin init`, so a pre-boot `validate` fails its own

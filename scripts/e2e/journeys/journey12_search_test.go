@@ -110,18 +110,18 @@ func TestJourney_Search(t *testing.T) {
 	}
 }
 
-// searchSecretNames runs `secret list --search <query> --format json` as env
+// searchSecretNames runs `secret list --search <query> -o json` as env
 // and returns the matched secret names.
 func searchSecretNames(t *testing.T, cliBin string, env []string, query string) []string {
 	t.Helper()
-	out := runCLI(t, cliBin, env, "secret", "list", "--search", query, "--format", "json", "--limit", "100")
+	out := runCLI(t, cliBin, env, "secret", "list", "--search", query, "-o", "json", "--limit", "100")
 	var data struct {
 		Secrets []struct {
 			Name string `json:"name"`
 		} `json:"secrets"`
 	}
 	if err := json.Unmarshal([]byte(out), &data); err != nil {
-		t.Fatalf("decode `secret list --search %s --format json`: %v\nraw: %s", query, err, out)
+		t.Fatalf("decode `secret list --search %s -o json`: %v\nraw: %s", query, err, out)
 	}
 	names := make([]string, 0, len(data.Secrets))
 	for _, sec := range data.Secrets {

@@ -33,12 +33,13 @@ Vault is powerful but requires a dedicated admin. Doppler is simple but SaaS-onl
 curl -L https://raw.githubusercontent.com/keyorixhq/keyorix/main/install.sh | sh
 ```
 
-That installs the `keyorix` **CLI** only. The server (`keyorix-server`) is a
-separate release asset (`keyorix-server_linux_amd64`, plus an `-airgap` variant,
-with `checksums.txt`) — see [QUICK_START.md](QUICK_START.md#get-the-binaries) — or a
+That installs the `keyorix` **CLI** only (Linux and macOS, amd64 and arm64). The server
+(`keyorix-server`) is a separate release asset (`keyorix-server_<os>_<arch>` for
+`linux`/`darwin` on `amd64`/`arm64`, plus a Linux-only `-airgap` variant, with
+`checksums.txt`) — see [QUICK_START.md](QUICK_START.md#get-the-binaries) — or a
 container image (`ghcr.io/keyorixhq/keyorix-server`).
 
-Or build from source:
+Or build from source (Go only; no C toolchain, the SQLite driver is pure Go):
 
 ```bash
 git clone https://github.com/keyorixhq/keyorix
@@ -64,11 +65,21 @@ reference (encryption/KEK providers, MFA, WebAuthn, dynamic secrets, OIDC, …).
 Running on edge or industrial devices, unattended or air-gapped sites:
 [docs/edge-deployment.md](docs/edge-deployment.md).
 
-**Or start just the server binary:**
+**Or run just the server binary** (the server needs a config, encryption keys and a
+migrated database first, written by `admin init`; the passphrase comes from a file
+or a prompt, not a command line):
 
 ```bash
-KEYORIX_MASTER_PASSWORD=yourpassword keyorix-server
+keyorix-server admin generate-secrets    # master passphrase, bootstrap token, admin password: 0600 files in ./secrets
+export KEYORIX_MASTER_PASSWORD_FILE=secrets/master_password KEYORIX_BOOTSTRAP_TOKEN_FILE=secrets/bootstrap_token
+keyorix-server admin init
+keyorix-server admin encryption init
+keyorix-server admin migrate
+keyorix-server
 ```
+
+[QUICK_START.md](QUICK_START.md#initialise-the-server-host) has the full sequence,
+including creating the first admin.
 
 **Log in with the CLI:**
 
@@ -215,8 +226,9 @@ current verified-compatible state.
 ## Architecture
 
 Two binaries: a thin `keyorix` CLI that only ever talks REST to a server, and the
-`keyorix-server` binary itself (HTTP REST + gRPC APIs, port 8080 by default). Web UI on
-port 3000. The CLI has no local database mode and cannot bypass the server's own
+`keyorix-server` binary itself (HTTP REST on port 8080 by default; a partial gRPC
+surface on port 9090, off unless `server.grpc.enabled`). A server built with `make build-ui` serves the web UI on the HTTP port;
+the Docker Compose stack publishes it on 8088. The CLI has no local database mode and cannot bypass the server's own
 authorization/audit — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full
 picture, including `keyorix-server admin`'s offline, host-side operations (recover a
 locked-out admin, offline backup/restore, independent audit-chain verification).
@@ -246,7 +258,6 @@ Security issues: security@keyorix.com
 ## Roadmap
 
 - Kubernetes service account authentication
-- Java SDK
 
 ---
 

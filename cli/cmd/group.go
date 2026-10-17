@@ -67,7 +67,7 @@ func init() {
 
 func runGroupCreate(cmd *cobra.Command, args []string) error {
 	if groupCreateName == "" {
-		return fmt.Errorf("name is required (use --name)")
+		return usageErrorf("name is required (use --name)")
 	}
 	client, serverURL, err := groupAPIClient()
 	if err != nil {
@@ -279,6 +279,9 @@ func init() {
 }
 
 func runGroupList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(groupListFormat); err != nil {
+		return err
+	}
 	client, _, err := groupAPIClient()
 	if err != nil {
 		return err
@@ -291,11 +294,13 @@ func runGroupList(cmd *cobra.Command, args []string) error {
 		return httpStatusError("failed to list groups", resp.StatusCode(), resp.Body)
 	}
 	groups := derefGroupSlice(resp.JSON200.Data.Groups)
-	fmt.Printf("%-6s %-25s %s\n", "ID", "NAME", "DESCRIPTION")
-	for _, g := range groups {
-		fmt.Printf("%-6d %-25s %s\n", derefInt(g.Id), cliout.SanitizeForTerminal(derefStr(g.Name)), cliout.SanitizeForTerminal(derefStr(g.Description)))
-	}
-	return nil
+	return emitList(groupListFormat, groups, func() error {
+		fmt.Printf("%-6s %-25s %s\n", "ID", "NAME", "DESCRIPTION")
+		for _, g := range groups {
+			fmt.Printf("%-6d %-25s %s\n", derefInt(g.Id), cliout.SanitizeForTerminal(derefStr(g.Name)), cliout.SanitizeForTerminal(derefStr(g.Description)))
+		}
+		return nil
+	})
 }
 
 // ── members ─────────────────────────────────────────────────────────────────────
@@ -496,7 +501,7 @@ func groupRef(args []string, idFlag int, nameFlag string) (string, error) {
 	case idFlag != 0:
 		return strconv.Itoa(idFlag), nil
 	}
-	return "", fmt.Errorf("group is required: pass the group name or id (e.g. `keyorix group get platform-team`) or use --id")
+	return "", usageErrorf("group is required: pass the group name or id (e.g. `keyorix group get platform-team`) or use --id")
 }
 
 // resolveRBACGroupIDOnly is resolveRBACGroupID without the display name. A numeric
@@ -521,7 +526,7 @@ func groupMemberRefs(args []string, groupID int, groupName string, userID int, u
 	case userID != 0:
 		uref = strconv.Itoa(userID)
 	default:
-		return "", "", fmt.Errorf("user is required: pass --user <username|email|id> (or --user-id)")
+		return "", "", usageErrorf("user is required: pass --user <username|email|id> (or --user-id)")
 	}
 	return gref, uref, nil
 }

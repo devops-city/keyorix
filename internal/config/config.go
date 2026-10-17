@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -359,6 +360,38 @@ type ServerConfig struct {
 	HTTP      ServerInstanceConfig `yaml:"http"`
 	GRPC      ServerInstanceConfig `yaml:"grpc"`
 	AccessLog AccessLogConfig      `yaml:"access_log,omitempty"`
+	Log       LogConfig            `yaml:"log,omitempty"`
+}
+
+// Values of server.log.format.
+const (
+	LogFormatText = "text"
+	LogFormatJSON = "json"
+)
+
+// LogConfig configures the server's log output format (not the audit trail).
+type LogConfig struct {
+	// Format is "" or "text" (default: the existing human-readable lines) or "json"
+	// (one JSON object per line with ts, level, msg and, where known, request_id,
+	// principal_type and route; see docs/operations/logging.md). Any other value is
+	// rejected by Validate.
+	Format string `yaml:"format,omitempty"`
+}
+
+// EffectiveFormat returns the format in effect: "text" when unset.
+func (l LogConfig) EffectiveFormat() string {
+	if l.Format == "" {
+		return LogFormatText
+	}
+	return l.Format
+}
+
+func validateLogFormat(v string) error {
+	switch v {
+	case "", LogFormatText, LogFormatJSON:
+		return nil
+	}
+	return fmt.Errorf("server.log.format: unknown value %q (want %q or %q)", v, LogFormatText, LogFormatJSON)
 }
 
 // Values of server.access_log.on_sink_stall.
@@ -505,6 +538,15 @@ type GRPCKeepaliveConfig struct {
 	// MaxConnectionAgeGrace is how long after MaxConnectionAge the server waits for
 	// active RPCs to finish before force-closing. Default 30s when unset/unparseable.
 	MaxConnectionAgeGrace string `yaml:"max_connection_age_grace,omitempty"`
+	// MaxConnectionIdle closes a connection that has had no RPC in flight for this
+	// long. Keepalive pings alone never reclaim it: a live client acks them, so an
+	// authenticated caller could otherwise park idle connections until the server
+	// runs out of descriptors. Default 15m when unset/unparseable.
+	MaxConnectionIdle string `yaml:"max_connection_idle,omitempty"`
+	// HandshakeTimeout bounds a new connection's TLS handshake plus HTTP/2 preface.
+	// grpc-go's own default is 120s, which lets a client that opens TCP and sends
+	// nothing hold a connection for two minutes. Default 10s when unset/unparseable.
+	HandshakeTimeout string `yaml:"handshake_timeout,omitempty"`
 }
 
 // defaultGRPCKeepaliveTime/Timeout/MinTime are the server-side keepalive defaults
@@ -515,6 +557,8 @@ const (
 	defaultGRPCKeepaliveMinTime      = 5 * time.Minute
 	defaultGRPCMaxConnectionAge      = 1 * time.Hour
 	defaultGRPCMaxConnectionAgeGrace = 30 * time.Second
+	defaultGRPCMaxConnectionIdle     = 15 * time.Minute
+	defaultGRPCHandshakeTimeout      = 10 * time.Second
 )
 
 // GetTime returns the idle-before-ping interval (default 5m).
@@ -540,6 +584,18 @@ func (c GRPCKeepaliveConfig) GetMaxConnectionAge() time.Duration {
 
 func (c GRPCKeepaliveConfig) GetMaxConnectionAgeGrace() time.Duration {
 	return parseDurationDefault(c.MaxConnectionAgeGrace, defaultGRPCMaxConnectionAgeGrace)
+}
+
+// GetMaxConnectionIdle returns how long a connection may sit with no RPC in flight
+// before the server closes it (default 15m).
+func (c GRPCKeepaliveConfig) GetMaxConnectionIdle() time.Duration {
+	return parseDurationDefault(c.MaxConnectionIdle, defaultGRPCMaxConnectionIdle)
+}
+
+// GetHandshakeTimeout returns the bound on a new connection's TLS handshake and
+// HTTP/2 preface (default 10s).
+func (c GRPCKeepaliveConfig) GetHandshakeTimeout() time.Duration {
+	return parseDurationDefault(c.HandshakeTimeout, defaultGRPCHandshakeTimeout)
 }
 
 // defaultMaxRequestBodyBytes is the request-body cap when none is configured.
@@ -1145,7 +1201,7 @@ const secretSizeEnvelopeHeadroomBytes = 16 * 1024
 // secret outright, roughly 33% before the JSON envelope is even counted. This
 // function exists specifically so that mistake has one place it can't be made:
 // every caller that needs a body-size limit derived from max_secret_size (the HTTP
-// router's per-route middleware, the gRPC server's MaxRecvMsgSize) calls this,
+// router's per-route secretBodyLimit middleware) calls this,
 // rather than each re-deriving (and potentially mis-deriving) its own.
 func DeriveMaxRequestBodySize(maxSecretSize int) int64 {
 	base64Size := ((maxSecretSize + 2) / 3) * 4 // ceil(n/3)*4: the exact base64 output length
@@ -1244,16 +1300,16 @@ type SecurityConfig struct {
 	// RecoverAdmin configures `keyorix-server admin recover-admin`
 	// (docs/design-b2-recover-admin.md §5).
 	RecoverAdmin RecoverAdminConfig `yaml:"recover_admin"`
-	// RecoveryOneTimePasswordExpiry is how long the one-time password printed by
+	// RecoveryOTPLifetime is how long the one-time password printed by
 	// `keyorix-server admin recover-admin` stays valid, as a Go duration (e.g.
 	// "24h", "90m"). Empty means the 24h default; a set value must be a duration
 	// in (0, MaxOneTimePasswordExpiry] or Validate refuses it. There is no way to
 	// configure "never expires" (OTP-EXPIRY-1).
-	RecoveryOneTimePasswordExpiry string `yaml:"recovery_one_time_password_ttl"`
-	// OneTimePasswordExpiry is the same for admin-created one-time passwords
+	RecoveryOTPLifetime string `yaml:"recovery_one_time_password_ttl"`
+	// OTPLifetime is the same for admin-created one-time passwords
 	// (`keyorix user create --one-time-password`). Empty means the 72h default;
 	// the same range check applies.
-	OneTimePasswordExpiry string `yaml:"one_time_password_ttl"`
+	OTPLifetime string `yaml:"one_time_password_ttl"`
 }
 
 // Defaults for the one-time-password lifetimes (see SecurityConfig). They mirror
@@ -1267,13 +1323,13 @@ const (
 // GetRecoveryOneTimePasswordExpiry returns the validity of a recover-admin one-time
 // password, falling back to the default for an empty or invalid value.
 func (s *SecurityConfig) GetRecoveryOneTimePasswordExpiry() time.Duration {
-	return parseDurationDefault(s.RecoveryOneTimePasswordExpiry, DefaultRecoveryOneTimePasswordExpiry)
+	return parseDurationDefault(s.RecoveryOTPLifetime, DefaultRecoveryOneTimePasswordExpiry)
 }
 
 // GetOneTimePasswordExpiry returns the validity of an admin-created one-time
 // password, falling back to the default for an empty or invalid value.
 func (s *SecurityConfig) GetOneTimePasswordExpiry() time.Duration {
-	return parseDurationDefault(s.OneTimePasswordExpiry, DefaultOneTimePasswordExpiry)
+	return parseDurationDefault(s.OTPLifetime, DefaultOneTimePasswordExpiry)
 }
 
 // RecoverAdminConfig configures `keyorix-server admin recover-admin`
@@ -2500,6 +2556,47 @@ func (c *Config) SecretFilePaths() []string {
 	return paths
 }
 
+// EnforceSecretFilePermissions applies the key-material permission policy
+// (secretenv.CheckPermissions: 0600/0400, plus group-read only for an
+// orchestrator-owned file in a group the process holds) to the files named by
+// SecretFilePaths. It is the one implementation behind both the server's boot
+// check and every `keyorix-server admin` command, so the two refuse the same
+// file with the same message.
+//
+// Key-material secrets (master password, KEK, Shamir shares) are refused
+// unconditionally where they are read (secretenv.LookupChecked, no grace); this
+// covers the rest, which follow the ADR-112 upgrade grace like the key files:
+// refuse when security.enable_file_permission_check is on and
+// allow_unsafe_file_permissions is off, otherwise warn. graceSoftened is true
+// when the upgrade grace turned a refusal into a warning, so the caller can
+// avoid recording that boot as "enforced".
+func (c *Config) EnforceSecretFilePermissions() (graceSoftened bool, err error) {
+	var problems []string
+	for _, p := range c.SecretFilePaths() {
+		if err := secretenv.CheckPermissions(p); err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
+	if len(problems) == 0 {
+		return false, nil
+	}
+	msg := strings.Join(problems, "; ")
+	if c.Security.EnableFilePermissionCheck && !c.Security.AllowUnsafeFilePermissions {
+		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
+		// config/TLS files are softened there). The one exception is the upgrade
+		// grace period, same as for the key files in enforceKeyFilePermissions:
+		// warn, and record that this boot was softened. Key material never gets
+		// here -- LookupChecked has already refused it.
+		if c.Security.EnableFilePermissionCheckUpgradeGrace {
+			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+			return true, nil
+		}
+		return false, fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
+	}
+	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
+	return false, nil
+}
+
 const appRootDir = "."
 
 // ResolvedPath returns the config file path Load(path) would read, without
@@ -2800,6 +2897,9 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	if err := validateTLSMode("server.grpc.tls_mode", c.Server.GRPC.TLSMode); err != nil {
 		return err
 	}
+	if err := validateLogFormat(c.Server.Log.Format); err != nil {
+		return err
+	}
 	if err := validateAccessLogOnSinkStall(c.Server.AccessLog.OnSinkStall); err != nil {
 		return err
 	}
@@ -2996,8 +3096,8 @@ const MaxOneTimePasswordExpiry = 7 * 24 * time.Hour
 // duration: say "168h"). Empty is valid and means the default.
 func validateOneTimePasswordExpiries(s SecurityConfig) error {
 	for _, f := range []struct{ key, raw string }{
-		{"security.one_time_password_ttl", s.OneTimePasswordExpiry},
-		{"security.recovery_one_time_password_ttl", s.RecoveryOneTimePasswordExpiry},
+		{"security.one_time_password_ttl", s.OTPLifetime},
+		{"security.recovery_one_time_password_ttl", s.RecoveryOTPLifetime},
 	} {
 		if f.raw == "" {
 			continue

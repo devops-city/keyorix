@@ -63,6 +63,7 @@ func AllModels() []any {
 		&models.PasswordHistory{},
 		&models.PasswordReset{},
 		&models.Permission{},
+		&models.PendingAuditEvent{},
 		&models.PersonalAccessToken{},
 		&models.Project{},
 		&models.ProjectInvitation{},

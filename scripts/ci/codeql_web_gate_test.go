@@ -11,10 +11,13 @@ import (
 )
 
 // These tests pin how .github/workflows/codeql.yml decides to run the JS/TS
-// analysis on a pull_request: only when the PR touches web/**. They execute the
-// real `changes` job script (extracted from the workflow, `gh` stubbed), so a
-// regression in the filter is caught here, not by an alert that never appears.
-// They do not prove CodeQL itself runs; that is CI's job.
+// analysis in the merge queue: only when the group diff touches web/**. Since
+// CI-LIGHT-1, CodeQL runs only on merge_group, push to main and the weekly
+// schedule; on pull_request every job is skipped. They execute the real
+// `changes` job script (extracted from the workflow, `gh` stubbed, context
+// values passed through env: as the workflow does), so a regression in the
+// filter is caught here, not by an alert that never appears. They do not prove
+// CodeQL itself runs; that is CI's job.
 
 type workflow struct {
 	Jobs map[string]struct {
@@ -52,13 +55,6 @@ func runFilter(t *testing.T, event string, files []string) map[string]string {
 	if script == "" {
 		t.Fatal("changes job has no step with id: filter")
 	}
-	repl := strings.NewReplacer(
-		"${{ github.event_name }}", event,
-		"${{ github.repository }}", "keyorixhq/keyorix",
-		"${{ github.event.pull_request.number }}", "1",
-	)
-	script = repl.Replace(script)
-
 	dir := t.TempDir()
 	stub := "#!/bin/sh\nprintf '%s\\n' \"$FAKE_FILES\"\n"
 	if len(files) == 0 {
@@ -73,6 +69,10 @@ func runFilter(t *testing.T, event string, files []string) map[string]string {
 		"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GITHUB_OUTPUT="+out,
 		"FAKE_FILES="+strings.Join(files, "\n"),
+		"EVENT_NAME="+event,
+		"REPO=keyorixhq/keyorix",
+		"MG_BASE_SHA=base",
+		"MG_HEAD_SHA=head",
 	)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("filter script failed: %v\n%s", err, b)
@@ -96,15 +96,14 @@ func TestCodeQLWebChanged(t *testing.T) {
 		files []string
 		want  string
 	}{
-		{"pr touching web", "pull_request", []string{"web/src/App.tsx", "server/x.go"}, "true"},
-		{"pr touching only web", "pull_request", []string{"web/package.json"}, "true"},
-		{"pr touching only go", "pull_request", []string{"server/x.go", "internal/y.go"}, "false"},
-		{"pr touching a look-alike dir", "pull_request", []string{"website/x.ts", "docs/web/a.md"}, "false"},
-		{"pr touching only the workflow", "pull_request", []string{".github/workflows/codeql.yml"}, "false"},
-		{"pr with empty file list fails safe", "pull_request", nil, "true"},
+		{"group touching web", "merge_group", []string{"web/src/App.tsx", "server/x.go"}, "true"},
+		{"group touching only web", "merge_group", []string{"web/package.json"}, "true"},
+		{"group touching only go", "merge_group", []string{"server/x.go", "internal/y.go"}, "false"},
+		{"group touching a look-alike dir", "merge_group", []string{"website/x.ts", "docs/web/a.md"}, "false"},
+		{"group touching only the workflow", "merge_group", []string{".github/workflows/codeql.yml"}, "false"},
+		{"group with empty file list fails safe", "merge_group", nil, "true"},
 		{"push keeps full scan", "push", []string{"server/x.go"}, "true"},
 		{"schedule keeps full scan", "schedule", nil, "true"},
-		{"merge_group keeps full scan", "merge_group", nil, "true"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -116,16 +115,25 @@ func TestCodeQLWebChanged(t *testing.T) {
 	}
 }
 
-// The Go legs must keep their own gating: a web-only PR must not turn them on.
-func TestCodeQLWebOnlyPRDoesNotRunGoLegs(t *testing.T) {
-	got := runFilter(t, "pull_request", []string{"web/src/App.tsx"})
+// The Go legs must keep their own gating: a web-only group must not turn them on.
+func TestCodeQLWebOnlyGroupDoesNotRunGoLegs(t *testing.T) {
+	got := runFilter(t, "merge_group", []string{"web/src/App.tsx"})
 	for _, k := range []string{"root_go_changed", "operator_go_changed"} {
 		if got[k] != "false" {
-			t.Errorf("%s = %q for a web-only PR, want false", k, got[k])
+			t.Errorf("%s = %q for a web-only group, want false", k, got[k])
 		}
 	}
 	if got["docs_only"] != "false" || got["go_unaffected"] != "false" || got["operator_only"] != "false" {
-		t.Errorf("web-only PR must not be classed docs-only/go-unaffected/operator-only: %v", got)
+		t.Errorf("web-only group must not be classed docs-only/go-unaffected/operator-only: %v", got)
+	}
+}
+
+// CodeQL is merge-queue-only (CI-LIGHT-1): the changes job, and with it every
+// analyze job that needs it, is skipped on pull_request.
+func TestCodeQLSkippedOnPullRequest(t *testing.T) {
+	cond := loadWorkflow(t).Jobs["changes"].If
+	if !strings.Contains(cond, "github.event_name != 'pull_request'") {
+		t.Errorf("changes must be skipped on pull_request, got: %q", cond)
 	}
 }
 
@@ -135,7 +143,7 @@ func TestCodeQLAnalyzeWebGate(t *testing.T) {
 		t.Errorf("analyze-web must be gated on web_changed, got: %s", cond)
 	}
 	if strings.Contains(cond, "github.event_name != 'pull_request'") {
-		t.Errorf("analyze-web must not be switched off for every pull_request, got: %s", cond)
+		t.Errorf("analyze-web is skipped on pull_request through the changes job; its own if: must not repeat that, got: %s", cond)
 	}
 	for _, keep := range []string{"docs_only != 'true'", "go_unaffected != 'true'", "operator_only != 'true'"} {
 		if !strings.Contains(cond, keep) {

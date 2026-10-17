@@ -468,7 +468,7 @@ func TestGetActiveLegalHold_S27_BrokenDB(t *testing.T) {
 
 func TestLastUserSecretActivity_S27_BrokenDB(t *testing.T) {
 	ls := brokenS27Store(t)
-	_, err := ls.LastUserSecretActivity(context.Background(), 1)
+	_, err := ls.LastUserSecretActivity(context.Background(), 1, time.Time{})
 	require.Error(t, err)
 }
 

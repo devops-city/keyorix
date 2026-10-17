@@ -105,9 +105,9 @@ func TestConsumeSetup_IdentityReadPanic_LeavesNoSession(t *testing.T) {
 	// AUTH-2 item 1: the read runs before anything is written and its panic is
 	// returned as an error (resolveLoginIdentityBeforeMint), so it answers the
 	// generic setup failure, not the Recovery 500 a dead token never gets.
-	assert.Nil(t, panicked)
+	assert.Nil(t, panicked, "the panic must not reach the recovery middleware")
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "This setup link could not be completed")
+	assert.Contains(t, w.Body.String(), "This setup link could not be completed", "same response as the generic setup failure")
 	assert.Zero(t, countSessions(t, st, uid), "a setup consume that reported failure left a live session the client never received")
 }
 

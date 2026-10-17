@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime/debug"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -104,7 +106,7 @@ func (c *KeyorixCore) VerifyMFAStepUp(ctx context.Context, userID uint, code str
 		Purpose:   models.MFAStepUpPurposeRestrictedSecretRead,
 		ExpiresAt: c.now().Add(c.mfaStepUpWindow()),
 	}
-	if err := c.storage.CreateMFAStepUpGrant(ctx, grant); err != nil {
+	if err := c.createStepUpGrant(ctx, grant); err != nil {
 		log.Printf("SECURITY: MFA step-up for user %d: code verified but the grant could not be recorded (reported to the caller as an invalid code): %v", userID, err)
 		// #2894: the code already verified, so count this post-verdict storage
 		// fault exactly as a wrong code would be counted (recordFailedLogin above).
@@ -117,6 +119,76 @@ func (c *KeyorixCore) VerifyMFAStepUp(ctx context.Context, userID uint, code str
 	c.writeAuditEvent(ctx, "mfa.stepup_verified", &uid, nil,
 		fmt.Sprintf("user %d completed MFA step-up for restricted secret access", userID))
 	return nil
+}
+
+// EventUndeliveredStepUpGrantRevoked records that a step-up grant was found
+// live after the write that created it failed or panicked, and was consumed so
+// the denied step-up leaves no elevation behind. #nosec G101 -- audit event type, not a credential
+const EventUndeliveredStepUpGrantRevoked = "mfa.undelivered_stepup_grant_revoked"
+
+// EventUndeliveredStepUpGrantUnresolved records that, after a step-up grant
+// write failed, it could not be established that no grant from it is live.
+// Loud on purpose, like EventUndeliveredSessionUnresolved. #nosec G101 -- audit event type, not a credential
+const EventUndeliveredStepUpGrantUnresolved = "mfa.undelivered_stepup_grant_unresolved"
+
+// createStepUpGrant writes grant for a step-up whose code has matched, and
+// settles the write's commit before VerifyMFAStepUp denies a failure (#3277
+// follow-up):
+//   - a PANIC comes back as an error wrapping ErrLoginWritePanicked, so the
+//     caller denies it through the same post-verdict branch as the error
+//     (the wrong-code answer, counted, mfa.error) instead of the Recovery 500,
+//     which a wrong code can never get;
+//   - on an error OR a panic the grant may still have landed (a lost
+//     acknowledgement, a panic after the commit). A denied step-up must leave
+//     no elevation behind, so revokeUndeliveredStepUpGrant consumes it.
+func (c *KeyorixCore) createStepUpGrant(ctx context.Context, grant *models.MFAStepUpGrant) (err error) {
+	// gorm stamps CreatedAt app-side; the margin covers the store truncating it.
+	started := time.Now().Add(-time.Second)
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: MFA step-up grant write for user %d panicked after the code matched; "+
+				"denying it as a post-verdict fault: %v\n%s", grant.UserID, r, debug.Stack())
+			err = fmt.Errorf("%w: step-up grant write for user %d: %v", ErrLoginWritePanicked, grant.UserID, r)
+		}
+		if err != nil {
+			c.revokeUndeliveredStepUpGrant(ctx, grant, started)
+		}
+	}()
+	return c.storage.CreateMFAStepUpGrant(ctx, grant)
+}
+
+// revokeUndeliveredStepUpGrant consumes the user's live restricted-secret-read
+// grants (the only purpose VerifyMFAStepUp writes) when one of them is the
+// grant this failed write created: it carries
+// the ID the store assigned to grant, or it was created after the write
+// started. There is no delete-by-ID, so ConsumeMFAStepUpGrant also ends any
+// older live grant of the same purpose; that only happens when ours landed,
+// and it fails closed (the user steps up again). A grant from an earlier,
+// delivered step-up is left alone when nothing of ours landed. Best-effort
+// and panic-safe: the step-up is already being denied.
+func (c *KeyorixCore) revokeUndeliveredStepUpGrant(ctx context.Context, grant *models.MFAStepUpGrant, started time.Time) {
+	uid := grant.UserID
+	besteffort.Run(ctx, "core.revokeUndeliveredStepUpGrant", func() error {
+		// Pinned to the one purpose VerifyMFAStepUp writes: this must never
+		// reach (and consume) a reauth grant.
+		live, err := c.storage.GetActiveMFAStepUpGrant(ctx, grant.UserID, models.MFAStepUpPurposeRestrictedSecretRead, c.authEffectiveNow())
+		if err != nil {
+			c.writeAuditEventFailed(ctx, EventUndeliveredStepUpGrantUnresolved, &uid, nil, "",
+				fmt.Sprintf("the MFA step-up grant write for user %d failed, and whether it landed could not be checked: %v; a live grant the step-up was denied may exist", grant.UserID, err))
+			return err
+		}
+		if live == nil || (grant.ID == 0 && live.CreatedAt.Before(started)) {
+			return nil
+		}
+		if _, err := c.storage.ConsumeMFAStepUpGrant(ctx, grant.UserID, models.MFAStepUpPurposeRestrictedSecretRead, c.authEffectiveNow()); err != nil {
+			c.writeAuditEventFailed(ctx, EventUndeliveredStepUpGrantUnresolved, &uid, nil, "",
+				fmt.Sprintf("the MFA step-up grant write for user %d failed after its grant %d landed, and consuming it failed: %v; the grant is live although the step-up was denied", grant.UserID, live.ID, err))
+			return err
+		}
+		c.writeAuditEventFull(ctx, EventUndeliveredStepUpGrantRevoked, &uid, nil, nil, "",
+			fmt.Sprintf("the MFA step-up grant write for user %d failed after its grant %d landed; the undelivered grant was consumed", grant.UserID, live.ID))
+		return nil
+	})
 }
 
 // atomicity: consume-first by design (Session O, O4) — the TOTP step (or
@@ -154,7 +226,10 @@ func (c *KeyorixCore) verifyMFAStepUpCode(ctx context.Context, userID uint, code
 			storageErr = serr
 		} else if step, ok := c.validateTOTPStep(secret, code); ok {
 			codeMatched = true
-			if fresh, ferr := c.storage.MarkTOTPStepUsed(ctx, userID, step); ferr != nil {
+			// A panic in the anti-replay write is denied like its error
+			// (#3277, markTOTPStepUsedAfterMatch): counted, mfa.error, the
+			// wrong-code answer.
+			if fresh, ferr := c.markTOTPStepUsedAfterMatch(ctx, userID, step); ferr != nil {
 				storageErr = ferr
 			} else if fresh {
 				return true, nil

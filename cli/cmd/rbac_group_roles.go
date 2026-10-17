@@ -86,7 +86,7 @@ func init() {
 
 func runRBACAssignRoleToGroup(cmd *cobra.Command, args []string) error {
 	if rbacGroupRoleGroupFlag == "" || rbacGroupRoleName == "" {
-		return fmt.Errorf("--group and --role are required")
+		return usageErrorf("--group and --role are required")
 	}
 	if rbacGroupRoleTTL < 0 {
 		return fmt.Errorf("--ttl must be positive")
@@ -173,7 +173,7 @@ func init() {
 
 func runRBACRemoveRoleFromGroup(cmd *cobra.Command, args []string) error {
 	if rbacRemoveGroupRoleGroupFlag == "" || rbacRemoveGroupRoleName == "" {
-		return fmt.Errorf("--group and --role are required")
+		return usageErrorf("--group and --role are required")
 	}
 	if rbacRemoveGroupRoleEnv != "" && rbacRemoveGroupRoleProject == "" {
 		return fmt.Errorf("--environment requires --project")
@@ -236,8 +236,11 @@ func init() {
 }
 
 func runRBACListGroupRoles(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(groupRolesFormat); err != nil {
+		return err
+	}
 	if rbacListGroupRolesGroupFlag == "" {
-		return fmt.Errorf("--group is required")
+		return usageErrorf("--group is required")
 	}
 	client, err := rbacAPIClient()
 	if err != nil {
@@ -257,12 +260,14 @@ func runRBACListGroupRoles(cmd *cobra.Command, args []string) error {
 		return httpStatusError("failed to get group roles", resp.StatusCode(), resp.Body)
 	}
 	roles := derefGroupRoleGrantSlice(resp.JSON200.Data.Roles)
-	if len(roles) == 0 {
-		fmt.Printf("No roles assigned to group '%s'\n", groupName)
+	return emitList(groupRolesFormat, roles, func() error {
+		if len(roles) == 0 {
+			fmt.Printf("No roles assigned to group '%s'\n", groupName)
+			return nil
+		}
+		printRBACGroupRoleTable(roles)
 		return nil
-	}
-	printRBACGroupRoleTable(roles)
-	return nil
+	})
 }
 
 func derefGroupRoleGrantSlice(s *[]apiclient.GroupRoleGrant) []apiclient.GroupRoleGrant {

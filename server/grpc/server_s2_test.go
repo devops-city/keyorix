@@ -92,8 +92,13 @@ func TestCreateGRPCTLSConfig_ManualCertAppliesHardening(t *testing.T) {
 	if len(tlsConfig.CipherSuites) == 0 {
 		t.Fatal("CipherSuites must not be empty on the manual-cert branch")
 	}
-	if len(tlsConfig.Certificates) == 0 {
-		t.Fatal("Certificates must be populated when loading from disk")
+	// The certificate loaded from disk is served through GetCertificate (tlsreload),
+	// so a rotated pair is picked up without a restart.
+	if tlsConfig.GetCertificate == nil {
+		t.Fatal("GetCertificate must serve the certificate loaded from disk")
+	}
+	if cert, err := tlsConfig.GetCertificate(&tls.ClientHelloInfo{}); err != nil || cert == nil || len(cert.Certificate) == 0 {
+		t.Fatalf("GetCertificate = %v, %v: want the certificate loaded from disk", cert, err)
 	}
 }
 

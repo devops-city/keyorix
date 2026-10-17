@@ -9,13 +9,18 @@
   delivered, an absent one keeps the error, a lookup that fails keeps the error and is audited
   `auth.undelivered_session_unresolved`; a write that panics has its row deleted
   (`auth.undelivered_session_revoked`) before the panic continues; on the four login paths
-  `mintLoginSession` then returns it as a post-verdict error with no token (#3277,
-  `TestLoginWritePanic_DeniedLikeItsError`). Session inserts go through
+  `mintLoginSession` then returns it as a post-verdict error with no token, and
+  StartImpersonation's `createImpersonationSession` the same (#3277,
+  `TestLoginWritePanic_DeniedLikeItsError`,
+  `TestStartImpersonation_SessionWritePanicIsRefusedLikeItsError`). Session inserts go through
   `createSession` (mintSession's callers, StartImpersonation); RefreshSession applies (3)
   to `RotateSession`. The setup-token consume inserts its session INSIDE its one transaction
   (INV-CORE-setup-consume-all-or-nothing), resolves the identity before it, and applies (3)
   to the whole transaction (`setupConsumeLanded`); `completeLogin`, its old read-after-mint
-  compensation, is gone (AUTH-2 item 1). Why: #2844 — a reported-failure login left a live session the owner could
+  compensation, is gone (AUTH-2 item 1). Setup consume's whole post-token path (password and
+  invitation) recovers in `completeValidSetupToken`, guarded by
+  `server/http/handlers/TestConsumeSetup_PostVerdictPanicAnsweredLikeItsError`.
+  Why: #2844 — a reported-failure login left a live session the owner could
   see and a revocation sweep had to find (identity-read panic on /auth/login, step-up grant
   panic on WebAuthn finish, CreateSession/RotateSession effect-then-error on every
   session-issuing op). Guard: `server/faultops` oracle (f) `checkNoUndeliveredSession`

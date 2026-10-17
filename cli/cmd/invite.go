@@ -106,7 +106,7 @@ func init() {
 
 func runInviteSend(cmd *cobra.Command, args []string) error {
 	if inviteSendEmail == "" || inviteSendRole == "" {
-		return fmt.Errorf("--email and --role are required")
+		return usageErrorf("--email and --role are required")
 	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {
@@ -162,6 +162,9 @@ func init() {
 }
 
 func runInviteList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(inviteListFormat); err != nil {
+		return err
+	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {
 		return err
@@ -170,7 +173,9 @@ func runInviteList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Target: %s (project %q, id=%d)\n", serverURL, projectName, projectID)
+	if inviteListFormat == outputTable {
+		fmt.Printf("Target: %s (project %q, id=%d)\n", serverURL, projectName, projectID)
+	}
 
 	resp, err := client.ListProjectInvitationsWithResponse(context.Background(), projectID)
 	if err != nil {
@@ -190,8 +195,10 @@ func runInviteList(cmd *cobra.Command, args []string) error {
 		}
 		invitations = filtered
 	}
-	printInvitations(invitations)
-	return nil
+	return emitList(inviteListFormat, invitations, func() error {
+		printInvitations(invitations)
+		return nil
+	})
 }
 
 // printInvitations renders the invitation table, matching the old CLI's format exactly.
@@ -243,7 +250,7 @@ func init() {
 
 func runInviteRevoke(cmd *cobra.Command, args []string) error {
 	if inviteRevokeID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {
@@ -290,7 +297,7 @@ func init() {
 
 func runInviteResend(cmd *cobra.Command, args []string) error {
 	if inviteResendID == 0 {
-		return fmt.Errorf("invitation id is required (use --id)")
+		return usageErrorf("invitation id is required (use --id)")
 	}
 	client, serverURL, err := inviteAPIClient()
 	if err != nil {

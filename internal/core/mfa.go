@@ -350,8 +350,23 @@ func (c *KeyorixCore) CreateMFAChallenge(ctx context.Context, userID uint) (stri
 // expired or abandoned second factor never does, so the slot stays counted
 // (#2936 item 4: N ordinary MFA logins from one office IP no longer use N
 // slots). slotID nil means nothing was reserved.
-func (c *KeyorixCore) CreateMFAChallengeHoldingLoginSlot(ctx context.Context, userID uint, slotID *uint) (string, error) {
-	token, err := generateSecureToken()
+//
+// A panic in the challenge write comes back as an error wrapping
+// ErrLoginWritePanicked (#3277 follow-up). Both callers (the password login
+// and setup consume, for an account with a second factor) run this after the
+// password or setup token matched and answer its error exactly like a wrong
+// credential; a panic used to reach the Recovery 500 instead, which said the
+// credential was right. A row that landed is harmless: the token is never
+// returned and only its hash is stored, so nobody can redeem it.
+func (c *KeyorixCore) CreateMFAChallengeHoldingLoginSlot(ctx context.Context, userID uint, slotID *uint) (token string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: MFA challenge write for user %d panicked after the first factor matched; "+
+				"denying it as a post-verdict fault: %v\n%s", userID, r, debug.Stack())
+			token, err = "", fmt.Errorf("%w: MFA challenge write for user %d: %v", ErrLoginWritePanicked, userID, r)
+		}
+	}()
+	token, err = generateSecureToken()
 	if err != nil {
 		return "", err
 	}

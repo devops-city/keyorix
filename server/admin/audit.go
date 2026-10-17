@@ -40,6 +40,9 @@ func runAdminAudit(cmd *cobra.Command, args []string) error {
 	if cfg.Storage.Type == "" {
 		cfg.Storage.Type = "local"
 	}
+	if _, err := cfg.EnforceSecretFilePermissions(); err != nil {
+		return fmt.Errorf("secret file security: %w", err)
+	}
 	lock, err := acquireDatabaseLock(cfg)
 	if err != nil {
 		return err

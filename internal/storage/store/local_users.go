@@ -749,7 +749,7 @@ func (ls *LocalStorage) ListGroupMembersByGroupIDs(ctx context.Context, groupIDs
 	}
 	var rows []row
 	err := ls.db.WithContext(ctx).Table("users").
-		Select("users.*, user_groups.group_id AS group_id").
+		Select(modelColumns(ls.db, &models.User{}, "users")+", user_groups.group_id AS group_id").
 		Joins("JOIN user_groups ON user_groups.user_id = users.id").
 		Where("user_groups.group_id IN ?", groupIDs).
 		Find(&rows).Error

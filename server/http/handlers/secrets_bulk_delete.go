@@ -45,7 +45,7 @@ func (h *SecretHandler) BulkDeleteSecrets(w http.ResponseWriter, r *http.Request
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "exceeds the maximum batch size") {
 			status = http.StatusBadRequest
 		}
-		h.sendError(w, "Error", err.Error(), status, nil)
+		h.sendError(w, "Error", errorMessageFor(status, err), status, nil)
 		return
 	}
 

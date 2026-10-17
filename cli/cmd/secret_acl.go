@@ -31,6 +31,9 @@ var secretACLListCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, args []string) error {
+		if err := checkOutputFormat(aclListFormat); err != nil {
+			return err
+		}
 		id, err := parseSecretArg(args[0])
 		if err != nil {
 			return err
@@ -47,15 +50,17 @@ var secretACLListCmd = &cobra.Command{
 			return httpStatusError("list secret ACLs", resp.StatusCode(), resp.Body)
 		}
 		acls := derefSecretACLSlice(resp.JSON200.Data)
-		if len(acls) == 0 {
-			fmt.Println("No ACL grants for this secret.")
+		return emitList(aclListFormat, acls, func() error {
+			if len(acls) == 0 {
+				fmt.Println("No ACL grants for this secret.")
+				return nil
+			}
+			fmt.Printf("%-6s %-10s %-12s %s\n", "ID", "USER_ID", "GRANTED_BY", "PERMISSIONS")
+			for _, a := range acls {
+				fmt.Printf("%-6d %-10d %-12d %s\n", derefSecretInt(a.Id), derefSecretInt(a.UserId), derefSecretInt(a.GrantedBy), strings.Join(derefStrSlice(a.Permissions), ","))
+			}
 			return nil
-		}
-		fmt.Printf("%-6s %-10s %-12s %s\n", "ID", "USER_ID", "GRANTED_BY", "PERMISSIONS")
-		for _, a := range acls {
-			fmt.Printf("%-6d %-10d %-12d %s\n", derefSecretInt(a.Id), derefSecretInt(a.UserId), derefSecretInt(a.GrantedBy), strings.Join(derefStrSlice(a.Permissions), ","))
-		}
-		return nil
+		})
 	},
 }
 
@@ -71,13 +76,13 @@ var secretACLGrantCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretACLGrantSecret == 0 {
-			return fmt.Errorf("--secret <id> is required")
+			return usageErrorf("--secret <id> is required")
 		}
 		if secretACLGrantUser == 0 {
-			return fmt.Errorf("--user <user-id> is required")
+			return usageErrorf("--user <user-id> is required")
 		}
 		if len(secretACLGrantPerms) == 0 {
-			return fmt.Errorf("--perm <permission> is required (e.g. --perm secrets.read)")
+			return usageErrorf("--perm <permission> is required (e.g. --perm secrets.read)")
 		}
 		client, err := secretAPIClient()
 		if err != nil {
@@ -108,10 +113,10 @@ var secretACLRevokeCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretACLRevokeSecret == 0 {
-			return fmt.Errorf("--secret <id> is required")
+			return usageErrorf("--secret <id> is required")
 		}
 		if secretACLRevokeACL == 0 {
-			return fmt.Errorf("--acl <acl-id> is required")
+			return usageErrorf("--acl <acl-id> is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {

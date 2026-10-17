@@ -76,20 +76,20 @@ func TestPostVerdictIdentityReadPanic_AnsweredLikeItsError(t *testing.T) {
 	}
 	for _, e := range population {
 		t.Run(fmt.Sprintf("%s/%s", e.op, e.method), func(t *testing.T) {
-			requirePanicKindAnsweredLikeErrorKind(t, e)
+			requirePanicKindAnsweredLikeErrorKind(t, e, true)
 		})
 	}
 }
 
 // requirePanicKindAnsweredLikeErrorKind drives e's (op, method, nth) as an
 // error and as a panic through the real router and requires the panic kind to
-// have its own reviewed KindPanic row, report failure, answer byte for byte
-// like the error kind, diverge in the same tables, add the same number of
-// AuditEvent rows and add no Session. Shared by the identity-read (#3267) and
-// write (#3277) families.
-func requirePanicKindAnsweredLikeErrorKind(t *testing.T, e oracleAByDesignError) {
+// report failure, answer byte for byte like the error kind, diverge in the
+// same tables, add the same number of AuditEvent rows and add no Session, and
+// (requireRow) to have its own reviewed KindPanic row. Shared by the
+// identity-read (#3267) and write (#3277) families.
+func requirePanicKindAnsweredLikeErrorKind(t *testing.T, e oracleAByDesignError, requireRow bool) {
 	t.Helper()
-	if !hasByDesignRow(e.op, e.method, e.nth, faultstorage.KindPanic) {
+	if requireRow && !hasByDesignRow(e.op, e.method, e.nth, faultstorage.KindPanic) {
 		t.Errorf("no KindPanic oracleAByDesignError row for %s %s#%d: the panic kind must be reviewed "+
 			"alongside the error kind", e.op, e.method, e.nth)
 	}

@@ -130,7 +130,7 @@ func init() {
 
 func runMachineCreate(cmd *cobra.Command, args []string) error {
 	if machineCreateName == "" {
-		return fmt.Errorf("--name is required")
+		return usageErrorf("--name is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {
@@ -180,6 +180,9 @@ func init() {
 }
 
 func runMachineList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(machineListFormat); err != nil {
+		return err
+	}
 	client, err := machineAPIClient()
 	if err != nil {
 		return err
@@ -192,20 +195,22 @@ func runMachineList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list machine identities: %w", err)
 	}
-	if len(identities) == 0 {
-		fmt.Printf("No machine identities found for project %q.\n", projectName)
-		return nil
-	}
-	fmt.Printf("%-5s %-24s %-12s %-10s %s\n", "ID", "NAME", "TYPE", "STATE", "DESCRIPTION")
-	fmt.Printf("%-5s %-24s %-12s %-10s %s\n", "-----", "------------------------", "------------", "----------", "-----------")
-	for _, m := range identities {
-		desc := derefStr(m.Description)
-		if len(desc) > 40 {
-			desc = desc[:37] + "..."
+	return emitList(machineListFormat, identities, func() error {
+		if len(identities) == 0 {
+			fmt.Printf("No machine identities found for project %q.\n", projectName)
+			return nil
 		}
-		fmt.Printf("%-5d %-24s %-12s %-10s %s\n", derefInt(m.Id), cliout.SanitizeForTerminal(derefStr(m.Name)), derefStr(m.IdentityType), string(derefState(m.State)), cliout.SanitizeForTerminal(desc))
-	}
-	return nil
+		fmt.Printf("%-5s %-24s %-12s %-10s %s\n", "ID", "NAME", "TYPE", "STATE", "DESCRIPTION")
+		fmt.Printf("%-5s %-24s %-12s %-10s %s\n", "-----", "------------------------", "------------", "----------", "-----------")
+		for _, m := range identities {
+			desc := derefStr(m.Description)
+			if len(desc) > 40 {
+				desc = desc[:37] + "..."
+			}
+			fmt.Printf("%-5d %-24s %-12s %-10s %s\n", derefInt(m.Id), cliout.SanitizeForTerminal(derefStr(m.Name)), derefStr(m.IdentityType), string(derefState(m.State)), cliout.SanitizeForTerminal(desc))
+		}
+		return nil
+	})
 }
 
 // ── describe ────────────────────────────────────────────────────────────────────
@@ -368,7 +373,7 @@ func init() {
 
 func runMachineGrantRole(cmd *cobra.Command, args []string) error {
 	if machineGrantRoleName == "" {
-		return fmt.Errorf("--role is required")
+		return usageErrorf("--role is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {
@@ -414,7 +419,7 @@ func init() {
 
 func runMachineRevokeRole(cmd *cobra.Command, args []string) error {
 	if machineRevokeRoleName == "" {
-		return fmt.Errorf("--role is required")
+		return usageErrorf("--role is required")
 	}
 	client, err := machineAPIClient()
 	if err != nil {

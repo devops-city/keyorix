@@ -109,8 +109,10 @@ went, once the chain is writable again.
 
 An archive taken under the old (v1, pre-2026-09-28) physical/SQLite-only
 format still restores, with a deprecation notice -- take a fresh backup
-under the current format when convenient. Only local/sqlite storage is
-supported as a restore TARGET today; restoring into Postgres is H4.`,
+under the current format when convenient (a v1 archive can only be restored
+into SQLite). The target may be SQLite or PostgreSQL, whichever backend the
+config points at, regardless of the backend the v2 archive came from; for
+PostgreSQL the target database must already exist and be empty.`,
 	RunE: runAdminRestore,
 }
 

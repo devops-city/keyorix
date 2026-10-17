@@ -26,6 +26,9 @@ var secretTemplateListCmd = &cobra.Command{
 	Short:        "List all secret templates",
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if err := checkOutputFormat(templateListFormat); err != nil {
+			return err
+		}
 		client, err := secretAPIClient()
 		if err != nil {
 			return err
@@ -38,14 +41,16 @@ var secretTemplateListCmd = &cobra.Command{
 			return httpStatusError("list templates", resp.StatusCode(), resp.Body)
 		}
 		templates := derefSecretTemplateSlice(resp.JSON200.Data.Templates)
-		if len(templates) == 0 {
-			fmt.Println("No templates found.")
+		return emitList(templateListFormat, templates, func() error {
+			if len(templates) == 0 {
+				fmt.Println("No templates found.")
+				return nil
+			}
+			for _, t := range templates {
+				fmt.Printf("%-4d  %-30s  %s\n", derefSecretInt(t.Id), derefStr(t.Name), derefStr(t.Description))
+			}
 			return nil
-		}
-		for _, t := range templates {
-			fmt.Printf("%-4d  %-30s  %s\n", derefSecretInt(t.Id), derefStr(t.Name), derefStr(t.Description))
-		}
-		return nil
+		})
 	},
 }
 
@@ -95,7 +100,7 @@ var secretTemplateCreateCmd = &cobra.Command{
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		if secretTmplName == "" {
-			return fmt.Errorf("--name is required")
+			return usageErrorf("--name is required")
 		}
 		client, err := secretAPIClient()
 		if err != nil {

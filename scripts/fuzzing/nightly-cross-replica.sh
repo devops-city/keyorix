@@ -353,10 +353,15 @@ log "running against ${KEYORIX_REF} @ ${HEAD_SHA}"
 
 docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
 log "starting ${PG_IMAGE} as ${PG_CONTAINER}"
+# The superuser password reaches the container through a 0600 --env-file, not `-e NAME=value`
+# (an argv is visible in ps). The file only has to exist while `docker run` reads it.
+PG_ENV_FILE="$(mktemp)"
+printf 'POSTGRES_PASSWORD=%s\n' "$PG_PASSWORD" >"$PG_ENV_FILE"
 docker run -d --name "$PG_CONTAINER" \
-    -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+    --env-file "$PG_ENV_FILE" \
     -p 127.0.0.1::5432 \
-    "$PG_IMAGE" >/dev/null || die_rig "docker run failed"
+    "$PG_IMAGE" >/dev/null || { rm -f "$PG_ENV_FILE"; die_rig "docker run failed"; }
+rm -f "$PG_ENV_FILE"
 
 PG_PORT="$(docker port "$PG_CONTAINER" 5432/tcp | head -1 | sed 's/.*://')"
 [ -n "$PG_PORT" ] || die_rig "could not read the mapped Postgres port"
