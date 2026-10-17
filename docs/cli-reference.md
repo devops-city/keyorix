@@ -94,6 +94,13 @@ access. Requires roles.read at the project scope.
 
 **Usage:** `keyorix access-review attest [flags]`
 
+**Examples:**
+
+```sh
+# Attest that a role grant is still needed
+keyorix access-review attest --project-id 3 --source role --role-id 4 --principal-id 12
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -130,6 +137,12 @@ Close a campaign (freeze as evidence); refuses pending items unless --force
 
 **Usage:** `keyorix access-review campaign close [flags]`
 
+**Examples:**
+
+```sh
+keyorix access-review campaign close --project-id 3 --campaign-id 7
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -143,6 +156,13 @@ Close a campaign (freeze as evidence); refuses pending items unless --force
 Decide on one campaign item: attest (keep) or revoke
 
 **Usage:** `keyorix access-review campaign decide [flags]`
+
+**Examples:**
+
+```sh
+keyorix access-review campaign decide --project-id 3 --campaign-id 7 --item-id 41 --action attest
+keyorix access-review campaign decide --project-id 3 --campaign-id 7 --item-id 42 --action revoke --reason "left the team"
+```
 
 **Flags:**
 
@@ -160,6 +180,12 @@ List a project's access-review campaigns
 
 **Usage:** `keyorix access-review campaign list [flags]`
 
+**Examples:**
+
+```sh
+keyorix access-review campaign list --project-id 3
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -171,6 +197,12 @@ List a project's access-review campaigns
 Open a new access-review campaign (snapshots current access)
 
 **Usage:** `keyorix access-review campaign open [flags]`
+
+**Examples:**
+
+```sh
+keyorix access-review campaign open --project-id 3 --name "Q4 2026 access recertification"
+```
 
 **Flags:**
 
@@ -184,6 +216,12 @@ Open a new access-review campaign (snapshots current access)
 Show a campaign and its items (snapshot + decisions)
 
 **Usage:** `keyorix access-review campaign show [flags]`
+
+**Examples:**
+
+```sh
+keyorix access-review campaign show --project-id 3 --campaign-id 7
+```
 
 **Flags:**
 
@@ -202,6 +240,13 @@ Remove the grant identified by the flags — a project-scoped role assignment
 roles.assign at the project scope.
 
 **Usage:** `keyorix access-review revoke [flags]`
+
+**Examples:**
+
+```sh
+# Revoke a user's role grant found during a review
+keyorix access-review revoke --project-id 3 --source role --role-id 4 --principal-id 12
+```
 
 **Flags:**
 
@@ -234,6 +279,12 @@ Acknowledge an anomaly alert
 
 **Usage:** `keyorix anomalies acknowledge <id>`
 
+**Examples:**
+
+```sh
+keyorix anomalies acknowledge 17
+```
+
 ## `keyorix anomalies config`
 
 Manage anomaly detection runtime configuration
@@ -251,6 +302,12 @@ Show the current anomaly detection configuration
 
 **Usage:** `keyorix anomalies config get`
 
+**Examples:**
+
+```sh
+keyorix anomalies config get
+```
+
 ## `keyorix anomalies config set`
 
 Update one or more anomaly detection configuration fields
@@ -262,6 +319,13 @@ current stored values. Changes take effect on the next detection scan
 without restarting the server.
 
 **Usage:** `keyorix anomalies config set [flags]`
+
+**Examples:**
+
+```sh
+# Treat 22:00-06:00 New York time as off-hours
+keyorix anomalies config set --off-hours-enabled --off-hours-start 22 --off-hours-end 6 --off-hours-timezone America/New_York
+```
 
 **Flags:**
 
@@ -297,6 +361,12 @@ Create an alert escalation policy
 
 **Usage:** `keyorix anomalies escalation create [flags]`
 
+**Examples:**
+
+```sh
+keyorix anomalies escalation create --name page-oncall --min-severity high --after-minutes 15 --channels 1,2
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -312,11 +382,23 @@ Delete an alert escalation policy
 
 **Usage:** `keyorix anomalies escalation delete <id>`
 
+**Examples:**
+
+```sh
+keyorix anomalies escalation delete 3
+```
+
 ## `keyorix anomalies escalation list`
 
 List alert escalation policies
 
 **Usage:** `keyorix anomalies escalation list`
+
+**Examples:**
+
+```sh
+keyorix anomalies escalation list
+```
 
 ## `keyorix anomalies escalation run`
 
@@ -324,11 +406,23 @@ Trigger the alert escalation job immediately
 
 **Usage:** `keyorix anomalies escalation run`
 
+**Examples:**
+
+```sh
+keyorix anomalies escalation run
+```
+
 ## `keyorix anomalies list`
 
 List anomaly alerts
 
 **Usage:** `keyorix anomalies list [flags]`
+
+**Examples:**
+
+```sh
+keyorix anomalies list --unacknowledged
+```
 
 **Flags:**
 
@@ -357,11 +451,26 @@ Write a signed checkpoint of the current audit-chain head (ADR-029)
 
 **Usage:** `keyorix audit checkpoint`
 
+**Examples:**
+
+```sh
+keyorix audit checkpoint
+```
+
 ## `keyorix audit export`
 
 Stream the audit feed as NDJSON (one event per line) for SIEM pull
 
 **Usage:** `keyorix audit export [flags]`
+
+**Examples:**
+
+```sh
+# Export the whole audit trail as NDJSON
+keyorix audit export --all > audit.ndjson
+# ...or as CSV, from a point in time
+keyorix audit export --all --csv --since 2026-10-01T00:00:00Z > audit.csv
+```
 
 **Flags:**
 
@@ -378,6 +487,13 @@ Stream the audit feed as NDJSON (one event per line) for SIEM pull
 Query the audit trail with filters (human-readable table)
 
 **Usage:** `keyorix audit logs [flags]`
+
+**Examples:**
+
+```sh
+keyorix audit logs --limit 20
+keyorix audit logs --project-id 3 --event-type secret.read --since 2026-10-01T00:00:00Z
+```
 
 **Flags:**
 
@@ -399,6 +515,14 @@ One-time re-derivation of the audit hash chain under the current encoding
 
 **Usage:** `keyorix audit migrate-chain-encoding [flags]`
 
+**Examples:**
+
+```sh
+# Preview first; nothing is written without --confirm
+keyorix audit migrate-chain-encoding
+keyorix audit migrate-chain-encoding --confirm
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -410,6 +534,13 @@ One-time re-derivation of the audit hash chain under the current encoding
 Search the audit trail with structured filters
 
 **Usage:** `keyorix audit search [flags]`
+
+**Examples:**
+
+```sh
+keyorix audit search --action secret.read --actor alice --success false
+keyorix audit search --resource-type secret --resource-id 42
+```
 
 **Flags:**
 
@@ -444,6 +575,15 @@ walk on the server now, as a background job, and waits for it.
 
 **Usage:** `keyorix audit verify [flags]`
 
+**Examples:**
+
+```sh
+# Check the audit hash chain
+keyorix audit verify
+# Walk the whole chain on the server and print the result as JSON
+keyorix audit verify --full --json
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -471,6 +611,13 @@ rotations, unique human users, and machine reads for the specified date window
 (GET /admin/billing/report). Requires audit.read and the "billing" license feature.
 
 **Usage:** `keyorix billing report [flags]`
+
+**Examples:**
+
+```sh
+keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z
+keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --project-id 3,5 --format json
+```
 
 **Flags:**
 
@@ -504,6 +651,12 @@ Activate emergency access (self-grant the emergency role, time-bound)
 
 **Usage:** `keyorix break-glass activate [flags]`
 
+**Examples:**
+
+```sh
+keyorix break-glass activate --project-id 3 --justification "prod outage INC-1234" --ttl 2h
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -518,6 +671,12 @@ List a project's break-glass activations (all with roles.read, else your own as 
 
 **Usage:** `keyorix break-glass list [flags]`
 
+**Examples:**
+
+```sh
+keyorix break-glass list --project-id 3
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -529,6 +688,12 @@ List a project's break-glass activations (all with roles.read, else your own as 
 Revoke an active emergency grant early
 
 **Usage:** `keyorix break-glass revoke [flags]`
+
+**Examples:**
+
+```sh
+keyorix break-glass revoke --project-id 3 --activation-id 9
+```
 
 **Flags:**
 
@@ -562,6 +727,12 @@ Verify a bundle offline and stage its artifacts into a directory
 
 **Usage:** `keyorix bundle import <bundle> [flags]`
 
+**Examples:**
+
+```sh
+keyorix bundle import update-1.4.0.bundle --dest /var/lib/keyorix/updates --installed-version 1.3.2 --license /etc/keyorix/license.token
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -578,6 +749,12 @@ Verify a bundle offline and stage its artifacts into a directory
 Verify a bundle offline against the embedded pinned key and component digests
 
 **Usage:** `keyorix bundle verify <bundle> [flags]`
+
+**Examples:**
+
+```sh
+keyorix bundle verify update-1.4.0.bundle --installed-version 1.3.2
+```
 
 **Flags:**
 
@@ -603,6 +780,13 @@ activate", before or after this command); once both are done the session ends
 and the next "keyorix login" asks for a code.
 
 **Usage:** `keyorix change-password [flags]`
+
+**Examples:**
+
+```sh
+# Prompts for the current and the new password
+keyorix change-password
+```
 
 **Flags:**
 
@@ -785,6 +969,13 @@ Control matrix — controls mapped to ISO 27001 / SOC 2 / NIS2 / DORA with statu
 
 **Usage:** `keyorix compliance controls [flags]`
 
+**Examples:**
+
+```sh
+keyorix compliance controls
+keyorix compliance controls --csv --output controls.csv
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -798,6 +989,12 @@ Control matrix — controls mapped to ISO 27001 / SOC 2 / NIS2 / DORA with statu
 Show 30/60/90-day credential hygiene trends (stale/expired PATs, stale machine creds)
 
 **Usage:** `keyorix compliance credential-trends [flags]`
+
+**Examples:**
+
+```sh
+keyorix compliance credential-trends --days 90
+```
 
 **Flags:**
 
@@ -814,6 +1011,13 @@ broadcast on a schedule to Slack/Teams/webhook/email channels), or trigger an
 immediate broadcast to the configured notification channels with --send.
 
 **Usage:** `keyorix compliance digest [flags]`
+
+**Examples:**
+
+```sh
+keyorix compliance digest
+keyorix compliance digest --send
+```
 
 **Flags:**
 
@@ -832,6 +1036,12 @@ stdout by default, or to --output FILE. Refuses to overwrite an existing --outpu
 unless --force is passed (a scheduled/CI evidence run reusing a fixed path needs it).
 
 **Usage:** `keyorix compliance export [flags]`
+
+**Examples:**
+
+```sh
+keyorix compliance export --output evidence-pack.json
+```
 
 **Flags:**
 
@@ -852,6 +1062,12 @@ Writes to stdout, or to --output FILE. Refuses to overwrite an existing --output
 unless --force is passed (a scheduled/CI evidence run reusing a fixed path needs it).
 
 **Usage:** `keyorix compliance inventory [flags]`
+
+**Examples:**
+
+```sh
+keyorix compliance inventory --project 3 --output inventory.csv
+```
 
 **Flags:**
 
@@ -875,6 +1091,12 @@ Requires audit.read.
 
 **Usage:** `keyorix compliance permission-baseline [flags]`
 
+**Examples:**
+
+```sh
+keyorix compliance permission-baseline --format json --output baseline.json
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -893,6 +1115,12 @@ Requires audit.read.
 
 **Usage:** `keyorix compliance permission-changes [flags]`
 
+**Examples:**
+
+```sh
+keyorix compliance permission-changes --since 2026-10-01T00:00:00Z --limit 200
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -907,6 +1135,12 @@ Print the deployment's controls-posture report
 
 **Usage:** `keyorix compliance report`
 
+**Examples:**
+
+```sh
+keyorix compliance report
+```
+
 ## `keyorix compliance rotation-by-backend`
 
 Rotation-overdue secrets grouped by backend
@@ -915,6 +1149,12 @@ Print a table of rotation-overdue secrets grouped by RotationBackend across
 the whole deployment. Requires audit.read permission.
 
 **Usage:** `keyorix compliance rotation-by-backend`
+
+**Examples:**
+
+```sh
+keyorix compliance rotation-by-backend
+```
 
 ## `keyorix compliance verify`
 
@@ -927,6 +1167,12 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 
 **Usage:** `keyorix compliance verify [flags]`
 
+**Examples:**
+
+```sh
+keyorix compliance verify --file evidence-pack.json --sig evidence-pack.json.sig
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -938,7 +1184,8 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 
 Show or change CLI settings stored with your credentials
 
-config reads and writes CLI settings kept in the credentials file (see "keyorix status --help").
+config reads and writes CLI settings kept in the credentials file (keyorix/credentials.yaml under the OS user config
+directory: ~/.config on Linux, ~/Library/Application Support on macOS).
 
 Keys:
 ```text
@@ -961,17 +1208,35 @@ Show the effective value of a CLI setting and where it comes from (key: ca_file)
 
 **Usage:** `keyorix config get <key>`
 
+**Examples:**
+
+```sh
+keyorix config get ca_file
+```
+
 ## `keyorix config set`
 
 Set a CLI setting (key: ca_file)
 
 **Usage:** `keyorix config set <key> <value>`
 
+**Examples:**
+
+```sh
+keyorix config set ca_file /etc/keyorix/ca.pem
+```
+
 ## `keyorix config unset`
 
 Remove a stored CLI setting (key: ca_file)
 
 **Usage:** `keyorix config unset <key>`
+
+**Examples:**
+
+```sh
+keyorix config unset ca_file
+```
 
 ## `keyorix docs`
 
@@ -1040,6 +1305,12 @@ Set a dynamic-secret config's classification level
 
 **Usage:** `keyorix dynamic-secret classify <config-id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix dynamic-secret classify 5 --level confidential
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1094,6 +1365,12 @@ Examples:
 
 **Usage:** `keyorix dynamic-secret create [flags]`
 
+**Examples:**
+
+```sh
+keyorix dynamic-secret create --project-id 3 --name orders-db --backend postgres --default-ttl 3600 --max-ttl 14400
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1113,11 +1390,24 @@ Show a dynamic-secret config's details
 
 **Usage:** `keyorix dynamic-secret get-config <config-id>`
 
+**Examples:**
+
+```sh
+keyorix dynamic-secret get-config 5
+```
+
 ## `keyorix dynamic-secret issue`
 
 Issue a short-lived credential from a config (shown once)
 
 **Usage:** `keyorix dynamic-secret issue <config-id> [flags]`
+
+**Examples:**
+
+```sh
+# Issue a short-lived credential from config 5 (valid for 15 minutes)
+keyorix dynamic-secret issue 5 --ttl 900
+```
 
 **Flags:**
 
@@ -1131,11 +1421,23 @@ List leases issued from a config
 
 **Usage:** `keyorix dynamic-secret leases <config-id>`
 
+**Examples:**
+
+```sh
+keyorix dynamic-secret leases 5
+```
+
 ## `keyorix dynamic-secret list`
 
 List dynamic-secret target configs
 
 **Usage:** `keyorix dynamic-secret list [flags]`
+
+**Examples:**
+
+```sh
+keyorix dynamic-secret list --project-id 3
+```
 
 **Flags:**
 
@@ -1150,6 +1452,12 @@ Extend an active lease (up to the config's max TTL)
 
 **Usage:** `keyorix dynamic-secret renew <lease-id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix dynamic-secret renew 21 --ttl 900
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1162,11 +1470,23 @@ Revoke an active lease now
 
 **Usage:** `keyorix dynamic-secret revoke <lease-id>`
 
+**Examples:**
+
+```sh
+keyorix dynamic-secret revoke 21
+```
+
 ## `keyorix dynamic-secret revoke-all`
 
 Revoke ALL active leases from a config (incident kill switch)
 
 **Usage:** `keyorix dynamic-secret revoke-all <config-id> [flags]`
+
+**Examples:**
+
+```sh
+keyorix dynamic-secret revoke-all 5 --yes
+```
 
 **Flags:**
 
@@ -1222,6 +1542,12 @@ Create a group
 
 **Usage:** `keyorix group create [flags]`
 
+**Examples:**
+
+```sh
+keyorix group create --name platform-team --description "Platform engineers"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1234,6 +1560,12 @@ Create a group
 Delete a group
 
 **Usage:** `keyorix group delete [group] [flags]`
+
+**Examples:**
+
+```sh
+keyorix group delete platform-team --force
+```
 
 **Flags:**
 
@@ -1248,6 +1580,12 @@ Get a group by name or id
 
 **Usage:** `keyorix group get [group] [flags]`
 
+**Examples:**
+
+```sh
+keyorix group get platform-team
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1260,11 +1598,23 @@ List groups
 
 **Usage:** `keyorix group list`
 
+**Examples:**
+
+```sh
+keyorix group list
+```
+
 ## `keyorix group members`
 
 List members of a group
 
 **Usage:** `keyorix group members [group] [flags]`
+
+**Examples:**
+
+```sh
+keyorix group members platform-team
+```
 
 **Flags:**
 
@@ -1301,6 +1651,12 @@ Update a group
 
 **Usage:** `keyorix group update [group] [flags]`
 
+**Examples:**
+
+```sh
+keyorix group update platform-team --description "Platform and SRE"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1320,6 +1676,13 @@ per-project breakdown of the projects that carry debt. Requires global system.re
 Counts only — never secret names or values.
 
 **Usage:** `keyorix hygiene [flags]`
+
+**Examples:**
+
+```sh
+keyorix hygiene
+keyorix hygiene --expiring-days 14 --stale-days 60
+```
 
 **Flags:**
 
@@ -1352,6 +1715,12 @@ List a project's invitations. With --stale-days, show only pending invites older
 
 **Usage:** `keyorix invite list [flags]`
 
+**Examples:**
+
+```sh
+keyorix invite list --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1369,6 +1738,12 @@ Throttled per the ADR-028 resend limits.
 
 **Usage:** `keyorix invite resend [flags]`
 
+**Examples:**
+
+```sh
+keyorix invite resend --project payments --id 12
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1384,6 +1759,12 @@ Cancel a pending project invitation by ID (ADR-024).
 
 **Usage:** `keyorix invite revoke [flags]`
 
+**Examples:**
+
+```sh
+keyorix invite revoke --project payments --id 12
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1398,6 +1779,12 @@ Send a project invitation
 Invite an email address to a project with an intended role (admin-driven, ADR-024).
 
 **Usage:** `keyorix invite send [flags]`
+
+**Examples:**
+
+```sh
+keyorix invite send --project payments --email bob@example.com --role developer
+```
 
 **Flags:**
 
@@ -1429,6 +1816,12 @@ Lift the active legal hold (resume purges)
 
 **Usage:** `keyorix legal-hold lift [flags]`
 
+**Examples:**
+
+```sh
+keyorix legal-hold lift --reason "case closed, matter 2026-17"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1442,6 +1835,12 @@ Place a legal hold (block all purges until lifted)
 
 **Usage:** `keyorix legal-hold place [flags]`
 
+**Examples:**
+
+```sh
+keyorix legal-hold place --reason "litigation hold, matter 2026-17"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1453,6 +1852,12 @@ Place a legal hold (block all purges until lifted)
 Show whether a legal hold is active
 
 **Usage:** `keyorix legal-hold status`
+
+**Examples:**
+
+```sh
+keyorix legal-hold status
+```
 
 ## `keyorix license`
 
@@ -1479,6 +1884,12 @@ Validate a license token and store it for the server to load
 
 **Usage:** `keyorix license install <token-file> [flags]`
 
+**Examples:**
+
+```sh
+keyorix license install license.token --dest /etc/keyorix/license.token
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1492,6 +1903,12 @@ Validate a license token and store it for the server to load
 Show the locally-evaluated license entitlement
 
 **Usage:** `keyorix license status [flags]`
+
+**Examples:**
+
+```sh
+keyorix license status --license /etc/keyorix/license.token
+```
 
 **Flags:**
 
@@ -1507,7 +1924,12 @@ Authenticate to a Keyorix server and store the resulting token
 
 login exchanges a username and password for a session token via POST /auth/login,
 verifies it against GET /api/v1/auth/profile, and stores it (with the server URL) at the
-one credential-file location this CLI uses (see "keyorix status --help").
+one credential-file location this CLI uses: keyorix/credentials.yaml under the OS user
+config directory (~/.config on Linux, ~/Library/Application Support on macOS).
+
+The password is read from, in order: --password (insecure: visible in ps and shell
+history), KEYORIX_PASSWORD or the file named by KEYORIX_PASSWORD_FILE, then a no-echo
+prompt. With no terminal and neither variable set, login stops with an error.
 
 When the account has TOTP multi-factor authentication enabled, /auth/login answers with a
 second-factor challenge instead of a token; login then asks for an authenticator code (or
@@ -1517,12 +1939,19 @@ is never echoed, never logged, and never written to the credential file.
 
 **Usage:** `keyorix login [flags]`
 
+**Examples:**
+
+```sh
+# Prompts for the password (and the MFA code, if the account has MFA)
+keyorix login --server https://keyorix.example.com --username alice
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--mfa-code` | `string` | — | Authenticator (TOTP) code or an unused recovery code, for an MFA-enabled account (omit to be prompted) |
-| `--password` | `string` | — | Password (omit to be prompted) |
+| `--password` | `string` | — | Password (INSECURE on the command line -- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted) |
 | `--server` | `string` | — | Server base URL (or set KEYORIX_SERVER) |
 | `--username` | `string` | — | Username |
 
@@ -1538,6 +1967,12 @@ whether that call succeeded -- a server that is unreachable or already rejects t
 token must not leave a stale credential sitting on disk.
 
 **Usage:** `keyorix logout`
+
+**Examples:**
+
+```sh
+keyorix logout
+```
 
 ## `keyorix machine`
 
@@ -1576,6 +2011,12 @@ Requires global audit.read permission.
 
 **Usage:** `keyorix machine audit [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine audit --format csv
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1602,6 +2043,13 @@ Bind an OIDC (issuer, subject) to a machine identity
 
 **Usage:** `keyorix machine binding add <machine> [flags]`
 
+**Examples:**
+
+```sh
+# Let a GitHub Actions workflow authenticate as this machine identity
+keyorix machine binding add ci-deployer --project payments --issuer https://token.actions.githubusercontent.com --subject repo:acme/payments:ref:refs/heads/main
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1616,6 +2064,12 @@ List a machine identity's OIDC bindings
 
 **Usage:** `keyorix machine binding list <machine> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine binding list ci-deployer --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1628,6 +2082,12 @@ Remove an OIDC binding from a machine identity
 
 **Usage:** `keyorix machine binding rm <machine> <binding-id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine binding rm ci-deployer 4 --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1639,6 +2099,12 @@ Remove an OIDC binding from a machine identity
 Create a machine identity in a project
 
 **Usage:** `keyorix machine create [flags]`
+
+**Examples:**
+
+```sh
+keyorix machine create --project payments --name ci-deployer --type ci --classification internal
+```
 
 **Flags:**
 
@@ -1656,6 +2122,12 @@ Show details of a machine identity
 
 **Usage:** `keyorix machine describe <name|id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine describe ci-deployer --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1670,6 +2142,12 @@ Grant a machine identity a role at its project's scope, so tokens it issues can 
 
 **Usage:** `keyorix machine grant-role <name|id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine grant-role ci-deployer --project payments --role developer
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1682,6 +2160,12 @@ Grant a machine identity a role at its project's scope, so tokens it issues can 
 List machine identities in a project
 
 **Usage:** `keyorix machine list [flags]`
+
+**Examples:**
+
+```sh
+keyorix machine list --project payments
+```
 
 **Flags:**
 
@@ -1699,6 +2183,12 @@ The user is never deleted; suspension is reversible via `keyorix user reactivate
 
 **Usage:** `keyorix machine migrate-from-user <username> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine migrate-from-user svc-deploy --project payments --type ci
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1714,6 +2204,12 @@ Reactivate a suspended machine identity
 
 **Usage:** `keyorix machine reactivate <name|id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine reactivate ci-deployer --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1725,6 +2221,12 @@ Reactivate a suspended machine identity
 Revoke a machine identity (terminal)
 
 **Usage:** `keyorix machine revoke <name|id> [flags]`
+
+**Examples:**
+
+```sh
+keyorix machine revoke ci-deployer --project payments
+```
 
 **Flags:**
 
@@ -1741,6 +2243,12 @@ Revoke a previously granted project-scoped role (distinct from `machine revoke`,
 
 **Usage:** `keyorix machine revoke-role <name|id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine revoke-role ci-deployer --project payments --role developer
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1754,6 +2262,12 @@ List a machine identity's project-scoped roles
 
 **Usage:** `keyorix machine roles <name|id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine roles ci-deployer --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1765,6 +2279,12 @@ List a machine identity's project-scoped roles
 Suspend a machine identity
 
 **Usage:** `keyorix machine suspend <name|id> [flags]`
+
+**Examples:**
+
+```sh
+keyorix machine suspend ci-deployer --project payments
+```
 
 **Flags:**
 
@@ -1792,6 +2312,13 @@ Issue a new bearer token for a machine identity
 
 **Usage:** `keyorix machine token issue <name|id> [flags]`
 
+**Examples:**
+
+```sh
+# The token is shown once; store it straight into your CI system
+keyorix machine token issue ci-deployer --project payments --name github-actions --expires-in-days 90
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1807,6 +2334,12 @@ List tokens for a machine identity
 
 **Usage:** `keyorix machine token list <name|id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix machine token list ci-deployer --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1818,6 +2351,12 @@ List tokens for a machine identity
 Revoke a machine identity token
 
 **Usage:** `keyorix machine token revoke <name|id> <token-id> [flags]`
+
+**Examples:**
+
+```sh
+keyorix machine token revoke ci-deployer 4 --project payments
+```
 
 **Flags:**
 
@@ -1835,6 +2374,12 @@ revoked: ones that have expired but were never revoked, and ones unused for a lo
 window (non-human token sprawl). Requires global audit.read. Never prints a secret.
 
 **Usage:** `keyorix machine token-hygiene [flags]`
+
+**Examples:**
+
+```sh
+keyorix machine token-hygiene --days 60
+```
 
 **Flags:**
 
@@ -1869,6 +2414,13 @@ security.require_mfa, activating as the last setup step ends that session too.
 
 **Usage:** `keyorix mfa activate [flags]`
 
+**Examples:**
+
+```sh
+# Prompts for the authenticator code and your password
+keyorix mfa activate
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1888,6 +2440,13 @@ session without MFA can reach only enroll/activate until this is done.
 
 **Usage:** `keyorix mfa enroll`
 
+**Examples:**
+
+```sh
+# Prints the authenticator setup secret; then run: keyorix mfa activate
+keyorix mfa enroll
+```
+
 ## `keyorix mfa stepup`
 
 Re-verify your TOTP to unlock restricted secret reads
@@ -1897,6 +2456,13 @@ On success, a 15-minute window is opened server-side that allows reading
 "restricted" classified secrets.
 
 **Usage:** `keyorix mfa stepup [flags]`
+
+**Examples:**
+
+```sh
+# Prompts for a fresh authenticator or recovery code
+keyorix mfa stepup
+```
 
 **Flags:**
 
@@ -1934,6 +2500,13 @@ Add a notification channel
 
 **Usage:** `keyorix notification channel add <name> [flags]`
 
+**Examples:**
+
+```sh
+keyorix notification channel add ops-slack --type slack --url https://hooks.slack.com/services/T000/B000/XXXX --events secret.rotated,anomaly.detected
+keyorix notification channel add secops-mail --type email --email secops@example.com
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1949,6 +2522,12 @@ Delete a notification channel by name
 
 **Usage:** `keyorix notification channel delete <name> [flags]`
 
+**Examples:**
+
+```sh
+keyorix notification channel delete ops-slack --confirm
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -1961,17 +2540,35 @@ Get details of a notification channel by name
 
 **Usage:** `keyorix notification channel get <name>`
 
+**Examples:**
+
+```sh
+keyorix notification channel get ops-slack
+```
+
 ## `keyorix notification channel list`
 
 List all notification channels
 
 **Usage:** `keyorix notification channel list`
 
+**Examples:**
+
+```sh
+keyorix notification channel list
+```
+
 ## `keyorix notification channel update`
 
 Update a notification channel by name
 
 **Usage:** `keyorix notification channel update <name> [flags]`
+
+**Examples:**
+
+```sh
+keyorix notification channel update ops-slack --events secret.rotated --enabled
+```
 
 **Flags:**
 
@@ -2004,11 +2601,24 @@ Bulk-revoke all your expired personal access tokens
 
 **Usage:** `keyorix pat cleanup-expired`
 
+**Examples:**
+
+```sh
+keyorix pat cleanup-expired
+```
+
 ## `keyorix pat create`
 
 Create a personal access token (the raw token is shown once)
 
 **Usage:** `keyorix pat create [flags]`
+
+**Examples:**
+
+```sh
+# A read-only token for one project, valid until the end of the year
+keyorix pat create --name ci-readonly --scope secrets.read --project-id 3 --expires 2026-12-31
+```
 
 **Flags:**
 
@@ -2031,6 +2641,12 @@ window (token sprawl). Requires global audit.read. Never prints a token's secret
 
 **Usage:** `keyorix pat hygiene [flags]`
 
+**Examples:**
+
+```sh
+keyorix pat hygiene --days 60
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2043,17 +2659,35 @@ List your personal access tokens
 
 **Usage:** `keyorix pat list`
 
+**Examples:**
+
+```sh
+keyorix pat list
+```
+
 ## `keyorix pat list-expired`
 
 List your expired (non-revoked) personal access tokens
 
 **Usage:** `keyorix pat list-expired`
 
+**Examples:**
+
+```sh
+keyorix pat list-expired
+```
+
 ## `keyorix pat revoke`
 
 Revoke one of your tokens
 
 **Usage:** `keyorix pat revoke <token-id>`
+
+**Examples:**
+
+```sh
+keyorix pat revoke 8
+```
 
 ## `keyorix project`
 
@@ -2084,6 +2718,12 @@ Create a new project
 
 **Usage:** `keyorix project create [flags]`
 
+**Examples:**
+
+```sh
+keyorix project create --name payments --description "Payments platform" --envs development,staging,production
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2098,6 +2738,12 @@ Show the currently active project
 
 **Usage:** `keyorix project current`
 
+**Examples:**
+
+```sh
+keyorix project current
+```
+
 ## `keyorix project describe`
 
 Show details of a project
@@ -2105,6 +2751,12 @@ Show details of a project
 Displays environments and description for the specified project (or the active project if none given).
 
 **Usage:** `keyorix project describe [name]`
+
+**Examples:**
+
+```sh
+keyorix project describe payments
+```
 
 ## `keyorix project env`
 
@@ -2129,6 +2781,12 @@ skipped (not overwritten). Only the latest version of each secret is copied.
 
 **Usage:** `keyorix project env clone <src-env-name> <dst-env-name> [flags]`
 
+**Examples:**
+
+```sh
+keyorix project env clone staging qa --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2140,6 +2798,12 @@ skipped (not overwritten). Only the latest version of each secret is copied.
 Create a new environment in the active (or specified) project
 
 **Usage:** `keyorix project env create [flags]`
+
+**Examples:**
+
+```sh
+keyorix project env create --name qa --project payments
+```
 
 **Flags:**
 
@@ -2154,6 +2818,12 @@ Delete an environment by ID
 
 **Usage:** `keyorix project env delete <env-id> [flags]`
 
+**Examples:**
+
+```sh
+keyorix project env delete 9 --project payments --confirm
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2167,6 +2837,12 @@ List environments for the active (or specified) project
 
 **Usage:** `keyorix project env list [flags]`
 
+**Examples:**
+
+```sh
+keyorix project env list --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2179,11 +2855,23 @@ List environments for a project
 
 **Usage:** `keyorix project environments <project-id>`
 
+**Examples:**
+
+```sh
+keyorix project environments 3
+```
+
 ## `keyorix project health`
 
 Show the secret health summary for a project
 
 **Usage:** `keyorix project health <name> [flags]`
+
+**Examples:**
+
+```sh
+keyorix project health payments --limit 10
+```
 
 **Flags:**
 
@@ -2202,17 +2890,35 @@ identities. Requires secrets.read at the project scope.
 
 **Usage:** `keyorix project hygiene <project-id>`
 
+**Examples:**
+
+```sh
+keyorix project hygiene 3
+```
+
 ## `keyorix project list`
 
 List all projects
 
 **Usage:** `keyorix project list`
 
+**Examples:**
+
+```sh
+keyorix project list
+```
+
 ## `keyorix project resume-secrets`
 
 Resume every suspended secret in a project -- restore value reads
 
 **Usage:** `keyorix project resume-secrets [flags]`
+
+**Examples:**
+
+```sh
+keyorix project resume-secrets --id 3
+```
 
 **Flags:**
 
@@ -2225,6 +2931,12 @@ Resume every suspended secret in a project -- restore value reads
 Show rich statistics for a project
 
 **Usage:** `keyorix project stats <name> [flags]`
+
+**Examples:**
+
+```sh
+keyorix project stats payments --format json
+```
 
 **Flags:**
 
@@ -2250,6 +2962,12 @@ the request to secrets that are already suspended without it.
 
 **Usage:** `keyorix project suspend-secrets [flags]`
 
+**Examples:**
+
+```sh
+keyorix project suspend-secrets --id 3 --reason "suspected CI compromise"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2266,6 +2984,13 @@ Saves the active project name to the credentials file (cli/internal/credstore).
 All project-scoped commands inherit this context; override per-command with --project.
 
 **Usage:** `keyorix project use <name>`
+
+**Examples:**
+
+```sh
+# Make "payments" the default for later commands
+keyorix project use payments
+```
 
 ## `keyorix rbac`
 
@@ -2303,6 +3028,14 @@ contractor access. Example: --ttl 4h grants the role for four hours.
 
 **Usage:** `keyorix rbac assign-role [flags]`
 
+**Examples:**
+
+```sh
+keyorix rbac assign-role --user alice@example.com --role developer --project payments
+# Time-bound grant
+keyorix rbac assign-role --user alice@example.com --role admin --project payments --ttl 4h
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2327,6 +3060,12 @@ With --ttl, the grant is time-bound (just-in-time access).
 
 **Usage:** `keyorix rbac assign-role-to-group [flags]`
 
+**Examples:**
+
+```sh
+keyorix rbac assign-role-to-group --group platform-team --role developer --project payments
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2345,6 +3084,12 @@ View audit logs for RBAC operations (role assignments, removals, permission gran
 
 **Usage:** `keyorix rbac audit-logs [flags]`
 
+**Examples:**
+
+```sh
+keyorix rbac audit-logs --limit 20
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2359,6 +3104,12 @@ Check if a user has a specific permission
 Check if a user has a specific permission by email address and permission name
 
 **Usage:** `keyorix rbac check-permission [flags]`
+
+**Examples:**
+
+```sh
+keyorix rbac check-permission --user alice@example.com --permission secrets.read
+```
 
 **Flags:**
 
@@ -2387,6 +3138,12 @@ Examples:
 
 **Usage:** `keyorix rbac export-matrix [flags]`
 
+**Examples:**
+
+```sh
+keyorix rbac export-matrix --format csv --output rbac-matrix.csv
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2403,6 +3160,12 @@ List all roles assigned to a specific group.
 
 **Usage:** `keyorix rbac list-group-roles [flags]`
 
+**Examples:**
+
+```sh
+keyorix rbac list-group-roles --group platform-team
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2416,6 +3179,12 @@ List all permissions for a user
 List all permissions assigned to a user through their roles
 
 **Usage:** `keyorix rbac list-permissions [flags]`
+
+**Examples:**
+
+```sh
+keyorix rbac list-permissions --user alice@example.com
+```
 
 **Flags:**
 
@@ -2431,6 +3200,12 @@ List all roles in the system
 
 **Usage:** `keyorix rbac list-roles`
 
+**Examples:**
+
+```sh
+keyorix rbac list-roles
+```
+
 ## `keyorix rbac list-user-roles`
 
 List roles assigned to a user
@@ -2438,6 +3213,12 @@ List roles assigned to a user
 List all roles assigned to a specific user by email address
 
 **Usage:** `keyorix rbac list-user-roles [flags]`
+
+**Examples:**
+
+```sh
+keyorix rbac list-user-roles --user alice@example.com
+```
 
 **Flags:**
 
@@ -2456,6 +3237,12 @@ With --environment, removes only the grant scoped to that environment within
 the project (--project must also be supplied).
 
 **Usage:** `keyorix rbac remove-role [flags]`
+
+**Examples:**
+
+```sh
+keyorix rbac remove-role --user alice@example.com --role developer --project payments
+```
 
 **Flags:**
 
@@ -2477,6 +3264,12 @@ With --environment, removes only the grant scoped to that environment within
 the project (--project must also be supplied).
 
 **Usage:** `keyorix rbac remove-role-from-group [flags]`
+
+**Examples:**
+
+```sh
+keyorix rbac remove-role-from-group --group platform-team --role developer --project payments
+```
 
 **Flags:**
 
@@ -2514,6 +3307,12 @@ Create a pending access request for the caller to a project, optionally suggesti
 
 **Usage:** `keyorix request access [flags]`
 
+**Examples:**
+
+```sh
+keyorix request access --project payments --role developer --reason "on-call this week"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2532,6 +3331,12 @@ Provide a comma-separated list of request IDs with --ids.
 
 **Usage:** `keyorix request bulk-approve [flags]`
 
+**Examples:**
+
+```sh
+keyorix request bulk-approve --ids 4,5,6
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2547,6 +3352,12 @@ All rejected requests share the same --reason.
 
 **Usage:** `keyorix request bulk-reject [flags]`
 
+**Examples:**
+
+```sh
+keyorix request bulk-reject --ids 7,8 --reason "no business need"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2559,6 +3370,12 @@ All rejected requests share the same --reason.
 List a project's access requests
 
 **Usage:** `keyorix request list [flags]`
+
+**Examples:**
+
+```sh
+keyorix request list --project payments
+```
 
 **Flags:**
 
@@ -2585,6 +3402,12 @@ Add a new rejection-reason template
 
 **Usage:** `keyorix request rejection-templates add [flags]`
 
+**Examples:**
+
+```sh
+keyorix request rejection-templates add --name no-need --reason "No business need for this access"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2598,11 +3421,23 @@ Delete a rejection-reason template by ID
 
 **Usage:** `keyorix request rejection-templates delete <id>`
 
+**Examples:**
+
+```sh
+keyorix request rejection-templates delete 2
+```
+
 ## `keyorix request rejection-templates list`
 
 List all rejection-reason templates
 
 **Usage:** `keyorix request rejection-templates list`
+
+**Examples:**
+
+```sh
+keyorix request rejection-templates list
+```
 
 ## `keyorix request review`
 
@@ -2613,6 +3448,13 @@ Approving grants the role at the project scope (--role overrides the suggested r
 rejecting records a --reason.
 
 **Usage:** `keyorix request review [flags]`
+
+**Examples:**
+
+```sh
+keyorix request review --project payments --id 4 --action approve --ttl 8h
+keyorix request review --project payments --id 5 --action reject --reason "ask your manager first"
+```
 
 **Flags:**
 
@@ -2637,6 +3479,12 @@ the target secret's classification is "restricted" — the gate this satisfies.
 
 **Usage:** `keyorix request secret-access [flags]`
 
+**Examples:**
+
+```sh
+keyorix request secret-access --ref payments/production/STRIPE_KEY --reason "debugging INC-1234"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2652,6 +3500,12 @@ Withdraw your own pending access request
 Cancel a pending access request you own, by ID (self-service, ADR-024).
 
 **Usage:** `keyorix request withdraw [flags]`
+
+**Examples:**
+
+```sh
+keyorix request withdraw --project payments --id 4
+```
 
 **Flags:**
 
@@ -2684,6 +3538,12 @@ Record a risk exception (accept a control gap for a bounded time)
 
 **Usage:** `keyorix risk add [flags]`
 
+**Examples:**
+
+```sh
+keyorix risk add --title "Shared admin account" --category mfa --justification "vendor limitation" --expires 2027-01-31T00:00:00Z
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2705,6 +3565,12 @@ unilaterally creating and self-approving a suppression of their own risk.
 
 **Usage:** `keyorix risk approve [flags]`
 
+**Examples:**
+
+```sh
+keyorix risk approve --id 3
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2717,6 +3583,12 @@ List risk exceptions (active by default; --all includes expired)
 
 **Usage:** `keyorix risk list [flags]`
 
+**Examples:**
+
+```sh
+keyorix risk list --all
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2728,6 +3600,12 @@ List risk exceptions (active by default; --all includes expired)
 Revoke a risk exception before its expiry
 
 **Usage:** `keyorix risk revoke [flags]`
+
+**Examples:**
+
+```sh
+keyorix risk revoke --id 3
+```
 
 **Flags:**
 
@@ -2757,6 +3635,12 @@ Create a rotation policy
 
 **Usage:** `keyorix rotation create [flags]`
 
+**Examples:**
+
+```sh
+keyorix rotation create --name prod-90d --scope project --project-id 3 --interval-days 90 --alert-days-before 14
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2776,11 +3660,23 @@ Delete a rotation policy
 
 **Usage:** `keyorix rotation delete <id>`
 
+**Examples:**
+
+```sh
+keyorix rotation delete 2
+```
+
 ## `keyorix rotation list`
 
 List rotation policies
 
 **Usage:** `keyorix rotation list [flags]`
+
+**Examples:**
+
+```sh
+keyorix rotation list --project-id 3
+```
 
 **Flags:**
 
@@ -2799,6 +3695,12 @@ graph, ADR-052). Only secrets that appear in the graph are listed.
 
 **Usage:** `keyorix rotation order <project-id>`
 
+**Examples:**
+
+```sh
+keyorix rotation order 3
+```
+
 ## `keyorix rotation plan`
 
 Print an automated rotation plan (dependency-safe waves, by urgency)
@@ -2813,6 +3715,13 @@ per-project, so each project keeps its own wave order.
 
 **Usage:** `keyorix rotation plan [project-id] [flags]`
 
+**Examples:**
+
+```sh
+keyorix rotation plan 3
+keyorix rotation plan --all-projects
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2825,11 +3734,23 @@ Show a rotation policy
 
 **Usage:** `keyorix rotation show <id>`
 
+**Examples:**
+
+```sh
+keyorix rotation show 2
+```
+
 ## `keyorix rotation status`
 
 Show policy-covered secrets that are overdue or approaching rotation
 
 **Usage:** `keyorix rotation status [flags]`
+
+**Examples:**
+
+```sh
+keyorix rotation status --project-id 3
+```
 
 **Flags:**
 
@@ -2870,6 +3791,13 @@ https://github.com/keyorixhq/keyorix/issues/2360 for the same shape on
 'keyorix request'.
 
 **Usage:** `keyorix run [flags]`
+
+**Examples:**
+
+```sh
+# Run a command with secrets injected as environment variables
+keyorix run --project payments --env production --var DB_PASSWORD=payments/production/DB_PASSWORD -- ./server
+```
 
 **Flags:**
 
@@ -2957,6 +3885,12 @@ implicit access and are not listed. Requires secrets.read.
 
 **Usage:** `keyorix secret access [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret access --id 42
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -2970,6 +3904,12 @@ Show a secret's recent reads (who/when/from where)
 List the recent access-log entries for a secret. Requires secrets.read.
 
 **Usage:** `keyorix secret access-log [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret access-log --id 42 --days 7
+```
 
 **Flags:**
 
@@ -3001,6 +3941,12 @@ Grant a user ACL access to a secret
 
 **Usage:** `keyorix secret acl grant [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret acl grant --secret 42 --user 12 --perm secrets.read
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3015,11 +3961,23 @@ List ACL grants for a secret
 
 **Usage:** `keyorix secret acl list <secret-id>`
 
+**Examples:**
+
+```sh
+keyorix secret acl list 42
+```
+
 ## `keyorix secret acl revoke`
 
 Revoke an ACL grant from a secret
 
 **Usage:** `keyorix secret acl revoke [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret acl revoke --secret 42 --acl 5
+```
 
 **Flags:**
 
@@ -3037,6 +3995,12 @@ rolled-back, suspended/resumed, shared, owner-transferred, reclassified), newest
 Requires secrets.read at the secret's scope. Never prints a plaintext value.
 
 **Usage:** `keyorix secret audit [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret audit --id 42 --limit 20
+```
 
 **Flags:**
 
@@ -3058,6 +4022,14 @@ value without touching any upstream system. Requires secrets.write at the secret
 
 **Usage:** `keyorix secret auto-rotate [flags]`
 
+**Examples:**
+
+```sh
+# Rotate secret 42 automatically with a generated 32-character value
+keyorix secret auto-rotate --id 42 --length 32
+keyorix secret auto-rotate --id 42 --off
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3077,6 +4049,12 @@ Show all downstream dependents of a secret (recursive), each annotated with owne
 
 **Usage:** `keyorix secret blast-radius <secret-id>`
 
+**Examples:**
+
+```sh
+keyorix secret blast-radius 42
+```
+
 ## `keyorix secret bulk-delete`
 
 Delete multiple secrets in one operation
@@ -3090,6 +4068,14 @@ deletion to proceed; without it the command prints what would be deleted and
 exits.
 
 **Usage:** `keyorix secret bulk-delete [flags]`
+
+**Examples:**
+
+```sh
+# Preview, then confirm
+keyorix secret bulk-delete --project 3 --env 2 --names OLD_KEY,UNUSED_TOKEN
+keyorix secret bulk-delete --project 3 --env 2 --names OLD_KEY,UNUSED_TOKEN --confirm
+```
 
 **Flags:**
 
@@ -3117,6 +4103,13 @@ that only reports what would change; pass --apply to actually rename. Requires
 secrets.write at the project scope.
 
 **Usage:** `keyorix secret bulk-rename [flags]`
+
+**Examples:**
+
+```sh
+# Dry run; add --apply to rename
+keyorix secret bulk-rename --project 3 --rename 42=DB_PASSWORD --rename 43=DB_USER
+```
 
 **Flags:**
 
@@ -3147,6 +4140,12 @@ environment, not across the whole project.
 
 **Usage:** `keyorix secret bulk-rotate [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret bulk-rotate --project 3 --classification confidential --confirm
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3163,6 +4162,12 @@ Show a certificate secret's public X.509 metadata (expiry, issuer, SANs)
 
 **Usage:** `keyorix secret cert <secret-id>`
 
+**Examples:**
+
+```sh
+keyorix secret cert 42
+```
+
 ## `keyorix secret classify`
 
 Set a secret's data-classification label (ISO 27001 A.5.12)
@@ -3171,6 +4176,12 @@ Label a secret with its data-sensitivity classification: public, internal,
 confidential, or restricted (or empty to clear). Requires secrets.write.
 
 **Usage:** `keyorix secret classify [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret classify --id 42 --level confidential
+```
 
 **Flags:**
 
@@ -3184,6 +4195,12 @@ confidential, or restricted (or empty to clear). Requires secrets.write.
 Remove the temporal access schedule for a secret (idempotent)
 
 **Usage:** `keyorix secret clear-schedule <secret-id>`
+
+**Examples:**
+
+```sh
+keyorix secret clear-schedule 42
+```
 
 ## `keyorix secret comment`
 
@@ -3203,17 +4220,35 @@ Add a comment to a secret version
 
 **Usage:** `keyorix secret comment add <secret-id> <version-id> <comment>`
 
+**Examples:**
+
+```sh
+keyorix secret comment add 42 3 "rotated after the 2026-10 incident"
+```
+
 ## `keyorix secret comment delete`
 
 Delete a comment from a secret version
 
 **Usage:** `keyorix secret comment delete <secret-id> <version-id> <comment-id>`
 
+**Examples:**
+
+```sh
+keyorix secret comment delete 42 3 7
+```
+
 ## `keyorix secret comment list`
 
 List comments on a secret version
 
 **Usage:** `keyorix secret comment list <secret-id> <version-id>`
+
+**Examples:**
+
+```sh
+keyorix secret comment list 42 3
+```
 
 ## `keyorix secret copy`
 
@@ -3224,6 +4259,12 @@ production) without re-typing the value. Creates a new, independently-owned
 secret with the source's value, type, classification, and description.
 
 **Usage:** `keyorix secret copy [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret copy --id 42 --to-environment 2 --name DB_PASSWORD_COPY
+```
 
 **Flags:**
 
@@ -3243,6 +4284,12 @@ single call. Name clashes in the target are skipped, never overwritten.
 
 **Usage:** `keyorix secret copy-environment [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret copy-environment --project 3 --from-environment 1 --to-environment 2
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3256,6 +4303,15 @@ single call. Name clashes in the target are skipped, never overwritten.
 Create a new secret
 
 **Usage:** `keyorix secret create [flags]`
+
+**Examples:**
+
+```sh
+# Prompts for the value on a hidden line
+keyorix secret create --project 3 --environment 2 --name DB_PASSWORD --interactive
+# Or read it from a file
+keyorix secret create --project 3 --environment 2 --name TLS_KEY --from-file ./tls.key
+```
 
 **Flags:**
 
@@ -3277,6 +4333,13 @@ Create a new secret
 Delete a secret (soft-delete; restorable with 'secret restore')
 
 **Usage:** `keyorix secret delete [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret delete --id 42
+keyorix secret delete --project 3 --environment 2 --name DB_PASSWORD --force
+```
 
 **Flags:**
 
@@ -3312,6 +4375,13 @@ Declare that \<secret-id\> depends on \<depends-on-id\>
 
 **Usage:** `keyorix secret deps add <secret-id> <depends-on-id> [flags]`
 
+**Examples:**
+
+```sh
+# Secret 42 depends on secret 40
+keyorix secret deps add 42 40 --note "uses the same database"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3324,17 +4394,35 @@ Show the blast radius of rotating a secret (transitive dependents)
 
 **Usage:** `keyorix secret deps impact <secret-id>`
 
+**Examples:**
+
+```sh
+keyorix secret deps impact 42
+```
+
 ## `keyorix secret deps list`
 
 Show what a secret depends on and what depends on it
 
 **Usage:** `keyorix secret deps list <secret-id>`
 
+**Examples:**
+
+```sh
+keyorix secret deps list 42
+```
+
 ## `keyorix secret deps rm`
 
 Remove a dependency edge (edge id from `deps list`)
 
 **Usage:** `keyorix secret deps rm <secret-id> <edge-id>`
+
+**Examples:**
+
+```sh
+keyorix secret deps rm 42 6
+```
 
 ## `keyorix secret description`
 
@@ -3350,6 +4438,12 @@ Examples:
 ```
 
 **Usage:** `keyorix secret description [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret description --id 42 --set "Primary orders database password"
+```
 
 **Flags:**
 
@@ -3374,6 +4468,12 @@ a name filter), unless --id is given directly.
 
 **Usage:** `keyorix secret diff <name> <from-version> <to-version> [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret diff DB_PASSWORD 2 3 --project 3 --environment 2
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3391,6 +4491,12 @@ can renew or rotate them before they lapse. Requires secrets.read at the project
 
 **Usage:** `keyorix secret expiring [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret expiring --project 3 --days 14
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3403,6 +4509,12 @@ can renew or rotate them before they lapse. Requires secrets.read at the project
 Explain the risk of a discovered secret and how to fix it
 
 **Usage:** `keyorix secret explain <key-name>`
+
+**Examples:**
+
+```sh
+keyorix secret explain AWS_SECRET_ACCESS_KEY
+```
 
 ## `keyorix secret export`
 
@@ -3431,6 +4543,13 @@ Warnings and summary are always printed to stderr.
 
 **Usage:** `keyorix secret export [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret export --project 3 --env 2 --format dotenv --output .env
+keyorix secret export --project 3 --env 2 --format json
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3446,6 +4565,13 @@ Warnings and summary are always printed to stderr.
 Fix a hardcoded secret by moving it to an environment variable
 
 **Usage:** `keyorix secret fix <key-name> [flags]`
+
+**Examples:**
+
+```sh
+# Preview what would be moved out of source into .env
+keyorix secret fix AWS_SECRET_ACCESS_KEY --path ./src
+```
 
 **Flags:**
 
@@ -3476,6 +4602,12 @@ Create a folder
 
 **Usage:** `keyorix secret folder create [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret folder create --project 3 --environment 2 --name databases
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3491,6 +4623,12 @@ Delete a folder
 
 **Usage:** `keyorix secret folder delete [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret folder delete --id 5
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3503,6 +4641,12 @@ Delete a folder
 List folders
 
 **Usage:** `keyorix secret folder list [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret folder list --project 3
+```
 
 **Flags:**
 
@@ -3523,6 +4667,14 @@ value (so it counts toward max_reads and is audited like any value read).
 
 **Usage:** `keyorix secret get [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret get --id 42
+# Read the value by reference
+keyorix secret get --ref payments/production/DB_PASSWORD
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3539,6 +4691,12 @@ value (so it counts toward max_reads and is audited like any value read).
 Show the temporal access schedule for a secret
 
 **Usage:** `keyorix secret get-schedule <secret-id>`
+
+**Examples:**
+
+```sh
+keyorix secret get-schedule 42
+```
 
 ## `keyorix secret import`
 
@@ -3574,6 +4732,12 @@ use the old CLI's 'secret import --source' until the dedicated migration tool ex
 
 **Usage:** `keyorix secret import [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret import --project 3 --env 2 --file .env --format dotenv --dry-run
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3596,6 +4760,12 @@ value. Requires secrets.read at the secret's scope.
 
 **Usage:** `keyorix secret info [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret info --id 42
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3612,6 +4782,13 @@ The server applies authentication-based filtering automatically: you see
 only what you're authorized to read.
 
 **Usage:** `keyorix secret list [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret list --project payments
+keyorix secret list --project payments --format json
+```
 
 **Flags:**
 
@@ -3634,6 +4811,12 @@ Use --to 0 (or omit --to) to move the node to the root (no parent).
 
 **Usage:** `keyorix secret move [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret move --id 42 --to 5
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3654,6 +4837,12 @@ Without --project, reports across every project (requires audit.read — admin v
 
 **Usage:** `keyorix secret name-conformance [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret name-conformance --project 3
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3669,6 +4858,12 @@ left without an accountable owner — re-assign one with 'keyorix secret reassig
 Requires secrets.read at the project scope.
 
 **Usage:** `keyorix secret orphaned [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret orphaned --project 3
+```
 
 **Flags:**
 
@@ -3686,6 +4881,12 @@ the transfer, and when. Requires secrets.read at the secret's scope.
 
 **Usage:** `keyorix secret ownership-history [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret ownership-history --id 42
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3702,6 +4903,12 @@ audit.read (a usage-report endpoint, not secret-value access).
 
 **Usage:** `keyorix secret quota-report`
 
+**Examples:**
+
+```sh
+keyorix secret quota-report
+```
+
 ## `keyorix secret reassign-owner`
 
 Re-home all of a departed user's secrets to a new owner
@@ -3712,6 +4919,12 @@ owner's secrets. Requires roles.assign at the project scope (the same blast radi
 as a role grant, not secrets.write); each secret is authorized individually.
 
 **Usage:** `keyorix secret reassign-owner [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret reassign-owner --project 3 --from 12 --to 15
+```
 
 **Flags:**
 
@@ -3740,6 +4953,12 @@ Examples:
 
 **Usage:** `keyorix secret render [template-file] [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret render config.tmpl --project 3 --output config.yaml
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3756,6 +4975,12 @@ live list. Find restorable secrets with 'secret trash --project \<id\>'.
 
 **Usage:** `keyorix secret restore [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret restore --id 42
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3767,6 +4992,12 @@ live list. Find restorable secrets with 'secret trash --project \<id\>'.
 Resume a suspended secret -- restore value reads
 
 **Usage:** `keyorix secret resume [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret resume --id 42
+```
 
 **Flags:**
 
@@ -3783,6 +5014,12 @@ as a NEW version (history stays append-only, so the rollback itself can be undon
 
 **Usage:** `keyorix secret rollback [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret rollback --id 42 --version 2
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3795,6 +5032,13 @@ as a NEW version (history stays append-only, so the rollback itself can be undon
 Rotate a secret by providing a new value
 
 **Usage:** `keyorix secret rotate [flags]`
+
+**Examples:**
+
+```sh
+# Prompts for the new value
+keyorix secret rotate --id 42
+```
 
 **Flags:**
 
@@ -3821,6 +5065,12 @@ Requires secrets.read at the secret's scope.
 
 **Usage:** `keyorix secret rotation-simulate [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret rotation-simulate --id 42
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3832,6 +5082,13 @@ Requires secrets.read at the secret's scope.
 Scan a directory for secrets and hardcoded credentials
 
 **Usage:** `keyorix secret scan [path] [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret scan ./src
+keyorix secret scan --staged --severity high
+```
 
 **Flags:**
 
@@ -3854,6 +5111,12 @@ factors: rotation age (30%), expiry (30%), usage (20%), and exposure (20%).
 
 **Usage:** `keyorix secret score [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret score --id 42
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3870,6 +5133,13 @@ The schedule applies to all permission-checked reads (human users); admin/
 machine reads bypass it.
 
 **Usage:** `keyorix secret set-schedule <secret-id> [flags]`
+
+**Examples:**
+
+```sh
+# Allow reads on weekdays, 08:00-18:00 UTC
+keyorix secret set-schedule 42 --days mon,tue,wed,thu,fri --start-hour 8 --end-hour 18
+```
 
 **Flags:**
 
@@ -3896,6 +5166,12 @@ that is already suspended adds the request.
 
 **Usage:** `keyorix secret suspend [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret suspend --id 42 --reason "suspected leak"
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3918,6 +5194,12 @@ Examples:
 ```
 
 **Usage:** `keyorix secret tags [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret tags --id 42 --set db,prod
+```
 
 **Flags:**
 
@@ -3947,6 +5229,12 @@ Create a secret template
 
 **Usage:** `keyorix secret template create [flags]`
 
+**Examples:**
+
+```sh
+keyorix secret template create --name db-credential --classification confidential --tags db --rotation-hint-days 90
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -3964,17 +5252,35 @@ Delete a secret template by name
 
 **Usage:** `keyorix secret template delete <name>`
 
+**Examples:**
+
+```sh
+keyorix secret template delete db-credential
+```
+
 ## `keyorix secret template get`
 
 Get a secret template by name
 
 **Usage:** `keyorix secret template get <name>`
 
+**Examples:**
+
+```sh
+keyorix secret template get db-credential
+```
+
 ## `keyorix secret template list`
 
 List all secret templates
 
 **Usage:** `keyorix secret template list`
+
+**Examples:**
+
+```sh
+keyorix secret template list
+```
 
 ## `keyorix secret trash`
 
@@ -3985,6 +5291,12 @@ restorable (until the purge job reaps them), newest-deleted first. Use the ID
 with 'secret restore --id \<id\>'. Requires secrets.read at the project scope.
 
 **Usage:** `keyorix secret trash [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret trash --project 3
+```
 
 **Flags:**
 
@@ -3998,6 +5310,14 @@ with 'secret restore --id \<id\>'. Requires secrets.read at the project scope.
 Update an existing secret
 
 **Usage:** `keyorix secret update [flags]`
+
+**Examples:**
+
+```sh
+# Prompts for the new value
+keyorix secret update --id 42 --interactive
+keyorix secret update --id 42 --expires 2027-01-31T00:00:00Z
+```
 
 **Flags:**
 
@@ -4017,6 +5337,12 @@ Update an existing secret
 List secret versions
 
 **Usage:** `keyorix secret versions [flags]`
+
+**Examples:**
+
+```sh
+keyorix secret versions --id 42 --format json
+```
 
 **Flags:**
 
@@ -4058,6 +5384,12 @@ the secret's project.
 
 **Usage:** `keyorix share create [flags]`
 
+**Examples:**
+
+```sh
+keyorix share create --secret-id 42 --recipient-id 12 --permission read --ttl 24h
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4075,6 +5407,12 @@ List shares for a group
 
 **Usage:** `keyorix share group-shares [flags]`
 
+**Examples:**
+
+```sh
+keyorix share group-shares --group-id 4
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4086,6 +5424,12 @@ List shares for a group
 List shares for a secret
 
 **Usage:** `keyorix share list [flags]`
+
+**Examples:**
+
+```sh
+keyorix share list --secret-id 42
+```
 
 **Flags:**
 
@@ -4099,6 +5443,12 @@ Revoke a share
 
 **Usage:** `keyorix share revoke [flags]`
 
+**Examples:**
+
+```sh
+keyorix share revoke --share-id 9
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4111,11 +5461,23 @@ Remove yourself from a secret shared with you
 
 **Usage:** `keyorix share self-remove <secret-id>`
 
+**Examples:**
+
+```sh
+keyorix share self-remove 42
+```
+
 ## `keyorix share shared-secrets`
 
 List secrets shared with a user (defaults to yourself)
 
 **Usage:** `keyorix share shared-secrets [flags]`
+
+**Examples:**
+
+```sh
+keyorix share shared-secrets
+```
 
 **Flags:**
 
@@ -4128,6 +5490,12 @@ List secrets shared with a user (defaults to yourself)
 Update a share's permission
 
 **Usage:** `keyorix share update [flags]`
+
+**Examples:**
+
+```sh
+keyorix share update --share-id 9 --permission write --ttl 48h
+```
 
 **Flags:**
 
@@ -4170,6 +5538,12 @@ Create a separation-of-duties policy (two conflicting permissions)
 
 **Usage:** `keyorix sod policy create [flags]`
 
+**Examples:**
+
+```sh
+keyorix sod policy create --name no-assign-and-delete --permission-a roles.assign --permission-b secrets.delete
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4185,6 +5559,12 @@ Delete a separation-of-duties policy
 
 **Usage:** `keyorix sod policy delete [flags]`
 
+**Examples:**
+
+```sh
+keyorix sod policy delete --id 2
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4197,11 +5577,23 @@ List separation-of-duties policies
 
 **Usage:** `keyorix sod policy list`
 
+**Examples:**
+
+```sh
+keyorix sod policy list
+```
+
 ## `keyorix sod violations`
 
 List principals that violate a separation-of-duties policy
 
 **Usage:** `keyorix sod violations`
+
+**Examples:**
+
+```sh
+keyorix sod violations
+```
 
 ## `keyorix status`
 
@@ -4214,6 +5606,13 @@ Decision A removes local mode entirely). Unlike the old command, it actually par
 skew check.
 
 **Usage:** `keyorix status`
+
+**Examples:**
+
+```sh
+# Shows the server, who you are logged in as, and version compatibility
+keyorix status
+```
 
 ## `keyorix system`
 
@@ -4237,6 +5636,12 @@ configuration (GET /system/info). Useful for confirming which build you're talki
 Requires a connection to a server and system.read.
 
 **Usage:** `keyorix system info`
+
+**Examples:**
+
+```sh
+keyorix system info
+```
 
 ## `keyorix system init`
 
@@ -4264,6 +5669,13 @@ Examples:
 
 **Usage:** `keyorix system init [flags]`
 
+**Examples:**
+
+```sh
+# First-run bootstrap of a new server; prompts for the admin password
+keyorix system init --server https://keyorix.example.com --admin-username admin --admin-email admin@example.com
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4286,6 +5698,12 @@ notifications for those expiring within 1 day. Requires system.write.
 
 **Usage:** `keyorix system role-expiry-check`
 
+**Examples:**
+
+```sh
+keyorix system role-expiry-check
+```
+
 ## `keyorix system token-expiry-check`
 
 Trigger a PAT and machine-credential expiry notification scan on the connected server
@@ -4298,6 +5716,12 @@ Warning notifications are sent for tokens expiring within 7 days; critical
 notifications for those expiring within 1 day. Requires system.write.
 
 **Usage:** `keyorix system token-expiry-check`
+
+**Examples:**
+
+```sh
+keyorix system token-expiry-check
+```
 
 ## `keyorix trust`
 
@@ -4318,6 +5742,12 @@ embedded into release builds so an air-gapped deployment can verify offline.
 Generate an ed25519 signing keypair (update or license)
 
 **Usage:** `keyorix trust keygen [flags]`
+
+**Examples:**
+
+```sh
+keyorix trust keygen --purpose update --key-id update-2026 --dir ./keys
+```
 
 **Flags:**
 
@@ -4346,6 +5776,13 @@ Display a per-project secret usage report (secret counts and read activity) for 
 given reporting window (GET /admin/usage). Requires audit.read.
 
 **Usage:** `keyorix usage show [flags]`
+
+**Examples:**
+
+```sh
+keyorix usage show --days 30
+keyorix usage show --project-id 3 --format json
+```
 
 **Flags:**
 
@@ -4394,6 +5831,13 @@ login.
 
 **Usage:** `keyorix user create [flags]`
 
+**Examples:**
+
+```sh
+# Prompts for an initial password (or use --setup-link / --one-time-password)
+keyorix user create --username bob --email bob@example.com --setup-link
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4412,6 +5856,12 @@ Delete a user
 
 **Usage:** `keyorix user delete [flags]`
 
+**Examples:**
+
+```sh
+keyorix user delete --id 12
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4429,6 +5879,12 @@ They can authenticate but every endpoint except change-password is blocked until
 
 **Usage:** `keyorix user force-password-reset [flags]`
 
+**Examples:**
+
+```sh
+keyorix user force-password-reset --id 12
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4442,6 +5898,12 @@ Get a user by id or email
 
 **Usage:** `keyorix user get [flags]`
 
+**Examples:**
+
+```sh
+keyorix user get --email bob@example.com
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4454,6 +5916,12 @@ Get a user by id or email
 List users
 
 **Usage:** `keyorix user list [flags]`
+
+**Examples:**
+
+```sh
+keyorix user list --page 1 --page-size 50
+```
 
 **Flags:**
 
@@ -4469,6 +5937,12 @@ Reactivate a user (restores login)
 Return a suspended (or otherwise non-active) user to the active state.
 
 **Usage:** `keyorix user reactivate [flags]`
+
+**Examples:**
+
+```sh
+keyorix user reactivate --id 12
+```
 
 **Flags:**
 
@@ -4496,6 +5970,12 @@ users managed by an external identity provider (SSO), and for suspended users.
 
 **Usage:** `keyorix user reissue-one-time-password <user>`
 
+**Examples:**
+
+```sh
+keyorix user reissue-one-time-password bob
+```
+
 ## `keyorix user resend-setup-link`
 
 Reissue and redeliver a user's setup link (ADR-028)
@@ -4505,6 +5985,12 @@ again. In out-of-band mode the link is printed for you to relay. Throttled per
 the ADR-028 resend limits.
 
 **Usage:** `keyorix user resend-setup-link [flags]`
+
+**Examples:**
+
+```sh
+keyorix user resend-setup-link --id 12
+```
 
 **Flags:**
 
@@ -4523,6 +6009,12 @@ re-authenticating. To block login entirely, use 'suspend' instead.
 
 **Usage:** `keyorix user revoke-sessions [flags]`
 
+**Examples:**
+
+```sh
+keyorix user revoke-sessions --id 12
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4537,6 +6029,12 @@ Suspend a user (blocks login)
 Suspend a user account. A suspended user is refused login entirely until reactivated.
 
 **Usage:** `keyorix user suspend [flags]`
+
+**Examples:**
+
+```sh
+keyorix user suspend --id 12
+```
 
 **Flags:**
 
@@ -4558,6 +6056,13 @@ no changes — it prints what would be suspended.
 
 **Usage:** `keyorix user suspend-inactive [flags]`
 
+**Examples:**
+
+```sh
+# Preview first
+keyorix user suspend-inactive --days 90 --dry-run
+```
+
 **Flags:**
 
 | Flag | Type | Default | Description |
@@ -4570,6 +6075,12 @@ no changes — it prints what would be suspended.
 Update a user
 
 **Usage:** `keyorix user update [flags]`
+
+**Examples:**
+
+```sh
+keyorix user update --id 12 --display-name "Bob Jones"
+```
 
 **Flags:**
 
@@ -4586,3 +6097,9 @@ Update a user
 Print the CLI version and the API version it targets
 
 **Usage:** `keyorix version`
+
+**Examples:**
+
+```sh
+keyorix version
+```

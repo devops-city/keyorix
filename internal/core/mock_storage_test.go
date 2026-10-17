@@ -1618,6 +1618,34 @@ func (m *MockStorage) SetSystemMetadata(ctx context.Context, key, value string) 
 	return args.Error(0)
 }
 
+func (m *MockStorage) CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error {
+	args := m.Called(ctx, p)
+	return args.Error(0)
+}
+
+func (m *MockStorage) ListPendingAuditEvents(ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error) {
+	args := m.Called(ctx, afterID, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.PendingAuditEvent), args.Error(1)
+}
+
+func (m *MockStorage) ClaimPendingAuditEvent(ctx context.Context, id uint) (bool, error) {
+	args := m.Called(ctx, id)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockStorage) RecordPendingAuditEventFailure(ctx context.Context, id uint, reason string) error {
+	args := m.Called(ctx, id, reason)
+	return args.Error(0)
+}
+
+func (m *MockStorage) CountPendingAuditEvents(ctx context.Context) (int64, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(int64), args.Error(1)
+}
+
 func (m *MockStorage) GetRecoveryKeyRecord(ctx context.Context) (*models.RecoveryKeyRecord, bool, error) {
 	args := m.Called(ctx)
 	if args.Get(0) == nil {
@@ -1687,6 +1715,11 @@ func (m *MockStorage) GetAnomalyConfig(ctx context.Context) (*models.AnomalyConf
 
 func (m *MockStorage) SaveAnomalyConfig(ctx context.Context, cfg *models.AnomalyConfigRecord) error {
 	return m.Called(ctx, cfg).Error(0)
+}
+
+func (m *MockStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	args := m.Called(ctx)
+	return args.Get(0).(uint), args.Error(1)
 }
 
 func (m *MockStorage) GetAuditLogs(ctx context.Context, filter *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {

@@ -49,6 +49,11 @@ type AnomalyDetector struct {
 	// every pass, the pre-C-PERF-FIXES behaviour). Test-only: the equivalence test runs
 	// both modes over identical data and asserts identical alerts.
 	fullSweep bool
+	// everyAccessDedup sends every per-access alert to CreateAnomalyAlert, settled key
+	// or not, each stamped with its own time.Now() (the pre-OPT-READPATH-1 behaviour).
+	// Test-only: the equivalence test runs
+	// both modes over identical data and asserts identical alert rows.
+	everyAccessDedup bool
 }
 
 // auditedOffHours is the comparable subset of a SetBusinessHours call's applied
@@ -449,8 +454,18 @@ func (d *AnomalyDetector) detectOneSecretAnomalies(ctx context.Context, secret m
 		return 1
 	}
 	failures := 0
+	// One storage dedup check per alert key per pass, not one per access row: every
+	// per-access alert of this pass carries the pass's `now` as DetectedAt, so they
+	// share CreateAnomalyAlert's dedup cutoff, and once one call for a key succeeded
+	// (inserted, or found an equivalent alert newer than the cutoff) every later call
+	// for that key in this pass would find that row and insert nothing.
+	settled := map[anomalyDedupKey]struct{}{}
 	for _, accessLog := range recentLogs {
-		failures += d.saveAlerts(ctx, detectAnomalies(secret, accessLog, baseline, d.offHours))
+		at := now
+		if d.everyAccessDedup {
+			at = time.Now().UTC()
+		}
+		failures += d.saveAlertsOnce(ctx, detectAnomalies(secret, accessLog, baseline, d.offHours, at), settled)
 	}
 	// The per-window aggregates below keep their pre-high-water inputs: only the
 	// lookback slice, even when the scan window was extended for catch-up (identical
@@ -489,7 +504,7 @@ func (d *AnomalyDetector) detectOneSecretAnomalies(ctx context.Context, secret m
 	// Train only on logs BEFORE the window — otherwise the forest learns this window's
 	// reads as normal and can't isolate the very accesses it is scoring.
 	if d.ml.Enabled {
-		failures += d.saveAlerts(ctx, mlOutlierAlerts(secret, logsBefore(baselineLogs, window), recentLogs, d.ml, now))
+		failures += d.saveAlertsOnce(ctx, mlOutlierAlerts(secret, logsBefore(baselineLogs, window), recentLogs, d.ml, now), settled)
 	}
 	return failures
 }
@@ -502,6 +517,34 @@ func (d *AnomalyDetector) saveAlerts(ctx context.Context, alerts []models.Anomal
 		if err := d.storage.CreateAnomalyAlert(ctx, &alert); err != nil {
 			failures++
 		}
+	}
+	return failures
+}
+
+// anomalyDedupKey is CreateAnomalyAlert's dedup key: an alert with the same key
+// detected within anomalyDedupWindow suppresses the insert.
+type anomalyDedupKey struct {
+	secret               uint
+	alertType, actor, ip string
+}
+
+// saveAlertsOnce is saveAlerts for alerts that share one DetectedAt (one pass's
+// `now`): an alert whose key is in settled is skipped, because a call for that key
+// already succeeded this pass and left an equivalent alert newer than the shared
+// dedup cutoff, so CreateAnomalyAlert would insert nothing. A failed call does not
+// settle its key: the next alert with that key is tried, as before.
+func (d *AnomalyDetector) saveAlertsOnce(ctx context.Context, alerts []models.AnomalyAlert, settled map[anomalyDedupKey]struct{}) int {
+	failures := 0
+	for i := range alerts {
+		k := anomalyDedupKey{alerts[i].SecretNodeID, alerts[i].AlertType, alerts[i].AccessedBy, alerts[i].IPAddress}
+		if _, ok := settled[k]; ok && !d.everyAccessDedup {
+			continue
+		}
+		if err := d.storage.CreateAnomalyAlert(ctx, &alerts[i]); err != nil {
+			failures++
+			continue
+		}
+		settled[k] = struct{}{}
 	}
 	return failures
 }
@@ -730,9 +773,10 @@ func newUserAlert(secret models.SecretNode, log models.SecretAccessLog, baseline
 	}
 }
 
-func detectAnomalies(secret models.SecretNode, log models.SecretAccessLog, baseline accessBaseline, offHours offHoursPolicy) []models.AnomalyAlert {
+// detectAnomalies returns the per-access alerts for log, stamped DetectedAt now (the
+// detection pass's time, so all of one pass's alerts share a dedup cutoff).
+func detectAnomalies(secret models.SecretNode, log models.SecretAccessLog, baseline accessBaseline, offHours offHoursPolicy, now time.Time) []models.AnomalyAlert {
 	var alerts []models.AnomalyAlert
-	now := time.Now().UTC()
 
 	// Rule 1: Off-hours access (configurable band + timezone; default 22:00–06:00 UTC).
 	if offHours.isOffHours(log.AccessTime) {

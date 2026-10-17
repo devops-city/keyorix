@@ -35,6 +35,7 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"sync"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -43,10 +44,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// capturedLogMu serializes withCapturedLog. The standard logger is global and
+// the savepoint tests run in parallel: without it, a second capture that starts
+// while the first is running takes over the output, and the first test's lines
+// land in the second test's buffer (CI run 38935925421: the env-seed test's
+// buffer held its later audit failures but none of its "Warning: project" lines).
+var capturedLogMu sync.Mutex
+
 // withCapturedLog redirects the standard logger to a buffer for the
 // duration of fn, restoring it afterward.
 func withCapturedLog(t *testing.T, fn func()) string {
 	t.Helper()
+	capturedLogMu.Lock()
+	defer capturedLogMu.Unlock()
 	var buf bytes.Buffer
 	orig := log.Writer()
 	log.SetOutput(&buf)

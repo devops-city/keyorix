@@ -1621,6 +1621,11 @@ type Storage interface {
 	ListUnalertedAnomalyAlerts(ctx context.Context) ([]models.AnomalyAlert, error)
 	MarkAnomalyAlertAlerted(ctx context.Context, id uint) error
 	GetAuditLogs(ctx context.Context, filter *AuditFilter) ([]*models.AuditEvent, int64, error)
+	// MaxAuditEventID returns the highest audit_events.id (0 when the table is
+	// empty): an O(1) read of the primary key's right edge. Scheduler jobs that
+	// keep an id high-water mark read it first and bound their scan with
+	// AuditFilter.UpToID, so a run costs O(rows added since the last run).
+	MaxAuditEventID(ctx context.Context) (uint, error)
 	// AuditRetentionStats returns the total audit event count and the oldest /
 	// newest event timestamps. Keyorix never purges audit events, so these raw
 	// aggregates let an operator demonstrate how far back the trail reaches
@@ -1712,6 +1717,17 @@ type Storage interface {
 	GetSystemMetadata(ctx context.Context, key string) (value string, found bool, err error)
 	// SetSystemMetadata upserts a system-metadata key/value (last write wins).
 	SetSystemMetadata(ctx context.Context, key, value string) error
+
+	// Pending audit events (models.PendingAuditEvent): audit rows owed by an
+	// operation that took effect without waiting for the audit log (a plain secret
+	// suspend). Created in the operation's own transaction; ClaimPendingAuditEvent
+	// (a delete reporting whether this call removed the row) runs in the same
+	// transaction as the owed row's append, so each owed row is written once.
+	CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error
+	ListPendingAuditEvents(ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error)
+	ClaimPendingAuditEvent(ctx context.Context, id uint) (claimed bool, err error)
+	RecordPendingAuditEventFailure(ctx context.Context, id uint, reason string) error
+	CountPendingAuditEvents(ctx context.Context) (int64, error)
 	// GetRecoveryKeyRecord returns the local admin recovery key's verifier
 	// record (docs/design-b2-recover-admin.md §2); found is false on an
 	// install that predates this feature or has never generated one.
@@ -2404,6 +2420,9 @@ type AuditFilter struct {
 	// forward cursor), ignoring Page. Use with the /audit/export endpoint.
 	AfterID   *uint
 	Ascending bool
+	// UpToID, when set, adds id <= *UpToID (inclusive upper bound). With AfterID
+	// it bounds the scan to the primary-key range (AfterID, UpToID].
+	UpToID *uint
 
 	// IPAddress filters events by the exact IP address that originated the request.
 	IPAddress *string

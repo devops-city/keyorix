@@ -40,6 +40,13 @@ Record that the grant identified by the flags was reviewed and intentionally kep
 .PP
 Usage: \fBkeyorix access\-review attest [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Attest that a role grant is still needed
+keyorix access\-review attest \-\-project\-id 3 \-\-source role \-\-role\-id 4 \-\-principal\-id 12
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-environment\-id\fR \fIuint\fR
@@ -73,6 +80,12 @@ Close a campaign (freeze as evidence); refuses pending items unless \-\-force
 .PP
 Usage: \fBkeyorix access\-review campaign close [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix access\-review campaign close \-\-project\-id 3 \-\-campaign\-id 7
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-campaign\-id\fR \fIint\fR
@@ -87,6 +100,13 @@ Project (required)
 Decide on one campaign item: attest (keep) or revoke
 .PP
 Usage: \fBkeyorix access\-review campaign decide [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix access\-review campaign decide \-\-project\-id 3 \-\-campaign\-id 7 \-\-item\-id 41 \-\-action attest
+keyorix access\-review campaign decide \-\-project\-id 3 \-\-campaign\-id 7 \-\-item\-id 42 \-\-action revoke \-\-reason "left the team"
+.fi
 .PP
 Flags:
 .TP
@@ -109,6 +129,12 @@ List a project's access\-review campaigns
 .PP
 Usage: \fBkeyorix access\-review campaign list [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix access\-review campaign list \-\-project\-id 3
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\-id\fR \fIint\fR
@@ -117,6 +143,12 @@ Project (required)
 Open a new access\-review campaign (snapshots current access)
 .PP
 Usage: \fBkeyorix access\-review campaign open [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix access\-review campaign open \-\-project\-id 3 \-\-name "Q4 2026 access recertification"
+.fi
 .PP
 Flags:
 .TP
@@ -129,6 +161,12 @@ Project to review (required)
 Show a campaign and its items (snapshot + decisions)
 .PP
 Usage: \fBkeyorix access\-review campaign show [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix access\-review campaign show \-\-project\-id 3 \-\-campaign\-id 7
+.fi
 .PP
 Flags:
 .TP
@@ -143,6 +181,13 @@ Revoke an access\-review grant (remove the role assignment or share)
 Remove the grant identified by the flags \(em a project\-scoped role assignment (\-\-source role \-\-role\-id N) or a secret share (\-\-source direct_share|group_share \-\-secret\-id N). The removal is audited (access_review.revoked). Requires roles.assign at the project scope.
 .PP
 Usage: \fBkeyorix access\-review revoke [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Revoke a user's role grant found during a review
+keyorix access\-review revoke \-\-project\-id 3 \-\-source role \-\-role\-id 4 \-\-principal\-id 12
+.fi
 .PP
 Flags:
 .TP
@@ -174,6 +219,12 @@ Usage: \fBkeyorix anomalies [command]\fR
 Acknowledge an anomaly alert
 .PP
 Usage: \fBkeyorix anomalies acknowledge <id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix anomalies acknowledge 17
+.fi
 .SS keyorix anomalies config
 Manage anomaly detection runtime configuration
 .PP
@@ -182,6 +233,12 @@ Usage: \fBkeyorix anomalies config [command]\fR
 Show the current anomaly detection configuration
 .PP
 Usage: \fBkeyorix anomalies config get\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix anomalies config get
+.fi
 .SS keyorix anomalies config set
 Update one or more anomaly detection configuration fields
 .PP
@@ -190,6 +247,13 @@ Update the anomaly detection runtime configuration.
 Only flags that are explicitly provided are changed; all others keep their current stored values. Changes take effect on the next detection scan without restarting the server.
 .PP
 Usage: \fBkeyorix anomalies config set [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Treat 22:00\-06:00 New York time as off\-hours
+keyorix anomalies config set \-\-off\-hours\-enabled \-\-off\-hours\-start 22 \-\-off\-hours\-end 6 \-\-off\-hours\-timezone America/New_York
+.fi
 .PP
 Flags:
 .TP
@@ -231,6 +295,12 @@ Create an alert escalation policy
 .PP
 Usage: \fBkeyorix anomalies escalation create [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix anomalies escalation create \-\-name page\-oncall \-\-min\-severity high \-\-after\-minutes 15 \-\-channels 1,2
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-after\-minutes\fR \fIint\fR
@@ -248,18 +318,42 @@ Policy name (required)
 Delete an alert escalation policy
 .PP
 Usage: \fBkeyorix anomalies escalation delete <id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix anomalies escalation delete 3
+.fi
 .SS keyorix anomalies escalation list
 List alert escalation policies
 .PP
 Usage: \fBkeyorix anomalies escalation list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix anomalies escalation list
+.fi
 .SS keyorix anomalies escalation run
 Trigger the alert escalation job immediately
 .PP
 Usage: \fBkeyorix anomalies escalation run\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix anomalies escalation run
+.fi
 .SS keyorix anomalies list
 List anomaly alerts
 .PP
 Usage: \fBkeyorix anomalies list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix anomalies list \-\-unacknowledged
+.fi
 .PP
 Flags:
 .TP
@@ -273,10 +367,25 @@ Usage: \fBkeyorix audit [command]\fR
 Write a signed checkpoint of the current audit\-chain head (ADR\-029)
 .PP
 Usage: \fBkeyorix audit checkpoint\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix audit checkpoint
+.fi
 .SS keyorix audit export
 Stream the audit feed as NDJSON (one event per line) for SIEM pull
 .PP
 Usage: \fBkeyorix audit export [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Export the whole audit trail as NDJSON
+keyorix audit export \-\-all > audit.ndjson
+# ...or as CSV, from a point in time
+keyorix audit export \-\-all \-\-csv \-\-since 2026\-10\-01T00:00:00Z > audit.csv
+.fi
 .PP
 Flags:
 .TP
@@ -298,6 +407,13 @@ Only export events at/after this time (RFC3339)
 Query the audit trail with filters (human\-readable table)
 .PP
 Usage: \fBkeyorix audit logs [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix audit logs \-\-limit 20
+keyorix audit logs \-\-project\-id 3 \-\-event\-type secret.read \-\-since 2026\-10\-01T00:00:00Z
+.fi
 .PP
 Flags:
 .TP
@@ -332,6 +448,14 @@ One\-time re\-derivation of the audit hash chain under the current encoding
 .PP
 Usage: \fBkeyorix audit migrate\-chain\-encoding [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Preview first; nothing is written without \-\-confirm
+keyorix audit migrate\-chain\-encoding
+keyorix audit migrate\-chain\-encoding \-\-confirm
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-confirm\fR
@@ -340,6 +464,13 @@ Apply the migration for real. Without this flag, the command only previews what 
 Search the audit trail with structured filters
 .PP
 Usage: \fBkeyorix audit search [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix audit search \-\-action secret.read \-\-actor alice \-\-success false
+keyorix audit search \-\-resource\-type secret \-\-resource\-id 42
+.fi
 .PP
 Flags:
 .TP
@@ -393,6 +524,15 @@ By default this reads the server's incremental verification: the rolling full re
 .PP
 Usage: \fBkeyorix audit verify [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Check the audit hash chain
+keyorix audit verify
+# Walk the whole chain on the server and print the result as JSON
+keyorix audit verify \-\-full \-\-json
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-full\fR
@@ -413,6 +553,13 @@ Generate a per\-project billing report for a date range
 Generate a per\-project billing report showing secret counts, reads, writes, rotations, unique human users, and machine reads for the specified date window (GET /admin/billing/report). Requires audit.read and the "billing" license feature.
 .PP
 Usage: \fBkeyorix billing report [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix billing report \-\-from 2026\-09\-01T00:00:00Z \-\-to 2026\-10\-01T00:00:00Z
+keyorix billing report \-\-from 2026\-09\-01T00:00:00Z \-\-to 2026\-10\-01T00:00:00Z \-\-project\-id 3,5 \-\-format json
+.fi
 .PP
 Flags:
 .TP
@@ -438,6 +585,12 @@ Activate emergency access (self\-grant the emergency role, time\-bound)
 .PP
 Usage: \fBkeyorix break\-glass activate [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix break\-glass activate \-\-project\-id 3 \-\-justification "prod outage INC\-1234" \-\-ttl 2h
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-justification\fR \fIstring\fR
@@ -453,6 +606,12 @@ List a project's break\-glass activations (all with roles.read, else your own as
 .PP
 Usage: \fBkeyorix break\-glass list [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix break\-glass list \-\-project\-id 3
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\-id\fR \fIuint32\fR
@@ -461,6 +620,12 @@ Project (required)
 Revoke an active emergency grant early
 .PP
 Usage: \fBkeyorix break\-glass revoke [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix break\-glass revoke \-\-project\-id 3 \-\-activation\-id 9
+.fi
 .PP
 Flags:
 .TP
@@ -481,6 +646,12 @@ Usage: \fBkeyorix bundle [command]\fR
 Verify a bundle offline and stage its artifacts into a directory
 .PP
 Usage: \fBkeyorix bundle import <bundle> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix bundle import update\-1.4.0.bundle \-\-dest /var/lib/keyorix/updates \-\-installed\-version 1.3.2 \-\-license /etc/keyorix/license.token
+.fi
 .PP
 Flags:
 .TP
@@ -506,6 +677,12 @@ Verify a bundle offline against the embedded pinned key and component digests
 .PP
 Usage: \fBkeyorix bundle verify <bundle> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix bundle verify update\-1.4.0.bundle \-\-installed\-version 1.3.2
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-force\fR
@@ -521,6 +698,13 @@ change\-password calls POST /auth/change\-password to set a new password for the
 This is the command to run right after logging in with a one\-time password (e.g. the one keyorix\-server admin recover\-admin prints) \-\- the account stays confined to this command (and a handful of others) until a real password is set. With security.require_mfa on and no second factor yet, that login is a short setup session that must also enrol MFA ("keyorix mfa enroll" + "keyorix mfa activate", before or after this command); once both are done the session ends and the next "keyorix login" asks for a code.
 .PP
 Usage: \fBkeyorix change\-password [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for the current and the new password
+keyorix change\-password
+.fi
 .PP
 Flags:
 .TP
@@ -662,6 +846,13 @@ Control matrix \(em controls mapped to ISO 27001 / SOC 2 / NIS2 / DORA with stat
 .PP
 Usage: \fBkeyorix compliance controls [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix compliance controls
+keyorix compliance controls \-\-csv \-\-output controls.csv
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-csv\fR
@@ -677,6 +868,12 @@ Show 30/60/90\-day credential hygiene trends (stale/expired PATs, stale machine 
 .PP
 Usage: \fBkeyorix compliance credential\-trends [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix compliance credential\-trends \-\-days 90
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-days\fR \fIint\fR
@@ -688,6 +885,13 @@ Print the on\-demand compliance digest (the same title + body that is normally b
 .PP
 Usage: \fBkeyorix compliance digest [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix compliance digest
+keyorix compliance digest \-\-send
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-send\fR
@@ -698,6 +902,12 @@ Export the auditor evidence pack (posture + supporting records) as JSON
 Export a timestamped evidence pack \(em the posture plus the records that substantiate it (the audit\-chain anchor, access\-review campaigns, the break\-glass register, and overdue rotations) \(em as JSON, for an auditor to archive. Writes to stdout by default, or to \-\-output FILE. Refuses to overwrite an existing \-\-output file unless \-\-force is passed (a scheduled/CI evidence run reusing a fixed path needs it).
 .PP
 Usage: \fBkeyorix compliance export [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix compliance export \-\-output evidence\-pack.json
+.fi
 .PP
 Flags:
 .TP
@@ -712,6 +922,12 @@ Export the secret asset inventory as CSV (deployment\-wide, or one project)
 Download the secret asset\-inventory as CSV for an auditor hand\-off \(em secrets listed by name, project, environment, type, classification, owner, and lifecycle status, with no secret values. Deployment\-wide by default (needs system.read); \-\-project <id> scopes it to a single project (needs secrets.read on that project). Writes to stdout, or to \-\-output FILE. Refuses to overwrite an existing \-\-output file unless \-\-force is passed (a scheduled/CI evidence run reusing a fixed path needs it).
 .PP
 Usage: \fBkeyorix compliance inventory [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix compliance inventory \-\-project 3 \-\-output inventory.csv
+.fi
 .PP
 Flags:
 .TP
@@ -730,6 +946,12 @@ Download the full permission baseline \(em every user's effective permissions, e
 .PP
 Usage: \fBkeyorix compliance permission\-baseline [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix compliance permission\-baseline \-\-format json \-\-output baseline.json
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-force\fR
@@ -747,6 +969,12 @@ Download a structured list of permission change events (role grants and revokes)
 .PP
 Usage: \fBkeyorix compliance permission\-changes [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix compliance permission\-changes \-\-since 2026\-10\-01T00:00:00Z \-\-limit 200
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-limit\fR \fIint\fR
@@ -761,18 +989,36 @@ End of the time window (RFC3339); defaults to now
 Print the deployment's controls\-posture report
 .PP
 Usage: \fBkeyorix compliance report\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix compliance report
+.fi
 .SS keyorix compliance rotation\-by\-backend
 Rotation\-overdue secrets grouped by backend
 .PP
 Print a table of rotation\-overdue secrets grouped by RotationBackend across the whole deployment. Requires audit.read permission.
 .PP
 Usage: \fBkeyorix compliance rotation\-by\-backend\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix compliance rotation\-by\-backend
+.fi
 .SS keyorix compliance verify
 Verify an exported evidence pack against its detached signature
 .PP
 Verify the authenticity of an archived evidence pack. Reads the pack file and its signature (default <file>.sig) and asks the server to recompute the HMAC with its DEK\-derived signing key \(em proving the pack was produced by this deployment and has not been modified. Requires server\-side encryption (the signing key is DEK\-derived).
 .PP
 Usage: \fBkeyorix compliance verify [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix compliance verify \-\-file evidence\-pack.json \-\-sig evidence\-pack.json.sig
+.fi
 .PP
 Flags:
 .TP
@@ -784,7 +1030,7 @@ Path to the signature file (default <file>.sig)
 .SS keyorix config
 Show or change CLI settings stored with your credentials
 .PP
-config reads and writes CLI settings kept in the credentials file (see "keyorix status \-\-help").
+config reads and writes CLI settings kept in the credentials file (keyorix/credentials.yaml under the OS user config directory: ~/.config on Linux, ~/Library/Application Support on macOS).
 .PP
 Keys:
 .nf
@@ -798,14 +1044,32 @@ Usage: \fBkeyorix config [command]\fR
 Show the effective value of a CLI setting and where it comes from (key: ca_file)
 .PP
 Usage: \fBkeyorix config get <key>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix config get ca_file
+.fi
 .SS keyorix config set
 Set a CLI setting (key: ca_file)
 .PP
 Usage: \fBkeyorix config set <key> <value>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix config set ca_file /etc/keyorix/ca.pem
+.fi
 .SS keyorix config unset
 Remove a stored CLI setting (key: ca_file)
 .PP
 Usage: \fBkeyorix config unset <key>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix config unset ca_file
+.fi
 .SS keyorix docs
 Print the CLI reference (Markdown) or its man page
 .PP
@@ -843,6 +1107,12 @@ Usage: \fBkeyorix dynamic\-secret [command]\fR
 Set a dynamic\-secret config's classification level
 .PP
 Usage: \fBkeyorix dynamic\-secret classify <config\-id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret classify 5 \-\-level confidential
+.fi
 .PP
 Flags:
 .TP
@@ -886,6 +1156,12 @@ Examples:
 .PP
 Usage: \fBkeyorix dynamic\-secret create [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret create \-\-project\-id 3 \-\-name orders\-db \-\-backend postgres \-\-default\-ttl 3600 \-\-max\-ttl 14400
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-backend\fR \fIstring\fR
@@ -915,10 +1191,23 @@ Project ID (required)
 Show a dynamic\-secret config's details
 .PP
 Usage: \fBkeyorix dynamic\-secret get\-config <config\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret get\-config 5
+.fi
 .SS keyorix dynamic\-secret issue
 Issue a short\-lived credential from a config (shown once)
 .PP
 Usage: \fBkeyorix dynamic\-secret issue <config\-id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Issue a short\-lived credential from config 5 (valid for 15 minutes)
+keyorix dynamic\-secret issue 5 \-\-ttl 900
+.fi
 .PP
 Flags:
 .TP
@@ -928,10 +1217,22 @@ Lease TTL in seconds (0 = the config default)
 List leases issued from a config
 .PP
 Usage: \fBkeyorix dynamic\-secret leases <config\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret leases 5
+.fi
 .SS keyorix dynamic\-secret list
 List dynamic\-secret target configs
 .PP
 Usage: \fBkeyorix dynamic\-secret list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret list \-\-project\-id 3
+.fi
 .PP
 Flags:
 .TP
@@ -945,6 +1246,12 @@ Extend an active lease (up to the config's max TTL)
 .PP
 Usage: \fBkeyorix dynamic\-secret renew <lease\-id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret renew 21 \-\-ttl 900
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-ttl\fR \fIint\fR
@@ -953,10 +1260,22 @@ Renewal TTL in seconds (0 = the config default)
 Revoke an active lease now
 .PP
 Usage: \fBkeyorix dynamic\-secret revoke <lease\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret revoke 21
+.fi
 .SS keyorix dynamic\-secret revoke\-all
 Revoke ALL active leases from a config (incident kill switch)
 .PP
 Usage: \fBkeyorix dynamic\-secret revoke\-all <config\-id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix dynamic\-secret revoke\-all 5 \-\-yes
+.fi
 .PP
 Flags:
 .TP
@@ -1001,6 +1320,12 @@ Create a group
 .PP
 Usage: \fBkeyorix group create [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix group create \-\-name platform\-team \-\-description "Platform engineers"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-description\fR \fIstring\fR
@@ -1012,6 +1337,12 @@ Group name (required)
 Delete a group
 .PP
 Usage: \fBkeyorix group delete [group] [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix group delete platform\-team \-\-force
+.fi
 .PP
 Flags:
 .TP
@@ -1025,6 +1356,12 @@ Get a group by name or id
 .PP
 Usage: \fBkeyorix group get [group] [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix group get platform\-team
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -1033,10 +1370,22 @@ Group ID (alternative to the positional <group>, which also takes a name)
 List groups
 .PP
 Usage: \fBkeyorix group list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix group list
+.fi
 .SS keyorix group members
 List members of a group
 .PP
 Usage: \fBkeyorix group members [group] [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix group members platform\-team
+.fi
 .PP
 Flags:
 .TP
@@ -1075,6 +1424,12 @@ Update a group
 .PP
 Usage: \fBkeyorix group update [group] [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix group update platform\-team \-\-description "Platform and SRE"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-description\fR \fIstring\fR
@@ -1091,6 +1446,13 @@ Deployment\-wide secret\-hygiene rollup across all projects (admin)
 Summarize every project's outstanding cleanup signals in one call: secrets whose owner departed, secrets unused for a long window, secrets expiring/expired, stale machine identities, and secrets overdue for rotation. Shows install\-wide totals plus a per\-project breakdown of the projects that carry debt. Requires global system.read. Counts only \(em never secret names or values.
 .PP
 Usage: \fBkeyorix hygiene [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix hygiene
+keyorix hygiene \-\-expiring\-days 14 \-\-stale\-days 60
+.fi
 .PP
 Flags:
 .TP
@@ -1115,6 +1477,12 @@ List a project's invitations. With \-\-stale\-days, show only pending invites ol
 .PP
 Usage: \fBkeyorix invite list [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix invite list \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1128,6 +1496,12 @@ Reissue and redeliver an invitation's setup link (ADR\-028)
 Reissue a pending invitation's accept link, invalidating any prior link, and deliver it again. In out\-of\-band mode the link is printed for you to relay. Throttled per the ADR\-028 resend limits.
 .PP
 Usage: \fBkeyorix invite resend [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix invite resend \-\-project payments \-\-id 12
+.fi
 .PP
 Flags:
 .TP
@@ -1143,6 +1517,12 @@ Cancel a pending project invitation by ID (ADR\-024).
 .PP
 Usage: \fBkeyorix invite revoke [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix invite revoke \-\-project payments \-\-id 12
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -1156,6 +1536,12 @@ Send a project invitation
 Invite an email address to a project with an intended role (admin\-driven, ADR\-024).
 .PP
 Usage: \fBkeyorix invite send [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix invite send \-\-project payments \-\-email bob@example.com \-\-role developer
+.fi
 .PP
 Flags:
 .TP
@@ -1178,6 +1564,12 @@ Lift the active legal hold (resume purges)
 .PP
 Usage: \fBkeyorix legal\-hold lift [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix legal\-hold lift \-\-reason "case closed, matter 2026\-17"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-reason\fR \fIstring\fR
@@ -1190,6 +1582,12 @@ Place a legal hold (block all purges until lifted)
 .PP
 Usage: \fBkeyorix legal\-hold place [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix legal\-hold place \-\-reason "litigation hold, matter 2026\-17"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-reason\fR \fIstring\fR
@@ -1198,6 +1596,12 @@ Why the hold is placed (required, recorded for audit)
 Show whether a legal hold is active
 .PP
 Usage: \fBkeyorix legal\-hold status\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix legal\-hold status
+.fi
 .SS keyorix license
 Offline license: install and check status
 .PP
@@ -1210,6 +1614,12 @@ Usage: \fBkeyorix license [command]\fR
 Validate a license token and store it for the server to load
 .PP
 Usage: \fBkeyorix license install <token\-file> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix license install license.token \-\-dest /etc/keyorix/license.token
+.fi
 .PP
 Flags:
 .TP
@@ -1226,6 +1636,12 @@ Show the locally\-evaluated license entitlement
 .PP
 Usage: \fBkeyorix license status [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix license status \-\-license /etc/keyorix/license.token
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-deployment\-id\fR \fIstring\fR
@@ -1239,11 +1655,20 @@ license token file to evaluate
 .SS keyorix login
 Authenticate to a Keyorix server and store the resulting token
 .PP
-login exchanges a username and password for a session token via POST /auth/login, verifies it against GET /api/v1/auth/profile, and stores it (with the server URL) at the one credential\-file location this CLI uses (see "keyorix status \-\-help").
+login exchanges a username and password for a session token via POST /auth/login, verifies it against GET /api/v1/auth/profile, and stores it (with the server URL) at the one credential\-file location this CLI uses: keyorix/credentials.yaml under the OS user config directory (~/.config on Linux, ~/Library/Application Support on macOS).
+.PP
+The password is read from, in order: \-\-password (insecure: visible in ps and shell history), KEYORIX_PASSWORD or the file named by KEYORIX_PASSWORD_FILE, then a no\-echo prompt. With no terminal and neither variable set, login stops with an error.
 .PP
 When the account has TOTP multi\-factor authentication enabled, /auth/login answers with a second\-factor challenge instead of a token; login then asks for an authenticator code (or an unused recovery code) and completes the challenge via POST /auth/mfa/verify. Pass \-\-mfa\-code to supply it non\-interactively. The code is used for that one request only: it is never echoed, never logged, and never written to the credential file.
 .PP
 Usage: \fBkeyorix login [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for the password (and the MFA code, if the account has MFA)
+keyorix login \-\-server https://keyorix.example.com \-\-username alice
+.fi
 .PP
 Flags:
 .TP
@@ -1251,7 +1676,7 @@ Flags:
 Authenticator (TOTP) code or an unused recovery code, for an MFA\-enabled account (omit to be prompted)
 .TP
 \fB\-\-password\fR \fIstring\fR
-Password (omit to be prompted)
+Password (INSECURE on the command line \-\- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted)
 .TP
 \fB\-\-server\fR \fIstring\fR
 Server base URL (or set KEYORIX_SERVER)
@@ -1264,6 +1689,12 @@ Revoke the stored session and forget it locally
 logout is the remote\-only successor to the old CLI's "auth logout" (docs/cli\-split\-inventory.md §2.3, §4): the old command only cleared local config and never told the server (§8 Finding S12). This one calls POST /auth/logout to invalidate the token server\-side first, then deletes the local credentials file regardless of whether that call succeeded \-\- a server that is unreachable or already rejects the token must not leave a stale credential sitting on disk.
 .PP
 Usage: \fBkeyorix logout\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix logout
+.fi
 .SS keyorix machine
 Manage machine identities
 .PP
@@ -1278,6 +1709,12 @@ Generate a deployment\-wide audit report of all machine identities. Each row sho
 Requires global audit.read permission.
 .PP
 Usage: \fBkeyorix machine audit [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine audit \-\-format csv
+.fi
 .PP
 Flags:
 .TP
@@ -1294,6 +1731,13 @@ Bind an OIDC (issuer, subject) to a machine identity
 .PP
 Usage: \fBkeyorix machine binding add <machine> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Let a GitHub Actions workflow authenticate as this machine identity
+keyorix machine binding add ci\-deployer \-\-project payments \-\-issuer https://token.actions.githubusercontent.com \-\-subject repo:acme/payments:ref:refs/heads/main
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-issuer\fR \fIstring\fR
@@ -1309,6 +1753,12 @@ List a machine identity's OIDC bindings
 .PP
 Usage: \fBkeyorix machine binding list <machine> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine binding list ci\-deployer \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1318,6 +1768,12 @@ Remove an OIDC binding from a machine identity
 .PP
 Usage: \fBkeyorix machine binding rm <machine> <binding\-id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine binding rm ci\-deployer 4 \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1326,6 +1782,12 @@ Project name or numeric ID
 Create a machine identity in a project
 .PP
 Usage: \fBkeyorix machine create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine create \-\-project payments \-\-name ci\-deployer \-\-type ci \-\-classification internal
+.fi
 .PP
 Flags:
 .TP
@@ -1348,6 +1810,12 @@ Show details of a machine identity
 .PP
 Usage: \fBkeyorix machine describe <name|id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine describe ci\-deployer \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1358,6 +1826,12 @@ Grant a machine identity a project\-scoped role
 Grant a machine identity a role at its project's scope, so tokens it issues can act with that role's permissions.
 .PP
 Usage: \fBkeyorix machine grant\-role <name|id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine grant\-role ci\-deployer \-\-project payments \-\-role developer
+.fi
 .PP
 Flags:
 .TP
@@ -1371,6 +1845,12 @@ List machine identities in a project
 .PP
 Usage: \fBkeyorix machine list [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine list \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1381,6 +1861,12 @@ Convert a service\-account\-shaped user into a machine identity
 Materialise a project machine identity (ADR\-023) for an existing user and, unless \-\-keep\-user is set, suspend the source user so it can no longer log in. The user is never deleted; suspension is reversible via `keyorix user reactivate`.
 .PP
 Usage: \fBkeyorix machine migrate\-from\-user <username> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine migrate\-from\-user svc\-deploy \-\-project payments \-\-type ci
+.fi
 .PP
 Flags:
 .TP
@@ -1400,6 +1886,12 @@ Reactivate a suspended machine identity
 .PP
 Usage: \fBkeyorix machine reactivate <name|id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine reactivate ci\-deployer \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1408,6 +1900,12 @@ Project name or numeric ID
 Revoke a machine identity (terminal)
 .PP
 Usage: \fBkeyorix machine revoke <name|id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine revoke ci\-deployer \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -1423,6 +1921,12 @@ Revoke a previously granted project\-scoped role (distinct from `machine revoke`
 .PP
 Usage: \fBkeyorix machine revoke\-role <name|id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine revoke\-role ci\-deployer \-\-project payments \-\-role developer
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1435,6 +1939,12 @@ List a machine identity's project\-scoped roles
 .PP
 Usage: \fBkeyorix machine roles <name|id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine roles ci\-deployer \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1443,6 +1953,12 @@ Project name or numeric ID
 Suspend a machine identity
 .PP
 Usage: \fBkeyorix machine suspend <name|id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine suspend ci\-deployer \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -1458,6 +1974,13 @@ Usage: \fBkeyorix machine token [command]\fR
 Issue a new bearer token for a machine identity
 .PP
 Usage: \fBkeyorix machine token issue <name|id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# The token is shown once; store it straight into your CI system
+keyorix machine token issue ci\-deployer \-\-project payments \-\-name github\-actions \-\-expires\-in\-days 90
+.fi
 .PP
 Flags:
 .TP
@@ -1477,6 +2000,12 @@ List tokens for a machine identity
 .PP
 Usage: \fBkeyorix machine token list <name|id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix machine token list ci\-deployer \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1485,6 +2014,12 @@ Project name or numeric ID
 Revoke a machine identity token
 .PP
 Usage: \fBkeyorix machine token revoke <name|id> <token\-id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine token revoke ci\-deployer 4 \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -1499,6 +2034,12 @@ List stale or expired\-but\-active machine tokens across all identities (admin)
 Show the deployment\-wide machine\-identity credentials that should probably be revoked: ones that have expired but were never revoked, and ones unused for a long window (non\-human token sprawl). Requires global audit.read. Never prints a secret.
 .PP
 Usage: \fBkeyorix machine token\-hygiene [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix machine token\-hygiene \-\-days 60
+.fi
 .PP
 Flags:
 .TP
@@ -1515,6 +2056,13 @@ activate verifies a TOTP code (from the authenticator app you enrolled with "key
 .PP
 Usage: \fBkeyorix mfa activate [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Prompts for the authenticator code and your password
+keyorix mfa activate
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-code\fR \fIstring\fR
@@ -1528,12 +2076,26 @@ Begin TOTP MFA enrolment
 enroll generates a fresh TOTP secret and prints the otpauth:// URI (for a QR code) and the base32 secret (for manual entry into an authenticator app). This only begins enrolment \-\- the account is not protected by MFA until you confirm with a code via "keyorix mfa activate". With security.require_mfa on (the default, ADR\-112), a session without MFA can reach only enroll/activate until this is done.
 .PP
 Usage: \fBkeyorix mfa enroll\fR
+.PP
+Examples:
+.PP
+.nf
+# Prints the authenticator setup secret; then run: keyorix mfa activate
+keyorix mfa enroll
+.fi
 .SS keyorix mfa stepup
 Re\-verify your TOTP to unlock restricted secret reads
 .PP
 Re\-verify your authenticator code (or a recovery code) without re\-logging in. On success, a 15\-minute window is opened server\-side that allows reading "restricted" classified secrets.
 .PP
 Usage: \fBkeyorix mfa stepup [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for a fresh authenticator or recovery code
+keyorix mfa stepup
+.fi
 .PP
 Flags:
 .TP
@@ -1551,6 +2113,13 @@ Usage: \fBkeyorix notification channel [command]\fR
 Add a notification channel
 .PP
 Usage: \fBkeyorix notification channel add <name> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix notification channel add ops\-slack \-\-type slack \-\-url https://hooks.slack.com/services/T000/B000/XXXX \-\-events secret.rotated,anomaly.detected
+keyorix notification channel add secops\-mail \-\-type email \-\-email secops@example.com
+.fi
 .PP
 Flags:
 .TP
@@ -1570,6 +2139,12 @@ Delete a notification channel by name
 .PP
 Usage: \fBkeyorix notification channel delete <name> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix notification channel delete ops\-slack \-\-confirm
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-confirm\fR
@@ -1578,14 +2153,32 @@ Confirm deletion without interactive prompt
 Get details of a notification channel by name
 .PP
 Usage: \fBkeyorix notification channel get <name>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix notification channel get ops\-slack
+.fi
 .SS keyorix notification channel list
 List all notification channels
 .PP
 Usage: \fBkeyorix notification channel list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix notification channel list
+.fi
 .SS keyorix notification channel update
 Update a notification channel by name
 .PP
 Usage: \fBkeyorix notification channel update <name> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix notification channel update ops\-slack \-\-events secret.rotated \-\-enabled
+.fi
 .PP
 Flags:
 .TP
@@ -1611,10 +2204,23 @@ Usage: \fBkeyorix pat [command]\fR
 Bulk\-revoke all your expired personal access tokens
 .PP
 Usage: \fBkeyorix pat cleanup\-expired\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix pat cleanup\-expired
+.fi
 .SS keyorix pat create
 Create a personal access token (the raw token is shown once)
 .PP
 Usage: \fBkeyorix pat create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# A read\-only token for one project, valid until the end of the year
+keyorix pat create \-\-name ci\-readonly \-\-scope secrets.read \-\-project\-id 3 \-\-expires 2026\-12\-31
+.fi
 .PP
 Flags:
 .TP
@@ -1642,6 +2248,12 @@ Show the deployment\-wide personal access tokens that should probably be revoked
 .PP
 Usage: \fBkeyorix pat hygiene [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix pat hygiene \-\-days 60
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-days\fR \fIint\fR
@@ -1650,14 +2262,32 @@ Staleness window in days (default server\-side: 90, cap 3650)
 List your personal access tokens
 .PP
 Usage: \fBkeyorix pat list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix pat list
+.fi
 .SS keyorix pat list\-expired
 List your expired (non\-revoked) personal access tokens
 .PP
 Usage: \fBkeyorix pat list\-expired\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix pat list\-expired
+.fi
 .SS keyorix pat revoke
 Revoke one of your tokens
 .PP
 Usage: \fBkeyorix pat revoke <token\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix pat revoke 8
+.fi
 .SS keyorix project
 Manage projects
 .PP
@@ -1668,6 +2298,12 @@ Usage: \fBkeyorix project [command]\fR
 Create a new project
 .PP
 Usage: \fBkeyorix project create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project create \-\-name payments \-\-description "Payments platform" \-\-envs development,staging,production
+.fi
 .PP
 Flags:
 .TP
@@ -1683,12 +2319,24 @@ Project name (required)
 Show the currently active project
 .PP
 Usage: \fBkeyorix project current\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project current
+.fi
 .SS keyorix project describe
 Show details of a project
 .PP
 Displays environments and description for the specified project (or the active project if none given).
 .PP
 Usage: \fBkeyorix project describe [name]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project describe payments
+.fi
 .SS keyorix project env
 Manage environments within a project
 .PP
@@ -1700,6 +2348,12 @@ Copies every secret from the source environment into the destination environment
 .PP
 Usage: \fBkeyorix project env clone <src\-env\-name> <dst\-env\-name> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix project env clone staging qa \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1708,6 +2362,12 @@ Override the active project
 Create a new environment in the active (or specified) project
 .PP
 Usage: \fBkeyorix project env create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project env create \-\-name qa \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -1721,6 +2381,12 @@ Delete an environment by ID
 .PP
 Usage: \fBkeyorix project env delete <env\-id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix project env delete 9 \-\-project payments \-\-confirm
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-confirm\fR
@@ -1733,6 +2399,12 @@ List environments for the active (or specified) project
 .PP
 Usage: \fBkeyorix project env list [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix project env list \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -1741,10 +2413,22 @@ Override the active project
 List environments for a project
 .PP
 Usage: \fBkeyorix project environments <project\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project environments 3
+.fi
 .SS keyorix project health
 Show the secret health summary for a project
 .PP
 Usage: \fBkeyorix project health <name> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project health payments \-\-limit 10
+.fi
 .PP
 Flags:
 .TP
@@ -1759,14 +2443,32 @@ Show a project's security\-hygiene posture (counts)
 Summarize a project's outstanding cleanup signals in one call: secrets whose owner departed, secrets unused for a long window, secrets expiring/expired, and stale machine identities. Requires secrets.read at the project scope.
 .PP
 Usage: \fBkeyorix project hygiene <project\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project hygiene 3
+.fi
 .SS keyorix project list
 List all projects
 .PP
 Usage: \fBkeyorix project list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project list
+.fi
 .SS keyorix project resume\-secrets
 Resume every suspended secret in a project \-\- restore value reads
 .PP
 Usage: \fBkeyorix project resume\-secrets [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project resume\-secrets \-\-id 3
+.fi
 .PP
 Flags:
 .TP
@@ -1776,6 +2478,12 @@ Project ID (required)
 Show rich statistics for a project
 .PP
 Usage: \fBkeyorix project stats <name> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project stats payments \-\-format json
+.fi
 .PP
 Flags:
 .TP
@@ -1789,6 +2497,12 @@ Freeze a whole project (a breach response): value reads of every active secret i
 With \-\-clear\-synced\-copies the copies of those secrets synced to Kubernetes clusters (by the operator or keyorix\-k8s\-sync) are also emptied for the duration of THIS suspension, whatever each resource's own onSuspend setting says. Use it when the secrets are compromised, and rotate them afterwards. Resuming removes the request and the next sync restores the copies. Running suspend\-secrets again with the flag adds the request to secrets that are already suspended without it.
 .PP
 Usage: \fBkeyorix project suspend\-secrets [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix project suspend\-secrets \-\-id 3 \-\-reason "suspected CI compromise"
+.fi
 .PP
 Flags:
 .TP
@@ -1806,6 +2520,13 @@ Set the active project for subsequent commands
 Saves the active project name to the credentials file (cli/internal/credstore). All project\-scoped commands inherit this context; override per\-command with \-\-project.
 .PP
 Usage: \fBkeyorix project use <name>\fR
+.PP
+Examples:
+.PP
+.nf
+# Make "payments" the default for later commands
+keyorix project use payments
+.fi
 .SS keyorix rbac
 Role\-Based Access Control management commands
 .PP
@@ -1820,6 +2541,14 @@ With \-\-project, the grant is scoped to that project only (rather than globally
 With \-\-ttl, the grant is time\-bound (just\-in\-time access): it stops authorizing once the window passes and is swept automatically. Useful for emergency or contractor access. Example: \-\-ttl 4h grants the role for four hours.
 .PP
 Usage: \fBkeyorix rbac assign\-role [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rbac assign\-role \-\-user alice@example.com \-\-role developer \-\-project payments
+# Time\-bound grant
+keyorix rbac assign\-role \-\-user alice@example.com \-\-role admin \-\-project payments \-\-ttl 4h
+.fi
 .PP
 Flags:
 .TP
@@ -1848,6 +2577,12 @@ With \-\-ttl, the grant is time\-bound (just\-in\-time access).
 .PP
 Usage: \fBkeyorix rbac assign\-role\-to\-group [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix rbac assign\-role\-to\-group \-\-group platform\-team \-\-role developer \-\-project payments
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-environment\fR \fIstring\fR
@@ -1871,6 +2606,12 @@ View audit logs for RBAC operations (role assignments, removals, permission gran
 .PP
 Usage: \fBkeyorix rbac audit\-logs [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix rbac audit\-logs \-\-limit 20
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-limit\fR \fIint\fR
@@ -1884,6 +2625,12 @@ Check if a user has a specific permission
 Check if a user has a specific permission by email address and permission name
 .PP
 Usage: \fBkeyorix rbac check\-permission [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rbac check\-permission \-\-user alice@example.com \-\-permission secrets.read
+.fi
 .PP
 Flags:
 .TP
@@ -1910,6 +2657,12 @@ Examples:
 .PP
 Usage: \fBkeyorix rbac export\-matrix [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix rbac export\-matrix \-\-format csv \-\-output rbac\-matrix.csv
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-format\fR \fIstring\fR
@@ -1927,6 +2680,12 @@ List all roles assigned to a specific group.
 .PP
 Usage: \fBkeyorix rbac list\-group\-roles [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix rbac list\-group\-roles \-\-group platform\-team
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-group\fR \fIstring\fR
@@ -1938,6 +2697,12 @@ List all permissions assigned to a user through their roles
 .PP
 Usage: \fBkeyorix rbac list\-permissions [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix rbac list\-permissions \-\-user alice@example.com
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-user\fR \fIstring\fR
@@ -1948,12 +2713,24 @@ List all available roles
 List all roles in the system
 .PP
 Usage: \fBkeyorix rbac list\-roles\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rbac list\-roles
+.fi
 .SS keyorix rbac list\-user\-roles
 List roles assigned to a user
 .PP
 List all roles assigned to a specific user by email address
 .PP
 Usage: \fBkeyorix rbac list\-user\-roles [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rbac list\-user\-roles \-\-user alice@example.com
+.fi
 .PP
 Flags:
 .TP
@@ -1967,6 +2744,12 @@ Remove a role assignment from a user by email address.
 With \-\-project, removes only the grant scoped to that project. With \-\-environment, removes only the grant scoped to that environment within the project (\-\-project must also be supplied).
 .PP
 Usage: \fBkeyorix rbac remove\-role [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rbac remove\-role \-\-user alice@example.com \-\-role developer \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -1989,6 +2772,12 @@ Remove a role assignment from a group.
 With \-\-project, removes only the grant scoped to that project. With \-\-environment, removes only the grant scoped to that environment within the project (\-\-project must also be supplied).
 .PP
 Usage: \fBkeyorix rbac remove\-role\-from\-group [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rbac remove\-role\-from\-group \-\-group platform\-team \-\-role developer \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -2016,6 +2805,12 @@ Create a pending access request for the caller to a project, optionally suggesti
 .PP
 Usage: \fBkeyorix request access [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix request access \-\-project payments \-\-role developer \-\-reason "on\-call this week"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIstring\fR
@@ -2036,6 +2831,12 @@ Approve several pending access requests in a single call (ADR\-024 extension). P
 .PP
 Usage: \fBkeyorix request bulk\-approve [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix request bulk\-approve \-\-ids 4,5,6
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-ids\fR \fIstring\fR
@@ -2046,6 +2847,12 @@ Reject multiple pending access requests at once
 Reject several pending access requests in a single call (ADR\-024 extension). All rejected requests share the same \-\-reason.
 .PP
 Usage: \fBkeyorix request bulk\-reject [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix request bulk\-reject \-\-ids 7,8 \-\-reason "no business need"
+.fi
 .PP
 Flags:
 .TP
@@ -2058,6 +2865,12 @@ Rejection reason shared across all requests (required)
 List a project's access requests
 .PP
 Usage: \fBkeyorix request list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix request list \-\-project payments
+.fi
 .PP
 Flags:
 .TP
@@ -2075,6 +2888,12 @@ Add a new rejection\-reason template
 .PP
 Usage: \fBkeyorix request rejection\-templates add [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix request rejection\-templates add \-\-name no\-need \-\-reason "No business need for this access"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-name\fR \fIstring\fR
@@ -2086,16 +2905,35 @@ Template rejection text (required)
 Delete a rejection\-reason template by ID
 .PP
 Usage: \fBkeyorix request rejection\-templates delete <id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix request rejection\-templates delete 2
+.fi
 .SS keyorix request rejection\-templates list
 List all rejection\-reason templates
 .PP
 Usage: \fBkeyorix request rejection\-templates list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix request rejection\-templates list
+.fi
 .SS keyorix request review
 Approve or reject a pending access request
 .PP
 Resolve a pending access request (admin\-driven, ADR\-024). Approving grants the role at the project scope (\-\-role overrides the suggested role); rejecting records a \-\-reason.
 .PP
 Usage: \fBkeyorix request review [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix request review \-\-project payments \-\-id 4 \-\-action approve \-\-ttl 8h
+keyorix request review \-\-project payments \-\-id 5 \-\-action reject \-\-reason "ask your manager first"
+.fi
 .PP
 Flags:
 .TP
@@ -2126,6 +2964,12 @@ Create a pending, secret\-scoped access request: approval to read ONE specific s
 .PP
 Usage: \fBkeyorix request secret\-access [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix request secret\-access \-\-ref payments/production/STRIPE_KEY \-\-reason "debugging INC\-1234"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-reason\fR \fIstring\fR
@@ -2142,6 +2986,12 @@ Withdraw your own pending access request
 Cancel a pending access request you own, by ID (self\-service, ADR\-024).
 .PP
 Usage: \fBkeyorix request withdraw [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix request withdraw \-\-project payments \-\-id 4
+.fi
 .PP
 Flags:
 .TP
@@ -2163,6 +3013,12 @@ Usage: \fBkeyorix risk [command]\fR
 Record a risk exception (accept a control gap for a bounded time)
 .PP
 Usage: \fBkeyorix risk add [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix risk add \-\-title "Shared admin account" \-\-category mfa \-\-justification "vendor limitation" \-\-expires 2027\-01\-31T00:00:00Z
+.fi
 .PP
 Flags:
 .TP
@@ -2187,6 +3043,12 @@ An exception is inert until approved: it does not suppress its matched violation
 .PP
 Usage: \fBkeyorix risk approve [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix risk approve \-\-id 3
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -2196,6 +3058,12 @@ List risk exceptions (active by default; \-\-all includes expired)
 .PP
 Usage: \fBkeyorix risk list [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix risk list \-\-all
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-all\fR
@@ -2204,6 +3072,12 @@ Include expired exceptions (history)
 Revoke a risk exception before its expiry
 .PP
 Usage: \fBkeyorix risk revoke [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix risk revoke \-\-id 3
+.fi
 .PP
 Flags:
 .TP
@@ -2217,6 +3091,12 @@ Usage: \fBkeyorix rotation [command]\fR
 Create a rotation policy
 .PP
 Usage: \fBkeyorix rotation create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rotation create \-\-name prod\-90d \-\-scope project \-\-project\-id 3 \-\-interval\-days 90 \-\-alert\-days\-before 14
+.fi
 .PP
 Flags:
 .TP
@@ -2247,10 +3127,22 @@ Scope: project | environment (required)
 Delete a rotation policy
 .PP
 Usage: \fBkeyorix rotation delete <id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rotation delete 2
+.fi
 .SS keyorix rotation list
 List rotation policies
 .PP
 Usage: \fBkeyorix rotation list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rotation list \-\-project\-id 3
+.fi
 .PP
 Flags:
 .TP
@@ -2265,6 +3157,12 @@ Print a safe rotation sequence for a project's dependency graph
 Print the order in which a project's secrets should be rotated so that each secret is rotated before anything that depends on it (a topological sort of the dependency graph, ADR\-052). Only secrets that appear in the graph are listed.
 .PP
 Usage: \fBkeyorix rotation order <project\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rotation order 3
+.fi
 .SS keyorix rotation plan
 Print an automated rotation plan (dependency\-safe waves, by urgency)
 .PP
@@ -2274,6 +3172,13 @@ With \-\-all\-projects, print the deployment\-wide roll\-up instead: every proje
 .PP
 Usage: \fBkeyorix rotation plan [project\-id] [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix rotation plan 3
+keyorix rotation plan \-\-all\-projects
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-all\-projects\fR
@@ -2282,10 +3187,22 @@ Plan rotation across every project (deployment\-wide roll\-up)
 Show a rotation policy
 .PP
 Usage: \fBkeyorix rotation show <id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rotation show 2
+.fi
 .SS keyorix rotation status
 Show policy\-covered secrets that are overdue or approaching rotation
 .PP
 Usage: \fBkeyorix rotation status [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix rotation status \-\-project\-id 3
+.fi
 .PP
 Flags:
 .TP
@@ -2319,6 +3236,13 @@ Project is resolved via: \-\-project\-id flag \-> \-\-project flag \-> KEYORIX_P
 .PP
 Usage: \fBkeyorix run [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Run a command with secrets injected as environment variables
+keyorix run \-\-project payments \-\-env production \-\-var DB_PASSWORD=payments/production/DB_PASSWORD \-\- ./server
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-clean\-env\fR
@@ -2351,6 +3275,12 @@ Show the effective access list for a secret: every user who can read it, with th
 .PP
 Usage: \fBkeyorix secret access [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret access \-\-id 42
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -2361,6 +3291,12 @@ Show a secret's recent reads (who/when/from where)
 List the recent access\-log entries for a secret. Requires secrets.read.
 .PP
 Usage: \fBkeyorix secret access\-log [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret access\-log \-\-id 42 \-\-days 7
+.fi
 .PP
 Flags:
 .TP
@@ -2382,6 +3318,12 @@ Grant a user ACL access to a secret
 .PP
 Usage: \fBkeyorix secret acl grant [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret acl grant \-\-secret 42 \-\-user 12 \-\-perm secrets.read
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-perm\fR \fIstringArray\fR
@@ -2396,10 +3338,22 @@ User ID to grant access to
 List ACL grants for a secret
 .PP
 Usage: \fBkeyorix secret acl list <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret acl list 42
+.fi
 .SS keyorix secret acl revoke
 Revoke an ACL grant from a secret
 .PP
 Usage: \fBkeyorix secret acl revoke [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret acl revoke \-\-secret 42 \-\-acl 5
+.fi
 .PP
 Flags:
 .TP
@@ -2414,6 +3368,12 @@ Show a secret's lifecycle events (created/rotated/suspended/shared/...)
 List the audit trail for a secret: what happened to it and when (created, rotated, rolled\-back, suspended/resumed, shared, owner\-transferred, reclassified), newest first. Requires secrets.read at the secret's scope. Never prints a plaintext value.
 .PP
 Usage: \fBkeyorix secret audit [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret audit \-\-id 42 \-\-limit 20
+.fi
 .PP
 Flags:
 .TP
@@ -2430,6 +3390,14 @@ Opt a secret into automated rotation: when it is overdue under an active rotatio
 Enable only for secrets whose value Keyorix owns \(em auto\-rotation changes the stored value without touching any upstream system. Requires secrets.write at the secret's scope.
 .PP
 Usage: \fBkeyorix secret auto\-rotate [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Rotate secret 42 automatically with a generated 32\-character value
+keyorix secret auto\-rotate \-\-id 42 \-\-length 32
+keyorix secret auto\-rotate \-\-id 42 \-\-off
+.fi
 .PP
 Flags:
 .TP
@@ -2456,6 +3424,12 @@ Show the enriched blast radius of rotating or deleting a secret
 Show all downstream dependents of a secret (recursive), each annotated with owner, project, hop depth, and risk level (critical/high/medium/low).
 .PP
 Usage: \fBkeyorix secret blast\-radius <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret blast\-radius 42
+.fi
 .SS keyorix secret bulk\-delete
 Delete multiple secrets in one operation
 .PP
@@ -2464,6 +3438,14 @@ Delete one or more secrets in a project in a single call.
 Pass secret IDs directly with \-\-ids, or resolve by name with \-\-names (requires \-\-project and \-\-env \(em a secret name is only unique within one project's environment, not across the whole project). \-\-confirm is mandatory for the deletion to proceed; without it the command prints what would be deleted and exits.
 .PP
 Usage: \fBkeyorix secret bulk\-delete [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Preview, then confirm
+keyorix secret bulk\-delete \-\-project 3 \-\-env 2 \-\-names OLD_KEY,UNUSED_TOKEN
+keyorix secret bulk\-delete \-\-project 3 \-\-env 2 \-\-names OLD_KEY,UNUSED_TOKEN \-\-confirm
+.fi
 .PP
 Flags:
 .TP
@@ -2492,6 +3474,13 @@ Specify renames as \-\-rename <id>=<new\-name> (repeatable). By default this is 
 .PP
 Usage: \fBkeyorix secret bulk\-rename [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Dry run; add \-\-apply to rename
+keyorix secret bulk\-rename \-\-project 3 \-\-rename 42=DB_PASSWORD \-\-rename 43=DB_USER
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-apply\fR
@@ -2517,6 +3506,12 @@ Without \-\-names the command rotates every matching secret in the project; use 
 .PP
 Usage: \fBkeyorix secret bulk\-rotate [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret bulk\-rotate \-\-project 3 \-\-classification confidential \-\-confirm
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-classification\fR \fIstring\fR
@@ -2537,12 +3532,24 @@ Project ID (required)
 Show a certificate secret's public X.509 metadata (expiry, issuer, SANs)
 .PP
 Usage: \fBkeyorix secret cert <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret cert 42
+.fi
 .SS keyorix secret classify
 Set a secret's data\-classification label (ISO 27001 A.5.12)
 .PP
 Label a secret with its data\-sensitivity classification: public, internal, confidential, or restricted (or empty to clear). Requires secrets.write.
 .PP
 Usage: \fBkeyorix secret classify [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret classify \-\-id 42 \-\-level confidential
+.fi
 .PP
 Flags:
 .TP
@@ -2555,6 +3562,12 @@ public|internal|confidential|restricted (empty clears)
 Remove the temporal access schedule for a secret (idempotent)
 .PP
 Usage: \fBkeyorix secret clear\-schedule <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret clear\-schedule 42
+.fi
 .SS keyorix secret comment
 Manage secret version comments
 .PP
@@ -2563,20 +3576,44 @@ Usage: \fBkeyorix secret comment [command]\fR
 Add a comment to a secret version
 .PP
 Usage: \fBkeyorix secret comment add <secret\-id> <version\-id> <comment>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret comment add 42 3 "rotated after the 2026\-10 incident"
+.fi
 .SS keyorix secret comment delete
 Delete a comment from a secret version
 .PP
 Usage: \fBkeyorix secret comment delete <secret\-id> <version\-id> <comment\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret comment delete 42 3 7
+.fi
 .SS keyorix secret comment list
 List comments on a secret version
 .PP
 Usage: \fBkeyorix secret comment list <secret\-id> <version\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret comment list 42 3
+.fi
 .SS keyorix secret copy
 Copy a secret's value and metadata into another environment
 .PP
 Promote a secret into another environment of the same project (e.g. staging \-> production) without re\-typing the value. Creates a new, independently\-owned secret with the source's value, type, classification, and description.
 .PP
 Usage: \fBkeyorix secret copy [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret copy \-\-id 42 \-\-to\-environment 2 \-\-name DB_PASSWORD_COPY
+.fi
 .PP
 Flags:
 .TP
@@ -2595,6 +3632,12 @@ Bulk\-promote a whole environment \-\- copy every secret from one environment in
 .PP
 Usage: \fBkeyorix secret copy\-environment [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret copy\-environment \-\-project 3 \-\-from\-environment 1 \-\-to\-environment 2
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-from\-environment\fR \fIint\fR
@@ -2609,6 +3652,15 @@ Target environment ID, same project (required)
 Create a new secret
 .PP
 Usage: \fBkeyorix secret create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for the value on a hidden line
+keyorix secret create \-\-project 3 \-\-environment 2 \-\-name DB_PASSWORD \-\-interactive
+# Or read it from a file
+keyorix secret create \-\-project 3 \-\-environment 2 \-\-name TLS_KEY \-\-from\-file ./tls.key
+.fi
 .PP
 Flags:
 .TP
@@ -2646,6 +3698,13 @@ Delete a secret (soft\-delete; restorable with 'secret restore')
 .PP
 Usage: \fBkeyorix secret delete [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret delete \-\-id 42
+keyorix secret delete \-\-project 3 \-\-environment 2 \-\-name DB_PASSWORD \-\-force
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-environment\fR \fIint\fR
@@ -2676,6 +3735,13 @@ Declare that <secret\-id> depends on <depends\-on\-id>
 .PP
 Usage: \fBkeyorix secret deps add <secret\-id> <depends\-on\-id> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Secret 42 depends on secret 40
+keyorix secret deps add 42 40 \-\-note "uses the same database"
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-note\fR \fIstring\fR
@@ -2684,14 +3750,32 @@ Optional note describing the dependency
 Show the blast radius of rotating a secret (transitive dependents)
 .PP
 Usage: \fBkeyorix secret deps impact <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret deps impact 42
+.fi
 .SS keyorix secret deps list
 Show what a secret depends on and what depends on it
 .PP
 Usage: \fBkeyorix secret deps list <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret deps list 42
+.fi
 .SS keyorix secret deps rm
 Remove a dependency edge (edge id from `deps list`)
 .PP
 Usage: \fBkeyorix secret deps rm <secret\-id> <edge\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret deps rm 42 6
+.fi
 .SS keyorix secret description
 Show or set a secret's description
 .PP
@@ -2705,6 +3789,12 @@ Examples:
 .fi
 .PP
 Usage: \fBkeyorix secret description [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret description \-\-id 42 \-\-set "Primary orders database password"
+.fi
 .PP
 Flags:
 .TP
@@ -2724,6 +3814,12 @@ Values (encrypted ciphertext) are never compared \-\- only classification, expir
 .PP
 Usage: \fBkeyorix secret diff <name> <from\-version> <to\-version> [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret diff DB_PASSWORD 2 3 \-\-project 3 \-\-environment 2
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-environment\fR \fIint\fR
@@ -2741,6 +3837,12 @@ Show a project's secrets expiring soon (or already expired), soonest\-first, so 
 .PP
 Usage: \fBkeyorix secret expiring [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret expiring \-\-project 3 \-\-days 14
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-days\fR \fIint\fR
@@ -2752,6 +3854,12 @@ Project ID (required)
 Explain the risk of a discovered secret and how to fix it
 .PP
 Usage: \fBkeyorix secret explain <key\-name>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret explain AWS_SECRET_ACCESS_KEY
+.fi
 .SS keyorix secret export
 Export secrets to a file or stdout
 .PP
@@ -2777,6 +3885,13 @@ Output goes to stdout unless \-\-output is specified. Warnings and summary are a
 .PP
 Usage: \fBkeyorix secret export [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret export \-\-project 3 \-\-env 2 \-\-format dotenv \-\-output .env
+keyorix secret export \-\-project 3 \-\-env 2 \-\-format json
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-encrypt\-for\fR \fIstring\fR
@@ -2797,6 +3912,13 @@ Project ID (required)
 Fix a hardcoded secret by moving it to an environment variable
 .PP
 Usage: \fBkeyorix secret fix <key\-name> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Preview what would be moved out of source into .env
+keyorix secret fix AWS_SECRET_ACCESS_KEY \-\-path ./src
+.fi
 .PP
 Flags:
 .TP
@@ -2822,6 +3944,12 @@ Create a folder
 .PP
 Usage: \fBkeyorix secret folder create [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret folder create \-\-project 3 \-\-environment 2 \-\-name databases
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-environment\fR \fIint\fR
@@ -2840,6 +3968,12 @@ Delete a folder
 .PP
 Usage: \fBkeyorix secret folder delete [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret folder delete \-\-id 5
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-force\fR
@@ -2851,6 +3985,12 @@ Folder ID to delete (required)
 List folders
 .PP
 Usage: \fBkeyorix secret folder list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret folder list \-\-project 3
+.fi
 .PP
 Flags:
 .TP
@@ -2867,6 +4007,14 @@ Retrieve a secret by ID, by name, or by a project/environment/name reference.
 \-\-ref reads the secret's value by a human\-readable "project/environment/name" reference (ADR\-059) \-\- handy for scripts and automation. It always reads the value (so it counts toward max_reads and is audited like any value read).
 .PP
 Usage: \fBkeyorix secret get [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret get \-\-id 42
+# Read the value by reference
+keyorix secret get \-\-ref payments/production/DB_PASSWORD
+.fi
 .PP
 Flags:
 .TP
@@ -2891,6 +4039,12 @@ Show the decrypted secret value
 Show the temporal access schedule for a secret
 .PP
 Usage: \fBkeyorix secret get\-schedule <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret get\-schedule 42
+.fi
 .SS keyorix secret import
 Import secrets from a file
 .PP
@@ -2923,6 +4077,12 @@ Importing from a live source (Vault/AWS/Azure/GCP) is not supported by this comm
 .PP
 Usage: \fBkeyorix secret import [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret import \-\-project 3 \-\-env 2 \-\-file .env \-\-format dotenv \-\-dry\-run
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-decrypt\-with\fR \fIstring\fR
@@ -2952,6 +4112,12 @@ Print a one\-shot summary of a secret's metadata \-\- type, classification, stat
 .PP
 Usage: \fBkeyorix secret info [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret info \-\-id 42
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -2964,6 +4130,13 @@ List secrets with filtering and pagination.
 The server applies authentication\-based filtering automatically: you see only what you're authorized to read.
 .PP
 Usage: \fBkeyorix secret list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret list \-\-project payments
+keyorix secret list \-\-project payments \-\-format json
+.fi
 .PP
 Flags:
 .TP
@@ -2993,6 +4166,12 @@ Use \-\-to 0 (or omit \-\-to) to move the node to the root (no parent).
 .PP
 Usage: \fBkeyorix secret move [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret move \-\-id 42 \-\-to 5
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3009,6 +4188,12 @@ With \-\-project, scopes to one project (requires secrets.read at the project sc
 .PP
 Usage: \fBkeyorix secret name\-conformance [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret name\-conformance \-\-project 3
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-project\fR \fIint\fR
@@ -3019,6 +4204,12 @@ List secrets whose owner is no longer a live user
 Show a project's secrets whose owner has been deleted (offboarding hygiene). Each is left without an accountable owner \(em re\-assign one with 'keyorix secret reassign\-owner'. Requires secrets.read at the project scope.
 .PP
 Usage: \fBkeyorix secret orphaned [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret orphaned \-\-project 3
+.fi
 .PP
 Flags:
 .TP
@@ -3031,6 +4222,12 @@ List all ownership transfers for a secret in chronological order. Each record sh
 .PP
 Usage: \fBkeyorix secret ownership\-history [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret ownership\-history \-\-id 42
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3041,12 +4238,24 @@ Show secrets approaching or at their MaxReads quota
 List all secrets with a MaxReads cap configured, showing current read count, quota percentage, and status (ok / warning / critical / exhausted). Requires audit.read (a usage\-report endpoint, not secret\-value access).
 .PP
 Usage: \fBkeyorix secret quota\-report\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret quota\-report
+.fi
 .SS keyorix secret reassign\-owner
 Re\-home all of a departed user's secrets to a new owner
 .PP
 Transfer every secret in a project owned by one user to another, in one call \(em the bulk completion of offboarding after 'keyorix secret orphaned' surfaces a gone owner's secrets. Requires roles.assign at the project scope (the same blast radius as a role grant, not secrets.write); each secret is authorized individually.
 .PP
 Usage: \fBkeyorix secret reassign\-owner [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret reassign\-owner \-\-project 3 \-\-from 12 \-\-to 15
+.fi
 .PP
 Flags:
 .TP
@@ -3073,6 +4282,12 @@ Examples:
 .PP
 Usage: \fBkeyorix secret render [template\-file] [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret render config.tmpl \-\-project 3 \-\-output config.yaml
+.fi
+.PP
 Flags:
 .TP
 \fB\-o\fR, \fB\-\-output\fR \fIstring\fR
@@ -3087,6 +4302,12 @@ Restore a soft\-deleted secret by clearing its deletion, returning it to the liv
 .PP
 Usage: \fBkeyorix secret restore [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret restore \-\-id 42
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3095,6 +4316,12 @@ Secret ID (required)
 Resume a suspended secret \-\- restore value reads
 .PP
 Usage: \fBkeyorix secret resume [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret resume \-\-id 42
+.fi
 .PP
 Flags:
 .TP
@@ -3107,6 +4334,12 @@ Restore a secret to an earlier version's value. The old value is re\-instated as
 .PP
 Usage: \fBkeyorix secret rollback [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret rollback \-\-id 42 \-\-version 2
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3118,6 +4351,13 @@ Version number to restore (required)
 Rotate a secret by providing a new value
 .PP
 Usage: \fBkeyorix secret rotate [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for the new value
+keyorix secret rotate \-\-id 42
+.fi
 .PP
 Flags:
 .TP
@@ -3143,6 +4383,12 @@ Requires secrets.read at the secret's scope.
 .PP
 Usage: \fBkeyorix secret rotation\-simulate [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret rotation\-simulate \-\-id 42
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3151,6 +4397,13 @@ Secret ID (required)
 Scan a directory for secrets and hardcoded credentials
 .PP
 Usage: \fBkeyorix secret scan [path] [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret scan ./src
+keyorix secret scan \-\-staged \-\-severity high
+.fi
 .PP
 Flags:
 .TP
@@ -3177,6 +4430,12 @@ The score is 0\-100 (higher = riskier) and is broken down into four weighted fac
 .PP
 Usage: \fBkeyorix secret score [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret score \-\-id 42
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3189,6 +4448,13 @@ Restrict read access to a secret to a specific day\-of\-week + hour window.
 The schedule applies to all permission\-checked reads (human users); admin/ machine reads bypass it.
 .PP
 Usage: \fBkeyorix secret set\-schedule <secret\-id> [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Allow reads on weekdays, 08:00\-18:00 UTC
+keyorix secret set\-schedule 42 \-\-days mon,tue,wed,thu,fri \-\-start\-hour 8 \-\-end\-hour 18
+.fi
 .PP
 Flags:
 .TP
@@ -3211,6 +4477,12 @@ Freeze a secret: value reads are refused until it is resumed. Versions, shares, 
 With \-\-clear\-synced\-copies the copies of this secret synced to Kubernetes clusters (by the operator or keyorix\-k8s\-sync) are also emptied for the duration of THIS suspension, whatever the resource's own onSuspend setting says. Use it when the secret is compromised, and rotate it afterwards. Resuming removes the request and the next sync restores the copies. Running suspend again with the flag on a secret that is already suspended adds the request.
 .PP
 Usage: \fBkeyorix secret suspend [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret suspend \-\-id 42 \-\-reason "suspected leak"
+.fi
 .PP
 Flags:
 .TP
@@ -3236,6 +4508,12 @@ Examples:
 .PP
 Usage: \fBkeyorix secret tags [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret tags \-\-id 42 \-\-set db,prod
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
@@ -3253,6 +4531,12 @@ Usage: \fBkeyorix secret template [command]\fR
 Create a secret template
 .PP
 Usage: \fBkeyorix secret template create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret template create \-\-name db\-credential \-\-classification confidential \-\-tags db \-\-rotation\-hint\-days 90
+.fi
 .PP
 Flags:
 .TP
@@ -3277,20 +4561,44 @@ Default tags (comma\-separated, e.g. db,prod)
 Delete a secret template by name
 .PP
 Usage: \fBkeyorix secret template delete <name>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret template delete db\-credential
+.fi
 .SS keyorix secret template get
 Get a secret template by name
 .PP
 Usage: \fBkeyorix secret template get <name>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret template get db\-credential
+.fi
 .SS keyorix secret template list
 List all secret templates
 .PP
 Usage: \fBkeyorix secret template list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret template list
+.fi
 .SS keyorix secret trash
 List a project's soft\-deleted (restorable) secrets
 .PP
 Show the recycle bin for a project: secrets that were deleted but are still restorable (until the purge job reaps them), newest\-deleted first. Use the ID with 'secret restore \-\-id <id>'. Requires secrets.read at the project scope.
 .PP
 Usage: \fBkeyorix secret trash [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix secret trash \-\-project 3
+.fi
 .PP
 Flags:
 .TP
@@ -3303,6 +4611,14 @@ Project ID (required)
 Update an existing secret
 .PP
 Usage: \fBkeyorix secret update [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for the new value
+keyorix secret update \-\-id 42 \-\-interactive
+keyorix secret update \-\-id 42 \-\-expires 2027\-01\-31T00:00:00Z
+.fi
 .PP
 Flags:
 .TP
@@ -3334,6 +4650,12 @@ List secret versions
 .PP
 Usage: \fBkeyorix secret versions [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix secret versions \-\-id 42 \-\-format json
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-format\fR \fIstring\fR
@@ -3360,6 +4682,12 @@ Share a secret with another user or group. The recipient must be a member of the
 .PP
 Usage: \fBkeyorix share create [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix share create \-\-secret\-id 42 \-\-recipient\-id 12 \-\-permission read \-\-ttl 24h
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-expires\fR \fIstring\fR
@@ -3384,6 +4712,12 @@ List shares for a group
 .PP
 Usage: \fBkeyorix share group\-shares [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix share group\-shares \-\-group\-id 4
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-group\-id\fR \fIint\fR
@@ -3392,6 +4726,12 @@ Group ID (required)
 List shares for a secret
 .PP
 Usage: \fBkeyorix share list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix share list \-\-secret\-id 42
+.fi
 .PP
 Flags:
 .TP
@@ -3402,6 +4742,12 @@ Revoke a share
 .PP
 Usage: \fBkeyorix share revoke [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix share revoke \-\-share\-id 9
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-share\-id\fR \fIint\fR
@@ -3410,10 +4756,22 @@ Share ID (required)
 Remove yourself from a secret shared with you
 .PP
 Usage: \fBkeyorix share self\-remove <secret\-id>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix share self\-remove 42
+.fi
 .SS keyorix share shared\-secrets
 List secrets shared with a user (defaults to yourself)
 .PP
 Usage: \fBkeyorix share shared\-secrets [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix share shared\-secrets
+.fi
 .PP
 Flags:
 .TP
@@ -3423,6 +4781,12 @@ User ID (defaults to yourself; viewing another user's shared secrets requires an
 Update a share's permission
 .PP
 Usage: \fBkeyorix share update [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix share update \-\-share\-id 9 \-\-permission write \-\-ttl 48h
+.fi
 .PP
 Flags:
 .TP
@@ -3455,6 +4819,12 @@ Create a separation\-of\-duties policy (two conflicting permissions)
 .PP
 Usage: \fBkeyorix sod policy create [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix sod policy create \-\-name no\-assign\-and\-delete \-\-permission\-a roles.assign \-\-permission\-b secrets.delete
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-description\fR \fIstring\fR
@@ -3473,6 +4843,12 @@ Delete a separation\-of\-duties policy
 .PP
 Usage: \fBkeyorix sod policy delete [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix sod policy delete \-\-id 2
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-id\fR \fIuint32\fR
@@ -3481,16 +4857,35 @@ Policy ID to delete (required)
 List separation\-of\-duties policies
 .PP
 Usage: \fBkeyorix sod policy list\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix sod policy list
+.fi
 .SS keyorix sod violations
 List principals that violate a separation\-of\-duties policy
 .PP
 Usage: \fBkeyorix sod violations\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix sod violations
+.fi
 .SS keyorix status
 Show the configured server, login state, and version\-skew check
 .PP
 status is the remote\-only successor to the old CLI's "status" command (docs/cli\-split\-inventory.md §2.7): it has no local/embedded branch to fall back to (ADR\-108 Decision A removes local mode entirely). Unlike the old command, it actually parses GET /health's response body instead of discarding it, and reports the GET /api/v1/version skew check.
 .PP
 Usage: \fBkeyorix status\fR
+.PP
+Examples:
+.PP
+.nf
+# Shows the server, who you are logged in as, and version compatibility
+keyorix status
+.fi
 .SS keyorix system
 Server info and on\-demand admin job triggers
 .PP
@@ -3501,6 +4896,12 @@ Show the connected server's build identity and configuration
 Display the remote Keyorix server's version, commit, runtime, and feature/security configuration (GET /system/info). Useful for confirming which build you're talking to. Requires a connection to a server and system.read.
 .PP
 Usage: \fBkeyorix system info\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix system info
+.fi
 .SS keyorix system init
 Bootstrap a running Keyorix server (admin user + default workspace)
 .PP
@@ -3518,6 +4919,13 @@ Examples:
 .fi
 .PP
 Usage: \fBkeyorix system init [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# First\-run bootstrap of a new server; prompts for the admin password
+keyorix system init \-\-server https://keyorix.example.com \-\-admin\-username admin \-\-admin\-email admin@example.com
+.fi
 .PP
 Flags:
 .TP
@@ -3543,6 +4951,12 @@ Send immediate role\-expiry notifications for time\-bound role grants approachin
 Warning notifications are sent for grants expiring within 7 days; critical notifications for those expiring within 1 day. Requires system.write.
 .PP
 Usage: \fBkeyorix system role\-expiry\-check\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix system role\-expiry\-check
+.fi
 .SS keyorix system token\-expiry\-check
 Trigger a PAT and machine\-credential expiry notification scan on the connected server
 .PP
@@ -3551,6 +4965,12 @@ Send immediate expiry notifications for PersonalAccessTokens and MachineIdentity
 Warning notifications are sent for tokens expiring within 7 days; critical notifications for those expiring within 1 day. Requires system.write.
 .PP
 Usage: \fBkeyorix system token\-expiry\-check\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix system token\-expiry\-check
+.fi
 .SS keyorix trust
 Air\-gap signing\-key tooling (ed25519 keypairs for update bundles / licenses)
 .PP
@@ -3561,6 +4981,12 @@ Usage: \fBkeyorix trust [command]\fR
 Generate an ed25519 signing keypair (update or license)
 .PP
 Usage: \fBkeyorix trust keygen [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix trust keygen \-\-purpose update \-\-key\-id update\-2026 \-\-dir ./keys
+.fi
 .PP
 Flags:
 .TP
@@ -3586,6 +5012,13 @@ Display a per\-project secret usage report (secret counts and read activity) for
 .PP
 Usage: \fBkeyorix usage show [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix usage show \-\-days 30
+keyorix usage show \-\-project\-id 3 \-\-format json
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-days\fR \fIint\fR
@@ -3610,6 +5043,13 @@ Create a new user. Supply \-\-password to set an initial password, or use \-\-se
 Or use \-\-one\-time\-password to have the server generate an initial password (ADR\-028 Part E): the account is created in password_reset_required state, the password is printed once for you to relay, and the user must change it on first login.
 .PP
 Usage: \fBkeyorix user create [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Prompts for an initial password (or use \-\-setup\-link / \-\-one\-time\-password)
+keyorix user create \-\-username bob \-\-email bob@example.com \-\-setup\-link
+.fi
 .PP
 Flags:
 .TP
@@ -3638,6 +5078,12 @@ Delete a user
 .PP
 Usage: \fBkeyorix user delete [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix user delete \-\-id 12
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-by\fR \fIstring\fR
@@ -3655,6 +5101,12 @@ Force a user into a restricted session until they change their password. They ca
 .PP
 Usage: \fBkeyorix user force\-password\-reset [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix user force\-password\-reset \-\-id 12
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-by\fR \fIstring\fR
@@ -3667,6 +5119,12 @@ Get a user by id or email
 .PP
 Usage: \fBkeyorix user get [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix user get \-\-email bob@example.com
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-email\fR \fIstring\fR
@@ -3678,6 +5136,12 @@ User ID
 List users
 .PP
 Usage: \fBkeyorix user list [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix user list \-\-page 1 \-\-page\-size 50
+.fi
 .PP
 Flags:
 .TP
@@ -3692,6 +5156,12 @@ Reactivate a user (restores login)
 Return a suspended (or otherwise non\-active) user to the active state.
 .PP
 Usage: \fBkeyorix user reactivate [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix user reactivate \-\-id 12
+.fi
 .PP
 Flags:
 .TP
@@ -3710,12 +5180,24 @@ The password is printed once for you to relay out of band; it is never shown aga
 Refused for your own account (use `keyorix\-server admin recover\-admin`), for users managed by an external identity provider (SSO), and for suspended users.
 .PP
 Usage: \fBkeyorix user reissue\-one\-time\-password <user>\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix user reissue\-one\-time\-password bob
+.fi
 .SS keyorix user resend\-setup\-link
 Reissue and redeliver a user's setup link (ADR\-028)
 .PP
 Reissue an account's setup link, invalidating any prior link, and deliver it again. In out\-of\-band mode the link is printed for you to relay. Throttled per the ADR\-028 resend limits.
 .PP
 Usage: \fBkeyorix user resend\-setup\-link [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix user resend\-setup\-link \-\-id 12
+.fi
 .PP
 Flags:
 .TP
@@ -3731,6 +5213,12 @@ Terminate every active session of a user immediately, without changing their acc
 .PP
 Usage: \fBkeyorix user revoke\-sessions [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+keyorix user revoke\-sessions \-\-id 12
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-by\fR \fIstring\fR
@@ -3744,6 +5232,12 @@ Suspend a user (blocks login)
 Suspend a user account. A suspended user is refused login entirely until reactivated.
 .PP
 Usage: \fBkeyorix user suspend [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix user suspend \-\-id 12
+.fi
 .PP
 Flags:
 .TP
@@ -3761,6 +5255,13 @@ With \-\-dry\-run the command evaluates all users against the threshold but make
 .PP
 Usage: \fBkeyorix user suspend\-inactive [flags]\fR
 .PP
+Examples:
+.PP
+.nf
+# Preview first
+keyorix user suspend\-inactive \-\-days 90 \-\-dry\-run
+.fi
+.PP
 Flags:
 .TP
 \fB\-\-days\fR \fIint\fR
@@ -3772,6 +5273,12 @@ Preview which users would be suspended without making changes
 Update a user
 .PP
 Usage: \fBkeyorix user update [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix user update \-\-id 12 \-\-display\-name "Bob Jones"
+.fi
 .PP
 Flags:
 .TP
@@ -3793,3 +5300,9 @@ New username
 Print the CLI version and the API version it targets
 .PP
 Usage: \fBkeyorix version\fR
+.PP
+Examples:
+.PP
+.nf
+keyorix version
+.fi
