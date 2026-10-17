@@ -20,7 +20,6 @@ type adminSpec struct {
 	externalID string
 }
 
-
 func ssoOnlyAdminReport(t *testing.T, specs ...adminSpec) *postureReport {
 	t.Helper()
 	cfg := writeSecureBaselineConfig(t)
