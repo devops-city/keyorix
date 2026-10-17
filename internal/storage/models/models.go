@@ -380,6 +380,12 @@ type AccessReviewCampaign struct {
 	// (recertification.go) would silently treat a rushed, incomplete force-close as
 	// satisfying a full review cycle and push the next-due date out just as far.
 	ForcedIncomplete bool `gorm:"default:false" json:"forced_incomplete"`
+	// ActivityWindowDays is the look-back of the items' LastUsedAt, fixed when the
+	// campaign was opened: each item's last_used_at is the principal's most recent
+	// use within the last N days before CreatedAt, and an item without one had no
+	// use in that window. 0 = a campaign opened before the window existed, whose
+	// last_used_at looked back over the whole audit history. Evidence exports quote it.
+	ActivityWindowDays int `gorm:"default:0" json:"activity_window_days"`
 }
 
 // BeforeSave normalises ClosedAt to UTC so SQLite string comparisons are

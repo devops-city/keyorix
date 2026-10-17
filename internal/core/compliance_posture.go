@@ -21,7 +21,11 @@ import (
 
 // dormantThreshold is how long without a secret access marks a standing grant
 // dormant in the posture roll-up.
-const dormantThreshold = 90 * 24 * time.Hour
+const dormantThreshold = dormantThresholdDays * 24 * time.Hour
+
+// dormantThresholdDays is dormantThreshold in days (the look-back of the dormant-grant
+// lookups, and the figure the compliance surfaces quote).
+const dormantThresholdDays = 90
 
 // AuditIntegrityPosture summarises the tamper-evident audit trail (ADR-029).
 type AuditIntegrityPosture struct {
@@ -1045,10 +1049,11 @@ func (c *KeyorixCore) countDormantRoleGrants(ctx context.Context, projectID uint
 		cp.degrade(fmt.Sprintf("dormant_role_grants:assignments:project=%d", projectID), err)
 		return 0
 	}
-	// Look back over the review period, but never less than the dormancy threshold the
-	// result is judged against below: a shorter window would call a grant dormant that
-	// was used inside the threshold.
-	since := storage.ActivityLookbackSince(c.now(), max(c.recertCadence(), int(dormantThreshold/(24*time.Hour))))
+	// Look back exactly as far as the dormancy threshold the result is judged against
+	// below (cutoff): activity older than that cannot change the verdict, so reading it
+	// would only cost. "Dormant" therefore means no use within the last
+	// dormantThresholdDays days.
+	since := storage.ActivityLookbackSince(c.now(), dormantThresholdDays)
 	readActivity, err := c.storage.LastUserSecretReadActivity(ctx, projectID, since)
 	if err != nil {
 		cp.degrade(fmt.Sprintf("dormant_role_grants:read_activity:project=%d", projectID), err)

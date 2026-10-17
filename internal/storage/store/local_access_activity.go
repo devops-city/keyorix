@@ -10,6 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 )
 
@@ -93,11 +94,15 @@ var secretsDeletionActivityEventTypes = []string{"secret.deleted"}
 // lastActivityQuery is the one statement behind every LastUser*Activity lookup (a
 // builder so the plan tests can EXPLAIN exactly what runs).
 func lastActivityQuery(db *gorm.DB, projectID uint, eventTypes []string, since time.Time) *gorm.DB {
-	_ = since // not applied yet
 	return db.
 		Table("audit_events").
 		Select("user_id, event_time").
 		Where("project_id = ?", projectID).
+		// The window: event_time >= since, with since clamped to the hard maximum
+		// lookback. Next to project_id = ? this is a range on the existing
+		// idx_audit_events_project_event_time, so the rows read are the window's, not
+		// the table's. event_time is always stored in UTC (AuditEvent.BeforeSave).
+		Where("event_time >= ?", storage.ClampActivitySince(time.Now(), since)).
 		Where("event_type IN ?", eventTypes).
 		// A refused attempt (success=false, e.g. a refused secret.read, #3273) is
 		// not use of the grant; NULL is a legacy row that predates the column.
@@ -106,26 +111,19 @@ func lastActivityQuery(db *gorm.DB, projectID uint, eventTypes []string, since t
 		Order("event_time DESC")
 }
 
-// lastUserActivityByEventTypes is the shared query behind LastUserSecretActivity,
-// LastUserRoleManagementActivity and LastUserSecretDeletionActivity: the most
-// recent matching-event time per user in the project, read from audit_events.
+// lastUserActivityByEventTypes is the shared query behind the LastUser*Activity
+// lookups: the most recent matching-event time per user in the project, read from
+// audit_events, over the window starting at `since` (the recertification period,
+// clamped to storage.ActivityLookbackMaxDays; see lastActivityQuery).
 //
 // It selects the typed event_time column ordered newest-first and keeps the first
 // row seen per user (rather than SQL MAX(), whose result is an untyped string that
-// SQLite can't scan into time.Time). No row cap — a user's only activity could be
-// old, and capping would mis-report them as never-active (a silent-truncation bug).
-//
-// #G44: flagged for "no row cap" — a naive LIMIT is intentionally NOT applied here.
-// Because rows are ordered newest-first and results are deduped per-user in Go,
-// a LIMIT returns the N most recent events ACROSS ALL USERS, not the most recent
-// event PER USER — a project with more than N recent events from a few active
-// users would silently drop every dormant user from the result entirely (the
-// exact bug this function's own comment above already guards against). A correct
-// bound here needs either a per-user-windowed query (ROW_NUMBER() OVER PARTITION
-// BY user_id, unused elsewhere in this codebase and untested against both SQLite
-// and Postgres dialects) or a domain decision on how far back "last activity"
-// needs to look before a user is presumed dormant regardless. Left unfixed
-// pending that decision — see REMEDIATION-STATUS.md G44.
+// SQLite can't scan into time.Time). There is deliberately no LIMIT: rows are
+// deduplicated per user in Go, so a LIMIT would return the N newest events across
+// ALL users and could drop every quiet user from the result. The bound is the time
+// window instead (the G44 decision, RECERT-BOUND-1): "last activity" means within
+// the review period, so a user with no event in the window is absent from the map,
+// i.e. "no activity within the last N days", never "no activity ever".
 func (ls *LocalStorage) lastUserActivityByEventTypes(ctx context.Context, projectID uint, eventTypes []string, since time.Time) (map[uint]time.Time, error) {
 	type row struct {
 		UserID    uint
