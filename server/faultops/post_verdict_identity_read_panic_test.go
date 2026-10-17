@@ -76,39 +76,50 @@ func TestPostVerdictIdentityReadPanic_AnsweredLikeItsError(t *testing.T) {
 	}
 	for _, e := range population {
 		t.Run(fmt.Sprintf("%s/%s", e.op, e.method), func(t *testing.T) {
-			if !hasByDesignRow(e.op, e.method, e.nth, faultstorage.KindPanic) {
-				t.Errorf("no KindPanic oracleAByDesignError row for %s %s#%d: the panic kind must be reviewed "+
-					"alongside the error kind", e.op, e.method, e.nth)
-			}
-			errIn, outcome, reason := driveFaultCase(t, e.op, e.method, e.nth, faultstorage.KindError)
-			if outcome != driveObserved {
-				t.Fatalf("error kind could not be driven (%s: %s)", outcome, reason)
-			}
-			panicIn, outcome, reason := driveFaultCase(t, e.op, e.method, e.nth, faultstorage.KindPanic)
-			if outcome != driveObserved {
-				t.Fatalf("panic kind could not be driven (%s: %s)", outcome, reason)
-			}
-			if panicIn.result.Success {
-				t.Fatalf("the panic kind reported success: %q", panicIn.result.Detail)
-			}
-			if panicIn.result.Detail != errIn.result.Detail {
-				t.Errorf("response differs: panic got %q, the same fault as an error got %q -- the status code "+
-					"answers whether the credential was correct (#3267)", panicIn.result.Detail, errIn.result.Detail)
-			}
-			errDiff, panicDiff := diffTables(errIn.before, errIn.after), diffTables(panicIn.before, panicIn.after)
-			slices.Sort(errDiff)
-			slices.Sort(panicDiff)
-			if !slices.Equal(errDiff, panicDiff) {
-				t.Errorf("diverged tables differ: panic %v, error %v", panicDiff, errDiff)
-			}
-			if n := addedRows(panicIn.before, panicIn.after, "Session"); n != 0 {
-				t.Errorf("the panic kind left %d new Session row(s)", n)
-			}
-			if p, e := addedRows(panicIn.before, panicIn.after, "AuditEvent"), addedRows(errIn.before, errIn.after, "AuditEvent"); p != e {
-				t.Errorf("the panic kind wrote %d AuditEvent row(s), the error kind %d -- the auth.login_error record "+
-					"must not depend on how the fault surfaced", p, e)
-			}
+			requirePanicKindAnsweredLikeErrorKind(t, e, true)
 		})
+	}
+}
+
+// requirePanicKindAnsweredLikeErrorKind drives e's (op, method, nth) as an
+// error and as a panic through the real router and requires the panic kind to
+// report failure, answer byte for byte like the error kind, diverge in the
+// same tables, add the same number of AuditEvent rows and add no Session, and
+// (requireRow) to have its own reviewed KindPanic row. Shared by the
+// identity-read (#3267) and write (#3277) families.
+func requirePanicKindAnsweredLikeErrorKind(t *testing.T, e oracleAByDesignError, requireRow bool) {
+	t.Helper()
+	if requireRow && !hasByDesignRow(e.op, e.method, e.nth, faultstorage.KindPanic) {
+		t.Errorf("no KindPanic oracleAByDesignError row for %s %s#%d: the panic kind must be reviewed "+
+			"alongside the error kind", e.op, e.method, e.nth)
+	}
+	errIn, outcome, reason := driveFaultCase(t, e.op, e.method, e.nth, faultstorage.KindError)
+	if outcome != driveObserved {
+		t.Fatalf("error kind could not be driven (%s: %s)", outcome, reason)
+	}
+	panicIn, outcome, reason := driveFaultCase(t, e.op, e.method, e.nth, faultstorage.KindPanic)
+	if outcome != driveObserved {
+		t.Fatalf("panic kind could not be driven (%s: %s)", outcome, reason)
+	}
+	if panicIn.result.Success {
+		t.Fatalf("the panic kind reported success: %q", panicIn.result.Detail)
+	}
+	if panicIn.result.Detail != errIn.result.Detail {
+		t.Errorf("response differs: panic got %q, the same fault as an error got %q -- the status code "+
+			"answers whether the credential was correct (#3267)", panicIn.result.Detail, errIn.result.Detail)
+	}
+	errDiff, panicDiff := diffTables(errIn.before, errIn.after), diffTables(panicIn.before, panicIn.after)
+	slices.Sort(errDiff)
+	slices.Sort(panicDiff)
+	if !slices.Equal(errDiff, panicDiff) {
+		t.Errorf("diverged tables differ: panic %v, error %v", panicDiff, errDiff)
+	}
+	if n := addedRows(panicIn.before, panicIn.after, "Session"); n != 0 {
+		t.Errorf("the panic kind left %d new Session row(s)", n)
+	}
+	if p, e := addedRows(panicIn.before, panicIn.after, "AuditEvent"), addedRows(errIn.before, errIn.after, "AuditEvent"); p != e {
+		t.Errorf("the panic kind wrote %d AuditEvent row(s), the error kind %d -- the audit record "+
+			"must not depend on how the fault surfaced", p, e)
 	}
 }
 

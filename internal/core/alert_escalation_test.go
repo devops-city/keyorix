@@ -199,7 +199,7 @@ func TestRunAlertEscalation_MatchingAlert_Escalated(t *testing.T) {
 		ID:      7,
 		Name:    "test-webhook",
 		Type:    "webhook",
-		URL:     "http://fake-webhook.test/hook",
+		URLEnc:  plaintextURLEnc("https://fake-webhook.test/hook"),
 		Enabled: true,
 	}
 
@@ -320,7 +320,7 @@ func TestRunAlertEscalation_DisabledChannel_Skipped(t *testing.T) {
 		ID:      7,
 		Name:    "disabled-channel",
 		Type:    "webhook",
-		URL:     "http://example.com/hook",
+		URL:     "https://example.com/hook",
 		Enabled: false,
 	}
 
@@ -353,7 +353,7 @@ func TestRunAlertEscalation_MultiplePolicies_OneMatches(t *testing.T) {
 	alert := makeAlert(1, "high", 90) // 90 min old, severity=high
 	alert.DetectedAt = now.Add(-90 * time.Minute)
 
-	ch := &models.NotificationChannel{ID: 7, Name: "wh", Type: "webhook", URL: "http://fake-webhook.test/hook", Enabled: true}
+	ch := &models.NotificationChannel{ID: 7, Name: "wh", Type: "webhook", URLEnc: plaintextURLEnc("https://fake-webhook.test/hook"), Enabled: true}
 
 	store.On("ListAlertEscalationPolicies", mock.Anything).Return([]models.AlertEscalationPolicy{p1, p2}, nil)
 	store.On("ListUnacknowledgedAnomalyAlertsBefore", mock.Anything, mock.Anything).Return([]models.AnomalyAlert{alert}, nil)
@@ -434,7 +434,7 @@ func TestRunAlertEscalation_SlackChannel_Escalated(t *testing.T) {
 	alert := makeAlert(1, "low", 10)
 	alert.DetectedAt = now.Add(-10 * time.Minute)
 
-	ch := &models.NotificationChannel{ID: 3, Name: "slack-ops", Type: "slack", URL: "http://fake-slack.test/hook", Enabled: true}
+	ch := &models.NotificationChannel{ID: 3, Name: "slack-ops", Type: "slack", URLEnc: plaintextURLEnc("https://fake-slack.test/hook"), Enabled: true}
 
 	store.On("ListAlertEscalationPolicies", mock.Anything).Return([]models.AlertEscalationPolicy{p}, nil)
 	store.On("ListUnacknowledgedAnomalyAlertsBefore", mock.Anything, mock.Anything).Return([]models.AnomalyAlert{alert}, nil)
@@ -542,7 +542,7 @@ func TestRunAlertEscalation_WebhookError_CountsSkipped(t *testing.T) {
 	alert := makeAlert(1, "low", 30)
 	alert.DetectedAt = now.Add(-30 * time.Minute)
 
-	ch := &models.NotificationChannel{ID: 8, Name: "bad-hook", Type: "webhook", URL: "http://fake-webhook.test/hook", Enabled: true}
+	ch := &models.NotificationChannel{ID: 8, Name: "bad-hook", Type: "webhook", URL: "https://fake-webhook.test/hook", Enabled: true}
 
 	store.On("ListAlertEscalationPolicies", mock.Anything).Return([]models.AlertEscalationPolicy{p}, nil)
 	store.On("ListUnacknowledgedAnomalyAlertsBefore", mock.Anything, mock.Anything).Return([]models.AnomalyAlert{alert}, nil)
@@ -760,7 +760,7 @@ func TestDispatchToChannel_WebhookRedactsPIIEmbeddedInDescription(t *testing.T) 
 	alert.Description = fmt.Sprintf("ML detected an anomalous access pattern (score 0.92): %s from %s at 14:00 UTC differs from this secret's learned baseline",
 		alert.AccessedBy, alert.IPAddress)
 
-	ch := &models.NotificationChannel{ID: 7, Name: "test-webhook", Type: "webhook", URL: "http://fake-webhook.test/hook", Enabled: true}
+	ch := &models.NotificationChannel{ID: 7, Name: "test-webhook", Type: "webhook", URL: "https://fake-webhook.test/hook", Enabled: true}
 	policy := makePolicy(1, "p1", "medium", 30)
 
 	require.NoError(t, c.dispatchToChannel(context.Background(), ch, &alert, &policy))
@@ -890,7 +890,7 @@ func TestRunAlertEscalation_MultiPolicyMinDelayUpdate(t *testing.T) {
 	alert := makeAlert(1, "low", 15)
 	alert.DetectedAt = now.Add(-15 * time.Minute)
 
-	ch := &models.NotificationChannel{ID: 2, Name: "wh", Type: "webhook", URL: "http://fake-webhook.test/hook", Enabled: true}
+	ch := &models.NotificationChannel{ID: 2, Name: "wh", Type: "webhook", URLEnc: plaintextURLEnc("https://fake-webhook.test/hook"), Enabled: true}
 
 	store.On("ListAlertEscalationPolicies", mock.Anything).Return([]models.AlertEscalationPolicy{p1, p2}, nil)
 	store.On("ListUnacknowledgedAnomalyAlertsBefore", mock.Anything, mock.Anything).Return([]models.AnomalyAlert{alert}, nil)

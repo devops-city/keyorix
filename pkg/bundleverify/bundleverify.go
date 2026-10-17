@@ -459,7 +459,7 @@ func streamBundleComponents(tr *tar.Reader, pinned map[string]Component, dest st
 			continue
 		}
 		if hdr.Size > maxComponentBytes {
-			return fmt.Errorf("%w: %s declares %d bytes (max %d)", ErrEntryTooLarge, hdr.Name, hdr.Size, maxComponentBytes)
+			return fmt.Errorf("%w: %s declares %d bytes (max %d)", ErrEntryTooLarge, hdr.Name, hdr.Size, int64(maxComponentBytes))
 		}
 		name, err := cleanComponentPath(hdr.Name)
 		if err != nil {

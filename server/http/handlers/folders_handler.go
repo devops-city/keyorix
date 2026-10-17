@@ -209,23 +209,14 @@ func (h *FolderHandler) DeleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.coreService.DeleteSecretWithPermissionCheck(r.Context(), uint(id), userCtx.UserID); err != nil {
+	// Folders (IsSecret=false SecretNode rows) go through the same core delete as
+	// /secrets/{id}, and get the same secret.deleted row (F3, audit-completeness
+	// campaign), committed in the delete's transaction (AUDIT-MUTATION-TX-1).
+	if err := h.coreService.DeleteSecretWithPermissionCheck(secretMutationAuditContext(r, userCtx), uint(id), userCtx.UserID); err != nil {
 		log.Printf("Error deleting folder %d: %v", id, err)
 		h.sendError(w, "InternalError", "Failed to delete folder", http.StatusInternalServerError, nil)
 		return
 	}
-
-	// DeleteSecretWithPermissionCheck/DeleteSecret write no secret.deleted event
-	// of their own (by design — see DeleteSecret's own comment); the real
-	// /secrets/{id} DELETE handler calls LogSecretDeletedWithProject explicitly
-	// afterward, and folders (IsSecret=false SecretNode rows deleted via the
-	// same core call) need the identical call (F3, audit-completeness campaign).
-	uid, fID, uname := userCtx.UserID, uint(id), userCtx.Username
-	ip, ua := clientIP(r), r.Header.Get(hdrUserAgent)
-	auditCtx := core.DetachedAuditContext(r.Context())
-	goSafe(func() {
-		h.coreService.LogSecretDeletedWithProject(auditCtx, uid, fID, node.ProjectID, uname, node.Name, ip, ua)
-	}) // #nosec G118
 
 	w.WriteHeader(http.StatusNoContent)
 }

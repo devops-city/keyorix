@@ -32,7 +32,7 @@ DEMO_SECRETS_DIR="$(mktemp -d)"
   printf '%s\n' "demo-db-pass" > "${DEMO_SECRETS_DIR}/db_password"
   printf '%s\n' "demo-master-pass" > "${DEMO_SECRETS_DIR}/master_password"
   printf '%s\n' "${KEYORIX_ADMIN_PASSWORD}" > "${DEMO_SECRETS_DIR}/admin_password"
-  printf '%s\n' "demo-bootstrap-token-0123456789abcdef" > "${DEMO_SECRETS_DIR}/bootstrap_token"
+  openssl rand -hex 32 > "${DEMO_SECRETS_DIR}/bootstrap_token"
 )
 export KEYORIX_SECRETS_DIR="${DEMO_SECRETS_DIR}"
 KEYORIX_SECRETS_GID="$(id -g)"

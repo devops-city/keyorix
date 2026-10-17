@@ -62,19 +62,37 @@
 //	    60s-local-burst fuzz session — recorded in the T1 report instead of
 //	    silently skipped.)
 //
-//	(c) final DB state == serial replay in commit order: for the role
-//	    grant/revoke register and the rotate-secret value register, every
-//	    successful op's Return timestamp (captured immediately after the
-//	    call returns, i.e. immediately after its transaction commits) gives
-//	    a total order consistent with actual Postgres commit order for that
-//	    row — two successful writes to the same row cannot commit
-//	    concurrently; Postgres's own row-level locking serializes them.
-//	    Sorting successful ops by Return time and taking the last writer's
-//	    value is exactly the state a serial replay in that real commit order
-//	    would produce. assertCommitOrderReplay compares it directly against
-//	    the actual final DB row — no porcupine involved, a cheaper and more
-//	    direct check of the one property that actually matters here (no
-//	    lost update), matching the T1 spec's own wording for this oracle.
+//	(c) final DB state == serial replay in REAL commit order: for the role
+//	    grant/revoke register and the rotate-secret value register. The
+//	    commit order is taken from what Postgres itself serialized, never
+//	    from client-side Return timestamps: a call's Return is NOT its
+//	    commit. AssignUserRole commits the user_roles insert, then writes
+//	    its audit event and releases its WithNamedLock advisory lock before
+//	    returning (RotateSecret likewise stores the version, then updates
+//	    the secret row and audits), so a writer that committed FIRST can
+//	    return LAST. The original oracle sorted successes by Return time and
+//	    flaked on exactly that (FLAKE-CROSSREPLICA-1: a grant committed,
+//	    a revoke on the other replica deleted the row and returned, then the
+//	    grant returned — "expects true, DB has false" while the DB was the
+//	    only legal outcome). Instead:
+//	      - role-grant: AssignRole succeeds only on an absent row and
+//	        RemoveRole only on a present one, and every iteration starts
+//	        absent, so successful grants and revokes MUST alternate in
+//	        commit order (G,R,G,R,...): replaying them gives final state
+//	        (grants == revokes+1), and any other count is itself a lost
+//	        update / double grant. assertGrantRegisterLinearizable then
+//	        checks the whole history (successes, the "already assigned" /
+//	        "not assigned" refusals as observations, and the final DB read)
+//	        against real time with porcupine, so a stale cross-replica read
+//	        is caught too, with overlapping calls allowed either order.
+//	      - rotate-secret: storeNextSecretVersion writes version N+1 only
+//	        after reading committed version N, so version_number order IS
+//	        commit order. assertRotateCommitOrder decrypts this iteration's
+//	        versions and checks every successful rotate's value landed in
+//	        exactly one version (no lost update), no version holds a value
+//	        nobody wrote, version order respects real time for
+//	        non-overlapping successes, and the final value is the highest
+//	        version's.
 //
 // Lease issue/revoke and dynamic-secret-config creation use a shared
 // dynamictest.FakeEngine (mirrors dynamic_secrets_test.go's
@@ -86,10 +104,10 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,6 +121,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/dynamic"
 	"github.com/keyorixhq/keyorix/internal/dynamic/dynamictest"
 	"github.com/keyorixhq/keyorix/internal/encryption"
@@ -388,26 +407,181 @@ func assertNoDuplicateSecretVersions(t *testing.T, w *crWorld, secretID uint) {
 	}
 }
 
-type crOrderedWrite struct {
-	returnAt int64
-	value    any
+// --- role-grant register: compare-and-set model ------------------------------
+//
+// AssignRole refuses an already-present row and RemoveRole refuses an absent
+// one (local_rbac.go), so a successful grant is set(false->true), a successful
+// revoke is set(true->false), and each refusal is an observation of the state
+// it was refused on.
+
+type crGrantOpKind uint8
+
+const (
+	crGrantSet     crGrantOpKind = iota // successful grant: absent -> present
+	crGrantClear                        // successful revoke: present -> absent
+	crGrantObserve                      // refusal, or the final DB read: state == val
+)
+
+type crGrantOp struct {
+	kind crGrantOpKind
+	val  bool // crGrantObserve only
 }
 
-// assertCommitOrderReplay sorts successful writes by their Return timestamp
-// (captured immediately after each write's call returned, i.e. immediately
-// after its commit) and asserts the last writer's value equals actual —
-// the state a serial replay in real commit order would produce.
-func assertCommitOrderReplay(t *testing.T, label string, writes []crOrderedWrite, actual any) {
+var crGrantRegModel = porcupine.Model{
+	Init: func() any { return false },
+	Step: func(state, input, _ any) (bool, any) {
+		in := input.(crGrantOp)
+		s := state.(bool)
+		switch in.kind {
+		case crGrantSet:
+			return !s, true
+		case crGrantClear:
+			return s, false
+		default:
+			return s == in.val, s
+		}
+	},
+	DescribeOperation: func(input, _ any) string {
+		in := input.(crGrantOp)
+		switch in.kind {
+		case crGrantSet:
+			return "grant ok (absent -> present)"
+		case crGrantClear:
+			return "revoke ok (present -> absent)"
+		default:
+			return fmt.Sprintf("observe(present=%v)", in.val)
+		}
+	},
+}
+
+// checkGrantCommitOrderReplay is oracle (c) for the role-grant register.
+// Successful grants and revokes must alternate in real commit order starting
+// from absent, so replaying them yields present iff grants == revokes+1; any
+// other count means two grants (or two revokes) both committed against the
+// same state — a lost update. Return timestamps are deliberately not used:
+// see the file comment on why Return order is not commit order.
+func checkGrantCommitOrderReplay(grants, revokes int, actual bool) error {
+	if d := grants - revokes; d != 0 && d != 1 {
+		return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"role-grant\" — %d successful grants and %d successful revokes cannot alternate in commit order from an absent start (lost update / double write)",
+			grants, revokes)
+	}
+	if want := grants == revokes+1; want != actual {
+		return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"role-grant\" — replaying %d successful grants and %d successful revokes in real commit order expects final state %v, DB has %v",
+			grants, revokes, want, actual)
+	}
+	return nil
+}
+
+// checkGrantRegisterLinearizable checks the role-grant history (successes,
+// refusals and the final DB read) against real time. Overlapping calls may
+// linearize in either order, so a writer that commits first but returns
+// last is legal here, while a refusal that contradicts an already-returned
+// write on the other replica is not. A porcupine timeout is reported via
+// logf, not as a failure (same policy as crCheckLinearizable).
+func checkGrantRegisterLinearizable(history []porcupine.Operation, logf func(string, ...any)) error {
+	if len(history) == 0 {
+		return nil
+	}
+	res, _ := porcupine.CheckOperationsVerbose(crGrantRegModel, history, 5*time.Second)
+	switch res {
+	case porcupine.Illegal:
+		var sb strings.Builder
+		sb.WriteString("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"role-grant\" history is not linearizable:\n")
+		for _, op := range history {
+			fmt.Fprintf(&sb, "  client %d: [%d,%d] %s\n", op.ClientId, op.Call, op.Return, crGrantRegModel.DescribeOperation(op.Input, op.Output))
+		}
+		return errors.New(sb.String())
+	case porcupine.Unknown:
+		logf("linearizability check for \"role-grant\" timed out (Unknown, not a failure) over %d ops", len(history))
+	}
+	return nil
+}
+
+// --- rotate-secret register --------------------------------------------------
+
+type crRotateAttempt struct {
+	value         string
+	callAt, retAt int64
+	ok            bool
+}
+
+// assertRotateCommitOrder is oracle (c) for the rotate-secret register: it
+// decrypts every version from baseVersion (the iteration's synchronous
+// baseline rotate, holding baseValue) upward and hands them, keyed by
+// version_number, to checkRotateCommitOrder.
+func assertRotateCommitOrder(t *testing.T, w *crWorld, baseVersion int, baseValue string, attempts []crRotateAttempt, actual string) {
 	t.Helper()
-	if len(writes) == 0 {
-		return
+	ctx := context.Background()
+	secret, err := w.c0.storage.GetSecret(ctx, w.secretID)
+	if err != nil {
+		t.Fatalf("read secret for rotate oracle: %v", err)
 	}
-	sort.Slice(writes, func(i, j int) bool { return writes[i].returnAt < writes[j].returnAt })
-	want := writes[len(writes)-1].value
-	if want != actual {
-		t.Fatalf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register %q — replaying %d successful writes in real commit order expects final state %v, DB has %v",
-			label, len(writes), want, actual)
+	versions, err := w.c0.GetSecretVersions(ctx, w.secretID)
+	if err != nil {
+		t.Fatalf("list secret versions for rotate oracle: %v", err)
 	}
+	valueAt := map[int]string{}
+	for _, v := range versions {
+		if v.VersionNumber < baseVersion {
+			continue
+		}
+		plain, derr := w.c0.decryptVersionValue(secret, v)
+		if derr != nil {
+			t.Fatalf("decrypt secret version %d: %v", v.VersionNumber, derr)
+		}
+		valueAt[v.VersionNumber] = string(plain)
+	}
+	if err := checkRotateCommitOrder(baseVersion, baseValue, valueAt, attempts, actual); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkRotateCommitOrder uses version_number as the real commit order:
+// storeNextSecretVersion writes N+1 only after reading committed N, and the
+// unique index rejects a second N. valueAt maps each version >= baseVersion
+// to its plaintext. A failed RotateSecret may still have stored its version
+// (the row update after it failing is preserved on purpose, see
+// RotateSecret), so a failed attempt may own at most one version; a
+// successful one must own exactly one.
+func checkRotateCommitOrder(baseVersion int, baseValue string, valueAt map[int]string, attempts []crRotateAttempt, actual string) error {
+	verOf := map[string][]int{}
+	maxVer := 0
+	for ver, val := range valueAt {
+		verOf[val] = append(verOf[val], ver)
+		maxVer = max(maxVer, ver)
+	}
+	if got := verOf[baseValue]; len(got) != 1 || got[0] != baseVersion {
+		return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"rotate-secret\" — baseline value expected at exactly version %d, found at %v", baseVersion, got)
+	}
+	written := map[string]bool{baseValue: true}
+	for _, a := range attempts {
+		written[a.value] = true
+		n := len(verOf[a.value])
+		if a.ok && n != 1 {
+			return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"rotate-secret\" — successful rotate %q is stored in %d versions, want exactly 1 (lost update across replicas)", a.value, n)
+		}
+		if n > 1 {
+			return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"rotate-secret\" — failed rotate %q is stored in %d versions, want at most 1", a.value, n)
+		}
+	}
+	for val, vers := range verOf {
+		if !written[val] {
+			return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"rotate-secret\" — versions %v hold a value no rotate in this iteration wrote", vers)
+		}
+	}
+	for _, a := range attempts {
+		for _, b := range attempts {
+			if a.ok && b.ok && a.retAt < b.callAt && verOf[a.value][0] > verOf[b.value][0] {
+				return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"rotate-secret\" — rotate %q returned before rotate %q was called, yet committed after it (versions %d > %d)",
+					a.value, b.value, verOf[a.value][0], verOf[b.value][0])
+			}
+		}
+	}
+	if want := valueAt[maxVer]; actual != want {
+		return fmt.Errorf("COMMIT-ORDER REPLAY MISMATCH (oracle c): register \"rotate-secret\" — replaying %d versions in real commit order expects final state %q (version %d), DB read returns %q",
+			len(valueAt), want, maxVer, actual)
+	}
+	return nil
 }
 
 // --- the fuzz target ---------------------------------------------------------
@@ -463,8 +637,10 @@ type crHistories struct {
 	suspend []porcupine.Operation
 	lease   []porcupine.Operation
 
-	grantWrites  []crOrderedWrite
-	rotateWrites []crOrderedWrite
+	grant          []porcupine.Operation
+	grantOK        int
+	revokeOK       int
+	rotateAttempts []crRotateAttempt
 
 	mu2         sync.Mutex
 	cfgAWinners int
@@ -496,6 +672,10 @@ func runCrossReplicaIteration(t *testing.T, w *crWorld, goroutines [][]crOp) {
 	rotateBaseline := fmt.Sprintf("cr-base-%d", crRotateSeq.Add(1))
 	if _, err := w.c0.RotateSecret(ctx, w.secretID, []byte(rotateBaseline), w.adminID, "cr-fuzz-init"); err != nil {
 		t.Fatalf("baseline rotate: %v", err)
+	}
+	baseVersion, err := w.c0.storage.GetLatestSecretVersion(ctx, w.secretID)
+	if err != nil {
+		t.Fatalf("read baseline version: %v", err)
 	}
 
 	sess, _, err := w.c0.Login(ctx, &LoginRequest{Username: "cr-sessuser", Password: w.sessionPassword})
@@ -557,7 +737,16 @@ func runCrossReplicaIteration(t *testing.T, w *crWorld, goroutines [][]crOp) {
 	if err := w.db0.Raw("SELECT EXISTS(SELECT 1 FROM user_roles WHERE user_id = ? AND role_id = ?)", w.principalID, w.readerRoleID).Scan(&grantActual).Error; err != nil {
 		t.Fatalf("read final grant state: %v", err)
 	}
-	assertCommitOrderReplay(t, "role-grant", hist.grantWrites, grantActual)
+	if err := checkGrantCommitOrderReplay(hist.grantOK, hist.revokeOK, grantActual); err != nil {
+		t.Fatal(err)
+	}
+	// The final read is an observation strictly after every op returned.
+	end := time.Since(start).Nanoseconds()
+	if err := checkGrantRegisterLinearizable(append(hist.grant, porcupine.Operation{
+		ClientId: len(goroutines), Input: crGrantOp{kind: crGrantObserve, val: grantActual}, Call: end, Return: end,
+	}), t.Logf); err != nil {
+		t.Fatal(err)
+	}
 
 	// The rotate register's "actual" value is read via an admin
 	// GetSecretValueWithPermissionCheck against a fresh connection (db0),
@@ -566,9 +755,8 @@ func runCrossReplicaIteration(t *testing.T, w *crWorld, goroutines [][]crOp) {
 	if rerr != nil {
 		t.Fatalf("read final rotate state: %v", rerr)
 	}
-	allRotateWrites := append([]crOrderedWrite{{returnAt: -1, value: rotateBaseline}}, hist.rotateWrites...)
-	assertCommitOrderReplay(t, "rotate-secret", allRotateWrites, string(actualRotate))
 	assertNoDuplicateSecretVersions(t, w, w.secretID)
+	assertRotateCommitOrder(t, w, baseVersion.VersionNumber, rotateBaseline, hist.rotateAttempts, string(actualRotate))
 
 	// --- oracle (b): linearizability of the revoke/read registers --------
 	crCheckLinearizable(t, "session", hist.session)
@@ -615,33 +803,44 @@ func runCrossReplicaOp(
 		callAt := time.Since(start).Nanoseconds()
 		err := c.AssignUserRole(ctx, 0, w.principalID, w.readerRoleID, Scope{ProjectID: w.projID}, false)
 		retAt := time.Since(start).Nanoseconds()
-		if err == nil {
+		in := crGrantOp{kind: crGrantSet}
+		switch {
+		case err == nil:
 			hist.mu.Lock()
-			hist.grantWrites = append(hist.grantWrites, crOrderedWrite{returnAt: retAt, value: true})
+			hist.grantOK++
 			hist.mu.Unlock()
+		case strings.Contains(err.Error(), i18n.T("ErrorRoleAlreadyAssigned", nil)):
+			in = crGrantOp{kind: crGrantObserve, val: true}
+		default:
+			return // e.g. lost the primary-key race to a concurrent grant: no effect, nothing observed
 		}
-		_ = callAt
+		hist.add(&hist.grant, porcupine.Operation{ClientId: gi, Input: in, Call: callAt, Return: retAt})
 
 	case 1: // revoke role
 		callAt := time.Since(start).Nanoseconds()
 		err := c.RemoveUserRole(ctx, 0, w.principalID, w.readerRoleID, Scope{ProjectID: w.projID})
 		retAt := time.Since(start).Nanoseconds()
-		if err == nil {
+		in := crGrantOp{kind: crGrantClear}
+		switch {
+		case err == nil:
 			hist.mu.Lock()
-			hist.grantWrites = append(hist.grantWrites, crOrderedWrite{returnAt: retAt, value: false})
+			hist.revokeOK++
 			hist.mu.Unlock()
+		case errors.Is(err, storage.ErrRoleNotAssigned):
+			in = crGrantOp{kind: crGrantObserve, val: false}
+		default:
+			return
 		}
-		_ = callAt
+		hist.add(&hist.grant, porcupine.Operation{ClientId: gi, Input: in, Call: callAt, Return: retAt})
 
 	case 2: // rotate secret (secret update)
 		newVal := fmt.Sprintf("cr-rot-%d", crRotateSeq.Add(1))
+		callAt := time.Since(start).Nanoseconds()
 		_, err := c.RotateSecret(ctx, w.secretID, []byte(newVal), w.adminID, "cr-fuzz")
 		retAt := time.Since(start).Nanoseconds()
-		if err == nil {
-			hist.mu.Lock()
-			hist.rotateWrites = append(hist.rotateWrites, crOrderedWrite{returnAt: retAt, value: newVal})
-			hist.mu.Unlock()
-		}
+		hist.mu.Lock()
+		hist.rotateAttempts = append(hist.rotateAttempts, crRotateAttempt{value: newVal, callAt: callAt, retAt: retAt, ok: err == nil})
+		hist.mu.Unlock()
 
 	case 3: // session revoke
 		if !sessionValid {
