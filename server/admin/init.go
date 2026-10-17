@@ -161,14 +161,23 @@ func runAdminInit(cmd *cobra.Command, args []string) error { // NOSONAR -- cogni
 	if cfg.Storage.Type == "local" || cfg.Storage.Type == "sqlite" {
 		fmt.Println("Using PostgreSQL instead? Delete the SQLite file created here and run 'keyorix-server admin init --storage-type postgres' in a fresh directory (or set storage.type: postgres and storage.database.dsn in the config BEFORE the steps below).")
 	}
-	fmt.Println("Run 'keyorix-server admin encryption init' to generate encryption keys (required before the server can start)")
-	fmt.Println("Run 'keyorix-server admin validate' to check the setup")
-	fmt.Println("Run 'keyorix-server admin migrate' to create the database schema")
-	fmt.Println("Run 'keyorix-server admin audit' to check file permissions")
+	printInitNextSteps()
 
 	recordAdminAction(cfg, "admin.init", fmt.Sprintf("ran `keyorix-server admin init` (config=%s)", configPath), true)
 
 	return nil
+}
+
+// printInitNextSteps lists what to run after `admin init`, in the order that works:
+// the schema is created before the setup is validated, and the recovery key is
+// generated before the server's first start (it warns at every start until one exists).
+func printInitNextSteps() {
+	fmt.Println("Next, in this order (add --config <path> to each if you did not use the default keyorix.yaml):")
+	fmt.Println("  1. 'keyorix-server admin encryption init'  generate encryption keys (required before the server can start)")
+	fmt.Println("  2. 'keyorix-server admin migrate'  create the database schema")
+	fmt.Println("  3. 'keyorix-server admin validate --posture'  check the setup")
+	fmt.Println("  4. 'keyorix-server admin recovery-key rotate'  create the admin recovery key (shown once; the server warns at every start until one exists)")
+	fmt.Println("Also available: 'keyorix-server admin audit' to check file permissions")
 }
 
 // runAdminInitSecureFiles is `admin init --secure-files`: generation only, for

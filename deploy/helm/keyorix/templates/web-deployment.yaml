@@ -104,13 +104,15 @@ spec:
             {{- if .Values.web.resources }}
             {{- toYaml .Values.web.resources | nindent 12 }}
             {{- else }}
+            # Kept equal to values.yaml's web.resources (deploy/helm_resources_test.go).
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 50m
+              memory: 64Mi
               ephemeral-storage: 32Mi
             limits:
               cpu: 500m
               memory: 128Mi
+              ephemeral-storage: 128Mi
             {{- end }}
       {{- with include "keyorix.topologySpread" (list . "web" .Values.web.topologySpreadConstraints .Values.web.replicas) }}
       {{- . | nindent 6 }}

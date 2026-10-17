@@ -1,0 +1,1 @@
+SUSPEND-AUDIT-OWED-001	./internal/core	TestSuspendSecret_PlainSuspendAuditIsOwed	default-ci	pending	-	A plain suspend whose secret.suspended audit row is refused still takes effect, and the missing row is recorded in the same transaction, reported (log, counter, system info, web warning) and backfilled exactly once when the audit log recovers.

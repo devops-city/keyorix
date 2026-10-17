@@ -1,0 +1,1 @@
+internal/metricsdoc	none	-	test-only package: metricsdoc_test.go and scan_test.go check the generated Prometheus metrics reference for drift and label cardinality (no non-test Go code)	test-helper

@@ -49,7 +49,7 @@ func init() {
 
 func runSecretFolderCreate(cmd *cobra.Command, args []string) error {
 	if secretFolderCreateName == "" {
-		return fmt.Errorf("folder name is required (use --name)")
+		return usageErrorf("folder name is required (use --name)")
 	}
 	client, err := secretAPIClient()
 	if err != nil {
@@ -184,7 +184,7 @@ func confirmSecretFolderDeletion(prompt string) bool {
 
 func runSecretFolderDelete(cmd *cobra.Command, args []string) error {
 	if secretFolderDeleteID == 0 {
-		return fmt.Errorf("folder ID is required (use --id)")
+		return usageErrorf("folder ID is required (use --id)")
 	}
 	if !secretFolderDeleteForce {
 		prompt := fmt.Sprintf("Delete folder %d? This cannot be undone.", secretFolderDeleteID)

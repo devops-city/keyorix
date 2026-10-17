@@ -157,7 +157,7 @@ func (c *KeyorixCore) GetLatestSecretVersionWithPermissionCheck(ctx context.Cont
 // against, matching the machine-read design decision.
 func (c *KeyorixCore) GetSecretValue(ctx context.Context, secretID uint) (value []byte, err error) {
 	defer func() { noteValueReadErr(ctx, err, secretID) }()
-	return c.getSecretValueForUser(ctx, secretID, 0, nil)
+	return c.getSecretValueForUser(ctx, secretID, 0, nil, nil)
 }
 
 // GetSecretValueResolved is GetSecretValue for a caller that has already
@@ -169,7 +169,7 @@ func (c *KeyorixCore) GetSecretValue(ctx context.Context, secretID uint) (value 
 // the fetch is skipped, nothing else changes.
 func (c *KeyorixCore) GetSecretValueResolved(ctx context.Context, secret *models.SecretNode) (value []byte, err error) {
 	defer func() { noteValueReadErr(ctx, err, secret.ID) }()
-	return c.getSecretValueForUser(ctx, secret.ID, 0, secret)
+	return c.getSecretValueForUser(ctx, secret.ID, 0, secret, nil)
 }
 
 // enforceSecretReadGuards runs every read-time guard a secret-value
@@ -244,7 +244,7 @@ func (c *KeyorixCore) enforceSecretReadGuardsWith(ctx context.Context, secret *m
 // caller, unchanged) fetches as before. Never re-validates preResolved.ID
 // against secretID: GetSecretValueResolved derives secretID FROM
 // preResolved.ID, so the two can never disagree by construction.
-func (c *KeyorixCore) getSecretValueForUser(ctx context.Context, secretID, userID uint, preResolved *models.SecretNode) ([]byte, error) {
+func (c *KeyorixCore) getSecretValueForUser(ctx context.Context, secretID, userID uint, preResolved *models.SecretNode, preState *storage.SecretScheduleAndLatestVersion) ([]byte, error) {
 	if secretID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "secret ID is required")
 	}
@@ -262,17 +262,16 @@ func (c *KeyorixCore) getSecretValueForUser(ctx context.Context, secretID, userI
 	// last in the guard bundle, a failure of the shared read surfaces as the
 	// schedule-read error, and the version result is looked at only after every
 	// guard passed, with GetLatestSecretVersion's own error.
+	//
+	// preState, when non-nil (GetPermittedSecretValue, OPT-READPATH-2), is that same
+	// snapshot as the request's read-permission check read it moments earlier: the
+	// schedule guard is judged on it (at the current time) and its latest version is
+	// served, instead of reading both again.
 	var state *storage.SecretScheduleAndLatestVersion
-	loadSchedule := func(ctx context.Context, id uint) (*models.SecretAccessSchedule, error) {
-		s, err := c.storage.GetSecretScheduleAndLatestVersion(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		if s == nil {
-			return nil, fmt.Errorf("%s: %s", i18n.T("ErrorStorageFailed", nil), "no schedule/version snapshot")
-		}
-		state = s
-		return s.Schedule, nil
+	loadSchedule := c.scheduleAndVersionLoader(&state)
+	if preState != nil {
+		state = preState
+		loadSchedule = func(context.Context, uint) (*models.SecretAccessSchedule, error) { return preState.Schedule, nil }
 	}
 	if err := c.enforceSecretReadGuardsWith(ctx, secret, userID, loadSchedule); err != nil {
 		return nil, err
@@ -298,7 +297,7 @@ func (c *KeyorixCore) GetSecretValueWithPermissionCheck(ctx context.Context, sec
 	// Delegate to the shared body with the real userID — avoids duplicating
 	// max-reads logic while still giving the classification gate a user to check
 	// an approved secret-scoped access request against.
-	return c.getSecretValueForUser(ctx, secretID, userID, nil)
+	return c.getSecretValueForUser(ctx, secretID, userID, nil, nil)
 }
 
 // ReadPermittedSecret is proof that GetSecretForValueRead's read-permission check
@@ -309,6 +308,10 @@ func (c *KeyorixCore) GetSecretValueWithPermissionCheck(ctx context.Context, sec
 type ReadPermittedSecret struct {
 	secret *models.SecretNode
 	userID uint
+	// state is the schedule/latest-version snapshot the check's schedule step read
+	// (OPT-READPATH-2); the value step judges its schedule guard on it and serves its
+	// latest version instead of reading both again. nil: the value step reads them.
+	state *storage.SecretScheduleAndLatestVersion
 }
 
 // Secret returns the secret as the permission check resolved it.
@@ -317,13 +320,56 @@ func (p *ReadPermittedSecret) Secret() *models.SecretNode { return p.secret }
 // GetSecretForValueRead is GetSecretWithPermissionCheck for a request that goes on
 // to read the value: same checks, same errors, same returned secret, plus the proof
 // GetPermittedSecretValue takes (PERF-FIX-3).
-func (c *KeyorixCore) GetSecretForValueRead(ctx context.Context, id, userID uint) (_ *ReadPermittedSecret, err error) {
+//
+// Its schedule step reads the schedule together with the latest version
+// (GetSecretScheduleAndLatestVersion, one statement) and keeps that snapshot for
+// GetPermittedSecretValue, so a value read reads them once (OPT-READPATH-2). A
+// failure of that read is the schedule step's error, as before.
+func (c *KeyorixCore) GetSecretForValueRead(ctx context.Context, id, userID uint) (*ReadPermittedSecret, error) {
+	return c.GetSecretForRead(ctx, id, userID, true)
+}
+
+// GetSecretForRead is GetSecretForValueRead for a transport that serves either the
+// metadata or the value from one handler. withValue false (a metadata read) reads the
+// schedule alone, exactly as GetSecretWithPermissionCheck does, and keeps no snapshot:
+// a metadata read never depends on the version read.
+func (c *KeyorixCore) GetSecretForRead(ctx context.Context, id, userID uint, withValue bool) (_ *ReadPermittedSecret, err error) {
 	defer func() { noteValueReadErr(ctx, err, id) }()
-	secret, err := c.GetSecretWithPermissionCheck(ctx, id, userID)
+	if !withValue || readPathReuseOff.Load() {
+		secret, err := c.GetSecretWithPermissionCheck(ctx, id, userID)
+		if err != nil {
+			return nil, err
+		}
+		return &ReadPermittedSecret{secret: secret, userID: userID}, nil
+	}
+	secret, err := c.checkSecretReadPermission(ctx, id, userID)
 	if err != nil {
 		return nil, err
 	}
-	return &ReadPermittedSecret{secret: secret, userID: userID}, nil
+	var state *storage.SecretScheduleAndLatestVersion
+	if err := checkSecretAccessScheduleWith(ctx, id, c.scheduleAndVersionLoader(&state)); err != nil {
+		return nil, err
+	}
+	if secret, err = unexpiredSecret(secret); err != nil {
+		return nil, err
+	}
+	return &ReadPermittedSecret{secret: secret, userID: userID, state: state}, nil
+}
+
+// scheduleAndVersionLoader is a scheduleLoader backed by GetSecretScheduleAndLatestVersion
+// that leaves the snapshot it read in *state.
+func (c *KeyorixCore) scheduleAndVersionLoader(state **storage.SecretScheduleAndLatestVersion) scheduleLoader {
+	return func(ctx context.Context, id uint) (*models.SecretAccessSchedule, error) {
+		s, err := c.storage.GetSecretScheduleAndLatestVersion(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if s == nil {
+			return nil, fmt.Errorf("%s: %s", i18n.T("ErrorStorageFailed", nil), "no schedule/version snapshot")
+		}
+		*state = s
+		return s.Schedule, nil
+	}
 }
 
 // GetPermittedSecretValue is GetSecretValueWithPermissionCheck for a request whose
@@ -343,7 +389,7 @@ func (c *KeyorixCore) GetPermittedSecretValue(ctx context.Context, p *ReadPermit
 	if p == nil || p.secret == nil || p.userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required for permission checking")
 	}
-	return c.getSecretValueForUser(ctx, p.secret.ID, p.userID, p.secret)
+	return c.getSecretValueForUser(ctx, p.secret.ID, p.userID, p.secret, p.state)
 }
 
 // GetSecretValueByVersion retrieves the decrypted value of a specific version of a secret.
@@ -407,15 +453,23 @@ func (c *KeyorixCore) RollbackSecret(ctx context.Context, secretID uint, targetV
 	if err != nil {
 		return nil, fmt.Errorf("failed to read version %d: %w", targetVersion, err)
 	}
-	secret, err := c.RotateSecret(ctx, secretID, val, actorID, actorName)
-	if err != nil {
-		return nil, err
-	}
-	uid := actorID
-	sid := secretID
-	c.writeAuditEvent(ctx, EventSecretRolledBack, &uid, &sid,
-		fmt.Sprintf("rolled back secret %q to the value of version %d", secret.Name, targetVersion))
-	return secret, nil
+	// AUDIT-MUTATION-TX-1: secret.rolled_back commits with the re-instated version,
+	// always (every caller is a user-initiated rollback), so a rollback never lands
+	// without its row; a failed audit write stores nothing.
+	return c.rotateSecret(ctx, secretID, val, actorID, actorName, true, func(s *models.SecretNode) (mutationAuditRow, bool) {
+		uid := actorID
+		row := mutationAuditRow{
+			eventType:   EventSecretRolledBack,
+			userID:      &uid,
+			secretID:    s.ID,
+			projectID:   s.ProjectID,
+			description: fmt.Sprintf("rolled back secret %q to the value of version %d", s.Name, targetVersion),
+		}
+		if a, ok := secretMutationAuditFromContext(ctx); ok {
+			row.ip, row.userAgent, row.clientOrigin = a.IP, a.UserAgent, a.ClientOrigin
+		}
+		return row, true
+	})
 }
 
 // GetSecretValueByVersionWithPermissionCheck retrieves the decrypted value of a specific version with permission validation.

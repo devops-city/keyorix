@@ -469,3 +469,17 @@ topologySpreadConstraints:
 {{- end }}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Probe timing fields: the values the user gave (server.probes.<kind>) over the
+chart defaults, field by field. Called as (include "keyorix.probeTiming" (list
+<defaults dict> <user dict or nil>)). Merging here, not in valuesDefaults, keeps
+a release upgraded with --reuse-values (no server.probes key at all) rendering
+the defaults, and keeps a user's partial override from blanking the other fields.
+KEEP the defaults at the call sites equal to values.yaml's server.probes.
+*/}}
+{{- define "keyorix.probeTiming" -}}
+{{- $defaults := index . 0 -}}
+{{- $given := index . 1 | default dict -}}
+{{- toYaml (merge (deepCopy $given) $defaults) -}}
+{{- end -}}

@@ -32,3 +32,20 @@ func TestMakeSystemInfoHandler_ReportsAuditReadsSkipped(t *testing.T) {
 		assert.Equal(t, on, got)
 	}
 }
+
+// security.audit_owed (SUSPEND-AUDIT-LOUD) is for system.write callers only, like
+// recovery_key: a caller without it never gets the field.
+func TestMakeSystemInfoHandler_AuditOwedOnlyForSystemWrite(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Storage.Type = "local"
+	rr := httptest.NewRecorder()
+	MakeSystemInfoHandler(cfg, freshCoreS12(t))(rr,
+		userCtxForTest(httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)))
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	security := resp["data"].(map[string]any)["security"].(map[string]any)
+	_, present := security["audit_owed"]
+	assert.False(t, present, "audit_owed must be absent for a caller without system.write")
+}

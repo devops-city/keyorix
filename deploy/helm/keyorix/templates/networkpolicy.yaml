@@ -30,6 +30,7 @@ rotation-backend/external-DB destinations before relying on egress restriction
 for defense in depth on this specific pod.
 */}}
 {{- if .Values.networkPolicy.enabled }}
+{{- $npIngress := .Values.networkPolicy.ingress | default dict }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -54,6 +55,13 @@ spec:
     # on knowing which specific pods (web, CLI clients, other services) call in.
     - from:
         - podSelector: {}
+        {{- with $npIngress.monitoringNamespaceSelector }}
+        # networkPolicy.ingress.monitoringNamespaceSelector: the namespace Prometheus
+        # scrapes /metrics from (the ServiceMonitor targets this port).
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+        {{- end }}
       ports:
         - protocol: TCP
           port: {{ .Values.server.service.port }}
@@ -81,6 +89,27 @@ spec:
         - protocol: TCP
           port: 5432
     {{- end }}
+    {{- if and (not .Values.postgresql.enabled) .Values.networkPolicy.egress.databaseTo }}
+    # networkPolicy.egress.databaseTo: where the external PostgreSQL lives. A
+    # NetworkPolicy cannot match a host name, so the peers are IPs/CIDRs (ipBlock) or
+    # in-cluster pods/namespaces; the port is externalDatabase.port.
+    - to:
+        {{- toYaml .Values.networkPolicy.egress.databaseTo | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.externalDatabase.port }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.kmsTo }}
+    # networkPolicy.egress.kmsTo: the key-management / secret-backend endpoints (Vault,
+    # a cloud KMS) the server calls, on networkPolicy.egress.kmsPorts.
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        {{- range ($.Values.networkPolicy.egress.kmsPorts | default (list 443)) }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+    {{- end }}
     {{- with .Values.networkPolicy.egress.extraRules }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -99,9 +128,27 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: web
   policyTypes:
+    {{- if $npIngress.controllerNamespaceSelector }}
+    - Ingress
+    {{- end }}
     {{- if .Values.networkPolicy.egress.enabled }}
     - Egress
     {{- end }}
+  {{- with $npIngress.controllerNamespaceSelector }}
+  # networkPolicy.ingress.controllerNamespaceSelector: only the ingress controller's
+  # namespace and this release's own pods (the `helm test` pod) may reach the web UI.
+  # Unset (default) leaves web ingress unrestricted. A controller running with
+  # hostNetwork presents the node IP, which a namespaceSelector cannot match.
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 80
+  {{- end }}
   {{- if .Values.networkPolicy.egress.enabled }}
   egress:
     # See the server NetworkPolicy above for why DNS has no `to` selector.

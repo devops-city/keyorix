@@ -1,0 +1,64 @@
+{{/*
+Optional Prometheus Operator ServiceMonitor for the server's /metrics
+(monitoring.serviceMonitor.enabled, default false: it needs the monitoring.coreos.com
+CRDs, which a cluster without the operator rejects).
+
+With the secure baseline the server serves HTTPS and /metrics needs the generated
+bearer token, so the endpoint verifies the server certificate against the chart's
+own (the ServiceMonitor must live in the release namespace so the operator can read
+the Secret) and sends the token from the same Secret. Without the baseline the
+endpoint is plain HTTP and as open as the server's own metrics_token setting.
+Prometheus must be allowed to reach the server port: networkPolicy.ingress
+.monitoringNamespaceSelector.
+*/}}
+{{- $mon := .Values.monitoring | default dict -}}
+{{- $sm := $mon.serviceMonitor | default dict -}}
+{{- if $sm.enabled -}}
+{{- include "keyorix.valuesDefaults" . -}}
+{{- if and .Values.secureBaseline.enabled $sm.namespace (ne $sm.namespace .Release.Namespace) -}}
+{{- fail (printf "monitoring.serviceMonitor.namespace %q differs from the release namespace %q: with the secure baseline the ServiceMonitor reads the CA and metrics token from the release's Secret, which the operator can only resolve in the ServiceMonitor's own namespace; leave namespace empty" $sm.namespace .Release.Namespace) -}}
+{{- end -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "keyorix.server.fullname" . }}
+  {{- with $sm.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "keyorix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+    {{- with $sm.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: server
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ $sm.interval | default "30s" }}
+      scrapeTimeout: {{ $sm.scrapeTimeout | default "10s" }}
+      {{- if .Values.secureBaseline.enabled }}
+      scheme: https
+      tlsConfig:
+        # SAN of the generated certificate (the server Service name).
+        serverName: {{ include "keyorix.server.fullname" . }}
+        ca:
+          secret:
+            name: {{ include "keyorix.secureBaseline.secretName" . }}
+            key: server.crt
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ include "keyorix.secureBaseline.secretName" . }}
+          key: metrics_token
+      {{- else }}
+      scheme: http
+      {{- end }}
+{{- end -}}

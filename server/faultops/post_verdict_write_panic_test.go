@@ -86,7 +86,31 @@ func TestPostVerdictWritePanic_AnsweredLikeItsError(t *testing.T) {
 	}
 	for _, e := range population {
 		t.Run(fmt.Sprintf("%s/%s", e.op, e.method), func(t *testing.T) {
-			requirePanicKindAnsweredLikeErrorKind(t, e)
+			requirePanicKindAnsweredLikeErrorKind(t, e, true)
 		})
 	}
+	// #3277 follow-up: post-verdict writes whose error kind needs no registry
+	// row, so the registry cannot supply them. The step-up's diff is accepted
+	// for every kind by its consume-first entry (verifyMFAStepUpCode) plus the
+	// mfa.error outcome log, and impersonation start writes nothing on
+	// failure, so oracle (a) never compares their RESPONSE with anything: a
+	// panic answered with the Recovery 500 passed the fuzzer. This list is
+	// hand-written; it does not discover a new write on these ops by itself.
+	for _, e := range postVerdictWritesWithoutRows {
+		t.Run(fmt.Sprintf("%s/%s", e.op, e.method), func(t *testing.T) {
+			if hasByDesignRow(e.op, e.method, e.nth, faultstorage.KindError) {
+				t.Fatalf("%s %s#%d now has a KindError row: move it to the registry population", e.op, e.method, e.nth)
+			}
+			requirePanicKindAnsweredLikeErrorKind(t, e, false)
+		})
+	}
+}
+
+// postVerdictWritesWithoutRows: see TestPostVerdictWritePanic_AnsweredLikeItsError.
+// Setup consume (/auth/setup/consume) is not in opCatalog; its family guard is
+// server/http/handlers' TestConsumeSetup_PostVerdictPanicAnsweredLikeItsError.
+var postVerdictWritesWithoutRows = []oracleAByDesignError{
+	{op: "REST POST /api/v1/auth/mfa/stepup", method: "MarkTOTPStepUsed", nth: 1},
+	{op: "REST POST /api/v1/auth/mfa/stepup", method: "CreateMFAStepUpGrant", nth: 1},
+	{op: "REST POST /api/v1/admin/impersonate", method: "CreateSession", nth: 1},
 }

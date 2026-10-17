@@ -96,6 +96,21 @@ func (ls *LocalStorage) getAuditLogsAscending(ctx context.Context, base func() *
 	return events, total, nil
 }
 
+// MaxAuditEventID returns the highest audit_events id, 0 for an empty table.
+// ORDER BY id DESC LIMIT 1 is a reverse read of the primary key's last leaf on
+// both backends (the same shape as the chain-head read), independent of table size.
+func (ls *LocalStorage) MaxAuditEventID(ctx context.Context) (uint, error) {
+	var ids []uint
+	if err := ls.db.WithContext(ctx).Model(&models.AuditEvent{}).
+		Order("id DESC").Limit(1).Pluck("id", &ids).Error; err != nil {
+		return 0, fmt.Errorf("failed to read the highest audit event id: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return ids[0], nil
+}
+
 // resolveAuditSinceID returns the lowest id among ALL rows with event_time >=
 // since (ok false when there are none): exact, whatever the skew between id
 // order and event_time order (clock skew between replicas, a writer that waited
@@ -179,6 +194,9 @@ func applyAuditFilter(q *gorm.DB, f *storage.AuditFilter) *gorm.DB {
 	}
 	if f.AfterID != nil {
 		q = q.Where("id > ?", *f.AfterID)
+	}
+	if f.UpToID != nil {
+		q = q.Where("id <= ?", *f.UpToID)
 	}
 	if f.IPAddress != nil {
 		q = q.Where("ip_address = ?", *f.IPAddress)

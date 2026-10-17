@@ -756,7 +756,7 @@ var ErrRoleResolutionUnavailable = errors.New("role resolution temporarily unava
 func (c *KeyorixCore) ValidateSessionToken(ctx context.Context, token string) (*models.User, []string, error) { // NOSONAR -- cognitive complexity 17, suppress go:S3776
 	session, err := c.storage.GetSession(ctx, token)
 	if err != nil {
-		return nil, nil, fmt.Errorf("session not found")
+		return nil, nil, credentialLookupError(err, "session not found")
 	}
 	if session.ExpiresAt != nil && c.authEffectiveNow().After(*session.ExpiresAt) {
 		return nil, nil, fmt.Errorf("session expired")
@@ -772,7 +772,7 @@ func (c *KeyorixCore) ValidateSessionToken(ctx context.Context, token string) (*
 	}
 	user, err := c.storage.GetUser(ctx, session.UserID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("user not found")
+		return nil, nil, credentialLookupError(err, "user not found")
 	}
 	// Reject sessions whose account has since been deactivated or suspended, so an
 	// admin's suspend/deactivate takes effect on already-issued tokens rather than
