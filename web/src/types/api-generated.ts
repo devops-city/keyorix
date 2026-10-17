@@ -7513,7 +7513,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: {entries[], count}; each entry is {principal_type (user|group), principal_id, principal_name, email, source (role|owner|direct_share|group_share), role_id, role_name, access_level, environment_id, secret_id, secret_name, last_used_at (the user principal's most recent secret access in the project — absent = no recorded activity, i.e. dormant standing access)}. */
+            /** @description Envelope {data, message}. data: {entries[], count, degraded, degraded_reasons[], activity_window_days (the look-back of every last_used_at: the recertification period, default 90 days, at most 366)}; each entry is {principal_type (user|group), principal_id, principal_name, email, source (role|owner|direct_share|group_share), role_id, role_name, access_level, environment_id, secret_id, secret_name, last_used_at (the user principal's most recent secret access in the project within the last activity_window_days days — absent = no recorded activity in that window, i.e. dormant standing access)}. */
             200: {
                 headers: {
                     [name: string]: unknown;
