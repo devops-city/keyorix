@@ -234,10 +234,16 @@ func shareLevel(stored string) PermissionLevel {
 // — this check is the allowlist's single enforcement point, and both decision
 // functions (AuthorizeSecret, CheckSecretPermission) reach shares only through here.
 func (c *KeyorixCore) sharePermissionFor(ctx context.Context, userID, secretID, projectID uint, need PermissionLevel, action SecretAction) (shareGrant, error) {
-	if need == PermissionWrite && !secretActionShareElevates[action] {
+	if !shareMayElevate(need, action) {
 		return shareGrant{Level: PermissionNone}, nil
 	}
 	return c.activeShareGrant(ctx, userID, secretID, projectID, need)
+}
+
+// shareMayElevate is the allowlist test of sharePermissionFor, shared with the batch
+// authoriser: a write need is met only for an allowlisted action.
+func shareMayElevate(need PermissionLevel, action SecretAction) bool {
+	return need != PermissionWrite || secretActionShareElevates[action]
 }
 
 // shareCoversButNotElevated reports whether userID holds an active share covering
@@ -273,23 +279,13 @@ func (c *KeyorixCore) activeShareGrant(ctx context.Context, userID, secretID, pr
 	// must never grant access, even though the sweep that reclaims its row runs later.
 	shares = activeShares(shares, c.shareEffectiveNow())
 
-	grant := none
-	for _, share := range shares {
-		if share.IsGroup || share.RecipientID != userID {
-			continue
-		}
-		if lvl := shareLevel(share.Permission); c.hasRequiredPermission(lvl, need) {
-			id := share.ID
-			grant = shareGrant{Level: lvl, ShareID: &id, Source: "direct_share"}
-			break
-		}
-	}
+	grant := c.directShareGrant(shares, userID, need)
 	if grant.Level == PermissionNone {
 		groupLevel, groupShareID, gerr := c.CheckGroupPermissions(ctx, secretID, userID, shares, projectID)
 		if gerr != nil {
 			log.Printf("share authorization: group-share lookup failed (user_id=%d secret_id=%d); no group share applies: %v", userID, secretID, gerr)
-		} else if lvl := shareLevel(string(groupLevel)); c.hasRequiredPermission(lvl, need) {
-			grant = shareGrant{Level: lvl, ShareID: groupShareID, Source: "group_share"}
+		} else {
+			grant = c.groupShareGrant(groupLevel, groupShareID, need)
 		}
 	}
 	if grant.Level == PermissionNone {
@@ -306,6 +302,31 @@ func (c *KeyorixCore) activeShareGrant(ctx context.Context, userID, secretID, pr
 		return none, nil
 	}
 	return grant, nil
+}
+
+// directShareGrant is the direct-share half of activeShareGrant over the secret's
+// already-active shares: the first share to userID whose level covers need. Pure, so
+// the batch authoriser decides with the same code.
+func (c *KeyorixCore) directShareGrant(shares []*models.ShareRecord, userID uint, need PermissionLevel) shareGrant {
+	for _, share := range shares {
+		if share.IsGroup || share.RecipientID != userID {
+			continue
+		}
+		if lvl := shareLevel(share.Permission); c.hasRequiredPermission(lvl, need) {
+			id := share.ID
+			return shareGrant{Level: lvl, ShareID: &id, Source: "direct_share"}
+		}
+	}
+	return shareGrant{Level: PermissionNone}
+}
+
+// groupShareGrant turns the highest group share (highestGroupShare /
+// CheckGroupPermissions) into the grant it confers for need.
+func (c *KeyorixCore) groupShareGrant(level PermissionLevel, shareID *uint, need PermissionLevel) shareGrant {
+	if lvl := shareLevel(string(level)); c.hasRequiredPermission(lvl, need) {
+		return shareGrant{Level: lvl, ShareID: shareID, Source: "group_share"}
+	}
+	return shareGrant{Level: PermissionNone}
 }
 
 // shareNeedFor maps an RBAC permission to the share level that would satisfy it.
@@ -353,10 +374,11 @@ type ShareElevationRecorder struct {
 
 type shareElevationRecorderKey struct{}
 
-// WithShareElevationRecorder returns ctx carrying a fresh recorder.
+// WithShareElevationRecorder returns ctx carrying a fresh recorder, and a fresh
+// request-scoped memo of the gate's read decision (gate_read_decision.go).
 func WithShareElevationRecorder(ctx context.Context) (context.Context, *ShareElevationRecorder) {
 	rec := &ShareElevationRecorder{}
-	return context.WithValue(ctx, shareElevationRecorderKey{}, rec), rec
+	return context.WithValue(withGateReadDecision(ctx), shareElevationRecorderKey{}, rec), rec
 }
 
 func shareElevationRecorderFrom(ctx context.Context) *ShareElevationRecorder {

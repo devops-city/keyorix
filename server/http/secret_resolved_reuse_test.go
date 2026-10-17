@@ -702,7 +702,9 @@ func TestResolvedSecretReuse_FetchCount(t *testing.T) {
 			}
 			stmts, fetch := count("dev", rrGetMeta)
 			t.Logf("%s: human metadata read: %d read statements (GORM), %d of them in storage GetSecret", backend, stmts, fetch)
-			assert.Equal(t, 2, fetch, "a human metadata read fetches the secret twice: the gate's resolution and the core read check's")
+			// OPT-READPATH-2: the core read check reuses the gate's allow and the row it
+			// was made on (gate_read_decision.go), so the gate's resolution is the only fetch.
+			assert.Equal(t, 1, fetch, "a human metadata read fetches the secret once: the gate's resolution, reused by the core read check")
 			_, mfetch := count("machine", rrGetMeta)
 			assert.Equal(t, 1, mfetch, "a machine metadata read fetches the secret once (unchanged)")
 		})

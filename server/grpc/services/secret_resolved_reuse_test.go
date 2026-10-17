@@ -334,7 +334,8 @@ func TestGRPCResolvedSecretReuse_Equivalence(t *testing.T) {
 					w.counting = false
 					return w.getSecret
 				}
-				assert.Equal(t, 2, fetches("dev"), "human GetSecret: the scoped gate's resolution and the core read check's")
+				// OPT-READPATH-2: the core read check reuses the gate's allow and its row.
+				assert.Equal(t, 1, fetches("dev"), "human GetSecret: the scoped gate's resolution, reused by the core read check")
 				assert.Equal(t, 2, fetches("machine"), "machine GetSecret: unchanged (gate resolution + core.GetSecret)")
 			})
 		})

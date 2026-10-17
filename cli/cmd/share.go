@@ -271,7 +271,7 @@ func runShareUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid permission: %s (must be 'read' or 'write')", shareUpdatePermission)
 	}
 	if shareUpdateClearExpiry && (shareUpdateExpires != "" || shareUpdateTTL != "") {
-		return fmt.Errorf("--clear-expiry cannot be combined with --expires or --ttl")
+		return usageErrorf("--clear-expiry cannot be combined with --expires or --ttl")
 	}
 	expiresAt, err := resolveShareExpiry(shareUpdateExpires, shareUpdateTTL)
 	if err != nil {
