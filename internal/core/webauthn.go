@@ -315,6 +315,7 @@ func (c *KeyorixCore) FinishWebAuthnRegistration(ctx context.Context, userID uin
 	uid := userID
 	c.writeAuditEventFull(ctx, "webauthn.registered", &uid, nil, nil, "",
 		fmt.Sprintf("user %s registered passkey %q", wu.user.Username, name))
+	c.recheckMFAUpgradeGrace() // ADR-112 #2923: an admin's first factor ends the grace period now
 	return row, nil
 }
 

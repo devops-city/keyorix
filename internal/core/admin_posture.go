@@ -20,6 +20,34 @@ import (
 //
 // Returned in ascending ID order for deterministic report output.
 func (c *KeyorixCore) ListAdminsWithoutMFA(ctx context.Context) ([]*models.User, error) {
+	admins, err := c.globalAdminHolderUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var withoutMFA []*models.User
+	for _, user := range admins {
+		if !userHasSecondFactor(user) {
+			withoutMFA = append(withoutMFA, user)
+		}
+	}
+	return withoutMFA, nil
+}
+
+// AnyAdminHasSecondFactor reports whether at least one global admin-tier holder
+// (the same set ListAdminsWithoutMFA walks) has TOTP MFA or a passkey enrolled:
+// the condition that ends ADR-112's require_mfa upgrade grace period (#2923,
+// mfa_upgrade_grace.go). An error means "cannot tell", never "no".
+func (c *KeyorixCore) AnyAdminHasSecondFactor(ctx context.Context) (bool, error) {
+	admins, err := c.globalAdminHolderUsers(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(admins, userHasSecondFactor), nil
+}
+
+// globalAdminHolderUsers resolves every active, non-deleted global admin-tier
+// holder, in ascending ID order.
+func (c *KeyorixCore) globalAdminHolderUsers(ctx context.Context) ([]*models.User, error) {
 	adminIDs, err := c.adminBypassRoleIDSet(ctx)
 	if err != nil {
 		return nil, err // fail closed: "can't tell who is an admin" is not "no admins"
@@ -42,16 +70,13 @@ func (c *KeyorixCore) ListAdminsWithoutMFA(ctx context.Context) ([]*models.User,
 	}
 	slices.Sort(ids)
 
-	var withoutMFA []*models.User
+	users := make([]*models.User, 0, len(ids))
 	for _, id := range ids {
 		user, err := c.storage.GetUser(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve admin holder %d: %w", id, err)
 		}
-		if user.MFAEnabled || user.WebAuthnEnabled {
-			continue
-		}
-		withoutMFA = append(withoutMFA, user)
+		users = append(users, user)
 	}
-	return withoutMFA, nil
+	return users, nil
 }

@@ -374,8 +374,13 @@ type KeyorixCore struct {
 	// deploymentRequiresMFA mirrors security.require_mfa (ADR-112), so session
 	// issuance can tell when a login must be a setup-only session (#3024,
 	// account_setup.go). Set by the HTTP router via SetRequireMFA, from the same
-	// config value that configures the setup gate.
+	// config value that configures the setup gate. Read through MFARequired,
+	// which also subtracts ADR-112's upgrade grace period (mfaGrace).
 	deploymentRequiresMFA bool
+	// mfaGrace is ADR-112's require_mfa upgrade grace period (#2923), installed
+	// at boot by server/adr112_grace.go via StartMFAUpgradeGrace; nil when the
+	// deployment is not in it. See mfa_upgrade_grace.go.
+	mfaGrace *mfaUpgradeGrace
 
 	// oneTimePasswordExpiry is how long an admin-created one-time password
 	// (CreateUserWithOneTimePassword) stays valid; zero means DefaultOneTimePasswordExpiry

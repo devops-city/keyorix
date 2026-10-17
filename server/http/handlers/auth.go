@@ -175,6 +175,11 @@ type loginResponseBody struct {
 	// the setup page instead of discovering the confinement through 403s. It
 	// reports the gate's state, it does not grant or widen anything.
 	PendingSteps []string `json:"pending_steps,omitempty"`
+	// MFAGrace is present while ADR-112's require_mfa upgrade grace period runs
+	// and this account has no second factor (#2923): the login is not confined
+	// to MFA enrolment yet, and will be once the period ends. Clients show it as
+	// a persistent banner with the days left.
+	MFAGrace *MFAGraceSummary `json:"mfa_grace,omitempty"`
 }
 
 type passwordResetRequestBody struct {
@@ -359,6 +364,11 @@ func (h *AuthHandler) loginResponseFromIdentity(session *models.Session, user *m
 	// A login always mints an interactive session.
 	resp.PendingSteps = h.coreService.PendingSetupStepsFor(
 		core.AccountRestricted(user.AccountState), user.MFAEnabled || user.WebAuthnEnabled, true)
+	if !user.MFAEnabled && !user.WebAuthnEnabled {
+		if resp.MFAGrace = mfaGraceSummary(h.coreService); resp.MFAGrace != nil {
+			log.Printf("WARNING: ADR-112 grace period: user id %d signed in without a second factor; security.require_mfa is enforced in %d day(s) (at %s, or when the first administrator enrols MFA), and this user is then sent to MFA enrolment.", user.ID, resp.MFAGrace.DaysLeft, resp.MFAGrace.EndsAt)
+		}
+	}
 	return resp
 }
 
@@ -711,6 +721,14 @@ func (h *AuthHandler) Profile(w http.ResponseWriter, r *http.Request) {
 	// on the gate's always-allowed list and nothing else is opened by this.
 	if pending := h.coreService.PendingSetupStepsFor(userCtx.Restricted, userCtx.MFAEnabled, userCtx.SessionAuth); len(pending) > 0 {
 		profile["pending_steps"] = pending
+	}
+	// ADR-112 #2923: the require_mfa upgrade grace period, for the persistent
+	// banner. Only for an interactive session without a second factor: that is
+	// who is sent to enrolment when it ends.
+	if userCtx.SessionAuth && !userCtx.MFAEnabled {
+		if grace := mfaGraceSummary(h.coreService); grace != nil {
+			profile["mfa_grace"] = grace
+		}
 	}
 	// Surface impersonation state from the server-validated session (UserContext.
 	// ImpersonatedBy, resolved by the auth middleware) rather than requiring the

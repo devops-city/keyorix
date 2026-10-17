@@ -237,6 +237,7 @@ func (c *KeyorixCore) ActivateMFA(ctx context.Context, userID uint, code, passwo
 	c.clearCachedTokens(keepHash)
 	uid := userID
 	c.writeAuditEventFull(ctx, "mfa.activated", &uid, nil, nil, "", fmt.Sprintf("user %s activated MFA", user.Username))
+	c.recheckMFAUpgradeGrace() // ADR-112 #2923: an admin's first factor ends the grace period now
 	return codes, nil
 }
 

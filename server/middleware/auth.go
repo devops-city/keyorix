@@ -1205,9 +1205,18 @@ func SetupAllowedRoutes(pending []string) map[string]bool {
 // backstop if that revocation did not land. Applied after Authentication in the
 // authenticated API group.
 func EnforceAccountSetup(requireMFA bool) func(http.Handler) http.Handler {
+	return EnforceAccountSetupLive(func() bool { return requireMFA })
+}
+
+// EnforceAccountSetupLive is EnforceAccountSetup with the MFA requirement read
+// per request, so it can change while the server runs: the router passes
+// core.KeyorixCore.MFARequired, which is false only during ADR-112's
+// require_mfa upgrade grace period and becomes true when that period ends
+// (#2923), without a restart.
+func EnforceAccountSetupLive(requireMFA func() bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleAccountSetupCheck(next, w, r, requireMFA)
+			handleAccountSetupCheck(next, w, r, requireMFA())
 		})
 	}
 }
