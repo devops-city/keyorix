@@ -1,0 +1,1 @@
+deploy/edge	none	-	test-only package: deploy/edge asserts the unattended-operation directives of the shipped systemd unit and launchd plist from the files themselves (no non-test Go code)	test-helper
