@@ -64,6 +64,42 @@ func validatePooler(storageType string, d *DatabaseConfig) error {
 	}
 }
 
+// DefaultNativeReadPoolMax is the native read pool's cap when
+// storage.database.native_read_pool_max is unset.
+const DefaultNativeReadPoolMax = 8
+
+// MaxNativeReadPoolMax is the largest storage.database.native_read_pool_max
+// accepted. Far above any useful value (the pool never exceeds max_open_conns,
+// whose own default is 25); it keeps a typo from asking PostgreSQL for
+// thousands of connections.
+const MaxNativeReadPoolMax = 1000
+
+// EffectiveNativeReadPoolMax is the configured native read pool cap, or
+// DefaultNativeReadPoolMax when unset.
+func (d *DatabaseConfig) EffectiveNativeReadPoolMax() int {
+	if d.NativeReadPoolMax > 0 {
+		return d.NativeReadPoolMax
+	}
+	return DefaultNativeReadPoolMax
+}
+
+// validateNativeReadPoolMax refuses a negative or absurd native_read_pool_max,
+// and any value on a backend without a PostgreSQL connection, rather than
+// ignoring it.
+func validateNativeReadPoolMax(storageType string, d *DatabaseConfig) error {
+	if d.NativeReadPoolMax == 0 {
+		return nil
+	}
+	if d.NativeReadPoolMax < 0 || d.NativeReadPoolMax > MaxNativeReadPoolMax {
+		return fmt.Errorf("storage.database.native_read_pool_max %d is out of range; use 1 to %d, or leave it unset for the default of %d",
+			d.NativeReadPoolMax, MaxNativeReadPoolMax, DefaultNativeReadPoolMax)
+	}
+	if storageType != "postgres" && storageType != "postgresql" {
+		return fmt.Errorf("storage.database.native_read_pool_max applies only to storage.type postgres; remove it")
+	}
+	return nil
+}
+
 // applyPoolerConnConfig sets the pgx execution mode a transaction-mode pooler
 // needs. pgx's default caches a named prepared statement per query on the
 // server connection it prepared it on; behind transaction pooling the next

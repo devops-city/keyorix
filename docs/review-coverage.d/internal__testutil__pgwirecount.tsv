@@ -1,0 +1,1 @@
+internal/testutil/pgwirecount	none	-	PR #3318 (OPT-READPATH-1): test-only PostgreSQL wire-protocol proxy that counts statements and round trips across every pool a replica opens; package doc states it is test-only, only server/http *_test.go files import it	test-helper

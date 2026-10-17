@@ -351,7 +351,7 @@ func init() {
 
 func runRequestWithdraw(_ *cobra.Command, _ []string) error {
 	if requestWithdrawID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	projectID, projectName, err := requestProjectTarget(requestWithdrawProjectID, requestWithdrawProject)
 	if err != nil {
@@ -418,7 +418,7 @@ func init() {
 
 func runRequestReview(_ *cobra.Command, _ []string) error { // NOSONAR -- cognitive complexity, mirrors old CLI's runReviewRemote
 	if requestReviewID == 0 {
-		return fmt.Errorf("--id is required")
+		return usageErrorf("--id is required")
 	}
 	if requestReviewAction != "approve" && requestReviewAction != "reject" {
 		return fmt.Errorf("--action must be approve or reject")
@@ -623,10 +623,10 @@ func resolveSecretIDRemote(ctx context.Context, client *apiclient.ClientWithResp
 
 func runRequestSecretAccess(_ *cobra.Command, _ []string) error {
 	if requestSecretAccessSecretID == 0 && requestSecretAccessRef == "" {
-		return fmt.Errorf("--secret-id or --ref is required")
+		return usageErrorf("--secret-id or --ref is required")
 	}
 	if requestSecretAccessReason == "" {
-		return fmt.Errorf("--reason is required")
+		return usageErrorf("--reason is required")
 	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
@@ -692,7 +692,7 @@ func parseIDList(s string) ([]int, error) {
 		ids = append(ids, int(n))
 	}
 	if len(ids) == 0 {
-		return nil, fmt.Errorf("at least one ID is required")
+		return nil, usageErrorf("at least one ID is required")
 	}
 	return ids, nil
 }

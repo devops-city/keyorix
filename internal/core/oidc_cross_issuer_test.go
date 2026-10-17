@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // issuerKeyResolver returns a distinct signing key per issuer — i.e. each trusted issuer's
@@ -58,7 +60,7 @@ func TestValidateOIDCToken_CrossIssuerBindingIsolation(t *testing.T) {
 	// subject under issuer B resolves nothing.
 	machine := &models.MachineIdentity{ID: 7, State: MachineActive}
 	store.On("GetMachineByOIDCSubject", ctx, issA, subject).Return(machine, nil)
-	store.On("GetMachineByOIDCSubject", ctx, issB, subject).Return(nil, errTestNoKey)
+	store.On("GetMachineByOIDCSubject", ctx, issB, subject).Return(nil, fmt.Errorf("not found: %w", gorm.ErrRecordNotFound)) // the shape LocalStorage returns for "no binding"; any other error is a storage fault (ErrAuthStorageUnavailable)
 	store.On("GetMachineRoles", ctx, uint(7)).Return([]*models.Role{{Name: "ci-deployer"}}, nil)
 
 	claims := func(iss string) jwt.MapClaims {
