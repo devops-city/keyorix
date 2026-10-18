@@ -100,9 +100,10 @@ costs the database a transaction. So:
   credential statement, the server is CPU-bound well before the flusher is, and pipelining's
   more and smaller transactions cost more than the overlap saves (measured; the flusher then
   commits exactly as before this change);
-- a lone item with nothing in flight (low concurrency) goes the serial way, as without
-  pipelining, on the connection the flusher holds (handing it back and taking one again at every
-  lone item cost a load hovering around one item per batch its throughput: measured).
+- with `single_writer` it pipelines at every concurrency: a rule sending a lone item serially
+  (to keep low concurrency on the serial path) was measured and dropped, because switching
+  between the two paths at every lone item cost a load of a few items per batch more than it
+  saved.
 
 ### Results, in order
 

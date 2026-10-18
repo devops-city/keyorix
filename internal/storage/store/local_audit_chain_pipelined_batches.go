@@ -125,23 +125,17 @@ var auditPipelineNeedsSingleWriter = true
 
 // commitFlusherBatch commits batch for the flusher: pipelined when it can be,
 // otherwise serially once the run (if any) has ended, on the held connection
-// when there is one. Every item of batch gets exactly one result either way. A
-// lone item with nothing in flight is the flusher at low concurrency (nobody
-// else was waiting when it was drained): there is nothing to overlap, so it
-// goes the serial way. The connection stays held, so a load that hovers around
-// one item per batch does not hand it back and take it again.
+// when there is one. Every item of batch gets exactly one result either way.
+// (A rule sending lone items serially, to keep low concurrency on the serial
+// path, was measured and dropped: switching between the two paths at every
+// lone item cost a load of a few items per batch more than it saved.)
 func (ls *LocalStorage) commitFlusherBatch(p *auditBatchPipeline, batch []*auditBatchItem) {
-	lone := len(batch) == 1 && !p.inFlight() && auditPipelineSerialWhenIdle
-	if !lone && p.trySend(batch) {
+	if p.trySend(batch) {
 		return
 	}
 	p.end()
 	deliverAuditBatch(batch, ls.commitAuditBatchHeld(p, batch))
 }
-
-// auditPipelineSerialWhenIdle is false only in tests that need a lone item's
-// batch sent on the pipeline (to have the next one sent while it is in flight).
-var auditPipelineSerialWhenIdle = true
 
 // auditHeldConnKey carries the flusher's pipeline in the context of a commit
 // the flusher runs itself (withHeldAuditConn, withAuditPipelineConn).
