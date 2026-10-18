@@ -35,7 +35,7 @@ func freshCoreACL(t *testing.T) (*core.KeyorixCore, *gorm.DB) {
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
 		&models.AuditEvent{}, &models.AnomalyAlert{},
-		&models.ShareRecord{}, &models.SecretACL{}, &models.SecretAccessLog{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SecretAccessLog{},
 	))
 	// Seed project + environment so secrets can resolve scope.
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "p1"}).Error)

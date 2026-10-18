@@ -378,7 +378,7 @@ func TestShareSecretWithGroup_CrossProjectRefused(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 	))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "owner", Email: "owner@t.com"}).Error)

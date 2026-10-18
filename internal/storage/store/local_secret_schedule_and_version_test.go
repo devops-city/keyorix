@@ -30,7 +30,7 @@ func newScheduleVersionTestStorage(t *testing.T, backend string) (*LocalStorage,
 	}
 	dsn := pgIsolatedSchemaDSN(t, pgTestDSN(t))
 	db := pgOpen(t, dsn)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}))
 	require.NoError(t, EnsureSecretNodeCacheEpoch(db))
 	return NewLocalStorage(db), func() *LocalStorage { return NewLocalStorage(pgOpen(t, dsn)) }
 }
