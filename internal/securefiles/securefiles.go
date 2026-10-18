@@ -13,14 +13,8 @@ import (
 	"syscall"
 
 	"github.com/keyorixhq/keyorix/internal/secretenv"
-	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
-
-var FilePermsCmd = &cobra.Command{
-	Use:   "fileperms",
-	Short: "Manage critical file permissions",
-}
 
 // FilePermSpec describes a file and its required permissions and ownership
 type FilePermSpec struct {
