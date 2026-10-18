@@ -146,7 +146,10 @@ keyorix machine binding add ci-deployer --project payments --issuer https://toke
 	"machine roles":             `keyorix machine roles ci-deployer --project payments`,
 	"machine suspend":           `keyorix machine suspend ci-deployer --project payments`,
 	"machine token issue": `# The token is shown once; store it straight into your CI system
-keyorix machine token issue ci-deployer --project payments --name github-actions --expires-in-days 90`,
+keyorix machine token issue ci-deployer --project payments --name github-actions --expires-in-days 90
+
+# Or write it to a new 0600 file, so it never appears in your terminal or shell history
+keyorix machine token issue ci-deployer --project payments --name github-actions --output-file ./ci.token`,
 	"machine token list":    `keyorix machine token list ci-deployer --project payments`,
 	"machine token revoke":  `keyorix machine token revoke ci-deployer 4 --project payments`,
 	"machine token-hygiene": `keyorix machine token-hygiene --days 60`,
