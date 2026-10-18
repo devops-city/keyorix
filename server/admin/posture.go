@@ -55,6 +55,15 @@ type postureDeviation struct {
 type postureReport struct {
 	deviations    []postureDeviation
 	informational []string
+	// warnings are findings worth an operator's attention that are NOT
+	// deviations from the secure baseline: printed, never counted toward the
+	// exit code.
+	warnings []string
+}
+
+// warn records a finding that is shown but does not fail the command.
+func (r *postureReport) warn(line string) {
+	r.warnings = append(r.warnings, line)
 }
 
 // deviate records a deviation whose cause is an explicit config choice.
@@ -113,6 +122,9 @@ func runAdminValidatePosture(cfg *config.Config, configPath string) error {
 		// cannot be implemented until that PR's API lands.
 		inGrace, err := collectRequireMFAPosture(ctx, cfg, store, report)
 		if err != nil {
+			return err
+		}
+		if err := collectSSOOnlyAdminPosture(ctx, coreService, report); err != nil {
 			return err
 		}
 		return collectAdminMFAPosture(ctx, inGrace, coreService, report)
@@ -495,6 +507,36 @@ func collectAdminMFAPosture(ctx context.Context, requireMFAInGrace bool, coreSer
 	return nil
 }
 
+// collectSSOOnlyAdminPosture warns (#2914) when every global administrator is
+// IdP-managed: such an account has a non-empty external_id (SSO
+// just-in-time provisioning writes "sso:<provider>:<subject>", SCIM writes the
+// IdP's externalId), and a local account never does. If the identity provider
+// is unavailable, or deprovisions those accounts, no administrator can sign in.
+// A local administrator held in reserve (break-glass), or the local recovery
+// command, is the mitigation. A WARN, not a deviation: the install matches the
+// secure baseline, it only has a recovery dependency worth knowing about.
+func collectSSOOnlyAdminPosture(ctx context.Context, coreService *core.KeyorixCore, report *postureReport) error {
+	admins, err := coreService.ListGlobalAdminHolders(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list administrators: %w", err)
+	}
+	if len(admins) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(admins))
+	for _, u := range admins {
+		if u.ExternalID == "" {
+			return nil // at least one local administrator
+		}
+		names = append(names, u.Username)
+	}
+	report.warn(fmt.Sprintf("every administrator is managed by an identity provider (SSO or SCIM): %s. "+
+		"If the identity provider is unavailable, or deprovisions these accounts, no administrator can sign in. "+
+		"Keep at least one local administrator account as a break-glass account, and know the local recovery procedure "+
+		"(keyorix-server admin recover-admin)", strings.Join(names, ", ")))
+	return nil
+}
+
 // collectRequireMFAPosture reports security.require_mfa itself, and whether it
 // is in ADR-112's upgrade grace period. Same facts the server uses
 // (server/adr112_grace.go, internal/core/mfa_upgrade_grace.go): the key is
@@ -653,6 +695,12 @@ func printPostureReport(report *postureReport) {
 			len(report.deviations), shipped, len(report.deviations)-shipped)
 		for _, d := range report.deviations {
 			fmt.Printf("  [%s/%s] %s\n", d.category, d.origin, d.detail)
+		}
+	}
+	if len(report.warnings) > 0 {
+		fmt.Println("\nWARN (not counted toward the exit code):")
+		for _, line := range report.warnings {
+			fmt.Printf("  ! %s\n", line)
 		}
 	}
 	if len(report.informational) > 0 {

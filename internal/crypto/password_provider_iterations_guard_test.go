@@ -16,10 +16,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/stretchr/testify/require"
 )
@@ -45,8 +46,7 @@ var skipDirNames = map[string]bool{
 // This file lives at internal/crypto/password_provider_iterations_guard_test.go.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must resolve this test file's path")
+	thisFile := filepath.Join(srcpath.PkgDir(), "password_provider_iterations_guard_test.go")
 	root, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	require.NoError(t, err)
 	return root

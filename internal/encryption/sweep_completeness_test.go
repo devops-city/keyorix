@@ -32,10 +32,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // modelField identifies one struct field in internal/storage/models.
@@ -181,10 +182,7 @@ type FooModel struct {
 // TestSweepCompleteness_EveryEncryptedModelFieldHasASweep is the regression test
 // described above.
 func TestSweepCompleteness_EveryEncryptedModelFieldHasASweep(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate internal/storage/models relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "sweep_completeness_test.go")
 	modelsDir := filepath.Join(filepath.Dir(thisFile), "..", "storage", "models")
 
 	discovered := discoverEncryptedModelFields(t, modelsDir)

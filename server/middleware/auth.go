@@ -42,7 +42,7 @@ type sessionValidator interface {
 	ValidateSessionToken(ctx context.Context, token string) (*models.User, []string, error)
 	ValidatePATToken(ctx context.Context, token string) (*models.User, []string, *core.PATRestriction, uint, error)
 	ValidateMachineToken(ctx context.Context, token string) (*models.MachineIdentity, []string, *core.MachineTokenRestriction, uint, error)
-	ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, error)
+	ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, time.Time, error)
 	OIDCEnabled() bool
 }
 
@@ -118,6 +118,14 @@ type UserContext struct {
 	// non-machine principal) — the machine-token sibling of patID, same #G60
 	// rationale and same handleAuthRequest post-check touch.
 	machineCredID uint `json:"-"`
+	// oidcExp is the federated JWT's own exp (zero for any other principal).
+	// handleAuthRequest clamps the positive auth-cache entry to it
+	// (OIDC-EXPIRY-CAP-1); the cache-hit path never re-verifies the JWT.
+	oidcExp time.Time `json:"-"`
+	// fromOIDC marks a principal resolved from a federated JWT, so a zero oidcExp
+	// (a validator that failed to report one) fails closed (uncached) rather than
+	// reading as "not an OIDC principal".
+	fromOIDC bool `json:"-"`
 }
 
 // cloneUserContextWithRestriction returns a shallow copy of base with
@@ -193,6 +201,11 @@ const (
 
 	// TTL for valid token cache entries (session is trusted for this window).
 	validTokenTTL = 30 * time.Second
+	// oidcCacheSkew: a federated JWT with less than this left before its exp is
+	// never positively cached (OIDC-EXPIRY-CAP-1) — the entry would be clamped to
+	// a sliver anyway, and a clock a few seconds off must not turn it into a hit
+	// served past exp.
+	oidcCacheSkew = 5 * time.Second
 	// TTL for negative cache entries (stale/invalid tokens — MCP storm fix).
 	// Short enough that a legitimately re-issued token works after ~10s.
 	invalidTokenTTL = 10 * time.Second
@@ -472,8 +485,23 @@ func handleAuthRequest(next http.Handler, w http.ResponseWriter, r *http.Request
 		cacheExpiry = clampCacheExpiry(cacheExpiry, facts.EffectiveExpiry)
 	}
 
+	// Federated JWT: the cache-hit path never re-verifies the token, so the entry
+	// must not outlive its exp (OIDC-EXPIRY-CAP-1). A token already expired, or
+	// within oidcCacheSkew of expiring, is served this once but never cached: the
+	// next request re-verifies it on the slow path.
+	cacheable := true
+	if userCtx.fromOIDC {
+		if !userCtx.oidcExp.After(time.Now().Add(oidcCacheSkew)) {
+			cacheable = false
+		} else {
+			cacheExpiry = clampCacheExpiry(cacheExpiry, &userCtx.oidcExp)
+		}
+	}
+
 	// Cache the positive result (race-safe: dropped if revoked mid-validation).
-	cacheSetValidatedGen(key, userCtx, validatedAt, validatedGen, cacheExpiry)
+	if cacheable {
+		cacheSetValidatedGen(key, userCtx, validatedAt, validatedGen, cacheExpiry)
+	}
 
 	if !tokenNetworkAllowed(r, userCtx) {
 		forbiddenResponse(w, "token not permitted from this network")
@@ -1710,7 +1738,7 @@ func validateToken(ctx context.Context, validator sessionValidator, token string
 	// machine identity. A JWT is a three-segment dotted token and is not one of
 	// the kx_ prefixes; only attempt it when OIDC is configured.
 	if validator.OIDCEnabled() && looksLikeJWT(token) {
-		m, roleNames, err := validator.ValidateOIDCToken(ctx, token)
+		m, roleNames, exp, err := validator.ValidateOIDCToken(ctx, token)
 		if err != nil {
 			// The detailed reason (untrusted issuer, unreachable JWKS, bad
 			// signature, expired, ...) must never reach the caller — the
@@ -1741,7 +1769,10 @@ func validateToken(ctx context.Context, validator sessionValidator, token string
 				boundedForLog(issuer), boundedForLog(kid), boundedForLog(err.Error()))
 			return nil, err
 		}
-		return machineUserContext(m, roleNames, nil, 0), nil
+		uc := machineUserContext(m, roleNames, nil, 0)
+		uc.oidcExp = exp
+		uc.fromOIDC = true
+		return uc, nil
 	}
 
 	// Route by prefix: PATs authenticate AS their owning user, resolving to the same
