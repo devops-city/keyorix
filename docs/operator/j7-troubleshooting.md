@@ -8,6 +8,11 @@ runs the checks server start-up depends on (config parse, encryption key access,
 open, migration state) and reports which one fails, without starting a listener. It needs
 the master passphrase like the server does.
 
+**The server refuses to start, or an `admin` command stops with `Error:`?** Every
+fail-closed refusal (configuration, TLS, key files, schema epoch, locks, backup/restore)
+is listed with its message, cause and fix in [startup-refusals.md](startup-refusals.md).
+The sections below cover three of them in more detail plus failures that are not refusals.
+
 ## Wrong or typo'd config value
 
 ```yaml
@@ -42,7 +47,7 @@ your real deployment.
 ## Port already in use
 
 ```
-HTTP server error: failed to bind HTTP listener: listen tcp :8080: bind: address already in use
+HTTP server error: HTTP server failed to start: failed to bind HTTP listener: listen tcp 127.0.0.1:18080: bind: address already in use
 ```
 
 Something else (possibly an earlier `keyorix-server` you thought you'd stopped) is
@@ -52,11 +57,11 @@ already listening on that port. Check for it before assuming your config is wron
 lsof -i :8080 -sTCP:LISTEN
 ```
 
-**Known gap:** if the earlier instance failed to bind for this exact reason, it does not
-exit — it keeps running in the background, still holding the encryption-key lock. If you
-see `another process already holds the DEK lock` on a retry, this is almost certainly why:
-find and stop that earlier process (the `lsof` command above), don't assume it's a new,
-unrelated problem.
+The server that failed to bind exits with status 1 (checked on the current tree; an earlier
+version of this page described it as staying alive). If you see
+`another process already holds the DEK lock` on a retry, an earlier server is still
+running against the same data directory: find and stop it (the `lsof` command above), and
+see [startup-refusals.md](startup-refusals.md#another-process-holds-the-key-lock).
 
 ## An admin command while the server is (still) running
 

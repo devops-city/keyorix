@@ -400,15 +400,6 @@ type Storage interface {
 	// already decided or the parent campaign was closed (by a prior or racing call)
 	// and this write was rejected, not silently applied.
 	UpdateAccessReviewItem(ctx context.Context, item *models.AccessReviewItem) (bool, error)
-	// RevertAccessReviewItemClaim compensates a claim whose real action then failed
-	// to apply (revoke's post-claim failure window — see claimItemDecision's doc
-	// comment for why revoke must claim before acting). Conditional UPDATE, same
-	// atomic-compare-and-swap shape as UpdateAccessReviewItem's own claim, run in
-	// reverse (WHERE id = ? AND decision = fromDecision AND decided_by = actorID).
-	// The bool reports whether the row matched and was reverted; false means
-	// someone else already changed it since this caller's own claim, and the
-	// caller must fail closed (leave it alone), not overwrite that other change.
-	RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error)
 
 	// Separation-of-duties policies (ISO 27001 A.5.3 / SOX) — toxic permission pairs.
 	CreateSoDPolicy(ctx context.Context, p *models.SoDPolicy) (*models.SoDPolicy, error)

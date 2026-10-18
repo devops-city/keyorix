@@ -137,7 +137,9 @@ install), a 0600 bootstrap token, a firewall, key-only SSH on request.
 - **Fake data only.** Nothing here connects to a real system; do not put a real secret in the demo.
 - **Its own KEK.** `master_password` is generated on the VM by `scripts/selfhost/init-secrets.sh`
   (the production path), unique per install, never printed, never shared with anything. Back
-  nothing up: the demo is rebuilt from the seed.
+  nothing up: the demo is rebuilt from the seed. `install.sh` hands every file in `secrets/` to
+  `root:<KEYORIX_SECRETS_GID>` after generating it (the server refuses a secret file owned by any
+  other account), except the bootstrap token below.
 - **Bootstrap token:** a random value of at least 32 characters in
   `/var/lib/keyorix-demo/secrets/bootstrap_token`, mode `0600`, owned by the server's uid (1001),
   read through `KEYORIX_BOOTSTRAP_TOKEN_FILE`. It is never on a command line.
