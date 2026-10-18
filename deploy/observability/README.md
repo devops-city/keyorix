@@ -34,6 +34,7 @@ The four audit-verification alerts (`KeyorixAuditChainBreakRecorded`, `KeyorixAu
 `KeyorixAuditVerifyStale`, `KeyorixAuditVerifyNeverPassed`) and the dashboard panels that say "needs the
 keyorix-protected scrape job" depend on the second job. Without it
 `KeyorixAuditVerifyNeverPassed` fires after two days, which is the intended signal.
+`KeyorixAuditOwedPending` also reads the second job; without it that alert can never fire.
 
 `/metrics` is unauthenticated by default and must stay inside your network perimeter.
 

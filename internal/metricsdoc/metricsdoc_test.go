@@ -95,6 +95,7 @@ var endpointOverrides = map[string]string{
 	"keyorix_audit_verify_last_success_timestamp_seconds": epScheduler,
 	"keyorix_audit_verify_failure_recorded":               epScheduler,
 	"keyorix_audit_verify_state_rejected":                 epScheduler,
+	"keyorix_audit_owed_pending":                          epScheduler,
 }
 
 func endpointOf(d metricDef) string {

@@ -60,6 +60,25 @@ sync cost for crash safety; change it only as that document describes.
 (`keyorix_audit_flusher_batch_size`) and database write latency.
 **Do.** As KeyorixAuditWriteSlow. Sustained backlog means the database cannot absorb the write rate.
 
+## KeyorixAuditOwedPending
+
+**Means.** A plain secret suspend took effect (revocation is never blocked by the audit log) but
+its `secret.suspended` audit row was refused, and the owed row is still waiting in the backfill
+queue. The gauge is the cluster-wide count and is served only on the authenticated
+`keyorix-protected` scrape job. It should be 0; the backfill runs every minute, so above 0 for
+10 minutes means the audit log is still refusing writes or a queued row cannot be written.
+**Check.** `GET /api/v1/system/info` (system.write) shows `security.audit_owed` with the pending
+count and this process's failure count. Search the server log for `SECURITY: audit event
+"secret.suspended" could not be written` (queued, with the pending id) and for `Audit backfill`
+lines. Also look at KeyorixAuditWriteFailures: the same cause usually fires it. A log line saying
+the event is **NOT queued for backfill** means even the owed-row record could not be written; that
+row is not coming back by itself.
+**Do.** Fix whatever makes audit writes fail (database health, disk, locks). The backfill then
+writes each row once, marked as recorded late, and the gauge returns to 0. A `NOT queued` line
+needs a manual record of that suspension by an operator. A row logged as undecodable stays
+pending and visible: keep it, do not delete rows from `pending_audit_events` by hand, and
+escalate.
+
 ## KeyorixAuditChainBreakRecorded
 
 **Means.** A verification detected a break in the tamper-evident audit chain. This is a possible

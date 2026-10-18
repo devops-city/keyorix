@@ -84,6 +84,16 @@ groups:
           description: "p95 time an audit event waits in the group-commit queue is {{ $value | humanizeDuration }}; the flusher cannot keep up with the write rate."
           runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditgroupcommitbacklog"
 
+      - alert: KeyorixAuditOwedPending
+        expr: max(keyorix_audit_owed_pending) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Keyorix owes {{ $value }} suspend audit row(s) the audit log has not accepted"
+          description: "A secret suspend took effect but its audit row was refused by the audit log and is still waiting for the backfill (minutely). It should drain within minutes once the audit log accepts writes; above zero for 10 minutes means the backfill is blocked or a row cannot be written."
+          runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditowedpending"
+
       - alert: KeyorixAuditChainBreakRecorded
         expr: max(keyorix_audit_verify_failure_recorded) == 1
         labels:

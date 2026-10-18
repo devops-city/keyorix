@@ -1,2 +1,0 @@
-### Added
-- **Prometheus alert rules, Grafana dashboard and alert runbook.** `deploy/observability/` ships 27 alerts covering availability, audit writes and verification, database pools, auth abuse, encryption and TLS expiry, `single_writer`, and background jobs, each linking to its section in `deploy/observability/runbook.md`, plus an importable Grafana dashboard. `go test ./internal/metricsdoc` fails if a rule or panel names a metric or label the code does not define.

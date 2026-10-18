@@ -1972,6 +1972,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// pending_audit_events and written here once the audit log accepts writes
 	// again. Every minute; single-replica-gated, and exactly-once anyway (the
 	// claim and the append share a transaction).
+	coreService.PublishOwedAuditMetric() // keyorix_audit_owed_pending, authenticated scheduler-metrics only
 	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
 		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func(ctx context.Context) error {
 			_, berr := coreService.BackfillPendingAuditEvents(ctx)
