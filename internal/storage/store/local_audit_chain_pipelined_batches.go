@@ -63,8 +63,11 @@ const auditPipelineDepth = 2
 // the same for one row as for a few: sent eagerly at a few items each, batches
 // stay that small and the one backend spends its time on fixed costs
 // (measured: with this at 1, a load of ten readers lost throughput against
-// the serial flusher, depending on the history of the run).
-const auditPipelineMinBatch = 4
+// the serial flusher, depending on the history of the run). The serial
+// flusher's batches at ten readers average about five items, so with eight a
+// load of that size commits as the serial flusher does, and only a backlog
+// the serial cycle cannot keep up with is pipelined.
+const auditPipelineMinBatch = 8
 
 // auditInflightBatch is one batch sent on a run's pipeline, not yet read.
 type auditInflightBatch struct {
