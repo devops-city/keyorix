@@ -10,14 +10,45 @@ persistent volume, the web UI proxying to it, and a bundled (or external) Postgr
 From a published release (the chart is pushed to GHCR as an OCI artifact on each
 `vX.Y.Z` tag):
 
+Never put a password on the command line (`--set auth.masterPassword=...`,
+`kubectl create secret --from-literal=...`): while the command runs, every
+user and process on the machine can read its arguments (`ps`, the process's
+`cmdline` in `/proc`), and afterwards they stay in your shell history and in
+CI logs. Write each secret to a file only you can read, and create the Secret
+from the files:
+
 ```sh
+umask 077                      # new files: owner-only (0600 / 0700)
+mkdir keyorix-secrets
+# `read -s` does not echo (bash and zsh), and printf is a shell builtin, so no secret reaches
+# a process's argv. The file name is the key in the Secret.
+printf 'Master password (keep it, it derives the KEK): '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_MASTER_PASSWORD
+printf 'Database password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_DB_PASSWORD
+printf 'Admin password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_ADMIN_PASSWORD
+unset v
+
+kubectl create secret generic keyorix-auth --from-file=keyorix-secrets/
 helm install keyorix oci://ghcr.io/keyorixhq/charts/keyorix \
-  --set auth.masterPassword='change-me-and-keep-it' \
-  --set postgresql.auth.password='a-strong-db-password' \
-  --set auth.adminPassword='S3cure-Passphrase!9'
+  --set auth.existingSecret=keyorix-auth
+
+# Once the master password is in your password manager, delete the files:
+rm -r keyorix-secrets
 ```
 
-> `auth.adminPassword` must satisfy the server's own admin-bootstrap password
+With `auth.existingSecret` the passwords never enter the Helm release either.
+If you would rather keep them in values, put them in a values file only you can
+read (`umask 077`, then edit `keyorix-secrets.yaml` with `auth.masterPassword`,
+`postgresql.auth.password` and `auth.adminPassword`) and pass it with
+`helm install ... -f keyorix-secrets.yaml`, or pass single files with
+`--set-file auth.masterPassword=keyorix-secrets/KEYORIX_MASTER_PASSWORD`. Either
+way Helm stores the values in the release record in the namespace (readable
+with `helm get values` by anyone allowed to read Secrets there), which
+`auth.existingSecret` avoids.
+
+> The admin password (`KEYORIX_ADMIN_PASSWORD`, or `auth.adminPassword`) must satisfy the server's own admin-bootstrap password
 > policy (`POST /system/init`): **at least 16 characters, with an uppercase
 > letter, a lowercase letter, a digit, and a special character — and it must
 > not contain the admin username, email, or display name as a substring**
@@ -179,8 +210,20 @@ replace each `CHANGE-ME`.
 - **External database:** set `postgresql.enabled=false` and `externalDatabase.host`
   (+ `externalDatabase.password` via `auth.existingSecret`), pointing at a managed
   or HA PostgreSQL. The bundled Postgres is single-instance, for evaluation.
-- **Single server instance:** the server is pinned to 1 replica — it owns the
-  ReadWriteOnce keys volume and a per-instance KEK; it is not horizontally scalable.
+- **Single server instance (default):** `server.replicas: 1` with Recreate rollouts
+  — the server owns a ReadWriteOnce keys volume and a per-instance KEK.
+- **More than one server replica (ADR-039 HA):** `server.replicas: N` renders only
+  when it can work, and the render fails otherwise: the keys volume must be
+  persistent and `ReadWriteMany` (every replica reads the same wrapped DEK and KEK
+  salt), and `server.singleWriter` must be false (single-writer mode allows exactly
+  one server). Use an external PostgreSQL (the bundled one is a single pod); the chart
+  renders PostgreSQL only, so SQLite cannot be combined with replicas. With N > 1 the
+  chart adds a PodDisruptionBudget (`server.podDisruptionBudget`), node/zone
+  `topologySpreadConstraints` (`server.topologySpreadConstraints` to override),
+  RollingUpdate rollouts and `security.auth_rate_limit_fallback.replicas: N`. A
+  rolling upgrade across a schema-epoch bump can briefly crash-loop an old replica
+  (ADR-039, ADR-101). The web Deployment spreads the same way when
+  `web.replicas > 1`. Not covered by a live multi-replica test in this chart.
 - **Backups:** back up both the database and the `*-server-keys` PVC. You need
   both (plus the master password) to recover.
 - **TLS:** terminate at the ingress (`ingress.tls` + cert-manager annotations).

@@ -33,7 +33,11 @@ var ErrSetupBaseURLRequired = errors.New("credential_delivery.base_url is requir
 // issued), but this is a storage fault, not a throttle verdict: unlike a real
 // "limit reached", a caller that had not yet persisted anything must not
 // persist anything either (#2599, see provisionInvitationSetupLink).
-var ErrResendThrottleUnverifiable = errors.New("could not verify resend limits, please try again")
+// ResendThrottleUnverifiableMessage is the fixed client-facing text of
+// ErrResendThrottleUnverifiable (handlers send the constant, never err.Error()).
+const ResendThrottleUnverifiableMessage = "could not verify resend limits, please try again"
+
+var ErrResendThrottleUnverifiable = errors.New(ResendThrottleUnverifiableMessage)
 
 // auditCredentialDisplayedOutOfBand records that a human saw a credential
 // out-of-band (ADR-028's one audited "a human saw this" checkpoint). Deliberately

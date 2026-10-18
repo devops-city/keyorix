@@ -72,7 +72,7 @@ func TestLastUserActivityByEventTypes_SkipsZeroUserID(t *testing.T) {
 		EventTime: now.Add(-time.Minute),
 	}).Error)
 
-	m, err := ls.lastUserActivityByEventTypes(ctx, pid, []string{"secret.read"})
+	m, err := ls.lastUserActivityByEventTypes(ctx, pid, []string{"secret.read"}, time.Time{})
 	require.NoError(t, err)
 
 	// user 7 is present.
@@ -491,7 +491,7 @@ func TestWithAuditCheckpointLock_FnSuccess(t *testing.T) {
 	ls := NewLocalStorage(db)
 
 	called := false
-	err = ls.WithAuditCheckpointLock(context.Background(), func() error {
+	err = ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error {
 		called = true
 		return nil
 	})

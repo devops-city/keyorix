@@ -154,7 +154,7 @@ func EvaluateControls(p *CompliancePosture) []ControlState {
 		{
 			ID: "dormant-access", Name: "No dormant standing access", Area: ctrlAccessGovernance,
 			Status:     controlStatus(p.DegradedArea("dormant_role_grants:"), ag.DormantRoleGrants > 0),
-			Detail:     fmt.Sprintf("%d dormant role grant(s)", ag.DormantRoleGrants),
+			Detail:     fmt.Sprintf("%d dormant role grant(s) (no use in the last %d days)", ag.DormantRoleGrants, dormantThresholdDays),
 			Frameworks: FrameworkRefs{ISO27001: []string{"A.5.18", "A.8.2"}, SOC2: []string{"CC6.1"}, ENS: []string{"op.acc.2", ctrlOpAcc4}},
 		},
 		{

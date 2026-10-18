@@ -143,7 +143,8 @@ func TestSingleWriter_Postgres_OperatorJourney(t *testing.T) {
 
 	// 5. The emergency two-step: terminate the holder's lock session, then
 	// the direct change commits; the server reports it no longer trusts its
-	// caches.
+	// caches, and, its holder lock being gone (a second single writer could
+	// start now), shuts down and exits 1 (LOCKLOSS-SESSION-1).
 	var terminated bool
 	require.NoError(t, db.Raw("SELECT pg_terminate_backend(holder_pid) FROM keyorix_sole_writer").Scan(&terminated).Error)
 	require.True(t, terminated)
@@ -151,10 +152,19 @@ func TestSingleWriter_Postgres_OperatorJourney(t *testing.T) {
 		return db.Exec("DELETE FROM role_permissions WHERE role_id = -1").Error == nil
 	}, 10*time.Second, 50*time.Millisecond)
 	srv.waitLog(t, "single_writer: confirming: holder lock lost", 5*time.Second)
+	exited := make(chan error, 1)
+	go func() { exited <- srv.cmd.Wait() }()
+	select {
+	case err := <-exited:
+		var exitErr *exec.ExitError
+		require.ErrorAs(t, err, &exitErr, "the server must exit with a failure status after losing its holder lock")
+		require.Equal(t, 1, exitErr.ExitCode(), srv.output())
+	case <-time.After(60 * time.Second):
+		t.Fatalf("the server kept running after losing its single_writer holder lock:\n%s", srv.output())
+	}
+	require.Contains(t, srv.output(), "single_writer holder lock: the connection holding the advisory lock is gone, so the lock is lost")
 
 	// 6. Server stopped: the posture report shows the mode and the runbook.
-	_ = srv.cmd.Process.Kill()
-	_, _ = srv.cmd.Process.Wait()
 	out, _ = runAdmin(t, bin, dir, env, "validate", "--posture", "--config", "./keyorix.yaml")
 	require.Contains(t, out, "single_writer: on (storage.database.single_writer)", out)
 	require.Contains(t, out, "pg_terminate_backend(holder_pid)", out)

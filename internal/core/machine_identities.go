@@ -219,6 +219,10 @@ func (c *KeyorixCore) transitionMachineInTx(ctx context.Context, tx storage.Stor
 	}
 	m.State = to
 	m.UpdatedAt = now
+	// #3433: any explicit transition makes the identity's state an admin decision, so
+	// a later RestoreProject must not re-activate it as the cascade's own suspension.
+	m.CascadeSuspendedProjectID = 0
+	m.CascadeSuspendedAt = nil
 	if to == MachineRevoked {
 		m.RevokedAt = &now
 	}

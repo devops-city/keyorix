@@ -60,7 +60,14 @@ type Storage interface {
 	// On PostgreSQL it uses a session advisory lock (pg_try_advisory_lock); on
 	// SQLite (single instance) fn always runs. Returns ran=false (and nil error)
 	// when another replica holds the lock — the caller should simply skip this tick.
-	WithSchedulerLock(ctx context.Context, key int64, fn func() error) (ran bool, err error)
+	//
+	// fn (here and in WithAuditCheckpointLock, WithBootstrapLock and
+	// WithNamedLock) must run under the ctx it is passed, not one it closed
+	// over: on PostgreSQL that ctx is cancelled with cause
+	// store.ErrAdvisoryLockLost when the lock's connection dies while fn runs
+	// (the lock is gone and another replica may take it), and the call then
+	// returns that error joined with fn's own.
+	WithSchedulerLock(ctx context.Context, key int64, fn func(ctx context.Context) error) (ran bool, err error)
 
 	// TryAcquireSchedulerLock and ReleaseSchedulerLock (#530) are the two
 	// building blocks WithSchedulerLock is composed from. They exist as their
@@ -102,7 +109,7 @@ type Storage interface {
 	// against a consistent, serialized view, not silently no-op (#300). On PostgreSQL
 	// it holds a session advisory lock (pg_advisory_lock) for the duration of fn; on
 	// SQLite (single instance, no cross-process concern) a process mutex is enough.
-	WithAuditCheckpointLock(ctx context.Context, fn func() error) error
+	WithAuditCheckpointLock(ctx context.Context, fn func(ctx context.Context) error) error
 
 	// WithBootstrapLock serializes BootstrapSystem's whole "is this a fresh
 	// install" check through admin/RBAC/project seeding (auth_bootstrap.go) across
@@ -117,7 +124,7 @@ type Storage interface {
 	// PostgreSQL it holds a session advisory lock (pg_advisory_lock) for the
 	// duration of fn; on SQLite (single instance, no cross-process concern) a
 	// process mutex is enough.
-	WithBootstrapLock(ctx context.Context, fn func() error) error
+	WithBootstrapLock(ctx context.Context, fn func(ctx context.Context) error) error
 
 	// WithNamedLock serializes fn against every OTHER caller using the identical
 	// lockKey, across replicas of an HA deployment (ADR-039) -- the general-purpose
@@ -227,6 +234,19 @@ type Storage interface {
 	// count of environments and secrets the cascade actually restored, so the caller
 	// can audit what came back (#311), not just that "the project" was restored.
 	RestoreProject(ctx context.Context, id uint) (restoredEnvironments, restoredSecrets int, err error)
+	// SuspendMachineIdentitiesForDeletedProject (#3433) suspends every ACTIVE machine
+	// identity that belongs to soft-deleted project id (home project, or a role there)
+	// and holds no role in any other live project (or at global scope), stamping each
+	// with the project's id and deleted_at (models.MachineIdentity.CascadeSuspended*).
+	// It returns the identities it suspended. It refuses a live project. Call it in the
+	// same transaction as DeleteProject/DeleteProjectIfEmpty, after the cascade.
+	SuspendMachineIdentitiesForDeletedProject(ctx context.Context, id uint) ([]*models.MachineIdentity, error)
+	// ReactivateMachineIdentitiesForRestoredProject (#3433) re-activates exactly the
+	// identities the CURRENT soft-delete of project id suspended and nothing has written
+	// since (marker equals the project's deleted_at, updated_at unchanged), clearing the
+	// marker, and returns them. Call it in the same transaction as RestoreProject,
+	// BEFORE it: it needs the project still deleted. It refuses a live project.
+	ReactivateMachineIdentitiesForRestoredProject(ctx context.Context, id uint, now time.Time) ([]*models.MachineIdentity, error)
 	ListProjects(ctx context.Context) ([]*models.Project, error)
 	ListProjectsWithCounts(ctx context.Context, includeDeleted bool) ([]ProjectWithCounts, error)
 	CreateEnvironment(ctx context.Context, env *models.Environment) (*models.Environment, error)
@@ -289,7 +309,7 @@ type Storage interface {
 	// access review — a grant whose principal has no recent activity is stale
 	// standing access to prune. Users with no recorded activity are absent from the
 	// map.
-	LastUserSecretActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error)
+	LastUserSecretActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error)
 	// LastUserRoleManagementActivity returns, per user, the most recent time they
 	// granted/revoked a role or group-role attributable to this project (the
 	// roles.assign-tier half of admin-tier dormant-role-grant detection: #258,
@@ -301,7 +321,7 @@ type Storage interface {
 	// grant's secrets.delete activity) under a different grant must not mask this
 	// one as active. Users with no recorded role-management activity are absent
 	// from the map.
-	LastUserRoleManagementActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error)
+	LastUserRoleManagementActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error)
 	// LastUserSecretDeletionActivity returns, per user, the most recent time they
 	// deleted a secret attributable to this project (the secrets.delete/admin-tier
 	// half of admin-tier dormant-role-grant detection: #258, narrowed
@@ -309,7 +329,7 @@ type Storage interface {
 	// this is kept separate rather than folded into one combined "elevated
 	// activity" signal. Users with no recorded deletion activity are absent from
 	// the map.
-	LastUserSecretDeletionActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error)
+	LastUserSecretDeletionActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error)
 	// LastUserSecretReadActivity returns, per user, the most recent secret.read
 	// time attributable to this project — the secrets.read half of plain-tier
 	// dormant-role-grant detection (#487 round 112). Mirrors
@@ -321,14 +341,14 @@ type Storage interface {
 	// a read-only grant AND a separate write-only grant in the same project had
 	// BOTH masked non-dormant by either one's activity. Users with no recorded
 	// read activity are absent from the map.
-	LastUserSecretReadActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error)
+	LastUserSecretReadActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error)
 	// LastUserSecretWriteActivity returns, per user, the most recent
 	// secret.created/updated/rotated time attributable to this project — the
 	// secrets.write half of plain-tier dormant-role-grant detection (#487 round
 	// 112). See LastUserSecretReadActivity's doc for why this is kept separate
 	// rather than folded into one combined signal. Users with no recorded write
 	// activity are absent from the map.
-	LastUserSecretWriteActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error)
+	LastUserSecretWriteActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error)
 
 	// Project invitations (ADR-024).
 	CreateProjectInvitation(ctx context.Context, inv *models.ProjectInvitation) (*models.ProjectInvitation, error)
@@ -393,15 +413,6 @@ type Storage interface {
 	// already decided or the parent campaign was closed (by a prior or racing call)
 	// and this write was rejected, not silently applied.
 	UpdateAccessReviewItem(ctx context.Context, item *models.AccessReviewItem) (bool, error)
-	// RevertAccessReviewItemClaim compensates a claim whose real action then failed
-	// to apply (revoke's post-claim failure window — see claimItemDecision's doc
-	// comment for why revoke must claim before acting). Conditional UPDATE, same
-	// atomic-compare-and-swap shape as UpdateAccessReviewItem's own claim, run in
-	// reverse (WHERE id = ? AND decision = fromDecision AND decided_by = actorID).
-	// The bool reports whether the row matched and was reverted; false means
-	// someone else already changed it since this caller's own claim, and the
-	// caller must fail closed (leave it alone), not overwrite that other change.
-	RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error)
 
 	// Separation-of-duties policies (ISO 27001 A.5.3 / SOX) — toxic permission pairs.
 	CreateSoDPolicy(ctx context.Context, p *models.SoDPolicy) (*models.SoDPolicy, error)
@@ -943,6 +954,12 @@ type Storage interface {
 	// ListSecrets(ExpiresBefore) count ProjectHygieneSummary uses per-project
 	// (#393). A project absent from the result has zero expiring secrets.
 	CountExpiringSecretsByProject(ctx context.Context, projectIDs []uint, expiresBefore time.Time) (map[uint]int, error)
+	// CountSecretsByEnvironment returns, for every environment in envIDs in a
+	// single grouped query, the number of live secrets (folders and soft-deleted
+	// rows excluded) — the server-side source of the environment list's
+	// secret_count (DASH-SIGNALS-1). An environment absent from the result has
+	// zero secrets.
+	CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error)
 	// ListLiveSecretNamesByProject returns every live secret (folders excluded)
 	// across every project in projectIDs — id/name/type/classification/environment
 	// plus its project ID — in a SINGLE query ordered by project then name, capped at
@@ -2468,6 +2485,49 @@ const (
 // public list views let a caller reach by page number (AuditOffsetCap in
 // internal/core), so a capped total still yields every reachable page.
 const AuditCountCap = 10_000
+
+// The "last user activity" lookups (LastUser*Activity) look back over the
+// recertification period, not over the whole audit log: "no activity" means "no
+// activity within the last N days". N defaults to the review cadence and is never
+// more than ActivityLookbackMaxDays, whatever the caller asks for.
+const (
+	// ActivityLookbackDefaultDays is the window when no review period is configured
+	// (a quarter, the default recertification cadence).
+	ActivityLookbackDefaultDays = 90
+	// ActivityLookbackMaxDays is the hard maximum: a year plus a day of slack.
+	ActivityLookbackMaxDays = 366
+)
+
+// ActivityLookbackDays clamps a configured review period (days) to the window the
+// activity lookups use: <= 0 means the default, and anything above the maximum is
+// cut to it.
+func ActivityLookbackDays(days int) int {
+	switch {
+	case days <= 0:
+		return ActivityLookbackDefaultDays
+	case days > ActivityLookbackMaxDays:
+		return ActivityLookbackMaxDays
+	}
+	return days
+}
+
+// ActivityLookbackSince is the oldest event time a lookup run at now may return
+// for a window of `days` days (see ActivityLookbackDays). The bound is inclusive:
+// an event exactly at the returned instant is inside the window.
+func ActivityLookbackSince(now time.Time, days int) time.Time {
+	return now.UTC().AddDate(0, 0, -ActivityLookbackDays(days))
+}
+
+// ClampActivitySince enforces the hard maximum on a caller-supplied `since`: a
+// zero or older-than-maximum value is raised to the maximum lookback, so no caller
+// can ask a lookup to scan more of the audit log than the maximum window.
+func ClampActivitySince(now, since time.Time) time.Time {
+	floor := ActivityLookbackSince(now, ActivityLookbackMaxDays)
+	if since.IsZero() || since.Before(floor) {
+		return floor
+	}
+	return since.UTC()
+}
 
 // Scope identifies the project/environment a role assignment or an
 // authorization check applies to. It uses a 0 = global/unspecified sentinel,

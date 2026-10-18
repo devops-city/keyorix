@@ -224,6 +224,18 @@ func setConfigPort(t *testing.T, path, port string) {
 	}
 }
 
+// pinFreeHTTPPort rewrites the HTTP port of the `admin init` config in dir
+// (the product default, 8080) to a free ephemeral port and returns it. Tests
+// that boot the real binary from an `admin init` config must call this before
+// the first boot so they neither collide with a developer's server on 8080 nor
+// with each other; the product default is untouched.
+func pinFreeHTTPPort(t *testing.T, dir string) string {
+	t.Helper()
+	port := freeTCPPort(t)
+	setConfigPort(t, filepath.Join(dir, "keyorix.yaml"), port)
+	return port
+}
+
 func startServerInDir(t *testing.T, bin, dir string, env []string) {
 	t.Helper()
 	cmd := exec.Command(bin)

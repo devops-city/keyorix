@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 	"unicode"
 
 	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -360,9 +360,9 @@ func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget
 	defer func() {
 		if r := recover(); r != nil {
 			if tgt.sink != nil && tgt.sink.failClosed {
-				log.Printf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q inside its mutation's transaction: %v -- failing closed, mutation rolled back", eventType, r)
+				logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q inside its mutation's transaction: %v -- failing closed, mutation rolled back", eventType, r), "event_type", eventType)
 			} else {
-				log.Printf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r)
+				logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r), "event_type", eventType)
 			}
 			tgt.sink.fail(eventType, fmt.Errorf("audit write panicked: %v", r))
 			persisted = false
@@ -455,8 +455,8 @@ func sanitizeAuditText(s string) string {
 func (c *KeyorixCore) writeAccessLog(ctx context.Context, secretID uint, accessedBy, action, ip, ua string) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("SECURITY: writeAccessLog panicked persisting secret access log (secret=%d action=%q accessedBy=%q, best-effort, primary operation already succeeded): %v",
-				secretID, action, accessedBy, r)
+			logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAccessLog panicked persisting secret access log (secret=%d action=%q accessedBy=%q, best-effort, primary operation already succeeded): %v",
+				secretID, action, accessedBy, r))
 		}
 	}()
 	entry := &models.SecretAccessLog{
@@ -468,8 +468,8 @@ func (c *KeyorixCore) writeAccessLog(ctx context.Context, secretID uint, accesse
 		UserAgent:    ua,
 	}
 	if err := c.storage.CreateSecretAccessLog(ctx, entry); err != nil {
-		log.Printf("SECURITY: failed to persist secret access log (secret=%d action=%q accessedBy=%q): %v",
-			secretID, action, accessedBy, err)
+		logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: failed to persist secret access log (secret=%d action=%q accessedBy=%q): %v",
+			secretID, action, accessedBy, err))
 	}
 }
 

@@ -18,10 +18,8 @@ import (
 	"errors"
 	"fmt"
 
-	// Used only for retry-backoff jitter (see the #nosec G404 at its call site below),
-	// never for a security-sensitive value such as a token, key, or ID -- not used
-	// anywhere security-sensitive.
-	mathrand "math/rand" // nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used
+	"crypto/rand"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync"
@@ -416,8 +414,7 @@ func (ls *LocalStorage) logAuditEventDirect(ctx context.Context, event *models.A
 		if txErr == nil || !isSQLiteBusyErr(txErr) {
 			return txErr
 		}
-		// #nosec G404 -- jitter for retry timing, not a security-sensitive value.
-		jittered := delay/2 + time.Duration(mathrand.Int63n(int64(delay/2+1)))
+		jittered := delay/2 + time.Duration(retryJitterN(int64(delay/2+1)))
 		select {
 		case <-ctx.Done():
 			return txErr
@@ -473,11 +470,23 @@ type auditBatchItem struct {
 // auditFlusherState is LocalStorage's audit-batching flusher. nil on a
 // transaction-scoped LocalStorage (see logAuditEvent's dispatch) — only the
 // root LocalStorage returned by NewLocalStorage ever has one.
+//
+// pending counts submissions that read af.queue under mu and have not yet been
+// received by the flusher (PERF-LOWCONC-1): raised under mu before the send,
+// lowered when the flusher takes the item (or the send is abandoned). The idle
+// exit clears running only under mu with pending == 0, so a send that is still
+// on its way can never be left in a channel nobody reads.
 type auditFlusherState struct {
 	mu      sync.Mutex
 	queue   chan *auditBatchItem
 	running bool
+	pending int
 }
+
+// auditBeforeQueueSendHook, when set (tests only), runs in submitAuditBatchItem
+// after the submission registered and released af.mu, before it sends: the
+// window in which the idle exit used to strand the send.
+var auditBeforeQueueSendHook func()
 
 // submitAuditBatchItem hands item to the flusher goroutine (starting one if
 // none is currently running) and blocks until item's batch commits,
@@ -502,12 +511,19 @@ func (ls *LocalStorage) submitAuditBatchItem(item *auditBatchItem) error {
 		af.queue = make(chan *auditBatchItem, auditQueueCapacity)
 		go ls.runAuditFlusher(af)
 	}
+	af.pending++
 	queue := af.queue
 	af.mu.Unlock()
 
+	if auditBeforeQueueSendHook != nil {
+		auditBeforeQueueSendHook()
+	}
 	select {
 	case queue <- item:
 	case <-item.ctx.Done():
+		af.mu.Lock()
+		af.pending--
+		af.mu.Unlock()
 		return item.ctx.Err()
 	}
 	select {
@@ -537,22 +553,26 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 		case <-time.After(auditFlusherIdleTimeout):
 			af.mu.Lock()
 			// Re-check for a race: a submitter's queue<-item may have
-			// succeeded between this timeout firing and acquiring af.mu
-			// (submitAuditBatchItem reads af.queue, releases af.mu, THEN
-			// sends -- so a send racing this exit is always into the SAME
-			// channel this goroutine still owns, never a channel nobody is
-			// reading). If the queue is genuinely empty, mark not-running
-			// (under the same lock submitAuditBatchItem checks before
-			// deciding whether to start a new goroutine) and exit; the next
-			// submission starts a fresh flusher.
+			// succeeded between this timeout firing and acquiring af.mu.
+			// A submitter reads af.queue and releases af.mu BEFORE it sends,
+			// so an empty queue alone does not mean nobody is about to send:
+			// exiting then left that send in a channel nobody read (the next
+			// submission makes a new one), and its caller waited out its audit
+			// deadline and failed closed (PERF-LOWCONC-1). Exit only when no
+			// submission is registered (pending, raised under af.mu before the
+			// send); otherwise keep waiting for it.
 			select {
 			case item := <-af.queue:
 				batch = append(batch, item)
 				af.mu.Unlock()
 			default:
-				af.running = false
+				if af.pending == 0 {
+					af.running = false
+					af.mu.Unlock()
+					return
+				}
 				af.mu.Unlock()
-				return
+				continue
 			}
 		}
 		// Linger (SESSION-PERF, #2403/#2420 follow-up, coordinator-requested
@@ -588,6 +608,9 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 			lingerTimer.Stop()
 		}
 	commit:
+		af.mu.Lock()
+		af.pending -= len(batch)
+		af.mu.Unlock()
 		errs := ls.commitAuditBatch(batch)
 		for i, item := range batch {
 			item.done <- errs[i]
@@ -781,8 +804,7 @@ func (ls *LocalStorage) commitBatchWithBusyRetry(ctx context.Context, batch []*a
 		if err == nil || !isSQLiteBusyErr(err) {
 			return err
 		}
-		// #nosec G404 -- jitter for retry timing, not a security-sensitive value.
-		jittered := delay/2 + time.Duration(mathrand.Int63n(int64(delay/2+1)))
+		jittered := delay/2 + time.Duration(retryJitterN(int64(delay/2+1)))
 		select {
 		case <-ctx.Done():
 			return err
@@ -1276,4 +1298,18 @@ func brokenChain(r *storage.AuditChainVerification, id uint, reason string) *sto
 	r.FirstBrokenID = &idCopy
 	r.Reason = reason
 	return r
+}
+
+// retryJitterN returns a uniform value in [0, n) for retry-backoff jitter.
+// It reads crypto/rand so no math/rand generator is involved; on a (never
+// expected) entropy failure it returns 0, i.e. the minimum backoff.
+func retryJitterN(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(n))
+	if err != nil {
+		return 0
+	}
+	return v.Int64()
 }

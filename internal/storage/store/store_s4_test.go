@@ -35,7 +35,7 @@ func TestWithAuditCheckpointLock_SQLite(t *testing.T) {
 
 	// SQLite path: fn executes and result propagates.
 	ran := false
-	err := ls.WithAuditCheckpointLock(ctx, func() error {
+	err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -44,7 +44,7 @@ func TestWithAuditCheckpointLock_SQLite(t *testing.T) {
 
 	// Error propagates.
 	sentinel := fmt.Errorf("checkpoint failed")
-	err = ls.WithAuditCheckpointLock(ctx, func() error {
+	err = ls.WithAuditCheckpointLock(ctx, func(context.Context) error {
 		return sentinel
 	})
 	require.ErrorIs(t, err, sentinel)
@@ -58,7 +58,7 @@ func newProjectSecretsStore(t *testing.T) *LocalStorage {
 	t.Helper()
 	return newStoreS3(t, "proj_sec_"+t.Name(),
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.SecretVersion{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+		&models.SecretVersion{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{})
 }
 
 func TestDeleteProjectIfEmpty_NoSecrets(t *testing.T) {

@@ -3,23 +3,19 @@ package contracttest
 import (
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"sync"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/getkin/kin-openapi/routers/gorillamux"
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // specPath is resolved relative to this source file's own location (not the
 // process's working directory, which varies with how `go test` is invoked)
 // so it holds regardless of which package's test binary links this one in.
 var specPath = func() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("contracttest: runtime.Caller(0) failed -- cannot locate openapi.yaml")
-	}
-	return filepath.Join(filepath.Dir(thisFile), "..", "openapi.yaml")
+	return filepath.Join(srcpath.RepoRoot(), "server", "http", "handlers", "openapi.yaml")
 }()
 
 var (

@@ -32,9 +32,21 @@ import (
 
 var (
 	benchFixtureOnce sync.Once
+	benchFixtureDir  string
 	benchFixturePath string
 	benchFixtureErr  error
 )
+
+// TestMain removes the 1M-row bench fixture (hundreds of MB of SQLite) after
+// the package's tests and benchmarks finish; it is built once per process, so
+// no single test or benchmark can own it via t.TempDir.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if benchFixtureDir != "" {
+		_ = os.RemoveAll(benchFixtureDir)
+	}
+	os.Exit(code)
+}
 
 func buildBenchFixture1M(tb testing.TB) string {
 	tb.Helper()
@@ -44,6 +56,7 @@ func buildBenchFixture1M(tb testing.TB) string {
 			benchFixtureErr = err
 			return
 		}
+		benchFixtureDir = dir // removed by TestMain
 		path := filepath.Join(dir, "bench.db")
 		benchFixtureErr = buildAuditChainFixture(path, 1_000_000)
 		benchFixturePath = path

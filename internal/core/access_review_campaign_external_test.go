@@ -3,6 +3,7 @@ package core_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -385,4 +386,52 @@ func TestOpenAccessReviewCampaign_PersistsDegradedFromReport(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, stored.Degraded, "Degraded must be persisted on the campaign row")
 	assert.Equal(t, res.Campaign.DegradedReasons, stored.DegradedReasons)
+}
+
+// RECERT-BOUND-1: an item's last_used_at is the principal's latest use within the
+// recertification period only. Activity older than the period reads as "no use in
+// the window" (not as an old timestamp), and the campaign records the window it was
+// opened with.
+func TestOpenAccessReviewCampaign_LastUsedLooksBackOverTheReviewPeriod(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		cadence  int
+		wantDays int
+		wantSeen bool // is the 100-day-old read inside the window?
+	}{
+		{"default 90 days", 0, 90, false},
+		{"configured 180 days", 180, 180, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := testhelper.NewRBACTestHelper(t)
+			defer h.Cleanup()
+			migrateCampaignTables(t, h)
+			h.CoreService.SetRecertificationCadence(tc.cadence)
+
+			const proj = uint(2)
+			ctx := context.Background()
+			h.CreateTestUser(t, "alice", 10)
+			h.AssignUserRole(t, 10, 3, uptr(proj))
+			uid, pid, ok := uint(10), proj, true
+			require.NoError(t, h.DB.Create(&models.AuditEvent{
+				EventType: "secret.read", UserID: &uid, ProjectID: &pid, Success: &ok,
+				EventTime: time.Now().AddDate(0, 0, -100),
+			}).Error)
+
+			res, err := h.CoreService.OpenAccessReviewCampaign(ctx, 1, 0, proj, "window")
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantDays, res.Campaign.ActivityWindowDays)
+
+			detail, err := h.CoreService.GetAccessReviewCampaign(ctx, proj, res.Campaign.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantDays, detail.Campaign.ActivityWindowDays, "the window is persisted with the campaign")
+			require.Len(t, detail.Items, 1)
+			if tc.wantSeen {
+				require.NotNil(t, detail.Items[0].LastUsedAt)
+			} else {
+				assert.Nil(t, detail.Items[0].LastUsedAt, "a read older than the period is 'no use within the last %d days'", tc.wantDays)
+			}
+		})
+	}
 }

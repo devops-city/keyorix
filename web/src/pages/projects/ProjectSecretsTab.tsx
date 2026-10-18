@@ -698,9 +698,9 @@ export const ProjectSecretsTab: React.FC<ProjectSecretsTabProps> = ({ projectId 
     const { data: environments = [], isLoading: envsLoading } = useProjectEnvironments(projectId);
 
     // With no ?env=, open on an environment that actually has secrets (production
-    // first); the production-or-first rule is only the fallback while counts load or
-    // when none can be read. See useDefaultEnvironment.
-    const { name: preferredEnvName } = useDefaultEnvironment(projectId, environments, !searchParams.get('env'));
+    // first), using the server's per-environment secret_count; the production-or-first
+    // rule is only the fallback while the list loads. See useDefaultEnvironment.
+    const { name: preferredEnvName } = useDefaultEnvironment(environments, !searchParams.get('env'));
     const fallbackEnvName = React.useMemo(() => {
         if (environments.length === 0) return 'production';
         const prod = environments.find((e) => e.name.toLowerCase() === 'production');

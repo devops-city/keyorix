@@ -22,7 +22,7 @@ func newPurgeTestStore(t *testing.T) *LocalStorage {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Project{}, &models.Environment{},
 		&models.UserRole{}, &models.GroupRole{}, &models.Group{}, &models.UserGroup{}, &models.ShareRecord{},
-		&models.PersonalAccessToken{}, &models.Session{}, &models.SecretACL{}))
+		&models.PersonalAccessToken{}, &models.Session{}, &models.SecretACL{}, &models.MachineIdentityRole{}))
 	return NewLocalStorage(db)
 }
 

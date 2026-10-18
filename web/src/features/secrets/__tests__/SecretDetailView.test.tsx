@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, act, within } from '../../../test/t
 import { SecretDetailView } from '../SecretDetailView';
 import { Secret } from '../../../types';
 import { DEFAULT_SENSITIVE_IDLE_MS } from '../../../hooks/useAutoClearOnIdle';
+import { answerConfirm, queryConfirm } from '../../../test/confirm';
 import { XSS_PAYLOADS, assertPayloadRenderedSafely } from '../../../test/xss-payloads';
 
 const mockClassifyMutate = vi.fn();
@@ -186,28 +187,30 @@ describe('SecretDetailView version rollback', () => {
         mockSecretValue = 'v2';
     });
 
-    it('lists versions and rolls back a non-current one', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('lists versions and rolls back a non-current one', async () => {
+        const confirmSpy = vi.spyOn(window, 'confirm');
         render(<SecretDetailView secret={makeSecret()} />);
         expect(screen.getByText('Version History')).toBeInTheDocument();
         // The current (highest) version has no rollback button; v1 does.
         const rollbackBtns = screen.getAllByRole('button', { name: /Roll back/i });
         expect(rollbackBtns).toHaveLength(1);
         fireEvent.click(rollbackBtns[0]);
-        expect(mockRollbackMutate).toHaveBeenCalledWith(1, expect.anything());
+        expect(mockRollbackMutate).not.toHaveBeenCalled(); // waits for the in-app dialog
+        await answerConfirm('Roll back to version 1? Its value will be re-instated as a new version.', 'accept');
+        await waitFor(() => expect(mockRollbackMutate).toHaveBeenCalledWith(1, expect.anything()));
+        expect(confirmSpy).not.toHaveBeenCalled();
         confirmSpy.mockRestore();
     });
 
-    it('does not roll back when the confirm is declined', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    it('does not roll back when the confirm is declined', async () => {
         render(<SecretDetailView secret={makeSecret()} />);
         fireEvent.click(screen.getByRole('button', { name: /Roll back/i }));
+        await answerConfirm('Roll back to version 1? Its value will be re-instated as a new version.', 'cancel');
+        await waitFor(() => expect(queryConfirm(/^Roll back to version 1/)).toBeNull());
         expect(mockRollbackMutate).not.toHaveBeenCalled();
-        confirmSpy.mockRestore();
     });
 
-    it('re-masks a revealed value after a successful rollback', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('re-masks a revealed value after a successful rollback', async () => {
         mockRollbackMutate.mockImplementationOnce((_version: number, opts?: { onSuccess?: () => void }) => {
             opts?.onSuccess?.();
         });
@@ -216,10 +219,10 @@ describe('SecretDetailView version rollback', () => {
         expect(screen.getByRole('button', { name: /^Hide$/i })).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: /Roll back/i }));
+        await answerConfirm(/^Roll back to version 1\?/, 'accept');
 
-        expect(screen.getByRole('button', { name: /^Reveal$/i })).toBeInTheDocument();
+        expect(await screen.findByRole('button', { name: /^Reveal$/i })).toBeInTheDocument();
         expect(screen.getByText(/Secret value is hidden/i)).toBeInTheDocument();
-        confirmSpy.mockRestore();
     });
 });
 
@@ -858,6 +861,26 @@ describe('SecretDetailView secret value reveal', () => {
         expect(screen.getByText('Secret value copied to clipboard.')).toBeInTheDocument();
     });
 
+    // #2450 regression on the reveal path itself: the page once decoded a field the versions
+    // endpoint never returns with atob() and threw on Reveal. Versions are metadata-only here
+    // (no value / EncryptedValue), and the value comes only from the include_value read.
+    it('reveals when the version list carries no value field, without decoding anything', () => {
+        const atobSpy = vi.spyOn(globalThis, 'atob');
+        mockVersions = [
+            { VersionNumber: 1, CreatedAt: '2026-06-10T00:00:00Z' },
+            { VersionNumber: 2, CreatedAt: '2026-06-14T00:00:00Z' },
+        ];
+        mockSecretValue = 'sup3r-secret';
+        render(<SecretDetailView secret={makeSecret()} />);
+
+        expect(() => fireEvent.click(screen.getByRole('button', { name: /^Reveal$/i }))).not.toThrow();
+
+        expect(screen.getByText('sup3r-secret')).toBeInTheDocument();
+        expect(atobSpy).not.toHaveBeenCalled();
+        atobSpy.mockRestore();
+        mockVersions = [];
+    });
+
     it('logs and does not crash when the clipboard write fails', async () => {
         const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const writeTextSpy = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValueOnce(new Error('denied'));
@@ -1402,8 +1425,7 @@ describe('SecretDetailView rotation label after rotate/rollback (#2977)', () => 
         expect(screen.getByText(/^Rotated /)).toBeInTheDocument();
     });
 
-    it('says "Rotated …" instead of "Never rotated" after a successful rollback', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('says "Rotated …" instead of "Never rotated" after a successful rollback', async () => {
         mockRollbackMutate.mockImplementationOnce((_version: number, opts?: { onSuccess?: () => void }) => {
             opts?.onSuccess?.();
         });
@@ -1411,10 +1433,10 @@ describe('SecretDetailView rotation label after rotate/rollback (#2977)', () => 
         expect(screen.getByText('Never rotated')).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: /Roll back/i }));
+        await answerConfirm(/^Roll back to version 1\?/, 'accept');
 
-        expect(screen.queryByText('Never rotated')).not.toBeInTheDocument();
+        await waitFor(() => expect(screen.queryByText('Never rotated')).not.toBeInTheDocument());
         expect(screen.getByText(/^Rotated /)).toBeInTheDocument();
-        confirmSpy.mockRestore();
     });
 
     it('keeps "Never rotated" when the rotation fails', () => {

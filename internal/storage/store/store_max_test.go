@@ -380,7 +380,7 @@ func newSecretsStore(t *testing.T) *LocalStorage {
 	ls := newMaxStore(t, "sec_"+t.Name(),
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
 		&models.SecretVersion{}, &models.Tag{}, &models.SecretTag{},
-		&models.ShareRecord{}, &models.SecretACL{}, &models.DynamicSecretConfig{},
+		&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{},
 		&models.UserRole{}, &models.GroupRole{},
 	)
 	// Partial unique indexes for name uniqueness (replicate migrateDatabase).
@@ -736,7 +736,7 @@ func newAAStore(t *testing.T) *LocalStorage {
 // lastUserActivityByEventTypes — empty result (no events).
 func TestLastUserActivityByEventTypes_NoEvents(t *testing.T) {
 	ls := newAAStore(t)
-	m, err := ls.LastUserSecretActivity(context.Background(), 1)
+	m, err := ls.LastUserSecretActivity(context.Background(), 1, time.Time{})
 	require.NoError(t, err)
 	assert.Empty(t, m)
 }
@@ -988,7 +988,7 @@ func TestWithAuditCheckpointLock_FnError(t *testing.T) {
 	ls := NewLocalStorage(db)
 
 	sentinel := fmt.Errorf("lock-fn-error")
-	err = ls.WithAuditCheckpointLock(context.Background(), func() error { return sentinel })
+	err = ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error { return sentinel })
 	require.ErrorIs(t, err, sentinel)
 }
 
@@ -1017,10 +1017,10 @@ func newPurgeStore(t *testing.T) *LocalStorage {
 	t.Helper()
 	return newMaxStore(t, "purge_"+t.Name(), append([]any{
 		&models.User{}, &models.UserRole{}, &models.UserGroup{},
-		&models.ShareRecord{}, &models.SecretACL{}, &models.PersonalAccessToken{}, &models.Session{},
+		&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.PersonalAccessToken{}, &models.Session{},
 		&models.Project{}, &models.Environment{},
 		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretDependency{},
-		&models.GroupRole{}, &models.Group{},
+		&models.GroupRole{}, &models.Group{}, &models.MachineIdentityRole{},
 		&models.AnomalyAlert{},
 		&models.AccessReviewCampaign{}, &models.AccessReviewItem{},
 		&models.BreakGlassActivation{},

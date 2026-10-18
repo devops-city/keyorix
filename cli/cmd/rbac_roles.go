@@ -22,6 +22,9 @@ func init() {
 }
 
 func runRBACListRoles(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(roleListFormat); err != nil {
+		return err
+	}
 	client, err := rbacAPIClient()
 	if err != nil {
 		return err
@@ -30,15 +33,17 @@ func runRBACListRoles(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(roles) == 0 {
-		fmt.Println("No roles found")
+	return emitList(roleListFormat, roles, func() error {
+		if len(roles) == 0 {
+			fmt.Println("No roles found")
+			return nil
+		}
+		fmt.Println("Available roles:")
+		for _, role := range roles {
+			fmt.Printf("  - %s: %s\n", derefStr(role.Name), derefStr(role.Description))
+		}
 		return nil
-	}
-	fmt.Println("Available roles:")
-	for _, role := range roles {
-		fmt.Printf("  - %s: %s\n", derefStr(role.Name), derefStr(role.Description))
-	}
-	return nil
+	})
 }
 
 // ── list-user-roles ─────────────────────────────────────────────────────────────
@@ -58,6 +63,9 @@ func init() {
 }
 
 func runRBACListUserRoles(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(userRolesFormat); err != nil {
+		return err
+	}
 	if rbacListUserRolesEmail == "" {
 		return usageErrorf("--user is required")
 	}
@@ -74,15 +82,17 @@ func runRBACListUserRoles(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(roles) == 0 {
-		fmt.Printf("No roles assigned to user '%s'\n", rbacListUserRolesEmail)
+	return emitList(userRolesFormat, roles, func() error {
+		if len(roles) == 0 {
+			fmt.Printf("No roles assigned to user '%s'\n", rbacListUserRolesEmail)
+			return nil
+		}
+		fmt.Printf("Roles assigned to user '%s':\n", rbacListUserRolesEmail)
+		for _, role := range roles {
+			fmt.Printf("  - %s\n", derefStr(role.Name))
+		}
 		return nil
-	}
-	fmt.Printf("Roles assigned to user '%s':\n", rbacListUserRolesEmail)
-	for _, role := range roles {
-		fmt.Printf("  - %s\n", derefStr(role.Name))
-	}
-	return nil
+	})
 }
 
 // ── list-permissions ────────────────────────────────────────────────────────────
@@ -102,6 +112,9 @@ func init() {
 }
 
 func runRBACListPermissions(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(permsFormat); err != nil {
+		return err
+	}
 	if rbacListPermissionsEmail == "" {
 		return usageErrorf("--user is required")
 	}
@@ -118,15 +131,17 @@ func runRBACListPermissions(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(perms) == 0 {
-		fmt.Printf("No permissions found for user '%s'\n", rbacListPermissionsEmail)
+	return emitList(permsFormat, perms, func() error {
+		if len(perms) == 0 {
+			fmt.Printf("No permissions found for user '%s'\n", rbacListPermissionsEmail)
+			return nil
+		}
+		fmt.Printf("Permissions for user '%s':\n", rbacListPermissionsEmail)
+		for _, p := range perms {
+			fmt.Printf("  - %s\n", p)
+		}
 		return nil
-	}
-	fmt.Printf("Permissions for user '%s':\n", rbacListPermissionsEmail)
-	for _, p := range perms {
-		fmt.Printf("  - %s\n", p)
-	}
-	return nil
+	})
 }
 
 // ── check-permission ────────────────────────────────────────────────────────────

@@ -145,7 +145,15 @@ func NewOIDCVerifier(issuers []OIDCTrustedIssuer, jwks JWKSResolver) (*OIDCVerif
 // iss (trusted), aud (intersects the issuer's allowlist), and exp/nbf. It
 // returns the (issuer, subject) on success. Asymmetric algorithms only — HMAC
 // is rejected so a leaked JWKS document can never be used to forge tokens.
-func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (issuer, subject string, err error) { // NOSONAR -- cognitive complexity 20, suppress go:S3776
+func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (issuer, subject string, err error) {
+	issuer, subject, _, err = v.VerifyWithExpiry(ctx, raw)
+	return issuer, subject, err
+}
+
+// VerifyWithExpiry is Verify that also returns the token's exp (UTC), so a caller
+// that caches the verdict can bound the entry by the token's own lifetime
+// (OIDC-EXPIRY-CAP-1). exp is required by the parser, so it is never zero on success.
+func (v *OIDCVerifier) VerifyWithExpiry(ctx context.Context, raw string) (issuer, subject string, exp time.Time, err error) { // NOSONAR -- cognitive complexity 20, suppress go:S3776
 	var claims oidcClaims
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512"}),
@@ -183,21 +191,21 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (issuer, subject 
 
 	token, err := parser.ParseWithClaims(raw, &claims, keyfunc)
 	if err != nil {
-		return "", "", fmt.Errorf("oidc token verification failed: %w", err)
+		return "", "", time.Time{}, fmt.Errorf("oidc token verification failed: %w", err)
 	}
 	if !token.Valid {
-		return "", "", fmt.Errorf("oidc token invalid")
+		return "", "", time.Time{}, fmt.Errorf("oidc token invalid")
 	}
 	// RFC 7515 §4.1.11: a recipient MUST reject a JWS whose "crit" header
 	// names an extension it doesn't understand. This verifier understands
 	// none, so ANY crit header — regardless of what it names — is rejected.
 	if _, hasCrit := token.Header["crit"]; hasCrit {
-		return "", "", fmt.Errorf("oidc token has an unrecognized crit header")
+		return "", "", time.Time{}, fmt.Errorf("oidc token has an unrecognized crit header")
 	}
 
 	trust, ok := v.issuers[claims.Issuer]
 	if !ok {
-		return "", "", fmt.Errorf("untrusted issuer")
+		return "", "", time.Time{}, fmt.Errorf("untrusted issuer")
 	}
 	audOK := false
 	for _, a := range claims.Audience {
@@ -207,7 +215,7 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (issuer, subject 
 		}
 	}
 	if !audOK {
-		return "", "", fmt.Errorf("oidc token audience not allowed")
+		return "", "", time.Time{}, fmt.Errorf("oidc token audience not allowed")
 	}
 	// A token naming MORE THAN ONE audience is, per OIDC, ambiguous about which
 	// party it was actually issued to — any one of the audiences matching our
@@ -218,25 +226,28 @@ func (v *OIDCVerifier) Verify(ctx context.Context, raw string) (issuer, subject 
 	// audiences.
 	if len(claims.Audience) > 1 {
 		if claims.Azp == "" {
-			return "", "", fmt.Errorf("oidc token has multiple audiences but no azp claim")
+			return "", "", time.Time{}, fmt.Errorf("oidc token has multiple audiences but no azp claim")
 		}
 		if _, ok := trust.audiences[claims.Azp]; !ok {
-			return "", "", fmt.Errorf("oidc token azp not allowed")
+			return "", "", time.Time{}, fmt.Errorf("oidc token azp not allowed")
 		}
 	}
 	if strings.TrimSpace(claims.Subject) == "" {
-		return "", "", fmt.Errorf("oidc token has no subject")
+		return "", "", time.Time{}, fmt.Errorf("oidc token has no subject")
 	}
 	// exp alone doesn't bound how long ago a token was minted — a far-future exp
 	// (misconfigured or malicious issuer) would otherwise verify indefinitely.
 	// Require iat and cap its age per-issuer.
 	if claims.IssuedAt == nil {
-		return "", "", fmt.Errorf("oidc token has no iat claim")
+		return "", "", time.Time{}, fmt.Errorf("oidc token has no iat claim")
 	}
 	if age := v.effectiveNow().Sub(claims.IssuedAt.Time); age > trust.maxAge+v.leeway {
-		return "", "", fmt.Errorf("oidc token exceeds max age (issued %s ago)", age.Round(time.Second))
+		return "", "", time.Time{}, fmt.Errorf("oidc token exceeds max age (issued %s ago)", age.Round(time.Second))
 	}
-	return claims.Issuer, claims.Subject, nil
+	if claims.ExpiresAt == nil {
+		return "", "", time.Time{}, fmt.Errorf("oidc token has no exp claim")
+	}
+	return claims.Issuer, claims.Subject, claims.ExpiresAt.UTC(), nil
 }
 
 // TrustsIssuer reports whether the issuer is in the configured allowlist.
@@ -262,24 +273,27 @@ func (c *KeyorixCore) OIDCEnabled() bool {
 // the token fails verification, no binding exists, or the machine is not active.
 // A storage failure while reading the machine's roles returns
 // ErrRoleResolutionUnavailable (#2748) — never an empty role list.
-func (c *KeyorixCore) ValidateOIDCToken(ctx context.Context, raw string) (*models.MachineIdentity, []string, error) {
+//
+// The third return value is the token's own exp (UTC): a caller that caches the
+// result must not keep it past that instant (OIDC-EXPIRY-CAP-1).
+func (c *KeyorixCore) ValidateOIDCToken(ctx context.Context, raw string) (*models.MachineIdentity, []string, time.Time, error) {
 	if c.oidcVerifier == nil {
-		return nil, nil, fmt.Errorf("oidc authentication is not enabled")
+		return nil, nil, time.Time{}, fmt.Errorf("oidc authentication is not enabled")
 	}
-	issuer, subject, err := c.oidcVerifier.Verify(ctx, raw)
+	issuer, subject, exp, err := c.oidcVerifier.VerifyWithExpiry(ctx, raw)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, time.Time{}, err
 	}
 	m, err := c.storage.GetMachineByOIDCSubject(ctx, issuer, subject)
 	if err != nil {
-		return nil, nil, credentialLookupError(err, "no machine identity bound to this token")
+		return nil, nil, time.Time{}, credentialLookupError(err, "no machine identity bound to this token")
 	}
 	if m.State != MachineActive {
 		// #2518: the same typed sentinel the opaque-token paths return for this
 		// identical condition (machine_token.go). This path has no positive
 		// auth cache today, so nothing can mistake it for a transient failure —
 		// kept in step so a future cached OIDC path cannot inherit the trap.
-		return nil, nil, fmt.Errorf("%w: %s", ErrMachineIdentityNotActive, m.State)
+		return nil, nil, time.Time{}, fmt.Errorf("%w: %s", ErrMachineIdentityNotActive, m.State)
 	}
 	roles, err := c.storage.GetMachineRoles(ctx, m.ID)
 	if err != nil {
@@ -287,13 +301,13 @@ func (c *KeyorixCore) ValidateOIDCToken(ctx context.Context, raw string) (*model
 		// (and #1944's for the two user-credential validators) — a storage
 		// failure resolving roles is retryable, not a successful validation
 		// with no grants. See ErrRoleResolutionUnavailable.
-		return nil, nil, ErrRoleResolutionUnavailable
+		return nil, nil, time.Time{}, ErrRoleResolutionUnavailable
 	}
 	roleNames := make([]string, len(roles))
 	for i, r := range roles {
 		roleNames[i] = r.Name
 	}
-	return m, roleNames, nil
+	return m, roleNames, exp, nil
 }
 
 // --- Binding management (ADR-031) ---

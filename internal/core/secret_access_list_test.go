@@ -40,7 +40,7 @@ func TestListSecretAccessors(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
 		&models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		// The role and ACL terms of the effective level (ListSecretAccessors) read these.
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
@@ -126,7 +126,7 @@ func TestListSecretAccessors_StrongestGrantWins(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
 		&models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		// The role and ACL terms of the effective level (ListSecretAccessors) read these.
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
@@ -195,7 +195,7 @@ func TestListSecretAccessors_DegradedOnGroupMembersError(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
 		&models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		// The role and ACL terms of the effective level (ListSecretAccessors) read these.
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
@@ -264,7 +264,7 @@ func TestListSecretAccessors_EffectiveIsMaxOfRoleAndShare(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
 		&models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
 		&models.RolePermission{}, &models.SecretACL{},
@@ -332,7 +332,7 @@ func TestListSecretAccessors_RosterNeedsUsersRead(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
 		&models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
 		&models.RolePermission{}, &models.SecretACL{},
@@ -406,7 +406,7 @@ func accessListFixture(t *testing.T) (*gorm.DB, *KeyorixCore, time.Time) {
 	require.NoError(t, db.AutoMigrate(
 		// AuditEvent: a share commits with its audit row (AUDIT-TX-2).
 		&models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.Role{}, &models.Permission{},
 		&models.RolePermission{}, &models.SecretACL{},

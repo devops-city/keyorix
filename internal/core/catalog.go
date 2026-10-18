@@ -245,30 +245,94 @@ func (c *KeyorixCore) ProjectRequiresMFA(ctx context.Context, projectID uint) (b
 // a DB transaction open, and a target being unreachable must not block the project delete
 // itself (the lease stays revoke_failed/retryable, same as any other RevokeLeasesForConfig
 // use, and is reachable again via the sweep or a manual retry once the target recovers).
-func (c *KeyorixCore) DeleteProject(ctx context.Context, id uint, force bool) error {
+//
+// #3433: in the SAME transaction as the cascade it suspends the machine identities whose
+// only live roles are in this project (storage.SuspendMachineIdentitiesForDeletedProject)
+// and writes one machine_identity.suspended event per identity, actor = actorID (the
+// deleting admin, 0 = none), naming the project soft-delete as the reason. A failure of
+// that step rolls the whole delete back: a deleted project whose tokens still work is the
+// state this closes. After commit, the identities' credentials are evicted from this
+// replica's auth cache; every other replica re-reads the identity state on each cache hit
+// (CurrentMachineTokenRestriction, INV-MW-02), so a cached token stops there too.
+func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force bool) error {
 	// #313 / #528: the guard count and the cascade delete must not run as two separate
 	// top-level storage calls with core-layer control flow in between — a secret created
 	// in that window would silently get swept into the cascade despite the caller
-	// expecting the delete to be rejected. #313 originally closed this by running both
-	// inside one storage.WithTransaction call; #528 replaced that with
-	// DeleteProjectIfEmpty, a single atomic storage primitive doing the same guard+
-	// cascade in ONE call. force=true intentionally skips the guard entirely and keeps
-	// calling the plain unconditional cascade.
-	if force {
-		if err := c.storage.DeleteProject(ctx, id); err != nil {
-			return err
+	// expecting the delete to be rejected. DeleteProjectIfEmpty is a single atomic
+	// storage primitive doing the guard+cascade in ONE call; the transaction here only
+	// adds the machine-identity step after it. force=true intentionally skips the guard
+	// entirely and keeps calling the plain unconditional cascade.
+	var (
+		blocking  int
+		suspended []*models.MachineIdentity
+	)
+	sink := &auditForwardSink{}
+	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		if force {
+			if err := tx.DeleteProject(ctx, id); err != nil {
+				return err
+			}
+		} else {
+			n, err := tx.DeleteProjectIfEmpty(ctx, id)
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				blocking = n
+				return nil
+			}
 		}
-	} else {
-		blocking, err := c.storage.DeleteProjectIfEmpty(ctx, id)
+		var err error
+		suspended, err = tx.SuspendMachineIdentitiesForDeletedProject(ctx, id)
 		if err != nil {
-			return err
+			return fmt.Errorf("project not deleted: %w", err)
 		}
-		if blocking > 0 {
-			return fmt.Errorf("project has %d secret(s) — delete them first or use --force to cascade", blocking)
+		tgt := auditInto(tx, sink)
+		for _, m := range suspended {
+			c.logMachineCascadeEvent(ctx, tgt, "machine_identity.suspended", m, actorID,
+				fmt.Sprintf("project soft-delete (project %d): it held no live role outside that project", id))
 		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if blocking > 0 {
+		return fmt.Errorf("project has %d secret(s) — delete them first or use --force to cascade", blocking)
+	}
+	sink.Flush(c)
+	for _, m := range suspended {
+		c.evictMachineIdentityCacheOrFlush(ctx, m.ID, MachineSuspended)
 	}
 	c.revokeProjectDynamicSecretLeases(ctx, id)
 	return nil
+}
+
+// clearReactivatedMachineTokens drops this replica's cached auth entries for the
+// credentials of identities a restore just re-activated (#3433). The delete's eviction
+// left a short-lived negative entry (invalidTokenTTL) for each; without this the
+// restored token keeps being refused here until it expires. Delete-only-if-cached, the
+// same treatment an account becoming active gets (clearCachedTokens). Best-effort, after
+// commit: a failed hash lookup only leaves the entry to expire on its own (refusing,
+// never admitting). Other replicas' entries expire the same way.
+func (c *KeyorixCore) clearReactivatedMachineTokens(ctx context.Context, reactivated []*models.MachineIdentity) {
+	for _, m := range reactivated {
+		hashes, err := c.MachineTokenHashes(ctx, m.ID)
+		if err != nil {
+			log.Printf("machine identity %d re-activated by project restore: could not clear its cached auth entries (they expire on their own): %v", m.ID, err)
+			continue
+		}
+		c.clearCachedTokens(hashes...)
+	}
+}
+
+// logMachineCascadeEvent records a machine-identity state change made by the project
+// cascade (#3433) rather than by an explicit transition: the description carries the
+// identity's id and the reason, so the event says why the identity changed state.
+func (c *KeyorixCore) logMachineCascadeEvent(ctx context.Context, tgt auditTarget, eventType string, m *models.MachineIdentity, actorID uint, reason string) {
+	aid, pid := actorID, m.ProjectID
+	c.writeAuditEventFullOn(ctx, tgt, eventType, actorPtr(aid), nil, &pid, "",
+		fmt.Sprintf("%s; machine identity %d; reason: %s", machineEventDescription(eventType, m), m.ID, reason))
 }
 
 // revokeProjectDynamicSecretLeases is DeleteProject's post-commit dynamic-secrets
@@ -351,14 +415,43 @@ func (c *KeyorixCore) revokeProjectDynamicSecretLeases(ctx context.Context, proj
 // asked to bring back. Restoring leases themselves is not on the table at all
 // — they were revoked against the real target, not just marked; there is no
 // "credential" left to restore.
+//
+// #3433: in the same transaction, BEFORE the storage restore (which clears the
+// deleted_at it matches on), it re-activates exactly the machine identities this
+// project's soft-delete suspended and nothing has touched since
+// (storage.ReactivateMachineIdentitiesForRestoredProject), one machine_identity.activated
+// event per identity, actor = actorID. An identity an admin suspended, or acted on
+// during the deletion window, stays as the admin left it.
 func (c *KeyorixCore) RestoreProject(ctx context.Context, actorID, id uint) error {
 	if err := c.requireAuthorityToReinstateProjectRoles(ctx, actorID, id, "project"); err != nil {
 		return err
 	}
-	envCount, secretCount, err := c.storage.RestoreProject(ctx, id)
+	var (
+		envCount, secretCount int
+		reactivated           []*models.MachineIdentity
+	)
+	sink := &auditForwardSink{}
+	now := c.now()
+	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		var err error
+		if reactivated, err = tx.ReactivateMachineIdentitiesForRestoredProject(ctx, id, now); err != nil {
+			return err
+		}
+		if envCount, secretCount, err = tx.RestoreProject(ctx, id); err != nil {
+			return err
+		}
+		tgt := auditInto(tx, sink)
+		for _, m := range reactivated {
+			c.logMachineCascadeEvent(ctx, tgt, "machine_identity.activated", m, actorID,
+				fmt.Sprintf("project restore (project %d): the project's soft-delete had suspended it", id))
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
+	sink.Flush(c)
+	c.clearReactivatedMachineTokens(ctx, reactivated)
 	pid := id
 	c.writeAuditEventFull(ctx, "project.restored", actorPtr(actorID), nil, &pid, "",
 		fmt.Sprintf("%s restored (cascade resurrected %d environment(s) and %d secret(s))", c.auditRef(ctx, c.storage, auditKindProject, id), envCount, secretCount))
@@ -501,6 +594,12 @@ func (c *KeyorixCore) CreateProject(ctx context.Context, name, description strin
 // ListEnvironments returns all environments from storage.
 func (c *KeyorixCore) ListEnvironments(ctx context.Context) ([]*models.Environment, error) {
 	return c.storage.ListEnvironments(ctx)
+}
+
+// CountSecretsByEnvironment returns the live-secret count per environment id in
+// one grouped query (DASH-SIGNALS-1). Environments with no secrets are absent.
+func (c *KeyorixCore) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	return c.storage.CountSecretsByEnvironment(ctx, envIDs)
 }
 
 // ListEnvironmentsByProject returns environments scoped to a specific project.

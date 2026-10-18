@@ -253,6 +253,18 @@ export const apiErrorMessage = (error: unknown, fallback = 'An unexpected error 
     return fallback;
 };
 
+// apiErrorCode returns the server's stable error code (the `error` field of the error
+// envelope), or undefined when the failure carries none (network error, non-JSON body).
+export const apiErrorCode = (error: unknown): string | undefined => {
+    if (!axios.isAxiosError(error)) return undefined;
+    const code = (error.response?.data as { error?: unknown } | undefined)?.error;
+    return typeof code === 'string' ? code : undefined;
+};
+
+// A suspend that asked to clear synced Kubernetes copies is refused (HTTP 500, nothing
+// changed) while the audit log cannot record it; a plain suspend is never blocked by it.
+export const SUSPEND_AUDIT_UNAVAILABLE = 'SuspendAuditUnavailable';
+
 export const handleApiError = (error: unknown): string => {
     if (axios.isAxiosError(error)) {
         if (error.response?.data?.error) {

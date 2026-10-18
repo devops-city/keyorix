@@ -856,15 +856,13 @@ step_ui() {
 # scratch secret ("check-secret") is ignored: it is created after the seed's pass.
 step_no_open_anomalies() {
   local up
-  up="$(demo_uptime_seconds "$SERVER_URL")"
-  [ -n "$up" ] || { echo "could not read the server uptime from GET /health"; return 1; }
+  up="$(demo_uptime_seconds "$SERVER_URL" "$ADMIN_TOKEN")" || { echo "could not read the server uptime from GET /api/v1/system/info (detail above)"; return 1; }
   if [ "$up" -lt 360 ]; then
     echo "waiting $((360 - up))s: the first anomaly pass runs up to 5 minutes after start" >&2
   fi
   while [ "$up" -lt 360 ]; do
     sleep 5
-    up="$(demo_uptime_seconds "$SERVER_URL")"
-    [ -n "$up" ] || { echo "lost the server while waiting for the first anomaly pass"; return 1; }
+    up="$(demo_uptime_seconds "$SERVER_URL" "$ADMIN_TOKEN")" || { echo "lost the server while waiting for the first anomaly pass (detail above)"; return 1; }
   done
   local open
   open="$(demo_open_anomalies "$SERVER_URL" "$ADMIN_TOKEN" | awk '$5 != "check-secret"')"
