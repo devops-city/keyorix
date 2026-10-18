@@ -540,6 +540,27 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
+## 6i. Start-up refuses a weak SCIM token and an unneeded KMS context fallback
+
+Two behaviour changes at boot, no new setting. Check before upgrading:
+
+- **SCIM token (`scim.enabled: true`).** Besides the 20-character minimum, the token
+  must not be one byte repeated, have fewer than 10 distinct characters, contain a
+  placeholder (`changeme`, `password`, `example`, `secret` ...), be made only of sample
+  words (`test-token-...`), or equal another configured secret. An upgraded deployment
+  gets the ADR-112 grace period: the server starts and logs
+  `WARNING: SCIM token is too weak: ... ADR-112 grace period ...` until the first start
+  with a token that passes; after that, and on a fresh install, it refuses to start.
+  Replace the token with `openssl rand -base64 32` in Keyorix and in the IdP's SCIM
+  connector.
+- **`storage.encryption.key_provider.insecure_allow_kms_context_fallback`** (aws-kms,
+  gcp-kms). When the stored wrapped KEK already opens with its `kms_encryption_context`
+  (the migration it exists for is done), the server refuses to start and says the flag
+  can be removed. Remove it before upgrading. A KEK that still needs it starts as before.
+
+Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
+[KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
+
 ## 7. Rollback
 
 If an upgrade goes wrong:
