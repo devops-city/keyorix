@@ -47,7 +47,9 @@ const webhookChannel = {
     name: 'platform-alerts',
     type: 'webhook',
     enabled: true,
-    url: 'https://hooks.example.com/platform',
+    // Contract v2 (#3425): list/get return the URL elided, never the path token.
+    url: 'https://hooks.example.com/…',
+    url_set: true,
     email: '',
     events: 'secret.rotated,anomaly.detected',
     created_by: 'admin',
@@ -120,7 +122,7 @@ describe('NotificationChannelsPage — channels list', () => {
         const webhookRow = within(rows[1]!);
         expect(webhookRow.getByText('platform-alerts')).toBeInTheDocument();
         expect(webhookRow.getByText('webhook')).toBeInTheDocument();
-        expect(webhookRow.getByText('https://hooks.example.com/platform')).toBeInTheDocument();
+        expect(webhookRow.getByText('https://hooks.example.com/…')).toBeInTheDocument();
         expect(webhookRow.getByText('secret.rotated')).toBeInTheDocument();
         expect(webhookRow.getByText('anomaly.detected')).toBeInTheDocument();
         expect(webhookRow.getByText('Enabled')).toBeInTheDocument();
@@ -297,11 +299,38 @@ describe('NotificationChannelsPage — edit channel', () => {
                     type: 'webhook',
                     enabled: true,
                     events: 'secret.rotated,anomaly.detected',
-                    url: 'https://hooks.example.com/platform',
                 },
             },
             expect.objectContaining({ onSuccess: expect.any(Function) })
         );
+    });
+
+    it('does not need the stored URL: the field starts blank and an untouched save omits url (#3425)', () => {
+        render(<NotificationChannelsPage />);
+        fireEvent.click(screen.getByTitle('Edit channel'));
+
+        const dialog = screen.getByRole('dialog');
+        const urlInput = within(dialog).getByLabelText('Webhook URL');
+        expect(urlInput).toHaveValue('');
+        expect(urlInput).toHaveAttribute('placeholder', 'Leave blank to keep https://hooks.example.com/…');
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+        const body = mocks.updateMutate.mock.calls[0]![0].body;
+        expect(body).not.toHaveProperty('url');
+        expect(JSON.stringify(body)).not.toContain('hooks.example.com');
+    });
+
+    it('sends url only when a replacement is typed (#3425)', () => {
+        render(<NotificationChannelsPage />);
+        fireEvent.click(screen.getByTitle('Edit channel'));
+
+        const dialog = screen.getByRole('dialog');
+        fireEvent.change(within(dialog).getByLabelText('Webhook URL'), {
+            target: { value: ' https://hooks.example.com/services/NEW ' },
+        });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+        expect(mocks.updateMutate.mock.calls[0]![0].body.url).toBe('https://hooks.example.com/services/NEW');
     });
 
     it('shows an error message when update fails', () => {

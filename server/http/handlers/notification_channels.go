@@ -1,6 +1,12 @@
 // notification_channels.go — CRUD endpoints for runtime-managed outbound
-// notification channels (webhook/slack/teams/email). All routes require the
-// system.write permission (admin only).
+// notification channels (webhook/slack/teams/email). The router gates the CRUD
+// routes on alerts.write (the alert_operator role; system.write holders keep
+// access through the one-time backfill) and GET .../retry-policy on system.read.
+//
+// A channel URL is a bearer credential (Slack-style tokens live in the path),
+// so it is returned in full exactly once, in the create response (#3425).
+// List, get and update return only scheme+host with the path elided, plus
+// url_set; an update that omits "url" keeps the stored credential.
 package handlers
 
 import (
@@ -12,6 +18,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
+	"github.com/keyorixhq/keyorix/internal/netutil"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
@@ -31,14 +38,36 @@ func NewNotificationChannelHandler(coreService *core.KeyorixCore) *NotificationC
 	return &NotificationChannelHandler{coreService: coreService}
 }
 
+// elideChannelURL renders a stored channel URL for display: scheme and host
+// followed by an ellipsis in place of the path, query and userinfo, which is
+// where the bearer token lives (e.g. "https://hooks.slack.com/…"). Empty in,
+// empty out.
+func elideChannelURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	host := netutil.RedactURLHost(raw)
+	if !strings.Contains(host, "://") {
+		return host // unparseable: the placeholder, never a fragment of the input
+	}
+	return host + "/…"
+}
+
 // channelToAPI converts a NotificationChannel model to the API wire shape.
-func channelToAPI(ch *models.NotificationChannel) map[string]any {
+// revealURL is true only for the create response, the one place the full URL
+// is returned; every other response carries the elided form and url_set.
+func channelToAPI(ch *models.NotificationChannel, revealURL bool) map[string]any {
+	url := elideChannelURL(ch.URL)
+	if revealURL {
+		url = ch.URL
+	}
 	return map[string]any{
 		"id":         ch.ID,
 		"name":       ch.Name,
 		"type":       ch.Type,
 		"enabled":    ch.Enabled,
-		"url":        ch.URL,
+		"url":        url,
+		"url_set":    ch.URL != "",
 		"email":      ch.Email,
 		"events":     ch.Events,
 		"created_by": ch.CreatedBy,
@@ -57,7 +86,7 @@ func (h *NotificationChannelHandler) List(w http.ResponseWriter, r *http.Request
 	}
 	out := make([]map[string]any, 0, len(channels))
 	for _, ch := range channels {
-		out = append(out, channelToAPI(ch))
+		out = append(out, channelToAPI(ch, false))
 	}
 	sendSuccess(w, map[string]any{"channels": out}, "")
 }
@@ -107,7 +136,7 @@ func (h *NotificationChannelHandler) Create(w http.ResponseWriter, r *http.Reque
 		sendError(w, "InternalError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendCreated(w, channelToAPI(created), "")
+	sendCreated(w, channelToAPI(created, true), "")
 }
 
 // Get handles GET /api/v1/notification-channels/{id}.
@@ -126,7 +155,7 @@ func (h *NotificationChannelHandler) Get(w http.ResponseWriter, r *http.Request)
 		sendError(w, "InternalError", "Failed to get notification channel", http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, channelToAPI(ch), "")
+	sendSuccess(w, channelToAPI(ch, false), "")
 }
 
 // Update handles PUT /api/v1/notification-channels/{id}.
@@ -159,7 +188,7 @@ func (h *NotificationChannelHandler) Update(w http.ResponseWriter, r *http.Reque
 		sendError(w, "InternalError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, channelToAPI(updated), "")
+	sendSuccess(w, channelToAPI(updated, false), "")
 }
 
 // Delete handles DELETE /api/v1/notification-channels/{id}.
