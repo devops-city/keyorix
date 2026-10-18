@@ -157,7 +157,7 @@ var globalTokenAuthFailureLimiter = &ipFailureLimiter{
 func recordTokenAuthFailure(ip string) bool {
 	ok := globalTokenAuthFailureLimiter.allow(ip)
 	if !ok {
-		ratelimitmetrics.Reject(ratelimitmetrics.TokenAuthFailure)
+		ratelimitmetrics.Reject(ratelimitmetrics.FailedAuthIP)
 	}
 	return ok
 }

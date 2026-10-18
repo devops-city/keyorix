@@ -38,7 +38,7 @@ func rejections(t *testing.T, limiter ratelimitmetrics.Limiter) float64 {
 func TestRateLimitRejectionMetric(t *testing.T) {
 	t.Run("principal limiter", func(t *testing.T) {
 		before := rejections(t, ratelimitmetrics.Principal)
-		other := rejections(t, ratelimitmetrics.TokenAuthFailure)
+		other := rejections(t, ratelimitmetrics.FailedAuthIP)
 		h := PrincipalRateLimit(config.RateLimitConfig{Enabled: true, RequestsPerSecond: 1, Burst: 1})(
 			http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 		refused := 0
@@ -53,11 +53,11 @@ func TestRateLimitRejectionMetric(t *testing.T) {
 		}
 		require.Positive(t, refused, "burst of 1 must refuse a rapid second request")
 		assert.Equal(t, before+float64(refused), rejections(t, ratelimitmetrics.Principal))
-		assert.Equal(t, other, rejections(t, ratelimitmetrics.TokenAuthFailure))
+		assert.Equal(t, other, rejections(t, ratelimitmetrics.FailedAuthIP))
 	})
 
 	t.Run("token auth failure limiter", func(t *testing.T) {
-		before := rejections(t, ratelimitmetrics.TokenAuthFailure)
+		before := rejections(t, ratelimitmetrics.FailedAuthIP)
 		refused := 0
 		for range tokenAuthFailureBurst + 5 {
 			if !recordTokenAuthFailure("198.51.100.99") {
@@ -65,6 +65,6 @@ func TestRateLimitRejectionMetric(t *testing.T) {
 			}
 		}
 		require.Positive(t, refused)
-		assert.Equal(t, before+float64(refused), rejections(t, ratelimitmetrics.TokenAuthFailure))
+		assert.Equal(t, before+float64(refused), rejections(t, ratelimitmetrics.FailedAuthIP))
 	})
 }

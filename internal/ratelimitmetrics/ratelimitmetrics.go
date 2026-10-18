@@ -17,10 +17,10 @@ import (
 type Limiter string
 
 const (
-	Principal            Limiter = "principal"               // HTTP per-user/machine/IP request budget
-	TokenAuthFailure     Limiter = "token_auth_failure"      // HTTP per-IP failed-token budget
-	GRPCPrincipal        Limiter = "grpc_principal"          // gRPC per-principal request budget
-	GRPCTokenAuthFailure Limiter = "grpc_token_auth_failure" // gRPC per-IP failed-token budget
+	Principal        Limiter = "principal"               // HTTP per-user/machine/IP request budget
+	FailedAuthIP     Limiter = "token_auth_failure"      // HTTP per-IP failed-token budget
+	GRPCPrincipal    Limiter = "grpc_principal"          // gRPC per-principal request budget
+	GRPCFailedAuthIP Limiter = "grpc_token_auth_failure" // gRPC per-IP failed-token budget
 )
 
 var rejectionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -30,7 +30,7 @@ var rejectionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 
 func init() {
 	// Pre-register every series so rate() and absent() see an explicit 0.
-	for _, l := range []Limiter{Principal, TokenAuthFailure, GRPCPrincipal, GRPCTokenAuthFailure} {
+	for _, l := range []Limiter{Principal, FailedAuthIP, GRPCPrincipal, GRPCFailedAuthIP} {
 		rejectionsTotal.WithLabelValues(string(l))
 	}
 }

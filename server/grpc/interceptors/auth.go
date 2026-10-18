@@ -278,7 +278,7 @@ func withAuditAttribution(ctx context.Context, userCtx *UserContext) context.Con
 // once for both RPC styles rather than needing a chain reorder on either side.
 func grpcAuthFailure(ctx context.Context) error {
 	if !recordGRPCTokenAuthFailure(PeerIP(ctx)) {
-		ratelimitmetrics.Reject(ratelimitmetrics.GRPCTokenAuthFailure)
+		ratelimitmetrics.Reject(ratelimitmetrics.GRPCFailedAuthIP)
 		return status.Error(codes.ResourceExhausted, "too many invalid token attempts")
 	}
 	return status.Errorf(codes.Unauthenticated, "Invalid or expired token")
