@@ -158,15 +158,23 @@ func (c *KeyorixCore) CreateSoDPolicy(ctx context.Context, actorID uint, name, d
 		return nil, wrapSoDPermissionDenied(fmt.Errorf("%s: %s", i18n.T("ErrorPermissionDenied", nil),
 			"only an admin-tier principal may define a SoD policy"))
 	}
-	policy, err := c.storage.CreateSoDPolicy(ctx, &models.SoDPolicy{
-		Name: name, Description: description, PermissionA: permA, PermissionB: permB,
-		CreatedBy: actorID, CreatedAt: c.now(),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-2: the policy and its sod_policy.created row commit in ONE
+	// transaction.
+	var policy *models.SoDPolicy
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if policy, err = tx.CreateSoDPolicy(ctx, &models.SoDPolicy{
+			Name: name, Description: description, PermissionA: permA, PermissionB: permB,
+			CreatedBy: actorID, CreatedAt: c.now(),
+		}); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSoDPolicyCreated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("created SoD policy %d (%q): %s + %s", policy.ID, name, permA, permB))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventSoDPolicyCreated, actorPtr(actorID), nil,
-		fmt.Sprintf("created SoD policy %d (%q): %s + %s", policy.ID, name, permA, permB))
 
 	// SOD-001: scan for principals that already hold both sides of the new policy.
 	// Violations are recorded via audit events so operators are immediately alerted;
@@ -243,12 +251,17 @@ func (c *KeyorixCore) DeleteSoDPolicy(ctx context.Context, actorID, id uint) err
 		return wrapSoDPermissionDenied(fmt.Errorf("%s: %s", i18n.T("ErrorPermissionDenied", nil),
 			"only the creating admin or an admin-tier principal may delete this SoD policy"))
 	}
-	if err := c.storage.DeleteSoDPolicy(ctx, id); err != nil {
-		return err
-	}
-	c.writeAuditEvent(ctx, EventSoDPolicyDeleted, actorPtr(actorID), nil,
-		fmt.Sprintf("deleted SoD policy %d", id))
-	return nil
+	// AUDIT-TX-2: deleting a policy loosens a preventive control (it removes no
+	// one's access), so it fails closed on audit like a grant: the delete and its
+	// sod_policy.deleted row commit together.
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteSoDPolicy(ctx, id); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSoDPolicyDeleted, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("deleted SoD policy %d", id))
+		return nil
+	})
 }
 
 // DetectSoDViolations evaluates every policy against every active principal's
