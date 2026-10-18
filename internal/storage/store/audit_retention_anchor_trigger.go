@@ -13,6 +13,10 @@
 // audit_retention_anchor row holds a v2 value and the update writes anything
 // else. The older binary's purge transaction then rolls back whole, delete
 // included: nothing is purged, nothing is lost, and the purge request fails.
+//
+// Limit: the trigger fires on UPDATE only. A DELETE of the row followed by an
+// INSERT of a v1 value bypasses it; the trigger guards the older purge's
+// update, not a writer that deletes the row first.
 // The schema-epoch floor (minCompatibleSchemaEpoch 3) keeps older binaries
 // from starting once this binary has migrated; the trigger covers the ones
 // still running until the rollout replaces them.

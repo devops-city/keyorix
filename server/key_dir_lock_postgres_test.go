@@ -207,3 +207,50 @@ func TestKeyDirLock_Database_RefusesNewDEKOverEncryptedData(t *testing.T) {
 		t.Fatalf("a DEK was written to the empty directory (stat err=%v)", err)
 	}
 }
+
+// Fresh database, no secret yet, two replicas with SEPARATE empty key directories:
+// the second must be refused before it writes any key file. The recorded DEK epoch
+// (not secret_versions) is what tells it a sibling already generated the DEK.
+func TestKeyDirLock_Database_SecondReplicaOwnEmptyDirRefusedOnFreshDatabase(t *testing.T) {
+	dsn := keyDirLockDSN(t)
+	t.Setenv("KEYORIX_MASTER_PASSWORD", "key-dir-lock-test-passphrase")
+
+	_, stopA, err := bootReplica(t, keyDirLockCfg(dsn, t.TempDir(), config.KeyDirLockDatabase))
+	if err != nil {
+		t.Fatalf("replica A: %v", err)
+	}
+	defer stopA()
+
+	ownDir := t.TempDir()
+	_, stopB, err := bootReplica(t, keyDirLockCfg(dsn, ownDir, config.KeyDirLockDatabase))
+	stopB()
+	if err == nil || !strings.Contains(err.Error(), "refusing to generate a new DEK") {
+		t.Fatalf("replica B with its own empty key directory on a fresh database: want refusal, got %v", err)
+	}
+	if entries, rerr := os.ReadDir(ownDir); rerr != nil || len(entries) != 0 {
+		t.Fatalf("replica B wrote key files before being refused: entries=%v err=%v", entries, rerr)
+	}
+}
+
+// A database-mode server records its mode where server/admin reads it for --force.
+func TestKeyDirLock_Database_RecordsModeForAdminForce(t *testing.T) {
+	dsn := keyDirLockDSN(t)
+	cfg := keyDirLockCfg(dsn, t.TempDir(), config.KeyDirLockDatabase)
+	if err := recordKeyDirLockMode(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordKeyDirLockMode(cfg); err != nil {
+		t.Fatalf("second boot must upsert, got %v", err)
+	}
+	db := openTestSecretsDBPostgres(t, dsn)
+	var got string
+	if err := db.Raw(`SELECT value FROM system_metadata WHERE "key" = ?`, config.KeyDirLockModeMetadataKey).Scan(&got).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got != config.KeyDirLockDatabase {
+		t.Fatalf("recorded mode = %q, want %q", got, config.KeyDirLockDatabase)
+	}
+	if sqlDB, e := db.DB(); e == nil {
+		_ = sqlDB.Close()
+	}
+}

@@ -556,6 +556,11 @@ database:
   marker set, so its next plain suspend made the operator and k8s-sync clear the
   synced Kubernetes copies (#3362).
 
+**There is no rollback to v0.96.x once a server of this release has started against a
+database.** The floor is recorded in the database and nothing lowers it, so a v0.96.x binary
+stays unable to start on it. To go back, restore a backup taken before the upgrade (data written
+since is lost); do not edit the epoch by hand.
+
 The floor only stops v0.96.x servers from **starting**. For v0.96.x replicas still
 running during a rolling upgrade, PostgreSQL triggers installed by the migration
 cover the same two cases. An older binary's purge over a v2 anchor is refused and

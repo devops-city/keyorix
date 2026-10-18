@@ -130,15 +130,38 @@ func loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
-// stoppedServerHint is appended to the held-lock refusal: the Docker Compose
-// sequence docs/SELF_HOSTING.md documents for running an admin command with the
-// server stopped (#2540). `exec` runs inside the live backend, so it can never work.
 // keyDirLockEmergencySQL lists the backends holding the server-presence lock
 // (internal/serverguard, key 872342) so an operator can tell live replicas from a
 // stuck connection before terminating one.
 const keyDirLockEmergencySQL = "SELECT pid, granted, mode FROM pg_locks WHERE locktype = 'advisory' AND objid = 872342; " +
 	"then, only for a connection that is not a live replica, SELECT pg_terminate_backend(<pid>)"
 
+// keyDirLockRecordedDatabase reports whether the database records a replica
+// running with storage.encryption.key_dir_lock: database
+// (config.KeyDirLockModeMetadataKey). A read that fails reports false: the
+// callers only reach it after the lock attempt failed, and an unreadable
+// database cannot be the one live replicas are using through this command.
+func keyDirLockRecordedDatabase(cfg *config.Config) bool {
+	// Only PostgreSQL deployments can run in this mode; opening anything else
+	// here could create a database file as a side effect.
+	if cfg.Storage.Type != "postgres" && cfg.Storage.Type != "postgresql" {
+		return false
+	}
+	db, err := storage.OpenGormDB(cfg)
+	if err != nil {
+		return false
+	}
+	if sqlDB, e := db.DB(); e == nil {
+		defer func() { _ = sqlDB.Close() }()
+	}
+	var mode string
+	res := db.Raw(`SELECT value FROM system_metadata WHERE "key" = ?`, config.KeyDirLockModeMetadataKey).Scan(&mode)
+	return res.Error == nil && mode == config.KeyDirLockDatabase
+}
+
+// stoppedServerHint is appended to the held-lock refusal: the Docker Compose
+// sequence docs/SELF_HOSTING.md documents for running an admin command with the
+// server stopped (#2540). `exec` runs inside the live backend, so it can never work.
 const stoppedServerHint = "With Docker Compose, run admin commands in a throwaway container while the server is stopped:\n" +
 	"  docker compose stop backend\n" +
 	"  docker compose run --rm backend ./keyorix-server admin <command>\n" +
@@ -181,7 +204,11 @@ func acquireDatabaseLock(cfg *config.Config) (*serverguard.Exclusive, error) {
 			// hold no key-directory flock, so this lock is the only thing that
 			// keeps an admin command (a DEK rotation, a restore) off the key
 			// files and data that running replicas use. --force cannot drop it.
-			if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+			// The mode comes from what the replicas recorded in the database, not
+			// only from this command's own config: an admin config that lacks
+			// key_dir_lock: database next to database-mode replicas must not
+			// bypass the refusal.
+			if cfg.Storage.Encryption.KeyDirLockIsDatabase() || keyDirLockRecordedDatabase(cfg) {
 				return nil, fmt.Errorf("could not acquire this database's exclusive lock (%v), and --force cannot override it with storage.encryption.key_dir_lock: database: running replicas hold no key-directory lock, so this lock is what keeps admin commands away from them. Stop every replica first (scale to 0); a lock left by a dead connection is released when PostgreSQL closes it (emergency SQL: %s)", err, keyDirLockEmergencySQL)
 			}
 			// single_writer: --force never runs next to a single-writer server.

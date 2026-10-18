@@ -71,13 +71,22 @@ pinned transaction (`internal/serverguard`).
 | Admin command vs admin command | `data.key.lock` | the presence lock exclusive (unchanged) |
 
 One more check, which the flock made unnecessary: **first-boot generation is refused when the
-database already holds secret versions**. With the flock, a replica that got its own empty key
-directory (a per-pod volume, or a Secret that failed to mount) could not start next to a sibling
-on the shared directory. Without the flock it could, and it would generate a second DEK. Now it
-exits with "refusing to generate a new DEK". The check looks at `secret_versions`, including
-soft-deleted rows. A database holding only encrypted MFA or dynamic-secret rows is not caught.
-[#3344](https://github.com/keyorixhq/keyorix/pull/3344)'s DEK epoch, once merged, catches every
-DEK mismatch.
+database already holds secret versions or a recorded DEK epoch**. With the flock, a replica that got
+its own empty key directory (a per-pod volume, or a Secret that failed to mount) could not start
+next to a sibling on the shared directory. Without the flock it could, and it would generate a
+second DEK. Now it exits with "refusing to generate a new DEK", before it writes any key file. The
+check looks at the `dek.epoch` row in `system_metadata` (written by the first replica's boot, so it
+also covers a fresh database with no secret yet) and at `secret_versions`, including soft-deleted
+rows. Two replicas with separate empty key directories that boot at the very same instant, before
+the first has recorded its epoch, can both generate a DEK; the DEK epoch
+([#3344](https://github.com/keyorixhq/keyorix/pull/3344)) then refuses the loser at start-up, but
+it has already written its own key files, which an operator removes.
+
+A server in this mode also records `key_dir_lock.mode = database` in `system_metadata`. `admin`
+commands read it: `--force` cannot override a held lock when the database says its replicas run
+this mode, even if the admin command's own config does not set `key_dir_lock`. The row is never
+removed automatically; if you go back to `flock`, delete it
+(`DELETE FROM system_metadata WHERE key = 'key_dir_lock.mode'`) or `--force` stays refused.
 
 The server no longer writes to the key directory after first boot, so in this mode it can be:
 
@@ -90,8 +99,7 @@ The server no longer writes to the key directory after first boot, so in this mo
   it in the Secret, and mount it read-only. `TestKeyDirLock_Database_ReadOnlyKeyDir` boots from
   a directory the server cannot write to. To rotate: scale to 0, run the rotation in a Job on a
   writable copy, update the Secret, then scale up. A replica still holding the old key set is
-  refused by #3344's epoch once that merges; until then the operator must update the Secret
-  before scaling up.
+  refused by #3344's DEK epoch, so update the Secret before scaling up.
 
 What a replica needs, by phase:
 
@@ -116,7 +124,7 @@ What a replica needs, by phase:
 - Losing the presence lock while running (a pooler or a `pg_terminate_backend`) is STORAGE-3
   item 2 (POOLER-LOCKLOSS-SESSION), which waits for #3299. Until that lands, a replica whose
   presence connection was killed keeps serving without the lock. #3344's runtime epoch poll
-  fences its writes during a rotation once that PR merges.
+  fences its writes during a rotation.
 
 ## Not chosen
 
@@ -126,7 +134,7 @@ What a replica needs, by phase:
   only the KEK comes from a Secret or KMS. This is the cleanest end state for HA. It changes the
   backup format (keys are archived next to the database today), rotation crash consistency
   (temp file + rename + redo marker) and restore, so it is a separate design.
-  **NEEDS ANDREI**: recommended as a follow-up once #3344 merges, which already puts a DEK
+  **NEEDS ANDREI**: recommended as a follow-up; #3344 (merged) already puts a DEK
   fingerprint in `system_metadata`.
 
 ## Helm (#3305)
