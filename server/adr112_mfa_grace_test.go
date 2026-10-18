@@ -18,6 +18,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core"
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -53,11 +54,7 @@ func runMFAGraceBackends(t *testing.T, fn func(t *testing.T, newCfg func() *conf
 			_ = admin.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE").Error
 			closeGormDB(admin)
 		})
-		sep := "?"
-		if strings.Contains(base, "?") {
-			sep = "&"
-		}
-		dsn := base + sep + "search_path=" + schema
+		dsn := pgdsn.PGSearchPathDSN(base, schema)
 		fn(t, func() *config.Config {
 			cfg := adr112MFAConfig(t)
 			cfg.Storage = config.StorageConfig{Type: "postgres", Database: config.DatabaseConfig{DSN: dsn}}
