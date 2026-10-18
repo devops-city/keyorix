@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/keyorixhq/keyorix/internal/config"
@@ -62,6 +63,56 @@ func initializeKeysUnderDatabaseLock(cfg *config.Config, svc *encryption.Service
 	})
 }
 
+// initializeKeysAndStartEpochGuard runs boot (crash recovery and Initialize; it
+// returns the database handle the guard keeps, nil for remote storage) and then
+// starts the cross-replica DEK epoch guard on that handle (#3337,
+// internal/encryption/dek_epoch.go): refuse to start when this server's DEK is
+// not the DEK the database is encrypted under, and refuse encrypted writes later
+// while a rotation fences them.
+//
+// Both run under the key lock: the flock main() already holds, or with
+// key_dir_lock: database the key-initialisation advisory lock. There the order
+// matters: the first replica seeds the DEK epoch before it releases the lock,
+// so a sibling with its own empty key directory that was waiting on the lock
+// finds the epoch and is refused before it writes any key file
+// (refuseKeyGenerationOverEncryptedData). Seeding after the release left a
+// window in which that sibling generated a second DEK.
+func initializeKeysAndStartEpochGuard(cfg *config.Config, svc *encryption.Service, boot func() (*gorm.DB, error)) error {
+	run := func() error {
+		keyDB, err := boot()
+		if err != nil {
+			return err
+		}
+		return startDEKEpochGuard(svc, keyDB)
+	}
+	if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		return initializeKeysUnderDatabaseLock(cfg, svc, run)
+	}
+	return run()
+}
+
+// startDEKEpochGuard starts svc's DEK epoch guard on keyDB. PostgreSQL only:
+// the guard keeps keyDB (one connection) and closes it on Shutdown. On SQLite
+// it is a no-op and keyDB is closed here.
+func startDEKEpochGuard(svc *encryption.Service, keyDB *gorm.DB) error {
+	if keyDB == nil {
+		return nil
+	}
+	if sqlDB, e := keyDB.DB(); e == nil {
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+	}
+	if err := svc.StartDEKEpochGuard(keyDB, func() { closeGormDB(keyDB) }); err != nil {
+		closeGormDB(keyDB)
+		svc.Shutdown()
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	if !svc.DEKEpochGuardRunning() {
+		closeGormDB(keyDB)
+	}
+	return nil
+}
+
 // recordKeyDirLockMode writes the database-mode marker server/admin reads to
 // refuse --force (config.KeyDirLockModeMetadataKey). Only database-mode servers
 // call it; a failure is fatal for the boot, because an unrecorded database-mode
@@ -91,9 +142,9 @@ func recordKeyDirLockMode(cfg *config.Config) error {
 // also catches a deployment with no secret yet), and secret_versions, where
 // every secret value lives. A database with encrypted MFA or dynamic-secret rows
 // but neither is not caught. Two replicas with separate empty key directories
-// booting at the same instant, before the first has recorded its epoch, are
-// still only stopped by the epoch guard (StartDEKEpochGuard) after the loser
-// wrote its key files.
+// booting at the same instant are covered too: the winner seeds the epoch
+// before it releases the key-initialisation lock
+// (initializeKeysAndStartEpochGuard), and this check runs under that lock.
 func refuseKeyGenerationOverEncryptedData(cfg *config.Config) error {
 	db, err := appstorage.OpenGormDB(cfg)
 	if err != nil {

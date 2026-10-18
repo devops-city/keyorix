@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/encryption"
@@ -252,5 +253,94 @@ func TestKeyDirLock_Database_RecordsModeForAdminForce(t *testing.T) {
 	}
 	if sqlDB, e := db.DB(); e == nil {
 		_ = sqlDB.Close()
+	}
+}
+
+// Concurrent start (HA-READY-1 review (b)): two replicas, each with its OWN empty
+// key directory, start together on one fresh database. Only one may generate the
+// DEK; the other must be refused before it writes a key file. The first seeds the
+// DEK epoch before it releases the key-initialisation lock
+// (initializeKeysAndStartEpochGuard), so the second, waiting on that lock, finds
+// the epoch.
+//
+// The interleaving is forced, not left to timing: the test holds system_metadata
+// in SHARE mode, which blocks the epoch INSERT but not the reads, so replica A
+// stops exactly at its epoch seed while replica B is already starting. With the
+// seed inside the lock, B waits on the lock meanwhile. With the seed after the
+// release (the defect), B takes the lock, finds no epoch and writes a second DEK
+// into its own directory while A is still blocked; that is what the test catches.
+func TestKeyDirLock_Database_ConcurrentStartOwnEmptyDirsSeedsEpochUnderLock(t *testing.T) {
+	dsn := keyDirLockDSN(t)
+	t.Setenv("KEYORIX_MASTER_PASSWORD", "key-dir-lock-test-passphrase")
+	dirA, dirB := t.TempDir(), t.TempDir()
+
+	db := openTestSecretsDBPostgres(t, dsn)
+	defer func() {
+		if sqlDB, e := db.DB(); e == nil {
+			_ = sqlDB.Close()
+		}
+	}()
+	hold := db.Begin()
+	if err := hold.Exec("LOCK TABLE system_metadata IN SHARE MODE").Error; err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_ = hold.Rollback().Error
+		}
+	}
+	defer release()
+
+	type result struct {
+		stop func()
+		err  error
+	}
+	boot := func(dir string) chan result {
+		ch := make(chan result, 1)
+		go func() {
+			_, stop, err := bootReplica(t, keyDirLockCfg(dsn, dir, config.KeyDirLockDatabase))
+			ch <- result{stop, err}
+		}()
+		return ch
+	}
+	nonEmpty := func(dir string) bool {
+		entries, err := os.ReadDir(dir)
+		return err == nil && len(entries) > 0
+	}
+	waitFor := func(d time.Duration, cond func() bool) bool {
+		for deadline := time.Now().Add(d); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if cond() {
+				return true
+			}
+		}
+		return cond()
+	}
+
+	chA := boot(dirA)
+	if !waitFor(30*time.Second, func() bool { return nonEmpty(dirA) }) {
+		release()
+		t.Fatalf("replica A wrote no key files: %v", (<-chA).err)
+	}
+	// A has generated its keys and is about to seed (or blocked seeding) the epoch.
+	chB := boot(dirB)
+	// Several key-initialisation lock polls: long enough for B to take the lock if
+	// A had released it.
+	wroteEarly := waitFor(2*time.Second, func() bool { return nonEmpty(dirB) })
+	release()
+
+	resA, resB := <-chA, <-chB
+	resA.stop()
+	resB.stop()
+	if resA.err != nil {
+		t.Fatalf("replica A: %v", resA.err)
+	}
+	if wroteEarly || nonEmpty(dirB) {
+		entries, _ := os.ReadDir(dirB)
+		t.Fatalf("replica B generated its own key files while replica A had not yet recorded the DEK epoch (two DEKs for one deployment): entries=%v, B err=%v", entries, resB.err)
+	}
+	if resB.err == nil || !strings.Contains(resB.err.Error(), "refusing to generate a new DEK") {
+		t.Fatalf("replica B with its own empty key directory: want the new-DEK refusal, got %v", resB.err)
 	}
 }

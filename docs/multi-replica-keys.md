@@ -77,14 +77,17 @@ next to a sibling on the shared directory. Without the flock it could, and it wo
 second DEK. Now it exits with "refusing to generate a new DEK", before it writes any key file. The
 check looks at the `dek.epoch` row in `system_metadata` (written by the first replica's boot, so it
 also covers a fresh database with no secret yet) and at `secret_versions`, including soft-deleted
-rows. Two replicas with separate empty key directories that boot at the very same instant, before
-the first has recorded its epoch, can both generate a DEK; the DEK epoch
-([#3344](https://github.com/keyorixhq/keyorix/pull/3344)) then refuses the loser at start-up, but
-it has already written its own key files, which an operator removes.
+rows. Two replicas with separate empty key directories that boot at the very same instant are
+covered as well: the first records the DEK epoch
+([#3344](https://github.com/keyorixhq/keyorix/pull/3344)) before it releases the
+key-initialisation lock, so the second, which waits on that lock, finds the epoch and is refused
+before it writes any key file (`TestKeyDirLock_Database_ConcurrentStartOwnEmptyDirsSeedsEpochUnderLock`).
 
 A server in this mode also records `key_dir_lock.mode = database` in `system_metadata`. `admin`
 commands read it: `--force` cannot override a held lock when the database says its replicas run
-this mode, even if the admin command's own config does not set `key_dir_lock`. The row is never
+this mode, even if the admin command's own config does not set `key_dir_lock`. On PostgreSQL,
+`--force` is also refused when the row cannot be read (the database cannot be opened, or the query
+fails): an unverified record is treated as database mode. The row is never
 removed automatically; if you go back to `flock`, delete it
 (`DELETE FROM system_metadata WHERE key = 'key_dir_lock.mode'`) or `--force` stays refused.
 
