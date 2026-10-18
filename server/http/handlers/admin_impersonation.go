@@ -120,6 +120,12 @@ func (h *ImpersonationHandler) Start(w http.ResponseWriter, r *http.Request) {
 // (routing to a fresh login) when it's not — e.g. the admin's own session
 // expired, or was revoked, while they were impersonating.
 func (h *ImpersonationHandler) End(w http.ResponseWriter, r *http.Request) {
+	// A machine bearer is not a session: without this guard EndImpersonation's
+	// "session not found" surfaced as a 500.
+	if isMachineActor(r) {
+		sendError(w, "Forbidden", errUserOnlyEndpoint, http.StatusForbidden, nil)
+		return
+	}
 	token := extractBearerToken(r)
 	if token == "" {
 		sendError(w, "BadRequest", "Missing authorization token", http.StatusBadRequest, nil)

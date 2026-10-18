@@ -3,6 +3,7 @@ package solewriter
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -102,6 +103,18 @@ func (g *Guard) pollOnce(ctx context.Context) {
 	// this instant, so a slow poll cannot stretch trust past LeaseDuration
 	// after the last thing actually seen.
 	sentMono, sentWall := g.opts.Now(), g.opts.Wall().Round(0)
+	// The canary's account of this process's own writes is read before the
+	// statement too, for the same reason: the statement sees the epoch as of
+	// its snapshot, and a commit counted after that (while the answer is on
+	// its way) belongs to the next poll, which is the one that sees its move.
+	// Read after the answer, such a commit explained this poll (which saw no
+	// move) and left the next poll's move unexplained: a false alarm, and the
+	// second one leaves the authoritative state (FLAKE-SOLEWRITER-1). Inflight
+	// first: a writer counts its commit before it lowers Inflight.
+	var own ownWrites
+	if g.tracker != nil {
+		own = ownWrites{inflight: g.tracker.Inflight(), commits: g.tracker.commits.Load()}
+	}
 	var err error
 	if !g.pollArmed {
 		if _, err = g.conn.ExecContext(pctx, fmt.Sprintf("SET statement_timeout = %d", pollStatementTimeout.Milliseconds())); err == nil {
@@ -116,6 +129,9 @@ func (g *Guard) pollOnce(ctx context.Context) {
   `+holder("holder_pid")+`, `+holder("nonce_hash")+`, `+holder("xmin::text")+`,
   e.incarnation, e.n, e.xmin::text, (`+fingerprintSQL+`)
 FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTableNames()).Scan(&pid, &held, &holderPID, &holderHash, &holderXmin, &incarnation, &epoch, &epochXmin, &fp)
+		if pollAnsweredHook != nil {
+			pollAnsweredHook()
+		}
 	}
 	if err != nil {
 		// A statement error on a live session (a timeout) only lets the
@@ -133,6 +149,7 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 			// (system.write only).
 			logf("holder lock lost: %v", err)
 			g.leaveLocked(lockSessionGone)
+			g.lockLost(fmt.Errorf("the holder session is gone: %w", pingErr))
 		}
 		return
 	}
@@ -142,6 +159,7 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	switch {
 	case pid != g.pid || !held:
 		reason = fmt.Sprintf("holder lock lost (connection backend pid %d, was %d, held=%v)", pid, g.pid, held)
+		g.lockLost(errors.New(reason))
 	case holderPID.Int64 != int64(g.pid) || holderHash.String != nonceHash(g.nonce) || holderXmin.String != g.holderXmin:
 		// Only a session that passed the fence (one with the holder's tag) can
 		// write the row; this boot never rewrites it. A different pid or hash
@@ -176,7 +194,7 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	// UPDATE of the row gives it a new xmin, and no SQL can set an old one
 	// back, so a changed xmin is a write even when n reads as before.
 	changed := epoch != g.epoch || epochXmin != g.epochXmin
-	g.canaryLocked(changed)
+	g.canaryLocked(changed, own)
 	if changed && g.tracker != nil {
 		// Every epoch move invalidates every entry, explained or not. The
 		// fence lets a session with a copied tag write, and its move can share
@@ -207,10 +225,22 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 	}
 }
 
-// canaryLocked accounts an epoch move to this process's own fenced commits.
-// The epoch is bumped inside a writer's commit and the tracker counts the
-// commit right after it returns, so a move is only called unattributed when
-// the following poll still finds no commit (and none in flight) to explain it.
+// ownWrites is the tracker's account of this process's fenced writes, read
+// just before a poll's statement is sent.
+type ownWrites struct {
+	inflight int64
+	commits  uint64
+}
+
+// pollAnsweredHook, when set (tests only), runs in pollOnce right after the
+// poll's statement has been answered, before the answer is evaluated.
+var pollAnsweredHook func()
+
+// canaryLocked accounts an epoch move to this process's own fenced commits,
+// as counted before the poll that saw the move was sent (own). The epoch is
+// bumped inside a writer's commit and the tracker counts the commit right
+// after it returns, so a move is only called unattributed when the following
+// poll still finds no commit (and none in flight) to explain it.
 // Every in-process write is supposed to be seen by the tracker and every
 // foreign one refused by the fence, so an unattributed move means one of the
 // two missed a write: say so loudly.
@@ -218,13 +248,12 @@ FROM `+qualify(g.schema, EpochTable)+` e WHERE e.id = 1`, g.schema, coveredTable
 // It is an alarm, not a guard: pollOnce already flushed every entry on the
 // move itself. It undercounts by design: a foreign move that shares a poll
 // window with one of this server's commits counts as explained.
-func (g *Guard) canaryLocked(changed bool) {
+func (g *Guard) canaryLocked(changed bool, own ownWrites) {
 	if g.tracker == nil {
 		return
 	}
-	commits := g.tracker.commits.Load()
-	explained := commits != g.lastCommits || g.tracker.Inflight() > 0
-	g.lastCommits = commits
+	explained := own.commits != g.lastCommits || own.inflight > 0
+	g.lastCommits = own.commits
 	switch {
 	case changed && !explained:
 		if g.unexplained {
@@ -360,8 +389,9 @@ type Status struct {
 
 // EmergencySQL is the documented two-step for an emergency change made
 // directly in the database while the server runs.
-const EmergencySQL = "SELECT pg_terminate_backend(holder_pid) FROM " + HolderTable + "; then run the change. " +
-	"The server stops trusting its caches within 1 s and does not resume until it is restarted."
+const EmergencySQL = "SELECT pg_terminate_backend(holder_pid) FROM " + HolderTable + "; then run the change, in the same psql call. " +
+	"The server stops trusting its caches within 1 s, shuts down and exits 1 (its lock is gone); " +
+	"its supervisor restarts it, which closes the fence again."
 
 // Status snapshots the guard.
 func (g *Guard) Status() Status {

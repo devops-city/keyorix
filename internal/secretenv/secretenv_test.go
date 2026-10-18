@@ -207,16 +207,18 @@ func TestCheckPermissions(t *testing.T) {
 	}
 }
 
-// asOrchestratorMount makes the test file look foreign-owned: the running
-// "user" is someone else, and the file's group is one the process holds (or not).
+// asOrchestratorMount makes the test file look like an orchestrator mount: owned
+// by root (the kubelet, Docker Swarm), the running "user" is someone else, and
+// the file's group is one the process holds (or not).
 func asOrchestratorMount(t *testing.T, path string, holdsGroup bool) {
 	t.Helper()
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	st := info.Sys().(*syscall.Stat_t)
-	oldUID, oldGroups := processUID, processGroups
-	t.Cleanup(func() { processUID, processGroups = oldUID, oldGroups })
-	processUID = func() int { return int(st.Uid) + 1 }
+	oldUID, oldGroups, oldOwner := processUID, processGroups, fileOwner
+	t.Cleanup(func() { processUID, processGroups, fileOwner = oldUID, oldGroups, oldOwner })
+	fileOwner = func(os.FileInfo) (int, int, bool) { return 0, int(st.Gid), true }
+	processUID = func() int { return 1001 }
 	processGroups = func() []int {
 		if holdsGroup {
 			return []int{int(st.Gid)}

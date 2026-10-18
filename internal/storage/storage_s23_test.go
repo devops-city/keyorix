@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -19,7 +20,7 @@ import (
 // (file:name?mode=memory&cache=shared) gets the pragmas appended via "&"
 // (not "?") because the path already contains "?".
 func TestSQLiteDSN_S23_InMemoryPath(t *testing.T) {
-	dsn := sqliteDSN("file:TestFoo?mode=memory&cache=shared")
+	dsn := sqliteDSN(sqlitetest.DSN("s23inmem_"))
 	assert.Contains(t, dsn, "_foreign_keys=1")
 	assert.Contains(t, dsn, "_busy_timeout=10000")
 	assert.Contains(t, dsn, "_journal_mode=WAL")

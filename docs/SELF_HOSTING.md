@@ -5,6 +5,10 @@ outbound telemetry. This guide covers a Docker Compose deployment (web UI + API
 server + PostgreSQL), the production concerns that actually matter (encryption
 keys, backups, upgrades, TLS), and how to recover.
 
+If the server refuses to start (a configuration error, a key-file permission, a schema
+epoch newer than the binary, a lock held by another process), the message and the fix
+are in [operator/startup-refusals.md](operator/startup-refusals.md).
+
 The stack is three containers:
 
 | Service    | Image                              | Purpose                                  |
@@ -136,14 +140,20 @@ Non-secret settings stay in `.env`: `KEYORIX_ADMIN_USERNAME` (default `admin`),
 `uid`/`gid`/`mode` (it warns "not supported"), so a `0600` file on the host would be
 unreadable by the containers' non-root users. `init-secrets.sh` writes the files
 `0640` with your primary group and records that gid as `KEYORIX_SECRETS_GID`; the
-`postgres` and `backend` containers join that group. Nothing is world-readable, and
-the server's secret-file permission check (nothing for "other", no group write; a
-group-readable file must not be owned by the container's own user) passes. Run the
-script as a regular user, not root. If your uid is `1001` (the uid the server
-container runs as) the server would refuse the group-readable files it "owns", and the
-script says so: hand them to another owner with `sudo chown root:<your gid> secrets/*`
-and re-run it. Docker Desktop (macOS/Windows) maps file ownership
-differently; this layout is for Linux hosts.
+`postgres` and `backend` containers join that group. Nothing is world-readable. The
+server's secret-file check also asks who owns each file (#3393): only root or the
+server's own uid is trusted, because the owner can rewrite the file. So, after running
+the script as a regular user, hand the files to root, keeping your group:
+
+```sh
+sudo chown root:<your gid> secrets/*
+```
+
+The script prints this command with your gid filled in. Until you run it, the backend
+refuses to start and names each file and its owner uid. If your uid is `1001` (the uid
+the server container runs as), the script refuses outright: the server would also
+refuse a group-readable file it owns. Docker Desktop (macOS/Windows) maps file
+ownership differently; this layout is for Linux hosts.
 
 **Upgrading an install that keeps its passwords in `.env`:**
 
@@ -161,9 +171,9 @@ your stored secrets decryptable and the existing `postgres_data` volume working.
 set `KEYORIX_<NAME>_FILE` to a path (Docker secrets mount under `/run/secrets/`, a
 Kubernetes Secret volume wherever you mount it). Setting both `X` and `X_FILE` is a
 startup error, not a precedence rule, and an unreadable or empty file stops the server.
-The master-password file must be `0600`/`0400` (or a `0440` mount owned by another user,
-e.g. root, in a group the container holds -- Kubernetes `fsGroup`, Docker `group_add`);
-a looser one is refused. The container entrypoint passes `X_FILE` through to the server
+The master-password file must be `0600`/`0400` (or a `0440` mount owned by root in a
+group the container holds -- Kubernetes `fsGroup`, Docker `group_add`) and owned by the
+server's user or root; anything else is refused. The container entrypoint passes `X_FILE` through to the server
 unchanged and never exports a value it read from a file. Details and the full list of
 supported variables: [CONFIGURATION.md](CONFIGURATION.md#secrets-from-files-name_file).
 

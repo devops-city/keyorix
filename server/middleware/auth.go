@@ -42,7 +42,7 @@ type sessionValidator interface {
 	ValidateSessionToken(ctx context.Context, token string) (*models.User, []string, error)
 	ValidatePATToken(ctx context.Context, token string) (*models.User, []string, *core.PATRestriction, uint, error)
 	ValidateMachineToken(ctx context.Context, token string) (*models.MachineIdentity, []string, *core.MachineTokenRestriction, uint, error)
-	ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, error)
+	ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, time.Time, error)
 	OIDCEnabled() bool
 }
 
@@ -118,6 +118,14 @@ type UserContext struct {
 	// non-machine principal) — the machine-token sibling of patID, same #G60
 	// rationale and same handleAuthRequest post-check touch.
 	machineCredID uint `json:"-"`
+	// oidcExp is the federated JWT's own exp (zero for any other principal).
+	// handleAuthRequest clamps the positive auth-cache entry to it
+	// (OIDC-EXPIRY-CAP-1); the cache-hit path never re-verifies the JWT.
+	oidcExp time.Time `json:"-"`
+	// fromOIDC marks a principal resolved from a federated JWT, so a zero oidcExp
+	// (a validator that failed to report one) fails closed (uncached) rather than
+	// reading as "not an OIDC principal".
+	fromOIDC bool `json:"-"`
 }
 
 // cloneUserContextWithRestriction returns a shallow copy of base with
@@ -193,6 +201,11 @@ const (
 
 	// TTL for valid token cache entries (session is trusted for this window).
 	validTokenTTL = 30 * time.Second
+	// oidcCacheSkew: a federated JWT with less than this left before its exp is
+	// never positively cached (OIDC-EXPIRY-CAP-1) — the entry would be clamped to
+	// a sliver anyway, and a clock a few seconds off must not turn it into a hit
+	// served past exp.
+	oidcCacheSkew = 5 * time.Second
 	// TTL for negative cache entries (stale/invalid tokens — MCP storm fix).
 	// Short enough that a legitimately re-issued token works after ~10s.
 	invalidTokenTTL = 10 * time.Second
@@ -472,8 +485,23 @@ func handleAuthRequest(next http.Handler, w http.ResponseWriter, r *http.Request
 		cacheExpiry = clampCacheExpiry(cacheExpiry, facts.EffectiveExpiry)
 	}
 
+	// Federated JWT: the cache-hit path never re-verifies the token, so the entry
+	// must not outlive its exp (OIDC-EXPIRY-CAP-1). A token already expired, or
+	// within oidcCacheSkew of expiring, is served this once but never cached: the
+	// next request re-verifies it on the slow path.
+	cacheable := true
+	if userCtx.fromOIDC {
+		if !userCtx.oidcExp.After(time.Now().Add(oidcCacheSkew)) {
+			cacheable = false
+		} else {
+			cacheExpiry = clampCacheExpiry(cacheExpiry, &userCtx.oidcExp)
+		}
+	}
+
 	// Cache the positive result (race-safe: dropped if revoked mid-validation).
-	cacheSetValidatedGen(key, userCtx, validatedAt, validatedGen, cacheExpiry)
+	if cacheable {
+		cacheSetValidatedGen(key, userCtx, validatedAt, validatedGen, cacheExpiry)
+	}
 
 	if !tokenNetworkAllowed(r, userCtx) {
 		forbiddenResponse(w, "token not permitted from this network")
@@ -547,12 +575,21 @@ func isTransientValidationError(ctx context.Context, err error) bool {
 // validTokenTTL after an admin's suspend/revoke/restrict (or a session-specific
 // revocation) should have taken effect immediately, matching every other
 // credential-state check in this file. A DEFINITIVE revocation signal
-// (revoked/expired/inactive/session-gone) denies the request and evicts the
-// cache entry outright; an INDETERMINATE one (a transient storage error)
-// degrades to the cached snapshot rather than fail-opening or fail-closing on
-// a blip — same philosophy #146 established. See SessionLiveForToken's own
-// doc comment for why "storage.type: remote has no GetSessionByID" is not a
-// live deployment concern here (ADR-083).
+// (revoked/expired/inactive/session-gone/account-gone) denies the request and
+// evicts the cache entry outright (INV-MW-05). An INDETERMINATE one (the
+// re-read itself failed: a storage error, not a verdict) FAILS CLOSED
+// (CACHE-FAILCLOSED-1, INV-MW-cache-hit-recheck-fails-closed): the request is
+// refused with the same 503 + Retry-After the slow path gives a transient
+// validation failure, and the entry is kept, so the next request after the
+// database recovers is a cheap cache hit again rather than a full slow-path
+// re-validation. It used to degrade to the cached snapshot for up to
+// validTokenTTL (#146's philosophy, kept for availability), which meant the
+// very read that would have seen a revocation could fail and the request was
+// authenticated anyway. A federated OIDC principal (a machine identity behind
+// a non-kx_ JWT) re-checks its identity's state (CurrentFederatedMachineState)
+// with the same split. See SessionLiveForToken's own doc comment for why
+// "storage.type: remote has no GetSessionByID" is not a live deployment
+// concern here (ADR-083).
 func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request, token string, entry tokenCacheEntry, coreService *core.KeyorixCore) {
 	if entry.userCtx == nil {
 		// Negative cache — known bad token, skip DB entirely.
@@ -568,9 +605,11 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 			case errors.Is(err, core.ErrPATRevoked) || errors.Is(err, core.ErrPATExpired):
 				denyRevokedCacheHit(w, token)
 				return
-			case err == nil:
-				effective = cloneUserContextWithRestriction(entry.userCtx, fresh)
+			case err != nil:
+				refuseUnverifiedCacheHit(w)
+				return
 			}
+			effective = cloneUserContextWithRestriction(entry.userCtx, fresh)
 		case strings.HasPrefix(token, machineTokenPrefix):
 			// PERF-LEVER2: the same re-check, asked to read the requested
 			// secret's node in its statement too (credential_read_fold.go).
@@ -598,8 +637,26 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 				errors.Is(err, core.ErrMachineIdentityNotActive):
 				denyRevokedCacheHit(w, token)
 				return
-			case err == nil:
-				effective = cloneUserContextWithMachineRestriction(entry.userCtx, fresh)
+			case err != nil:
+				refuseUnverifiedCacheHit(w)
+				return
+			}
+			effective = cloneUserContextWithMachineRestriction(entry.userCtx, fresh)
+		case entry.userCtx.MachineIdentityID != nil:
+			// A federated OIDC / Kubernetes-JWT principal (ADR-031): a machine
+			// identity with no Keyorix credential row and no owning user, so
+			// neither the branch above nor the account/session re-read below
+			// applies (the latter used to run for user id 0, always failed,
+			// and so always served the cached principal). Its identity's
+			// state is the revocation signal.
+			err := coreService.CurrentFederatedMachineState(r.Context(), *entry.userCtx.MachineIdentityID)
+			switch {
+			case errors.Is(err, core.ErrMachineIdentityNotActive):
+				denyRevokedCacheHit(w, token)
+				return
+			case err != nil:
+				refuseUnverifiedCacheHit(w)
+				return
 			}
 		default:
 			// One storage statement answers both re-reads below (PERF-FIX-7):
@@ -608,29 +665,34 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 			// half keeps its own verdict and error contract, judged in the
 			// same order as when they were two calls.
 			live := coreService.SessionCacheHitLiveness(r.Context(), entry.userCtx.UserID, entry.userCtx.SessionID, token)
-			if usable, state, err := live.AccountUsable, live.AccountState, live.AccountErr; err == nil {
-				if !usable {
-					denyRevokedCacheHit(w, token)
-					return
-				}
-				// Refresh AccountState/Restricted from this SAME fresh read on every
-				// hit, not just the outright-deny boolean — a transition into a
-				// restricted-but-not-login-blocked state (pending_first_login /
-				// password_reset_required) must not keep serving the pre-transition
-				// Restricted=false on a cache hit. See AccountUsabilityAndState's doc
-				// comment for why this is the same race shape SessionLiveForToken
-				// closes, not just a bounded-TTL lag.
-				effective = cloneUserContextWithAccountState(entry.userCtx, state)
-			}
-			// entry.userCtx.SessionID is nil for a cache entry filled before this
-			// check existed (a rolling deploy) or when the slow-path secondary
-			// lookup itself failed (see handleAuthRequest's #G18 comment) — skip
-			// rather than deny, which is exactly pre-fix behavior for that entry,
-			// not a new failure mode.
-			if live.SessionChecked && live.SessionErr == nil && !live.SessionLive {
+			// Definitive verdicts first, from whichever half could be read: an
+			// account that is gone or no longer usable, or a session row that is
+			// definitively not live, denies and evicts even when the other half's
+			// read failed. entry.userCtx.SessionID is nil for a cache entry filled
+			// before the liveness check existed (a rolling deploy) — skip that
+			// half rather than deny, which is exactly pre-fix behavior for that
+			// entry, not a new failure mode.
+			accountGone := live.AccountErr != nil && storage.IsUserNotFound(live.AccountErr)
+			accountUnusable := live.AccountErr == nil && !live.AccountUsable
+			sessionGone := live.SessionChecked && live.SessionErr == nil && !live.SessionLive
+			if accountGone || accountUnusable || sessionGone {
 				denyRevokedCacheHit(w, token)
 				return
 			}
+			// Then any failed read refuses (CACHE-FAILCLOSED-1): neither the
+			// account's usability nor the session's liveness is known.
+			if live.AccountErr != nil || (live.SessionChecked && live.SessionErr != nil) {
+				refuseUnverifiedCacheHit(w)
+				return
+			}
+			// Refresh AccountState/Restricted from this SAME fresh read on every
+			// hit, not just the outright-deny boolean — a transition into a
+			// restricted-but-not-login-blocked state (pending_first_login /
+			// password_reset_required) must not keep serving the pre-transition
+			// Restricted=false on a cache hit. See AccountUsabilityAndState's doc
+			// comment for why this is the same race shape SessionLiveForToken
+			// closes, not just a bounded-TTL lag.
+			effective = cloneUserContextWithAccountState(entry.userCtx, live.AccountState)
 		}
 	}
 	// The network allowlist is per-request (the same token may arrive from a
@@ -657,6 +719,17 @@ func serveAuthCacheHit(next http.Handler, w http.ResponseWriter, r *http.Request
 func denyRevokedCacheHit(w http.ResponseWriter, token string) {
 	InvalidateTokenCacheByHash(tokenKey(token))
 	unauthorizedResponse(w, "Invalid or expired token")
+}
+
+// refuseUnverifiedCacheHit rejects a cache-hit request whose live re-check
+// could not be completed (a storage error, not a verdict on the credential):
+// the same 503 + Retry-After and fixed message the slow path gives a transient
+// validation failure, never the error text. It neither evicts the entry (the
+// credential may be fine; the next hit after recovery stays cheap) nor counts
+// against the per-IP failed-auth budget (a shared outage is not brute force).
+// CACHE-FAILCLOSED-1: this used to serve the cached principal instead.
+func refuseUnverifiedCacheHit(w http.ResponseWriter) {
+	serviceUnavailableResponse(w, "authentication temporarily unavailable, please retry")
 }
 
 // extractRequestToken returns the token to validate for this request, preferring
@@ -1656,7 +1729,7 @@ func validateToken(ctx context.Context, validator sessionValidator, token string
 	// machine identity. A JWT is a three-segment dotted token and is not one of
 	// the kx_ prefixes; only attempt it when OIDC is configured.
 	if validator.OIDCEnabled() && looksLikeJWT(token) {
-		m, roleNames, err := validator.ValidateOIDCToken(ctx, token)
+		m, roleNames, exp, err := validator.ValidateOIDCToken(ctx, token)
 		if err != nil {
 			// The detailed reason (untrusted issuer, unreachable JWKS, bad
 			// signature, expired, ...) must never reach the caller — the
@@ -1687,7 +1760,10 @@ func validateToken(ctx context.Context, validator sessionValidator, token string
 				boundedForLog(issuer), boundedForLog(kid), boundedForLog(err.Error()))
 			return nil, err
 		}
-		return machineUserContext(m, roleNames, nil, 0), nil
+		uc := machineUserContext(m, roleNames, nil, 0)
+		uc.oidcExp = exp
+		uc.fromOIDC = true
+		return uc, nil
 	}
 
 	// Route by prefix: PATs authenticate AS their owning user, resolving to the same

@@ -562,6 +562,9 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 
 	var patHashes []string
 	var updated *models.User
+	// Cleanup errors recorded inside the deactivating transaction and audited
+	// after it commits (DEADLOCK-SHAPE-1: no c.storage/audit call in the closure).
+	var cleanupPatErr, cleanupSessionErr error
 	switch {
 	case deactivating:
 		// req.IsActive != nil is implied here (deactivating can only be true if
@@ -626,19 +629,26 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 				// orphaned-row hygiene and forensic noise, not a live credential,
 				// which is why this is audited (right below) rather than merely
 				// swallowed.
-				if patErr != nil || sessionErr != nil {
-					// nil actor: UpdateUser (unlike DeleteUser/SetAccountState) takes
-					// no actorID parameter at all -- a pre-existing gap in this
-					// function's own signature, not something this fix should
-					// silently paper over with a fabricated attribution.
-					c.writeAuditEventFailed(ctx, EventUserDeactivationCleanupFailed, nil, nil, "",
-						fmt.Sprintf("user %d deactivated, but credential cleanup was incomplete (pat_error=%v, session_error=%v) -- "+
-							"the account is already login-blocked regardless, but a stale row may remain until its own expiry",
-							req.ID, patErr, sessionErr))
-				}
+				//
+				// The audit event is NOT written here: c.storage inside this closure
+				// is a second writer behind the write gate this transaction holds
+				// (a self-deadlock on SQLite), and a row written there would not
+				// belong to the transaction either. The errors are recorded and the
+				// event is written after the commit, below.
+				cleanupPatErr, cleanupSessionErr = patErr, sessionErr
 				return nil
 			})
 		})
+		if err == nil && (cleanupPatErr != nil || cleanupSessionErr != nil) {
+			// nil actor: UpdateUser (unlike DeleteUser/SetAccountState) takes
+			// no actorID parameter at all -- a pre-existing gap in this
+			// function's own signature, not something this fix should
+			// silently paper over with a fabricated attribution.
+			c.writeAuditEventFailed(ctx, EventUserDeactivationCleanupFailed, nil, nil, "",
+				fmt.Sprintf("user %d deactivated, but credential cleanup was incomplete (pat_error=%v, session_error=%v) -- "+
+					"the account is already login-blocked regardless, but a stale row may remain until its own expiry",
+					req.ID, cleanupPatErr, cleanupSessionErr))
+		}
 	case req.IsActive != nil:
 		// Not deactivating (either re-activating, or a redundant "set to the same
 		// value" call) but the request still explicitly asserts IsActive — same

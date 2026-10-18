@@ -17,6 +17,11 @@ import (
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
+// errNotificationsUserOnly: a notification belongs to a user; a machine identity
+// (UserID 0, ADR-030) has none, so the mark-read writes refuse it rather than
+// answering 200/404 for a feed that cannot exist.
+const errNotificationsUserOnly = "This endpoint is only available to user accounts"
+
 // NotificationHandler serves the authenticated user's notifications.
 type NotificationHandler struct {
 	coreService *core.KeyorixCore
@@ -85,6 +90,10 @@ func (h *NotificationHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
 		return
 	}
+	if isMachineActor(r) {
+		sendError(w, "Forbidden", errNotificationsUserOnly, http.StatusForbidden, nil)
+		return
+	}
 	id, ok := parseUintParam(w, r, "id")
 	if !ok {
 		return
@@ -106,6 +115,10 @@ func (h *NotificationHandler) MarkAllRead(w http.ResponseWriter, r *http.Request
 	u := middleware.GetUserFromContext(r.Context())
 	if u == nil {
 		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+		return
+	}
+	if isMachineActor(r) {
+		sendError(w, "Forbidden", errNotificationsUserOnly, http.StatusForbidden, nil)
 		return
 	}
 	if err := h.coreService.MarkAllNotificationsRead(r.Context(), u.UserID); err != nil {

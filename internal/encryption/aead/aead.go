@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -44,6 +45,12 @@ type EncryptionService struct {
 	// sustained write volume past the threshold logs it exactly once rather
 	// than on every subsequent call.
 	nonceBudgetWarned atomic.Bool
+
+	// wiped latches in WipeDEK. gcm holds its own expanded AES key schedule
+	// (crypto/aes has no way to zero it), so zeroing dek alone left a wiped
+	// service fully able to encrypt and decrypt under the superseded key; every
+	// operation checks this first and returns ErrDEKWiped instead.
+	wiped atomic.Bool
 }
 
 // checkNonceBudget increments the per-DEK encryption counter and, the first time it
@@ -57,11 +64,19 @@ func (es *EncryptionService) checkNonceBudget() {
 	}
 }
 
+// ErrDEKWiped is returned by every operation on an EncryptionService after
+// WipeDEK has run on it.
+var ErrDEKWiped = errors.New("encryption service DEK has been wiped")
+
 // WipeDEK overwrites this service's DEK copy with zeros. internal/encryption's
 // service_rotation.go calls this on rotation (the old service is about to be
 // discarded) and on Shutdown — see this package's doc.go for why a plain field
-// zeroing loop became a method here.
+// zeroing loop became a method here. From then on every operation on es returns
+// ErrDEKWiped (TestWipeDEK_ServiceRefusesUseAfterWipe): the GCM key schedule
+// outlives the zeroed bytes, so the latch, not the zeroing, is what stops a
+// lingering reference from using the old key.
 func (es *EncryptionService) WipeDEK() {
+	es.wiped.Store(true)
 	for i := range es.dek {
 		es.dek[i] = 0
 	}
@@ -157,6 +172,9 @@ func GenerateRandomKey(size int) ([]byte, error) {
 
 // Encrypt encrypts data using AES-GCM with the KEK
 func (es *EncryptionService) Encrypt(plaintext []byte, keyVersion string) (*EncryptedData, error) {
+	if es.wiped.Load() {
+		return nil, ErrDEKWiped
+	}
 	es.checkNonceBudget()
 
 	nonce := make([]byte, es.gcm.NonceSize())
@@ -181,6 +199,9 @@ func (es *EncryptionService) Encrypt(plaintext []byte, keyVersion string) (*Encr
 
 // Decrypt decrypts data using AES-GCM with the KEK
 func (es *EncryptionService) Decrypt(encryptedData *EncryptedData) ([]byte, error) {
+	if es.wiped.Load() {
+		return nil, ErrDEKWiped
+	}
 	if encryptedData.Metadata.Algorithm != AESCipherSuite { //nolint:goconst
 		return nil, fmt.Errorf("unsupported algorithm: %s", encryptedData.Metadata.Algorithm)
 	}
@@ -208,6 +229,9 @@ func (es *EncryptionService) Decrypt(encryptedData *EncryptedData) ([]byte, erro
 // The AAD is mixed into the GCM authentication tag — it is not stored in the
 // ciphertext but must be supplied identically on decryption.
 func (es *EncryptionService) EncryptWithAAD(plaintext []byte, keyVersion string, aad []byte) (*EncryptedData, error) {
+	if es.wiped.Load() {
+		return nil, ErrDEKWiped
+	}
 	es.checkNonceBudget()
 
 	nonce := make([]byte, es.gcm.NonceSize())
@@ -234,6 +258,9 @@ func (es *EncryptionService) EncryptWithAAD(plaintext []byte, keyVersion string,
 // DecryptWithAAD decrypts data encrypted with EncryptWithAAD.
 // Returns an error if the AAD does not match — this catches ciphertext transplants.
 func (es *EncryptionService) DecryptWithAAD(encryptedData *EncryptedData, aad []byte) ([]byte, error) {
+	if es.wiped.Load() {
+		return nil, ErrDEKWiped
+	}
 	if encryptedData.Metadata.Algorithm != AESCipherSuite {
 		return nil, fmt.Errorf("unsupported algorithm: %s", encryptedData.Metadata.Algorithm)
 	}
@@ -257,6 +284,9 @@ func (es *EncryptionService) DecryptWithAAD(encryptedData *EncryptedData, aad []
 
 // EncryptChunked encrypts large data by splitting it into chunks
 func (es *EncryptionService) EncryptChunked(plaintext []byte, chunkSize int, keyVersion string) ([]*EncryptedData, error) {
+	if es.wiped.Load() {
+		return nil, ErrDEKWiped // also for empty plaintext, which encrypts no chunk
+	}
 	if chunkSize <= 0 {
 		chunkSize = 64 * 1024 // Default 64KB chunks
 	}
@@ -307,6 +337,9 @@ func chunkAAD(streamID string, index, total int) []byte {
 // cryptographic backstop, so reorder, truncation, duplication, and cross-secret splice all
 // fail closed rather than reassembling an attacker-chosen plaintext.
 func (es *EncryptionService) DecryptChunked(chunks []*EncryptedData) ([]byte, error) { // NOSONAR -- cognitive complexity 17, suppress go:S3776
+	if es.wiped.Load() {
+		return nil, ErrDEKWiped
+	}
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("no chunks provided")
 	}
