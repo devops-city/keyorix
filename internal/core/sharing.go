@@ -91,6 +91,8 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 	}
 	// AUDIT-TX-2: the share record and its share_created / group_share_created
 	// row commit in ONE transaction; notifications run after the commit.
+	// SHARE-CAS-1: no row lock needed for the upsert of an existing share: it is
+	// never classified, so it always fails closed whatever the row held.
 	var createdShare *models.ShareRecord
 	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
@@ -179,6 +181,7 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	// top of it. With a plain read it could commit in between, and a write
 	// classified neutral (write→write) would land write over read with only a
 	// best-effort row. The expiry check and a preserved expiry use the same row.
+	// Group shares take this same path (there is no separate group-share update).
 	var updatedShare *models.ShareRecord
 	var oldPermission string
 	if err := c.withDirectedAuditedMutation(ctx, func(tx storage.Storage) (bool, error) {
