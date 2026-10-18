@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -283,6 +284,28 @@ func TestUpdateNotificationChannel_ValidationFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "URL is required")
 	st.AssertExpectations(t)
+}
+
+// TestUpdateNotificationChannel_RejectsElidedURL: GET/list return the elided
+// "https://host/…" form, so a GET-then-PUT client (or a cached old web UI) sends it
+// back. It must be refused and nothing written, or the stored credential is replaced.
+func TestUpdateNotificationChannel_RejectsElidedURL(t *testing.T) {
+	t.Parallel()
+	for _, elided := range []string{"https://hook.example.com/…", "  https://hook.example.com/…  "} {
+		st := new(MockStorage)
+		c := NewKeyorixCore(st)
+		ctx := context.Background()
+
+		existing := &models.NotificationChannel{ID: 5, Name: "hook", Type: "webhook", URL: "https://hook.example.com/T/B/TOKEN"}
+		st.On("GetNotificationChannel", ctx, uint(5)).Return(existing, nil)
+
+		// No UpdateNotificationChannel expectation: the mock fails the test if storage is written.
+		_, err := c.UpdateNotificationChannel(ctx, 5, map[string]any{"url": elided}, 1)
+		require.Error(t, err, elided)
+		assert.Contains(t, err.Error(), "elided")
+		assert.True(t, strings.HasPrefix(err.Error(), "notification channel"), "must map to a 400 in the handler")
+		st.AssertNotCalled(t, "UpdateNotificationChannel")
+	}
 }
 
 // ---- validateWebhookURL (SSRF guard) ----

@@ -74,7 +74,7 @@ func TestCTAReview_ResumeSecret_vs_DeleteProject_CrossReplicaPostgres(t *testing
 
 	var delErr error
 	fired := f.beforeA("update", "secret_nodes", func() {
-		delErr = f.coreB.DeleteProject(f.ctx, f.projectID, true)
+		delErr = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	})
 
 	_, resumeErr := f.coreA.ResumeSecret(f.ctx, s.ID, f.adminID)

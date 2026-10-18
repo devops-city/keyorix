@@ -234,6 +234,19 @@ type Storage interface {
 	// count of environments and secrets the cascade actually restored, so the caller
 	// can audit what came back (#311), not just that "the project" was restored.
 	RestoreProject(ctx context.Context, id uint) (restoredEnvironments, restoredSecrets int, err error)
+	// SuspendMachineIdentitiesForDeletedProject (#3433) suspends every ACTIVE machine
+	// identity that belongs to soft-deleted project id (home project, or a role there)
+	// and holds no role in any other live project (or at global scope), stamping each
+	// with the project's id and deleted_at (models.MachineIdentity.CascadeSuspended*).
+	// It returns the identities it suspended. It refuses a live project. Call it in the
+	// same transaction as DeleteProject/DeleteProjectIfEmpty, after the cascade.
+	SuspendMachineIdentitiesForDeletedProject(ctx context.Context, id uint) ([]*models.MachineIdentity, error)
+	// ReactivateMachineIdentitiesForRestoredProject (#3433) re-activates exactly the
+	// identities the CURRENT soft-delete of project id suspended and nothing has written
+	// since (marker equals the project's deleted_at, updated_at unchanged), clearing the
+	// marker, and returns them. Call it in the same transaction as RestoreProject,
+	// BEFORE it: it needs the project still deleted. It refuses a live project.
+	ReactivateMachineIdentitiesForRestoredProject(ctx context.Context, id uint, now time.Time) ([]*models.MachineIdentity, error)
 	ListProjects(ctx context.Context) ([]*models.Project, error)
 	ListProjectsWithCounts(ctx context.Context, includeDeleted bool) ([]ProjectWithCounts, error)
 	CreateEnvironment(ctx context.Context, env *models.Environment) (*models.Environment, error)
