@@ -117,7 +117,19 @@ func (ls *LocalStorage) commitFlusherBatch(p *auditBatchPipeline, batch []*audit
 		return
 	}
 	p.end()
-	deliverAuditBatch(batch, ls.commitAuditBatch(batch))
+	deliverAuditBatch(batch, ls.commitAuditBatchHeld(p, batch))
+}
+
+// auditHeldConnKey carries the flusher's pipeline in the context of a commit
+// the flusher runs itself (withHeldAuditConn, withAuditPipelineConn).
+type auditHeldConnKey struct{}
+
+// withHeldAuditConn returns ctx carrying p, when p holds a connection.
+func withHeldAuditConn(ctx context.Context, p *auditBatchPipeline) context.Context {
+	if p == nil || p.conn == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, auditHeldConnKey{}, p)
 }
 
 func deliverAuditBatch(batch []*auditBatchItem, errs []error) {
@@ -299,7 +311,6 @@ func (p *auditBatchPipeline) acquireConn(ctx context.Context) error {
 		return errAuditPipelineUnavailable
 	}
 	p.conn = held
-	p.ls.auditHeldConn.Store(held.pc)
 	return nil
 }
 
@@ -308,7 +319,6 @@ func (p *auditBatchPipeline) releaseConn() {
 	if p.conn == nil {
 		return
 	}
-	p.ls.auditHeldConn.Store(nil)
 	close(p.conn.release)
 	<-p.conn.gone
 	p.conn = nil
@@ -463,30 +473,31 @@ func (p *auditBatchPipeline) read(b *auditInflightBatch) auditPipelineOutcome {
 }
 
 func (p *auditBatchPipeline) resolve(o auditPipelineOutcome) {
-	deliverAuditBatch(o.b.batch, p.ls.completePipelinedBatch(o.b.batch[0].ctx, o.b, o.last, o.beforeCommit, o.err))
+	deliverAuditBatch(o.b.batch, p.ls.completePipelinedBatch(p, o.b, o.last, o.beforeCommit, o.err))
 }
 
 // completePipelinedBatch turns b's outcome into its items' results, as
 // commitBatchAttemptPipelined and commitAuditBatch would for a serial
 // one-flight attempt. It runs only after the run that sent b has ended or b
 // committed, so a retry never waits on a KEYAUDIT the run still holds.
-func (ls *LocalStorage) completePipelinedBatch(ctx context.Context, b *auditInflightBatch, last auditChainHead, beforeCommit bool, err error) []error {
+func (ls *LocalStorage) completePipelinedBatch(p *auditBatchPipeline, b *auditInflightBatch, last auditChainHead, beforeCommit bool, err error) []error {
+	ctx := withHeldAuditConn(b.batch[0].ctx, p)
 	switch {
 	case err == nil:
 		ls.auditHead.committedOneFlight(b.epoch, last)
-		return ls.finishAuditBatch(b.batch, nil)
+		return ls.finishAuditBatch(p, b.batch, nil)
 	case auditOneFlightRolledBack(err, beforeCommit):
 		// Nothing was written: a statement failed, the head moved, or the
 		// batch before this one failed and left the connection's transaction
 		// aborted. Retry once in two flights, then bisect, as a serial
 		// one-flight miss does.
 		ls.auditHead.missedOneFlight()
-		return ls.finishAuditBatch(b.batch, ls.commitBatchTwoFlights(ctx, b.batch))
+		return ls.finishAuditBatch(p, b.batch, ls.commitBatchTwoFlights(ctx, b.batch))
 	default:
 		// May have committed (a lost connection, an error on COMMIT): fail
 		// closed, as a serial attempt does.
 		ls.auditHead.failed()
-		return ls.finishAuditBatch(b.batch, err)
+		return ls.finishAuditBatch(p, b.batch, err)
 	}
 }
 

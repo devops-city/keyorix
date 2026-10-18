@@ -129,12 +129,17 @@ func (ls *LocalStorage) commitBatchTwoFlightsUnder(ctx context.Context, epoch ui
 // database/sql) when it cannot be brought back to idle; it never goes back
 // inside a transaction.
 //
-// While the flusher holds a connection (auditHeldConn) that one is used: the
-// only callers are on the flusher goroutine, outside a pipelined run.
+// A commit the flusher runs itself carries the flusher's pipeline in ctx
+// (withHeldAuditConn): it then runs on the connection the flusher holds, not a
+// second pool connection, which on a one-connection pool would never come. A
+// held connection that broke is handed back to the pool first.
 func (ls *LocalStorage) withAuditPipelineConn(ctx context.Context, fn func(*pgx.Conn) error) error {
-	if pc := ls.auditHeldConn.Load(); pc != nil && !pc.IsClosed() {
-		defer leaveAuditConnIdle(pc)
-		return fn(pc)
+	if p, ok := ctx.Value(auditHeldConnKey{}).(*auditBatchPipeline); ok && p.conn != nil && p.run == nil {
+		if pc := p.conn.pc; !pc.IsClosed() {
+			defer leaveAuditConnIdle(pc)
+			return fn(pc)
+		}
+		p.releaseConn()
 	}
 	sqlDB, ok := ls.db.Statement.ConnPool.(*sql.DB)
 	if !ok {

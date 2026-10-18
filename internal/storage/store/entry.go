@@ -22,7 +22,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/jackc/pgx/v5"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -245,12 +244,6 @@ type LocalStorage struct {
 	// ls.db (auditEventsTable): fixed for the life of the handle, and resolving
 	// it ran a DryRun Find per audit batch (PERF-LOWCONC-1 step 3).
 	auditTable atomic.Pointer[string]
-
-	// auditHeldConn is the connection the audit flusher holds while it runs
-	// (local_audit_chain_pipelined_batches.go), nil otherwise. The flusher's
-	// serial commits and retries run on it instead of taking a second pool
-	// connection, which on a one-connection pool would never come.
-	auditHeldConn atomic.Pointer[pgx.Conn]
 	// rolePermCache backs RoleSetHasPermission's read-path cache (PERF-3,
 	// docs/specs/read-path-caching.md PR-2). A pointer so a transaction-scoped
 	// LocalStorage (see WithTransaction) shares the SAME cache as its parent,

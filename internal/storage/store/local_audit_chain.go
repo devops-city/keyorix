@@ -869,8 +869,15 @@ func (ls *LocalStorage) commitBatchWithBusyRetry(ctx context.Context, batch []*a
 // corrupt keyorix_audit_flusher_batch_size / _flushes_total at exactly the moment
 // an operator is looking at them. Found by the coordinator's review of #2637.
 func (ls *LocalStorage) commitAuditBatch(batch []*auditBatchItem) []error {
-	ctx := batch[0].ctx // auditWriteContext-derived; every item's ctx carries the same fixed deadline shape
-	return ls.finishAuditBatch(batch, ls.commitBatchWithBusyRetry(ctx, batch))
+	return ls.commitAuditBatchHeld(nil, batch)
+}
+
+// commitAuditBatchHeld is commitAuditBatch on the flusher's held connection
+// when held has one (local_audit_chain_pipelined_batches.go): only the
+// flusher's own commits pass it, from the flusher goroutine.
+func (ls *LocalStorage) commitAuditBatchHeld(held *auditBatchPipeline, batch []*auditBatchItem) []error {
+	ctx := withHeldAuditConn(batch[0].ctx, held) // auditWriteContext-derived; every item's ctx carries the same fixed deadline shape
+	return ls.finishAuditBatch(held, batch, ls.commitBatchWithBusyRetry(ctx, batch))
 }
 
 // finishAuditBatch is commitAuditBatch after batch's first attempt returned
@@ -879,7 +886,7 @@ func (ls *LocalStorage) commitAuditBatch(batch []*auditBatchItem) []error {
 // completion (local_audit_chain_pipelined_batches.go) enters here with the
 // outcome of an attempt it ran itself, so a pipelined batch is retried and
 // isolated exactly like one the flusher committed serially.
-func (ls *LocalStorage) finishAuditBatch(batch []*auditBatchItem, err error) []error {
+func (ls *LocalStorage) finishAuditBatch(held *auditBatchPipeline, batch []*auditBatchItem, err error) []error {
 	recordAuditFlush(len(batch))
 	if err == nil {
 		return make([]error, len(batch))
@@ -900,8 +907,8 @@ func (ls *LocalStorage) finishAuditBatch(batch []*auditBatchItem, err error) []e
 		return errs
 	}
 	mid := len(batch) / 2
-	left := ls.commitAuditBatch(batch[:mid])
-	right := ls.commitAuditBatch(batch[mid:])
+	left := ls.commitAuditBatchHeld(held, batch[:mid])
+	right := ls.commitAuditBatchHeld(held, batch[mid:])
 	return append(left, right...)
 }
 
