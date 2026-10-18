@@ -7,7 +7,9 @@ shows them — then tears it all down.
 
 ## Run it
 
-Prerequisites: `docker`, `curl`, `jq`, and the Keyorix CLI:
+Prerequisites: `docker`, `curl`, `jq`, `sudo` (the script hands its throwaway secret
+files to root, because the server refuses secret files owned by any other account), and
+the Keyorix CLI:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/keyorixhq/keyorix/main/install.sh | sh

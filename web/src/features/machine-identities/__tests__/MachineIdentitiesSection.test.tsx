@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '../../../test/test-utils';
+import { render, screen, fireEvent, waitFor } from '../../../test/test-utils';
+import { answerConfirm } from '../../../test/confirm';
 import { MachineIdentitiesSection } from '../MachineIdentitiesSection';
 
 const createMutate = vi.fn();
@@ -56,7 +57,7 @@ beforeEach(() => {
     isAdmin = true;
     // Suspend/revoke are confirmation-gated (G27); default to confirmed so
     // existing lifecycle-transition tests below don't have to opt in individually.
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.spyOn(window, 'confirm').mockReturnValue(true); // must stay unused: the in-app dialog replaced it
 });
 
 afterEach(() => {
@@ -74,23 +75,29 @@ describe('MachineIdentitiesSection', () => {
         expect(screen.getByText('suspended')).toBeInTheDocument();
     });
 
-    it('an active identity offers suspend + revoke; a suspended one offers reactivate + revoke', () => {
+    it('an active identity offers suspend + revoke; a suspended one offers reactivate + revoke', async () => {
         render(<MachineIdentitiesSection projectId={3} />);
 
         // active → suspend
         fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
-        expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'suspend' }, expect.anything());
+        await answerConfirm('Suspend machine identity "ci-runner"? It will lose access until reactivated.', 'accept');
+        await waitFor(() =>
+            expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'suspend' }, expect.anything())
+        );
 
         // suspended → reactivate (activate action)
         fireEvent.click(screen.getByRole('button', { name: /reactivate/i }));
         expect(transitionMutate).toHaveBeenCalledWith({ machineId: 2, action: 'activate' }, expect.anything());
     });
 
-    it('revokes an active machine identity', () => {
+    it('revokes an active machine identity', async () => {
         render(<MachineIdentitiesSection projectId={3} />);
         // Both the active and the suspended identity offer a revoke action; target the first (ci-runner).
         fireEvent.click(screen.getAllByTitle('Revoke')[0]);
-        expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'revoke' }, expect.anything());
+        await answerConfirm('Revoke machine identity "ci-runner"? This cannot be undone.', 'accept');
+        await waitFor(() =>
+            expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'revoke' }, expect.anything())
+        );
     });
 
     it('creates a machine identity with the selected type', () => {
@@ -251,13 +258,14 @@ describe('MachineIdentitiesSection', () => {
         expect(screen.getByText('name taken')).toBeInTheDocument();
     });
 
-    it('shows a fallback error message when a lifecycle transition fails without server detail', () => {
+    it('shows a fallback error message when a lifecycle transition fails without server detail', async () => {
         transitionMutate.mockImplementation((_vars, opts) => opts.onError({}));
         render(<MachineIdentitiesSection projectId={3} />);
 
         fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
+        await answerConfirm('Suspend machine identity "ci-runner"? It will lose access until reactivated.', 'accept');
 
-        expect(screen.getByText('Failed to suspend machine identity.')).toBeInTheDocument();
+        expect(await screen.findByText('Failed to suspend machine identity.')).toBeInTheDocument();
     });
 
     it('shows the error.error field when reclassifying fails', () => {
@@ -270,53 +278,58 @@ describe('MachineIdentitiesSection', () => {
         expect(screen.getByText('nope')).toBeInTheDocument();
     });
 
-    it('asks for confirmation before suspending, and does not suspend when declined', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    it('asks for confirmation before suspending, and does not suspend when declined', async () => {
         render(<MachineIdentitiesSection projectId={3} />);
 
         fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
+        await answerConfirm('Suspend machine identity "ci-runner"? It will lose access until reactivated.', 'cancel');
 
-        expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/suspend machine identity "ci-runner"/i));
         expect(transitionMutate).not.toHaveBeenCalled();
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
-    it('suspends once the confirmation is accepted', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('suspends once the confirmation is accepted', async () => {
         render(<MachineIdentitiesSection projectId={3} />);
 
         fireEvent.click(screen.getByRole('button', { name: /^suspend$/i }));
-
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
-        expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'suspend' }, expect.anything());
-    });
-
-    it('asks for confirmation before revoking, and does not revoke when declined', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-        render(<MachineIdentitiesSection projectId={3} />);
-
-        fireEvent.click(screen.getAllByTitle('Revoke')[0]);
-
-        expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/revoke machine identity "ci-runner"/i));
         expect(transitionMutate).not.toHaveBeenCalled();
+        await answerConfirm('Suspend machine identity "ci-runner"? It will lose access until reactivated.', 'accept');
+
+        await waitFor(() =>
+            expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'suspend' }, expect.anything())
+        );
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
-    it('revokes once the confirmation is accepted', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('asks for confirmation before revoking, and does not revoke when declined', async () => {
         render(<MachineIdentitiesSection projectId={3} />);
 
         fireEvent.click(screen.getAllByTitle('Revoke')[0]);
+        await answerConfirm('Revoke machine identity "ci-runner"? This cannot be undone.', 'cancel');
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
-        expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'revoke' }, expect.anything());
+        expect(transitionMutate).not.toHaveBeenCalled();
+        expect(window.confirm).not.toHaveBeenCalled();
+    });
+
+    it('revokes once the confirmation is accepted', async () => {
+        render(<MachineIdentitiesSection projectId={3} />);
+
+        fireEvent.click(screen.getAllByTitle('Revoke')[0]);
+        expect(transitionMutate).not.toHaveBeenCalled();
+        await answerConfirm('Revoke machine identity "ci-runner"? This cannot be undone.', 'accept');
+
+        await waitFor(() =>
+            expect(transitionMutate).toHaveBeenCalledWith({ machineId: 1, action: 'revoke' }, expect.anything())
+        );
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
     it('does not confirm before reactivating (activate is non-destructive)', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm');
         render(<MachineIdentitiesSection projectId={3} />);
 
         fireEvent.click(screen.getByRole('button', { name: /reactivate/i }));
 
-        expect(confirmSpy).not.toHaveBeenCalled();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
         expect(transitionMutate).toHaveBeenCalledWith({ machineId: 2, action: 'activate' }, expect.anything());
     });
 
