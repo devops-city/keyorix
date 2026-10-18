@@ -22,7 +22,10 @@ VAULT_TOKEN="root"
 # Throwaway demo credentials (compose bootstraps the admin from these). The stack
 # reads its credentials from Docker secrets files, not the environment, so write
 # them into a temp directory (0640, group = your primary group, which the
-# containers join via KEYORIX_SECRETS_GID).
+# containers join via KEYORIX_SECRETS_GID). init-secrets.sh keeps the four files
+# written here and adds the Postgres TLS pair the compose file also needs. The
+# server refuses a secret file owned by anyone but root or its own uid, so the
+# files are then handed to root (keeping the group): that needs sudo.
 KEYORIX_ADMIN_PASSWORD="Admin123!"
 export KEYORIX_ADMIN_USERNAME="admin"
 export KEYORIX_ADMIN_EMAIL="admin@keyorix.local"
@@ -37,6 +40,16 @@ DEMO_SECRETS_DIR="$(mktemp -d)"
 export KEYORIX_SECRETS_DIR="${DEMO_SECRETS_DIR}"
 KEYORIX_SECRETS_GID="$(id -g)"
 export KEYORIX_SECRETS_GID
+# 65534: a uid nobody here runs as, so init-secrets.sh's "owned by the server uid" refusal
+# stays quiet; the chown below is what satisfies the server.
+INIT_SECRETS_SERVER_UID=65534 "${ROOT}/scripts/selfhost/init-secrets.sh" --dir "${DEMO_SECRETS_DIR}" \
+  --env-file "${DEMO_SECRETS_DIR}/.env.init-secrets" >/dev/null 2>"${DEMO_SECRETS_DIR}/init-secrets.log" \
+  || { cat "${DEMO_SECRETS_DIR}/init-secrets.log" >&2; echo "scripts/selfhost/init-secrets.sh failed" >&2; rm -rf "${DEMO_SECRETS_DIR}"; exit 1; }
+echo "Handing the demo secret files to root (the server refuses files owned by any other account); sudo may ask for your password."
+sudo chown "root:${KEYORIX_SECRETS_GID}" "${DEMO_SECRETS_DIR}"/db_password "${DEMO_SECRETS_DIR}"/master_password \
+  "${DEMO_SECRETS_DIR}"/admin_password "${DEMO_SECRETS_DIR}"/bootstrap_token \
+  "${DEMO_SECRETS_DIR}"/postgres_tls.crt "${DEMO_SECRETS_DIR}"/postgres_tls.key \
+  || { echo "could not chown the demo secrets to root: re-run where sudo works" >&2; rm -rf "${DEMO_SECRETS_DIR}"; exit 1; }
 
 c()  { local msg="$1"; printf '\n\033[1;34m▶ %s\033[0m\n' "$msg"; }
 ok() { local msg="$1"; printf '\033[0;32m✓ %s\033[0m\n' "$msg"; }

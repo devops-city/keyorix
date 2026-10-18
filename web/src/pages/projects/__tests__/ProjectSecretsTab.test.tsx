@@ -451,6 +451,23 @@ describe('ProjectSecretsTab — drift & rotation plan reports', () => {
         expect(screen.getByText('Rotation Plan Content')).toBeInTheDocument();
     });
 
+    // #3142: GET /projects/{id}/drift and /rotation-plan are gated on secrets.read in the project
+    // (server/http/router.go), which project_viewer holds, so the server answers 200 and a
+    // read-only user keeps both buttons. Hiding them would withhold a report the server grants.
+    it('a read-only user keeps Check Drift and Rotation Plan (the server answers them) but gets no New Secret', () => {
+        canState.value = {
+            admin: false,
+            writeSecrets: false,
+            deleteSecrets: false,
+            readAudit: false,
+            manageMembers: false,
+        };
+        render(<ProjectSecretsTab projectId={1} />);
+        expect(screen.getByRole('button', { name: /check drift/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /rotation plan/i })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /new secret/i })).not.toBeInTheDocument();
+    });
+
     it('closes the drift report from its Close control', () => {
         render(<ProjectSecretsTab projectId={1} />);
         fireEvent.click(screen.getByRole('button', { name: /check drift/i }));
