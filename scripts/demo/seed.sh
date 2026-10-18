@@ -100,7 +100,7 @@ demo_seed_org() {
   # Rotation policies (A.5.15). The two long-standing secrets are covered; the
   # Production webhook secret deliberately is NOT. That one uncovered production
   # secret is the demo's single, deliberate finding (the "Secret-rotation hygiene"
-  # control shows "2 of 3 secrets covered") and GOLDEN-PATH.md section 1b fixes it
+  # control shows "12 of 13 secrets covered") and GOLDEN-PATH.md section 1b fixes it
   # live. Everything else on the Compliance page is green on a fresh demo.
   step "Seeding rotation policies (one production secret deliberately left uncovered)"
   "$CLI_BIN" rotation create --name "default-90d" --scope project --project-id 1 --interval-days 90 >/dev/null
