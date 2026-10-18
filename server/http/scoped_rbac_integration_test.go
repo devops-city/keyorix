@@ -32,7 +32,7 @@ func setupScopedRBACCore(t *testing.T) *core.KeyorixCore {
 		&models.Project{}, &models.Environment{}, &models.User{},
 		&models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.SecretNode{}, &models.ShareRecord{}, &models.Session{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{},
 		&models.SecretACL{}, // ListSecretsWithSharingInfo calls ListSecretACLsByUser
 	))
 
@@ -175,7 +175,7 @@ func setupACLOnlyRBACCore(t *testing.T) (cs *core.KeyorixCore, secretWithACL, se
 		&models.Project{}, &models.Environment{}, &models.User{},
 		&models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.SecretNode{}, &models.ShareRecord{}, &models.Session{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{},
 		&models.SecretACL{}, &models.AuditEvent{},
 		&models.SecretAccessSchedule{}, &models.Tag{}, &models.SecretTag{},
 	))

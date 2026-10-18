@@ -48,7 +48,7 @@ func freshFolderFixture(t *testing.T) (*FolderHandler, *core.KeyorixCore, *gorm.
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
 		&models.AuditEvent{}, &models.SecretVersion{}, &models.SecretAccessLog{},
-		&models.ShareRecord{}, &models.SecretACL{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "alice-folder", AccountState: "active"}).Error)

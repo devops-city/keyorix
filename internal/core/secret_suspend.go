@@ -355,9 +355,44 @@ func (c *KeyorixCore) ResumeSecret(ctx context.Context, secretID, actorID uint) 
 	secret.Status = SecretStatusActive
 	secret.SuspendClearSyncedCopies = false // the marker lives only as long as the suspension
 	secret.UpdatedAt = c.now()
-	matched, err := c.storage.TransitionSecretStatus(ctx, secret, fromStatus)
+	// #2794: resuming re-activates a secret_nodes row exactly like CreateSecret/
+	// RestoreSecret, so it follows their live-parent protocol. DeleteEnvironment's guard
+	// counts only ACTIVE secrets, so an environment holding a suspended one is
+	// deletable, and GetSecret checks no parent liveness: without this the resume
+	// produced a live, readable secret inside a deleted environment or project.
+	// Environment: the same named lock DeleteEnvironment holds plus an in-lock
+	// existence check (withEnvironmentSecretGuard). Project: the status write and a
+	// LockLiveProject re-read share one transaction, write first, rolled back when the
+	// project is gone (INV-STORE-21) — deleteProjectCascade takes no environment lock.
+	var matched bool
+	guarded := func(ctx context.Context) error {
+		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+			var terr error
+			matched, terr = tx.TransitionSecretStatus(ctx, secret, fromStatus)
+			if terr != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), terr)
+			}
+			if !matched {
+				return nil
+			}
+			live, lerr := tx.LockLiveProject(ctx, secret.ProjectID)
+			if lerr != nil {
+				return lerr
+			}
+			if !live {
+				return fmt.Errorf("%s: project %d was deleted; restore it before resuming this secret",
+					i18n.T("ErrorNotFound", nil), secret.ProjectID)
+			}
+			return nil
+		})
+	}
+	if secret.EnvironmentID != 0 {
+		err = c.withEnvironmentSecretGuard(ctx, secret.EnvironmentID, guarded)
+	} else {
+		err = guarded(ctx)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		return nil, err
 	}
 	if !matched {
 		// Lost the race: the row's persisted status moved away from fromStatus
