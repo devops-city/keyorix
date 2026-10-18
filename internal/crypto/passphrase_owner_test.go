@@ -76,3 +76,14 @@ func TestFileKeyProvider_Owner(t *testing.T) {
 		assert.Contains(t, err.Error(), "uid 1001")
 	}
 }
+
+// BOOT-REFUSALS-1 item 7: the wrong-passphrase refusal names the source read.
+func TestPassphraseSource_Describe(t *testing.T) {
+	t.Setenv("KX_PASS_FILE", "")
+	assert.Equal(t, "--passphrase-fd 0", PassphraseSource{FDSet: true}.Describe("KX_PASS"))
+	assert.Equal(t, `--passphrase-file "/run/mp"`, PassphraseSource{FilePath: "/run/mp", Stdin: true}.Describe("KX_PASS"))
+	assert.Equal(t, "--passphrase-stdin", PassphraseSource{Stdin: true}.Describe("KX_PASS"))
+	assert.Equal(t, "KX_PASS", PassphraseSource{}.Describe("KX_PASS"))
+	t.Setenv("KX_PASS_FILE", "/run/secrets/mp")
+	assert.Equal(t, `KX_PASS_FILE="/run/secrets/mp"`, PassphraseSource{}.Describe("KX_PASS"))
+}

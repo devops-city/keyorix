@@ -187,7 +187,9 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// Before this point (config load/validation failures) lines are plain text. Must
 	// precede NewRouter: the access logger picks its formatter when the router is built.
 	if err := logging.Setup(cfg.Server.Log.EffectiveFormat(), os.Stderr); err != nil {
-		log.Fatalf("Configuration is invalid: %v", err)
+		// cfg.Validate() above already refused an unknown server.log.format, so this is
+		// the logger failing, not the file being invalid (BOOT-REFUSALS-1 item 9).
+		log.Fatalf("Failed to set up logging (server.log.format %q): %v", cfg.Server.Log.EffectiveFormat(), err)
 	}
 
 	// ADR-112 opt-out rule (item 2): a deprecated alias (an old key renamed to its
@@ -578,7 +580,12 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 		}
 	}
 	if err := svc.Initialize(passphrase); err != nil {
-		return nil, fmt.Errorf("failed to initialize encryption (KEK derivation): %w", err)
+		if providerType == "" || providerType == "password" {
+			// Name the source (BOOT-REFUSALS-1 item 7): with several ways to pass the
+			// passphrase, "wrong passphrase" alone does not say which one was read.
+			return nil, fmt.Errorf("KEK derivation from the master passphrase read from %s failed: %w", masterPassphraseSource.Describe("KEYORIX_MASTER_PASSWORD"), err)
+		}
+		return nil, fmt.Errorf("KEK from key provider %q failed: %w", providerType, err)
 	}
 
 	kekSource := providerType
@@ -2507,12 +2514,26 @@ func warnHTTPOnlySettingsUnderGRPC(cfg *config.Config) {
 func warnInsecureSettingsInEffect(cfg *config.Config) {
 	for _, s := range config.InsecureSettingsRegistry {
 		if s.InEffect(cfg) {
-			// Name is a stable identifier, not always a key an operator can
-			// set today; SourcePaths are the config keys that actually
-			// control the state, so print them for the operator to act on.
-			log.Printf("WARNING: %s is in effect (%s; config: %s) — %s", s.Name, s.Value(cfg), strings.Join(s.SourcePaths, ", "), s.Describe)
+			log.Print(insecureSettingWarning(s, cfg))
 		}
 	}
+}
+
+// insecureSettingWarning is the start-up line for one registry entry in effect.
+// Name is a stable identifier, not always a key an operator can set today:
+// when it is not one of SourcePaths, the line says so and names the key that
+// actually controls the state (Cause, or the SourcePaths), so nobody writes
+// the registry name into keyorix.yaml and gets an unknown-key error
+// (BOOT-REFUSALS-1 item 3).
+func insecureSettingWarning(s config.InsecureSetting, cfg *config.Config) string {
+	if slices.Contains(s.SourcePaths, s.Name) {
+		return fmt.Sprintf("WARNING: %s is in effect (%s; config: %s) — %s", s.Name, s.Value(cfg), strings.Join(s.SourcePaths, ", "), s.Describe)
+	}
+	cause := "it follows " + strings.Join(s.SourcePaths, ", ")
+	if s.Cause != nil {
+		cause = s.Cause(cfg)
+	}
+	return fmt.Sprintf("WARNING: %s is in effect (%s) — %s. That is the setting's registry name, not a config key: %s", s.Name, s.Value(cfg), s.Describe, cause)
 }
 
 // resolveADR112BootPosture applies the ADR-112 upgrade-grace decision and THEN

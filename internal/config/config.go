@@ -2603,9 +2603,9 @@ func (c *Config) EnforceSecretFilePermissions() (graceSoftened bool, err error) 
 			return true, nil
 		}
 		if len(problems) == 0 {
-			return false, fmt.Errorf("%s -- the server does not start until the file is fixed", msg)
+			return false, fmt.Errorf("%s -- refused until the file is fixed", msg)
 		}
-		return false, fmt.Errorf("%s -- the server does not start until the file is fixed (for the files that are not key material, security.insecure_allow_unsafe_file_permissions: true turns this into a warning)", msg)
+		return false, fmt.Errorf("%s -- refused until the file is fixed (for the files that are not key material, security.insecure_allow_unsafe_file_permissions: true turns this into a warning)", msg)
 	}
 	if c.Security.AllowUnsafeFilePermissions {
 		log.Printf("WARNING: %s. Only a warning because security.insecure_allow_unsafe_file_permissions is set; remove it to fail closed.", msg)
@@ -2695,7 +2695,7 @@ func Load(path string) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal config: %w", describeUnknownKeys(err))
 	}
 
 	// ADR-112 secure-by-default: resolve the two inverted-default security keys
@@ -2950,6 +2950,21 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 
 	if c.Server.GRPC.Enabled && c.Server.GRPC.Port == "" {
 		return fmt.Errorf("gRPC server is enabled but no port is specified")
+	}
+
+	// A misspelled or weak tls.allowed_ciphers name is a config error: refuse it here,
+	// with the other config errors, not after start-up lines that read as readiness
+	// ("Startup validation passed", "HTTP server will bind ...") (BOOT-REFUSALS-1 item 8).
+	for _, l := range []struct {
+		name string
+		inst ServerInstanceConfig
+	}{{"server.http", c.Server.HTTP}, {"server.grpc", c.Server.GRPC}} {
+		if !l.inst.Enabled {
+			continue
+		}
+		if _, err := l.inst.TLS.ResolveCipherSuites(nil); err != nil {
+			return fmt.Errorf("%s.%w", l.name, err)
+		}
 	}
 
 	if err := validateAllowedOrigins(c.Server.HTTP.AllowedOrigins); err != nil {

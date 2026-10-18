@@ -53,14 +53,17 @@ Real output:
 
 ```
 Failed to load configuration: failed to unmarshal config: yaml: unmarshal errors:
-  line 9: field webauthn not found in type config.SecurityConfig
+  line 18: unknown key "webauthn" under security (check its spelling and section in docs/CONFIGURATION.md)
 ```
 
-**Match:** `failed to unmarshal config`
+**Match:** `failed to unmarshal config`, `check its spelling and section in docs/CONFIGURATION.md`
 
 **Cause.** The file is parsed strictly. A key that does not exist, is misspelled, or sits
-under the wrong section is an error, not ignored. The message names the Go type of the
-section (`config.SecurityConfig` means "under `security:`"), not the YAML path.
+under the wrong section is an error, not ignored. The message names the section the key
+was found in (`at the top level of the file` for a top-level key; a section used in several
+places is listed as `under server.grpc.tls or server.http.tls`). Earlier releases printed
+the Go type instead (`field webauthn not found in type
+config.SecurityConfig`, meaning "under `security:`").
 **Fix.** Check the key's spelling and section against
 [CONFIGURATION.md](../CONFIGURATION.md); `line N` is the line in your file. **In place:** yes.
 
@@ -177,6 +180,7 @@ fix is to correct the value. **In place:** yes.
 |---|---|
 | `exceeds the hard ceiling of` | `secrets.limits.max_secret_size` is above 1 MiB |
 | `server.log.format: unknown value` | `server.log.format` must be `text` or `json` |
+| `Failed to set up logging` | the logger could not be switched to `server.log.format` (the value itself was valid); report it as a bug. Earlier releases printed this under `Configuration is invalid:` |
 | `storage.database.audit_durability: unknown value` | allowed: `strict`, `standard` |
 | `is not a Go duration` | an expiry written as `7d`; use hours (`168h`) |
 | `both metrics_token and metrics_token_file are set` | set exactly one |
@@ -242,13 +246,16 @@ Configuration is invalid: TLS is enabled but cert_file or key_file is missing
 Real output:
 
 ```
-transport security: HTTP tls.allowed_ciphers: "TLS_RSA_WITH_RC4_128_SHA" is not a recognized, secure TLS 1.2 cipher suite (allowed: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305) — weak/deprecated suites (RC4, 3DES, CBC-mode) are rejected outright
+Configuration is invalid: server.http.tls.allowed_ciphers: "TLS_RSA_WITH_RC4_128_SHA" is not a recognized, secure TLS 1.2 cipher suite (allowed: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305) — weak/deprecated suites (RC4, 3DES, CBC-mode) are rejected outright
 ```
 
 **Match:** `is not a recognized, secure TLS 1.2 cipher suite`
 
 **Cause / fix.** `tls.allowed_ciphers` names a suite outside the allowed list. Use names
-from the list, or remove the key. Under `tls_mode: strict` the list has no effect. **In place:** yes.
+from the list, or remove the key. Under `tls_mode: strict` the list has no effect. It is a
+configuration error, refused with the others before anything starts (earlier releases refused
+it later, as `transport security: HTTP tls.allowed_ciphers: ...`,
+after the `Startup validation passed` line). **In place:** yes.
 
 ### TLS certificate files — from code
 
@@ -383,7 +390,9 @@ failed to initialize core service: failed to initialize storage: failed to migra
 
 **Match:** `failed to migrate database`
 
-**Cause.** One of roughly seventy migration steps (one per table or index) failed; the last
+**Cause.** One of roughly seventy migration steps (one per table or index) failed (the
+schema-epoch checks that run before them say `database schema check failed ... nothing was
+migrated` instead, see [Upgrade, schema epoch and rollback](#upgrade-schema-epoch-and-rollback)); the last
 part is the database's own error: usually permissions (the database user cannot `ALTER`/`CREATE`),
 a full disk, or a read-only database. **Fix.** Take a backup, fix the cause the database
 error names (DDL rights, disk space, a read-only mount), then restart: the migration runs
@@ -414,13 +423,16 @@ Real output:
 
 ```
 storage: opening existing SQLite database at <datadir>/keyorix.db (configured: "<datadir>/keyorix.db")
-failed to initialize core service: failed to initialize encryption: failed to initialize encryption (KEK derivation): failed to initialize key manager: failed to unwrap DEK: failed to unwrap DEK — wrong passphrase or corrupted key file: GCM open failed: cipher: message authentication failed
+failed to initialize core service: failed to initialize encryption: KEK derivation from the master passphrase read from KEYORIX_MASTER_PASSWORD_FILE="<datadir>/mp" failed: failed to initialize key manager: failed to unwrap DEK — wrong passphrase or corrupted key file: GCM open failed: cipher: message authentication failed
 ```
 
-**Match:** `wrong passphrase or corrupted key file`
+**Match:** `wrong passphrase or corrupted key file`, `KEK derivation from the master passphrase read from`
 
 **Cause.** The passphrase does not open the wrapped key (`dek.enc`), or the key file or
-`salt.bin` is damaged or from a different install. **Fix.** Try the right passphrase first.
+`salt.bin` is damaged or from a different install. The message names the source the
+passphrase was read from (`--passphrase-fd N`, `--passphrase-file "<path>"`,
+`--passphrase-stdin`, `KEYORIX_MASTER_PASSWORD_FILE="<path>"` or `KEYORIX_MASTER_PASSWORD`):
+check that it is the one you meant, since a leftover variable in the environment is easy to miss. **Fix.** Try the right passphrase first.
 If you changed it deliberately, check that `admin encryption rotate-kek` finished. If a key
 file is damaged, restore the matching `dek.enc` **and** `salt.bin` from backup. **Never**
 delete the key files to "start fresh": a new key cannot open existing data.
@@ -534,14 +546,14 @@ upgrade grace period, with the check off or with the override, both forms only w
 Real output (`KEYORIX_MASTER_PASSWORD_FILE=<datadir>/mp` at mode 644):
 
 ```
-secret file security: KEYORIX_MASTER_PASSWORD_FILE: secret file "<datadir>/mp": mode 0644 is too open (accessible to other users) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by root with a group the process belongs to (fsGroup / group_add) and mode 0440 (key material: security.insecure_allow_unsafe_file_permissions does not apply to it; the server refuses it wherever it reads it, so fix the file) -- the server does not start until the file is fixed
+secret file security: KEYORIX_MASTER_PASSWORD_FILE: secret file "<datadir>/mp": mode 0644 is too open (accessible to other users) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by root with a group the process belongs to (fsGroup / group_add) and mode 0440 (key material: security.insecure_allow_unsafe_file_permissions does not apply to it; the server refuses it wherever it reads it, so fix the file) -- refused until the file is fixed
 ```
 
 For a file that is not key material (database password, bootstrap token ...) the end reads
-`-- the server does not start until the file is fixed (for the files that are not key
+`-- refused until the file is fixed (for the files that are not key
 material, security.insecure_allow_unsafe_file_permissions: true turns this into a warning)`.
 
-**Match:** `refusing to trust it; chmod 0600/0400`, `the server does not start until the file is fixed`
+**Match:** `refusing to trust it; chmod 0600/0400`, `refused until the file is fixed`
 
 **Cause.** A file behind a `KEYORIX_*_FILE` variable is readable by others, or (#3393) owned
 by an account other than the server's user and root. **Fix.** `chmod 0600` (and `chown`);
@@ -590,10 +602,10 @@ Real output (schema epoch edited to 999 to stand in for a newer release):
 
 ```
 storage: opening existing SQLite database at <datadir>/keyorix.db (configured: "<datadir>/keyorix.db")
-failed to initialize core service: failed to initialize storage: failed to migrate database: database schema epoch 999 is newer than this binary's schema epoch 3 (recorded at 2026-10-17T21:52:34+02:00, 23s ago) -- this database was migrated by a newer version of Keyorix. Two things produce this, and this process cannot tell them apart on its own: (a) a rolling upgrade in progress -- ... (b) this binary was downgraded against a schema a newer version already migrated -- if so, upgrade this binary to match, or restore a backup taken before the newer version ran. No minimum compatible schema epoch is recorded, so nothing declares this schema safe for an older binary. Refusing to start is the safe default in both cases (ADR-097, ADR-101)
+failed to initialize core service: failed to initialize storage: database schema check failed (checked before migrating; nothing was migrated): database schema epoch 999 is newer than this binary's schema epoch 3 (recorded at 2026-10-17T21:52:34+02:00, 23s ago) -- this database was migrated by a newer version of Keyorix. Two things produce this, and this process cannot tell them apart on its own: (a) a rolling upgrade in progress -- ... (b) this binary was downgraded against a schema a newer version already migrated -- if so, upgrade this binary to match, or restore a backup taken before the newer version ran. No minimum compatible schema epoch is recorded, so nothing declares this schema safe for an older binary. Refusing to start is the safe default in both cases (ADR-097, ADR-101)
 ```
 
-**Match:** `is newer than this binary's schema epoch`
+**Match:** `is newer than this binary's schema epoch`, `checked before migrating; nothing was migrated`
 
 **Cause.** A newer Keyorix has already migrated this database. **Fix.** (a) During a rolling
 upgrade this pod's old image is about to be replaced: wait. (b) After a downgrade: run the
@@ -607,7 +619,7 @@ schema. **In place:** no. [UPGRADING.md §7 Rollback](../UPGRADING.md#7-rollback
 Real output (floor edited to 999):
 
 ```
-failed to initialize core service: failed to initialize storage: failed to migrate database: database declares a minimum compatible schema epoch of 999 (database schema epoch 3), above this binary's schema epoch 3 (floor recorded at 2026-10-17T21:52:34+02:00, 30s ago) -- a migration this database has already applied was declared unsafe for binaries this old, so this binary must not run against it. If this is a rolling upgrade, this pod is expected to be replaced by the new image; if this binary was rolled back, roll forward to a version with schema epoch 999 or later, or restore a backup taken before the newer version ran. Refusing to start (ADR-101)
+failed to initialize core service: failed to initialize storage: database schema check failed (checked before migrating; nothing was migrated): database declares a minimum compatible schema epoch of 999 (database schema epoch 3), above this binary's schema epoch 3 (floor recorded at 2026-10-17T21:52:34+02:00, 30s ago) -- a migration this database has already applied was declared unsafe for binaries this old, so this binary must not run against it. If this is a rolling upgrade, this pod is expected to be replaced by the new image; if this binary was rolled back, roll forward to a version with schema epoch 999 or later, or restore a backup taken before the newer version ran. Refusing to start (ADR-101)
 ```
 
 **Match:** `database declares a minimum compatible schema epoch of`
@@ -670,13 +682,15 @@ a *secure* setting that cannot be satisfied.
 Look at the first lines of a start:
 
 ```
-WARNING: server.insecure_disable_api_ratelimit is in effect (true; config: server.http.ratelimit.enabled, server.grpc.ratelimit.enabled) — removes per-principal API rate limiting
+WARNING: security.insecure_allow_unsafe_file_permissions is in effect (true; config: security.insecure_allow_unsafe_file_permissions) — lets group/other-readable key material pass enforceKeyFilePermissions/ValidateStartup instead of failing closed
+WARNING: security.insecure_allow_cleartext_transport is in effect (true) — allows bearer tokens/secret values over cleartext HTTP/gRPC. That is the setting's registry name, not a config key: security.require_transport_tls is false or not set (false is its default); set security.require_transport_tls: true to refuse a listener without TLS
 ```
 
-The text before `(true;` is the setting's registry name; the keys after `config:` are what you
-actually write in `keyorix.yaml`. Careful: for `security.insecure_allow_cleartext_transport`
-the line points to `security.require_transport_tls`; writing the registry name itself as
-a key is rejected as an unknown key (see the first entry).
+The text before `is in effect` is the setting's registry name. When it is also a config key,
+the keys after `config:` are what you write in `keyorix.yaml`. When it is not (the line says
+`not a config key`), the end of the line names the key that controls it; writing the
+registry name itself is rejected as an unknown key (see the first entry). A line can appear
+for a key you never wrote: some of these states are the default when a key is absent.
 
 ### Cleartext listener under `require_transport_tls`
 

@@ -101,6 +101,24 @@ func ResolvePassphrase(src PassphraseSource, envVarName string) ([]byte, error) 
 	return []byte(v), nil
 }
 
+// Describe names the source ResolvePassphrase reads for src, with the same
+// precedence, for error messages ("which passphrase did the server use?"). It
+// names flags, variables and paths only, never the value.
+func (src PassphraseSource) Describe(envVarName string) string {
+	switch {
+	case src.FDSet:
+		return fmt.Sprintf("--passphrase-fd %d", src.FD)
+	case src.FilePath != "":
+		return fmt.Sprintf("--passphrase-file %q", src.FilePath)
+	case src.Stdin:
+		return "--passphrase-stdin"
+	}
+	if p := os.Getenv(envVarName + secretenv.FileSuffix); p != "" {
+		return fmt.Sprintf("%s%s=%q", envVarName, secretenv.FileSuffix, p)
+	}
+	return envVarName
+}
+
 func readPassphraseFD(fd int) ([]byte, error) {
 	f := os.NewFile(uintptr(fd), "passphrase-fd")
 	defer func() { _ = f.Close() }()

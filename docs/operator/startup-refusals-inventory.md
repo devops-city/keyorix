@@ -68,7 +68,7 @@ Not searched (so not in the list):
 |---|---|---|
 | R | config.go:3009 | `invalid storage.type` |
 | C | config.go:3001 | `storage.type is not set: no storage configuration found` |
-| R | config.go:2653 | `failed to unmarshal config` (unknown / misplaced key) |
+| R | config.go Load, unknown_key.go | `failed to unmarshal config` (unknown / misplaced key; names the YAML section: `check its spelling and section in docs/CONFIGURATION.md`) |
 | C | config.go:2628 | `failed to read config file` |
 | R | config.go:2903 | `HTTP server is enabled but no port is specified` |
 | C | config.go:2907 | `gRPC server is enabled but no port is specified` |
@@ -104,7 +104,7 @@ Not searched (so not in the list):
 | | Where | Message (stable part) |
 |---|---|---|
 | R | main.go:2160 | `listener has no TLS but security.require_transport_tls is set` |
-| R | tls_ciphers.go:81 | `is not a recognized, secure TLS 1.2 cipher suite` |
+| R | tls_ciphers.go:81, refused by Config.Validate | `is not a recognized, secure TLS 1.2 cipher suite` |
 | C | tls_ciphers.go:21 | `is not a recognized TLS mode` |
 | C | main.go:600 | `no PEM certificates found in` |
 | C | main.go:2647 | `invalid TLS configuration` |
@@ -129,7 +129,7 @@ Not searched (so not in the list):
 | C | factory.go:595 | `no database found at ... require_existing_path is set` |
 | C | factory.go:483-491 | `failed to create database directory`, `failed to pre-create database file` |
 | C | factory.go:626 | `failed to connect to database` |
-| C | factory.go:638, 688 | `failed to migrate database` (wrapper of the family below) |
+| C | factory.go migrateError | `failed to migrate database` (wrapper of the family below); the epoch/floor checks are wrapped `checked before migrating; nothing was migrated` |
 | C | factory.go:1264 | `cannot create unique index on ... pre-existing group(s) of rows already share a value` |
 | C | factory.go:2038-2835, 3081-3585 | ~70 `failed to migrate <table> table` / `failed to create ... index` (one family: a migration step failed; the wrapped driver error is the cause) |
 | C | main.go:768 | `secret-value encryption did not engage` |
@@ -151,14 +151,14 @@ Not searched (so not in the list):
 | C | keyfiles/consistency.go:282, 329 | `key material is an incomplete set`, `looks mixed from different generations` |
 | R | main.go:556 / exclusive_lock.go:89 | `another process already holds the DEK lock` |
 | R | main.go:512 | `no master passphrase is available` |
-| R | main.go:580 | `wrong passphrase or corrupted key file` |
+| R | keymanager_lifecycle.go unwrapDEK, main.go initializeEncryption | `wrong passphrase or corrupted key file`, `KEK derivation from the master passphrase read from` (names the source) |
 | R | secretenv.go:277 | `refusing to trust it; chmod 0600/0400` (secret file too open) |
 | C | secretenv.go:109-268 | `secret file is empty`, `too large`, `is not a regular file` |
 | C | passphrase.go readPassphraseFile | `is group- or world-readable (mode`, `(the user the server runs as) or to root` (`--passphrase-file`, #3410) |
 | C | raw_providers.go FileKeyProvider.KEK | `refusing to trust it as key material`, `(the user the server runs as) or to root` (file KEK, #3410) |
 | C | main.go:569-576 | `DEK-rotation crash recovery failed` |
 | C | main.go:729 | `bootstrap token:` |
-| R | config.go EnforceSecretFilePermissions | `the server does not start until the file is fixed` (override offered only for files that are not key material) |
+| R | config.go EnforceSecretFilePermissions | `refused until the file is fixed` (override offered only for files that are not key material) |
 
 ### Upgrade, epoch, rollback
 
