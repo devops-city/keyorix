@@ -605,24 +605,13 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 		// that field's doc comment, and PR #2420's body, for why 0 is the
 		// shipped default rather than a tuned nonzero value.
 		if ls.auditFlusherLingerWindow <= 0 {
-			drain := func() {
-				for len(batch) < auditFlusherMaxBatch {
-					select {
-					case item := <-af.queue:
-						batch = append(batch, item)
-					default:
-						return
-					}
+			for len(batch) < auditFlusherMaxBatch {
+				select {
+				case item := <-af.queue:
+					batch = append(batch, item)
+				default:
+					goto commit
 				}
-			}
-			drain()
-			// A batch smaller than the one in flight waits for that one's
-			// result and takes what arrived meanwhile: sending it at once would
-			// shrink every batch after it, and each batch costs the database a
-			// transaction (pipelined batches, local_audit_chain_pipelined_batches.go).
-			for pipe.waitBeforeSending(len(batch)) {
-				pipe.completeOldest()
-				drain()
 			}
 		} else {
 			lingerTimer := time.NewTimer(ls.auditFlusherLingerWindow)
@@ -637,6 +626,7 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 			}
 			lingerTimer.Stop()
 		}
+	commit:
 		af.mu.Lock()
 		af.pending -= len(batch)
 		af.mu.Unlock()

@@ -91,14 +91,17 @@ concatenates the pending id; `TestAuditInsertCheck_PendingHeadMismatchRaises` pi
 
 ### When a batch is pipelined
 
-Pipelining pays only when there is something to overlap, and every batch costs the database a
-transaction. Two rules keep it from costing more than it saves (both measured: without them a
-CPU-bound PostgreSQL arm lost throughput to batches half the serial size):
+Pipelining pays only where the flusher's serial commit is what caps throughput, and every batch
+costs the database a transaction. So:
 
-- a batch of one item with nothing in flight (nobody else was waiting: low concurrency) goes
-  the serial way on a pool connection, exactly as without pipelining;
-- a batch smaller than the one in flight waits for that one's result and takes what arrived
-  meanwhile before it is sent, so pipelining never shrinks the batches.
+- it runs only with `single_writer` on. There a warm read runs no statement besides its audit
+  row (the fold memo answers the credential re-check), so the flusher is the bottleneck and
+  overlapping its batches lifts it. Without `single_writer` every read also runs the folded
+  credential statement, the server is CPU-bound well before the flusher is, and pipelining's
+  more and smaller transactions cost more than the overlap saves (measured; the flusher then
+  commits exactly as before this change);
+- a lone item with nothing in flight (low concurrency) goes the serial way on a pool connection,
+  as without pipelining.
 
 ### Results, in order
 

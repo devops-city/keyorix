@@ -47,6 +47,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/keyorixhq/keyorix/internal/solewriter/swstate"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -101,13 +102,26 @@ type auditPipelineRun struct {
 }
 
 // newAuditBatchPipeline returns the pipeline for one flusher run, or nil when
-// this store never pipelines.
+// this store does not pipeline. It pipelines only with single_writer on: there
+// a warm read runs no statement besides its audit row (the fold memo answers
+// the credential re-check), so the flusher's serial commit is what caps
+// throughput, and overlapping batches lifts it. Without single_writer every
+// read runs the credential statement too, the server is CPU-bound well before
+// the flusher is, and the more and smaller transactions pipelining makes cost
+// more than the overlap saves (measured: docs/specs/audit-pipelined-commits.md).
 func (ls *LocalStorage) newAuditBatchPipeline() *auditBatchPipeline {
 	if auditPipelineDepth < 2 || ls.db == nil || ls.db.Dialector.Name() != "postgres" || ls.auditFlusherLingerWindow > 0 {
 		return nil
 	}
+	if auditPipelineNeedsSingleWriter && swstate.Get() == nil {
+		return nil
+	}
 	return &auditBatchPipeline{ls: ls}
 }
+
+// auditPipelineNeedsSingleWriter is false only in this package's pipeline
+// tests, which run without a single-writer server.
+var auditPipelineNeedsSingleWriter = true
 
 // commitFlusherBatch commits batch for the flusher: pipelined when it can be,
 // otherwise serially once the run (if any) has ended. Every item of batch gets
@@ -132,15 +146,6 @@ func (ls *LocalStorage) commitFlusherBatch(p *auditBatchPipeline, batch []*audit
 // auditPipelineSerialWhenIdle is false only in tests that need a lone item's
 // batch sent on the pipeline (to have the next one sent while it is in flight).
 var auditPipelineSerialWhenIdle = true
-
-// waitBeforeSending reports whether a batch of n items should wait for the
-// batch in flight first: it is smaller than that batch, and could still grow.
-func (p *auditBatchPipeline) waitBeforeSending(n int) bool {
-	if !p.inFlight() || n >= auditFlusherMaxBatch {
-		return false
-	}
-	return n < len(p.inflight[len(p.inflight)-1].batch)
-}
 
 // auditHeldConnKey carries the flusher's pipeline in the context of a commit
 // the flusher runs itself (withHeldAuditConn, withAuditPipelineConn).

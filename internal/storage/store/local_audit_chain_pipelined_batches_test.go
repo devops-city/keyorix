@@ -51,6 +51,14 @@ func multiRowPGStoreInSchema(t *testing.T, schema string) *LocalStorage {
 	return NewLocalStorage(db)
 }
 
+// enablePipeline lets this test's stores pipeline without a single-writer
+// server (production pipelines only with single_writer on).
+func enablePipeline(t *testing.T) {
+	t.Helper()
+	auditPipelineNeedsSingleWriter = false
+	t.Cleanup(func() { auditPipelineNeedsSingleWriter = true })
+}
+
 // armForPipeline commits single-item batches through the flusher until the
 // chain-head cache is armed, so the next batch can start a pipelined run.
 func armForPipeline(t *testing.T, ls *LocalStorage, tag string) int {
@@ -94,6 +102,7 @@ func sendPlan(t *testing.T, ls *LocalStorage, plan *auditOneFlightPlan) (beforeC
 // Postgres skips COMMIT and nothing is written: a NULL instead of a raise (a
 // NULL message cast to int) would let COMMIT run on a forked chain.
 func TestAuditInsertCheck_PendingHeadMismatchRaises(t *testing.T) {
+	enablePipeline(t)
 	ctx := context.Background()
 	ls := multiRowPGStore(t)
 	first := buildMultiRowBatch(3, "base")
@@ -132,6 +141,7 @@ func TestAuditInsertCheck_PendingHeadMismatchRaises(t *testing.T) {
 // before them is in flight, every caller that got nil has its row committed at
 // that moment (audit before disclosure), and the chain is one linear sequence.
 func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
+	enablePipeline(t)
 	ctx := context.Background()
 	ls := multiRowPGStore(t)
 	armed := armForPipeline(t, ls, "concurrent")
@@ -139,7 +149,7 @@ func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
 	// executes: the next batch is then at least as large as the one in flight
 	// and is pipelined (a batch smaller than it waits instead, by design).
 	require.NoError(t, ls.db.Exec(`CREATE FUNCTION kx_slow_each_row() RETURNS trigger AS $$
-BEGIN PERFORM pg_sleep(0.0002); RETURN NEW; END $$ LANGUAGE plpgsql`).Error)
+BEGIN PERFORM pg_sleep(0.001); RETURN NEW; END $$ LANGUAGE plpgsql`).Error)
 	require.NoError(t, ls.db.Exec(`CREATE TRIGGER kx_slow_each_row BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION kx_slow_each_row()`).Error)
 	before := ls.auditHead.pipelinedSends.Load()
 
@@ -196,6 +206,7 @@ func requireNoNullTextColumns(t *testing.T, ls *LocalStorage) {
 // string as "", not NULL (the parameters are re-encoded for the pipeline, and
 // an empty encoded value must stay a zero-length value).
 func TestPipelinedBatches_PostgresStoresEmptyStringsNotNull(t *testing.T) {
+	enablePipeline(t)
 	ls := multiRowPGStore(t)
 	armForPipeline(t, ls, "empty")
 	sends := ls.auditHead.pipelinedSends.Load()
@@ -222,6 +233,7 @@ func storedRows(t *testing.T, ls *LocalStorage, table string) []string {
 // pipeline directly, so the order and the batches are fixed; every size goes
 // through twice, so the second round is sent chained onto pending heads.
 func TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath(t *testing.T) {
+	enablePipeline(t)
 	serial, piped := multiRowPGStore(t), multiRowPGStore(t)
 	sizes := []int{7, 13, 2, 9, 7, 13, 2, 9}
 	commitAll(t, serial, buildMultiRowBatch(1, "eq-arm"))
@@ -254,6 +266,7 @@ func TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath(t *testing.T)
 // every batch goes the serial way on a pool connection, as without pipelining,
 // and the flusher holds no connection between them.
 func TestPipelinedBatches_PostgresLoneReaderStaysSerial(t *testing.T) {
+	enablePipeline(t)
 	ls := multiRowPGStore(t)
 	armed := armForPipeline(t, ls, "lone")
 	commits := ls.auditHead.oneFlightCommits.Load()
@@ -266,6 +279,30 @@ func TestPipelinedBatches_PostgresLoneReaderStaysSerial(t *testing.T) {
 	assert.Zero(t, ls.auditHead.pipelinedSends.Load(), "a lone reader's batch was pipelined")
 	assert.Greater(t, ls.auditHead.oneFlightCommits.Load(), commits, "the serial path keeps its one-flight commits")
 	requireChainValid(t, ls, nil, armed+20)
+}
+
+// Without single_writer the flusher never pipelines (every read runs its
+// credential statement too, so the flusher is not the bottleneck and more,
+// smaller transactions would cost throughput): the same backlog that
+// pipelines with it commits serially, and the flusher holds no connection.
+func TestAuditPipeline_PostgresOffWithoutSingleWriter(t *testing.T) {
+	ctx := context.Background()
+	ls := multiRowPGStore(t)
+	armed := armForPipeline(t, ls, "nosw")
+	require.NoError(t, ls.db.Exec(`CREATE FUNCTION kx_slow_each_row() RETURNS trigger AS $$
+BEGIN PERFORM pg_sleep(0.001); RETURN NEW; END $$ LANGUAGE plpgsql`).Error)
+	require.NoError(t, ls.db.Exec(`CREATE TRIGGER kx_slow_each_row BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION kx_slow_each_row()`).Error)
+	var wg sync.WaitGroup
+	for w := range 24 {
+		wg.Go(func() {
+			for i := range 10 {
+				assert.NoError(t, ls.LogAuditEvent(ctx, pipelinedEvent(fmt.Sprintf("nosw w%d i%d", w, i))))
+			}
+		})
+	}
+	wg.Wait()
+	assert.Zero(t, ls.auditHead.pipelinedSends.Load(), "pipelined without single_writer")
+	requireChainValid(t, ls, nil, armed+240)
 }
 
 // slowPoisonTriggers: an audit row described SLOW-POISON sleeps, then raises; one
@@ -374,6 +411,7 @@ func waitPipelinedSend(t *testing.T, ls *LocalStorage, before int64) {
 // not there, so it is rolled back and retried AFTER N, and its readers get nil
 // only once their rows committed. The chain stays linear.
 func TestPipelinedBatches_PostgresBatchFailsWhileNextInFlight(t *testing.T) {
+	enablePipeline(t)
 	ls := multiRowPGStore(t)
 	slowPoisonTriggers(t, ls, 300*time.Millisecond)
 	armed := armForPipeline(t, ls, "fail")
@@ -403,6 +441,7 @@ func TestPipelinedBatches_PostgresBatchFailsWhileNextInFlight(t *testing.T) {
 // rows are not there yet, and N+1 is retried after N. Each row is stored
 // exactly once and the chain stays linear.
 func TestPipelinedBatches_PostgresBackendDiesWhileNextInFlight(t *testing.T) {
+	enablePipeline(t)
 	ls := multiRowPGStore(t)
 	slowPoisonTriggers(t, ls, 500*time.Millisecond)
 	armed := armForPipeline(t, ls, "kill")
@@ -469,6 +508,7 @@ func (c *lostConn) Write(p []byte) (int, error) {
 // N's rows and N+1 commits, or it does not and N+1 is retried. Either way N+1's
 // readers get nil only with their rows committed and the chain is linear.
 func TestPipelinedBatches_PostgresLostConnectionOutcomeUnknown(t *testing.T) {
+	enablePipeline(t)
 	ls, plain := lostConnPGStore(t)
 	require.NoError(t, plain.db.Exec(`CREATE FUNCTION kx_lost_row() RETURNS trigger AS $$
 BEGIN
@@ -505,6 +545,7 @@ END $$ LANGUAGE plpgsql`).Error)
 // moves under in-flight batches, their checks catch it, and the chain stays one
 // linear sequence with every row present.
 func TestPipelinedBatches_PostgresInterleavedDirectAppends(t *testing.T) {
+	enablePipeline(t)
 	ctx := context.Background()
 	ls := multiRowPGStore(t)
 	armed := armForPipeline(t, ls, "mixed")
@@ -544,6 +585,7 @@ func TestPipelinedBatches_PostgresInterleavedDirectAppends(t *testing.T) {
 // each one's in-flight batches are overtaken by the other's, caught by the
 // checks and retried; the chain is one linear sequence across both.
 func TestPipelinedBatches_PostgresTwoReplicasConcurrent(t *testing.T) {
+	enablePipeline(t)
 	ctx := context.Background()
 	a := multiRowPGStore(t)
 	b := multiRowPGStoreInSchema(t, pipelinePGSchema(t, a))
@@ -576,6 +618,7 @@ func TestPipelinedBatches_PostgresTwoReplicasConcurrent(t *testing.T) {
 // starts): a failing batch still refuses only its own reader, the batch after
 // it commits, and the chain stays linear.
 func TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits(t *testing.T) {
+	enablePipeline(t)
 	ls := multiRowSQLiteStore(t)
 	installPoisonTriggers(t, ls)
 	for i := range 3 {
