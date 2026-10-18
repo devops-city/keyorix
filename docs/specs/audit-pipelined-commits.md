@@ -89,6 +89,12 @@ A failing check must raise, never evaluate to NULL: the raise is a cast of a mes
 and a NULL message would cast to NULL and let COMMIT run. The message therefore never
 concatenates the pending id; `TestAuditInsertCheck_PendingHeadMismatchRaises` pins it.
 
+The pending form is its own statement text (`auditInsertCheckPendingSQL`). A batch chained onto a
+head whose id is known (every batch that is not pipelined, and the first of a run) sends the
+check statement unchanged from before this change: the pending form, used for every batch in an
+earlier version, cost Postgres measurably more per statement, which showed at low concurrency
+where almost nothing is pipelined.
+
 ### When a batch is pipelined
 
 Pipelining pays only where the flusher's serial commit is what caps throughput, and every batch
@@ -100,11 +106,13 @@ costs the database a transaction. So:
   credential statement, the server is CPU-bound well before the flusher is, and pipelining's
   more and smaller transactions cost more than the overlap saves (measured; the flusher then
   commits exactly as before this change);
-- while a batch is in flight, a batch of fewer than `auditPipelineMinBatch` (4) items waits for
+- while a batch is in flight, a batch of fewer than `auditPipelineMinBatch` (8) items waits for
   that one's result and takes what arrived meanwhile: every batch is a transaction whose fixed
   cost in the database is about the same for one row as for a few, and batches sent eagerly at a
   few items each stay that small (measured: at ten readers that cost throughput, depending on
-  the history of the run);
+  the history of the run). The serial flusher's batches at ten readers average about five
+  items, so such a load commits as it does without this change; only a backlog the serial cycle
+  cannot keep up with (tens of items per batch) is pipelined;
 - otherwise it pipelines at every concurrency: a rule sending a lone item serially
   (to keep low concurrency on the serial path) was measured and dropped, because switching
   between the two paths at every lone item cost a load of a few items per batch more than it
