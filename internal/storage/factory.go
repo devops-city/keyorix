@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 3
+const currentSchemaEpoch = 4
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -71,6 +71,13 @@ const schemaEpochMetadataKey = "schema_epoch"
 // Epoch 3 (pending_audit_events) left it at 2: the table is additive, an
 // epoch-2 replica never reads or writes it, and rows it leaves behind are
 // drained by the next epoch-3 replica's backfill.
+// Epoch 4 (machine_identities.cascade_suspended_project_id/_at, #3433) leaves it at
+// 2: an epoch-3 replica's project delete does not suspend (the pre-#3433 behaviour,
+// for the length of the rollout), its project restore re-activates nothing (fail
+// closed: the identities stay suspended), and its machine-identity writes do not clear
+// the marker but do move updated_at, which the epoch-4 restore requires unchanged
+// (LocalStorage.ReactivateMachineIdentitiesForRestoredProject). Nothing an epoch-3
+// binary does makes an epoch-4 restore re-activate an identity it should not.
 const minCompatibleSchemaEpoch = 2
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
@@ -2465,6 +2472,24 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// rather than nested inside the ALTER guard.
 		if err := exec("CREATE INDEX IF NOT EXISTS idx_machine_identities_classification ON machine_identities (classification)"); err != nil {
 			return err
+		}
+		// #3433: the project soft-delete cascade's suspension marker (schema epoch 4).
+		// Additive; 0 / NULL = "not suspended by a cascade", which is what every
+		// existing row is.
+		if !columnExists(db, "machine_identities", "cascade_suspended_project_id") {
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_project_id BIGINT NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+		}
+		if !columnExists(db, "machine_identities", "cascade_suspended_at") {
+			// Per-dialect type for the reason given at secret_nodes.purge_at.
+			ts := "DATETIME"
+			if db.Dialector.Name() == "postgres" {
+				ts = "TIMESTAMP WITH TIME ZONE"
+			}
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_at " + ts); err != nil {
+				return err
+			}
 		}
 	}
 

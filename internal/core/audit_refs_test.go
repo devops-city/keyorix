@@ -36,7 +36,7 @@ func TestAuditDescriptionsCarryNames(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.Project{}, &models.Environment{}, &models.AuditEvent{},
 		&models.UserRole{}, &models.GroupRole{}, &models.UserGroup{}, &models.Role{}, &models.Group{}, &models.User{},
-		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{},
 		&models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
 	))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}
