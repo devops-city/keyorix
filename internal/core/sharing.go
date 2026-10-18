@@ -61,13 +61,12 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 		return nil, err
 	}
 
-	// For user shares, reject cross-project grants: the recipient must be a member of
-	// the secret's project. Group shares are not gated here — every group-share
-	// caller (HTTP, gRPC) routes to ShareSecretWithGroup (group_sharing.go) instead
-	// of here, and that function performs its own analogous cross-project check
-	// (IsGroupProjectScoped) against the group recipient. This is NOT compensated
-	// for at access time: CheckGroupPermissions (permissions.go) checks only group
-	// membership, never the accessing user's project affiliation.
+	// Reject cross-project grants: the recipient must be a member of the secret's
+	// project. Group shares never reach here (validateShareSecretRequest refuses
+	// IsGroup, #3422): they go through ShareSecretWithGroup (group_sharing.go), which
+	// performs the analogous cross-project check (IsGroupProjectScoped). That check
+	// is NOT compensated for at access time: CheckGroupPermissions (permissions.go)
+	// checks only group membership, never the accessing user's project affiliation.
 	if !req.IsGroup {
 		if isMember, merr := c.IsProjectMember(ctx, req.RecipientID, secret.ProjectID); merr != nil {
 			return nil, fmt.Errorf("failed to verify project membership: %w", merr)

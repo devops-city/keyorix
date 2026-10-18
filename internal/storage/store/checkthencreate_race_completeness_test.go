@@ -68,12 +68,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // ---------------------------------------------------------------------------
@@ -691,10 +692,7 @@ var checkThenCreateAllowlist = map[string]string{
 }
 
 func TestCheckThenCreateSitesAreUniqueIndexBacked(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate sibling packages relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "checkthencreate_race_completeness_test.go")
 	storeDir := filepath.Dir(thisFile)
 	storageDir := filepath.Join(storeDir, "..")
 	modelsDir := filepath.Join(storageDir, "models")

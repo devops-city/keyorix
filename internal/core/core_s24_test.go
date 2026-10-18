@@ -390,7 +390,8 @@ func TestRestoreSecret_Success(t *testing.T) {
 	// GetSecretIncludingDeleted is called before RestoreSecret to obtain name+projectID.
 	ms.On("GetSecretIncludingDeleted", mock.Anything, uint(5)).Return(&models.SecretNode{ID: 5, ProjectID: 1}, nil)
 	ms.On("RestoreSecret", mock.Anything, uint(5)).Return(nil)
-	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+	// The secret.restored row is appended inside the restore's transaction.
+	ms.On("LogAuditEventWithAccessLog", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	// emitDependencyLifecycleEvents lists the project's edges after restore.
 	ms.On("ListSecretDependenciesForProject", mock.Anything, uint(1)).Return([]*models.SecretDependency{}, nil)
 	c := NewKeyorixCore(ms)

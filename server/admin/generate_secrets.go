@@ -99,7 +99,7 @@ func runGenerateSecrets(cmd *cobra.Command, args []string) error {
 			// A kept file must still be usable: the readers refuse a key-material
 			// file that is not 0600/0400, so say so now rather than at first start.
 			if err := secretenv.CheckPermissions(path); err != nil {
-				return fmt.Errorf("existing %s cannot be used (%w); fix its mode (chmod 600) or move it away", absPath, err)
+				return fmt.Errorf("existing %s cannot be used (%w); fix its mode (chmod 600) and owner (you or root), or move it away", absPath, err)
 			}
 			_, _ = fmt.Fprintf(out, "  kept     %s (already exists; not overwritten)\n", absPath)
 			continue

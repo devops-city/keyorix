@@ -126,13 +126,11 @@ How this is tested, and what that does not cover:
 - `kill -9` stops the process, not the disk. It exercises the "server crash"
   case, not a power cut; a power-cut run needs a device that drops unsynced
   writes and has not been done yet.
-- **Known gap.** The audit row for a create, update or delete is written just
-  after that change commits, not in the same transaction. A crash in that
-  window leaves an acknowledged change with no audit row (the chain still
-  verifies; it is a missing entry, not a broken one). Reads are not affected:
-  their audit row is committed before the value is returned. The soak reports
-  this and fails on it when run with `--strict-mutation-audit`; the fix is
-  tracked as its own work item.
+- The audit row for a create, update, delete or restore is written in the same
+  transaction as that change, so a crash cannot leave an acknowledged change
+  with no audit row. Reads are not affected: their audit row is committed
+  before the value is returned. The soak fails on a missing row by default;
+  `--lenient-mutation-audit` only logs it.
 
 What the software cannot do for you:
 
@@ -309,7 +307,7 @@ binary (`server/edge_unattended_integration_test.go`, `scripts/edge/crash-soak.s
 |---|---|---|
 | Stale lock files (`*.lock` beside the database and in the key directory) | Every lock is a kernel `flock`, released when the process dies; only the empty file stays, and its content is never read. | None. Do not delete them by hand while the server runs. |
 | Interrupted first-time or upgrade migration (power cut mid-start) | The schema is built idempotently; the next start finishes it. | None. Do not restore an older database to "fix" it. |
-| Data volume full | Writes fail with an error response (HTTP 500) and are not acknowledged; nothing acknowledged earlier is lost and the database is not damaged. | Free space, then restart the service. A real full filesystem has not been run yet (pending the e2e VM): the tests simulate failing writes. |
+| Data volume full | Writes fail with an error response (HTTP 500) and are not acknowledged; nothing acknowledged earlier is lost and the database is not damaged. A secret value is still returned only while its audit row commits (a small audit write can fit in space a failed write left behind); once that write fails too, the read is refused (HTTP 500). | Free space, then restart the service. A real full filesystem has not been run yet (pending the e2e VM): the tests simulate failing writes. |
 | Crash or `kill -9` at any point | See [§4](#4-power-loss-what-to-expect). | None; run `admin verify-audit` if you care. |
 
 **What an operator must still do.** Monitor free space on the data volume and

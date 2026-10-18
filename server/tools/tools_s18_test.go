@@ -17,20 +17,18 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // serverDir returns the absolute path to the server/ directory (parent of tools/).
 func serverDir(t *testing.T) string {
 	t.Helper()
 	// __file__ is in server/tools/; go up one level.
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	filename := filepath.Join(srcpath.PkgDir(), "tools_s18_test.go")
 	return filepath.Dir(filepath.Dir(filename))
 }
 

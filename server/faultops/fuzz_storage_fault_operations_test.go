@@ -500,10 +500,13 @@ func FuzzStorageFaultOperations(f *testing.F) {
 		f.Add(s)
 	}
 	// Oracle false-positive regression (TokenPrefix): a fired fault that the op
-	// tolerates by design (here the auth middleware's documented skip-on-error
-	// account-state re-read) reports success, so oracle (a) compares against the
+	// tolerated by design (here the auth middleware's then skip-on-error
+	// account-state re-read) reported success, so oracle (a) compared against the
 	// independently-bootstrapped reference world -- whose setup minted its own
 	// random machine token. TokenPrefix must be presence-only, like TokenHash.
+	// CACHE-FAILCLOSED-1: that re-read now refuses the request (503, no effect)
+	// instead, so this seed exercises the refused-without-effect path; kept as
+	// a regression seed for the snapshot comparison.
 	// PERF-FIX-7: that re-read (GetUser#1 before) is now GetSessionAuthLiveness#1,
 	// the same call site (the account and session rows in one statement).
 	if s := seedFor("REST DELETE /api/v1/projects/{id}/machine-identities/{machineId}/tokens/{tokenId}", "GetSessionAuthLiveness", 1, 0); s != nil {
@@ -541,9 +544,10 @@ func FuzzStorageFaultOperations(f *testing.F) {
 	// worlds' DynamicSecretLease rows (and RevokeLease's AuditEvent.Description, which
 	// embeds the same LeaseID verbatim) never matched regardless of any fault. This fault
 	// (GetUser#1/error) only ever lands in the auth middleware's cache-hit account-state
-	// recheck, which already degrades to the cached snapshot on a storage error by design
-	// (serveAuthCacheHit) -- RevokeLease's own write path is never faulted. Not a real
-	// bug; kept as a regression seed for the snapshot comparison gap itself.
+	// recheck, which then degraded to the cached snapshot on a storage error by design
+	// (serveAuthCacheHit; since CACHE-FAILCLOSED-1 it refuses the request with 503 and no
+	// effect) -- RevokeLease's own write path is never faulted. Not a real bug; kept as a
+	// regression seed for the snapshot comparison gap itself.
 	// PERF-FIX-7: that recheck is now GetSessionAuthLiveness#1 (was GetUser#1),
 	// the same call site.
 	if s := seedFor("REST POST /api/v1/dynamic-secrets/leases/{leaseID}/revoke", "GetSessionAuthLiveness", 1, 0); s != nil {

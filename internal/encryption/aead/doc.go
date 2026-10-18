@@ -26,6 +26,9 @@
 //     once EncryptionService lives here — WipeDEK is the same zeroing loop,
 //     exported. IsDEKWiped lets internal/encryption's G62 tests check the
 //     wipe without any exported accessor for the key bytes themselves.
+//     WipeDEK also latches the service closed (every operation then returns
+//     ErrDEKWiped): the GCM key schedule survives the zeroing, so without the
+//     latch a wiped service still worked under the old key.
 //   - The leaf guard covers non-test files only. aead_context_binding_fuzz_test.go
 //     imports internal/core/ports (for the real SecretAAD) and internal/fuzzutil,
 //     so this package's test binary links those two plus pkg/trust and

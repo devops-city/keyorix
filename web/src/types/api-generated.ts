@@ -5897,6 +5897,11 @@ export interface components {
             id?: number;
             project_id?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+             */
+            secret_count?: number;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -6606,6 +6611,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     revokeSession: {
@@ -6649,6 +6655,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     createPAT: {
@@ -6718,6 +6725,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     bulkRevokeExpiredPATs: {
@@ -6736,6 +6744,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     patHygiene: {
@@ -6997,6 +7006,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     getSystemInfo: {
@@ -11415,6 +11425,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };

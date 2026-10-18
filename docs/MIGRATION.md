@@ -14,7 +14,7 @@ first connect:
 ```sh
 export KEYORIX_SERVER=https://keyorix.your-company.internal
 export KEYORIX_TOKEN=<a service or personal access token with secrets.write>
-# or: keyorix auth login --server …  /  keyorix connect
+# or: keyorix login --server …   (prompts for the password; stores a session token)
 ```
 
 Every import targets one project + environment and is **idempotent** by default

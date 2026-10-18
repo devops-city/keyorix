@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '../../../test/test-utils';
 import { LeasesPanel } from '../LeasesPanel';
+import { answerConfirm } from '../../../test/confirm';
 import { DEFAULT_SENSITIVE_IDLE_MS } from '../../../hooks/useAutoClearOnIdle';
 
 let leasesData: any[] = [];
@@ -115,15 +116,16 @@ describe('LeasesPanel', () => {
         expect(screen.queryByRole('button', { name: /issue credential/i })).not.toBeInTheDocument();
     });
 
-    it('revokes a single lease and surfaces a fallback error when the server gives no detail', () => {
+    it('revokes a single lease and surfaces a fallback error when the server gives no detail', async () => {
         leasesData = [{ leaseId: 'lease-1', roleName: 'role', status: 'active' }];
         revokeMutate.mockImplementation((_id, opts) => opts.onError({}));
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByTitle('Revoke lease'));
+        await answerConfirm(/^Revoke this lease\?/, 'accept');
 
-        expect(revokeMutate).toHaveBeenCalledWith('lease-1', expect.anything());
-        expect(screen.getByText('Failed to revoke lease.')).toBeInTheDocument();
+        await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith('lease-1', expect.anything()));
+        expect(await screen.findByText('Failed to revoke lease.')).toBeInTheDocument();
     });
 
     it('hides "Revoke all" when there are no active leases, shows it (with a count) when there are', () => {
@@ -139,7 +141,7 @@ describe('LeasesPanel', () => {
         expect(screen.getByRole('button', { name: 'Revoke all (2)' })).toBeInTheDocument();
     });
 
-    it('revokes all active leases and surfaces the server error message on failure', () => {
+    it('revokes all active leases and surfaces the server error message on failure', async () => {
         leasesData = [{ leaseId: 'lease-1', roleName: 'role', status: 'active' }];
         revokeAllMutate.mockImplementation((_vars, opts) =>
             opts.onError({ response: { data: { message: 'Vault unreachable' } } })
@@ -147,9 +149,10 @@ describe('LeasesPanel', () => {
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByRole('button', { name: /revoke all/i }));
+        await answerConfirm(/^Revoke all 1 active lease/, 'accept');
 
-        expect(revokeAllMutate).toHaveBeenCalled();
-        expect(screen.getByText('Vault unreachable')).toBeInTheDocument();
+        await waitFor(() => expect(revokeAllMutate).toHaveBeenCalled());
+        expect(await screen.findByText('Vault unreachable')).toBeInTheDocument();
     });
 
     it('shows the server message when issuing a credential fails', () => {
@@ -189,54 +192,57 @@ describe('LeasesPanel', () => {
         await waitFor(() => expect(screen.getAllByRole('button', { name: 'Copied' })).toHaveLength(1));
     });
 
-    it('asks for confirmation before revoking a single lease, and does not revoke when declined', () => {
+    const REVOKE_ONE = 'Revoke this lease? The credential will stop working immediately.';
+    const REVOKE_ALL_2 = 'Revoke all 2 active lease(s)? Every issued credential will stop working immediately.';
+    const twoLeases = () => [
+        { leaseId: 'lease-1', roleName: 'role', status: 'active' },
+        { leaseId: 'lease-2', roleName: 'role2', status: 'active' },
+    ];
+
+    it('asks for confirmation before revoking a single lease, and does not revoke when declined', async () => {
         leasesData = [{ leaseId: 'lease-1', roleName: 'role', status: 'active' }];
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByTitle('Revoke lease'));
+        await answerConfirm(REVOKE_ONE, 'cancel');
 
-        expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/revoke this lease/i));
         expect(revokeMutate).not.toHaveBeenCalled();
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
-    it('revokes a single lease once the confirmation is accepted', () => {
+    it('revokes a single lease once the confirmation is accepted', async () => {
         leasesData = [{ leaseId: 'lease-1', roleName: 'role', status: 'active' }];
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByTitle('Revoke lease'));
+        expect(revokeMutate).not.toHaveBeenCalled();
+        await answerConfirm(REVOKE_ONE, 'accept');
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
-        expect(revokeMutate).toHaveBeenCalledWith('lease-1', expect.anything());
+        await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith('lease-1', expect.anything()));
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
-    it('asks for confirmation before revoking all leases, and does not revoke when declined', () => {
-        leasesData = [
-            { leaseId: 'lease-1', roleName: 'role', status: 'active' },
-            { leaseId: 'lease-2', roleName: 'role2', status: 'active' },
-        ];
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    it('asks for confirmation before revoking all leases, and does not revoke when declined', async () => {
+        leasesData = twoLeases();
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByRole('button', { name: 'Revoke all (2)' }));
+        await answerConfirm(REVOKE_ALL_2, 'cancel');
 
-        expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/revoke all 2 active lease/i));
         expect(revokeAllMutate).not.toHaveBeenCalled();
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
-    it('revokes all leases once the confirmation is accepted', () => {
-        leasesData = [
-            { leaseId: 'lease-1', roleName: 'role', status: 'active' },
-            { leaseId: 'lease-2', roleName: 'role2', status: 'active' },
-        ];
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    it('revokes all leases once the confirmation is accepted', async () => {
+        leasesData = twoLeases();
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByRole('button', { name: 'Revoke all (2)' }));
+        expect(revokeAllMutate).not.toHaveBeenCalled();
+        await answerConfirm(REVOKE_ALL_2, 'accept');
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
-        expect(revokeAllMutate).toHaveBeenCalled();
+        await waitFor(() => expect(revokeAllMutate).toHaveBeenCalled());
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
     // A lease whose revoke attempt failed is still LIVE upstream (the backend
@@ -266,17 +272,19 @@ describe('LeasesPanel', () => {
             expect(screen.getByTitle('Retry revoke')).toBeInTheDocument();
         });
 
-        it('retries revoking a revoke_failed lease via the same revoke mutation, after a distinct confirmation', () => {
+        it('retries revoking a revoke_failed lease via the same revoke mutation, after a distinct confirmation', async () => {
             leasesData = [
                 { leaseId: 'lease-failed', roleName: 'admin-role', status: 'revoke_failed', revokeError: 'timeout' },
             ];
-            const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
             render(<LeasesPanel configId={5} canManage />);
             fireEvent.click(screen.getByTitle('Retry revoke'));
+            await answerConfirm(
+                'Retry revoking this lease? The credential is still live upstream until this succeeds.',
+                'accept'
+            );
 
-            expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/retry revoking this lease/i));
-            expect(revokeMutate).toHaveBeenCalledWith('lease-failed', expect.anything());
+            await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith('lease-failed', expect.anything()));
         });
 
         it('hides the retry control for non-managers even on a revoke_failed lease', () => {
@@ -292,43 +300,44 @@ describe('LeasesPanel', () => {
     // partial failure must be visibly distinct from a full success, not silently
     // swallowed by only wiring onError.
     describe('revoke all: partial-failure visibility', () => {
-        it('shows a warning notice distinguishing a partial failure from full success', () => {
+        it('shows a warning notice distinguishing a partial failure from full success', async () => {
             leasesData = [
                 { leaseId: 'lease-1', roleName: 'role', status: 'active' },
                 { leaseId: 'lease-2', roleName: 'role2', status: 'active' },
             ];
             revokeAllMutate.mockImplementation((_vars, opts) => opts.onSuccess({ revoked: 4, failed: 2 }));
-            vi.spyOn(window, 'confirm').mockReturnValue(true);
 
             render(<LeasesPanel configId={5} canManage />);
             fireEvent.click(screen.getByRole('button', { name: /revoke all/i }));
+            await answerConfirm(/^Revoke all 2 active lease/, 'accept');
 
-            expect(screen.getByText(/revoked 4 of 6 lease\(s\) — 2 failed/i)).toBeInTheDocument();
+            expect(await screen.findByText(/revoked 4 of 6 lease\(s\) — 2 failed/i)).toBeInTheDocument();
         });
 
-        it('shows a plain success notice (no partial-failure wording) when nothing failed', () => {
+        it('shows a plain success notice (no partial-failure wording) when nothing failed', async () => {
             leasesData = [
                 { leaseId: 'lease-1', roleName: 'role', status: 'active' },
                 { leaseId: 'lease-2', roleName: 'role2', status: 'active' },
             ];
             revokeAllMutate.mockImplementation((_vars, opts) => opts.onSuccess({ revoked: 2, failed: 0 }));
-            vi.spyOn(window, 'confirm').mockReturnValue(true);
 
             render(<LeasesPanel configId={5} canManage />);
             fireEvent.click(screen.getByRole('button', { name: /revoke all/i }));
+            await answerConfirm(/^Revoke all 2 active lease/, 'accept');
 
-            expect(screen.getByText('Revoked 2 lease(s).')).toBeInTheDocument();
+            expect(await screen.findByText('Revoked 2 lease(s).')).toBeInTheDocument();
             expect(screen.queryByText(/failed/i)).not.toBeInTheDocument();
         });
     });
 
-    it('dismisses the "Revoke all" partial-failure/success notice via its own dismiss control', () => {
+    it('dismisses the "Revoke all" partial-failure/success notice via its own dismiss control', async () => {
         leasesData = [{ leaseId: 'lease-1', roleName: 'role', status: 'active' }];
         revokeAllMutate.mockImplementation((_vars, opts) => opts.onSuccess({ revoked: 1, failed: 0 }));
 
         render(<LeasesPanel configId={5} canManage />);
         fireEvent.click(screen.getByRole('button', { name: /revoke all/i }));
-        expect(screen.getByText('Revoked 1 lease(s).')).toBeInTheDocument();
+        await answerConfirm(/^Revoke all 1 active lease/, 'accept');
+        expect(await screen.findByText('Revoked 1 lease(s).')).toBeInTheDocument();
 
         fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
         expect(screen.queryByText('Revoked 1 lease(s).')).not.toBeInTheDocument();

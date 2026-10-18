@@ -18,17 +18,17 @@ import (
 )
 
 // withBlockingLocks runs fn for the bootstrap and the audit-checkpoint lock.
-func withBlockingLocks(t *testing.T, fn func(t *testing.T, name string, with func(replica int, ctx context.Context, body func() error) error), replicas ...any) {
+func withBlockingLocks(t *testing.T, fn func(t *testing.T, name string, with func(replica int, ctx context.Context, body func(context.Context) error) error), replicas ...any) {
 	t.Helper()
 	type bootstrapper interface {
-		WithBootstrapLock(ctx context.Context, fn func() error) error
+		WithBootstrapLock(ctx context.Context, fn func(context.Context) error) error
 	}
 	type checkpointer interface {
-		WithAuditCheckpointLock(ctx context.Context, fn func() error) error
+		WithAuditCheckpointLock(ctx context.Context, fn func(context.Context) error) error
 	}
 	for _, name := range []string{"BootstrapLock", "AuditCheckpointLock"} {
 		t.Run(name, func(t *testing.T) {
-			fn(t, name, func(replica int, ctx context.Context, body func() error) error {
+			fn(t, name, func(replica int, ctx context.Context, body func(context.Context) error) error {
 				if name == "BootstrapLock" {
 					return replicas[replica].(bootstrapper).WithBootstrapLock(ctx, body)
 				}
@@ -48,12 +48,12 @@ func TestPgBouncer_BlockingLocks_ExcludeAcrossReplicas(t *testing.T) {
 	defer i18n.ResetForTesting()
 	tg := pgBouncerTargetFor(t)
 	a, b := tg.open(t, false), tg.open(t, false)
-	withBlockingLocks(t, func(t *testing.T, name string, with func(int, context.Context, func() error) error) {
+	withBlockingLocks(t, func(t *testing.T, name string, with func(int, context.Context, func(context.Context) error) error) {
 		for round := range 3 {
 			entered, release := make(chan struct{}), make(chan struct{})
 			done := make(chan error, 1)
 			go func() {
-				done <- with(0, context.Background(), func() error {
+				done <- with(0, context.Background(), func(context.Context) error {
 					close(entered)
 					<-release
 					return nil
@@ -62,13 +62,13 @@ func TestPgBouncer_BlockingLocks_ExcludeAcrossReplicas(t *testing.T) {
 			<-entered
 			var bEntered atomic.Bool
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			err := with(1, ctx, func() error { bEntered.Store(true); return nil })
+			err := with(1, ctx, func(context.Context) error { bEntered.Store(true); return nil })
 			cancel()
 			require.False(t, bEntered.Load(), "round %d: replica B entered %s while replica A held it", round, name)
 			require.Error(t, err, "round %d: replica B should have been blocked until its context expired", round)
 			close(release)
 			require.NoError(t, <-done)
-			require.NoError(t, with(1, context.Background(), func() error { bEntered.Store(true); return nil }))
+			require.NoError(t, with(1, context.Background(), func(context.Context) error { bEntered.Store(true); return nil }))
 			require.True(t, bEntered.Load(), "round %d: replica B could not enter %s after A released it", round, name)
 		}
 		require.Zero(t, tg.advisoryLocks(t), "advisory locks still held after every %s holder returned", name)
@@ -104,11 +104,11 @@ func TestPgBouncer_Locks_SurviveServerTimeouts(t *testing.T) {
 	require.NoError(t, admin.Exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()").Error)
 	time.Sleep(500 * time.Millisecond)
 	a, b := tg.open(t, false), tg.open(t, false)
-	withBlockingLocks(t, func(t *testing.T, name string, with func(int, context.Context, func() error) error) {
+	withBlockingLocks(t, func(t *testing.T, name string, with func(int, context.Context, func(context.Context) error) error) {
 		entered, release := make(chan struct{}), make(chan struct{})
 		done := make(chan error, 1)
 		go func() {
-			done <- with(0, context.Background(), func() error {
+			done <- with(0, context.Background(), func(context.Context) error {
 				close(entered)
 				<-release
 				return nil
@@ -118,7 +118,7 @@ func TestPgBouncer_Locks_SurviveServerTimeouts(t *testing.T) {
 		time.Sleep(2500 * time.Millisecond)
 		var bEntered atomic.Bool
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		_ = with(1, ctx, func() error { bEntered.Store(true); return nil })
+		_ = with(1, ctx, func(context.Context) error { bEntered.Store(true); return nil })
 		cancel()
 		close(release)
 		require.NoError(t, <-done)

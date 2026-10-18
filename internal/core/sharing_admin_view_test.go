@@ -33,7 +33,7 @@ func freshSharedSecretsAdminViewCore(t *testing.T) (*core.KeyorixCore, *gorm.DB)
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{}, &models.RolePermission{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{},
-		&models.SecretNode{}, &models.ShareRecord{}, &models.AuditEvent{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.AuditEvent{},
 	))
 	return core.NewKeyorixCore(store.NewLocalStorage(db)), db
 }
