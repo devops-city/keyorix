@@ -32,6 +32,9 @@ type Service struct {
 	// hook) while mu is already held for writing, and mu is not reentrant.
 	auditSink   AuditSink
 	auditSinkMu sync.RWMutex
+	// epoch is the cross-replica DEK epoch guard (dek_epoch.go), nil unless
+	// StartDEKEpochGuard ran against PostgreSQL. Encrypt* refuse while it fences.
+	epoch *dekEpochWatch
 }
 
 // NewService creates a new encryption Service.
@@ -308,6 +311,9 @@ func (s *Service) EncryptSecret(plaintext []byte) ([]byte, []byte, error) {
 	if !s.initialized {
 		return nil, nil, fmt.Errorf("encryption service not initialized")
 	}
+	if err := s.checkWriteEpoch(); err != nil {
+		return nil, nil, err
+	}
 	encrypted, err := s.encryptionService.Encrypt(plaintext, s.keyManager.GetKeyVersion())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to encrypt secret: %w", err)
@@ -331,6 +337,9 @@ func (s *Service) EncryptSecretWithAAD(plaintext, aad []byte) ([]byte, []byte, e
 
 	if !s.initialized {
 		return nil, nil, fmt.Errorf("encryption service not initialized")
+	}
+	if err := s.checkWriteEpoch(); err != nil {
+		return nil, nil, err
 	}
 	encrypted, err := s.encryptionService.EncryptWithAAD(plaintext, s.keyManager.GetKeyVersion(), aad)
 	if err != nil {
@@ -390,6 +399,9 @@ func (s *Service) EncryptLargeSecret(plaintext []byte, chunkSizeKB int) ([][]byt
 
 	if !s.initialized {
 		return nil, nil, fmt.Errorf("encryption service not initialized")
+	}
+	if err := s.checkWriteEpoch(); err != nil {
+		return nil, nil, err
 	}
 	chunks, err := s.encryptionService.EncryptChunked(plaintext, chunkSizeKB*1024, s.keyManager.GetKeyVersion())
 	if err != nil {
