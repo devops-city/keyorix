@@ -24,6 +24,7 @@ var rootCmd = &cobra.Command{
 
 // Execute runs the root command. Called from main().
 func Execute() error {
+	applySecretFlagPolicy()
 	applyScopeFlagAliases()
 	applyHelpExamples()
 	applyErrorPolish()
