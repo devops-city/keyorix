@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -37,12 +38,31 @@ func groupNotificationChannels(ctx *smokeCtx) {
 		"name": "e2e-smoke-channel", "type": "webhook", "url": "https://www.example.com/e2e-smoke-webhook",
 		"events": "secret.created",
 	}, 200, 201)
-	var ch idOnly
+	var ch struct {
+		ID     uint   `json:"id"`
+		URL    string `json:"url"`
+		URLSet bool   `json:"url_set"`
+	}
 	c.unmarshalData(created, &ch, "create notification channel")
 	nc := fmt.Sprintf("/api/v1/notification-channels/%d", ch.ID)
 
-	c.callExpect("GET", "GET /api/v1/notification-channels", "/api/v1/notification-channels", nil, 200)
-	c.callExpect("GET", "GET /api/v1/notification-channels/{id}", nc, nil, 200)
+	// #3425 contract: the channel URL is a bearer credential -- the create
+	// response returns it in full, once; list and get return scheme+host with the
+	// path elided and url_set.
+	if ch.URL != "https://www.example.com/e2e-smoke-webhook" || !ch.URLSet {
+		c.t.Errorf("create notification channel: want the full url and url_set=true, got url=%q url_set=%v", ch.URL, ch.URLSet)
+	}
+	listed := c.callExpect("GET", "GET /api/v1/notification-channels", "/api/v1/notification-channels", nil, 200)
+	got := c.callExpect("GET", "GET /api/v1/notification-channels/{id}", nc, nil, 200)
+	for name, env := range map[string]envelope{"list": listed, "get": got} {
+		// env.Raw is only set for a non-JSON body; the decoded payload is env.Data.
+		if strings.Contains(string(env.Data), "e2e-smoke-webhook") {
+			c.t.Errorf("%s notification channel leaked the URL path (bearer credential): %s", name, string(env.Data))
+		}
+		if !strings.Contains(string(env.Data), "https://www.example.com/…") {
+			c.t.Errorf("%s notification channel: want the elided url https://www.example.com/…, got: %s", name, string(env.Data))
+		}
+	}
 	c.callExpect("PUT", "PUT /api/v1/notification-channels/{id}", nc, map[string]interface{}{
 		"name": "e2e-smoke-channel", "type": "webhook", "url": "https://www.example.com/e2e-smoke-webhook-2",
 		"events": "secret.created",
