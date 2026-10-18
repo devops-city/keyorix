@@ -425,7 +425,7 @@ func (h *CatalogHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	if p, gerr := h.coreService.GetProject(r.Context(), uint(id)); gerr == nil && p != nil {
 		projectName = p.Name
 	}
-	if err := h.coreService.DeleteProject(r.Context(), uint(id), force); err != nil {
+	if err := h.coreService.DeleteProject(r.Context(), actor.UserID, uint(id), force); err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		if strings.Contains(msg, "secret(s)") {
