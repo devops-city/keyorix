@@ -22,6 +22,14 @@ package core
 // call to it is inside a WithNamedLock callback keyed by
 // projectAdminGuardLockKey, and (c) ActivateBreakGlass itself performs neither
 // write directly.
+//
+// BREAKGLASS-OWED-1 split the pair into grantBreakGlassTx, shared by the normal
+// path and the degraded one (activateBreakGlassDegraded, the commit with an
+// owed-audit record when the audit log refuses the rows). So (a) now reads: the
+// pair lives in grantBreakGlassTx (both writes through its one tx), each of the
+// two path functions calls it inside one transaction callback, and (d) nothing
+// else calls either of them -- the degraded path is reachable only from
+// activateBreakGlassLocked, i.e. only under the same lock.
 
 import (
 	"go/ast"
@@ -32,10 +40,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The two writes that must not be separable, by the name each is called under.
+// The two writes that must not be separable, by the name each is called under,
+// and the helper that performs both (BREAKGLASS-OWED-1).
 const (
 	bgInsertCall = "CreateBreakGlassActivation"
 	bgGrantCall  = "AssignRoleWithExpiry"
+	bgPairCall   = "grantBreakGlassTx"
 )
 
 // bgInsertAndGrantShareOneTransaction reports whether a single WithTransaction
@@ -59,8 +69,8 @@ func bgInsertAndGrantShareOneTransaction(body *ast.BlockStmt) bool {
 				names := bgCallNames(fl.Body)
 				hasInsert, hasGrant := false, false
 				for _, nm := range names {
-					hasInsert = hasInsert || nm == bgInsertCall
-					hasGrant = hasGrant || nm == bgGrantCall
+					hasInsert = hasInsert || nm == bgInsertCall || nm == bgPairCall
+					hasGrant = hasGrant || nm == bgGrantCall || nm == bgPairCall
 				}
 				if hasInsert && hasGrant {
 					found = true
@@ -79,17 +89,33 @@ func TestActivateBreakGlass_InsertAndGrantShareTheRevokeLock(t *testing.T) {
 
 	activate := bgFindFunc(t, f, "ActivateBreakGlass")
 	locked := bgFindFunc(t, f, "activateBreakGlassLocked")
+	degraded := bgFindFunc(t, f, "activateBreakGlassDegraded")
+	pair := bgFindFunc(t, f, bgPairCall)
 
-	// (a) the helper does both writes.
-	lockedCalls := bgCallNames(locked.Body)
-	require.Contains(t, lockedCalls, bgInsertCall,
-		"activateBreakGlassLocked must perform the activation insert — if it moved out, the lock no longer "+
+	// (a) the pair helper does both writes, and each path runs it inside one
+	// transaction callback.
+	pairCalls := bgCallNames(pair.Body)
+	require.Contains(t, pairCalls, bgInsertCall,
+		"grantBreakGlassTx must perform the activation insert — if it moved out, the lock no longer "+
 			"covers it and a concurrent revoke can land between the two writes again (#2722)")
-	require.Contains(t, lockedCalls, bgGrantCall,
-		"activateBreakGlassLocked must perform the role grant — see above (#2722)")
-	require.True(t, bgInsertAndGrantShareOneTransaction(locked.Body),
-		"activateBreakGlassLocked must run the activation insert and the role grant inside ONE WithTransaction "+
-			"callback — separate commits leave a record without its grant behind an error (#3109)")
+	require.Contains(t, pairCalls, bgGrantCall,
+		"grantBreakGlassTx must perform the role grant — see above (#2722)")
+	for _, fd := range []*ast.FuncDecl{locked, degraded} {
+		require.Contains(t, bgCallNames(fd.Body), bgPairCall,
+			"%s must perform the insert-and-grant pair (grantBreakGlassTx) itself (#2722)", fd.Name.Name)
+		require.True(t, bgInsertAndGrantShareOneTransaction(fd.Body),
+			"%s must run the activation insert and the role grant inside ONE WithTransaction "+
+				"callback — separate commits leave a record without its grant behind an error (#3109)", fd.Name.Name)
+	}
+
+	// (d) BREAKGLASS-OWED-1: the pair helper and the degraded path are reachable
+	// only from the locked function (and the degraded path's own body), so the
+	// lock in (b) covers every activation write.
+	callers := bgCallersIn(f)
+	require.ElementsMatch(t, []string{"activateBreakGlassLocked", "activateBreakGlassDegraded"}, callers[bgPairCall],
+		"grantBreakGlassTx may be called only by activateBreakGlassLocked and activateBreakGlassDegraded")
+	require.ElementsMatch(t, []string{"activateBreakGlassLocked"}, callers["activateBreakGlassDegraded"],
+		"activateBreakGlassDegraded may be called only by activateBreakGlassLocked (inside the lock)")
 
 	// (c) ActivateBreakGlass does neither directly. This is the assertion that
 	// actually prevents the regression: a write moved back up here would be
@@ -207,4 +233,24 @@ func bgCallNames(b *ast.BlockStmt) []string {
 		return true
 	})
 	return names
+}
+
+// bgCallersIn maps each called name to the top-level functions in f that call it
+// (each caller once).
+func bgCallersIn(f *ast.File) map[string][]string {
+	out := map[string][]string{}
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, name := range bgCallNames(fd.Body) {
+			if !seen[name] {
+				seen[name] = true
+				out[name] = append(out[name], fd.Name.Name)
+			}
+		}
+	}
+	return out
 }

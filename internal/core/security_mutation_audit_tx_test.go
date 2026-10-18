@@ -143,6 +143,12 @@ type satKind struct {
 	eventType string
 	prepare   func(w *satWorld) any
 	mutate    func(w *satWorld, c *KeyorixCore, state any) error
+	// owesOnAuditRefusal (BREAKGLASS-OWED-1): when the audit log refuses the row,
+	// the mutation commits together with pending_audit_events records of its rows
+	// instead of failing (break-glass activation must work during an audit
+	// incident). The invariant is then "committed iff its rows are in the chain OR
+	// durably owed"; break_glass_degraded_test.go is that kind's full matrix.
+	owesOnAuditRefusal bool
 }
 
 func satKinds() []satKind {
@@ -264,7 +270,7 @@ func satKinds() []satKind {
 				_, err := c.CreateEnvironment(WithMutationAuditActor(adminCtx(w), w.f.adminID), w.f.projectID, w.tag("sat-env"))
 				return err
 			}},
-		{name: "activate-break-glass", eventType: EventBreakGlassActivated, prepare: freshUser,
+		{name: "activate-break-glass", eventType: EventBreakGlassActivated, prepare: freshUser, owesOnAuditRefusal: true,
 			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
 				_, err := c.ActivateBreakGlass(adminCtx(w), w.f.projectID, s.(*models.User).ID, "production outage, paging incident commander now", "")
 				return err
@@ -327,6 +333,15 @@ func TestSecurityMutationAudit_RowExistsIffMutationCommitted(t *testing.T) {
 					fired := w.fs.Fired()
 					w.fs.Arm(nil)
 					require.True(t, fired, "%s never appended its audit row through storage", k.name)
+					if k.owesOnAuditRefusal {
+						var owed int64
+						require.NoError(t, w.db.Model(&models.PendingAuditEvent{}).Where("event_type = ?", k.eventType).Count(&owed).Error)
+						require.NoError(t, err, "%s must commit with an owed-audit record when only its audit append failed", k.name)
+						require.NotEqual(t, before, w.fingerprint(), "%s reported success but changed nothing", k.name)
+						require.Positive(t, owed, "%s committed without its audit row, so its row must be owed in pending_audit_events", k.name)
+						require.NoError(t, w.db.Where("1 = 1").Delete(&models.PendingAuditEvent{}).Error) // keep later kinds' counts clean
+						return
+					}
 					require.ErrorIs(t, err, ErrMutationAuditUnavailable, "a failed audit append must fail the mutation")
 					require.Equal(t, before, w.fingerprint(),
 						"%s failed its audit append but changed state anyway: the mutation committed without its audit row", k.name)
