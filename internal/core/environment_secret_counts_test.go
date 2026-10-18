@@ -18,8 +18,9 @@ import (
 func TestCountSecretsByEnvironment_CreateDeleteRestore(t *testing.T) {
 	t.Parallel()
 	c, db := newStatsTestCore(t)
-	// Soft-deleting a secret also sweeps its share records and ACLs.
-	require.NoError(t, db.AutoMigrate(&models.ShareRecord{}, &models.SecretACL{}))
+	// Soft-deleting a secret also sweeps its share records and ACLs and closes its
+	// approved access requests (#2797).
+	require.NoError(t, db.AutoMigrate(&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}))
 	ctx := context.Background()
 	now := time.Now()
 

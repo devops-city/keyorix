@@ -37,7 +37,7 @@ func TestAuthzParity_HTTPvsGRPC_ShareCreate(t *testing.T) {
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{},
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.Session{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.SystemMetadata{},
+		&models.Session{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SystemMetadata{},
 	))
 	c := core.NewKeyorixCore(store.NewLocalStorage(db))
 	ctx := context.Background()
@@ -160,7 +160,7 @@ func TestAuthzParity_HTTPvsGRPC_ShareList(t *testing.T) {
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{},
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.Session{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.SystemMetadata{},
+		&models.Session{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SystemMetadata{},
 	))
 	c := core.NewKeyorixCore(store.NewLocalStorage(db))
 	ctx := context.Background()

@@ -144,7 +144,7 @@ func newDepCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 	// secret's own soft-delete, so ShareRecord must be migrated even though these
 	// tests never create a share directly.
 	// SecretACL is included because DeleteSecret also revokes ACL rows in the same tx.
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretDependency{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.ShareRecord{}, &models.SecretACL{},
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretDependency{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{}, &models.RolePermission{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{}, &models.MachineIdentityRole{},
 	))
