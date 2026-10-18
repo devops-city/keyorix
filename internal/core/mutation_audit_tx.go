@@ -129,6 +129,32 @@ func (c *KeyorixCore) withDirectedAuditedMutation(ctx context.Context, fn func(t
 	return nil
 }
 
+// auditedByDirection runs fn as a fail-closed audited mutation when it grants
+// (withAuditedMutation) and as a revocation whose row is owed otherwise
+// (withOwedAuditMutation, AUDIT-TX-3). For an operation whose direction is known
+// from its inputs (a state transition: active is a grant, suspended/revoked are
+// revocations).
+//
+// settle appends the revocation's owed rows (a no-op for a grant, whose row
+// committed with it): call it after any auth-cache eviction.
+func (c *KeyorixCore) auditedByDirection(ctx context.Context, grants bool, fn func(tx storage.Storage, tgt auditTarget) error) (settle func(), err error) {
+	if grants {
+		return func() {}, c.withAuditedMutation(ctx, fn)
+	}
+	return c.runOwedAuditMutation(ctx, fn)
+}
+
+// withAuditedOrOwedMutation is auditedByDirection for a caller with no cache to
+// evict: the owed rows are appended as soon as the change commits.
+func (c *KeyorixCore) withAuditedOrOwedMutation(ctx context.Context, grants bool, fn func(tx storage.Storage, tgt auditTarget) error) error {
+	settle, err := c.auditedByDirection(ctx, grants, fn)
+	if err != nil {
+		return err
+	}
+	settle()
+	return nil
+}
+
 // mutationAuditActorKey tags a request context with the actor a core mutation
 // should attribute its in-transaction audit row to (WithMutationAuditActor).
 type mutationAuditActorKey struct{}
