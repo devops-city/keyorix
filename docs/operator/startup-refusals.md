@@ -53,14 +53,17 @@ Real output:
 
 ```
 Failed to load configuration: failed to unmarshal config: yaml: unmarshal errors:
-  line 9: field webauthn not found in type config.SecurityConfig
+  line 18: unknown key "webauthn" under security (check its spelling and section in docs/CONFIGURATION.md)
 ```
 
-**Match:** `failed to unmarshal config`
+**Match:** `failed to unmarshal config`, `check its spelling and section in docs/CONFIGURATION.md`
 
 **Cause.** The file is parsed strictly. A key that does not exist, is misspelled, or sits
-under the wrong section is an error, not ignored. The message names the Go type of the
-section (`config.SecurityConfig` means "under `security:`"), not the YAML path.
+under the wrong section is an error, not ignored. The message names the section the key
+was found in (`at the top level of the file` for a top-level key; a section used in several
+places is listed as `under server.grpc.tls or server.http.tls`). Earlier releases printed
+the Go type instead (`field webauthn not found in type
+config.SecurityConfig`, meaning "under `security:`").
 **Fix.** Check the key's spelling and section against
 [CONFIGURATION.md](../CONFIGURATION.md); `line N` is the line in your file. **In place:** yes.
 
@@ -177,6 +180,7 @@ fix is to correct the value. **In place:** yes.
 |---|---|
 | `exceeds the hard ceiling of` | `secrets.limits.max_secret_size` is above 1 MiB |
 | `server.log.format: unknown value` | `server.log.format` must be `text` or `json` |
+| `Failed to set up logging` | the logger could not be switched to `server.log.format` (the value itself was valid); report it as a bug. Earlier releases printed this under `Configuration is invalid:` |
 | `storage.database.audit_durability: unknown value` | allowed: `strict`, `standard` |
 | `is not a Go duration` | an expiry written as `7d`; use hours (`168h`) |
 | `both metrics_token and metrics_token_file are set` | set exactly one |
@@ -242,13 +246,16 @@ Configuration is invalid: TLS is enabled but cert_file or key_file is missing
 Real output:
 
 ```
-transport security: HTTP tls.allowed_ciphers: "TLS_RSA_WITH_RC4_128_SHA" is not a recognized, secure TLS 1.2 cipher suite (allowed: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305) — weak/deprecated suites (RC4, 3DES, CBC-mode) are rejected outright
+Configuration is invalid: server.http.tls.allowed_ciphers: "TLS_RSA_WITH_RC4_128_SHA" is not a recognized, secure TLS 1.2 cipher suite (allowed: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305) — weak/deprecated suites (RC4, 3DES, CBC-mode) are rejected outright
 ```
 
 **Match:** `is not a recognized, secure TLS 1.2 cipher suite`
 
 **Cause / fix.** `tls.allowed_ciphers` names a suite outside the allowed list. Use names
-from the list, or remove the key. Under `tls_mode: strict` the list has no effect. **In place:** yes.
+from the list, or remove the key. Under `tls_mode: strict` the list has no effect. It is a
+configuration error, refused with the others before anything starts (earlier releases refused
+it later, as `transport security: HTTP tls.allowed_ciphers: ...`,
+after the `Startup validation passed` line). **In place:** yes.
 
 ### TLS certificate files — from code
 
@@ -383,7 +390,9 @@ failed to initialize core service: failed to initialize storage: failed to migra
 
 **Match:** `failed to migrate database`
 
-**Cause.** One of roughly seventy migration steps (one per table or index) failed; the last
+**Cause.** One of roughly seventy migration steps (one per table or index) failed (the
+schema-epoch checks that run before them say `database schema check failed ... nothing was
+migrated` instead, see [Upgrade, schema epoch and rollback](#upgrade-schema-epoch-and-rollback)); the last
 part is the database's own error: usually permissions (the database user cannot `ALTER`/`CREATE`),
 a full disk, or a read-only database. **Fix.** Take a backup, fix the cause the database
 error names (DDL rights, disk space, a read-only mount), then restart: the migration runs
@@ -414,13 +423,16 @@ Real output:
 
 ```
 storage: opening existing SQLite database at <datadir>/keyorix.db (configured: "<datadir>/keyorix.db")
-failed to initialize core service: failed to initialize encryption: failed to initialize encryption (KEK derivation): failed to initialize key manager: failed to unwrap DEK: failed to unwrap DEK — wrong passphrase or corrupted key file: GCM open failed: cipher: message authentication failed
+failed to initialize core service: failed to initialize encryption: KEK derivation from the master passphrase read from KEYORIX_MASTER_PASSWORD_FILE="<datadir>/mp" failed: failed to initialize key manager: failed to unwrap DEK — wrong passphrase or corrupted key file: GCM open failed: cipher: message authentication failed
 ```
 
-**Match:** `wrong passphrase or corrupted key file`
+**Match:** `wrong passphrase or corrupted key file`, `KEK derivation from the master passphrase read from`
 
 **Cause.** The passphrase does not open the wrapped key (`dek.enc`), or the key file or
-`salt.bin` is damaged or from a different install. **Fix.** Try the right passphrase first.
+`salt.bin` is damaged or from a different install. The message names the source the
+passphrase was read from (`--passphrase-fd N`, `--passphrase-file "<path>"`,
+`--passphrase-stdin`, `KEYORIX_MASTER_PASSWORD_FILE="<path>"` or `KEYORIX_MASTER_PASSWORD`):
+check that it is the one you meant, since a leftover variable in the environment is easy to miss. **Fix.** Try the right passphrase first.
 If you changed it deliberately, check that `admin encryption rotate-kek` finished. If a key
 file is damaged, restore the matching `dek.enc` **and** `salt.bin` from backup. **Never**
 delete the key files to "start fresh": a new key cannot open existing data.
@@ -431,15 +443,16 @@ delete the key files to "start fresh": a new key cannot open existing data.
 Real output (`dek.enc` at mode 644, `security.enable_file_permission_check: true` set):
 
 ```
-[WARN] File dek.enc has mode 644 but expected 600
-startup validation: file permission validation failed: file permission validation failed: permissions or ownership audit found unresolved issues
+[WARN] File <datadir>/dek.enc has mode 644 but expected 600
+startup validation: file permission validation failed: permissions or ownership audit found unresolved issues: File <datadir>/dek.enc has mode 644 but expected 600 -- fix each file named (chmod to the expected mode, chown to the server's user), restore a missing one from backup, or set security.auto_fix_file_permissions: true to fix modes and owners at start
 ```
 
 **Match:** `permissions or ownership audit found unresolved issues`
 
-**Cause.** The line that says what is wrong is the `[WARN]` line *above* the refusal (it is
-printed without a timestamp). Here a key file is group/other-readable. The same refusal
-covers a missing key file or database that other files say should exist (next entry).
+**Cause.** The refusal lists every file and what is wrong with it (the untimestamped
+`[WARN]` line above repeats the same). Here a key file is group/other-readable; a file
+owned by another uid reads `is owned by uid N, expected uid M`. The same refusal covers a
+missing key file or database that other files say should exist (next entry).
 **Fix.** `chmod 600` the named file (and `chown` it to the server's user). With
 `security.enable_file_permission_check` absent, Keyorix applies the same rule to key
 material by default; on a Kubernetes Secret mount use `defaultMode: 0400`. **In place:**
@@ -447,11 +460,11 @@ yes: permissions only. See the [hardening guide](../security/hardening-guide.md)
 
 ### A key file is missing on a later start
 
-Real output (`salt.bin` deleted, database and `dek.enc` present):
+From code (`salt.bin` deleted, database and `dek.enc` present): the same refusal as
+above, naming the file:
 
 ```
-[WARN] Cannot open file salt.bin: open salt.bin: no such file or directory
-startup validation: file permission validation failed: file permission validation failed: permissions or ownership audit found unresolved issues
+startup validation: file permission validation failed: permissions or ownership audit found unresolved issues: cannot open <datadir>/salt.bin (no such file or directory) -- fix each file named ...
 ```
 
 **Match:** `permissions or ownership audit found unresolved issues`
@@ -463,11 +476,23 @@ start with the files missing: with the check off, the server would generate a *n
 salt and key over your encrypted data, and every value would become unreadable.
 **In place:** no. [SELF_HOSTING.md](../SELF_HOSTING.md), sections 4 and 5.
 
-> **First install trap.** The same refusal appears on a *brand-new* install if you write
-> `security.enable_file_permission_check: true` explicitly before the first start
-> (`[WARN] Cannot open file dek.enc ... salt.bin ... keyorix.db`): an explicit `true` does not
-> treat "nothing exists yet" as a first boot. Leave the key unset for the first start (the
-> default already enforces the check), or create the key material first.
+### Explicit `enable_file_permission_check` on a brand-new install
+
+Real output (`security.enable_file_permission_check: true` written before the first start;
+no key file and no database yet):
+
+```
+startup validation: file permission validation failed: no key material exists (<datadir>/salt.bin, <datadir>/dek.enc) and there is no local database: security.enable_file_permission_check is set explicitly, and an explicit setting never treats missing key material as a first boot, because a key volume that failed to mount looks the same and starting would generate new keys over encrypted data. On a brand-new install, remove security.enable_file_permission_check from the config for the first start (the default runs the same checks and generates the keys), then set it again; on an existing install, mount or restore the key files (all of them, from one backup)
+```
+
+**Match:** `no key material exists`, `an explicit setting never treats missing key material as a first boot`
+
+**Cause.** The explicit setting is strict on purpose: from the files alone a new install and
+an install whose key volume did not mount look the same. **Fix.** New install: remove the
+key for the first start (the ADR-112 default already enforces the check and generates the
+keys), then add it back. Existing install: mount or restore the key files. `admin validate`
+on a config without the key reports the same state as "looks like a brand-new install".
+**In place:** yes for a new install; **no** for an existing one (restore first).
 
 ### Key file set incomplete or mixed — from code
 
@@ -485,16 +510,25 @@ belong together (the second message is a heuristic), `touch` them to a common ti
 "Remove the partial files and let first boot recreate them" is only right on an install that
 has **no data yet**. **In place:** no.
 
-### Key files readable by others — from code
+### Key files readable by others, or owned by another account — from code
 
 ```
-key file security: key material is readable beyond its owner: <path> (mode 644) — refusing to start (chmod to 0600, or set security.insecure_allow_unsafe_file_permissions to override)
+key file security: key material is readable beyond its owner: <path> (mode 644) — refusing to start (chmod 600 and chown the files to the server's user, or set security.insecure_allow_unsafe_file_permissions to override)
+key file security: key material is owned by an account the server does not trust: <path> (owned by uid 1000; the server runs as uid 1001 and trusts only that uid and root, because the owner can replace the file) — refusing to start (...)
 ```
 
-**Match:** `key material is readable beyond its owner`
+**Match:** `key material is readable beyond its owner`, `key material is owned by an account the server does not trust`
 
-**Cause / fix.** As above; this is the always-on second check. Prefer `chmod 600` to the
-override. **In place:** yes.
+**Cause.** This is the always-on second check of the wrapped DEK, the KEK salt and the TLS
+private keys. The first form: group or other can read the file. The second (#3410): the
+file belongs to an account other than the server's own uid and root, and whoever owns a
+file can rewrite it, whatever its mode. **Fix.** `chmod 600` the file and
+`chown <server user> <file>` (or `chown root`); prefer that to the override. On Compose the
+key volume is created owned by the server's uid 1001, and on Helm the files are written by
+the pod's uid, so only a hand-copied or hand-restored file normally shows this. With
+`security.enable_file_permission_check` unset, a TLS key only warns; in the ADR-112
+upgrade grace period, with the check off or with the override, both forms only warn.
+**In place:** yes.
 
 ### Key file contents invalid — from code
 
@@ -509,20 +543,25 @@ override. **In place:** yes.
 
 ### Secret file too open
 
-Real output (`KEYORIX_MASTER_PASSWORD_FILE=mp.txt` at mode 644):
+Real output (`KEYORIX_MASTER_PASSWORD_FILE=<datadir>/mp` at mode 644):
 
 ```
-secret file security: secret file "mp.txt": mode 0644 is too open (accessible to other users) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by another user (e.g. root) with a group the process belongs to (fsGroup / group_add) and mode 0440 -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)
+secret file security: KEYORIX_MASTER_PASSWORD_FILE: secret file "<datadir>/mp": mode 0644 is too open (accessible to other users) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by root with a group the process belongs to (fsGroup / group_add) and mode 0440 (key material: security.insecure_allow_unsafe_file_permissions does not apply to it; the server refuses it wherever it reads it, so fix the file) -- refused until the file is fixed
 ```
 
-**Match:** `refusing to trust it; chmod 0600/0400`
+For a file that is not key material (database password, bootstrap token ...) the end reads
+`-- refused until the file is fixed (for the files that are not key
+material, security.insecure_allow_unsafe_file_permissions: true turns this into a warning)`.
 
-**Cause.** A file behind a `KEYORIX_*_FILE` variable (database password, bootstrap token,
-master passphrase ...) is readable by others. **Fix.** `chmod 0600`; on Kubernetes use
-`fsGroup` with mode `0440`. **Do not use the override for the master passphrase file:**
-with it set, this check only warns and the server then stops anyway with
-`no master passphrase is available (... mode 0644 is too open ...)`, because key
-material files are refused with no override. **In place:** yes.
+**Match:** `refusing to trust it; chmod 0600/0400`, `refused until the file is fixed`
+
+**Cause.** A file behind a `KEYORIX_*_FILE` variable is readable by others, or (#3393) owned
+by an account other than the server's user and root. **Fix.** `chmod 0600` (and `chown`);
+on Kubernetes use `fsGroup` with mode `0440`. The override only helps for files that are
+not key material: the master passphrase, env KEK and Shamir share files are refused again
+where they are read, with no override (with the override set, this check warns and the
+server stops with `no master passphrase is available (... mode 0644 is too open ...)`).
+**In place:** yes.
 
 ### Another process holds the key lock
 
@@ -566,6 +605,8 @@ starts as before and logs every fallback decrypt. **In place:** yes.
 |---|---|
 | `secret file is empty` | the file behind `KEYORIX_*_FILE` is empty |
 | `is group- or world-readable (mode` | `--passphrase-file` is not `0600` |
+| `(the user the server runs as) or to root` | `--passphrase-file`, or the KEK file of `key_provider: file`, is owned by an account other than the server's user and root (#3410: that account could replace it); the message names the owner uid. `chown` it. No override |
+| `refusing to trust it as key material` | the KEK file of `key_provider: file` is not `0600`/`0400`; `chmod` it. No override |
 | `secret-value encryption did not engage` | encryption is configured but did not start; the server refuses to store secrets in plaintext. Check the key provider settings and earlier log lines |
 | `refusing to start rather than leave a webhook credential unencrypted at rest` | the start-up pass that encrypts stored notification URLs failed; fix the database error shown first (permissions, disk) and restart |
 | `DEK-rotation crash recovery failed` | an interrupted `admin encryption rotate` could not be completed on start; do **not** delete files; see [j6](j6-key-rotation.md) |
@@ -580,10 +621,10 @@ Real output (schema epoch edited to 999 to stand in for a newer release):
 
 ```
 storage: opening existing SQLite database at <datadir>/keyorix.db (configured: "<datadir>/keyorix.db")
-failed to initialize core service: failed to initialize storage: failed to migrate database: database schema epoch 999 is newer than this binary's schema epoch 3 (recorded at 2026-10-17T21:52:34+02:00, 23s ago) -- this database was migrated by a newer version of Keyorix. Two things produce this, and this process cannot tell them apart on its own: (a) a rolling upgrade in progress -- ... (b) this binary was downgraded against a schema a newer version already migrated -- if so, upgrade this binary to match, or restore a backup taken before the newer version ran. No minimum compatible schema epoch is recorded, so nothing declares this schema safe for an older binary. Refusing to start is the safe default in both cases (ADR-097, ADR-101)
+failed to initialize core service: failed to initialize storage: database schema check failed (checked before migrating; nothing was migrated): database schema epoch 999 is newer than this binary's schema epoch 3 (recorded at 2026-10-17T21:52:34+02:00, 23s ago) -- this database was migrated by a newer version of Keyorix. Two things produce this, and this process cannot tell them apart on its own: (a) a rolling upgrade in progress -- ... (b) this binary was downgraded against a schema a newer version already migrated -- if so, upgrade this binary to match, or restore a backup taken before the newer version ran. No minimum compatible schema epoch is recorded, so nothing declares this schema safe for an older binary. Refusing to start is the safe default in both cases (ADR-097, ADR-101)
 ```
 
-**Match:** `is newer than this binary's schema epoch`
+**Match:** `is newer than this binary's schema epoch`, `checked before migrating; nothing was migrated`
 
 **Cause.** A newer Keyorix has already migrated this database. **Fix.** (a) During a rolling
 upgrade this pod's old image is about to be replaced: wait. (b) After a downgrade: run the
@@ -597,7 +638,7 @@ schema. **In place:** no. [UPGRADING.md §7 Rollback](../UPGRADING.md#7-rollback
 Real output (floor edited to 999):
 
 ```
-failed to initialize core service: failed to initialize storage: failed to migrate database: database declares a minimum compatible schema epoch of 999 (database schema epoch 3), above this binary's schema epoch 3 (floor recorded at 2026-10-17T21:52:34+02:00, 30s ago) -- a migration this database has already applied was declared unsafe for binaries this old, so this binary must not run against it. If this is a rolling upgrade, this pod is expected to be replaced by the new image; if this binary was rolled back, roll forward to a version with schema epoch 999 or later, or restore a backup taken before the newer version ran. Refusing to start (ADR-101)
+failed to initialize core service: failed to initialize storage: database schema check failed (checked before migrating; nothing was migrated): database declares a minimum compatible schema epoch of 999 (database schema epoch 3), above this binary's schema epoch 3 (floor recorded at 2026-10-17T21:52:34+02:00, 30s ago) -- a migration this database has already applied was declared unsafe for binaries this old, so this binary must not run against it. If this is a rolling upgrade, this pod is expected to be replaced by the new image; if this binary was rolled back, roll forward to a version with schema epoch 999 or later, or restore a backup taken before the newer version ran. Refusing to start (ADR-101)
 ```
 
 **Match:** `database declares a minimum compatible schema epoch of`
@@ -660,13 +701,15 @@ a *secure* setting that cannot be satisfied.
 Look at the first lines of a start:
 
 ```
-WARNING: server.insecure_disable_api_ratelimit is in effect (true; config: server.http.ratelimit.enabled, server.grpc.ratelimit.enabled) — removes per-principal API rate limiting
+WARNING: security.insecure_allow_unsafe_file_permissions is in effect (true; config: security.insecure_allow_unsafe_file_permissions) — lets group/other-readable key material pass enforceKeyFilePermissions/ValidateStartup instead of failing closed
+WARNING: security.insecure_allow_cleartext_transport is in effect (true) — allows bearer tokens/secret values over cleartext HTTP/gRPC. That is the setting's registry name, not a config key: security.require_transport_tls is false or not set (false is its default); set security.require_transport_tls: true to refuse a listener without TLS
 ```
 
-The text before `(true;` is the setting's registry name; the keys after `config:` are what you
-actually write in `keyorix.yaml`. Careful: for `security.insecure_allow_cleartext_transport`
-the line points to `security.require_transport_tls`; writing the registry name itself as
-a key is rejected as an unknown key (see the first entry).
+The text before `is in effect` is the setting's registry name. When it is also a config key,
+the keys after `config:` are what you write in `keyorix.yaml`. When it is not (the line says
+`not a config key`), the end of the line names the key that controls it; writing the
+registry name itself is rejected as an unknown key (see the first entry). A line can appear
+for a key you never wrote: some of these states are the default when a key is absent.
 
 ### Cleartext listener under `require_transport_tls`
 
