@@ -46,7 +46,7 @@ Served at: server `GET /metrics` (unauthenticated; keep inside your perimeter)
 | `keyorix_single_writer_last_poll_age_seconds` | gauge | - | Seconds since the guard's last successful epoch poll; approaching the lease length means the guard is about to leave authoritative. |
 | `keyorix_single_writer_state` | gauge | `state` | single_writer guard state, one series per state (settling\|authoritative\|confirming) with value 1 for the current one. Only authoritative lets caches skip confirming reads; confirming means the lease lapsed or polls are failing. |
 | `keyorix_single_writer_unattributed_bumps_total` | counter | - | Write-epoch changes no in-process write accounted for; a non-zero value means something else wrote to the fenced tables. |
-| `keyorix_tls_certificate_not_after_timestamp_seconds` | gauge | `listener` | Unix time at which the TLS certificate served by a listener (http\|grpc) expires. Alert on this minus time() before it reaches zero; certificates are loaded at start, so a renewed file needs a restart to take effect. |
+| `keyorix_tls_certificate_not_after_timestamp_seconds` | gauge | `listener` | Unix time at which the TLS certificate served by a listener (http\|grpc) expires. Alert on this minus time() before it reaches zero; a renewed file is picked up by new handshakes within about 30 seconds. |
 
 ## Server: authenticated-only (`/api/v1/admin/scheduler-metrics`)
 
