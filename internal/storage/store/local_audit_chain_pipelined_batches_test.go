@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -262,21 +263,24 @@ func TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath(t *testing.T)
 	requireChainValid(t, piped, nil, 1+62)
 }
 
-// One reader at a time (nothing queued behind a batch, nothing in flight):
-// every batch goes the serial way on a pool connection, as without pipelining,
-// and the flusher holds no connection between them.
+// One reader at a time (a lone item, nothing in flight): every batch goes the
+// serial way, never through a pipelined send.
 func TestPipelinedBatches_PostgresLoneReaderStaysSerial(t *testing.T) {
 	enablePipeline(t)
 	ls := multiRowPGStore(t)
 	armed := armForPipeline(t, ls, "lone")
 	commits := ls.auditHead.oneFlightCommits.Load()
-	sqlDB, err := ls.db.DB()
-	require.NoError(t, err)
+	var sent atomic.Int64
+	auditPipelineAfterSendHook = func(sent2 *LocalStorage, _ []*auditBatchItem) {
+		if sent2 == ls {
+			sent.Add(1)
+		}
+	}
+	t.Cleanup(func() { auditPipelineAfterSendHook = nil })
 	for i := range 20 {
 		require.NoError(t, ls.LogAuditEvent(context.Background(), pipelinedEvent(fmt.Sprintf("lone %d", i))))
-		assert.Zero(t, sqlDB.Stats().InUse, "append %d: the flusher still holds a connection (a pipeline run) after a lone batch", i)
 	}
-	assert.Zero(t, ls.auditHead.pipelinedSends.Load(), "a lone reader's batch was pipelined")
+	assert.Zero(t, sent.Load(), "a lone reader's batch was sent on the pipeline")
 	assert.Greater(t, ls.auditHead.oneFlightCommits.Load(), commits, "the serial path keeps its one-flight commits")
 	requireChainValid(t, ls, nil, armed+20)
 }

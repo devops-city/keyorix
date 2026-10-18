@@ -124,19 +124,15 @@ func (ls *LocalStorage) newAuditBatchPipeline() *auditBatchPipeline {
 var auditPipelineNeedsSingleWriter = true
 
 // commitFlusherBatch commits batch for the flusher: pipelined when it can be,
-// otherwise serially once the run (if any) has ended. Every item of batch gets
-// exactly one result either way. A lone item with nothing in flight is the
-// flusher at low concurrency (nobody else was waiting when it was drained):
-// there is nothing to overlap, so it goes the serial way on a pool connection,
-// as without pipelining. (How many items are still queued says nothing here:
-// the drain has just taken all of them, up to auditFlusherMaxBatch.)
+// otherwise serially once the run (if any) has ended, on the held connection
+// when there is one. Every item of batch gets exactly one result either way. A
+// lone item with nothing in flight is the flusher at low concurrency (nobody
+// else was waiting when it was drained): there is nothing to overlap, so it
+// goes the serial way. The connection stays held, so a load that hovers around
+// one item per batch does not hand it back and take it again.
 func (ls *LocalStorage) commitFlusherBatch(p *auditBatchPipeline, batch []*auditBatchItem) {
-	if len(batch) == 1 && !p.inFlight() && auditPipelineSerialWhenIdle {
-		p.shutdown()
-		deliverAuditBatch(batch, ls.commitAuditBatch(batch))
-		return
-	}
-	if p.trySend(batch) {
+	lone := len(batch) == 1 && !p.inFlight() && auditPipelineSerialWhenIdle
+	if !lone && p.trySend(batch) {
 		return
 	}
 	p.end()
