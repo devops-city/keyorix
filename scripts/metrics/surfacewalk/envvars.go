@@ -43,10 +43,10 @@ func envVars(root string, dirs []string) (names []string, unresolved int, err er
 			continue
 		}
 		base := filepath.Join(root, d)
-		if _, serr := os.Stat(base); serr != nil {
+		if _, serr := os.Stat(base); serr != nil { // #nosec G703 -- base is under the repo checkout this dev tool was pointed at by its own -flags
 			continue // a directory that does not exist at this ref
 		}
-		werr := filepath.WalkDir(base, func(p string, e os.DirEntry, werr error) error {
+		werr := filepath.WalkDir(base, func(p string, e os.DirEntry, werr error) error { // #nosec G703 -- base is under the repo checkout this dev tool was pointed at by its own -flags
 			if werr != nil {
 				return werr
 			}

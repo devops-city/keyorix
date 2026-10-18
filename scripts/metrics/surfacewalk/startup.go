@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -36,7 +36,7 @@ type startupResult struct {
 
 func (r startupResult) medianMS() int64 {
 	s := append([]int64{}, r.ReadyMS...)
-	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
+	slices.Sort(s)
 	if len(s) == 0 {
 		return 0
 	}
@@ -47,7 +47,7 @@ var probeClient = &http.Client{
 	Timeout: 2 * time.Second,
 	// The server's generated certificate is self-signed; this measures
 	// readiness on loopback, it does not verify identity.
-	Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}, //nolint:gosec // loopback readiness probe of a throwaway server
+	Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}}, // #nosec G402 -- loopback readiness probe of a throwaway server; verifies nothing and sends no credentials nosemgrep: problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification -- same reason: loopback probe only
 }
 
 // probe GETs url. A url without a scheme is tried over https, then http: the
@@ -84,12 +84,12 @@ func measureStartup(p startupParams) (startupResult, error) {
 // p.Idle after it is ready, stops it and returns its peak RSS in KiB.
 func oneStart(p startupParams, idleAfter bool) (readyMS, peakKB int64, err error) {
 	logPath := filepath.Join(p.Dir, "server.log")
-	logf, err := os.Create(logPath)
+	logf, err := os.Create(logPath) // #nosec G304 -- server.log under the throwaway state dir this tool created
 	if err != nil {
 		return 0, 0, err
 	}
-	defer logf.Close()
-	cmd := exec.Command(p.Bin)
+	defer func() { _ = logf.Close() }()
+	cmd := exec.Command(p.Bin) // #nosec G204 -- p.Bin is the server binary the operator passed on this dev tool's own command line nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- measurement tool run by hand; no remote input reaches it
 	cmd.Dir = p.Dir
 	cmd.Env = p.Env
 	cmd.Stdout, cmd.Stderr = logf, logf
@@ -126,7 +126,7 @@ func oneStart(p startupParams, idleAfter bool) (readyMS, peakKB int64, err error
 		}
 		if resp, gerr := probe(p.URL); gerr == nil {
 			ok := resp.StatusCode == http.StatusOK
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if ok {
 				readyMS = time.Since(t0).Milliseconds()
 				break
@@ -171,7 +171,7 @@ func peakRSSKB(ps *os.ProcessState) (int64, error) {
 }
 
 func tailFile(path string, n int) string {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- the server.log this tool wrote under its own state dir
 	if err != nil {
 		return "(no log)"
 	}

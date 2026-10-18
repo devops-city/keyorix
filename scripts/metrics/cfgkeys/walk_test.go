@@ -43,7 +43,7 @@ func paths(keys []key) []string {
 }
 
 func TestWalkKeys_ShapesAndNames(t *testing.T) {
-	got := paths(walkKeys(reflect.TypeOf(fixture{}), reflect.Value{}, ""))
+	got := paths(walkKeys(reflect.TypeFor[fixture](), reflect.Value{}, ""))
 	want := []string{
 		"any",
 		"by_name.*.host", "by_name.*.port",
@@ -104,7 +104,7 @@ type node struct {
 }
 
 func TestWalkKeys_SelfReferencingTypeTerminates(t *testing.T) {
-	got := paths(walkKeys(reflect.TypeOf(node{}), reflect.Value{}, ""))
+	got := paths(walkKeys(reflect.TypeFor[node](), reflect.Value{}, ""))
 	want := []string{"kids[]", "next", "value"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q want %q", got, want)
@@ -116,7 +116,7 @@ func TestWalkKeys_SelfReferencingTypeTerminates(t *testing.T) {
 // count would fall to a handful. The floor is far below today's number so it
 // does not need updating as config grows; it only trips on a broken walk.
 func TestWalkKeys_RealConfigIsWalkedDeeply(t *testing.T) {
-	keys := walkKeys(reflect.TypeOf(config.Config{}), reflect.ValueOf(config.Config{}), "")
+	keys := walkKeys(reflect.TypeFor[config.Config](), reflect.ValueOf(config.Config{}), "")
 	if len(keys) < 150 {
 		t.Fatalf("config.Config walked to only %d keys; the walk is broken", len(keys))
 	}

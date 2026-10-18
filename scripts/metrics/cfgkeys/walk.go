@@ -17,9 +17,9 @@ type key struct {
 }
 
 var (
-	textUnmarshaler = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
-	yamlUnmarshaler = reflect.TypeOf((*yaml.Unmarshaler)(nil)).Elem()
-	timeType        = reflect.TypeOf(time.Time{})
+	textUnmarshaler = reflect.TypeFor[encoding.TextUnmarshaler]()
+	yamlUnmarshaler = reflect.TypeFor[yaml.Unmarshaler]()
+	timeType        = reflect.TypeFor[time.Time]()
 )
 
 // walkKeys returns every leaf key reachable from t, using the yaml tags the

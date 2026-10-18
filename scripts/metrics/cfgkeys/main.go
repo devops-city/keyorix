@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	empty, err := load(dir, "empty.yaml", nil)
 	if err != nil {

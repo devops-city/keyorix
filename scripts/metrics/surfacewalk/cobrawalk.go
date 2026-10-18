@@ -33,7 +33,7 @@ var (
 // ignored, as is any other section.
 func parseHelp(text string) (subs, flags []string) {
 	section, seenUsage := "", false
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		switch {
 		case line == "Usage:":
 			seenUsage, section = true, ""
@@ -110,13 +110,13 @@ func cobraLines(bin string, start []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(home)
+	defer func() { _ = os.RemoveAll(home) }()
 	abs, err := filepath.Abs(bin)
 	if err != nil {
 		return nil, err
 	}
 	return walkCobra(func(path []string) (string, error) {
-		c := exec.Command(abs, append(append([]string{}, path...), "--help")...)
+		c := exec.Command(abs, append(append([]string{}, path...), "--help")...) // #nosec G204 G702 -- abs is the binary the operator passed with -bin to this hand-run dev tool nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- measurement tool; no remote input reaches it
 		c.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}
 		c.Dir = home
 		b, err := c.CombinedOutput()

@@ -20,7 +20,7 @@ var httpMethods = map[string]bool{
 
 // openapiOps returns "METHOD /path" for every operation in the spec.
 func openapiOps(file string) ([]string, error) {
-	b, err := os.ReadFile(file)
+	b, err := os.ReadFile(file) // #nosec G304 G703 -- path comes from this dev tool's own -flags, run by hand
 	if err != nil {
 		return nil, err
 	}
@@ -56,11 +56,11 @@ var (
 // grpcMethods returns "Service/Method" for every rpc in every .proto below dir.
 func grpcMethods(dir string) ([]string, error) {
 	var out []string
-	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error { // #nosec G703 -- dir comes from this dev tool's own -flags, run by hand
 		if err != nil || d.IsDir() || filepath.Ext(p) != ".proto" {
 			return err
 		}
-		b, err := os.ReadFile(p)
+		b, err := os.ReadFile(p) // #nosec G304 G122 -- p is a .proto found by walking the repo checkout this tool was pointed at
 		if err != nil {
 			return err
 		}
@@ -102,7 +102,7 @@ func parseProto(src string) []string {
 // lockfile v6 (top-level dependency blocks) and v9 (importers), from the file
 // alone: no install, no network.
 func npmLock(file string) ([]string, error) {
-	b, err := os.ReadFile(file)
+	b, err := os.ReadFile(file) // #nosec G304 G703 -- path comes from this dev tool's own -flags, run by hand
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +115,14 @@ type lockDeps struct {
 	OptionalDependencies map[string]yaml.Node `yaml:"optionalDependencies"`
 }
 
-func (d lockDeps) names(into map[string]bool) {
+func (d lockDeps) names() map[string]bool {
+	out := map[string]bool{}
 	for _, m := range []map[string]yaml.Node{d.Dependencies, d.DevDependencies, d.OptionalDependencies} {
 		for n := range m {
-			into[n] = true
+			out[n] = true
 		}
 	}
+	return out
 }
 
 func parseLock(b []byte) ([]string, error) {
@@ -132,15 +134,15 @@ func parseLock(b []byte) ([]string, error) {
 	if err := yaml.Unmarshal(b, &doc); err != nil {
 		return nil, err
 	}
-	direct := map[string]bool{}
+	var direct map[string]bool
 	if len(doc.Importers) > 0 {
 		root, ok := doc.Importers["."]
 		if !ok {
 			return nil, fmt.Errorf("lockfile has importers but no root importer \".\"")
 		}
-		root.names(direct)
+		direct = root.names()
 	} else {
-		doc.lockDeps.names(direct)
+		direct = doc.lockDeps.names()
 	}
 	var out []string
 	for n := range direct {
