@@ -63,7 +63,7 @@ t_stop="$(now)"
 srv_stop "$I"
 t_stopped="$(now)"
 out="$(inst_admin "$I" encryption rotate --confirm 2>&1)" || { echo "$out" >&2; fail "rotate --confirm failed"; }
-echo "$out" | grep -q 'DEK rotated' || { echo "$out" >&2; fail "rotate did not report success"; }
+grep -q 'DEK rotated' <<<"$out" || { echo "$out" >&2; fail "rotate did not report success"; }
 t_rotated="$(now)"
 [ "$(shasum -a 256 "$d/keys/dek.key" | cut -d' ' -f1)" != "$dek_before" ] || fail "DEK file unchanged after rotation"
 srv_start "$I" "$P"

@@ -9,12 +9,15 @@ import (
 )
 
 // leafCommands returns every runnable leaf below root, excluding cobra's own
-// generated `help` and `completion` trees.
+// generated `help` and `completion` trees, and its hidden `__complete` /
+// `__completeNoDesc` commands (added to rootCmd by any test that exercises shell
+// completion, so their presence depends on test order).
 func leafCommands(root *cobra.Command) []*cobra.Command {
 	var out []*cobra.Command
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
-		if c != root && (c.Name() == "help" || c.Name() == "completion") {
+		if c != root && (c.Name() == "help" || c.Name() == "completion" ||
+			c.Name() == cobra.ShellCompRequestCmd || c.Name() == cobra.ShellCompNoDescRequestCmd) {
 			return
 		}
 		if !c.HasAvailableSubCommands() {

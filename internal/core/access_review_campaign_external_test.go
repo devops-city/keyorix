@@ -361,8 +361,10 @@ func TestOpenAccessReviewCampaign_PersistsDegradedFromReport(t *testing.T) {
 	// Only the campaign tables are migrated — models.AuditEvent is deliberately NOT
 	// migrated, so GenerateProjectAccessReview's LastUserSecretActivity lookup fails
 	// and the report it returns comes back Degraded=true (same trick as
-	// TestGenerateProjectAccessReview_DegradedOnLastUsedQueryError).
+	// TestGenerateProjectAccessReview_DegradedOnLastUsedQueryError). The helper
+	// migrates it since AUDIT-TX-2 (grants commit with their audit row), so drop it.
 	require.NoError(t, h.DB.AutoMigrate(&models.AccessReviewCampaign{}, &models.AccessReviewItem{}))
+	require.NoError(t, h.DB.Migrator().DropTable(&models.AuditEvent{}))
 
 	const proj = uint(2)
 	ctx := context.Background()

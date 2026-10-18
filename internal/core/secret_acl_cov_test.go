@@ -40,6 +40,14 @@ func (s *createACLErrStorage) CreateOrUpdateSecretACL(ctx context.Context, acl *
 	return s.err
 }
 
+// WithTransaction keeps the fault on the transaction-scoped handle: the grant
+// is written through tx since AUDIT-TX-2 (it commits with its audit row).
+func (s *createACLErrStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
+		return fn(&createACLErrStorage{Storage: tx, err: s.err})
+	})
+}
+
 type listACLErrStorage struct {
 	corestorage.Storage
 	err error

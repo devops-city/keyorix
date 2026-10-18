@@ -26,6 +26,9 @@ interface ChannelFormData {
     name: string;
     type: string;
     url: string;
+    // The stored URL, elided by the server (scheme+host only). Display-only: the
+    // edit form never holds the real URL, so a blank url field means "keep it".
+    currentUrl: string;
     email: string;
     events: Set<string>;
     enabled: boolean;
@@ -35,6 +38,7 @@ const emptyForm = (): ChannelFormData => ({
     name: '',
     type: 'webhook',
     url: '',
+    currentUrl: '',
     email: '',
     events: new Set(),
     enabled: true,
@@ -45,7 +49,7 @@ const formToPayload = (form: ChannelFormData): NotificationChannelPayload => ({
     type: form.type,
     enabled: form.enabled,
     events: Array.from(form.events).join(','),
-    ...(form.type === 'email' ? { email: form.email } : { url: form.url }),
+    ...(form.type === 'email' ? { email: form.email } : form.url.trim() ? { url: form.url.trim() } : {}),
 });
 
 interface ChannelRowProps {
@@ -201,7 +205,7 @@ const ChannelFormFields: React.FC<ChannelFormFieldsProps> = ({ form, setForm }) 
                     label="Webhook URL"
                     value={form.url}
                     onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                    placeholder="https://..."
+                    placeholder={form.currentUrl ? `Leave blank to keep ${form.currentUrl}` : 'https://...'}
                 />
             )}
             <div>
@@ -339,7 +343,8 @@ export const NotificationChannelsPage: React.FC = () => {
         setFormData({
             name: channel.name,
             type: channel.type,
-            url: channel.url ?? '',
+            url: '',
+            currentUrl: channel.url ?? '',
             email: channel.email ?? '',
             events: new Set(
                 channel.events

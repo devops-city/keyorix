@@ -23,6 +23,8 @@ func TestCreateOwnPAT(t *testing.T) {
 		ms.On("CreatePersonalAccessToken", ctx, mock.AnythingOfType("*models.PersonalAccessToken")).
 			Run(func(args mock.Arguments) { captured = args.Get(1).(*models.PersonalAccessToken) }).
 			Return(&models.PersonalAccessToken{ID: 1}, nil)
+		// The token commits with its pat.created row (AUDIT-TX-2).
+		ms.On("LogAuditEvent", ctx, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
 
 		res, err := c.CreateOwnPAT(ctx, 1, "ci-token", nil, nil, 0, 0, nil)
 		require.NoError(t, err)
@@ -42,6 +44,8 @@ func TestCreateOwnPAT(t *testing.T) {
 		ms.On("CreatePersonalAccessToken", ctx, mock.AnythingOfType("*models.PersonalAccessToken")).
 			Run(func(args mock.Arguments) { captured = args.Get(1).(*models.PersonalAccessToken) }).
 			Return(&models.PersonalAccessToken{ID: 1}, nil)
+		// The token commits with its pat.created row (AUDIT-TX-2).
+		ms.On("LogAuditEvent", ctx, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
 
 		_, err := c.CreateOwnPAT(ctx, 1, "ci-read-only", nil, []string{"secrets.read", "  ", "secrets.read"}, 7, 0, nil)
 		require.NoError(t, err)

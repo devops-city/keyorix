@@ -28,7 +28,7 @@ load_reader() { # <id>
         for i in 1 2 3; do
             body="$(curl -s --max-time 5 --cacert "$d/certs/server.crt" -H @"$SEED_MACHINE_TOKEN_FILE" \
                 "https://127.0.0.1:$LOAD_PORT/api/v1/secrets/$i?include_value=true" 2>/dev/null || true)"
-            if echo "$body" | grep -qF "$(cat "$d/expect.secret$i")"; then
+            if grep -qF "$(cat "$d/expect.secret$i")" <<<"$body"; then
                 echo "$(now) read ok $i" >>"$log"
             else
                 echo "$(now) read fail $i $(echo "$body" | head -c 80 | tr '\n' ' ')" >>"$log"
@@ -126,7 +126,7 @@ load_check_ledger() {
             continue
         fi
         got="$(cli "$LOAD_INST" "$LOAD_PORT" secret get --id "$sid" --show-value 2>&1 </dev/null || true)"
-        echo "$got" | grep -qF "$want" || { echo "    secret $sid: want $want, got: $(echo "$got" | head -c 120 | tr '\n' ' ')" >&2; bad=$((bad + 1)); }
+        grep -qF "$want" <<<"$got" || { echo "    secret $sid: want $want, got: $(echo "$got" | head -c 120 | tr '\n' ' ')" >&2; bad=$((bad + 1)); }
     done <"$d/ledger.txt"
     [ "$bad" = "0" ] || fail "$bad of $n acknowledged secrets do not read back with their last acknowledged value"
     ok "all $n acknowledged secrets read back with their last acknowledged state (value, or deleted)"

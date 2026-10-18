@@ -53,6 +53,8 @@ func openTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
+		// AuditEvent: a grant commits with its audit row (AUDIT-TX-2).
+		&models.AuditEvent{},
 		&models.Role{},
 		&models.Permission{},
 		&models.RolePermission{}, &models.SystemMetadata{},
