@@ -28,31 +28,33 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 
 	"github.com/pquerna/otp/totp"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-var loginBudgetDBCounter atomic.Int64
 
 // openLoginBudgetDB opens (and migrates) the SQLite database at dsn with a
 // single connection, and seeds user 1 "alice" with lockoutOracleTestPassword
 // unless she already exists — so the restart test can reopen the same file.
+func openLoginBudgetMemDB(t *testing.T, prefix string) *gorm.DB {
+	t.Helper()
+	return openLoginBudgetDB(t, sqlitetest.DSN(prefix))
+}
+
 func openLoginBudgetDB(t *testing.T, dsn string) *gorm.DB {
 	t.Helper()
 	require.NoError(t, i18n.Initialize(&config.Config{Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"}}))
@@ -107,7 +109,7 @@ func loginAttemptsFor(t *testing.T, db *gorm.DB) int64 {
 // repro: LoginMaxAttempts+1 correct-password logins from one IP within the
 // window must all succeed.
 func TestLoginBudget_SuccessfulLoginsDoNotConsumeTheBudget(t *testing.T) {
-	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxloginbudget%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
+	db := openLoginBudgetMemDB(t, "kxloginbudget")
 	h := newLoginBudgetHandler(db)
 	for i := range core.LoginMaxAttempts + 1 {
 		w := postLoginAs(t, h, lockoutOracleTestPassword)
@@ -123,7 +125,7 @@ func TestLoginBudget_SuccessfulLoginsDoNotConsumeTheBudget(t *testing.T) {
 // even the CORRECT password is refused with 429 -- and a success interleaved
 // before the threshold does not refund the failures already counted.
 func TestLoginBudget_FailuresStillLockAtTheThreshold(t *testing.T) {
-	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxloginbudget%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
+	db := openLoginBudgetMemDB(t, "kxloginbudget")
 	h := newLoginBudgetHandler(db)
 	for i := range core.LoginMaxAttempts - 1 {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, h, "wrong-password").Code, "failure %d", i+1)
@@ -201,7 +203,7 @@ func TestLoginBudget_DeliveredMFALoginConsumesNoSlot(t *testing.T) {
 // refresh must return its slot too, or an open browser tab locks its own IP
 // out of logging in.
 func TestLoginBudget_SuccessfulRefreshesDoNotConsumeTheBudget(t *testing.T) {
-	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxloginbudget%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
+	db := openLoginBudgetMemDB(t, "kxloginbudget")
 	h := newLoginBudgetHandler(db)
 	w := postLoginAs(t, h, lockoutOracleTestPassword)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())

@@ -401,7 +401,7 @@ func newHandlerCoreS4(t *testing.T) *core.KeyorixCore {
 			&models.SecretDependency{}, &models.RiskException{},
 			&models.MFASecret{}, &models.MFARecoveryCode{},
 			&models.IdentityProvider{}, &models.ExternalIdentity{},
-			&models.LegalHold{}, &models.ShareRecord{},
+			&models.LegalHold{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 			&models.PersonalAccessToken{},
 			// s4 batch3 additions:
 			&models.ProjectInvitation{}, &models.SchedulerLockLease{},

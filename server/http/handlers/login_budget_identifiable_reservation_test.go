@@ -14,7 +14,6 @@ package handlers
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"testing"
 
@@ -28,7 +27,7 @@ import (
 
 func newFaultyLoginBudgetHandler(t *testing.T) (*AuthHandler, *faultstorage.FaultyStorage, *gorm.DB) {
 	t.Helper()
-	db := openLoginBudgetDB(t, fmt.Sprintf("file:kxloginbudgetres%d?mode=memory&cache=shared", loginBudgetDBCounter.Add(1)))
+	db := openLoginBudgetMemDB(t, "kxloginbudgetres")
 	fs := faultstorage.NewFaultyStorage(store.NewLocalStorage(db), nil)
 	return NewAuthHandler(core.NewKeyorixCore(fs), false), fs, db
 }

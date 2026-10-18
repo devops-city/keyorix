@@ -75,7 +75,7 @@ import (
 // already-deleted project whose children the cascade has swept.
 func (f *ctaReview) deleteFixtureProject() {
 	f.t.Helper()
-	require.NoError(f.t, f.setup.DeleteProject(f.ctx, f.projectID, true))
+	require.NoError(f.t, f.setup.DeleteProject(f.ctx, 0, f.projectID, true))
 	var live int64
 	require.NoError(f.t, f.setupDB.Model(&models.Project{}).
 		Where("id = ? AND deleted_at IS NULL", f.projectID).Count(&live).Error)
@@ -122,7 +122,7 @@ func TestCTAReview_DeleteProject_WaitsForARestoreHoldingTheProjectRow_Postgres(t
 	<-held
 
 	deleted := make(chan error, 1)
-	go func() { deleted <- f.coreB.DeleteProject(f.ctx, f.projectID, true) }()
+	go func() { deleted <- f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) }()
 
 	select {
 	case err := <-deleted:

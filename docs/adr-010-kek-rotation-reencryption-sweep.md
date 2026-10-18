@@ -359,3 +359,49 @@ interrupts the real rotation at each durability checkpoint (`sweep:...` labels o
 nil-in-prod `rotationCheckpoint` seam) and asserts every committed row still decrypts under
 the recovered active DEK. It passes at every crash point after the fix and goes red if the
 ordering/recovery regresses. Runs on in-memory SQLite — CI-runnable, no rig needed.
+
+## Addendum — Cross-replica DEK epoch (2026-10, #3337)
+
+### Problem
+
+`dek.lock` serialises a rotation against a server only on the host that holds
+the key directory. With several replicas on one PostgreSQL database (ADR-039)
+each replica may hold its own `dek.key`, and nothing told a replica that another
+host had rotated: a replica started again with its old `dek.key`, or left running
+while the database presence guard (`internal/serverguard`) was bypassed
+(`--force`) or lost, kept committing rows under the old DEK. Once the new key
+set was distributed those rows were undecryptable.
+
+### Decision
+
+The database records the DEK it is encrypted under: `system_metadata["dek.epoch"]`
+= the DEK fingerprint (first 16 bytes of HMAC-SHA256(DEK, "keyorix/dek-fingerprint/v1"),
+not key material), or `rotating:<old fingerprint>` while a rotation's sweep is in
+flight (`internal/encryption/dek_epoch.go`). PostgreSQL only; SQLite is single-node
+and unchanged.
+
+- **Server start-up** refuses unless the epoch is its own fingerprint. An absent
+  epoch is seeded, after the DEK decrypts the newest encrypted secret version.
+- **Running server**: a goroutine re-reads the epoch every 2 s; `Encrypt*` refuse
+  unless a read that started at most 5 s ago matched. Decrypt is never fenced and
+  no revocation path encrypts.
+- **Rotation**: commit `rotating:<old>`, wait 10 s (> the 5 s staleness bound), then
+  sweep in a transaction that holds every swept table in SHARE ROW EXCLUSIVE mode (in-flight
+  writers finish first and are swept; new writes wait) and compare-and-sets the
+  epoch to the new fingerprint in that same transaction. A failed rotation lifts
+  its fence; a fence left by a killed rotation is lifted by the next server start
+  holding the old DEK (it holds the presence lock, so no rotation is running; a
+  `--force` rotation then fails its compare-and-set and rolls back).
+
+Alternatives rejected: replica acknowledgement rows (needs replica identity and
+liveness tracking for little gain over the staleness bound); a per-write
+in-transaction epoch check (touches every storage write path); reloading the new
+DEK in place (keeps the KEK in memory; a restart is the documented path).
+
+### Not covered
+
+A write encrypted before its replica saw the fence whose INSERT starts more than
+5 s (fence wait minus staleness bound) later, in a deployment where the presence
+guard was also bypassed or lost. A server binary predating the epoch. Guards:
+`internal/encryption/dek_epoch_postgres_test.go`, `dek_epoch_test.go`,
+`server/dek_epoch_cross_replica_postgres_test.go`.

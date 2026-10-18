@@ -1,0 +1,6 @@
+### Security
+- **The CLI refuses secrets given as flags.** `login --password/--mfa-code`, `mfa activate --password/--code`, `mfa stepup --code`, `change-password --current-password/--new-password`, `system init --admin-password/--bootstrap-token`, `user create --password` and `secret create|update|rotate --value` used to be accepted with a warning; a flag is visible to every local user through `ps` and stays in shell history and CI logs. They are now hidden from `--help` and fail with the safe way to supply the value (hidden prompt, `KEYORIX_*` variable or `KEYORIX_*_FILE`, a file, or stdin). Scripts not yet moved can set `KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1` to get the old warning instead. `TestSecretFlagsAreAllClassified` audits every flag and positional of every command, so a new secret-carrying flag has to be refused or explained.
+
+### Added
+- **`keyorix secret create|update --from-file -` reads the value from stdin** (`printf %s "$VALUE" | keyorix secret create ... --from-file -`): one trailing newline is dropped, nothing else is touched, empty input is an error.
+- **`keyorix change-password` reads `KEYORIX_CURRENT_PASSWORD` / `KEYORIX_NEW_PASSWORD`** (each also as `*_FILE`) so it works in a script.

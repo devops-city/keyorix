@@ -99,7 +99,7 @@ func TestSetDynamicSecretConfigEnabled_RefusesUnderDeletedProject(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{},
-		&models.ShareRecord{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
 		&models.AuditEvent{}, &models.Role{}, &models.UserRole{}, &models.Group{},
 		&models.UserGroup{}, &models.GroupRole{}))
 
@@ -127,7 +127,7 @@ func TestSetDynamicSecretConfigEnabled_RefusesUnderDeletedProject(t *testing.T) 
 	require.NoError(t, err)
 
 	// #369: the delete disables the config so it can no longer mint.
-	require.NoError(t, c.DeleteProject(ctx, 1, false))
+	require.NoError(t, c.DeleteProject(ctx, 0, 1, false))
 	disabled, err := c.GetDynamicSecretConfig(ctx, cfg.ID)
 	require.NoError(t, err)
 	require.True(t, disabled.Disabled, "precondition: the delete must have disabled the config")

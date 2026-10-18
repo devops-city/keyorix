@@ -34,6 +34,12 @@ func runAdminMigrate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// #2854: the same schema/sanity validation `serve` runs before it touches
+	// storage, with the same message. A config serve refuses must not be
+	// migrated either.
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("Configuration is invalid: %w", err) //nolint:staticcheck // matches serve's message verbatim
+	}
 	lock, err := acquireDatabaseLock(cfg)
 	if err != nil {
 		return err

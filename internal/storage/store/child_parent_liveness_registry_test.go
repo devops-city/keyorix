@@ -107,24 +107,27 @@ var childFKTargets = map[string]string{
 	"DynamicSecretLease.ConfigID":        "DynamicSecretConfig",
 	"ShareRecord.RecipientID":            "User", // or Group when IsGroup; both are liveness parents
 	"ShareSummary.RecipientID":           "-",    // response DTO, not a table
-	"RecentShareInfo.RecipientID":        "-",
-	"AccessReviewItem.PrincipalID":       "-", // polymorphic (user/group/machine) snapshot of a review subject, not a live grant
-	"AccessReviewItem.EnvironmentID":     "-", // descriptive snapshot column of a review item
-	"AccessReviewItem.SecretID":          "-", // descriptive snapshot column of a review item
-	"AuditEvent.UserID":                  "-", // audit rows are append-only history; they must outlive their subject
-	"AuditEvent.SecretNodeID":            "-",
-	"AuditEvent.ProjectID":               "-",
-	"APICallLog.UserID":                  "-", // request log, history
-	"SecretAccessLog.SecretNodeID":       "-", // access history
-	"SecretMetadataHistory.SecretNodeID": "-", // history
-	"AnomalyAlert.SecretNodeID":          "-", // detection history
-	"SecretListFilter.ProjectID":         "-", // query DTO, not a table
-	"SecretListFilter.EnvironmentID":     "-",
-	"SecretListFilter.ParentID":          "-",
-	"SecretVersionComment.SecretID":      "SecretNode",
-	"StatsSnapshot.UserID":               "-", // metrics snapshot
-	"Setting.UserID":                     "User",
-	"GRPCService.Name":                   "-",
+	// #3433 cascade marker: names the project whose soft-delete suspended the identity,
+	// i.e. a parent that is deleted by definition while the marker is set; not a live parent.
+	"MachineIdentity.CascadeSuspendedProjectID": "-",
+	"RecentShareInfo.RecipientID":               "-",
+	"AccessReviewItem.PrincipalID":              "-", // polymorphic (user/group/machine) snapshot of a review subject, not a live grant
+	"AccessReviewItem.EnvironmentID":            "-", // descriptive snapshot column of a review item
+	"AccessReviewItem.SecretID":                 "-", // descriptive snapshot column of a review item
+	"AuditEvent.UserID":                         "-", // audit rows are append-only history; they must outlive their subject
+	"AuditEvent.SecretNodeID":                   "-",
+	"AuditEvent.ProjectID":                      "-",
+	"APICallLog.UserID":                         "-", // request log, history
+	"SecretAccessLog.SecretNodeID":              "-", // access history
+	"SecretMetadataHistory.SecretNodeID":        "-", // history
+	"AnomalyAlert.SecretNodeID":                 "-", // detection history
+	"SecretListFilter.ProjectID":                "-", // query DTO, not a table
+	"SecretListFilter.EnvironmentID":            "-",
+	"SecretListFilter.ParentID":                 "-",
+	"SecretVersionComment.SecretID":             "SecretNode",
+	"StatsSnapshot.UserID":                      "-", // metrics snapshot
+	"Setting.UserID":                            "User",
+	"GRPCService.Name":                          "-",
 }
 
 func childLiveModelName(m any) (reflect.Type, string) {
