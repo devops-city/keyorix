@@ -205,31 +205,3 @@ func (ls *LocalStorage) UpdateAccessReviewItem(ctx context.Context, item *models
 	}
 	return res.RowsAffected == 1, nil
 }
-
-// RevertAccessReviewItemClaim compensates a claim (UpdateAccessReviewItem's
-// pending -> fromDecision transition) whose real action then failed to apply —
-// DecideAccessReviewItem's revoke path claims the item BEFORE running the real
-// revoke (claim-before-act is what closes the #1646 attest/revoke race), so a
-// revoke that fails after a successful claim must be able to undo it. The
-// conditional UPDATE (`WHERE id = ? AND decision = ? AND decided_by = ?`) is
-// the same atomic-compare-and-swap shape as UpdateAccessReviewItem's own claim,
-// run in reverse: only a row that still shows EXACTLY the claim THIS caller
-// made (fromDecision, decided_by = actorID) is reverted. The bool reports
-// whether the row matched and was reverted; false means someone else already
-// changed it since this caller's own claim (re-decided it, or a concurrent
-// revert already ran) — the caller must fail closed and leave it alone rather
-// than overwrite whatever that other change was.
-func (ls *LocalStorage) RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error) {
-	res := ls.db.WithContext(ctx).Model(&models.AccessReviewItem{}).
-		Where("id = ? AND decision = ? AND decided_by = ?", itemID, fromDecision, actorID).
-		Updates(map[string]any{
-			"decision":   accessReviewItemPending,
-			"reason":     "",
-			"decided_by": 0,
-			"decided_at": nil,
-		})
-	if res.Error != nil {
-		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)
-	}
-	return res.RowsAffected == 1, nil
-}
