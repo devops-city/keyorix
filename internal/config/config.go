@@ -1079,6 +1079,11 @@ type KeyProviderConfig struct {
 	// context=...` to durably re-wrap under the context), then disable it again —
 	// every fallback use is logged loudly specifically so that migration window is
 	// observable and finite, not a permanent standing weakening.
+	//
+	// #3398: the window ends by itself. When the stored wrapped KEK already
+	// decrypts WITH its context (the migration is done), the flag is refused at
+	// start-up with a message saying it can be removed
+	// (crypto.ErrKMSContextFallbackNotNeeded, checked in KMSKeyProvider.KEK).
 	KMSAllowContextFallback bool `yaml:"insecure_allow_kms_context_fallback"`
 	// ExecCommand is the argv for type "exec": the resolver command (argv[0] is the
 	// binary, the rest are arguments) whose stdout supplies the KEK as raw 32 bytes
