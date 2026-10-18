@@ -23,11 +23,16 @@ func newSuspendFixture(t *testing.T) (*KeyorixCore, uint, *gorm.DB) {
 	require.NoError(t, err)
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.SecretAccessSchedule{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.SecretAccessSchedule{}))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}
 	ctx := context.Background()
+	// ResumeSecret requires a live parent environment and project (#2794).
+	proj, err := c.storage.CreateProject(ctx, &models.Project{Name: "suspend-fixture"})
+	require.NoError(t, err)
+	env, err := c.storage.CreateEnvironment(ctx, &models.Environment{Name: "prod", ProjectID: proj.ID})
+	require.NoError(t, err)
 	secret, err := c.storage.CreateSecret(ctx, &models.SecretNode{
-		Name: "db", ProjectID: 1, EnvironmentID: 1, Type: "password", OwnerID: 1, IsSecret: true,
+		Name: "db", ProjectID: proj.ID, EnvironmentID: env.ID, Type: "password", OwnerID: 1, IsSecret: true,
 		Status: SecretStatusActive, CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	})
 	require.NoError(t, err)

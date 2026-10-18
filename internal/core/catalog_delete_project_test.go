@@ -65,6 +65,23 @@ func (s *deleteProjectSpy) DeleteProject(_ context.Context, id uint) error {
 	return s.deleteErr
 }
 
+// WithTransaction runs fn on the spy itself: DeleteProject wraps the cascade and its
+// #3433 machine-identity step in one transaction. The guard+cascade is still ONE call
+// inside it, which is what callOrder pins.
+func (s *deleteProjectSpy) WithTransaction(_ context.Context, fn func(storage.Storage) error) error {
+	return fn(s)
+}
+
+// SuspendMachineIdentitiesForDeletedProject records the #3433 step: it must follow a
+// cascade that deleted, and never a guard that refused.
+func (s *deleteProjectSpy) SuspendMachineIdentitiesForDeletedProject(_ context.Context, id uint) ([]*models.MachineIdentity, error) {
+	s.callOrder = append(s.callOrder, "SuspendMachineIdentitiesForDeletedProject")
+	if id != 7 {
+		return nil, fmt.Errorf("unexpected project id %d", id)
+	}
+	return nil, nil
+}
+
 // ListDynamicSecretConfigs backs DeleteProject's #369 post-commit dynamic-secrets
 // cascade (see revokeProjectDynamicSecretLeases's doc comment), deliberately after the
 // delete itself. Returns none: these tests aren't exercising the dynamic-secrets
@@ -78,9 +95,9 @@ func TestDeleteProject_EmptyProjectDeletesAtomically(t *testing.T) {
 	spy := &deleteProjectSpy{blockingSecretCount: 0}
 	c := core.NewKeyorixCore(spy)
 
-	require.NoError(t, c.DeleteProject(context.Background(), 7, false))
-	assert.Equal(t, []string{"DeleteProjectIfEmpty"}, spy.callOrder,
-		"force=false must call the atomic guard+cascade primitive, not a separate ListSecrets+DeleteProject pair")
+	require.NoError(t, c.DeleteProject(context.Background(), 0, 7, false))
+	assert.Equal(t, []string{"DeleteProjectIfEmpty", "SuspendMachineIdentitiesForDeletedProject"}, spy.callOrder,
+		"force=false must call the atomic guard+cascade primitive, not a separate ListSecrets+DeleteProject pair, then the #3433 machine-identity step")
 }
 
 func TestDeleteProject_RejectsWhenSecretsExist(t *testing.T) {
@@ -88,7 +105,7 @@ func TestDeleteProject_RejectsWhenSecretsExist(t *testing.T) {
 	spy := &deleteProjectSpy{blockingSecretCount: 3}
 	c := core.NewKeyorixCore(spy)
 
-	err := c.DeleteProject(context.Background(), 7, false)
+	err := c.DeleteProject(context.Background(), 0, 7, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "3 secret(s)")
 	assert.Equal(t, []string{"DeleteProjectIfEmpty"}, spy.callOrder,
@@ -102,8 +119,8 @@ func TestDeleteProject_ForceSkipsGuardEntirely(t *testing.T) {
 	spy := &deleteProjectSpy{blockingSecretCount: 99, deleteIfEmptyErr: fmt.Errorf("must not be called")}
 	c := core.NewKeyorixCore(spy)
 
-	require.NoError(t, c.DeleteProject(context.Background(), 7, true))
-	assert.Equal(t, []string{"DeleteProject"}, spy.callOrder, "force=true must skip the guard entirely")
+	require.NoError(t, c.DeleteProject(context.Background(), 0, 7, true))
+	assert.Equal(t, []string{"DeleteProject", "SuspendMachineIdentitiesForDeletedProject"}, spy.callOrder, "force=true must skip the guard entirely")
 }
 
 // --- #313 real-storage integration (sequential, deterministic) -------------------
@@ -124,7 +141,7 @@ func TestDeleteProject_RealStorage_RejectsWhenSecretsExist(t *testing.T) {
 	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}))
 	c := core.NewKeyorixCore(store.NewLocalStorage(db))
 	ctx := context.Background()
 
@@ -132,7 +149,7 @@ func TestDeleteProject_RealStorage_RejectsWhenSecretsExist(t *testing.T) {
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env"}).Error)
 	require.NoError(t, db.Create(&models.SecretNode{Name: "s", ProjectID: 1, EnvironmentID: 1, IsSecret: true}).Error)
 
-	err = c.DeleteProject(ctx, 1, false)
+	err = c.DeleteProject(ctx, 0, 1, false)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "1 secret(s)")
 
@@ -144,13 +161,13 @@ func TestDeleteProject_RealStorage_EmptyProjectSucceeds(t *testing.T) {
 	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}))
 	c := core.NewKeyorixCore(store.NewLocalStorage(db))
 	ctx := context.Background()
 
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "p"}).Error)
 
-	require.NoError(t, c.DeleteProject(ctx, 1, false))
+	require.NoError(t, c.DeleteProject(ctx, 0, 1, false))
 
 	var p models.Project
 	err = db.First(&p, 1).Error
@@ -161,7 +178,7 @@ func TestDeleteProject_RealStorage_ForceCascadesOverSecrets(t *testing.T) {
 	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}))
 	c := core.NewKeyorixCore(store.NewLocalStorage(db))
 	ctx := context.Background()
 
@@ -169,7 +186,7 @@ func TestDeleteProject_RealStorage_ForceCascadesOverSecrets(t *testing.T) {
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env"}).Error)
 	require.NoError(t, db.Create(&models.SecretNode{Name: "s", ProjectID: 1, EnvironmentID: 1, IsSecret: true}).Error)
 
-	require.NoError(t, c.DeleteProject(ctx, 1, true))
+	require.NoError(t, c.DeleteProject(ctx, 0, 1, true))
 
 	var liveSecrets int64
 	require.NoError(t, db.Model(&models.SecretNode{}).Where("project_id = ? AND deleted_at IS NULL", 1).Count(&liveSecrets).Error)
@@ -185,7 +202,7 @@ func TestDeleteProject_RealStorage_DisablesDynamicSecretConfigsAndRevokesLeases(
 	t.Parallel()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}, &models.Role{}, &models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.AuditEvent{}, &models.Role{}, &models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{}))
 
 	enc := encryption.NewService(&config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}, t.TempDir())
 	require.NoError(t, enc.Initialize("test-passphrase"))
@@ -220,7 +237,7 @@ func TestDeleteProject_RealStorage_DisablesDynamicSecretConfigsAndRevokesLeases(
 	lease, err := c.IssueLease(ctx, cfg.ID, 0, 7)
 	require.NoError(t, err)
 
-	require.NoError(t, c.DeleteProject(ctx, 1, false))
+	require.NoError(t, c.DeleteProject(ctx, 0, 1, false))
 
 	disabled, err := c.GetDynamicSecretConfig(ctx, cfg.ID)
 	require.NoError(t, err)

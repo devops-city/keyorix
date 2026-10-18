@@ -29,7 +29,7 @@ func newRestoreCeilingCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.AuditEvent{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{},
 		&models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
 	))
 	require.NoError(t, db.Create(&models.Role{ID: 1, Name: "admin", BypassesPermissionChecks: true}).Error)
@@ -108,7 +108,7 @@ func TestRestoreProject_RefusesNonAdminWhenProjectHoldsAdminRole(t *testing.T) {
 	p, err := c.CreateProject(ctx, "proj", "")
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&models.UserRole{UserID: 99, RoleID: 1, ProjectID: p.ID}).Error) // admin at project scope
-	require.NoError(t, c.DeleteProject(ctx, p.ID, false))
+	require.NoError(t, c.DeleteProject(ctx, 0, p.ID, false))
 
 	err = c.RestoreProject(ctx, 1, p.ID) // actor 1 has no roles at all
 	require.Error(t, err)
@@ -124,7 +124,7 @@ func TestRestoreProject_AllowsGlobalAdmin(t *testing.T) {
 	p, err := c.CreateProject(ctx, "proj", "")
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&models.UserRole{UserID: 99, RoleID: 1, ProjectID: p.ID}).Error)
-	require.NoError(t, c.DeleteProject(ctx, p.ID, false))
+	require.NoError(t, c.DeleteProject(ctx, 0, p.ID, false))
 
 	require.NoError(t, c.RestoreProject(ctx, 2, p.ID))
 }
