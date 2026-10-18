@@ -544,13 +544,20 @@ func (ls *LocalStorage) submitAuditBatchItem(item *auditBatchItem) error {
 // auditChainMu provided before (a single serialization point imposing SOME
 // total order on concurrent arrivals, not a claim about real-world causal
 // order, which neither design ever provided).
+//
+// On Postgres, up to auditPipelineDepth batches are in flight at once
+// (commitFlusherBatch, local_audit_chain_pipelined_batches.go); their results
+// still reach their items in batch order, each only after its own COMMIT. The
+// idle exit waits for them first, so a run never ends with a batch in flight.
 func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
+	pipe := ls.newAuditBatchPipeline()
 	for {
 		var batch []*auditBatchItem
 		select {
 		case item := <-af.queue:
 			batch = append(batch, item)
 		case <-time.After(auditFlusherIdleTimeout):
+			pipe.drain()
 			af.mu.Lock()
 			// Re-check for a race: a submitter's queue<-item may have
 			// succeeded between this timeout firing and acquiring af.mu.
@@ -611,10 +618,7 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 		af.mu.Lock()
 		af.pending -= len(batch)
 		af.mu.Unlock()
-		errs := ls.commitAuditBatch(batch)
-		for i, item := range batch {
-			item.done <- errs[i]
-		}
+		ls.commitFlusherBatch(pipe, batch)
 	}
 }
 
@@ -854,7 +858,16 @@ func (ls *LocalStorage) commitBatchWithBusyRetry(ctx context.Context, batch []*a
 // an operator is looking at them. Found by the coordinator's review of #2637.
 func (ls *LocalStorage) commitAuditBatch(batch []*auditBatchItem) []error {
 	ctx := batch[0].ctx // auditWriteContext-derived; every item's ctx carries the same fixed deadline shape
-	err := ls.commitBatchWithBusyRetry(ctx, batch)
+	return ls.finishAuditBatch(batch, ls.commitBatchWithBusyRetry(ctx, batch))
+}
+
+// finishAuditBatch is commitAuditBatch after batch's first attempt returned
+// err: nil fails nothing, a single item gets err, a batch-global contention
+// error fails every item, anything else bisects. The pipelined batches'
+// completion (local_audit_chain_pipelined_batches.go) enters here with the
+// outcome of an attempt it ran itself, so a pipelined batch is retried and
+// isolated exactly like one the flusher committed serially.
+func (ls *LocalStorage) finishAuditBatch(batch []*auditBatchItem, err error) []error {
 	recordAuditFlush(len(batch))
 	if err == nil {
 		return make([]error, len(batch))

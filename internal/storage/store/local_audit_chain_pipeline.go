@@ -98,8 +98,21 @@ func (ls *LocalStorage) commitBatchAttemptPipelined(ctx context.Context, batch [
 			return err
 		}
 		ls.auditHead.missedOneFlight()
-		epoch, _, _ = ls.auditHead.begin()
+		return ls.commitBatchTwoFlights(ctx, batch)
 	}
+	return ls.commitBatchTwoFlightsUnder(ctx, epoch, batch)
+}
+
+// commitBatchTwoFlights is the two-flight attempt that follows a one-flight
+// attempt which provably wrote nothing (here and in the pipelined batches'
+// completion, local_audit_chain_pipelined_batches.go): it re-reads the head
+// under the lock, and its result is the attempt's result.
+func (ls *LocalStorage) commitBatchTwoFlights(ctx context.Context, batch []*auditBatchItem) error {
+	epoch, _, _ := ls.auditHead.begin()
+	return ls.commitBatchTwoFlightsUnder(ctx, epoch, batch)
+}
+
+func (ls *LocalStorage) commitBatchTwoFlightsUnder(ctx context.Context, epoch uint64, batch []*auditBatchItem) error {
 	return ls.withAuditPipelineConn(ctx, func(pc *pgx.Conn) error {
 		read, last, err := ls.runAuditPipeline(ctx, pc, batch)
 		if err != nil {

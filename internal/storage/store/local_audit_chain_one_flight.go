@@ -62,10 +62,15 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// auditChainHead is one audit_events row's place in the chain.
+// auditChainHead is one audit_events row's place in the chain. pending marks
+// the last row of a pipelined batch that is still in flight
+// (local_audit_chain_pipelined_batches.go): its entry_hash is known, its id is
+// not yet, and id is 0. A batch chained onto a pending head is checked on the
+// entry_hash alone (auditInsertCheckStatement).
 type auditChainHead struct {
-	id   uint
-	hash string
+	id      uint
+	hash    string
+	pending bool
 }
 
 // auditChainHeadCache is the chain head the root LocalStorage's flusher last
@@ -102,6 +107,9 @@ type auditChainHeadCache struct {
 	// committed and that failed (and were retried in two flights).
 	oneFlightCommits atomic.Int64
 	oneFlightMisses  atomic.Int64
+	// pipelinedSends counts batches sent chained onto a pending head (a batch
+	// still in flight, local_audit_chain_pipelined_batches.go).
+	pipelinedSends atomic.Int64
 }
 
 // auditOneFlightMaxQuiet caps how many quiet two-flight batches re-arm the
@@ -119,6 +127,18 @@ func (c *auditChainHeadCache) begin() (epoch uint64, head auditChainHead, armed 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.epoch, c.head, c.armed && c.known
+}
+
+// currentEpoch is the epoch now: a pipelined run of batches continues only
+// while it is the epoch the run began under (every miss, failure and
+// invalidation moves it).
+func (c *auditChainHeadCache) currentEpoch() uint64 {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.epoch
 }
 
 // committedTwoFlights records a two-flight commit whose head read returned
@@ -255,9 +275,19 @@ func auditLinkCheckStatement(table string, headID uint, headHash string, n int) 
 // the previous row's entry_hash in id order (genesis $%[6]d after an unchained
 // row), and raises otherwise. It also returns the stored ids in ascending
 // order. $%[4]d.. follow the INSERT's own parameters.
+//
+// $%[4]d is NULL for a pending head (a row of a pipelined batch still in
+// flight, id not known yet): the lowest row must then have the entry_hash
+// $%[5]d, which is as strict, since every stored row's entry_hash hashes its
+// predecessor's and so differs from it; the id comparison is the only part
+// left out. The raise must never become a NULL: a NULL message casts to a NULL
+// int, which raises nothing and lets COMMIT run. So nothing that can be NULL is
+// concatenated into it without a COALESCE (the pending id among them), and an
+// unknown condition takes the ELSE branch like a false one.
+// TestAuditInsertCheck_PendingHeadMismatchRaises pins both.
 const auditInsertCheckSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_hash, entry_hash FROM %[2]s ORDER BY id DESC LIMIT 1)
- SELECT CASE WHEN s.n = %[3]d AND s.unlinked = 0 AND s.base_id = $%[4]d::bigint AND s.base_hash = $%[5]d::text THEN 0
- ELSE ('audit batch not chained onto row ' || $%[4]d::bigint || ' in id order: ' || s.n || ' rows read, ' || s.unlinked || ' unlinked, lowest is row ' || COALESCE(s.base_id::text, 'none'))::int END, s.ids
+ SELECT CASE WHEN s.n = %[3]d AND s.unlinked = 0 AND s.base_id = COALESCE($%[4]d::bigint, s.base_id) AND s.base_hash = $%[5]d::text THEN 0
+ ELSE ('audit batch not chained onto row ' || COALESCE($%[4]d::bigint::text, 'pending ' || $%[5]d::text) || ' in id order: ' || s.n || ' rows read, ' || s.unlinked || ' unlinked, lowest is row ' || COALESCE(s.base_id::text, 'none'))::int END, s.ids
  FROM (SELECT count(*) AS n, count(*) FILTER (WHERE w.rn > 1 AND w.prev_hash IS DISTINCT FROM COALESCE(NULLIF(w.lp, ''), $%[6]d::text)) AS unlinked,
   min(w.id) AS base_id, (array_agg(w.entry_hash ORDER BY w.id))[1] AS base_hash, array_agg(w.id ORDER BY w.id) FILTER (WHERE w.rn > 1) AS ids
   FROM (SELECT id, prev_hash, entry_hash, lag(entry_hash) OVER (ORDER BY id) AS lp, row_number() OVER (ORDER BY id) AS rn
@@ -275,11 +305,15 @@ const auditInsertCheckGenesisSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_has
 
 // auditInsertCheckStatement wraps insertSQL (with its vars), the INSERT of n
 // events chained onto base, in auditInsertCheckSQL; base.id 0 means the batch
-// starts the chain at genesis.
+// starts the chain at genesis, unless base is pending (a row still in flight,
+// checked on its entry_hash with a NULL id).
 func auditInsertCheckStatement(table, insertSQL string, insertVars []any, base auditChainHead, n int) (string, []any) {
 	quoted := pgx.Identifier{table}.Sanitize()
 	next := len(insertVars) + 1
 	vars := slices.Clip(insertVars)
+	if base.pending {
+		return fmt.Sprintf(auditInsertCheckSQL, insertSQL, quoted, n+1, next, next+1, next+2), append(vars, nil, base.hash, auditGenesisHash)
+	}
 	if base.id == 0 {
 		return fmt.Sprintf(auditInsertCheckGenesisSQL, insertSQL, quoted, n, next), append(vars, auditGenesisHash)
 	}
@@ -321,6 +355,12 @@ func queueAuditEvents(f *auditFlight, table string, events []*models.AuditEvent,
 		checkSQL, checkArgs := auditInsertCheckStatement(table, stmt.SQL.String(), stmt.Vars, base, len(events))
 		f.queue(checkSQL, checkArgs...)
 		return func() error { return readAuditInsertCheck(f, events, assigned) }, nil
+	}
+	if base.pending {
+		// The separate head and link checks compare the head's id, which a
+		// pending head does not have yet; the pipeline sends only batches
+		// that fit one INSERT (auditPipelineFits).
+		return nil, fmt.Errorf("audit pipeline: a batch of %d rows does not fit one INSERT and cannot chain onto a pending head", len(events))
 	}
 
 	if headCheck {
@@ -429,9 +469,35 @@ func auditOneFlightRolledBack(err error, beforeCommit bool) bool {
 var errAuditNothingSent = errors.New("audit one-flight: nothing sent")
 
 func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx.Conn, batch []*auditBatchItem, head auditChainHead) (last auditChainHead, beforeCommit bool, err error) {
+	plan, err := ls.prepareAuditOneFlight(ctx, batch, head)
+	if err != nil {
+		return auditChainHead{}, true, err
+	}
+	plan.f.send(pc)
+	return plan.read()
+}
+
+// auditOneFlightPlan is a one-flight transaction built and not yet sent: its
+// rows are chained (their entry_hashes are final), its ids are not assigned.
+type auditOneFlightPlan struct {
+	f          *auditFlight
+	preamble   int
+	readEvents func() error
+	logInserts []auditPipelineInsert
+	events     []*models.AuditEvent
+}
+
+// tailHash is the entry_hash of the plan's last row: the head the next
+// pipelined batch chains onto while this one is in flight.
+func (p *auditOneFlightPlan) tailHash() string { return p.events[len(p.events)-1].EntryHash }
+
+// prepareAuditOneFlight chains batch onto head and builds its one-flight
+// transaction (see the file comment) without sending it. Every error wraps
+// errAuditNothingSent.
+func (ls *LocalStorage) prepareAuditOneFlight(ctx context.Context, batch []*auditBatchItem, head auditChainHead) (*auditOneFlightPlan, error) {
 	table, err := ls.auditEventsTable(ctx)
 	if err != nil {
-		return auditChainHead{}, true, fmt.Errorf("%w: %w", errAuditNothingSent, err)
+		return nil, fmt.Errorf("%w: %w", errAuditNothingSent, err)
 	}
 	events, accessLogs := chainAuditBatch(batch, head.hash)
 
@@ -441,38 +507,43 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 		f.queue(durability)
 	}
 	f.queue("SELECT pg_advisory_xact_lock($1)", int64(auditAdvisoryLockKey))
-	preamble := len(f.stmts)
+	plan := &auditOneFlightPlan{f: f, preamble: len(f.stmts), events: events}
 
-	readEvents, err := queueAuditEvents(f, table, events, head, false, true)
+	plan.readEvents, err = queueAuditEvents(f, table, events, head, false, true)
 	if err != nil {
-		return auditChainHead{}, true, fmt.Errorf("%w: %w", errAuditNothingSent, err)
+		return nil, fmt.Errorf("%w: %w", errAuditNothingSent, err)
 	}
-	var logInserts []auditPipelineInsert
 	if err := forEachAuditInsertChunk(accessLogs, func(chunk []*models.SecretAccessLog) error {
 		ids := make([]*uint, len(chunk))
 		for i, l := range chunk {
 			ids[i] = &l.ID
 		}
 		ins, err := queueAuditInsert(f, chunk, ids, false)
-		logInserts = append(logInserts, ins)
+		plan.logInserts = append(plan.logInserts, ins)
 		return err
 	}); err != nil {
-		return auditChainHead{}, true, fmt.Errorf("%w: %w", errAuditNothingSent, err)
+		return nil, fmt.Errorf("%w: %w", errAuditNothingSent, err)
 	}
 	f.queue("COMMIT")
+	return plan, nil
+}
 
-	f.send(pc)
+// read reads the results of a sent plan, in order, and returns its last row.
+// beforeCommit is true when err belongs to a statement queued before COMMIT
+// (see errAuditOneFlightRolledBack).
+func (p *auditOneFlightPlan) read() (last auditChainHead, beforeCommit bool, err error) {
+	f := p.f
 	beforeCommit = true
 	err = func() error {
-		for range preamble {
+		for range p.preamble {
 			if err := f.exec(); err != nil {
 				return err
 			}
 		}
-		if err := readEvents(); err != nil {
+		if err := p.readEvents(); err != nil {
 			return err
 		}
-		for _, ins := range logInserts {
+		for _, ins := range p.logInserts {
 			if err := readAuditInsert(f, ins); err != nil {
 				return err
 			}
@@ -487,7 +558,7 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 	if err := f.close(err); err != nil {
 		return auditChainHead{}, beforeCommit, err
 	}
-	tail := events[len(events)-1]
+	tail := p.events[len(p.events)-1]
 	return auditChainHead{id: tail.ID, hash: tail.EntryHash}, false, nil
 }
 
