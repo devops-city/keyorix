@@ -868,7 +868,22 @@ func (c *KeyorixCore) AuditFullVerificationJob(ctx context.Context, id string) (
 			free, perr := c.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func(context.Context) error { return nil })
 			// On SQLite the lock always "runs" (single process): not ours → dead.
 			if perr == nil && free {
-				out.State = AuditVerifyJobInterrupted
+				// The job clears its local id and releases the lock only after it
+				// has saved its result, so a job that finished between the state
+				// read above and this probe looks dead here. Re-read: only a state
+				// that is still "running" proves the process died.
+				fresh, _, lerr := c.loadAuditVerifyState(ctx)
+				switch {
+				case lerr != nil:
+					return nil, lerr
+				case fresh.Job == nil || fresh.Job.ID != id:
+					return nil, ErrAuditVerifyJobNotFound
+				case fresh.Job.State == AuditVerifyJobRunning:
+					out.State = AuditVerifyJobInterrupted
+				default:
+					fj := fresh.Job
+					out = &AuditVerifyJobStatus{JobID: fj.ID, State: fj.State, StartedAt: fj.StartedAt, FinishedAt: fj.FinishedAt, Error: fj.Error, Result: fj.Result}
+				}
 			}
 		}
 	}
