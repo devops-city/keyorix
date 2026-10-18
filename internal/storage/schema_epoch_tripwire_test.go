@@ -20,14 +20,18 @@
 // 2 -> 3 for pending_audit_events (SUSPEND-AUDIT-LOUD), an additive table an epoch-2
 // binary never reads or writes; rows it leaves are drained by the next epoch-3
 // replica's backfill, so the floor stays 2.
+// 3 -> 4 for machine_identities.cascade_suspended_project_id/_at (#3433). An epoch-3
+// binary neither sets nor clears the marker; its writes still move updated_at, which the
+// epoch-4 restore requires unchanged, so it can only make the restore re-activate LESS
+// (fail closed). The floor stays 2 (see minCompatibleSchemaEpoch's doc).
 package storage
 
 import "testing"
 
-func TestCurrentSchemaEpoch_Is3_SeeADR101(t *testing.T) {
-	if currentSchemaEpoch != 3 {
+func TestCurrentSchemaEpoch_Is4_SeeADR101(t *testing.T) {
+	if currentSchemaEpoch != 4 {
 		t.Fatalf(
-			"currentSchemaEpoch is now %d (expected 3) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
+			"currentSchemaEpoch is now %d (expected 4) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
 				"requires every bump to also decide minCompatibleSchemaEpoch (additive-and-safe leaves it "+
 				"unchanged; a migration an older binary cannot safely run against raises it to the new epoch). "+
 				"Make that decision in factory.go, THEN update this test's expected value alongside your "+

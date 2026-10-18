@@ -340,7 +340,7 @@ func hrSetup(t *testing.T, w *voWorld, roleID map[string]uint, n int, tc hrCase)
 	case "mfa-required": // the reader's session has no second factor
 		require.NoError(t, db.Model(&models.Project{}).Where("id = ?", proj.ID).Update("require_mfa", true).Error)
 	case "deleted":
-		require.NoError(t, c.DeleteProject(ctx, proj.ID, true))
+		require.NoError(t, c.DeleteProject(ctx, 0, proj.ID, true))
 	default:
 		t.Fatalf("unknown project state %q", tc.project)
 	}

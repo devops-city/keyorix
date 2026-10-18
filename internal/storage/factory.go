@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 3
+const currentSchemaEpoch = 4
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -75,7 +75,15 @@ const schemaEpochMetadataKey = "schema_epoch"
 // epoch-3 replica's backfill), and the HA-READY-1 formats below. The floor is
 // therefore 3, HA-READY-1's value.
 //
-// Currently 3 (HA-READY-1): epoch-2 binaries (v0.96.x) predate two formats
+// Epoch 4 (machine_identities.cascade_suspended_project_id/_at, #3433) leaves it at
+// 3: an epoch-3 replica's project delete does not suspend (the pre-#3433 behaviour,
+// for the length of the rollout), its project restore re-activates nothing (fail
+// closed: the identities stay suspended), and its machine-identity writes do not clear
+// the marker but do move updated_at, which the epoch-4 restore requires unchanged
+// (LocalStorage.ReactivateMachineIdentitiesForRestoredProject). Nothing an epoch-3
+// binary does makes an epoch-4 restore re-activate an identity it should not.
+//
+// Floor 3 (HA-READY-1): epoch-2 binaries (v0.96.x) predate two formats
 // the database now holds. (1) The v2 audit retention anchor (#3258): an
 // epoch-2 binary reads it as malformed, reports the chain broken, and its
 // retention purge rewrites a v1 anchor, dropping the cumulative purged count
@@ -2488,6 +2496,24 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// rather than nested inside the ALTER guard.
 		if err := exec("CREATE INDEX IF NOT EXISTS idx_machine_identities_classification ON machine_identities (classification)"); err != nil {
 			return err
+		}
+		// #3433: the project soft-delete cascade's suspension marker (schema epoch 4).
+		// Additive; 0 / NULL = "not suspended by a cascade", which is what every
+		// existing row is.
+		if !columnExists(db, "machine_identities", "cascade_suspended_project_id") {
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_project_id BIGINT NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+		}
+		if !columnExists(db, "machine_identities", "cascade_suspended_at") {
+			// Per-dialect type for the reason given at secret_nodes.purge_at.
+			ts := "DATETIME"
+			if db.Dialector.Name() == "postgres" {
+				ts = "TIMESTAMP WITH TIME ZONE"
+			}
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_at " + ts); err != nil {
+				return err
+			}
 		}
 	}
 

@@ -93,7 +93,7 @@ func TestRestoreProjectAndEnvironmentRoutesRequireRolesAssign(t *testing.T) {
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.AuditEvent{}, &models.Session{}, &models.Project{}, &models.Environment{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.MachineIdentity{}, &models.MachineIdentityRole{},
 		&models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
 	))
 	now := time.Now()
@@ -120,7 +120,7 @@ func TestRestoreProjectAndEnvironmentRoutesRequireRolesAssign(t *testing.T) {
 	require.NotEmpty(t, envs)
 	env := envs[0]
 	require.NoError(t, c.Storage().DeleteEnvironment(ctx, env.ID))
-	require.NoError(t, c.DeleteProject(ctx, p.ID, true))
+	require.NoError(t, c.DeleteProject(ctx, 0, p.ID, true))
 
 	router, err := NewRouter(&config.Config{}, c)
 	require.NoError(t, err)

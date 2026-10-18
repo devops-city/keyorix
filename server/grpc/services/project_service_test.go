@@ -137,7 +137,7 @@ func TestProjectService_ListRotateOnSoftDeletedProject_GlobalGrantStillEmpty(t *
 	require.Len(t, envs.GetEnvironments(), 1)
 
 	// Soft-delete project 2 (its environment is cascaded into the same soft-delete).
-	require.NoError(t, svc.core.DeleteProject(context.Background(), 2, true))
+	require.NoError(t, svc.core.DeleteProject(context.Background(), 0, 2, true))
 
 	_, err = svc.ListEnvironments(globalCtx, &pb.ListEnvironmentsRequest{ProjectId: 2})
 	require.Error(t, err)
