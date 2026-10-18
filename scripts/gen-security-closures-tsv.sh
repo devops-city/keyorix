@@ -23,8 +23,7 @@
 # each file ends in a newline (so concatenation cannot glue two rows together);
 # each file holds exactly one non-comment row, on one line, with no carriage
 # return anywhere (a second row or an embedded newline/CR in a field is refused,
-# naming the file); the row is the file's last line, so a newline whose
-# continuation looks like a comment or a blank line cannot hide the cut-off field.
+# naming the file).
 #
 #   scripts/gen-security-closures-tsv.sh --self-test   # prove those checks go red (and green)
 # check-closures.sh --self-test covers the semantic checks and runs this one too.
@@ -86,16 +85,10 @@ if [ "$mode" = "--self-test" ]; then
         "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote with an\nembedded newline\n"
     st_case "embedded newline leaving a well-formed second row" reject \
         "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tfirst\nGOOD-1b\t-\t-\tmanual\tdeadbeef\t-\tsecond\n"
-    # FLAKES-4 item 5: the line count above skips comment and blank lines, so a newline
-    # inside the note whose continuation LOOKS like a comment or a blank (the rest of
-    # the note starts with '#', or the field ends before a whitespace-only tail) left one
-    # counted row and silently dropped the end of the field.
-    st_case "embedded newline, continuation starts with '#'" reject \
-        "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote with an\n# embedded newline continuation\n"
-    st_case "embedded newline, continuation is whitespace only" reject \
-        "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote with an\n \t\n"
-    st_case "embedded newline, blank continuation" reject \
-        "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote with an\n\n"
+    st_case "embedded newline whose continuation starts with '#' (row still parses)" reject \
+        "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote cut here\n# rest of the note after an embedded newline\n"
+    st_case "comment line after the row" reject "$good\n# trailing comment\n"
+    st_case "blank line after the row" accept "$good\n\n"
     st_case "CRLF line ending" reject "$good\r\n"
     st_case "bare CR inside a field" reject "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote\rmore\n"
     st_case "no trailing newline" reject "$good"
@@ -135,12 +128,13 @@ for f in "${frags[@]}"; do
         bad "$f holds $nrows non-comment lines; a fragment is exactly one row on one line (two rows in one file, or a field with an embedded newline splitting a row, are both refused)"
         continue
     fi
-    # The count above skips comment and blank lines, so it cannot see a newline inside the
-    # note whose continuation starts with '#' or is blank: the row would count once and the
-    # end of the field would be dropped without a word. A fragment may open with comment
-    # lines, but the row must be the LAST line: nothing may follow it.
-    if [ "$(tail -n 1 "$f")" != "$rows" ]; then
-        bad "$f has text after its row (an embedded newline in a field whose continuation looks like a comment or a blank line?); a fragment is comment lines, then exactly one row as its last line"
+    # Comments are allowed BEFORE the row only. A comment-looking line AFTER it is
+    # what an embedded newline in the last field leaves behind when the text that
+    # follows the newline starts with '#': the row above still parses, so the
+    # count check cannot see it, and the note would be silently cut short.
+    trailing="$(awk '/^[[:space:]]*(#|$)/ { if (seen && $0 !~ /^[[:space:]]*$/) print NR; next } { seen = 1 }' "$f")"
+    if [ -n "$trailing" ]; then
+        bad "$f: line ${trailing%%$'\n'*} follows the row and is not blank; a fragment is exactly one row on one line, comments only before it (a field with an embedded newline followed by '#' text is refused)"
         continue
     fi
     while IFS= read -r row; do
