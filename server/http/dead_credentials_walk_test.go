@@ -80,9 +80,9 @@ var awDeadContract = map[string]int{}
 // fixed here. The status check is skipped for them (the no-5xx and unchanged-state
 // checks still run) and the walk asserts the credential STILL authenticates, so the
 // entry fails the day the issue is fixed and is removed with it.
-var awDeadOpen = map[string]string{
-	"machine_token_project_deleted": "#3433: a project soft-delete leaves its machine identities and their tokens authenticating (design decision: suspend them or document it)",
-}
+// #3433 (machine_token_project_deleted) was the last entry: a project soft-delete now
+// suspends the machine identities whose only live roles are in it.
+var awDeadOpen = map[string]string{}
 
 // awKnownOpenMachineGET: the GET routes #3416 (open) also fixes for a machine token;
 // the write walk's awKnownOpen lists the mutating ones. Remove with #3416.
@@ -201,7 +201,7 @@ var awDeadStates = []awDeadState{
 		require.NoError(t, err)
 		tok, err := w.a.c.IssueMachineToken(ctx, p.ID, m.ID, w.adminID, core.IssueMachineTokenParams{Name: "doomed"})
 		require.NoError(t, err)
-		return awDeadCred{tok.PlainToken, func(t *testing.T) { require.NoError(t, w.a.c.DeleteProject(ctx, p.ID, true)) }}
+		return awDeadCred{tok.PlainToken, func(t *testing.T) { require.NoError(t, w.a.c.DeleteProject(ctx, w.adminID, p.ID, true)) }}
 	}},
 }
 
