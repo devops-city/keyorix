@@ -2578,37 +2578,82 @@ func (c *Config) SecretFilePaths() []string {
 // file with the same message.
 //
 // Key-material secrets (master password, KEK, Shamir shares) are refused
-// unconditionally where they are read (secretenv.LookupChecked, no grace); this
-// covers the rest, which follow the ADR-112 upgrade grace like the key files:
-// refuse when security.enable_file_permission_check is on and
+// unconditionally where they are read (secretenv.LookupChecked, no grace); here a
+// key-material file gets the same warn-or-refuse decision, but its message never
+// offers the override. Everything follows the ADR-112 upgrade grace like the key
+// files: refuse when security.enable_file_permission_check is on and
 // allow_unsafe_file_permissions is off, otherwise warn. graceSoftened is true
 // when the upgrade grace turned a refusal into a warning, so the caller can
 // avoid recording that boot as "enforced".
 func (c *Config) EnforceSecretFilePermissions() (graceSoftened bool, err error) {
-	var problems []string
+	keyMaterial := map[string]string{} // path -> variable, for the key-material _FILE secrets
+	for _, n := range c.keyMaterialSecretEnvNames() {
+		if p := os.Getenv(n + secretenv.FileSuffix); p != "" {
+			keyMaterial[p] = n + secretenv.FileSuffix
+		}
+	}
+	var problems, keyProblems []string
 	for _, p := range c.SecretFilePaths() {
 		if err := secretenv.CheckPermissions(p); err != nil {
+			if v, ok := keyMaterial[p]; ok {
+				keyProblems = append(keyProblems, v+": "+err.Error())
+				continue
+			}
 			problems = append(problems, err.Error())
 		}
 	}
-	if len(problems) == 0 {
+	if len(problems)+len(keyProblems) == 0 {
 		return false, nil
 	}
-	msg := strings.Join(problems, "; ")
+	// The hint must be true for the file it is about (BOOT-REFUSALS-1 item 4): the
+	// override and the grace period soften this check, but a key-material file is
+	// refused again, with no override, where it is read (secretenv.LookupChecked), so
+	// offering the override for it sent operators to a setting that cannot help.
+	var parts []string
+	if len(problems) > 0 {
+		parts = append(parts, strings.Join(problems, "; "))
+	}
+	if len(keyProblems) > 0 {
+		parts = append(parts, strings.Join(keyProblems, "; ")+" (key material: security.insecure_allow_unsafe_file_permissions does not apply to it; the server refuses it wherever it reads it, so fix the file)")
+	}
+	msg := strings.Join(parts, "; ")
 	if c.Security.EnableFilePermissionCheck && !c.Security.AllowUnsafeFilePermissions {
 		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
 		// config/TLS files are softened there). The one exception is the upgrade
 		// grace period, same as for the key files in enforceKeyFilePermissions:
-		// warn, and record that this boot was softened. Key material never gets
-		// here -- LookupChecked has already refused it.
+		// warn, and record that this boot was softened.
 		if c.Security.EnableFilePermissionCheckUpgradeGrace {
-			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file (chmod 0400, or 0440 on a root-owned orchestrator mount whose group the process holds; chown it to the server's user or root) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
 			return true, nil
 		}
-		return false, fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
+		if len(problems) == 0 {
+			return false, fmt.Errorf("%s -- refused until the file is fixed", msg)
+		}
+		return false, fmt.Errorf("%s -- refused until the file is fixed (for the files that are not key material, security.insecure_allow_unsafe_file_permissions: true turns this into a warning)", msg)
+	}
+	if c.Security.AllowUnsafeFilePermissions {
+		log.Printf("WARNING: %s. Only a warning because security.insecure_allow_unsafe_file_permissions is set; remove it to fail closed.", msg)
+		return false, nil
 	}
 	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
 	return false, nil
+}
+
+// keyMaterialSecretEnvNames are the secrets read through secretenv.LookupChecked
+// (no override): the master passphrase, the env KEK provider's variable and the
+// Shamir share variables.
+func (c *Config) keyMaterialSecretEnvNames() []string {
+	kp := c.Storage.Encryption.KeyProvider
+	names := []string{"KEYORIX_MASTER_PASSWORD"}
+	if kp.EnvVar != "" {
+		names = append(names, kp.EnvVar)
+	}
+	for _, e := range kp.ShamirShareEnv {
+		if e != "" {
+			names = append(names, e)
+		}
+	}
+	return names
 }
 
 const appRootDir = "."
@@ -2674,7 +2719,7 @@ func Load(path string) (*Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal config: %w", describeUnknownKeys(err))
 	}
 
 	// ADR-112 secure-by-default: resolve the two inverted-default security keys
@@ -2929,6 +2974,21 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 
 	if c.Server.GRPC.Enabled && c.Server.GRPC.Port == "" {
 		return fmt.Errorf("gRPC server is enabled but no port is specified")
+	}
+
+	// A misspelled or weak tls.allowed_ciphers name is a config error: refuse it here,
+	// with the other config errors, not after start-up lines that read as readiness
+	// ("Startup validation passed", "HTTP server will bind ...") (BOOT-REFUSALS-1 item 8).
+	for _, l := range []struct {
+		name string
+		inst ServerInstanceConfig
+	}{{"server.http", c.Server.HTTP}, {"server.grpc", c.Server.GRPC}} {
+		if !l.inst.Enabled {
+			continue
+		}
+		if _, err := l.inst.TLS.ResolveCipherSuites(nil); err != nil {
+			return fmt.Errorf("%s.%w", l.name, err)
+		}
 	}
 
 	if err := validateAllowedOrigins(c.Server.HTTP.AllowedOrigins); err != nil {

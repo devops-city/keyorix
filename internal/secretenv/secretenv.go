@@ -286,6 +286,50 @@ func CheckPermissions(path string) error {
 	return nil
 }
 
+// ForeignOwnerError is CheckOwner's refusal: the file is owned by UID, which is
+// neither ProcessUID (the running user) nor root.
+type ForeignOwnerError struct {
+	UID, ProcessUID int
+}
+
+func (e *ForeignOwnerError) Error() string {
+	return fmt.Sprintf("owned by uid %d, which is neither the running user (uid %d) nor root -- refusing to trust it (that account can replace the file)", e.UID, e.ProcessUID)
+}
+
+// CheckOwner is the owner half of the key-material rule (#3393), for callers
+// that judge the mode themselves (--passphrase-file, the DEK/salt/TLS key files,
+// #3410): the file must be owned by the running user (effective uid) or by
+// root. Whoever owns a file can chmod and rewrite it, so a file owned by any
+// other account lets that account replace the key material whatever its mode.
+// A foreign owner is a *ForeignOwnerError; an owner the platform cannot report
+// is refused too (fail closed). info should come from an fstat of the
+// descriptor that is then read, or a stat that follows symlinks (a Kubernetes
+// Secret volume), so the target's owner is what is judged.
+func CheckOwner(info os.FileInfo) error {
+	uid, _, ok := fileOwner(info)
+	if !ok {
+		return errors.New("owner cannot be determined -- refusing to trust it")
+	}
+	if euid := processUID(); uid != euid && uid != 0 {
+		return &ForeignOwnerError{UID: uid, ProcessUID: euid}
+	}
+	return nil
+}
+
+// OverrideOwnershipForTest makes every file report owner fileUID and the
+// process run as processUID, until restore is called. It exists for tests in
+// other packages, which cannot chown a file to a third account; production code
+// never calls it.
+func OverrideOwnershipForTest(fileUID, processUIDValue int) (restore func()) {
+	oldUID, oldOwner := processUID, fileOwner
+	processUID = func() int { return processUIDValue }
+	fileOwner = func(info os.FileInfo) (int, int, bool) {
+		_, gid, ok := oldOwner(info)
+		return fileUID, gid, ok
+	}
+	return func() { processUID, fileOwner = oldUID, oldOwner }
+}
+
 func checkInfo(info os.FileInfo) error {
 	mode := info.Mode()
 	perm := mode.Perm()
@@ -301,14 +345,14 @@ func checkInfo(info os.FileInfo) error {
 	if perm&0o020 != 0 {
 		return bad("writable by its group")
 	}
-	uid, gid, ok := fileOwner(info)
-	if !ok {
-		return errors.New("owner cannot be determined -- refusing to trust it")
+	if err := CheckOwner(info); err != nil {
+		if foe, ok := errors.AsType[*ForeignOwnerError](err); ok {
+			return fmt.Errorf("%w; chown it to root, keeping the group the process reads it through, or to uid %d", err, foe.ProcessUID)
+		}
+		return err
 	}
+	uid, gid, _ := fileOwner(info)
 	euid := processUID()
-	if uid != euid && uid != 0 {
-		return fmt.Errorf("owned by uid %d, which is neither the running user (uid %d) nor root -- refusing to trust it (that account can replace the file); chown it to root, keeping the group the process reads it through, or to uid %d", uid, euid, euid)
-	}
 	if perm&0o050 == 0 {
 		return nil
 	}
