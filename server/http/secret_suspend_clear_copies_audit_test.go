@@ -44,8 +44,11 @@ func TestSuspendSecret_ClearSyncedCopies_AuditUnavailable_OverTheRouter(t *testi
 	res := postJSON(w, fmt.Sprintf("/api/v1/secrets/%d/suspend", clearSec.ID), w.tokens["session"],
 		map[string]any{"reason": "leaked", "clear_synced_copies": true})
 	assert.Equal(t, http.StatusInternalServerError, res.code, res.body)
+	assert.Equal(t, core.SuspendAuditUnavailableCode, refusalCode(t, res.body), "stable code, not InternalError")
+	assert.Equal(t, core.SuspendAuditUnavailableMessage, refusalMessage(t, res.body), "fixed message, no raw error text")
 	assert.Contains(t, refusalMessage(t, res.body), core.SuspendWithoutClearingHint,
 		"the refusal must tell the responder how to cut access now")
+	assert.NotContains(t, res.body, "no such table", "the storage error text must not reach the client")
 	cur := stored(clearSec.ID)
 	assert.Equal(t, core.SecretStatusActive, cur.Status, "nothing takes effect without its audit row")
 	assert.False(t, cur.SuspendClearSyncedCopies)
@@ -54,6 +57,16 @@ func TestSuspendSecret_ClearSyncedCopies_AuditUnavailable_OverTheRouter(t *testi
 		map[string]any{"reason": "maintenance"})
 	assert.Equal(t, http.StatusOK, res.code, "a plain suspend stays best-effort on audit: %s", res.body)
 	assert.Equal(t, core.SecretStatusSuspended, stored(plainSec.ID).Status)
+}
+
+// refusalCode returns the stable "error" code of an error envelope.
+func refusalCode(t *testing.T, body string) string {
+	t.Helper()
+	var env struct {
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &env), body)
+	return env.Error
 }
 
 // refusalMessage returns the "message" of an error envelope.

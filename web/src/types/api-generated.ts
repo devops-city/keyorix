@@ -2512,7 +2512,7 @@ export interface paths {
         put?: never;
         /**
          * Suspend a secret
-         * @description Block value reads without deleting the secret. Versions, shares, and the audit trail are preserved. Requires secrets.write.
+         * @description Block value reads without deleting the secret. Versions, shares, and the audit trail are preserved. Requires secrets.write. A request with `clear_synced_copies` is refused with 500 and error `SuspendAuditUnavailable` when its audit event cannot be recorded; nothing is changed. The message says what to do now: suspend again without `clear_synced_copies` to cut access immediately (a plain suspend is never blocked by the audit log); clearing the synced copies needs the audit log back. There is no gRPC twin: the gRPC API has no secret suspend.
          */
         post: operations["suspendSecret"];
         delete?: never;
@@ -4535,13 +4535,15 @@ export interface paths {
         };
         /**
          * List notification channel destinations (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel list`) -- was already a live route (notificationChannelHandler.List, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel list`) -- was already a live route (notificationChannelHandler.List, router.go), just undocumented in this spec until now.
+         *     Contract v2 (#3425): the channel URL is a bearer credential, so it is NOT returned here. Each channels[] entry carries the destination as scheme+host with the path elided (e.g. `https://hooks.slack.com/…`) and `url_set`.
          */
         get: operations["listNotificationChannels"];
         put?: never;
         /**
          * Add a notification channel (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel add`) -- was already a live route (notificationChannelHandler.Create, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel add`) -- was already a live route (notificationChannelHandler.Create, router.go), just undocumented in this spec until now.
+         *     Contract v2 (#3425): the create response is the ONLY response that returns the full channel URL (it is a bearer credential); it is never returned again.
          */
         post: operations["createNotificationChannel"];
         delete?: never;
@@ -4561,7 +4563,8 @@ export interface paths {
         };
         /**
          * Get a notification channel by ID (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel get`, which resolves a name via list then calls this) -- was already a live route (notificationChannelHandler.Get, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel get`, which resolves a name via list then calls this) -- was already a live route (notificationChannelHandler.Get, router.go), just undocumented in this spec until now.
+         *     Contract v2 (#3425): `url` is scheme+host with the path elided and `url_set` says whether one is stored; the full URL is never returned here.
          */
         get: operations["getNotificationChannel"];
         /**
@@ -4572,7 +4575,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a notification channel (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel delete`) -- was already a live route (notificationChannelHandler.Delete, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel delete`) -- was already a live route (notificationChannelHandler.Delete, router.go), just undocumented in this spec until now.
          */
         delete: operations["deleteNotificationChannel"];
         options?: never;
@@ -5897,6 +5900,11 @@ export interface components {
             id?: number;
             project_id?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+             */
+            secret_count?: number;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -6606,6 +6614,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     revokeSession: {
@@ -6649,6 +6658,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     createPAT: {
@@ -6718,6 +6728,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     bulkRevokeExpiredPATs: {
@@ -6736,6 +6747,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     patHygiene: {
@@ -6997,6 +7009,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     getSystemInfo: {
@@ -9521,7 +9534,7 @@ export interface operations {
                 "application/json": {
                     /** @description Optional reason recorded in the audit events. */
                     reason?: string;
-                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. */
+                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. That refusal, and one that stops the run early because a secret's own audit event was refused (`details` then holds `suspended` and `failed`), answer 500 with error `SuspendAuditUnavailable`; suspend again without `clear_synced_copies` to cut access immediately. */
                     clear_synced_copies?: boolean;
                 };
             };
@@ -10608,6 +10621,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            500: components["responses"]["Error"];
         };
     };
     resumeSecret: {
@@ -11414,6 +11428,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
@@ -14098,7 +14113,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data.channels[]: {id, name, type, enabled, url, email, events, created_by}. */
+            /** @description Envelope {data, message}. data.channels[]: {id, name, type, enabled, url, url_set, email, events, created_by, created_at, updated_at}. Contract v2 (#3425): `url` is scheme+host with the path elided (`https://hooks.slack.com/…`), or "" when the channel has no URL (email); `url_set` (boolean) is true when a URL is stored. Before v2 `url` was the full URL. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -14131,7 +14146,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Envelope {data, message}. data: same shape as list's channels[] entry. */
+            /** @description Envelope {data, message}. data: same fields as list's channels[] entry, except that `url` is the FULL URL exactly as stored (contract v2, #3425: the only response that ever carries it). `url_set` is true when a URL was given. */
             201: {
                 headers: {
                     [name: string]: unknown;

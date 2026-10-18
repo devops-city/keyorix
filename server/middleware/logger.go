@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/keyorixhq/keyorix/internal/logging"
 )
 
 // sensitiveURIPattern matches request paths that carry a single-use bearer
@@ -90,16 +92,23 @@ func Logger() func(next http.Handler) http.Handler {
 // queue makes the request wait, no line is lost), drop=true is "drop" (the
 // request proceeds, the line is counted and reported; see accessLogWriter).
 func LoggerDropOnSinkStall(drop bool) func(next http.Handler) http.Handler {
-	formatter := &middleware.DefaultLogFormatter{
+	out := newAccessLogWriter(drop)
+	var formatter middleware.LogFormatter = &middleware.DefaultLogFormatter{
 		// Not log.Default(): its mutex is held across the write syscall, which
 		// serialised every request at high concurrency. Same destination, prefix
 		// and line format; see accessLogWriter.
-		Logger: newAccessLogWriter(drop),
+		Logger: out,
 		// #G29: server access logs are captured non-interactively (container
 		// logs, a log-aggregation SaaS) where ANSI color codes are noise at
 		// best and an unnecessary terminal-control byte stream at worst if
 		// ever viewed raw — never emit them here.
 		NoColor: true,
+	}
+	if logging.JSONMode() {
+		// server.log.format: json — one JSON object per request, same fields as
+		// every other log line. Read when the router is built, so logging.Setup must
+		// run before NewRouter (server/main.go does).
+		formatter = jsonLogFormatter{out: out}
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

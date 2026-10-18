@@ -79,8 +79,8 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 	// into a clean 500 rather than propagating out to net/http's own bare panic
 	// recovery (which just logs and drops the connection, with none of Recovery's
 	// structured JSON response or panic-context logging). Recovery itself only reads
-	// the raw request (header, context — best-effort, nil-safe) so it has no ordering
-	// dependency on anything registered after it.
+	// the raw request (best-effort, nil-safe), so it needs nothing after it; only LogContext (request id) goes before it.
+	r.Use(customMiddleware.LogContext)
 	r.Use(customMiddleware.Recovery())
 	r.Use(middleware.RequestID)
 	// Trusted-proxy-aware client IP: honor X-Forwarded-For / X-Real-IP ONLY when the TCP

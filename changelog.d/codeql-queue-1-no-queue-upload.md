@@ -1,0 +1,2 @@
+### Internal
+- **CodeQL no longer fails merge-queue entries on the SARIF upload.** The upload ran after GitHub had deleted the `gh-readonly-queue/*` branch ("ref ... not found in this repository"). In the queue CodeQL now analyses with `upload: never` and `scripts/ci/codeql-gate.sh` fails the entry on a high-severity result that is not already an open alert on main; push to main and the weekly schedule still upload.

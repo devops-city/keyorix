@@ -5,6 +5,10 @@ outbound telemetry. This guide covers a Docker Compose deployment (web UI + API
 server + PostgreSQL), the production concerns that actually matter (encryption
 keys, backups, upgrades, TLS), and how to recover.
 
+If the server refuses to start (a configuration error, a key-file permission, a schema
+epoch newer than the binary, a lock held by another process), the message and the fix
+are in [operator/startup-refusals.md](operator/startup-refusals.md).
+
 The stack is three containers:
 
 | Service    | Image                              | Purpose                                  |
@@ -136,14 +140,20 @@ Non-secret settings stay in `.env`: `KEYORIX_ADMIN_USERNAME` (default `admin`),
 `uid`/`gid`/`mode` (it warns "not supported"), so a `0600` file on the host would be
 unreadable by the containers' non-root users. `init-secrets.sh` writes the files
 `0640` with your primary group and records that gid as `KEYORIX_SECRETS_GID`; the
-`postgres` and `backend` containers join that group. Nothing is world-readable, and
-the server's secret-file permission check (nothing for "other", no group write; a
-group-readable file must not be owned by the container's own user) passes. Run the
-script as a regular user, not root. If your uid is `1001` (the uid the server
-container runs as) the server would refuse the group-readable files it "owns", and the
-script says so: hand them to another owner with `sudo chown root:<your gid> secrets/*`
-and re-run it. Docker Desktop (macOS/Windows) maps file ownership
-differently; this layout is for Linux hosts.
+`postgres` and `backend` containers join that group. Nothing is world-readable. The
+server's secret-file check also asks who owns each file (#3393): only root or the
+server's own uid is trusted, because the owner can rewrite the file. So, after running
+the script as a regular user, hand the files to root, keeping your group:
+
+```sh
+sudo chown root:<your gid> secrets/*
+```
+
+The script prints this command with your gid filled in. Until you run it, the backend
+refuses to start and names each file and its owner uid. If your uid is `1001` (the uid
+the server container runs as), the script refuses outright: the server would also
+refuse a group-readable file it owns. Docker Desktop (macOS/Windows) maps file
+ownership differently; this layout is for Linux hosts.
 
 **Upgrading an install that keeps its passwords in `.env`:**
 
@@ -161,9 +171,9 @@ your stored secrets decryptable and the existing `postgres_data` volume working.
 set `KEYORIX_<NAME>_FILE` to a path (Docker secrets mount under `/run/secrets/`, a
 Kubernetes Secret volume wherever you mount it). Setting both `X` and `X_FILE` is a
 startup error, not a precedence rule, and an unreadable or empty file stops the server.
-The master-password file must be `0600`/`0400` (or a `0440` mount owned by another user,
-e.g. root, in a group the container holds -- Kubernetes `fsGroup`, Docker `group_add`);
-a looser one is refused. The container entrypoint passes `X_FILE` through to the server
+The master-password file must be `0600`/`0400` (or a `0440` mount owned by root in a
+group the container holds -- Kubernetes `fsGroup`, Docker `group_add`) and owned by the
+server's user or root; anything else is refused. The container entrypoint passes `X_FILE` through to the server
 unchanged and never exports a value it read from a file. Details and the full list of
 supported variables: [CONFIGURATION.md](CONFIGURATION.md#secrets-from-files-name_file).
 
@@ -190,6 +200,18 @@ Two ways to permanently lose every stored secret:
    `keyorix-server admin encryption rotate-kek` — never by editing `.env`.)
 2. **Losing the `keyorix_keys` volume.** Back it up (next section).
 
+The files on `keyorix_keys` and `keyorix_tls` belong to the server's uid (`1001`): the
+volumes are created from the image's `/app/keys` and `/app/tls`, which are owned by that
+uid, and the server writes the files itself. The server refuses (or, with
+`security.enable_file_permission_check` off, warns about) a key file owned by any other
+account except root (#3410), because the owner could replace it. If you copied key files in
+by hand and the server names a file and an owner uid, give the files back to the server's
+uid, with the backend stopped:
+
+```sh
+docker compose run --rm --no-deps --user 0 --cap-add CHOWN --entrypoint chown backend -R 1001:1001 /app/keys /app/tls
+```
+
 ### DEK rotation procedure
 
 To generate a new Data Encryption Key and re-encrypt every secret in the database:
@@ -213,6 +235,11 @@ The rotation re-encrypts all secrets, credentials, and session tokens in a
 single transaction.  If the server crashes mid-sweep, the orphaned pending key
 file is detected and cleaned up automatically on the next `--confirm` run.
 Back up the `keyorix_keys` volume after a successful rotation.
+
+With several server replicas on one PostgreSQL database, stop all of them, and
+copy the new key files to every replica before starting it: a replica with the
+old `dek.key` refuses to start. See [`operator/j6-key-rotation.md`](operator/j6-key-rotation.md)
+("Several server replicas").
 
 Store `KEYORIX_MASTER_PASSWORD` in your own password manager / secret store. It is
 not recoverable from the system.

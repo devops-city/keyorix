@@ -256,12 +256,14 @@ func (h *CatalogHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// AUDIT-TX-2: core writes project.created inside the create's transaction.
+	ctx := core.WithMutationAuditActor(r.Context(), actor.UserID)
 	var project *models.Project
 	var err error
 	if len(envs) > 0 {
-		project, err = h.coreService.CreateProjectWithEnvs(r.Context(), body.Name, body.Description, envs)
+		project, err = h.coreService.CreateProjectWithEnvs(ctx, body.Name, body.Description, envs)
 	} else {
-		project, err = h.coreService.CreateProject(r.Context(), body.Name, body.Description)
+		project, err = h.coreService.CreateProject(ctx, body.Name, body.Description)
 	}
 	if err != nil {
 		log.Printf("Error creating project: %v", err)
@@ -275,7 +277,6 @@ func (h *CatalogHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	h.coreService.LogProjectCreated(r.Context(), actor.UserID, project.ID, project.Name)
 	sendCreated(w, newProjectWire(project), "Project created")
 }
 
@@ -325,7 +326,30 @@ func (h *CatalogHandler) ListEnvironments(w http.ResponseWriter, r *http.Request
 		}
 		environments = visible
 	}
-	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments)}, "")
+	counts, ok := h.environmentSecretCounts(w, r, environments)
+	if !ok {
+		return
+	}
+	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments, counts)}, "")
+}
+
+// environmentSecretCounts fetches the per-environment secret counts for a list
+// response in one grouped query (no per-environment round trip). On failure it
+// writes the 500 and returns ok=false.
+func (h *CatalogHandler) environmentSecretCounts(w http.ResponseWriter, r *http.Request, envs []*models.Environment) (map[uint]int64, bool) {
+	ids := make([]uint, 0, len(envs))
+	for _, e := range envs {
+		if e != nil {
+			ids = append(ids, e.ID)
+		}
+	}
+	counts, err := h.coreService.CountSecretsByEnvironment(r.Context(), ids)
+	if err != nil {
+		log.Printf("Error counting secrets per environment: %v", err)
+		sendError(w, "Failed to list environments", clientSafe(err), http.StatusInternalServerError, nil)
+		return nil, false
+	}
+	return counts, true
 }
 
 // UpdateProject handles PUT /api/v1/projects/:id
@@ -402,7 +426,7 @@ func (h *CatalogHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	if p, gerr := h.coreService.GetProject(r.Context(), uint(id)); gerr == nil && p != nil {
 		projectName = p.Name
 	}
-	if err := h.coreService.DeleteProject(r.Context(), uint(id), force); err != nil {
+	if err := h.coreService.DeleteProject(r.Context(), actor.UserID, uint(id), force); err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		if strings.Contains(msg, "secret(s)") {
@@ -445,7 +469,8 @@ func (h *CatalogHandler) CreateProjectEnvironment(w http.ResponseWriter, r *http
 		sendError(w, "NotFound", "Project not found", http.StatusNotFound, nil)
 		return
 	}
-	env, err := h.coreService.CreateEnvironment(r.Context(), uint(id), body.Name)
+	// AUDIT-TX-2: core writes environment.created inside the create's transaction.
+	env, err := h.coreService.CreateEnvironment(core.WithMutationAuditActor(r.Context(), actorID(r)), uint(id), body.Name)
 	if err != nil {
 		log.Printf("Error creating environment for project %d: %v", id, err)
 		if strings.Contains(err.Error(), i18n.T("ErrorValidation", nil)) {
@@ -455,7 +480,6 @@ func (h *CatalogHandler) CreateProjectEnvironment(w http.ResponseWriter, r *http
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	h.coreService.LogEnvironmentCreated(r.Context(), actorID(r), env.ID, uint(id), env.Name)
 	sendCreated(w, newEnvironmentWire(env), "Environment created")
 }
 
@@ -506,7 +530,11 @@ func (h *CatalogHandler) ListProjectEnvironments(w http.ResponseWriter, r *http.
 		sendError(w, "Error", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments)}, "")
+	counts, ok := h.environmentSecretCounts(w, r, environments)
+	if !ok {
+		return
+	}
+	sendSuccess(w, map[string]any{"environments": newEnvironmentWireList(environments, counts)}, "")
 }
 
 // CloneEnvironment handles POST /api/v1/projects/{id}/environments/{envId}/clone

@@ -169,15 +169,35 @@ const (
 // consumption). See the EventUserCreated doc comment above for why this is a
 // standalone method rather than a CreateUser parameter.
 func (c *KeyorixCore) LogUserCreated(ctx context.Context, actorID, userID uint, username string) {
-	c.writeAuditEvent(ctx, EventUserCreated, actorPtr(actorID), nil,
+	c.logUserCreatedOn(ctx, c.auditNow(), actorID, userID, username)
+}
+
+func (c *KeyorixCore) logUserCreatedOn(ctx context.Context, tgt auditTarget, actorID, userID uint, username string) {
+	c.writeAuditEventFullOn(ctx, tgt, EventUserCreated, actorPtr(actorID), nil, nil, "",
 		fmt.Sprintf("created user %d (%s)", userID, username))
 }
 
 // CreateUser creates a new user with business logic validation. It auto-assigns
 // the system_viewer baseline role (best-effort). For atomic create-with-role and
-// project assignments see CreateUserWithAssignments. Callers must call
-// LogUserCreated once they know the real actor — see that method's doc comment.
+// project assignments see CreateUserWithAssignments. It writes no audit row:
+// a caller that knows the creating actor uses CreateUserAudited instead, which
+// writes user.created inside the create's transaction (AUDIT-TX-2); the
+// remaining callers (self-service invite consumption) call LogUserCreated.
 func (c *KeyorixCore) CreateUser(ctx context.Context, req *CreateUserRequest) (*models.User, error) {
+	return c.createUser(ctx, req, nil)
+}
+
+// CreateUserAudited is CreateUser for a caller that knows the creating actor:
+// the user row, its baseline role and its user.created row commit in ONE
+// transaction (AUDIT-TX-2), so the caller must NOT call LogUserCreated too.
+func (c *KeyorixCore) CreateUserAudited(ctx context.Context, req *CreateUserRequest, actorID uint) (*models.User, error) {
+	return c.createUser(ctx, req, &actorID)
+}
+
+// createUser is CreateUser's body. auditActor nil writes no audit row (the
+// caller audits separately); non-nil writes user.created inside the create's
+// transaction and fails closed if it cannot.
+func (c *KeyorixCore) createUser(ctx context.Context, req *CreateUserRequest, auditActor *uint) (*models.User, error) {
 	user, hash, err := c.buildUserForCreate(ctx, req)
 	if err != nil {
 		return nil, err
@@ -199,7 +219,7 @@ func (c *KeyorixCore) CreateUser(ctx context.Context, req *CreateUserRequest) (*
 	// failure/panic must not roll back the user row — same accepted tradeoff as
 	// before, just tx-scoped now), so only a CreateUser failure can trigger rollback.
 	var createdUser *models.User
-	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	createTx := func(tx storage.Storage, tgt auditTarget) error {
 		var txErr error
 		createdUser, txErr = tx.CreateUser(ctx, user, req.Password)
 		if txErr != nil {
@@ -228,9 +248,12 @@ func (c *KeyorixCore) CreateUser(ctx context.Context, req *CreateUserRequest) (*
 				return savepoint.AssignRole(ctx, createdUser.ID, role.ID, Scope{})
 			})
 		})
+		if auditActor != nil {
+			c.logUserCreatedOn(ctx, tgt, *auditActor, createdUser.ID, createdUser.Username)
+		}
 		return nil
-	})
-	if err != nil {
+	}
+	if err = c.mutationTx(ctx, auditActor != nil, createTx); err != nil {
 		// #117: the pre-check above (GetUserByEmail) is a check-then-act read that races
 		// with a concurrent create for the identical email — both can pass it before
 		// either commits. The DB-level partial unique index (uniq_users_email_active)
@@ -354,13 +377,22 @@ func (c *KeyorixCore) CreateUserWithAssignments(ctx context.Context, req *Create
 		return nil, err
 	}
 
-	created, err := c.storage.CreateUserWithRoleGrants(ctx, user, grants)
-	if err != nil {
-		// #117: same race/translation as CreateUser above — see its comment.
-		if errors.Is(err, storage.ErrDuplicateEmail) {
-			return nil, fmt.Errorf("%w: user with email already exists", ErrUserAlreadyExists)
+	// AUDIT-TX-2: the user, its role grants and its user.created row commit in
+	// ONE transaction (CreateUserWithRoleGrants nests as a savepoint).
+	var created *models.User
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if created, err = tx.CreateUserWithRoleGrants(ctx, user, grants); err != nil {
+			// #117: same race/translation as CreateUser above — see its comment.
+			if errors.Is(err, storage.ErrDuplicateEmail) {
+				return fmt.Errorf("%w: user with email already exists", ErrUserAlreadyExists)
+			}
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		c.logUserCreatedOn(ctx, tgt, actorID, created.ID, created.Username)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	// Best-effort password-history seed, after the atomic create (ADR-025).
@@ -375,7 +407,6 @@ func (c *KeyorixCore) CreateUserWithAssignments(ctx context.Context, req *Create
 		})
 	}
 
-	c.LogUserCreated(ctx, actorID, created.ID, created.Username)
 	return created, nil
 }
 
@@ -562,6 +593,9 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 
 	var patHashes []string
 	var updated *models.User
+	// Cleanup errors recorded inside the deactivating transaction and audited
+	// after it commits (DEADLOCK-SHAPE-1: no c.storage/audit call in the closure).
+	var cleanupPatErr, cleanupSessionErr error
 	switch {
 	case deactivating:
 		// req.IsActive != nil is implied here (deactivating can only be true if
@@ -626,19 +660,26 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 				// orphaned-row hygiene and forensic noise, not a live credential,
 				// which is why this is audited (right below) rather than merely
 				// swallowed.
-				if patErr != nil || sessionErr != nil {
-					// nil actor: UpdateUser (unlike DeleteUser/SetAccountState) takes
-					// no actorID parameter at all -- a pre-existing gap in this
-					// function's own signature, not something this fix should
-					// silently paper over with a fabricated attribution.
-					c.writeAuditEventFailed(ctx, EventUserDeactivationCleanupFailed, nil, nil, "",
-						fmt.Sprintf("user %d deactivated, but credential cleanup was incomplete (pat_error=%v, session_error=%v) -- "+
-							"the account is already login-blocked regardless, but a stale row may remain until its own expiry",
-							req.ID, patErr, sessionErr))
-				}
+				//
+				// The audit event is NOT written here: c.storage inside this closure
+				// is a second writer behind the write gate this transaction holds
+				// (a self-deadlock on SQLite), and a row written there would not
+				// belong to the transaction either. The errors are recorded and the
+				// event is written after the commit, below.
+				cleanupPatErr, cleanupSessionErr = patErr, sessionErr
 				return nil
 			})
 		})
+		if err == nil && (cleanupPatErr != nil || cleanupSessionErr != nil) {
+			// nil actor: UpdateUser (unlike DeleteUser/SetAccountState) takes
+			// no actorID parameter at all -- a pre-existing gap in this
+			// function's own signature, not something this fix should
+			// silently paper over with a fabricated attribution.
+			c.writeAuditEventFailed(ctx, EventUserDeactivationCleanupFailed, nil, nil, "",
+				fmt.Sprintf("user %d deactivated, but credential cleanup was incomplete (pat_error=%v, session_error=%v) -- "+
+					"the account is already login-blocked regardless, but a stale row may remain until its own expiry",
+					req.ID, cleanupPatErr, cleanupSessionErr))
+		}
 	case req.IsActive != nil:
 		// Not deactivating (either re-activating, or a redundant "set to the same
 		// value" call) but the request still explicitly asserts IsActive — same

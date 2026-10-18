@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -31,8 +32,7 @@ import (
 // openHandlerTestDB opens a fresh in-memory SQLite DB with all models migrated.
 func openHandlerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
+	db := sqlitetest.OpenWithDialector(t, "handlers3_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{},
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
@@ -197,8 +197,7 @@ func TestAcknowledgeAnomalyAlert_NoCoreService(t *testing.T) {
 func newAuthHandlerForTest(t *testing.T) *AuthHandler {
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
+	db := sqlitetest.OpenWithDialector(t, "authhandler3_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.User{}, &models.Role{}, &models.UserRole{},
 		&models.LoginAttempt{}, &models.Permission{}, &models.RolePermission{},
@@ -344,8 +343,7 @@ func TestAuthHandler_InitSystem_BadJSON(t *testing.T) {
 // private DB and core service, so init always succeeds here.
 func TestAuthHandler_InitSystem_Success(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
+	db := sqlitetest.OpenWithDialector(t, "initsystem3_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.User{}, &models.Role{}, &models.UserRole{},
 		&models.LoginAttempt{}, &models.Permission{}, &models.RolePermission{},

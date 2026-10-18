@@ -4,6 +4,7 @@ import { Spinner } from '../../components/ui/Loading';
 import { Alert } from '../../components/ui/Alert';
 import { Modal } from '../../components/ui/Modal';
 import { apiErrorMessage } from '../../services/client';
+import { SuspendAuditRefusal, isSuspendAuditRefusal } from './SuspendAuditRefusal';
 
 interface SuspendSecretModalProps {
     isOpen: boolean;
@@ -70,7 +71,16 @@ export const SuspendSecretModal: React.FC<SuspendSecretModalProps> = ({
                     message="Suspending blocks reads from Keyorix, but a copy already in a cluster, a log or a build is still valid until the secret is rotated at its source."
                 />
 
-                {error ? (
+                <SuspendAuditRefusal
+                    error={error}
+                    pending={pending}
+                    actionLabel="Suspend without clearing synced copies"
+                    onPlainSuspend={() => {
+                        setClearCopies(false);
+                        onConfirm(false);
+                    }}
+                />
+                {error && !isSuspendAuditRefusal(error) ? (
                     <Alert
                         type="error"
                         title="Suspend failed"

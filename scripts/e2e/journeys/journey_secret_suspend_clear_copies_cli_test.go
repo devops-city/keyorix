@@ -145,7 +145,7 @@ func TestJourney_SecretSuspendClearSyncedCopiesCLI(t *testing.T) {
 		t.Cleanup(func() { sqlite(`DROP TRIGGER IF EXISTS j_refuse_suspend_audit;`) })
 
 		out := runCLIExpectErr(t, cliBin, aEnv, "secret", "suspend", "--id", strconv.Itoa(id), "--clear-synced-copies")
-		if !strings.Contains(out, "suspend without clearing to cut access now") {
+		if !strings.Contains(out, "suspend without clearing synced copies to cut access immediately") {
 			t.Fatalf("the refusal must say how to cut access now:\n%s", out)
 		}
 		if status, _, _ := refusal(ref); status != http.StatusOK {

@@ -111,7 +111,7 @@ func TestPostgresStorage_Close_ReleasesEveryPool(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	ran, err := st.WithSchedulerLock(ctx, 0x4e4c43, func() error {
+	ran, err := st.WithSchedulerLock(ctx, 0x4e4c43, func(context.Context) error {
 		return st.WithNamedLock(ctx, "namedlock-pool-close", func(ctx context.Context) error {
 			_, _, err := st.GetSystemMetadata(ctx, "schema_epoch")
 			return err

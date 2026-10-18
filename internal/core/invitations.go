@@ -1070,7 +1070,9 @@ func (c *KeyorixCore) finalizeAccessRequestApproval(ctx context.Context, req *mo
 		if err := c.requireNoSoDViolation(ctx, req.UserID, roleModel.ID); err != nil {
 			return err
 		}
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		// AUDIT-TX-2: the grant's role.assigned row and the access_request.approved
+		// row are the last statements of the same transaction.
+		return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if grantTTL > 0 {
 				if err := tx.AssignRoleWithExpiry(ctx, req.UserID, roleModel.ID, scope, expiresAt); err != nil {
 					return fmt.Errorf("failed to grant role: %w", err)
@@ -1102,6 +1104,9 @@ func (c *KeyorixCore) finalizeAccessRequestApproval(ctx context.Context, req *mo
 				raceLost = true
 				return fmt.Errorf("access request was concurrently withdrawn or resolved")
 			}
+			c.LogRoleAssignedOn(ctx, tgt, approverID, req.UserID, roleModel.ID, scope)
+			c.auditProjectScopedOn(ctx, tgt, "access_request.approved", approverID, req.ProjectID,
+				fmt.Sprintf("approved access request %d for user %d as %s (%d approval(s))", req.ID, req.UserID, grantDesc, received))
 			return nil
 		})
 	})
@@ -1112,11 +1117,7 @@ func (c *KeyorixCore) finalizeAccessRequestApproval(ctx context.Context, req *mo
 		return nil, err
 	}
 
-	// Only log/notify once the transaction has actually committed (#283's "no
-	// phantom audit on a failure" principle, applied to this whole sequence).
-	c.LogRoleAssigned(ctx, approverID, req.UserID, roleModel.ID, scope)
-	c.auditProjectScoped(ctx, "access_request.approved", approverID, req.ProjectID,
-		fmt.Sprintf("approved access request %d for user %d as %s (%d approval(s))", req.ID, req.UserID, grantDesc, received))
+	// Notify only once the transaction (grant + audit rows) has committed.
 	c.runPostCommitNotification(ctx, "access_request.approved", approverID, req, func() error {
 		return c.notifyAccessResolved(ctx, req, true)
 	})
@@ -1222,6 +1223,11 @@ func (c *KeyorixCore) WithdrawAccessRequest(ctx context.Context, requestID, user
 
 // auditProjectScoped writes a project-scoped audit event with an actor.
 func (c *KeyorixCore) auditProjectScoped(ctx context.Context, eventType string, actorID, projectID uint, description string) {
+	c.auditProjectScopedOn(ctx, c.auditNow(), eventType, actorID, projectID, description)
+}
+
+// auditProjectScopedOn is auditProjectScoped against an explicit audit target.
+func (c *KeyorixCore) auditProjectScopedOn(ctx context.Context, tgt auditTarget, eventType string, actorID, projectID uint, description string) {
 	aid, pid := actorID, projectID
-	c.writeAuditEventFull(ctx, eventType, &aid, nil, &pid, "", description)
+	c.writeAuditEventFullOn(ctx, tgt, eventType, &aid, nil, &pid, "", description)
 }

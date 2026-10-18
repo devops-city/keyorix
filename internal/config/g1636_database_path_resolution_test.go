@@ -17,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
 
 // TestLoad_DatabasePathResolvedAbsoluteRegardlessOfCwd is the core #1636
@@ -72,9 +74,10 @@ func TestResolveConfigRelativePath_InMemoryDSN_Untouched(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ":memory:", got)
 
-	got, err = resolveConfigRelativePath("/some/base", "file:foo?mode=memory&cache=shared")
+	inMemory := sqlitetest.DSN("g1636_")
+	got, err = resolveConfigRelativePath("/some/base", inMemory)
 	require.NoError(t, err)
-	assert.Equal(t, "file:foo?mode=memory&cache=shared", got)
+	assert.Equal(t, inMemory, got)
 }
 
 // TestResolveConfigRelativePath_QueryStringSuffixPreserved confirms an

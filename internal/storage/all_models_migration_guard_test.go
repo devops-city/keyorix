@@ -67,10 +67,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"sync"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -99,10 +100,7 @@ func copyFileU1(t *testing.T, src, dst string) {
 // sibling guard test -- works regardless of the test runner's working
 // directory.
 func repoRootU1() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "all_models_migration_guard_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 

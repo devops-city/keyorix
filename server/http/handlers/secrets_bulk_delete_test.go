@@ -38,7 +38,7 @@ func setupBulkDeleteHandler(t *testing.T) (*SecretHandler, uint) {
 		&models.Environment{},
 		&models.AuditEvent{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "p1"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, Name: "env", ProjectID: 1}).Error)

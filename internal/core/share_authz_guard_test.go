@@ -79,7 +79,7 @@ func shareTermRig(t *testing.T) (*KeyorixCore, *gorm.DB, uint) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
-		&models.SecretNode{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.UserRole{}, &models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.SecretACL{},
 		&models.AuditEvent{}, &models.User{}, &models.Project{}, &models.Environment{},
 	))

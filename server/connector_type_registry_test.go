@@ -25,11 +25,12 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/connect"
@@ -38,10 +39,7 @@ import (
 // TestConnectorTypeRegistry_SwitchMatchesKnownTypes is the regression test
 // described above.
 func TestConnectorTypeRegistry_SwitchMatchesKnownTypes(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate server/main.go relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "connector_type_registry_test.go")
 	mainGoPath := filepath.Join(filepath.Dir(thisFile), "main.go")
 	if _, err := os.Stat(mainGoPath); err != nil {
 		t.Fatalf("server/main.go not found at %s: %v", mainGoPath, err)

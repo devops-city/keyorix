@@ -49,7 +49,7 @@ func TestConcurrency_WithAuditCheckpointLock_MultiInstancePostgres_ExactlyOneRun
 		go func(ls *LocalStorage) {
 			defer wg.Done()
 			<-start
-			err := ls.WithAuditCheckpointLock(context.Background(), func() error {
+			err := ls.WithAuditCheckpointLock(context.Background(), func(context.Context) error {
 				n := running.Add(1)
 				for {
 					m := maxConcurrent.Load()

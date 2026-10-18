@@ -189,7 +189,7 @@ func (c *KeyorixCore) WriteAuditCheckpoint(ctx context.Context) (*models.AuditCh
 		return nil, false, nil
 	}
 	var newCP *models.AuditCheckpoint
-	err := c.storage.WithAuditCheckpointLock(ctx, func() error {
+	err := c.storage.WithAuditCheckpointLock(ctx, func(ctx context.Context) error {
 		cp, werr := c.writeAuditCheckpointLocked(ctx)
 		newCP = cp
 		return werr

@@ -154,6 +154,8 @@ func TestSuspendProjectSecrets_ClearSyncedCopies_OverTheRouter(t *testing.T) {
 
 		res := postJSON(w, suspendAll, w.tokens["session"], map[string]any{"clear_synced_copies": true})
 		assert.Equal(t, http.StatusInternalServerError, res.code, res.body)
+		assert.Equal(t, core.SuspendAuditUnavailableCode, refusalCode(t, res.body))
+		assert.Equal(t, core.SuspendAuditUnavailableMessage, refusalMessage(t, res.body), "fixed message, no raw error text")
 		assert.Contains(t, refusalMessage(t, res.body), core.SuspendWithoutClearingHint)
 		cur := stored(t, a.ID)
 		assert.Equal(t, core.SecretStatusActive, cur.Status)
@@ -172,6 +174,7 @@ func TestSuspendProjectSecrets_ClearSyncedCopies_OverTheRouter(t *testing.T) {
 		res := postJSON(w, suspendAll, w.tokens["session"], map[string]any{"clear_synced_copies": true})
 		require.Equal(t, http.StatusInternalServerError, res.code, res.body)
 		var env struct {
+			Error   string `json:"error"`
 			Message string `json:"message"`
 			Details struct {
 				Suspended int `json:"suspended"`
@@ -179,7 +182,8 @@ func TestSuspendProjectSecrets_ClearSyncedCopies_OverTheRouter(t *testing.T) {
 			} `json:"details"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(res.body), &env), res.body)
-		assert.Contains(t, env.Message, "audit event could not be recorded")
+		assert.Equal(t, core.SuspendAuditUnavailableCode, env.Error)
+		assert.Equal(t, core.SuspendAuditUnavailableMessage, env.Message, "fixed message, no raw error text")
 		assert.Contains(t, env.Message, core.SuspendWithoutClearingHint)
 		assert.Equal(t, 0, env.Details.Suspended, "every secret's own audit row is refused, so none is suspended")
 		assert.Equal(t, int(total), env.Details.Failed, res.body)

@@ -90,10 +90,12 @@ func TestGenerateProjectAccessReview_DegradedOnLastUsedQueryError(t *testing.T) 
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	// models.AuditEvent deliberately NOT migrated → LastUserSecretActivity's raw
+	// audit_events deliberately absent → LastUserSecretActivity's raw
 	// "audit_events" table query fails, mirroring
 	// TestGetCompliancePosture_DegradedOnDormantRoleGrantsActivityQueryError
-	// (compliance_posture_test.go).
+	// (compliance_posture_test.go). The helper migrates it since AUDIT-TX-2
+	// (grants commit with their audit row), so drop it here.
+	require.NoError(t, h.DB.Migrator().DropTable(&models.AuditEvent{}))
 
 	const proj = uint(2)
 	ctx := context.Background()

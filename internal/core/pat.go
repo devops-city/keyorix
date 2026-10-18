@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -95,14 +96,22 @@ func (c *KeyorixCore) CreateOwnPAT(ctx context.Context, userID uint, name string
 		ExpiresAt:        expiresAt,
 		CreatedAt:        c.now(),
 	}
-	created, err := c.storage.CreatePersonalAccessToken(ctx, pat)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-2: the token and its pat.created row commit in ONE transaction,
+	// so a credential is never minted unaudited.
+	var created *models.PersonalAccessToken
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if created, err = tx.CreatePersonalAccessToken(ctx, pat); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		// Description never carries the raw token or its hash — only the id/name,
+		// same discipline as every other credential-creation audit event.
+		c.writeAuditEventFullOn(ctx, tgt, EventPATCreated, actorPtr(userID), nil, nil, "",
+			fmt.Sprintf("user %d created PAT %d (%q)", userID, created.ID, created.Name))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	// Description never carries the raw token or its hash — only the id/name,
-	// same discipline as every other credential-creation audit event.
-	c.writeAuditEvent(ctx, EventPATCreated, actorPtr(userID), nil,
-		fmt.Sprintf("user %d created PAT %d (%q)", userID, created.ID, created.Name))
 	return &CreatePATResult{Token: created, PlainToken: raw}, nil
 }
 
@@ -225,9 +234,11 @@ func (c *KeyorixCore) TouchPATLastUsed(ctx context.Context, patID uint) {
 // request (session/machine tokens carry no such per-request-narrowable
 // restriction and are unaffected). Returns an error on any lookup failure — the
 // caller must NOT treat that as "unrestricted" (that would fail OPEN on the exact
-// check this exists to keep honest); falling back to the last-known (possibly
-// stale, but still a real, previously-enforced) restriction is the correct
-// degraded behavior on a transient storage error.
+// check this exists to keep honest). Since CACHE-FAILCLOSED-1 the caller does
+// not fall back to the last-known restriction either: a failed re-check
+// refuses the request as temporarily unavailable (INV-MW-cache-hit-recheck-
+// fails-closed), because the same failed read is the one that would have seen
+// a revocation.
 //
 // #G18: also surfaces ErrPATRevoked/ErrPATExpired — previously this only ever
 // read Permissions/ProjectID/EnvironmentID/AllowedCIDRs off the freshly-read

@@ -232,7 +232,7 @@ func TestPgBouncer_StorageSlice(t *testing.T) {
 			release := make(chan struct{})
 			done := make(chan error, 1)
 			go func() {
-				_, err := a.WithSchedulerLock(ctx, 0x5047420001, func() error {
+				_, err := a.WithSchedulerLock(ctx, 0x5047420001, func(context.Context) error {
 					close(entered)
 					<-release
 					return nil
@@ -240,14 +240,14 @@ func TestPgBouncer_StorageSlice(t *testing.T) {
 				done <- err
 			}()
 			<-entered
-			ran, err := b.WithSchedulerLock(ctx, 0x5047420001, func() error { return nil })
+			ran, err := b.WithSchedulerLock(ctx, 0x5047420001, func(context.Context) error { return nil })
 			close(release)
 			require.NoError(t, err)
 			require.NoError(t, <-done)
 			require.False(t, ran, "round %d: replica B ran the scheduler job while replica A held its lock", round)
 		}
 		// Released: the next attempt runs.
-		ran, err := b.WithSchedulerLock(ctx, 0x5047420001, func() error { return nil })
+		ran, err := b.WithSchedulerLock(ctx, 0x5047420001, func(context.Context) error { return nil })
 		require.NoError(t, err)
 		require.True(t, ran)
 	})

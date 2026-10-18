@@ -538,7 +538,10 @@ type Environment struct {
 	Id        *int       `json:"id,omitempty"`
 	Name      *string    `json:"name,omitempty"`
 	ProjectId *int       `json:"project_id,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// SecretCount Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+	SecretCount *int64     `json:"secret_count,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 // ExpiringSecretEntry defines model for ExpiringSecretEntry.
@@ -2021,7 +2024,7 @@ type RenderSecretTemplateJSONBody struct {
 
 // SuspendProjectSecretsJSONBody defines parameters for SuspendProjectSecrets.
 type SuspendProjectSecretsJSONBody struct {
-	// ClearSyncedCopies The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended.
+	// ClearSyncedCopies The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. That refusal, and one that stops the run early because a secret's own audit event was refused (`details` then holds `suspended` and `failed`), answer 500 with error `SuspendAuditUnavailable`; suspend again without `clear_synced_copies` to cut access immediately.
 	ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
 
 	// Reason Optional reason recorded in the audit events.

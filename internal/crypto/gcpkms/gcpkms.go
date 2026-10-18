@@ -170,7 +170,22 @@ func (c *client) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error) 
 	return ciphertext, nil
 }
 
+// #3398: KMSKeyProvider refuses insecure_allow_kms_context_fallback on a KEK that
+// is already bound only through this interface; losing it would drop the refusal.
+var _ keyorixcrypto.ContextFallbackKMSClient = (*client)(nil)
+
 func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
+	pt, _, err := c.DecryptReportingFallback(ctx, ciphertext)
+	return pt, err
+}
+
+// ContextFallbackEnabled implements crypto.ContextFallbackKMSClient: the no-AAD
+// retry can happen only with the flag set and a context (AAD) configured.
+func (c *client) ContextFallbackEnabled() bool { return c.allowFallback && len(c.aad) > 0 }
+
+// DecryptReportingFallback implements crypto.ContextFallbackKMSClient; Decrypt
+// is this without the report.
+func (c *client) DecryptReportingFallback(ctx context.Context, ciphertext []byte) ([]byte, bool, error) {
 	ciphertextCRC := wrapperspb.Int64(int64(crc32cSum(ciphertext)))
 	req := &kmspb.DecryptRequest{Name: c.keyName, Ciphertext: ciphertext, CiphertextCrc32C: ciphertextCRC}
 	if len(c.aad) > 0 {
@@ -183,7 +198,7 @@ func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
 	// unconditional fallback makes the AAD binding advisory, since a blob an attacker
 	// planted with no AAD at all always succeeds on the fallback attempt).
 	fellBack := false
-	if err != nil && len(c.aad) > 0 && c.allowFallback {
+	if err != nil && c.ContextFallbackEnabled() {
 		resp, err = c.kms.Decrypt(ctx, &kmspb.DecryptRequest{
 			Name:             c.keyName,
 			Ciphertext:       ciphertext,
@@ -192,18 +207,18 @@ func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
 		fellBack = err == nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("gcp-kms: decrypt: %w", err)
+		return nil, false, fmt.Errorf("gcp-kms: decrypt: %w", err)
 	}
 	plaintext := resp.GetPlaintext()
 	if got := resp.GetPlaintextCrc32C(); got == nil || int64(crc32cSum(plaintext)) != got.GetValue() {
-		return nil, fmt.Errorf("gcp-kms: decrypt: plaintext checksum mismatch (possible response corruption)")
+		return nil, false, fmt.Errorf("gcp-kms: decrypt: plaintext checksum mismatch (possible response corruption)")
 	}
 	if fellBack {
 		msg := "gcp-kms: decrypted a wrapped KEK WITHOUT its configured AAD (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback"
 		log.Printf("%s", msg)
 		c.emitFallbackAudit(ctx, msg)
 	}
-	return plaintext, nil
+	return plaintext, fellBack, nil
 }
 
 // emitFallbackAudit records the AAD-fallback event (see EventGCPKMSAADFallback)
