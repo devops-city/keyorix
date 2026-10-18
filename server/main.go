@@ -270,6 +270,12 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		log.Fatalf("secret file security: %v", err)
 	}
 
+	// #3397: refuse a SCIM bearer token that is obviously not random (ADR-112
+	// upgrade grace for the new checks; the length floor always refuses).
+	if err := enforceSCIMTokenStrength(cfg); err != nil {
+		log.Fatalf("scim: %v", err)
+	}
+
 	// Refuse to start if the installed key files are a PARTIAL set (ADR-112,
 	// follow-up from #2400). Unconditional, like the permission check above: a
 	// broken key set is not a "weaker but working" state to warn about. The

@@ -19,10 +19,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // csvWriterCompletenessAllowlist names CSV-writing functions deliberately
@@ -33,10 +34,7 @@ var csvWriterCompletenessAllowlist = map[string]string{}
 
 func TestCSVWriters_EncodeAgainstFormulaInjection(t *testing.T) {
 	t.Parallel()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate the repo root relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "csv_writer_completeness_test.go")
 	// internal/core -> repo root.
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 

@@ -30,6 +30,11 @@ func (w *swWorld) serverStorage() storage.Storage {
 	w.t.Helper()
 	st, err := kxstorage.NewStorageFactory().CreateStorage(w.cfg)
 	require.NoError(w.t, err)
+	// Its pools stay open otherwise: with -count=N in one process they used
+	// up the server's connection slots after about 90 runs.
+	if c, ok := st.(interface{ Close() error }); ok {
+		w.t.Cleanup(func() { _ = c.Close() })
+	}
 	return st
 }
 

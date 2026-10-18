@@ -26,10 +26,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // secretReadAuditCallSiteAllowlist names LogSecretReadWithProject call sites
@@ -43,10 +44,7 @@ import (
 var secretReadAuditCallSiteAllowlist = map[string]string{}
 
 func TestSecretReadAuditCallSites_CheckedAndNotInGoSafe(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate the repo root relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "secret_read_audit_call_sites_test.go")
 	// internal/core -> repo root.
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..")
 

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '../../../test/test-utils';
 import { MachineTokensPanel } from '../MachineTokensPanel';
+import { answerConfirm } from '../../../test/confirm';
+
+const REVOKE_MSG = /^Revoke token ".*"\? Any client using it will lose access immediately\.$/;
 import { DEFAULT_SENSITIVE_IDLE_MS } from '../../../hooks/useAutoClearOnIdle';
 
 const issueMutate = vi.fn();
@@ -205,16 +208,17 @@ describe('MachineTokensPanel', () => {
         expect(screen.getByText('not permitted')).toBeInTheDocument();
     });
 
-    it('revokes an active token and surfaces a fallback error when the server gives no detail', () => {
+    it('revokes an active token and surfaces a fallback error when the server gives no detail', async () => {
         revokeMutate.mockImplementation((_id, opts) => {
             opts.onError({});
         });
 
         render(<MachineTokensPanel projectId={3} machineId={7} canManage />);
         fireEvent.click(screen.getByTitle('Revoke token'));
+        await answerConfirm(REVOKE_MSG, 'accept');
 
-        expect(revokeMutate).toHaveBeenCalledWith(11, expect.anything());
-        expect(screen.getByText('Failed to revoke token.')).toBeInTheDocument();
+        await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith(11, expect.anything()));
+        expect(await screen.findByText('Failed to revoke token.')).toBeInTheDocument();
     });
 
     it('falls back to "(unnamed)" and Unclassified for a token with no name/classification, and can reclassify it', () => {
@@ -238,15 +242,17 @@ describe('MachineTokensPanel', () => {
         expect(screen.getByTestId('mt-classification-badge')).toHaveTextContent('Unclassified');
     });
 
-    it('falls back to the prefix in the revoke confirmation when the token has no name', () => {
+    it('falls back to the prefix in the revoke confirmation when the token has no name', async () => {
         tokensData = [{ id: 13, name: '', prefix: 'kx_machine_zz00', revoked: false, classification: '' }];
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
 
         render(<MachineTokensPanel projectId={3} machineId={7} canManage />);
         fireEvent.click(screen.getByTitle('Revoke token'));
+        await answerConfirm(
+            'Revoke token "kx_machine_zz00"? Any client using it will lose access immediately.',
+            'accept'
+        );
 
-        expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('kx_machine_zz00'));
-        expect(revokeMutate).toHaveBeenCalledWith(13, expect.anything());
+        await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith(13, expect.anything()));
     });
 
     it('hides the revoke action for already-revoked tokens', () => {
@@ -255,24 +261,23 @@ describe('MachineTokensPanel', () => {
         expect(screen.getAllByTitle('Revoke token')).toHaveLength(1);
     });
 
-    it('asks for confirmation before revoking, and does not revoke when declined', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-
+    it('asks for confirmation before revoking, and does not revoke when declined', async () => {
         render(<MachineTokensPanel projectId={3} machineId={7} canManage />);
         fireEvent.click(screen.getByTitle('Revoke token'));
+        await answerConfirm(REVOKE_MSG, 'cancel');
 
-        expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/revoke token/i));
         expect(revokeMutate).not.toHaveBeenCalled();
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
-    it('revokes the token once the confirmation is accepted', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-
+    it('revokes the token once the confirmation is accepted', async () => {
         render(<MachineTokensPanel projectId={3} machineId={7} canManage />);
         fireEvent.click(screen.getByTitle('Revoke token'));
+        expect(revokeMutate).not.toHaveBeenCalled();
+        await answerConfirm(REVOKE_MSG, 'accept');
 
-        expect(confirmSpy).toHaveBeenCalledTimes(1);
-        expect(revokeMutate).toHaveBeenCalledWith(11, expect.anything());
+        await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith(11, expect.anything()));
+        expect(window.confirm).not.toHaveBeenCalled();
     });
 
     // G28: the one-time token must not linger indefinitely with no explicit close.
