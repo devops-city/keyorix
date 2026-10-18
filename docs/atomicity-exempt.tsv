@@ -1,4 +1,4 @@
-# Atomicity guard exemption list — internal/core/atomicity_guard_test.go
+# Atomicity guard exemption list — internal/core/guards/atomicity_guard_test.go
 # (TestAtomicityGuard_UnclassifiedMultiWriteFunction) fails the build when a
 # non-test function on *KeyorixCore/*AnomalyDetector makes 2+ storage/core
 # writes outside a WithTransaction closure and has no entry here. Seeded from

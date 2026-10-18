@@ -11,7 +11,7 @@
 // independent writeAuditEvent calls (which the next similar config surface
 // would just re-duplicate), both route through this ONE helper, matching the
 // writeRBACAudit precedent in audit.go (a domain-specific wrapper over the
-// generic writeAuditEventDiff writer). config_change_audit_guard_test.go
+// generic writeAuditEventDiff writer). guards/config_change_audit_guard_test.go
 // statically asserts both call sites actually reach it.
 package core
 

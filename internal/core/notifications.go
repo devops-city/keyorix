@@ -74,7 +74,7 @@ func isApproverRole(roleName string) bool {
 // through a GLOBAL (project_id=0) membership.
 //
 // Every notifier that notifies project admins MUST resolve them here -- the
-// guard in notify_recipients_guard_test.go fails any notify*/remind* function
+// guard in guards/notify_recipients_guard_test.go fails any notify*/remind* function
 // that reads ListProjectMembers directly. Callers that must skip someone (the
 // requester of their own access request) filter the result.
 //
