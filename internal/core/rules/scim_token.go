@@ -48,7 +48,7 @@ const MinSCIMTokenDistinctBytes = 10
 
 // scimTokenGenerateHint ends every CheckSCIMTokenShape refusal: the setting and
 // how to make a good token.
-const scimTokenGenerateHint = ` -- set KEYORIX_SCIM_TOKEN (or scim.token) to a generated value, for example the output of "openssl rand -base64 32", and give the same value to your IdP's SCIM connector`
+const scimTokenGenerateHint = ` -- set KEYORIX_SCIM_TOKEN (or scim.token) to a generated value, for example the output of "openssl rand -base64 32", and give the same value to your IdP's SCIM connector` // #nosec G101 -- operator hint text, not a credential
 
 // scimPlaceholderSubstrings are refused anywhere in the token, case-insensitively.
 // Each is at least six letters long, so a random base64 token contains one by

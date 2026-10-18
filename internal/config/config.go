@@ -1214,7 +1214,7 @@ const (
 	// ADR112SCIMTokenEnforcedMarker: the SCIM token shape checks (#3397) have
 	// been enforced on this deployment (a boot where they did not have to be
 	// softened), so a weak token now refuses to start instead of warning.
-	ADR112SCIMTokenEnforcedMarker = "adr112.scim_token_strength.enforced"
+	ADR112SCIMTokenEnforcedMarker = "adr112.scim_token_strength.enforced" // #nosec G101 -- metadata key name, not a credential
 )
 
 type SecurityConfig struct {
