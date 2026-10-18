@@ -884,9 +884,8 @@ type sessionResponse struct {
 // ListSessions handles GET /auth/sessions — the caller's active sessions, with the
 // session backing the current request flagged as current.
 func (h *AuthHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserFromContext(r.Context())
-	if userCtx == nil {
-		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+	userCtx, ok := mustGetHumanUser(w, r)
+	if !ok {
 		return
 	}
 	sessions, err := h.coreService.ListOwnSessions(r.Context(), userCtx.UserID)
