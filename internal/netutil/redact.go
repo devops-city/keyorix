@@ -12,7 +12,7 @@ import (
 // header — and Go's *url.Error.Error() (returned by http.Client on any
 // transport-level failure: dial/timeout/TLS) embeds the full request URL
 // verbatim, e.g. `Post "https://hooks.slack.com/services/T000/B000/<token>": dial tcp: ...`.
-var embeddedURLPattern = regexp.MustCompile(`https?://[^\s"]+`)
+var embeddedURLPattern = regexp.MustCompile(`(?i)https?://[^\s"]+`)
 
 // RedactURLHost renders rawURL as just its scheme and host, dropping the
 // path/query/userinfo — and with it any bearer token embedded there — while

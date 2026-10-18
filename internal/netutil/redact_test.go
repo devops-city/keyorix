@@ -29,6 +29,12 @@ func TestRedactErrorURLs_StripsURLErrorLayerKeepsCause(t *testing.T) {
 	assert.NoError(t, RedactErrorURLs(nil))
 }
 
+func TestSanitizeErrorURLs_SchemeIsCaseInsensitive(t *testing.T) {
+	got := SanitizeErrorURLs(errors.New(`Post "HTTPS://hooks.slack.test/services/T/B/TOKEN": dial tcp: refused`))
+	assert.NotContains(t, got, "TOKEN")
+	assert.Contains(t, got, "hooks.slack.test")
+}
+
 func TestRedactErrorURLs_ScrubsURLsLeftInCauseText(t *testing.T) {
 	got := RedactErrorURLs(errors.New(`upstream said: see https://hooks.slack.test/services/T/B/TOKEN for details`))
 	assert.NotContains(t, got.Error(), "TOKEN")
