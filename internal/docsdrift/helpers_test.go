@@ -11,20 +11,18 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
-// repoRoot returns the repository root (two levels above this package).
+// repoRoot returns the repository root. It uses srcpath, not runtime.Caller:
+// under -trimpath the caller's file name is not a filesystem path.
 func repoRoot(t testing.TB) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate test source")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	return srcpath.RepoRoot()
 }
 
 // configDocs are the documents whose YAML examples and key tables are checked

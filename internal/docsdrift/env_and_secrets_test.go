@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/config"
 )
 
 // DOCS-DRIFT-1 item 3: environment variables and secret hygiene.
@@ -102,6 +105,13 @@ func withFamilies(known, prefixes map[string]bool, docNames []string) map[string
 			if prefixes[f.Prefix] && strings.HasPrefix(n, f.Prefix) && strings.HasSuffix(n, f.Suffix) {
 				out[n] = true
 			}
+		}
+	}
+	// Every secret in config.SecretEnvVars also accepts <NAME>_FILE; the code builds
+	// that name at run time (envVar+"_FILE"), so no source contains it.
+	for _, n := range docNames {
+		if base, ok := strings.CutSuffix(n, "_FILE"); ok && slices.Contains(config.SecretEnvVars, base) {
+			out[n] = true
 		}
 	}
 	return out
