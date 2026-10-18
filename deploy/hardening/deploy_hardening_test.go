@@ -25,19 +25,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"gopkg.in/yaml.v3"
 )
 
 func repoRoot() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "deploy_hardening_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 

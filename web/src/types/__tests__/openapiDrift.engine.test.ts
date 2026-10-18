@@ -3,7 +3,7 @@
 // watched fail is not a guard (CLAUDE.md), and the real-spec test in
 // openapiDrift.test.ts is green on a clean tree, so it cannot show this itself.
 import { describe, expect, it } from 'vitest';
-import { compare, createProgram, exportedInterfaces, toShape, type Shape } from './openapiDriftLib';
+import { allowKey, compare, createProgram, exportedInterfaces, toShape } from './openapiDriftLib';
 
 const doc = {
     components: {
@@ -97,76 +97,55 @@ describe('openapiDriftLib engine', () => {
         expect(run(GOOD.replace('id: number', 'id?: number'), { request: true }).out).toHaveLength(1);
     });
 
-    it('an exemption suppresses exactly its field and is recorded as used', () => {
-        const r = run(GOOD + ' extra: string;', { allow: { 'Thing.extra#not-in-schema': 'because' } });
+    it('an exemption suppresses exactly its path and message kind and is recorded as used', () => {
+        const r = run(GOOD + ' extra: string;', { allow: { [allowKey('Thing.extra', 'ts-only')]: 'because' } });
         expect(r.out).toEqual([]);
-        expect([...r.used]).toEqual(['Thing.extra#not-in-schema']);
+        expect([...r.used]).toEqual(['Thing.extra#ts-only']);
     });
 
     it('an unneeded exemption is not recorded as used (the caller fails it as stale)', () => {
-        expect([...run(GOOD, { allow: { 'Thing.extra#not-in-schema': 'because' } }).used]).toEqual([]);
+        expect([...run(GOOD, { allow: { [allowKey('Thing.extra', 'ts-only')]: 'because' } }).used]).toEqual([]);
     });
-});
 
-// #2868: an exemption written about one finding KIND must not swallow another
-// kind at the same path.
-describe('openapiDrift exemption granularity (#2868)', () => {
-    it('an optionality exemption at a path does not hide a kind mismatch at the same path', () => {
-        const shape: Shape = { kind: 'number', nullable: false }; // TS says number
-        const schema = { type: 'string' }; // server now sends a string
-        const out: string[] = [];
-        const used = new Set<string>();
-        compare(
-            {},
-            shape,
-            schema,
-            'LoginResponse.user_id',
-            { 'LoginResponse.user_id': 'present only on the LoginSuccessData branch' },
-            used,
-            out
-        );
-        expect(out, 'the kind mismatch was swallowed by an exemption about optionality').not.toEqual([]);
+    // #2868: an exemption used to silence EVERY check on its path, so a second,
+    // unrelated drift on an exempted path was invisible. `when` here drifts two
+    // ways at once (nullability dropped AND a literal union the schema has no
+    // enum for); exempting the first must leave the second reported.
+    const TWO_DRIFTS = GOOD.replace('when?: string | null', "when?: 'a' | 'b'");
+
+    it('red: both drifts on one path are reported when nothing is exempted', () => {
+        const kinds = run(TWO_DRIFTS).out;
+        expect(kinds).toEqual([
+            expect.stringContaining('Thing.when: TS forbids null'),
+            expect.stringContaining('Thing.when: TS is a literal union'),
+        ]);
     });
-});
 
-describe('openapiDrift exemption kinds (#2868)', () => {
-    const runKind = (allow: Record<string, string>) => {
-        const out: string[] = [];
-        const used = new Set<string>();
-        compare({}, { kind: 'number', nullable: false }, { type: 'string' }, 'P.x', allow, used, out);
-        return { out, used };
-    };
+    it('an exemption for one message kind does not hide a second drift on the same path', () => {
+        const r = run(TWO_DRIFTS, { allow: { [allowKey('Thing.when', 'nullable')]: 'because' } });
+        expect(r.out).toEqual([expect.stringContaining('Thing.when: TS is a literal union')]);
+        expect([...r.used]).toEqual(['Thing.when#nullable']);
+    });
 
-    it('an exemption naming the finding kind suppresses it and is recorded as used', () => {
-        const r = runKind({ 'P.x#kind': 'because' });
+    it('an exemption for a different kind than the one that fires does not suppress it and is not used', () => {
+        const r = run(GOOD.replace('when?: string | null', 'when?: string'), {
+            allow: { [allowKey('Thing.when', 'enum-mismatch')]: 'because' },
+        });
+        expect(r.out).toEqual([expect.stringContaining('Thing.when: TS forbids null')]);
+        expect([...r.used]).toEqual([]);
+    });
+
+    it('exempting every kind that fires on a path silences the path', () => {
+        const r = run(TWO_DRIFTS, {
+            allow: { [allowKey('Thing.when', 'nullable')]: 'a', [allowKey('Thing.when', 'union-no-enum')]: 'b' },
+        });
         expect(r.out).toEqual([]);
-        expect([...r.used]).toEqual(['P.x#kind']);
+        expect([...r.used].sort()).toEqual(['Thing.when#nullable', 'Thing.when#union-no-enum']);
     });
 
-    it('an exemption for a different kind at the same path suppresses nothing and stays unused', () => {
-        const r = runKind({ 'P.x#optionality': 'because' });
-        expect(r.out).toHaveLength(1);
+    it('a bare path key (the pre-#2868 shape) no longer exempts anything', () => {
+        const r = run(GOOD + ' extra: string;', { allow: { 'Thing.extra': 'because' } });
+        expect(r.out).toEqual([expect.stringContaining('Thing.extra: declared in TS but not in the schema')]);
         expect([...r.used]).toEqual([]);
-    });
-
-    it('a legacy bare-path key no longer suppresses anything (it is reported unused as stale)', () => {
-        const r = runKind({ 'P.x': 'because' });
-        expect(r.out).toHaveLength(1);
-        expect([...r.used]).toEqual([]);
-    });
-
-    it('optionality and not-in-schema exemptions each suppress only their own finding at one path', () => {
-        const out: string[] = [];
-        const used = new Set<string>();
-        const d = {
-            type: 'object',
-            required: ['a'],
-            properties: { a: { type: 'string' } },
-        };
-        const program = createProgram({ '/virtual/o.ts': 'export interface O { a?: string; b: string }' });
-        const t = exportedInterfaces(program, ['/virtual/o.ts']).get('O')!;
-        compare({}, toShape(program.getTypeChecker(), t), d, 'O', { 'O.a#optionality': 'x' }, used, out);
-        expect(out).toEqual([expect.stringContaining('O.b: declared in TS but not in the schema')]);
-        expect([...used]).toEqual(['O.a#optionality']);
     });
 });

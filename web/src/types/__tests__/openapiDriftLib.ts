@@ -215,23 +215,25 @@ const KIND: Record<string, Shape['kind']> = {
 };
 
 /**
- * The kinds of finding `compare` reports. An exemption names ONE of them, so an
- * exemption written about (say) optionality cannot also hide a type change at
- * the same path (#2868).
+ * The kinds of drift message `compare` can produce. An exemption names one
+ * (path, kind) pair, so it silences exactly the message it describes and
+ * nothing else on that path (#2868).
  */
-export type FindingKind =
-    | 'optionality' // TS optional/required disagrees with the schema's `required`
-    | 'not-in-schema' // declared in TS, absent from the schema
-    | 'not-in-ts' // in the schema, not declared in TS
-    | 'no-type' // schema has no usable "type"
-    | 'kind' // JSON kind differs
-    | 'nullability'
-    | 'enum';
+export type DriftKind =
+    | 'no-type' // the schema has no usable "type"
+    | 'kind' // TS kind differs from the schema type
+    | 'nullable' // TS and schema disagree on null
+    | 'enum-not-union' // schema enum, TS is not a string-literal union
+    | 'enum-mismatch' // both are enums, with different members
+    | 'union-no-enum' // TS literal union, schema declares no enum
+    | 'ts-only' // declared in TS, absent from the schema
+    | 'schema-only' // in the schema, not declared in TS
+    | 'optionality'; // optional/required disagree
 
-/** Exemptions: key is `<path>#<FindingKind>` (dotted field path under the pair) -> reason. */
+/** Exemptions: key is `allowKey(path, kind)` (`<dotted field path>#<kind>`) -> reason. */
 export type Allow = Record<string, string>;
 
-export const allowKey = (path: string, kind: FindingKind) => `${path}#${kind}`;
+export const allowKey = (path: string, kind: DriftKind): string => `${path}#${kind}`;
 
 export function compare(
     doc: Schema,
@@ -247,31 +249,32 @@ export function compare(
     // A oneOf/anyOf of object branches is compared as the merged object the TS
     // side models it with; anything else passes through untouched.
     const schema = flattenUnion(doc, resolved) ?? resolved;
-    // report records one finding of one kind at one path, unless an exemption
-    // names exactly that path AND kind.
-    const report = (path: string, fk: FindingKind, msg: string) => {
-        const key = allowKey(path, fk);
+    // One drift message at one path. It is suppressed only by an exemption for
+    // exactly this (path, kind); a matching exemption is recorded as used, any
+    // other message on the same path is still reported (#2868).
+    const flagAt = (path: string, driftKind: DriftKind, msg: string) => {
+        const key = allowKey(path, driftKind);
         if (key in allow) used.add(key);
         else out.push(`${path}: ${msg}`);
     };
-    const flag = (fk: FindingKind, msg: string) => report(at, fk, msg);
+    const flag = (driftKind: DriftKind, msg: string) => flagAt(at, driftKind, msg);
     const kind = schema.type ? KIND[schema.type] : schema.properties ? 'object' : undefined;
     if (!kind) return flag('no-type', `schema has no usable "type"`);
     if (shape.kind !== kind) return flag('kind', `TS kind is ${shape.kind}, schema type is ${schema.type}`);
     if (shape.nullable !== (schema.nullable === true)) {
         flag(
-            'nullability',
+            'nullable',
             `TS ${shape.nullable ? 'allows' : 'forbids'} null, schema nullable=${schema.nullable === true}`
         );
     }
     if (schema.enum) {
         const want = [...schema.enum].map(String).sort();
-        if (!shape.literals) flag('enum', `schema enum [${want}] but TS is not a string-literal union`);
+        if (!shape.literals) flag('enum-not-union', `schema enum [${want}] but TS is not a string-literal union`);
         else if (JSON.stringify(want) !== JSON.stringify(shape.literals)) {
-            flag('enum', `enum mismatch: TS [${shape.literals}] vs schema [${want}]`);
+            flag('enum-mismatch', `enum mismatch: TS [${shape.literals}] vs schema [${want}]`);
         }
     } else if (shape.literals) {
-        flag('enum', `TS is a literal union [${shape.literals}] but the schema declares no enum`);
+        flag('union-no-enum', `TS is a literal union [${shape.literals}] but the schema declares no enum`);
     }
     if (kind === 'array' && shape.items && schema.items) {
         compare(doc, shape.items, schema.items, `${at}[]`, allow, used, out, request);
@@ -282,7 +285,7 @@ export function compare(
         for (const [name, p] of Object.entries(shape.props)) {
             const here = `${at}.${name}`;
             if (!(name in sProps)) {
-                report(here, 'not-in-schema', 'declared in TS but not in the schema (the server never sends it)');
+                flagAt(here, 'ts-only', 'declared in TS but not in the schema (the server never sends it)');
                 continue;
             }
             // A request body may be stricter than the server demands (a TS-required
@@ -291,7 +294,7 @@ export function compare(
                 ? p.optional && required?.includes(name)
                 : required && p.optional === required.includes(name);
             if (optionalityDrift) {
-                report(
+                flagAt(
                     here,
                     'optionality',
                     `TS ${p.optional ? 'optional' : 'required'} but schema ${required.includes(name) ? 'requires' : 'does not require'} it`
@@ -300,9 +303,8 @@ export function compare(
             compare(doc, p.shape, sProps[name], here, allow, used, out, request);
         }
         for (const name of Object.keys(sProps)) {
-            const here = `${at}.${name}`;
             if (name in shape.props) continue;
-            report(here, 'not-in-ts', 'sent by the server (in the schema) but not declared in TS');
+            flagAt(`${at}.${name}`, 'schema-only', 'sent by the server (in the schema) but not declared in TS');
         }
     }
 }
