@@ -8,6 +8,7 @@ export * from './RequireAccountSetup';
 export * from './ImpersonationBanner';
 export * from './AuditReadsSkippedBanner';
 export * from './AuditOwedBanner';
+export * from './BreakGlassDegradedBanner';
 export * from './Header';
 export * from './Sidebar';
 export * from './Breadcrumb';

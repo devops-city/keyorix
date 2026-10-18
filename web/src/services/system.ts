@@ -50,11 +50,25 @@ export interface SystemSecurityInfo {
      * Drives AuditOwedBanner.
      */
     audit_owed?: SystemAuditOwed;
+    /**
+     * Break-glass activations granted while the audit log refused writes (server core
+     * break_glass.go, BREAKGLASS-OWED-1). Present only for system.write callers. A count is
+     * -1 when the server could not read it. Drives BreakGlassDegradedBanner.
+     */
+    break_glass_degraded?: SystemBreakGlassDegraded;
 }
 
 export interface SystemAuditOwed {
     pending: number;
     failures_since_start: number;
+}
+
+export interface SystemBreakGlassDegraded {
+    /** Degraded activations whose audit records are not in the audit trail yet. */
+    unsettled: number;
+    /** Degraded activations still waiting for their mandatory review. */
+    unreviewed: number;
+    activation_ids: number[];
 }
 
 export interface SystemInfo {
