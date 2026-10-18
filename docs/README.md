@@ -23,6 +23,8 @@
 - [API_REFERENCE.md](./API_REFERENCE.md): REST API (complete) and gRPC (partial surface, ADR-105).
   The machine-readable spec is [openapi.yaml](../server/http/handlers/openapi.yaml), served at
   `/openapi.yaml` and `/swagger/` when `server.http.swagger_enabled` is true.
+- [cli-reference.md](./cli-reference.md): every `keyorix` command, flag and example, generated
+  from the command tree (man page: [man/keyorix.1](./man/keyorix.1)).
 - [SECRET_SHARING_USER_GUIDE.md](./SECRET_SHARING_USER_GUIDE.md): sharing.
 - [MIGRATION.md](./MIGRATION.md), [migrate-from-vault.md](./migrate-from-vault.md): importing secrets.
 - [CI_CD.md](./CI_CD.md): fetching secrets in GitHub Actions, GitLab CI and CircleCI.
