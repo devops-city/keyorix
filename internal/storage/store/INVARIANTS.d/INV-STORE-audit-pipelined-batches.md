@@ -15,7 +15,9 @@
   is retried in two flights and then bisected (`finishAuditBatch`); any other failure fails its items.
   Every item gets nil only after its own batch's COMMIT was acknowledged. The flusher's serial commits
   and retries reuse the held connection (`auditHeldConn`), so it never waits for a second pool
-  connection. SQLite, non-pgx pools and a store with a flusher linger window never pipeline.
+  connection. A pipelined batch stores exactly the rows the serial path stores for the same items in
+  the same order (the parameters are re-encoded for the pipeline; an empty value stays "", never
+  NULL). SQLite, non-pgx pools and a store with a flusher linger window never pipeline.
   Why: PERF-HIGHLOAD-1 — at high concurrency the single flusher left Postgres idle while it built and
   delivered each batch. A first version on two connections let the second batch's backend take
   KEYAUDIT first (measured: most batches then missed and fell back to serial commits).
@@ -27,8 +29,10 @@
   `TestPipelinedBatches_PostgresConcurrentReadersChainInOrder` (red when items are answered at send
   time: rows not yet committed), `TestPipelinedBatches_PostgresBatchFailsWhileNextInFlight`,
   `TestPipelinedBatches_PostgresBackendDiesWhileNextInFlight`,
-  `TestPipelinedBatches_PostgresLostConnectionOutcomeUnknown` (failure handling in send order; all
-  pg-gated), and `TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits`.
+  `TestPipelinedBatches_PostgresLostConnectionOutcomeUnknown` (failure handling in send order),
+  `TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath` and
+  `TestPipelinedBatches_PostgresStoresEmptyStringsNotNull` (raw-SQL row comparison: red when an empty
+  parameter is copied as NULL, found by `admin verify-audit` on the bench; all pg-gated), and `TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits`.
   **Not covered**: as for the serial path, a batch whose COMMIT acknowledgement is lost may have
   committed although its readers were refused; and a connection that breaks during a send can leave a
   committed batch that the serial commit then appends again (a read recorded twice, never not at all).

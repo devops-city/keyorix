@@ -163,8 +163,86 @@ func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
 	assert.Positive(t, ls.auditHead.pipelinedSends.Load()-before, "no batch was sent while another was in flight: the pipeline was not exercised")
 	t.Logf("DIAG pipelined=%d oneFlightCommits=%d misses=%d", ls.auditHead.pipelinedSends.Load()-before, ls.auditHead.oneFlightCommits.Load(), ls.auditHead.oneFlightMisses.Load())
 	requireChainValid(t, ls, nil, armed+workers*each)
+	requireNoNullTextColumns(t, ls)
 	_, logs := loadAuditRows(t, ls)
 	assert.Len(t, logs, workers*each)
+}
+
+// requireNoNullTextColumns fails when a text column that the models always fill
+// (a Go string, so "" at worst) is NULL in a stored row. Read with raw SQL, not
+// through GORM, which would read a NULL back as "": the strict verifier
+// (`admin verify-audit`) scans these columns into strings and cannot run on a
+// NULL, and a NULL is not what the serial path stores for "".
+func requireNoNullTextColumns(t *testing.T, ls *LocalStorage) {
+	t.Helper()
+	for table, cols := range map[string][]string{
+		"audit_events":       {"event_type", "ip_address", "description", "diff", "actor_type", "prev_hash", "entry_hash"},
+		"secret_access_logs": {"accessed_by", "action", "ip_address", "user_agent"},
+	} {
+		for _, col := range cols {
+			var n int64
+			require.NoError(t, ls.db.Raw(fmt.Sprintf("SELECT count(*) FROM %s WHERE %s IS NULL", table, col)).Scan(&n).Error)
+			assert.Zero(t, n, "%s.%s: %d rows stored NULL where the value was a Go string", table, col, n)
+		}
+	}
+}
+
+// A pipelined batch stores exactly what the serial path stores: every empty
+// string as "", not NULL (the parameters are re-encoded for the pipeline, and
+// an empty encoded value must stay a zero-length value).
+func TestPipelinedBatches_PostgresStoresEmptyStringsNotNull(t *testing.T) {
+	ls := multiRowPGStore(t)
+	armForPipeline(t, ls, "empty")
+	sends := ls.auditHead.pipelinedSends.Load()
+	primePipeline(t, ls, 3) // its events and access logs carry empty IP, diff, user agent
+	require.Greater(t, ls.auditHead.pipelinedSends.Load(), sends, "the pipeline was not exercised")
+	log := &models.SecretAccessLog{SecretNodeID: 1, AccessTime: time.Now(), Action: "read"} // empty AccessedBy, IP, UA
+	require.NoError(t, ls.LogAuditEventWithAccessLog(context.Background(), pipelinedEvent("with empty log fields"), log))
+	requireNoNullTextColumns(t, ls)
+}
+
+// storedRows returns every row of table as JSON without its id, in id order,
+// read with raw SQL so NULLs and exact stored values show.
+func storedRows(t *testing.T, ls *LocalStorage, table string) []string {
+	t.Helper()
+	var rows []string
+	require.NoError(t, ls.db.Raw(fmt.Sprintf("SELECT (to_jsonb(t) - 'id')::text FROM %s t ORDER BY id", table)).Scan(&rows).Error)
+	return rows
+}
+
+// The same items in the same order store the same rows, byte for byte except
+// the id, whether the flusher commits them serially or pipelined: the pipeline
+// re-encodes the parameters itself, and the chain hashes depend only on the
+// items and their order, not on the batch boundaries. Driven through the
+// pipeline directly, so the order and the batches are fixed; every size goes
+// through twice, so the second round is sent chained onto pending heads.
+func TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath(t *testing.T) {
+	serial, piped := multiRowPGStore(t), multiRowPGStore(t)
+	sizes := []int{7, 13, 2, 9, 7, 13, 2, 9}
+	commitAll(t, serial, buildMultiRowBatch(1, "eq-arm"))
+	commitAll(t, piped, buildMultiRowBatch(1, "eq-arm"))
+	for i, n := range sizes {
+		commitAll(t, serial, buildMultiRowBatch(n, fmt.Sprintf("eq%d", i)))
+	}
+	require.True(t, armedHead(piped))
+	p := piped.newAuditBatchPipeline()
+	require.NotNil(t, p)
+	var items []*auditBatchItem
+	for i, n := range sizes {
+		b := buildMultiRowBatch(n, fmt.Sprintf("eq%d", i))
+		require.True(t, p.trySend(b), "batch %d was not sent pipelined", i)
+		items = append(items, b...)
+	}
+	p.end()
+	p.releaseConn()
+	for i, it := range items {
+		require.NoError(t, <-it.done, "item %d", i)
+	}
+	assert.Positive(t, piped.auditHead.pipelinedSends.Load(), "no batch was chained onto a pending head")
+	for _, table := range []string{"audit_events", "secret_access_logs"} {
+		assert.Equal(t, storedRows(t, serial, table), storedRows(t, piped, table), table)
+	}
+	requireChainValid(t, piped, nil, 1+62)
 }
 
 // slowPoisonTriggers: an audit row described SLOW-POISON sleeps, then raises; one

@@ -388,10 +388,13 @@ func (p *auditBatchPipeline) send(ctx context.Context, plan *auditOneFlightPlan,
 		if err := held.eqb.Build(held.pc.TypeMap(), sd, plan.f.stmts[i].vars); err != nil {
 			return fmt.Errorf("audit pipeline: encoding %q: %w", sd.SQL, err)
 		}
+		// Copied out of the builder, which reuses its buffers. nil is a NULL
+		// parameter and a zero-length slice an empty value (""): the copy
+		// must keep the two apart (append onto nil would turn "" into NULL).
 		values := make([][]byte, len(held.eqb.ParamValues))
 		for j, v := range held.eqb.ParamValues {
 			if v != nil {
-				values[j] = append([]byte(nil), v...)
+				values[j] = append(make([]byte, 0, len(v)), v...)
 			}
 		}
 		binds[i] = bound{values, append([]int16(nil), held.eqb.ParamFormats...), append([]int16(nil), held.eqb.ResultFormats...)}
