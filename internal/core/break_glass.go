@@ -630,7 +630,9 @@ func (c *KeyorixCore) activateBreakGlassDegraded(
 		}
 		return nil, err
 	}
-	owedAuditFailures.Add(uint64(owed))
+	if owed > 0 {
+		owedAuditFailures.Add(uint64(owed)) // #nosec G115 -- owed is len(sink.owed), guarded > 0 above
+	}
 	breakGlassDegradedActivationsTotal.Inc()
 	logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: break-glass activation %d is DEGRADED: user %d self-granted %q on project %d while the audit log refused its rows (%v). It expires at %s (short, degraded), its %d audit row(s) are owed in pending_audit_events until the backfill writes them, and its post-activation review is mandatory",
 		activation.ID, userID, role.Name, projectID, auditErr, expiresAt.UTC().Format(time.RFC3339), owed), "event_type", EventBreakGlassActivated)
