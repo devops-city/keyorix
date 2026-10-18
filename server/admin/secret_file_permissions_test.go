@@ -36,7 +36,7 @@ func TestLoadConfig_RefusesTooOpenSecretFile(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), p)
 		assert.Contains(t, err.Error(), "0644")
-		assert.Contains(t, err.Error(), "refusing to start")
+		assert.Contains(t, err.Error(), "refused until the file is fixed")
 		assert.NotContains(t, err.Error(), "value")
 	})
 	t.Run("0600 file is accepted", func(t *testing.T) {

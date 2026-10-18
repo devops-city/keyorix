@@ -674,7 +674,7 @@ func TestCheckGroupPermissions_ProjectScopedMembershipDoesNotCrossProjects(t *te
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.Project{}, &models.Environment{},
-		&models.User{}, &models.Group{}, &models.UserGroup{}, &models.ShareRecord{},
+		&models.User{}, &models.Group{}, &models.UserGroup{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 	ls := store.NewLocalStorage(db)
 	c := NewKeyorixCore(ls)

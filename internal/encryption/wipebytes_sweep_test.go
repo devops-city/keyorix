@@ -93,6 +93,8 @@ var notKeyMaterialCallees = map[string]string{
 	"ensureSaltExists":         "KEK salt: public by design (stored next to the wrapped DEK)",
 	"wrapKey":                  "wrapped (encrypted) key: ciphertext, safe to persist",
 	"GetKeyVersion":            "key version label string",
+	"readDEKEpoch":             "DEK epoch: a DEK fingerprint (HMAC output) stored in the database, not key bytes",
+	"casDEKEpoch":              "DEK epoch compare-and-set: returns whether it applied",
 	"lockRelPath":              "lock file path",
 	"openKeyLockFile":          "lock file handle",
 	"keyFileSpecs":             "file permission specs",

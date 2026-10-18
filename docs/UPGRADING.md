@@ -554,6 +554,26 @@ replicas each writes its own observations and the stored value only moves
 forward. No access decision uses these columns; the stale-credential and
 hygiene reports work in days. Details: [`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
 
+## 6s. PostgreSQL: the server checks it holds the database's DEK (DEK epoch)
+
+On PostgreSQL the database now records which DEK it is encrypted under (the DEK
+epoch: `system_metadata` key `dek.epoch`, a fingerprint, not key material). The
+first server to start after the upgrade records it, after checking that its DEK
+decrypts the newest stored secret version. From then on:
+
+- A server whose DEK is not the recorded one refuses to start (it would write
+  rows nobody can decrypt once the old DEK is gone). This catches a replica
+  started with an old `dek.key` after a DEK rotation on another host.
+- A running server refuses encrypted writes (reads and revocations continue)
+  while a DEK rotation is in progress or after one finished elsewhere.
+- `admin encryption rotate` fences writes on every replica, waits about 10
+  seconds, and locks the encrypted tables against writes during its sweep.
+
+Upgrade every replica before the next DEK rotation: an older binary does not
+check the epoch. With several replicas, start one that holds the current key
+set first. SQLite is unchanged. See
+[`operator/j6-key-rotation.md`](operator/j6-key-rotation.md).
+
 ## 6i. Start-up refuses a weak SCIM token and an unneeded KMS context fallback
 
 Two behaviour changes at boot, no new setting. Check before upgrading:

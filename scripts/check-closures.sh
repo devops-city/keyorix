@@ -196,8 +196,12 @@ for pkg in $(awk -F'\t' '$4=="default-ci" || $4=="pg-gated" {print $2}' <<<"$row
     while IFS= read -r test; do
         [ -z "$test" ] && continue
         checked=$((checked + 1))
-        claim=$(awk -F'\t' -v p="$pkg" -v t="$test" '$2==p && $3==t {print $1}' <<<"$rows")
-        verification=$(awk -F'\t' -v p="$pkg" -v t="$test" '$2==p && $3==t {print $4}' <<<"$rows")
+        # Several rows may cite the same proving test (a later row recording that another
+        # issue is closed by the same fix). Join their claim ids, and take the STRICTEST
+        # verification: pg-gated only when every sharing row is pg-gated, so one default-ci
+        # row sharing a skipping test still fails.
+        claim=$(awk -F'\t' -v p="$pkg" -v t="$test" '$2==p && $3==t {c = c (c == "" ? "" : ",") $1} END {print c}' <<<"$rows")
+        verification=$(awk -F'\t' -v p="$pkg" -v t="$test" '$2==p && $3==t {if ($4 != "pg-gated") v = $4; else if (v == "") v = $4} END {print v}' <<<"$rows")
         if grep -qE "^--- PASS: ${test}([[:space:]]|$)" <<<"$out"; then
             note "ok   $claim -> $test ($verification)"
         elif grep -qE "^--- FAIL: ${test}([[:space:]]|$)" <<<"$out"; then
@@ -310,6 +314,16 @@ if [ "${1:-}" = "--self-test" ]; then
     run_case "pg-gated row, DSN available, test skips anyway" "reject" \
         'SELF-TEST-4	./internal/core	TestCheckClosuresSelfTestFixture_AlwaysSkip	pg-gated	deadbeef	-	calibration row' \
         "host=localhost port=1 dbname=x user=x sslmode=disable password=x"
+
+    run_case "two pg-gated rows sharing one skipping test, no DSN available" "accept" \
+        'SELF-TEST-3A	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	pg-gated	deadbeef	-	calibration row
+SELF-TEST-3B	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	pg-gated	deadbeef	-	calibration row (same test, other issue)' \
+        ""
+
+    run_case "pg-gated and default-ci rows sharing one skipping test" "reject" \
+        'SELF-TEST-3C	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	pg-gated	deadbeef	-	calibration row
+SELF-TEST-3D	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	default-ci	deadbeef	-	calibration row (default-ci must not hide behind the gated one)' \
+        ""
 
     # A failing package must not suppress the per-row verdict of the healthy rows
     # that share it (seen on ./internal/storage/store). Red: one row's test fails,

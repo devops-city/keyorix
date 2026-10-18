@@ -37,7 +37,7 @@ func newSharesExpiryFixture(t *testing.T) (*KeyorixCore, uint, time.Time, *gorm.
 	sqlDB.SetMaxOpenConns(1)
 
 	require.NoError(t, db.AutoMigrate(
-		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.AuditEvent{}, &models.User{}, &models.Group{}, &models.UserGroup{},
 		&models.UserRole{}, &models.GroupRole{},
 	))

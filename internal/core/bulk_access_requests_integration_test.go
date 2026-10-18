@@ -42,7 +42,7 @@ func setupBulkAccessDB(t *testing.T) (k *KeyorixCore, db *gorm.DB, approverID, r
 		&models.Project{},
 		&models.Environment{},
 		&models.SecretNode{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Session{},
 		&models.SystemMetadata{},
 		&models.SoDPolicy{},

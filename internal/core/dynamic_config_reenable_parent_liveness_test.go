@@ -99,7 +99,7 @@ func TestSetDynamicSecretConfigEnabled_RefusesUnderDeletedProject(t *testing.T) 
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{},
-		&models.ShareRecord{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
 		&models.AuditEvent{}, &models.Role{}, &models.UserRole{}, &models.Group{},
 		&models.UserGroup{}, &models.GroupRole{}))
 

@@ -57,6 +57,11 @@ func TestShareNotifiers_PanicAfterCommit_StillSucceeds(t *testing.T) {
 	group, err := f.setup.CreateGroup(f.ctx, f.adminID, &CreateGroupRequest{Name: "notifypanic-group"})
 	require.NoError(t, err)
 	require.NoError(t, f.setup.AddUserToGroup(f.ctx, f.adminID, false, groupMember.ID, group.ID, 0))
+	// ShareSecretWithGroup (the only group path since #3422) requires the group to hold
+	// a role in the secret's project.
+	viewer, err := f.setup.Storage().GetRoleByName(f.ctx, "project_viewer")
+	require.NoError(t, err)
+	require.NoError(t, f.setup.Storage().AssignRoleToGroup(f.ctx, group.ID, viewer.ID, Scope{ProjectID: f.projectID}))
 
 	fired := f.panicOnNotificationInsert()
 
@@ -74,8 +79,8 @@ func TestShareNotifiers_PanicAfterCommit_StillSucceeds(t *testing.T) {
 	})
 
 	t.Run("RevokeShare group", func(t *testing.T) {
-		share, err := f.setup.ShareSecret(f.ctx, &ShareSecretRequest{
-			SecretID: secret.ID, RecipientID: group.ID, IsGroup: true, Permission: "read", SharedBy: owner.ID,
+		share, err := f.setup.ShareSecretWithGroup(f.ctx, &GroupShareSecretRequest{
+			SecretID: secret.ID, GroupID: group.ID, Permission: "read", SharedBy: owner.ID,
 		})
 		require.NoError(t, err)
 		before := fired()
@@ -96,15 +101,23 @@ func TestShareNotifiers_PanicAfterCommit_StillSucceeds(t *testing.T) {
 		assert.Greater(t, fired(), before)
 	})
 
-	t.Run("ShareSecret group", func(t *testing.T) {
-		before := fired()
-		share, err := f.coreA.ShareSecret(f.ctx, &ShareSecretRequest{
+	// Since #3422 ShareSecret refuses IsGroup, so it no longer has a group fan-out to
+	// panic in; the group path is ShareSecretWithGroup, which sends no notification.
+	// Pin both halves instead of asserting a notifier that cannot fire.
+	t.Run("ShareSecret group is refused", func(t *testing.T) {
+		_, err := f.coreA.ShareSecret(f.ctx, &ShareSecretRequest{
 			SecretID: secret.ID, RecipientID: group.ID, IsGroup: true, Permission: "read", SharedBy: owner.ID,
+		})
+		require.Error(t, err)
+	})
+
+	t.Run("ShareSecretWithGroup", func(t *testing.T) {
+		share, err := f.coreA.ShareSecretWithGroup(f.ctx, &GroupShareSecretRequest{
+			SecretID: secret.ID, GroupID: group.ID, Permission: "read", SharedBy: owner.ID,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, share)
 		assert.EqualValues(t, 1, f.liveShareCount(share.ID))
-		assert.Greater(t, fired(), before)
 	})
 
 	t.Run("TransferSecretOwnership", func(t *testing.T) {

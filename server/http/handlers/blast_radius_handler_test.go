@@ -27,7 +27,7 @@ func newBlastRadiusHandlerCore(t *testing.T) (*core.KeyorixCore, uint) {
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{},
 		&models.SecretNode{}, &models.SecretDependency{},
-		&models.AuditEvent{}, &models.ShareRecord{},
+		&models.AuditEvent{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "p1"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env1"}).Error)
@@ -78,7 +78,7 @@ func TestGetBlastRadius_StorageError_G50(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{},
 		&models.SecretNode{}, &models.SecretDependency{},
-		&models.AuditEvent{}, &models.ShareRecord{},
+		&models.AuditEvent{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "p1"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env1"}).Error)
