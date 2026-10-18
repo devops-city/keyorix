@@ -4,7 +4,9 @@
   then. `ROLLBACK TO [SAVEPOINT]` does not end the transaction; `... AND CHAIN` ends it and starts the
   next. Every database epoch move the poller sees flushes every entry, whether or not such a write
   explains it; one that no write explains (the canary) is also counted in `/system/info`, and a
-  second one leaves the authoritative state until restart. A connection that dies during any
+  second one leaves the authoritative state until restart. The canary reads the tracker before the
+  poll's statement is sent, so a commit counted while the answer is on its way explains the next
+  poll (the one that sees its move), never this one. A connection that dies during any
   statement ends its write; a string of several statements, a SET list with a parenthesis and the
   fenced key in a bind argument of any string-like shape (named type, pointer, `[]byte`,
   `driver.Valuer`, slice) count as fenced writes. The holder connection is not traced. Why:
@@ -12,7 +14,8 @@
   #2518); authoritative caches (PR 3) depend on this. Guard: `TestTracker_EveryEpochMoveIsAWriteTheTrackerSaw`
   (red with the tracer not installed, and with `machine_identity_roles` misclassified),
   `TestTracker_CanaryCatchesAWriteTheTrackerMissed` (red without the canary, and without the second-bump
-  leave), `TestTracker_ConnectionDeathDuringAReadEndsTheWrite`, `TestTracker_GuardOwnFenceIsNotCounted`,
+  leave), `TestPoll_CanaryCountsACommitInThePollThatSeesItsMove` (red with the tracker read after the
+  answer), `TestTracker_ConnectionDeathDuringAReadEndsTheWrite`, `TestTracker_GuardOwnFenceIsNotCounted`,
   `TestTracker_TransactionEndsTheWriteNotItsFirstStatement` (red when BEGIN is not seen),
   `TestTracker_SavepointRollbackDoesNotEndTheTransaction` (red with every ROLLBACK an end, and without the
   AND CHAIN re-open), `TestPoll_EveryEpochMoveFlushes` (copied tag in the same poll window as an own

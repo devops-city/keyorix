@@ -73,20 +73,18 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // membershipDefinitionRepoRoot resolves the repo root from this test file's own
 // location, so the walk cannot silently run against the wrong tree.
 func membershipDefinitionRepoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate the repo root relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "project_membership_definition_guard_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..") // internal/core -> root
 }
 

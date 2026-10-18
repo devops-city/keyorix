@@ -2,6 +2,7 @@ package interceptors
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -218,6 +219,31 @@ func TestGRPCIPFailureLimiter_SweepEvictsOnlyIdleEntries(t *testing.T) {
 	_, freshStillPresent := l.limiters["fresh"]
 	assert.False(t, staleStillPresent, "an entry idle past the 10-minute TTL must be evicted")
 	assert.True(t, freshStillPresent, "an entry within the 10-minute TTL must survive")
+}
+
+// TestGRPCIPFailureLimiter_SweepAmortized is #3429, the gRPC twin of
+// TestIPFailureLimiter_SweepAmortized (#G19): allow() runs on every failed
+// token validation, and it used to scan the whole map under the one mutex
+// every time, so a flood from many source IPs made the limiter itself the
+// bottleneck. The sweeps are counted by their effect: an idle sentinel is
+// re-planted before every call, and each call that removes it ran a sweep.
+func TestGRPCIPFailureLimiter_SweepAmortized(t *testing.T) {
+	l := &grpcIPFailureLimiter{limiters: make(map[string]*grpcPrincipalBucket)}
+	const calls = 3 * grpcPrincipalLimiterSweepEvery
+	sweeps := 0
+	for i := range calls {
+		l.mu.Lock()
+		l.limiters["203.0.113.9"] = &grpcPrincipalBucket{lastSeen: time.Now().Add(-2 * grpcPrincipalLimiterIdleTTL)}
+		l.mu.Unlock()
+		l.allow(fmt.Sprintf("10.0.%d.%d", i/256%256, i%256))
+		l.mu.Lock()
+		if _, ok := l.limiters["203.0.113.9"]; !ok {
+			sweeps++
+		}
+		l.mu.Unlock()
+	}
+	assert.Equal(t, calls/grpcPrincipalLimiterSweepEvery, sweeps,
+		"one sweep per %d failed validations, not one per call", grpcPrincipalLimiterSweepEvery)
 }
 
 // ---------------------------------------------------------------------------

@@ -558,6 +558,7 @@ checklist to follow is [operator/upgrade-checklist-v0.97.md](operator/upgrade-ch
 | `server.grpc.tls.auto_cert: true` refused (pending #3365, AUTH-2) | written in #3365 (heading number assigned when it merges) |
 | `mfa.failed` and other `*_failed` audit rows stored with `success=false` (pending #3365, AUTH-2) | written in #3365 (heading number assigned when it merges) |
 | Schema epoch 3, compatibility floor 3: no binary downgrade (pending #3364) | written in #3364 (heading number assigned when it merges) |
+| Weak SCIM token and an unneeded KMS context fallback refused at start-up (#3397, #3398) | §6i |
 | `audit_durability` defaults to `standard` on PostgreSQL (#3268) | §6c |
 | `ssl_root_cert`, the `ssl_mode` allowlist, Compose Postgres over TLS (#3162, #3189, #3203) | §2 |
 
@@ -731,6 +732,28 @@ None of these needs a configuration change; check clients that depend on them.
   you upgrade from v0.96.0, a `dsn` that carries a password together with a
   configured `KEYORIX_DB_PASSWORD` / `storage.database.password` refuses to start.
 
+## 6i. Start-up refuses a weak SCIM token and an unneeded KMS context fallback
+
+Two behaviour changes at boot, no new setting. Check before upgrading:
+
+- **SCIM token (`scim.enabled: true`).** Besides the 20-character minimum, the token
+  must not be one byte repeated, have fewer than 10 distinct characters, contain a
+  placeholder (`changeme`, `password`, `example`, `secret` ...), be made only of sample
+  words (`test-token-...`), or equal another configured secret. An upgraded deployment
+  gets the ADR-112 grace period: the server starts and logs
+  `WARNING: SCIM token is too weak: ... ADR-112 grace period ...` until the first start
+  with a token that passes (or with SCIM off); after that, and on a fresh install, it
+  refuses to start.
+  Replace the token with `openssl rand -base64 32` in Keyorix and in the IdP's SCIM
+  connector.
+- **`storage.encryption.key_provider.insecure_allow_kms_context_fallback`** (aws-kms,
+  gcp-kms). When the stored wrapped KEK already opens with its `kms_encryption_context`
+  (the migration it exists for is done), the server refuses to start and says the flag
+  can be removed. Remove it before upgrading. A KEK that still needs it starts as before.
+
+Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
+[KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
+
 ## 7. Rollback
 
 If an upgrade goes wrong:
@@ -760,6 +783,9 @@ If an upgrade goes wrong:
 
 - `docs/SELF_HOSTING.md` §4 (master password / KEK), §5 (backup and
   restore), §6 (upgrades), §9 (troubleshooting).
+- `docs/operator/startup-refusals.md` for what each start-up refusal means after an
+  upgrade or rollback (schema epoch newer than the binary, compatibility floor,
+  key files, restore rollback protection) and which fixes are safe in place.
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
 - `docs/rolling-upgrade-columns.md` for why a column added by one release does

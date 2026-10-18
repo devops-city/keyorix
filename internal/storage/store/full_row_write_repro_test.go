@@ -7,12 +7,15 @@
 //   - #2696 (ClassifyMachineToken un-revoking a concurrently revoked token) is FIXED
 //     (column-scoped, conditional SetMachineIdentityCredentialClassification), so its
 //     repro runs as a regression test.
-//   - #2695 (UpdateSecret's Save resurrecting a concurrently deleted secret) is
-//     still open: docs/full-row-write-exempt.tsv carries an UNSAFE-OPEN row for
-//     UpdateSecret. The repro is tied to that row rather than to a bare t.Skip: while
-//     the row exists the test asserts the bug STILL reproduces (so the row cannot
-//     silently go stale), and once the row is deleted the test asserts the bug is
-//     gone. There is no state in which the fix lands and this stays skipped.
+//   - #2695 (UpdateSecret's Save resurrecting a concurrently deleted secret): every
+//     caller now persists through a column-scoped write, so the race is fixed in
+//     production, but the full-row primitive itself still resurrects and still exists.
+//     docs/full-row-write-exempt.tsv carries a FIXED-NO-CALLER row for UpdateSecret (it
+//     was UNSAFE-OPEN until the callers moved). The repro is tied to that row rather
+//     than to a bare t.Skip: while the row exists the test asserts the primitive STILL
+//     reproduces (so the row cannot silently go stale), and once the row is deleted the
+//     test asserts the bug is gone. There is no state in which the fix lands and this
+//     stays skipped.
 package store
 
 import (
@@ -102,13 +105,14 @@ func TestFullRowRepro_UpdateSecretFieldsKeepsConcurrentDeleteAndSuspend(t *testi
 	require.Equal(t, desc, got.Description)
 }
 
-// updateSecretOpenRowPresent reports whether the ledger still lists UpdateSecret as
-// UNSAFE-OPEN, i.e. whether #2695's bug is still acknowledged as open.
+// updateSecretOpenRowPresent reports whether the ledger still lists UpdateSecret as a
+// known-unsafe primitive: UNSAFE-OPEN (a live caller can lose an update) or
+// FIXED-NO-CALLER (no production caller is left, the primitive itself is unchanged).
 func updateSecretOpenRowPresent(t *testing.T) bool {
 	t.Helper()
 	for _, r := range loadFullRowExempt(t) {
 		if strings.HasSuffix(r.File, "local_secrets.go") && r.Func == "(*LocalStorage).UpdateSecret" && r.Model == "SecretNode" {
-			return strings.HasPrefix(r.Reason, "UNSAFE-OPEN")
+			return strings.HasPrefix(r.Reason, "UNSAFE-OPEN") || strings.HasPrefix(r.Reason, "FIXED-NO-CALLER")
 		}
 	}
 	return false
@@ -144,9 +148,9 @@ func TestFullRowRepro_UpdateSecretResurrectsConcurrentlyDeletedSecret(t *testing
 	resurrected := secretResurrectedByStaleUpdate(t)
 	if updateSecretOpenRowPresent(t) {
 		require.Truef(t, resurrected,
-			"the ledger lists UpdateSecret as UNSAFE-OPEN (#2689/#2695) but the stale write no longer resurrects the secret: "+
-				"the bug is fixed — delete its UNSAFE-OPEN row from docs/full-row-write-exempt.tsv so this test asserts the fix")
-		t.Log("#2695/#2689 still open: stale UpdateSecret resurrects a concurrently deleted secret (reproduced; tied to the ledger row)")
+			"the ledger lists UpdateSecret as UNSAFE-OPEN/FIXED-NO-CALLER (#2689/#2695) but the stale write no longer resurrects the secret: "+
+				"the primitive is safe now — delete its row from docs/full-row-write-exempt.tsv so this test asserts the fix")
+		t.Log("#2695/#2689: the full-row UpdateSecret primitive still resurrects a concurrently deleted secret (reproduced; tied to the ledger row); no production caller remains")
 		return
 	}
 	require.False(t, resurrected, "a secret deleted by another replica was resurrected by a stale UpdateSecret (#2695)")
