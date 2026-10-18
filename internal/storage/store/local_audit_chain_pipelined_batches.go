@@ -449,8 +449,8 @@ func backendEnded(err error) bool {
 }
 
 func isPgError(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr)
+	_, ok := errors.AsType[*pgconn.PgError](err)
+	return ok
 }
 
 func (p *auditBatchPipeline) read(b *auditInflightBatch) auditPipelineOutcome {
@@ -579,8 +579,7 @@ func (r *auditPipelineResults) Close() error {
 			if r.err == nil {
 				r.err = err
 			}
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) {
+			if isPgError(err) {
 				continue // Postgres skips to the Sync; the next result is it
 			}
 			return r.err

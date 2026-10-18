@@ -44,10 +44,21 @@ write cost of the indexes and the question).
 
 ### Shape
 
-The flusher keeps up to `auditPipelineDepth` (2) batches in flight on PostgreSQL. While batch
-N is executing (or waiting for KEYAUDIT), the flusher already builds batch N+1 and sends it on
-a second pool connection. Postgres grants the lock to N+1 when N commits and runs N+1's
-statements at once, with no client round trip in between.
+The flusher keeps up to `auditPipelineDepth` (2) batches in flight on PostgreSQL, on ONE pool
+connection it holds while it runs, in pgconn pipeline mode with one Sync per transaction. While
+batch N executes, the flusher already builds batch N+1 and sends it behind N on the same
+connection. Postgres runs N+1 from its input buffer the moment N commits: no client round trip,
+no second backend, no lock hand-off in between.
+
+One connection, not two: on two connections the second batch's backend can take KEYAUDIT before
+the first one's, fail its check and end the run. The first version of this change did that
+often enough under load to make the flusher slower than the serial one; on one backend the
+order is the send order by construction.
+
+Statements are prepared once per text on the held connection, outside pipeline mode (a batch
+size seen for the first time waits for the batches in flight). The flusher's serial commits
+and retries reuse the held connection, so the flusher never needs a second pool connection
+(a pool of one cannot deadlock it).
 
 A batch is sent pipelined only in the one-flight form: BEGIN, the fast-mode `SET LOCAL` when
 enabled, `pg_advisory_xact_lock(KEYAUDIT)`, the events INSERT with its head and link checks,
@@ -94,10 +105,14 @@ rows are below it in the chain).
   through the two-flight path, which re-reads the head under the lock; if that fails too, the
   existing bisection confines the error to the poisoned item. This is the same code path as
   today's one-flight miss, run from the completion step in send order.
-- Every batch sent after a failed one was chained onto rows that are not there, so its check
-  raises and it is rolled back; it is then retried the same way, after the failed batch's
-  recovery and in send order. Until the pipeline has drained, the flusher sends nothing new; it
-  then continues with serial commits until the cache re-arms (the existing `need` rule).
+- A failed batch leaves its transaction block open and aborted on the connection, still
+  holding KEYAUDIT, so every batch sent after it fails at its BEGIN and writes nothing (and
+  would fail its check anyway: it was chained onto rows that are not there). The flusher reads
+  every result in flight, rolls the connection back, and only then retries the batches, the
+  same way and in send order (a retry before the rollback would wait on that KEYAUDIT for good).
+  It then continues with serial commits until the cache re-arms (the existing `need` rule).
+- A batch queued behind one whose backend ended with a FATAL error was never run: its
+  connection error is treated as "wrote nothing" and it is retried.
 - A batch whose outcome is unknown (connection lost, an error answered for COMMIT itself) fails
   its readers, as today. The batch sent after it either commits (N did commit: its check sees
   N's rows) or is rolled back by its check and retried. Either way the chain stays linear.
@@ -132,7 +147,8 @@ part of this change.
 ### Several Keyorix nodes on one database
 
 Each node has its own flusher and its own cache. A node's pipelined batch whose predicted head
-was overtaken by another node's batch fails its check and is retried in two flights, and the
+was overtaken by another node's batch fails its check (the checks are what stops a fork here:
+on one node the send order alone already does) and is retried in two flights, and the
 miss disarms that node's cache with the `need` doubling, so nodes that keep appending in turn
 settle on serial two-flight commits, as today. KEYAUDIT is cluster-wide, so the chain stays
 one linear sequence across nodes.
@@ -146,10 +162,9 @@ tests run on both dialects.
 
 ### Considered and not done
 
-- Pipelining several transactions on one connection: a failed transaction would not abort the
-  next one (each ends with its own Sync), so it would work, but pgx's statement cache does not
-  support a second batch on a busy connection, and preparing the statements by hand would cost
-  more than the second connection.
-- More than a small fixed depth: Postgres runs the batches one at a time on KEYAUDIT, so a
-  third batch in flight only waits, holding a pool connection.
+- Two connections (built first, measured, replaced): the lock-order inversion above.
+- More than a small fixed depth: Postgres runs the batches one at a time, so a third batch in
+  flight only waits longer behind the second.
+- Pipelining under a flusher linger window: lingering with a batch in flight would hold that
+  batch's readers for the window, so a store with a linger window commits serially.
 - An in-memory cache of decrypted values: out of scope (brief).
