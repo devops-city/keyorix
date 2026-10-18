@@ -78,7 +78,7 @@ func sweepCacheBackends(t *testing.T, fn func(t *testing.T, w *sweepCacheWorld))
 	t.Helper()
 	tables := []any{
 		&models.SecretNode{}, &models.SecretVersion{}, &models.SecretAccessSchedule{},
-		&models.ShareRecord{}, &models.SecretACL{}, &models.Project{},
+		&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.Project{},
 		&models.APIToken{}, &models.APIClient{}, &models.PasswordReset{}, &models.MFASecret{},
 		&models.DynamicSecretConfig{}, &models.DynamicSecretLease{}, &models.NotificationChannel{},
 	}

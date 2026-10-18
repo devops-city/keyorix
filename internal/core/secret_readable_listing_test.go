@@ -35,7 +35,7 @@ func readableListingFixture(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.Permission{}, &models.RolePermission{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.SecretACL{}, &models.ShareRecord{}, &models.AuditEvent{},
+		&models.SecretACL{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.AuditEvent{},
 	))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "reader", Email: "reader@example.com"}).Error)
 	require.NoError(t, db.Create(&models.Permission{ID: 1, Name: "secrets.read", Resource: "secrets", Action: "read"}).Error)

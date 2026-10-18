@@ -21,7 +21,7 @@ var accessReviewCampaignModels = []any{
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 	&models.Project{}, &models.Environment{}, &models.SystemMetadata{},
 	&models.AccessReviewCampaign{}, &models.AccessReviewItem{}, &models.AuditEvent{},
-	&models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.ShareRecord{}, &models.SecretNode{},
+	&models.MachineIdentity{}, &models.MachineIdentityRole{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SecretNode{},
 }
 
 // TestConcurrency_DecideAccessReviewItem_CrossReplicaPostgres_NoFalseCertification

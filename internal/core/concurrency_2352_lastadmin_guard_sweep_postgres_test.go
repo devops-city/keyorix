@@ -75,7 +75,7 @@ var lastAdminSweepPGModels = []any{
 	&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 	&models.Project{}, &models.Environment{},
 	&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-	&models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.SystemMetadata{},
+	&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SystemMetadata{},
 }
 
 // newPGLastAdminSchemaDSN creates a fresh isolated schema, migrates it, seeds

@@ -36,7 +36,7 @@ func freshListFixtureS38(t *testing.T) (*SecretHandler, *gorm.DB) {
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
 		&models.AuditEvent{}, &models.AnomalyAlert{},
-		&models.ShareRecord{}, &models.SecretACL{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretVersion{},
 	))
 

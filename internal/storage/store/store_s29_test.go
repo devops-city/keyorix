@@ -93,7 +93,7 @@ func newS29Store(t *testing.T, mods ...any) *LocalStorage {
 // sharingModels lists the models needed for sharing-related tests.
 var sharingModels = []any{
 	&models.User{}, &models.Group{}, &models.UserGroup{},
-	&models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{},
+	&models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{},
 	&models.Project{}, &models.Environment{},
 }
 
@@ -605,7 +605,7 @@ func TestListProjectsWithCounts_S29_HappyPath(t *testing.T) {
 }
 
 func TestListProjectsWithCounts_S29_IncludeDeleted(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+	ls := newS29Store(t, &models.Project{}, &models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{})
 	ctx := context.Background()
 
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "Gamma"})
@@ -676,7 +676,7 @@ func TestDeleteEnvironment_S29_HappyPath(t *testing.T) {
 }
 
 func TestRestoreEnvironment_S29_DeadProject(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{})
 	ctx := context.Background()
 
 	// Create project, create env, delete project.
@@ -740,7 +740,7 @@ func TestListEnvironmentsByProjectIncludingDeleted_S29_HappyPath(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestDeleteProjectIfEmpty_S29_NonEmpty(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{})
 	ctx := context.Background()
 
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "P"})
@@ -762,7 +762,7 @@ func TestDeleteProjectIfEmpty_S29_NonEmpty(t *testing.T) {
 }
 
 func TestDeleteProjectIfEmpty_S29_Empty(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{})
 	ctx := context.Background()
 
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "P"})
@@ -780,7 +780,7 @@ func TestRestoreProject_S29_NotFound(t *testing.T) {
 }
 
 func TestRestoreProject_S29_HappyCascade(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.DynamicSecretConfig{})
+	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}, &models.DynamicSecretConfig{})
 	ctx := context.Background()
 
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "P"})
@@ -850,7 +850,7 @@ func TestSetSecretTags_S29_HappyPath(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestListSecrets_S29_DeletedOnly(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{})
+	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{})
 	ctx := context.Background()
 
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "P"})
@@ -874,7 +874,7 @@ func TestListSecrets_S29_DeletedOnly(t *testing.T) {
 }
 
 func TestListSecrets_S29_IncludeDeleted(t *testing.T) {
-	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{})
+	ls := newS29Store(t, &models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{})
 	ctx := context.Background()
 
 	p, err := ls.CreateProject(ctx, &models.Project{Name: "P2"})
