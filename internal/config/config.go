@@ -1211,6 +1211,10 @@ func DeriveMaxRequestBodySize(maxSecretSize int) int64 {
 const (
 	ADR112FilePermEnforcedMarker   = "adr112.file_permission_check.enforced"
 	ADR112RequireMFAEnforcedMarker = "adr112.require_mfa.enforced"
+	// ADR112SCIMTokenEnforcedMarker: the SCIM token shape checks (#3397) have
+	// been enforced on this deployment (a boot where they did not have to be
+	// softened), so a weak token now refuses to start instead of warning.
+	ADR112SCIMTokenEnforcedMarker = "adr112.scim_token_strength.enforced"
 )
 
 type SecurityConfig struct {
