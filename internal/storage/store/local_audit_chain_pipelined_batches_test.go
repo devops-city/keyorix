@@ -665,3 +665,19 @@ func TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits(t *testing.T) 
 	assert.Zero(t, auditRowCount(t, ls, "POISON-EVENT"))
 	requireChainValid(t, ls, nil, 3+len(next))
 }
+
+// A batch chained onto a known head sends the check statement without the
+// pending form (no COALESCE on the head id, no pending hash in the raise): the
+// pending form cost Postgres more per statement and is only for batches
+// chained onto a batch still in flight.
+func TestAuditInsertCheckStatement_KnownHeadKeepsThePlainCheck(t *testing.T) {
+	const insert = `INSERT INTO "audit_events" ("x") VALUES ($1) RETURNING "id","prev_hash","entry_hash"`
+	known, knownVars := auditInsertCheckStatement("audit_events", insert, []any{1}, auditChainHead{id: 7, hash: "h"}, 1)
+	pending, pendingVars := auditInsertCheckStatement("audit_events", insert, []any{1}, auditChainHead{hash: "h", pending: true}, 1)
+	assert.NotContains(t, known, "COALESCE($", "a known head's check must not use the pending form")
+	assert.NotContains(t, known, "'pending '")
+	assert.Contains(t, known, "s.base_id = $2::bigint")
+	assert.Contains(t, pending, "COALESCE($2::bigint, s.base_id)")
+	assert.Equal(t, []any{1, uint(7), "h", auditGenesisHash}, knownVars)
+	assert.Equal(t, []any{1, nil, "h", auditGenesisHash}, pendingVars)
+}
