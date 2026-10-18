@@ -278,7 +278,28 @@ make_secrets() {
       || die "scripts/selfhost/init-secrets.sh failed (run it by hand for its message)"
     log "secrets: generated under $SECRETS_DIR (the master password is this VM's own KEK secret; it is never printed)"
   fi
+  hand_secrets_to_root
   harden_bootstrap_token
+}
+
+# The server refuses a secret file owned by anyone but root or its own uid (#3409), and
+# init-secrets.sh leaves the files with the service user. Hand them to root, keeping the
+# group the containers join to read the 0640 files (KEYORIX_SECRETS_GID). Runs on every
+# install, so a VM set up before #3409 is fixed by re-running install.sh. The bootstrap
+# token is not left like this: harden_bootstrap_token gives it to the server's uid.
+hand_secrets_to_root() {
+  local gid f
+  if [ "$(id -u)" != 0 ]; then
+    warn "not root: $SECRETS_DIR/* stays owned by you (a real install chowns it to root:<secrets gid>)"
+    return 0
+  fi
+  gid=$(grep -E '^KEYORIX_SECRETS_GID=' "$STATE_DIR/init-secrets.env" | tail -n 1 | cut -d= -f2-)
+  [[ $gid =~ ^[0-9]+$ ]] || die "KEYORIX_SECRETS_GID missing from $STATE_DIR/init-secrets.env"
+  for f in "$SECRETS_DIR"/*; do
+    [ -f "$f" ] || continue
+    chown "root:$gid" "$f"
+  done
+  log "secrets: owned by root:$gid (the server refuses files owned by any other account)"
 }
 
 # The bootstrap token is a fresh >= 32 character random value in a 0600 file owned by the

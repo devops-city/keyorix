@@ -6554,23 +6554,6 @@ func (w *FaultyStorage) RestoreUser(ctx context.Context, id uint) error {
 	return w.real.RestoreUser(ctx, id)
 }
 
-func (w *FaultyStorage) RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error) {
-	fire, kind, injected := w.check("RevertAccessReviewItemClaim")
-	if fire {
-		switch kind {
-		case KindPanic:
-			panic(injected)
-		case KindError:
-			var zero1 bool
-			return zero1, injected
-		case KindEffectThenError:
-			rv1, _ := w.real.RevertAccessReviewItemClaim(ctx, itemID, fromDecision, actorID)
-			return rv1, injected
-		}
-	}
-	return w.real.RevertAccessReviewItemClaim(ctx, itemID, fromDecision, actorID)
-}
-
 func (w *FaultyStorage) ReviewBreakGlassActivation(ctx context.Context, id uint, reviewerID uint, note string, reviewedAt time.Time) error {
 	fire, kind, injected := w.check("ReviewBreakGlassActivation")
 	if fire {
@@ -7790,7 +7773,7 @@ func (w *FaultyStorage) VerifyAuditChainSegment(ctx context.Context, seg storage
 	return w.real.VerifyAuditChainSegment(ctx, seg)
 }
 
-func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func() error) error {
+func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func(context.Context) error) error {
 	fire, kind, injected := w.check("WithAuditCheckpointLock")
 	if fire {
 		switch kind {
@@ -7806,7 +7789,7 @@ func (w *FaultyStorage) WithAuditCheckpointLock(ctx context.Context, fn func() e
 	return w.real.WithAuditCheckpointLock(ctx, fn)
 }
 
-func (w *FaultyStorage) WithBootstrapLock(ctx context.Context, fn func() error) error {
+func (w *FaultyStorage) WithBootstrapLock(ctx context.Context, fn func(context.Context) error) error {
 	fire, kind, injected := w.check("WithBootstrapLock")
 	if fire {
 		switch kind {
@@ -7838,7 +7821,7 @@ func (w *FaultyStorage) WithNamedLock(ctx context.Context, lockKey string, fn fu
 	return w.real.WithNamedLock(ctx, lockKey, fn)
 }
 
-func (w *FaultyStorage) WithSchedulerLock(ctx context.Context, key int64, fn func() error) (bool, error) {
+func (w *FaultyStorage) WithSchedulerLock(ctx context.Context, key int64, fn func(context.Context) error) (bool, error) {
 	fire, kind, injected := w.check("WithSchedulerLock")
 	if fire {
 		switch kind {

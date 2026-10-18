@@ -497,6 +497,24 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
+## 6h. A database outage now rejects cached credentials (503)
+
+Behaviour change, no setting. On an HTTP request whose credential is in the
+server's ~30-second auth cache, the server re-checks the credential's
+revocation state against the database (PAT, machine token, session and its
+account, federated OIDC machine identity). When that read fails, the request is
+now refused with `503 Service Unavailable`, `Retry-After: 2` and the message
+"authentication temporarily unavailable, please retry". Before, the server
+authenticated it from the cached login, which also kept a credential revoked
+on another replica working during the outage. Expect brief database outages,
+failovers and connection-pool exhaustion to show up as 503s on already
+authenticated clients rather than only on new logins; make API clients, CI
+jobs and agents retry on 503 (gRPC: `Unavailable`, unchanged). Nothing is
+evicted, so requests are served from the cache again as soon as the database
+answers. A session whose user row was deleted is now refused `401` on its next
+request instead of being served until the cache entry expired. See
+[`security/threat-models/authentication.md`](security/threat-models/authentication.md) AUTH-11.
+
 ## 6g. "Last used" in access recertification now means "within the review period"
 
 The per-user "last used" of the project access review (and of the items a campaign
@@ -551,6 +569,9 @@ If an upgrade goes wrong:
 
 - `docs/SELF_HOSTING.md` §4 (master password / KEK), §5 (backup and
   restore), §6 (upgrades), §9 (troubleshooting).
+- `docs/operator/startup-refusals.md` for what each start-up refusal means after an
+  upgrade or rollback (schema epoch newer than the binary, compatibility floor,
+  key files, restore rollback protection) and which fixes are safe in place.
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
 - `docs/rolling-upgrade-columns.md` for why a column added by one release does

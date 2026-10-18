@@ -60,7 +60,14 @@ type Storage interface {
 	// On PostgreSQL it uses a session advisory lock (pg_try_advisory_lock); on
 	// SQLite (single instance) fn always runs. Returns ran=false (and nil error)
 	// when another replica holds the lock — the caller should simply skip this tick.
-	WithSchedulerLock(ctx context.Context, key int64, fn func() error) (ran bool, err error)
+	//
+	// fn (here and in WithAuditCheckpointLock, WithBootstrapLock and
+	// WithNamedLock) must run under the ctx it is passed, not one it closed
+	// over: on PostgreSQL that ctx is cancelled with cause
+	// store.ErrAdvisoryLockLost when the lock's connection dies while fn runs
+	// (the lock is gone and another replica may take it), and the call then
+	// returns that error joined with fn's own.
+	WithSchedulerLock(ctx context.Context, key int64, fn func(ctx context.Context) error) (ran bool, err error)
 
 	// TryAcquireSchedulerLock and ReleaseSchedulerLock (#530) are the two
 	// building blocks WithSchedulerLock is composed from. They exist as their
@@ -102,7 +109,7 @@ type Storage interface {
 	// against a consistent, serialized view, not silently no-op (#300). On PostgreSQL
 	// it holds a session advisory lock (pg_advisory_lock) for the duration of fn; on
 	// SQLite (single instance, no cross-process concern) a process mutex is enough.
-	WithAuditCheckpointLock(ctx context.Context, fn func() error) error
+	WithAuditCheckpointLock(ctx context.Context, fn func(ctx context.Context) error) error
 
 	// WithBootstrapLock serializes BootstrapSystem's whole "is this a fresh
 	// install" check through admin/RBAC/project seeding (auth_bootstrap.go) across
@@ -117,7 +124,7 @@ type Storage interface {
 	// PostgreSQL it holds a session advisory lock (pg_advisory_lock) for the
 	// duration of fn; on SQLite (single instance, no cross-process concern) a
 	// process mutex is enough.
-	WithBootstrapLock(ctx context.Context, fn func() error) error
+	WithBootstrapLock(ctx context.Context, fn func(ctx context.Context) error) error
 
 	// WithNamedLock serializes fn against every OTHER caller using the identical
 	// lockKey, across replicas of an HA deployment (ADR-039) -- the general-purpose
@@ -393,15 +400,6 @@ type Storage interface {
 	// already decided or the parent campaign was closed (by a prior or racing call)
 	// and this write was rejected, not silently applied.
 	UpdateAccessReviewItem(ctx context.Context, item *models.AccessReviewItem) (bool, error)
-	// RevertAccessReviewItemClaim compensates a claim whose real action then failed
-	// to apply (revoke's post-claim failure window — see claimItemDecision's doc
-	// comment for why revoke must claim before acting). Conditional UPDATE, same
-	// atomic-compare-and-swap shape as UpdateAccessReviewItem's own claim, run in
-	// reverse (WHERE id = ? AND decision = fromDecision AND decided_by = actorID).
-	// The bool reports whether the row matched and was reverted; false means
-	// someone else already changed it since this caller's own claim, and the
-	// caller must fail closed (leave it alone), not overwrite that other change.
-	RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error)
 
 	// Separation-of-duties policies (ISO 27001 A.5.3 / SOX) — toxic permission pairs.
 	CreateSoDPolicy(ctx context.Context, p *models.SoDPolicy) (*models.SoDPolicy, error)

@@ -216,15 +216,18 @@ func TestValidateOIDCToken_ResolvesMachine(t *testing.T) {
 	c := NewKeyorixCore(store)
 	c.SetOIDCVerifier(newTestVerifier(t, key))
 
+	expUnix := time.Now().Add(time.Hour).Unix()
 	raw := signToken(t, key, "kid-1", jwt.MapClaims{
 		"iss": "https://k8s.local", "sub": "sa", "aud": []string{"keyorix"},
 		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(time.Hour).Unix(),
+		"exp": expUnix,
 	})
-	m, roles, err := c.ValidateOIDCToken(context.Background(), raw)
+	m, roles, exp, err := c.ValidateOIDCToken(context.Background(), raw)
 	require.NoError(t, err)
 	require.Equal(t, uint(7), m.ID)
 	require.Equal(t, []string{"project_viewer"}, roles)
+	// OIDC-EXPIRY-CAP-1: the token's own exp is reported so the auth cache can cap on it.
+	require.Equal(t, expUnix, exp.Unix())
 }
 
 func TestValidateOIDCToken_DisabledAndSuspended(t *testing.T) {
@@ -238,7 +241,7 @@ func TestValidateOIDCToken_DisabledAndSuspended(t *testing.T) {
 
 	// Disabled: no verifier set.
 	c := NewKeyorixCore(new(MockStorage))
-	_, _, err := c.ValidateOIDCToken(context.Background(), raw)
+	_, _, _, err := c.ValidateOIDCToken(context.Background(), raw)
 	require.ErrorContains(t, err, "not enabled")
 
 	// Suspended machine → rejected even with a valid token + binding.
@@ -247,6 +250,6 @@ func TestValidateOIDCToken_DisabledAndSuspended(t *testing.T) {
 		Return(&models.MachineIdentity{ID: 7, State: MachineSuspended}, nil)
 	c2 := NewKeyorixCore(store)
 	c2.SetOIDCVerifier(newTestVerifier(t, key))
-	_, _, err = c2.ValidateOIDCToken(context.Background(), raw)
+	_, _, _, err = c2.ValidateOIDCToken(context.Background(), raw)
 	require.ErrorContains(t, err, "suspended")
 }

@@ -24,10 +24,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -141,8 +142,7 @@ func TestEveryLocalStorageCloneOmitsAuditSkipDurableSync(t *testing.T) {
 	const fieldName = "auditSkipDurableSync"
 	const rootConstructor = "NewLocalStorage"
 
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller failed")
+	thisFile := filepath.Join(srcpath.PkgDir(), "fast_audit_mode_test.go")
 	pkgDir := filepath.Dir(thisFile)
 
 	entries, err := os.ReadDir(pkgDir)
