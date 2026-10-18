@@ -13,9 +13,10 @@
   send order with the serial rules: a commit updates the cache; a failure that provably wrote nothing
   (a Postgres error before COMMIT, or a batch queued behind one the backend ended with a FATAL error)
   is retried in two flights and then bisected (`finishAuditBatch`); any other failure fails its items.
-  Every item gets nil only after its own batch's COMMIT was acknowledged. The flusher's serial commits
-  and retries reuse the held connection (`auditHeldConn`), so it never waits for a second pool
-  connection. A pipelined batch stores exactly the rows the serial path stores for the same items in
+  Every item gets nil only after its own batch's COMMIT was acknowledged. The flusher's own serial
+  commits and retries reuse the held connection, passed explicitly in their context
+  (`withHeldAuditConn`; no other caller can reach it), so the flusher never waits for a second pool
+  connection; a held connection that broke is handed back to the pool first. A pipelined batch stores exactly the rows the serial path stores for the same items in
   the same order (the parameters are re-encoded for the pipeline; an empty value stays "", never
   NULL). SQLite, non-pgx pools and a store with a flusher linger window never pipeline.
   Why: PERF-HIGHLOAD-1 — at high concurrency the single flusher left Postgres idle while it built and
@@ -32,7 +33,10 @@
   `TestPipelinedBatches_PostgresLostConnectionOutcomeUnknown` (failure handling in send order),
   `TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath` and
   `TestPipelinedBatches_PostgresStoresEmptyStringsNotNull` (raw-SQL row comparison: red when an empty
-  parameter is copied as NULL, found by `admin verify-audit` on the bench; all pg-gated), and `TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits`.
+  parameter is copied as NULL, found by `admin verify-audit` on the bench; all pg-gated),
+  `TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits`, and the one-connection-pool tests
+  (`pipelinePGStore`, e.g. `TestOneFlight_PostgresTwoReplicasConcurrent`), which hang if the
+  flusher's serial commits ask the pool for a second connection.
   **Not covered**: as for the serial path, a batch whose COMMIT acknowledgement is lost may have
   committed although its readers were refused; and a connection that breaks during a send can leave a
   committed batch that the serial commit then appends again (a read recorded twice, never not at all).
