@@ -110,8 +110,7 @@ test('create a machine identity, issue its token, read with it, see it audited, 
         ).toBeVisible({ timeout: 5_000 });
     }).toPass({ timeout: 60_000 });
 
-    // 5. Revoke the token in the UI (a browser confirm()), and the server refuses it from then on.
-    page.once('dialog', (d) => d.accept());
+    // 5. Revoke the token in the UI (in-app confirmation dialog), and the server refuses it from then on.
     await page.goto(`/projects/${project.id}/members`);
     await page.getByRole('button', { name: `Toggle tokens for ${identityName}` }).click();
     const revoked = page.waitForResponse(
@@ -125,6 +124,10 @@ test('create a machine identity, issue its token, read with it, see it audited, 
         .locator('li')
         .filter({ hasText: tokenName });
     await revokedRow.getByTitle('Revoke token').click();
+    const confirmRevoke = page
+        .getByRole('dialog')
+        .filter({ hasText: 'Any client using it will lose access immediately.' });
+    await confirmRevoke.getByRole('button', { name: 'Revoke', exact: true }).click();
     expect((await revoked).status()).toBe(200);
     await expect(revokedRow.getByText('revoked')).toBeVisible();
 
