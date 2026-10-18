@@ -158,12 +158,13 @@ keyorix mfa enroll`,
 	"mfa stepup": `# Prompts for a fresh authenticator or recovery code
 keyorix mfa stepup`,
 
-	"notification channel add": `keyorix notification channel add ops-slack --type slack --url https://hooks.slack.com/services/T000/B000/XXXX --events secret.rotated,anomaly.detected
+	"notification channel add": `keyorix notification channel add ops-slack --type slack --url-file ./slack-url.txt --events secret.rotated,anomaly.detected
 keyorix notification channel add secops-mail --type email --email secops@example.com`,
 	"notification channel delete": `keyorix notification channel delete ops-slack --confirm`,
 	"notification channel get":    `keyorix notification channel get ops-slack`,
 	"notification channel list":   `keyorix notification channel list`,
-	"notification channel update": `keyorix notification channel update ops-slack --events secret.rotated --enabled`,
+	"notification channel update": `keyorix notification channel update ops-slack --events secret.rotated --enabled
+keyorix notification channel update ops-slack --url-file -`,
 
 	"pat cleanup-expired": `keyorix pat cleanup-expired`,
 	"pat create": `# A read-only token for one project, valid until the end of the year

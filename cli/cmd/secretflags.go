@@ -43,6 +43,9 @@ var refusedSecretFlags = []secretFlag{
 	{"secret create", "value", "use --from-file <relative path> (or --from-file - to read stdin), or --interactive for a hidden prompt"},
 	{"secret update", "value", "use --from-file <relative path> (or --from-file - to read stdin), or --interactive for a hidden prompt"},
 	{"secret rotate", "value", "leave the flag out: the value is read from a hidden prompt, or from stdin when it is piped"},
+	// A webhook URL is a credential: its path carries the token (Slack, Teams).
+	{"notification channel add", "url", "use --url-file <relative path> (or --url-file - to read stdin)"},
+	{"notification channel update", "url", "use --url-file <relative path> (or --url-file - to read stdin)"},
 }
 
 // notSecretFlags are string flags and positional arguments whose NAME looks like a
@@ -52,8 +55,6 @@ var refusedSecretFlags = []secretFlag{
 //
 // #nosec G101 -- flag names and one-line reasons, no credentials.
 var notSecretFlags = map[string]string{
-	"notification channel add --url":                              "the server returns a channel's URL to administrators (channel get prints it), so it is configuration, not a credential",
-	"notification channel update --url":                           "same as notification channel add --url",
 	"trust keygen --key-id":                                       "a public key identifier",
 	"config get <key>":                                            "the name of a CLI setting",
 	"config set <key> <value>":                                    "the only setting is ca_file, a path (requireConfigKey)",
