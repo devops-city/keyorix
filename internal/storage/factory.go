@@ -600,7 +600,7 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 	// (nothing to pre-exist) rather than by a carve-out.
 	if cfg.Storage.Database.RequireExistingPath && isRealFile && !dbFileExists {
 		return nil, fmt.Errorf("no database found at %s (configured database.path: %q) and database.require_existing_path is set: "+
-			"run 'keyorix system init --database' to create one deliberately, or verify database.path and the working directory "+
+			"run 'keyorix-server admin init' to create one deliberately, or verify database.path and the working directory "+
 			"-- refusing to create a new, empty database in its place (INV-STORAGE-22, ADR-095 Task 3)",
 			logDbPath, cfg.Storage.Database.Path)
 	}
