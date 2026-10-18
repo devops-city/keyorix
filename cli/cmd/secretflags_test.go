@@ -121,6 +121,9 @@ func TestRefusedSecretFlagsAreRefused(t *testing.T) {
 			if err == nil {
 				t.Fatalf("keyorix %s %s: want a refusal, got success", sf.Command, "--"+sf.Flag)
 			}
+			if code, _ := classifyError(err, true); code != exitUsage {
+				t.Errorf("a refused secret flag is a usage error (exit %d), got exit %d", exitUsage, code)
+			}
 			msg := err.Error()
 			for _, want := range []string{"--" + sf.Flag + " is not accepted", sf.Instead, allowInsecureSecretFlagsEnv} {
 				if !strings.Contains(msg, want) {

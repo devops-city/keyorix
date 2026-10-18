@@ -94,7 +94,8 @@ Checks, in order:
   audit       the audit hash chain's integrity as the server last proved it
 
 Checks that need an earlier one to pass are skipped, not failed. The exit code is 0 when
-nothing failed (warnings do not fail it) and non-zero otherwise.`,
+nothing failed (warnings do not fail it) and 1 otherwise (2 for a bad flag; see the
+exit-code table in "keyorix --help").`,
 	Example: `  # Run every check against the configured server
   keyorix doctor
   # The same, for a script: JSON, and a non-zero exit if any check failed
@@ -114,7 +115,7 @@ func runDoctor(cmd *cobra.Command, _ []string) error {
 	switch doctorOutput {
 	case "table", "json", "yaml":
 	default:
-		return fmt.Errorf("unsupported output format %q: use table, json or yaml", doctorOutput)
+		return usageErrorf("unsupported output format %q: use table, json or yaml", doctorOutput)
 	}
 	rep := collectDoctorReport(cmd.Context())
 	if err := printDoctorReport(rep); err != nil {
@@ -221,8 +222,17 @@ func doctorReachable(ctx context.Context, rep *doctorReport, client *apiclient.C
 	resp, err := client.HealthCheckWithResponse(ctx)
 	elapsed := doctorNow().Sub(start).Round(time.Millisecond)
 	if err != nil {
-		rep.add("reachable", doctorFail, "no answer from "+cliout.SanitizeForTerminal(serverURL)+": "+cliout.SanitizeForTerminal(err.Error()),
-			"check that the server is running and the URL is right (`keyorix status` shows the URL in use); if it is behind a proxy or VPN, check that too")
+		next := "check that the server is running and the URL is right (`keyorix status` shows the URL in use); if it is behind a proxy or VPN, check that too"
+		detail := cliout.SanitizeForTerminal(err.Error())
+		if described, ok := apiclient.DescribeTransportError(err); ok {
+			// The same plain-language text every other command prints; its "Next step:" tail
+			// moves into next_step so the report keeps its two columns.
+			detail = cliout.SanitizeForTerminal(described)
+			if head, tail, found := strings.Cut(detail, " Next step: "); found {
+				detail, next = head, tail
+			}
+		}
+		rep.add("reachable", doctorFail, "no answer from "+cliout.SanitizeForTerminal(serverURL)+": "+detail, next)
 		return false
 	}
 	switch {

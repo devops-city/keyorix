@@ -30,7 +30,7 @@ const (
 
 const exitCodesHelp = `Exit codes:
   0  success
-  1  the request was refused or failed (conflict, validation error, server error)
+  1  the request was refused or failed (conflict, validation error, server error); "doctor": a check failed
   2  usage error: unknown command, bad or missing flag or argument
   3  not logged in, or the session was rejected (HTTP 401): run "keyorix login"
   4  permission denied (HTTP 403)

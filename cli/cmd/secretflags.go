@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -137,7 +136,7 @@ func refuseSecretFlags(cmd *cobra.Command, flags []secretFlag) error {
 	}
 	for _, sf := range flags {
 		if cmd.Flags().Changed(sf.Flag) {
-			return fmt.Errorf("--%s is not accepted: a secret on the command line is visible to other users through ps "+
+			return usageErrorf("--%s is not accepted: a secret on the command line is visible to other users through ps "+
 				"and stays in your shell history and CI logs. Instead: %s. (Scripts not yet moved can set %s=1 to get a "+
 				"warning instead of this error.)", sf.Flag, sf.Instead, allowInsecureSecretFlagsEnv)
 		}
