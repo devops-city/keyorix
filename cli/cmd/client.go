@@ -248,6 +248,11 @@ const (
 	errCodeSecretMaxReadsExhausted = "SecretMaxReadsExhausted"
 )
 
+// errCodeSuspendAuditUnavailable is the code (HTTP 500) of a suspend that asked to clear
+// synced copies and was refused because the audit log cannot record it
+// (core.SuspendAuditUnavailableCode). The refused secret(s) were left unchanged.
+const errCodeSuspendAuditUnavailable = "SuspendAuditUnavailable"
+
 // nextStepHint returns a " Next step: ..." suffix for server error codes that
 // have one fixed remedy, or "". MFA enrolment: without it a fresh admin logs in
 // successfully and then every command fails (#2937). The secret read refusals:
@@ -270,6 +275,9 @@ func nextStepHint(eb apiErrorBody) string {
 	case errCodeSecretMaxReadsExhausted:
 		return " Next step: someone with secrets.write can raise the limit " +
 			"(`keyorix secret update --id <secret-id> --max-reads <n>`, n above the reads already made)."
+	case errCodeSuspendAuditUnavailable:
+		return " Next step: to cut access now, run the same suspend again without `--clear-synced-copies` " +
+			"(a plain suspend is not blocked by the audit log); clear the synced copies once the audit log is back."
 	}
 	return ""
 }

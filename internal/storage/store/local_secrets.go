@@ -1291,6 +1291,36 @@ func (ls *LocalStorage) CountOrphanedSecretsByProject(ctx context.Context, proje
 	return counts, nil
 }
 
+// CountSecretsByEnvironment returns the live-secret count (is_secret, not
+// soft-deleted) for every environment in envIDs via a single
+// `GROUP BY environment_id` query, so the environment list needs no per-environment
+// round trip. An environment with no secrets is simply absent from the map.
+func (ls *LocalStorage) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64)
+	if len(envIDs) == 0 {
+		return counts, nil
+	}
+	type row struct {
+		EnvironmentID uint
+		N             int64
+	}
+	var rows []row
+	// Model() applies GORM's soft-delete scope (secret_nodes.deleted_at IS NULL).
+	err := ls.db.WithContext(ctx).Model(&models.SecretNode{}).
+		Select("secret_nodes.environment_id AS environment_id, COUNT(*) AS n").
+		Where("secret_nodes.environment_id IN ?", envIDs).
+		Where("secret_nodes.is_secret = ?", true).
+		Group("secret_nodes.environment_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	for _, r := range rows {
+		counts[r.EnvironmentID] = r.N
+	}
+	return counts, nil
+}
+
 // CountExpiringSecretsByProject returns, for every project in projectIDs, the
 // count of live secrets with a non-null expiration before expiresBefore — the
 // same definition ListSecrets(ExpiresBefore) uses per-project, but grouped into a

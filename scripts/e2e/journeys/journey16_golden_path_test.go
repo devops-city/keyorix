@@ -20,9 +20,11 @@
 //     repo (confirmed: `grep -rl recover-admin scripts/e2e` found nothing before
 //     this file) — that gap is this journey's actual reason to exist.
 //   - Does not exercise MFA enrollment or a live-server admin backup/recovery-key
-//     command: both are open DEMO-1 findings (#2552, #2540/#2602) that fail by
-//     design today; this journey guards what currently works, not what's already
-//     tracked as broken. Extend it once those land.
+//     command. The DEMO-1 findings behind that are fixed, so this is a coverage
+//     gap, not a known failure: #2552's root cause (web enrollment omitted the
+//     password ActivateMFA's re-auth requires) was fixed by #2466 (the issue itself
+//     was still open on GitHub when this was checked, 2026-10-17), and #2540 and
+//     #2602 are closed. Extend this journey to cover them.
 package journeys
 
 import (

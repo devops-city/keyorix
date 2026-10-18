@@ -96,6 +96,21 @@ plus, when the term is part of `system` (e.g. `sys`), the kind-`system` events.
 `entry_hash` and a verifier re-derives the hash from the exported fields. The
 displayed kind is in the separate `actor_kind_display` field.
 
+### A credential with no role grant
+A newly created machine identity holds no role, and its token authenticates but
+reads nothing. The two list routes that filter rows by the caller's grants
+instead of a permission gate, `GET /api/v1/projects` and
+`GET /api/v1/environments`, answer **200 with an empty list**; every route gated
+on a permission answers **403**; self-service routes about the caller itself
+(e.g. `GET /api/v1/notifications`) answer 200 with only the caller's own rows,
+which for a new machine identity are none. The same holds for a user stripped
+of every role (including the `system_viewer` baseline) and that user's PATs,
+and for a machine identity whose last grant was just removed: the removal
+applies to the next request, cached token or not. Checked by
+`server/http` `TestEveryGETRouteWithholdsDataFromZeroGrantCredentials` and
+`TestZeroGrantAfterRevocation_CachedMachineTokenReadsNothing` (every GET route,
+SQLite and Postgres).
+
 ## 🔐 **Secret Management API**
 
 ### List Secrets
@@ -328,6 +343,22 @@ Content-Type: application/json
 ```http
 DELETE /api/v1/shares/{id}
 Authorization: Bearer <token>
+```
+
+## 🗂️ **Environments API**
+
+### List Environments
+```http
+GET /api/v1/environments
+GET /api/v1/projects/{id}/environments[?include_deleted=true]
+Authorization: Bearer <token>
+```
+Each environment carries `secret_count`: the number of live secrets in it (folders and
+soft-deleted secrets are not counted). The server computes all counts for a response in
+one grouped query, so a client does not need a secrets request per environment. An empty
+environment reports `0`; the field is always present.
+```json
+{ "id": 7, "project_id": 3, "name": "production", "secret_count": 12, "created_at": "...", "updated_at": "..." }
 ```
 
 ## 👥 **User Management API**

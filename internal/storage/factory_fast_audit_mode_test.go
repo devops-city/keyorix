@@ -6,6 +6,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/i18n"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +21,7 @@ import (
 // side — that even if such a config somehow reached the factory, the DSN it
 // builds is still durable.
 func TestSQLiteDSN_SynchronousIsAlwaysFULL(t *testing.T) {
-	for _, path := range []string{"/data/secrets.db", "/data/secrets.db?cache=shared"} {
+	for _, path := range []string{"/data/secrets.db", sqlitetest.DSN("fastaudit_")} {
 		dsn := sqliteDSN(path)
 		require.Contains(t, dsn, "_synchronous=FULL",
 			"the SQLite DSN must say FULL unconditionally: ADR-112 §3's baseline is that a secret value is "+

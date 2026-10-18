@@ -398,6 +398,7 @@ paths:
       security: [{bearerAuth: []}]
       responses:
         '200': {description: 'Active sessions; the request own session is flagged current'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/auth/sessions/{id}:
     delete:
       tags: [Auth]
@@ -425,6 +426,7 @@ paths:
                 type: object
                 properties:
                   data: {type: array, items: {$ref: '#/components/schemas/PATToken'}}
+        '403': {$ref: '#/components/responses/Error'}
     post:
       tags: [Auth]
       summary: Create a personal access token (raw token returned once)
@@ -476,6 +478,7 @@ paths:
                 type: object
                 properties:
                   data: {type: array, items: {$ref: '#/components/schemas/PATToken'}}
+        '403': {$ref: '#/components/responses/Error'}
     delete:
       tags: [Auth]
       summary: Bulk-revoke all of the caller's expired personal access tokens
@@ -484,6 +487,7 @@ paths:
       security: [{bearerAuth: []}]
       responses:
         '204': {description: All expired tokens revoked.}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/pat-hygiene:
     get:
       tags: [Auth]
@@ -716,6 +720,7 @@ paths:
       security: [{bearerAuth: []}]
       responses:
         '200': {description: Impersonation ended}
+        '403': {$ref: '#/components/responses/Error'}
   /api/v1/system/info:
     get:
       tags: [System]
@@ -3003,7 +3008,11 @@ paths:
                     `secret.bulk_suspend_attempted` audit event records the choice
                     (`clear_synced_copies=true`) and the number of secrets targeted
                     BEFORE any secret is touched; if that event cannot be recorded
-                    the request fails and nothing is suspended.
+                    the request fails and nothing is suspended. That refusal, and one
+                    that stops the run early because a secret's own audit event was
+                    refused (`details` then holds `suspended` and `failed`), answer 500
+                    with error `SuspendAuditUnavailable`; suspend again without
+                    `clear_synced_copies` to cut access immediately.
       responses:
         '200':
           description: Envelope `{data, message}`.
@@ -3963,6 +3972,12 @@ paths:
       description: >-
         Block value reads without deleting the secret. Versions, shares, and
         the audit trail are preserved. Requires secrets.write.
+        A request with `clear_synced_copies` is refused with 500 and error
+        `SuspendAuditUnavailable` when its audit event cannot be recorded; nothing is
+        changed. The message says what to do now: suspend again without
+        `clear_synced_copies` to cut access immediately (a plain suspend is never
+        blocked by the audit log); clearing the synced copies needs the audit log back.
+        There is no gRPC twin: the gRPC API has no secret suspend.
       operationId: suspendSecret
       security: [{bearerAuth: []}]
       parameters:
@@ -4003,6 +4018,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
+        '500': {$ref: '#/components/responses/Error'}
   /api/v1/secrets/{id}/resume:
     post:
       tags: [Secrets]
@@ -4695,6 +4711,7 @@ paths:
         '204': {description: Removed (no content).}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
 
   /api/v1/secrets/{id}/access-log/export:
@@ -8622,6 +8639,14 @@ components:
         id: {type: integer}
         project_id: {type: integer}
         name: {type: string}
+        secret_count:
+          type: integer
+          format: int64
+          description: >-
+            Live secrets in the environment (folders and soft-deleted secrets
+            excluded). Computed by the server in one grouped query on the list
+            routes (GET /environments, GET /projects/{id}/environments); 0 on a
+            freshly created environment.
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         deleted_at: {type: string, format: date-time}

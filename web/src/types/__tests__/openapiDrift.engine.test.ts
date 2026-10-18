@@ -3,7 +3,7 @@
 // watched fail is not a guard (CLAUDE.md), and the real-spec test in
 // openapiDrift.test.ts is green on a clean tree, so it cannot show this itself.
 import { describe, expect, it } from 'vitest';
-import { compare, createProgram, exportedInterfaces, toShape } from './openapiDriftLib';
+import { allowKey, compare, createProgram, exportedInterfaces, toShape } from './openapiDriftLib';
 
 const doc = {
     components: {
@@ -97,13 +97,55 @@ describe('openapiDriftLib engine', () => {
         expect(run(GOOD.replace('id: number', 'id?: number'), { request: true }).out).toHaveLength(1);
     });
 
-    it('an exemption suppresses exactly its field and is recorded as used', () => {
-        const r = run(GOOD + ' extra: string;', { allow: { 'Thing.extra': 'because' } });
+    it('an exemption suppresses exactly its path and message kind and is recorded as used', () => {
+        const r = run(GOOD + ' extra: string;', { allow: { [allowKey('Thing.extra', 'ts-only')]: 'because' } });
         expect(r.out).toEqual([]);
-        expect([...r.used]).toEqual(['Thing.extra']);
+        expect([...r.used]).toEqual(['Thing.extra#ts-only']);
     });
 
     it('an unneeded exemption is not recorded as used (the caller fails it as stale)', () => {
-        expect([...run(GOOD, { allow: { 'Thing.extra': 'because' } }).used]).toEqual([]);
+        expect([...run(GOOD, { allow: { [allowKey('Thing.extra', 'ts-only')]: 'because' } }).used]).toEqual([]);
+    });
+
+    // #2868: an exemption used to silence EVERY check on its path, so a second,
+    // unrelated drift on an exempted path was invisible. `when` here drifts two
+    // ways at once (nullability dropped AND a literal union the schema has no
+    // enum for); exempting the first must leave the second reported.
+    const TWO_DRIFTS = GOOD.replace('when?: string | null', "when?: 'a' | 'b'");
+
+    it('red: both drifts on one path are reported when nothing is exempted', () => {
+        const kinds = run(TWO_DRIFTS).out;
+        expect(kinds).toEqual([
+            expect.stringContaining('Thing.when: TS forbids null'),
+            expect.stringContaining('Thing.when: TS is a literal union'),
+        ]);
+    });
+
+    it('an exemption for one message kind does not hide a second drift on the same path', () => {
+        const r = run(TWO_DRIFTS, { allow: { [allowKey('Thing.when', 'nullable')]: 'because' } });
+        expect(r.out).toEqual([expect.stringContaining('Thing.when: TS is a literal union')]);
+        expect([...r.used]).toEqual(['Thing.when#nullable']);
+    });
+
+    it('an exemption for a different kind than the one that fires does not suppress it and is not used', () => {
+        const r = run(GOOD.replace('when?: string | null', 'when?: string'), {
+            allow: { [allowKey('Thing.when', 'enum-mismatch')]: 'because' },
+        });
+        expect(r.out).toEqual([expect.stringContaining('Thing.when: TS forbids null')]);
+        expect([...r.used]).toEqual([]);
+    });
+
+    it('exempting every kind that fires on a path silences the path', () => {
+        const r = run(TWO_DRIFTS, {
+            allow: { [allowKey('Thing.when', 'nullable')]: 'a', [allowKey('Thing.when', 'union-no-enum')]: 'b' },
+        });
+        expect(r.out).toEqual([]);
+        expect([...r.used].sort()).toEqual(['Thing.when#nullable', 'Thing.when#union-no-enum']);
+    });
+
+    it('a bare path key (the pre-#2868 shape) no longer exempts anything', () => {
+        const r = run(GOOD + ' extra: string;', { allow: { 'Thing.extra': 'because' } });
+        expect(r.out).toEqual([expect.stringContaining('Thing.extra: declared in TS but not in the schema')]);
+        expect([...r.used]).toEqual([]);
     });
 });

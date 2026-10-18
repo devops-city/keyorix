@@ -419,9 +419,8 @@ func (h *ShareHandler) GetSharingStatusWithIndicators(w http.ResponseWriter, r *
 
 // RemoveSelfFromShare handles DELETE /api/v1/secrets/{id}/self-share
 func (h *ShareHandler) RemoveSelfFromShare(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserFromContext(r.Context())
-	if userCtx == nil {
-		h.sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+	userCtx, ok := mustGetHumanUser(w, r)
+	if !ok {
 		return
 	}
 

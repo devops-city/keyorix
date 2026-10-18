@@ -123,7 +123,22 @@ func (c *client) Encrypt(ctx context.Context, plaintext []byte) ([]byte, error) 
 	return out.CiphertextBlob, nil
 }
 
+// #3398: KMSKeyProvider refuses insecure_allow_kms_context_fallback on a KEK that
+// is already bound only through this interface; losing it would drop the refusal.
+var _ keyorixcrypto.ContextFallbackKMSClient = (*client)(nil)
+
 func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error) {
+	pt, _, err := c.DecryptReportingFallback(ctx, ciphertext)
+	return pt, err
+}
+
+// ContextFallbackEnabled implements crypto.ContextFallbackKMSClient: the
+// no-context retry can happen only with the flag set and a context configured.
+func (c *client) ContextFallbackEnabled() bool { return c.allowFallback && len(c.encCtx) > 0 }
+
+// DecryptReportingFallback implements crypto.ContextFallbackKMSClient; Decrypt
+// is this without the report.
+func (c *client) DecryptReportingFallback(ctx context.Context, ciphertext []byte) ([]byte, bool, error) {
 	// Pin KeyId so the blob is only decryptable by the expected CMK.
 	in := &kms.DecryptInput{CiphertextBlob: ciphertext, KeyId: &c.keyID}
 	if len(c.encCtx) > 0 {
@@ -141,9 +156,11 @@ func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
 	// loudly: it means this decrypt just used the weaker, unbound path, which should
 	// be closed by re-wrapping (`keyorix encryption migrate-provider
 	// --to-kms-encryption-context=...`) and turning the flag back off.
-	if err != nil && len(c.encCtx) > 0 && c.allowFallback {
+	fellBack := false
+	if err != nil && c.ContextFallbackEnabled() {
 		out, err = c.kms.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: ciphertext, KeyId: &c.keyID})
 		if err == nil {
+			fellBack = true
 			log.Printf("aws-kms: decrypted a wrapped KEK WITHOUT its configured encryption context (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback")
 			if c.fallbackHook != nil {
 				c.fallbackHook(ctx, c.keyID)
@@ -151,7 +168,7 @@ func (c *client) Decrypt(ctx context.Context, ciphertext []byte) ([]byte, error)
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("aws-kms: decrypt: %w", err)
+		return nil, false, fmt.Errorf("aws-kms: decrypt: %w", err)
 	}
-	return out.Plaintext, nil
+	return out.Plaintext, fellBack, nil
 }

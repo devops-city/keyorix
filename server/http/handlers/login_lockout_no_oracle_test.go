@@ -31,7 +31,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -51,8 +50,8 @@ import (
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
@@ -63,8 +62,6 @@ const (
 	// lockoutOracleTestIP is httptest.NewRequest's default RemoteAddr host.
 	lockoutOracleTestIP = "192.0.2.1"
 )
-
-var lockoutOracleDBCounter atomic.Int64
 
 // lockoutOracleEnv is one fully independent server: its own in-memory DB, its
 // own core with the lockout policy enabled, and a fault wrapper that starts
@@ -92,11 +89,11 @@ func newLockoutOracleEnvOver(t *testing.T, wrap func(corestorage.Storage, *gorm.
 	t.Helper()
 	require.NoError(t, i18n.Initialize(&config.Config{Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"}}))
 
-	// A private shared-cache DB per env: these tests all use user id 1, and
-	// several run in sequence within one test function.
-	dsn := fmt.Sprintf("file:kxlockoutoracle%d?mode=memory&cache=shared&_timeout=30000", lockoutOracleDBCounter.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
+	// A private DB per env: these tests all use user id 1, and several run in
+	// sequence within one test function. sqlitetest caps the pool to one
+	// connection (a shared-cache DB answers concurrent connections with
+	// SQLITE_LOCKED, which a busy timeout does not retry) and closes it on cleanup.
+	db := sqlitetest.OpenWithConfig(t, "kxlockoutoracle", &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.LoginAttempt{},
 		&models.MFASecret{}, &models.MFARecoveryCode{}, &models.MFAChallenge{},
@@ -104,15 +101,6 @@ func newLockoutOracleEnvOver(t *testing.T, wrap func(corestorage.Storage, *gorm.
 		&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.PasswordHistory{},
 	))
-
-	// One connection per in-memory DB: a shared-cache SQLite database serves
-	// concurrent connections with SQLITE_LOCKED ("database table is locked"),
-	// which busy_timeout does not retry. These tests need no concurrency, so
-	// capping the pool keeps them from adding contention to a package that
-	// already runs a lot of SQLite in parallel.
-	if sqlDB, derr := db.DB(); derr == nil {
-		sqlDB.SetMaxOpenConns(1)
-	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(lockoutOracleTestPassword), bcrypt.MinCost)
 	require.NoError(t, err)

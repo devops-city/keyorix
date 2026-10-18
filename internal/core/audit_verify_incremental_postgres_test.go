@@ -68,7 +68,7 @@ func TestIncrementalVerify_Postgres(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = a.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func() error {
+		_, _ = a.storage.WithSchedulerLock(ctx, AuditVerifyJobLockKey, func(context.Context) error {
 			close(held)
 			<-release
 			return nil

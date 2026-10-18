@@ -15,6 +15,7 @@ import {
     STALE_MACHINE_IDENTITY_DAYS,
 } from '../../services/machineIdentities';
 import { useAuth } from '../auth';
+import { useConfirm } from '../../components/ui/useConfirm';
 import {
     useMachineIdentities,
     useCreateMachineIdentity,
@@ -56,6 +57,7 @@ const stateStyle = (state: string): React.CSSProperties => {
  */
 export const MachineIdentitiesSection: React.FC<{ projectId: number }> = ({ projectId }) => {
     const { isAdmin } = useAuth();
+    const { requestConfirm, confirmDialog } = useConfirm();
     const { data: identities = [], isLoading } = useMachineIdentities(projectId);
     const create = useCreateMachineIdentity(projectId);
     const transition = useTransitionMachineIdentity(projectId);
@@ -81,17 +83,23 @@ export const MachineIdentitiesSection: React.FC<{ projectId: number }> = ({ proj
         );
     };
 
-    const act = (m: MachineIdentity, action: 'activate' | 'suspend' | 'revoke') => {
+    const act = async (m: MachineIdentity, action: 'activate' | 'suspend' | 'revoke') => {
         // Activating/reactivating is non-destructive; suspend and revoke break the
         // identity's access (revoke permanently), so both are confirmed first.
         if (action === 'suspend') {
-            if (!window.confirm(`Suspend machine identity "${m.name}"? It will lose access until reactivated.`)) {
-                return;
-            }
+            const ok = await requestConfirm({
+                title: 'Suspend machine identity',
+                message: `Suspend machine identity "${m.name}"? It will lose access until reactivated.`,
+                confirmText: 'Suspend',
+            });
+            if (!ok) return;
         } else if (action === 'revoke') {
-            if (!window.confirm(`Revoke machine identity "${m.name}"? This cannot be undone.`)) {
-                return;
-            }
+            const ok = await requestConfirm({
+                title: 'Revoke machine identity',
+                message: `Revoke machine identity "${m.name}"? This cannot be undone.`,
+                confirmText: 'Revoke',
+            });
+            if (!ok) return;
         }
         setError('');
         transition.mutate(
@@ -327,6 +335,7 @@ export const MachineIdentitiesSection: React.FC<{ projectId: number }> = ({ proj
                     identitiesContent
                 )}
             </div>
+            {confirmDialog}
         </div>
     );
 };

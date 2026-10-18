@@ -32,6 +32,29 @@ import (
 // package that wraps os.ReadFile, or the cli/ and operator/ modules (their own
 // go.mod; cli/cmd/secretfile.go carries its own copy of the pattern). Write-side
 // OpenFile calls (O_WRONLY, O_RDWR, O_CREATE, O_APPEND, O_TRUNC) are skipped.
+//
+// What it does NOT cover (REVIEW-COVERAGE-1, 2026-10-17), so a green run says
+// nothing about these:
+//   - Packages outside guardedDirs. Plain reads of operator-named or credential
+//     files that exist today outside the list: internal/dynamic/kubernetes.go
+//     (fixed kubelet ServiceAccount token/CA paths, like k8ssync's), server/ files
+//     other than main.go and admin/ (e.g. server/clock_warnings.go reads the
+//     configured TLS certificate, not a secret, but a FIFO there hangs the same
+//     way), and the migrate/ module
+//     (own go.mod; migrate/cmd/credentials.go reads a --*-file credential with a
+//     plain os.ReadFile).
+//   - Read spellings other than the four above: os.DirFS/fs.ReadFile, os.OpenRoot
+//     and (*os.Root).Open, syscall.Open / unix.Open, io.ReadAll over a file opened
+//     elsewhere, exec of cat, and reads in package-level var initialisers (only
+//     FuncDecl bodies, including closures inside them, are inspected).
+//   - Whether the caller of OpenRegular judges the file's permissions: this guard
+//     is about the FIFO hang only. The mode policy is CheckPermissions/LookupChecked,
+//     pinned by secretenv_test.go.
+//   - Symlink policy: OpenRegular follows symlinks by design (Kubernetes Secret
+//     volumes); nothing here asserts that a caller which must refuse one passes
+//     syscall.O_NOFOLLOW.
+//   - The allowlist reasons: nonSecretFileReads entries are checked for existence
+//     (a stale entry fails), not for the truth of their reason.
 func TestSecretFileReadsGoThroughOpenRegular(t *testing.T) {
 	root := repoRoot(t)
 	found := scanFileReads(t, root, guardedDirs)

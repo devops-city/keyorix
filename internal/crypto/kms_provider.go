@@ -3,6 +3,7 @@ package crypto
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,27 @@ type KMSClient interface {
 	Encrypt(ctx context.Context, plaintext []byte) (ciphertext []byte, err error)
 	Decrypt(ctx context.Context, ciphertext []byte) (plaintext []byte, err error)
 }
+
+// ContextFallbackKMSClient is a KMSClient that can retry a context-bound Decrypt
+// without its encryption context (insecure_allow_kms_context_fallback, #123):
+// aws-kms and gcp-kms. KMSKeyProvider uses it to tell whether the wrapped KEK
+// still needs that retry (#3398).
+type ContextFallbackKMSClient interface {
+	KMSClient
+	// ContextFallbackEnabled reports whether the no-context retry can happen:
+	// the flag is set and an encryption context is configured.
+	ContextFallbackEnabled() bool
+	// DecryptReportingFallback is Decrypt that also reports whether the
+	// plaintext came from the no-context retry.
+	DecryptReportingFallback(ctx context.Context, ciphertext []byte) (plaintext []byte, usedFallback bool, err error)
+}
+
+// ErrKMSContextFallbackNotNeeded is returned by KMSKeyProvider.KEK when
+// insecure_allow_kms_context_fallback is set but the wrapped KEK decrypted WITH
+// its encryption context: no unbound blob is left to migrate, so the flag only
+// keeps the weaker unbound path open (a blob planted with no context would
+// still unwrap). MultiKeyProvider does not try the next provider on it.
+var ErrKMSContextFallbackNotNeeded = errors.New("storage.encryption.key_provider.insecure_allow_kms_context_fallback is set, but the wrapped KEK already decrypts with its encryption context: there is nothing left to migrate, so the flag is no longer needed and can be removed (it only keeps the unbound no-context decrypt path open) -- refusing to start until it is removed")
 
 // kmsCallTimeout bounds a single KMS round-trip at startup.
 const kmsCallTimeout = 30 * time.Second
@@ -70,9 +92,24 @@ func (p *KMSKeyProvider) KEK() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s key provider: read wrapped KEK: %w", p.name, err)
 	}
-	kek, err := p.client.Decrypt(ctx, wrapped)
+	fc, ok := p.client.(ContextFallbackKMSClient)
+	if !ok || !fc.ContextFallbackEnabled() {
+		kek, err := p.client.Decrypt(ctx, wrapped)
+		if err != nil {
+			return nil, fmt.Errorf("%s key provider: KMS decrypt failed: %w", p.name, err)
+		}
+		return validateKEK(kek, p.name)
+	}
+	// #3398: the fallback flag is only needed while the stored KEK is unbound.
+	// One decrypt answers it: the context-bound attempt runs first, so a KEK
+	// that opens without the retry is already bound.
+	kek, usedFallback, err := fc.DecryptReportingFallback(ctx, wrapped)
 	if err != nil {
 		return nil, fmt.Errorf("%s key provider: KMS decrypt failed: %w", p.name, err)
+	}
+	if !usedFallback {
+		clear(kek)
+		return nil, fmt.Errorf("%s key provider: %w", p.name, ErrKMSContextFallbackNotNeeded)
 	}
 	return validateKEK(kek, p.name)
 }

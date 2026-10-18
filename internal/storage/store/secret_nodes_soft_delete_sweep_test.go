@@ -71,12 +71,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // secretNodesSweepExemptFiles are files whose secret_nodes references are
@@ -155,10 +156,7 @@ func (s secretNodesSite) key() string { return s.File + ":" + s.Func }
 
 func TestSecretNodesRawQueries_FilterSoftDelete(t *testing.T) {
 	t.Parallel()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed -- cannot locate the repo root")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "secret_nodes_soft_delete_sweep_test.go")
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..") // internal/storage/store -> root
 
 	for rel := range secretNodesSweepExemptFiles {

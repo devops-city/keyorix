@@ -9,17 +9,15 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // handlersPkgDir is server/http/handlers itself, resolved the same way
 // specPath is (relative to this source file, not process cwd) -- see
 // spec.go's comment for why.
 var handlersPkgDir = func() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("contracttest: runtime.Caller(0) failed -- cannot locate server/http/handlers")
-	}
-	return filepath.Join(filepath.Dir(thisFile), "..")
+	return filepath.Join(srcpath.RepoRoot(), "server", "http", "handlers")
 }()
 
 // CheckExercisingTestsExist asserts every test name referenced in
