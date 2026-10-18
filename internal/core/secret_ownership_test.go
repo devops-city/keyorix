@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
-	"github.com/keyorixhq/keyorix/internal/core/storage"
 	coreStorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -21,9 +20,9 @@ import (
 // transientOwnerLookup wraps LocalStorage so GetUser(failID) returns a transient
 // (non-not-found) error, simulating a momentary backend failure during the owner
 // lookup. All other methods/users behave normally.
-func transientOwnerLookup(inner storage.Storage, failID uint) storage.Storage {
+func transientOwnerLookup(inner coreStorage.Storage, failID uint) coreStorage.Storage {
 	return hooked(inner, &storeHooks{
-		GetUser: func(next storage.Storage, ctx context.Context, id uint) (*models.User, error) {
+		GetUser: func(next coreStorage.Storage, ctx context.Context, id uint) (*models.User, error) {
 			if id == failID {
 				return nil, errors.New("db timeout") // transient, NOT storage.ErrUserNotFound
 			}

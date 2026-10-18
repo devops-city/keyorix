@@ -48,8 +48,11 @@ type storeHooks struct {
 	CreateSetupToken                          func(next storage.Storage, ctx context.Context, t *models.SetupToken) (*models.SetupToken, error)
 	CreateWebAuthnCredential                  func(next storage.Storage, ctx context.Context, c *models.WebAuthnCredential) error
 	CreateWebAuthnSession                     func(next storage.Storage, ctx context.Context, s *models.WebAuthnSession) error
+	DeleteGroup                               func(next storage.Storage, ctx context.Context, id uint) error
 	DeleteMFAForUser                          func(next storage.Storage, ctx context.Context, userID uint) error
 	DeleteMFARecoveryCodes                    func(next storage.Storage, ctx context.Context, userID uint) error
+	DeleteProject                             func(next storage.Storage, ctx context.Context, id uint) error
+	DeleteProjectIfEmpty                      func(next storage.Storage, ctx context.Context, id uint) (int, error)
 	DeleteRotationPolicy                      func(next storage.Storage, ctx context.Context, id uint) error
 	DeleteSecretACL                           func(next storage.Storage, ctx context.Context, id uint) error
 	DeleteSecretACLsByUserAndProject          func(next storage.Storage, ctx context.Context, userID uint, projectID uint) error
@@ -59,6 +62,8 @@ type storeHooks struct {
 	EnforceSessionLimit                       func(next storage.Storage, ctx context.Context, userID uint, keep int) error
 	GetActiveLegalHold                        func(next storage.Storage, ctx context.Context) (*models.LegalHold, error)
 	GetAuditLogs                              func(next storage.Storage, ctx context.Context, filter *storage.AuditFilter) ([]*models.AuditEvent, int64, error)
+	GetDynamicSecretConfig                    func(next storage.Storage, ctx context.Context, id uint) (*models.DynamicSecretConfig, error)
+	GetEnvironment                            func(next storage.Storage, ctx context.Context, id uint) (*models.Environment, error)
 	GetGroupRoles                             func(next storage.Storage, ctx context.Context, groupID uint) ([]*models.Role, error)
 	GetLatestSecretVersion                    func(next storage.Storage, ctx context.Context, secretID uint) (*models.SecretVersion, error)
 	GetMFASecret                              func(next storage.Storage, ctx context.Context, userID uint) (*models.MFASecret, error)
@@ -89,6 +94,8 @@ type storeHooks struct {
 	LastUserSecretWriteActivity               func(next storage.Storage, ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error)
 	ListAdminBypassRoleIDs                    func(next storage.Storage, ctx context.Context) ([]uint, error)
 	ListAllUserRoleGrants                     func(next storage.Storage, ctx context.Context) ([]*models.UserRole, error)
+	ListDynamicSecretConfigs                  func(next storage.Storage, ctx context.Context, projectID uint, environmentID uint) ([]*models.DynamicSecretConfig, error)
+	ListDynamicSecretLeases                   func(next storage.Storage, ctx context.Context, configID uint) ([]*models.DynamicSecretLease, error)
 	ListGlobalAdminAssignmentsForUpdate       func(next storage.Storage, ctx context.Context, adminRoleIDs []uint) ([]storage.RoleAssignment, error)
 	ListGroupMembers                          func(next storage.Storage, ctx context.Context, groupID uint) ([]*models.User, error)
 	ListGroups                                func(next storage.Storage, ctx context.Context) ([]*models.Group, error)
@@ -132,6 +139,7 @@ type storeHooks struct {
 	SetSystemMetadata                         func(next storage.Storage, ctx context.Context, key string, value string) error
 	SetUserMFAEnabled                         func(next storage.Storage, ctx context.Context, userID uint, enabled bool) error
 	SetUserWebAuthnEnabled                    func(next storage.Storage, ctx context.Context, userID uint, enabled bool) error
+	SuspendMachineIdentitiesForDeletedProject func(next storage.Storage, ctx context.Context, id uint) ([]*models.MachineIdentity, error)
 	UpdateLastLogin                           func(next storage.Storage, ctx context.Context, userID uint, loginAt time.Time) error
 	UpdateLoginLockoutState                   func(next storage.Storage, ctx context.Context, id uint, attempts int, lastFailedAt *time.Time, lockedUntil *time.Time, lockoutCount int) error
 	UpdateRotationPolicyFields                func(next storage.Storage, ctx context.Context, id uint, f storage.RotationPolicyFieldUpdate, updatedAt time.Time) (bool, error)
@@ -345,6 +353,13 @@ func (hs *hookStore) CreateWebAuthnSession(ctx context.Context, s *models.WebAut
 	return hs.Storage.CreateWebAuthnSession(ctx, s)
 }
 
+func (hs *hookStore) DeleteGroup(ctx context.Context, id uint) error {
+	if hk := hs.h.DeleteGroup; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.DeleteGroup(ctx, id)
+}
+
 func (hs *hookStore) DeleteMFAForUser(ctx context.Context, userID uint) error {
 	if hk := hs.h.DeleteMFAForUser; hk != nil {
 		return hk(hs.Storage, ctx, userID)
@@ -357,6 +372,20 @@ func (hs *hookStore) DeleteMFARecoveryCodes(ctx context.Context, userID uint) er
 		return hk(hs.Storage, ctx, userID)
 	}
 	return hs.Storage.DeleteMFARecoveryCodes(ctx, userID)
+}
+
+func (hs *hookStore) DeleteProject(ctx context.Context, id uint) error {
+	if hk := hs.h.DeleteProject; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.DeleteProject(ctx, id)
+}
+
+func (hs *hookStore) DeleteProjectIfEmpty(ctx context.Context, id uint) (int, error) {
+	if hk := hs.h.DeleteProjectIfEmpty; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.DeleteProjectIfEmpty(ctx, id)
 }
 
 func (hs *hookStore) DeleteRotationPolicy(ctx context.Context, id uint) error {
@@ -420,6 +449,20 @@ func (hs *hookStore) GetAuditLogs(ctx context.Context, filter *storage.AuditFilt
 		return hk(hs.Storage, ctx, filter)
 	}
 	return hs.Storage.GetAuditLogs(ctx, filter)
+}
+
+func (hs *hookStore) GetDynamicSecretConfig(ctx context.Context, id uint) (*models.DynamicSecretConfig, error) {
+	if hk := hs.h.GetDynamicSecretConfig; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.GetDynamicSecretConfig(ctx, id)
+}
+
+func (hs *hookStore) GetEnvironment(ctx context.Context, id uint) (*models.Environment, error) {
+	if hk := hs.h.GetEnvironment; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.GetEnvironment(ctx, id)
 }
 
 func (hs *hookStore) GetGroupRoles(ctx context.Context, groupID uint) ([]*models.Role, error) {
@@ -623,6 +666,20 @@ func (hs *hookStore) ListAllUserRoleGrants(ctx context.Context) ([]*models.UserR
 		return hk(hs.Storage, ctx)
 	}
 	return hs.Storage.ListAllUserRoleGrants(ctx)
+}
+
+func (hs *hookStore) ListDynamicSecretConfigs(ctx context.Context, projectID uint, environmentID uint) ([]*models.DynamicSecretConfig, error) {
+	if hk := hs.h.ListDynamicSecretConfigs; hk != nil {
+		return hk(hs.Storage, ctx, projectID, environmentID)
+	}
+	return hs.Storage.ListDynamicSecretConfigs(ctx, projectID, environmentID)
+}
+
+func (hs *hookStore) ListDynamicSecretLeases(ctx context.Context, configID uint) ([]*models.DynamicSecretLease, error) {
+	if hk := hs.h.ListDynamicSecretLeases; hk != nil {
+		return hk(hs.Storage, ctx, configID)
+	}
+	return hs.Storage.ListDynamicSecretLeases(ctx, configID)
 }
 
 func (hs *hookStore) ListGlobalAdminAssignmentsForUpdate(ctx context.Context, adminRoleIDs []uint) ([]storage.RoleAssignment, error) {
@@ -910,6 +967,13 @@ func (hs *hookStore) SetUserWebAuthnEnabled(ctx context.Context, userID uint, en
 		return hk(hs.Storage, ctx, userID, enabled)
 	}
 	return hs.Storage.SetUserWebAuthnEnabled(ctx, userID, enabled)
+}
+
+func (hs *hookStore) SuspendMachineIdentitiesForDeletedProject(ctx context.Context, id uint) ([]*models.MachineIdentity, error) {
+	if hk := hs.h.SuspendMachineIdentitiesForDeletedProject; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.SuspendMachineIdentitiesForDeletedProject(ctx, id)
 }
 
 func (hs *hookStore) UpdateLastLogin(ctx context.Context, userID uint, loginAt time.Time) error {
