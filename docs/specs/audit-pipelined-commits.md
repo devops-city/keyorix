@@ -134,11 +134,12 @@ in-transaction audit append (INV-CORE-secret-mutation-audit-same-tx; held from t
 the mutation's durable COMMIT, fsync included). Revocations are neither: they commit their
 effect and an owed-audit record first (`commitOwingAudit`), so audit never blocks them.
 
-With pipelining, up to `auditPipelineDepth` flusher transactions can be queued on the lock. A
-mutation that asks for the lock behind them waits for those batches instead of one. A mutation
-that is granted the lock between two pipelined batches moves the head, so the later batch's
-check raises and it is retried (one wasted flight); the mutation's append also invalidates the
-cache, so the flusher stops pipelining until the cache re-arms. A write-heavy mix therefore
+With pipelining the batches run one after another on the flusher's one backend, and the next
+batch asks for the lock only when the previous one has committed. A mutation that is already
+waiting for the lock therefore gets it first and waits behind at most one batch, as before; it
+moves the head, so the batch behind it fails its check and is retried (one wasted flight), and
+the mutation's append also invalidates the cache, so the flusher stops pipelining until the
+cache re-arms. A write-heavy mix therefore
 falls back to today's serial commits; the write cells are measured against main.
 
 Lifting the mutation's hold of the lock through its fsync (an ADR-029/112 amendment) is not
