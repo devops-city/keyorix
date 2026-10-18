@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -142,8 +143,13 @@ func collectDoctorReport(ctx context.Context) *doctorReport {
 		return rep
 	}
 	serverURL, token, err := resolveServerAndToken(store)
+	if tse, ok := errors.AsType[*tokenSourceError](err); ok {
+		rep.add("config", doctorFail, "cannot read the token: "+cliout.SanitizeForTerminal(tse.Error()), "fix the token file (mode 0600, one line), or unset KEYORIX_TOKEN_FILE")
+		skipRest(rep, "config")
+		return rep
+	}
 	if err != nil {
-		rep.add("config", doctorFail, "no server is configured", "run `keyorix login --server <url>` (or set KEYORIX_SERVER and KEYORIX_TOKEN)")
+		rep.add("config", doctorFail, "no server is configured", "run `keyorix login --server <url>` (or set KEYORIX_SERVER and KEYORIX_TOKEN or KEYORIX_TOKEN_FILE)")
 		skipRest(rep, "config")
 		return rep
 	}
@@ -199,6 +205,8 @@ func doctorConfigCheck(serverURL, token, caFile, caSource string) (string, strin
 		parts = append(parts, "no token")
 	case os.Getenv("KEYORIX_TOKEN") != "":
 		parts = append(parts, "token from KEYORIX_TOKEN")
+	case os.Getenv("KEYORIX_TOKEN_FILE") != "":
+		parts = append(parts, "token from KEYORIX_TOKEN_FILE")
 	default:
 		parts = append(parts, "token from the credentials file")
 	}
