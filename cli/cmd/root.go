@@ -8,7 +8,7 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "keyorix",
-	Short: "Keyorix CLI -- see ADR-108",
+	Short: "Command-line client for the Keyorix secrets manager",
 	Long: `keyorix is the Keyorix CLI. It talks to a Keyorix server exclusively over the REST API; it has no local database mode. Host-side operations (config/keys/database setup, encryption key rotation) are "keyorix-server admin", a separate command.
 
 ` + exitCodesHelp,

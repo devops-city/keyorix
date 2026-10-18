@@ -27,6 +27,14 @@ func (s *failOnceAssignRoleForRoleStorage) AssignRole(ctx context.Context, userI
 	return s.Storage.AssignRole(ctx, userID, roleID, scope)
 }
 
+// WithTransaction keeps the fault on the transaction-scoped handle: a grant is
+// written through tx since AUDIT-TX-2 (it commits with its audit row).
+func (s *failOnceAssignRoleForRoleStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		return fn(&failOnceAssignRoleForRoleStorage{Storage: tx, failRoleID: s.failRoleID, armed: s.armed})
+	})
+}
+
 // TestSetUserRoles_PartialApplyFailureRevertsToOriginalSet is the red-proof
 // for Session O's O3 SetUserRoles finding (a NEW finding, not in the
 // coordinator's preliminary list): unlike AssignUserRole/RemoveUserRole's

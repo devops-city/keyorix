@@ -17,6 +17,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,8 +32,11 @@ func main() {
 		fatal(err)
 	}
 
-	outDir := filepath.Join(repoRoot, "docs", "state-map")
-	summary, err := generate(repoRoot, outDir)
+	// -out writes the generated files elsewhere (the drift guard in internal/statemap uses it);
+	// class-overrides.tsv is always read from docs/state-map, so the inputs are identical.
+	outFlag := flag.String("out", filepath.Join(repoRoot, "docs", "state-map"), "directory to write entrypoints.tsv and stores.tsv to")
+	flag.Parse()
+	summary, err := generate(repoRoot, *outFlag)
 	if err != nil {
 		fatal(err)
 	}
