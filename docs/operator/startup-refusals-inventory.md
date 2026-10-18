@@ -144,8 +144,9 @@ Not searched (so not in the list):
 
 | | Where | Message (stable part) |
 |---|---|---|
-| R | startup/validation.go:151, 373 | `permissions or ownership audit found unresolved issues` (the cause is the preceding `[WARN]` line) |
-| C | main.go:2320 | `key material is readable beyond its owner` ... `refusing to start (chmod to 0600` |
+| R | startup/validation.go, securefiles.FixFilePerms | `permissions or ownership audit found unresolved issues: <file and problem>` (the cause is in the refusal since STARTUP-HARDEN-1) |
+| R | startup/validation.go explicitFirstBootRefusal | `no key material exists` (explicit `enable_file_permission_check` on a brand-new install) |
+| C | main.go enforceKeyFilePermissions | `key material is readable beyond its owner`, `key material is owned by an account the server does not trust` (#3410) ... `refusing to start (chmod 600 and chown` |
 | C | startup/validation.go:456-515 | `KEK salt path is unsafe`, `DEK path is unsafe`, `KEK salt file not found`, `has invalid size`, `wrapped DEK file not found`, `is too small`, `unsafe or relative database path`, `cannot open database file` |
 | C | keyfiles/consistency.go:282, 329 | `key material is an incomplete set`, `looks mixed from different generations` |
 | R | main.go:556 / exclusive_lock.go:89 | `another process already holds the DEK lock` |
@@ -153,10 +154,11 @@ Not searched (so not in the list):
 | R | main.go:580 | `wrong passphrase or corrupted key file` |
 | R | secretenv.go:277 | `refusing to trust it; chmod 0600/0400` (secret file too open) |
 | C | secretenv.go:109-268 | `secret file is empty`, `too large`, `is not a regular file` |
-| C | passphrase.go:130 | `is group- or world-readable (mode` (`--passphrase-file`) |
+| C | passphrase.go readPassphraseFile | `is group- or world-readable (mode`, `(the user the server runs as) or to root` (`--passphrase-file`, #3410) |
+| C | raw_providers.go FileKeyProvider.KEK | `refusing to trust it as key material`, `(the user the server runs as) or to root` (file KEK, #3410) |
 | C | main.go:569-576 | `DEK-rotation crash recovery failed` |
 | C | main.go:729 | `bootstrap token:` |
-| C | config.go:2584 | `refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)` |
+| R | config.go EnforceSecretFilePermissions | `the server does not start until the file is fixed` (override offered only for files that are not key material) |
 
 ### Upgrade, epoch, rollback
 

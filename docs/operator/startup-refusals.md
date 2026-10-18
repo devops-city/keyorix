@@ -431,15 +431,16 @@ delete the key files to "start fresh": a new key cannot open existing data.
 Real output (`dek.enc` at mode 644, `security.enable_file_permission_check: true` set):
 
 ```
-[WARN] File dek.enc has mode 644 but expected 600
-startup validation: file permission validation failed: file permission validation failed: permissions or ownership audit found unresolved issues
+[WARN] File <datadir>/dek.enc has mode 644 but expected 600
+startup validation: file permission validation failed: permissions or ownership audit found unresolved issues: File <datadir>/dek.enc has mode 644 but expected 600 -- fix each file named (chmod to the expected mode, chown to the server's user), restore a missing one from backup, or set security.auto_fix_file_permissions: true to fix modes and owners at start
 ```
 
 **Match:** `permissions or ownership audit found unresolved issues`
 
-**Cause.** The line that says what is wrong is the `[WARN]` line *above* the refusal (it is
-printed without a timestamp). Here a key file is group/other-readable. The same refusal
-covers a missing key file or database that other files say should exist (next entry).
+**Cause.** The refusal lists every file and what is wrong with it (the untimestamped
+`[WARN]` line above repeats the same). Here a key file is group/other-readable; a file
+owned by another uid reads `is owned by uid N, expected uid M`. The same refusal covers a
+missing key file or database that other files say should exist (next entry).
 **Fix.** `chmod 600` the named file (and `chown` it to the server's user). With
 `security.enable_file_permission_check` absent, Keyorix applies the same rule to key
 material by default; on a Kubernetes Secret mount use `defaultMode: 0400`. **In place:**
@@ -447,11 +448,11 @@ yes: permissions only. See the [hardening guide](../security/hardening-guide.md)
 
 ### A key file is missing on a later start
 
-Real output (`salt.bin` deleted, database and `dek.enc` present):
+From code (`salt.bin` deleted, database and `dek.enc` present): the same refusal as
+above, naming the file:
 
 ```
-[WARN] Cannot open file salt.bin: open salt.bin: no such file or directory
-startup validation: file permission validation failed: file permission validation failed: permissions or ownership audit found unresolved issues
+startup validation: file permission validation failed: permissions or ownership audit found unresolved issues: cannot open <datadir>/salt.bin (no such file or directory) -- fix each file named ...
 ```
 
 **Match:** `permissions or ownership audit found unresolved issues`
@@ -463,11 +464,23 @@ start with the files missing: with the check off, the server would generate a *n
 salt and key over your encrypted data, and every value would become unreadable.
 **In place:** no. [SELF_HOSTING.md](../SELF_HOSTING.md), sections 4 and 5.
 
-> **First install trap.** The same refusal appears on a *brand-new* install if you write
-> `security.enable_file_permission_check: true` explicitly before the first start
-> (`[WARN] Cannot open file dek.enc ... salt.bin ... keyorix.db`): an explicit `true` does not
-> treat "nothing exists yet" as a first boot. Leave the key unset for the first start (the
-> default already enforces the check), or create the key material first.
+### Explicit `enable_file_permission_check` on a brand-new install
+
+Real output (`security.enable_file_permission_check: true` written before the first start;
+no key file and no database yet):
+
+```
+startup validation: file permission validation failed: no key material exists (<datadir>/salt.bin, <datadir>/dek.enc) and there is no local database: security.enable_file_permission_check is set explicitly, and an explicit setting never treats missing key material as a first boot, because a key volume that failed to mount looks the same and starting would generate new keys over encrypted data. On a brand-new install, remove security.enable_file_permission_check from the config for the first start (the default runs the same checks and generates the keys), then set it again; on an existing install, mount or restore the key files (all of them, from one backup)
+```
+
+**Match:** `no key material exists`, `an explicit setting never treats missing key material as a first boot`
+
+**Cause.** The explicit setting is strict on purpose: from the files alone a new install and
+an install whose key volume did not mount look the same. **Fix.** New install: remove the
+key for the first start (the ADR-112 default already enforces the check and generates the
+keys), then add it back. Existing install: mount or restore the key files. `admin validate`
+on a config without the key reports the same state as "looks like a brand-new install".
+**In place:** yes for a new install; **no** for an existing one (restore first).
 
 ### Key file set incomplete or mixed — from code
 
@@ -518,20 +531,25 @@ upgrade grace period, with the check off or with the override, both forms only w
 
 ### Secret file too open
 
-Real output (`KEYORIX_MASTER_PASSWORD_FILE=mp.txt` at mode 644):
+Real output (`KEYORIX_MASTER_PASSWORD_FILE=<datadir>/mp` at mode 644):
 
 ```
-secret file security: secret file "mp.txt": mode 0644 is too open (accessible to other users) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by another user (e.g. root) with a group the process belongs to (fsGroup / group_add) and mode 0440 -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)
+secret file security: KEYORIX_MASTER_PASSWORD_FILE: secret file "<datadir>/mp": mode 0644 is too open (accessible to other users) -- refusing to trust it; chmod 0600/0400, or mount it from the orchestrator owned by root with a group the process belongs to (fsGroup / group_add) and mode 0440 (key material: security.insecure_allow_unsafe_file_permissions does not apply to it; the server refuses it wherever it reads it, so fix the file) -- the server does not start until the file is fixed
 ```
 
-**Match:** `refusing to trust it; chmod 0600/0400`
+For a file that is not key material (database password, bootstrap token ...) the end reads
+`-- the server does not start until the file is fixed (for the files that are not key
+material, security.insecure_allow_unsafe_file_permissions: true turns this into a warning)`.
 
-**Cause.** A file behind a `KEYORIX_*_FILE` variable (database password, bootstrap token,
-master passphrase ...) is readable by others. **Fix.** `chmod 0600`; on Kubernetes use
-`fsGroup` with mode `0440`. **Do not use the override for the master passphrase file:**
-with it set, this check only warns and the server then stops anyway with
-`no master passphrase is available (... mode 0644 is too open ...)`, because key
-material files are refused with no override. **In place:** yes.
+**Match:** `refusing to trust it; chmod 0600/0400`, `the server does not start until the file is fixed`
+
+**Cause.** A file behind a `KEYORIX_*_FILE` variable is readable by others, or (#3393) owned
+by an account other than the server's user and root. **Fix.** `chmod 0600` (and `chown`);
+on Kubernetes use `fsGroup` with mode `0440`. The override only helps for files that are
+not key material: the master passphrase, env KEK and Shamir share files are refused again
+where they are read, with no override (with the override set, this check warns and the
+server stops with `no master passphrase is available (... mode 0644 is too open ...)`).
+**In place:** yes.
 
 ### Another process holds the key lock
 
