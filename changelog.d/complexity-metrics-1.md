@@ -1,0 +1,2 @@
+### Added
+- **Complexity metrics per release.** `scripts/metrics/complexity.sh [ref]` measures code size, dependencies, artefact sizes, startup time and memory, the user-facing surface (config keys, env vars, CLI commands and flags, API operations, gRPC methods, doc pages) and internal weight for any ref; `scripts/metrics/complexity-diff.sh A B` compares two refs and names every new user-facing item. See `docs/operations/complexity-metrics.md`.

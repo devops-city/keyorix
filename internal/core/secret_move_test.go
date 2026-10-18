@@ -35,7 +35,7 @@ func newMoveFixture(t *testing.T) (c *KeyorixCore, secretID, folderID uint, db *
 		&models.SecretNode{},
 		&models.SecretVersion{},
 		&models.AuditEvent{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.User{},
 		&models.Group{},
 		&models.UserGroup{},

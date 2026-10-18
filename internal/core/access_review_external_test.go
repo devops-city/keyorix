@@ -116,7 +116,7 @@ func TestGenerateProjectAccessReview_SharesAndOwnership(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}))
+	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}))
 
 	const proj = uint(2)
 	h.CreateTestUser(t, "alice", 10) // owner
@@ -228,7 +228,7 @@ func TestAttestAccessReviewGrant_RejectsSelfCertification_Share(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AuditEvent{}))
+	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.AuditEvent{}))
 
 	const proj = uint(2)
 	h.CreateTestUser(t, "alice", 10) // owner
@@ -251,7 +251,7 @@ func TestRevokeAccessReviewGrant_ShareAndOwner(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}))
+	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}))
 
 	const proj = uint(2)
 	h.CreateTestUser(t, "alice", 10) // owner
@@ -297,7 +297,7 @@ func TestRevokeAccessReviewGrant_CrossProjectShareRevokeRefused(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}))
+	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}))
 
 	const projA, projB = uint(2), uint(3)
 	h.CreateTestUser(t, "alice", 10) // owner in project B
@@ -421,7 +421,7 @@ func TestAttestAccessReviewGrant_Share(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AuditEvent{}))
+	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.AuditEvent{}))
 
 	const proj = uint(2)
 	h.CreateTestUser(t, "alice", 10) // owner
@@ -491,7 +491,7 @@ func TestAttestAccessReviewGrant_RefusesCrossProjectShare(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AuditEvent{}))
+	require.NoError(t, h.DB.AutoMigrate(&models.SecretNode{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.AuditEvent{}))
 
 	const reviewedProject = uint(2)
 	const otherProject = uint(3)

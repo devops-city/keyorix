@@ -91,7 +91,7 @@ func newPlannerCore(t *testing.T, now time.Time) (*KeyorixCore, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.RotationPolicy{},
-		&models.SecretDependency{}, &models.ShareRecord{}, &models.SecretAccessLog{}, &models.AuditEvent{},
+		&models.SecretDependency{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SecretAccessLog{}, &models.AuditEvent{},
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{}, &models.RolePermission{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{}, &models.MachineIdentityRole{}, &models.SecretACL{},
 	))
@@ -365,7 +365,7 @@ func TestGenerateDeploymentRotationPlan_RiskScoringQueryCostDoesNotScaleWithCand
 		sqlDB.SetMaxOpenConns(1)
 		require.NoError(t, db.AutoMigrate(
 			&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.RotationPolicy{},
-			&models.SecretDependency{}, &models.ShareRecord{}, &models.SecretAccessLog{}, &models.AuditEvent{},
+			&models.SecretDependency{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.SecretAccessLog{}, &models.AuditEvent{},
 			&models.User{}, &models.Group{}, &models.UserGroup{},
 		))
 		c := &KeyorixCore{storage: store.NewLocalStorage(db), now: func() time.Time { return now }}

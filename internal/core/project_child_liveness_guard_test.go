@@ -34,6 +34,11 @@ import (
 //   - secret_nodes: core.CreateSecret, core.CreateFolder (both insert), and
 //     LocalStorage.RestoreSecret (clears deleted_at). core.RestoreFolder does not
 //     exist; folders are restored through RestoreSecret, the same SecretNode row.
+//     core.ResumeSecret (#2794) flips status suspended -> active: DeleteEnvironment
+//     counts only active secrets, so a suspended one is no barrier, and resuming
+//     inside a deleted environment/project would leave a live secret under a dead
+//     parent. It is not an insert or an un-delete, but it is the same
+//     "make a swept row live" write.
 //   - environments: core.CreateEnvironment (insert) and
 //     LocalStorage.RestoreEnvironment (clears deleted_at — already fixed by
 //     #2656 and included here so a regression there is caught by the same guard).
@@ -53,6 +58,7 @@ var projectChildWriters = []struct {
 }{
 	{"secrets.go", "KeyorixCore", "CreateSecret"},
 	{"secrets.go", "KeyorixCore", "CreateFolder"},
+	{"secret_suspend.go", "KeyorixCore", "ResumeSecret"},
 	{"catalog.go", "KeyorixCore", "CreateEnvironment"},
 	{"../storage/store/local_secrets.go", "LocalStorage", "RestoreSecret"},
 	{"../storage/store/local_secrets.go", "LocalStorage", "RestoreEnvironment"},
@@ -72,7 +78,9 @@ func TestProjectChildWrites_RecheckProjectLivenessInATransaction(t *testing.T) {
 
 		transactional := false
 		for _, name := range calls {
-			if name == "WithTransaction" || name == "Transaction" {
+			// mutationTx / withAuditedMutation (AUDIT-TX-2, mutation_audit_tx.go)
+			// open the transaction themselves: plain, or with the audit rows in it.
+			if name == "WithTransaction" || name == "Transaction" || name == "mutationTx" || name == "withAuditedMutation" {
 				transactional = true
 			}
 		}

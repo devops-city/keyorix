@@ -95,17 +95,18 @@ export const SdksPage: React.FC = () => (
             </div>
             <div>
                 <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    Connect to your server
+                    Log in to your server (the password is asked for at a hidden prompt, never put on the command line)
                 </p>
-                <CodeBlock code="keyorix connect http://your-server:8080 --username admin --password yourpassword" />
+                <CodeBlock code="keyorix login --server http://your-server:8080 --username admin" />
             </div>
             <div>
                 <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    Create a secret and run your app with it injected as an environment variable
+                    Create a secret from a file (or add --interactive for a hidden prompt) and run your app with it
+                    injected as an environment variable
                 </p>
                 <CodeBlock
                     code={
-                        'keyorix secret create --name db-password --value supersecret\nkeyorix run --env production --var DATABASE_URL=db-password -- node app.js'
+                        'keyorix secret create --name db-password --from-file ./db-password.txt\nkeyorix run --env production --var DATABASE_URL=db-password -- node app.js'
                     }
                 />
             </div>

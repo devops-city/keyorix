@@ -353,9 +353,13 @@ func (c *KeyorixCore) notifyAccessResolved(ctx context.Context, req *models.Acce
 // notifySecretShared tells a recipient a secret was shared with them directly. Self-
 // shares are skipped. Best-effort — failure never blocks the share.
 func (c *KeyorixCore) notifySecretShared(ctx context.Context, secret *models.SecretNode, recipientID, sharedBy uint, permission string) {
+	defer recoverPostCommitNotifyPanic(NotificationSecretShared, recipientID)
 	if secret == nil || recipientID == 0 || recipientID == sharedBy {
 		return
 	}
+	// The share committed before this runs: a panic here must not turn it into
+	// an error response (#3350, the #3092 pattern).
+	defer recoverPostCommitNotifyPanic(NotificationSecretShared, recipientID)
 	var pid *uint
 	if secret.ProjectID != 0 {
 		p := secret.ProjectID
@@ -371,6 +375,7 @@ func (c *KeyorixCore) notifySecretShared(ctx context.Context, secret *models.Sec
 // of a group a secret was shared with (excluding the sharer). Best-effort — a member
 // lookup failure just means no fan-out.
 func (c *KeyorixCore) notifyGroupSecretShared(ctx context.Context, secret *models.SecretNode, groupID, sharedBy uint, permission string) {
+	defer recoverPostCommitNotifyPanic(NotificationSecretShared, groupID)
 	if secret == nil {
 		return
 	}
@@ -387,9 +392,13 @@ func (c *KeyorixCore) notifyGroupSecretShared(ctx context.Context, secret *model
 // Direct shares only (a group share has no single user); skips the actor revoking
 // their own share. Best-effort.
 func (c *KeyorixCore) notifySecretShareRevoked(ctx context.Context, secret *models.SecretNode, recipientID, revokedBy uint) {
+	defer recoverPostCommitNotifyPanic(NotificationSecretShareRevoked, recipientID)
 	if secret == nil || recipientID == 0 || recipientID == revokedBy {
 		return
 	}
+	// The revoke committed before this runs: a panic here must not turn it
+	// into an error response (#3350, the #3092 pattern).
+	defer recoverPostCommitNotifyPanic(NotificationSecretShareRevoked, recipientID)
 	var pid *uint
 	if secret.ProjectID != 0 {
 		p := secret.ProjectID
@@ -404,6 +413,7 @@ func (c *KeyorixCore) notifySecretShareRevoked(ctx context.Context, secret *mode
 // notifyGroupSecretShareRevoked fans the revoke notification out to every member of a
 // group whose share was revoked (excluding the actor). Best-effort.
 func (c *KeyorixCore) notifyGroupSecretShareRevoked(ctx context.Context, secret *models.SecretNode, groupID, revokedBy uint) {
+	defer recoverPostCommitNotifyPanic(NotificationSecretShareRevoked, groupID)
 	if secret == nil {
 		return
 	}

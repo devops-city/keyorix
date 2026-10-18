@@ -28,8 +28,19 @@ port_in_use() {
     return 1
 }
 
+# The default base must keep every port a run can touch OUT of the OS ephemeral
+# (outgoing-connection) ranges, or the kernel hands a port we were about to bind to some
+# client socket ("already in use", #3353). Linux uses 32768-60999, macOS/IANA
+# 49152-65535. A run touches BASE+group (server) and BASE+1000+group (web), and
+# free_port scans up to 1000 ports upward from each, so the highest port is about
+# BASE+2000+group. PORT_BASE_MIN..PORT_BASE_MAX keeps that below EPHEMERAL_FLOOR.
+PORT_BASE_MIN=10000
+PORT_BASE_MAX=29999
+# shellcheck disable=SC2034 # read by free-port_test.sh, which sources this file
+EPHEMERAL_FLOOR=32768
+
 # pick_port_base prints the base port for this run: KEYORIX_E2E_PORT_BASE if set
-# (validated), else a random port in [20000, 58999].
+# (validated), else a random port in [PORT_BASE_MIN, PORT_BASE_MAX].
 pick_port_base() {
     if [ -n "${KEYORIX_E2E_PORT_BASE:-}" ]; then
         case "$KEYORIX_E2E_PORT_BASE" in
@@ -45,7 +56,7 @@ pick_port_base() {
         echo "$KEYORIX_E2E_PORT_BASE"
         return 0
     fi
-    echo $((20000 + (RANDOM * 32768 + RANDOM) % 39000))
+    echo $((PORT_BASE_MIN + (RANDOM * 32768 + RANDOM) % (PORT_BASE_MAX - PORT_BASE_MIN + 1)))
 }
 
 # free_port START [EXCLUDE...]: prints the first port at or above START (scanning at

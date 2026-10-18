@@ -83,6 +83,12 @@ type InsecureSetting struct {
 	// effect actually weakens, for the start-up warning and (eventually)
 	// the posture report.
 	Describe string
+	// Cause, optional, says in operator terms which written (or unwritten) config
+	// key put this entry in effect and how to change it, for an entry whose Name is
+	// not itself a config key (Name not in SourcePaths). The start-up warning
+	// prints it instead of the bare SourcePaths list, so an operator is not sent
+	// to write a key the loader rejects (BOOT-REFUSALS-1 item 3).
+	Cause func(*Config) string
 	// InEffect reports whether the weak state is active right now.
 	InEffect func(*Config) bool
 	// Value returns a short string form of the setting's current value, for
@@ -345,8 +351,11 @@ var InsecureSettingsRegistry = []InsecureSetting{
 		Name:        "security.insecure_allow_cleartext_transport",
 		SourcePaths: []string{"security.require_transport_tls"},
 		Describe:    "allows bearer tokens/secret values over cleartext HTTP/gRPC",
-		InEffect:    func(c *Config) bool { return !c.Security.RequireTransportTLS },
-		Value:       func(c *Config) string { return boolStr(!c.Security.RequireTransportTLS) },
+		Cause: func(*Config) string {
+			return "security.require_transport_tls is false or not set (false is its default); set security.require_transport_tls: true to refuse a listener without TLS"
+		},
+		InEffect: func(c *Config) bool { return !c.Security.RequireTransportTLS },
+		Value:    func(c *Config) string { return boolStr(!c.Security.RequireTransportTLS) },
 	},
 	// #2908: not a boolean. During the ADR-112 upgrade grace period the field
 	// reads true while the server only WARNS about a failed startup check, so

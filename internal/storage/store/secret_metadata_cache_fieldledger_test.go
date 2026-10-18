@@ -366,7 +366,7 @@ func TestSecretNodeCacheEpoch_AbsentTriggerDisablesTheNodeCache(t *testing.T) {
 	// NOT, because AutoMigrate knows nothing about triggers. Exactly the shape a
 	// hand-rolled test schema — or a trigger-less restore — has.
 	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{},
-		&models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}))
+		&models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}))
 	require.True(t, db.Migrator().HasColumn("secret_nodes", SecretNodeCacheEpochColumn),
 		"the column must be present for this test to be about the TRIGGER")
 	require.False(t, SecretNodeCacheEpochTriggerPresent(db))
@@ -427,7 +427,7 @@ func TestSecretNodeCacheEpoch_TriggerDroppedWhileWarmIsAMissNotAStaleHit(t *test
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{},
-		&models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}))
+		&models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}))
 	require.NoError(t, EnsureSecretNodeCacheEpoch(db))
 
 	ls := NewLocalStorage(db)

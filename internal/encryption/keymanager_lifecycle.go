@@ -334,7 +334,7 @@ func (km *KeyManager) Initialize(passphrase string) error {
 
 	dek, err := km.unwrapDEK(kek)
 	if err != nil {
-		return fmt.Errorf("failed to unwrap DEK: %w", err)
+		return err // unwrapDEK's errors name the step ("failed to unwrap DEK — wrong passphrase ...")
 	}
 
 	// Derive the evidence-signing key from the KEK (still in scope here, before the

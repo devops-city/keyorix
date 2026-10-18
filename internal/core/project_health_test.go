@@ -38,7 +38,7 @@ func newHealthTestDB(t *testing.T) *gorm.DB {
 		&models.MachineIdentity{},
 		&models.AuditEvent{},
 		&models.RotationPolicy{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.UserGroup{},
 	))
 	return db
