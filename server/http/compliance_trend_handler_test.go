@@ -45,7 +45,7 @@ func newComplianceTrendCore(t *testing.T) complianceTrendSetup {
 		&models.Group{},
 		&models.UserGroup{},
 		&models.GroupRole{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.AuditEvent{},
 		&models.Session{},
 		&models.Project{},

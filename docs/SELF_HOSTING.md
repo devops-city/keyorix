@@ -236,6 +236,11 @@ single transaction.  If the server crashes mid-sweep, the orphaned pending key
 file is detected and cleaned up automatically on the next `--confirm` run.
 Back up the `keyorix_keys` volume after a successful rotation.
 
+With several server replicas on one PostgreSQL database, stop all of them, and
+copy the new key files to every replica before starting it: a replica with the
+old `dek.key` refuses to start. See [`operator/j6-key-rotation.md`](operator/j6-key-rotation.md)
+("Several server replicas").
+
 Store `KEYORIX_MASTER_PASSWORD` in your own password manager / secret store. It is
 not recoverable from the system.
 

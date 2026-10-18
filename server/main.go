@@ -81,6 +81,7 @@ import (
 	"github.com/keyorixhq/keyorix/server/middleware"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
+	"gorm.io/gorm"
 )
 
 // masterPassphraseSource holds --passphrase-fd/--passphrase-file/--passphrase-stdin
@@ -576,6 +577,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// the pending DEK (a rotation that committed its re-encryption sweep but crashed before the
 	// dek.key file rename) or discard a stray pending file; for remote storage there is no
 	// local sweep, so it falls back to the leftover-cleanup behavior.
+	var keyDB *gorm.DB // kept for the DEK epoch guard below
 	bootKeys := func() error {
 		if cfg.Storage.Type == "remote" {
 			svc.CleanPendingDEK()
@@ -585,14 +587,16 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 		if derr != nil {
 			return fmt.Errorf("failed to open database for DEK-rotation crash recovery: %w", derr)
 		}
-		rerr := svc.RecoverInterruptedRotation(recoverDB)
-		if sqlDB, e := recoverDB.DB(); e == nil {
-			_ = sqlDB.Close()
-		}
-		if rerr != nil {
+		if rerr := svc.RecoverInterruptedRotation(recoverDB); rerr != nil {
+			closeGormDB(recoverDB)
 			return fmt.Errorf("DEK-rotation crash recovery failed: %w", rerr)
 		}
-		return initializeKeys(svc, passphrase, providerType)
+		if err := initializeKeys(svc, passphrase, providerType); err != nil {
+			closeGormDB(recoverDB)
+			return err
+		}
+		keyDB = recoverDB
+		return nil
 	}
 	if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
 		if err := initializeKeysUnderDatabaseLock(cfg, svc, bootKeys); err != nil {
@@ -600,6 +604,26 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 		}
 	} else if err := bootKeys(); err != nil {
 		return nil, err
+	}
+	// Cross-replica DEK epoch (#3337, internal/encryption/dek_epoch.go): refuse to
+	// start when this server's DEK is not the DEK the database is encrypted under
+	// (the DEK was rotated on another host and this host still has the old
+	// dek.key), and refuse encrypted writes later while a rotation fences them.
+	// PostgreSQL only: the guard keeps keyDB (one connection) and closes it on
+	// Shutdown. On SQLite it is a no-op and keyDB is closed here.
+	if keyDB != nil {
+		if sqlDB, e := keyDB.DB(); e == nil {
+			sqlDB.SetMaxOpenConns(1)
+			sqlDB.SetMaxIdleConns(1)
+		}
+		if err := svc.StartDEKEpochGuard(keyDB, func() { closeGormDB(keyDB) }); err != nil {
+			closeGormDB(keyDB)
+			svc.Shutdown()
+			return nil, fmt.Errorf("refusing to start: %w", err)
+		}
+		if !svc.DEKEpochGuardRunning() {
+			closeGormDB(keyDB)
+		}
 	}
 
 	kekSource := providerType

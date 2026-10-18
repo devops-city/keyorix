@@ -9,7 +9,12 @@ on:
   # so the "CodeQL" summary and the Analyze checks still REPORT on a PR (as
   # skipped, which satisfies a required check and costs no runner) and can be
   # made required. Analysis happens in the merge queue instead, against the
-  # exact merge result, before anything reaches main -- which also covers the
+  # exact merge result, before anything reaches main -- the analysis in the
+  # queue does NOT upload SARIF (upload: never): GitHub deletes the
+  # gh-readonly-queue/* branch as soon as the group merges or is dequeued, and
+  # an upload that ran after that failed with "ref ... not found in this
+  # repository" (CODEQL-QUEUE-1). scripts/ci/codeql-gate.sh gates on the SARIF
+  # file instead; push to main and the schedule still upload. This also covers the
   # gap that brought pull_request back on 2026-09-29: the backup-v2 tar-slip
   # (#2270) lived only on an unmerged PR branch, so CodeQL never saw it; a PR
   # branch is now analysed the moment it enters the queue. The upload of a
@@ -155,7 +160,7 @@ jobs:
             echo "operator_only=true" >> "$GITHUB_OUTPUT"
           fi
           # An empty file list (API hiccup) fails safe to "changed".
-          always='^(\.github/workflows/codeql\.yml|\.github/codeql/)'
+          always='^(\.github/workflows/codeql\.yml|\.github/codeql/|scripts/ci/codeql-gate\.sh)'
           gofile='(\.go$|(^|/)go\.(mod|sum|work|work\.sum)$)'
           if [ -z "$changed" ] || echo "$changed" | grep -qE "$always" || echo "$changed" | grep -vE '^operator/' | grep -qE "$gofile"; then
             echo "root_go_changed=true" >> "$GITHUB_OUTPUT"
@@ -226,6 +231,18 @@ jobs:
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: /language:go-server
+          # merge_group: analyse but do NOT upload (see the gate step below).
+          output: ${{ runner.temp }}/codeql-sarif
+          upload: ${{ github.event_name == 'merge_group' && 'never' || 'always' }}
+          upload-database: ${{ github.event_name != 'merge_group' }}
+
+      - name: Gate on high-severity results (merge queue)
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SARIF_DIR: ${{ runner.temp }}/codeql-sarif
+        run: scripts/ci/codeql-gate.sh "$SARIF_DIR"
 
   # The operator is a separate Go module (controller-runtime/client-go kept
   # out of the root go.work) — same reasoning as ci.yml's dedicated
@@ -269,6 +286,18 @@ jobs:
         uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: /language:go-operator
+          # merge_group: analyse but do NOT upload (see the gate step below).
+          output: ${{ runner.temp }}/codeql-sarif
+          upload: ${{ github.event_name == 'merge_group' && 'never' || 'always' }}
+          upload-database: ${{ github.event_name != 'merge_group' }}
+
+      - name: Gate on high-severity results (merge queue)
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SARIF_DIR: ${{ runner.temp }}/codeql-sarif
+        run: scripts/ci/codeql-gate.sh "$SARIF_DIR"
 
   # web/ (ADR-070) is JavaScript/TypeScript, not Go -- a separate job rather
   # than a third matrix entry above, since the Go entries' init/build/analyze
@@ -310,6 +339,18 @@ jobs:
       - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: /language:javascript-typescript
+          # merge_group: analyse but do NOT upload (see the gate step below).
+          output: ${{ runner.temp }}/codeql-sarif
+          upload: ${{ github.event_name == 'merge_group' && 'never' || 'always' }}
+          upload-database: ${{ github.event_name != 'merge_group' }}
+
+      - name: Gate on high-severity results (merge queue)
+        if: github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SARIF_DIR: ${{ runner.temp }}/codeql-sarif
+        run: scripts/ci/codeql-gate.sh "$SARIF_DIR"
 
   # Fan-in convenience job giving a single "CodeQL" status for the whole
   # workflow at a glance. NOT currently a required status check itself

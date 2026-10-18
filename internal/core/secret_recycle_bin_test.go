@@ -24,7 +24,7 @@ func TestListDeletedSecrets(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 	// #370: DeleteSecret revokes ShareRecord rows in the same transaction as the
 	// secret's own soft-delete.
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.ShareRecord{}, &models.SecretACL{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}
 	ctx := context.Background()
 
