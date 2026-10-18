@@ -33,6 +33,7 @@ Exit codes:
 - [`keyorix compliance`](#keyorix-compliance) — Deployment controls-posture report (ISO 27001 / SOC 2 / NIS2 / DORA)
 - [`keyorix config`](#keyorix-config) — Show or change CLI settings stored with your credentials
 - [`keyorix docs`](#keyorix-docs) — Print the CLI reference (Markdown) or its man page
+- [`keyorix doctor`](#keyorix-doctor) — Diagnose the connection to the server: reachability, TLS, login, clock, version, audit chain
 - [`keyorix dynamic-secret`](#keyorix-dynamic-secret) — Issue and manage on-demand database credentials (dynamic secrets)
 - [`keyorix group`](#keyorix-group) — Manage groups
 - [`keyorix hygiene`](#keyorix-hygiene) — Deployment-wide secret-hygiene rollup across all projects (admin)
@@ -190,6 +191,7 @@ keyorix access-review campaign list --project-id 3
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project-id` | `int` | — | Project (required) |
 
 ## `keyorix access-review campaign open`
@@ -392,13 +394,19 @@ keyorix anomalies escalation delete 3
 
 List alert escalation policies
 
-**Usage:** `keyorix anomalies escalation list`
+**Usage:** `keyorix anomalies escalation list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix anomalies escalation list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix anomalies escalation run`
 
@@ -428,6 +436,7 @@ keyorix anomalies list --unacknowledged
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--unacknowledged` | — | — | Show only unacknowledged alerts |
 
 ## `keyorix audit`
@@ -623,8 +632,8 @@ keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --p
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--format` | `string` | `table` | Output format: table or json |
 | `--from` | `string` | — | Start of billing window, RFC3339 (e.g. 2026-01-01T00:00:00Z) — required |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project-id` | `string` | — | Comma-separated project IDs to include (omit for all) |
 | `--to` | `string` | — | End of billing window, RFC3339 (e.g. 2026-02-01T00:00:00Z) — required |
 
@@ -779,7 +788,11 @@ setup session that must also enrol MFA ("keyorix mfa enroll" + "keyorix mfa
 activate", before or after this command); once both are done the session ends
 and the next "keyorix login" asks for a code.
 
-**Usage:** `keyorix change-password [flags]`
+Both passwords are read from a hidden prompt. In a script, set KEYORIX_CURRENT_PASSWORD
+and KEYORIX_NEW_PASSWORD (or KEYORIX_CURRENT_PASSWORD_FILE / KEYORIX_NEW_PASSWORD_FILE);
+passwords are never accepted as flags, because argv is visible to other users.
+
+**Usage:** `keyorix change-password`
 
 **Examples:**
 
@@ -787,13 +800,6 @@ and the next "keyorix login" asks for a code.
 # Prompts for the current and the new password
 keyorix change-password
 ```
-
-**Flags:**
-
-| Flag | Type | Default | Description |
-|---|---|---|---|
-| `--current-password` | `string` | — | Current password (omit to be prompted) |
-| `--new-password` | `string` | — | New password (omit to be prompted) |
 
 ## `keyorix completion`
 
@@ -1281,6 +1287,47 @@ Print the full command reference as Markdown
 keyorix docs markdown > cli-reference.md
 ```
 
+## `keyorix doctor`
+
+Diagnose the connection to the server: reachability, TLS, login, clock, version, audit chain
+
+doctor runs a read-only checklist against the configured server and says, for each
+item that is not healthy, what to do next. It only reads: it never changes anything on the
+server and never runs the long full audit walk (use "keyorix audit verify --full" for that).
+
+Checks, in order:
+```text
+  config      the server URL, token and CA file the CLI would use, and where each came from
+  reachable   the server answers GET /health
+  tls         the TLS chain verifies for the host (against --ca-file or the system roots), and when it expires
+  version     the server's API version and minimum CLI version against this CLI
+  clock       this machine's clock against the server's (a skewed clock breaks TOTP codes and sessions)
+  auth        the stored token is accepted, and who it belongs to
+  audit       the audit hash chain's integrity as the server last proved it
+
+```
+Checks that need an earlier one to pass are skipped, not failed. The exit code is 0 when
+nothing failed (warnings do not fail it) and non-zero otherwise.
+
+**Usage:** `keyorix doctor [flags]`
+
+**Examples:**
+
+```sh
+# Run every check against the configured server
+keyorix doctor
+# The same, for a script: JSON, and a non-zero exit if any check failed
+keyorix doctor -o json
+# Check a private-CA server without changing your saved settings
+keyorix doctor --ca-file /etc/keyorix/ca.pem
+```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
+
 ## `keyorix dynamic-secret`
 
 Issue and manage on-demand database credentials (dynamic secrets)
@@ -1444,6 +1491,7 @@ keyorix dynamic-secret list --project-id 3
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--environment-id` | `int` | — | Filter by environment ID |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project-id` | `int` | — | Filter by project ID |
 
 ## `keyorix dynamic-secret renew`
@@ -1596,13 +1644,19 @@ keyorix group get platform-team
 
 List groups
 
-**Usage:** `keyorix group list`
+**Usage:** `keyorix group list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix group list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix group members`
 
@@ -1725,6 +1779,7 @@ keyorix invite list --project payments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Project name (or set KEYORIX_PROJECT) |
 | `--stale-days` | `int` | — | Show only pending invitations older than this many days |
 
@@ -1950,8 +2005,6 @@ keyorix login --server https://keyorix.example.com --username alice
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--mfa-code` | `string` | — | Authenticator (TOTP) code or an unused recovery code, for an MFA-enabled account (omit to be prompted) |
-| `--password` | `string` | — | Password (INSECURE on the command line -- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted) |
 | `--server` | `string` | — | Server base URL (or set KEYORIX_SERVER) |
 | `--username` | `string` | — | Username |
 
@@ -2074,6 +2127,7 @@ keyorix machine binding list ci-deployer --project payments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Project name or numeric ID |
 
 ## `keyorix machine binding rm`
@@ -2171,6 +2225,7 @@ keyorix machine list --project payments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Project name or numeric ID |
 
 ## `keyorix machine migrate-from-user`
@@ -2344,6 +2399,7 @@ keyorix machine token list ci-deployer --project payments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Project name or numeric ID |
 
 ## `keyorix machine token revoke`
@@ -2412,7 +2468,7 @@ session for the account; your next "keyorix login" asks for a code. Exception: i
 the setup session after a one-time password (recover-admin, forced reset) under
 security.require_mfa, activating as the last setup step ends that session too.
 
-**Usage:** `keyorix mfa activate [flags]`
+**Usage:** `keyorix mfa activate`
 
 **Examples:**
 
@@ -2420,13 +2476,6 @@ security.require_mfa, activating as the last setup step ends that session too.
 # Prompts for the authenticator code and your password
 keyorix mfa activate
 ```
-
-**Flags:**
-
-| Flag | Type | Default | Description |
-|---|---|---|---|
-| `--code` | `string` | — | TOTP code from the authenticator app (INSECURE on the command line -- prefer KEYORIX_MFA_CODE[_FILE], or omit to be prompted) |
-| `--password` | `string` | — | Account password (INSECURE on the command line -- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted) |
 
 ## `keyorix mfa enroll`
 
@@ -2455,7 +2504,7 @@ Re-verify your authenticator code (or a recovery code) without re-logging in.
 On success, a 15-minute window is opened server-side that allows reading
 "restricted" classified secrets.
 
-**Usage:** `keyorix mfa stepup [flags]`
+**Usage:** `keyorix mfa stepup`
 
 **Examples:**
 
@@ -2463,12 +2512,6 @@ On success, a 15-minute window is opened server-side that allows reading
 # Prompts for a fresh authenticator or recovery code
 keyorix mfa stepup
 ```
-
-**Flags:**
-
-| Flag | Type | Default | Description |
-|---|---|---|---|
-| `--code` | `string` | — | TOTP or recovery code (INSECURE on the command line -- prefer KEYORIX_MFA_CODE[_FILE], or omit to be prompted) |
 
 ## `keyorix notification`
 
@@ -2550,13 +2593,19 @@ keyorix notification channel get ops-slack
 
 List all notification channels
 
-**Usage:** `keyorix notification channel list`
+**Usage:** `keyorix notification channel list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix notification channel list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix notification channel update`
 
@@ -2657,7 +2706,7 @@ keyorix pat hygiene --days 60
 
 List your personal access tokens
 
-**Usage:** `keyorix pat list`
+**Usage:** `keyorix pat list [flags]`
 
 **Examples:**
 
@@ -2665,17 +2714,29 @@ List your personal access tokens
 keyorix pat list
 ```
 
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
+
 ## `keyorix pat list-expired`
 
 List your expired (non-revoked) personal access tokens
 
-**Usage:** `keyorix pat list-expired`
+**Usage:** `keyorix pat list-expired [flags]`
 
 **Examples:**
 
 ```sh
 keyorix pat list-expired
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix pat revoke`
 
@@ -2847,6 +2908,7 @@ keyorix project env list --project payments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Override the active project |
 
 ## `keyorix project environments`
@@ -2877,8 +2939,8 @@ keyorix project health payments --limit 10
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--format` | `string` | `table` | Output format (table, json) |
 | `--limit` | `int` | `20` | Maximum number of secrets to display (1-100) |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix project hygiene`
 
@@ -2900,13 +2962,19 @@ keyorix project hygiene 3
 
 List all projects
 
-**Usage:** `keyorix project list`
+**Usage:** `keyorix project list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix project list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix project resume-secrets`
 
@@ -2942,7 +3010,7 @@ keyorix project stats payments --format json
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--format` | `string` | `table` | Output format (table, json) |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix project suspend-secrets`
 
@@ -3171,6 +3239,7 @@ keyorix rbac list-group-roles --group platform-team
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--group` | `string` | — | Group name or numeric ID (required) |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix rbac list-permissions`
 
@@ -3190,6 +3259,7 @@ keyorix rbac list-permissions --user alice@example.com
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--user` | `string` | — | User email address (required) |
 
 ## `keyorix rbac list-roles`
@@ -3198,13 +3268,19 @@ List all available roles
 
 List all roles in the system
 
-**Usage:** `keyorix rbac list-roles`
+**Usage:** `keyorix rbac list-roles [flags]`
 
 **Examples:**
 
 ```sh
 keyorix rbac list-roles
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix rbac list-user-roles`
 
@@ -3224,6 +3300,7 @@ keyorix rbac list-user-roles --user alice@example.com
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--user` | `string` | — | User email address (required) |
 
 ## `keyorix rbac remove-role`
@@ -3381,6 +3458,7 @@ keyorix request list --project payments
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Project name (or use KEYORIX_PROJECT) |
 | `--project-id` | `uint` | — | Project ID -- use this instead of --project when the caller holds no project grant yet (nothing to list, so a name cannot be resolved); the project-scoped access-request routes themselves do not require it |
 
@@ -3431,13 +3509,19 @@ keyorix request rejection-templates delete 2
 
 List all rejection-reason templates
 
-**Usage:** `keyorix request rejection-templates list`
+**Usage:** `keyorix request rejection-templates list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix request rejection-templates list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix request review`
 
@@ -3594,6 +3678,7 @@ keyorix risk list --all
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--all` | — | — | Include expired exceptions (history) |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix risk revoke`
 
@@ -3683,6 +3768,7 @@ keyorix rotation list --project-id 3
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--environment-id` | `int` | — | Filter by environment |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project-id` | `int` | — | Filter by project |
 
 ## `keyorix rotation order`
@@ -3959,13 +4045,19 @@ keyorix secret acl grant --secret 42 --user 12 --perm secrets.read
 
 List ACL grants for a secret
 
-**Usage:** `keyorix secret acl list <secret-id>`
+**Usage:** `keyorix secret acl list <secret-id> [flags]`
 
 **Examples:**
 
 ```sh
 keyorix secret acl list 42
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix secret acl revoke`
 
@@ -4242,13 +4334,19 @@ keyorix secret comment delete 42 3 7
 
 List comments on a secret version
 
-**Usage:** `keyorix secret comment list <secret-id> <version-id>`
+**Usage:** `keyorix secret comment list <secret-id> <version-id> [flags]`
 
 **Examples:**
 
 ```sh
 keyorix secret comment list 42 3
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix secret copy`
 
@@ -4320,13 +4418,12 @@ keyorix secret create --project 3 --environment 2 --name TLS_KEY --from-file ./t
 | `--description` | `string` | — | Optional free-text note about the secret |
 | `--environment` | `int` | `1` | Environment ID. With --project and no --environment the project's "development" environment is used; if it has none, --environment is required (see `keyorix project environments \<project-id\>`). Without --project: 1 |
 | `--expires` | `string` | — | Expiration time (RFC3339 format) |
-| `--from-file` | `string` | — | Read secret value from file |
+| `--from-file` | `string` | — | Read the secret value from a file (relative path), or from stdin with "-" |
 | `--interactive` | — | — | Interactive mode (value read from a hidden prompt) |
 | `--max-reads` | `int` | — | Maximum number of reads (0 = unlimited) |
 | `--name` | `string` | — | Secret name (required) |
 | `--project` | `int` | `1` | Project ID |
 | `--type` | `string` | `generic` | Secret type |
-| `--value` | `string` | — | Secret value |
 
 ## `keyorix secret delete`
 
@@ -4404,13 +4501,19 @@ keyorix secret deps impact 42
 
 Show what a secret depends on and what depends on it
 
-**Usage:** `keyorix secret deps list <secret-id>`
+**Usage:** `keyorix secret deps list <secret-id> [flags]`
 
 **Examples:**
 
 ```sh
 keyorix secret deps list 42
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix secret deps rm`
 
@@ -4652,6 +4755,7 @@ keyorix secret folder list --project 3
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--parent` | `int` | — | Filter by parent folder ID (0 = no filter) |
 | `--project` | `int` | — | Filter by project ID |
 
@@ -4795,9 +4899,9 @@ keyorix secret list --project payments --format json
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--environment` | `int` | — | Filter by environment ID (0 = all) |
-| `--format` | `string` | `table` | Output format (table, json) |
 | `--limit` | `int` | `50` | Maximum number of results |
 | `--offset` | `int` | — | Number of results to skip |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project` | `string` | — | Project name or numeric ID |
 | `--search` | `string` | — | Search query |
 
@@ -5045,7 +5149,6 @@ keyorix secret rotate --id 42
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--id` | `int` | — | Secret ID (required) |
-| `--value` | `string` | — | New secret value (omit to be prompted interactively) |
 
 ## `keyorix secret rotation-simulate`
 
@@ -5274,13 +5377,19 @@ keyorix secret template get db-credential
 
 List all secret templates
 
-**Usage:** `keyorix secret template list`
+**Usage:** `keyorix secret template list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix secret template list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix secret trash`
 
@@ -5326,11 +5435,10 @@ keyorix secret update --id 42 --expires 2027-01-31T00:00:00Z
 | `--clear-expiration` | — | — | Remove expiration |
 | `--clear-max-reads` | — | — | Remove the read limit (unlimited) |
 | `--expires` | `string` | — | Update expiration (RFC3339 format) |
-| `--from-file` | `string` | — | Read new value from file |
+| `--from-file` | `string` | — | Read the new value from a file (relative path), or from stdin with "-" |
 | `--id` | `int` | — | Secret ID (required) |
 | `--interactive` | — | — | Interactive mode (value read from a hidden prompt) |
 | `--max-reads` | `int` | `-1` | Update max reads (-1 = no change, minimum 1; use --clear-max-reads to remove the limit) |
-| `--value` | `string` | — | New secret value |
 
 ## `keyorix secret versions`
 
@@ -5348,8 +5456,8 @@ keyorix secret versions --id 42 --format json
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
-| `--format` | `string` | `table` | Output format (table, json) |
 | `--id` | `int` | — | Secret ID (required) |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix share`
 
@@ -5435,6 +5543,7 @@ keyorix share list --secret-id 42
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--secret-id` | `int` | — | Secret ID (required) |
 
 ## `keyorix share revoke`
@@ -5575,13 +5684,19 @@ keyorix sod policy delete --id 2
 
 List separation-of-duties policies
 
-**Usage:** `keyorix sod policy list`
+**Usage:** `keyorix sod policy list [flags]`
 
 **Examples:**
 
 ```sh
 keyorix sod policy list
 ```
+
+**Flags:**
+
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 
 ## `keyorix sod violations`
 
@@ -5681,9 +5796,7 @@ keyorix system init --server https://keyorix.example.com --admin-username admin 
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--admin-email` | `string` | `admin@localhost` | Admin email address |
-| `--admin-password` | `string` | — | Admin password (required; INSECURE on the command line -- prefer KEYORIX_ADMIN_PASSWORD, or omit to be prompted) |
 | `--admin-username` | `string` | `admin` | Admin username to create |
-| `--bootstrap-token` | `string` | — | Bootstrap token authorizing first-admin creation (or KEYORIX_BOOTSTRAP_TOKEN; printed in the server log on first boot; INSECURE on the command line) |
 | `--server` | `string` | — | Server base URL to bootstrap (required) |
 
 ## `keyorix system role-expiry-check`
@@ -5789,7 +5902,7 @@ keyorix usage show --project-id 3 --format json
 | Flag | Type | Default | Description |
 |---|---|---|---|
 | `--days` | `int` | `30` | Reporting window in days (1-365) |
-| `--format` | `string` | `table` | Output format: table or json |
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--project-id` | `int` | — | Scope to a single project (0 = all) |
 
 ## `keyorix user`
@@ -5846,7 +5959,6 @@ keyorix user create --username bob --email bob@example.com --setup-link
 | `--display-name` | `string` | — | Display name (defaults to username) |
 | `--email` | `string` | — | Email (required) |
 | `--one-time-password` | — | — | Generate a one-time password instead of an admin-set password (ADR-028 Part E); must be changed on first login |
-| `--password` | `string` | — | Initial password (INSECURE on the command line — prefer KEYORIX_INITIAL_PASSWORD or the interactive prompt; required in some form unless --setup-link or --one-time-password) |
 | `--setup-link` | — | — | Provision a setup link instead of an admin-set password (ADR-028) |
 | `--username` | `string` | — | Username (required) |
 
@@ -5927,6 +6039,7 @@ keyorix user list --page 1 --page-size 50
 
 | Flag | Type | Default | Description |
 |---|---|---|---|
+| `-o`, `--output` | `string` | `table` | Output format: table, json or yaml |
 | `--page` | `int` | `1` | Page number |
 | `--page-size` | `int` | `20` | Page size (max 100) |
 

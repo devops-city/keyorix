@@ -137,6 +137,9 @@ keyorix access\-review campaign list \-\-project\-id 3
 .PP
 Flags:
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-project\-id\fR \fIint\fR
 Project (required)
 .SS keyorix access\-review campaign open
@@ -327,13 +330,18 @@ keyorix anomalies escalation delete 3
 .SS keyorix anomalies escalation list
 List alert escalation policies
 .PP
-Usage: \fBkeyorix anomalies escalation list\fR
+Usage: \fBkeyorix anomalies escalation list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix anomalies escalation list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix anomalies escalation run
 Trigger the alert escalation job immediately
 .PP
@@ -356,6 +364,9 @@ keyorix anomalies list \-\-unacknowledged
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-unacknowledged\fR
 Show only unacknowledged alerts
@@ -563,11 +574,11 @@ keyorix billing report \-\-from 2026\-09\-01T00:00:00Z \-\-to 2026\-10\-01T00:00
 .PP
 Flags:
 .TP
-\fB\-\-format\fR \fIstring\fR
-Output format: table or json (default table)
-.TP
 \fB\-\-from\fR \fIstring\fR
 Start of billing window, RFC3339 (e.g. 2026\-01\-01T00:00:00Z) \(em required
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\-id\fR \fIstring\fR
 Comma\-separated project IDs to include (omit for all)
@@ -697,7 +708,9 @@ change\-password calls POST /auth/change\-password to set a new password for the
 .PP
 This is the command to run right after logging in with a one\-time password (e.g. the one keyorix\-server admin recover\-admin prints) \-\- the account stays confined to this command (and a handful of others) until a real password is set. With security.require_mfa on and no second factor yet, that login is a short setup session that must also enrol MFA ("keyorix mfa enroll" + "keyorix mfa activate", before or after this command); once both are done the session ends and the next "keyorix login" asks for a code.
 .PP
-Usage: \fBkeyorix change\-password [flags]\fR
+Both passwords are read from a hidden prompt. In a script, set KEYORIX_CURRENT_PASSWORD and KEYORIX_NEW_PASSWORD (or KEYORIX_CURRENT_PASSWORD_FILE / KEYORIX_NEW_PASSWORD_FILE); passwords are never accepted as flags, because argv is visible to other users.
+.PP
+Usage: \fBkeyorix change\-password\fR
 .PP
 Examples:
 .PP
@@ -705,14 +718,6 @@ Examples:
 # Prompts for the current and the new password
 keyorix change\-password
 .fi
-.PP
-Flags:
-.TP
-\fB\-\-current\-password\fR \fIstring\fR
-Current password (omit to be prompted)
-.TP
-\fB\-\-new\-password\fR \fIstring\fR
-New password (omit to be prompted)
 .SS keyorix completion
 Generate the autocompletion script for the specified shell
 .PP
@@ -1099,6 +1104,41 @@ Examples:
 .nf
 keyorix docs markdown > cli\-reference.md
 .fi
+.SS keyorix doctor
+Diagnose the connection to the server: reachability, TLS, login, clock, version, audit chain
+.PP
+doctor runs a read\-only checklist against the configured server and says, for each item that is not healthy, what to do next. It only reads: it never changes anything on the server and never runs the long full audit walk (use "keyorix audit verify \-\-full" for that).
+.PP
+Checks, in order:
+.nf
+  config      the server URL, token and CA file the CLI would use, and where each came from
+  reachable   the server answers GET /health
+  tls         the TLS chain verifies for the host (against \-\-ca\-file or the system roots), and when it expires
+  version     the server's API version and minimum CLI version against this CLI
+  clock       this machine's clock against the server's (a skewed clock breaks TOTP codes and sessions)
+  auth        the stored token is accepted, and who it belongs to
+  audit       the audit hash chain's integrity as the server last proved it
+.fi
+.PP
+Checks that need an earlier one to pass are skipped, not failed. The exit code is 0 when nothing failed (warnings do not fail it) and non\-zero otherwise.
+.PP
+Usage: \fBkeyorix doctor [flags]\fR
+.PP
+Examples:
+.PP
+.nf
+# Run every check against the configured server
+keyorix doctor
+# The same, for a script: JSON, and a non\-zero exit if any check failed
+keyorix doctor \-o json
+# Check a private\-CA server without changing your saved settings
+keyorix doctor \-\-ca\-file /etc/keyorix/ca.pem
+.fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix dynamic\-secret
 Issue and manage on\-demand database credentials (dynamic secrets)
 .PP
@@ -1239,6 +1279,9 @@ Flags:
 \fB\-\-environment\-id\fR \fIint\fR
 Filter by environment ID
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-project\-id\fR \fIint\fR
 Filter by project ID
 .SS keyorix dynamic\-secret renew
@@ -1369,13 +1412,18 @@ Group ID (alternative to the positional <group>, which also takes a name)
 .SS keyorix group list
 List groups
 .PP
-Usage: \fBkeyorix group list\fR
+Usage: \fBkeyorix group list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix group list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix group members
 List members of a group
 .PP
@@ -1484,6 +1532,9 @@ keyorix invite list \-\-project payments
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\fR \fIstring\fR
 Project name (or set KEYORIX_PROJECT)
@@ -1672,12 +1723,6 @@ keyorix login \-\-server https://keyorix.example.com \-\-username alice
 .PP
 Flags:
 .TP
-\fB\-\-mfa\-code\fR \fIstring\fR
-Authenticator (TOTP) code or an unused recovery code, for an MFA\-enabled account (omit to be prompted)
-.TP
-\fB\-\-password\fR \fIstring\fR
-Password (INSECURE on the command line \-\- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted)
-.TP
 \fB\-\-server\fR \fIstring\fR
 Server base URL (or set KEYORIX_SERVER)
 .TP
@@ -1760,6 +1805,9 @@ keyorix machine binding list ci\-deployer \-\-project payments
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\fR \fIstring\fR
 Project name or numeric ID
@@ -1852,6 +1900,9 @@ keyorix machine list \-\-project payments
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\fR \fIstring\fR
 Project name or numeric ID
@@ -2008,6 +2059,9 @@ keyorix machine token list ci\-deployer \-\-project payments
 .PP
 Flags:
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-project\fR \fIstring\fR
 Project name or numeric ID
 .SS keyorix machine token revoke
@@ -2054,7 +2108,7 @@ Confirm TOTP enrolment with a code, enabling MFA
 .PP
 activate verifies a TOTP code (from the authenticator app you enrolled with "keyorix mfa enroll") against the pending secret, together with your account password, and enables MFA. On success it prints one\-time\-shown recovery codes \-\- save them now, they will not be shown again. Activation keeps the current session signed in (you just proved the password and a code) and signs out every other session for the account; your next "keyorix login" asks for a code. Exception: in the setup session after a one\-time password (recover\-admin, forced reset) under security.require_mfa, activating as the last setup step ends that session too.
 .PP
-Usage: \fBkeyorix mfa activate [flags]\fR
+Usage: \fBkeyorix mfa activate\fR
 .PP
 Examples:
 .PP
@@ -2062,14 +2116,6 @@ Examples:
 # Prompts for the authenticator code and your password
 keyorix mfa activate
 .fi
-.PP
-Flags:
-.TP
-\fB\-\-code\fR \fIstring\fR
-TOTP code from the authenticator app (INSECURE on the command line \-\- prefer KEYORIX_MFA_CODE[_FILE], or omit to be prompted)
-.TP
-\fB\-\-password\fR \fIstring\fR
-Account password (INSECURE on the command line \-\- prefer KEYORIX_PASSWORD[_FILE], or omit to be prompted)
 .SS keyorix mfa enroll
 Begin TOTP MFA enrolment
 .PP
@@ -2088,7 +2134,7 @@ Re\-verify your TOTP to unlock restricted secret reads
 .PP
 Re\-verify your authenticator code (or a recovery code) without re\-logging in. On success, a 15\-minute window is opened server\-side that allows reading "restricted" classified secrets.
 .PP
-Usage: \fBkeyorix mfa stepup [flags]\fR
+Usage: \fBkeyorix mfa stepup\fR
 .PP
 Examples:
 .PP
@@ -2096,11 +2142,6 @@ Examples:
 # Prompts for a fresh authenticator or recovery code
 keyorix mfa stepup
 .fi
-.PP
-Flags:
-.TP
-\fB\-\-code\fR \fIstring\fR
-TOTP or recovery code (INSECURE on the command line \-\- prefer KEYORIX_MFA_CODE[_FILE], or omit to be prompted)
 .SS keyorix notification
 Manage notifications and notification channels
 .PP
@@ -2162,13 +2203,18 @@ keyorix notification channel get ops\-slack
 .SS keyorix notification channel list
 List all notification channels
 .PP
-Usage: \fBkeyorix notification channel list\fR
+Usage: \fBkeyorix notification channel list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix notification channel list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix notification channel update
 Update a notification channel by name
 .PP
@@ -2261,23 +2307,33 @@ Staleness window in days (default server\-side: 90, cap 3650)
 .SS keyorix pat list
 List your personal access tokens
 .PP
-Usage: \fBkeyorix pat list\fR
+Usage: \fBkeyorix pat list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix pat list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix pat list\-expired
 List your expired (non\-revoked) personal access tokens
 .PP
-Usage: \fBkeyorix pat list\-expired\fR
+Usage: \fBkeyorix pat list\-expired [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix pat list\-expired
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix pat revoke
 Revoke one of your tokens
 .PP
@@ -2407,6 +2463,9 @@ keyorix project env list \-\-project payments
 .PP
 Flags:
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-project\fR \fIstring\fR
 Override the active project
 .SS keyorix project environments
@@ -2432,11 +2491,11 @@ keyorix project health payments \-\-limit 10
 .PP
 Flags:
 .TP
-\fB\-\-format\fR \fIstring\fR
-Output format (table, json) (default table)
-.TP
 \fB\-\-limit\fR \fIint\fR
 Maximum number of secrets to display (1\-100) (default 20)
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix project hygiene
 Show a project's security\-hygiene posture (counts)
 .PP
@@ -2452,13 +2511,18 @@ keyorix project hygiene 3
 .SS keyorix project list
 List all projects
 .PP
-Usage: \fBkeyorix project list\fR
+Usage: \fBkeyorix project list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix project list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix project resume\-secrets
 Resume every suspended secret in a project \-\- restore value reads
 .PP
@@ -2487,8 +2551,8 @@ keyorix project stats payments \-\-format json
 .PP
 Flags:
 .TP
-\fB\-\-format\fR \fIstring\fR
-Output format (table, json) (default table)
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix project suspend\-secrets
 Suspend every secret in a project \-\- block value reads project\-wide
 .PP
@@ -2690,6 +2754,9 @@ Flags:
 .TP
 \fB\-\-group\fR \fIstring\fR
 Group name or numeric ID (required)
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix rbac list\-permissions
 List all permissions for a user
 .PP
@@ -2705,6 +2772,9 @@ keyorix rbac list\-permissions \-\-user alice@example.com
 .PP
 Flags:
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-user\fR \fIstring\fR
 User email address (required)
 .SS keyorix rbac list\-roles
@@ -2712,13 +2782,18 @@ List all available roles
 .PP
 List all roles in the system
 .PP
-Usage: \fBkeyorix rbac list\-roles\fR
+Usage: \fBkeyorix rbac list\-roles [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix rbac list\-roles
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix rbac list\-user\-roles
 List roles assigned to a user
 .PP
@@ -2733,6 +2808,9 @@ keyorix rbac list\-user\-roles \-\-user alice@example.com
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-user\fR \fIstring\fR
 User email address (required)
@@ -2874,6 +2952,9 @@ keyorix request list \-\-project payments
 .PP
 Flags:
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-project\fR \fIstring\fR
 Project name (or use KEYORIX_PROJECT)
 .TP
@@ -2914,13 +2995,18 @@ keyorix request rejection\-templates delete 2
 .SS keyorix request rejection\-templates list
 List all rejection\-reason templates
 .PP
-Usage: \fBkeyorix request rejection\-templates list\fR
+Usage: \fBkeyorix request rejection\-templates list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix request rejection\-templates list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix request review
 Approve or reject a pending access request
 .PP
@@ -3068,6 +3154,9 @@ Flags:
 .TP
 \fB\-\-all\fR
 Include expired exceptions (history)
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix risk revoke
 Revoke a risk exception before its expiry
 .PP
@@ -3148,6 +3237,9 @@ Flags:
 .TP
 \fB\-\-environment\-id\fR \fIint\fR
 Filter by environment
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\-id\fR \fIint\fR
 Filter by project
@@ -3337,13 +3429,18 @@ User ID to grant access to
 .SS keyorix secret acl list
 List ACL grants for a secret
 .PP
-Usage: \fBkeyorix secret acl list <secret\-id>\fR
+Usage: \fBkeyorix secret acl list <secret\-id> [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix secret acl list 42
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix secret acl revoke
 Revoke an ACL grant from a secret
 .PP
@@ -3595,13 +3692,18 @@ keyorix secret comment delete 42 3 7
 .SS keyorix secret comment list
 List comments on a secret version
 .PP
-Usage: \fBkeyorix secret comment list <secret\-id> <version\-id>\fR
+Usage: \fBkeyorix secret comment list <secret\-id> <version\-id> [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix secret comment list 42 3
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix secret copy
 Copy a secret's value and metadata into another environment
 .PP
@@ -3674,7 +3776,7 @@ Environment ID. With \-\-project and no \-\-environment the project's "developme
 Expiration time (RFC3339 format)
 .TP
 \fB\-\-from\-file\fR \fIstring\fR
-Read secret value from file
+Read the secret value from a file (relative path), or from stdin with "\-"
 .TP
 \fB\-\-interactive\fR
 Interactive mode (value read from a hidden prompt)
@@ -3690,9 +3792,6 @@ Project ID (default 1)
 .TP
 \fB\-\-type\fR \fIstring\fR
 Secret type (default generic)
-.TP
-\fB\-\-value\fR \fIstring\fR
-Secret value
 .SS keyorix secret delete
 Delete a secret (soft\-delete; restorable with 'secret restore')
 .PP
@@ -3759,13 +3858,18 @@ keyorix secret deps impact 42
 .SS keyorix secret deps list
 Show what a secret depends on and what depends on it
 .PP
-Usage: \fBkeyorix secret deps list <secret\-id>\fR
+Usage: \fBkeyorix secret deps list <secret\-id> [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix secret deps list 42
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix secret deps rm
 Remove a dependency edge (edge id from `deps list`)
 .PP
@@ -3994,6 +4098,9 @@ keyorix secret folder list \-\-project 3
 .PP
 Flags:
 .TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
+.TP
 \fB\-\-parent\fR \fIint\fR
 Filter by parent folder ID (0 = no filter)
 .TP
@@ -4143,14 +4250,14 @@ Flags:
 \fB\-\-environment\fR \fIint\fR
 Filter by environment ID (0 = all)
 .TP
-\fB\-\-format\fR \fIstring\fR
-Output format (table, json) (default table)
-.TP
 \fB\-\-limit\fR \fIint\fR
 Maximum number of results (default 50)
 .TP
 \fB\-\-offset\fR \fIint\fR
 Number of results to skip
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\fR \fIstring\fR
 Project name or numeric ID
@@ -4363,9 +4470,6 @@ Flags:
 .TP
 \fB\-\-id\fR \fIint\fR
 Secret ID (required)
-.TP
-\fB\-\-value\fR \fIstring\fR
-New secret value (omit to be prompted interactively)
 .SS keyorix secret rotation\-simulate
 Simulate a rotation dry\-run for a secret
 .PP
@@ -4580,13 +4684,18 @@ keyorix secret template get db\-credential
 .SS keyorix secret template list
 List all secret templates
 .PP
-Usage: \fBkeyorix secret template list\fR
+Usage: \fBkeyorix secret template list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix secret template list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix secret trash
 List a project's soft\-deleted (restorable) secrets
 .PP
@@ -4632,7 +4741,7 @@ Remove the read limit (unlimited)
 Update expiration (RFC3339 format)
 .TP
 \fB\-\-from\-file\fR \fIstring\fR
-Read new value from file
+Read the new value from a file (relative path), or from stdin with "\-"
 .TP
 \fB\-\-id\fR \fIint\fR
 Secret ID (required)
@@ -4642,9 +4751,6 @@ Interactive mode (value read from a hidden prompt)
 .TP
 \fB\-\-max\-reads\fR \fIint\fR
 Update max reads (\-1 = no change, minimum 1; use \-\-clear\-max\-reads to remove the limit) (default \-1)
-.TP
-\fB\-\-value\fR \fIstring\fR
-New secret value
 .SS keyorix secret versions
 List secret versions
 .PP
@@ -4658,11 +4764,11 @@ keyorix secret versions \-\-id 42 \-\-format json
 .PP
 Flags:
 .TP
-\fB\-\-format\fR \fIstring\fR
-Output format (table, json) (default table)
-.TP
 \fB\-\-id\fR \fIint\fR
 Secret ID (required)
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix share
 Share secrets with users and groups
 .PP
@@ -4734,6 +4840,9 @@ keyorix share list \-\-secret\-id 42
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-secret\-id\fR \fIint\fR
 Secret ID (required)
@@ -4856,13 +4965,18 @@ Policy ID to delete (required)
 .SS keyorix sod policy list
 List separation\-of\-duties policies
 .PP
-Usage: \fBkeyorix sod policy list\fR
+Usage: \fBkeyorix sod policy list [flags]\fR
 .PP
 Examples:
 .PP
 .nf
 keyorix sod policy list
 .fi
+.PP
+Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .SS keyorix sod violations
 List principals that violate a separation\-of\-duties policy
 .PP
@@ -4932,14 +5046,8 @@ Flags:
 \fB\-\-admin\-email\fR \fIstring\fR
 Admin email address (default admin@localhost)
 .TP
-\fB\-\-admin\-password\fR \fIstring\fR
-Admin password (required; INSECURE on the command line \-\- prefer KEYORIX_ADMIN_PASSWORD, or omit to be prompted)
-.TP
 \fB\-\-admin\-username\fR \fIstring\fR
 Admin username to create (default admin)
-.TP
-\fB\-\-bootstrap\-token\fR \fIstring\fR
-Bootstrap token authorizing first\-admin creation (or KEYORIX_BOOTSTRAP_TOKEN; printed in the server log on first boot; INSECURE on the command line)
 .TP
 \fB\-\-server\fR \fIstring\fR
 Server base URL to bootstrap (required)
@@ -5024,8 +5132,8 @@ Flags:
 \fB\-\-days\fR \fIint\fR
 Reporting window in days (1\-365) (default 30)
 .TP
-\fB\-\-format\fR \fIstring\fR
-Output format: table or json (default table)
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-project\-id\fR \fIint\fR
 Scope to a single project (0 = all)
@@ -5064,9 +5172,6 @@ Email (required)
 .TP
 \fB\-\-one\-time\-password\fR
 Generate a one\-time password instead of an admin\-set password (ADR\-028 Part E); must be changed on first login
-.TP
-\fB\-\-password\fR \fIstring\fR
-Initial password (INSECURE on the command line \(em prefer KEYORIX_INITIAL_PASSWORD or the interactive prompt; required in some form unless \-\-setup\-link or \-\-one\-time\-password)
 .TP
 \fB\-\-setup\-link\fR
 Provision a setup link instead of an admin\-set password (ADR\-028)
@@ -5144,6 +5249,9 @@ keyorix user list \-\-page 1 \-\-page\-size 50
 .fi
 .PP
 Flags:
+.TP
+\fB\-o\fR, \fB\-\-output\fR \fIstring\fR
+Output format: table, json or yaml (default table)
 .TP
 \fB\-\-page\fR \fIint\fR
 Page number (default 1)
