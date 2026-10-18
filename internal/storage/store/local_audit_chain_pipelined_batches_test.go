@@ -245,6 +245,24 @@ func TestPipelinedBatches_PostgresStoresTheSameRowsAsTheSerialPath(t *testing.T)
 	requireChainValid(t, piped, nil, 1+62)
 }
 
+// One reader at a time (nothing queued behind a batch, nothing in flight):
+// every batch goes the serial way on a pool connection, as without pipelining,
+// and the flusher holds no connection between them.
+func TestPipelinedBatches_PostgresLoneReaderStaysSerial(t *testing.T) {
+	ls := multiRowPGStore(t)
+	armed := armForPipeline(t, ls, "lone")
+	commits := ls.auditHead.oneFlightCommits.Load()
+	sqlDB, err := ls.db.DB()
+	require.NoError(t, err)
+	for i := range 20 {
+		require.NoError(t, ls.LogAuditEvent(context.Background(), pipelinedEvent(fmt.Sprintf("lone %d", i))))
+		assert.Zero(t, sqlDB.Stats().InUse, "append %d: the flusher still holds a connection (a pipeline run) after a lone batch", i)
+	}
+	assert.Zero(t, ls.auditHead.pipelinedSends.Load(), "a lone reader's batch was pipelined")
+	assert.Greater(t, ls.auditHead.oneFlightCommits.Load(), commits, "the serial path keeps its one-flight commits")
+	requireChainValid(t, ls, nil, armed+20)
+}
+
 // slowPoisonTriggers: an audit row described SLOW-POISON sleeps, then raises; one
 // described SLOW sleeps and commits. The sleep keeps its batch in flight while
 // the flusher sends the next batch.
@@ -307,7 +325,8 @@ func queueBehind(t *testing.T, ls *LocalStorage, marker string, descs ...string)
 			}
 		})
 	}
-	t.Cleanup(func() { auditPipelineAfterSendHook = nil })
+	auditPipelineSerialWhenIdle = false
+	t.Cleanup(func() { auditPipelineAfterSendHook, auditPipelineSerialWhenIdle = nil, true })
 	out := make([]<-chan error, len(results))
 	for i, ch := range results {
 		out[i] = ch

@@ -111,13 +111,33 @@ func (ls *LocalStorage) newAuditBatchPipeline() *auditBatchPipeline {
 
 // commitFlusherBatch commits batch for the flusher: pipelined when it can be,
 // otherwise serially once the run (if any) has ended. Every item of batch gets
-// exactly one result either way.
-func (ls *LocalStorage) commitFlusherBatch(p *auditBatchPipeline, batch []*auditBatchItem) {
+// exactly one result either way. queued is how many items were waiting behind
+// batch: with none, and nothing in flight, there is nothing to overlap, so the
+// batch goes the serial way on a pool connection, as without pipelining.
+func (ls *LocalStorage) commitFlusherBatch(p *auditBatchPipeline, batch []*auditBatchItem, queued int) {
+	if queued == 0 && !p.inFlight() && auditPipelineSerialWhenIdle {
+		p.shutdown()
+		deliverAuditBatch(batch, ls.commitAuditBatch(batch))
+		return
+	}
 	if p.trySend(batch) {
 		return
 	}
 	p.end()
 	deliverAuditBatch(batch, ls.commitAuditBatchHeld(p, batch))
+}
+
+// auditPipelineSerialWhenIdle is false only in tests that need a lone batch
+// sent on the pipeline (to have the next one sent while it is in flight).
+var auditPipelineSerialWhenIdle = true
+
+// waitBeforeSending reports whether a batch of n items should wait for the
+// batch in flight first: it is smaller than that batch, and could still grow.
+func (p *auditBatchPipeline) waitBeforeSending(n int) bool {
+	if !p.inFlight() || n >= auditFlusherMaxBatch {
+		return false
+	}
+	return n < len(p.inflight[len(p.inflight)-1].batch)
 }
 
 // auditHeldConnKey carries the flusher's pipeline in the context of a commit

@@ -89,6 +89,17 @@ A failing check must raise, never evaluate to NULL: the raise is a cast of a mes
 and a NULL message would cast to NULL and let COMMIT run. The message therefore never
 concatenates the pending id; `TestAuditInsertCheck_PendingHeadMismatchRaises` pins it.
 
+### When a batch is pipelined
+
+Pipelining pays only when there is something to overlap, and every batch costs the database a
+transaction. Two rules keep it from costing more than it saves (both measured: without them a
+CPU-bound PostgreSQL arm lost throughput to batches half the serial size):
+
+- a batch with nothing queued behind it and nothing in flight goes the serial way on a pool
+  connection, exactly as without pipelining (low concurrency is unchanged);
+- a batch smaller than the one in flight waits for that one's result and takes what arrived
+  meanwhile before it is sent, so pipelining never shrinks the batches.
+
 ### Results, in order
 
 Each in-flight batch is completed in send order: batch N+1's outcome is handled only after
