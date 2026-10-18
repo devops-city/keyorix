@@ -496,6 +496,10 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 
 	hasWarnings := false // a mismatch was found (fixed or not)
 	unresolved := false  // a problem REMAINS — stat/chmod/chown failed, so autofix didn't help
+	// issues is every problem that remains, in the words of the [WARN]/[ERROR] line
+	// printed for it: the returned error carries them, so a caller that refuses on it
+	// (server start-up) says WHY, not only that the audit failed (BOOT-REFUSALS-1).
+	var issues []string
 
 	for _, f := range files {
 		// Open with O_NOFOLLOW so a symlink at the final path component is refused
@@ -517,8 +521,10 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 		if err != nil {
 			if errors.Is(err, syscall.ELOOP) {
 				fmt.Printf("[WARN] Refusing to fix %s: it is a symlink (won't follow it to an arbitrary target)\n", f.Path)
+				issues = append(issues, fmt.Sprintf("%s is a symlink (not followed)", f.Path))
 			} else {
 				fmt.Printf("[WARN] Cannot open file %s: %v\n", f.Path, err)
+				issues = append(issues, fmt.Sprintf("cannot open %s (%v)", f.Path, unwrapPathErr(err)))
 			}
 			hasWarnings = true
 			unresolved = true
@@ -540,12 +546,14 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 			if autofix {
 				if err := file.Chmod(f.Mode); err != nil {
 					fmt.Printf("[ERROR] Failed to chmod %s: %v\n", f.Path, err)
+					issues = append(issues, fmt.Sprintf("%s (chmod failed: %v)", msg, unwrapPathErr(err)))
 					unresolved = true
 				} else {
 					fmt.Printf("[FIXED] %s\n", msg)
 				}
 			} else {
 				fmt.Printf("[WARN] %s\n", msg)
+				issues = append(issues, msg)
 			}
 		}
 
@@ -553,6 +561,7 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok {
 			fmt.Printf("[WARN] Cannot get stat_t for %s\n", f.Path)
+			issues = append(issues, fmt.Sprintf("cannot read the owner of %s", f.Path))
 			hasWarnings = true
 			unresolved = true
 			_ = file.Close()
@@ -566,12 +575,14 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 			if autofix {
 				if err := file.Chown(currentUID, int(stat.Gid)); err != nil {
 					fmt.Printf("[ERROR] Failed to chown %s: %v\n", f.Path, err)
+					issues = append(issues, fmt.Sprintf("%s (chown failed: %v)", msg, unwrapPathErr(err)))
 					unresolved = true
 				} else {
 					fmt.Printf("[FIXED] %s\n", msg)
 				}
 			} else {
 				fmt.Printf("[WARN] %s\n", msg)
+				issues = append(issues, msg)
 			}
 		}
 
@@ -583,8 +594,17 @@ func FixFilePerms(files []FilePermSpec, autofix bool) error { // NOSONAR -- cogn
 	// The previous `hasWarnings && !autofix` form silently returned nil when autofix
 	// couldn't actually lock a world-readable key file down.
 	if unresolved || (hasWarnings && !autofix) {
-		return fmt.Errorf("permissions or ownership audit found unresolved issues")
+		return fmt.Errorf("permissions or ownership audit found unresolved issues: %s", strings.Join(issues, "; "))
 	}
 
 	return nil
+}
+
+// unwrapPathErr drops the "op path:" prefix of an *os.PathError (the caller names
+// the path already), leaving e.g. "no such file or directory".
+func unwrapPathErr(err error) error {
+	if pe, ok := errors.AsType[*os.PathError](err); ok {
+		return pe.Err
+	}
+	return err
 }

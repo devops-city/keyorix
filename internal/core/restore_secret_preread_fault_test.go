@@ -36,6 +36,7 @@ func TestRestoreSecret_PreReadFaultRestoresNothing(t *testing.T) {
 		&models.SecretNode{}, &models.SecretVersion{}, &models.Project{}, &models.Environment{}, &models.AuditEvent{},
 		&models.UserRole{}, &models.GroupRole{}, &models.UserGroup{}, &models.Role{}, &models.Group{},
 		&models.ShareRecord{}, &models.SecretACL{}, &models.DynamicSecretConfig{}, &models.DynamicSecretLease{},
+		&models.AccessRequest{},
 	))
 	base := store.NewLocalStorage(db)
 	ctx := context.Background()

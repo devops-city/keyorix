@@ -38,7 +38,7 @@ func TestListSecretsInScope_PaginationSurvivesPostFetchTagFilter(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.Tag{}, &models.SecretTag{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.Tag{}, &models.SecretTag{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{}))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "owner", Email: "o@t.com"}).Error)
 
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}
@@ -115,7 +115,7 @@ func TestListSecretsWithSharingInfo_PaginationSurvivesPostFetchSearchFilter(t *t
 	require.NoError(t, err)
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.Tag{}, &models.SecretTag{}, &models.ShareRecord{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{}, &models.Tag{}, &models.SecretTag{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "owner", Email: "o@t.com"}).Error)
 
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: time.Now}

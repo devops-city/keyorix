@@ -200,6 +200,18 @@ Two ways to permanently lose every stored secret:
    `keyorix-server admin encryption rotate-kek` — never by editing `.env`.)
 2. **Losing the `keyorix_keys` volume.** Back it up (next section).
 
+The files on `keyorix_keys` and `keyorix_tls` belong to the server's uid (`1001`): the
+volumes are created from the image's `/app/keys` and `/app/tls`, which are owned by that
+uid, and the server writes the files itself. The server refuses (or, with
+`security.enable_file_permission_check` off, warns about) a key file owned by any other
+account except root (#3410), because the owner could replace it. If you copied key files in
+by hand and the server names a file and an owner uid, give the files back to the server's
+uid, with the backend stopped:
+
+```sh
+docker compose run --rm --no-deps --user 0 --cap-add CHOWN --entrypoint chown backend -R 1001:1001 /app/keys /app/tls
+```
+
 ### DEK rotation procedure
 
 To generate a new Data Encryption Key and re-encrypt every secret in the database:
@@ -223,6 +235,11 @@ The rotation re-encrypts all secrets, credentials, and session tokens in a
 single transaction.  If the server crashes mid-sweep, the orphaned pending key
 file is detected and cleaned up automatically on the next `--confirm` run.
 Back up the `keyorix_keys` volume after a successful rotation.
+
+With several server replicas on one PostgreSQL database, stop all of them, and
+copy the new key files to every replica before starting it: a replica with the
+old `dek.key` refuses to start. See [`operator/j6-key-rotation.md`](operator/j6-key-rotation.md)
+("Several server replicas").
 
 Store `KEYORIX_MASTER_PASSWORD` in your own password manager / secret store. It is
 not recoverable from the system.
