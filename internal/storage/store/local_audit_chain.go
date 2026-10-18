@@ -605,13 +605,21 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 		// that field's doc comment, and PR #2420's body, for why 0 is the
 		// shipped default rather than a tuned nonzero value.
 		if ls.auditFlusherLingerWindow <= 0 {
+		drain:
 			for len(batch) < auditFlusherMaxBatch {
 				select {
 				case item := <-af.queue:
 					batch = append(batch, item)
 				default:
-					goto commit
+					break drain
 				}
+			}
+			// While a batch is in flight, a batch too small to be worth its
+			// own transaction waits for that one's result and takes what
+			// arrived meanwhile (auditPipelineMinBatch).
+			if pipe.waitBeforeSending(len(batch)) {
+				pipe.completeOldest()
+				goto drain
 			}
 		} else {
 			lingerTimer := time.NewTimer(ls.auditFlusherLingerWindow)
@@ -626,7 +634,6 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 			}
 			lingerTimer.Stop()
 		}
-	commit:
 		af.mu.Lock()
 		af.pending -= len(batch)
 		af.mu.Unlock()

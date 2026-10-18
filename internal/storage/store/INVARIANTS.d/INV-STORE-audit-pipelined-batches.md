@@ -17,7 +17,8 @@
   commits and retries reuse the held connection, passed explicitly in their context
   (`withHeldAuditConn`; no other caller can reach it), so the flusher never waits for a second pool
   connection; a held connection that broke is handed back to the pool first. It pipelines only with single_writer on
-  (`swstate`; without it the flusher commits exactly as before). A pipelined batch stores exactly the rows the serial path stores for the same items in
+  (`swstate`; without it the flusher commits exactly as before), and while a batch is in flight a
+  batch of fewer than `auditPipelineMinBatch` items waits for it instead of being chained onto it. A pipelined batch stores exactly the rows the serial path stores for the same items in
   the same order (the parameters are re-encoded for the pipeline; an empty value stays "", never
   NULL). SQLite, non-pgx pools and a store with a flusher linger window never pipeline.
   Why: PERF-HIGHLOAD-1 — at high concurrency the single flusher left Postgres idle while it built and
@@ -36,7 +37,8 @@
   `TestPipelinedBatches_PostgresStoresEmptyStringsNotNull` (raw-SQL row comparison: red when an empty
   parameter is copied as NULL, found by `admin verify-audit` on the bench; all pg-gated),
   `TestPipelinedBatches_SQLiteFailedBatchFailsClosedNextCommits`,
-  `TestAuditPipeline_PostgresOffWithoutSingleWriter` (red when the gate is off), and the one-connection-pool tests
+  `TestAuditPipeline_PostgresOffWithoutSingleWriter` (red when the gate is off),
+  `TestPipelinedBatches_PostgresSmallBatchWaitsForTheOneInFlight` (red with the minimum at 1), and the one-connection-pool tests
   (`pipelinePGStore`, e.g. `TestOneFlight_PostgresTwoReplicasConcurrent`), which hang if the
   flusher's serial commits ask the pool for a second connection.
   **Not covered**: as for the serial path, a batch whose COMMIT acknowledgement is lost may have

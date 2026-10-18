@@ -56,6 +56,16 @@ import (
 // longer behind the second.
 const auditPipelineDepth = 2
 
+// auditPipelineMinBatch is the fewest items a batch is sent with while another
+// is in flight; a smaller one waits for that batch's result and takes what
+// arrived meanwhile. Every batch is a transaction whose fixed cost in the
+// database (the events statement's head and link checks, the commit) is about
+// the same for one row as for a few: sent eagerly at a few items each, batches
+// stay that small and the one backend spends its time on fixed costs
+// (measured: with this at 1, a load of ten readers lost throughput against
+// the serial flusher, depending on the history of the run).
+const auditPipelineMinBatch = 4
+
 // auditInflightBatch is one batch sent on a run's pipeline, not yet read.
 type auditInflightBatch struct {
 	batch []*auditBatchItem
@@ -122,6 +132,12 @@ func (ls *LocalStorage) newAuditBatchPipeline() *auditBatchPipeline {
 // auditPipelineNeedsSingleWriter is false only in this package's pipeline
 // tests, which run without a single-writer server.
 var auditPipelineNeedsSingleWriter = true
+
+// waitBeforeSending reports whether a batch of n items waits for the batch in
+// flight before it is sent (auditPipelineMinBatch).
+func (p *auditBatchPipeline) waitBeforeSending(n int) bool {
+	return p.inFlight() && n < auditPipelineMinBatch
+}
 
 // commitFlusherBatch commits batch for the flusher: pipelined when it can be,
 // otherwise serially once the run (if any) has ended, on the held connection
@@ -258,7 +274,7 @@ func (p *auditBatchPipeline) trySend(batch []*auditBatchItem) bool {
 		ls.auditHead.pipelinedSends.Add(1)
 	}
 	if auditPipelineAfterSendHook != nil {
-		auditPipelineAfterSendHook(ls, batch)
+		auditPipelineAfterSendHook(ls, batch, head.pending)
 	}
 	return true
 }
@@ -266,8 +282,9 @@ func (p *auditBatchPipeline) trySend(batch []*auditBatchItem) bool {
 // auditPipelineAfterSendHook, when set (tests only), runs on the flusher
 // goroutine right after a batch was sent on a run's pipeline, before the
 // flusher looks at its queue again: a test queues the next batch's items here
-// to have it sent while this one is in flight.
-var auditPipelineAfterSendHook func(ls *LocalStorage, batch []*auditBatchItem)
+// to have it sent while this one is in flight. pending is true when the batch
+// was chained onto a batch still in flight.
+var auditPipelineAfterSendHook func(ls *LocalStorage, batch []*auditBatchItem, pending bool)
 
 // openRun puts the held connection in pipeline mode, taking a pool
 // connection first if none is held.

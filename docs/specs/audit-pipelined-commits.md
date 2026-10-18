@@ -100,7 +100,12 @@ costs the database a transaction. So:
   credential statement, the server is CPU-bound well before the flusher is, and pipelining's
   more and smaller transactions cost more than the overlap saves (measured; the flusher then
   commits exactly as before this change);
-- with `single_writer` it pipelines at every concurrency: a rule sending a lone item serially
+- while a batch is in flight, a batch of fewer than `auditPipelineMinBatch` (4) items waits for
+  that one's result and takes what arrived meanwhile: every batch is a transaction whose fixed
+  cost in the database is about the same for one row as for a few, and batches sent eagerly at a
+  few items each stay that small (measured: at ten readers that cost throughput, depending on
+  the history of the run);
+- otherwise it pipelines at every concurrency: a rule sending a lone item serially
   (to keep low concurrency on the serial path) was measured and dropped, because switching
   between the two paths at every lone item cost a load of a few items per batch more than it
   saved.

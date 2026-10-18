@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -145,6 +146,13 @@ func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
 	ctx := context.Background()
 	ls := multiRowPGStore(t)
 	armed := armForPipeline(t, ls, "concurrent")
+	var small atomic.Int64
+	auditPipelineAfterSendHook = func(sent *LocalStorage, batch []*auditBatchItem, pending bool) {
+		if sent == ls && pending && len(batch) < auditPipelineMinBatch {
+			small.Add(1)
+		}
+	}
+	t.Cleanup(func() { auditPipelineAfterSendHook = nil })
 	// A little database time per row, so readers queue up while a batch
 	// executes: the next batch is then at least as large as the one in flight
 	// and is pipelined (a batch smaller than it waits instead, by design).
@@ -177,6 +185,7 @@ BEGIN PERFORM pg_sleep(0.001); RETURN NEW; END $$ LANGUAGE plpgsql`).Error)
 		t.Error(err)
 	}
 	assert.Positive(t, ls.auditHead.pipelinedSends.Load()-before, "no batch was sent while another was in flight: the pipeline was not exercised")
+	assert.Zero(t, small.Load(), "batches below auditPipelineMinBatch were sent while another was in flight")
 	requireChainValid(t, ls, nil, armed+workers*each)
 	requireNoNullTextColumns(t, ls)
 	_, logs := loadAuditRows(t, ls)
@@ -210,7 +219,7 @@ func TestPipelinedBatches_PostgresStoresEmptyStringsNotNull(t *testing.T) {
 	ls := multiRowPGStore(t)
 	armForPipeline(t, ls, "empty")
 	sends := ls.auditHead.pipelinedSends.Load()
-	primePipeline(t, ls, 3) // its events and access logs carry empty IP, diff, user agent
+	primePipeline(t, ls, auditPipelineMinBatch) // its events and access logs carry empty IP, diff, user agent
 	require.Greater(t, ls.auditHead.pipelinedSends.Load(), sends, "the pipeline was not exercised")
 	log := &models.SecretAccessLog{SecretNodeID: 1, AccessTime: time.Now(), Action: "read"} // empty AccessedBy, IP, UA
 	require.NoError(t, ls.LogAuditEventWithAccessLog(context.Background(), pipelinedEvent("with empty log fields"), log))
@@ -334,7 +343,7 @@ func queueBehind(t *testing.T, ls *LocalStorage, marker string, descs ...string)
 		results[i] = make(chan error, 1)
 	}
 	var once sync.Once
-	auditPipelineAfterSendHook = func(sent *LocalStorage, batch []*auditBatchItem) {
+	auditPipelineAfterSendHook = func(sent *LocalStorage, batch []*auditBatchItem, _ bool) {
 		if sent != ls || batch[0].event.Description != marker {
 			return
 		}
@@ -412,6 +421,34 @@ func TestPipelinedBatches_PostgresBatchFailsWhileNextInFlight(t *testing.T) {
 	assert.Zero(t, auditRowCount(t, ls, "SLOW-POISON"))
 	assert.GreaterOrEqual(t, ls.auditHead.oneFlightMisses.Load()-misses, int64(2), "both the failed batch and the one chained onto it are rolled back and retried")
 	requireChainValid(t, ls, nil, armed+len(next))
+}
+
+// A batch smaller than auditPipelineMinBatch queued while another is in
+// flight waits for that one's result before it is sent: it is never chained
+// onto a pending head, whatever the timing.
+func TestPipelinedBatches_PostgresSmallBatchWaitsForTheOneInFlight(t *testing.T) {
+	enablePipeline(t)
+	ls := multiRowPGStore(t)
+	slowPoisonTriggers(t, ls, 300*time.Millisecond)
+	armed := armForPipeline(t, ls, "small")
+	armed += primePipeline(t, ls, auditPipelineMinBatch)
+	sends := ls.auditHead.pipelinedSends.Load()
+	next := queueBehind(t, ls, "SLOW", "small 0", "small 1") // two items behind the slow batch
+	inner := auditPipelineAfterSendHook
+	var pendingSmall atomic.Int64
+	auditPipelineAfterSendHook = func(sent *LocalStorage, batch []*auditBatchItem, pending bool) {
+		inner(sent, batch, pending)
+		if sent == ls && pending && len(batch) < auditPipelineMinBatch {
+			pendingSmall.Add(1)
+		}
+	}
+	require.NoError(t, <-submitAsync(ls, "SLOW"))
+	for i, ch := range next {
+		require.NoError(t, <-ch, "item %d", i)
+	}
+	assert.Zero(t, pendingSmall.Load(), "a batch below auditPipelineMinBatch was chained onto a batch in flight")
+	assert.Equal(t, sends, ls.auditHead.pipelinedSends.Load())
+	requireChainValid(t, ls, nil, armed+3)
 }
 
 // Batch N's backend is terminated mid-transaction while batch N+1 is in flight.
