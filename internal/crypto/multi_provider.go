@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -73,6 +74,11 @@ func (m *MultiKeyProvider) KEK() ([]byte, error) {
 				}
 			}
 			return key, nil
+		}
+		// A configuration refusal, not an unavailable provider: falling through
+		// to the next one would turn the refusal into a silent downgrade.
+		if errors.Is(err, ErrKMSContextFallbackNotNeeded) {
+			return nil, err
 		}
 		log.Printf("key provider: %s failed (%v), trying next", p.Name(), err)
 		errs = append(errs, fmt.Sprintf("%s: %v", p.Name(), err))

@@ -75,9 +75,8 @@ func toPATResponse(t *models.PersonalAccessToken) patResponse {
 
 // ListPATs handles GET /auth/tokens.
 func (h *PATHandler) ListPATs(w http.ResponseWriter, r *http.Request) {
-	userCtx := middleware.GetUserFromContext(r.Context())
-	if userCtx == nil {
-		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+	userCtx, ok := mustGetHumanUser(w, r)
+	if !ok {
 		return
 	}
 	tokens, err := h.coreService.ListOwnPATs(r.Context(), userCtx.UserID)

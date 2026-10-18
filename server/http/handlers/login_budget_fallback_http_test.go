@@ -37,7 +37,7 @@ func (loginAttemptsDownStore) ReleaseLoginAttempt(context.Context, uint) error {
 
 func TestLoginBudget_StorageDownStillRefusesWithTheSame429(t *testing.T) {
 	// Control: the stored budget's 429.
-	cdb := openLoginBudgetDB(t, "file:kxfallbackctl?mode=memory&cache=shared")
+	cdb := openLoginBudgetMemDB(t, "kxfallbackctl")
 	ch := newLoginBudgetHandler(cdb)
 	for range core.LoginMaxAttempts {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, ch, "wrong-password").Code)
@@ -46,7 +46,7 @@ func TestLoginBudget_StorageDownStillRefusesWithTheSame429(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, control.Code)
 
 	// Probe: every LoginAttempt call fails.
-	pdb := openLoginBudgetDB(t, "file:kxfallbackprobe?mode=memory&cache=shared")
+	pdb := openLoginBudgetMemDB(t, "kxfallbackprobe")
 	ph := NewAuthHandler(core.NewKeyorixCore(loginAttemptsDownStore{store.NewLocalStorage(pdb)}), false)
 	for i := range core.LoginMaxAttempts {
 		require.Equal(t, http.StatusUnauthorized, postLoginAs(t, ph, "wrong-password").Code, "failure %d", i+1)

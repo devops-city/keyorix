@@ -17384,6 +17384,7 @@ type ListPATsResponse struct {
 	JSON200      *struct {
 		Data *[]PATToken `json:"data,omitempty"`
 	}
+	JSON403 *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -17437,6 +17438,7 @@ func (r CreatePATResponse) StatusCode() int {
 type BulkRevokeExpiredPATsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	JSON403      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -17461,6 +17463,7 @@ type ListExpiredPATsResponse struct {
 	JSON200      *struct {
 		Data *[]PATToken `json:"data,omitempty"`
 	}
+	JSON403 *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -22122,6 +22125,7 @@ type RemoveSelfFromShareResponse struct {
 	HTTPResponse *http.Response
 	JSON400      *Error
 	JSON401      *Error
+	JSON403      *Error
 	JSON404      *Error
 }
 
@@ -27244,6 +27248,13 @@ func ParseListPATsResponse(rsp *http.Response) (*ListPATsResponse, error) {
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	}
 
 	return response, nil
@@ -27310,6 +27321,16 @@ func ParseBulkRevokeExpiredPATsResponse(rsp *http.Response) (*BulkRevokeExpiredP
 		HTTPResponse: rsp,
 	}
 
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
 	return response, nil
 }
 
@@ -27335,6 +27356,13 @@ func ParseListExpiredPATsResponse(rsp *http.Response) (*ListExpiredPATsResponse,
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 
@@ -35332,6 +35360,13 @@ func ParseRemoveSelfFromShareResponse(rsp *http.Response) (*RemoveSelfFromShareR
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
 		var dest Error
