@@ -16,6 +16,8 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -49,28 +51,82 @@ func kvQuote(v string) string {
 	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
 }
 
+// dsnTLSKeys are the base-DSN parameters that decide how the connection is
+// secured. dsnFormsOf copies them into every form it builds.
+var dsnTLSKeys = []string{"sslmode", "sslrootcert", "sslcert", "sslkey"}
+
+// dsnParam returns the value of one libpq parameter of dsn (URL query or
+// key=value pair; the last occurrence wins, as in libpq), or "" when absent.
+func dsnParam(t *testing.T, dsn, key string) string {
+	t.Helper()
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		u, err := url.Parse(dsn)
+		require.NoError(t, err)
+		return u.Query().Get(key)
+	}
+	re := regexp.MustCompile(`(?:^|\s)` + regexp.QuoteMeta(key) + `\s*=\s*('(?:[^'\\]|\\.)*'|\S+)`)
+	ms := re.FindAllStringSubmatch(dsn, -1)
+	if len(ms) == 0 {
+		return ""
+	}
+	v := ms[len(ms)-1][1]
+	if strings.HasPrefix(v, "'") {
+		v = strings.NewReplacer(`\\`, `\`, `\'`, `'`).Replace(v[1 : len(v)-1])
+	}
+	return v
+}
+
 // dsnFormsOf builds, for the database base points at, the key=value form and
-// the URL forms the task lists. cfg comes from pgx's own parse of the
-// KEYORIX_TEST_PG_DSN-derived DSN, so either input form works.
+// the URL forms. Everything except the credentials comes from base: host (or
+// unix-socket directory), port, database and the TLS parameters (sslmode &
+// co.), so the forms work on whatever Postgres KEYORIX_TEST_PG_DSN names. cfg
+// comes from pgx's own parse of base, so either input form works.
 func dsnFormsOf(t *testing.T, base, user, password string) []dsnForm {
 	t.Helper()
 	cfg, err := pgconn.ParseConfig(base)
 	require.NoError(t, err)
-	hostport := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	u := func(q string) string {
-		s := "postgres://" + url.UserPassword(user, password).String() + "@" + hostport + "/" + cfg.Database
-		if q != "" {
-			s += "?" + q
+	tls := url.Values{}
+	for _, k := range dsnTLSKeys {
+		if v := dsnParam(t, base, k); v != "" {
+			tls.Set(k, v)
 		}
-		return s
 	}
-	return []dsnForm{
-		{"keyvalue", fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-			cfg.Host, cfg.Port, user, kvQuote(password), cfg.Database)},
-		{"url", u("")},
-		{"url-sslmode-disable", u("sslmode=disable")},
-		{"postgresql-scheme", strings.Replace(u("sslmode=disable"), "postgres://", "postgresql://", 1)},
+	isSocket := strings.HasPrefix(cfg.Host, "/")
+	u := func(scheme string, withTLS bool) string {
+		q := url.Values{}
+		if withTLS {
+			maps.Copy(q, tls)
+		}
+		uu := url.URL{Scheme: scheme, User: url.UserPassword(user, password), Path: "/" + cfg.Database}
+		if isSocket {
+			uu.Host = ""
+			q.Set("host", cfg.Host)
+			q.Set("port", fmt.Sprint(cfg.Port))
+		} else {
+			uu.Host = net.JoinHostPort(cfg.Host, fmt.Sprint(cfg.Port))
+		}
+		uu.RawQuery = q.Encode()
+		return uu.String()
 	}
+	kv := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+		kvQuote(cfg.Host), cfg.Port, kvQuote(user), kvQuote(password), kvQuote(cfg.Database))
+	for _, k := range dsnTLSKeys {
+		if v := tls.Get(k); v != "" {
+			kv += " " + k + "=" + kvQuote(v)
+		}
+	}
+	forms := []dsnForm{
+		{"keyvalue", kv},
+		{"url", u("postgres", true)},
+		{"postgresql-scheme", u("postgresql", true)},
+	}
+	// Query-less URL coverage. libpq then defaults to sslmode=prefer, which
+	// falls back to plain TCP, so it is only added when base asks for no TLS
+	// (it must never be the form that silently weakens a require/verify base).
+	if tls.Get("sslmode") == "disable" {
+		forms = append(forms, dsnForm{"url-no-query", u("postgres", false)})
+	}
+	return forms
 }
 
 // createDSNFormsRole creates a login role whose password is dsnFormsPassword
@@ -88,14 +144,29 @@ func createDSNFormsRole(t *testing.T, base, isolated string) string {
 		return db
 	}
 	admin := open(base)
+	iso := open(isolated)
 	lit := strings.ReplaceAll(dsnFormsPassword, "'", "''")
 	require.NoError(t, admin.Exec(fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD '%s'", role, lit)).Error)
+	// Registered right after CREATE ROLE and after both connections are opened, so (LIFO) it runs while
+	// they are still open, and before the isolated database's DROP DATABASE.
+	// The role owns objects in the isolated database, so DROP OWNED has to run
+	// on that database's connection; DROP ROLE then runs on the base one. Both
+	// errors are checked: a failed DROP ROLE leaks a LOGIN role (with a
+	// password that is in the repo) on the shared test Postgres.
 	t.Cleanup(func() {
-		_ = admin.Exec(fmt.Sprintf("DROP OWNED BY %s", role)).Error
-		_ = admin.Exec(fmt.Sprintf("DROP ROLE IF EXISTS %s", role)).Error
+		if err := iso.Exec(fmt.Sprintf("DROP OWNED BY %s", role)).Error; err != nil {
+			t.Errorf("cleanup: DROP OWNED BY %s in the isolated database: %v", role, err)
+		}
+		if err := admin.Exec(fmt.Sprintf("DROP ROLE %s", role)).Error; err != nil {
+			t.Errorf("cleanup: DROP ROLE %s leaked a LOGIN role on the test Postgres: %v", role, err)
+		}
 	})
 
-	iso := open(isolated)
+	// A CREATEROLE (non-superuser) creator of a role gets only ADMIN on it
+	// since Postgres 16, not the membership that ALTER ... OWNER TO and DROP
+	// OWNED need. Granting the role to the test's own user is a no-op for a
+	// superuser.
+	require.NoError(t, admin.Exec(fmt.Sprintf("GRANT %s TO CURRENT_USER", role)).Error)
 	require.NoError(t, iso.Exec(fmt.Sprintf("GRANT ALL ON SCHEMA public TO %s", role)).Error)
 	require.NoError(t, iso.Exec(fmt.Sprintf(`DO $$ DECLARE r record; BEGIN
 		FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
@@ -230,6 +301,49 @@ func TestAdminPostgres_DSNForms_ProductPath(t *testing.T) {
 					continue
 				}
 				require.Equal(t, want.RowCount, got.RowCount, "table %s row count", want.Name)
+			}
+		})
+	}
+}
+
+// TestDSNFormsOf_KeepsBaseHostAndTLS needs no Postgres: every form dsnFormsOf
+// builds must resolve, under pgx's own parser, to the base DSN's host (or
+// unix-socket directory), port, database and TLS mode, whichever form and
+// sslmode the base uses.
+func TestDSNFormsOf_KeepsBaseHostAndTLS(t *testing.T) {
+	bases := map[string]string{
+		"kv-disable":      "host=127.0.0.1 port=55433 user=a password=b dbname=d sslmode=disable",
+		"kv-require":      "host=db.example port=6432 user=a password=b dbname=d sslmode=require",
+		"kv-verify-full":  "host=db.example port=5432 user=a password=b dbname=d sslmode=verify-full",
+		"url-require":     "postgres://a:b@db.example:6432/d?sslmode=require",
+		"url-verify-full": "postgresql://a:b@db.example/d?sslmode=verify-full",
+		"url-no-sslmode":  "postgres://a:b@db.example:5432/d",
+		"kv-socket":       "host=/var/run/postgresql port=5433 user=a password=b dbname=d",
+		"url-socket":      "postgres://a:b@/d?host=%2Fvar%2Frun%2Fpostgresql&port=5433&sslmode=disable",
+	}
+	for name, base := range bases {
+		t.Run(name, func(t *testing.T) {
+			want, err := pgconn.ParseConfig(base)
+			require.NoError(t, err)
+			forms := dsnFormsOf(t, base, "kx role", dsnFormsPassword)
+			require.GreaterOrEqual(t, len(forms), 3)
+			for _, f := range forms {
+				got, err := pgconn.ParseConfig(f.dsn)
+				require.NoError(t, err, f.name)
+				require.Equal(t, want.Host, got.Host, f.name)
+				require.Equal(t, want.Port, got.Port, f.name)
+				require.Equal(t, want.Database, got.Database, f.name)
+				require.Equal(t, "kx role", got.User, f.name)
+				require.Equal(t, dsnFormsPassword, got.Password, f.name)
+				if f.name == "url-no-query" {
+					require.Nil(t, want.TLSConfig, "url-no-query only exists for a TLS-disabled base")
+					continue
+				}
+				require.Equal(t, want.TLSConfig == nil, got.TLSConfig == nil, "%s: TLS on/off", f.name)
+				if want.TLSConfig != nil {
+					require.Equal(t, want.TLSConfig.InsecureSkipVerify, got.TLSConfig.InsecureSkipVerify, "%s: verification", f.name)
+					require.Equal(t, want.TLSConfig.ServerName, got.TLSConfig.ServerName, "%s: server name", f.name)
+				}
 			}
 		})
 	}
