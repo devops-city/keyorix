@@ -28,7 +28,8 @@ precedence, before falling back to `KEYORIX_MASTER_PASSWORD`:
    — the credential never touches a command-line argument or the process
    environment at any point.
 2. **`--passphrase-file <path>`** — read from a file. Refused if the file is
-   group- or world-readable (`mode & 0o077 != 0`); opened with `O_NOFOLLOW`
+   group- or world-readable (`mode & 0o077 != 0`), or owned by anyone but the
+   running user or root (#3410: the owner can rewrite it); opened with `O_NOFOLLOW`
    so a symlink is refused rather than followed to an arbitrary target, and
    the permission check is done via `fstat` on the same fd used to read (not
    a separate `stat`-then-`open`), so there's no TOCTOU window for the file
