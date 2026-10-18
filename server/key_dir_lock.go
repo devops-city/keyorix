@@ -17,9 +17,14 @@ import (
 const keyInitLockWait = 2 * time.Minute
 
 // initializeKeys runs svc.Initialize with initializeEncryption's error wording.
-func initializeKeys(svc *encryption.Service, passphrase string) error {
+func initializeKeys(svc *encryption.Service, passphrase, providerType string) error {
 	if err := svc.Initialize(passphrase); err != nil {
-		return fmt.Errorf("failed to initialize encryption (KEK derivation): %w", err)
+		if providerType == "" || providerType == "password" {
+			// Name the source (BOOT-REFUSALS-1 item 7): with several ways to pass the
+			// passphrase, "wrong passphrase" alone does not say which one was read.
+			return fmt.Errorf("KEK derivation from the master passphrase read from %s failed: %w", masterPassphraseSource.Describe("KEYORIX_MASTER_PASSWORD"), err)
+		}
+		return fmt.Errorf("KEK from key provider %q failed: %w", providerType, err)
 	}
 	return nil
 }

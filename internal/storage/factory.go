@@ -649,7 +649,7 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 	}
 
 	if err := withMigrationLock(db, false, dbPath, f.migrateSQLite); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+		return nil, migrateError(err)
 	}
 
 	ls := store.NewLocalStorage(db)
@@ -699,7 +699,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	}
 
 	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migratePostgres); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+		return nil, migrateError(err)
 	}
 
 	schedulerLockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
@@ -1029,6 +1029,23 @@ func tableExists(db *gorm.DB, table string) bool {
 		db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&count)
 	}
 	return count > 0
+}
+
+// schemaCheckRefusal marks a refusal of checkSchemaEpoch inside migrateDatabase.
+// That check runs before any migration step, so migrateError reports it as what
+// it is instead of as "failed to migrate database" (BOOT-REFUSALS-1 item 6:
+// operators went looking for a migration error). The message is the check's own.
+type schemaCheckRefusal struct{ err error }
+
+func (e *schemaCheckRefusal) Error() string { return e.err.Error() }
+func (e *schemaCheckRefusal) Unwrap() error { return e.err }
+
+// migrateError wraps an error of the migration step for the start-up message.
+func migrateError(err error) error {
+	if _, ok := errors.AsType[*schemaCheckRefusal](err); ok {
+		return fmt.Errorf("database schema check failed (checked before migrating; nothing was migrated): %w", err)
+	}
+	return fmt.Errorf("failed to migrate database: %w", err)
 }
 
 // checkSchemaEpoch (ADR-097, ADR-101) refuses to let a binary run
@@ -1494,7 +1511,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	// ADR-097: refuse before touching anything if this binary is older than
 	// the database it's pointed at -- must run before every other step below.
 	if err := checkSchemaEpoch(db); err != nil {
-		return err
+		return &schemaCheckRefusal{err: err}
 	}
 	// The pipelined audit commit needs the audit_events id sequence to be
 	// CACHE 1; refuse to start rather than fail every audit write later.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -69,6 +70,14 @@ func (p *FileKeyProvider) KEK() ([]byte, error) {
 	defer func() { _ = f.Close() }()
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("file key provider: %s is readable/writable beyond its owner (mode %o) — refusing to trust it as key material; chmod it to 0600 (or 0400)", p.path, info.Mode().Perm())
+	}
+	// #3410: and owned by the running user or root (secretenv.CheckOwner): any other
+	// owner could replace the KEK whatever its mode. Unconditional, like the mode.
+	if err := secretenv.CheckOwner(info); err != nil {
+		if foe, ok := errors.AsType[*secretenv.ForeignOwnerError](err); ok {
+			return nil, fmt.Errorf("file key provider: %s is %w; chown it to uid %d (the user the server runs as) or to root", p.path, err, foe.ProcessUID)
+		}
+		return nil, fmt.Errorf("file key provider: %s: %w", p.path, err)
 	}
 	data, err := io.ReadAll(f)
 	if err != nil {
