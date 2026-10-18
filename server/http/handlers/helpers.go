@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/keyorixhq/keyorix/internal/besteffort"
+	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/server/middleware"
 )
 
@@ -169,6 +170,24 @@ func mustGetUser(w http.ResponseWriter, r *http.Request) (*middleware.UserContex
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
 		sendError(w, "Unauthorized", errUserContext, http.StatusUnauthorized, nil)
+		return nil, false
+	}
+	return user, true
+}
+
+// mustGetHumanUser is mustGetUser for routes that act on the caller's own user
+// record (sessions, personal access tokens, impersonation, self-share). A machine
+// identity authenticates with UserID 0 (ADR-030), which the core layer rejects as a
+// validation error; without this guard the handler mapped that to a 500. A machine
+// principal on a user-only route is the caller's mistake: 403 with the standard
+// error body, the same status the router's own principal gates use.
+func mustGetHumanUser(w http.ResponseWriter, r *http.Request) (*middleware.UserContext, bool) {
+	user, ok := mustGetUser(w, r)
+	if !ok {
+		return nil, false
+	}
+	if user.ActorKind() == core.ActorTypeMachine {
+		sendError(w, "Forbidden", errUserOnlyEndpoint, http.StatusForbidden, nil)
 		return nil, false
 	}
 	return user, true
