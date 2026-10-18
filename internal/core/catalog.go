@@ -66,8 +66,12 @@ const EventProjectEnvironmentSeedFailed = "project.environment_seed_failed"
 // create/update/delete. actorID is the acting admin (0 = none). See the
 // EventProjectCreated doc comment above for why these are standalone methods.
 func (c *KeyorixCore) LogProjectCreated(ctx context.Context, actorID, projectID uint, name string) {
+	c.logProjectCreatedOn(ctx, c.auditNow(), actorID, projectID, name)
+}
+
+func (c *KeyorixCore) logProjectCreatedOn(ctx context.Context, tgt auditTarget, actorID, projectID uint, name string) {
 	pid := projectID
-	c.writeAuditEventFull(ctx, EventProjectCreated, actorPtr(actorID), nil, &pid, "",
+	c.writeAuditEventFullOn(ctx, tgt, EventProjectCreated, actorPtr(actorID), nil, &pid, "",
 		fmt.Sprintf("project %d (%q) created", projectID, name))
 }
 
@@ -493,8 +497,12 @@ const (
 // LogEnvironmentCreated records an environment creation. actorID is the
 // creating admin (0 = none).
 func (c *KeyorixCore) LogEnvironmentCreated(ctx context.Context, actorID, environmentID, projectID uint, name string) {
+	c.logEnvironmentCreatedOn(ctx, c.auditNow(), actorID, environmentID, projectID, name)
+}
+
+func (c *KeyorixCore) logEnvironmentCreatedOn(ctx context.Context, tgt auditTarget, actorID, environmentID, projectID uint, name string) {
 	pid := projectID
-	c.writeAuditEventFull(ctx, EventEnvironmentCreated, actorPtr(actorID), nil, &pid, "",
+	c.writeAuditEventFullOn(ctx, tgt, EventEnvironmentCreated, actorPtr(actorID), nil, &pid, "",
 		fmt.Sprintf("environment %d (%q) created in project %d", environmentID, name, projectID))
 }
 
@@ -539,9 +547,13 @@ func (c *KeyorixCore) CreateProject(ctx context.Context, name, description strin
 	// yields the full new state. Both are old-OR-new, which oracle (d) accepts. Does
 	// NOT close the ambiguous-response half (the client is still told "error" even
 	// when the write commits) — that needs an idempotency key, tracked separately.
+	//
+	// AUDIT-TX-2: a transport that tagged ctx (WithMutationAuditActor) gets the
+	// project.created row as the last statement of this transaction.
+	actor, audited := mutationAuditActorFromContext(ctx)
 	var project *models.Project
 	var seedFailures []projectEnvSeedFailure
-	txErr := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	txErr := c.mutationTx(ctx, audited, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
 		project, err = tx.CreateProject(ctx, &models.Project{Name: name, Description: description})
 		if err != nil {
@@ -563,6 +575,9 @@ func (c *KeyorixCore) CreateProject(ctx context.Context, name, description strin
 			if f := seedProjectEnvironment(ctx, tx, project, envName); f != nil {
 				seedFailures = append(seedFailures, *f)
 			}
+		}
+		if audited {
+			c.logProjectCreatedOn(ctx, tgt, actor, project.ID, project.Name)
 		}
 		return nil
 	})
@@ -677,8 +692,12 @@ func (c *KeyorixCore) CreateEnvironment(ctx context.Context, projectID uint, nam
 	// CreateProject/CreateProjectWithEnvs) does NOT come through here — it calls
 	// tx.CreateEnvironment directly inside a transaction that just created the
 	// project, so there is no deleted-parent window to close there.
+	//
+	// AUDIT-TX-2: a transport that tagged ctx (WithMutationAuditActor) gets the
+	// environment.created row as the last statement of this transaction.
+	actor, audited := mutationAuditActorFromContext(ctx)
 	var env *models.Environment
-	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	if err := c.mutationTx(ctx, audited, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		env, cerr = tx.CreateEnvironment(ctx, &models.Environment{ProjectID: projectID, Name: name})
 		if cerr != nil {
@@ -691,6 +710,9 @@ func (c *KeyorixCore) CreateEnvironment(ctx context.Context, projectID uint, nam
 		if !live {
 			return fmt.Errorf("%s: project %d was deleted while this environment was being created",
 				i18n.T("ErrorNotFound", nil), projectID)
+		}
+		if audited {
+			c.logEnvironmentCreatedOn(ctx, tgt, actor, env.ID, projectID, env.Name)
 		}
 		return nil
 	}); err != nil {
@@ -724,9 +746,13 @@ func (c *KeyorixCore) CreateProjectWithEnvs(ctx context.Context, name, descripti
 	// Same tx-wrap as CreateProject above, including the per-seed SAVEPOINT
 	// (nested tx.WithTransaction) — a failed CreateEnvironment must not abort the
 	// whole create on PostgreSQL, same reasoning as CreateProject's own loop.
+	//
+	// AUDIT-TX-2: a transport that tagged ctx (WithMutationAuditActor) gets the
+	// project.created row as the last statement of this transaction.
+	actor, audited := mutationAuditActorFromContext(ctx)
 	var project *models.Project
 	var seedFailures []projectEnvSeedFailure
-	txErr := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	txErr := c.mutationTx(ctx, audited, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
 		project, err = tx.CreateProject(ctx, &models.Project{Name: name, Description: description})
 		if err != nil {
@@ -736,6 +762,9 @@ func (c *KeyorixCore) CreateProjectWithEnvs(ctx context.Context, name, descripti
 			if f := seedProjectEnvironment(ctx, tx, project, envName); f != nil {
 				seedFailures = append(seedFailures, *f)
 			}
+		}
+		if audited {
+			c.logProjectCreatedOn(ctx, tgt, actor, project.ID, project.Name)
 		}
 		return nil
 	})
