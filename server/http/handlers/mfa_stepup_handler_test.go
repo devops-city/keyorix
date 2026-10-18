@@ -54,22 +54,50 @@ func setupMFAStepUpTest(t *testing.T) (*AuthHandler, *core.KeyorixCore, *gorm.DB
 	return NewAuthHandler(coreService, false), coreService, db
 }
 
-// activateMFAForStepUpTest enrolls and activates MFA for user 1 using the real clock,
-// returning the base32 secret and initial recovery codes.
+// activateMFAForStepUpTest enrolls and activates MFA for user 1, returning the base32
+// secret and initial recovery codes. It reads the core's own clock (the one ActivateMFA
+// validates against) and retries on a fresh step if a 30 s TOTP step boundary passed
+// between generating the code and submitting it (#3352): the code is the PREVIOUS step,
+// so a boundary in that gap leaves it two steps behind the server's ±1 window and the
+// activation fails "invalid code". Test helper only; the handlers are unchanged.
 func activateMFAForStepUpTest(t *testing.T, coreService *core.KeyorixCore) (secret string, codes []string) {
 	t.Helper()
-	ctx := context.Background()
-	now := time.Now()
-
-	_, secret, err := coreService.BeginMFAEnrollment(ctx, 1)
-	require.NoError(t, err)
-
-	// Activate using the previous step so the current step remains available for test calls.
-	actCode, err := totp.GenerateCode(secret, now.Add(-30*time.Second))
-	require.NoError(t, err)
-	codes, err = coreService.ActivateMFA(ctx, 1, actCode, stepUpTestPassword, "")
+	secret, codes, err := activateMFAWithRetry(context.Background(), coreService, coreService.EffectiveNow, nil, stepUpActivateAttempts)
 	require.NoError(t, err)
 	return secret, codes
+}
+
+// stepUpActivateAttempts bounds the retry: one boundary can pass in a test, two in a row
+// only if the process stalls for a whole step.
+const stepUpActivateAttempts = 3
+
+// activateMFAWithRetry is activateMFAForStepUpTest with an injectable clock. now supplies
+// the instant the code is generated for (the core's clock in production use). afterGenerate,
+// when non-nil, runs between generating and submitting each attempt -- the window in which
+// a step boundary can pass; tests use it to force the boundary with a fake clock. Only an
+// "invalid code" result is retried; attempts <= 1 reproduces the pre-#3352 helper.
+func activateMFAWithRetry(ctx context.Context, coreService *core.KeyorixCore, now func() time.Time, afterGenerate func(attempt int), attempts int) (secret string, codes []string, err error) {
+	_, secret, err = coreService.BeginMFAEnrollment(ctx, 1)
+	if err != nil {
+		return "", nil, err
+	}
+	for attempt := 1; ; attempt++ {
+		// Activate using the previous step so the current step remains available for test calls.
+		actCode, gerr := totp.GenerateCode(secret, now().Add(-30*time.Second))
+		if gerr != nil {
+			return "", nil, gerr
+		}
+		if afterGenerate != nil {
+			afterGenerate(attempt)
+		}
+		codes, err = coreService.ActivateMFA(ctx, 1, actCode, stepUpTestPassword, "")
+		if err == nil {
+			return secret, codes, nil
+		}
+		if attempt >= attempts || err.Error() != "invalid code" {
+			return "", nil, err
+		}
+	}
 }
 
 // TestMFAStepUpHandler_NoUserContext_Unauthorized verifies that a request without

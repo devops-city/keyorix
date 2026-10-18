@@ -17,9 +17,10 @@ package rules
 import (
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -29,10 +30,7 @@ import (
 // runner's working directory (matches the repoRootG1619/repoRootU1 pattern
 // used by this campaign's other AST/external-tool guard tests).
 func repoRootForHelmChartTest() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "password_policy_helm_chart_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 }
 

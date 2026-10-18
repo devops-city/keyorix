@@ -1,0 +1,1 @@
+scripts/metrics/surfacewalk	none	-	PR #3472 (COMPLEXITY-METRICS-1): developer tool run by hand that walks the API, CLI, env-var and dependency surface and times a throwaway local server start; never linked into a shipped binary, runs only against a binary and repo checkout the operator names; unit-tested in surfacewalk_test.go and startup_test.go	pending

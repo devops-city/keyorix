@@ -17,7 +17,10 @@ package main
 //     recover after space is freed. A real full filesystem needs root, so this
 //     simulates the write failure with the process's file-size limit
 //     (RLIMIT_FSIZE, the writes that cross it fail); a real ENOSPC is pending
-//     the e2e VM.
+//     the e2e VM. RLIMIT_FSIZE only refuses GROWTH: a write into bytes the
+//     file already has still succeeds, and SQLite's WAL reuses the bytes a
+//     failed (rolled-back) transaction wrote below the limit, so a small
+//     commit can still land after a big one failed (AUDIT-DISKFULL-1).
 //
 // Kept apart from edge_crash_soak_integration_test.go (a separate PR) so each
 // stands on main alone; the small helpers below are deliberately local.
@@ -28,11 +31,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -268,6 +273,45 @@ func findLockFiles(t *testing.T, dir string) []string {
 	return out
 }
 
+// shUlimitFBlockBytes measures the unit of /bin/sh's `ulimit -f`, which is not
+// portable: dash (Debian/Ubuntu /bin/sh) counts 512-byte blocks, macOS's
+// /bin/sh (bash 3.2) counts 1024. It writes 4 KiB under a limit of 1 block and
+// returns the size that landed.
+func shUlimitFBlockBytes(t *testing.T) int64 {
+	t.Helper()
+	f := filepath.Join(t.TempDir(), "ulimit-probe")
+	// dd is killed by SIGXFSZ once it crosses the limit; that is the point.
+	_ = exec.Command("/bin/sh", "-c", `ulimit -f 1; exec dd if=/dev/zero of="$0" bs=4096 count=1 2>/dev/null`, f).Run() //nolint:gosec // fixed command, test temp path
+	st, err := os.Stat(f)
+	if err != nil || (st.Size() != 512 && st.Size() != 1024) {
+		t.Fatalf("cannot tell the unit of /bin/sh's ulimit -f (probe file: %v, err=%v)", st, err)
+	}
+	return st.Size()
+}
+
+func readEdgeLog(t *testing.T, e *edgeInstall) string {
+	t.Helper()
+	b, err := os.ReadFile(e.log) //nolint:gosec // test path
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// secretReadAuditCount is the number of committed secret.read audit rows for a
+// secret, through the audit API.
+func secretReadAuditCount(t *testing.T, a *edgeAPI, secretID uint) int {
+	t.Helper()
+	var d struct {
+		Total *int `json:"total"`
+	}
+	raw := a.must(t, http.MethodGet, fmt.Sprintf("/api/v1/audit/logs?action=secret.read&secret_id=%d&include_total=true", secretID), nil, http.StatusOK)
+	if err := json.Unmarshal(raw, &d); err != nil || d.Total == nil {
+		t.Fatalf("audit logs for secret %d: no total in %s (err=%v)", secretID, raw, err)
+	}
+	return *d.Total
+}
+
 func requireVerifyAuditValid(t *testing.T, e *edgeInstall, when string) {
 	t.Helper()
 	out, err := runAdmin(t, e.bin, e.dir, e.env, "verify-audit", "--config", "./keyorix.yaml")
@@ -386,15 +430,18 @@ func TestEdgeUnattended_DiskFullThenFreed(t *testing.T) {
 	envID := a.id(t, fmt.Sprintf("/api/v1/projects/%d/environments", projectID), map[string]string{"name": "full-env"})
 	e.kill9(p)
 
-	// Headroom of a few hundred KiB over the database as it stands: enough for
-	// a while of writes, then the limit is hit mid-run.
+	// Headroom of 2 MiB over the database as it stands, in bytes on every
+	// platform: enough for a run of acknowledged writes (each secret create
+	// writes ~100 KiB of WAL), then the limit is hit mid-run.
 	size := int64(0)
 	for _, f := range []string{"keyorix.db", "keyorix.db-wal"} {
 		if st, err := os.Stat(filepath.Join(e.dir, f)); err == nil && st.Size() > size {
 			size = st.Size()
 		}
 	}
-	limitBlocks := (size + 256*1024) / 512 // /bin/sh's ulimit -f counts 512-byte blocks
+	blockBytes := shUlimitFBlockBytes(t)
+	limitBlocks := (size + 2<<20) / blockBytes
+	t.Logf("file-size limit %d KiB (%d blocks of %d bytes)", limitBlocks*blockBytes/1024, limitBlocks, blockBytes)
 	p = e.start(fmt.Sprintf("ulimit -f %d;", limitBlocks))
 	e.waitHealthy(p)
 	a = e.api()
@@ -426,18 +473,51 @@ func TestEdgeUnattended_DiskFullThenFreed(t *testing.T) {
 		}
 	}
 	if failures == 0 {
-		t.Fatalf("600 writes of 2 KiB never failed under a %d KiB file limit: the simulated full disk did not bite (limit applied to the server? ulimit -f units?)", limitBlocks/2)
+		t.Fatalf("600 writes of 2 KiB never failed under a %d KiB file limit: the simulated full disk did not bite (limit applied to the server? ulimit -f units?)", limitBlocks*blockBytes/1024)
 	}
 	t.Logf("%d writes acknowledged, then the disk 'filled'; server alive=%v", len(acked), p.alive())
-	// A value disclosure writes its audit row first: with the disk full it must
-	// be refused, never served unaudited.
-	for id := range acked {
+	if !p.alive() {
+		t.Fatalf("the server died under the file-size limit, so no value read below can exercise a failing audit write. Log tail:\n%s", e.logTail())
+	}
+
+	// A value disclosure commits its audit row first (LogSecretReadWithProject,
+	// fail closed). Under RLIMIT_FSIZE a small audit commit can still land in
+	// the WAL bytes a failed write left below the limit, and then the read is
+	// served, legitimately. So the invariant is not "every read is refused" but:
+	// every disclosed value has its own audit row that survives a restart, and a
+	// read whose audit write fails is refused. Reads go on until the leftover
+	// bytes are used up and audit writes refuse in a row, so the failing-audit
+	// path is exercised on every platform, whatever that leftover happens to be.
+	ids := slices.Sorted(maps.Keys(acked))
+	disclosed := map[uint]int{}
+	refused, refusedInARow := 0, 0
+	for i := 0; i < 300 && refusedInARow < 5; i++ {
+		id := ids[i%len(ids)]
 		code, data, err := a.do(http.MethodGet, fmt.Sprintf("/api/v1/secrets/%d?include_value=true", id), nil)
-		t.Logf("read of an acknowledged secret while full: HTTP %d err=%v", code, err)
-		if err == nil && code == http.StatusOK && strings.Contains(string(data), `"value"`) {
-			t.Errorf("a value was disclosed while the audit write for it was failing")
+		switch {
+		case err != nil:
+			t.Fatalf("value read %d while full: %v (the server must refuse, not drop the connection). Log tail:\n%s", i, err, e.logTail())
+		case code == http.StatusOK && strings.Contains(string(data), `"value"`):
+			disclosed[id]++
+			refusedInARow = 0
+		case code == http.StatusInternalServerError:
+			refused++
+			refusedInARow++
+		default:
+			t.Fatalf("value read %d of secret %d while full: HTTP %d %s, want 200 with the value (audited) or 500 (audit write failed)", i, id, code, data)
 		}
-		break
+	}
+	total := 0
+	for _, n := range disclosed {
+		total += n
+	}
+	t.Logf("value reads while full: %d disclosed (each must be audited), %d refused", total, refused)
+	if refusedInARow < 5 {
+		t.Fatalf("value reads kept succeeding under the file-size limit (%d disclosed, %d refused, never 5 refusals in a row): the simulated full disk never made the read's audit write fail", total, refused)
+	}
+	// Refusals are the audit write failing (not another 500): each one says so.
+	if got := strings.Count(readEdgeLog(t, e), "audit write failed for secret read"); got != refused {
+		t.Fatalf("%d value reads were refused but the server logged %d failed read-audit writes: a refusal had another cause. Log tail:\n%s", refused, got, e.logTail())
 	}
 	e.kill9(p) // the operator (or watchdog) restarts it; the limit is gone: space was freed
 
@@ -445,6 +525,13 @@ func TestEdgeUnattended_DiskFullThenFreed(t *testing.T) {
 	e.waitHealthy(p)
 	a = e.api()
 	a.login(t)
+	// After the restart (WAL recovery), before any further read of these
+	// secrets: every value disclosed while full has its committed audit row.
+	for id, n := range disclosed {
+		if got := secretReadAuditCount(t, a, id); got < n {
+			t.Errorf("secret %d: value disclosed %d time(s) while the disk was full, but only %d secret.read audit row(s) survived the restart", id, n, got)
+		}
+	}
 	for id, want := range acked {
 		var d struct {
 			Value string `json:"value"`

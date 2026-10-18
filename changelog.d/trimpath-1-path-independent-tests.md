@@ -1,0 +1,2 @@
+### Testing
+- **Test suite is path-independent (`-trimpath` safe).** Tests and test helpers that located source files via `runtime.Caller` now use `internal/testutil/srcpath` (`RepoRoot()`/`PkgDir()`, found from the working directory), so `GOFLAGS=-trimpath go test ./...` passes. A static guard (`TestNoTestOpensFilesViaRuntimeCallerPath`) fails if a new test opens files via a `runtime.Caller` file name.

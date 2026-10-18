@@ -85,6 +85,10 @@ if [ "$mode" = "--self-test" ]; then
         "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote with an\nembedded newline\n"
     st_case "embedded newline leaving a well-formed second row" reject \
         "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tfirst\nGOOD-1b\t-\t-\tmanual\tdeadbeef\t-\tsecond\n"
+    st_case "embedded newline whose continuation starts with '#' (row still parses)" reject \
+        "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote cut here\n# rest of the note after an embedded newline\n"
+    st_case "comment line after the row" reject "$good\n# trailing comment\n"
+    st_case "blank line after the row" accept "$good\n\n"
     st_case "CRLF line ending" reject "$good\r\n"
     st_case "bare CR inside a field" reject "GOOD-1\t-\t-\tmanual\tdeadbeef\t-\tnote\rmore\n"
     st_case "no trailing newline" reject "$good"
@@ -122,6 +126,15 @@ for f in "${frags[@]}"; do
     nrows="$(grep -cvE '^[[:space:]]*(#|$)' "$f" || true)"
     if [ "$nrows" -ne 1 ]; then
         bad "$f holds $nrows non-comment lines; a fragment is exactly one row on one line (two rows in one file, or a field with an embedded newline splitting a row, are both refused)"
+        continue
+    fi
+    # Comments are allowed BEFORE the row only. A comment-looking line AFTER it is
+    # what an embedded newline in the last field leaves behind when the text that
+    # follows the newline starts with '#': the row above still parses, so the
+    # count check cannot see it, and the note would be silently cut short.
+    trailing="$(awk '/^[[:space:]]*(#|$)/ { if (seen && $0 !~ /^[[:space:]]*$/) print NR; next } { seen = 1 }' "$f")"
+    if [ -n "$trailing" ]; then
+        bad "$f: line ${trailing%%$'\n'*} follows the row and is not blank; a fragment is exactly one row on one line, comments only before it (a field with an embedded newline followed by '#' text is refused)"
         continue
     fi
     while IFS= read -r row; do

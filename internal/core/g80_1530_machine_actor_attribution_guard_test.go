@@ -30,9 +30,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // auditAttributionAllowlist is the exhaustive, reasoned inventory of every
@@ -102,10 +103,7 @@ var logAuditEventFuncRe = regexp.MustCompile(`^func\s+(?:\([^)]*\)\s*)?([A-Za-z0
 // location on disk (internal/core), so the guard works regardless of the
 // test runner's working directory.
 func repoRootG1626() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "g80_1530_machine_actor_attribution_guard_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 
