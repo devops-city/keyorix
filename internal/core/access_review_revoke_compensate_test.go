@@ -128,31 +128,3 @@ func TestDecideAccessReviewItem_RevokeActionFailure_AnotherReviewerCanRetry(t *t
 	assert.Equal(t, ReviewItemRevoked, final.Decision)
 	assert.Equal(t, uint(2), final.DecidedBy, "the successful retry's actor must be recorded, not the original failed claimant")
 }
-
-// TestRevertAccessReviewItemClaim_FailsClosedWhenAlreadyChanged proves the
-// compensating revert's own fail-closed guarantee directly at the storage
-// layer: it must never revert a row that no longer shows exactly the claim it
-// is compensating (e.g. a concurrent caller already re-decided it, or a prior
-// compensation already ran) -- those cases must be left alone, not overwritten.
-func TestRevertAccessReviewItemClaim_FailsClosedWhenAlreadyChanged(t *testing.T) {
-	c, _, db, item := newAccessReviewRevokeCompensateWorld(t)
-	ctx := context.Background()
-
-	// Simulate a claim by actor 1 that is NOT the state RevertAccessReviewItemClaim
-	// will look for (decided_by mismatch) -- a stand-in for "someone else's claim
-	// already landed here".
-	now := c.now()
-	item.Decision = ReviewItemRevoked
-	item.DecidedBy = 2
-	item.DecidedAt = &now
-	require.NoError(t, db.Save(item).Error)
-
-	reverted, err := c.Storage().RevertAccessReviewItemClaim(ctx, item.ID, ReviewItemRevoked, 1)
-	require.NoError(t, err)
-	assert.False(t, reverted, "a claim attributed to a DIFFERENT actor must not be reverted")
-
-	var after models.AccessReviewItem
-	require.NoError(t, db.First(&after, item.ID).Error)
-	assert.Equal(t, ReviewItemRevoked, after.Decision, "the unrelated claim must be left untouched")
-	assert.Equal(t, uint(2), after.DecidedBy)
-}

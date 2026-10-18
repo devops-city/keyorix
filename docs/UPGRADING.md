@@ -569,6 +569,9 @@ If an upgrade goes wrong:
 
 - `docs/SELF_HOSTING.md` §4 (master password / KEK), §5 (backup and
   restore), §6 (upgrades), §9 (troubleshooting).
+- `docs/operator/startup-refusals.md` for what each start-up refusal means after an
+  upgrade or rollback (schema epoch newer than the binary, compatibility floor,
+  key files, restore rollback protection) and which fixes are safe in place.
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
 - `docs/rolling-upgrade-columns.md` for why a column added by one release does
