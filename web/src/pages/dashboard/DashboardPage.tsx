@@ -367,6 +367,15 @@ interface OperationalSignalsSectionProps {
     failedAuthSeverity: SignalSeverity;
 }
 
+// DASH-FAILED-2FA: the failed-login count is a wrong password plus a wrong second factor
+// (TOTP / recovery code / passkey). A server that predates the split sends only the total.
+function failedLoginsHint(stats: Stats): string {
+    const wrongPassword = stats?.failedLoginsWrongPassword24h;
+    const wrongSecondFactor = stats?.failedLoginsWrongSecondFactor24h;
+    if (wrongPassword === undefined || wrongSecondFactor === undefined) return 'unsuccessful sign-ins';
+    return `${wrongPassword} wrong password · ${wrongSecondFactor} wrong second factor`;
+}
+
 const OperationalSignalsSection: React.FC<OperationalSignalsSectionProps> = ({
     navigate,
     stats,
@@ -395,7 +404,7 @@ const OperationalSignalsSection: React.FC<OperationalSignalsSectionProps> = ({
                 <SignalCard
                     label="Failed Logins (24h)"
                     value={failedAuth}
-                    hint="unsuccessful sign-ins"
+                    hint={failedLoginsHint(stats)}
                     severity={failedAuthSeverity}
                     onClick={() => navigate(ROUTES.AUDIT + '?tab=audit&filter=failed')}
                     notVisible={!can.readAudit}

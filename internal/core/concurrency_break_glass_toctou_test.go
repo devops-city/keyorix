@@ -43,7 +43,7 @@ func TestConcurrency_RevokeBreakGlassActivationAtomic_TOCTOU_Deterministic(t *te
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SecretNode{},
-		&models.ShareRecord{}, &models.SecretACL{}, &models.Session{}, &models.BreakGlassActivation{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{}, &models.BreakGlassActivation{},
 	))
 	require.NoError(t, db.Create(&models.Permission{ID: 1, Name: "roles.assign"}).Error)
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "proj"}).Error)

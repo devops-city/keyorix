@@ -35,6 +35,7 @@
 - [SECURITY.md](./SECURITY.md): features and reporting.
 - [security/architecture.md](./security/architecture.md): encryption, key management, authn/authz, transport.
 - [security/SECURITY-MODEL.md](./security/SECURITY-MODEL.md) and [compliance/](./compliance/README.md).
+- [project-soft-delete-lifecycle.md](./project-soft-delete-lifecycle.md): what a project delete, restore and purge do to secrets, grants, shares and machine identities.
 
 ## Development
 

@@ -13,7 +13,15 @@
 
 - **Binary.** Release builds exist for Linux on `amd64` and `arm64`
   ([RELEASING.md](../RELEASING.md)). A Raspberry Pi needs a 64-bit OS to run the
-  `arm64` build. On a device that runs no cloud connectors or cloud KMS, use
+  `arm64` build. Every shipped component (server, air-gapped server, CLI,
+  `migrate`, the Kubernetes operator, `keyorix-k8s-sync`, `keyorix-mcp`) also
+  compiles and links for 32-bit `linux/arm` (armv7); that build is not
+  published or run in CI, so on a 32-bit board you build it yourself
+  (`scripts/edge/cross-build.sh`) and treat it as unproven until you have run
+  your own commissioning on it. There is nothing to cross-compile in C: all
+  builds are `CGO_ENABLED=0`, and SQLite is the pure-Go `modernc.org/sqlite`
+  driver ([ADR-048](adr-048-cgo-free-sqlite-driver.md)), so a Go toolchain on
+  any machine is enough. On a device that runs no cloud connectors or cloud KMS, use
   the `keyorix-server-airgap` binary: the cloud SDKs are compiled out, which
   gives a smaller binary and SBOM
   ([ARCHITECTURE.md](ARCHITECTURE.md#full-vs-air-gapped-build-profiles)).
@@ -106,6 +114,24 @@ With `strict` (always on SQLite):
 - SQLite in WAL mode recovers on the next open; there is no manual repair
   step.
 
+How this is tested, and what that does not cover:
+
+- `scripts/edge/crash-soak.sh` runs the real server on SQLite under mixed
+  create / update / delete / read traffic, `kill -9`s it at random points
+  (including during start-up), restarts it with nothing but its config and
+  environment, and checks that it comes back with no manual step, that every
+  write the server acknowledged is still there, that `admin verify-audit`
+  reports the chain valid on the files exactly as the kill left them, and that
+  every value that was returned has its audit row.
+- `kill -9` stops the process, not the disk. It exercises the "server crash"
+  case, not a power cut; a power-cut run needs a device that drops unsynced
+  writes and has not been done yet.
+- The audit row for a create, update, delete or restore is written in the same
+  transaction as that change, so a crash cannot leave an acknowledged change
+  with no audit row. Reads are not affected: their audit row is committed
+  before the value is returned. The soak fails on a missing row by default;
+  `--lenient-mutation-audit` only logs it.
+
 What the software cannot do for you:
 
 - **Storage that acknowledges writes it has not made durable** (some SD cards,
@@ -132,6 +158,12 @@ Qualitative only; measure on your hardware.
   ([PERFORMANCE.md](PERFORMANCE.md#sqlite-settings)). A 64-bit Pi-class board
   with a good disk is a reasonable fit for a site's own secrets and a modest
   number of local clients; it is not a hub for a large fleet.
+- **Footprint is guarded, not promised.** `scripts/edge/footprint.sh` measures
+  the release binary (full and air-gapped builds) and the peak memory of a
+  started, idle server against a budget kept in the repository, so growth is a
+  visible decision rather than an accident. It is the idle floor: a loaded
+  server needs more ([runtime-tuning.md](runtime-tuning.md)), and what your
+  hardware needs is yours to measure.
 - **Disable swap** ([hardening guide §7](security/hardening-guide.md#7-process-and-host-hardening)).
   On a small-RAM board this means leaving headroom rather than relying on
   swap, so keep co-located services to a minimum.
@@ -145,6 +177,51 @@ Qualitative only; measure on your hardware.
 - **Time.** The audit trail and checkpoint schedule use the device clock.
   Give an unattended device a reliable clock source (a local NTP server, or an
   RTC with a battery) so that a long power-off does not leave timestamps wrong.
+  What a wrong or corrected clock does, and what to do about it, is in
+  [§5a](#5a-no-ntp-what-a-bad-clock-does).
+
+### 5a. No NTP: what a bad clock does
+
+A device with no battery-backed clock and no time source boots at the epoch or
+at the time it was last switched off. Keyorix keeps working, but several
+decisions depend on the clock, and the server protects itself against a clock
+that goes backwards in ways an operator has to know about. The cases below are
+exercised with injected clocks (`internal/core/edge_clock_skew_test.go`,
+`internal/clockcheck`, `server/clock_warnings_test.go`); the long-running
+session, token and lease properties are fuzzed (`FuzzClockJumpNeverAuthorizesExpired`).
+
+**The rule: set the clock before the service starts, and restart the service
+if you ever step it backwards.** Order the service after `time-sync.target`
+(it only waits when a time-sync service is enabled); on a site with no time
+source, set the clock once at commissioning and put an RTC battery in the
+device.
+
+| What happens to the clock | Effect | What to do |
+|---|---|---|
+| Wrong at start-up (before the build date of the binary, for example the epoch) | The server starts and logs a warning on every start. TOTP codes fail (the authenticator and the device must agree to within one 30 s step). A TLS certificate minted by this clock would be useless, so `admin init` refuses to generate one and says why. | Set the clock, then restart. |
+| Stepped **forward** | Sessions, tokens and leases that expire inside the jump expire at once; secrets with an expiry date in the jump are expired; the server logs the step. | Users log in again. Nothing is lost. |
+| Stepped **backward** by 30 s or less | Nothing; this is the tolerance for ordinary NTP corrections. | None. |
+| Stepped **backward** by more than 30 s | By design the server will not trust a clock that went back. Until the clock passes the latest time the process had seen, or the service restarts: **every secret value read is refused** (it answers as "expired", even for secrets that never expire) and **every second-factor login is refused** (recovery codes too). The server logs a warning when it sees the step. A TOTP code for the corrected time is also refused until the corrected clock passes the highest time-step already accepted; after a restart, log in with a recovery code, or wait. | **Restart the service** right after correcting a clock that had run ahead. |
+| Clock stepped back **before** the server ever saw a credential's expiry | The credential is judged on the device's clock and lives as long as the step back. This is inherent to absolute expiry times ([ADR-094](adr-094-time-handling.md)). | Keep the clock from running backwards; revoke credentials you do not trust. |
+
+Other things the clock touches:
+
+- **Audit entries.** Each entry carries the device clock's time, but the chain
+  is ordered by its hashes, not by time: a trail whose timestamps jump around
+  (clock set, epoch boot, correction) still verifies, and a rewritten timestamp
+  still breaks it. Treat timestamps as unreliable across any clock correction.
+  The checkpoint anchor you keep off the device is the only independent record
+  of when an entry existed.
+- **TLS certificates.** The self-signed certificate from `admin init` lasts a
+  little over a year and is not renewed by the server. On every start the server
+  warns when the certificate is expired, not valid yet on this clock (a clock
+  that is behind), or within 30 days of expiry. A certificate issued while the
+  clock was wrong has to be replaced, not waited out.
+- **Scheduled jobs.** Periodic jobs tick on the process's monotonic clock, so a
+  clock step does not make them run early or late; what they decide to do (what
+  is due, what has expired) uses the wall clock.
+- **Licence.** Evaluated locally against the device clock, offline, and degrades
+  rather than denies ([ADR-094](adr-094-time-handling.md)).
 
 ## 6. Backup and restore
 
@@ -205,6 +282,41 @@ Updating an unattended device over a flaky power supply is when to use a UPS or
 a maintenance window; an interrupted binary swap is the part this page cannot
 make atomic for you, so keep the previous binary until the new one has started
 and `admin validate` is clean.
+
+## 7a. Unattended operation: start at boot, recover without anyone
+
+**Start at boot.** Ready-to-adapt service definitions are in
+[`deploy/edge/`](../deploy/edge/): `keyorix-server.service` (systemd) and
+`io.keyorix.server.plist` (launchd, a LaunchDaemon so it runs with nobody
+logged in). Both restart the server after any exit and run it as an
+unprivileged user from the data directory, where `keyorix.yaml`, the database
+and the key files live together. The systemd unit hands the master passphrase
+over as a credential file (`LoadCredential=` +
+`--passphrase-file=${CREDENTIALS_DIRECTORY}/…`), so it is neither in the
+environment nor on the command line
+([ADR-099](adr-099-master-passphrase-sourcing.md)), waits for the data volume
+to be mounted, and never gives up retrying. `deploy/edge/edge_units_test.go`
+runs the unit's real `ExecStart` line against the built server, kills it and
+runs it again, and pins the directives above; it does not boot a real systemd
+or launchd (pending the e2e VM).
+
+**Recovering from stuck states.** Each of these is exercised against the real
+binary (`server/edge_unattended_integration_test.go`, `scripts/edge/crash-soak.sh`):
+
+| State after an unclean stop | What happens | Operator action |
+|---|---|---|
+| Stale lock files (`*.lock` beside the database and in the key directory) | Every lock is a kernel `flock`, released when the process dies; only the empty file stays, and its content is never read. | None. Do not delete them by hand while the server runs. |
+| Interrupted first-time or upgrade migration (power cut mid-start) | The schema is built idempotently; the next start finishes it. | None. Do not restore an older database to "fix" it. |
+| Data volume full | Writes fail with an error response (HTTP 500) and are not acknowledged; nothing acknowledged earlier is lost and the database is not damaged. A secret value is still returned only while its audit row commits (a small audit write can fit in space a failed write left behind); once that write fails too, the read is refused (HTTP 500). | Free space, then restart the service. A real full filesystem has not been run yet (pending the e2e VM): the tests simulate failing writes. |
+| Crash or `kill -9` at any point | See [§4](#4-power-loss-what-to-expect). | None; run `admin verify-audit` if you care. |
+
+**What an operator must still do.** Monitor free space on the data volume and
+alert before it is full: a full disk stops writes, and with them reads that
+must be audited. Ship `admin verify-audit --json` and the checkpoint anchor off
+the device. Keep the master passphrase credential, the config and the
+recovery key backed up separately ([§6](#6-backup-and-restore)). A unit file
+only restarts the process: it cannot tell a healthy server from one that is up
+and refusing every request, so watch `/health` from outside.
 
 ## 8. Securing physical access
 

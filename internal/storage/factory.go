@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 3
+const currentSchemaEpoch = 4
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -71,6 +71,13 @@ const schemaEpochMetadataKey = "schema_epoch"
 // Epoch 3 (pending_audit_events) left it at 2: the table is additive, an
 // epoch-2 replica never reads or writes it, and rows it leaves behind are
 // drained by the next epoch-3 replica's backfill.
+// Epoch 4 (machine_identities.cascade_suspended_project_id/_at, #3433) leaves it at
+// 2: an epoch-3 replica's project delete does not suspend (the pre-#3433 behaviour,
+// for the length of the rollout), its project restore re-activates nothing (fail
+// closed: the identities stay suspended), and its machine-identity writes do not clear
+// the marker but do move updated_at, which the epoch-4 restore requires unchanged
+// (LocalStorage.ReactivateMachineIdentitiesForRestoredProject). Nothing an epoch-3
+// binary does makes an epoch-4 restore re-activate an identity it should not.
 const minCompatibleSchemaEpoch = 2
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
@@ -365,8 +372,15 @@ func sqliteDSN(dbPath string) string {
 // ciphertext, token hashes, and other sensitive bound parameters would otherwise
 // get written to stdout/logs on any query error or slow query. Silence it here
 // so that never happens by default (#464).
+//
+// QueryFields makes every model read select its columns by name instead of
+// SELECT *. During a rolling upgrade, release N-1 replicas keep running against a
+// schema release N already migrated; a star-expanded plan then fails (Postgres
+// SQLSTATE 0A000, "cached plan must not change result type") or silently scans a
+// shape it never saw. Named columns make an added column invisible to N-1
+// (INV-STORE-explicit-column-reads).
 func gormConfig() *gorm.Config {
-	return &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)}
+	return &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), QueryFields: true}
 }
 
 // StorageFactory creates storage instances based on configuration
@@ -628,7 +642,7 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 	}
 
 	if err := withMigrationLock(db, false, dbPath, f.migrateSQLite); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+		return nil, migrateError(err)
 	}
 
 	ls := store.NewLocalStorage(db)
@@ -673,9 +687,12 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	if err := refuseUndeclaredTransactionPooler(&cfg.Storage.Database); err != nil {
 		return nil, err
 	}
+	if err := refuseNonOriginReplicationRole(db); err != nil {
+		return nil, err
+	}
 
-	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migrateDatabase); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migratePostgres); err != nil {
+		return nil, migrateError(err)
 	}
 
 	schedulerLockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
@@ -723,7 +740,31 @@ func (f *DefaultStorageFactory) migrateSQLite(db *gorm.DB) error {
 	if err := f.migrateDatabase(db); err != nil {
 		return err
 	}
-	return store.EnsureAuditListIndexesSQLite(db, log.Printf)
+	if err := store.EnsureAuditListIndexesSQLite(db, log.Printf); err != nil {
+		return err
+	}
+	return runAfterMigrateHook(db)
+}
+
+// migratePostgres is migrateDatabase plus the test-only after-migrate hook.
+func (f *DefaultStorageFactory) migratePostgres(db *gorm.DB) error {
+	if err := f.migrateDatabase(db); err != nil {
+		return err
+	}
+	return runAfterMigrateHook(db)
+}
+
+// afterMigrateHook is nil in every build except `-tags nplus1`
+// (factory_nplus1_hook.go), where it adds one extra column to every table so the
+// suites can prove the current binary tolerates a schema one release ahead
+// (QUERYFIELDS-1, INV-STORE-explicit-column-reads). Nothing in production sets it.
+var afterMigrateHook func(db *gorm.DB) error
+
+func runAfterMigrateHook(db *gorm.DB) error {
+	if afterMigrateHook == nil {
+		return nil
+	}
+	return afterMigrateHook(db)
 }
 
 // auditIndexSyncBuildMaxRows is the audit_events size (row estimate) below
@@ -981,6 +1022,23 @@ func tableExists(db *gorm.DB, table string) bool {
 		db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&count)
 	}
 	return count > 0
+}
+
+// schemaCheckRefusal marks a refusal of checkSchemaEpoch inside migrateDatabase.
+// That check runs before any migration step, so migrateError reports it as what
+// it is instead of as "failed to migrate database" (BOOT-REFUSALS-1 item 6:
+// operators went looking for a migration error). The message is the check's own.
+type schemaCheckRefusal struct{ err error }
+
+func (e *schemaCheckRefusal) Error() string { return e.err.Error() }
+func (e *schemaCheckRefusal) Unwrap() error { return e.err }
+
+// migrateError wraps an error of the migration step for the start-up message.
+func migrateError(err error) error {
+	if _, ok := errors.AsType[*schemaCheckRefusal](err); ok {
+		return fmt.Errorf("database schema check failed (checked before migrating; nothing was migrated): %w", err)
+	}
+	return fmt.Errorf("failed to migrate database: %w", err)
 }
 
 // checkSchemaEpoch (ADR-097, ADR-101) refuses to let a binary run
@@ -1446,7 +1504,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	// ADR-097: refuse before touching anything if this binary is older than
 	// the database it's pointed at -- must run before every other step below.
 	if err := checkSchemaEpoch(db); err != nil {
-		return err
+		return &schemaCheckRefusal{err: err}
 	}
 	// The pipelined audit commit needs the audit_events id sequence to be
 	// CACHE 1; refuse to start rather than fail every audit write later.
@@ -1598,6 +1656,13 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		if err := store.EnsureSecretNodeCacheEpoch(db); err != nil {
 			return err
 		}
+	}
+	// DEK-SWEEP-CACHE-1: secret_versions.cache_epoch, the latest-version cache
+	// generation term the DEK sweep raises. UPGRADE call site (a fresh install gets
+	// the column from models.SecretVersion; the tail below covers that path too).
+	// No-op until secret_versions exists.
+	if err := store.EnsureSecretVersionCacheEpoch(db); err != nil {
+		return err
 	}
 	// #3259: the triggers that move role_permissions_generation on every write to
 	// role_permissions/permissions, direct SQL included. The UPGRADE call site,
@@ -2256,7 +2321,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 			return fmt.Errorf("failed to migrate access_review_campaign tables: %w", err)
 		}
 	} else {
-		// #483/#237: Degraded/DegradedReasons/ForcedIncomplete were each added to
+		// #483/#237: Degraded/DegradedReasons/ForcedIncomplete/ActivityWindowDays were each added to
 		// AccessReviewCampaign after this table could already exist in the field (same
 		// pgx hazard as project_invitations above — never full-AutoMigrate an existing
 		// table here); add the new columns via the Migrator so an existing deployment's
@@ -2265,7 +2330,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// field — it hard-fails every subsequent campaign create/update on an upgraded
 		// install that predates whichever field was added.
 		m := db.Migrator()
-		for _, col := range []string{"Degraded", "DegradedReasons", "ForcedIncomplete"} {
+		for _, col := range []string{"Degraded", "DegradedReasons", "ForcedIncomplete", "ActivityWindowDays"} {
 			if !m.HasColumn(&models.AccessReviewCampaign{}, col) {
 				if err := m.AddColumn(&models.AccessReviewCampaign{}, col); err != nil {
 					return fmt.Errorf("failed to add access_review_campaigns.%s column: %w", col, err)
@@ -2407,6 +2472,24 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// rather than nested inside the ALTER guard.
 		if err := exec("CREATE INDEX IF NOT EXISTS idx_machine_identities_classification ON machine_identities (classification)"); err != nil {
 			return err
+		}
+		// #3433: the project soft-delete cascade's suspension marker (schema epoch 4).
+		// Additive; 0 / NULL = "not suspended by a cascade", which is what every
+		// existing row is.
+		if !columnExists(db, "machine_identities", "cascade_suspended_project_id") {
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_project_id BIGINT NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+		}
+		if !columnExists(db, "machine_identities", "cascade_suspended_at") {
+			// Per-dialect type for the reason given at secret_nodes.purge_at.
+			ts := "DATETIME"
+			if db.Dialector.Name() == "postgres" {
+				ts = "TIMESTAMP WITH TIME ZONE"
+			}
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_at " + ts); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -2984,6 +3067,11 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// could drift — and so they fail loudly instead of running against a
 		// trigger-less schema, i.e. a stamp that never moves, passing vacuously.
 		if err := store.EnsureSecretNodeCacheEpoch(tx); err != nil {
+			return err
+		}
+		// DEK-SWEEP-CACHE-1: no-op when AutoMigrate already created the column from
+		// models.SecretVersion; covers a half-migrated install.
+		if err := store.EnsureSecretVersionCacheEpoch(tx); err != nil {
 			return err
 		}
 		// #3259: the role->permission cache generation triggers (fresh-install

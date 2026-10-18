@@ -34,9 +34,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -57,6 +59,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
 	"github.com/keyorixhq/keyorix/internal/license"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/netutil"
 	"github.com/keyorixhq/keyorix/internal/notary"
 	"github.com/keyorixhq/keyorix/internal/notifychan"
@@ -78,6 +81,7 @@ import (
 	"github.com/keyorixhq/keyorix/server/middleware"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
+	"gorm.io/gorm"
 )
 
 // masterPassphraseSource holds --passphrase-fd/--passphrase-file/--passphrase-stdin
@@ -149,7 +153,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 			return nil
 		})
 	flag.StringVar(&masterPassphraseSource.FilePath, "passphrase-file", "",
-		"Read the master passphrase from this file (refused if group- or world-readable)")
+		"Read the master passphrase from this file (refused if group- or world-readable, or owned by anyone but you or root)")
 	flag.BoolVar(&masterPassphraseSource.Stdin, "passphrase-stdin", false,
 		"Read the master passphrase from stdin")
 	flag.Parse()
@@ -178,6 +182,15 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// enforced, independent of any security flag: a malformed config should never boot.
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("Configuration is invalid: %v", err)
+	}
+
+	// server.log.format: from here on every log line is a JSON object when "json".
+	// Before this point (config load/validation failures) lines are plain text. Must
+	// precede NewRouter: the access logger picks its formatter when the router is built.
+	if err := logging.Setup(cfg.Server.Log.EffectiveFormat(), os.Stderr); err != nil {
+		// cfg.Validate() above already refused an unknown server.log.format, so this is
+		// the logger failing, not the file being invalid (BOOT-REFUSALS-1 item 9).
+		log.Fatalf("Failed to set up logging (server.log.format %q): %v", cfg.Server.Log.EffectiveFormat(), err)
 	}
 
 	// ADR-112 opt-out rule (item 2): a deprecated alias (an old key renamed to its
@@ -245,6 +258,11 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		log.Fatalf("transport security: %v", err)
 	}
 
+	// No-NTP edge devices: warn when the clock is implausible or the TLS
+	// certificate window does not contain it (never refuses to start).
+	warnClockAndCertificate(cfg)
+	go watchClockSteps(ctx, 15*time.Second, realClockSample(), log.Printf)
+
 	// Refuse (or warn) when key material on disk is readable beyond its owner.
 	if err := enforceKeyFilePermissions(cfg); err != nil {
 		log.Fatalf("key file security: %v", err)
@@ -254,6 +272,12 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// password, bootstrap token, ...).
 	if err := enforceSecretFilePermissions(cfg); err != nil {
 		log.Fatalf("secret file security: %v", err)
+	}
+
+	// #3397: refuse a SCIM bearer token that is obviously not random (ADR-112
+	// upgrade grace for the new checks; the length floor always refuses).
+	if err := enforceSCIMTokenStrength(cfg); err != nil {
+		log.Fatalf("scim: %v", err)
 	}
 
 	// Refuse to start if the installed key files are a PARTIAL set (ADR-112,
@@ -295,6 +319,15 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		}
 		log.Fatalf("%v", err)
 	}
+	// Registered first so it runs last: a lost process-wide lock (presence or
+	// single_writer, see awaitShutdown below) ends the process with a failure
+	// status after the normal shutdown.
+	var lockLost atomic.Bool
+	defer func() {
+		if lockLost.Load() {
+			os.Exit(1)
+		}
+	}()
 	presence, err := serverguard.AcquirePresence(cfg)
 	if err != nil {
 		if authErr, ok := errors.AsType[*config.PostgresAuthError](err); ok {
@@ -408,9 +441,15 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 		})
 	}
 
-	// Wait for shutdown signal
-	<-sigChan
-	log.Println("Shutdown signal received, gracefully shutting down...")
+	// Wait for a shutdown signal, or the loss of a lock that guards the whole
+	// process (lock_loss.go): the presence lock's or the single_writer holder
+	// lock's backend died (terminated, PostgreSQL or PgBouncer restarted, a
+	// failover, a pooler timeout), so an admin command or a second single
+	// writer could now start beside this server. Stop serving rather than run
+	// unguarded; the supervisor restarts the process.
+	if awaitShutdown(sigChan, presence.Lost(), swGuard.Lost()) != "" {
+		lockLost.Store(true)
+	}
 
 	// Cancel context to signal shutdown
 	cancel()
@@ -532,6 +571,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// the pending DEK (a rotation that committed its re-encryption sweep but crashed before the
 	// dek.key file rename) or discard a stray pending file; for remote storage there is no
 	// local sweep, so it falls back to the leftover-cleanup behavior.
+	var keyDB *gorm.DB // kept for the DEK epoch guard below
 	if cfg.Storage.Type == "remote" {
 		svc.CleanPendingDEK()
 	} else {
@@ -539,16 +579,42 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 		if derr != nil {
 			return nil, fmt.Errorf("failed to open database for DEK-rotation crash recovery: %w", derr)
 		}
-		rerr := svc.RecoverInterruptedRotation(recoverDB)
-		if sqlDB, e := recoverDB.DB(); e == nil {
-			_ = sqlDB.Close()
-		}
-		if rerr != nil {
+		if rerr := svc.RecoverInterruptedRotation(recoverDB); rerr != nil {
+			closeGormDB(recoverDB)
 			return nil, fmt.Errorf("DEK-rotation crash recovery failed: %w", rerr)
 		}
+		keyDB = recoverDB
 	}
 	if err := svc.Initialize(passphrase); err != nil {
-		return nil, fmt.Errorf("failed to initialize encryption (KEK derivation): %w", err)
+		if keyDB != nil {
+			closeGormDB(keyDB)
+		}
+		if providerType == "" || providerType == "password" {
+			// Name the source (BOOT-REFUSALS-1 item 7): with several ways to pass the
+			// passphrase, "wrong passphrase" alone does not say which one was read.
+			return nil, fmt.Errorf("KEK derivation from the master passphrase read from %s failed: %w", masterPassphraseSource.Describe("KEYORIX_MASTER_PASSWORD"), err)
+		}
+		return nil, fmt.Errorf("KEK from key provider %q failed: %w", providerType, err)
+	}
+	// Cross-replica DEK epoch (#3337, internal/encryption/dek_epoch.go): refuse to
+	// start when this server's DEK is not the DEK the database is encrypted under
+	// (the DEK was rotated on another host and this host still has the old
+	// dek.key), and refuse encrypted writes later while a rotation fences them.
+	// PostgreSQL only: the guard keeps keyDB (one connection) and closes it on
+	// Shutdown. On SQLite it is a no-op and keyDB is closed here.
+	if keyDB != nil {
+		if sqlDB, e := keyDB.DB(); e == nil {
+			sqlDB.SetMaxOpenConns(1)
+			sqlDB.SetMaxIdleConns(1)
+		}
+		if err := svc.StartDEKEpochGuard(keyDB, func() { closeGormDB(keyDB) }); err != nil {
+			closeGormDB(keyDB)
+			svc.Shutdown()
+			return nil, fmt.Errorf("refusing to start: %w", err)
+		}
+		if !svc.DEKEpochGuardRunning() {
+			closeGormDB(keyDB)
+		}
 	}
 
 	kekSource := providerType
@@ -1446,7 +1512,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		firstDelay := anomalyFirstPassDelay(interval, defaultRandN)
 		log.Printf("Anomaly detection: first pass in %s, then every %s", firstDelay.Round(time.Second), interval)
 		runSchedulerAfter(ctx, "anomaly_detection", interval, firstDelay, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockAnomaly, "Anomaly detection", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockAnomaly, "Anomaly detection", func(ctx context.Context) error {
 				// Hotload: re-apply the persisted config before each pass so an operator's
 				// runtime change takes effect without a restart. Best-effort: a transient
 				// storage failure here is logged but does not skip the detection pass.
@@ -1496,7 +1562,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 				return middleware.SchedulerSkipped
 			}
 			// Single-replica-gated (ADR-039): only one replica runs the purge.
-			return lockedRun(ctx, coreService.Storage(), schedLockPurge, "Retention purge", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockPurge, "Retention purge", func(ctx context.Context) error {
 				// UTC so the cutoff is exactly the inverse of models.PurgeAtFor
 				// (deleted_at + N days in UTC): a local zone with DST would let a
 				// legacy (un-stamped) secret go an hour before its displayed purge date.
@@ -1538,7 +1604,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 				if legalHoldBlocks("Data-retention purge") {
 					return middleware.SchedulerSkipped
 				}
-				return lockedRun(ctx, coreService.Storage(), schedLockRetention, "Data-retention", func() error {
+				return lockedRun(ctx, coreService.Storage(), schedLockRetention, "Data-retention", func(ctx context.Context) error {
 					res, err := coreService.PurgeExpiredComplianceRecords(ctx, time.Now(), policy)
 					if err != nil {
 						log.Printf("Data-retention purge error: %v", err)
@@ -1563,7 +1629,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.RotationReminders.GetInterval()
 		log.Printf("Rotation-reminder scheduler enabled: every %s", interval)
 		runScheduler(ctx, "rotation_reminder", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockRotationRmdr, "Rotation-reminder", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockRotationRmdr, "Rotation-reminder", func(ctx context.Context) error {
 				n, rerr := coreService.SendRotationReminders(ctx)
 				if rerr != nil {
 					log.Printf("Rotation-reminder error: %v", rerr)
@@ -1585,7 +1651,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		leadDays := cfg.ExpiryReminders.LeadDays
 		log.Printf("Expiry-reminder scheduler enabled: every %s (lead %dd)", interval, leadDays)
 		runScheduler(ctx, "expiry_reminder", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockExpiryRmdr, "Expiry-reminder", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockExpiryRmdr, "Expiry-reminder", func(ctx context.Context) error {
 				n, rerr := coreService.SendExpiryReminders(ctx, leadDays)
 				if rerr != nil {
 					log.Printf("Expiry-reminder error: %v", rerr)
@@ -1607,7 +1673,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		leadDays := cfg.CertificateExpiry.LeadDays
 		log.Printf("Certificate-expiry scan enabled: every %s (lead %dd)", interval, leadDays)
 		runScheduler(ctx, "certificate_expiry", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockCertExpiry, "Certificate-expiry", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockCertExpiry, "Certificate-expiry", func(ctx context.Context) error {
 				n, rerr := coreService.ScanCertificateExpiry(ctx, leadDays)
 				if rerr != nil {
 					log.Printf("Certificate-expiry scan error: %v", rerr)
@@ -1630,7 +1696,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		leadDays := cfg.LicenseExpiry.LeadDays
 		log.Printf("License-expiry reminder enabled: every %s (lead %dd)", interval, leadDays)
 		runScheduler(ctx, "license_expiry", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockLicenseExp, "License-expiry", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockLicenseExp, "License-expiry", func(ctx context.Context) error {
 				n, rerr := coreService.ScanLicenseExpiry(ctx, leadDays)
 				if rerr != nil {
 					log.Printf("License-expiry reminder error: %v", rerr)
@@ -1652,7 +1718,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.AutoRotation.GetInterval()
 		log.Printf("Auto-rotation scheduler enabled: every %s", interval)
 		runScheduler(ctx, "auto_rotation", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockAutoRotate, "Auto-rotation", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockAutoRotate, "Auto-rotation", func(ctx context.Context) error {
 				n, rerr := coreService.RunAutoRotation(ctx)
 				if rerr != nil {
 					log.Printf("Auto-rotation error: %v", rerr)
@@ -1674,7 +1740,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.ComplianceDigest.GetInterval()
 		log.Printf("Compliance-digest scheduler enabled: every %s", interval)
 		runScheduler(ctx, "compliance_digest", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockDigest, "Compliance-digest", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockDigest, "Compliance-digest", func(ctx context.Context) error {
 				sent, derr := coreService.SendComplianceDigest(ctx, 0)
 				if derr != nil {
 					log.Printf("Compliance-digest error: %v", derr)
@@ -1700,7 +1766,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		autoOpen := cfg.Recertification.AutoOpen
 		log.Printf("Recertification scheduler enabled: every %s (cadence %dd, auto_open=%t)", interval, cadence, autoOpen)
 		runScheduler(ctx, "recertification", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockRecertify, "Recertification", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockRecertify, "Recertification", func(ctx context.Context) error {
 				res, rerr := coreService.RunScheduledRecertification(ctx, cadence, autoOpen)
 				if rerr != nil {
 					log.Printf("Recertification error: %v", rerr)
@@ -1727,7 +1793,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 			interval := cfg.EvidenceDelivery.GetInterval()
 			log.Printf("Evidence-delivery scheduler enabled: every %s (dir=%q, webhook=%t)", interval, outputDir, cfg.EvidenceDelivery.Webhook.Enabled)
 			runScheduler(ctx, "evidence_delivery", interval, func() middleware.SchedulerOutcome {
-				return lockedRun(ctx, coreService.Storage(), schedLockEvidence, "Evidence-delivery", func() error {
+				return lockedRun(ctx, coreService.Storage(), schedLockEvidence, "Evidence-delivery", func(ctx context.Context) error {
 					res, err := coreService.ExportComplianceEvidence(ctx, outputDir)
 					if err != nil {
 						log.Printf("Evidence-delivery error: %v", err)
@@ -1774,7 +1840,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		log.Printf("Audit-checkpoint scheduler enabled (forgery resistance active): every %s, full re-walk every %s, first tick in %s",
 			interval, interval*time.Duration(segments), firstDelay.Round(time.Second))
 		runSchedulerAfter(ctx, "audit_checkpoint", interval, firstDelay, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockAuditCkpt, "Audit-checkpoint", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockAuditCkpt, "Audit-checkpoint", func(ctx context.Context) error {
 				res, werr := coreService.RunAuditVerificationTick(ctx)
 				if res != nil && res.Written {
 					log.Printf("Audit checkpoint written: #%d head=%d events=%d", res.Checkpoint.ID, res.Checkpoint.HeadID, res.Checkpoint.ChainedEvents)
@@ -1805,7 +1871,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 				return middleware.SchedulerSkipped
 			}
 			// Single-replica-gated (ADR-039): one replica sweeps per tick.
-			return lockedRun(ctx, coreService.Storage(), schedLockJITExpiry, "JIT access-expiry", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockJITExpiry, "JIT access-expiry", func(ctx context.Context) error {
 				now := time.Now()
 				n, rerr := coreService.RemoveExpiredRoleGrants(ctx, now)
 				if rerr != nil {
@@ -1842,7 +1908,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		runScheduler(ctx, "dynamic_secret_sweep", interval, func() middleware.SchedulerOutcome {
 			// Single-replica-gated (ADR-039): one replica revokes per tick, so
 			// replicas don't storm the target DBs revoking the same leases.
-			return lockedRun(ctx, coreService.Storage(), schedLockDynamicSweep, "Dynamic-secrets sweep", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockDynamicSweep, "Dynamic-secrets sweep", func(ctx context.Context) error {
 				// EffectiveNow, not a bare time.Now(): sources this sweep's cutoff from
 				// this process's injected/testable clock (#1983 investigation finding).
 				n, rerr := coreService.RevokeExpiredLeases(ctx, coreService.EffectiveNow())
@@ -1865,7 +1931,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// failing logins from rotating IPs would exhaust disk). The rate-limit window is
 	// 15 minutes, so a 15-minute cadence keeps the table at roughly one window of rows.
 	runScheduler(ctx, "login_attempt_prune", 15*time.Minute, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockLoginPrune, "Login-attempt prune", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockLoginPrune, "Login-attempt prune", func(ctx context.Context) error {
 			// Zero `before` and a zero actorID: PruneLoginAttempts resolves the
 			// cutoff itself (now - LoginWindow) and attributes the event to no
 			// human/machine principal. System-actored via WithActorType so the
@@ -1904,7 +1970,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// again. Every minute; single-replica-gated, and exactly-once anyway (the
 	// claim and the append share a transaction).
 	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func(ctx context.Context) error {
 			_, berr := coreService.BackfillPendingAuditEvents(ctx)
 			return berr
 		})
@@ -1912,7 +1978,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 
 	mfaGrantRetention := time.Duration(cfg.Classification.GetMFAStepUpGrantRetentionDays()) * 24 * time.Hour
 	runScheduler(ctx, "mfa_stepup_grant_prune", 6*time.Hour, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockMFAGrantPrune, "MFA step-up grant prune", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockMFAGrantPrune, "MFA step-up grant prune", func(ctx context.Context) error {
 			_, perr := coreService.PruneMFAStepUpGrants(ctx, mfaGrantRetention, time.Time{})
 			return perr
 		})
@@ -1928,7 +1994,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// replica whose own process never restarted). Single-replica-gated
 	// (ADR-039) so admins aren't notified N times in an HA deployment.
 	runScheduler(ctx, "recover_admin_alert", 10*time.Minute, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockRecoverAdminAlert, "Recover-admin alert", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockRecoverAdminAlert, "Recover-admin alert", func(ctx context.Context) error {
 			n, aerr := coreService.RunRecoverAdminAlerting(ctx)
 			if aerr != nil {
 				return aerr
@@ -1954,7 +2020,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// why ADR-112's "enforced" is a posture deviation plus this warning, and
 	// explicitly NOT a lockout.
 	runScheduler(ctx, "break_glass_review_reminder", 6*time.Hour, func() middleware.SchedulerOutcome {
-		return lockedRun(ctx, coreService.Storage(), schedLockBreakGlassReview, "Break-glass review reminder", func() error {
+		return lockedRun(ctx, coreService.Storage(), schedLockBreakGlassReview, "Break-glass review reminder", func(ctx context.Context) error {
 			_, rerr := coreService.RunBreakGlassReviewReminder(ctx)
 			return rerr
 		})
@@ -1967,7 +2033,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		interval := cfg.ReadQuotaAlerts.GetInterval()
 		log.Printf("Read-quota alert scheduler enabled: every %s", interval)
 		runScheduler(ctx, "read_quota_alerts", interval, func() middleware.SchedulerOutcome {
-			return lockedRun(ctx, coreService.Storage(), schedLockReadQuota, "Read-quota alerts", func() error {
+			return lockedRun(ctx, coreService.Storage(), schedLockReadQuota, "Read-quota alerts", func(ctx context.Context) error {
 				result, rerr := coreService.CheckReadQuotas(ctx)
 				if rerr != nil {
 					log.Printf("Read-quota alert scan error: %v", rerr)
@@ -2225,9 +2291,12 @@ func runStartupValidation(cfg *config.Config) error {
 
 // enforceKeyFilePermissions refuses to start (or, by default, loudly warns) when sensitive
 // key material on disk — the wrapped DEK, the KEK salt, and TLS private keys — is readable
-// by group or other. Key writes are already 0600, but a file restored from a backup with a
-// bad umask, or one left 0644 by an operator, would otherwise expose the wrapped DEK / TLS
-// key to any local user with no signal. Fails closed only when
+// by group or other, or is owned by anyone but the server's own uid or root (#3410: the
+// owner can replace the file whatever its mode; the rule is secretenv.CheckOwner's, the one
+// the KEYORIX_*_FILE secrets follow). Key writes are already 0600, but a file restored from a
+// backup with a bad umask, or one left 0644 by an operator, would otherwise expose the wrapped
+// DEK / TLS key to any local user with no signal. A wrong owner follows the same
+// warn-or-refuse matrix as a wrong mode. Fails closed only when
 // security.enable_file_permission_check is set (and not overridden by
 // insecure_allow_unsafe_file_permissions); otherwise it warns. A not-yet-created key file (first
 // boot) is skipped — it is created at 0600.
@@ -2256,27 +2325,29 @@ func enforceKeyFilePermissions(cfg *config.Config) error { // NOSONAR -- cogniti
 		tlsPaths = append(tlsPaths, cfg.Server.GRPC.TLS.KeyFile)
 	}
 
-	insecureKeys := groupOrOtherReadable(keyPaths)
-	insecureTLS := groupOrOtherReadable(tlsPaths)
-	if len(insecureKeys)+len(insecureTLS) == 0 {
+	insecureKeys := untrustedKeyFiles(keyPaths)
+	insecureTLS := untrustedKeyFiles(tlsPaths)
+	if insecureKeys.empty() && insecureTLS.empty() {
 		return nil
 	}
 	sec := cfg.Security
 	if !sec.EnableFilePermissionCheck || sec.AllowUnsafeFilePermissions {
-		msg := fmt.Sprintf("key material is readable beyond its owner: %s", strings.Join(append(insecureKeys, insecureTLS...), ", "))
-		log.Printf("WARNING: %s — restrict to 0600. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
+		log.Printf("WARNING: %s — chmod 600 and chown to the server's user. Set security.enable_file_permission_check to fail closed instead of warning.", insecureKeys.merge(insecureTLS).describe())
 		return nil
 	}
 	if sec.EnableFilePermissionCheckImplicitDefault {
-		for _, f := range insecureTLS {
+		for _, f := range insecureTLS.readable {
 			log.Printf("WARNING: TLS private key %s is readable beyond its owner — chmod 600 it (Kubernetes: mount the Secret with defaultMode 0400), or set security.enable_file_permission_check: true explicitly to refuse to start on this (ADR-112: on the implicit default an orchestrator-mounted TLS key only warns).", f)
 		}
-		insecureTLS = nil
-		if len(insecureKeys) == 0 {
+		for _, f := range insecureTLS.foreign {
+			log.Printf("WARNING: TLS private key %s — chown it to the server's user or to root (Kubernetes Secret volumes are root-owned, which is trusted), or set security.enable_file_permission_check: true explicitly to refuse to start on this (ADR-112: on the implicit default an orchestrator-mounted TLS key only warns).", f)
+		}
+		insecureTLS = keyFileProblems{}
+		if insecureKeys.empty() {
 			return nil
 		}
 	}
-	msg := fmt.Sprintf("key material is readable beyond its owner: %s", strings.Join(append(insecureKeys, insecureTLS...), ", "))
+	msg := insecureKeys.merge(insecureTLS).describe()
 	if sec.EnableFilePermissionCheckUpgradeGrace {
 		// ADR-112 grace period: an upgraded deployment that never explicitly opted into
 		// the check — it's failing closed only because of the new secure default. Don't
@@ -2285,16 +2356,43 @@ func enforceKeyFilePermissions(cfg *config.Config) error { // NOSONAR -- cogniti
 		// exactly how to comply. A fresh install never gets here (see
 		// adr112UpgradeGraceEligible).
 		adr112GraceSoftened.Store(true)
-		log.Printf("WARNING: %s — this now fails closed by default (ADR-112); set to warn-only, which is what the pre-upgrade behavior was, with security.insecure_allow_unsafe_file_permissions, or (preferred) chmod the files to 0600 and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+		log.Printf("WARNING: %s — this now fails closed by default (ADR-112); set to warn-only, which is what the pre-upgrade behavior was, with security.insecure_allow_unsafe_file_permissions, or (preferred) chmod the files to 0600, chown them to the server's user, and set security.enable_file_permission_check: true explicitly once compliant.", msg)
 		return nil
 	}
-	return fmt.Errorf("%s — refusing to start (chmod to 0600, or set security.insecure_allow_unsafe_file_permissions to override)", msg)
+	return fmt.Errorf("%s — refusing to start (chmod 600 and chown the files to the server's user, or set security.insecure_allow_unsafe_file_permissions to override)", msg)
 }
 
-// groupOrOtherReadable returns "path (mode NNN)" for every existing path whose mode grants
-// any group or other bit. Empty and absent paths are skipped.
-func groupOrOtherReadable(paths []string) []string {
-	var out []string
+// keyFileProblems is what untrustedKeyFiles found: files readable beyond their owner
+// ("path (mode NNN)") and files owned by an account the server does not trust
+// ("path (owned by uid N, ...)").
+type keyFileProblems struct {
+	readable, foreign []string
+}
+
+func (k keyFileProblems) empty() bool { return len(k.readable)+len(k.foreign) == 0 }
+
+func (k keyFileProblems) merge(o keyFileProblems) keyFileProblems {
+	return keyFileProblems{readable: append(slices.Clone(k.readable), o.readable...), foreign: append(slices.Clone(k.foreign), o.foreign...)}
+}
+
+// describe is the operator-facing sentence: one clause per kind of problem.
+func (k keyFileProblems) describe() string {
+	var parts []string
+	if len(k.readable) > 0 {
+		parts = append(parts, "key material is readable beyond its owner: "+strings.Join(k.readable, ", "))
+	}
+	if len(k.foreign) > 0 {
+		parts = append(parts, "key material is owned by an account the server does not trust: "+strings.Join(k.foreign, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// untrustedKeyFiles judges every existing path by mode (any group or other bit) and by
+// owner (secretenv.CheckOwner, #3410: the running user or root; any other owner can
+// replace the file whatever its mode). The path is stat'd through symlinks, so a
+// Kubernetes Secret volume's target is what is judged. Empty and absent paths are skipped.
+func untrustedKeyFiles(paths []string) keyFileProblems {
+	var out keyFileProblems
 	for _, p := range paths {
 		if p == "" {
 			continue
@@ -2304,7 +2402,14 @@ func groupOrOtherReadable(paths []string) []string {
 			continue // absent (e.g. created at 0600 on first boot) — nothing to check yet
 		}
 		if info.Mode().Perm()&0o077 != 0 {
-			out = append(out, fmt.Sprintf("%s (mode %o)", p, info.Mode().Perm()))
+			out.readable = append(out.readable, fmt.Sprintf("%s (mode %o)", p, info.Mode().Perm()))
+		}
+		if err := secretenv.CheckOwner(info); err != nil {
+			if foe, ok := errors.AsType[*secretenv.ForeignOwnerError](err); ok {
+				out.foreign = append(out.foreign, fmt.Sprintf("%s (owned by uid %d; the server runs as uid %d and trusts only that uid and root, because the owner can replace the file)", p, foe.UID, foe.ProcessUID))
+			} else {
+				out.foreign = append(out.foreign, fmt.Sprintf("%s (%v)", p, err))
+			}
 		}
 	}
 	return out
@@ -2358,32 +2463,16 @@ func resolveVaultToken(tokenEnv string) (string, error) {
 // Same warn-vs-refuse matrix as enforceKeyFilePermissions: refuse
 // when security.enable_file_permission_check is on and
 // allow_unsafe_file_permissions is off, otherwise warn.
+//
+// The policy itself lives in config.Config.EnforceSecretFilePermissions, shared
+// with every `keyorix-server admin` command (admin.loadConfig); this wrapper
+// only records a grace-softened boot.
 func enforceSecretFilePermissions(cfg *config.Config) error {
-	var problems []string
-	for _, p := range cfg.SecretFilePaths() {
-		if err := secretenv.CheckPermissions(p); err != nil {
-			problems = append(problems, err.Error())
-		}
+	softened, err := cfg.EnforceSecretFilePermissions()
+	if softened {
+		adr112GraceSoftened.Store(true)
 	}
-	if len(problems) == 0 {
-		return nil
-	}
-	msg := strings.Join(problems, "; ")
-	if cfg.Security.EnableFilePermissionCheck && !cfg.Security.AllowUnsafeFilePermissions {
-		// Strict on the implicit ADR-112 default as well (only orchestrator-mounted
-		// config/TLS files are softened there). The one exception is the upgrade
-		// grace period, same as for the key files in enforceKeyFilePermissions:
-		// warn, and record that this boot was softened. Key material never gets
-		// here -- LookupChecked has already refused it.
-		if cfg.Security.EnableFilePermissionCheckUpgradeGrace {
-			adr112GraceSoftened.Store(true)
-			log.Printf("WARNING: %s -- this now fails closed by default (ADR-112); fix the file mode (chmod 0400, or 0440 on an orchestrator-owned mount whose group the process holds) and set security.enable_file_permission_check: true explicitly once compliant.", msg)
-			return nil
-		}
-		return fmt.Errorf("%s -- refusing to start (or set security.insecure_allow_unsafe_file_permissions to override)", msg)
-	}
-	log.Printf("WARNING: %s. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
-	return nil
+	return err
 }
 
 // verifyKeyFileSetConsistency is the boot-time key-file-set consistency check
@@ -2454,12 +2543,26 @@ func warnHTTPOnlySettingsUnderGRPC(cfg *config.Config) {
 func warnInsecureSettingsInEffect(cfg *config.Config) {
 	for _, s := range config.InsecureSettingsRegistry {
 		if s.InEffect(cfg) {
-			// Name is a stable identifier, not always a key an operator can
-			// set today; SourcePaths are the config keys that actually
-			// control the state, so print them for the operator to act on.
-			log.Printf("WARNING: %s is in effect (%s; config: %s) — %s", s.Name, s.Value(cfg), strings.Join(s.SourcePaths, ", "), s.Describe)
+			log.Print(insecureSettingWarning(s, cfg))
 		}
 	}
+}
+
+// insecureSettingWarning is the start-up line for one registry entry in effect.
+// Name is a stable identifier, not always a key an operator can set today:
+// when it is not one of SourcePaths, the line says so and names the key that
+// actually controls the state (Cause, or the SourcePaths), so nobody writes
+// the registry name into keyorix.yaml and gets an unknown-key error
+// (BOOT-REFUSALS-1 item 3).
+func insecureSettingWarning(s config.InsecureSetting, cfg *config.Config) string {
+	if slices.Contains(s.SourcePaths, s.Name) {
+		return fmt.Sprintf("WARNING: %s is in effect (%s; config: %s) — %s", s.Name, s.Value(cfg), strings.Join(s.SourcePaths, ", "), s.Describe)
+	}
+	cause := "it follows " + strings.Join(s.SourcePaths, ", ")
+	if s.Cause != nil {
+		cause = s.Cause(cfg)
+	}
+	return fmt.Sprintf("WARNING: %s is in effect (%s) — %s. That is the setting's registry name, not a config key: %s", s.Name, s.Value(cfg), s.Describe, cause)
 }
 
 // resolveADR112BootPosture applies the ADR-112 upgrade-grace decision and THEN

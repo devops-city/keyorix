@@ -8,34 +8,49 @@ way.
 
 ## 1. Install with defaults
 
-Keep the credentials in a file with mode 0600 and pass it with `-f`, never with `--set`
-(a `--set` value is visible in `ps` and shell history):
+Never pass a password on the command line (`--set auth.masterPassword=...`,
+`kubectl create secret --from-literal=...`): while the command runs, every local
+user can read its arguments (`ps`), and afterwards they stay in shell history and
+CI logs. Put each secret in an owner-only file, create the Secret from the files,
+and point the chart at it with `auth.existingSecret` (same steps as the chart
+README's "Quick start"). The admin password must meet the bootstrap policy: at
+least 16 characters, with upper and lower case, a digit and a special character.
 
 ```bash
-umask 077
-printf 'auth:\n  masterPassword: "%s"\n  adminPassword: "%s"\npostgresql:\n  auth:\n    password: "%s"\n' \
-  "$(openssl rand -base64 32)" "$(openssl rand -base64 18)-Aa1!" "$(openssl rand -hex 24)" \
-  > keyorix-values.yaml
+umask 077                      # new files: owner-only (0600 / 0700)
+mkdir keyorix-secrets
+# `read -s` does not echo (bash and zsh), and printf is a shell builtin, so no
+# secret reaches a process's argv. The file name is the key in the Secret.
+printf 'Master password (keep it, it derives the KEK): '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_MASTER_PASSWORD
+printf 'Database password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_DB_PASSWORD
+printf 'Admin password: '; read -r -s v; echo
+printf '%s' "$v" > keyorix-secrets/KEYORIX_ADMIN_PASSWORD
+unset v
 
-helm install keyorix ./deploy/helm/keyorix -f keyorix-values.yaml
+kubectl create secret generic keyorix-auth --from-file=keyorix-secrets/
+helm install keyorix ./deploy/helm/keyorix --set auth.existingSecret=keyorix-auth
+
+# Once the master password is in your password manager:
+rm -r keyorix-secrets
 ```
 
-The values that matter:
+The credentials that matter (the Secret's keys, `KEYORIX_*`; the chart's equivalent
+values are `auth.masterPassword`, `auth.adminPassword` and `postgresql.auth.password`):
 
-- `auth.masterPassword`: derives the encryption key. Set it once and keep it; changing
-  it after first boot makes every stored secret undecryptable. Store `keyorix-values.yaml`
-  (or the Secret it creates) somewhere safe and offline.
-- `auth.adminPassword`: the first admin is created at first boot. It must be at least
+- `KEYORIX_MASTER_PASSWORD` (`auth.masterPassword`): derives the encryption key. Set it once and keep it; changing
+  it after first boot makes every stored secret undecryptable. Keep the
+  `keyorix-auth` Secret's source files somewhere safe and offline.
+- `KEYORIX_ADMIN_PASSWORD` (`auth.adminPassword`): the first admin is created at first boot. It must be at least
   16 characters with an uppercase letter, a lowercase letter, a digit and a special
   character, and must not contain the admin username, the email's local part or
   "Administrator". The chart refuses to render a shorter password or one containing the
   username; the other rules are checked by the server at first boot (the pod exits with
   the reason in its log). Leave it empty to run `keyorix system init` yourself.
-- `postgresql.auth.password`: the bundled PostgreSQL password.
+- `KEYORIX_DB_PASSWORD` (`postgresql.auth.password`): the bundled PostgreSQL password.
 
-To keep the credentials in a Secret you manage, set `auth.existingSecret` instead (keys
-`KEYORIX_MASTER_PASSWORD`, `KEYORIX_DB_PASSWORD`, optionally `KEYORIX_ADMIN_PASSWORD` and
-`KEYORIX_BOOTSTRAP_TOKEN`).
+`KEYORIX_BOOTSTRAP_TOKEN` is optional in the Secret.
 
 The install prints next steps (`NOTES.txt`), including how to reach the UI and the
 warning to back up the encryption-keys volume.
@@ -73,8 +88,12 @@ CLI against it directly, trust its certificate as `NOTES.txt` shows.
 
 ## 4. Upgrade
 
+The passwords stay in the `keyorix-auth` Secret, so the upgrade passes none:
+
 ```bash
-helm upgrade keyorix ./deploy/helm/keyorix -f keyorix-values.yaml --reset-then-reuse-values
+helm upgrade keyorix ./deploy/helm/keyorix \
+  --set auth.existingSecret=keyorix-auth \
+  --set web.replicaCount=2
 ```
 
 Read the chart README's "Upgrading: egress NetworkPolicy" section and

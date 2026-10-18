@@ -354,11 +354,18 @@ Carried forward from `security-review-2026-09.md` rather than re-litigated:
   `PasswordKeyProvider`'s own long-lived string stays open **by design** — it
   can legitimately be asked for the KEK a second time during in-process
   rotation, so wiping after the first call would break the second.
-- **Authentication cache window (~30s).** A revoked token or suspended
-  account can remain valid for up to this TTL; logout and password-change
-  evict immediately, and suspension purges DB sessions immediately — the
-  cached-validity window is the only lag. A documented tradeoff, tunable by
-  reducing the TTL.
+- **Authentication cache window (~30s), narrowed.** Every cache hit
+  re-checks the credential's revocation state live (session row, account
+  state, PAT, machine token, federated machine identity), so a revocation is
+  honoured on the next request on every replica. Since CACHE-FAILCLOSED-1
+  (2026-10-17) a re-check that cannot read the database refuses the request
+  (503 / `Unavailable`) instead of serving the cached login, so an outage no
+  longer hides a revocation; the cost is that a brief database outage rejects
+  cached credentials. Still held for up to the cache TTL: an impersonation
+  session's admin-ceiling re-check (slow path only, behind its own
+  60s cache). A federated JWT's own `exp` is no longer held past expiry
+  (OIDC-EXPIRY-CAP-1): its cache entry ends at `exp` and a token within 5s of
+  expiring is not cached. See `threat-models/authentication.md` AUTH-1 and AUTH-11.
 - **CLI local mode bypasses API-layer authorization, audit, and rate
   limiting** (§5.2) — the largest open item in this document, with a shipped
   ADR (108) and a program not yet complete.

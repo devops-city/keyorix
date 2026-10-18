@@ -37,7 +37,7 @@ func TestCopyEnvironmentSecretsRequiresSourceRead(t *testing.T) {
 		&models.Project{}, &models.Environment{}, &models.User{},
 		&models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.Session{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{},
 		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.SecretAccessSchedule{},
 	))
 

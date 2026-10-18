@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 
@@ -49,15 +51,59 @@ import (
 // critical section: VACUUM keeps dead rows, and every CREATE INDEX
 // CONCURRENTLY (the audit index build, which runs under this lock) waits for
 // it to end.
+//
+// In both shapes the lock statements and the liveness ping (watch) share conn, so each lock
+// statement holds gate while it runs and the ping is only sent while gate is
+// free (config.PinnedConnGate): a ping queued behind a nested lock wait
+// would time out before it was sent, and the driver would close the healthy
+// connection, ending the transaction and every lock on it.
 type advisoryLockSession struct {
 	conn *sql.Conn
 	xact bool
+	gate config.PinnedConnGate
+}
+
+// ErrAdvisoryLockLost is returned (joined with the critical section's own
+// error, if any) by a lock holder whose lock connection died while it held the
+// lock (see advisoryLockSession.watch). The lock was released by the database
+// at that moment, so the critical section may have overlapped another holder's:
+// the caller must treat its result as unproven.
+var ErrAdvisoryLockLost = errors.New("advisory lock lost: the lock connection died while the lock was held")
+
+// watch starts the liveness check of the lock connection (call it once the
+// lock is held) and returns the context the critical section must run under,
+// cancelled with cause ErrAdvisoryLockLost when the check finds the connection
+// gone, and finish. finish(err) stops the check, which must happen before
+// unlock and close, and returns err joined with ErrAdvisoryLockLost if the lock
+// was lost meanwhile (also when err is nil: the section ran without its lock
+// for part of its time).
+//
+// Both shapes are watched. A session lock ends with its backend just as a
+// transaction-scoped one does (a pg_terminate_backend, a PostgreSQL restart or
+// failover, a network partition the server notices first), and the critical
+// section's own queries run on other connections, so nothing else would tell
+// the holder (LOCKLOSS-SESSION-1; INV-STORAGE-session-advisory-lock-loss).
+func (s *advisoryLockSession) watch(ctx context.Context, who string) (context.Context, func(error) error) {
+	wctx, cancel := context.WithCancelCause(ctx)
+	var lost atomic.Bool
+	stop := config.WatchPinnedLockConnGated(s.conn, s.gate, who, func(err error) {
+		lost.Store(true)
+		cancel(fmt.Errorf("%w: %v", ErrAdvisoryLockLost, err))
+	})
+	return wctx, func(err error) error {
+		stop()
+		cancel(nil)
+		if lost.Load() {
+			return errors.Join(err, ErrAdvisoryLockLost)
+		}
+		return err
+	}
 }
 
 // openAdvisoryLockSession starts a lock session on conn. In transaction shape
 // it opens the pinning transaction; the caller must call close.
 func openAdvisoryLockSession(ctx context.Context, conn *sql.Conn, xact bool) (*advisoryLockSession, error) {
-	s := &advisoryLockSession{conn: conn, xact: xact}
+	s := &advisoryLockSession{conn: conn, xact: xact, gate: config.NewPinnedConnGate()}
 	if !xact {
 		return s, nil
 	}
@@ -72,6 +118,10 @@ func openAdvisoryLockSession(ctx context.Context, conn *sql.Conn, xact bool) (*a
 
 // lock blocks until the exclusive advisory lock key is held.
 func (s *advisoryLockSession) lock(ctx context.Context, key int64) error {
+	if err := s.gate.Enter(ctx); err != nil {
+		return err
+	}
+	defer s.gate.Leave()
 	if s.xact {
 		_, err := s.conn.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", pgx.QueryExecModeSimpleProtocol, key)
 		return err
@@ -82,6 +132,10 @@ func (s *advisoryLockSession) lock(ctx context.Context, key int64) error {
 
 // tryLock takes the exclusive advisory lock key if no one else holds it.
 func (s *advisoryLockSession) tryLock(ctx context.Context, key int64) (bool, error) {
+	if err := s.gate.Enter(ctx); err != nil {
+		return false, err
+	}
+	defer s.gate.Leave()
 	var locked bool
 	if s.xact {
 		err := s.conn.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock($1)", pgx.QueryExecModeSimpleProtocol, key).Scan(&locked)
@@ -102,7 +156,13 @@ func (s *advisoryLockSession) unlock(ctx context.Context, key int64, who string)
 	if s.xact {
 		return true
 	}
-	if _, err := s.conn.ExecContext(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock($1)", key); err != nil {
+	// Under the gate like every lock statement: a nested key is unlocked while
+	// the outermost call's watch still pings this connection. Never cancelled,
+	// so this waits out at most one ping.
+	ctx = context.WithoutCancel(ctx)
+	_ = s.gate.Enter(ctx)
+	defer s.gate.Leave()
+	if _, err := s.conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", key); err != nil {
 		log.Printf("%s: pg_advisory_unlock(%d) failed, discarding the connection instead of pooling it: %v", who, key, err)
 		s.discard()
 		return false

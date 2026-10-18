@@ -30,7 +30,7 @@ func TestWithBootstrapLock_SQLiteRunsAndPropagates(t *testing.T) {
 	ctx := context.Background()
 
 	ran := false
-	err := ls.WithBootstrapLock(ctx, func() error {
+	err := ls.WithBootstrapLock(ctx, func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -38,12 +38,12 @@ func TestWithBootstrapLock_SQLiteRunsAndPropagates(t *testing.T) {
 	assert.True(t, ran, "fn executed")
 
 	sentinel := errors.New("boom")
-	err = ls.WithBootstrapLock(ctx, func() error { return sentinel })
+	err = ls.WithBootstrapLock(ctx, func(context.Context) error { return sentinel })
 	require.ErrorIs(t, err, sentinel)
 
 	// Not held after returning: a subsequent call still runs.
 	ran = false
-	err = ls.WithBootstrapLock(ctx, func() error {
+	err = ls.WithBootstrapLock(ctx, func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -70,7 +70,7 @@ func TestWithBootstrapLock_SerializesConcurrentCallers(t *testing.T) {
 	for range racers {
 		wg.Go(func() {
 			<-start
-			_ = ls.WithBootstrapLock(ctx, func() error {
+			_ = ls.WithBootstrapLock(ctx, func(context.Context) error {
 				cur := inside.Add(1)
 				for {
 					prev := atomic.LoadInt32(&maxConcurrent)

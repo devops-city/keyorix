@@ -33,6 +33,9 @@ var secretDepsListCmd = &cobra.Command{
 	Args:         cobra.ExactArgs(1),
 	SilenceUsage: true,
 	RunE: func(_ *cobra.Command, args []string) error {
+		if err := checkOutputFormat(depsListFormat); err != nil {
+			return err
+		}
 		id, err := parseSecretArg(args[0])
 		if err != nil {
 			return err
@@ -47,6 +50,10 @@ var secretDepsListCmd = &cobra.Command{
 		}
 		if resp.JSON200 == nil || resp.JSON200.Data == nil {
 			return httpStatusError("list secret dependencies", resp.StatusCode(), resp.Body)
+		}
+		if depsListFormat != outputTable {
+			// One object: what the secret depends on and what depends on it.
+			return printStructured(depsListFormat, resp.JSON200.Data)
 		}
 		printSecretDependencies(resp.JSON200.Data)
 		return nil

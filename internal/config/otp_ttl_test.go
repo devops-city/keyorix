@@ -26,7 +26,7 @@ func TestSecurityConfig_OneTimePasswordExpiries(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			s := config.SecurityConfig{RecoveryOneTimePasswordExpiry: tc.recovery, OneTimePasswordExpiry: tc.otp}
+			s := config.SecurityConfig{RecoveryOTPLifetime: tc.recovery, OTPLifetime: tc.otp}
 			assert.Equal(t, tc.wantRecovery, s.GetRecoveryOneTimePasswordExpiry())
 			assert.Equal(t, tc.wantOTP, s.GetOneTimePasswordExpiry())
 		})

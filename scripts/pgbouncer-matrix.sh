@@ -43,8 +43,11 @@ cleanup() {
 trap cleanup EXIT
 
 docker network create "${prefix}-net" >/dev/null
+# --env-file, not `-e POSTGRES_PASSWORD=...`: an argv is visible in ps (SCRIPTS-SECRETS-2).
+( umask 077; printf 'POSTGRES_PASSWORD=%s\n' "${pw}" >"${work}/pg.env" )
 docker run -d --name "${prefix}-pg" --network "${prefix}-net" -p "127.0.0.1:${base}:5432" \
-	-e POSTGRES_PASSWORD="${pw}" "${pg_image}" >/dev/null
+	--env-file "${work}/pg.env" "${pg_image}" >/dev/null
+rm -f "${work}/pg.env"
 until docker exec "${prefix}-pg" pg_isready -U postgres -q; do sleep 1; done
 
 start_bouncer() { # name port pool_mode max_prepared_statements

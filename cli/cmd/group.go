@@ -279,6 +279,9 @@ func init() {
 }
 
 func runGroupList(cmd *cobra.Command, args []string) error {
+	if err := checkOutputFormat(groupListFormat); err != nil {
+		return err
+	}
 	client, _, err := groupAPIClient()
 	if err != nil {
 		return err
@@ -291,11 +294,13 @@ func runGroupList(cmd *cobra.Command, args []string) error {
 		return httpStatusError("failed to list groups", resp.StatusCode(), resp.Body)
 	}
 	groups := derefGroupSlice(resp.JSON200.Data.Groups)
-	fmt.Printf("%-6s %-25s %s\n", "ID", "NAME", "DESCRIPTION")
-	for _, g := range groups {
-		fmt.Printf("%-6d %-25s %s\n", derefInt(g.Id), cliout.SanitizeForTerminal(derefStr(g.Name)), cliout.SanitizeForTerminal(derefStr(g.Description)))
-	}
-	return nil
+	return emitList(groupListFormat, groups, func() error {
+		fmt.Printf("%-6s %-25s %s\n", "ID", "NAME", "DESCRIPTION")
+		for _, g := range groups {
+			fmt.Printf("%-6d %-25s %s\n", derefInt(g.Id), cliout.SanitizeForTerminal(derefStr(g.Name)), cliout.SanitizeForTerminal(derefStr(g.Description)))
+		}
+		return nil
+	})
 }
 
 // ── members ─────────────────────────────────────────────────────────────────────

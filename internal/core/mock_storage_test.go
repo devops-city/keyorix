@@ -27,8 +27,8 @@ type MockStorage struct {
 }
 
 // WithSchedulerLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithSchedulerLock(_ context.Context, _ int64, fn func() error) (bool, error) {
-	return true, fn()
+func (m *MockStorage) WithSchedulerLock(ctx context.Context, _ int64, fn func(context.Context) error) (bool, error) {
+	return true, fn(ctx)
 }
 
 // TryAcquireSchedulerLock/ReleaseSchedulerLock are no-ops in tests (single
@@ -41,13 +41,13 @@ func (m *MockStorage) ReleaseSchedulerLock(_ context.Context, _ int64, _ string)
 }
 
 // WithAuditCheckpointLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithAuditCheckpointLock(_ context.Context, fn func() error) error {
-	return fn()
+func (m *MockStorage) WithAuditCheckpointLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 // WithBootstrapLock runs fn directly in tests (single instance, no DB lock).
-func (m *MockStorage) WithBootstrapLock(_ context.Context, fn func() error) error {
-	return fn()
+func (m *MockStorage) WithBootstrapLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 // WithNamedLock runs fn directly in tests (single instance, no DB lock).
@@ -150,6 +150,15 @@ func (m *MockStorage) DeleteProjectIfEmpty(_ context.Context, _ uint) (int, erro
 
 func (m *MockStorage) RestoreProject(_ context.Context, _ uint) (int, int, error) {
 	return 0, 0, nil
+}
+
+// The #3433 machine-identity cascade steps: this mock holds no machine identities.
+func (m *MockStorage) SuspendMachineIdentitiesForDeletedProject(_ context.Context, _ uint) ([]*models.MachineIdentity, error) {
+	return nil, nil
+}
+
+func (m *MockStorage) ReactivateMachineIdentitiesForRestoredProject(_ context.Context, _ uint, _ time.Time) ([]*models.MachineIdentity, error) {
+	return nil, nil
 }
 
 func (m *MockStorage) ListEnvironments(_ context.Context) ([]*models.Environment, error) {
@@ -384,39 +393,34 @@ func (m *MockStorage) UpdateAccessReviewItem(ctx context.Context, item *models.A
 	return args.Bool(0), args.Error(1)
 }
 
-func (m *MockStorage) RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error) {
-	args := m.Called(ctx, itemID, fromDecision, actorID)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockStorage) LastUserSecretActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	args := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	args := m.Called(ctx, projectID, since)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[uint]time.Time), args.Error(1)
 }
 
-func (m *MockStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserRoleManagementActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretDeletionActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretReadActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
 
-func (m *MockStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint) (map[uint]time.Time, error) {
-	a := m.Called(ctx, projectID)
+func (m *MockStorage) LastUserSecretWriteActivity(ctx context.Context, projectID uint, since time.Time) (map[uint]time.Time, error) {
+	a := m.Called(ctx, projectID, since)
 	v, _ := a.Get(0).(map[uint]time.Time)
 	return v, a.Error(1)
 }
@@ -841,6 +845,14 @@ func (m *MockStorage) CountExpiringSecretsByProject(ctx context.Context, project
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[uint]int), args.Error(1)
+}
+
+func (m *MockStorage) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	args := m.Called(ctx, envIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uint]int64), args.Error(1)
 }
 
 func (m *MockStorage) ListLiveSecretNamesByProject(ctx context.Context, projectIDs []uint, limit int) ([]storage.SecretNameRow, bool, error) {

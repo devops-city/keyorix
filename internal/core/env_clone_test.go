@@ -36,7 +36,7 @@ func newCloneTestCore(t *testing.T) *KeyorixCore {
 		&models.Environment{},
 		&models.AuditEvent{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
 		&models.SecretAccessSchedule{},
 	))
 	// CopySecret calls GetSecretValueWithPermissionCheck which gates the owner path on

@@ -15,6 +15,15 @@
 // every call site gets all three instead of re-deriving its own copy (or, as
 // happened repeatedly, omitting the panic half of it).
 //
+// Run is post-commit only, with ONE sanctioned in-transaction shape: the step
+// is itself a nested tx.WithTransaction (a SAVEPOINT on PostgreSQL), so a
+// failed statement rolls back to the savepoint and cannot abort the enclosing
+// transaction (users.CreateUser's baseline-role grant). Any other use inside a
+// WithTransaction closure -- including a call to a helper that runs Run, such
+// as purgeStepUpGrants -- is a bug: on PostgreSQL a failed statement aborts the
+// transaction and the later COMMIT silently becomes a ROLLBACK, while Run hides
+// the failure. besteffort_tx_guard_test.go enforces this lexically.
+//
 // Do NOT use this package for a step that is part of the operation's own
 // contract and must fail closed -- e.g. audit-before-disclosure, where a
 // secret's value may not be released until its audit write is confirmed

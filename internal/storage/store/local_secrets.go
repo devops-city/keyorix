@@ -244,6 +244,19 @@ func deleteProjectCascade(tx *gorm.DB, id uint, softDeleteDays int) error {
 		Delete(&models.ShareRecord{}).Error; err != nil {
 		return fmt.Errorf("failed to revoke project secret shares: %w", err)
 	}
+	// CWE-284 (#2798): SecretACL grants get the same treatment as DeleteSecret's
+	// per-secret path. They are a separate lifecycle from SecretNode, so left alone
+	// they would come back live on RestoreProject with zero re-authorization. Same
+	// raw subquery as ShareRecord above, so it reaches the just-soft-deleted nodes.
+	if err := tx.Where("secret_id IN (SELECT id FROM secret_nodes WHERE project_id = ?)", id).
+		Delete(&models.SecretACL{}).Error; err != nil {
+		return fmt.Errorf("failed to revoke project secret ACLs: %w", err)
+	}
+	// #2797: same for approved secret-scoped access requests (see the helper).
+	if err := closeApprovedSecretAccessRequests(tx,
+		"secret_id IN (SELECT id FROM secret_nodes WHERE project_id = ?)", id); err != nil {
+		return err
+	}
 	// UserRole/GroupRole grants scoped to this project are deliberately left
 	// untouched here, unlike ShareRecord above. Both are plain composite-primary-key
 	// join rows (UserID/GroupID, RoleID, ProjectID, EnvironmentID) with no DeletedAt
@@ -1000,6 +1013,27 @@ func stampSecretPurgeAt(tx *gorm.DB, ids []uint, globalDays int) error {
 	return nil
 }
 
+// closeApprovedSecretAccessRequests moves every still-approved secret-scoped
+// AccessRequest whose secret matches secretCond to 'expired' and stamps resolved_at
+// (#2797). core.hasApprovedSecretAccessRequest keys the restricted-read approval gate
+// on state = 'approved' for the secret ID and nothing else, so a delete that left the
+// row approved let RestoreSecret/RestoreProject revive the approval with no
+// re-authorization (the same hazard #370 closed for shares). 'expired' is an existing
+// terminal state and resolved_at puts the row on the normal
+// DeleteResolvedAccessRequestsBefore retention clock. Approved rows only: a pending
+// request stays pending and still needs a fresh approval; project-scoped requests
+// (secret_id IS NULL) are unrelated. Like the share/ACL revokes, restore does not bring
+// the approval back. resolved_at is written explicitly as UTC because a map Updates
+// bypasses AccessRequest.BeforeSave (G81).
+func closeApprovedSecretAccessRequests(tx *gorm.DB, secretCond string, args ...any) error {
+	if err := tx.Model(&models.AccessRequest{}).
+		Where("secret_id IS NOT NULL AND state = ? AND "+secretCond, append([]any{"approved"}, args...)...).
+		Updates(map[string]any{"state": "expired", "resolved_at": time.Now().UTC()}).Error; err != nil {
+		return fmt.Errorf("failed to close secret access requests: %w", err)
+	}
+	return nil
+}
+
 // DeleteSecret deletes a secret by ID. #370: ShareRecord rows are a fully
 // independent lifecycle from SecretNode's — left untouched, a share grant would
 // silently reactivate (via CheckSharePermission) the instant the secret is later
@@ -1028,6 +1062,10 @@ func (ls *LocalStorage) DeleteSecret(ctx context.Context, id uint) error {
 		// bug fixed for ShareRecord in #370).
 		if err := tx.Where("secret_id = ?", id).Delete(&models.SecretACL{}).Error; err != nil {
 			return fmt.Errorf("failed to revoke secret ACLs: %w", err)
+		}
+		// #2797: an approved restricted-read request must not revive on restore either.
+		if err := closeApprovedSecretAccessRequests(tx, "secret_id = ?", id); err != nil {
+			return err
 		}
 		return nil
 	})
@@ -1287,6 +1325,36 @@ func (ls *LocalStorage) CountOrphanedSecretsByProject(ctx context.Context, proje
 	}
 	for _, r := range rows {
 		counts[r.ProjectID] = int(r.N)
+	}
+	return counts, nil
+}
+
+// CountSecretsByEnvironment returns the live-secret count (is_secret, not
+// soft-deleted) for every environment in envIDs via a single
+// `GROUP BY environment_id` query, so the environment list needs no per-environment
+// round trip. An environment with no secrets is simply absent from the map.
+func (ls *LocalStorage) CountSecretsByEnvironment(ctx context.Context, envIDs []uint) (map[uint]int64, error) {
+	counts := make(map[uint]int64)
+	if len(envIDs) == 0 {
+		return counts, nil
+	}
+	type row struct {
+		EnvironmentID uint
+		N             int64
+	}
+	var rows []row
+	// Model() applies GORM's soft-delete scope (secret_nodes.deleted_at IS NULL).
+	err := ls.db.WithContext(ctx).Model(&models.SecretNode{}).
+		Select("secret_nodes.environment_id AS environment_id, COUNT(*) AS n").
+		Where("secret_nodes.environment_id IN ?", envIDs).
+		Where("secret_nodes.is_secret = ?", true).
+		Group("secret_nodes.environment_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	for _, r := range rows {
+		counts[r.EnvironmentID] = r.N
 	}
 	return counts, nil
 }

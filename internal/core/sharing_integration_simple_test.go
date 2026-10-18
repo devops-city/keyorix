@@ -3,7 +3,6 @@ package core
 import (
 	"context"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,12 +14,8 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-// sharingIntegrationDBSeq makes each in-memory DB unique within the process
-// so that repeated invocations (e.g. `go test -count=N`) don't attach to the
-// same SQLite shared-cache in-memory database left open by a prior iteration.
-var sharingIntegrationDBSeq atomic.Int64
 
 // TestSharingIntegrationSimple tests the complete sharing workflow with real storage
 func TestSharingIntegrationSimple(t *testing.T) {
@@ -33,20 +28,13 @@ func TestSharingIntegrationSimple(t *testing.T) {
 	// Create test database (in-memory for isolation).
 	// Use WAL journal mode to allow concurrent reads alongside writes,
 	// and limit to a single connection so SQLite doesn't deadlock itself.
-	dsn := fmt.Sprintf("file:kx_sharing_simple_%d?mode=memory&cache=shared&_journal_mode=WAL", sharingIntegrationDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-
-	sqlDB, err := db.DB()
-	require.NoError(t, err)
-	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, err)
+	db := sqlitetest.OpenWithDialector(t, "kx_sharing_simple_", sqlite.Open, &gorm.Config{})
 
 	// Auto-migrate tables
 	err = db.AutoMigrate(
 		&models.SecretNode{},
 		&models.SecretVersion{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.AuditEvent{},
 		&models.User{},
 		&models.Role{},

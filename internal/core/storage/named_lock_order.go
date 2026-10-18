@@ -59,21 +59,24 @@ const NamedLockPendingExpires = "2026-10-18"
 // to make the inversion legal — a reorder that makes one chain legal makes the
 // chain it deadlocks with illegal, which the next run then reports.
 //
-// Not covered: locks other than WithNamedLock (in-process sync.Mutex fields
-// such as globalAdminGuardMu, accountStateMu and secretDependencyMu; row
-// locks; WithBootstrapLock/WithAuditCheckpointLock), and any call chain that
-// no test drives — the runtime checker is dynamic, it sees only nestings that
-// actually execute. (The static half, TestNamedLockOrder_EveryCallSiteKeyHasAFamily
-// in internal/core, checks only that every key has a family, not nesting.)
+// Not covered here: locks other than WithNamedLock (in-process sync.Mutex
+// fields such as globalAdminGuardMu, accountStateMu and secretDependencyMu;
+// transactions; WithBootstrapLock/WithAuditCheckpointLock), and any call chain
+// that no test drives — the runtime checker is dynamic, it sees only nestings
+// that actually execute. Both are covered statically by
+// TestLockOrder_InProcessLocksFollowDeclaredOrder in internal/core (#2694),
+// which places this whole table as one block of its lockOrderTable and checks
+// every call site's nesting, driven or not. (TestNamedLockOrder_EveryCallSiteKeyHasAFamily
+// checks that every key has a family.)
 var NamedLockOrder = []NamedLockFamily{
 	{Prefix: "dual-control-approval:request:", Constructor: "core.dualControlLockKey"},
-	{Prefix: "project-membership:", Constructor: "core.membershipLockKey", PendingPR: "#2669"},
+	{Prefix: "project-membership:", Constructor: "core.membershipLockKey"},
 	{Prefix: "last-admin-guard", Exact: true, Constructor: "core.lastAdminGuardLockKey"},
 	{Prefix: "project-admin-guard:", Nestable: true, Constructor: "core.projectAdminGuardLockKey"},
 	{Prefix: "sod-grant:group:", Nestable: true, Constructor: `core.sodGrantLockKey("group", ...)`},
 	{Prefix: "sod-grant:user:", Nestable: true, Constructor: `core.sodGrantLockKey("user", ...)`},
 	{Prefix: "sod-grant:machine:", Constructor: `core.sodGrantLockKey("machine", ...)`},
-	{Prefix: "secret-dependency-graph:", Constructor: "core.secretDependencyGraphLockKey", PendingPR: "#2670"},
+	{Prefix: "secret-dependency-graph:", Constructor: "core.secretDependencyGraphLockKey"},
 	{Prefix: "environment-secret-guard:", Constructor: "storage.EnvironmentSecretGuardLockKey"},
 }
 

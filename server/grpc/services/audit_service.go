@@ -293,7 +293,7 @@ func (s *AuditGRPCService) VerifyAuditChain(ctx context.Context, _ *emptypb.Empt
 		ChainedEvents:    v.ChainedEvents,
 		UnchainedEvents:  v.UnchainedEvents,
 		HeadHash:         v.HeadHash,
-		HeadId:           intToU32(int(v.HeadID)),
+		HeadId:           uintToU32(v.HeadID),
 		Checkpointed:     v.Checkpointed,
 		Reason:           v.Reason,
 		CheckpointReason: v.CheckpointReason,
@@ -350,9 +350,9 @@ func (s *AuditGRPCService) WriteAuditCheckpoint(ctx context.Context, _ *emptypb.
 			"signed audit checkpoints require encryption to be enabled (the signing key is derived from the DEK)")
 	}
 	resp := &pb.WriteAuditCheckpointResponse{
-		Id:             intToU32(int(cp.ID)),
+		Id:             uintToU32(cp.ID),
 		ChainedEvents:  cp.ChainedEvents,
-		HeadId:         intToU32(int(cp.HeadID)),
+		HeadId:         uintToU32(cp.HeadID),
 		HeadHash:       cp.HeadHash,
 		KeyVersion:     cp.KeyVersion,
 		AnchorProvider: cp.AnchorProvider,
@@ -394,7 +394,7 @@ func (s *AuditGRPCService) GetAuditRetention(ctx context.Context, _ *emptypb.Emp
 
 func rbacEntryToProto(e *core.RBACAuditEntry) *pb.RBACAuditLog {
 	out := &pb.RBACAuditLog{
-		Id:        intToU32(int(e.ID)),
+		Id:        uintToU32(e.ID),
 		Action:    e.Action,
 		Details:   e.Details,
 		CreatedAt: timestamppb.New(e.CreatedAt),
@@ -562,7 +562,7 @@ func auditEventToProto(e *models.AuditEvent, names, machineNames map[uint]string
 		success = *e.Success
 	}
 	out := &pb.AuditLog{
-		Id:            intToU32(int(e.ID)),
+		Id:            uintToU32(e.ID),
 		EventType:     e.EventType,
 		Actor:         resolveActor(e, names, machineNames),
 		ActorType:     corestorage.AuditActorKind(e), // same display rule as HTTP and the actor_type filter (#2951)
@@ -599,6 +599,6 @@ func resolveActor(e *models.AuditEvent, names, machineNames map[uint]string) str
 }
 
 func ptrU32(v uint) *uint32 {
-	x := intToU32(int(v))
+	x := uintToU32(v)
 	return &x
 }

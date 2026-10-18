@@ -20,10 +20,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // auditWriteContextAllowlist names LogAuditEvent implementations that are
@@ -65,10 +66,7 @@ var auditWriteContextAllowlist = map[string]string{
 }
 
 func TestLogAuditEventImplementations_DetachFromCallerCancellation(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed — cannot locate the repo root relative to this test file")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "audit_write_context_completeness_test.go")
 	// internal/storage/store -> repo root.
 	repoRoot := filepath.Join(filepath.Dir(thisFile), "..", "..", "..")
 

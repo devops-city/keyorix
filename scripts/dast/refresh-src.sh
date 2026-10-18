@@ -26,6 +26,8 @@ if [ -f "$WORKDIR/.env" ]; then
 fi
 # shellcheck source=/dev/null
 . "$WORKDIR/lib-alert.sh"
+# shellcheck source=/dev/null
+. "$WORKDIR/lib-http.sh"
 
 cd "$SRC_DIR"
 
@@ -102,15 +104,19 @@ fi
 # logging in with it. If that login fails, bootstrap is broken -- loudly,
 # every run, not silently for over a week.
 if [ -n "${KEYORIX_ADMIN_USERNAME:-}" ] && [ -n "${KEYORIX_ADMIN_PASSWORD:-}" ]; then
-    init_resp=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8080/system/init \
-        -H 'Content-Type: application/json' \
-        -H "X-Keyorix-Bootstrap-Token: ${KEYORIX_BOOTSTRAP_TOKEN:-}" \
-        -d "{\"username\":\"$KEYORIX_ADMIN_USERNAME\",\"email\":\"${KEYORIX_ADMIN_EMAIL:-}\",\"password\":\"$KEYORIX_ADMIN_PASSWORD\",\"display_name\":\"DAST Admin\"}" \
+    # The bootstrap token and the admin password stay off argv: the token goes in a 0600
+    # header file, the JSON bodies on stdin (lib-http.sh).
+    bootstrap_hdr="$(mktemp)"
+    printf 'X-Keyorix-Bootstrap-Token: %s\n' "${KEYORIX_BOOTSTRAP_TOKEN:-}" >"$bootstrap_hdr"
+    init_resp=$(dast_post_json http://localhost:8080/system/init \
+        "{\"username\":\"$KEYORIX_ADMIN_USERNAME\",\"email\":\"${KEYORIX_ADMIN_EMAIL:-}\",\"password\":\"$KEYORIX_ADMIN_PASSWORD\",\"display_name\":\"DAST Admin\"}" \
+        -s -o /dev/null -w '%{http_code}' -H "@$bootstrap_hdr" \
         2>/dev/null || echo "000")
+    rm -f "$bootstrap_hdr"
 
-    login_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8080/auth/login \
-        -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$KEYORIX_ADMIN_USERNAME\",\"password\":\"$KEYORIX_ADMIN_PASSWORD\"}" \
+    login_code=$(dast_post_json http://localhost:8080/auth/login \
+        "{\"username\":\"$KEYORIX_ADMIN_USERNAME\",\"password\":\"$KEYORIX_ADMIN_PASSWORD\"}" \
+        -s -o /dev/null -w '%{http_code}' \
         2>/dev/null || echo "000")
 
     if [ "$login_code" != "200" ]; then

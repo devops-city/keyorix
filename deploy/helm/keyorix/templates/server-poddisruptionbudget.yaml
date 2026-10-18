@@ -1,0 +1,28 @@
+{{/*
+A PodDisruptionBudget for the server only exists once there is more than one
+replica (server.replicas, ADR-039 HA topology): at the default single replica it
+could only ever block the one voluntary eviction a singleton has, never add
+disruption tolerance, so it is not rendered. Set exactly one of minAvailable /
+maxUnavailable; minAvailable (default 1) wins when both are given.
+*/}}
+{{- $replicas := int (include "keyorix.server.replicas" .) -}}
+{{- $pdb := .Values.server.podDisruptionBudget | default dict -}}
+{{- if and (gt $replicas 1) (ne (toString (get $pdb "enabled")) "false") -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "keyorix.server.fullname" . }}
+  labels:
+    {{- include "keyorix.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  {{- if or (hasKey $pdb "minAvailable") (not (hasKey $pdb "maxUnavailable")) }}
+  minAvailable: {{ get $pdb "minAvailable" | default 1 }}
+  {{- else }}
+  maxUnavailable: {{ get $pdb "maxUnavailable" }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: server
+{{- end -}}

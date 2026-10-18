@@ -2512,7 +2512,7 @@ export interface paths {
         put?: never;
         /**
          * Suspend a secret
-         * @description Block value reads without deleting the secret. Versions, shares, and the audit trail are preserved. Requires secrets.write.
+         * @description Block value reads without deleting the secret. Versions, shares, and the audit trail are preserved. Requires secrets.write. A request with `clear_synced_copies` is refused with 500 and error `SuspendAuditUnavailable` when its audit event cannot be recorded; nothing is changed. The message says what to do now: suspend again without `clear_synced_copies` to cut access immediately (a plain suspend is never blocked by the audit log); clearing the synced copies needs the audit log back. There is no gRPC twin: the gRPC API has no secret suspend.
          */
         post: operations["suspendSecret"];
         delete?: never;
@@ -4649,7 +4649,7 @@ export interface paths {
         };
         /**
          * Dashboard summary statistics
-         * @description The caller's own home dashboard (secret/share counts, expiring secrets). Requires the universal system.read baseline (every real principal holds it). The deployment-wide aggregate fields (activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins), refusedSecretReads24h, inactiveUsers) and the full recentActivity feed are additionally scoped to audit.read — a baseline-only caller gets zeroed aggregates and an activity feed limited to their own events.
+         * @description The caller's own home dashboard (secret/share counts, expiring secrets). Requires the universal system.read baseline (every real principal holds it). The deployment-wide aggregate fields (activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins: wrong password + wrong second factor), failedLoginsWrongPassword24h, failedLoginsWrongSecondFactor24h, refusedSecretReads24h, inactiveUsers) and the full recentActivity feed are additionally scoped to audit.read — a baseline-only caller gets zeroed aggregates and an activity feed limited to their own events.
          */
         get: operations["getDashboardStats"];
         put?: never;
@@ -5897,6 +5897,11 @@ export interface components {
             id?: number;
             project_id?: number;
             name?: string;
+            /**
+             * Format: int64
+             * @description Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+             */
+            secret_count?: number;
             /** Format: date-time */
             created_at?: string;
             /** Format: date-time */
@@ -6606,6 +6611,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     revokeSession: {
@@ -6649,6 +6655,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     createPAT: {
@@ -6718,6 +6725,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     bulkRevokeExpiredPATs: {
@@ -6736,6 +6744,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     patHygiene: {
@@ -6997,6 +7006,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     getSystemInfo: {
@@ -7513,7 +7523,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: {entries[], count}; each entry is {principal_type (user|group), principal_id, principal_name, email, source (role|owner|direct_share|group_share), role_id, role_name, access_level, environment_id, secret_id, secret_name, last_used_at (the user principal's most recent secret access in the project — absent = no recorded activity, i.e. dormant standing access)}. */
+            /** @description Envelope {data, message}. data: {entries[], count, degraded, degraded_reasons[], activity_window_days (the look-back of every last_used_at: the recertification period, default 90 days, at most 366)}; each entry is {principal_type (user|group), principal_id, principal_name, email, source (role|owner|direct_share|group_share), role_id, role_name, access_level, environment_id, secret_id, secret_name, last_used_at (the user principal's most recent secret access in the project within the last activity_window_days days — absent = no recorded activity in that window, i.e. dormant standing access)}. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9521,7 +9531,7 @@ export interface operations {
                 "application/json": {
                     /** @description Optional reason recorded in the audit events. */
                     reason?: string;
-                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. */
+                    /** @description The same per-suspension choice as on `POST /secrets/{id}/suspend`, applied to every secret this request suspends: the operator and k8s-sync empty the copies synced to Kubernetes clusters for THIS suspension, whatever each resource's `onSuspend` says. A secret that is already suspended without the choice is upgraded in place; one that already has it is left alone. Resuming (`resume-all` or per secret) removes it. Needs no permission beyond suspending. One `secret.bulk_suspend_attempted` audit event records the choice (`clear_synced_copies=true`) and the number of secrets targeted BEFORE any secret is touched; if that event cannot be recorded the request fails and nothing is suspended. That refusal, and one that stops the run early because a secret's own audit event was refused (`details` then holds `suspended` and `failed`), answer 500 with error `SuspendAuditUnavailable`; suspend again without `clear_synced_copies` to cut access immediately. */
                     clear_synced_copies?: boolean;
                 };
             };
@@ -10608,6 +10618,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            500: components["responses"]["Error"];
         };
     };
     resumeSecret: {
@@ -11414,6 +11425,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
@@ -14298,7 +14310,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe, activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins), refusedSecretReads24h, inactiveUsers; optional trend objects (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}), expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and recentActivity[] (id, type, secretName, timestamp, actor). */
+            /** @description Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe, activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins: wrong password + wrong second factor), failedLoginsWrongPassword24h, failedLoginsWrongSecondFactor24h, refusedSecretReads24h, inactiveUsers; optional trend objects (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}), expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and recentActivity[] (id, type, secretName, timestamp, actor). */
             200: {
                 headers: {
                     [name: string]: unknown;
