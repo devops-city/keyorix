@@ -95,8 +95,8 @@ Pipelining pays only when there is something to overlap, and every batch costs t
 transaction. Two rules keep it from costing more than it saves (both measured: without them a
 CPU-bound PostgreSQL arm lost throughput to batches half the serial size):
 
-- a batch with nothing queued behind it and nothing in flight goes the serial way on a pool
-  connection, exactly as without pipelining (low concurrency is unchanged);
+- a batch of one item with nothing in flight (nobody else was waiting: low concurrency) goes
+  the serial way on a pool connection, exactly as without pipelining;
 - a batch smaller than the one in flight waits for that one's result and takes what arrived
   meanwhile before it is sent, so pipelining never shrinks the batches.
 

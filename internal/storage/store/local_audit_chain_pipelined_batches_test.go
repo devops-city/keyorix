@@ -135,6 +135,12 @@ func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
 	ctx := context.Background()
 	ls := multiRowPGStore(t)
 	armed := armForPipeline(t, ls, "concurrent")
+	// A little database time per row, so readers queue up while a batch
+	// executes: the next batch is then at least as large as the one in flight
+	// and is pipelined (a batch smaller than it waits instead, by design).
+	require.NoError(t, ls.db.Exec(`CREATE FUNCTION kx_slow_each_row() RETURNS trigger AS $$
+BEGIN PERFORM pg_sleep(0.0002); RETURN NEW; END $$ LANGUAGE plpgsql`).Error)
+	require.NoError(t, ls.db.Exec(`CREATE TRIGGER kx_slow_each_row BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION kx_slow_each_row()`).Error)
 	before := ls.auditHead.pipelinedSends.Load()
 
 	const workers, each = 48, 25
@@ -161,7 +167,6 @@ func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
 		t.Error(err)
 	}
 	assert.Positive(t, ls.auditHead.pipelinedSends.Load()-before, "no batch was sent while another was in flight: the pipeline was not exercised")
-	t.Logf("DIAG pipelined=%d oneFlightCommits=%d misses=%d", ls.auditHead.pipelinedSends.Load()-before, ls.auditHead.oneFlightCommits.Load(), ls.auditHead.oneFlightMisses.Load())
 	requireChainValid(t, ls, nil, armed+workers*each)
 	requireNoNullTextColumns(t, ls)
 	_, logs := loadAuditRows(t, ls)

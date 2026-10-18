@@ -640,7 +640,7 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 		af.mu.Lock()
 		af.pending -= len(batch)
 		af.mu.Unlock()
-		ls.commitFlusherBatch(pipe, batch, len(af.queue))
+		ls.commitFlusherBatch(pipe, batch)
 	}
 }
 
