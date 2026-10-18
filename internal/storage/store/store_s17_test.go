@@ -144,7 +144,7 @@ func TestDeleteProjectCascade_S17_CascadesSoftDeletes(t *testing.T) {
 		&models.Project{},
 		&models.Environment{},
 		&models.SecretNode{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{},
 		&models.DynamicSecretConfig{},
 	)
 	ctx := context.Background()
@@ -191,7 +191,7 @@ func TestDeleteProjectCascade_S17_NotFoundError(t *testing.T) {
 		&models.Project{},
 		&models.Environment{},
 		&models.SecretNode{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{},
 		&models.DynamicSecretConfig{},
 	)
 	err := ls.DeleteProject(context.Background(), 99999)

@@ -35,7 +35,7 @@ func newACLListCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.AuditEvent{},
 		&models.Project{},
 		&models.Environment{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.User{},
 		&models.Role{},
 		&models.UserRole{},

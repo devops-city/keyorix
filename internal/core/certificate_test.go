@@ -105,7 +105,7 @@ func newCertCore(t *testing.T, now time.Time) (*KeyorixCore, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{},
-		&models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{},
 		&models.SecretAccessSchedule{},
 	))
 	// CheckSecretPermission gates the owner path on IsProjectMember (RBAC-001): user 9
@@ -306,7 +306,7 @@ func TestInspectCertificateEnforcesPerSecretPermission(t *testing.T) {
 	now := time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.SecretAccessSchedule{}, &models.UserRole{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.AuditEvent{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.SecretAccessSchedule{}, &models.UserRole{}))
 	c := &KeyorixCore{storage: store.NewLocalStorage(db), now: func() time.Time { return now }}
 
 	certPEM, _ := selfSignedPEM(t, "restricted.example.com", now.Add(30*24*time.Hour))

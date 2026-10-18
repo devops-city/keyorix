@@ -62,6 +62,21 @@ func (s *Service) RotateDEKWithSweep(passphrase string, db *gorm.DB) (*SweepResu
 
 	var sweepResult *SweepResult
 	sweepFn := func(oldSvc, newSvc *EncryptionService, newKeyVersion string) (err error) {
+		// Cross-replica DEK epoch (#3337, dek_epoch.go; PostgreSQL only): fence
+		// every replica's encrypted writes before the sweep, and lift the fence
+		// again if the rotation fails before its transaction commits. Registered
+		// before the recover below, so it runs after it and sees the panic's err.
+		var fence *rotationEpochFence
+		if dekEpochApplies(db) {
+			if fence, err = fenceDEKEpochForRotation(db, oldSvc); err != nil {
+				return err
+			}
+			defer func() {
+				if err != nil {
+					fence.lift(db)
+				}
+			}()
+		}
 		tx := db.Begin()
 		if tx.Error != nil {
 			return fmt.Errorf("failed to begin transaction: %w", tx.Error)
@@ -79,10 +94,24 @@ func (s *Service) RotateDEKWithSweep(passphrase string, db *gorm.DB) (*SweepResu
 			}
 		}()
 
+		if fence != nil {
+			if err := fence.lockSweptTables(tx); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
 		result, err := SweepAllTables(tx, oldSvc, newSvc, newKeyVersion, false)
 		if err != nil {
 			tx.Rollback()
 			return fmt.Errorf("sweep failed: %w", err)
+		}
+		if fence != nil {
+			// Same transaction as the re-encryption: the epoch names the new DEK
+			// exactly when the rows are under it.
+			if err := fence.commitNewEpoch(tx, newSvc); err != nil {
+				tx.Rollback()
+				return err
+			}
 		}
 		// Write-ahead redo marker (crash-consistency, ADR-010): in the SAME transaction as
 		// the row re-encryption, record that a new DEK version is committed and its on-disk
@@ -459,6 +488,10 @@ func (s *Service) AcquireSharedKeyLock() error {
 func (s *Service) Shutdown() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.epoch != nil {
+		s.epoch.close()
+		s.epoch = nil
+	}
 	if s.keyManager != nil {
 		s.keyManager.Wipe()
 	}

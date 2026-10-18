@@ -85,13 +85,23 @@ Rules (all enforced at startup; the server refuses to start rather than guess):
 - **File permissions -- key material is refused, other secrets follow the
   file-permission policy.** The rule is the one the KEK file and
   `--passphrase-file` already follow: `0600` or `0400`. One exception exists for
-  files an orchestrator mounts: a file *not owned by the running user* may also be
-  group-readable (`0440`, or `0640`) when its group is one the process belongs to --
-  which is exactly what a Kubernetes Secret volume with `fsGroup` produces (the
-  kubelet makes it root-owned, group = `fsGroup`, and adds group-read even with
+  files an orchestrator mounts: a file *owned by root* may also be group-readable
+  (`0440`, or `0640`) when its group is one the process belongs to -- which is
+  exactly what a Kubernetes Secret volume with `fsGroup` produces (the kubelet
+  makes it root-owned, group = `fsGroup`, and adds group-read even with
   `defaultMode: 0400`) and what a Docker secret with `group_add` looks like. Access
   for *other*, group-write and setuid/setgid/sticky are never accepted, and a
   group-readable file owned by the running user is refused.
+- **Owner: the running user or root, nobody else (#3393).** Whoever owns a file can
+  `chmod` and rewrite it, so a secret file owned by any other account is refused
+  whatever its mode: that account could swap the master password or KEK. The error
+  names the file and the owner uid. Fix it with `chown root:<group> <file>` (keeping
+  the group the process reads it through) or `chown <server user> <file>` for a
+  `0600`/`0400` file. There is no list of further trusted owners. The same owner
+  rule covers `--passphrase-file`, the file KEK provider (`key_provider: file`), the
+  wrapped DEK, the KEK salt and the TLS private keys (#3410): the first two are
+  refused outright, the others follow `security.enable_file_permission_check`
+  like a too-open mode.
   - **Master password (`KEYORIX_MASTER_PASSWORD_FILE`), key-provider KEK
     (`key_provider.env_var`) and Shamir shares (`shamir_share_env`):** a file that
     breaks the rule is **always refused**, in the server, the CLI and every admin
@@ -1945,6 +1955,11 @@ scim:
 
 > Set `token` only via `KEYORIX_SCIM_TOKEN`. Point your IdP's SCIM connector at
 > `https://<host>/scim/v2` with that token as the bearer credential.
+> Generate it (`openssl rand -base64 32`): the server refuses to start with a token
+> under 20 characters, or one that is obviously not random (a repeated or
+> low-variety value, a placeholder such as `changeme`, or the same value as another
+> configured secret); see
+> [startup-refusals.md](operator/startup-refusals.md#weak-scim-token).
 
 ## sso
 

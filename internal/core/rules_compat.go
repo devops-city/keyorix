@@ -76,3 +76,9 @@ func parseJWK(k jwk) (any, error) { return rules.ParseJWK(k) }
 // --- SSO returnTo sanitizer (rules/return_to.go) ---
 
 func sanitizeReturnTo(s string) string { return rules.SanitizeReturnTo(s) }
+
+// CheckSCIMTokenShape refuses a SCIM token that passes the length floor but is
+// obviously not random, or equals another configured secret (#3397).
+func CheckSCIMTokenShape(token string, otherSecrets map[string]string) error {
+	return rules.CheckSCIMTokenShape(token, otherSecrets)
+}

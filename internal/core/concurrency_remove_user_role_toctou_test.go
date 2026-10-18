@@ -116,7 +116,7 @@ func TestConcurrency_RemoveUserRole_ProjectScope_TOCTOU_Deterministic(t *testing
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SecretNode{},
-		&models.ShareRecord{}, &models.SecretACL{}, &models.Session{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{},
 	))
 	require.NoError(t, db.Create(&models.Permission{ID: 1, Name: "roles.assign"}).Error)
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "proj"}).Error)

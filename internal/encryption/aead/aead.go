@@ -3,7 +3,9 @@ package aead
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -78,6 +80,26 @@ func (es *EncryptionService) WipeDEK() {
 	for i := range es.dek {
 		es.dek[i] = 0
 	}
+}
+
+// dekFingerprintLabel domain-separates Fingerprint's HMAC from every other use
+// of the DEK.
+const dekFingerprintLabel = "keyorix/dek-fingerprint/v1"
+
+// Fingerprint returns a non-secret identifier of this service's DEK: the first
+// 16 bytes of HMAC-SHA256(DEK, dekFingerprintLabel), hex-encoded. Two services
+// return the same value exactly when they hold the same DEK. It is stored in the
+// database as the DEK epoch (internal/encryption/dek_epoch.go) so a replica can
+// tell whether its DEK is the one the database is encrypted under; HMAC output
+// under a 256-bit key reveals nothing usable about the key. Errors once the DEK
+// has been wiped.
+func (es *EncryptionService) Fingerprint() (string, error) {
+	if es.IsDEKWiped() {
+		return "", fmt.Errorf("DEK fingerprint: DEK has been wiped")
+	}
+	m := hmac.New(sha256.New, es.dek)
+	m.Write([]byte(dekFingerprintLabel))
+	return hex.EncodeToString(m.Sum(nil)[:16]), nil
 }
 
 // IsDEKWiped reports whether every byte of this service's DEK copy is zero,

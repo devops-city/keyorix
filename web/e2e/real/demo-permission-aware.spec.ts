@@ -162,6 +162,28 @@ test.describe('least-privilege user (alice)', () => {
         await expect.poll(() => statuses[`/api/v1/projects/${pid}/rotation-plan`]).toBe(200);
     });
 
+    // #3142. The Sharing nav entry stays: a project_viewer holds secrets.read in her project, which
+    // is all GET /shares/owned needs (RequirePermissionInAnyScope), and the page falls back to that
+    // list when GET /shares (global secrets.read) is refused. So the page must load, not refuse.
+    test('Sharing stays in the nav and the page loads without a refusal', async ({ page }) => {
+        const statuses: Record<string, number> = {};
+        page.on('response', (r) => {
+            const p = new URL(r.url()).pathname;
+            if (p === '/api/v1/shares/owned' || p === '/api/v1/shares') statuses[p] = r.status();
+        });
+        await page.goto('/dashboard');
+        await settle(page);
+        await page.locator('nav').first().getByRole('link', { name: 'Sharing' }).click();
+        await page.waitForURL(/\/sharing/);
+        await settle(page);
+        const main = page.locator('main');
+        await expect(main.getByRole('heading', { name: 'Sharing Management' })).toBeVisible();
+        await expect(main.getByText('Failed to load shares')).toHaveCount(0);
+        expect(await main.innerText()).not.toMatch(RAW_AXIOS);
+        // Whichever list the page settled on answered 200 (the global one may be refused first).
+        expect(Object.values(statuses), 'a shares list must have answered 200').toContain(200);
+    });
+
     test('the Members tab lists members without Add / Invite / role / remove controls', async ({ page }) => {
         const pid = await projectId(page);
         const failed: string[] = [];

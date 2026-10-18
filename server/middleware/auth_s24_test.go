@@ -71,8 +71,8 @@ func (oidcDisabledFakeValidator) ValidatePATToken(_ context.Context, _ string) (
 func (oidcDisabledFakeValidator) ValidateMachineToken(_ context.Context, _ string) (*models.MachineIdentity, []string, *core.MachineTokenRestriction, uint, error) {
 	return nil, nil, nil, 0, http.ErrNotSupported
 }
-func (oidcDisabledFakeValidator) ValidateOIDCToken(_ context.Context, _ string) (*models.MachineIdentity, []string, error) {
-	return nil, nil, http.ErrNotSupported
+func (oidcDisabledFakeValidator) ValidateOIDCToken(_ context.Context, _ string) (*models.MachineIdentity, []string, time.Time, error) {
+	return nil, nil, time.Time{}, http.ErrNotSupported
 }
 func (oidcDisabledFakeValidator) OIDCEnabled() bool { return false }
 

@@ -105,7 +105,7 @@ func TestCTAReview_UpdateProject_vs_DeleteProject_CrossReplicaPostgres(t *testin
 
 	var delErr error
 	fired := f.beforeA("update", "projects", func() {
-		delErr = f.coreB.DeleteProject(f.ctx, proj.ID, true)
+		delErr = f.coreB.DeleteProject(f.ctx, 0, proj.ID, true)
 	})
 
 	_, upErr := f.coreA.UpdateProject(f.ctx, proj.ID, "proj-2697-del-renamed", "d", nil)

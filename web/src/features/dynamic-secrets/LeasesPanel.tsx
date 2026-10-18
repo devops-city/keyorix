@@ -4,6 +4,7 @@ import { KeyIcon, NoSymbolIcon } from '@heroicons/react/24/outline';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Alert } from '../../components/ui/Alert';
+import { useConfirm } from '../../components/ui/useConfirm';
 import { IssuedCredential } from '../../services/dynamicSecrets';
 import { useDynamicLeases, useIssueLease, useRevokeLease, useRevokeAllLeases } from './api';
 import { useAutoClearOnIdle } from '../../hooks/useAutoClearOnIdle';
@@ -71,6 +72,7 @@ export const LeasesPanel: React.FC<{ configId: number; canManage: boolean }> = (
     const issue = useIssueLease(configId);
     const revoke = useRevokeLease(configId);
     const revokeAll = useRevokeAllLeases(configId);
+    const { requestConfirm, confirmDialog } = useConfirm();
 
     const [credential, setCredential] = useState<IssuedCredential | null>(null);
     const [error, setError] = useState('');
@@ -134,12 +136,16 @@ export const LeasesPanel: React.FC<{ configId: number; canManage: boolean }> = (
                         {canManage && (l.status === 'active' || l.status === 'revoke_failed') && (
                             <button
                                 type="button"
-                                onClick={() => {
-                                    const confirmMessage =
-                                        l.status === 'revoke_failed'
+                                onClick={async () => {
+                                    const retry = l.status === 'revoke_failed';
+                                    const ok = await requestConfirm({
+                                        title: retry ? 'Retry revoke' : 'Revoke lease',
+                                        message: retry
                                             ? 'Retry revoking this lease? The credential is still live upstream until this succeeds.'
-                                            : 'Revoke this lease? The credential will stop working immediately.';
-                                    if (!window.confirm(confirmMessage)) return;
+                                            : 'Revoke this lease? The credential will stop working immediately.',
+                                        confirmText: retry ? 'Retry' : 'Revoke',
+                                    });
+                                    if (!ok) return;
                                     setError('');
                                     setRevokeAllNotice(null);
                                     revoke.mutate(l.leaseId, {
@@ -182,13 +188,13 @@ export const LeasesPanel: React.FC<{ configId: number; canManage: boolean }> = (
                         <Button
                             size="sm"
                             variant="destructive"
-                            onClick={() => {
-                                if (
-                                    !window.confirm(
-                                        `Revoke all ${activeCount} active lease(s)? Every issued credential will stop working immediately.`
-                                    )
-                                )
-                                    return;
+                            onClick={async () => {
+                                const ok = await requestConfirm({
+                                    title: 'Revoke all leases',
+                                    message: `Revoke all ${activeCount} active lease(s)? Every issued credential will stop working immediately.`,
+                                    confirmText: 'Revoke all',
+                                });
+                                if (!ok) return;
                                 setError('');
                                 setRevokeAllNotice(null);
                                 revokeAll.mutate(undefined, {
@@ -257,6 +263,7 @@ export const LeasesPanel: React.FC<{ configId: number; canManage: boolean }> = (
                     </div>
                 </div>
             </Modal>
+            {confirmDialog}
         </div>
     );
 };
