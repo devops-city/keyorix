@@ -6,5 +6,9 @@
   credential no longer queue on its row lock. A use shows in the PAT list, the machine
   token list and My Account → Sessions within about 30 seconds; a server killed without a
   graceful stop loses at most 30 seconds of these stamps; replicas never move the stored
-  value backwards. No access decision reads these columns. See `docs/UPGRADING.md` §6r and
+  value backwards. No access decision reads these columns. Under a slow or unavailable
+  database the stamps degrade instead of piling up: one background flush at a time, at
+  most 50 000 pending credentials (a stamp for a further credential is dropped and
+  counted in a rate-limited log line), exponential backoff (1 s up to 60 s) after a failed
+  flush, and a backlog written in transactions of 500 keys. See `docs/UPGRADING.md` §6r and
   `docs/specs/last-used-coalescing.md`.

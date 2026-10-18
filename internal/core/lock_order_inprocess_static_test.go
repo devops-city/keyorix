@@ -115,7 +115,6 @@ var lockOrderTable = []lockOrderEntry{
 	{"core.KeyorixCore.webauthnCredentialMu", "held across the signature-counter read-validate-write (row lock in a transaction)"},
 	{"(*github.com/keyorixhq/keyorix/internal/core.KeyorixCore).loginFailureLock()", "per-user shard of loginFailureMu, held across the failed-login counter transaction"},
 	{"core.HTTPJWKSResolver.group", "singleflight JWKS fetch; takes only the resolver's own cache mutex"},
-	{"core.lastUsedCoalescer.flushMu", "serializes the last-used flush (timer vs FlushLastUsed); held across the per-key autocommit UPDATEs, never inside a transaction or a named lock, and takes only the coalescer's own pending-map mutex"},
 	{lockClassTx, "a transaction holds the SQLite write gate / a Postgres request connection: nothing that can wait on another request may be acquired inside it"},
 	{"store.LocalStorage.auditChainMu", "the transaction-scoped audit append (logAuditEventDirect) takes it inside the caller's transaction"},
 }

@@ -80,18 +80,27 @@ func TestLastUsed_Postgres_RequestsDoNotWaitOnCredentialRowLock(t *testing.T) {
 		})
 	}
 
-	// While the rows are held, count backends waiting on a lock in this database.
-	time.Sleep(300 * time.Millisecond)
-	var waiting int64
-	require.NoError(t, setup.Raw(
-		"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").
-		Scan(&waiting).Error)
-
+	// While the rows are held, poll (until every client has returned, or the
+	// hold window ends) for backends waiting on a lock in this database; the
+	// worst sample must be zero.
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(hold):
+	var waiting int64
+	holdEnds := time.After(hold)
+poll:
+	for {
+		var sample int64
+		require.NoError(t, setup.Raw(
+			"SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'").
+			Scan(&sample).Error)
+		waiting = max(waiting, sample)
+		select {
+		case <-done:
+			break poll
+		case <-holdEnds:
+			break poll
+		case <-time.After(25 * time.Millisecond):
+		}
 	}
 	release()
 	<-done

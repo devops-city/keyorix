@@ -69,16 +69,29 @@ accept the cross-replica bound in §2, or keep its own synchronous write.
   at exactly the point the old inline stamp did (after the network check, after the
   account-state gate), so a refused request still records nothing (#G60).
 - The first pending use arms a timer for `lastUsedFlushInterval` (30 s, the old
-  throttle). When it fires, everything pending is written: one autocommit
+  throttle). When it fires, everything pending is written: one
   `UPDATE ... SET col = t WHERE id = ? AND (col IS NULL OR col < t)` per credential,
-  in (kind, id) order. No transaction spans two rows, no request goroutine runs it.
-  With nothing pending there is no timer and no goroutine.
+  in (kind, id) order, in transactions of up to 500 keys (one commit per chunk, not
+  per key; a chunk that fails is retried key by key so one bad row cannot hold back
+  the others, and a chunk in which nothing lands stops the flush). No request
+  goroutine runs it. With nothing pending there is no timer and no goroutine.
 - Monotonic across replicas: the WHERE clause is `GREATEST(existing, t)`. Each
   replica flushes its own observations; an older observation flushed after a newer
   one changes nothing.
-- A failed write goes back to pending (merged with anything newer) and is retried
-  at the next interval.
-- More than 50 000 distinct pending credentials starts a flush at once.
+- A failed write goes back to pending (merged with anything newer) while the cap
+  allows, and is retried after the backoff below; keys that no longer fit are dropped
+  and counted.
+- Overload (the stamp is advisory, so it yields to the database): at most one
+  background flush at a time (an atomic flag; `record()` never starts a goroutine
+  while one is in flight); `pending` never holds more than 50 000 entries: at the cap a
+  use of a credential not already pending is dropped (counted, one log line per minute),
+  a use of a pending one still advances; reaching the cap starts an early flush; after a
+  flush that leaves any key unwritten, no background flush (early or periodic) runs
+  before an exponential backoff (1 s, doubling, max 60 s, jittered into [d/2, d]) has
+  passed, and one fully successful flush resets it.
+- The flush lock is a one-slot channel taken with the caller's context, so the
+  shutdown flush stops waiting at its own deadline (10 s in `server/main.go`) even if a
+  background flush is stuck in a write; stamps it did not reach are lost with the process.
 - Graceful shutdown (`SIGTERM`/`SIGINT`) flushes after the servers drain
   (`server/main.go`, before the single-writer hold is released).
 
@@ -101,6 +114,11 @@ none); the next request records again.
 - `TestLastUsed_FlushIsMonotonicAcrossReplicas`, `TestLastUsed_TimerFlushesWithinInterval`,
   `TestLastUsed_FailedWriteIsRetried`, `TestLastUsed_MaxPendingFlushesEarly`,
   `TestLastUsed_RejectedRequestRecordsNothing`.
+- `TestLastUsed_Overload_*` (`last_used_coalescer_overload_test.go`): a blocked write
+  with 5000 credentials against a cap of 10 keeps goroutines and the map bounded and
+  counts the drops; merge-back honours the cap; backoff delays the early and periodic
+  flush; the shutdown flush returns at its ctx deadline behind a blocked flush; a backlog
+  goes out in 500-key chunks; a down database stops the flush after one chunk.
 - `TestLastUsed_ReadersSeeUseWithinBound`: every reader in §1.3 reports the use
   after one flush.
 - `TestLastUsed_OnlyTheCoalescerCallsTheStoreTouches`: static; no non-test code in

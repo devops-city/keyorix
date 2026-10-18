@@ -117,6 +117,13 @@ func newLastUsedWorld(t *testing.T) *lastUsedWorld {
 	w := &lastUsedWorld{db: db, rec: rec, now: start}
 	w.core = NewKeyorixCore(store.NewLocalStorage(db))
 	w.core.now = w.clock
+	// Requests that are never flushed leave a 30 s timer armed; stop it so it
+	// cannot fire (and re-arm) against a database the test has closed.
+	t.Cleanup(func() {
+		if a := w.core.lastUsedAgg; a != nil {
+			stopLastUsedTimerNow(a)
+		}
+	})
 	return w
 }
 
@@ -237,6 +244,7 @@ func TestLastUsed_FlushIsMonotonicAcrossReplicas(t *testing.T) {
 func TestLastUsed_TimerFlushesWithinInterval(t *testing.T) {
 	w := newLastUsedWorld(t)
 	w.core.lastUsedAgg = newLastUsedCoalescer(100*time.Millisecond, lastUsedMaxPending)
+	stopLastUsedTimer(t, w.core.lastUsedAgg)
 	w.rec.reset()
 	for range 200 {
 		w.core.TouchMachineTokenLastUsed(context.Background(), 1)
@@ -253,6 +261,7 @@ func TestLastUsed_TimerFlushesWithinInterval(t *testing.T) {
 // between wins.
 func TestLastUsed_FailedWriteIsRetried(t *testing.T) {
 	a := newLastUsedCoalescer(time.Hour, lastUsedMaxPending)
+	stopLastUsedTimer(t, a)
 	var fail atomic.Bool
 	fail.Store(true)
 	var mu sync.Mutex
@@ -282,11 +291,6 @@ func TestLastUsed_FailedWriteIsRetried(t *testing.T) {
 	assert.True(t, written[k].Equal(t0))
 	_, ok = a.pendingAt(k)
 	assert.False(t, ok)
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.timer != nil {
-		a.timer.Stop()
-	}
 }
 
 // TestLastUsed_MaxPendingFlushesEarly: reaching the cap starts a flush at once.
