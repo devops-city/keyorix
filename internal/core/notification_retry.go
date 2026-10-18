@@ -6,6 +6,8 @@ package core
 import (
 	"context"
 	"fmt"
+
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 )
 
 const (
@@ -34,13 +36,17 @@ func (c *KeyorixCore) SetNotificationRetryPolicy(ctx context.Context, actorID, c
 	if cfg.RetryBackoffMs < retryBackoffMsMin || cfg.RetryBackoffMs > retryBackoffMsMax {
 		return fmt.Errorf("invalid notification channel retry policy: retry_backoff_ms must be between %d and %d, got %d", retryBackoffMsMin, retryBackoffMsMax, cfg.RetryBackoffMs)
 	}
-	if err := c.storage.UpdateNotificationRetryPolicy(ctx, channelID, cfg.MaxRetries, cfg.RetryBackoffMs); err != nil {
-		return err
-	}
-	c.writeAuditEvent(ctx, EventNotificationRetryPolicyUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("notification channel %d retry policy updated: max_retries=%d retry_backoff_ms=%d by actor %d",
-			channelID, cfg.MaxRetries, cfg.RetryBackoffMs, actorID))
-	return nil
+	// AUDIT-TX-3: the change and its audit row commit together (fail closed): alert
+	// delivery retries are never turned down unrecorded.
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.UpdateNotificationRetryPolicy(ctx, channelID, cfg.MaxRetries, cfg.RetryBackoffMs); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventNotificationRetryPolicyUpdated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("notification channel %d retry policy updated: max_retries=%d retry_backoff_ms=%d by actor %d",
+				channelID, cfg.MaxRetries, cfg.RetryBackoffMs, actorID))
+		return nil
+	})
 }
 
 // GetNotificationRetryPolicy returns the current retry config for a channel.

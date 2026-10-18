@@ -156,7 +156,10 @@ func (c *KeyorixCore) RemoveProjectMember(ctx context.Context, actorID, projectI
 		// is not sufficient protection (see below), so a partial failure here must
 		// roll back rather than leave the member's role grants gone but their
 		// secret-level access still live.
-		if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: a revocation, so never blocked by the audit log: the role.removed
+		// rows are owed from this same transaction (withOwedAuditMutation).
+		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.RemoveAllProjectRoleGrants(ctx, userID, projectID); err != nil {
 				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 			}
@@ -179,17 +182,14 @@ func (c *KeyorixCore) RemoveProjectMember(ctx context.Context, actorID, projectI
 			if err := tx.DeleteSecretACLsByUserAndProject(ctx, userID, projectID); err != nil {
 				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		for _, a := range assignments {
-			if a.PrincipalType != "user" || a.PrincipalID != userID {
-				continue
+			for _, a := range assignments {
+				if a.PrincipalType != "user" || a.PrincipalID != userID {
+					continue
+				}
+				c.LogRoleRemovedOn(ctx, tgt, actorID, userID, a.RoleID, Scope{ProjectID: projectID, EnvironmentID: a.EnvironmentID})
 			}
-			c.LogRoleRemoved(ctx, actorID, userID, a.RoleID, Scope{ProjectID: projectID, EnvironmentID: a.EnvironmentID})
-		}
-		return nil
+			return nil
+		})
 	})
 }
 

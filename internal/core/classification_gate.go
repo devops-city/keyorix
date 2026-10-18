@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -256,12 +257,19 @@ func (c *KeyorixCore) RequestSecretAccess(ctx context.Context, secretID, userID 
 		ExpiresAt: &expires,
 		CreatedAt: now,
 	}
-	created, err := c.storage.CreateAccessRequest(ctx, req)
-	if err != nil {
+	// AUDIT-TX-3: the request and its access_request.secret_created row commit together.
+	var created *models.AccessRequest
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		if created, cerr = tx.CreateAccessRequest(ctx, req); cerr != nil {
+			return cerr
+		}
+		c.auditProjectScopedOn(ctx, tgt, "access_request.secret_created", userID, secret.ProjectID,
+			fmt.Sprintf("user %d requested access to read secret %d (%s)", userID, secretID, secret.Name))
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to create secret access request: %w", err)
 	}
-	c.auditProjectScoped(ctx, "access_request.secret_created", userID, secret.ProjectID,
-		fmt.Sprintf("user %d requested access to read secret %d (%s)", userID, secretID, secret.Name))
 	c.runPostCommitNotification(ctx, "access_request.secret_created", userID, created, func() error {
 		return c.notifySecretAccessRequested(ctx, created, secret)
 	})
@@ -321,20 +329,27 @@ func (c *KeyorixCore) ApproveSecretAccessRequest(ctx context.Context, requestID,
 	req.State = AccessRequestApproved
 	req.ResolvedBy = approverID
 	req.ResolvedAt = &now
-	ok, err := c.storage.UpdateAccessRequest(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update access request: %w", err)
+	// AUDIT-TX-3: the approval grants read access to a restricted secret, so it and
+	// its audit row commit together (fail closed).
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		ok, uerr := tx.UpdateAccessRequest(ctx, req)
+		if uerr != nil {
+			return fmt.Errorf("failed to update access request: %w", uerr)
+		}
+		if !ok {
+			// The request stopped being pending between the read above and this write —
+			// e.g. a concurrent withdraw won the race. Nothing was granted on this path
+			// (no role, no side effect besides the row itself), so unlike the project/
+			// role flow there is nothing to revert — just refuse (#277's pattern, the
+			// no-grant-to-unwind case).
+			return fmt.Errorf("access request is no longer pending (it was concurrently withdrawn or resolved)")
+		}
+		c.auditProjectScopedOn(ctx, tgt, "access_request.secret_approved", approverID, req.ProjectID,
+			fmt.Sprintf("approved access request %d for user %d to read secret %d (%s)", req.ID, req.UserID, *req.SecretID, secret.Name))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	if !ok {
-		// The request stopped being pending between the read above and this write —
-		// e.g. a concurrent withdraw won the race. Nothing was granted on this path
-		// (no role, no side effect besides the row itself), so unlike the project/
-		// role flow there is nothing to revert — just refuse (#277's pattern, the
-		// no-grant-to-unwind case).
-		return nil, fmt.Errorf("access request is no longer pending (it was concurrently withdrawn or resolved)")
-	}
-	c.auditProjectScoped(ctx, "access_request.secret_approved", approverID, req.ProjectID,
-		fmt.Sprintf("approved access request %d for user %d to read secret %d (%s)", req.ID, req.UserID, *req.SecretID, secret.Name))
 	c.runPostCommitNotification(ctx, "access_request.secret_approved", approverID, req, func() error {
 		return c.notifySecretAccessResolved(ctx, req, secret, true)
 	})

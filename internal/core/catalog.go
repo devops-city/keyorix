@@ -76,16 +76,24 @@ func (c *KeyorixCore) logProjectCreatedOn(ctx context.Context, tgt auditTarget, 
 }
 
 func (c *KeyorixCore) LogProjectUpdated(ctx context.Context, actorID, projectID uint, name string) {
+	c.logProjectUpdatedOn(ctx, c.auditNow(), actorID, projectID, name)
+}
+
+func (c *KeyorixCore) logProjectUpdatedOn(ctx context.Context, tgt auditTarget, actorID, projectID uint, name string) {
 	pid := projectID
-	c.writeAuditEventFull(ctx, EventProjectUpdated, actorPtr(actorID), nil, &pid, "",
+	c.writeAuditEventFullOn(ctx, tgt, EventProjectUpdated, actorPtr(actorID), nil, &pid, "",
 		fmt.Sprintf("project %d (%q) updated", projectID, name))
 }
 
 // name is read by the caller BEFORE the delete (the row is gone afterwards and
 // there is no include-deleted project getter); empty degrades to the bare id.
 func (c *KeyorixCore) LogProjectDeleted(ctx context.Context, actorID, projectID uint, name string, force bool) {
+	c.logProjectDeletedOn(ctx, c.auditNow(), actorID, projectID, name, force)
+}
+
+func (c *KeyorixCore) logProjectDeletedOn(ctx context.Context, tgt auditTarget, actorID, projectID uint, name string, force bool) {
 	pid := projectID
-	c.writeAuditEventFull(ctx, EventProjectDeleted, actorPtr(actorID), nil, &pid, "",
+	c.writeAuditEventFullOn(ctx, tgt, EventProjectDeleted, actorPtr(actorID), nil, &pid, "",
 		fmt.Sprintf("%s deleted (force=%t)", formatAuditRef(auditKindProject, projectID, name), force))
 }
 
@@ -198,26 +206,40 @@ func (c *KeyorixCore) UpdateProject(ctx context.Context, id uint, name, descript
 	// admin had just enabled, with no audit event, since mfaChanged is false in
 	// exactly that case. requireMFA stays a pointer all the way down so a nil one
 	// never reaches the UPDATE's SET list.
-	matched, err := c.storage.UpdateProjectFields(ctx, id, name, description, requireMFA, c.now())
-	if err != nil {
-		return nil, translateProjectNameError(err)
-	}
-	if !matched {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
-	}
-	// Return the committed row, not the struct read before the write.
-	updated, err := c.storage.GetProject(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if mfaChanged {
-		pid := id
-		state := "disabled"
-		if *requireMFA {
-			state = "enabled"
+	//
+	// AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
+	// project.updated row, and any change of the MFA requirement gets its own row,
+	// as the last statements of this transaction (fail closed): turning a project's
+	// MFA requirement off, or renaming it, never commits unrecorded.
+	actor, tagged := mutationAuditActorFromContext(ctx)
+	var updated *models.Project
+	if err := c.mutationTx(ctx, tagged || mfaChanged, func(tx storage.Storage, tgt auditTarget) error {
+		matched, uerr := tx.UpdateProjectFields(ctx, id, name, description, requireMFA, c.now())
+		if uerr != nil {
+			return translateProjectNameError(uerr)
 		}
-		c.writeAuditEventFull(ctx, "project.mfa_requirement_"+state, nil, nil, &pid, "",
-			fmt.Sprintf("per-project MFA requirement %s for project %q", state, updated.Name))
+		if !matched {
+			return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+		}
+		// Return the committed row, not the struct read before the write.
+		if updated, uerr = tx.GetProject(ctx, id); uerr != nil {
+			return uerr
+		}
+		if mfaChanged {
+			pid := id
+			state := "disabled"
+			if *requireMFA {
+				state = "enabled"
+			}
+			c.writeAuditEventFullOn(ctx, tgt, "project.mfa_requirement_"+state, nil, nil, &pid, "",
+				fmt.Sprintf("per-project MFA requirement %s for project %q", state, updated.Name))
+		}
+		if tagged {
+			c.logProjectUpdatedOn(ctx, tgt, actor, id, updated.Name)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 	return updated, nil
 }
@@ -266,8 +288,23 @@ func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force
 		blocking  int
 		suspended []*models.MachineIdentity
 	)
-	sink := &auditForwardSink{}
+	//
+	// AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
+	// project.deleted row as the last statement of this transaction, fail closed: a
+	// project (and, with force, its secrets) is never deleted unrecorded. The
+	// machine-identity cascade events go through the same fail-closed sink whether or
+	// not ctx is tagged; an untagged caller with no suspended identity writes no row.
+	actor, tagged := mutationAuditActorFromContext(ctx)
+	projectName := ""
+	if tagged {
+		if p, gerr := c.storage.GetProject(ctx, id); gerr == nil && p != nil {
+			projectName = p.Name
+		}
+	}
+	var sink *auditForwardSink
 	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		sink = &auditForwardSink{failClosed: true} // a fresh sink per attempt
+		blocking, suspended = 0, nil
 		if force {
 			if err := tx.DeleteProject(ctx, id); err != nil {
 				return err
@@ -292,7 +329,11 @@ func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force
 			c.logMachineCascadeEvent(ctx, tgt, "machine_identity.suspended", m, actorID,
 				fmt.Sprintf("project soft-delete (project %d): it held no live role outside that project", id))
 		}
-		return nil
+		if tagged {
+			c.logProjectDeletedOn(ctx, tgt, actor, id, projectName, force)
+			return failClosedAuditResult(sink)
+		}
+		return sink.err
 	})
 	if err != nil {
 		return err
@@ -430,9 +471,11 @@ func (c *KeyorixCore) RestoreProject(ctx context.Context, actorID, id uint) erro
 		envCount, secretCount int
 		reactivated           []*models.MachineIdentity
 	)
-	sink := &auditForwardSink{}
 	now := c.now()
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	// AUDIT-TX-3: restoring reinstates every role bound to the project, so it is
+	// grant-shaped: the cascade events and the project.restored row are written in
+	// this same transaction (fail closed); the restore never commits unrecorded.
+	err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
 		if reactivated, err = tx.ReactivateMachineIdentitiesForRestoredProject(ctx, id, now); err != nil {
 			return err
@@ -440,21 +483,19 @@ func (c *KeyorixCore) RestoreProject(ctx context.Context, actorID, id uint) erro
 		if envCount, secretCount, err = tx.RestoreProject(ctx, id); err != nil {
 			return err
 		}
-		tgt := auditInto(tx, sink)
 		for _, m := range reactivated {
 			c.logMachineCascadeEvent(ctx, tgt, "machine_identity.activated", m, actorID,
 				fmt.Sprintf("project restore (project %d): the project's soft-delete had suspended it", id))
 		}
+		pid := id
+		c.writeAuditEventFullOn(ctx, tgt, "project.restored", actorPtr(actorID), nil, &pid, "",
+			fmt.Sprintf("%s restored (cascade resurrected %d environment(s) and %d secret(s))", c.auditRef(ctx, tx, auditKindProject, id), envCount, secretCount))
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	sink.Flush(c)
 	c.clearReactivatedMachineTokens(ctx, reactivated)
-	pid := id
-	c.writeAuditEventFull(ctx, "project.restored", actorPtr(actorID), nil, &pid, "",
-		fmt.Sprintf("%s restored (cascade resurrected %d environment(s) and %d secret(s))", c.auditRef(ctx, c.storage, auditKindProject, id), envCount, secretCount))
 	return nil
 }
 
@@ -480,8 +521,27 @@ func (c *KeyorixCore) requireAuthorityToReinstateProjectRoles(ctx context.Contex
 // storage layer (LocalStorage.DeleteEnvironment's own doc comment,
 // internal/storage/store/local_secrets.go) -- this core wrapper is
 // deliberately thin.
+//
+// AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
+// environment.deleted row in the delete's own transaction, fail closed. The
+// storage delete takes the environment's secret-guard named lock itself; this
+// takes that same lock FIRST, outside the transaction (WithNamedLock is
+// re-entrant per ctx), so the lock is never acquired from inside an open
+// transaction, which storage.DeleteEnvironment forbids.
 func (c *KeyorixCore) DeleteEnvironment(ctx context.Context, id uint) error {
-	return c.storage.DeleteEnvironment(ctx, id)
+	actor, tagged := mutationAuditActorFromContext(ctx)
+	if !tagged {
+		return c.storage.DeleteEnvironment(ctx, id)
+	}
+	return c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(id), func(ctx context.Context) error {
+		return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			if err := tx.DeleteEnvironment(ctx, id); err != nil {
+				return err
+			}
+			c.logEnvironmentDeletedOn(ctx, tgt, actor, id)
+			return nil
+		})
+	})
 }
 
 // EventEnvironmentCreated/EventEnvironmentDeleted are audited on every
@@ -509,7 +569,11 @@ func (c *KeyorixCore) logEnvironmentCreatedOn(ctx context.Context, tgt auditTarg
 // LogEnvironmentDeleted records an environment deletion. actorID is the
 // deleting admin (0 = none).
 func (c *KeyorixCore) LogEnvironmentDeleted(ctx context.Context, actorID, environmentID uint) {
-	c.writeAuditEvent(ctx, EventEnvironmentDeleted, actorPtr(actorID), nil,
+	c.logEnvironmentDeletedOn(ctx, c.auditNow(), actorID, environmentID)
+}
+
+func (c *KeyorixCore) logEnvironmentDeletedOn(ctx context.Context, tgt auditTarget, actorID, environmentID uint) {
+	c.writeAuditEventFullOn(ctx, tgt, EventEnvironmentDeleted, actorPtr(actorID), nil, nil, "",
 		fmt.Sprintf("environment %d deleted", environmentID))
 }
 
@@ -523,12 +587,16 @@ func (c *KeyorixCore) RestoreEnvironment(ctx context.Context, actorID, projectID
 	if err := c.requireAuthorityToReinstateProjectRoles(ctx, actorID, projectID, "environment"); err != nil {
 		return err
 	}
-	if err := c.storage.RestoreEnvironment(ctx, projectID, id); err != nil {
-		return err
-	}
-	pid := projectID
-	c.writeAuditEventFull(ctx, "environment.restored", actorPtr(actorID), nil, &pid, "", fmt.Sprintf("environment %d restored in project %d", id, projectID))
-	return nil
+	// AUDIT-TX-3: restoring reinstates a scope under the project, so it is
+	// grant-shaped: the environment.restored row commits with it or not at all.
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.RestoreEnvironment(ctx, projectID, id); err != nil {
+			return err
+		}
+		pid := projectID
+		c.writeAuditEventFullOn(ctx, tgt, "environment.restored", actorPtr(actorID), nil, &pid, "", fmt.Sprintf("environment %d restored in project %d", id, projectID))
+		return nil
+	})
 }
 
 // CreateProject creates a new project and seeds it with default environments.

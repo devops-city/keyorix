@@ -136,11 +136,22 @@ func (c *KeyorixCore) RevokeOwnPAT(ctx context.Context, userID, tokenID uint) (t
 	if err != nil || pat.UserID != userID {
 		return "", fmt.Errorf("%s: token not found", i18n.T("ErrorNotFound", nil))
 	}
-	if err := c.storage.RevokePersonalAccessToken(ctx, tokenID); err != nil {
+	// AUDIT-TX-3: a revocation: never blocked or delayed by the audit log. Its row is
+	// owed from this transaction, and appended only after the token is evicted from
+	// the auth cache (the caller evicts too; this is idempotent).
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.RevokePersonalAccessToken(ctx, tokenID); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventPATRevoked, actorPtr(userID), nil, nil, "",
+			fmt.Sprintf("user %d revoked PAT %d (%q)", userID, pat.ID, pat.Name))
+		return nil
+	})
+	if err != nil {
 		return "", err
 	}
-	c.writeAuditEvent(ctx, EventPATRevoked, actorPtr(userID), nil,
-		fmt.Sprintf("user %d revoked PAT %d (%q)", userID, pat.ID, pat.Name))
+	c.invalidateTokenCache(pat.TokenHash)
+	settle()
 	return pat.TokenHash, nil
 }
 

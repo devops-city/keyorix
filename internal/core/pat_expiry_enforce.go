@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -113,11 +114,22 @@ func (c *KeyorixCore) BulkRevokeExpiredOwnPATs(ctx context.Context, userID uint)
 	if userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
 	}
-	revoked, err := c.storage.BulkRevokeExpiredPATsByUser(ctx, userID, c.now())
+	// AUDIT-TX-3: a revocation: the row is owed from the revoke's own transaction and
+	// appended after the eviction (the caller evicts too; this is idempotent).
+	var revoked []string
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var rerr error
+		if revoked, rerr = tx.BulkRevokeExpiredPATsByUser(ctx, userID, c.now()); rerr != nil {
+			return rerr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventPATRevoked, actorPtr(userID), nil, nil, "",
+			fmt.Sprintf("user %d bulk-revoked %d expired PAT(s)", userID, len(revoked)))
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventPATRevoked, actorPtr(userID), nil,
-		fmt.Sprintf("user %d bulk-revoked %d expired PAT(s)", userID, len(revoked)))
+	c.invalidateTokenCache(revoked...)
+	settle()
 	return revoked, nil
 }

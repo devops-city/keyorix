@@ -166,12 +166,21 @@ func (c *KeyorixCore) buildProjectInvite(ctx context.Context, projectID uint, em
 // roll back and the existing "caller can resend" contract stays intact. A
 // throttle whose count query FAILED (ErrResendThrottleUnverifiable) is a
 // storage fault, not a rate-limit verdict, and does not take this path (#2599).
-func (c *KeyorixCore) persistInvitation(ctx context.Context, inv *models.ProjectInvitation, auditFn func(*models.ProjectInvitation)) (*models.ProjectInvitation, error) {
-	created, err := c.storage.CreateProjectInvitation(ctx, inv)
-	if err != nil {
+//
+// AUDIT-TX-3: an invitation is an offer of access, so it is grant-shaped: the
+// invitation.created row (auditFn) commits with the invitation or not at all.
+func (c *KeyorixCore) persistInvitation(ctx context.Context, inv *models.ProjectInvitation, auditFn func(auditTarget, *models.ProjectInvitation)) (*models.ProjectInvitation, error) {
+	var created *models.ProjectInvitation
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		if created, cerr = tx.CreateProjectInvitation(ctx, inv); cerr != nil {
+			return cerr
+		}
+		auditFn(tgt, created)
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to create invitation: %w", err)
 	}
-	auditFn(created)
 	return created, nil
 }
 
@@ -190,18 +199,25 @@ func (c *KeyorixCore) persistInvitation(ctx context.Context, inv *models.Project
 // pre-refactor behavior exactly; the mint step keeps using the caller's
 // original, untagged ctx (the same one IssueSetupToken was always called
 // with from this flow).
-func (c *KeyorixCore) createInvitationWithSetupTokenAtomically(ctx, invCtx context.Context, inv *models.ProjectInvitation, req IssueSetupTokenRequest) (*models.ProjectInvitation, *IssueSetupTokenResult, error) {
+//
+// AUDIT-TX-3: auditFn (the invitation.created row) is written as the last
+// statement of this same transaction (fail closed). The setup_token.issued row
+// stays after the commit (setup_token.go).
+func (c *KeyorixCore) createInvitationWithSetupTokenAtomically(ctx, invCtx context.Context, inv *models.ProjectInvitation, auditFn func(auditTarget, *models.ProjectInvitation), req IssueSetupTokenRequest) (*models.ProjectInvitation, *IssueSetupTokenResult, error) {
 	var created *models.ProjectInvitation
 	var issued *IssueSetupTokenResult
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		created, cerr = tx.CreateProjectInvitation(invCtx, inv)
 		if cerr != nil {
 			return cerr
 		}
 		req.InvitationID = &created.ID
-		issued, cerr = c.mintSetupTokenOn(ctx, tx, req)
-		return cerr
+		if issued, cerr = c.mintSetupTokenOn(ctx, tx, req); cerr != nil {
+			return cerr
+		}
+		auditFn(tgt, created)
+		return nil
 	})
 	if err != nil {
 		// mintSetupTokenOn already wraps a genuine mint-step failure with
@@ -236,7 +252,7 @@ func (c *KeyorixCore) createInvitationWithSetupTokenAtomically(ctx, invCtx conte
 // committed the invitation with no setup token and the HTTP layer reported 201
 // -- a state no fault-free run reaches. The throttle still fails closed: no
 // link is issued either way.
-func (c *KeyorixCore) provisionInvitationSetupLink(ctx, invCtx context.Context, inv *models.ProjectInvitation, auditFn func(*models.ProjectInvitation), req IssueSetupTokenRequest, displayName, assignmentSummary string) (*models.ProjectInvitation, *ProvisionSetupResult, error) {
+func (c *KeyorixCore) provisionInvitationSetupLink(ctx, invCtx context.Context, inv *models.ProjectInvitation, auditFn func(auditTarget, *models.ProjectInvitation), req IssueSetupTokenRequest, displayName, assignmentSummary string) (*models.ProjectInvitation, *ProvisionSetupResult, error) {
 	if c.setupBaseURL == "" {
 		created, err := c.persistInvitation(invCtx, inv, auditFn)
 		if err != nil {
@@ -257,12 +273,11 @@ func (c *KeyorixCore) provisionInvitationSetupLink(ctx, invCtx context.Context, 
 		}
 		return created, nil, err
 	}
-	created, issued, err := c.createInvitationWithSetupTokenAtomically(ctx, invCtx, inv, req)
+	created, issued, err := c.createInvitationWithSetupTokenAtomically(ctx, invCtx, inv, auditFn, req)
 	c.setupResendMu.Unlock()
 	if err != nil {
 		return nil, nil, err
 	}
-	auditFn(created)
 	c.auditSetupTokenIssued(ctx, req, issued.Token)
 
 	prov, err := c.deliverSetupLink(ctx, issued, req, displayName, assignmentSummary)
@@ -279,8 +294,8 @@ func (c *KeyorixCore) InviteToProject(ctx context.Context, projectID uint, email
 	if err != nil {
 		return nil, err
 	}
-	return c.persistInvitation(ctx, inv, func(*models.ProjectInvitation) {
-		c.auditProjectScoped(ctx, "invitation.created", invitedBy, projectID,
+	return c.persistInvitation(ctx, inv, func(tgt auditTarget, _ *models.ProjectInvitation) {
+		c.auditProjectScopedOn(ctx, tgt, "invitation.created", invitedBy, projectID,
 			fmt.Sprintf("invited %s to project %d as %s", email, projectID, role))
 	})
 }
@@ -319,8 +334,8 @@ func (c *KeyorixCore) InviteToProjectWithLink(ctx context.Context, projectID uin
 	if err != nil {
 		return nil, nil, err
 	}
-	auditFn := func(*models.ProjectInvitation) {
-		c.auditProjectScoped(invCtx, "invitation.created", invitedBy, projectID,
+	auditFn := func(tgt auditTarget, _ *models.ProjectInvitation) {
+		c.auditProjectScopedOn(invCtx, tgt, "invitation.created", invitedBy, projectID,
 			fmt.Sprintf("invited %s to project %d as %s", email, projectID, role))
 	}
 	return c.provisionInvitationSetupLink(ctx, invCtx, inv, auditFn, IssueSetupTokenRequest{
@@ -343,8 +358,8 @@ func (c *KeyorixCore) InviteGlobal(ctx context.Context, email, systemRole string
 	if err != nil {
 		return nil, err
 	}
-	return c.persistInvitation(ctx, inv, func(*models.ProjectInvitation) {
-		c.auditProjectScoped(ctx, "invitation.created", invitedBy, 0,
+	return c.persistInvitation(ctx, inv, func(tgt auditTarget, _ *models.ProjectInvitation) {
+		c.auditProjectScopedOn(ctx, tgt, "invitation.created", invitedBy, 0,
 			fmt.Sprintf("invited %s globally as %s with %d project assignment(s)", email, sysRole, len(clean)))
 	})
 }
@@ -468,8 +483,8 @@ func (c *KeyorixCore) InviteGlobalWithLink(ctx context.Context, email, systemRol
 	if err != nil {
 		return nil, nil, err
 	}
-	auditFn := func(*models.ProjectInvitation) {
-		c.auditProjectScoped(invCtx, "invitation.created", invitedBy, 0,
+	auditFn := func(tgt auditTarget, _ *models.ProjectInvitation) {
+		c.auditProjectScopedOn(invCtx, tgt, "invitation.created", invitedBy, 0,
 			fmt.Sprintf("invited %s globally as %s with %d project assignment(s)", email, sysRole, len(clean)))
 	}
 	return c.provisionInvitationSetupLink(ctx, invCtx, inv, auditFn, IssueSetupTokenRequest{
@@ -652,20 +667,24 @@ func (c *KeyorixCore) RevokeInvitation(ctx context.Context, projectID, invitatio
 	now := c.now()
 	inv.State = InvitationRevoked
 	inv.RevokedAt = &now
-	ok, err := c.storage.UpdateProjectInvitation(ctx, inv)
-	if err != nil {
-		return fmt.Errorf("failed to revoke invitation: %w", err)
-	}
-	if !ok {
-		// The invitation stopped being pending between the read above and this
-		// write — most likely a concurrent accept (completeInvitationAccept) won
-		// the race. Refuse rather than silently reporting success while the
-		// invitation (and whatever it granted) is left untouched (#412).
-		return fmt.Errorf("invitation is no longer pending (it was concurrently accepted or resolved)")
-	}
-	c.auditProjectScoped(ctx, "invitation.revoked", actorID, inv.ProjectID,
-		fmt.Sprintf("revoked invitation %d (%s)", inv.ID, inv.Email))
-	return nil
+	// AUDIT-TX-3: a revocation: never blocked by the audit log, its row owed from
+	// this transaction.
+	return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		ok, err := tx.UpdateProjectInvitation(ctx, inv)
+		if err != nil {
+			return fmt.Errorf("failed to revoke invitation: %w", err)
+		}
+		if !ok {
+			// The invitation stopped being pending between the read above and this
+			// write — most likely a concurrent accept (completeInvitationAccept) won
+			// the race. Refuse rather than silently reporting success while the
+			// invitation (and whatever it granted) is left untouched (#412).
+			return fmt.Errorf("invitation is no longer pending (it was concurrently accepted or resolved)")
+		}
+		c.auditProjectScopedOn(ctx, tgt, "invitation.revoked", actorID, inv.ProjectID,
+			fmt.Sprintf("revoked invitation %d (%s)", inv.ID, inv.Email))
+		return nil
+	})
 }
 
 // StaleInvitations returns pending invitations older than the cutoff.
@@ -734,12 +753,19 @@ func (c *KeyorixCore) RequestProjectAccess(ctx context.Context, projectID, userI
 		ExpiresAt:     &expires,
 		CreatedAt:     now,
 	}
-	created, err := c.storage.CreateAccessRequest(ctx, req)
-	if err != nil {
+	// AUDIT-TX-3: the request and its access_request.created row commit together.
+	var created *models.AccessRequest
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		if created, cerr = tx.CreateAccessRequest(ctx, req); cerr != nil {
+			return cerr
+		}
+		c.auditProjectScopedOn(ctx, tgt, "access_request.created", userID, projectID,
+			fmt.Sprintf("user %d requested %s access to project %d", userID, suggestedRole, projectID))
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to create access request: %w", err)
 	}
-	c.auditProjectScoped(ctx, "access_request.created", userID, projectID,
-		fmt.Sprintf("user %d requested %s access to project %d", userID, suggestedRole, projectID))
 	c.runPostCommitNotification(ctx, "access_request.created", userID, created, func() error {
 		return c.notifyAccessRequested(ctx, created)
 	})
@@ -1003,13 +1029,19 @@ func hasAlreadyApproved(approvals []*models.AccessRequestApproval, approverID, a
 // recordPartialApproval handles the below-threshold path: records the approval, stays
 // pending, notifies, and returns progress annotations on the request.
 func (c *KeyorixCore) recordPartialApproval(ctx context.Context, req *models.AccessRequest, requestID, approverID, approverMachineID uint, received, required int) (*models.AccessRequest, error) {
-	if err := c.storage.CreateAccessRequestApproval(ctx, &models.AccessRequestApproval{
-		RequestID: requestID, ApproverID: approverID, ApproverMachineIdentityID: approverMachineID, CreatedAt: c.now(),
+	// AUDIT-TX-3: the sign-off counts toward a grant, so its row commits with it.
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.CreateAccessRequestApproval(ctx, &models.AccessRequestApproval{
+			RequestID: requestID, ApproverID: approverID, ApproverMachineIdentityID: approverMachineID, CreatedAt: c.now(),
+		}); err != nil {
+			return err
+		}
+		c.auditProjectScopedOn(ctx, tgt, "access_request.approval_recorded", approverID, req.ProjectID,
+			fmt.Sprintf("approval %d of %d recorded for access request %d", received, required, req.ID))
+		return nil
 	}); err != nil {
 		return nil, fmt.Errorf("failed to record approval: %w", err)
 	}
-	c.auditProjectScoped(ctx, "access_request.approval_recorded", approverID, req.ProjectID,
-		fmt.Sprintf("approval %d of %d recorded for access request %d", received, required, req.ID))
 	c.runPostCommitNotification(ctx, "access_request.approval_recorded", approverID, req, func() error {
 		return c.notifyApprovalProgress(ctx, req, received, required)
 	})
@@ -1166,19 +1198,25 @@ func (c *KeyorixCore) RejectAccessRequest(ctx context.Context, projectID, reques
 	req.ResolvedBy = approverID
 	req.ResolvedByMachineIdentityID = approverMachineID
 	req.ResolvedAt = &now
-	ok, err := c.storage.UpdateAccessRequest(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update access request: %w", err)
+	// AUDIT-TX-3: the rejection and its access_request.rejected row commit together.
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		ok, uerr := tx.UpdateAccessRequest(ctx, req)
+		if uerr != nil {
+			return fmt.Errorf("failed to update access request: %w", uerr)
+		}
+		if !ok {
+			// The request stopped being pending between the read above and this write —
+			// e.g. a concurrent approval already granted the role and moved it to
+			// approved. Refuse rather than silently reporting a rejection that never
+			// took effect (#277's TOCTOU pattern, applied here too).
+			return fmt.Errorf("access request is no longer pending (it was concurrently approved or resolved)")
+		}
+		c.auditProjectScopedOn(ctx, tgt, "access_request.rejected", approverID, req.ProjectID,
+			fmt.Sprintf("rejected access request %d for user %d", req.ID, req.UserID))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	if !ok {
-		// The request stopped being pending between the read above and this write —
-		// e.g. a concurrent approval already granted the role and moved it to
-		// approved. Refuse rather than silently reporting a rejection that never
-		// took effect (#277's TOCTOU pattern, applied here too).
-		return nil, fmt.Errorf("access request is no longer pending (it was concurrently approved or resolved)")
-	}
-	c.auditProjectScoped(ctx, "access_request.rejected", approverID, req.ProjectID,
-		fmt.Sprintf("rejected access request %d for user %d", req.ID, req.UserID))
 	c.runPostCommitNotification(ctx, "access_request.rejected", approverID, req, func() error {
 		return c.notifyAccessResolved(ctx, req, false)
 	})
@@ -1205,20 +1243,24 @@ func (c *KeyorixCore) WithdrawAccessRequest(ctx context.Context, requestID, user
 	now := c.now()
 	req.State = AccessRequestWithdrawn
 	req.ResolvedAt = &now
-	ok, err := c.storage.UpdateAccessRequest(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to update access request: %w", err)
-	}
-	if !ok {
-		// The request stopped being pending between the read above and this write —
-		// e.g. a concurrent approval already granted the role and moved it to
-		// approved. Refuse rather than silently reporting a withdrawal that never
-		// took effect while a role grant is live behind it (#277).
-		return fmt.Errorf("access request is no longer pending (it was concurrently approved or resolved)")
-	}
-	c.auditProjectScoped(ctx, "access_request.withdrawn", userID, req.ProjectID,
-		fmt.Sprintf("withdrew access request %d", req.ID))
-	return nil
+	// AUDIT-TX-3: withdrawing is the requester narrowing their own pending ask, so it
+	// is never blocked by the audit log: its row is owed from this transaction.
+	return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		ok, uerr := tx.UpdateAccessRequest(ctx, req)
+		if uerr != nil {
+			return fmt.Errorf("failed to update access request: %w", uerr)
+		}
+		if !ok {
+			// The request stopped being pending between the read above and this write —
+			// e.g. a concurrent approval already granted the role and moved it to
+			// approved. Refuse rather than silently reporting a withdrawal that never
+			// took effect while a role grant is live behind it (#277).
+			return fmt.Errorf("access request is no longer pending (it was concurrently approved or resolved)")
+		}
+		c.auditProjectScopedOn(ctx, tgt, "access_request.withdrawn", userID, req.ProjectID,
+			fmt.Sprintf("withdrew access request %d", req.ID))
+		return nil
+	})
 }
 
 // auditProjectScoped writes a project-scoped audit event with an actor.

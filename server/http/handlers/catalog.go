@@ -386,7 +386,9 @@ func (h *CatalogHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	project, err := h.coreService.UpdateProject(r.Context(), id, body.Name, body.Description, body.RequireMFA)
+	// AUDIT-TX-3: the project.updated row is written by core, in the update's own
+	// transaction, attributed to the tagged actor.
+	project, err := h.coreService.UpdateProject(core.WithMutationAuditActor(r.Context(), actor.UserID), id, body.Name, body.Description, body.RequireMFA)
 	if err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
@@ -402,7 +404,6 @@ func (h *CatalogHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.coreService.LogProjectUpdated(r.Context(), actor.UserID, project.ID, project.Name)
 	sendSuccess(w, newProjectWire(project), "Project updated")
 }
 
@@ -420,13 +421,9 @@ func (h *CatalogHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	force := r.URL.Query().Get("force") == "true"
-	// Read the name now: after the delete there is nothing left to look up, and the
-	// audit event should say which project it was, not just its id.
-	projectName := ""
-	if p, gerr := h.coreService.GetProject(r.Context(), uint(id)); gerr == nil && p != nil {
-		projectName = p.Name
-	}
-	if err := h.coreService.DeleteProject(r.Context(), actor.UserID, uint(id), force); err != nil {
+	// AUDIT-TX-3: core reads the name and writes the project.deleted row in the
+	// delete's own transaction, attributed to the tagged actor.
+	if err := h.coreService.DeleteProject(core.WithMutationAuditActor(r.Context(), actor.UserID), actor.UserID, uint(id), force); err != nil {
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		if strings.Contains(msg, "secret(s)") {
@@ -438,7 +435,6 @@ func (h *CatalogHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.coreService.LogProjectDeleted(r.Context(), actor.UserID, uint(id), projectName, force)
 	sendSuccess(w, nil, "Project deleted")
 }
 
@@ -491,7 +487,9 @@ func (h *CatalogHandler) DeleteEnvironment(w http.ResponseWriter, r *http.Reques
 		sendError(w, "InvalidParameter", "Invalid environment ID", http.StatusBadRequest, nil)
 		return
 	}
-	if err := h.coreService.DeleteEnvironment(r.Context(), uint(id)); err != nil {
+	// AUDIT-TX-3: the environment.deleted row is written by core, in the delete's
+	// own transaction, attributed to the tagged actor.
+	if err := h.coreService.DeleteEnvironment(core.WithMutationAuditActor(r.Context(), actorID(r)), uint(id)); err != nil {
 		msg := err.Error()
 		status := http.StatusInternalServerError
 		switch {
@@ -506,7 +504,6 @@ func (h *CatalogHandler) DeleteEnvironment(w http.ResponseWriter, r *http.Reques
 		sendError(w, "Error", msg, status, nil)
 		return
 	}
-	h.coreService.LogEnvironmentDeleted(r.Context(), actorID(r), uint(id))
 	sendSuccess(w, nil, "Environment deleted")
 }
 

@@ -218,10 +218,16 @@ func (c *KeyorixCore) RevokeMachineToken(ctx context.Context, projectID, machine
 	if err != nil || cred.MachineIdentityID != machineID {
 		return "", fmt.Errorf("token not found")
 	}
-	if err := c.storage.RevokeMachineIdentityCredential(ctx, projectID, credentialID); err != nil {
+	// AUDIT-TX-3: a revocation: never blocked by the audit log, row owed.
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.RevokeMachineIdentityCredential(ctx, projectID, credentialID); err != nil {
+			return err
+		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity.token_revoked", m, actorID)
+		return nil
+	}); err != nil {
 		return "", err
 	}
-	c.logMachineEvent(ctx, "machine_identity.token_revoked", m, actorID)
 	return cred.TokenHash, nil
 }
 
@@ -269,18 +275,25 @@ func (c *KeyorixCore) ClassifyMachineToken(ctx context.Context, projectID, machi
 	// A no-match means the label moved under us; fail closed rather than clobber
 	// the concurrent classifier's value, and write no audit event (nothing of ours
 	// was persisted).
-	matched, err := c.storage.SetMachineIdentityCredentialClassification(ctx, cred.ID, old, level)
-	if err != nil {
+	//
+	// AUDIT-TX-3: the new label and its audit row commit together (fail closed).
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, terr := tx.SetMachineIdentityCredentialClassification(ctx, cred.ID, old, level)
+		if terr != nil {
+			return terr
+		}
+		if !matched {
+			return fmt.Errorf("token classification changed concurrently; re-read and retry")
+		}
+		aid, pid := actorID, m.ProjectID
+		diff := fmt.Sprintf(`{"classification":{"before":%q,"after":%q}}`, old, level)
+		c.writeAuditEventDiffOn(ctx, tgt, "machine_identity.token_classified", &aid, nil, &pid, "",
+			fmt.Sprintf("machine credential %d (machine %d) classification set to %q", cred.ID, machineID, level), diff)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	if !matched {
-		return nil, fmt.Errorf("token classification changed concurrently; re-read and retry")
-	}
 	cred.Classification = level
-	aid, pid := actorID, m.ProjectID
-	diff := fmt.Sprintf(`{"classification":{"before":%q,"after":%q}}`, old, level)
-	c.writeAuditEventDiff(ctx, "machine_identity.token_classified", &aid, nil, &pid, "",
-		fmt.Sprintf("machine credential %d (machine %d) classification set to %q", cred.ID, machineID, level), diff)
 	return cred, nil
 }
 
@@ -609,7 +622,9 @@ func (c *KeyorixCore) RemoveMachineRole(ctx context.Context, machineID, roleID u
 		return err
 	}
 	return c.withMachineRoleRemovalGuards(ctx, machineID, scope, func(ctx context.Context) error {
-		return c.removeMachineRoleWriteOn(ctx, c.storage, c.auditNow(), m, roleID, scope, actorID)
+		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			return c.removeMachineRoleWriteOn(ctx, tx, tgt, m, roleID, scope, actorID)
+		})
 	})
 }
 

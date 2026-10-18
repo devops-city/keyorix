@@ -137,8 +137,11 @@ func (c *KeyorixCore) ProvisionSCIMGroup(ctx context.Context, actorID uint, disp
 	// duplicate group rather than complete the first one. AddUserToGroup is
 	// idempotent (a second add to the same (user, group, 0) is a no-op), so this is
 	// also safe to retry once the whole create is atomic.
+	//
+	// AUDIT-TX-3: a group created with members confers whatever roles it later holds
+	// to them, so the scim.group_provisioned row commits with the group or not at all.
 	var group *models.Group
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		group, cerr = tx.CreateGroup(ctx, &models.Group{Name: displayName, NameFolded: foldedName.Folded()})
 		if cerr != nil {
@@ -149,13 +152,13 @@ func (c *KeyorixCore) ProvisionSCIMGroup(ctx context.Context, actorID uint, disp
 				return aerr
 			}
 		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupProvisioned, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("SCIM provisioned group %d (%q) with %d member(s)", group.ID, displayName, len(allowed)))
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventSCIMGroupProvisioned, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM provisioned group %d (%q) with %d member(s)", group.ID, displayName, len(allowed)))
 	return group, nil
 }
 
@@ -169,6 +172,7 @@ func (c *KeyorixCore) ReplaceSCIMGroup(ctx context.Context, actorID, groupID uin
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorNotFound", nil), err)
 	}
+	var rename func(tx storage.Storage) error
 	if displayName != "" && displayName != group.Name {
 		// #1642: keep NameFolded in lockstep with Name on every rename path,
 		// not just core.UpdateGroup's — a stale NameFolded here would leave
@@ -183,13 +187,20 @@ func (c *KeyorixCore) ReplaceSCIMGroup(ctx context.Context, actorID, groupID uin
 		// DeprovisionSCIMGroup/DeleteGroup had just removed, bringing its
 		// retained role grants and memberships back with it. An IdP DELETE
 		// followed closely by a PUT/PATCH is exactly this interleaving.
+		//
+		// AUDIT-TX-3: the rename runs in the same transaction as the membership
+		// change and its audit row (applyGroupMembershipChanges), so a failure there
+		// no longer leaves the rename committed on its own.
 		folded := foldedName.Folded()
-		matched, uerr := c.storage.UpdateGroupFields(ctx, groupID, &displayName, &folded, nil, c.now())
-		if uerr != nil {
-			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
-		}
-		if !matched {
-			return nil, fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+		rename = func(tx storage.Storage) error {
+			matched, uerr := tx.UpdateGroupFields(ctx, groupID, &displayName, &folded, nil, c.now())
+			if uerr != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
+			}
+			if !matched {
+				return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+			}
+			return nil
 		}
 	}
 	current, err := c.storage.ListGroupMembers(ctx, groupID)
@@ -208,11 +219,12 @@ func (c *KeyorixCore) ReplaceSCIMGroup(ctx context.Context, actorID, groupID uin
 	if _, rejected := c.filterSCIMManaged(ctx, toAdd); len(rejected) > 0 {
 		return nil, fmt.Errorf("%s: SCIM can only add SCIM-managed users to a group (rejected member id(s): %v)", i18n.T("ErrorNotAuthorized", nil), rejected)
 	}
-	if err := c.applyGroupMembershipChanges(ctx, groupID, want, current, toAdd); err != nil {
+	if err := c.applyGroupMembershipChanges(ctx, groupID, want, current, toAdd, rename, func(tgt auditTarget) {
+		c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupUpdated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("SCIM replaced group %d (members=%d)", groupID, len(want)))
+	}); err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventSCIMGroupUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM replaced group %d (members=%d)", groupID, len(want)))
 	return c.storage.GetGroup(ctx, groupID)
 }
 
@@ -226,20 +238,16 @@ func (c *KeyorixCore) PatchSCIMGroup(ctx context.Context, actorID, groupID uint,
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorNotFound", nil), err)
 	}
+	renaming := false
+	var folded string
 	if newName != nil && *newName != "" && *newName != group.Name {
 		foldedName, ferr := identity.NewFoldedName(*newName)
 		if ferr != nil {
 			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), ferr)
 		}
-		// #2697: see ReplaceSCIMGroup's identical rename above.
-		folded := foldedName.Folded()
-		matched, uerr := c.storage.UpdateGroupFields(ctx, groupID, newName, &folded, nil, c.now())
-		if uerr != nil {
-			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
-		}
-		if !matched {
-			return nil, fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
-		}
+		// #2697: see ReplaceSCIMGroup's identical rename above (AUDIT-TX-3: it runs
+		// in the membership transaction below).
+		renaming, folded = true, foldedName.Folded()
 	}
 	if hasSCIMAdditions(addIDs) && c.scimGroupConfersAdmin(ctx, groupID) {
 		return nil, fmt.Errorf("%s: SCIM cannot add members to a group that grants administrative roles", i18n.T("ErrorNotAuthorized", nil))
@@ -282,27 +290,41 @@ func (c *KeyorixCore) PatchSCIMGroup(ctx context.Context, actorID, groupID uint,
 		// Wrapped in ErrorStorageFailed HERE, inside the closure, so the guard
 		// checks above (returned bare, their own message is already specific)
 		// aren't also mislabeled as a storage failure by the caller below.
-		if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: the rename and the audit row run in this same transaction. A
+		// change that adds members or renames the group can widen access, so its
+		// row commits with it or not at all; a pure removal is a revocation, never
+		// blocked by the audit log, its row owed from the transaction.
+		if err := c.withAuditedOrOwedMutation(ctx, len(allowedAdds) > 0 || renaming, func(tx storage.Storage, tgt auditTarget) error {
+			if renaming {
+				matched, uerr := tx.UpdateGroupFields(ctx, groupID, newName, &folded, nil, c.now())
+				if uerr != nil {
+					return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
+				}
+				if !matched {
+					return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+				}
+			}
 			for _, id := range allowedAdds {
 				if err := tx.AddUserToGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
-					return err
+					return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 				}
 			}
 			for _, id := range toRemove {
 				if err := tx.RemoveUserFromGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
-					return err
+					return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 				}
 			}
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupUpdated, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM patched group %d (+%d/-%d members)", groupID, len(addIDs), len(removeIDs)))
 			return nil
 		}); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			return err
 		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventSCIMGroupUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM patched group %d (+%d/-%d members)", groupID, len(addIDs), len(removeIDs)))
 	return c.storage.GetGroup(ctx, groupID)
 }
 
@@ -401,7 +423,12 @@ func filterNonZero(ids []uint) []uint {
 // with no lock at all, so two concurrent membership changes (this same PUT
 // racing a SCIM PATCH or a native RemoveUserFromGroup) could each observe
 // "another admin survives" before either commits.
-func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID uint, want map[uint]bool, current []*models.User, toAdd []uint) error {
+//
+// AUDIT-TX-3: rename (optional) and audit run in the same transaction as the
+// membership writes. A change that adds members or renames the group can widen
+// access, so its audit row commits with it or not at all; a pure removal is a
+// revocation, never blocked by the audit log, its row owed from the transaction.
+func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID uint, want map[uint]bool, current []*models.User, toAdd []uint, rename func(tx storage.Storage) error, audit func(tgt auditTarget)) error {
 	return c.withGroupProjectAdminGuardLocks(ctx, groupID, func(ctx context.Context) error {
 		for _, u := range current {
 			if !want[u.ID] {
@@ -416,7 +443,12 @@ func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID u
 		// All add/remove membership writes run in one transaction: a partial apply used
 		// to be best-effort (`_ =`). Both storage calls are idempotent, so this stays
 		// safe under an IdP's own retry of the same PUT.
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		return c.withAuditedOrOwedMutation(ctx, len(toAdd) > 0 || rename != nil, func(tx storage.Storage, tgt auditTarget) error {
+			if rename != nil {
+				if err := rename(tx); err != nil {
+					return err
+				}
+			}
 			for _, u := range current {
 				if !want[u.ID] {
 					if err := tx.RemoveUserFromGroup(ctx, u.ID, groupID, 0); err != nil { // SCIM memberships are always global
@@ -429,6 +461,7 @@ func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID u
 					return err
 				}
 			}
+			audit(tgt)
 			return nil
 		})
 	})
@@ -450,10 +483,9 @@ func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID u
 // deleteGroupGuarded helper (groups.go) — guard + lock + write identical to the
 // native path — and only the audit event differs.
 func (c *KeyorixCore) DeprovisionSCIMGroup(ctx context.Context, actorID, groupID uint) error {
-	if _, err := c.deleteGroupGuarded(ctx, groupID); err != nil {
-		return err
-	}
-	c.writeAuditEvent(ctx, EventSCIMGroupDeprovisioned, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM deprovisioned group %d", groupID))
-	return nil
+	_, err := c.deleteGroupGuarded(ctx, groupID, func(tgt auditTarget, _ *models.Group) {
+		c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupDeprovisioned, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("SCIM deprovisioned group %d", groupID))
+	})
+	return err
 }

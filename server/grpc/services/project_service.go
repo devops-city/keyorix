@@ -223,11 +223,11 @@ func (s *ProjectGRPCService) UpdateProject(ctx context.Context, req *pb.UpdatePr
 			return nil, err
 		}
 	}
-	project, err := s.core.UpdateProject(ctx, uint(req.GetId()), req.GetName(), req.GetDescription(), requireMFA)
+	// AUDIT-TX-3: core writes the project.updated row in the update's own transaction.
+	project, err := s.core.UpdateProject(core.WithMutationAuditActor(ctx, user.UserID), uint(req.GetId()), req.GetName(), req.GetDescription(), requireMFA)
 	if err != nil {
 		return nil, mapProjectError(err)
 	}
-	s.core.LogProjectUpdated(ctx, user.UserID, project.ID, project.Name)
 	return projectToProto(project), nil
 }
 
@@ -243,14 +243,11 @@ func (s *ProjectGRPCService) DeleteProject(ctx context.Context, req *pb.DeletePr
 		return nil, err
 	}
 	force := req.GetForce()
-	projectName := ""
-	if p, gerr := s.core.GetProject(ctx, uint(req.GetId())); gerr == nil && p != nil {
-		projectName = p.Name
-	}
-	if err := s.core.DeleteProject(ctx, user.UserID, uint(req.GetId()), force); err != nil {
+	// AUDIT-TX-3: core reads the name and writes the project.deleted row in the
+	// delete's own transaction.
+	if err := s.core.DeleteProject(core.WithMutationAuditActor(ctx, user.UserID), user.UserID, uint(req.GetId()), force); err != nil {
 		return nil, mapProjectError(err)
 	}
-	s.core.LogProjectDeleted(ctx, user.UserID, uint(req.GetId()), projectName, force)
 	return &emptypb.Empty{}, nil
 }
 

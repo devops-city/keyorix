@@ -92,8 +92,20 @@ func (c *KeyorixCore) PlaceLegalHold(ctx context.Context, actorID uint, reason s
 	} else if active != nil {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "a legal hold is already active")
 	}
-	hold, err := c.storage.CreateLegalHold(ctx, &models.LegalHold{
-		Reason: reason, PlacedBy: actorID, PlacedAt: c.now(), Released: false,
+	// AUDIT-TX-3: placing a hold halts every purge scheduler, so the hold and its
+	// audit row commit together (fail closed).
+	var hold *models.LegalHold
+	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		hold, cerr = tx.CreateLegalHold(ctx, &models.LegalHold{
+			Reason: reason, PlacedBy: actorID, PlacedAt: c.now(), Released: false,
+		})
+		if cerr != nil {
+			return cerr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventLegalHoldPlaced, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("legal hold %d placed: %s", hold.ID, reason))
+		return nil
 	})
 	if errors.Is(err, storage.ErrLegalHoldAlreadyActive) {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "a legal hold is already active")
@@ -101,8 +113,6 @@ func (c *KeyorixCore) PlaceLegalHold(ctx context.Context, actorID uint, reason s
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	c.writeAuditEvent(ctx, EventLegalHoldPlaced, actorPtr(actorID), nil,
-		fmt.Sprintf("legal hold %d placed: %s", hold.ID, reason))
 	return hold, nil
 }
 
@@ -154,10 +164,17 @@ func (c *KeyorixCore) LiftLegalHold(ctx context.Context, actorID uint, reason st
 	hold.ReleasedBy = actorID
 	hold.ReleasedAt = &now
 	hold.ReleaseReason = reason
-	if err := c.storage.UpdateLegalHold(ctx, hold); err != nil {
+	// AUDIT-TX-3: lifting a hold lets the purge jobs destroy data again, so the
+	// release and its audit row commit together (fail closed).
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.UpdateLegalHold(ctx, hold); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventLegalHoldLifted, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("legal hold %d lifted by %d (originally placed by %d): %s", hold.ID, actorID, hold.PlacedBy, reason))
+		return nil
+	}); err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	c.writeAuditEvent(ctx, EventLegalHoldLifted, actorPtr(actorID), nil,
-		fmt.Sprintf("legal hold %d lifted by %d (originally placed by %d): %s", hold.ID, actorID, hold.PlacedBy, reason))
 	return nil
 }

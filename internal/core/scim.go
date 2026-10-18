@@ -162,8 +162,11 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 	// shape #2295 fixes for first-boot; best-effort here meant a SCIM-provisioned user
 	// could end up with no role at all, unable to do anything until an admin noticed
 	// and manually granted one.
+	//
+	// AUDIT-TX-3: the account and its baseline grant are access, so the
+	// scim.user_provisioned row commits with them or not at all (fail closed).
 	var created *models.User
-	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		created, cerr = tx.CreateUser(ctx, &models.User{
 			Username: username, UsernameFolded: foldedUsername.Folded(),
@@ -178,7 +181,12 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 		if rerr != nil {
 			return fmt.Errorf("failed to resolve baseline role: %w", rerr)
 		}
-		return tx.AssignRole(ctx, created.ID, role.ID, Scope{})
+		if aerr := tx.AssignRole(ctx, created.ID, role.ID, Scope{}); aerr != nil {
+			return aerr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserProvisioned, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("SCIM provisioned user %d (username=%s, externalId=%q, active=%t)", created.ID, username, externalID, active))
+		return nil
 	})
 	if err != nil {
 		// #117: the FindSCIMUser dedup check above races with a concurrent provision call
@@ -191,8 +199,6 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 		}
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	c.writeAuditEvent(ctx, EventSCIMUserProvisioned, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM provisioned user %d (username=%s, externalId=%q, active=%t)", created.ID, username, externalID, active))
 	return created, nil
 }
 
@@ -273,6 +279,11 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	var deactivated bool
 	var updated *models.User
 	var guardErr error // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
+	// AUDIT-TX-3: an update that deactivates is a revocation (never blocked by the
+	// audit log, its row owed); anything else can widen access (a reactivation, a new
+	// email the IdP will claim the account by) and fails closed.
+	deactivating := active != nil && !*active
+	var settle func()
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
@@ -286,11 +297,17 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// A fresh, lock-guarded read inside the transaction: never reuse a struct fetched
 		// before the lock above was taken — a concurrent setAccountState commit between
 		// that read and this write would be silently clobbered (the exact #344 race).
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		var serr error
+		settle, serr = c.auditedByDirection(ctx, !deactivating, func(tx storage.Storage, tgt auditTarget) error {
 			var err error
-			updated, deactivated, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active)
-			return err
+			if updated, deactivated, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserUpdated, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM updated user %d", id))
+			return nil
 		})
+		return serr
 	})
 	if guardErr != nil {
 		return nil, guardErr
@@ -312,8 +329,7 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		_ = c.deleteSessionsForUserAndEvict(ctx, id, 0, "")
 		purgeStepUpGrants(ctx, c.storage, id)
 	}
-	c.writeAuditEvent(ctx, EventSCIMUserUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM updated user %d", id))
+	settle()
 	return updated, nil
 }
 
@@ -549,6 +565,7 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 	var sessionHashes []string
 	var username string
 	var guardErr error
+	var settle func()
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
@@ -564,7 +581,12 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 		// deprovisions or leaves the account untouched, so a mid-way storage failure can't
 		// leave it half-deprovisioned (suspended but not deleted), which would make retries
 		// non-idempotent.
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: a revocation: never blocked by the audit log, its
+		// scim.user_deprovisioned row owed from this same transaction and
+		// appended after the cache eviction below.
+		var serr error
+		settle, serr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			// Re-read the row via a locked read INSIDE the transaction, immediately before
 			// the write, instead of reusing the struct captured by the unlocked GetUser
 			// above — a concurrent state-changing write (e.g. SuspendUser, or another
@@ -647,8 +669,14 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 				return err
 			}
 			sessionHashes = append(sessionHashes, patHashes...)
-			return tx.DeleteUser(ctx, id)
+			if err := tx.DeleteUser(ctx, id); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserDeprovisioned, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM deprovisioned user %d (%s)", id, username))
+			return nil
 		})
+		return serr
 	})
 	if guardErr != nil {
 		return guardErr
@@ -664,8 +692,7 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 	// lingering for the cache TTL.
 	c.invalidateTokenCache(sessionHashes...)
 	purgeStepUpGrants(ctx, c.storage, id)
-	c.writeAuditEvent(ctx, EventSCIMUserDeprovisioned, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM deprovisioned user %d (%s)", id, username))
+	settle()
 	return nil
 }
 

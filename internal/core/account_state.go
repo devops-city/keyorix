@@ -308,10 +308,20 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	needsCacheClearSweep := !needsCacheEvictionSweep
 
 	var sessionHashes []string
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	// AUDIT-TX-3: a transition into a login-blocked or restricted state is a
+	// revocation: never blocked by the audit log, its row owed from this transaction
+	// (appended after the cache eviction below). Returning to active restores access,
+	// so that one is grant-shaped: its row commits with it or not at all.
+	aid := adminID
+	settle, err := c.auditedByDirection(ctx, !needsCacheEvictionSweep, func(tx storage.Storage, tgt auditTarget) error {
 		hashes, serr := c.setAccountStateInTx(ctx, tx, userID, state)
 		sessionHashes = hashes
-		return serr
+		if serr != nil {
+			return serr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, eventType, &aid, nil, nil, "",
+			fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, tx, auditKindUser, userID), state))
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("failed to update account state: %w", err)
@@ -332,9 +342,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	if AccountLoginBlocked(userID, state) {
 		purgeStepUpGrants(ctx, c.storage, userID)
 	}
-	aid := adminID
-	c.writeAuditEventFull(ctx, eventType, &aid, nil, nil, "",
-		fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, c.storage, auditKindUser, userID), state))
+	settle()
 	return nil
 }
 

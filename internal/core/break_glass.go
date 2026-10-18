@@ -692,6 +692,7 @@ func (c *KeyorixCore) RevokeBreakGlass(ctx context.Context, actorID, actorMachin
 func (c *KeyorixCore) RevokeBreakGlassActivationAtomic(ctx context.Context, actorID, actorMachineID uint, activation *models.BreakGlassActivation, now time.Time) error {
 	scope := storage.Scope{ProjectID: activation.ProjectID}
 	var roleRemoved bool
+	var settle func()
 	err := c.storage.WithNamedLock(ctx, projectAdminGuardLockKey(scope.ProjectID), func(ctx context.Context) error {
 		// A break-glass emergency role can never itself carry roles.assign at
 		// ACTIVATION time (ActivateBreakGlass's own policy check), but a role's
@@ -710,7 +711,13 @@ func (c *KeyorixCore) RevokeBreakGlassActivationAtomic(ctx context.Context, acto
 		if err := c.guardLastProjectAdmin(ctx, scope.ProjectID, activation.UserID, existing, after); err != nil {
 			return err
 		}
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: a revocation, so never blocked by the audit log: its role.removed
+		// and break_glass.revoked rows are owed from this same transaction
+		// (runOwedAuditMutation) and appended after the cache eviction below.
+		var rerr error
+		settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			roleRemoved = false // the fallback may run this closure twice
 			if err := tx.RemoveRole(ctx, activation.UserID, activation.RoleID, scope); err != nil {
 				if !errors.Is(err, storage.ErrRoleNotAssigned) {
 					return err
@@ -728,22 +735,29 @@ func (c *KeyorixCore) RevokeBreakGlassActivationAtomic(ctx context.Context, acto
 			// with the role removal above (rather than committing the removal
 			// unconditionally) is exactly what closes the half-commit: either both
 			// land, or neither does.
-			return tx.RevokeBreakGlassActivation(ctx, activation.ID, actorID, actorMachineID, now)
+			if err := tx.RevokeBreakGlassActivation(ctx, activation.ID, actorID, actorMachineID, now); err != nil {
+				return err
+			}
+			if roleRemoved {
+				c.LogRoleRemovedOn(ctx, tgt, actorID, activation.UserID, activation.RoleID, scope)
+			}
+			c.logBreakGlassRevokedOn(ctx, tgt, actorID, activation.ProjectID, activation.ID, activation.UserID, activation.RoleID, activation.RoleName)
+			return nil
 		})
+		return rerr
 	})
 	if err != nil {
 		return err
 	}
 
-	// Audit and cache-eviction happen AFTER commit, never before — same
-	// convention CreateRole/UpdateRole use (#1969/#1996): an event recorded
-	// before the transaction resolves could survive a later rollback and
-	// assert an effect that never actually landed.
+	// Cache eviction happens AFTER commit, never before — same convention
+	// CreateRole/UpdateRole use (#1969/#1996): an eviction before the transaction
+	// resolves could re-cache the pre-revoke state. The owed audit rows are appended
+	// after it, so the audit log never delays the revocation taking effect.
 	if roleRemoved {
-		c.LogRoleRemoved(ctx, actorID, activation.UserID, activation.RoleID, scope)
 		c.evictUserSessionCache(ctx, activation.UserID)
 	}
-	c.LogBreakGlassRevoked(ctx, actorID, activation.ProjectID, activation.ID, activation.UserID, activation.RoleID, activation.RoleName)
+	settle()
 	return nil
 }
 
@@ -755,7 +769,11 @@ func (c *KeyorixCore) RevokeBreakGlassActivationAtomic(ctx context.Context, acto
 // another server's already-decided revoke — can still record the same audit
 // event RevokeBreakGlass does, instead of silently skipping it.
 func (c *KeyorixCore) LogBreakGlassRevoked(ctx context.Context, actorID, projectID, activationID, userID, roleID uint, roleName string) {
-	c.auditProjectScoped(ctx, EventBreakGlassRevoked, actorID, projectID,
+	c.logBreakGlassRevokedOn(ctx, c.auditNow(), actorID, projectID, activationID, userID, roleID, roleName)
+}
+
+func (c *KeyorixCore) logBreakGlassRevokedOn(ctx context.Context, tgt auditTarget, actorID, projectID, activationID, userID, roleID uint, roleName string) {
+	c.auditProjectScopedOn(ctx, tgt, EventBreakGlassRevoked, actorID, projectID,
 		fmt.Sprintf("break-glass: revoked activation %d (user %d, role %q) early", activationID, userID, roleName))
 }
 

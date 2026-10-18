@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -133,11 +134,15 @@ func (c *KeyorixCore) UpdateAnomalyConfig(ctx context.Context, cfg *models.Anoma
 	}
 	cfg.UpdatedBy = updatedBy
 	cfg.UpdatedAt = time.Now()
-	if err := c.storage.SaveAnomalyConfig(ctx, cfg); err != nil {
-		return err
-	}
-	c.writeConfigChangeAuditEvent(ctx, EventAnomalyConfigUpdated, actorID,
-		fmt.Sprintf("anomaly detection config updated by %s (ml_enabled=%t off_hours_enabled=%t)", updatedBy, cfg.MLEnabled, cfg.OffHoursEnabled),
-		before, cfg)
-	return nil
+	// AUDIT-TX-3: the save and its audit row commit together (fail closed): anomaly
+	// detection is never switched off or retuned unrecorded.
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.SaveAnomalyConfig(ctx, cfg); err != nil {
+			return err
+		}
+		c.writeConfigChangeAuditEventOn(ctx, tgt, EventAnomalyConfigUpdated, actorID,
+			fmt.Sprintf("anomaly detection config updated by %s (ml_enabled=%t off_hours_enabled=%t)", updatedBy, cfg.MLEnabled, cfg.OffHoursEnabled),
+			before, cfg)
+		return nil
+	})
 }

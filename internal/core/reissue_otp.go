@@ -102,7 +102,9 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 	expiresAt := now.Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	var target *models.User
 	var evict []string
-	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	// AUDIT-TX-3: a reissue mints a new credential, so it is grant-shaped: the
+	// reissue row commits in this same transaction or nothing changes.
+	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		// Validate on the row lock, not on an earlier read: the account may have been
 		// suspended or linked to an IdP since.
 		locked, lerr := tx.LockUserForUpdate(ctx, userID)
@@ -139,10 +141,17 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 		if err := tx.UpdateLoginLockoutState(ctx, userID, 0, nil, nil, 0); err != nil {
 			return err
 		}
-		return tx.DeleteSessionsForUserExcept(ctx, userID, 0)
+		if err := tx.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
+			return err
+		}
+		aid := adminID
+		c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissued, &aid, nil, nil, "",
+			fmt.Sprintf("administrator %d reissued the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended, expires %s",
+				adminID, target.ID, target.Username, expiresAt.Format(time.RFC3339)))
+		return nil
 	})
 	if err != nil {
-		if errors.Is(err, ErrReissueExternalIdentity) || errors.Is(err, ErrReissueAccountBlocked) {
+		if errors.Is(err, ErrReissueExternalIdentity) || errors.Is(err, ErrReissueAccountBlocked) || errors.Is(err, ErrMutationAuditUnavailable) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
@@ -156,9 +165,6 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 	})
 
 	aid := adminID
-	c.writeAuditEventFull(ctx, EventUserOneTimePasswordReissued, &aid, nil, nil, "",
-		fmt.Sprintf("administrator %d reissued the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended, expires %s",
-			adminID, target.ID, target.Username, expiresAt.Format(time.RFC3339)))
 	// The compliance record that a human was shown a credential (artifact only, no value).
 	c.auditCredentialDisplayedOutOfBand(ctx, &aid, target.Email, "one_time_password")
 

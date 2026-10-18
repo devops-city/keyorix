@@ -35,7 +35,10 @@ type configChangeDetail struct {
 // occurred. actorID is the acting user's numeric ID (0 when unknown/no
 // authenticated principal, e.g. a local CLI invocation) -- mirrors every other
 // writeAuditEvent* helper's actor convention (see audit.go).
-func (c *KeyorixCore) writeConfigChangeAuditEvent(ctx context.Context, eventType string, actorID uint, description string, before, after any) {
+// writeConfigChangeAuditEventOn is writeConfigChangeAuditEvent against an explicit
+// audit target (AUDIT-TX-3): a config change writes its row inside its own
+// transaction, so the change cannot commit without it.
+func (c *KeyorixCore) writeConfigChangeAuditEventOn(ctx context.Context, tgt auditTarget, eventType string, actorID uint, description string, before, after any) {
 	detail := configChangeDetail{Before: before, After: after}
 	encoded, err := json.Marshal(detail)
 	if err != nil {
@@ -48,5 +51,5 @@ func (c *KeyorixCore) writeConfigChangeAuditEvent(ctx context.Context, eventType
 		a := actorID
 		actor = &a
 	}
-	c.writeAuditEventDiff(ctx, eventType, actor, nil, nil, "", description, string(encoded))
+	c.writeAuditEventDiffOn(ctx, tgt, eventType, actor, nil, nil, "", description, string(encoded))
 }

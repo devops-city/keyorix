@@ -143,13 +143,16 @@ func (c *KeyorixCore) RevokeSecretACL(ctx context.Context, actorID, secretID, ac
 		return fmt.Errorf("%s: ACL %d does not belong to secret %d", i18n.T("ErrorNotFound", nil), aclID, secretID)
 	}
 
-	if err := c.storage.DeleteSecretACL(ctx, aclID); err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-
-	c.writeAuditEvent(ctx, EventSecretACLRevoked, actorPtr(actorID), &secretID,
-		fmt.Sprintf("revoked ACL %d (%s) on %s", aclID, c.auditRef(ctx, c.storage, auditKindUser, found.UserID), c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
-	return nil
+	// AUDIT-TX-3: a revocation: never blocked by the audit log, its row owed from
+	// this transaction.
+	return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteSecretACL(ctx, aclID); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSecretACLRevoked, actorPtr(actorID), &secretID, nil, "",
+			fmt.Sprintf("revoked ACL %d (%s) on %s", aclID, c.auditRef(ctx, tx, auditKindUser, found.UserID), c.auditRef(ctx, tx, auditKindSecret, secretID)))
+		return nil
+	})
 }
 
 // ListSecretACLs returns all ACL grants for the given secret.

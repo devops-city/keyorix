@@ -39,12 +39,19 @@ func (c *KeyorixCore) CreateGroup(ctx context.Context, actorID uint, req *Create
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), ferr)
 	}
 	group := &models.Group{Name: req.Name, NameFolded: foldedName.Folded(), Description: req.Description}
-	created, err := c.storage.CreateGroup(ctx, group)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-3: the group and its group.created row commit together or not at all.
+	var created *models.Group
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		if created, cerr = tx.CreateGroup(ctx, group); cerr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), cerr)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventGroupCreated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("group %q (id %d) created", created.Name, created.ID))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventGroupCreated, actorPtr(actorID), nil,
-		fmt.Sprintf("group %q (id %d) created", created.Name, created.ID))
 	return created, nil
 }
 
@@ -87,20 +94,26 @@ func (c *KeyorixCore) UpdateGroup(ctx context.Context, actorID uint, req *Update
 	if req.Description != "" {
 		descPtr = &req.Description
 	}
-	matched, err := c.storage.UpdateGroupFields(ctx, group.ID, namePtr, foldedPtr, descPtr, c.now())
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-3: the update and its group.updated row commit together or not at all.
+	var updated *models.Group
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, uerr := tx.UpdateGroupFields(ctx, group.ID, namePtr, foldedPtr, descPtr, c.now())
+		if uerr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
+		}
+		if !matched {
+			return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+		}
+		// Return the committed row, not the struct read before the write.
+		if updated, uerr = tx.GetGroup(ctx, group.ID); uerr != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), uerr)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventGroupUpdated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("group %q (id %d) updated", updated.Name, updated.ID))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	if !matched {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
-	}
-	// Return the committed row, not the struct read before the write.
-	updated, err := c.storage.GetGroup(ctx, group.ID)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
-	}
-	c.writeAuditEvent(ctx, EventGroupUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("group %q (id %d) updated", updated.Name, updated.ID))
 	return updated, nil
 }
 
@@ -120,7 +133,12 @@ func (c *KeyorixCore) UpdateGroup(ctx context.Context, actorID uint, req *Update
 // PER-PROJECT lock (projectAdminGuardLockKey), never the global one, so a
 // delete serialized only against the global key could still race any of
 // those four — see withGroupProjectAdminGuardLocks's own doc comment.
-func (c *KeyorixCore) deleteGroupGuarded(ctx context.Context, id uint) (*models.Group, error) {
+//
+// AUDIT-TX-3: the delete is a revocation (it cascades the group's grants away), so
+// it is never blocked by the audit log; audit writes the group's row through the
+// owing target the delete runs in (withOwedAuditMutation), so the row is owed in
+// the delete's own transaction.
+func (c *KeyorixCore) deleteGroupGuarded(ctx context.Context, id uint, audit func(tgt auditTarget, group *models.Group)) (*models.Group, error) {
 	var group *models.Group
 	err := c.withGroupProjectAdminGuardLocks(ctx, id, func(ctx context.Context) error {
 		var gerr error
@@ -134,10 +152,13 @@ func (c *KeyorixCore) deleteGroupGuarded(ctx context.Context, id uint) (*models.
 		if err := c.guardLastProjectAdminGroupDelete(ctx, id); err != nil {
 			return err
 		}
-		if err := c.storage.DeleteGroup(ctx, id); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-		}
-		return nil
+		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			if err := tx.DeleteGroup(ctx, id); err != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			}
+			audit(tgt, group)
+			return nil
+		})
 	})
 	return group, err
 }
@@ -151,13 +172,11 @@ func (c *KeyorixCore) DeleteGroup(ctx context.Context, actorID, id uint) error {
 	if id == 0 {
 		return fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "group ID is required")
 	}
-	group, err := c.deleteGroupGuarded(ctx, id)
-	if err != nil {
-		return err
-	}
-	c.writeAuditEvent(ctx, EventGroupDeleted, actorPtr(actorID), nil,
-		fmt.Sprintf("group %q (id %d) deleted", group.Name, id))
-	return nil
+	_, err := c.deleteGroupGuarded(ctx, id, func(tgt auditTarget, group *models.Group) {
+		c.writeAuditEventFullOn(ctx, tgt, EventGroupDeleted, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("group %q (id %d) deleted", group.Name, id))
+	})
+	return err
 }
 
 // RestoreGroup reverses a soft-delete, bringing the group back with the role grants
@@ -208,13 +227,20 @@ func (c *KeyorixCore) RestoreGroup(ctx context.Context, actorID, id uint) (*mode
 		// -- the caller had no way to tell. Wrapping both means a failure here rolls
 		// the restore back too, so "reported failed" and "nothing happened" stay in
 		// sync, matching #2354/#2381's CreateRole fix for the identical class of bug.
-		if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: restoring reinstates the group's roles, so it is grant-shaped:
+		// the group.restored row is written in this same transaction (fail closed).
+		if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.RestoreGroup(ctx, id); err != nil {
 				return err
 			}
 			var gerr error
-			restored, gerr = tx.GetGroup(ctx, id)
-			return gerr
+			if restored, gerr = tx.GetGroup(ctx, id); gerr != nil {
+				return gerr
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventGroupRestored, actorPtr(actorID), nil, nil, "",
+				c.auditRef(ctx, tx, auditKindGroup, id)+" restored")
+			return nil
 		}); err != nil {
 			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
@@ -222,7 +248,6 @@ func (c *KeyorixCore) RestoreGroup(ctx context.Context, actorID, id uint) (*mode
 	}); err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventGroupRestored, actorPtr(actorID), nil, c.auditRef(ctx, c.storage, auditKindGroup, id)+" restored")
 	return restored, nil
 }
 
@@ -382,11 +407,14 @@ func (c *KeyorixCore) RemoveUserFromGroup(ctx context.Context, actorID, userID, 
 		if err := c.guardLastProjectAdminGroupMembership(ctx, userID, groupID); err != nil {
 			return err
 		}
-		if err := c.storage.RemoveUserFromGroup(ctx, userID, groupID, projectID); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-		}
-		c.LogGroupMemberRemoved(ctx, actorID, userID, groupID)
-		return nil
+		// AUDIT-TX-3: a revocation: never blocked by the audit log, row owed.
+		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			if err := tx.RemoveUserFromGroup(ctx, userID, groupID, projectID); err != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			}
+			c.logGroupMemberChangeOn(ctx, tgt, EventGroupMemberRemoved, "removed from group", actorID, userID, groupID)
+			return nil
+		})
 	})
 }
 

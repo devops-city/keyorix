@@ -108,13 +108,19 @@ func (c *KeyorixCore) writeShareAuditOn(ctx context.Context, tgt auditTarget, ev
 
 // LogShareRevoked logs a share revocation event
 func (c *KeyorixCore) LogShareRevoked(ctx context.Context, auditCtx *ShareAuditContext) {
+	c.logShareRevokedOn(ctx, c.auditNow(), auditCtx)
+}
+
+// logShareRevokedOn is LogShareRevoked against an explicit audit target
+// (AUDIT-TX-3: the revocation's row is owed from the revocation's transaction).
+func (c *KeyorixCore) logShareRevokedOn(ctx context.Context, tgt auditTarget, auditCtx *ShareAuditContext) {
 	recipientType := "user"
 	if auditCtx.IsGroup {
 		recipientType = "group"
 	}
 
-	desc := fmt.Sprintf("Revoked share of %s for %s%s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, recipientType, auditCtx.RecipientID), shareRef(auditCtx))
-	c.writeAuditEvent(ctx, string(ShareAuditEventRevoked), &auditCtx.ActorID, &auditCtx.SecretID, desc)
+	desc := fmt.Sprintf("Revoked share of %s for %s%s", c.auditRef(ctx, tgt.st, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, tgt.st, recipientType, auditCtx.RecipientID), shareRef(auditCtx))
+	c.writeAuditEventFullOn(ctx, tgt, string(ShareAuditEventRevoked), &auditCtx.ActorID, &auditCtx.SecretID, nil, "", desc)
 }
 
 // LogGroupShareCreated logs a group share creation event
@@ -129,12 +135,20 @@ func (c *KeyorixCore) LogGroupShareUpdated(ctx context.Context, auditCtx *ShareA
 
 // LogGroupShareRevoked logs a group share revocation event
 func (c *KeyorixCore) LogGroupShareRevoked(ctx context.Context, auditCtx *ShareAuditContext) {
-	desc := fmt.Sprintf("Revoked group share of %s for %s%s", c.auditRef(ctx, c.storage, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, c.storage, auditKindGroup, auditCtx.RecipientID), shareRef(auditCtx))
-	c.writeAuditEvent(ctx, string(ShareAuditEventGroupRevoked), &auditCtx.ActorID, &auditCtx.SecretID, desc)
+	c.logGroupShareRevokedOn(ctx, c.auditNow(), auditCtx)
+}
+
+func (c *KeyorixCore) logGroupShareRevokedOn(ctx context.Context, tgt auditTarget, auditCtx *ShareAuditContext) {
+	desc := fmt.Sprintf("Revoked group share of %s for %s%s", c.auditRef(ctx, tgt.st, auditKindSecret, auditCtx.SecretID), c.auditRef(ctx, tgt.st, auditKindGroup, auditCtx.RecipientID), shareRef(auditCtx))
+	c.writeAuditEventFullOn(ctx, tgt, string(ShareAuditEventGroupRevoked), &auditCtx.ActorID, &auditCtx.SecretID, nil, "", desc)
 }
 
 // LogSelfRemovalFromShare logs when a user removes themselves from a shared secret
 func (c *KeyorixCore) LogSelfRemovalFromShare(ctx context.Context, auditCtx *ShareAuditContext) {
+	c.logSelfRemovalFromShareOn(ctx, c.auditNow(), auditCtx)
+}
+
+func (c *KeyorixCore) logSelfRemovalFromShareOn(ctx context.Context, tgt auditTarget, auditCtx *ShareAuditContext) {
 	desc := fmt.Sprintf("User removed themselves from shared secret (permission: %s)%s", auditCtx.Permission, shareRef(auditCtx))
-	c.writeAuditEvent(ctx, string(ShareAuditEventSelfRemoved), &auditCtx.ActorID, &auditCtx.SecretID, desc)
+	c.writeAuditEventFullOn(ctx, tgt, string(ShareAuditEventSelfRemoved), &auditCtx.ActorID, &auditCtx.SecretID, nil, "", desc)
 }

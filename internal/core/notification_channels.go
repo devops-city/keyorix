@@ -223,7 +223,10 @@ func (c *KeyorixCore) CreateNotificationChannel(ctx context.Context, ch *models.
 	// TestAtomicityGuard_UnclassifiedMultiWriteFunction (INV-CORE-35): the
 	// guard is satisfied for the real reason now, not by splitting the count
 	// across two function bodies.
-	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	//
+	// AUDIT-TX-3: the channel and its audit row commit together (fail closed): an
+	// alert-delivery channel is never created unrecorded.
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		if terr := tx.CreateNotificationChannel(ctx, ch); terr != nil {
 			return terr
 		}
@@ -236,14 +239,16 @@ func (c *KeyorixCore) CreateNotificationChannel(ctx context.Context, ch *models.
 		if terr := tx.UpdateNotificationChannel(ctx, ch); terr != nil {
 			return fmt.Errorf("failed to persist encrypted notification channel URL: %w", terr)
 		}
+		// redactedNotificationChannelForAudit never carries the URL, so ch.URL being
+		// the plaintext (restored below) or not is irrelevant to the row.
+		c.writeConfigChangeAuditEventOn(ctx, tgt, EventNotificationChannelCreated, actorID,
+			fmt.Sprintf("notification channel %d (%q, type=%s) created by %s", ch.ID, ch.Name, ch.Type, createdBy),
+			nil, redactedNotificationChannelForAudit(ch))
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	ch.URL = plainURL
-	c.writeConfigChangeAuditEvent(ctx, EventNotificationChannelCreated, actorID,
-		fmt.Sprintf("notification channel %d (%q, type=%s) created by %s", ch.ID, ch.Name, ch.Type, createdBy),
-		nil, redactedNotificationChannelForAudit(ch))
 	return ch, nil
 }
 
@@ -305,12 +310,19 @@ func (c *KeyorixCore) UpdateNotificationChannel(ctx context.Context, id uint, up
 		ch.URLMeta = urlMeta
 	}
 	ch.UpdatedAt = time.Now().UTC()
-	if err := c.storage.UpdateNotificationChannel(ctx, ch); err != nil {
+	// AUDIT-TX-3: the update and its audit row commit together (fail closed): an
+	// alert channel is never repointed or disabled unrecorded.
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.UpdateNotificationChannel(ctx, ch); err != nil {
+			return err
+		}
+		c.writeConfigChangeAuditEventOn(ctx, tgt, EventNotificationChannelUpdated, actorID,
+			fmt.Sprintf("notification channel %d (%q) updated", id, ch.Name),
+			redactedNotificationChannelForAudit(&before), redactedNotificationChannelForAudit(ch))
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	c.writeConfigChangeAuditEvent(ctx, EventNotificationChannelUpdated, actorID,
-		fmt.Sprintf("notification channel %d (%q) updated", id, ch.Name),
-		redactedNotificationChannelForAudit(&before), redactedNotificationChannelForAudit(ch))
 	return ch, nil
 }
 
@@ -322,13 +334,17 @@ func (c *KeyorixCore) DeleteNotificationChannel(ctx context.Context, id uint, ac
 	if err != nil {
 		return err
 	}
-	if err := c.storage.DeleteNotificationChannel(ctx, id); err != nil {
-		return err
-	}
-	c.writeConfigChangeAuditEvent(ctx, EventNotificationChannelDeleted, actorID,
-		fmt.Sprintf("notification channel %d (%q, type=%s) deleted", id, ch.Name, ch.Type),
-		redactedNotificationChannelForAudit(ch), nil)
-	return nil
+	// AUDIT-TX-3: the delete and its audit row commit together (fail closed):
+	// deleting the channel is the most complete way to silence alert delivery.
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteNotificationChannel(ctx, id); err != nil {
+			return err
+		}
+		c.writeConfigChangeAuditEventOn(ctx, tgt, EventNotificationChannelDeleted, actorID,
+			fmt.Sprintf("notification channel %d (%q, type=%s) deleted", id, ch.Name, ch.Type),
+			redactedNotificationChannelForAudit(ch), nil)
+		return nil
+	})
 }
 
 // ElidedChannelURLSuffix ends the display form of a channel URL returned by
