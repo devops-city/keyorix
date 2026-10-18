@@ -102,7 +102,7 @@ func TestAuditInsertCheck_PendingHeadMismatchRaises(t *testing.T) {
 	headHash := first[2].event.EntryHash
 
 	for name, hash := range map[string]string{
-		"unknown hash":    strings.Repeat("ab", 32),
+		"unknown hash":     strings.Repeat("ab", 32),
 		"older row's hash": middleHash,
 	} {
 		batch := buildMultiRowBatch(4, "mismatch "+name)
@@ -161,6 +161,7 @@ func TestPipelinedBatches_PostgresConcurrentReadersChainInOrder(t *testing.T) {
 		t.Error(err)
 	}
 	assert.Positive(t, ls.auditHead.pipelinedSends.Load()-before, "no batch was sent while another was in flight: the pipeline was not exercised")
+	t.Logf("DIAG pipelined=%d oneFlightCommits=%d misses=%d", ls.auditHead.pipelinedSends.Load()-before, ls.auditHead.oneFlightCommits.Load(), ls.auditHead.oneFlightMisses.Load())
 	requireChainValid(t, ls, nil, armed+workers*each)
 	_, logs := loadAuditRows(t, ls)
 	assert.Len(t, logs, workers*each)
@@ -203,6 +204,58 @@ func submitAsync(ls *LocalStorage, desc string) <-chan error {
 	return ch
 }
 
+// queueBehind arranges that, right after ls's flusher sends the batch carrying
+// the event described marker, the events descs are queued so they make up the
+// next batch, sent while that one is in flight. It returns their result
+// channels.
+func queueBehind(t *testing.T, ls *LocalStorage, marker string, descs ...string) []<-chan error {
+	t.Helper()
+	results := make([]chan error, len(descs))
+	for i := range results {
+		results[i] = make(chan error, 1)
+	}
+	var once sync.Once
+	auditPipelineAfterSendHook = func(sent *LocalStorage, batch []*auditBatchItem) {
+		if sent != ls || batch[0].event.Description != marker {
+			return
+		}
+		once.Do(func() {
+			for i, desc := range descs {
+				go func() { results[i] <- ls.LogAuditEvent(context.Background(), pipelinedEvent(desc)) }()
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for len(ls.auditFlusher.queue) < len(descs) && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+	t.Cleanup(func() { auditPipelineAfterSendHook = nil })
+	out := make([]<-chan error, len(results))
+	for i, ch := range results {
+		out[i] = ch
+	}
+	return out
+}
+
+// primePipeline commits a one-item batch and then a batch of k behind it
+// through the pipeline, so both sizes' statements are prepared on the
+// flusher's held connection, and returns the number of rows written. A batch
+// whose statements are new is sent only after the batches in flight are read.
+func primePipeline(t *testing.T, ls *LocalStorage, k int) int {
+	t.Helper()
+	descs := make([]string, k)
+	for i := range descs {
+		descs[i] = fmt.Sprintf("prime %d", i)
+	}
+	next := queueBehind(t, ls, "prime", descs...)
+	require.NoError(t, <-submitAsync(ls, "prime"))
+	for _, ch := range next {
+		require.NoError(t, <-ch)
+	}
+	auditPipelineAfterSendHook = nil
+	return 1 + k
+}
+
 // waitPipelinedSend waits until ls has sent one more batch chained onto a
 // pending head than before.
 func waitPipelinedSend(t *testing.T, ls *LocalStorage, before int64) {
@@ -222,14 +275,11 @@ func TestPipelinedBatches_PostgresBatchFailsWhileNextInFlight(t *testing.T) {
 	ls := multiRowPGStore(t)
 	slowPoisonTriggers(t, ls, 300*time.Millisecond)
 	armed := armForPipeline(t, ls, "fail")
+	armed += primePipeline(t, ls, 5)
 	sends, misses := ls.auditHead.pipelinedSends.Load(), ls.auditHead.oneFlightMisses.Load()
 
-	poisoned := submitAsync(ls, "SLOW-POISON") // batch N
-	waitForSleepingAppend(t, ls)
-	next := make([]<-chan error, 5) // batch N+1, sent while N sleeps
-	for i := range next {
-		next[i] = submitAsync(ls, fmt.Sprintf("after poison %d", i))
-	}
+	next := queueBehind(t, ls, "SLOW-POISON", "after poison 0", "after poison 1", "after poison 2", "after poison 3", "after poison 4") // batch N+1
+	poisoned := submitAsync(ls, "SLOW-POISON")                                                                                          // batch N
 	waitPipelinedSend(t, ls, sends)
 
 	err := <-poisoned
@@ -254,15 +304,13 @@ func TestPipelinedBatches_PostgresBackendDiesWhileNextInFlight(t *testing.T) {
 	ls := multiRowPGStore(t)
 	slowPoisonTriggers(t, ls, 500*time.Millisecond)
 	armed := armForPipeline(t, ls, "kill")
+	armed += primePipeline(t, ls, 4)
 	sends, misses := ls.auditHead.pipelinedSends.Load(), ls.auditHead.oneFlightMisses.Load()
 
-	slow := submitAsync(ls, "SLOW") // batch N
-	pid := waitForSleepingAppend(t, ls)
-	next := make([]<-chan error, 4)
-	for i := range next {
-		next[i] = submitAsync(ls, fmt.Sprintf("after kill %d", i))
-	}
+	next := queueBehind(t, ls, "SLOW", "after kill 0", "after kill 1", "after kill 2", "after kill 3") // batch N+1
+	slow := submitAsync(ls, "SLOW")                                                                    // batch N
 	waitPipelinedSend(t, ls, sends)
+	pid := waitForSleepingAppend(t, ls)
 	var killed bool
 	require.NoError(t, ls.db.Raw("SELECT pg_terminate_backend(?)", pid).Scan(&killed).Error)
 	require.True(t, killed)
@@ -327,14 +375,11 @@ BEGIN
 END $$ LANGUAGE plpgsql`).Error)
 	require.NoError(t, plain.db.Exec(`CREATE TRIGGER kx_lost_row BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION kx_lost_row()`).Error)
 	armed := armForPipeline(t, ls, "lost")
+	armed += primePipeline(t, ls, 4)
 	sends := ls.auditHead.pipelinedSends.Load()
 
-	lost := submitAsync(ls, "LOST-CONN") // batch N
-	waitForSleepingAppend(t, ls)
-	next := make([]<-chan error, 4)
-	for i := range next {
-		next[i] = submitAsync(ls, fmt.Sprintf("after lost %d", i))
-	}
+	next := queueBehind(t, ls, "LOST-CONN", "after lost 0", "after lost 1", "after lost 2", "after lost 3") // batch N+1
+	lost := submitAsync(ls, "LOST-CONN")                                                                    // batch N
 	waitPipelinedSend(t, ls, sends)
 
 	require.Error(t, <-lost, "a batch whose outcome is unknown must fail its reader")

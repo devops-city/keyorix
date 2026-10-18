@@ -545,41 +545,53 @@ func (ls *LocalStorage) submitAuditBatchItem(item *auditBatchItem) error {
 // total order on concurrent arrivals, not a claim about real-world causal
 // order, which neither design ever provided).
 //
-// On Postgres, up to auditPipelineDepth batches are in flight at once
-// (commitFlusherBatch, local_audit_chain_pipelined_batches.go); their results
-// still reach their items in batch order, each only after its own COMMIT. The
-// idle exit waits for them first, so a run never ends with a batch in flight.
+// On Postgres, up to auditPipelineDepth batches are in flight at once on one
+// connection (commitFlusherBatch, local_audit_chain_pipelined_batches.go);
+// their results still reach their items in batch order, each only after its
+// own COMMIT. While a batch is in flight and nothing new is queued, the
+// flusher reads that batch's result instead of waiting for items, and the
+// idle exit ends the run first, so no batch's readers wait on the flusher.
 func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 	pipe := ls.newAuditBatchPipeline()
 	for {
 		var batch []*auditBatchItem
-		select {
-		case item := <-af.queue:
-			batch = append(batch, item)
-		case <-time.After(auditFlusherIdleTimeout):
-			pipe.drain()
-			af.mu.Lock()
-			// Re-check for a race: a submitter's queue<-item may have
-			// succeeded between this timeout firing and acquiring af.mu.
-			// A submitter reads af.queue and releases af.mu BEFORE it sends,
-			// so an empty queue alone does not mean nobody is about to send:
-			// exiting then left that send in a channel nobody read (the next
-			// submission makes a new one), and its caller waited out its audit
-			// deadline and failed closed (PERF-LOWCONC-1). Exit only when no
-			// submission is registered (pending, raised under af.mu before the
-			// send); otherwise keep waiting for it.
+		if pipe.inFlight() {
 			select {
 			case item := <-af.queue:
 				batch = append(batch, item)
-				af.mu.Unlock()
 			default:
-				if af.pending == 0 {
-					af.running = false
-					af.mu.Unlock()
-					return
-				}
-				af.mu.Unlock()
+				pipe.completeOldest()
 				continue
+			}
+		} else {
+			select {
+			case item := <-af.queue:
+				batch = append(batch, item)
+			case <-time.After(auditFlusherIdleTimeout):
+				pipe.shutdown()
+				af.mu.Lock()
+				// Re-check for a race: a submitter's queue<-item may have
+				// succeeded between this timeout firing and acquiring af.mu.
+				// A submitter reads af.queue and releases af.mu BEFORE it sends,
+				// so an empty queue alone does not mean nobody is about to send:
+				// exiting then left that send in a channel nobody read (the next
+				// submission makes a new one), and its caller waited out its audit
+				// deadline and failed closed (PERF-LOWCONC-1). Exit only when no
+				// submission is registered (pending, raised under af.mu before the
+				// send); otherwise keep waiting for it.
+				select {
+				case item := <-af.queue:
+					batch = append(batch, item)
+					af.mu.Unlock()
+				default:
+					if af.pending == 0 {
+						af.running = false
+						af.mu.Unlock()
+						return
+					}
+					af.mu.Unlock()
+					continue
+				}
 			}
 		}
 		// Linger (SESSION-PERF, #2403/#2420 follow-up, coordinator-requested

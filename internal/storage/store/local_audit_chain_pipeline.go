@@ -128,7 +128,14 @@ func (ls *LocalStorage) commitBatchTwoFlightsUnder(ctx context.Context, epoch ui
 // The connection goes back to the pool idle, or closed (and so discarded by
 // database/sql) when it cannot be brought back to idle; it never goes back
 // inside a transaction.
+//
+// While the flusher holds a connection (auditHeldConn) that one is used: the
+// only callers are on the flusher goroutine, outside a pipelined run.
 func (ls *LocalStorage) withAuditPipelineConn(ctx context.Context, fn func(*pgx.Conn) error) error {
+	if pc := ls.auditHeldConn.Load(); pc != nil && !pc.IsClosed() {
+		defer leaveAuditConnIdle(pc)
+		return fn(pc)
+	}
 	sqlDB, ok := ls.db.Statement.ConnPool.(*sql.DB)
 	if !ok {
 		return errAuditPipelineUnavailable
@@ -265,6 +272,13 @@ func (f *auditFlight) queue(sql string, vars ...any) {
 func (f *auditFlight) send(pc *pgx.Conn) {
 	f.begin = time.Now()
 	f.br = pc.SendBatch(f.ctx, &f.batch)
+}
+
+// attach makes br the source of the flight's results: a run's pipeline
+// (local_audit_chain_pipelined_batches.go) sends the statements itself.
+func (f *auditFlight) attach(br pgx.BatchResults) {
+	f.begin = time.Now()
+	f.br = br
 }
 
 // done traces the next statement's outcome and passes err through.
