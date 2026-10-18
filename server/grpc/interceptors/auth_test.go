@@ -41,9 +41,24 @@ func bearerCtx(token string) context.Context {
 // which the base helper does not include but the auth path requires.
 func setupAuthHelper(t *testing.T) *testhelper.RBACTestHelper {
 	t.Helper()
+	isolateGRPCAuthFailureLimiter(t)
 	h := testhelper.NewRBACTestHelper(t)
 	require.NoError(t, h.DB.AutoMigrate(&models.Session{}))
 	return h
+}
+
+// isolateGRPCAuthFailureLimiter gives the test its own per-IP failed-auth
+// limiter (the production one is process state keyed by peer IP, so every
+// failed-auth test in the package, and every -count repeat, drains the same
+// bucket). The production limiter and its budget are untouched; the package
+// var is restored on cleanup. Tests here do not run in parallel.
+func isolateGRPCAuthFailureLimiter(t *testing.T) {
+	t.Helper()
+	prev := globalGRPCTokenAuthFailureLimiter
+	globalGRPCTokenAuthFailureLimiter = &grpcIPFailureLimiter{
+		limiters: make(map[string]*grpcPrincipalBucket),
+	}
+	t.Cleanup(func() { globalGRPCTokenAuthFailureLimiter = prev })
 }
 
 // mintSessionForTest inserts a user and a session token directly via storage and
