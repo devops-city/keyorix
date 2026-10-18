@@ -6611,6 +6611,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     revokeSession: {
@@ -6654,6 +6655,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     createPAT: {
@@ -6723,6 +6725,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     bulkRevokeExpiredPATs: {
@@ -6741,6 +6744,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     patHygiene: {
@@ -7002,6 +7006,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     getSystemInfo: {
@@ -11420,6 +11425,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
