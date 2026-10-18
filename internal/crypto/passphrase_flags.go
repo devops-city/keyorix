@@ -29,7 +29,7 @@ func RegisterPassphraseFlags(fs *pflag.FlagSet, src *PassphraseSource, prefix, h
 	fs.Var(&passphraseFDValue{dest: &src.FD, set: &src.FDSet}, fdFlag,
 		"Read the "+human+" from this already-open file descriptor")
 	fs.StringVar(&src.FilePath, fileFlag, "",
-		"Read the "+human+" from this file (refused if group- or world-readable)")
+		"Read the "+human+" from this file (refused if group- or world-readable, or owned by anyone but you or root)")
 	fs.BoolVar(&src.Stdin, stdinFlag, false,
 		"Read the "+human+" from stdin")
 	return fdFlag, fileFlag, stdinFlag

@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,7 +152,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 			return nil
 		})
 	flag.StringVar(&masterPassphraseSource.FilePath, "passphrase-file", "",
-		"Read the master passphrase from this file (refused if group- or world-readable)")
+		"Read the master passphrase from this file (refused if group- or world-readable, or owned by anyone but you or root)")
 	flag.BoolVar(&masterPassphraseSource.Stdin, "passphrase-stdin", false,
 		"Read the master passphrase from stdin")
 	flag.Parse()
@@ -186,7 +187,9 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// Before this point (config load/validation failures) lines are plain text. Must
 	// precede NewRouter: the access logger picks its formatter when the router is built.
 	if err := logging.Setup(cfg.Server.Log.EffectiveFormat(), os.Stderr); err != nil {
-		log.Fatalf("Configuration is invalid: %v", err)
+		// cfg.Validate() above already refused an unknown server.log.format, so this is
+		// the logger failing, not the file being invalid (BOOT-REFUSALS-1 item 9).
+		log.Fatalf("Failed to set up logging (server.log.format %q): %v", cfg.Server.Log.EffectiveFormat(), err)
 	}
 
 	// ADR-112 opt-out rule (item 2): a deprecated alias (an old key renamed to its
@@ -583,7 +586,12 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 		}
 	}
 	if err := svc.Initialize(passphrase); err != nil {
-		return nil, fmt.Errorf("failed to initialize encryption (KEK derivation): %w", err)
+		if providerType == "" || providerType == "password" {
+			// Name the source (BOOT-REFUSALS-1 item 7): with several ways to pass the
+			// passphrase, "wrong passphrase" alone does not say which one was read.
+			return nil, fmt.Errorf("KEK derivation from the master passphrase read from %s failed: %w", masterPassphraseSource.Describe("KEYORIX_MASTER_PASSWORD"), err)
+		}
+		return nil, fmt.Errorf("KEK from key provider %q failed: %w", providerType, err)
 	}
 
 	kekSource := providerType
@@ -2260,9 +2268,12 @@ func runStartupValidation(cfg *config.Config) error {
 
 // enforceKeyFilePermissions refuses to start (or, by default, loudly warns) when sensitive
 // key material on disk — the wrapped DEK, the KEK salt, and TLS private keys — is readable
-// by group or other. Key writes are already 0600, but a file restored from a backup with a
-// bad umask, or one left 0644 by an operator, would otherwise expose the wrapped DEK / TLS
-// key to any local user with no signal. Fails closed only when
+// by group or other, or is owned by anyone but the server's own uid or root (#3410: the
+// owner can replace the file whatever its mode; the rule is secretenv.CheckOwner's, the one
+// the KEYORIX_*_FILE secrets follow). Key writes are already 0600, but a file restored from a
+// backup with a bad umask, or one left 0644 by an operator, would otherwise expose the wrapped
+// DEK / TLS key to any local user with no signal. A wrong owner follows the same
+// warn-or-refuse matrix as a wrong mode. Fails closed only when
 // security.enable_file_permission_check is set (and not overridden by
 // insecure_allow_unsafe_file_permissions); otherwise it warns. A not-yet-created key file (first
 // boot) is skipped — it is created at 0600.
@@ -2291,27 +2302,29 @@ func enforceKeyFilePermissions(cfg *config.Config) error { // NOSONAR -- cogniti
 		tlsPaths = append(tlsPaths, cfg.Server.GRPC.TLS.KeyFile)
 	}
 
-	insecureKeys := groupOrOtherReadable(keyPaths)
-	insecureTLS := groupOrOtherReadable(tlsPaths)
-	if len(insecureKeys)+len(insecureTLS) == 0 {
+	insecureKeys := untrustedKeyFiles(keyPaths)
+	insecureTLS := untrustedKeyFiles(tlsPaths)
+	if insecureKeys.empty() && insecureTLS.empty() {
 		return nil
 	}
 	sec := cfg.Security
 	if !sec.EnableFilePermissionCheck || sec.AllowUnsafeFilePermissions {
-		msg := fmt.Sprintf("key material is readable beyond its owner: %s", strings.Join(append(insecureKeys, insecureTLS...), ", "))
-		log.Printf("WARNING: %s — restrict to 0600. Set security.enable_file_permission_check to fail closed instead of warning.", msg)
+		log.Printf("WARNING: %s — chmod 600 and chown to the server's user. Set security.enable_file_permission_check to fail closed instead of warning.", insecureKeys.merge(insecureTLS).describe())
 		return nil
 	}
 	if sec.EnableFilePermissionCheckImplicitDefault {
-		for _, f := range insecureTLS {
+		for _, f := range insecureTLS.readable {
 			log.Printf("WARNING: TLS private key %s is readable beyond its owner — chmod 600 it (Kubernetes: mount the Secret with defaultMode 0400), or set security.enable_file_permission_check: true explicitly to refuse to start on this (ADR-112: on the implicit default an orchestrator-mounted TLS key only warns).", f)
 		}
-		insecureTLS = nil
-		if len(insecureKeys) == 0 {
+		for _, f := range insecureTLS.foreign {
+			log.Printf("WARNING: TLS private key %s — chown it to the server's user or to root (Kubernetes Secret volumes are root-owned, which is trusted), or set security.enable_file_permission_check: true explicitly to refuse to start on this (ADR-112: on the implicit default an orchestrator-mounted TLS key only warns).", f)
+		}
+		insecureTLS = keyFileProblems{}
+		if insecureKeys.empty() {
 			return nil
 		}
 	}
-	msg := fmt.Sprintf("key material is readable beyond its owner: %s", strings.Join(append(insecureKeys, insecureTLS...), ", "))
+	msg := insecureKeys.merge(insecureTLS).describe()
 	if sec.EnableFilePermissionCheckUpgradeGrace {
 		// ADR-112 grace period: an upgraded deployment that never explicitly opted into
 		// the check — it's failing closed only because of the new secure default. Don't
@@ -2320,16 +2333,43 @@ func enforceKeyFilePermissions(cfg *config.Config) error { // NOSONAR -- cogniti
 		// exactly how to comply. A fresh install never gets here (see
 		// adr112UpgradeGraceEligible).
 		adr112GraceSoftened.Store(true)
-		log.Printf("WARNING: %s — this now fails closed by default (ADR-112); set to warn-only, which is what the pre-upgrade behavior was, with security.insecure_allow_unsafe_file_permissions, or (preferred) chmod the files to 0600 and set security.enable_file_permission_check: true explicitly once compliant.", msg)
+		log.Printf("WARNING: %s — this now fails closed by default (ADR-112); set to warn-only, which is what the pre-upgrade behavior was, with security.insecure_allow_unsafe_file_permissions, or (preferred) chmod the files to 0600, chown them to the server's user, and set security.enable_file_permission_check: true explicitly once compliant.", msg)
 		return nil
 	}
-	return fmt.Errorf("%s — refusing to start (chmod to 0600, or set security.insecure_allow_unsafe_file_permissions to override)", msg)
+	return fmt.Errorf("%s — refusing to start (chmod 600 and chown the files to the server's user, or set security.insecure_allow_unsafe_file_permissions to override)", msg)
 }
 
-// groupOrOtherReadable returns "path (mode NNN)" for every existing path whose mode grants
-// any group or other bit. Empty and absent paths are skipped.
-func groupOrOtherReadable(paths []string) []string {
-	var out []string
+// keyFileProblems is what untrustedKeyFiles found: files readable beyond their owner
+// ("path (mode NNN)") and files owned by an account the server does not trust
+// ("path (owned by uid N, ...)").
+type keyFileProblems struct {
+	readable, foreign []string
+}
+
+func (k keyFileProblems) empty() bool { return len(k.readable)+len(k.foreign) == 0 }
+
+func (k keyFileProblems) merge(o keyFileProblems) keyFileProblems {
+	return keyFileProblems{readable: append(slices.Clone(k.readable), o.readable...), foreign: append(slices.Clone(k.foreign), o.foreign...)}
+}
+
+// describe is the operator-facing sentence: one clause per kind of problem.
+func (k keyFileProblems) describe() string {
+	var parts []string
+	if len(k.readable) > 0 {
+		parts = append(parts, "key material is readable beyond its owner: "+strings.Join(k.readable, ", "))
+	}
+	if len(k.foreign) > 0 {
+		parts = append(parts, "key material is owned by an account the server does not trust: "+strings.Join(k.foreign, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// untrustedKeyFiles judges every existing path by mode (any group or other bit) and by
+// owner (secretenv.CheckOwner, #3410: the running user or root; any other owner can
+// replace the file whatever its mode). The path is stat'd through symlinks, so a
+// Kubernetes Secret volume's target is what is judged. Empty and absent paths are skipped.
+func untrustedKeyFiles(paths []string) keyFileProblems {
+	var out keyFileProblems
 	for _, p := range paths {
 		if p == "" {
 			continue
@@ -2339,7 +2379,14 @@ func groupOrOtherReadable(paths []string) []string {
 			continue // absent (e.g. created at 0600 on first boot) — nothing to check yet
 		}
 		if info.Mode().Perm()&0o077 != 0 {
-			out = append(out, fmt.Sprintf("%s (mode %o)", p, info.Mode().Perm()))
+			out.readable = append(out.readable, fmt.Sprintf("%s (mode %o)", p, info.Mode().Perm()))
+		}
+		if err := secretenv.CheckOwner(info); err != nil {
+			if foe, ok := errors.AsType[*secretenv.ForeignOwnerError](err); ok {
+				out.foreign = append(out.foreign, fmt.Sprintf("%s (owned by uid %d; the server runs as uid %d and trusts only that uid and root, because the owner can replace the file)", p, foe.UID, foe.ProcessUID))
+			} else {
+				out.foreign = append(out.foreign, fmt.Sprintf("%s (%v)", p, err))
+			}
 		}
 	}
 	return out
@@ -2473,12 +2520,26 @@ func warnHTTPOnlySettingsUnderGRPC(cfg *config.Config) {
 func warnInsecureSettingsInEffect(cfg *config.Config) {
 	for _, s := range config.InsecureSettingsRegistry {
 		if s.InEffect(cfg) {
-			// Name is a stable identifier, not always a key an operator can
-			// set today; SourcePaths are the config keys that actually
-			// control the state, so print them for the operator to act on.
-			log.Printf("WARNING: %s is in effect (%s; config: %s) — %s", s.Name, s.Value(cfg), strings.Join(s.SourcePaths, ", "), s.Describe)
+			log.Print(insecureSettingWarning(s, cfg))
 		}
 	}
+}
+
+// insecureSettingWarning is the start-up line for one registry entry in effect.
+// Name is a stable identifier, not always a key an operator can set today:
+// when it is not one of SourcePaths, the line says so and names the key that
+// actually controls the state (Cause, or the SourcePaths), so nobody writes
+// the registry name into keyorix.yaml and gets an unknown-key error
+// (BOOT-REFUSALS-1 item 3).
+func insecureSettingWarning(s config.InsecureSetting, cfg *config.Config) string {
+	if slices.Contains(s.SourcePaths, s.Name) {
+		return fmt.Sprintf("WARNING: %s is in effect (%s; config: %s) — %s", s.Name, s.Value(cfg), strings.Join(s.SourcePaths, ", "), s.Describe)
+	}
+	cause := "it follows " + strings.Join(s.SourcePaths, ", ")
+	if s.Cause != nil {
+		cause = s.Cause(cfg)
+	}
+	return fmt.Sprintf("WARNING: %s is in effect (%s) — %s. That is the setting's registry name, not a config key: %s", s.Name, s.Value(cfg), s.Describe, cause)
 }
 
 // resolveADR112BootPosture applies the ADR-112 upgrade-grace decision and THEN
