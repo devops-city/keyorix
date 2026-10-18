@@ -97,7 +97,11 @@ Rules (all enforced at startup; the server refuses to start rather than guess):
   whatever its mode: that account could swap the master password or KEK. The error
   names the file and the owner uid. Fix it with `chown root:<group> <file>` (keeping
   the group the process reads it through) or `chown <server user> <file>` for a
-  `0600`/`0400` file. There is no list of further trusted owners.
+  `0600`/`0400` file. There is no list of further trusted owners. The same owner
+  rule covers `--passphrase-file`, the file KEK provider (`key_provider: file`), the
+  wrapped DEK, the KEK salt and the TLS private keys (#3410): the first two are
+  refused outright, the others follow `security.enable_file_permission_check`
+  like a too-open mode.
   - **Master password (`KEYORIX_MASTER_PASSWORD_FILE`), key-provider KEK
     (`key_provider.env_var`) and Shamir shares (`shamir_share_env`):** a file that
     breaks the rule is **always refused**, in the server, the CLI and every admin
@@ -1949,6 +1953,11 @@ scim:
 
 > Set `token` only via `KEYORIX_SCIM_TOKEN`. Point your IdP's SCIM connector at
 > `https://<host>/scim/v2` with that token as the bearer credential.
+> Generate it (`openssl rand -base64 32`): the server refuses to start with a token
+> under 20 characters, or one that is obviously not random (a repeated or
+> low-variety value, a placeholder such as `changeme`, or the same value as another
+> configured secret); see
+> [startup-refusals.md](operator/startup-refusals.md#weak-scim-token).
 
 ## sso
 

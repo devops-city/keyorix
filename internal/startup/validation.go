@@ -271,6 +271,11 @@ func SafeFilePermPath(label, path string) (string, error) {
 //     strictly, as before ADR-112.
 func validateFilePermissions(cfg *config.Config, configPath string, forceAutoFix, implicitDefault bool, result *ValidationResult) error { // NOSONAR -- cognitive complexity 27, suppress go:S3776
 	var files []securefiles.FilePermSpec
+	// missingKeys is the key set when every key file is absent under an explicit
+	// setting; dbAbsent is true when there is no local database file (or no local
+	// database at all). Together they are the first-install shape.
+	var missingKeys []securefiles.FilePermSpec
+	dbAbsent := true
 	// mounted holds the orchestrator-mounted inputs (config file, TLS cert/key); they
 	// join files (strict) unless implicitDefault, see the doc comment above.
 	var mounted []mountedInput
@@ -298,9 +303,15 @@ func validateFilePermissions(cfg *config.Config, configPath string, forceAutoFix
 		if err != nil {
 			return err
 		}
-		if implicitDefault && noneExist(specs) {
+		switch {
+		case implicitDefault && noneExist(specs):
 			result.Warnings = append(result.Warnings, "Key material does not exist yet — treating as first boot; its permissions are checked once it is generated")
-		} else {
+		case noneExist(specs):
+			// An explicit true never treats this as first boot (see ValidateStartupTolerant);
+			// the refusal below says so instead of a bare "cannot open" per file.
+			missingKeys = specs
+			files = append(files, specs...)
+		default:
 			files = append(files, specs...)
 		}
 	}
@@ -319,7 +330,8 @@ func validateFilePermissions(cfg *config.Config, configPath string, forceAutoFix
 			if err != nil {
 				return err
 			}
-			if implicitDefault && noneExist([]securefiles.FilePermSpec{{Path: dbPath}}) {
+			dbAbsent = noneExist([]securefiles.FilePermSpec{{Path: dbPath}})
+			if implicitDefault && dbAbsent {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("Database file %s does not exist yet — treating as first boot; it is created at 0600", dbPath))
 			} else {
 				files = append(files, securefiles.FilePermSpec{
@@ -359,6 +371,10 @@ func validateFilePermissions(cfg *config.Config, configPath string, forceAutoFix
 		)
 	}
 
+	if missingKeys != nil && dbAbsent {
+		return explicitFirstBootRefusal(missingKeys, !cfg.Security.EnableFilePermissionCheckImplicitDefault)
+	}
+
 	autoFix := cfg.Security.AutoFixFilePermissions || forceAutoFix
 	for _, m := range mounted {
 		if !implicitDefault {
@@ -370,7 +386,12 @@ func validateFilePermissions(cfg *config.Config, configPath string, forceAutoFix
 		}
 	}
 	if err := securefiles.FixFilePerms(files, autoFix); err != nil {
-		return fmt.Errorf("file permission validation failed: %w", err)
+		// No "file permission validation failed:" prefix here: validateStartup adds it
+		// (it used to be printed twice). The error already names each file and problem.
+		if autoFix {
+			return err
+		}
+		return fmt.Errorf("%w -- fix each file named (chmod to the expected mode, chown to the server's user), restore a missing one from backup, or set security.auto_fix_file_permissions: true to fix modes and owners at start", err)
 	}
 
 	if autoFix {
@@ -378,6 +399,26 @@ func validateFilePermissions(cfg *config.Config, configPath string, forceAutoFix
 	}
 
 	return nil
+}
+
+// explicitFirstBootRefusal is the refusal for a strict audit (an explicit
+// security.enable_file_permission_check: true, or `admin validate`) when no key
+// file and no local database exist. It still refuses (a key volume that failed
+// to mount looks exactly like this, and starting with the explicit setting must
+// not be talked into generating new keys over encrypted data), but it says what
+// the state is and what to do in each case (BOOT-REFUSALS-1 item 2).
+func explicitFirstBootRefusal(specs []securefiles.FilePermSpec, explicit bool) error {
+	paths := make([]string, 0, len(specs))
+	for _, sp := range specs {
+		paths = append(paths, sp.Path)
+	}
+	if !explicit {
+		return fmt.Errorf("no key material exists (%s) and there is no local database: this looks like a brand-new install that has not started yet (the server generates the keys on its first start); "+
+			"if this install already holds data, mount or restore the key files (all of them, from one backup) before starting it", strings.Join(paths, ", "))
+	}
+	return fmt.Errorf("no key material exists (%s) and there is no local database: security.enable_file_permission_check is set explicitly, and an explicit setting never treats missing key material as a first boot, because a key volume that failed to mount looks the same and starting would generate new keys over encrypted data. "+
+		"On a brand-new install, remove security.enable_file_permission_check from the config for the first start (the default runs the same checks and generates the keys), then set it again; "+
+		"on an existing install, mount or restore the key files (all of them, from one backup)", strings.Join(paths, ", "))
 }
 
 // mountedInput is a file an orchestrator typically provides read-only (config, TLS).
