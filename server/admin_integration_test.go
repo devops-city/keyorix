@@ -35,9 +35,22 @@ import (
 
 var (
 	sharedServerBinOnce sync.Once
+	sharedServerBinDir  string
 	sharedServerBinPath string
 	sharedServerBinErr  error
 )
+
+// TestMain removes the shared server-binary build directory once every test in
+// the package has finished. t.TempDir is per-test, so it cannot own a binary
+// built once for the whole run; without this the ~99 MB build dir leaked into
+// $TMPDIR on every run of this package (TEST-TMP-LEAK-1).
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if sharedServerBinDir != "" {
+		_ = os.RemoveAll(sharedServerBinDir)
+	}
+	os.Exit(code)
+}
 
 // buildServerBinary compiles the real keyorix-server binary once for the
 // whole test binary run (not once per test function -- every subprocess
@@ -52,6 +65,7 @@ func buildServerBinary(t *testing.T) string {
 			sharedServerBinErr = err
 			return
 		}
+		sharedServerBinDir = dir // removed by TestMain, also when the build below fails
 		binPath := filepath.Join(dir, "keyorix-server")
 		repoRoot := findServerRepoRoot(t)
 		cmd := exec.Command("go", "build", "-o", binPath, "./server")

@@ -133,8 +133,14 @@ func newPATGuardWorld(t *testing.T) *patGuardWorld {
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
 	t.Cleanup(i18n.ResetForTesting)
+	return newPATGuardWorldOn(t, newFullSchemaTestCore(t))
+}
 
-	cs := newFullSchemaTestCore(t)
+// newPATGuardWorldOn builds the canary world over a caller-supplied core, so a
+// sweep can run on a backend other than in-memory SQLite (zero_grant_read_family_test.go
+// runs it on Postgres too). The caller has initialised i18n.
+func newPATGuardWorldOn(t *testing.T, cs *core.KeyorixCore) *patGuardWorld {
+	t.Helper()
 	router, err := NewRouter(&config.Config{}, cs)
 	require.NoError(t, err)
 	server := httptest.NewServer(router)

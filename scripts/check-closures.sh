@@ -186,7 +186,12 @@ for pkg in $(awk -F'\t' '$4=="default-ci" || $4=="pg-gated" {print $2}' <<<"$row
         # failure in this step (2026-09-23, #2016/#2021/#2022).
         { grep -nE -- '--- FAIL|^FAIL|panic:|_test\.go:[0-9]+: ' <<<"$out" | head -60
           echo "      ... last 40 lines:"; tail -n 40 <<<"$out"; } | sed 's/^/      /'
-        continue
+        # No `continue`: a package that exits non-zero still ran its tests, and
+        # `go test -v` printed a verdict line for each one that got to run. Fall
+        # through so every row of this package gets its own verdict below; the
+        # one that failed is reported as failed, the others as ok. Skipping the
+        # loop hid the `ok` line of every healthy row sharing the package
+        # (seen on ./internal/storage/store).
     fi
     while IFS= read -r test; do
         [ -z "$test" ] && continue
@@ -199,6 +204,8 @@ for pkg in $(awk -F'\t' '$4=="default-ci" || $4=="pg-gated" {print $2}' <<<"$row
         verification=$(awk -F'\t' -v p="$pkg" -v t="$test" '$2==p && $3==t {if ($4 != "pg-gated") v = $4; else if (v == "") v = $4} END {print v}' <<<"$rows")
         if grep -qE "^--- PASS: ${test}([[:space:]]|$)" <<<"$out"; then
             note "ok   $claim -> $test ($verification)"
+        elif grep -qE "^--- FAIL: ${test}([[:space:]]|$)" <<<"$out"; then
+            die "$claim: proving test $test FAILED."
         elif grep -qE "^--- SKIP: ${test}([[:space:]]|$)" <<<"$out"; then
             if [ "$verification" = "pg-gated" ] && [ "$pg_available" = false ]; then
                 gated_skips=$((gated_skips + 1))
@@ -223,6 +230,11 @@ for pkg in $(awk -F'\t' '$4=="default-ci" || $4=="pg-gated" {print $2}' <<<"$row
             die "$claim: proving test $test DOES NOT EXIST (go test matched nothing, exited 0)."
             note "     The false-green case: a renamed, deleted or never-written test"
             note "     still reports success."
+        elif [ "$rc" -ne 0 ]; then
+            # The package run failed (see its failure lines above) and this test
+            # never got a verdict: a build error, or a panic that killed the binary
+            # before it ran. Say so per row instead of repeating the log.
+            die "$claim: proving test $test has no verdict: $pkg's go test exited $rc before it ran."
         else
             die "$claim: proving test $test produced no PASS line and no recognised failure."
             sed -n '1,20p' <<<"$out" | sed 's/^/      /'
@@ -240,7 +252,7 @@ if [ "${1:-}" = "--self-test" ]; then
         # $5..=optional fragment files, each "name.tsv=<content>" — written into a
         #      fresh CLOSURE_LEDGER_D. Always a fresh dir, so the real fragment
         #      directory a wrapper (check-adr-conformance.sh) exported never leaks in.
-        local desc="$1" expect="$2" body="$3" dsn="$4" out rc
+        local desc="$1" expect="$2" body="$3" dsn="$4" out rc want
         shift 4
         local tmp; tmp=$(mktemp)
         local tmpd; tmpd=$(mktemp -d)
@@ -260,6 +272,18 @@ if [ "${1:-}" = "--self-test" ]; then
         rc=$?
         set -e
         rm -rf "$tmp" "$tmpd"
+        # Optional: WANT_OUT="<line>\n<line>" (set on the call, e.g.
+        # `WANT_OUT=... run_case ...`) names substrings the sub-invocation's
+        # output MUST contain, one per line -- for cases whose point is WHAT is
+        # reported, not only whether the run is rejected.
+        while IFS= read -r want; do
+            [ -z "$want" ] && continue
+            if ! grep -qF -- "$want" <<<"$out"; then
+                echo "FAIL: self-test case '$desc' output lacks the required line: $want" >&2
+                sed -n '1,40p' <<<"$out" | sed 's/^/      /' >&2
+                selffail=1
+            fi
+        done <<<"${WANT_OUT:-}"
         if [ "$expect" = "reject" ] && [ "$rc" -eq 0 ]; then
             echo "FAIL: self-test case '$desc' PASSED when it must be REJECTED — the checker" >&2
             echo "      cannot detect this bad row and is therefore worthless for it." >&2
@@ -299,6 +323,21 @@ SELF-TEST-3B	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	
     run_case "pg-gated and default-ci rows sharing one skipping test" "reject" \
         'SELF-TEST-3C	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	pg-gated	deadbeef	-	calibration row
 SELF-TEST-3D	./internal/core	TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN	default-ci	deadbeef	-	calibration row (default-ci must not hide behind the gated one)' \
+        ""
+
+    # A failing package must not suppress the per-row verdict of the healthy rows
+    # that share it (seen on ./internal/storage/store). Red: one row's test fails,
+    # the run is rejected, and the OTHER row still prints its own `ok` line while
+    # the failed one is named. Green: both rows pass, both print `ok`.
+    CHECK_CLOSURES_SELFTEST_FAIL=1 \
+    WANT_OUT=$'ok   SELF-TEST-31 -> TestCheckClosuresSelfTestFixture_AlwaysPasses (default-ci)\nSELF-TEST-32: proving test TestCheckClosuresSelfTestFixture_FailsWhenAsked FAILED' \
+    run_case "failing package: the healthy row in the same package still reports ok" "reject" \
+        $'SELF-TEST-31\t./internal/core\tTestCheckClosuresSelfTestFixture_AlwaysPasses\tdefault-ci\tdeadbeef\t-\tcalibration row\nSELF-TEST-32\t./internal/core\tTestCheckClosuresSelfTestFixture_FailsWhenAsked\tdefault-ci\tdeadbeef\t-\tcalibration row' \
+        ""
+
+    WANT_OUT=$'ok   SELF-TEST-33 -> TestCheckClosuresSelfTestFixture_AlwaysPasses (default-ci)\ngated-skip SELF-TEST-34 -> TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN (pg-gated, KEYORIX_TEST_PG_DSN not set in this\nok: 2 closure claim' \
+    run_case "healthy package: every row reports its own verdict line" "accept" \
+        $'SELF-TEST-33\t./internal/core\tTestCheckClosuresSelfTestFixture_AlwaysPasses\tdefault-ci\tdeadbeef\t-\tcalibration row\nSELF-TEST-34\t./internal/core\tTestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN\tpg-gated\tdeadbeef\t-\tcalibration row' \
         ""
 
     run_case "invalid verification value" "reject" \

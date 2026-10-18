@@ -28,11 +28,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/stretchr/testify/require"
 )
@@ -69,8 +70,7 @@ type clockSeamSite struct {
 // file's own location on disk (internal/core), not the test runner's cwd.
 func clockSeamGuardRepoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	require.True(t, ok, "runtime.Caller must resolve this test file's path")
+	thisFile := filepath.Join(srcpath.PkgDir(), "clock_seam_guard_test.go")
 	root, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", ".."))
 	require.NoError(t, err)
 	return root
