@@ -215,6 +215,8 @@ func (c *KeyorixCore) writeLastUsed(ctx context.Context, k lastUsedKey, at time.
 // transaction: one commit per chunk instead of one per key. Replicas flushing
 // overlapping sets lock rows in the same order, so chunks cannot deadlock each
 // other; a failure rolls the whole chunk back.
+//
+// nosemgrep: keyorix-unbounded-bulk-slice-param -- only caller is writeChunk, which passes at most lastUsedWriteChunk entries drawn from the coalescer's own capped map, never caller-supplied input
 func (c *KeyorixCore) writeLastUsedBatch(ctx context.Context, entries []lastUsedEntry) error {
 	return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
 		for _, e := range entries {
