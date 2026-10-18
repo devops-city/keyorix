@@ -36,21 +36,35 @@ confined to this command (and a handful of others) until a real password is set.
 With security.require_mfa on and no second factor yet, that login is a short
 setup session that must also enrol MFA ("keyorix mfa enroll" + "keyorix mfa
 activate", before or after this command); once both are done the session ends
-and the next "keyorix login" asks for a code.`,
+and the next "keyorix login" asks for a code.
+
+Both passwords are read from a hidden prompt. In a script, set KEYORIX_CURRENT_PASSWORD
+and KEYORIX_NEW_PASSWORD (or KEYORIX_CURRENT_PASSWORD_FILE / KEYORIX_NEW_PASSWORD_FILE);
+passwords are never accepted as flags, because argv is visible to other users.`,
 	RunE: runChangePassword,
 }
 
 func init() {
-	changePasswordCmd.Flags().StringVar(&changePasswordCurrent, "current-password", "", "Current password (omit to be prompted)")
-	changePasswordCmd.Flags().StringVar(&changePasswordNew, "new-password", "", "New password (omit to be prompted)")
+	changePasswordCmd.Flags().StringVar(&changePasswordCurrent, "current-password", "", "Current password (refused; set KEYORIX_CURRENT_PASSWORD[_FILE] or omit to be prompted)")
+	changePasswordCmd.Flags().StringVar(&changePasswordNew, "new-password", "", "New password (refused; set KEYORIX_NEW_PASSWORD[_FILE] or omit to be prompted)")
 	rootCmd.AddCommand(changePasswordCmd)
 }
 
 func runChangePassword(cmd *cobra.Command, args []string) error {
 	current := changePasswordCurrent
-	if current != "" {
+	switch {
+	case current != "":
 		warnInsecureFlag(cmd, "current-password", "omit it to be prompted instead.")
-	} else {
+	default:
+		// KEYORIX_CURRENT_PASSWORD[_FILE] is the non-argv, non-TTY path for scripts.
+		v, found, err := lookupSecretEnv("KEYORIX_CURRENT_PASSWORD")
+		if err != nil {
+			return err
+		}
+		if found {
+			current = v
+			break
+		}
 		p, err := promptPassword("Current password: ")
 		if err != nil {
 			return fmt.Errorf("read current password: %w", err)
@@ -59,9 +73,18 @@ func runChangePassword(cmd *cobra.Command, args []string) error {
 	}
 
 	newPassword := changePasswordNew
-	if newPassword != "" {
+	switch {
+	case newPassword != "":
 		warnInsecureFlag(cmd, "new-password", "omit it to be prompted instead.")
-	} else {
+	default:
+		v, found, err := lookupSecretEnv("KEYORIX_NEW_PASSWORD")
+		if err != nil {
+			return err
+		}
+		if found {
+			newPassword = v
+			break
+		}
 		p, err := promptPassword("New password: ")
 		if err != nil {
 			return fmt.Errorf("read new password: %w", err)

@@ -66,7 +66,7 @@ func freshCoreWithFailingLogoutSession(t *testing.T) (*core.KeyorixCore, string)
 		&models.SecretDependency{}, &models.RiskException{},
 		&models.MFASecret{}, &models.MFARecoveryCode{},
 		&models.IdentityProvider{}, &models.ExternalIdentity{},
-		&models.LegalHold{}, &models.ShareRecord{},
+		&models.LegalHold{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.PersonalAccessToken{},
 		&models.ProjectInvitation{}, &models.SchedulerLockLease{},
 		&models.SecretAccessLog{},

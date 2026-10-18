@@ -108,7 +108,7 @@ func TestGetDashboardStats_DegradesOnTruncatedReadableCount(t *testing.T) {
 	seedReadableProject(t, db, 1, "alpha", "a", 9)
 	// The dashboard path needs these tables; readableListingFixture omits them
 	// because the listing path does not touch them.
-	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}, &models.ShareRecord{}))
+	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}))
 
 	c.unionPageSizeOverride = 4
 	stats, err := c.GetDashboardStats(ctx, 1, "reader", 1)

@@ -28,7 +28,7 @@ func sharingConcurrentDB(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.User{}, &models.Group{}, &models.UserGroup{}, &models.SecretNode{}, &models.ShareRecord{},
-		&models.SecretACL{},
+		&models.SecretACL{}, &models.AccessRequest{},
 	))
 	require.NoError(t, db.Exec(
 		"CREATE UNIQUE INDEX IF NOT EXISTS uniq_share_records_active ON share_records (secret_id, recipient_id, is_group) WHERE deleted_at IS NULL",
@@ -553,7 +553,7 @@ func TestCheckSharePermission_SoftDeletedDirectRecipientDeniesAccess(t *testing.
 // ShareRecord in #370).
 func TestDeleteSecret_RevokesSecretACLs(t *testing.T) {
 	db := sharingConcurrentDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretACL{}))
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretACL{}, &models.AccessRequest{}))
 	ls := NewLocalStorage(db)
 	ctx := context.Background()
 

@@ -363,8 +363,9 @@ Carried forward from `security-review-2026-09.md` rather than re-litigated:
   longer hides a revocation; the cost is that a brief database outage rejects
   cached credentials. Still held for up to the cache TTL: an impersonation
   session's admin-ceiling re-check (slow path only, behind its own
-  60s cache) and a federated JWT's own
-  `exp`. See `threat-models/authentication.md` AUTH-1 and AUTH-11.
+  60s cache). A federated JWT's own `exp` is no longer held past expiry
+  (OIDC-EXPIRY-CAP-1): its cache entry ends at `exp` and a token within 5s of
+  expiring is not cached. See `threat-models/authentication.md` AUTH-1 and AUTH-11.
 - **CLI local mode bypasses API-layer authorization, audit, and rate
   limiting** (§5.2) — the largest open item in this document, with a shipped
   ADR (108) and a program not yet complete.

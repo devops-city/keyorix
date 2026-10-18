@@ -48,7 +48,7 @@ func newSecretTestRig(t *testing.T) *secretTestRig {
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.SecretVersion{}, &models.User{}, &models.Role{}, &models.ShareRecord{},
+		&models.SecretVersion{}, &models.User{}, &models.Role{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.DynamicSecretConfig{}, &models.SecretACL{}, &models.SecretAccessSchedule{},

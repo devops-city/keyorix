@@ -60,7 +60,7 @@ func freshScopedListFixture(t *testing.T) (*SecretHandler, *gorm.DB) {
 		&models.AuditEvent{},
 		&models.SecretVersion{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 
 	cs := core.NewKeyorixCore(store.NewLocalStorage(db))

@@ -47,6 +47,7 @@ import { Button } from '../../components/ui/Button';
 import { Spinner, Loading } from '../../components/ui/Loading';
 import { Alert } from '../../components/ui/Alert';
 import { Modal } from '../../components/ui/Modal';
+import { useConfirm } from '../../components/ui/useConfirm';
 import { apiErrorMessage } from '../../services/client';
 import { useCan, type Can } from '../auth/useCan';
 import { Textarea } from '../../components/ui/Textarea';
@@ -1064,9 +1065,16 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
     const [descDraft, setDescDraft] = useState<string | null>(null);
     const { data: risk } = useSecretRisk(secret.id);
     const classifyMutation = useClassifySecret(secret.id);
+    const { requestConfirm, confirmDialog } = useConfirm();
 
-    const handleRollback = (version: number) => {
-        if (!window.confirm(`Roll back to version ${version}? Its value will be re-instated as a new version.`)) return;
+    const handleRollback = async (version: number) => {
+        const ok = await requestConfirm({
+            title: 'Roll back',
+            message: `Roll back to version ${version}? Its value will be re-instated as a new version.`,
+            confirmText: 'Roll back',
+            type: 'warning',
+        });
+        if (!ok) return;
         rollbackMutation.mutate(version, {
             onSuccess: () => {
                 setShowValue(false);
@@ -1245,6 +1253,8 @@ export const SecretDetailView: React.FC<SecretDetailViewProps> = ({ secret, onEd
                 onRotate={handleRotate}
                 mutation={rotateMutation}
             />
+
+            {confirmDialog}
         </div>
     );
 };

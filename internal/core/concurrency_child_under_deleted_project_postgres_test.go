@@ -80,7 +80,7 @@ func TestCTAReview_CreateSecret_vs_DeleteProject_CrossReplicaPostgres(t *testing
 
 	var delErr error
 	fired := f.beforeA("create", "secret_nodes", func() {
-		delErr = f.coreB.DeleteProject(f.ctx, f.projectID, true)
+		delErr = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	})
 
 	_, createErr := f.coreA.CreateSecret(f.ctx, &CreateSecretRequest{
@@ -107,7 +107,7 @@ func TestCTAReview_CreateFolder_vs_DeleteProject_CrossReplicaPostgres(t *testing
 
 	var delErr error
 	fired := f.beforeA("create", "secret_nodes", func() {
-		delErr = f.coreB.DeleteProject(f.ctx, f.projectID, true)
+		delErr = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	})
 
 	_, createErr := f.coreA.CreateFolder(f.ctx, f.adminID, "f2711", f.projectID, f.envID, nil)
@@ -126,7 +126,7 @@ func TestCTAReview_CreateEnvironment_vs_DeleteProject_CrossReplicaPostgres(t *te
 
 	var delErr error
 	fired := f.beforeA("create", "environments", func() {
-		delErr = f.coreB.DeleteProject(f.ctx, f.projectID, true)
+		delErr = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	})
 
 	_, createErr := f.coreA.CreateEnvironment(f.ctx, f.projectID, "env2710")
@@ -156,7 +156,7 @@ func TestCTAReview_RestoreSecret_vs_DeleteProject_CrossReplicaPostgres(t *testin
 
 	var delErr error
 	fired := f.beforeA("update", "secret_nodes", func() {
-		delErr = f.coreB.DeleteProject(f.ctx, f.projectID, true)
+		delErr = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	})
 
 	restoreErr := f.coreA.RestoreSecret(f.ctx, f.adminID, s.ID)

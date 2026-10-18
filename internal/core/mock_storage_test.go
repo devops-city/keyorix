@@ -152,6 +152,15 @@ func (m *MockStorage) RestoreProject(_ context.Context, _ uint) (int, int, error
 	return 0, 0, nil
 }
 
+// The #3433 machine-identity cascade steps: this mock holds no machine identities.
+func (m *MockStorage) SuspendMachineIdentitiesForDeletedProject(_ context.Context, _ uint) ([]*models.MachineIdentity, error) {
+	return nil, nil
+}
+
+func (m *MockStorage) ReactivateMachineIdentitiesForRestoredProject(_ context.Context, _ uint, _ time.Time) ([]*models.MachineIdentity, error) {
+	return nil, nil
+}
+
 func (m *MockStorage) ListEnvironments(_ context.Context) ([]*models.Environment, error) {
 	return nil, nil
 }
@@ -381,11 +390,6 @@ func (m *MockStorage) GetAccessReviewItem(ctx context.Context, id uint) (*models
 
 func (m *MockStorage) UpdateAccessReviewItem(ctx context.Context, item *models.AccessReviewItem) (bool, error) {
 	args := m.Called(ctx, item)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockStorage) RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error) {
-	args := m.Called(ctx, itemID, fromDecision, actorID)
 	return args.Bool(0), args.Error(1)
 }
 

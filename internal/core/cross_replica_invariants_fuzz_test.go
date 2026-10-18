@@ -505,7 +505,7 @@ func g4RunOp(t testing.TB, w *g4World, c *KeyorixCore, op g4Op) {
 		}
 
 	case 2: // delete project
-		_ = c.DeleteProject(ctx, w.projID, true)
+		_ = c.DeleteProject(ctx, 0, w.projID, true)
 
 	case 3: // restore project
 		_ = c.RestoreProject(ctx, w.adminID, w.projID)

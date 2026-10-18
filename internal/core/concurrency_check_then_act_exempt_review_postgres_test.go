@@ -475,7 +475,7 @@ func TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgr
 			fired = true
 			var aPID int
 			require.NoError(t, tx.Statement.ConnPool.QueryRowContext(f.ctx, "SELECT pg_backend_pid()").Scan(&aPID))
-			go func() { bDone <- f.coreB.DeleteProject(f.ctx, f.projectID, true) }()
+			go func() { bDone <- f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) }()
 			// Bounded wait until B's backend is blocked behind A's transaction.
 			deadline := time.Now().Add(bound)
 			for time.Now().Before(deadline) {
@@ -544,7 +544,7 @@ func TestCTAReview_CreateDynamicSecretConfig_DeleteProjectAfterInsert_CrossRepli
 	f.coreB.SetDynamicEngineFactory(func(string) (dynamic.CredentialEngine, error) { return fake, nil })
 
 	var errB error
-	fired := f.afterA("create", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.afterA("create", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	_, errA := f.coreA.CreateDynamicSecretConfig(f.ctx, &CreateDynamicSecretConfigRequest{
 		Name: "cta-dyn-after", ProjectID: f.projectID, EnvironmentID: f.envID, BackendType: "postgres",
 		AdminDSN:          "postgres://admin:s3cr3t@db.internal:5432/app",
@@ -580,7 +580,7 @@ func TestCTAReview_IssueLease_vs_DeleteProject_CrossReplicaPostgres(t *testing.T
 	require.NoError(t, err)
 
 	var errB error
-	fired := f.beforeA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.beforeA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	lease, errA := f.coreA.IssueLease(f.ctx, cfg.ID, 0, f.adminID)
 	t.Logf("IssueLease (A) err=%v, DeleteProject (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have interleaved B's DeleteProject before A's lease INSERT")
@@ -626,7 +626,7 @@ func TestCTAReview_IssueLease_DeleteProjectAfterInsert_CrossReplicaPostgres(t *t
 	require.NoError(t, err)
 
 	var errB error
-	fired := f.afterA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.afterA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	_, errA := f.coreA.IssueLease(f.ctx, cfg.ID, 0, f.adminID)
 	t.Logf("IssueLease (A) err=%v, DeleteProject (B) err=%v, backend revocations: %v", errA, errB, fake.Revoked)
 	require.True(t, fired(), "the hook must have run B's DeleteProject after A's lease INSERT")
@@ -775,7 +775,7 @@ func TestCTAReview_RestoreEnvironment_vs_DeleteProject_CrossReplicaPostgres(t *t
 	require.NoError(t, f.setup.DeleteEnvironment(f.ctx, f.envID))
 
 	var errB error
-	fired := f.beforeA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.beforeA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	errA := f.coreA.RestoreEnvironment(f.ctx, f.adminID, f.projectID, f.envID)
 	t.Logf("RestoreEnvironment (A) err=%v, DeleteProject (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have interleaved B's DeleteProject before A's environment UPDATE")
@@ -839,7 +839,7 @@ func TestCTAReview_RestoreEnvironment_InsideDeleteProjectCascade_CrossReplicaPos
 		})
 	}))
 
-	errB := f.coreB.DeleteProject(f.ctx, f.projectID, true)
+	errB := f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	require.True(t, hit, "the hook must have fired before B's project UPDATE")
 	require.NoError(t, errB)
 	select {
@@ -860,7 +860,7 @@ func TestCTAReview_RestoreEnvironment_DeleteProjectAfterUpdate_CrossReplicaPostg
 	require.NoError(t, f.setup.DeleteEnvironment(f.ctx, f.envID))
 
 	var errB error
-	fired := f.afterA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.afterA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	errA := f.coreA.RestoreEnvironment(f.ctx, f.adminID, f.projectID, f.envID)
 	t.Logf("RestoreEnvironment (A) err=%v, DeleteProject (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have run B's DeleteProject after A's environment UPDATE")

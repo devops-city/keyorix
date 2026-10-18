@@ -540,6 +540,48 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
+## 6s. PostgreSQL: the server checks it holds the database's DEK (DEK epoch)
+
+On PostgreSQL the database now records which DEK it is encrypted under (the DEK
+epoch: `system_metadata` key `dek.epoch`, a fingerprint, not key material). The
+first server to start after the upgrade records it, after checking that its DEK
+decrypts the newest stored secret version. From then on:
+
+- A server whose DEK is not the recorded one refuses to start (it would write
+  rows nobody can decrypt once the old DEK is gone). This catches a replica
+  started with an old `dek.key` after a DEK rotation on another host.
+- A running server refuses encrypted writes (reads and revocations continue)
+  while a DEK rotation is in progress or after one finished elsewhere.
+- `admin encryption rotate` fences writes on every replica, waits about 10
+  seconds, and locks the encrypted tables against writes during its sweep.
+
+Upgrade every replica before the next DEK rotation: an older binary does not
+check the epoch. With several replicas, start one that holds the current key
+set first. SQLite is unchanged. See
+[`operator/j6-key-rotation.md`](operator/j6-key-rotation.md).
+
+## 6i. Start-up refuses a weak SCIM token and an unneeded KMS context fallback
+
+Two behaviour changes at boot, no new setting. Check before upgrading:
+
+- **SCIM token (`scim.enabled: true`).** Besides the 20-character minimum, the token
+  must not be one byte repeated, have fewer than 10 distinct characters, contain a
+  placeholder (`changeme`, `password`, `example`, `secret` ...), be made only of sample
+  words (`test-token-...`), or equal another configured secret. An upgraded deployment
+  gets the ADR-112 grace period: the server starts and logs
+  `WARNING: SCIM token is too weak: ... ADR-112 grace period ...` until the first start
+  with a token that passes (or with SCIM off); after that, and on a fresh install, it
+  refuses to start.
+  Replace the token with `openssl rand -base64 32` in Keyorix and in the IdP's SCIM
+  connector.
+- **`storage.encryption.key_provider.insecure_allow_kms_context_fallback`** (aws-kms,
+  gcp-kms). When the stored wrapped KEK already opens with its `kms_encryption_context`
+  (the migration it exists for is done), the server refuses to start and says the flag
+  can be removed. Remove it before upgrading. A KEK that still needs it starts as before.
+
+Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
+[KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
+
 ## 7. Rollback
 
 If an upgrade goes wrong:
@@ -569,6 +611,9 @@ If an upgrade goes wrong:
 
 - `docs/SELF_HOSTING.md` §4 (master password / KEK), §5 (backup and
   restore), §6 (upgrades), §9 (troubleshooting).
+- `docs/operator/startup-refusals.md` for what each start-up refusal means after an
+  upgrade or rollback (schema epoch newer than the binary, compatibility floor,
+  key files, restore rollback protection) and which fixes are safe in place.
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
 - `docs/rolling-upgrade-columns.md` for why a column added by one release does
