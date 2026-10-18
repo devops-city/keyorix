@@ -82,7 +82,7 @@ it. On a shared database a restore + re-delete on an old replica would leave the
 deletion's date in place and the new purge job would hard-delete (irreversibly) before the
 date shown for the second deletion. The column is therefore NOT additive-and-safe, and
 `minCompatibleSchemaEpoch` is raised to 2 with this change: an epoch-1 binary refuses to
-start against a migrated database (`TestCurrentSchemaEpoch_Is4_SeeADR101`). Consequence:
+start against a migrated database (`TestCurrentSchemaEpoch_Is5_SeeADR101`). Consequence:
 a rolling upgrade must not leave epoch-1 replicas running after the first epoch-2 replica
 migrates (they exit at their next start, and a one-release rollback is no longer possible
 without restoring the database). Secrets deleted before the upgrade have no `purge_at`

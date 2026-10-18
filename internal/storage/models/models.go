@@ -305,6 +305,14 @@ type BreakGlassActivation struct {
 	ReviewedBy uint       `gorm:"index" json:"reviewed_by,omitempty"`
 	ReviewedAt *time.Time `json:"reviewed_at,omitempty"`
 	ReviewNote string     `json:"review_note,omitempty"`
+	// Degraded (BREAKGLASS-OWED-1) marks an activation committed while the audit
+	// log refused its rows: it was committed together with pending_audit_events
+	// records of those rows instead, with a forced short expiry, and its review is
+	// mandatory from the moment it exists. AuditSettledAt is nil until the backfill
+	// has written every owed row into the hash chain; it stays nil for a normal
+	// activation, whose rows were in the chain from the start.
+	Degraded       bool       `gorm:"not null;default:false" json:"degraded,omitempty"`
+	AuditSettledAt *time.Time `json:"audit_settled_at,omitempty"`
 }
 
 // BeforeSave normalises CreatedAt and ExpiresAt to UTC so SQLite string
@@ -1745,6 +1753,11 @@ type PendingAuditEvent struct {
 	Attempts  int       `gorm:"not null;default:0"`
 	CreatedAt time.Time `gorm:"index"`
 	UpdatedAt time.Time
+	// BreakGlassActivationID links a row owed by a degraded break-glass activation
+	// (BREAKGLASS-OWED-1) to that activation; 0 for every other owed row. The
+	// backfill keeps such a row's original event time and, when it writes the last
+	// one of an activation, marks the activation settled in the same transaction.
+	BreakGlassActivationID uint `gorm:"index;not null;default:0"`
 }
 
 type SystemMetadata struct {

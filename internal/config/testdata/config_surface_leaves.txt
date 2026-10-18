@@ -38,6 +38,7 @@ auto_rotation.backends.type
 auto_rotation.enabled
 auto_rotation.schedule
 break_glass.default_ttl
+break_glass.degraded_ttl
 break_glass.emergency_role
 break_glass.enabled
 break_glass.max_ttl

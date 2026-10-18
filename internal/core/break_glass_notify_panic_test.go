@@ -76,7 +76,7 @@ func TestNotifyBreakGlassAdmins_PanicListingMembers_StillReturnsNilAndAudits(t *
 	spy := &breakGlassNotifyPanicSpy{panicOnListMembers: true}
 	c := &KeyorixCore{storage: spy, now: time.Now}
 
-	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour))
+	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour), false)
 	require.NoError(t, err, "the break-glass grant already committed and was audited — a panic notifying admins must not surface as an error")
 
 	require.Len(t, spy.auditEvents, 1)
@@ -94,7 +94,7 @@ func TestNotifyBreakGlassAdmins_PanicInNotifyFanOut_StillReturnsNilAndAudits(t *
 	}
 	c := &KeyorixCore{storage: spy, now: time.Now}
 
-	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour))
+	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour), false)
 	require.NoError(t, err, "the break-glass grant already committed — a panic mid-fan-out must not surface as an error")
 
 	require.Len(t, spy.auditEvents, 1)
@@ -112,7 +112,7 @@ func TestNotifyBreakGlassAdmins_NoPanic_NormalPathUnchanged(t *testing.T) {
 	}
 	c := &KeyorixCore{storage: spy, now: time.Now}
 
-	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour))
+	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour), false)
 	require.NoError(t, err)
 
 	assert.Equal(t, []uint{42}, spy.notified, "only the approver-role member is notified")

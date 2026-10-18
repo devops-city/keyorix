@@ -1105,6 +1105,9 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 		// activations from when it was on, and those are exactly the ones that
 		// must not drop off the posture report.
 		ReviewWindow: cfg.BreakGlass.GetReviewWindow(),
+		// BREAKGLASS-OWED-1: lifetime of an activation granted while the audit
+		// log refuses writes (committed with an owed-audit record instead).
+		DegradedTTL: cfg.BreakGlass.GetDegradedTTL(),
 	})
 
 	// Wire N-of-M dual-control approval for access requests (1 = disabled).
@@ -1967,8 +1970,10 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// Owed audit rows (core audit_owed.go): a plain secret suspend never waits for
 	// the audit log, so a secret.suspended row the audit log refused is kept in
 	// pending_audit_events and written here once the audit log accepts writes
-	// again. Every minute; single-replica-gated, and exactly-once anyway (the
-	// claim and the append share a transaction).
+	// again. A degraded break-glass activation (BREAKGLASS-OWED-1) owes its rows
+	// here too; they keep their original time and settle the activation. Every
+	// minute; single-replica-gated, and exactly-once anyway (the claim and the
+	// append share a transaction).
 	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
 		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func(ctx context.Context) error {
 			_, berr := coreService.BackfillPendingAuditEvents(ctx)

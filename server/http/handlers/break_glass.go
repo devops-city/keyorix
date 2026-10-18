@@ -66,6 +66,13 @@ func (h *CatalogHandler) ActivateBreakGlass(w http.ResponseWriter, r *http.Reque
 			status = http.StatusForbidden
 		case errors.Is(err, core.ErrBreakGlassInvalidRequest):
 			status = http.StatusBadRequest
+		case errors.Is(err, core.ErrBreakGlassUnrecordable):
+			// BREAKGLASS-OWED-1: neither the audit log nor an owed-audit record
+			// could be written, so nothing was granted. The message is core's
+			// fixed text (no driver detail) and points at recover-admin.
+			log.Printf("Error activating break-glass for project %d: %v", id, err)
+			sendError(w, "BreakGlassUnrecordable", msg, http.StatusServiceUnavailable, nil)
+			return
 		default:
 			log.Printf("Error activating break-glass for project %d: %v", id, err)
 			msg = clientSafe(err)
