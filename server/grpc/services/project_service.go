@@ -193,11 +193,11 @@ func (s *ProjectGRPCService) CreateProject(ctx context.Context, req *pb.CreatePr
 	if err := authorizeGlobal(ctx, s.core, user, "secrets.write"); err != nil {
 		return nil, err
 	}
-	project, err := s.core.CreateProject(ctx, req.GetName(), req.GetDescription())
+	// AUDIT-TX-2: core writes project.created inside the create's transaction.
+	project, err := s.core.CreateProject(core.WithMutationAuditActor(ctx, user.UserID), req.GetName(), req.GetDescription())
 	if err != nil {
 		return nil, mapProjectError(err)
 	}
-	s.core.LogProjectCreated(ctx, user.UserID, project.ID, project.Name)
 	return projectToProto(project), nil
 }
 

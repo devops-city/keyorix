@@ -3,9 +3,11 @@
 ## Status
 
 **Accepted** (2026-10-17). Accepted by Andrei 2026-10-17. Amendments 1, 3 and 4
-are shipped; Amendment 5 (#2923) records the end of the `require_mfa` upgrade
-grace period. Proposed 2026-10-02; the decisions taken since are under
-"Decisions recorded", and the questions still open are listed at the end.
+are shipped on main (`audit_durability`, `insecure_audit_skip_reads`;
+`docs/UPGRADING.md` §6c to §6e); Amendment 5 (#2923) records the end of the
+`require_mfa` upgrade grace period. Proposed 2026-10-02; the decisions taken
+since are under "Decisions recorded", and the questions still open are listed
+at the end.
 
 Amended 2026-10-05 (decision by Andrei, "Amendment 1" below): the
 audit-before-disclosure and `synchronous` baseline items gain one named

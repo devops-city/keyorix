@@ -49,7 +49,9 @@ func bgInsertAndGrantShareOneTransaction(body *ast.BlockStmt) bool {
 			return true
 		}
 		sel, ok := ce.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "WithTransaction" {
+		// withAuditedMutation (AUDIT-TX-2) opens the transaction itself and
+		// adds the audit rows to it, so it counts as one callback too.
+		if !ok || (sel.Sel.Name != "WithTransaction" && sel.Sel.Name != "withAuditedMutation") {
 			return true
 		}
 		for _, a := range ce.Args {
