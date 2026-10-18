@@ -275,6 +275,18 @@ func auditLinkCheckStatement(table string, headID uint, headHash string, n int) 
 // the previous row's entry_hash in id order (genesis $%[6]d after an unchained
 // row), and raises otherwise. It also returns the stored ids in ascending
 // order. $%[4]d.. follow the INSERT's own parameters.
+const auditInsertCheckSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_hash, entry_hash FROM %[2]s ORDER BY id DESC LIMIT 1)
+ SELECT CASE WHEN s.n = %[3]d AND s.unlinked = 0 AND s.base_id = $%[4]d::bigint AND s.base_hash = $%[5]d::text THEN 0
+ ELSE ('audit batch not chained onto row ' || $%[4]d::bigint || ' in id order: ' || s.n || ' rows read, ' || s.unlinked || ' unlinked, lowest is row ' || COALESCE(s.base_id::text, 'none'))::int END, s.ids
+ FROM (SELECT count(*) AS n, count(*) FILTER (WHERE w.rn > 1 AND w.prev_hash IS DISTINCT FROM COALESCE(NULLIF(w.lp, ''), $%[6]d::text)) AS unlinked,
+  min(w.id) AS base_id, (array_agg(w.entry_hash ORDER BY w.id))[1] AS base_hash, array_agg(w.id ORDER BY w.id) FILTER (WHERE w.rn > 1) AS ids
+  FROM (SELECT id, prev_hash, entry_hash, lag(entry_hash) OVER (ORDER BY id) AS lp, row_number() OVER (ORDER BY id) AS rn
+   FROM (SELECT id, prev_hash, entry_hash FROM h UNION ALL SELECT id, prev_hash, entry_hash FROM e) AS t) AS w) AS s`
+
+// auditInsertCheckPendingSQL is auditInsertCheckSQL for a batch chained onto a
+// pending head. A batch chained onto a known head keeps auditInsertCheckSQL's
+// text unchanged: this variant cost Postgres more per statement (measured),
+// and most batches are not pipelined.
 //
 // $%[4]d is NULL for a pending head (a row of a pipelined batch still in
 // flight, id not known yet): the lowest row must then have the entry_hash
@@ -285,7 +297,7 @@ func auditLinkCheckStatement(table string, headID uint, headHash string, n int) 
 // concatenated into it without a COALESCE (the pending id among them), and an
 // unknown condition takes the ELSE branch like a false one.
 // TestAuditInsertCheck_PendingHeadMismatchRaises pins both.
-const auditInsertCheckSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_hash, entry_hash FROM %[2]s ORDER BY id DESC LIMIT 1)
+const auditInsertCheckPendingSQL = `WITH e AS (%[1]s), h AS (SELECT id, prev_hash, entry_hash FROM %[2]s ORDER BY id DESC LIMIT 1)
  SELECT CASE WHEN s.n = %[3]d AND s.unlinked = 0 AND s.base_id = COALESCE($%[4]d::bigint, s.base_id) AND s.base_hash = $%[5]d::text THEN 0
  ELSE ('audit batch not chained onto row ' || COALESCE($%[4]d::bigint::text, 'pending ' || $%[5]d::text) || ' in id order: ' || s.n || ' rows read, ' || s.unlinked || ' unlinked, lowest is row ' || COALESCE(s.base_id::text, 'none'))::int END, s.ids
  FROM (SELECT count(*) AS n, count(*) FILTER (WHERE w.rn > 1 AND w.prev_hash IS DISTINCT FROM COALESCE(NULLIF(w.lp, ''), $%[6]d::text)) AS unlinked,
@@ -312,7 +324,7 @@ func auditInsertCheckStatement(table, insertSQL string, insertVars []any, base a
 	next := len(insertVars) + 1
 	vars := slices.Clip(insertVars)
 	if base.pending {
-		return fmt.Sprintf(auditInsertCheckSQL, insertSQL, quoted, n+1, next, next+1, next+2), append(vars, nil, base.hash, auditGenesisHash)
+		return fmt.Sprintf(auditInsertCheckPendingSQL, insertSQL, quoted, n+1, next, next+1, next+2), append(vars, nil, base.hash, auditGenesisHash)
 	}
 	if base.id == 0 {
 		return fmt.Sprintf(auditInsertCheckGenesisSQL, insertSQL, quoted, n, next), append(vars, auditGenesisHash)
