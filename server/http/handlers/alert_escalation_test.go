@@ -31,6 +31,7 @@ func newAlertEscalationHandlerDB(t *testing.T) (*AlertEscalationHandler, *gorm.D
 		&models.AlertEscalationPolicy{},
 		&models.AnomalyAlert{},
 		&models.NotificationChannel{},
+		&models.AuditEvent{}, &models.PendingAuditEvent{}, // AUDIT-TX-3: policy changes are audited in their transaction
 	))
 	return NewAlertEscalationHandler(core.NewKeyorixCore(store.NewLocalStorage(db))), db
 }

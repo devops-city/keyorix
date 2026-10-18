@@ -107,11 +107,16 @@ func TestApplyGroupMembershipChanges_RemoveAndAdd(t *testing.T) {
 	// user 2 is in current AND in want → no-op.
 	// user 3 is in toAdd → AddUserToGroup (global: projectID=0).
 	ms.On("AddUserToGroup", mock.Anything, uint(3), uint(10), uint(0)).Return(nil)
+	// AUDIT-TX-3: the membership change adds a member, so its audit row is written in
+	// the same transaction (fail closed).
+	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)
 	want := map[uint]bool{2: true}
 	current := []*models.User{{ID: 1}, {ID: 2}}
 	toAdd := []uint{3}
-	require.NoError(t, c.applyGroupMembershipChanges(context.Background(), 10, want, current, toAdd))
+	require.NoError(t, c.applyGroupMembershipChanges(context.Background(), 10, want, current, toAdd, nil, func(tgt auditTarget) {
+		c.writeAuditEventFullOn(context.Background(), tgt, EventSCIMGroupUpdated, nil, nil, nil, "", "test")
+	}))
 	ms.AssertExpectations(t)
 }
 

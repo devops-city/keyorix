@@ -215,6 +215,7 @@ func TestUpdateOwnProfile_NoEmailChange(t *testing.T) {
 	original := &models.User{ID: 1, Username: "alice", Email: "alice@x.com", DisplayName: "Alice"}
 	ms.On("GetUser", mock.Anything, uint(1)).Return(original, nil)
 	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.AnythingOfType("*models.User"), false).Return(true, nil)
+	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil) // AUDIT-TX-3: the update commits with its audit row
 	c := NewKeyorixCore(ms)
 	// email is empty → no email change branch → no password check → just UpdateUser
 	u, err := c.UpdateOwnProfile(context.Background(), 1, "Alice S.", "", "")

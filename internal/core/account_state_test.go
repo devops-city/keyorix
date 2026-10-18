@@ -161,9 +161,10 @@ func TestAdminAccountTransitions(t *testing.T) {
 			// passes trivially.
 			store.On("GetUserRoleScopes", ctx, uint(2)).Return([]Scope{}, nil)
 			store.On("SetAccountState", ctx, uint(2), tc.wantState, mock.Anything).Return(nil)
-			store.On("LogAuditEvent", ctx, mock.MatchedBy(func(e *models.AuditEvent) bool {
+			store.On("LogAuditEvent", mock.Anything, mock.MatchedBy(func(e *models.AuditEvent) bool {
 				return e.EventType == tc.event
 			})).Return(nil)
+			store.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil).Maybe() // AUDIT-TX-3: a revocation owes its audit row
 			// A transition INTO a blocked or restricted state EVICTS the user's cached
 			// session tokens AND PAT hashes from the auth cache, tombstoning them
 			// (#r125-H2: password_reset_required previously skipped PAT eviction). A
@@ -354,9 +355,10 @@ func TestRequirePasswordReset_EvictsPATCache(t *testing.T) {
 		{ID: 1, UserID: userID, TokenHash: patHash, Revoked: false},
 	}, nil)
 	store.On("SetAccountState", ctx, userID, AccountPasswordResetRequired, mock.Anything).Return(nil)
-	store.On("LogAuditEvent", ctx, mock.MatchedBy(func(e *models.AuditEvent) bool {
+	store.On("LogAuditEvent", mock.Anything, mock.MatchedBy(func(e *models.AuditEvent) bool {
 		return e.EventType == "account.password_reset_required"
 	})).Return(nil)
+	store.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil).Maybe() // AUDIT-TX-3: a revocation owes its audit row
 
 	var evicted []string
 	c.SetTokenCacheInvalidator(func(h string) { evicted = append(evicted, h) })

@@ -63,6 +63,16 @@ type deleteACLErrStorage struct {
 	err  error
 }
 
+// WithTransaction re-wraps the transaction handle so the injected failure still fires
+// now that the write runs inside the mutation's audited transaction (AUDIT-TX-3).
+func (s *deleteACLErrStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
+		wrapped := *s
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
+}
+
 func (s *deleteACLErrStorage) ListSecretACLs(ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
 	return s.acls, nil
 }

@@ -32,6 +32,16 @@ type createRotPolicyErrStorage struct {
 	err error
 }
 
+// WithTransaction re-wraps the transaction handle so the injected failure still fires
+// now that the write runs inside the mutation's audited transaction (AUDIT-TX-3).
+func (s *createRotPolicyErrStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
+		wrapped := *s
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
+}
+
 func (s *createRotPolicyErrStorage) CreateRotationPolicy(_ context.Context, _ *models.RotationPolicy) error {
 	return s.err
 }
@@ -41,6 +51,16 @@ type updateRotPolicyErrStorage struct {
 	err error
 }
 
+// WithTransaction re-wraps the transaction handle so the injected failure still fires
+// now that the write runs inside the mutation's audited transaction (AUDIT-TX-3).
+func (s *updateRotPolicyErrStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
+		wrapped := *s
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
+}
+
 func (s *updateRotPolicyErrStorage) UpdateRotationPolicyFields(_ context.Context, _ uint, _ corestorage.RotationPolicyFieldUpdate, _ time.Time) (bool, error) {
 	return false, s.err
 }
@@ -48,6 +68,16 @@ func (s *updateRotPolicyErrStorage) UpdateRotationPolicyFields(_ context.Context
 type deleteRotPolicyErrStorage struct {
 	corestorage.Storage
 	err error
+}
+
+// WithTransaction re-wraps the transaction handle so the injected failure still fires
+// now that the write runs inside the mutation's audited transaction (AUDIT-TX-3).
+func (s *deleteRotPolicyErrStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
+	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
+		wrapped := *s
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
 }
 
 func (s *deleteRotPolicyErrStorage) DeleteRotationPolicy(_ context.Context, _ uint) error {

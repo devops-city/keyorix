@@ -71,7 +71,7 @@ func isConnectionError(err error) bool {
 const lastAdminSweepPGTrials = 15
 
 var lastAdminSweepPGModels = []any{
-	&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PersonalAccessToken{},
+	&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PendingAuditEvent{}, &models.PersonalAccessToken{},
 	&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 	&models.Project{}, &models.Environment{},
 	&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
@@ -244,6 +244,17 @@ type pgDelayedRemoveRoleFromGroupStorage struct {
 	storage.Storage
 	targetGroupID, targetRoleID uint
 	blocked, release            chan struct{}
+}
+
+// WithTransaction re-wraps the transaction handle so the pause still fires now that
+// the targeted call runs INSIDE the mutation's audited transaction (AUDIT-TX-3):
+// without it the call would hit the undecorated store the transaction builds.
+func (d *pgDelayedRemoveRoleFromGroupStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
+	return d.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		wrapped := *d
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
 }
 
 func (d *pgDelayedRemoveRoleFromGroupStorage) RemoveRoleFromGroup(ctx context.Context, groupID, roleID uint, scope storage.Scope) error {

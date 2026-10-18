@@ -39,7 +39,7 @@ func TestLowSeverityWrites_AreColumnScoped(t *testing.T) {
 	assertColumnScopedStorageWrite(t, "../storage/store/local_webauthn.go", "DisableWebAuthnCredential")
 	assertColumnScopedStorageWrite(t, "../storage/store/local_webauthn.go", "SetWebAuthnCredentialCounterState")
 
-	assertCoreWritesOnlyVia(t, "rotation_policies.go", "UpdateRotationPolicy", "storage",
+	assertCoreWritesOnlyVia(t, "rotation_policies.go", "UpdateRotationPolicy", "tx", // AUDIT-TX-3: written through the audited transaction
 		"UpdateRotationPolicyFields", "Save", "UpdateRotationPolicy")
 	assertCoreWritesOnlyVia(t, "secret_templates.go", "UpdateSecretTemplate", "storage",
 		"UpdateSecretTemplateFields", "Save", "UpdateSecretTemplate")

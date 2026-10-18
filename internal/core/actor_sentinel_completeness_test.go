@@ -123,7 +123,7 @@ var actorSentinelAllowlist = map[string]actorSentinelEntry{
 		class: classPerActorCeiling, status: statusReasonedSafe,
 		note: "#1545 escalation-delta analysis: actorID==0 skips GetSecretWithPermissionCheck/DeleteSecretWithPermissionCheck's per-secret ACL/ownership check (2 occurrences, same function), but the route (POST /projects/{id}/secrets/bulk-delete) is gated by RequireScopedPermission(secrets.delete, projectScope) -- Scope{ProjectID, EnvironmentID:0}. GetUserRoleIDsAt/GetMachineRoleIDsAt only match a stored grant whose environment_id is 0 (global) or the scope's environment_id against a project-level (env=0) query, so ONLY a project-wide secrets.delete grant clears that gate; an environment-scoped-only grant is refused before the handler ever runs. Every skipped per-secret check (isLiveOwner, share, ACL-for-humans, RBAC fallback) is purely additive -- it can only grant MORE access, never less -- and the RBAC fallback resolves to the identical AuthorizePrincipal(secrets.delete, {ProjectID, EnvironmentID: secret's env}) call, which a project-wide grant always satisfies (broader scope covers narrower). So the exemption confers no reach a project-wide secrets.delete holder didn't already have by clearing the router gate. Not a vulnerability; issue closed on this reasoning, not fixed.",
 	},
-	"config_change_audit.go:writeConfigChangeAuditEvent": {
+	"config_change_audit.go:writeConfigChangeAuditEventOn": {
 		class: classAuditOnly,
 		note: "attribution-only: whether to attach a non-nil actor pointer to the audit record for an admin " +
 			"config mutation (notification channel CRUD, anomaly config update). The write-permission gate " +

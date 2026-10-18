@@ -38,6 +38,7 @@ func setupRotationPolicyTest(t *testing.T) (*RotationPolicyHandler, *core.Keyori
 	require.NoError(t, err)
 
 	err = db.AutoMigrate(
+		&models.AuditEvent{}, &models.PendingAuditEvent{}, // AUDIT-TX-3: rotation policy changes are audited in their transaction
 		&models.Project{},
 		&models.Environment{},
 		&models.RotationPolicy{},

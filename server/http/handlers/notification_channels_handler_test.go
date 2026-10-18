@@ -23,7 +23,7 @@ func newNotifChannelHandler(t *testing.T) (*NotificationChannelHandler, *gorm.DB
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
 	db := sqlitetest.Open(t, "nc_")
-	require.NoError(t, db.AutoMigrate(&models.NotificationChannel{}))
+	require.NoError(t, db.AutoMigrate(&models.NotificationChannel{}, &models.AuditEvent{}, &models.PendingAuditEvent{})) // AUDIT-TX-3: channel changes are audited in their transaction
 	cs := core.NewKeyorixCore(store.NewLocalStorage(db))
 	cs.SetWebhookURLValidator(func(_ string) error { return nil })
 	return NewNotificationChannelHandler(cs), db

@@ -52,7 +52,8 @@ func TestRemoveSelfFromShare_Success(t *testing.T) {
 	mockStorage.On("ListSharesBySecret", ctx, secretID).Return(shares, nil)
 	mockStorage.On("GetSecret", ctx, secretID).Return(secret, nil)
 	mockStorage.On("DeleteShareRecord", ctx, uint(1)).Return(nil)
-	mockStorage.On("LogAuditEvent", ctx, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
+	mockStorage.On("LogAuditEvent", mock.Anything, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
+	mockStorage.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil).Maybe() // AUDIT-TX-3: a revocation owes its audit row
 
 	// Execute
 	err = core.RemoveSelfFromShare(ctx, secretID, userID)
@@ -258,7 +259,7 @@ func TestRemoveSelfFromShare_AuditLogging(t *testing.T) {
 	mockStorage.On("DeleteShareRecord", ctx, uint(1)).Return(nil)
 
 	// Verify audit event details
-	mockStorage.On("LogAuditEvent", ctx, mock.MatchedBy(func(event *models.AuditEvent) bool {
+	mockStorage.On("LogAuditEvent", mock.Anything, mock.MatchedBy(func(event *models.AuditEvent) bool {
 		return event.EventType == "share_self_removed" &&
 			event.UserID != nil &&
 			*event.UserID == userID &&
@@ -266,6 +267,7 @@ func TestRemoveSelfFromShare_AuditLogging(t *testing.T) {
 			*event.SecretNodeID == secretID &&
 			event.Description == "User removed themselves from shared secret (permission: write) (share 1)" // #2941: names the share
 	})).Return(nil)
+	mockStorage.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil).Maybe() // AUDIT-TX-3: a revocation owes its audit row
 
 	// Execute
 	err = core.RemoveSelfFromShare(ctx, secretID, userID)
