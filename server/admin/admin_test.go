@@ -71,7 +71,30 @@ func TestAcquireDatabaseLock_ActuallyHeldLockSurfacesPresenceMessage(t *testing.
 	}
 }
 
+// SQLite cannot run key_dir_lock: database, so --force still overrides a
+// failed lock attempt there.
 func TestAcquireDatabaseLock_ForceProceedsOnAnyFailure(t *testing.T) {
+	stubLockSeams(t, func(*config.Config) error { return nil })
+	forceFlag = true
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Type:     "local",
+			Database: config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "secrets.db")},
+		},
+	}
+	lock, err := acquireDatabaseLock(cfg)
+	if err != nil {
+		t.Fatalf("expected --force to proceed despite the failed lock attempt, got error: %v", err)
+	}
+	if lock != nil {
+		t.Fatalf("expected a nil lock when --force bypasses a failed acquisition, got: %v", lock)
+	}
+}
+
+// Fail closed (HA-READY-1 review): on PostgreSQL, --force needs a successful
+// read of the replicas' key_dir_lock record. A database that cannot be opened
+// leaves the record unverified, so --force is refused, not let through.
+func TestAcquireDatabaseLock_ForceRefusedWhenKeyDirLockRecordUnreadable(t *testing.T) {
 	forceFlag = true
 	defer func() { forceFlag = false }()
 	cfg := &config.Config{
@@ -83,17 +106,17 @@ func TestAcquireDatabaseLock_ForceProceedsOnAnyFailure(t *testing.T) {
 		},
 	}
 	lock, err := acquireDatabaseLock(cfg)
-	if err != nil {
-		t.Fatalf("expected --force to proceed despite the connect failure, got error: %v", err)
+	if err == nil {
+		t.Fatalf("--force proceeded although the key_dir_lock record could not be read (lock=%v)", lock)
 	}
-	if lock != nil {
-		t.Fatalf("expected a nil lock when --force bypasses a failed acquisition, got: %v", lock)
+	if !strings.Contains(err.Error(), "--force cannot override it: whether the replicas run with storage.encryption.key_dir_lock: database could not be verified") {
+		t.Fatalf("unexpected refusal wording: %v", err)
 	}
 }
 
 // storage.encryption.key_dir_lock: database (docs/multi-replica-keys.md): live
 // replicas hold no key-directory flock, so --force must not drop the exclusive
-// lock; the same failure that --force bypasses above is refused here.
+// lock, whatever the database says.
 func TestAcquireDatabaseLock_ForceRefusedWithDatabaseKeyDirLock(t *testing.T) {
 	forceFlag = true
 	defer func() { forceFlag = false }()

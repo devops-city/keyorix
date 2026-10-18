@@ -61,3 +61,31 @@ func TestAcquireDatabaseLock_ForceRefusedWhenDatabaseRecordsKeyDirLockMode(t *te
 		t.Fatalf("unexpected refusal wording: %v", err)
 	}
 }
+
+// Fail closed on a storage error (HA-READY-1 review): the database is
+// reachable, but the record cannot be read (here system_metadata does not
+// exist). --force must refuse; before the fix the failed read counted as "not
+// database mode" and --force proceeded next to a live replica.
+func TestAcquireDatabaseLock_ForceRefusedWhenKeyDirLockRecordQueryFails(t *testing.T) {
+	dsn := pgAdminIsolatedDatabaseDSN(t, pgAdminTestDSN(t)) // empty: no schema
+	adminCfg := &config.Config{}
+	adminCfg.Storage.Type = "postgres"
+	adminCfg.Storage.Database.DSN = dsn
+
+	replica, err := serverguard.AcquirePresence(adminCfg)
+	if err != nil {
+		t.Fatalf("replica presence: %v", err)
+	}
+	defer replica.Release() //nolint:errcheck
+
+	forceFlag = true
+	defer func() { forceFlag = false }()
+
+	lock, err := acquireDatabaseLock(adminCfg)
+	if err == nil {
+		t.Fatalf("--force proceeded although the key_dir_lock record could not be read (lock=%v)", lock)
+	}
+	if !strings.Contains(err.Error(), "could not be verified") || !strings.Contains(err.Error(), "system_metadata") {
+		t.Fatalf("refusal must name the failed read, got: %v", err)
+	}
+}
