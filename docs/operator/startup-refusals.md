@@ -717,7 +717,8 @@ you do).
 **Upgrade grace (ADR-112).** On a deployment that already has users and has not yet
 started once with a passing token, the same text is printed as a
 `WARNING: ... ADR-112 grace period: ...` line and the server starts. The first start with
-a token that passes ends the grace period for good (system metadata
+a token that passes (or with SCIM off: the grace is for a token already in use, not one
+added later) ends the grace period for good (system metadata
 `adr112.scim_token_strength.enforced`); a fresh install refuses from its first start. A
 token under 20 characters (`SCIM token is too short`) is always refused, grace or not.
 

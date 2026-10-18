@@ -550,7 +550,8 @@ Two behaviour changes at boot, no new setting. Check before upgrading:
   words (`test-token-...`), or equal another configured secret. An upgraded deployment
   gets the ADR-112 grace period: the server starts and logs
   `WARNING: SCIM token is too weak: ... ADR-112 grace period ...` until the first start
-  with a token that passes; after that, and on a fresh install, it refuses to start.
+  with a token that passes (or with SCIM off); after that, and on a fresh install, it
+  refuses to start.
   Replace the token with `openssl rand -base64 32` in Keyorix and in the IdP's SCIM
   connector.
 - **`storage.encryption.key_provider.insecure_allow_kms_context_fallback`** (aws-kms,
