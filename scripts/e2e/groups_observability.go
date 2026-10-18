@@ -55,11 +55,12 @@ func groupNotificationChannels(ctx *smokeCtx) {
 	listed := c.callExpect("GET", "GET /api/v1/notification-channels", "/api/v1/notification-channels", nil, 200)
 	got := c.callExpect("GET", "GET /api/v1/notification-channels/{id}", nc, nil, 200)
 	for name, env := range map[string]envelope{"list": listed, "get": got} {
-		if strings.Contains(string(env.Raw), "e2e-smoke-webhook") {
-			c.t.Errorf("%s notification channel leaked the URL path (bearer credential): %s", name, string(env.Raw))
+		// env.Raw is only set for a non-JSON body; the decoded payload is env.Data.
+		if strings.Contains(string(env.Data), "e2e-smoke-webhook") {
+			c.t.Errorf("%s notification channel leaked the URL path (bearer credential): %s", name, string(env.Data))
 		}
-		if !strings.Contains(string(env.Raw), "https://www.example.com/…") {
-			c.t.Errorf("%s notification channel: want the elided url https://www.example.com/…, got: %s", name, string(env.Raw))
+		if !strings.Contains(string(env.Data), "https://www.example.com/…") {
+			c.t.Errorf("%s notification channel: want the elided url https://www.example.com/…, got: %s", name, string(env.Data))
 		}
 	}
 	c.callExpect("PUT", "PUT /api/v1/notification-channels/{id}", nc, map[string]interface{}{
