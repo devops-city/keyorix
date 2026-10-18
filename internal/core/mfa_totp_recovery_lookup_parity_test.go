@@ -29,20 +29,18 @@ import (
 
 // totpRecoveryFaultStub fails ConsumeMFARecoveryCode always, and
 // MarkTOTPStepUsed when failMark is set.
-type totpRecoveryFaultStub struct {
-	corestorage.Storage
-	failMark bool
-}
-
-func (s *totpRecoveryFaultStub) MarkTOTPStepUsed(ctx context.Context, userID uint, step int64) (bool, error) {
-	if s.failMark {
-		return false, errors.New("injected: MarkTOTPStepUsed")
-	}
-	return s.Storage.MarkTOTPStepUsed(ctx, userID, step)
-}
-
-func (s *totpRecoveryFaultStub) ConsumeMFARecoveryCode(context.Context, uint, string, time.Time) (bool, error) {
-	return false, errors.New("injected: ConsumeMFARecoveryCode")
+func totpRecoveryFaultStub(inner corestorage.Storage, failMark bool) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		MarkTOTPStepUsed: func(next corestorage.Storage, ctx context.Context, userID uint, step int64) (bool, error) {
+			if failMark {
+				return false, errors.New("injected: MarkTOTPStepUsed")
+			}
+			return next.MarkTOTPStepUsed(ctx, userID, step)
+		},
+		ConsumeMFARecoveryCode: func(corestorage.Storage, context.Context, uint, string, time.Time) (bool, error) {
+			return false, errors.New("injected: ConsumeMFARecoveryCode")
+		},
+	})
 }
 
 func TestVerifyMFALogin_TOTPCodeVerdictDoesNotDependOnTheRecoveryLookup(t *testing.T) {
@@ -56,7 +54,7 @@ func TestVerifyMFALogin_TOTPCodeVerdictDoesNotDependOnTheRecoveryLookup(t *testi
 	putAtThresholdMinusOne(t, cdb, 1)
 	cch, err := cc.CreateMFAChallenge(ctx, 1)
 	require.NoError(t, err)
-	cc.storage = &totpRecoveryFaultStub{Storage: cc.storage}
+	cc.storage = totpRecoveryFaultStub(cc.storage, false)
 	_, _, _, _, cerr := cc.VerifyMFALoginPending(ctx, cch, "000000", "ua", "203.0.113.5")
 	require.Error(t, cerr)
 	control := readLockoutState(t, cdb, 1)
@@ -70,7 +68,7 @@ func TestVerifyMFALogin_TOTPCodeVerdictDoesNotDependOnTheRecoveryLookup(t *testi
 	require.NoError(t, err)
 	good, err := totp.GenerateCode(secret, pfixed)
 	require.NoError(t, err)
-	pc.storage = &totpRecoveryFaultStub{Storage: pc.storage, failMark: true}
+	pc.storage = totpRecoveryFaultStub(pc.storage, true)
 	_, _, _, _, perr := pc.VerifyMFALoginPending(ctx, pch, good, "ua", "203.0.113.5")
 	require.Error(t, perr)
 	probe := readLockoutState(t, pdb, 1)
@@ -90,7 +88,7 @@ func TestVerifyMFAStepUp_TOTPCodeVerdictDoesNotDependOnTheRecoveryLookup(t *test
 	cc.loginLockout = postVerdictParityPolicy
 	activateMFAForTest(t, cc, cfixed)
 	putAtThresholdMinusOne(t, cdb, 1)
-	cc.storage = &totpRecoveryFaultStub{Storage: cc.storage}
+	cc.storage = totpRecoveryFaultStub(cc.storage, false)
 	cerr := cc.VerifyMFAStepUp(ctx, 1, "000000")
 	require.Error(t, cerr)
 	control := readLockoutState(t, cdb, 1)
@@ -101,7 +99,7 @@ func TestVerifyMFAStepUp_TOTPCodeVerdictDoesNotDependOnTheRecoveryLookup(t *test
 	putAtThresholdMinusOne(t, pdb, 1)
 	good, err := totp.GenerateCode(secret, pfixed)
 	require.NoError(t, err)
-	pc.storage = &totpRecoveryFaultStub{Storage: pc.storage, failMark: true}
+	pc.storage = totpRecoveryFaultStub(pc.storage, true)
 	perr := pc.VerifyMFAStepUp(ctx, 1, good)
 	require.Error(t, perr)
 	probe := readLockoutState(t, pdb, 1)
@@ -123,7 +121,7 @@ func TestVerifyMFALogin_RecoveryShapedCodeStillUsesTheRecoveryPath(t *testing.T)
 	_, codes := activateMFAForTest(t, c, fixed)
 	ch, err := c.CreateMFAChallenge(ctx, 1)
 	require.NoError(t, err)
-	c.storage = &mfaSecretReadErrStub{Storage: c.storage, err: errors.New("injected: GetMFASecret")}
+	c.storage = mfaSecretReadErrStub(c.storage, errors.New("injected: GetMFASecret"))
 	sess, _, _, err := c.VerifyMFALogin(ctx, ch, codes[0], "ua", "203.0.113.5")
 	require.NoError(t, err, "a recovery code must not depend on the TOTP secret being readable")
 	require.NotNil(t, sess)

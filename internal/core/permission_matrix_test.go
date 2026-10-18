@@ -7,42 +7,38 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
 // matrixStorageOverride wraps MockStorage and lets individual tests override
 // ListAllUserRoleGrants and GetRolePermissions without touching the shared mock.
-type matrixStorageOverride struct {
-	corestorage.Storage
-	listGrantsErr   error
-	listGrantsRows  []*models.UserRole
-	getRolePermsErr error
-}
-
-func (o *matrixStorageOverride) ListAllUserRoleGrants(ctx context.Context) ([]*models.UserRole, error) {
-	if o.listGrantsErr != nil {
-		return nil, o.listGrantsErr
-	}
-	if o.listGrantsRows != nil {
-		return o.listGrantsRows, nil
-	}
-	// Fall through to the embedded storage so callers that only need to override
-	// GetRolePermissions still get real grants from the DB.
-	return o.Storage.ListAllUserRoleGrants(ctx)
-}
-
-func (o *matrixStorageOverride) GetRolePermissions(ctx context.Context, roleID uint) ([]*models.Permission, error) {
-	if o.getRolePermsErr != nil {
-		return nil, o.getRolePermsErr
-	}
-	return o.Storage.GetRolePermissions(ctx, roleID)
+func matrixStorageOverride(inner corestorage.Storage, listGrantsErr error, listGrantsRows []*models.UserRole, getRolePermsErr error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		ListAllUserRoleGrants: func(next corestorage.Storage, ctx context.Context) ([]*models.UserRole, error) {
+			if listGrantsErr != nil {
+				return nil, listGrantsErr
+			}
+			if listGrantsRows != nil {
+				return listGrantsRows, nil
+			}
+			// Fall through to the embedded storage so callers that only need to override
+			// GetRolePermissions still get real grants from the DB.
+			return next.ListAllUserRoleGrants(ctx)
+		},
+		GetRolePermissions: func(next corestorage.Storage, ctx context.Context, roleID uint) ([]*models.Permission, error) {
+			if getRolePermsErr != nil {
+				return nil, getRolePermsErr
+			}
+			return next.GetRolePermissions(ctx, roleID)
+		},
+	})
 }
 
 func newMatrixCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
@@ -372,10 +368,7 @@ func TestGetPermissionMatrix_EmptyDB(t *testing.T) {
 func TestGetPermissionMatrix_ListGrantsError(t *testing.T) {
 	t.Parallel()
 	base := &MockStorage{}
-	override := &matrixStorageOverride{
-		Storage:       base,
-		listGrantsErr: errors.New("db connection lost"),
-	}
+	override := matrixStorageOverride(base, errors.New("db connection lost"), nil, nil)
 	c := NewKeyorixCore(override)
 	_, err := c.GetPermissionMatrix(context.Background(), 0)
 	require.Error(t, err)
@@ -400,10 +393,7 @@ func TestGetPermissionMatrix_GetRolePermsError(t *testing.T) {
 	require.NoError(t, db.Create(&models.Role{ID: 90, Name: "the-role"}).Error)
 	require.NoError(t, db.Create(&models.UserRole{UserID: 50, RoleID: 90, ProjectID: 0}).Error)
 
-	override := &matrixStorageOverride{
-		Storage:         local,
-		getRolePermsErr: errors.New("permissions table gone"),
-	}
+	override := matrixStorageOverride(local, nil, nil, errors.New("permissions table gone"))
 	c := NewKeyorixCore(override)
 
 	// The grant is silently skipped: no error returned, but no rows produced.

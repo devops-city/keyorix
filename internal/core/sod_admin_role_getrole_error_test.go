@@ -20,16 +20,15 @@ import (
 // getRoleErrStub wraps a real storage.Storage and overrides exactly GetRole
 // to inject a fixed error, mirroring the secretReadErrStub /
 // mfaSecretReadErrStub pattern used elsewhere in this package.
-type getRoleErrStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *getRoleErrStub) GetRole(ctx context.Context, id uint) (*models.Role, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.GetRole(ctx, id)
+func getRoleErrStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetRole: func(next corestorage.Storage, ctx context.Context, id uint) (*models.Role, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.GetRole(ctx, id)
+		},
+	})
 }
 
 // TestCreateSoDPolicy_GetRoleErrorIsNotMisreadAsNonAdmin: the bootstrapped
@@ -48,7 +47,7 @@ func TestCreateSoDPolicy_GetRoleErrorIsNotMisreadAsNonAdmin(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &getRoleErrStub{Storage: realStorage, err: faultErr}
+	c.storage = getRoleErrStub(realStorage, faultErr)
 
 	_, err = c.CreateSoDPolicy(ctx, admin.ID, "fault-test-policy", "", "secrets.read", "secrets.write")
 	require.Error(t, err, "a GetRole storage error must still refuse the create")

@@ -70,12 +70,12 @@ func (s *credentialVanishingStore) GetWebAuthnCredentialByCredID(ctx context.Con
 // unlike an MFA storage failure this does NOT leave the security question
 // unanswered — the incident is real and must be recorded; only the mitigation
 // failed.
-type credentialDisableFailingStore struct {
-	corestorage.Storage
-}
-
-func (s *credentialDisableFailingStore) DisableWebAuthnCredential(context.Context, uint) (bool, error) {
-	return false, errors.New("pq: connection reset by peer")
+func credentialDisableFailingStore(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		DisableWebAuthnCredential: func(corestorage.Storage, context.Context, uint) (bool, error) {
+			return false, errors.New("pq: connection reset by peer")
+		},
+	})
 }
 
 func TestRejectIfCloned_AuditsTheCloneEvenWhenTheDisableDoesNotTakeEffect(t *testing.T) {
@@ -107,7 +107,7 @@ func TestRejectIfCloned_AuditsTheCloneEvenWhenTheDisableDoesNotTakeEffect(t *tes
 		c, db := newWebAuthnTestCore(t, true)
 		credID := []byte("cred-2836-disable-down")
 		seedCredential(t, c, db, 1, string(credID))
-		c.storage = &credentialDisableFailingStore{Storage: c.storage}
+		c.storage = credentialDisableFailingStore(c.storage)
 
 		cred := &webauthn.Credential{ID: credID, Authenticator: webauthn.Authenticator{CloneWarning: true}}
 		err := c.rejectIfCloned(context.Background(), 1, cred, "203.0.113.9")

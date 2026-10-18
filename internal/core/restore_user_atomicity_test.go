@@ -13,23 +13,17 @@ import (
 
 // failOnceUpdateUserStorage makes UpdateUser fail once, mirroring the
 // failOnceStorage idiom from #2295.
-type failOnceUpdateUserStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceUpdateUserStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceUpdateUserStorage{Storage: tx, armed: s.armed})
+func failOnceUpdateUserStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		UpdateUser: func(next storage.Storage, ctx context.Context, u *models.User) (*models.User, error) {
+			if *armed {
+				*armed = false
+				return nil, errors.New("injected fault: UpdateUser")
+			}
+			return next.UpdateUser(ctx, u)
+		},
 	})
-}
-
-func (s *failOnceUpdateUserStorage) UpdateUser(ctx context.Context, u *models.User) (*models.User, error) {
-	if *s.armed {
-		*s.armed = false
-		return nil, errors.New("injected fault: UpdateUser")
-	}
-	return s.Storage.UpdateUser(ctx, u)
 }
 
 // TestRestoreUser_UpdateFailureRollsBackUndelete is the red-proof for Session
@@ -48,7 +42,7 @@ func TestRestoreUser_UpdateFailureRollsBackUndelete(t *testing.T) {
 	require.NoError(t, c.DeleteUser(ctx, 1, u.ID))
 
 	armed := true
-	c.storage = &failOnceUpdateUserStorage{Storage: st, armed: &armed}
+	c.storage = failOnceUpdateUserStorage(st, &armed)
 
 	err = c.RestoreUser(ctx, 1, u.ID)
 	require.Error(t, err)

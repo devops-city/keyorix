@@ -13,14 +13,12 @@ import (
 )
 
 // userRoleScopesStub overrides GetUserRoleScopes to return a fixed slice.
-type userRoleScopesStub struct {
-	corestorage.Storage
-	scopes []corestorage.Scope
-	err    error
-}
-
-func (s *userRoleScopesStub) GetUserRoleScopes(_ context.Context, _ uint) ([]corestorage.Scope, error) {
-	return s.scopes, s.err
+func userRoleScopesStub(inner corestorage.Storage, scopes []corestorage.Scope, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoleScopes: func(_ corestorage.Storage, _ context.Context, _ uint) ([]corestorage.Scope, error) {
+			return scopes, err
+		},
+	})
 }
 
 // TestGetReadableScopes_StorageError verifies that a GetUserRoleScopes error is
@@ -30,7 +28,7 @@ func TestGetReadableScopes_StorageError(t *testing.T) {
 	ctx := context.Background()
 	c, _ := newACLCore(t)
 	wantErr := errors.New("scopes db failure")
-	c2 := newACLCoreWithStorage(c, &userRoleScopesStub{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, userRoleScopesStub(c.storage, nil, wantErr))
 	_, err := c2.GetReadableScopes(ctx, 1, "secrets.read")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -43,10 +41,7 @@ func TestGetReadableScopes_GlobalScopeSkipped(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	c, _ := newACLCore(t)
-	stub := &userRoleScopesStub{
-		Storage: c.storage,
-		scopes:  []corestorage.Scope{{ProjectID: 0, EnvironmentID: 0}},
-	}
+	stub := userRoleScopesStub(c.storage, []corestorage.Scope{{ProjectID: 0, EnvironmentID: 0}}, nil)
 	c2 := newACLCoreWithStorage(c, stub)
 	scopes, err := c2.GetReadableScopes(ctx, 1, "secrets.read")
 	require.NoError(t, err)
@@ -61,10 +56,7 @@ func TestGetReadableScopes_AuthorizeError(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	c, db := newACLCore(t)
-	stub := &userRoleScopesStub{
-		Storage: c.storage,
-		scopes:  []corestorage.Scope{{ProjectID: 1, EnvironmentID: 0}},
-	}
+	stub := userRoleScopesStub(c.storage, []corestorage.Scope{{ProjectID: 1, EnvironmentID: 0}}, nil)
 	c2 := newACLCoreWithStorage(c, stub)
 
 	// Close the DB so that Authorize's storage calls (GetUserRoles, etc.) fail.
@@ -84,10 +76,7 @@ func TestGetReadableScopes_AuthorizeFalse(t *testing.T) {
 	ctx := context.Background()
 	c, _ := newACLCore(t)
 	// User 99 has no role grants in the DB → Authorize returns (false, nil).
-	stub := &userRoleScopesStub{
-		Storage: c.storage,
-		scopes:  []corestorage.Scope{{ProjectID: 1, EnvironmentID: 0}},
-	}
+	stub := userRoleScopesStub(c.storage, []corestorage.Scope{{ProjectID: 1, EnvironmentID: 0}}, nil)
 	c2 := newACLCoreWithStorage(c, stub)
 	scopes, err := c2.GetReadableScopes(ctx, 99, "secrets.read")
 	require.NoError(t, err)
@@ -109,10 +98,7 @@ func TestGetReadableScopes_AuthorizeTrue(t *testing.T) {
 	require.NoError(t, db.Create(&models.RolePermission{RoleID: role.ID, PermissionID: perm.ID}).Error)
 	require.NoError(t, db.Create(&models.UserRole{UserID: 88, RoleID: role.ID, ProjectID: 1}).Error)
 
-	stub := &userRoleScopesStub{
-		Storage: c.storage,
-		scopes:  []corestorage.Scope{{ProjectID: 1, EnvironmentID: 0}},
-	}
+	stub := userRoleScopesStub(c.storage, []corestorage.Scope{{ProjectID: 1, EnvironmentID: 0}}, nil)
 	c2 := newACLCoreWithStorage(c, stub)
 	scopes, err := c2.GetReadableScopes(ctx, 88, "secrets.read")
 	require.NoError(t, err)

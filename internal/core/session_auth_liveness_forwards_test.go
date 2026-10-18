@@ -11,18 +11,6 @@ import (
 // itself so its GetUser override is what that read meets too
 // (TestSessionAuthReadWrappersForwardTheCombinedRead).
 
-func (s *userReadFaultStub) GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
-	return storage.ComposeSessionAuthLiveness(ctx, s, userID, sessionID), nil
-}
-
-func (f *failingUserLookup) GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
-	return storage.ComposeSessionAuthLiveness(ctx, f, userID, sessionID), nil
-}
-
-func (t *transientOwnerLookup) GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
-	return storage.ComposeSessionAuthLiveness(ctx, t, userID, sessionID), nil
-}
-
 func (s *breakGlassNotifyPanicSpy) GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
 	return storage.ComposeSessionAuthLiveness(ctx, s, userID, sessionID), nil
 }

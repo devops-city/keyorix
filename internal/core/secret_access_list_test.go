@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -173,12 +174,12 @@ func TestListSecretAccessors_StrongestGrantWins(t *testing.T) {
 // failingGroupMembersStore wraps LocalStorage and fails every ListGroupMembers
 // call, simulating storage.type: remote where ListGroupMembers is
 // unconditionally unimplemented (#417).
-type failingGroupMembersStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingGroupMembersStore) ListGroupMembers(_ context.Context, _ uint) ([]*models.User, error) {
-	return nil, errors.New("simulated: ListGroupMembers unimplemented on this backend")
+func failingGroupMembersStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListGroupMembers: func(_ storage.Storage, _ context.Context, _ uint) ([]*models.User, error) {
+			return nil, errors.New("simulated: ListGroupMembers unimplemented on this backend")
+		},
+	})
 }
 
 // TestListSecretAccessors_DegradedOnGroupMembersError proves that a failing
@@ -218,7 +219,7 @@ func TestListSecretAccessors_DegradedOnGroupMembersError(t *testing.T) {
 
 	now := time.Now()
 	base := store.NewLocalStorage(db)
-	failing := &failingGroupMembersStore{LocalStorage: base}
+	failing := failingGroupMembersStore(base)
 	c := &KeyorixCore{storage: failing, now: func() time.Time { return now }}
 	ctx := context.Background()
 
@@ -617,26 +618,29 @@ func TestListSecretAccessors_ListsEveryShareGrant(t *testing.T) {
 // countingSharesStore counts ListSharesBySecret calls and fails GetUserGroupsAt for one
 // user (failGroupsFor; 0 = never).
 type countingSharesStore struct {
-	*store.LocalStorage
 	shareLists    int
 	failGroupsFor uint
 }
 
-func (s *countingSharesStore) ListSharesBySecret(ctx context.Context, secretID uint, now time.Time) ([]*models.ShareRecord, error) {
-	s.shareLists++
-	return s.LocalStorage.ListSharesBySecret(ctx, secretID, now)
-}
-
-func (s *countingSharesStore) GetUserGroupsAt(ctx context.Context, userID uint, scope Scope) ([]*models.Group, error) {
-	if s.failGroupsFor != 0 && userID == s.failGroupsFor {
-		return nil, errors.New("simulated: group lookup failed")
-	}
-	return s.LocalStorage.GetUserGroupsAt(ctx, userID, scope)
+func newCountingSharesStore(inner storage.Storage, failGroupsFor uint) (storage.Storage, *countingSharesStore) {
+	s := &countingSharesStore{failGroupsFor: failGroupsFor}
+	return hooked(inner, &storeHooks{
+		ListSharesBySecret: func(next storage.Storage, ctx context.Context, secretID uint, now time.Time) ([]*models.ShareRecord, error) {
+			s.shareLists++
+			return next.ListSharesBySecret(ctx, secretID, now)
+		},
+		GetUserGroupsAt: func(next storage.Storage, ctx context.Context, userID uint, scope Scope) ([]*models.Group, error) {
+			if s.failGroupsFor != 0 && userID == s.failGroupsFor {
+				return nil, errors.New("simulated: group lookup failed")
+			}
+			return next.GetUserGroupsAt(ctx, userID, scope)
+		},
+	}), s
 }
 
 // shareReportFixture: owner (1, role3, the caller), members 2..n+1 (role4) all in group
 // 10 (role4 in the project), a group read share and a direct write share to user 2.
-func shareReportFixture(t *testing.T, n int, wrap func(*store.LocalStorage) *countingSharesStore) (*KeyorixCore, *countingSharesStore, uint) {
+func shareReportFixture(t *testing.T, n int, wrap func(*store.LocalStorage) (storage.Storage, *countingSharesStore)) (*KeyorixCore, *countingSharesStore, uint) {
 	t.Helper()
 	db, base, now := accessListFixture(t)
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "owner", Email: "o@t.com"}).Error)
@@ -654,8 +658,8 @@ func shareReportFixture(t *testing.T, n int, wrap func(*store.LocalStorage) *cou
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&models.ShareRecord{SecretID: secret.ID, OwnerID: 1, RecipientID: 10, IsGroup: true, Permission: "read"}).Error)
 	require.NoError(t, db.Create(&models.ShareRecord{SecretID: secret.ID, OwnerID: 1, RecipientID: 2, Permission: "write"}).Error)
-	st := wrap(base.storage.(*store.LocalStorage))
-	return &KeyorixCore{storage: st, now: base.now}, st, secret.ID
+	wrapped, st := wrap(base.storage.(*store.LocalStorage))
+	return &KeyorixCore{storage: wrapped, now: base.now}, st, secret.ID
 }
 
 // TestListSecretAccessors_LoadsSharesOnce: the report reads the secret's shares once,
@@ -663,8 +667,8 @@ func shareReportFixture(t *testing.T, n int, wrap func(*store.LocalStorage) *cou
 // lookups by the project size.
 func TestListSecretAccessors_LoadsSharesOnce(t *testing.T) {
 	t.Parallel()
-	c, st, secretID := shareReportFixture(t, 8, func(l *store.LocalStorage) *countingSharesStore {
-		return &countingSharesStore{LocalStorage: l}
+	c, st, secretID := shareReportFixture(t, 8, func(l *store.LocalStorage) (storage.Storage, *countingSharesStore) {
+		return newCountingSharesStore(l, 0)
 	})
 	result, err := c.ListSecretAccessors(context.Background(), secretID, 1)
 	require.NoError(t, err)
@@ -678,8 +682,8 @@ func TestListSecretAccessors_LoadsSharesOnce(t *testing.T) {
 // must not then look complete: the user is under-counted, so the report is degraded.
 func TestListSecretAccessors_DegradedOnGroupShareLookupError(t *testing.T) {
 	t.Parallel()
-	c, _, secretID := shareReportFixture(t, 2, func(l *store.LocalStorage) *countingSharesStore {
-		return &countingSharesStore{LocalStorage: l, failGroupsFor: 3}
+	c, _, secretID := shareReportFixture(t, 2, func(l *store.LocalStorage) (storage.Storage, *countingSharesStore) {
+		return newCountingSharesStore(l, 3)
 	})
 	result, err := c.ListSecretAccessors(context.Background(), secretID, 1)
 	require.NoError(t, err)

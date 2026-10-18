@@ -44,7 +44,7 @@ func TestHoldsPermissionInAnyScope_UserScopeEnumerationErrorFailsClosed(t *testi
 	t.Parallel()
 	c, _ := newACLCore(t)
 	wantErr := errors.New("scopes db failure")
-	c2 := newACLCoreWithStorage(c, &userRoleScopesStub{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, userRoleScopesStub(c.storage, nil, wantErr))
 
 	ok, err := c2.HoldsPermissionInAnyScope(context.Background(), ActorTypeUser, 1, "secrets.read")
 	require.Error(t, err)
