@@ -1957,6 +1957,11 @@ scim:
 
 > Set `token` only via `KEYORIX_SCIM_TOKEN`. Point your IdP's SCIM connector at
 > `https://<host>/scim/v2` with that token as the bearer credential.
+> Generate it (`openssl rand -base64 32`): the server refuses to start with a token
+> under 20 characters, or one that is obviously not random (a repeated or
+> low-variety value, a placeholder such as `changeme`, or the same value as another
+> configured secret); see
+> [startup-refusals.md](operator/startup-refusals.md#weak-scim-token).
 
 ## sso
 

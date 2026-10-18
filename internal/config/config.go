@@ -1079,6 +1079,11 @@ type KeyProviderConfig struct {
 	// context=...` to durably re-wrap under the context), then disable it again —
 	// every fallback use is logged loudly specifically so that migration window is
 	// observable and finite, not a permanent standing weakening.
+	//
+	// #3398: the window ends by itself. When the stored wrapped KEK already
+	// decrypts WITH its context (the migration is done), the flag is refused at
+	// start-up with a message saying it can be removed
+	// (crypto.ErrKMSContextFallbackNotNeeded, checked in KMSKeyProvider.KEK).
 	KMSAllowContextFallback bool `yaml:"insecure_allow_kms_context_fallback"`
 	// ExecCommand is the argv for type "exec": the resolver command (argv[0] is the
 	// binary, the rest are arguments) whose stdout supplies the KEK as raw 32 bytes
@@ -1206,6 +1211,10 @@ func DeriveMaxRequestBodySize(maxSecretSize int) int64 {
 const (
 	ADR112FilePermEnforcedMarker   = "adr112.file_permission_check.enforced"
 	ADR112RequireMFAEnforcedMarker = "adr112.require_mfa.enforced"
+	// ADR112SCIMTokenEnforcedMarker: the SCIM token shape checks (#3397) have
+	// been enforced on this deployment (a boot where they did not have to be
+	// softened), so a weak token now refuses to start instead of warning.
+	ADR112SCIMTokenEnforcedMarker = "adr112.scim_token_strength.enforced" // #nosec G101 -- metadata key name, not a credential
 )
 
 // The require_mfa upgrade grace period's own durable facts (#2923): when it

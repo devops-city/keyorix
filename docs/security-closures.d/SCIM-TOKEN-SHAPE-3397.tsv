@@ -1,0 +1,1 @@
+SCIM-TOKEN-SHAPE-3397	./internal/core/rules	TestCheckSCIMTokenShape_RefusesObviouslyNonRandom	default-ci	pending	3397	A SCIM token that passes the 20-byte floor but is one byte repeated, has fewer than 10 distinct bytes, or is a known placeholder/sample value is refused at boot with a message naming KEYORIX_SCIM_TOKEN and openssl rand -base64 32.

@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -42,18 +43,15 @@ var deliberateSharedCacheLiterals = map[string]string{
 	"internal/testutil/sqlitetest/sqlitetest_test.go":                 "TestUncappedSharedCachePool_StillLocks: the uncapped-pool control that keeps TestOpen_ConcurrentAccessIsNeverLocked from passing vacuously",
 }
 
-// pendingSharedCacheLiterals are files not converted yet, each with the owner
-// that converts it. This list only shrinks: an entry whose file no longer has
-// a literal fails the guard until it is removed.
+// pendingSharedCacheLiterals are files not converted yet because an OPEN PR is editing
+// them (converting here would conflict). Each value must name that PR as "#NNNN"
+// (TestPendingSharedCacheEntriesNameAnOpenPR), so an entry cannot linger without an
+// owner. This list only shrinks: an entry whose file no longer has a literal fails the
+// guard until it is removed. Goal: empty.
 var pendingSharedCacheLiterals = map[string]string{
-	// Login / auth-budget / rate-limit tests, owned by running sessions.
-	"server/http/handlers/auth_budget_routes_guard_test.go":              "FIX-3277 / HARDEN-HTTP-1",
-	"server/http/handlers/health_auth_rate_limit_test.go":                "FIX-3277 / HARDEN-HTTP-1",
-	"server/http/handlers/login_budget_count_failures_test.go":           "FIX-3277 / HARDEN-HTTP-1",
-	"server/http/handlers/login_budget_fallback_http_test.go":            "FIX-3277 / HARDEN-HTTP-1",
-	"server/http/handlers/login_budget_identifiable_reservation_test.go": "FIX-3277 / HARDEN-HTTP-1",
-	"server/http/handlers/login_completion_identical_response_test.go":   "FIX-3277 / HARDEN-HTTP-1",
-	"server/http/handlers/login_lockout_no_oracle_test.go":               "FIX-3277 / HARDEN-HTTP-1",
+	// Both are edited by AUTH-2 (#3365): convert with openLoginBudgetMemDB once it merges.
+	"server/http/handlers/auth_budget_routes_guard_test.go":            "AUTH-2 #3365",
+	"server/http/handlers/login_completion_identical_response_test.go": "AUTH-2 #3365",
 }
 
 // skipDirs are never Go source of this repository.
@@ -185,6 +183,27 @@ func TestNoNewSharedCacheLiterals(t *testing.T) {
 		}
 	}
 }
+
+// TestPendingSharedCacheEntriesNameAnOpenPR keeps the pending table honest: an owner
+// that is a session tag alone ("FIX-3277") rots when the session ends, a PR number can be
+// checked. Calibrated both ways on the pure matcher so the check is not vacuous.
+func TestPendingSharedCacheEntriesNameAnOpenPR(t *testing.T) {
+	for path, owner := range pendingSharedCacheLiterals {
+		if !ownerNamesPR(owner) {
+			t.Errorf("pending entry %s has owner %q; it must name the open PR that edits the file, as #NNNN", path, owner)
+		}
+	}
+	if ownerNamesPR("FIX-3277 / HARDEN-HTTP-1") {
+		t.Error("an owner with no #NNNN must be rejected")
+	}
+	if !ownerNamesPR("AUTH-2 #3365") {
+		t.Error("an owner with #NNNN must be accepted")
+	}
+}
+
+var prRef = regexp.MustCompile(`#\d{2,}`)
+
+func ownerNamesPR(owner string) bool { return prRef.MatchString(owner) }
 
 // TestSharedCacheLiteralLines_FindsLiteralsNotComments calibrates the scanner
 // both ways: literals of both kinds are found, comments and other strings are

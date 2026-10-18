@@ -25,6 +25,10 @@
 // from the clock alone, and the running server ends the grace period without a
 // restart (internal/core/mfa_upgrade_grace.go). Any error while deciding fails
 // closed (no grace).
+//
+// The same decision, with its own marker (adr112.scim_token_strength.enforced),
+// covers the SCIM token shape checks added by #3397 (scim_token_strength.go):
+// they end with the first boot that did not soften them.
 package main
 
 import (
@@ -50,6 +54,7 @@ import (
 const (
 	adr112FilePermEnforcedKey   = config.ADR112FilePermEnforcedMarker
 	adr112RequireMFAEnforcedKey = config.ADR112RequireMFAEnforcedMarker
+	adr112SCIMTokenEnforcedKey  = config.ADR112SCIMTokenEnforcedMarker
 )
 
 // adr112MFAWindow is the require_mfa grace window beginADR112MFAGrace read and
@@ -214,10 +219,10 @@ func armADR112MFAGrace(cfg *config.Config, coreService *core.KeyorixCore) {
 
 // adr112State is what the database says about this deployment.
 type adr112State struct {
-	fresh                 bool
-	fileMarker, mfaMarker string // the marker's value, "" when absent
-	why                   string // fresh / undecidable reason, or "" for an upgrade
-	failClosed            bool
+	fresh                             bool
+	fileMarker, mfaMarker, scimMarker string // the marker's value, "" when absent
+	why                               string // fresh / undecidable reason, or "" for an upgrade
+	failClosed                        bool
 }
 
 // grace reports whether a key whose marker is marker gets the grace period.
@@ -284,7 +289,7 @@ func adr112StateFromDB(db *gorm.DB) adr112State {
 	if !m.HasTable(&models.SystemMetadata{}) {
 		return st
 	}
-	for key, dst := range map[string]*string{adr112FilePermEnforcedKey: &st.fileMarker, adr112RequireMFAEnforcedKey: &st.mfaMarker} {
+	for key, dst := range map[string]*string{adr112FilePermEnforcedKey: &st.fileMarker, adr112RequireMFAEnforcedKey: &st.mfaMarker, adr112SCIMTokenEnforcedKey: &st.scimMarker} {
 		var row models.SystemMetadata
 		err := db.Where("key = ?", key).Take(&row).Error
 		switch {
@@ -301,7 +306,11 @@ func adr112StateFromDB(db *gorm.DB) adr112State {
 // enforced: adr112FilePermEnforcedKey once the startup checks ran and nothing was
 // softened by the grace period, adr112RequireMFAEnforcedKey whenever require_mfa
 // is in force and not in its grace period (a grace period that ends while the
-// server runs writes the marker itself, internal/core/mfa_upgrade_grace.go). A later boot of the same deployment (a fresh install's second
+// server runs writes the marker itself, internal/core/mfa_upgrade_grace.go),
+// adr112SCIMTokenEnforcedKey whenever enforceSCIMTokenStrength did
+// not soften a weak SCIM token (#3397; also when SCIM is off: the grace period
+// is for a token that was already in use, not one configured later). A later
+// boot of the same deployment (a fresh install's second
 // start included) is then enforced. Best-effort: a failure leaves the deployment
 // in whatever state it was (a fresh install stays enforced through its user count
 // until the next boot that manages to write it).
@@ -312,6 +321,9 @@ func recordADR112Markers(cfg *config.Config) {
 	}
 	if cfg.Security.RequireMFA && !cfg.Security.RequireMFAUpgradeGrace {
 		keys = append(keys, adr112RequireMFAEnforcedKey)
+	}
+	if !adr112SCIMTokenSoftened.Load() {
+		keys = append(keys, adr112SCIMTokenEnforcedKey)
 	}
 	if len(keys) == 0 {
 		return
