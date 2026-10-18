@@ -378,10 +378,8 @@ func (c *KeyorixCore) ActivateBreakGlass(ctx context.Context, projectID, userID 
 		return nil, lockErr
 	}
 
-	c.auditProjectScoped(ctx, EventBreakGlassActivated, userID, projectID,
-		fmt.Sprintf("break-glass: user %d self-granted %q until %s — %s",
-			userID, role.Name, expiresAt.UTC().Format(time.RFC3339), justification))
-	// The grant is already committed and audited above, so a notification failure here
+	// The grant committed together with its role.assigned and
+	// break_glass.activated rows (activateBreakGlassLocked), so a notification failure here
 	// is a DETECTION-LATENCY gap, not a control failure — don't fail the activation on
 	// it. But silently swallowing it would defeat break-glass's "loud by design" intent
 	// if the notification pipeline itself is down, so surface it loudly (#166): a
@@ -424,9 +422,11 @@ func (c *KeyorixCore) activateBreakGlassLocked(
 	// 'active' row with no role for the window between the two commits, left a
 	// 'revoked' row behind an error, and relied on a second write that could
 	// itself fail ("MANUAL CLEANUP REQUIRED", user locked out of retrying by the
-	// partial unique index). Nothing here is visible, audited or notified until
-	// the transaction commits; the grant audit below runs after commit, as
-	// RevokeBreakGlassActivationAtomic does.
+	// partial unique index). Nothing here is visible or notified until the
+	// transaction commits. AUDIT-TX-2: the role.assigned and
+	// break_glass.activated rows are the last statements of that same
+	// transaction, so an emergency elevation never commits unaudited (an
+	// activation is a grant, not a revocation: it fails closed on audit).
 	//
 	// Self-granted: actor == the activating user. Time-bound so it auto-expires.
 	// Deliberately calls tx.AssignRoleWithExpiry directly (as
@@ -436,7 +436,7 @@ func (c *KeyorixCore) activateBreakGlassLocked(
 	// preventive gate during a genuine incident — see that function's doc comment
 	// (jit_access.go).
 	var activation *models.BreakGlassActivation
-	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		a, err := tx.CreateBreakGlassActivation(ctx, &models.BreakGlassActivation{
 			ProjectID:     projectID,
 			UserID:        userID,
@@ -456,12 +456,15 @@ func (c *KeyorixCore) activateBreakGlassLocked(
 		if err := tx.AssignRoleWithExpiry(ctx, userID, role.ID, scope, expiresAt); err != nil {
 			return fmt.Errorf("failed to grant emergency role: %s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
+		c.LogRoleAssignedOn(ctx, tgt, userID, userID, role.ID, scope)
+		c.auditProjectScopedOn(ctx, tgt, EventBreakGlassActivated, userID, projectID,
+			fmt.Sprintf("break-glass: user %d self-granted %q until %s — %s",
+				userID, role.Name, expiresAt.UTC().Format(time.RFC3339), justification))
 		activation = a
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	c.LogRoleAssigned(ctx, userID, userID, role.ID, scope)
 	return activation, nil
 }
 

@@ -128,8 +128,9 @@ The codebase is gated in CI with `gosec`, `golangci-lint`, and `govulncheck`
 strict CSP and passes `pnpm audit`.
 
 **How do we report a vulnerability?**
-Email `security@keyorix.com`. Target response time is 24 hours for critical
-issues. See [`../SECURITY.md`](../SECURITY.md) for details.
+Email `security@keyorix.com`. We acknowledge a report within 48 hours and give
+an initial assessment within 7 days; fixes ship within 90 days of a validated
+report, with one week's advance notice for High and Critical. See [`../SECURITY.md`](../SECURITY.md) for details.
 
 ## Known gaps (stated honestly)
 
@@ -143,11 +144,14 @@ We would rather tell you these up front than have you find them:
   tamper-*evidence*, not WORM prevention: a database-level actor can still
   alter rows, but cannot do so undetectably. Physical write-once-read-many
   storage remains operator-owned infrastructure, outside the application.
-- **Automated purge schedulers** for soft-deleted records — config-present, not
-  yet wired.
-- **PAT per-token permission scoping** — shipped (ADR-042): a personal access
-  token can be minted with a restricted permission/scope subset of its
-  owner's, rather than always inheriting the owner's full authority.
+- **Automated purge of soft-deleted records is opt-in.** The retention purge
+  scheduler (ADR-032) is wired and runs only when `purge.enabled: true`
+  (default off); it hard-deletes soft-deleted records past
+  `soft_delete.retention_days` and skips a tick while a legal hold applies. With
+  it off, soft-deleted records are kept until you purge them.
+- *(Not a gap)* **PAT per-token permission scoping** is shipped (ADR-042): a
+  personal access token can be minted with a restricted permission/scope subset
+  of its owner's, rather than always inheriting the owner's full authority.
 - **No independent certification yet** — NIS2/DORA/ISO mappings are informational;
   detailed reviewed reports are targeted for Q3 2026.
 - **`keyorix run`'s injected secrets are readable via OS process-environment

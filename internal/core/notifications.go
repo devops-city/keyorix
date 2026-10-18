@@ -357,6 +357,9 @@ func (c *KeyorixCore) notifySecretShared(ctx context.Context, secret *models.Sec
 	if secret == nil || recipientID == 0 || recipientID == sharedBy {
 		return
 	}
+	// The share committed before this runs: a panic here must not turn it into
+	// an error response (#3350, the #3092 pattern).
+	defer recoverPostCommitNotifyPanic(NotificationSecretShared, recipientID)
 	var pid *uint
 	if secret.ProjectID != 0 {
 		p := secret.ProjectID
@@ -393,6 +396,9 @@ func (c *KeyorixCore) notifySecretShareRevoked(ctx context.Context, secret *mode
 	if secret == nil || recipientID == 0 || recipientID == revokedBy {
 		return
 	}
+	// The revoke committed before this runs: a panic here must not turn it
+	// into an error response (#3350, the #3092 pattern).
+	defer recoverPostCommitNotifyPanic(NotificationSecretShareRevoked, recipientID)
 	var pid *uint
 	if secret.ProjectID != 0 {
 		p := secret.ProjectID

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -129,22 +130,28 @@ func (c *KeyorixCore) AssignPermissionToRole(ctx context.Context, actorID, roleI
 			return fmt.Errorf("cannot assign permission %q to a role: you do not hold it yourself", perm.Name)
 		}
 	}
-	if err := c.storage.AssignPermissionToRole(ctx, roleID, permissionID); err != nil {
-		if errors.Is(err, storage.ErrDuplicateRolePermission) {
-			// Distinguishable message (matched by server/http/handlers/rbac.go's
-			// AssignPermissionToRole via the same strings.Contains classification
-			// idiom that function already uses for "do not hold it yourself" a few
-			// lines above) so this maps to 409 Conflict, not a generic 500.
-			return fmt.Errorf("role %q already has permission %q", role.Name, perm.Name)
-		}
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
 	builtinTarget := IsBuiltinRole(role.Name)
+	// AUDIT-TX-2: the grant and its permission.assigned row commit together.
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.AssignPermissionToRole(ctx, roleID, permissionID); err != nil {
+			if errors.Is(err, storage.ErrDuplicateRolePermission) {
+				// Distinguishable message (matched by server/http/handlers/rbac.go's
+				// AssignPermissionToRole via the same strings.Contains classification
+				// idiom that function already uses for "do not hold it yourself" a few
+				// lines above) so this maps to 409 Conflict, not a generic 500.
+				return fmt.Errorf("role %q already has permission %q", role.Name, perm.Name)
+			}
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.logPermissionAssignedOn(ctx, tgt, actorID, roleID, permissionID, builtinTarget)
+		return nil
+	}); err != nil {
+		return err
+	}
 	if builtinTarget {
 		log.Printf("SECURITY: permission %q (id %d) added to built-in role %q (id %d) by actor %d — permitted by design (ADR-044); operator authority over a built-in role's permission set is deliberate, not a bug",
 			perm.Name, permissionID, role.Name, roleID, actorID)
 	}
-	c.LogPermissionAssigned(ctx, actorID, roleID, permissionID, builtinTarget)
 	return nil
 }
 
@@ -220,11 +227,7 @@ func (c *KeyorixCore) AssignRoleToGroup(ctx context.Context, actorID, groupID, r
 	// grant to one of this group's members — see withGroupMemberSoDLocks.
 	return c.storage.WithNamedLock(ctx, sodGrantLockKey("group", groupID), func(ctx context.Context) error {
 		write := func(ctx context.Context) error {
-			if err := c.storage.AssignRoleToGroup(ctx, groupID, roleID, scope); err != nil {
-				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-			}
-			c.LogGroupRoleAssigned(ctx, actorID, groupID, roleID, scope)
-			return nil
+			return c.grantGroupRoleAudited(ctx, actorID, groupID, roleID, scope, nil)
 		}
 		policies, adding, needed, err := c.groupGrantSoDContext(ctx, roleID)
 		if err != nil {
@@ -565,11 +568,7 @@ func (c *KeyorixCore) AssignUserRole(ctx context.Context, actorID, userID, roleI
 		if err := c.requireNoSoDViolation(ctx, userID, roleID); err != nil {
 			return err
 		}
-		if err := c.storage.AssignRole(ctx, userID, roleID, scope); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-		}
-		c.LogRoleAssigned(ctx, actorID, userID, roleID, scope)
-		return nil
+		return c.grantUserRoleAudited(ctx, actorID, userID, roleID, scope, nil, false)
 	})
 }
 
@@ -605,11 +604,7 @@ func (c *KeyorixCore) assignUserRoleSystemGrant(ctx context.Context, actorID, us
 		if err := c.requireNoSoDViolation(ctx, userID, roleID); err != nil {
 			return err
 		}
-		if err := c.storage.AssignRole(ctx, userID, roleID, scope); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-		}
-		c.LogRoleAssigned(ctx, actorID, userID, roleID, scope)
-		return nil
+		return c.grantUserRoleAudited(ctx, actorID, userID, roleID, scope, nil, false)
 	})
 }
 
@@ -630,10 +625,52 @@ func (c *KeyorixCore) grantBaselineRoleBackfill(ctx context.Context, userID, rol
 		if err := c.requireNoSoDViolation(ctx, userID, roleID); err != nil {
 			return err
 		}
-		if err := c.storage.AssignRole(ctx, userID, roleID, Scope{}); err != nil {
+		return c.grantUserRoleAudited(ctx, 0, userID, roleID, Scope{}, nil, true)
+	})
+}
+
+// grantUserRoleAudited writes a user role grant (permanent, or time-bound when
+// expiresAt is set) and its role.assigned audit row in ONE transaction
+// (AUDIT-TX-2, mutation_audit_tx.go): the grant never commits without its row.
+// Every direct user grant funnels through here once its own gates passed:
+// AssignUserRole, assignUserRoleSystemGrant (SSO), grantBaselineRoleBackfill,
+// AssignUserRoleWithExpiry and the access-request approval grant.
+// baselineBackfill tags the row as LogRoleAssignedBackfill does.
+func (c *KeyorixCore) grantUserRoleAudited(ctx context.Context, actorID, userID, roleID uint, scope Scope, expiresAt *time.Time, baselineBackfill bool) error {
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if expiresAt != nil {
+			err = tx.AssignRoleWithExpiry(ctx, userID, roleID, scope, *expiresAt)
+		} else {
+			err = tx.AssignRole(ctx, userID, roleID, scope)
+		}
+		if err != nil {
 			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
-		c.LogRoleAssignedBackfill(ctx, 0, userID, roleID, Scope{})
+		if baselineBackfill {
+			c.logRoleAssignedBackfillOn(ctx, tgt, actorID, userID, roleID, scope)
+		} else {
+			c.LogRoleAssignedOn(ctx, tgt, actorID, userID, roleID, scope)
+		}
+		return nil
+	})
+}
+
+// grantGroupRoleAudited is grantUserRoleAudited for a group grant
+// (AssignRoleToGroup, AssignGroupRoleWithExpiry): the group_roles row and its
+// role.group_assigned audit row commit together.
+func (c *KeyorixCore) grantGroupRoleAudited(ctx context.Context, actorID, groupID, roleID uint, scope Scope, expiresAt *time.Time) error {
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if expiresAt != nil {
+			err = tx.AssignRoleToGroupWithExpiry(ctx, groupID, roleID, scope, *expiresAt)
+		} else {
+			err = tx.AssignRoleToGroup(ctx, groupID, roleID, scope)
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.LogGroupRoleAssignedOn(ctx, tgt, actorID, groupID, roleID, scope)
 		return nil
 	})
 }

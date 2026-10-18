@@ -95,7 +95,14 @@ type rbacAuditDetail struct {
 // made the change (0 = no authenticated principal, e.g. a local CLI invocation);
 // the target/role/scope are captured in the event's structured diff.
 func (c *KeyorixCore) LogRoleAssigned(ctx context.Context, actorID, targetUserID, roleID uint, scope Scope) {
-	c.logRoleChange(ctx, EventRoleAssigned, "assigned to", actorID, targetUserID, roleID, scope, false)
+	c.LogRoleAssignedOn(ctx, c.auditNow(), actorID, targetUserID, roleID, scope)
+}
+
+// LogRoleAssignedOn is LogRoleAssigned against an explicit audit target: every
+// grant path writes it inside the grant's own transaction (AUDIT-TX-2,
+// mutation_audit_tx.go).
+func (c *KeyorixCore) LogRoleAssignedOn(ctx context.Context, tgt auditTarget, actorID, targetUserID, roleID uint, scope Scope) {
+	c.logRoleChangeOn(ctx, tgt, EventRoleAssigned, "assigned to", actorID, targetUserID, roleID, scope, false)
 }
 
 func (c *KeyorixCore) LogRoleRemoved(ctx context.Context, actorID, targetUserID, roleID uint, scope Scope) {
@@ -116,11 +123,11 @@ func (c *KeyorixCore) LogRoleRemovedOn(ctx context.Context, tgt auditTarget, act
 // trail can tell "the system repaired this on startup" apart from an ordinary
 // role.assigned grant.
 func (c *KeyorixCore) LogRoleAssignedBackfill(ctx context.Context, actorID, targetUserID, roleID uint, scope Scope) {
-	c.logRoleChange(ctx, EventRoleAssigned, "assigned to", actorID, targetUserID, roleID, scope, true)
+	c.logRoleAssignedBackfillOn(ctx, c.auditNow(), actorID, targetUserID, roleID, scope)
 }
 
-func (c *KeyorixCore) logRoleChange(ctx context.Context, eventType, verb string, actorID, targetUserID, roleID uint, scope Scope, baselineBackfill bool) {
-	c.logRoleChangeOn(ctx, c.auditNow(), eventType, verb, actorID, targetUserID, roleID, scope, baselineBackfill)
+func (c *KeyorixCore) logRoleAssignedBackfillOn(ctx context.Context, tgt auditTarget, actorID, targetUserID, roleID uint, scope Scope) {
+	c.logRoleChangeOn(ctx, tgt, EventRoleAssigned, "assigned to", actorID, targetUserID, roleID, scope, true)
 }
 
 // logRoleChangeOn is logRoleChange against an explicit audit target. ONE body,
@@ -142,7 +149,13 @@ func (c *KeyorixCore) logRoleChangeOn(ctx context.Context, tgt auditTarget, even
 // LogGroupRoleAssigned / LogGroupRoleRemoved record a role granted to / removed
 // from a group. See LogRoleAssigned for actorID semantics.
 func (c *KeyorixCore) LogGroupRoleAssigned(ctx context.Context, actorID, groupID, roleID uint, scope Scope) {
-	c.logGroupRoleChange(ctx, EventRoleGroupAssigned, "assigned to group", actorID, groupID, roleID, scope)
+	c.LogGroupRoleAssignedOn(ctx, c.auditNow(), actorID, groupID, roleID, scope)
+}
+
+// LogGroupRoleAssignedOn is LogGroupRoleAssigned against an explicit audit
+// target (AUDIT-TX-2: written inside the group grant's transaction).
+func (c *KeyorixCore) LogGroupRoleAssignedOn(ctx context.Context, tgt auditTarget, actorID, groupID, roleID uint, scope Scope) {
+	c.logGroupRoleChangeOn(ctx, tgt, EventRoleGroupAssigned, "assigned to group", actorID, groupID, roleID, scope)
 }
 
 func (c *KeyorixCore) LogGroupRoleRemoved(ctx context.Context, actorID, groupID, roleID uint, scope Scope) {
@@ -153,10 +166,6 @@ func (c *KeyorixCore) LogGroupRoleRemoved(ctx context.Context, actorID, groupID,
 // (audit_target.go) — the group-grant counterpart of LogRoleRemovedOn.
 func (c *KeyorixCore) LogGroupRoleRemovedOn(ctx context.Context, tgt auditTarget, actorID, groupID, roleID uint, scope Scope) {
 	c.logGroupRoleChangeOn(ctx, tgt, EventRoleGroupRemoved, "removed from group", actorID, groupID, roleID, scope)
-}
-
-func (c *KeyorixCore) logGroupRoleChange(ctx context.Context, eventType, verb string, actorID, groupID, roleID uint, scope Scope) {
-	c.logGroupRoleChangeOn(ctx, c.auditNow(), eventType, verb, actorID, groupID, roleID, scope)
 }
 
 // logGroupRoleChangeOn is logGroupRoleChange against an explicit audit target.
@@ -176,16 +185,20 @@ func (c *KeyorixCore) logGroupRoleChangeOn(ctx context.Context, tgt auditTarget,
 // role-grant-equivalent action and lands in the RBAC audit trail (#233). See
 // LogRoleAssigned for actorID semantics.
 func (c *KeyorixCore) LogGroupMemberAdded(ctx context.Context, actorID, userID, groupID uint) {
-	c.logGroupMemberChange(ctx, EventGroupMemberAdded, "added to group", actorID, userID, groupID)
+	c.logGroupMemberAddedOn(ctx, c.auditNow(), actorID, userID, groupID)
+}
+
+func (c *KeyorixCore) logGroupMemberAddedOn(ctx context.Context, tgt auditTarget, actorID, userID, groupID uint) {
+	c.logGroupMemberChangeOn(ctx, tgt, EventGroupMemberAdded, "added to group", actorID, userID, groupID)
 }
 
 func (c *KeyorixCore) LogGroupMemberRemoved(ctx context.Context, actorID, userID, groupID uint) {
-	c.logGroupMemberChange(ctx, EventGroupMemberRemoved, "removed from group", actorID, userID, groupID)
+	c.logGroupMemberChangeOn(ctx, c.auditNow(), EventGroupMemberRemoved, "removed from group", actorID, userID, groupID)
 }
 
-func (c *KeyorixCore) logGroupMemberChange(ctx context.Context, eventType, verb string, actorID, userID, groupID uint) {
-	desc := fmt.Sprintf("%s %s %s", c.auditRef(ctx, c.storage, auditKindUser, userID), verb, c.auditRefTail(ctx, c.storage, auditKindGroup, groupID))
-	c.writeRBACAudit(ctx, eventType, desc, actorID, Scope{}, rbacAuditDetail{
+func (c *KeyorixCore) logGroupMemberChangeOn(ctx context.Context, tgt auditTarget, eventType, verb string, actorID, userID, groupID uint) {
+	desc := fmt.Sprintf("%s %s %s", c.auditRef(ctx, tgt.st, auditKindUser, userID), verb, c.auditRefTail(ctx, tgt.st, auditKindGroup, groupID))
+	c.writeRBACAuditOn(ctx, tgt, eventType, desc, actorID, Scope{}, rbacAuditDetail{
 		TargetUserID: userID,
 		GroupID:      groupID,
 	})
@@ -197,19 +210,27 @@ func (c *KeyorixCore) logGroupMemberChange(ctx context.Context, eventType, verb 
 // does not change whether the event is written, only what it carries (see
 // reasonBuiltinRoleTarget).
 func (c *KeyorixCore) LogPermissionAssigned(ctx context.Context, actorID, roleID, permissionID uint, builtinTarget bool) {
-	c.logPermissionChange(ctx, EventPermissionAdded, "granted to role", actorID, roleID, permissionID, builtinTarget)
+	c.logPermissionAssignedOn(ctx, c.auditNow(), actorID, roleID, permissionID, builtinTarget)
+}
+
+func (c *KeyorixCore) logPermissionAssignedOn(ctx context.Context, tgt auditTarget, actorID, roleID, permissionID uint, builtinTarget bool) {
+	c.logPermissionChangeOn(ctx, tgt, EventPermissionAdded, "granted to role", actorID, roleID, permissionID, builtinTarget)
 }
 
 func (c *KeyorixCore) LogPermissionRemoved(ctx context.Context, actorID, roleID, permissionID uint, builtinTarget bool) {
-	c.logPermissionChange(ctx, EventPermissionRemoved, "removed from role", actorID, roleID, permissionID, builtinTarget)
+	c.logPermissionRemovedOn(ctx, c.auditNow(), actorID, roleID, permissionID, builtinTarget)
 }
 
-func (c *KeyorixCore) logPermissionChange(ctx context.Context, eventType, verb string, actorID, roleID, permissionID uint, builtinTarget bool) {
+func (c *KeyorixCore) logPermissionRemovedOn(ctx context.Context, tgt auditTarget, actorID, roleID, permissionID uint, builtinTarget bool) {
+	c.logPermissionChangeOn(ctx, tgt, EventPermissionRemoved, "removed from role", actorID, roleID, permissionID, builtinTarget)
+}
+
+func (c *KeyorixCore) logPermissionChangeOn(ctx context.Context, tgt auditTarget, eventType, verb string, actorID, roleID, permissionID uint, builtinTarget bool) {
 	desc := fmt.Sprintf("permission %d %s %d", permissionID, verb, roleID)
 	if builtinTarget {
 		desc = fmt.Sprintf("%s reason=%s", desc, reasonBuiltinRoleTarget)
 	}
-	c.writeRBACAudit(ctx, eventType, desc, actorID, Scope{}, rbacAuditDetail{
+	c.writeRBACAuditOn(ctx, tgt, eventType, desc, actorID, Scope{}, rbacAuditDetail{
 		RoleID:            roleID,
 		PermissionID:      permissionID,
 		BuiltinRoleTarget: builtinTarget,
@@ -221,11 +242,11 @@ func (c *KeyorixCore) logPermissionChange(ctx context.Context, eventType, verb s
 // global, so no scope. actorID is the admin who made the change (0 = no
 // authenticated principal). They surface in the RBAC audit log alongside grants.
 func (c *KeyorixCore) LogRoleCreated(ctx context.Context, actorID, roleID uint, name string) {
-	c.logRoleDefinitionChange(ctx, EventRoleCreated, "created", actorID, roleID, name)
+	c.logRoleDefinitionChangeOn(ctx, c.auditNow(), EventRoleCreated, "created", actorID, roleID, name)
 }
 
 func (c *KeyorixCore) LogRoleUpdated(ctx context.Context, actorID, roleID uint, name string) {
-	c.logRoleDefinitionChange(ctx, EventRoleUpdated, "updated", actorID, roleID, name)
+	c.logRoleDefinitionChangeOn(ctx, c.auditNow(), EventRoleUpdated, "updated", actorID, roleID, name)
 }
 
 // LogRoleDeleted records a role deletion. counts is DeleteRole's cascade
@@ -261,9 +282,9 @@ func (c *KeyorixCore) LogRoleDeleteDenied(ctx context.Context, actorID, roleID u
 		fmt.Sprintf("role delete DENIED for %q (id %d): %s", name, roleID, reason))
 }
 
-func (c *KeyorixCore) logRoleDefinitionChange(ctx context.Context, eventType, verb string, actorID, roleID uint, name string) {
+func (c *KeyorixCore) logRoleDefinitionChangeOn(ctx context.Context, tgt auditTarget, eventType, verb string, actorID, roleID uint, name string) {
 	desc := fmt.Sprintf("role %q (id %d) %s", name, roleID, verb)
-	c.writeRBACAudit(ctx, eventType, desc, actorID, Scope{}, rbacAuditDetail{RoleID: roleID})
+	c.writeRBACAuditOn(ctx, tgt, eventType, desc, actorID, Scope{}, rbacAuditDetail{RoleID: roleID})
 }
 
 // writeRBACAudit is the shared writer for RBAC audit events: actor as UserID,
@@ -354,7 +375,12 @@ func (c *KeyorixCore) writeAuditEventFailedFull(ctx context.Context, eventType s
 func (c *KeyorixCore) writeAuditEventOutcomeOn(ctx context.Context, tgt auditTarget, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string, success bool) (persisted bool) { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
 	defer func() {
 		if r := recover(); r != nil {
-			logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r), "event_type", eventType)
+			if tgt.sink != nil && tgt.sink.failClosed {
+				logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q inside its mutation's transaction: %v -- failing closed, mutation rolled back", eventType, r), "event_type", eventType)
+			} else {
+				logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r), "event_type", eventType)
+			}
+			tgt.sink.fail(eventType, fmt.Errorf("audit write panicked: %v", r))
 			persisted = false
 		}
 	}()

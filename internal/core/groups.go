@@ -340,11 +340,15 @@ func (c *KeyorixCore) AddUserToGroup(ctx context.Context, actorID uint, actorIsM
 				return err
 			}
 		}
-		if err := c.storage.AddUserToGroup(ctx, userID, groupID, projectID); err != nil {
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-		}
-		c.LogGroupMemberAdded(ctx, actorID, userID, groupID)
-		return nil
+		// AUDIT-TX-2: a membership confers every role the group holds, so it
+		// commits with its group.member_added row or not at all.
+		return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			if err := tx.AddUserToGroup(ctx, userID, groupID, projectID); err != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			}
+			c.logGroupMemberAddedOn(ctx, tgt, actorID, userID, groupID)
+			return nil
+		})
 	})
 }
 
