@@ -16,6 +16,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/encryption"
 	"github.com/keyorixhq/keyorix/internal/serverguard"
+	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -30,6 +31,22 @@ func keyDirLockCfg(dsn, keyDir, mode string) *config.Config {
 		KeyDirLock: mode,
 	}
 	return cfg
+}
+
+// keyDirLockDSN returns an isolated PostgreSQL database with the full schema.
+// main() creates the storage (running the migrations) before initializeEncryption,
+// and the DEK epoch guard reads system_metadata, so the tests do the same.
+func keyDirLockDSN(t *testing.T) string {
+	t.Helper()
+	dsn := adminPgIsolatedDatabaseDSN(t, adminPgTestDSN(t))
+	st, err := appstorage.NewStorageFactory().CreateStorage(keyDirLockCfg(dsn, t.TempDir(), ""))
+	if err != nil {
+		t.Fatalf("migrate schema: %v", err)
+	}
+	if c, ok := st.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
+	return dsn
 }
 
 // bootReplica is the start-up order main() uses: shared presence lock first,
@@ -51,7 +68,7 @@ func bootReplica(t *testing.T, cfg *config.Config) (*encryption.Service, func(),
 // Red premise for the Helm replicas > 1 path (#3305): with the default flock a second
 // server on the same key directory cannot start while the first runs.
 func TestKeyDirLock_Flock_SecondReplicaOnSharedKeyDirRefuses(t *testing.T) {
-	dsn := adminPgIsolatedDatabaseDSN(t, adminPgTestDSN(t))
+	dsn := keyDirLockDSN(t)
 	t.Setenv("KEYORIX_MASTER_PASSWORD", "key-dir-lock-test-passphrase")
 	keyDir := t.TempDir()
 
@@ -71,7 +88,7 @@ func TestKeyDirLock_Flock_SecondReplicaOnSharedKeyDirRefuses(t *testing.T) {
 // directory both start, on the same DEK (what A encrypts B decrypts), and neither
 // creates dek.lock.
 func TestKeyDirLock_Database_TwoReplicasShareOneFreshKeyDir(t *testing.T) {
-	dsn := adminPgIsolatedDatabaseDSN(t, adminPgTestDSN(t))
+	dsn := keyDirLockDSN(t)
 	t.Setenv("KEYORIX_MASTER_PASSWORD", "key-dir-lock-test-passphrase")
 	keyDir := t.TempDir()
 
@@ -118,7 +135,7 @@ func TestKeyDirLock_Database_ReadOnlyKeyDir(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
-	dsn := adminPgIsolatedDatabaseDSN(t, adminPgTestDSN(t))
+	dsn := keyDirLockDSN(t)
 	t.Setenv("KEYORIX_MASTER_PASSWORD", "key-dir-lock-test-passphrase")
 	keyDir := t.TempDir()
 
@@ -159,7 +176,7 @@ func TestKeyDirLock_Database_ReadOnlyKeyDir(t *testing.T) {
 // directory when the database already holds secret versions (a replica given
 // its own empty volume instead of the shared one), and writes no key file.
 func TestKeyDirLock_Database_RefusesNewDEKOverEncryptedData(t *testing.T) {
-	dsn := adminPgIsolatedDatabaseDSN(t, adminPgTestDSN(t))
+	dsn := keyDirLockDSN(t)
 	t.Setenv("KEYORIX_MASTER_PASSWORD", "key-dir-lock-test-passphrase")
 	sharedDir := t.TempDir()
 	_, stop, err := bootReplica(t, keyDirLockCfg(dsn, sharedDir, config.KeyDirLockDatabase))
