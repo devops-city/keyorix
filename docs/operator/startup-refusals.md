@@ -485,16 +485,25 @@ belong together (the second message is a heuristic), `touch` them to a common ti
 "Remove the partial files and let first boot recreate them" is only right on an install that
 has **no data yet**. **In place:** no.
 
-### Key files readable by others — from code
+### Key files readable by others, or owned by another account — from code
 
 ```
-key file security: key material is readable beyond its owner: <path> (mode 644) — refusing to start (chmod to 0600, or set security.insecure_allow_unsafe_file_permissions to override)
+key file security: key material is readable beyond its owner: <path> (mode 644) — refusing to start (chmod 600 and chown the files to the server's user, or set security.insecure_allow_unsafe_file_permissions to override)
+key file security: key material is owned by an account the server does not trust: <path> (owned by uid 1000; the server runs as uid 1001 and trusts only that uid and root, because the owner can replace the file) — refusing to start (...)
 ```
 
-**Match:** `key material is readable beyond its owner`
+**Match:** `key material is readable beyond its owner`, `key material is owned by an account the server does not trust`
 
-**Cause / fix.** As above; this is the always-on second check. Prefer `chmod 600` to the
-override. **In place:** yes.
+**Cause.** This is the always-on second check of the wrapped DEK, the KEK salt and the TLS
+private keys. The first form: group or other can read the file. The second (#3410): the
+file belongs to an account other than the server's own uid and root, and whoever owns a
+file can rewrite it, whatever its mode. **Fix.** `chmod 600` the file and
+`chown <server user> <file>` (or `chown root`); prefer that to the override. On Compose the
+key volume is created owned by the server's uid 1001, and on Helm the files are written by
+the pod's uid, so only a hand-copied or hand-restored file normally shows this. With
+`security.enable_file_permission_check` unset, a TLS key only warns; in the ADR-112
+upgrade grace period, with the check off or with the override, both forms only warn.
+**In place:** yes.
 
 ### Key file contents invalid — from code
 
@@ -547,6 +556,8 @@ ADR-039 rather than pointing two servers at one key directory. **In place:** sto
 |---|---|
 | `secret file is empty` | the file behind `KEYORIX_*_FILE` is empty |
 | `is group- or world-readable (mode` | `--passphrase-file` is not `0600` |
+| `(the user the server runs as) or to root` | `--passphrase-file`, or the KEK file of `key_provider: file`, is owned by an account other than the server's user and root (#3410: that account could replace it); the message names the owner uid. `chown` it. No override |
+| `refusing to trust it as key material` | the KEK file of `key_provider: file` is not `0600`/`0400`; `chmod` it. No override |
 | `secret-value encryption did not engage` | encryption is configured but did not start; the server refuses to store secrets in plaintext. Check the key provider settings and earlier log lines |
 | `refusing to start rather than leave a webhook credential unencrypted at rest` | the start-up pass that encrypts stored notification URLs failed; fix the database error shown first (permissions, disk) and restart |
 | `DEK-rotation crash recovery failed` | an interrupted `admin encryption rotate` could not be completed on start; do **not** delete files; see [j6](j6-key-rotation.md) |
