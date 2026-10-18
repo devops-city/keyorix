@@ -59,7 +59,7 @@ through the transaction handle and commits together with the mutation.
 | Group membership add | `AddUserToGroup` | `group.member_added` | after commit | in tx |
 | Project member add | `AddProjectMember` → `AssignUserRole` | `role.assigned` | after commit | in tx |
 | Access-request approval grant | `finalizeAccessRequestApproval` | `role.assigned` + `access_request.approved` | after commit | in tx |
-| Break-glass activation | `activateBreakGlassLocked` | `role.assigned` + `break_glass.activated` | after commit (activated: outside the lock) | in tx |
+| Break-glass activation | `activateBreakGlassLocked` | `role.assigned` + `break_glass.activated` | after commit (activated: outside the lock) | in tx; when only the append fails, degraded with owed records in the same tx (BREAKGLASS-OWED-1, `activateBreakGlassDegraded`) |
 | Share create (user, group) | `ShareSecret`, `ShareSecretWithGroup` | `share_created` / `group_share_created` | after commit | in tx |
 | Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx when it widens (read→write, later expiry, expiry cleared; mixed included); after commit, best-effort, when it only narrows or changes nothing (see "Updates classified per call") |
 | Secret ACL grant | `GrantSecretACL` | `secret.acl_granted` | after commit | in tx |

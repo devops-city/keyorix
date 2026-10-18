@@ -1,0 +1,1 @@
+BREAKGLASS-OWED-PG-001	./internal/core	TestBreakGlass_AuditChainLockHeldGoesDegraded_Postgres	pg-gated	pending	-	On PostgreSQL a held audit-chain advisory lock does not block emergency access: the activation commits degraded with owed records after the write bound and is backfilled once the lock is released.
