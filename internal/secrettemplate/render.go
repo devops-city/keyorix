@@ -6,17 +6,17 @@
 //
 // Render's default substitution is raw and format-agnostic, matching today's only
 // callers (.env/config-style single-line KV rendering). A caller building a JSON or
-// YAML document around a placeholder should use RenderJSON/RenderYAML (or
-// RenderWithOptions with RenderOptions.Escape) instead, so a secret value can't break
-// out of its quoted field and inject or overwrite an adjacent key.
+// YAML document around a placeholder should use RenderJSON / yamlescape.RenderYAML
+// (or RenderWithOptions with RenderOptions.Escape) instead, so a secret value can't
+// break out of its quoted field and inject or overwrite an adjacent key. The YAML
+// helpers live in the yamlescape subpackage so gopkg.in/yaml.v3 stays out of this
+// package's (and internal/core's) dependency closure.
 package secrettemplate
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // marker is the placeholder prefix; a reference looks like ${secret:<ref>}.
@@ -134,8 +134,8 @@ type RenderOptions struct {
 	// break out of the intended string field and inject or overwrite an adjacent
 	// key — the secret's value is controlled by whoever can write that one secret,
 	// who may be far less trusted than the template's author. EscapeJSONString and
-	// EscapeYAMLString (or the RenderJSON/RenderYAML convenience wrappers) close
-	// that gap for their respective formats.
+	// yamlescape.EscapeYAMLString (or the RenderJSON / yamlescape.RenderYAML
+	// convenience wrappers) close that gap for their respective formats.
 	Escape EscapeFunc
 }
 
@@ -160,40 +160,11 @@ func EscapeJSONString(val string) string {
 	return string(b[1 : len(b)-1])
 }
 
-// EscapeYAMLString escapes val so it can be embedded inside a double-quoted YAML
-// scalar's quotes (i.e. as the value written between the surrounding `"..."` a
-// template already supplies), mirroring EscapeJSONString for YAML documents. It
-// forces yaml.v3's double-quoted scalar encoding (rather than letting it choose
-// plain/single-quoted/literal style, which would produce output that doesn't fit
-// inside pre-existing template quotes) and strips the quotes yaml.Marshal adds,
-// since the template already supplies them.
-func EscapeYAMLString(val string) string {
-	node := yaml.Node{Kind: yaml.ScalarNode, Style: yaml.DoubleQuotedStyle, Value: val}
-	if b, err := yaml.Marshal(&node); err == nil {
-		s := strings.TrimSuffix(string(b), "\n")
-		if len(s) >= 2 && strings.HasPrefix(s, `"`) && strings.HasSuffix(s, `"`) {
-			return s[1 : len(s)-1]
-		}
-	}
-	// yaml.Node.MarshalYAML on a double-quoted scalar node is not expected to fail or
-	// return an unexpected shape; fall back defensively rather than risk emitting an
-	// unescaped value.
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(val)
-}
-
 // RenderJSON is Render with Escape set to EscapeJSONString: use it when tmpl is a
 // JSON document or fragment that embeds ${secret:<ref>} placeholders inside quoted
 // string fields, so a substituted secret value cannot break out of its field.
 func RenderJSON(tmpl string, resolve Resolver) (string, error) {
 	return RenderWithOptions(tmpl, resolve, RenderOptions{Escape: EscapeJSONString})
-}
-
-// RenderYAML is Render with Escape set to EscapeYAMLString: use it when tmpl is a
-// YAML document or fragment that embeds ${secret:<ref>} placeholders inside
-// double-quoted scalar fields, so a substituted secret value cannot break out of
-// its field.
-func RenderYAML(tmpl string, resolve Resolver) (string, error) {
-	return RenderWithOptions(tmpl, resolve, RenderOptions{Escape: EscapeYAMLString})
 }
 
 // Render expands every ${secret:<ref>} placeholder in tmpl using resolve and returns
@@ -210,7 +181,7 @@ func RenderYAML(tmpl string, resolve Resolver) (string, error) {
 // trigger regardless of how many placeholder occurrences the template contains.
 //
 // Render performs no format-specific escaping of substituted values — see
-// RenderOptions.Escape / RenderJSON / RenderYAML for that. This is equivalent to
+// RenderOptions.Escape / RenderJSON / yamlescape.RenderYAML for that. This is equivalent to
 // RenderWithOptions(tmpl, resolve, RenderOptions{}).
 func Render(tmpl string, resolve Resolver) (string, error) {
 	return RenderWithOptions(tmpl, resolve, RenderOptions{})
@@ -236,7 +207,7 @@ func RenderWithOptions(tmpl string, resolve Resolver, opts RenderOptions) (strin
 		// caller's template is a .env file, a YAML/JSON document, or a shell script, so
 		// it applies no format-specific escaping (quoting a YAML scalar, JSON-string-
 		// escaping, shell-quoting, ...) unless the caller opts in via
-		// RenderOptions.Escape / RenderJSON / RenderYAML below. What every one of those
+		// RenderOptions.Escape / RenderJSON / yamlescape.RenderYAML below. What every one of those
 		// targets shares, though, is that an embedded newline/CR turns one substituted
 		// value into multiple *lines* of output, and the documented use case
 		// (internal/cli/secret/render.go) is exactly "write this straight to a .env/
