@@ -4,11 +4,11 @@
 # (#3299 vs TestSharedDatabaseLockGuard; new routes vs
 # TestEveryErrorResponse_HeadersNoStoreAndJSONBody / TestNoRawErrorTextOnServerErrors).
 #
-# Mirror of the coordinator's ~/proj/prompts/watchdog/global-guards.txt (the
-# list its preflight runs before a PR is queued). Keep the two identical: add a
-# package to both in the same change. run-guards.sh also runs every other
-# source-scanning test in the root module, so this list is a floor, not the
-# whole set.
+# This repo file is the single source of the list. The coordinator preflight
+# (~/proj/prompts/bin/preflight.sh) reads it from the repo, so add a package
+# here only. run-guards.sh also runs every other source-scanning test in the
+# root module, so this list is a floor, not the whole set. Every entry must be
+# an existing directory (TestGlobalGuardsPackagesExist fails the PR on a typo).
 ./internal/core
 ./internal/storage/store
 ./server/http/handlers

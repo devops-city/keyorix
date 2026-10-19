@@ -1657,7 +1657,7 @@ jobs:
       # ci:full, and any merge_group whose selection fell back to full).
       - name: Coverage floor not computed on a selected merge-queue run
         if: steps.gate.outputs.selected == 'true'
-        run: echo "::notice::Selected merge-queue run -- the ${COVERAGE_FLOOR}% coverage floor is enforced on full runs (the nightly schedule runs it on main every day)."
+        run: echo "::notice::Selected merge-queue run -- the ${COVERAGE_FLOOR}% coverage floor is not computed here. A coverage drop is caught by the nightly run on main, not by the merge queue."
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
@@ -3542,7 +3542,13 @@ jobs:
             merged="PRs merged since the last green full run (${last_green:0:10}): lookup failed."
           fi
           title="Nightly main CI failed"
-          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\n%s\n\nA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed" "$merged")
+          # The coverage floor is checked only on full runs (a selected merge-queue
+          # run skips it), so a build-and-test failure here may be the floor.
+          cov=""
+          if printf '%s\n' "$failed" | grep -qx -- '- build-and-test'; then
+            cov="build-and-test failed: besides a test or build error, a possible cause is the coverage floor (the Check coverage floor step), which merge-queue runs do not compute.\n\n"
+          fi
+          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\n%s\n\n%bA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed" "$merged" "$cov")
           existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"

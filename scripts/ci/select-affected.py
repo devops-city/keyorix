@@ -91,6 +91,12 @@ def log(msg):
     print(msg, file=sys.stderr)
 
 
+def one_line(value):
+    """value on a single line: a newline or CR in a GITHUB_OUTPUT value would
+    end it early and let the rest parse as another key=value line."""
+    return " ".join(str(value).replace("\r", "\n").split("\n")).strip()
+
+
 def git(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
@@ -427,6 +433,9 @@ def main():
     # Testing hook (scripts/ci/select_affected_test.go): decide for this file
     # list against the working tree instead of a git diff.
     ap.add_argument("--changed", nargs="*")
+    # Testing hook: raise this message as if decide() had failed, to pin the
+    # fail-safe path (mode=full) and the single-line GITHUB_OUTPUT contract.
+    ap.add_argument("--inject-failure")
     ap.add_argument("--github-output")
     ap.add_argument("--summary")
     ap.add_argument("--json", action="store_true")
@@ -440,6 +449,8 @@ def main():
     else:
         log(f"select-affected: diffing {args.base}..{args.head}")
     try:
+        if args.inject_failure is not None:
+            raise RuntimeError(args.inject_failure)
         d = decide(args.base, args.head, args.changed)
     except Exception as exc:  # fail safe: an error here must never skip a test
         d = {"base": args.base, "head": args.head, "changed": [], "mode": "full", "reason": f"selection failed ({type(exc).__name__}: {exc}); running everything"}
@@ -447,7 +458,7 @@ def main():
     if d["mode"] == "full":
         d["gates"] = {g: True for g in ALL_GATES}
         d["legs"] = {}
-    log(f"select-affected: mode={d['mode']}: {d['reason']}")
+    log(f"select-affected: mode={d['mode']}: {one_line(d['reason'])}")
     if d["mode"] == "selected":
         log(f"select-affected: {len(d['legs'])} of 21 test-suite legs run: {', '.join(sorted(d['legs'])) or '(none)'}")
         for p, w in d["seeds"].items():
@@ -456,14 +467,14 @@ def main():
 
     if args.github_output:
         with open(args.github_output, "a", encoding="utf-8") as fh:
-            fh.write(f"mode={d['mode']}\n")
-            fh.write(f"reason={d['reason']}\n")
-            fh.write(f"legs={json.dumps(d['legs'], separators=(',', ':'), sort_keys=True)}\n")
+            fh.write(f"mode={one_line(d['mode'])}\n")
+            fh.write(f"reason={one_line(d['reason'])}\n")
+            fh.write(f"legs={one_line(json.dumps(d['legs'], separators=(',', ':'), sort_keys=True))}\n")
             for g in ALL_GATES:
                 fh.write(f"gate_{g}={'true' if d['gates'][g] else 'false'}\n")
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as fh:
-            fh.write(f"### merge_group selection: {d['mode']}\n\n{d['reason']}\n\n")
+            fh.write(f"### merge_group selection: {d['mode']}\n\n{one_line(d['reason'])}\n\n")
             if d["mode"] == "selected":
                 fh.write(f"Changed files: {len(d['changed'])}. Test-suite legs that run ({len(d['legs'])}/21): {', '.join(sorted(d['legs'])) or 'none'}.\n\n")
                 fh.write("| gate | decision |\n|---|---|\n")

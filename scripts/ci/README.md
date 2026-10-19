@@ -9,8 +9,16 @@ Helpers used by CI workflows, or run locally next to them.
 | `precheck-open-prs.sh` | the merge coordinator, **locally** | Rebases each listed open PR onto current `main` in a throwaway worktree and runs the checks that tend to fail only inside the merge queue. |
 | `select-affected.py` | CI (`ci.yml`: `select`, on merge_group) | Merge-queue selection: from the entry's diff against `merge_group.base_sha`, the affected root-module packages (changed + importers), the test-suite legs that run, and the path gates of the heavy jobs. Full suite on go.mod/go.sum, `internal/testutil/**`, `ci.yml`, `scripts/ci/**`, the leg definitions or a generated-code input, and on any error. Pinned by `select_affected_test.go`. |
 | `run-guards.sh` | CI (`ci.yml`: repo-guards, on a selected merge_group run) | Every repo-wide guard, whatever the entry touches: the named guards (`*Guard`/`*Sweep`/`*Completeness`/`TestEvery*`/`TestNoRaw*`) and every source-scanning test in the root module, plus `global-guards.txt`. |
-| `global-guards.txt` | `run-guards.sh` | Mirror of the coordinator preflight's global guard package list; keep both identical. |
+| `global-guards.txt` | `run-guards.sh` | The global guard package list, and the single source of it: the coordinator preflight (`~/proj/prompts/bin/preflight.sh`) reads it from the repo (the coordinator side is switched over after merge), so edit it only here. Every entry must exist as a directory; `global_guards_test.go` fails the PR on a typo, as `run-guards.sh` would fail the queue. |
 | `install-gosec.sh` | CI (`ci.yml`: static-analysis, operator, cli, migrate) | Installs gosec in a throwaway module that also requires a newer `golang.org/x/tools`, so MVS picks that instead of gosec's own (older) requirement -- see the script header for why. |
+
+## Coverage floor on selected merge-queue runs
+
+A selected merge-queue run does not compute the coverage floor: its skipped
+legs produce no profile and its partial `root-N` legs cover a subset. A
+coverage drop is therefore caught by the nightly full run on `main`, not by the
+queue; the nightly failure issue names "coverage floor" as a possible cause
+when `build-and-test` fails.
 
 ## precheck-open-prs.sh
 

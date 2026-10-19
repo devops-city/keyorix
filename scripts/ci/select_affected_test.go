@@ -1,7 +1,9 @@
 package ci_test
 
 import (
+	"bufio"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -188,5 +190,39 @@ func TestSelectAffected_PathGates(t *testing.T) {
 	s = changed(t, "operator/internal/controller/doc.go")
 	if !s.Gates["operator"] || s.Gates["migrate"] {
 		t.Errorf("operator change: operator=%v migrate=%v, want true/false", s.Gates["operator"], s.Gates["migrate"])
+	}
+}
+
+// A failure message with a newline in it must not split GITHUB_OUTPUT: a second
+// line would parse as another key=value (or an invalid line that fails the
+// step), so the reason the queue sees is always exactly one line.
+func TestSelectAffected_GithubOutputIsOneLinePerKey(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "github_output")
+	s := runSelect(t, "--changed", "--inject-failure", "boom\nmode=selected\r\nlegs={}", "--github-output", out)
+	if s.Mode != "full" {
+		t.Fatalf("injected failure: mode=%q (%s), want full", s.Mode, s.Reason)
+	}
+	f, err := os.Open(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	counts := map[string]int{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		key, _, ok := strings.Cut(sc.Text(), "=")
+		if !ok {
+			t.Errorf("GITHUB_OUTPUT line without key=value: %q", sc.Text())
+			continue
+		}
+		counts[key]++
+	}
+	for _, k := range []string{"mode", "reason", "legs"} {
+		if counts[k] != 1 {
+			t.Errorf("GITHUB_OUTPUT has %d %s= lines, want exactly 1", counts[k], k)
+		}
+	}
+	if raw, _ := os.ReadFile(out); strings.Contains(string(raw), "\r") {
+		t.Errorf("GITHUB_OUTPUT contains a CR: %q", raw)
 	}
 }
