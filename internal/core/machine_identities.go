@@ -89,11 +89,19 @@ func (c *KeyorixCore) CreateMachineIdentity(ctx context.Context, projectID uint,
 	if err != nil {
 		return nil, err
 	}
-	created, err := c.storage.CreateMachineIdentity(ctx, m)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create machine identity: %w", err)
+	// AUDIT-TX-2: the identity and its machine_identity.created row commit in
+	// ONE transaction.
+	var created *models.MachineIdentity
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if created, err = tx.CreateMachineIdentity(ctx, m); err != nil {
+			return fmt.Errorf("failed to create machine identity: %w", err)
+		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity.created", created, createdBy)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	c.logMachineEvent(ctx, "machine_identity.created", created, createdBy)
 	return created, nil
 }
 

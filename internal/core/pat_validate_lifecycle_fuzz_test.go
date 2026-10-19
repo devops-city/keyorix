@@ -113,6 +113,8 @@ func buildPATLifecycleFixture(t *testing.T) (*KeyorixCore, []patLifecycleFixture
 	if err := db.AutoMigrate(
 		&models.User{}, &models.PersonalAccessToken{}, &models.Notification{},
 		&models.Role{}, &models.UserRole{},
+		// A PAT commits with its pat.created row (AUDIT-TX-2).
+		&models.AuditEvent{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

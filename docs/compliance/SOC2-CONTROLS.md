@@ -224,9 +224,8 @@ relationships is identified and mitigated.
   gives an auditor a concrete, checkable SLA rather than an unstated
   best-effort.
 - **Documented, honest residual risk** — [`../security/threat-model.md`](../security/threat-model.md)
-  §6 states open items plainly (the CLI local-mode authorization gap pending
-  ADR-108, transient in-process secret exposure, an in-progress API
-  wire-hygiene finding) rather than presenting a clean bill of health that
+  §6 states open items plainly (transient in-process secret exposure, an
+  in-progress API wire-hygiene finding; the CLI local-mode gap is closed by ADR-108) rather than presenting a clean bill of health that
   wouldn't survive a real audit.
 
 **Status:** Shipped (the product's own vendor-risk profile); Operator-owned

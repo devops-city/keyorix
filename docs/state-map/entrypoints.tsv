@@ -82,6 +82,9 @@ cli	keyorix config get	cli/cmd/config.go	runConfigGet	none	single/no write-shape
 cli	keyorix config set	cli/cmd/config.go	runConfigSet	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix config unset	cli/cmd/config.go	runConfigUnset	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix diagnose	server/admin/diagnose.go	runAdminDiagnose	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix docs	cli/cmd/docs.go		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
+cli	keyorix docs man	cli/cmd/docs.go	<expr>	D	docs.go docsManCmd.RunE only prints clidocs.Man(rootCmd) to stdout; no storage, network or file write at all; scanner flagged it only because it could not resolve the anonymous cobra closure.
+cli	keyorix docs markdown	cli/cmd/docs.go	<expr>	D	docs.go docsMarkdownCmd.RunE only prints clidocs.Markdown(rootCmd) to stdout; no storage, network or file write at all; scanner flagged it only because it could not resolve the anonymous cobra closure.
 cli	keyorix doctor	cli/cmd/doctor.go	runDoctor	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix dynamic-secret	cli/cmd/dynamicsecret.go		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
 cli	keyorix dynamic-secret classify	cli/cmd/dynamicsecret.go	runDynClassify	none	single/no write-shaped call found by a 1-hop scan of the handler body
