@@ -12,7 +12,7 @@ guaranteed merge conflict (2026-10-03/04: about 20 approved PRs fell out of
 the merge queue, mostly on ledgers like this one). A new file cannot conflict
 with anyone else's new file.
 
-Reader: `go test -run TestCheckThenActLockGuard_UnlockedSecurityCheck ./internal/core/` reads `docs/check-then-act-lock-exempt.tsv` PLUS every `*.tsv` here
+Reader: `go test -run TestCheckThenActLockGuard_UnlockedSecurityCheck ./internal/core/guards/` reads `docs/check-then-act-lock-exempt.tsv` PLUS every `*.tsv` here
 (dual-read). It fails on a fragment holding anything other than exactly one
 row, and on a key that appears twice when at least one of the two copies is a
 fragment — so a fragment can never silently shadow or duplicate a legacy row.

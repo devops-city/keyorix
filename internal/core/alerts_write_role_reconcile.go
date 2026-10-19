@@ -144,7 +144,7 @@ func (c *KeyorixCore) ReconcileAlertsWriteRole(ctx context.Context) error {
 // startup — but this function's own WithTransaction wrapping still matters
 // independently: without it, a failure here would leave the zero-permission
 // role behind for GetRoleByName's existence check to wrongly treat as fully
-// seeded even across retries. Found by internal/core/atomicity_guard_test.go
+// seeded even across retries. Found by internal/core/guards/atomicity_guard_test.go
 // (TestAtomicityGuard_UnclassifiedMultiWriteFunction) during the F1 rebase
 // (PR #2244); the guard test itself didn't exist when F1 was originally
 // written.
