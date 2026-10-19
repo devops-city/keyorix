@@ -10,9 +10,9 @@ import "testing"
 // (TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres)
 // proves the behaviour where a DSN exists; this runs everywhere.
 //
-// Hops checked: UpdateSharePermission -> c.storage.UpdateShareRecord -> its
-// LocalStorage body.
+// Hops checked: UpdateSharePermission -> tx.UpdateShareRecord (the transaction
+// that also carries its audit row, AUDIT-TX-2) -> its LocalStorage body.
 func TestUpdateSharePermission_IsColumnScoped(t *testing.T) {
 	assertColumnScopedStorageWrite(t, "../storage/store/local_sharing.go", "UpdateShareRecord")
-	assertCoreWritesOnlyVia(t, "sharing.go", "UpdateSharePermission", "storage", "UpdateShareRecord", "Save", "CreateShareRecord")
+	assertCoreWritesOnlyVia(t, "sharing.go", "UpdateSharePermission", "tx", "UpdateShareRecord", "Save", "CreateShareRecord")
 }

@@ -590,6 +590,9 @@ func TestFullRowWriteGuard_PendingRowsNotExpired(t *testing.T) {
 		exp, err := time.Parse("2006-01-02", r.Expires)
 		require.NoErrorf(t, err, "%s:%d expires must be YYYY-MM-DD or -", fullRowExemptPath, r.Line)
 		require.Truef(t, now.Before(exp.Add(24*time.Hour)), "%s:%d exemption for %s %s expired on %s: %s", fullRowExemptPath, r.Line, r.Func, r.Model, r.Expires, r.Reason)
+		if days := int(exp.Sub(now.Truncate(24*time.Hour)).Hours() / 24); days <= 3 {
+			t.Logf("WARNING: %s:%d exemption for %s %s expires in %d days (%s): resolve or renew it now, it fails hard the day after", fullRowExemptPath, r.Line, r.Func, r.Model, days, r.Expires)
+		}
 	}
 }
 

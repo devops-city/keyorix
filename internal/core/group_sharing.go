@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -75,22 +76,26 @@ func (c *KeyorixCore) ShareSecretWithGroup(ctx context.Context, req *GroupShareS
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), err)
 	}
 
-	// Store the share record
-	createdShare, err := c.storage.CreateShareRecord(ctx, shareRecord)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// Store the share record and its group_share_created row in ONE
+	// transaction (AUDIT-TX-2): the grant never commits unaudited.
+	var createdShare *models.ShareRecord
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if createdShare, err = tx.CreateShareRecord(ctx, shareRecord); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.logShareCreatedOn(ctx, tgt, ShareAuditEventGroupCreated, &ShareAuditContext{
+			ActorID:     req.SharedBy,
+			SecretID:    secret.ID,
+			RecipientID: req.GroupID,
+			IsGroup:     true,
+			Permission:  req.Permission,
+			ShareID:     createdShare.ID,
+		})
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-
-	// Log the group share creation with enhanced audit logging
-	auditCtx := &ShareAuditContext{
-		ActorID:     req.SharedBy,
-		SecretID:    secret.ID,
-		RecipientID: req.GroupID,
-		IsGroup:     true,
-		Permission:  req.Permission,
-		ShareID:     createdShare.ID,
-	}
-	c.LogGroupShareCreated(ctx, auditCtx)
 
 	return createdShare, nil
 }

@@ -11,12 +11,11 @@ package notifychan
 import (
 	"context"
 	"log"
-	"net/url"
-	"regexp"
 	"sync"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/netutil"
 )
 
 const (
@@ -30,37 +29,18 @@ const (
 // (worth retrying) rather than permanent.
 type sendFunc func(ctx context.Context, ev core.NotificationEvent) (retryable bool, err error)
 
-// embeddedURLPattern matches an absolute http(s) URL appearing anywhere in an
-// error's text form. A webhook/chat destination URL (chat.go, webhook.go) IS the
-// bearer credential for a Slack/Teams incoming webhook — the token lives in the URL
-// path, not a header — and Go's *url.Error.Error() (returned by http.Client on any
-// transport-level failure: dial/timeout/TLS) embeds the full request URL verbatim,
-// e.g. `Post "https://hooks.slack.com/services/T000/B000/<token>": dial tcp: ...`.
-var embeddedURLPattern = regexp.MustCompile(`https?://[^\s"]+`)
-
 // redactURLHost renders rawURL as just its scheme and host, dropping the
-// path/query — and with it any bearer token embedded there — while keeping enough
-// context (which destination failed) to be useful for diagnosis. Falls back to a
-// fixed placeholder when rawURL doesn't parse into a URL with a host.
-func redactURLHost(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return "[redacted-url]"
-	}
-	return u.Scheme + "://" + u.Host
-}
+// path/query — and with it any bearer token embedded there. The implementation
+// lives in netutil so internal/core (which this package imports, so cannot be
+// imported back) applies the identical policy to its own delivery path.
+func redactURLHost(rawURL string) string { return netutil.RedactURLHost(rawURL) }
 
 // sanitizeDeliveryError renders err for logging with any embedded destination URL
 // cut down to scheme+host, so an ordinary transient delivery failure (the routine
 // case this exists to handle — a network hiccup, a DNS blip, a closed connection)
 // never writes a live webhook token to the log stream, which is typically shipped
 // to a broader-access SIEM/log platform than whoever administers the channel config.
-func sanitizeDeliveryError(err error) string {
-	if err == nil {
-		return ""
-	}
-	return embeddedURLPattern.ReplaceAllStringFunc(err.Error(), redactURLHost)
-}
+func sanitizeDeliveryError(err error) string { return netutil.SanitizeErrorURLs(err) }
 
 // deliverer is the shared queue+worker+retry engine. Sinks embed one.
 type deliverer struct {
