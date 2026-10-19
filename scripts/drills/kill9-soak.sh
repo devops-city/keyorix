@@ -15,6 +15,9 @@
 # acknowledged (create, update, delete) reads back (a secret whose update/delete was in flight at
 # a kill is left out: it may hold either state); the seeded data is intact; verify-audit is VALID.
 #
+# Postgres: the script never drops or recreates the database (it holds only a DSN file, no admin
+# role); each run needs a fresh EMPTY database from the caller (`kpg dsn`/`kpg drop`, or DROP/CREATE).
+#
 # Usage: [DRILL_BACKEND=postgres DRILL_PG_DSN_FILE=a.txt] [DRILL_SERVER_BIN=... DRILL_CLI_BIN=...] \
 #        [SOAK_CYCLES=50] [SOAK_SEED=1] scripts/drills/kill9-soak.sh
 set -euo pipefail

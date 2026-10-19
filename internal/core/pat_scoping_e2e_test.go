@@ -29,6 +29,8 @@ func newPATScopingCore(t *testing.T) (*KeyorixCore, *store.LocalStorage) {
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.PersonalAccessToken{},
 		&models.SystemMetadata{},
+		// A PAT commits with its pat.created row (AUDIT-TX-2).
+		&models.AuditEvent{},
 	))
 	st := store.NewLocalStorage(db)
 	c := NewKeyorixCore(st)

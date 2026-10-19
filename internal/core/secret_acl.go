@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -105,14 +106,17 @@ func (c *KeyorixCore) GrantSecretACL(ctx context.Context, actorID, secretID, use
 		Permissions: permsJSON,
 		GrantedBy:   actorID,
 	}
-	if err := c.storage.CreateOrUpdateSecretACL(ctx, acl); err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-
+	// AUDIT-TX-2: the grant and its secret.acl_granted row commit in ONE
+	// transaction.
 	projectID := secret.ProjectID
-	c.writeAuditEventFull(ctx, EventSecretACLGranted, actorPtr(actorID), &secretID, &projectID, "",
-		fmt.Sprintf("granted %s ACL %v on %s", c.auditRef(ctx, c.storage, auditKindUser, userID), perms, c.auditRef(ctx, c.storage, auditKindSecret, secretID)))
-	return nil
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.CreateOrUpdateSecretACL(ctx, acl); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSecretACLGranted, actorPtr(actorID), &secretID, &projectID, "",
+			fmt.Sprintf("granted %s ACL %v on %s", c.auditRef(ctx, tx, auditKindUser, userID), perms, c.auditRef(ctx, tx, auditKindSecret, secretID)))
+		return nil
+	})
 }
 
 // RevokeSecretACL removes the ACL row with the given aclID, verifying it belongs

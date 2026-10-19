@@ -87,7 +87,7 @@ step "write after the upgrade"
 cli "$INST" "$PORT" secret create --name post-upgrade --from-file ./val.post --project 1 --environment 1 >/dev/null \
     || fail "cannot write a secret after the upgrade"
 out="$(cli "$INST" "$PORT" secret get --id 4 --show-value)"
-echo "$out" | grep -qF "$(cat "$DRILL_DIR/$INST/val.post")" || fail "post-upgrade secret does not read back"
+grep -qF "$(cat "$DRILL_DIR/$INST/val.post")" <<<"$out" || fail "post-upgrade secret does not read back"
 ok "post-upgrade write + read"
 
 srv_stop "$INST"

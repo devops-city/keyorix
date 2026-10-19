@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -93,14 +94,22 @@ func (c *KeyorixCore) CreateOwnPAT(ctx context.Context, userID uint, name string
 		ExpiresAt:        expiresAt,
 		CreatedAt:        c.now(),
 	}
-	created, err := c.storage.CreatePersonalAccessToken(ctx, pat)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-2: the token and its pat.created row commit in ONE transaction,
+	// so a credential is never minted unaudited.
+	var created *models.PersonalAccessToken
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if created, err = tx.CreatePersonalAccessToken(ctx, pat); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		// Description never carries the raw token or its hash — only the id/name,
+		// same discipline as every other credential-creation audit event.
+		c.writeAuditEventFullOn(ctx, tgt, EventPATCreated, actorPtr(userID), nil, nil, "",
+			fmt.Sprintf("user %d created PAT %d (%q)", userID, created.ID, created.Name))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	// Description never carries the raw token or its hash — only the id/name,
-	// same discipline as every other credential-creation audit event.
-	c.writeAuditEvent(ctx, EventPATCreated, actorPtr(userID), nil,
-		fmt.Sprintf("user %d created PAT %d (%q)", userID, created.ID, created.Name))
 	return &CreatePATResult{Token: created, PlainToken: raw}, nil
 }
 
