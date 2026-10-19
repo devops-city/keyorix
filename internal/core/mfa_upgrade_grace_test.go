@@ -272,7 +272,6 @@ func TestMFAUpgradeGrace_NoneInstalled(t *testing.T) {
 	assert.False(t, c.MFARequired())
 }
 
-
 // Fail closed: while the admin set cannot be read the grace period is not in
 // effect (MFA enforced), and it is suspended, not ended, so it resumes when the
 // read works again.
