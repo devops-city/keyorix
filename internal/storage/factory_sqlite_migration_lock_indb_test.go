@@ -105,6 +105,11 @@ func TestSQLiteMigrationLockHelperProcess(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 	}
+	// Taken after the migration returns but still inside every lock, so it is
+	// strictly earlier than the lock's release and than any other process's
+	// entry. ("<role>.done" is written after CreateStorage returns, i.e. after
+	// the release, and cannot order the two processes.)
+	migrationLockWorkDoneHook = func() { writeMigLockMarker(markers, role+".migrated") }
 	// Fires only on migrateDatabase's fresh-install path: this process
 	// created the schema rather than finding it already there.
 	freshInstall := false
@@ -242,9 +247,9 @@ func TestSQLiteMigrationLock_CrossProcess_SerializedBySQLiteItself(t *testing.T)
 			case 0:
 				entered, ok := readMigLockMarker(markers, "contender.entered")
 				require.True(t, ok)
-				holderDone, ok := readMigLockMarker(markers, "holder.done")
+				holderMigrated, ok := readMigLockMarker(markers, "holder.migrated")
 				require.True(t, ok)
-				assert.GreaterOrEqual(t, entered, holderDone,
+				assert.GreaterOrEqual(t, entered, holderMigrated,
 					"the contender may only enter the migration after the holder finished")
 			case migLockHelperExitFail:
 				assert.Contains(t, contender.stderr.String(), "another process is migrating the SQLite database",

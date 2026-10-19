@@ -331,11 +331,16 @@ func TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres(t *
 	})
 	require.NoError(t, err)
 
+	// MayBlock since SHARE-CAS-1: A now holds the share row lock
+	// (LockShareRecordForUpdate) from its in-transaction read, so B's revoke
+	// waits for A's commit instead of committing inside A's window; run
+	// synchronously in A's hook it would deadlock the test.
 	var errB error
-	fired := f.beforeA("update", "share_records", func() { errB = f.coreB.RevokeShare(f.ctx, share.ID, owner.ID) })
+	fired, waitB := f.beforeAMayBlock("update", "share_records", func() { errB = f.coreB.RevokeShare(f.ctx, share.ID, owner.ID) })
 	_, errA := f.coreA.UpdateSharePermission(f.ctx, &UpdateShareRequest{
 		ShareID: share.ID, Permission: "write", UpdatedBy: owner.ID,
 	})
+	waitB()
 	t.Logf("UpdateSharePermission (A) err=%v, RevokeShare (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have interleaved B's RevokeShare before A's share UPDATE")
 	require.NoError(t, errB, "the revoke itself reported success")
@@ -747,9 +752,11 @@ func TestCTAReview_ActivateMFA_vs_BeginMFAEnrollment_CrossReplicaPostgres(t *tes
 func assertActivationNeverBindsUnvalidatedSecret(t *testing.T, c *KeyorixCore, userID uint, validated string, activateErr error) {
 	t.Helper()
 	ctx := context.Background()
-	active, err := c.loadTOTPSecret(ctx, userID)
-	require.NoError(t, err)
 	row, err := c.Storage().GetMFASecret(ctx, userID)
+	require.NoError(t, err)
+	// Decrypted directly, not via loadTOTPSecret: that refuses a pending
+	// secret (#2692), and the fail-closed outcome leaves exactly one.
+	active, err := c.decryptAuthSecret(row.SecretEnc, row.SecretMeta, ports.MFASecretAAD(userID))
 	require.NoError(t, err)
 	user, err := c.Storage().GetUser(ctx, userID)
 	require.NoError(t, err)

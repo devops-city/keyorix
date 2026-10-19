@@ -36,7 +36,7 @@ func TestCheckSecretPermission_ACLReadErrorPropagates(t *testing.T) {
 	require.NoError(t, c.GrantSecretACL(ctx, 99, folderID, 55, []string{"secrets.write"}))
 
 	wantErr := errors.New("ancestors unavailable")
-	c2 := newACLCoreWithStorage(c, &ancestorErrStorage{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, ancestorErrStorage(c.storage, wantErr))
 
 	_, err := c2.CheckSecretPermission(ctx, sid, 55, PermissionWrite)
 	require.Error(t, err)

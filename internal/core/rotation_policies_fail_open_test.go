@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -29,16 +29,15 @@ import (
 // one rotation policy while a sibling policy (a different environment) still
 // succeeds, so the test can tell "one policy's query failed" apart from "the whole
 // deployment is down".
-type failingEnvSecretsStore struct {
-	*store.LocalStorage
-	failEnv uint
-}
-
-func (s *failingEnvSecretsStore) ListSecrets(ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
-	if filter.EnvironmentID != nil && *filter.EnvironmentID == s.failEnv {
-		return nil, 0, assertErrSimulated
-	}
-	return s.LocalStorage.ListSecrets(ctx, filter)
+func failingEnvSecretsStore(inner storage.Storage, failEnv uint) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSecrets: func(next storage.Storage, ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
+			if filter.EnvironmentID != nil && *filter.EnvironmentID == failEnv {
+				return nil, 0, assertErrSimulated
+			}
+			return next.ListSecrets(ctx, filter)
+		},
+	})
 }
 
 var assertErrSimulated = &simulatedStorageError{"simulated storage failure"}
@@ -75,7 +74,7 @@ func rotationPoliciesFailOpenCore(t *testing.T) (*KeyorixCore, *gorm.DB, time.Ti
 		Status: "active", CreatedAt: fixed.Add(-90 * 24 * time.Hour),
 	}).Error)
 
-	c := &KeyorixCore{storage: &failingEnvSecretsStore{LocalStorage: store.NewLocalStorage(db), failEnv: brokenEnv}}
+	c := &KeyorixCore{storage: failingEnvSecretsStore(store.NewLocalStorage(db), brokenEnv)}
 	c.now = func() time.Time { return fixed }
 	return c, db, fixed
 }

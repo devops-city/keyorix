@@ -44,22 +44,27 @@ import (
 // still open there rolls back from its deferred handler, exactly as the
 // database rolls back the transaction of a killed process.
 type crashAtAuditStorage struct {
-	storage.Storage
+	inner storage.Storage
 	armed *atomic.Bool
 }
 
-func (s crashAtAuditStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(crashAtAuditStorage{Storage: tx, armed: s.armed})
-	})
-}
-
-func (s crashAtAuditStorage) LogAuditEvent(ctx context.Context, e *models.AuditEvent) error {
+func (s crashAtAuditStorage) LogAuditEvent(next storage.Storage, ctx context.Context, e *models.AuditEvent) error {
 	if s.armed.CompareAndSwap(true, false) {
 		runtime.Goexit()
 	}
-	return s.Storage.LogAuditEvent(ctx, e)
+	return next.LogAuditEvent(ctx, e)
 }
+
+// wrap returns inner decorated with crashAtAuditStorage's overrides.
+func (s *crashAtAuditStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx:        true,
+		LogAuditEvent: s.LogAuditEvent,
+	})
+}
+
+// store returns s.inner decorated with crashAtAuditStorage's overrides.
+func (s *crashAtAuditStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 // satWorld is smaWorld (secret_mutation_audit_tx_test.go) plus a second core
 // whose storage can crash at the audit append, and the fixtures the grant
@@ -81,7 +86,7 @@ type satWorld struct {
 func newSATWorld(t *testing.T, f *ctaReview) *satWorld {
 	t.Helper()
 	w := &satWorld{smaWorld: newSMAWorld(t, f), crash: &atomic.Bool{}}
-	w.crashCore = NewKeyorixCore(crashAtAuditStorage{Storage: w.fs, armed: w.crash})
+	w.crashCore = NewKeyorixCore((&crashAtAuditStorage{inner: w.fs, armed: w.crash}).store())
 	for _, c := range []*KeyorixCore{w.c, w.crashCore} {
 		c.SetBreakGlassPolicy(BreakGlassPolicy{Enabled: true, EmergencyRole: "project_developer", DefaultTTL: time.Hour, MaxTTL: 4 * time.Hour})
 	}

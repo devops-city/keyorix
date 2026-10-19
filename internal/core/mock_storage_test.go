@@ -962,6 +962,11 @@ func (m *MockStorage) GetShareRecord(ctx context.Context, shareID uint) (*models
 	return args.Get(0).(*models.ShareRecord), args.Error(1)
 }
 
+// LockShareRecordForUpdate has no row lock in the mock; it reuses the GetShareRecord expectation.
+func (m *MockStorage) LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
+	return m.GetShareRecord(ctx, shareID)
+}
+
 func (m *MockStorage) UpdateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error) {
 	a := m.Called(ctx, share)
 	v, _ := a.Get(0).(*models.ShareRecord)

@@ -262,7 +262,10 @@ type Storage interface {
 	// ListProjectRoleAssignments returns every direct (user) and group role grant
 	// scoped to the project (project_id = projectID, any environment) — the raw
 	// rows for a project access review. Global (project 0) grants are excluded:
-	// those are install-level, reviewed separately.
+	// those are install-level, reviewed separately. projectID 0 is the global
+	// listing behind every core-side global-admin holder count: it returns only
+	// grants at exactly {0, 0}, agreeing with ListGlobalAdminAssignmentsForUpdate
+	// (#2857; a {0, X} grant does not apply at global scope).
 	ListProjectRoleAssignments(ctx context.Context, projectID uint) ([]RoleAssignment, error)
 	// ListProjectMachineRoleAssignments returns every machine-identity role grant
 	// scoped to the project (project_id = projectID, any environment) — the machine
@@ -1023,6 +1026,14 @@ type Storage interface {
 	// Secret Sharing Management
 	CreateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error)
 	GetShareRecord(ctx context.Context, shareID uint) (*models.ShareRecord, error)
+	// LockShareRecordForUpdate is GetShareRecord inside a WithTransaction, taking a
+	// row-level write lock on backends that support one (Postgres: SELECT … FOR
+	// UPDATE) so a decision made from the row and the write of it serialize against
+	// every concurrent writer across replicas. On SQLite it is a plain read (write
+	// transactions there are BEGIN IMMEDIATE). Use this — not GetShareRecord —
+	// whenever a transaction classifies an update against the row it then writes
+	// (core.UpdateSharePermission, SHARE-CAS-1). Outside a transaction it locks nothing.
+	LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error)
 	UpdateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error)
 	DeleteShareRecord(ctx context.Context, shareID uint) error
 	// now is the instant "currently active" is evaluated against (expires_at IS
@@ -1819,6 +1830,12 @@ type Storage interface {
 	CleanupExpiredSessions(ctx context.Context) error
 
 	// MFA / TOTP (per-user two-factor authentication).
+	// UpsertMFASecret stores s as the user's pending TOTP secret: it inserts the
+	// row, or replaces an existing row that is NOT activated. It never replaces an
+	// activated secret (#2692): the replace is conditional in the same statement,
+	// and an activated row yields ErrMFASecretActivated with nothing written. A
+	// caller's earlier read of MFAEnabled=false is therefore not what protects an
+	// enabled account; a concurrent ActivateMFA that commits first wins.
 	UpsertMFASecret(ctx context.Context, s *models.MFASecret) error
 	GetMFASecret(ctx context.Context, userID uint) (*models.MFASecret, error)
 	// ActivateMFASecret marks userID's TOTP secret activated only if its stored

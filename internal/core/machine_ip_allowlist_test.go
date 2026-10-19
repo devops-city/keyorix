@@ -100,7 +100,6 @@ func TestValidateMachineToken_ReturnsCIDRRestriction(t *testing.T) {
 	store.On("GetMachineIdentity", mock.Anything, uint(5)).
 		Return(&models.MachineIdentity{ID: 5, Name: "cidr-bot", State: MachineActive}, nil)
 	store.On("GetMachineRoles", mock.Anything, uint(5)).Return([]*models.Role{{Name: "viewer"}}, nil)
-	store.On("TouchMachineIdentityCredential", mock.Anything, uint(1), fixed, machineTouchInterval).Return(nil)
 
 	c := NewKeyorixCore(store)
 	c.now = func() time.Time { return fixed }

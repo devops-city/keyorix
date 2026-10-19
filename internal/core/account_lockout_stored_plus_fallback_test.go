@@ -20,22 +20,27 @@ import (
 
 // lockoutStateFlakyStorage fails the lockout-column write while down is set.
 type lockoutStateFlakyStorage struct {
-	storage.Storage
-	down *atomic.Bool
+	inner storage.Storage
+	down  *atomic.Bool
 }
 
-func (s *lockoutStateFlakyStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&lockoutStateFlakyStorage{Storage: tx, down: s.down})
-	})
-}
-
-func (s *lockoutStateFlakyStorage) UpdateLoginLockoutState(ctx context.Context, id uint, n int, last, until *time.Time, count int) error {
+func (s *lockoutStateFlakyStorage) UpdateLoginLockoutState(next storage.Storage, ctx context.Context, id uint, n int, last, until *time.Time, count int) error {
 	if s.down.Load() {
 		return errLockoutStoreDown
 	}
-	return s.Storage.UpdateLoginLockoutState(ctx, id, n, last, until, count)
+	return next.UpdateLoginLockoutState(ctx, id, n, last, until, count)
 }
+
+// wrap returns inner decorated with lockoutStateFlakyStorage's overrides.
+func (s *lockoutStateFlakyStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx:                  true,
+		UpdateLoginLockoutState: s.UpdateLoginLockoutState,
+	})
+}
+
+// store returns s.inner decorated with lockoutStateFlakyStorage's overrides.
+func (s *lockoutStateFlakyStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 // failLogins sends one wrong password per entry of writeDown, with the
 // lockout write failing for the entries that are true.
@@ -55,7 +60,7 @@ func newFlakyLockoutCore(t *testing.T) (*KeyorixCore, *atomic.Bool) {
 	c, _, _ := newMFATestCore(t)
 	c.loginLockout = fallbackLockoutPolicy // MaxAttempts 3
 	down := &atomic.Bool{}
-	c.storage = &lockoutStateFlakyStorage{Storage: c.storage, down: down}
+	c.storage = (&lockoutStateFlakyStorage{inner: c.storage, down: down}).store()
 	return c, down
 }
 

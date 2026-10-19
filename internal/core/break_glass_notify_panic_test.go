@@ -28,7 +28,7 @@ import (
 // any unstubbed method panics on a nil pointer dereference if reached, so an
 // unexpected call fails loudly rather than silently returning a zero value.
 type breakGlassNotifyPanicSpy struct {
-	storage.Storage
+	inner               storage.Storage
 	panicOnListMembers  bool
 	panicOnNotification bool
 	members             []storage.ProjectMember
@@ -36,7 +36,7 @@ type breakGlassNotifyPanicSpy struct {
 	notified            []uint
 }
 
-func (s *breakGlassNotifyPanicSpy) ListProjectMembers(_ context.Context, _ uint) ([]storage.ProjectMember, error) {
+func (s *breakGlassNotifyPanicSpy) ListProjectMembers(_ storage.Storage, _ context.Context, _ uint) ([]storage.ProjectMember, error) {
 	if s.panicOnListMembers {
 		panic("simulated ListProjectMembers panic")
 	}
@@ -45,20 +45,20 @@ func (s *breakGlassNotifyPanicSpy) ListProjectMembers(_ context.Context, _ uint)
 
 // The #2955 install-wide-admin lookup: this spy models an install with none, so
 // the project-member behaviour under test is unchanged.
-func (s *breakGlassNotifyPanicSpy) ListAdminBypassRoleIDs(_ context.Context) ([]uint, error) {
+func (s *breakGlassNotifyPanicSpy) ListAdminBypassRoleIDs(_ storage.Storage, _ context.Context) ([]uint, error) {
 	return nil, nil
 }
 
-func (s *breakGlassNotifyPanicSpy) ListGlobalAdminAssignmentsForUpdate(_ context.Context, _ []uint) ([]storage.RoleAssignment, error) {
+func (s *breakGlassNotifyPanicSpy) ListGlobalAdminAssignmentsForUpdate(_ storage.Storage, _ context.Context, _ []uint) ([]storage.RoleAssignment, error) {
 	return nil, nil
 }
 
 // projectAdminRecipients vets every candidate's account (active, login not blocked).
-func (s *breakGlassNotifyPanicSpy) GetUser(_ context.Context, id uint) (*models.User, error) {
+func (s *breakGlassNotifyPanicSpy) GetUser(_ storage.Storage, _ context.Context, id uint) (*models.User, error) {
 	return &models.User{ID: id, IsActive: true, AccountState: AccountActive}, nil
 }
 
-func (s *breakGlassNotifyPanicSpy) CreateNotification(_ context.Context, n *models.Notification) (*models.Notification, error) {
+func (s *breakGlassNotifyPanicSpy) CreateNotification(_ storage.Storage, _ context.Context, n *models.Notification) (*models.Notification, error) {
 	if s.panicOnNotification {
 		panic("simulated CreateNotification panic")
 	}
@@ -66,15 +66,30 @@ func (s *breakGlassNotifyPanicSpy) CreateNotification(_ context.Context, n *mode
 	return n, nil
 }
 
-func (s *breakGlassNotifyPanicSpy) LogAuditEvent(_ context.Context, event *models.AuditEvent) error {
+func (s *breakGlassNotifyPanicSpy) LogAuditEvent(_ storage.Storage, _ context.Context, event *models.AuditEvent) error {
 	s.auditEvents = append(s.auditEvents, event)
 	return nil
 }
 
+// wrap returns inner decorated with breakGlassNotifyPanicSpy's overrides.
+func (s *breakGlassNotifyPanicSpy) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListProjectMembers:                  s.ListProjectMembers,
+		ListAdminBypassRoleIDs:              s.ListAdminBypassRoleIDs,
+		ListGlobalAdminAssignmentsForUpdate: s.ListGlobalAdminAssignmentsForUpdate,
+		GetUser:                             s.GetUser,
+		CreateNotification:                  s.CreateNotification,
+		LogAuditEvent:                       s.LogAuditEvent,
+	})
+}
+
+// store returns s.inner decorated with breakGlassNotifyPanicSpy's overrides.
+func (s *breakGlassNotifyPanicSpy) store() storage.Storage { return s.wrap(s.inner) }
+
 func TestNotifyBreakGlassAdmins_PanicListingMembers_StillReturnsNilAndAudits(t *testing.T) {
 	t.Parallel()
 	spy := &breakGlassNotifyPanicSpy{panicOnListMembers: true}
-	c := &KeyorixCore{storage: spy, now: time.Now}
+	c := &KeyorixCore{storage: spy.store(), now: time.Now}
 
 	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour), false)
 	require.NoError(t, err, "the break-glass grant already committed and was audited — a panic notifying admins must not surface as an error")
@@ -92,7 +107,7 @@ func TestNotifyBreakGlassAdmins_PanicInNotifyFanOut_StillReturnsNilAndAudits(t *
 		panicOnNotification: true,
 		members:             []storage.ProjectMember{{UserID: 42, RoleName: "project_admin"}},
 	}
-	c := &KeyorixCore{storage: spy, now: time.Now}
+	c := &KeyorixCore{storage: spy.store(), now: time.Now}
 
 	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour), false)
 	require.NoError(t, err, "the break-glass grant already committed — a panic mid-fan-out must not surface as an error")
@@ -110,7 +125,7 @@ func TestNotifyBreakGlassAdmins_NoPanic_NormalPathUnchanged(t *testing.T) {
 			{UserID: 43, RoleName: "project_developer"}, // not an approver role — must not be notified
 		},
 	}
-	c := &KeyorixCore{storage: spy, now: time.Now}
+	c := &KeyorixCore{storage: spy.store(), now: time.Now}
 
 	err := c.notifyBreakGlassAdmins(context.Background(), 3, 7, "project_developer", time.Now().Add(time.Hour), false)
 	require.NoError(t, err)

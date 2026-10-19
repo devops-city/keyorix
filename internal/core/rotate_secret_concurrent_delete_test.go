@@ -10,26 +10,36 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
 // afterFirstGetSecret runs hook once, right after the first GetSecret returns: the window
 // between RotateSecret's read of the row and its write.
 type afterFirstGetSecret struct {
-	storage.Storage
-	hook func()
-	done bool
+	inner storage.Storage
+	hook  func()
+	done  bool
 }
 
-func (s *afterFirstGetSecret) GetSecret(ctx context.Context, id uint) (*models.SecretNode, error) {
-	sec, err := s.Storage.GetSecret(ctx, id)
+func (s *afterFirstGetSecret) GetSecret(next storage.Storage, ctx context.Context, id uint) (*models.SecretNode, error) {
+	sec, err := next.GetSecret(ctx, id)
 	if !s.done {
 		s.done = true
 		s.hook()
 	}
 	return sec, err
 }
+
+// wrap returns inner decorated with afterFirstGetSecret's overrides.
+func (s *afterFirstGetSecret) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetSecret: s.GetSecret,
+	})
+}
+
+// store returns s.inner decorated with afterFirstGetSecret's overrides.
+func (s *afterFirstGetSecret) store() storage.Storage { return s.wrap(s.inner) }
 
 // TestRotateSecret_ConcurrentDelete_LeavesNoOrphanVersion pins #2873 for a secret with no
 // rotation backend: a DeleteSecret that commits between RotateSecret's read and its write
@@ -54,9 +64,9 @@ func TestRotateSecret_ConcurrentDelete_LeavesNoOrphanVersion(t *testing.T) {
 		EnvironmentID: 1, Type: "password", Classification: "internal", OwnerID: 1, CreatedBy: "owner"})
 	require.NoError(t, err)
 
-	c.storage = &afterFirstGetSecret{Storage: c.storage, hook: func() {
+	c.storage = (&afterFirstGetSecret{inner: c.storage, hook: func() {
 		require.NoError(t, db.Delete(&models.SecretNode{}, sec.ID).Error) // a concurrent DeleteSecret commits
-	}}
+	}}).store()
 	_, rerr := c.RotateSecret(ctx, sec.ID, []byte("rotated-value-2"), 0, "rotator")
 	require.Error(t, rerr, "the rotation of a secret deleted under it must fail")
 

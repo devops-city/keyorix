@@ -16,12 +16,12 @@ import (
 // failConsumeWebAuthnSessionStorage fails ConsumeWebAuthnSession with a plain
 // storage error — deliberately NOT storage.ErrWebAuthnSessionInvalid, which is
 // that call's expected negative result and takes a different branch.
-type failConsumeWebAuthnSessionStorage struct {
-	storage.Storage
-}
-
-func (s *failConsumeWebAuthnSessionStorage) ConsumeWebAuthnSession(context.Context, string, time.Time) (*models.WebAuthnSession, error) {
-	return nil, errors.New("injected fault: ConsumeWebAuthnSession")
+func failConsumeWebAuthnSessionStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ConsumeWebAuthnSession: func(storage.Storage, context.Context, string, time.Time) (*models.WebAuthnSession, error) {
+			return nil, errors.New("injected fault: ConsumeWebAuthnSession")
+		},
+	})
 }
 
 // TestFinishWebAuthnLogin_MintFailureAfterAssertion_StillCountsTheLoginAttempt
@@ -80,7 +80,7 @@ func TestFinishWebAuthnLogin_MintFailureAfterAssertion_StillCountsTheLoginAttemp
 	token, err := c.storeWebAuthnSession(ctx, 1, "login", &webauthn.SessionData{Challenge: challenge, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 
-	c.storage = &failCreateSessionStorage{Storage: c.storage}
+	c.storage = failCreateSessionStorage(c.storage)
 
 	session, _, _, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err, "a CreateSession failure must still refuse this login")
@@ -120,7 +120,7 @@ func TestFinishWebAuthnLogin_PreVerdictFailureDoesNotCountTheLoginAttempt(t *tes
 	token, err := c.storeWebAuthnSession(ctx, 1, "login", &webauthn.SessionData{Challenge: challenge, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 
-	c.storage = &failConsumeWebAuthnSessionStorage{Storage: c.storage}
+	c.storage = failConsumeWebAuthnSessionStorage(c.storage)
 
 	_, _, _, err = c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)

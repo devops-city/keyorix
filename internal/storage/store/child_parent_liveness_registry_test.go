@@ -574,6 +574,9 @@ func TestChildParentLiveness_PendingRowsNotExpired(t *testing.T) {
 		exp, err := time.Parse("2006-01-02", r.Expires)
 		require.NoErrorf(t, err, "%s:%d expires must be YYYY-MM-DD or -", childLiveExemptPath, r.Line)
 		require.Truef(t, now.Before(exp.Add(24*time.Hour)), "%s:%d exemption %s expired on %s: %s", childLiveExemptPath, r.Line, r.key(), r.Expires, r.Reason)
+		if days := int(exp.Sub(now.Truncate(24*time.Hour)).Hours() / 24); days <= 3 {
+			t.Logf("WARNING: %s:%d exemption %s expires in %d days (%s): resolve or renew it now, it fails hard the day after", childLiveExemptPath, r.Line, r.key(), days, r.Expires)
+		}
 	}
 }
 

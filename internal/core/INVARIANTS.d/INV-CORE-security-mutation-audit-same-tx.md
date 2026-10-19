@@ -20,7 +20,11 @@
   (`withDirectedAuditedMutation`): any added permission, a higher share
   permission, a later or cleared expiry (mixed changes included) is a grant and
   fails closed; a change that only narrows or changes no access commits and
-  audits best-effort after the commit (REVIEW-2 on #3367). Why: a crash or refused append between the commit and the
+  audits best-effort after the commit (REVIEW-2 on #3367). The classification
+  must hold until the write: `UpdateSharePermission` reads the share with
+  `LockShareRecordForUpdate` (PostgreSQL `FOR UPDATE`) in that transaction, so no
+  other writer can change it in between (SHARE-CAS-1); `UpdateRole` classifies
+  from its own inserts and needs no lock. Why: a crash or refused append between the commit and the
   row left a grant with no audit record (REVIEW-1, AUDIT-TX-2). Inventory:
   `docs/specs/security-mutation-audit-inventory.md`.
   Guard: `internal/core` `TestSecurityMutationAudit_RowExistsIffMutationCommitted`
@@ -31,7 +35,10 @@
   `TestSecurityMutationAudit_UpdateRole_ByDirection`,
   `TestSecurityMutationAudit_UpdateSharePermission_ByDirection` and
   `server/faultops` `TestRoleEditorUpdate_AuditFailure_ByDirection`,
-  `TestShareUpdate_AuditFailure_ByDirection`, `internal/solewriter`
+  `TestShareUpdate_AuditFailure_ByDirection`, the locked classification read by
+  `TestUpdateSharePermission_ClassifiesFromALockedRead` and (pg-gated, two
+  replicas) `TestCTAReview_UpdateSharePermission_NeutralVsConcurrentNarrowing_CrossReplicaPostgres`,
+  `_PreservedExpiryVsConcurrentShortening_CrossReplicaPostgres`, `internal/solewriter`
   `TestTracker_GrantWithItsAuditRowIsOneFencedWrite` (pg-gated).
   **Not covered**: the follow-ups listed in the inventory (project/environment
   delete and update, group create/update, user update/restore/reactivate, config

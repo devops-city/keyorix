@@ -18,8 +18,9 @@
   FUZZ-SEEDS-1): one transient error moved the attempt off the shared table into the
   per-process fallback (oracle (a) [LoginAttempt AuditEvent]). Guard: `server/faultops`
   `TestLoginEffectThenErrorTuples_PassEveryOracleWithoutARow`,
-  `TestPasswordResetAttemptAccounting_PassesEveryOracleWithoutARow`; `internal/core`
-  `TestAuthBudget_EveryStoredWriteIsKeyed`, `auth_budget_record_keyed_test.go`;
+  `TestPasswordResetAttemptAccounting_PassesEveryOracleWithoutARow`; `internal/core/guards`
+  `TestAuthBudget_EveryStoredWriteIsKeyed` (`auth_budget_record_keyed_test.go`; its behavioural
+  siblings `TestBudgetRecord_*` stay in `internal/core`);
   `server/http/handlers` `login_budget_identifiable_reservation_test.go`;
   `internal/storage/store` `TestReserveLoginAttempt_IsIdempotentPerKey`; `internal/storage`
   `TestLoginAttemptReservationKey_AddedOnUpgrade`.

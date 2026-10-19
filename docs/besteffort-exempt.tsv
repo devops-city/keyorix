@@ -1,6 +1,6 @@
 # Best-effort-after-commit guard exemption list — GUARD-1 (#2561 for the v2 format).
 #
-# internal/core/besteffort_guard_test.go,
+# internal/core/guards/besteffort_guard_test.go,
 # server/http/handlers/besteffort_guard_test.go and
 # server/grpc/services/besteffort_guard_test.go each fail the build when a
 # non-test function in their package drops a call's result after a storage

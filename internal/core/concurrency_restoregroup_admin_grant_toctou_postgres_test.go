@@ -68,28 +68,33 @@ import (
 // package's delayedRestoreGroupStorage rather than shared: that one lives in
 // an external test package this file cannot import.
 type pgDelayedRestoreGroupStorage struct {
-	storage.Storage
+	inner            storage.Storage
 	targetGroupID    uint
 	blocked, release chan struct{}
 }
 
-func (d *pgDelayedRestoreGroupStorage) RestoreGroup(ctx context.Context, id uint) error {
+func (d *pgDelayedRestoreGroupStorage) RestoreGroup(next storage.Storage, ctx context.Context, id uint) error {
 	if id == d.targetGroupID {
 		close(d.blocked)
 		<-d.release
 	}
-	return d.Storage.RestoreGroup(ctx, id)
+	return next.RestoreGroup(ctx, id)
 }
+
+// wrap returns inner decorated with pgDelayedRestoreGroupStorage's overrides.
+func (d *pgDelayedRestoreGroupStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx:       true,
+		RestoreGroup: d.RestoreGroup,
+	})
+}
+
+// store returns d.inner decorated with pgDelayedRestoreGroupStorage's overrides.
+func (d *pgDelayedRestoreGroupStorage) store() storage.Storage { return d.wrap(d.inner) }
 
 // WithTransaction rewraps the tx handle, so the delay still fires now that
 // core.RestoreGroup performs its restore write through that handle (#2428)
 // rather than the outer storage.
-func (d *pgDelayedRestoreGroupStorage) WithTransaction(ctx context.Context, fn func(tx storage.Storage) error) error {
-	return d.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&pgDelayedRestoreGroupStorage{Storage: tx, targetGroupID: d.targetGroupID, blocked: d.blocked, release: d.release})
-	})
-}
-
 var restoreGroupTOCTOUPGModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
@@ -122,12 +127,12 @@ func TestConcurrency_RestoreGroup_AdminGrantRace_CrossReplicaPostgres(t *testing
 	defer closePG(dbB)
 
 	wrappedA := &pgDelayedRestoreGroupStorage{
-		Storage:       localstore.NewLocalStorage(dbA),
+		inner:         localstore.NewLocalStorage(dbA),
 		targetGroupID: softDeleted.ID,
 		blocked:       make(chan struct{}),
 		release:       make(chan struct{}),
 	}
-	coreA := NewKeyorixCore(wrappedA)
+	coreA := NewKeyorixCore(wrappedA.store())
 	coreB := NewKeyorixCore(localstore.NewLocalStorage(dbB))
 	ctx := context.Background()
 

@@ -21,7 +21,7 @@ func TestTakeComplianceSnapshot_DegradedPostureFailsClosed_2834(t *testing.T) {
 	t.Parallel()
 	c, db := compliancePostureCoreDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CompliancePostureSnapshot{}))
-	c.storage = &failingLegalHoldStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingLegalHoldStore(c.storage.(*store.LocalStorage))
 
 	snap, err := c.TakeComplianceSnapshot(context.Background())
 	require.Error(t, err)

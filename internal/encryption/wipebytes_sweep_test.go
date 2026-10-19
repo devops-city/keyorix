@@ -4,7 +4,7 @@
 // wipeBytes, or have its ownership handed off, on every return path after the
 // assignment.
 //
-// An AST walk in the style of internal/core's atomicity_guard_test.go, with no
+// An AST walk in the style of internal/core/guards/atomicity_guard_test.go, with no
 // type checking and only a lexical notion of "path". What it recognises,
 // stated explicitly so a reviewer can check it:
 //
