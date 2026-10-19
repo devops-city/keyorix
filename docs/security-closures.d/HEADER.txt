@@ -27,7 +27,7 @@
 #                the adr-numbers job), a SKIP here is expected and does NOT
 #                fail the check — there is nothing else that invocation could
 #                show. When it runs WITH the DSN set (.github/workflows/ci.yml
-#                test-suite job, `core` leg — the one job with a Postgres
+#                test-suite job, `core-1` leg — the one job with a Postgres
 #                service container — runs this same script a second time, see
 #                that job for why), a SKIP or failure here IS real and DOES
 #                fail the check: the DSN is available, so "gated" stops being

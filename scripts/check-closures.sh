@@ -37,7 +37,7 @@
 #      fixes this by making the row say which environment its proof requires,
 #      so a skip can be judged against that claim instead of against a single
 #      hardcoded assumption. This script still does not set the DSN itself —
-#      .github/workflows/ci.yml's test-suite job (`core` leg) runs this SAME
+#      .github/workflows/ci.yml's test-suite job (`core-1` leg) runs this SAME
 #      script a second time, in the one job that already has Postgres — that
 #      second run is what actually proves a pg-gated row; this rule just stops
 #      the DSN-less run from reporting a false failure for it.
