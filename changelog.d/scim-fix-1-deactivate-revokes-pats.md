@@ -1,0 +1,2 @@
+### Security
+- **A SCIM `active=false` (PATCH or PUT) now revokes the user's personal access tokens, as a SCIM `DELETE` already did.** Before, the tokens were refused only while the account stayed deactivated, and an IdP `active=true` (re-hire, undo, sync glitch) made them valid again with no re-authorization. The revocation runs in the same transaction as the deactivation, and the tokens are evicted from the auth cache right after commit. Profile-only updates and reactivation do not touch tokens. (#3419)

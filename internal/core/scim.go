@@ -272,6 +272,7 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	// in-process #344 clobber-protection accountStateMu still provides.
 	var deactivated bool
 	var updated *models.User
+	var patHashes []string // PATs revoked by a deactivation; evicted from the auth cache after commit
 	var guardErr error // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
@@ -288,7 +289,7 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// that read and this write would be silently clobbered (the exact #344 race).
 		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
 			var err error
-			updated, deactivated, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active)
+			updated, deactivated, patHashes, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active)
 			return err
 		})
 	})
@@ -311,6 +312,7 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// auth cache so an offboarded user doesn't keep access for the cache TTL.
 		_ = c.deleteSessionsForUserAndEvict(ctx, id, 0, "")
 		purgeStepUpGrants(ctx, c.storage, id)
+		c.invalidateTokenCache(patHashes...)
 	}
 	c.writeAuditEvent(ctx, EventSCIMUserUpdated, actorPtr(actorID), nil,
 		fmt.Sprintf("SCIM updated user %d", id))
@@ -340,13 +342,13 @@ func (c *KeyorixCore) checkSCIMEmailCollision(ctx context.Context, id uint, emai
 
 // scimUpdateUserTx executes the locked read-modify-write inside the transaction.
 // Returns (updated user, whether the user was deactivated, error).
-func (c *KeyorixCore) scimUpdateUserTx(ctx context.Context, tx storage.Storage, id uint, displayName, email *string, active *bool) (*models.User, bool, error) {
+func (c *KeyorixCore) scimUpdateUserTx(ctx context.Context, tx storage.Storage, id uint, displayName, email *string, active *bool) (*models.User, bool, []string, error) {
 	user, err := tx.LockUserForUpdate(ctx, id)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	if !scimManaged(user) {
-		return nil, false, storage.ErrUserNotFound
+		return nil, false, nil, storage.ErrUserNotFound
 	}
 	// Captured before mutation so we only call SetAccountState when the state actually
 	// changes (#454), avoiding an unnecessary write for a plain name/email PATCH that
@@ -362,7 +364,7 @@ func (c *KeyorixCore) scimUpdateUserTx(ctx context.Context, tx storage.Storage, 
 		// GetUserByEmail keep resolving to the user's OLD address forever.
 		folded, ferr := identity.NewFoldedName(*email)
 		if ferr != nil {
-			return nil, false, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), ferr)
+			return nil, false, nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), ferr)
 		}
 		user.Email = *email
 		user.EmailFolded = folded.Folded()
@@ -380,10 +382,10 @@ func (c *KeyorixCore) scimUpdateUserTx(ctx context.Context, tx storage.Storage, 
 		// lock is not held): a reactivation would turn that suspension into active.
 		matched, err := tx.SetAccountStateIfMatches(ctx, id, origState, user.AccountState, c.now())
 		if err != nil {
-			return nil, false, err
+			return nil, false, nil, err
 		}
 		if !matched {
-			return nil, false, fmt.Errorf("user %d: %w", id, ErrUserAccountStateConflict)
+			return nil, false, nil, fmt.Errorf("user %d: %w", id, ErrUserAccountStateConflict)
 		}
 	}
 	user.UpdatedAt = c.now()
@@ -398,12 +400,24 @@ func (c *KeyorixCore) scimUpdateUserTx(ctx context.Context, tx storage.Storage, 
 	// state-conditional write core.UpdateUser itself uses instead.
 	matched, err := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	if !matched {
-		return nil, false, fmt.Errorf("user %d: %w", id, ErrUserActiveStateConflict)
+		return nil, false, nil, fmt.Errorf("user %d: %w", id, ErrUserActiveStateConflict)
 	}
-	return user, deactivated, nil
+	// #3419: a deactivation revokes the user's PATs in this same transaction, as
+	// DeprovisionSCIMUser does (#2855). A surviving PAT is inert while the account is
+	// deactivated, but ReactivateUser and an IdP active=true revoke nothing, so an
+	// unrevoked row would authenticate again on re-enable. The hashes go back to the
+	// caller for the post-commit auth-cache eviction.
+	var patHashes []string
+	if deactivated {
+		patHashes, err = tx.RevokeAllPersonalAccessTokensForUser(ctx, id)
+		if err != nil {
+			return nil, false, nil, err
+		}
+	}
+	return user, deactivated, patHashes, nil
 }
 
 // applySCIMActiveState applies an IdP active=true/false directive to the user model,
