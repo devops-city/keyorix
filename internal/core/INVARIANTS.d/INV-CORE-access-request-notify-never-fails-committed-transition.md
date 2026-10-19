@@ -13,7 +13,7 @@
   committed state and the audit row read back), `server/faultops`
   `TestAccessRequestNotificationFailure_IsNotReportedAsFailure` (through the real harness and
   every oracle, incl. bulk approve/reject) and the corpus entry
-  `FuzzStorageFaultOperations/0b2369d76a986e0e`. `notify_recipients_guard_test.go` treats
+  `FuzzStorageFaultOperations/0b2369d76a986e0e`. `guards/notify_recipients_guard_test.go` treats
   `notifyChecked` as a delivery primitive, so a notifier built on it is still discovered.
   **Not covered**: notifications outside the access-request family keep `notify`'s silent
   swallow of a CreateNotification error (reminder schedulers hit benign dedup errors, #488);

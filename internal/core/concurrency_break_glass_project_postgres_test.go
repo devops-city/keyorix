@@ -74,11 +74,11 @@ func TestConcurrency_RevokeBreakGlassActivationAtomic_CrossReplicaPostgres(t *te
 
 	// Replica A: own connection, wrapped to pause its RemoveRole write for userA.
 	wrapped := &pgDelayedRemoveRoleStorage{
-		Storage:      localstore.NewLocalStorage(pgOpen(t, dsn)),
+		inner:        localstore.NewLocalStorage(pgOpen(t, dsn)),
 		targetUserID: userA.ID, targetRoleID: role.ID,
 		blocked: make(chan struct{}), release: make(chan struct{}),
 	}
-	coreA := NewKeyorixCore(wrapped)
+	coreA := NewKeyorixCore(wrapped.store())
 	// Replica B: its own, independent connection.
 	coreB := NewKeyorixCore(localstore.NewLocalStorage(pgOpen(t, dsn)))
 

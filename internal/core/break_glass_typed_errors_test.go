@@ -105,13 +105,12 @@ func TestRevokeBreakGlass_RefusalsAreSentinelsWithUnchangedText(t *testing.T) {
 }
 
 // getRoleByNameErrStub overrides exactly GetRoleByName to inject a fixed error.
-type getRoleByNameErrStub struct {
-	storage.Storage
-	err error
-}
-
-func (s *getRoleByNameErrStub) GetRoleByName(ctx context.Context, name string) (*models.Role, error) {
-	return nil, s.err
+func getRoleByNameErrStub(inner storage.Storage, err error) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetRoleByName: func(_ storage.Storage, ctx context.Context, name string) (*models.Role, error) {
+			return nil, err
+		},
+	})
 }
 
 // A storage failure while resolving the emergency role is an internal error:
@@ -131,7 +130,7 @@ func TestActivateBreakGlass_RoleLookupDBFailureIsInternalNotInvalidRequest(t *te
 	c.SetBreakGlassPolicy(BreakGlassPolicy{Enabled: true, EmergencyRole: "editor", DefaultTTL: time.Hour, MaxTTL: time.Hour})
 
 	dbErr := errors.New("pq: connection refused (driver detail)")
-	c.storage = &getRoleByNameErrStub{Storage: c.storage, err: dbErr}
+	c.storage = getRoleByNameErrStub(c.storage, dbErr)
 
 	_, err = c.ActivateBreakGlass(ctx, proj.ID, member.ID, "prod incident, database is down", "")
 	require.Error(t, err)

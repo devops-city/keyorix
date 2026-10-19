@@ -460,13 +460,24 @@ func (ls *LocalStorage) GetUserRoleScopes(ctx context.Context, userID uint) ([]s
 // (group_roles) — the raw grant rows behind a project access review. Global
 // (project 0) assignments are deliberately excluded (install-level, reviewed
 // separately). A principal with several roles at the project yields several rows.
+//
+// projectID 0 is the GLOBAL listing, and every caller of it counts global-admin
+// holders (the last-admin guards, admin posture). It returns only grants at
+// exactly {0, 0}, the same rows as ListGlobalAdminAssignmentsForUpdate (the
+// storage-side guard). A {ProjectID: 0, EnvironmentID: X} grant applies only
+// inside environment X, never at global scope (UserRoleGrant.AppliesAt), so
+// counting it as a global holder let the last real global admin be removed
+// (#2857). That shape is creatable through POST /api/v1/user-roles.
 func (ls *LocalStorage) ListProjectRoleAssignments(ctx context.Context, projectID uint) ([]storage.RoleAssignment, error) {
 	var out []storage.RoleAssignment
 
 	now := ls.rbacEffectiveNow(time.Now().UTC())
 	var userRows []models.UserRole
-	if err := ls.db.WithContext(ctx).
-		Where(sqlWhereProjectID, projectID).
+	userQ := ls.db.WithContext(ctx).Where(sqlWhereProjectID, projectID)
+	if projectID == 0 {
+		userQ = userQ.Where("environment_id = 0")
+	}
+	if err := userQ.
 		Where(sqlWhereURNotExpired, now).
 		Find(&userRows).Error; err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
@@ -479,14 +490,18 @@ func (ls *LocalStorage) ListProjectRoleAssignments(ctx context.Context, projectI
 	}
 
 	var groupRows []models.GroupRole
-	if err := ls.db.WithContext(ctx).Table("group_roles").
+	groupQ := ls.db.WithContext(ctx).Table("group_roles").
 		Select(modelColumns(ls.db, &models.GroupRole{}, "group_roles")).
 		// A soft-deleted group confers no roles/authority — exclude its grant rows,
 		// matching GetUserGroupRoleIDsAt's authorization resolution. Without this a
 		// deleted group's still-present group_roles row kept showing up as a "live"
 		// project-admin assignment to callers like guardLastProjectAdmin.
 		Joins(sqlJoinGroups).
-		Where(sqlWhereProjectID, projectID).
+		Where(sqlWhereProjectID, projectID)
+	if projectID == 0 {
+		groupQ = groupQ.Where("group_roles.environment_id = 0") // #2857, see above
+	}
+	if err := groupQ.
 		Where(sqlWhereGRNotExpired, now).
 		Find(&groupRows).Error; err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)

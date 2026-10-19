@@ -1,0 +1,2 @@
+### Internal
+- **`internal/core` no longer links cobra, pflag or yaml.v3.** The unused `securefiles.FilePermsCmd` is gone, and `EscapeYAMLString`/`RenderYAML` moved from `internal/secrettemplate` to the new leaf package `internal/secrettemplate/yamlescape` (no production callers; behaviour and tests unchanged). The core closure drops 4 packages and about 5.6 MB of compiled archive. `TestCoreStaysLeanOfHeavyThirdParty` (`internal/core/ports`) keeps them out and names the importing package if one returns; INV-CORE-no-heavy-third-party-deps.

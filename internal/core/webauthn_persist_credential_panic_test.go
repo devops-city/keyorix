@@ -25,12 +25,12 @@ import (
 // and makes AdvanceWebAuthnCredentialCounter panic unconditionally, mirroring
 // the panicOnEnforceSessionLimitStorage stub idiom used elsewhere in this
 // package.
-type panicOnAdvanceWebAuthnCredentialCounterStorage struct {
-	storage.Storage
-}
-
-func (s *panicOnAdvanceWebAuthnCredentialCounterStorage) AdvanceWebAuthnCredentialCounter(_ context.Context, _ []byte, _ uint, _ []byte, _ uint32, _ time.Time) (bool, error) {
-	panic("injected fault: AdvanceWebAuthnCredentialCounter")
+func panicOnAdvanceWebAuthnCredentialCounterStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		AdvanceWebAuthnCredentialCounter: func(_ storage.Storage, _ context.Context, _ []byte, _ uint, _ []byte, _ uint32, _ time.Time) (bool, error) {
+			panic("injected fault: AdvanceWebAuthnCredentialCounter")
+		},
+	})
 }
 
 // TestPersistUpdatedCredential_PanicDoesNotEscape: pre-fix, this call had no
@@ -47,7 +47,7 @@ func TestPersistUpdatedCredential_PanicDoesNotEscape(t *testing.T) {
 	ctx := context.Background()
 	seedCredential(t, c, db, 1, "cred-1")
 
-	c.storage = &panicOnAdvanceWebAuthnCredentialCounterStorage{Storage: c.storage}
+	c.storage = panicOnAdvanceWebAuthnCredentialCounterStorage(c.storage)
 
 	assert.NotPanics(t, func() {
 		c.persistUpdatedCredential(ctx, 1, &webauthn.Credential{ID: []byte("cred-1"), Authenticator: webauthn.Authenticator{SignCount: 1}})

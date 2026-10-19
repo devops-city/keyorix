@@ -108,6 +108,28 @@ loss. `FULL` costs a sync per commit; that is the price of "the audit entry was
 written" and "the audit entry survives a host crash" being the same claim.
 Keep the database file on local SSD rather than network storage.
 
+### Long readers
+
+In WAL mode a read transaction keeps the database as it was when the read
+started. Until it ends, SQLite cannot copy newer commits from the `-wal` file
+into the database file, so the `-wal` file grows with every write. The server's
+own long reads (the audit-checkpoint re-walk, a full audit verification, the
+compliance posture without incremental verification, `admin verify-audit`)
+read in short statements and never hold one read open for the whole walk.
+
+Things that do hold one open, and that you should not run against the live
+database file:
+
+- an interactive `sqlite3` shell with an open `BEGIN`, or a long `.dump`;
+- a BI, reporting or sync tool that reads the file through a long transaction;
+- a file-level copy made with a tool that reads through SQLite inside one transaction.
+
+For an audit check use `keyorix-server admin verify-audit` (safe against the live
+file); for a copy, `keyorix-server admin backup` (on SQLite it needs the server
+stopped). If the `-wal` file keeps growing, look for such a reader. Once it ends,
+the next checkpoint catches up and SQLite reuses the `-wal` file from the start;
+the file itself keeps its size until a restart (or `PRAGMA wal_checkpoint(TRUNCATE)`).
+
 ## Monitoring
 
 `/metrics` exposes the HTTP, scheduler, notification, SIEM-forwarding and

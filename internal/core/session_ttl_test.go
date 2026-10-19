@@ -260,6 +260,7 @@ func TestValidateSessionToken_AbsoluteCeilingEnforcedAtBoundary(t *testing.T) {
 		_, _, err := c.ValidateSessionToken(ctx, "tok")
 		require.ErrorContains(t, err, "lifetime exceeded")
 		// Fails fast at the boundary — no last-seen write or user lookup for a dead session.
+		c.FlushLastUsed(ctx) // the stamp is coalesced: flush so a recorded touch would reach the mock
 		store.AssertNotCalled(t, "TouchSession", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		store.AssertNotCalled(t, "GetUser", mock.Anything, mock.Anything)
 	})
@@ -280,6 +281,7 @@ func TestValidateSessionToken_AbsoluteCeilingEnforcedAtBoundary(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, uint(2), user.ID)
 		require.Equal(t, []string{"viewer"}, roles)
+		c.FlushLastUsed(ctx) // write the coalesced stamp now, not from a timer after the test
 	})
 }
 

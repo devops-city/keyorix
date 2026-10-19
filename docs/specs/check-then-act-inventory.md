@@ -11,7 +11,7 @@ deployment (ADR-039) each take the request.
 This is item 1 of GUARD-2's brief (spec first). The other items it feeds: a reusable
 cross-replica race-test harness (`internal/core/concurrency_race_harness_test.go`), a
 structural AST guard enforcing this rule on new code going forward
-(`internal/core/check_then_act_lock_guard_test.go`, exemptions in
+(`internal/core/guards/check_then_act_lock_guard_test.go`, exemptions in
 `docs/check-then-act-lock-exempt.tsv`), and CI wiring so every pg-gated test in this family
 actually runs against real Postgres on a PR touching `internal/core`/`internal/storage`, not
 just on `merge_group`/`ci:full` (`.github/workflows/pg-race-tests.yml`). The invariant itself

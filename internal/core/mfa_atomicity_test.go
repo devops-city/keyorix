@@ -27,64 +27,53 @@ import (
 // which re-wraps the transactional storage.Storage handed to the callback so the
 // injected failure applies INSIDE the transaction, not just at the outer layer)
 // passes through untouched.
-type failingStorage struct {
-	storage.Storage
-	failMethod string
+func failingStorage(inner storage.Storage, failMethod string) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		ActivateMFASecret: func(next storage.Storage, ctx context.Context, userID uint, secretEnc []byte) (bool, error) {
+			if failMethod == "ActivateMFASecret" {
+				return false, errInjectedFailure
+			}
+			return next.ActivateMFASecret(ctx, userID, secretEnc)
+		},
+		SetUserMFAEnabled: func(next storage.Storage, ctx context.Context, userID uint, enabled bool) error {
+			if failMethod == "SetUserMFAEnabled" {
+				return errInjectedFailure
+			}
+			return next.SetUserMFAEnabled(ctx, userID, enabled)
+		},
+		CreateMFARecoveryCodes: func(next storage.Storage, ctx context.Context, userID uint, hashes []string) error {
+			if failMethod == "CreateMFARecoveryCodes" {
+				return errInjectedFailure
+			}
+			return next.CreateMFARecoveryCodes(ctx, userID, hashes)
+		},
+		DeleteMFAForUser: func(next storage.Storage, ctx context.Context, userID uint) error {
+			if failMethod == "DeleteMFAForUser" {
+				return errInjectedFailure
+			}
+			return next.DeleteMFAForUser(ctx, userID)
+		},
+		DeleteMFARecoveryCodes: func(next storage.Storage, ctx context.Context, userID uint) error {
+			if failMethod == "DeleteMFARecoveryCodes" {
+				return errInjectedFailure
+			}
+			return next.DeleteMFARecoveryCodes(ctx, userID)
+		},
+		AssignPermissionToRole: func(next storage.Storage, ctx context.Context, roleID, permissionID uint) error {
+			if failMethod == "AssignPermissionToRole" {
+				return errInjectedFailure
+			}
+			return next.AssignPermissionToRole(ctx, roleID, permissionID)
+		},
+	})
 }
 
 var errInjectedFailure = errors.New("injected storage failure")
 
-func (f *failingStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return f.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failingStorage{Storage: tx, failMethod: f.failMethod})
-	})
-}
-
-func (f *failingStorage) ActivateMFASecret(ctx context.Context, userID uint, secretEnc []byte) (bool, error) {
-	if f.failMethod == "ActivateMFASecret" {
-		return false, errInjectedFailure
-	}
-	return f.Storage.ActivateMFASecret(ctx, userID, secretEnc)
-}
-
-func (f *failingStorage) SetUserMFAEnabled(ctx context.Context, userID uint, enabled bool) error {
-	if f.failMethod == "SetUserMFAEnabled" {
-		return errInjectedFailure
-	}
-	return f.Storage.SetUserMFAEnabled(ctx, userID, enabled)
-}
-
-func (f *failingStorage) CreateMFARecoveryCodes(ctx context.Context, userID uint, hashes []string) error {
-	if f.failMethod == "CreateMFARecoveryCodes" {
-		return errInjectedFailure
-	}
-	return f.Storage.CreateMFARecoveryCodes(ctx, userID, hashes)
-}
-
-func (f *failingStorage) DeleteMFAForUser(ctx context.Context, userID uint) error {
-	if f.failMethod == "DeleteMFAForUser" {
-		return errInjectedFailure
-	}
-	return f.Storage.DeleteMFAForUser(ctx, userID)
-}
-
-func (f *failingStorage) DeleteMFARecoveryCodes(ctx context.Context, userID uint) error {
-	if f.failMethod == "DeleteMFARecoveryCodes" {
-		return errInjectedFailure
-	}
-	return f.Storage.DeleteMFARecoveryCodes(ctx, userID)
-}
-
 // AssignPermissionToRole: used by alerts_write_role_reconcile_test.go's
 // TestSeedAlertOperatorRole_AtomicOnPermissionGrantFailure (same package, same
 // failingStorage wrapper — not MFA-specific despite this file's name).
-func (f *failingStorage) AssignPermissionToRole(ctx context.Context, roleID, permissionID uint) error {
-	if f.failMethod == "AssignPermissionToRole" {
-		return errInjectedFailure
-	}
-	return f.Storage.AssignPermissionToRole(ctx, roleID, permissionID)
-}
-
 // TestActivateMFA_AtomicOnRecoveryCodesFailure: CreateMFARecoveryCodes (the LAST of
 // the three writes) fails — ActivateMFASecret and SetUserMFAEnabled must both roll
 // back too, or the account would end up MFA-enabled with zero recovery codes and no
@@ -98,7 +87,7 @@ func TestActivateMFA_AtomicOnRecoveryCodesFailure(t *testing.T) {
 	code, err := totp.GenerateCode(secret, fixed.Add(-30*time.Second))
 	require.NoError(t, err)
 
-	c.storage = &failingStorage{Storage: c.storage, failMethod: "CreateMFARecoveryCodes"}
+	c.storage = failingStorage(c.storage, "CreateMFARecoveryCodes")
 	_, err = c.ActivateMFA(ctx, 1, code, mfaTestPassword, "")
 	require.Error(t, err)
 
@@ -130,7 +119,7 @@ func TestDisableMFA_AtomicOnDeleteFailure(t *testing.T) {
 	// storage failure below, rather than failing earlier at re-auth.
 	require.NoError(t, db.Create(&models.MFAStepUpGrant{UserID: 1, Purpose: models.MFAStepUpPurposeReauth, ExpiresAt: fixed.Add(15 * time.Minute)}).Error)
 
-	c.storage = &failingStorage{Storage: c.storage, failMethod: "DeleteMFAForUser"}
+	c.storage = failingStorage(c.storage, "DeleteMFAForUser")
 	err := c.DisableMFA(ctx, 1, mfaTestPassword, "")
 	require.Error(t, err)
 
@@ -161,7 +150,7 @@ func TestRegenerateMFARecoveryCodes_AtomicOnCreateFailure(t *testing.T) {
 	// storage failure below, rather than failing earlier at re-auth.
 	require.NoError(t, db.Create(&models.MFAStepUpGrant{UserID: 1, Purpose: models.MFAStepUpPurposeReauth, ExpiresAt: fixed.Add(15 * time.Minute)}).Error)
 
-	c.storage = &failingStorage{Storage: c.storage, failMethod: "CreateMFARecoveryCodes"}
+	c.storage = failingStorage(c.storage, "CreateMFARecoveryCodes")
 	_, err := c.RegenerateMFARecoveryCodes(ctx, 1, mfaTestPassword)
 	require.Error(t, err)
 

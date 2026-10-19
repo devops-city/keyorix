@@ -13,83 +13,68 @@ import (
 
 // --- storage stubs for error-path coverage ---
 
-type ancestorErrStorage struct {
-	corestorage.Storage
-	err error
+func ancestorErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetSecretAncestors: func(_ corestorage.Storage, ctx context.Context, nodeID uint) ([]uint, error) {
+			return nil, err
+		},
+	})
 }
 
-func (s *ancestorErrStorage) GetSecretAncestors(ctx context.Context, nodeID uint) ([]uint, error) {
-	return nil, s.err
+func getACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetSecretACL: func(_ corestorage.Storage, ctx context.Context, secretID, userID uint) (*models.SecretACL, error) {
+			return nil, err
+		},
+	})
 }
 
-type getACLErrStorage struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *getACLErrStorage) GetSecretACL(ctx context.Context, secretID, userID uint) (*models.SecretACL, error) {
-	return nil, s.err
-}
-
-type createACLErrStorage struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *createACLErrStorage) CreateOrUpdateSecretACL(ctx context.Context, acl *models.SecretACL) error {
-	return s.err
+func createACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateOrUpdateSecretACL: func(_ corestorage.Storage, ctx context.Context, acl *models.SecretACL) error {
+			return err
+		},
+	})
 }
 
 // WithTransaction keeps the fault on the transaction-scoped handle: the grant
 // is written through tx since AUDIT-TX-2 (it commits with its audit row).
-func (s *createACLErrStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
-		return fn(&createACLErrStorage{Storage: tx, err: s.err})
+func listACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSecretACLs: func(_ corestorage.Storage, ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
+			return nil, err
+		},
 	})
 }
 
-type listACLErrStorage struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *listACLErrStorage) ListSecretACLs(ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
-	return nil, s.err
-}
-
-type deleteACLErrStorage struct {
-	corestorage.Storage
-	acls []*models.SecretACL
-	err  error
-}
-
-func (s *deleteACLErrStorage) ListSecretACLs(ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
-	return s.acls, nil
-}
-
-func (s *deleteACLErrStorage) DeleteSecretACL(ctx context.Context, id uint) error {
-	return s.err
+func deleteACLErrStorage(inner corestorage.Storage, acls []*models.SecretACL, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSecretACLs: func(_ corestorage.Storage, ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
+			return acls, nil
+		},
+		DeleteSecretACL: func(_ corestorage.Storage, ctx context.Context, id uint) error {
+			return err
+		},
+	})
 }
 
 // ancestorLoopErrStorage returns the direct secretID with a not-found error
 // (so the direct ACL check passes through) then returns real ancestors so the
 // loop can be entered, and finally returns a non-not-found error from GetSecretACL
 // for any ancestorID, triggering the loop-error path (line 180–182).
-type ancestorLoopErrStorage struct {
-	corestorage.Storage
-	directID uint
-	loopErr  error
-}
-
-func (s *ancestorLoopErrStorage) GetSecretAncestors(_ context.Context, _ uint) ([]uint, error) {
-	return []uint{9999}, nil
-}
-
-func (s *ancestorLoopErrStorage) GetSecretACL(_ context.Context, secretID, _ uint) (*models.SecretACL, error) {
-	if secretID == s.directID {
-		return nil, errors.New("record not found")
-	}
-	return nil, s.loopErr
+func ancestorLoopErrStorage(inner corestorage.Storage, directID uint, loopErr error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetSecretAncestors: func(_ corestorage.Storage, _ context.Context, _ uint) ([]uint, error) {
+			return []uint{9999}, nil
+		},
+		GetSecretACL: func(_ corestorage.Storage, _ context.Context, secretID, _ uint) (*models.SecretACL, error) {
+			if secretID == directID {
+				return nil, errors.New("record not found")
+			}
+			return nil, loopErr
+		},
+	})
 }
 
 // newACLCoreWithStorage builds a KeyorixCore using the given storage backend,
@@ -182,7 +167,7 @@ func TestGrantSecretACL_CreateOrUpdateError(t *testing.T) {
 	c, db := newACLCore(t)
 	sid := mkACLSecret(t, db, "g-create-err")
 	wantErr := errors.New("write failed")
-	c2 := newACLCoreWithStorage(c, &createACLErrStorage{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, createACLErrStorage(c.storage, wantErr))
 	err := c2.GrantSecretACL(ctx, 1, sid, 1, []string{"secrets.read"})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -206,7 +191,7 @@ func TestRevokeSecretACL_ListError(t *testing.T) {
 	c, db := newACLCore(t)
 	sid := mkACLSecret(t, db, "rv-list-err")
 	wantErr := errors.New("list failed")
-	c2 := newACLCoreWithStorage(c, &listACLErrStorage{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, listACLErrStorage(c.storage, wantErr))
 	err := c2.RevokeSecretACL(ctx, 1, sid, 99)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -219,7 +204,7 @@ func TestRevokeSecretACL_DeleteError(t *testing.T) {
 	sid := mkACLSecret(t, db, "rv-delete-err")
 	wantErr := errors.New("delete failed")
 	fakeACL := &models.SecretACL{ID: 77, SecretID: sid, UserID: 5}
-	stub := &deleteACLErrStorage{Storage: c.storage, acls: []*models.SecretACL{fakeACL}, err: wantErr}
+	stub := deleteACLErrStorage(c.storage, []*models.SecretACL{fakeACL}, wantErr)
 	c2 := newACLCoreWithStorage(c, stub)
 	err := c2.RevokeSecretACL(ctx, 1, sid, 77)
 	require.Error(t, err)
@@ -234,7 +219,7 @@ func TestHasSecretACL_AncestorStorageError(t *testing.T) {
 	c, db := newACLCore(t)
 	sid := mkACLSecret(t, db, "ha-anc-err")
 	wantErr := errors.New("ancestors unavailable")
-	c2 := newACLCoreWithStorage(c, &ancestorErrStorage{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, ancestorErrStorage(c.storage, wantErr))
 	_, err := c2.HasSecretACL(ctx, 99, sid, "secrets.read")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -246,7 +231,7 @@ func TestHasSecretACL_AncestorLoopACLError(t *testing.T) {
 	c, db := newACLCore(t)
 	sid := mkACLSecret(t, db, "ha-loop-err")
 	wantErr := errors.New("acl lookup failed in ancestor loop")
-	stub := &ancestorLoopErrStorage{Storage: c.storage, directID: sid, loopErr: wantErr}
+	stub := ancestorLoopErrStorage(c.storage, sid, wantErr)
 	c2 := newACLCoreWithStorage(c, stub)
 	_, err := c2.HasSecretACL(ctx, 99, sid, "secrets.read")
 	require.Error(t, err)
@@ -261,7 +246,7 @@ func TestAclGrantsPermission_NonNotFoundErr(t *testing.T) {
 	c, db := newACLCore(t)
 	sid := mkACLSecret(t, db, "ggp-non-notfound")
 	wantErr := errors.New("unexpected db failure")
-	c2 := newACLCoreWithStorage(c, &getACLErrStorage{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, getACLErrStorage(c.storage, wantErr))
 	got, err := c2.aclGrantsPermission(ctx, sid, 99, "secrets.read")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -307,7 +292,7 @@ func TestAuthorizeSecret_HasSecretACLError(t *testing.T) {
 	// Now inject a SecretACL lookup failure and confirm it is NOT silently
 	// swallowed by the RBAC fallback.
 	wantErr := errors.New("secret acl lookup unavailable")
-	c2 := newACLCoreWithStorage(c, &getACLErrStorage{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, getACLErrStorage(c.storage, wantErr))
 	ok, err := c2.AuthorizeSecret(ctx, 400, sid, "secrets.read")
 	require.Error(t, err, "AuthorizeSecret must fail closed when HasSecretACL errors, even though the user's project role would otherwise grant access")
 	assert.ErrorIs(t, err, wantErr)

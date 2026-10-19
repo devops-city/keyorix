@@ -13,23 +13,17 @@ import (
 
 // failOnceCreateAccessReviewItemsStorage makes CreateAccessReviewItems fail
 // once, mirroring the failOnceStorage idiom from #2295.
-type failOnceCreateAccessReviewItemsStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceCreateAccessReviewItemsStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceCreateAccessReviewItemsStorage{Storage: tx, armed: s.armed})
+func failOnceCreateAccessReviewItemsStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateAccessReviewItems: func(next storage.Storage, ctx context.Context, items []*models.AccessReviewItem) error {
+			if *armed {
+				*armed = false
+				return errors.New("injected fault: CreateAccessReviewItems")
+			}
+			return next.CreateAccessReviewItems(ctx, items)
+		},
 	})
-}
-
-func (s *failOnceCreateAccessReviewItemsStorage) CreateAccessReviewItems(ctx context.Context, items []*models.AccessReviewItem) error {
-	if *s.armed {
-		*s.armed = false
-		return errors.New("injected fault: CreateAccessReviewItems")
-	}
-	return s.Storage.CreateAccessReviewItems(ctx, items)
 }
 
 // TestOpenAccessReviewCampaign_ItemsFailureRollsBackCampaign is the red-proof
@@ -50,7 +44,7 @@ func TestOpenAccessReviewCampaign_ItemsFailureRollsBackCampaign(t *testing.T) {
 	require.NoError(t, c.AddProjectMember(ctx, 1, proj.ID, u.ID, "project_viewer", false))
 
 	armed := true
-	c.storage = &failOnceCreateAccessReviewItemsStorage{Storage: st, armed: &armed}
+	c.storage = failOnceCreateAccessReviewItemsStorage(st, &armed)
 
 	_, err = c.OpenAccessReviewCampaign(ctx, 1, 0, proj.ID, "Q1")
 	require.Error(t, err)

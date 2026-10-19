@@ -28,16 +28,13 @@ var errLockoutStoreDown = errors.New("pq: connection reset by peer")
 
 // lockoutStateDownStorage fails every write of the lockout columns, inside or
 // outside a transaction. Everything else works.
-type lockoutStateDownStorage struct{ storage.Storage }
-
-func (s *lockoutStateDownStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&lockoutStateDownStorage{Storage: tx})
+func lockoutStateDownStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		UpdateLoginLockoutState: func(storage.Storage, context.Context, uint, int, *time.Time, *time.Time, int) error {
+			return errLockoutStoreDown
+		},
 	})
-}
-
-func (*lockoutStateDownStorage) UpdateLoginLockoutState(context.Context, uint, int, *time.Time, *time.Time, int) error {
-	return errLockoutStoreDown
 }
 
 var fallbackLockoutPolicy = LoginLockoutPolicy{
@@ -50,7 +47,7 @@ func TestAccountLockout_StateStorageDown_StepUpStillLocks(t *testing.T) {
 	c, db, fixed := newMFATestCore(t)
 	c.loginLockout = fallbackLockoutPolicy
 	secret, _ := activateMFAForTest(t, c, fixed)
-	c.storage = &lockoutStateDownStorage{Storage: c.storage}
+	c.storage = lockoutStateDownStorage(c.storage)
 	ctx := context.Background()
 
 	for i := 0; i < fallbackLockoutPolicy.MaxAttempts; i++ {
@@ -73,7 +70,7 @@ func TestAccountLockout_StateStorageDown_PasswordLoginStillLocks(t *testing.T) {
 	t.Parallel()
 	c, _, _ := newMFATestCore(t)
 	c.loginLockout = fallbackLockoutPolicy
-	c.storage = &lockoutStateDownStorage{Storage: c.storage}
+	c.storage = lockoutStateDownStorage(c.storage)
 	ctx := context.Background()
 
 	for i := 0; i < fallbackLockoutPolicy.MaxAttempts; i++ {
@@ -91,7 +88,7 @@ func TestAccountLockout_StateStorageDown_BelowTheLimitStillLogsIn(t *testing.T) 
 	t.Parallel()
 	c, _, _ := newMFATestCore(t)
 	c.loginLockout = fallbackLockoutPolicy
-	c.storage = &lockoutStateDownStorage{Storage: c.storage}
+	c.storage = lockoutStateDownStorage(c.storage)
 	ctx := context.Background()
 
 	for i := 0; i < fallbackLockoutPolicy.MaxAttempts-1; i++ {
@@ -142,7 +139,7 @@ func TestAuthBudgetFallback_AuditedAndCountedPerBudget(t *testing.T) {
 	// account_lockout: its stored write is the user row, not login_attempts.
 	ac, adb, _ := newMFATestCore(t)
 	ac.loginLockout = fallbackLockoutPolicy
-	ac.storage = &lockoutStateDownStorage{Storage: ac.storage}
+	ac.storage = lockoutStateDownStorage(ac.storage)
 	before := testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("account_lockout"))
 	_, _, _ = ac.Login(ctx, &LoginRequest{Username: "alice", Password: "wrong-password", IPAddress: "198.51.100.10"})
 	assert.Equal(t, before+1, testutil.ToFloat64(authRateLimitFallbackTotal.WithLabelValues("account_lockout")))

@@ -11,13 +11,13 @@
 // budgetRecord now uses the login reservation's keyed, once-retried write
 // (#3050, budgetWriteKeyed). These tests fault the FIRST login_attempts write
 // whatever method it goes through, so they are red on the old code too.
+//
+// The class guard TestAuthBudget_EveryStoredWriteIsKeyed (a source scan of
+// auth_budget.go) lives in guards/auth_budget_record_keyed_test.go.
 package core
 
 import (
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"testing"
 	"time"
 
@@ -35,7 +35,6 @@ import (
 // ReserveLoginAttempt) while faults > 0, one per write. effect makes a faulted
 // write land before it reports the error (a lost acknowledgement).
 type firstWriteFaultStub struct {
-	corestorage.Storage
 	faults int
 	effect bool
 }
@@ -48,24 +47,32 @@ func (s *firstWriteFaultStub) fault() bool {
 	return true
 }
 
-func (s *firstWriteFaultStub) RecordLoginAttempt(ctx context.Context, ip string, at time.Time) error {
+func (s *firstWriteFaultStub) RecordLoginAttempt(next corestorage.Storage, ctx context.Context, ip string, at time.Time) error {
 	if !s.fault() {
-		return s.Storage.RecordLoginAttempt(ctx, ip, at)
+		return next.RecordLoginAttempt(ctx, ip, at)
 	}
 	if s.effect {
-		_ = s.Storage.RecordLoginAttempt(ctx, ip, at)
+		_ = next.RecordLoginAttempt(ctx, ip, at)
 	}
 	return errLoginAttemptsDown
 }
 
-func (s *firstWriteFaultStub) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
+func (s *firstWriteFaultStub) ReserveLoginAttempt(next corestorage.Storage, ctx context.Context, ip string, at time.Time, key string) (uint, error) {
 	if !s.fault() {
-		return s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
+		return next.ReserveLoginAttempt(ctx, ip, at, key)
 	}
 	if s.effect {
-		_, _ = s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
+		_, _ = next.ReserveLoginAttempt(ctx, ip, at, key)
 	}
 	return 0, errLoginAttemptsDown
+}
+
+// wrap returns inner decorated with firstWriteFaultStub's overrides.
+func (s *firstWriteFaultStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		RecordLoginAttempt:  s.RecordLoginAttempt,
+		ReserveLoginAttempt: s.ReserveLoginAttempt,
+	})
 }
 
 func newFirstWriteFaultCore(t *testing.T) (*KeyorixCore, *firstWriteFaultStub, *gorm.DB) {
@@ -76,9 +83,9 @@ func newFirstWriteFaultCore(t *testing.T) (*KeyorixCore, *firstWriteFaultStub, *
 		sqlDB.SetMaxOpenConns(1)
 	}
 	require.NoError(t, db.AutoMigrate(&models.LoginAttempt{}, &models.AuditEvent{}))
-	stub := &firstWriteFaultStub{Storage: store.NewLocalStorage(db)}
+	stub := &firstWriteFaultStub{}
 	now := time.Date(2026, 10, 13, 10, 0, 0, 0, time.UTC)
-	c := &KeyorixCore{storage: stub, now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
+	c := &KeyorixCore{storage: stub.wrap(store.NewLocalStorage(db)), now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
 	return c, stub, db
 }
 
@@ -195,46 +202,4 @@ func TestBudgetRecord_WriteFailingTwiceStillFallsBack(t *testing.T) {
 			assert.EqualValues(t, 1, rateLimitErrorEvents(t, db), "the fallback must be audited")
 		})
 	}
-}
-
-// TestAuthBudget_EveryStoredWriteIsKeyed is the class guard: no budget write in
-// auth_budget.go may use the non-idempotent RecordLoginAttempt, which can be
-// neither retried (a lost acknowledgement would count twice) nor left
-// unretried (one transient error moves the attempt off the shared table). Every
-// stored write goes through budgetWriteKeyed; ReserveLoginAttempt is called
-// from nowhere else in the file. RecordLoginAttemptRelay (rate_limit.go) is not
-// a budget write: it returns the storage error to its caller.
-func TestAuthBudget_EveryStoredWriteIsKeyed(t *testing.T) {
-	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, "auth_budget.go", nil, 0)
-	require.NoError(t, err)
-	reserveCallers := map[string]int{}
-	var unkeyed []string
-	for _, d := range f.Decls {
-		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Body == nil {
-			continue
-		}
-		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || !isStorageValue(sel.X) {
-				return true
-			}
-			switch sel.Sel.Name {
-			case "RecordLoginAttempt":
-				unkeyed = append(unkeyed, fset.Position(call.Pos()).String()+" "+fd.Name.Name)
-			case "ReserveLoginAttempt":
-				reserveCallers[fd.Name.Name]++
-			}
-			return true
-		})
-	}
-	assert.Empty(t, unkeyed, "auth_budget.go writes login_attempts through the non-idempotent RecordLoginAttempt: use budgetWriteKeyed")
-	assert.Equal(t, map[string]int{"budgetWriteKeyed": 2}, reserveCallers,
-		"ReserveLoginAttempt must be called only by budgetWriteKeyed (the write and its one same-key retry); "+
-			"a zero here means this guard no longer recognises the write and would pass vacuously")
 }

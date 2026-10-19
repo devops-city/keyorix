@@ -15,17 +15,17 @@ import (
 
 // failOnceCreateSetupTokenStorage makes CreateSetupToken fail once, mirroring
 // the failOnceStorage idiom from #2295.
-type failOnceCreateSetupTokenStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceCreateSetupTokenStorage) CreateSetupToken(ctx context.Context, t *models.SetupToken) (*models.SetupToken, error) {
-	if *s.armed {
-		*s.armed = false
-		return nil, errors.New("injected fault: CreateSetupToken")
-	}
-	return s.Storage.CreateSetupToken(ctx, t)
+func failOnceCreateSetupTokenStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateSetupToken: func(next storage.Storage, ctx context.Context, t *models.SetupToken) (*models.SetupToken, error) {
+			if *armed {
+				*armed = false
+				return nil, errors.New("injected fault: CreateSetupToken")
+			}
+			return next.CreateSetupToken(ctx, t)
+		},
+	})
 }
 
 // WithTransaction re-wraps the tx handle the underlying storage hands back
@@ -34,12 +34,6 @@ func (s *failOnceCreateSetupTokenStorage) CreateSetupToken(ctx context.Context, 
 // WithTransaction closure -- without this override the fault would only ever
 // apply to calls made directly against s, never against the tx handle IssueSetupToken
 // actually uses post-fix.
-func (s *failOnceCreateSetupTokenStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceCreateSetupTokenStorage{Storage: tx, armed: s.armed})
-	})
-}
-
 // TestResendInvitationLink_CreateSetupTokenFailureKillsWorkingLink is the
 // RED-PROOF for the coordinator's CI-observed candidate (Session O follow-up,
 // 2026-09-29, fuzz shard 2 on #2261's run: op=REST POST
@@ -84,7 +78,7 @@ func TestResendInvitationLink_CreateSetupTokenFailureKillsWorkingLink(t *testing
 	// Now resend, injecting a failure into the SECOND write (CreateSetupToken).
 	// SupersedeActiveSetupTokens (the FIRST write) is allowed to succeed.
 	armed := true
-	c.storage = &failOnceCreateSetupTokenStorage{Storage: st, armed: &armed}
+	c.storage = failOnceCreateSetupTokenStorage(st, &armed)
 
 	_, err = c.ResendInvitationLink(ctx, proj.ID, inv.ID, 1)
 	require.Error(t, err, "the resend must surface the injected failure")

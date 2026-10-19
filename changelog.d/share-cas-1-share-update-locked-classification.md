@@ -1,0 +1,3 @@
+### Security
+
+- Share permission updates (`PUT /api/v1/shares/{id}`, gRPC, web, CLI) now read the share with a row lock (`SELECT … FOR UPDATE` on PostgreSQL) before deciding whether the change widens access, and hold it until the write. Before, on PostgreSQL a concurrent narrowing (write→read, a shorter expiry) committing between that decision and the write could be silently undone by an update classified as "no change": a widening that skipped the fail-closed audit rule and, during an audit outage, left no audit row. An update that does not touch the expiry now keeps the expiry the share has at write time. A concurrent update or revoke of the same share waits for the other to commit. SQLite was not affected.

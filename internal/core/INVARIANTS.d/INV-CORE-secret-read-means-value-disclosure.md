@@ -19,5 +19,5 @@
   inflated reads, billing and `total_reads` the same way. Guard: `server/http`
   `TestCLISecretDeleteFlow_WritesNoSecretRead` and `TestGetSecretByName_AuditsMetadataReadNotRead`
   (against the real router), `server/grpc/services`
-  `TestSecretService_GetSecretVersions_AuditsListingNotRead`, `internal/core`
+  `TestSecretService_GetSecretVersions_AuditsListingNotRead`, `internal/core/guards`
   `TestSecretReadAuditCallSites_CheckedAndNotInGoSafe`.

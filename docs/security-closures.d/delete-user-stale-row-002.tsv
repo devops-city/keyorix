@@ -1,0 +1,1 @@
+delete-user-stale-row-002	./internal/core	TestDeleteUser_KeepsConcurrentPasswordChange	default-ci	pending-merge	2677	SQLite half of delete-user-stale-row-001: a password change and MFA enable committed right after DeleteUser's GetUser survive the delete. Red on main.
