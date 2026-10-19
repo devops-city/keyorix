@@ -6,7 +6,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/identity"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,7 +159,7 @@ func TestSeedAlertOperatorRole_AtomicOnPermissionGrantFailure(t *testing.T) {
 	require.NoError(t, c.ReconcileRBACPermissions(ctx))
 
 	realStorage := c.storage
-	c.storage = &failingStorage{Storage: c.storage, failMethod: "AssignPermissionToRole"}
+	c.storage = failingStorage(c.storage, "AssignPermissionToRole")
 	err := c.ReconcileAlertsWriteRole(ctx)
 	// seedAlertOperatorRole's own error is logged, not propagated by its caller
 	// (best-effort, matching ReconcileRBACPermissions' contract) — the backfill

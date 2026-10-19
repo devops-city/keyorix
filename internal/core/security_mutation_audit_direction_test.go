@@ -29,22 +29,27 @@ import (
 // auditOutageStorage refuses every audit append while down is set, in a
 // transaction or not.
 type auditOutageStorage struct {
-	storage.Storage
-	down *atomic.Bool
+	inner storage.Storage
+	down  *atomic.Bool
 }
 
-func (s auditOutageStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(auditOutageStorage{Storage: tx, down: s.down})
-	})
-}
-
-func (s auditOutageStorage) LogAuditEvent(ctx context.Context, e *models.AuditEvent) error {
+func (s auditOutageStorage) LogAuditEvent(next storage.Storage, ctx context.Context, e *models.AuditEvent) error {
 	if s.down.Load() {
 		return errors.New("audit log refuses writes")
 	}
-	return s.Storage.LogAuditEvent(ctx, e)
+	return next.LogAuditEvent(ctx, e)
 }
+
+// wrap returns inner decorated with auditOutageStorage's overrides.
+func (s *auditOutageStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx:        true,
+		LogAuditEvent: s.LogAuditEvent,
+	})
+}
+
+// store returns s.inner decorated with auditOutageStorage's overrides.
+func (s *auditOutageStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 func (w *satWorld) rolePermIDs(roleID uint) []uint {
 	w.t.Helper()
@@ -62,7 +67,7 @@ func TestSecurityMutationAudit_UpdateRole_ByDirection(t *testing.T) {
 		require.NoError(t, err)
 		a, b := w.permID, p2.ID
 		down := &atomic.Bool{}
-		c := NewKeyorixCore(auditOutageStorage{Storage: w.fs, down: down})
+		c := NewKeyorixCore((&auditOutageStorage{inner: w.fs, down: down}).store())
 
 		for _, tc := range []struct {
 			name      string
@@ -134,7 +139,7 @@ func TestSecurityMutationAudit_UpdateSharePermission_ByDirection(t *testing.T) {
 		w := newSATWorld(t, sw.f)
 		ctx := context.Background()
 		down := &atomic.Bool{}
-		c := NewKeyorixCore(auditOutageStorage{Storage: w.fs, down: down})
+		c := NewKeyorixCore((&auditOutageStorage{inner: w.fs, down: down}).store())
 		in := func(d time.Duration) *time.Time { x := time.Now().Add(d); return &x }
 
 		for _, tc := range []struct {

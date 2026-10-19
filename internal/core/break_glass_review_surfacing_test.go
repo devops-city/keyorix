@@ -195,45 +195,61 @@ func TestRunBreakGlassReviewReminder_StorageErrorIsReported(t *testing.T) {
 // Embeds storage.Storage as nil like breakGlassNotifyPanicSpy above — any
 // unstubbed method panics on a nil pointer dereference if reached.
 type reviewReminderNotifySpy struct {
-	storage.Storage
+	inner       storage.Storage
 	unreviewed  []*models.BreakGlassActivation
 	membersByID map[uint][]storage.ProjectMember
 	notified    []uint
 	notifiedPID []*uint
 }
 
-func (s *reviewReminderNotifySpy) ListUnreviewedBreakGlassActivationsBefore(_ context.Context, _ time.Time) ([]*models.BreakGlassActivation, error) {
+func (s *reviewReminderNotifySpy) ListUnreviewedBreakGlassActivationsBefore(_ storage.Storage, _ context.Context, _ time.Time) ([]*models.BreakGlassActivation, error) {
 	return s.unreviewed, nil
 }
 
-func (s *reviewReminderNotifySpy) ListProjectMembers(_ context.Context, projectID uint) ([]storage.ProjectMember, error) {
+func (s *reviewReminderNotifySpy) ListProjectMembers(_ storage.Storage, _ context.Context, projectID uint) ([]storage.ProjectMember, error) {
 	return s.membersByID[projectID], nil
 }
 
 // The #2955 install-wide-admin lookup: this spy models an install with none, so
 // the project-member behaviour under test is unchanged.
-func (s *reviewReminderNotifySpy) ListAdminBypassRoleIDs(_ context.Context) ([]uint, error) {
+func (s *reviewReminderNotifySpy) ListAdminBypassRoleIDs(_ storage.Storage, _ context.Context) ([]uint, error) {
 	return nil, nil
 }
 
-func (s *reviewReminderNotifySpy) ListGlobalAdminAssignmentsForUpdate(_ context.Context, _ []uint) ([]storage.RoleAssignment, error) {
+func (s *reviewReminderNotifySpy) ListGlobalAdminAssignmentsForUpdate(_ storage.Storage, _ context.Context, _ []uint) ([]storage.RoleAssignment, error) {
 	return nil, nil
 }
 
 // projectAdminRecipients vets every candidate's account (active, login not blocked).
-func (s *reviewReminderNotifySpy) GetUser(_ context.Context, id uint) (*models.User, error) {
+func (s *reviewReminderNotifySpy) GetUser(_ storage.Storage, _ context.Context, id uint) (*models.User, error) {
 	return &models.User{ID: id, IsActive: true, AccountState: AccountActive}, nil
 }
 
-func (s *reviewReminderNotifySpy) CreateNotification(_ context.Context, n *models.Notification) (*models.Notification, error) {
+func (s *reviewReminderNotifySpy) CreateNotification(_ storage.Storage, _ context.Context, n *models.Notification) (*models.Notification, error) {
 	s.notified = append(s.notified, n.UserID)
 	s.notifiedPID = append(s.notifiedPID, n.ProjectID)
 	return n, nil
 }
 
-func (s *reviewReminderNotifySpy) LogAuditEvent(_ context.Context, _ *models.AuditEvent) error {
+func (s *reviewReminderNotifySpy) LogAuditEvent(_ storage.Storage, _ context.Context, _ *models.AuditEvent) error {
 	return nil
 }
+
+// wrap returns inner decorated with reviewReminderNotifySpy's overrides.
+func (s *reviewReminderNotifySpy) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListUnreviewedBreakGlassActivationsBefore: s.ListUnreviewedBreakGlassActivationsBefore,
+		ListProjectMembers:                        s.ListProjectMembers,
+		ListAdminBypassRoleIDs:                    s.ListAdminBypassRoleIDs,
+		ListGlobalAdminAssignmentsForUpdate:       s.ListGlobalAdminAssignmentsForUpdate,
+		GetUser:                                   s.GetUser,
+		CreateNotification:                        s.CreateNotification,
+		LogAuditEvent:                             s.LogAuditEvent,
+	})
+}
+
+// store returns s.inner decorated with reviewReminderNotifySpy's overrides.
+func (s *reviewReminderNotifySpy) store() storage.Storage { return s.wrap(s.inner) }
 
 // TestRunBreakGlassReviewReminder_NotifiesAdmins is #2461 round 2's proving
 // test for Andrei's decision item (b): an overdue review must actively reach
@@ -254,7 +270,7 @@ func TestRunBreakGlassReviewReminder_NotifiesAdmins(t *testing.T) {
 			3: {{UserID: 300, RoleName: "project_admin"}}, // no overdue rows -- never notified
 		},
 	}
-	c := &KeyorixCore{storage: spy, now: func() time.Time { return fixed }}
+	c := &KeyorixCore{storage: spy.store(), now: func() time.Time { return fixed }}
 	c.SetBreakGlassPolicy(BreakGlassPolicy{ReviewWindow: 48 * time.Hour})
 
 	n, err := c.RunBreakGlassReviewReminder(context.Background())

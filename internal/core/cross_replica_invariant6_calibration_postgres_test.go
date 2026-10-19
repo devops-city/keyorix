@@ -83,15 +83,12 @@ func legacyInvariant6Join(t *testing.T, f *ctaReview) int64 {
 // a three-way cycle (observed: two tests hung past a 10-minute timeout).
 // Replica A now holds no advisory lock at any point, so no cycle through A
 // can form, and B's own waits are on holders that always make progress.
-type noNamedLockStorage struct{ storage.Storage }
-
-func (s *noNamedLockStorage) WithNamedLock(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
-	return fn(ctx)
-}
-
-func (s *noNamedLockStorage) WithTransaction(ctx context.Context, fn func(tx storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&noNamedLockStorage{tx})
+func noNamedLockStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		WithNamedLock: func(_ storage.Storage, ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+			return fn(ctx)
+		},
 	})
 }
 
@@ -99,7 +96,7 @@ func (s *noNamedLockStorage) WithTransaction(ctx context.Context, fn func(tx sto
 // named lock) removed — the pre-#2669 code shape.
 func unlockedMembershipCore(t *testing.T, f *ctaReview) *KeyorixCore {
 	t.Helper()
-	c := NewKeyorixCore(&noNamedLockStorage{localstore.NewLocalStorage(f.dbA)})
+	c := NewKeyorixCore(noNamedLockStorage(localstore.NewLocalStorage(f.dbA)))
 	c.SetAuthEncryptor(f.enc)
 	return c
 }

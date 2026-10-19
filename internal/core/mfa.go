@@ -64,6 +64,17 @@ var ErrMFAVerificationStorageFailure = errors.New("mfa verification storage fail
 // user must begin enrolment again.
 var ErrMFAEnrollmentChanged = errors.New("MFA enrolment changed during activation; begin enrolment again")
 
+// ErrMFAAlreadyEnabled is returned, unwrapped, by BeginMFAEnrollment when the
+// account already has MFA enabled: either its pre-read user row says so, or a
+// concurrent ActivateMFA committed an activated secret before the enrolment's
+// own write landed (#2692), which the conditional UpsertMFASecret refuses to
+// replace. Its text is matched exactly by the HTTP handler's safe-message list.
+var ErrMFAAlreadyEnabled = errors.New("MFA is already enabled; disable it first to re-enrol")
+
+// errTOTPSecretNotActivated is loadTOTPSecret's refusal of a pending (not yet
+// activated) TOTP secret: it is not a second factor (#2692).
+var errTOTPSecretNotActivated = errors.New("TOTP secret is not activated")
+
 // ErrMFAVerificationUnavailable is wrapped IN ADDITION to
 // ErrMFAVerificationStorageFailure only when the storage failure happened
 // before any submitted code was evaluated (loading the user or the TOTP
@@ -83,8 +94,10 @@ const (
 // BeginMFAEnrollment generates a fresh TOTP secret, stores it encrypted in a
 // pending (not-activated) state, and returns the otpauth:// URI (QR) plus the
 // base32 secret (manual entry). Supersedes any prior pending enrolment. Refused
-// if MFA is already enabled (disable first), or if at-rest encryption is
-// unavailable (see the authEncryptor check below).
+// with ErrMFAAlreadyEnabled if MFA is already enabled (disable first), including
+// when an activation commits between the MFAEnabled read below and the write
+// (#2692: UpsertMFASecret never replaces an activated secret), or if at-rest
+// encryption is unavailable (see the authEncryptor check below).
 func (c *KeyorixCore) BeginMFAEnrollment(ctx context.Context, userID uint) (otpauthURI, base32Secret string, err error) {
 	// The TOTP secret is a distinct, always-sensitive credential — unlike a general
 	// secret VALUE (whose at-rest encryption is an explicit, informed operator
@@ -103,7 +116,7 @@ func (c *KeyorixCore) BeginMFAEnrollment(ctx context.Context, userID uint) (otpa
 		return "", "", fmt.Errorf("user not found")
 	}
 	if user.MFAEnabled {
-		return "", "", fmt.Errorf("MFA is already enabled; disable it first to re-enrol")
+		return "", "", ErrMFAAlreadyEnabled
 	}
 	key, err := totp.Generate(totp.GenerateOpts{Issuer: mfaIssuer, AccountName: user.Username})
 	if err != nil {
@@ -116,6 +129,12 @@ func (c *KeyorixCore) BeginMFAEnrollment(ctx context.Context, userID uint) (otpa
 	if err := c.storage.UpsertMFASecret(ctx, &models.MFASecret{
 		UserID: userID, SecretEnc: ct, SecretMeta: meta, Activated: false, CreatedAt: c.now(),
 	}); err != nil {
+		// #2692: a concurrent ActivateMFA committed after the MFAEnabled read
+		// above; the conditional upsert left its activated secret alone, and the
+		// seed generated here must not reach the caller.
+		if errors.Is(err, storage.ErrMFASecretActivated) {
+			return "", "", ErrMFAAlreadyEnabled
+		}
 		return "", "", fmt.Errorf("failed to store TOTP secret: %w", err)
 	}
 	uid := userID
@@ -702,6 +721,16 @@ func (c *KeyorixCore) loadTOTPSecret(ctx context.Context, userID uint) (string, 
 	row, err := c.storage.GetMFASecret(ctx, userID)
 	if err != nil {
 		return "", err
+	}
+	// #2692 (defence in depth): only an ACTIVATED secret is a second factor. A
+	// pending row is a seed BeginMFAEnrollment handed to whoever called it, so
+	// it must never satisfy a login, re-auth or step-up check, even on an
+	// account whose MFAEnabled is true (the state the #2692 race produced).
+	// Every verifier reads the seed here, so this one check covers them all. The
+	// callers treat the error like a failed secret read: no code is evaluated,
+	// nothing is accepted, and the attempt is audited mfa.error.
+	if !row.Activated {
+		return "", errTOTPSecretNotActivated
 	}
 	return c.decryptAuthSecret(row.SecretEnc, row.SecretMeta, ports.MFASecretAAD(userID))
 }

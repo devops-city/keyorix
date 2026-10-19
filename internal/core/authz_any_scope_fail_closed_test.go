@@ -17,34 +17,39 @@ import (
 // global scope resolves to no roles (a clean "no"), the principal has one project
 // scope, and resolving roles at that project scope fails.
 type machineAnyScopeStub struct {
-	corestorage.Storage
+	inner      corestorage.Storage
 	scopes     []corestorage.Scope
 	scopesErr  error
 	projectErr error
 }
 
-func (s *machineAnyScopeStub) GetMachineRoleScopes(_ context.Context, _ uint) ([]corestorage.Scope, error) {
+func (s *machineAnyScopeStub) getMachineRoleScopes(_ corestorage.Storage, _ context.Context, _ uint) ([]corestorage.Scope, error) {
 	return s.scopes, s.scopesErr
 }
 
-func (s *machineAnyScopeStub) GetMachineRoleIDsAt(_ context.Context, _ uint, scope corestorage.Scope) ([]uint, error) {
+func (s *machineAnyScopeStub) getMachineRoleIDsAt(_ corestorage.Storage, _ context.Context, _ uint, scope corestorage.Scope) ([]uint, error) {
 	if scope.ProjectID != 0 {
 		return nil, s.projectErr
 	}
 	return nil, nil
 }
 
-// ResolveMachinePermissionAt (PERF-FIX-6) reads through this stub's own
-// GetMachineRoleIDsAt, so AuthorizePrincipal still meets the project-scope error.
-func (s *machineAnyScopeStub) ResolveMachinePermissionAt(ctx context.Context, machineID uint, scope corestorage.Scope, permission string) (*corestorage.PrincipalPermission, error) {
-	return corestorage.ComposeMachinePermissionAt(ctx, s, machineID, scope, permission)
+// wrap returns inner decorated with machineAnyScopeStub's overrides.
+func (s *machineAnyScopeStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetMachineRoleScopes: s.getMachineRoleScopes,
+		GetMachineRoleIDsAt:  s.getMachineRoleIDsAt,
+	})
 }
+
+// store returns s.inner decorated with machineAnyScopeStub's overrides.
+func (s *machineAnyScopeStub) store() corestorage.Storage { return s.wrap(s.inner) }
 
 func TestHoldsPermissionInAnyScope_UserScopeEnumerationErrorFailsClosed(t *testing.T) {
 	t.Parallel()
 	c, _ := newACLCore(t)
 	wantErr := errors.New("scopes db failure")
-	c2 := newACLCoreWithStorage(c, &userRoleScopesStub{Storage: c.storage, err: wantErr})
+	c2 := newACLCoreWithStorage(c, userRoleScopesStub(c.storage, nil, wantErr))
 
 	ok, err := c2.HoldsPermissionInAnyScope(context.Background(), ActorTypeUser, 1, "secrets.read")
 	require.Error(t, err)
@@ -56,7 +61,7 @@ func TestHoldsPermissionInAnyScope_MachineScopeEnumerationErrorFailsClosed(t *te
 	t.Parallel()
 	c, _ := newACLCore(t)
 	wantErr := errors.New("machine scopes db failure")
-	c2 := newACLCoreWithStorage(c, &machineAnyScopeStub{Storage: c.storage, scopesErr: wantErr})
+	c2 := newACLCoreWithStorage(c, (&machineAnyScopeStub{inner: c.storage, scopesErr: wantErr}).store())
 
 	ok, err := c2.HoldsPermissionInAnyScope(context.Background(), ActorTypeMachine, 1, "secrets.read")
 	require.Error(t, err)
@@ -68,11 +73,11 @@ func TestHoldsPermissionInAnyScope_AuthorizeErrorAtProjectScopeFailsClosed(t *te
 	t.Parallel()
 	c, _ := newACLCore(t)
 	wantErr := errors.New("role lookup failure at project scope")
-	c2 := newACLCoreWithStorage(c, &machineAnyScopeStub{
-		Storage:    c.storage,
+	c2 := newACLCoreWithStorage(c, (&machineAnyScopeStub{
+		inner:      c.storage,
 		scopes:     []corestorage.Scope{{ProjectID: 1}},
 		projectErr: wantErr,
-	})
+	}).store())
 
 	ok, err := c2.HoldsPermissionInAnyScope(context.Background(), ActorTypeMachine, 1, "secrets.read")
 	require.Error(t, err)
@@ -86,10 +91,10 @@ func TestHoldsPermissionInAnyScope_AuthorizeErrorAtProjectScopeFailsClosed(t *te
 func TestHoldsPermissionInAnyScope_NoRoleIsFalseWithoutError(t *testing.T) {
 	t.Parallel()
 	c, _ := newACLCore(t)
-	c2 := newACLCoreWithStorage(c, &machineAnyScopeStub{
-		Storage: c.storage,
-		scopes:  []corestorage.Scope{{ProjectID: 1}},
-	})
+	c2 := newACLCoreWithStorage(c, (&machineAnyScopeStub{
+		inner:  c.storage,
+		scopes: []corestorage.Scope{{ProjectID: 1}},
+	}).store())
 
 	ok, err := c2.HoldsPermissionInAnyScope(context.Background(), ActorTypeMachine, 1, "secrets.read")
 	require.NoError(t, err)

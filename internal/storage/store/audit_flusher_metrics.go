@@ -32,6 +32,15 @@ var (
 		Help: "Audit-chain batch-commit flushes (one per transaction/fsync, covering 1-N queued entries each).",
 	})
 
+	// auditPipelinedBatches counts batches sent while the batch before them was
+	// still in flight (chained onto its pending last row,
+	// local_audit_chain_pipelined_batches.go). Zero on SQLite and while another
+	// writer keeps the chain-head cache disarmed.
+	auditPipelinedBatches = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "keyorix_audit_flusher_pipelined_batches_total",
+		Help: "Audit-chain batches sent while the previous batch was still in flight (pipelined commits).",
+	})
+
 	auditFlushBatchSize = promauto.NewSummary(prometheus.SummaryOpts{
 		Name:       "keyorix_audit_flusher_batch_size",
 		Help:       "Number of audit-chain entries committed per batch flush.",

@@ -32,7 +32,7 @@ import (
 // panicLoginWriteStorage panics once in method: in place of the call, or after
 // the real call committed (afterCommit).
 type panicLoginWriteStorage struct {
-	corestorage.Storage
+	inner       corestorage.Storage
 	method      string
 	afterCommit bool
 	fired       bool
@@ -46,25 +46,36 @@ func (s *panicLoginWriteStorage) arm(method string) bool {
 	return true
 }
 
-func (s *panicLoginWriteStorage) MarkTOTPStepUsed(ctx context.Context, userID uint, step int64) (bool, error) {
+func (s *panicLoginWriteStorage) MarkTOTPStepUsed(next corestorage.Storage, ctx context.Context, userID uint, step int64) (bool, error) {
 	if s.arm("MarkTOTPStepUsed") {
 		if s.afterCommit {
-			_, _ = s.Storage.MarkTOTPStepUsed(ctx, userID, step)
+			_, _ = next.MarkTOTPStepUsed(ctx, userID, step)
 		}
 		panic("injected panic: MarkTOTPStepUsed")
 	}
-	return s.Storage.MarkTOTPStepUsed(ctx, userID, step)
+	return next.MarkTOTPStepUsed(ctx, userID, step)
 }
 
-func (s *panicLoginWriteStorage) CreateSession(ctx context.Context, session *models.Session) (*models.Session, error) {
+func (s *panicLoginWriteStorage) CreateSession(next corestorage.Storage, ctx context.Context, session *models.Session) (*models.Session, error) {
 	if s.arm("CreateSession") {
 		if s.afterCommit {
-			_, _ = s.Storage.CreateSession(ctx, session)
+			_, _ = next.CreateSession(ctx, session)
 		}
 		panic("injected panic: CreateSession")
 	}
-	return s.Storage.CreateSession(ctx, session)
+	return next.CreateSession(ctx, session)
 }
+
+// wrap returns inner decorated with panicLoginWriteStorage's overrides.
+func (s *panicLoginWriteStorage) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		MarkTOTPStepUsed: s.MarkTOTPStepUsed,
+		CreateSession:    s.CreateSession,
+	})
+}
+
+// store returns s.inner decorated with panicLoginWriteStorage's overrides.
+func (s *panicLoginWriteStorage) store() corestorage.Storage { return s.wrap(s.inner) }
 
 func commitLabel(afterCommit bool) string {
 	if afterCommit {
@@ -129,8 +140,8 @@ func testVerifyMFALoginWritePanic(t *testing.T, method string, afterCommit bool)
 	pch, err := pc.CreateMFAChallenge(ctx, 1)
 	require.NoError(t, err)
 	base := pc.storage
-	st := &panicLoginWriteStorage{Storage: base, method: method, afterCommit: afterCommit}
-	pc.storage = st
+	st := &panicLoginWriteStorage{inner: base, method: method, afterCommit: afterCommit}
+	pc.storage = st.store()
 	var perr error
 	var sess *models.Session
 	require.NotPanics(t, func() {
@@ -164,7 +175,7 @@ func testVerifyMFALoginWritePanic(t *testing.T, method string, afterCommit bool)
 	rch, err := rc.CreateMFAChallenge(ctx, 1)
 	require.NoError(t, err)
 	rbase := rc.storage
-	rc.storage = &panicLoginWriteStorage{Storage: rbase, method: method, afterCommit: afterCommit}
+	rc.storage = (&panicLoginWriteStorage{inner: rbase, method: method, afterCommit: afterCommit}).store()
 	require.NotPanics(t, func() { _, _, _, _ = rc.VerifyMFALogin(ctx, rch, rgood, "ua", "9.9.9.9") })
 	rc.storage = rbase
 	replay, err := rc.CreateMFAChallenge(ctx, 1)
@@ -210,8 +221,8 @@ func testFinishWebAuthnLoginWritePanic(t *testing.T, afterCommit bool) {
 	ptok, err := pc.storeWebAuthnSession(ctx, 1, "login", &webauthn.SessionData{Challenge: challenge2, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 	base := pc.storage
-	st := &panicLoginWriteStorage{Storage: base, method: "CreateSession", afterCommit: afterCommit}
-	pc.storage = st
+	st := &panicLoginWriteStorage{inner: base, method: "CreateSession", afterCommit: afterCommit}
+	pc.storage = st.store()
 	var perr error
 	var sess *models.Session
 	require.NotPanics(t, func() {
@@ -245,8 +256,8 @@ func testFinishWebAuthnPasswordlessLoginWritePanic(t *testing.T, afterCommit boo
 	tok, err := pc.storeWebAuthnSession(ctx, 0, "passwordless", &webauthn.SessionData{Challenge: challenge})
 	require.NoError(t, err)
 	base := pc.storage
-	st := &panicLoginWriteStorage{Storage: base, method: "CreateSession", afterCommit: afterCommit}
-	pc.storage = st
+	st := &panicLoginWriteStorage{inner: base, method: "CreateSession", afterCommit: afterCommit}
+	pc.storage = st.store()
 	var perr error
 	var sess *models.Session
 	require.NotPanics(t, func() {

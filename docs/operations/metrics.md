@@ -17,6 +17,7 @@ Served at: server `GET /metrics` (unauthenticated; keep inside your perimeter)
 | `keyorix_account_state_unrecognized_total` | counter | - | Count of AccountLoginBlocked calls against a blank or unrecognized users.account_state value, failed closed. |
 | `keyorix_audit_flusher_batch_size` | summary | - | Number of audit-chain entries committed per batch flush. |
 | `keyorix_audit_flusher_flushes_total` | counter | - | Audit-chain batch-commit flushes (one per transaction/fsync, covering 1-N queued entries each). |
+| `keyorix_audit_flusher_pipelined_batches_total` | counter | - | Audit-chain batches sent while the previous batch was still in flight (pipelined commits). |
 | `keyorix_audit_group_commit_wait_seconds` | histogram | - | Time an audit event waited in the group-commit queue (including the linger window) before its batch began committing. |
 | `keyorix_audit_write_duration_seconds` | histogram | - | End-to-end latency of an audit event append (LogAuditEvent*), including group-commit queueing, whether it succeeded or failed. |
 | `keyorix_audit_write_failures_total` | counter | - | Audit event appends that returned an error to the caller (the audited mutation may already have committed). |

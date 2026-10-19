@@ -34,7 +34,7 @@
 //   - It is CONTROL-FLOW BLIND. "After the last write" is textual position, so
 //     a discard in one arm of a mutually-exclusive if/else is flagged exactly
 //     like a true sequential case. Same documented caveat as
-//     atomicity_guard_test.go's write-count scan.
+//     internal/core/guards/atomicity_guard_test.go's write-count scan.
 //   - It is CALLER-SIDE ONLY. It cannot see that a callee recovers its own
 //     panic; that is precisely what the exemption file records.
 //   - It scans only *.go files DIRECTLY under the root, not subpackages.

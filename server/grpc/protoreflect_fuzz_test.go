@@ -50,7 +50,7 @@ package grpc_test
 // (internal/core/auth.go), which runs on EVERY successful authentication
 // inside authenticateRequest, BEFORE a handler's own validation/authz logic,
 // so it can fire on a call that's about to be rejected for an unrelated
-// reason. Being wall-clock-throttled (sessionTouchInterval, 30s) is exactly
+// reason. Being wall-clock-throttled (30s) is exactly
 // why it fired intermittently across a long -fuzz burst and never on an
 // isolated single-input replay seconds later -- looking identical to
 // non-reproducible noise until the per-table diagnostics this file now emits
@@ -320,9 +320,13 @@ func (w *prWorld) close() {
 //
 //   - sessions, UPDATE of last_seen_at only: internal/core/auth.go's
 //     ValidateSessionToken touches session.last_seen_at on EVERY successful
-//     authentication, throttled to once per sessionTouchInterval (30s) --
-//     that function's own doc comment: "Best-effort, throttled last-seen
-//     stamp for the My Account sessions view... Never fails the request."
+//     authentication, throttled to once per 30s -- that function's own doc
+//     comment: "Best-effort last-seen stamp for the My Account sessions
+//     view... Never fails the request." (Since OPT-LASTUSED-1 the stamp is
+//     recorded in memory and written by the core's last-used coalescer up to
+//     30s later, from a timer goroutine -- so it can land during a LATER
+//     call's window, which this principal-agnostic, column-scoped exemption
+//     already covers.)
 //     This runs inside authenticateRequest BEFORE a handler's own
 //     validation/authz logic, so it can fire on a call that is about to be
 //     rejected for an unrelated reason -- this was the coordinator's

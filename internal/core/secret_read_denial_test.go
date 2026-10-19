@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -163,10 +164,12 @@ func TestSecretReadDenial_GlobalKeyCap(t *testing.T) {
 }
 
 // failingAuditStorage fails every audit write.
-type failingAuditStorage struct{ *auditCallCountingStorage }
-
-func (s failingAuditStorage) LogAuditEvent(context.Context, *models.AuditEvent) error {
-	return errors.New("audit store unavailable")
+func failingAuditStorage(counting *auditCallCountingStorage) storage.Storage {
+	return hooked(counting.store(), &storeHooks{
+		LogAuditEvent: func(storage.Storage, context.Context, *models.AuditEvent) error {
+			return errors.New("audit store unavailable")
+		},
+	})
 }
 
 // A refusal stays a refusal when its audit row cannot be written: the write is
@@ -174,7 +177,7 @@ func (s failingAuditStorage) LogAuditEvent(context.Context, *models.AuditEvent) 
 // panic. Exercised through CopySecret, which records in core.
 func TestSecretReadDenial_AuditWriteFailureKeepsTheRefusal(t *testing.T) {
 	_, counting, db := newAuditSkipReadsWorld(t, false)
-	c := NewKeyorixCore(failingAuditStorage{counting})
+	c := NewKeyorixCore(failingAuditStorage(counting))
 	_, err := c.CopySecret(context.Background(), 4242, 1, "", "mallory", 3, "10.0.0.1", "ua")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found", "the refusal must be the same answer as without auditing")
