@@ -688,8 +688,8 @@ func TestBestEffortCallSites_MutationKillsRecoverWrapper(t *testing.T) {
 		{
 			name:       "delete writeAuditEventDiffOn's recover (breaks the whole audit wrapper chain)",
 			file:       "audit.go",
-			anchor:     "if r := recover(); r != nil {\n\t\t\tlogging.Event(ctx, logging.LevelError, fmt.Sprintf(\"SECURITY: writeAuditEventDiffOn panicked",
-			replace:    "if r := noRecover(); r != nil {\n\t\t\tlogging.Event(ctx, logging.LevelError, fmt.Sprintf(\"SECURITY: writeAuditEventDiffOn panicked",
+			anchor:     "if r := recover(); r != nil {\n\t\t\tif tgt.sink != nil && tgt.sink.failClosed {\n\t\t\t\tlogging.Event(ctx, logging.LevelError, fmt.Sprintf(\"SECURITY: writeAuditEventDiffOn panicked",
+			replace:    "if r := noRecover(); r != nil {\n\t\t\tif tgt.sink != nil && tgt.sink.failClosed {\n\t\t\t\tlogging.Event(ctx, logging.LevelError, fmt.Sprintf(\"SECURITY: writeAuditEventDiffOn panicked",
 			wantCallee: "writeAuditEventFull",
 		},
 		{

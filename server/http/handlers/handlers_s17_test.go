@@ -59,7 +59,7 @@ func freshCoreS17(t *testing.T) *core.KeyorixCore {
 		&models.SecretDependency{}, &models.RiskException{},
 		&models.MFASecret{}, &models.MFARecoveryCode{},
 		&models.IdentityProvider{}, &models.ExternalIdentity{},
-		&models.LegalHold{}, &models.ShareRecord{},
+		&models.LegalHold{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.PersonalAccessToken{},
 		&models.ProjectInvitation{}, &models.SchedulerLockLease{},
 		&models.SecretAccessLog{},

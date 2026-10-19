@@ -5,6 +5,10 @@
 // per-secret gRPC RPC) are server/http/share_authz_route_guard_test.go and
 // server/grpc/services/share_authz_rpc_guard_test.go.
 //
+// The source-scanning half (TestShareTerm_DecisionFunctionsConsultIt, which reads
+// authz.go/permissions.go) lives in guards/share_authz_guard_test.go so preflight can run
+// it without compiling this package's test archive.
+//
 // Behavioural counterparts with real storage (so the guard is also watched failing on
 // the actual decision, not only on source shape): TestShareTerm_* below. Mutation
 // check (drop the share term from AuthorizeSecret → red) is recorded in the PR.
@@ -12,9 +16,6 @@ package core
 
 import (
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"testing"
 	"time"
 
@@ -27,48 +28,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestShareTerm_DecisionFunctionsConsultIt(t *testing.T) {
-	bodies := map[string]*ast.BlockStmt{}
-	for _, file := range []string{"authz.go", "permissions.go"} {
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, file, nil, 0)
-		require.NoError(t, err)
-		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
-				bodies[fd.Name.Name] = fd.Body
-			}
-		}
-	}
-	for _, fn := range []string{"AuthorizeSecretAction", "checkSecretPermission"} {
-		require.Contains(t, bodies, fn)
-		assert.True(t, bodyCalls(bodies[fn], "sharePermissionFor"),
-			"%s must consult the share term (sharePermissionFor) — #2941", fn)
-	}
-	// The action-less entry points delegate to the action-aware ones (so they get the
-	// share term with no action: read elevation only).
-	assert.True(t, bodyCalls(bodies["AuthorizeSecret"], "AuthorizeSecretAction"), "AuthorizeSecret must delegate to AuthorizeSecretAction")
-	assert.True(t, bodyCalls(bodies["CheckSecretPermission"], "checkSecretPermission"), "CheckSecretPermission must delegate to checkSecretPermission")
-	for _, fn := range []string{"AuthorizeSecretPrincipal", "AuthorizeSecretPrincipalForSecret", "AuthorizeSecretPrincipalForSecretAction"} {
-		require.Contains(t, bodies, fn)
-		assert.True(t, bodyCalls(bodies[fn], "AuthorizeSecret") || bodyCalls(bodies[fn], "AuthorizeSecretAction") ||
-			bodyCalls(bodies[fn], "AuthorizeSecretPrincipalForSecret") || bodyCalls(bodies[fn], "AuthorizeSecretPrincipalForSecretAction"),
-			"%s must route human users through AuthorizeSecret(Action)", fn)
-	}
-}
-
-func bodyCalls(body *ast.BlockStmt, name string) bool {
-	found := false
-	ast.Inspect(body, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == name {
-				found = true
-			}
-		}
-		return !found
-	})
-	return found
-}
-
 // shareTermRig: a real LocalStorage with one secret in project 1 owned by user 9,
 // user 2 a member of project 1 via a role that carries NO permissions (so any access
 // it gets comes from a share), and user 3 a non-member.
@@ -79,7 +38,7 @@ func shareTermRig(t *testing.T) (*KeyorixCore, *gorm.DB, uint) {
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(
-		&models.SecretNode{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.UserRole{}, &models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.SecretACL{},
 		&models.AuditEvent{}, &models.User{}, &models.Project{}, &models.Environment{},
 	))

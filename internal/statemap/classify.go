@@ -6,7 +6,7 @@
 // implementation directories — server/http/handlers for REST,
 // server/grpc/services for gRPC, server/admin+cmd+cli for CLI), then count
 // write-verb-shaped calls in that one function using the EXACT SAME verb
-// regex and WithTransaction-escape logic internal/core/atomicity_guard_test.go
+// regex and WithTransaction-escape logic internal/core/guards/atomicity_guard_test.go
 // already uses (generalized from "c.storage.X / c.X" to any selector call,
 // since a handler's write path isn't always through a field literally named
 // "storage" or a receiver literally named "c"). This is Session O's own
@@ -34,7 +34,7 @@ import (
 	"strings"
 )
 
-// writeVerbRe mirrors internal/core/atomicity_guard_test.go's
+// writeVerbRe mirrors internal/core/guards/atomicity_guard_test.go's
 // atomicityWriteVerbRe exactly, so a "2+ writes" verdict means the same
 // thing in both places.
 var writeVerbRe = regexp.MustCompile(`^(Create|Update|Delete|Assign|Unassign|Set|Remove|Add|Revoke|Insert|Upsert|Save|Mark|Record|Increment|Rotate|Restore|Purge|Archive|Grant|Link|Unlink|Replace|Put|Store|Clear|Reset|Enable|Disable|Lock|Unlock|Consume|Approve|Reject|Expire|Touch|Bump|Append|Move|Rename|Transfer|Finalize|Complete|Cancel|Provision|Deprovision|Patch|Activate|Deactivate|Issue|Open|Close|Withdraw)`)
@@ -147,7 +147,7 @@ func applyWriteScan(e *Entry, writes []string) {
 	e.Reason = "single/no write-shaped call found by a 1-hop scan of the handler body"
 }
 
-// countWriteTargets mirrors internal/core/atomicity_guard_test.go's own
+// countWriteTargets mirrors internal/core/guards/atomicity_guard_test.go's own
 // write-counting walk (WithTransaction escapes the count for its closure's
 // body; any other call whose selector name matches writeVerbRe counts),
 // generalized from "c.storage.X / c.X" to ANY selector call — a handler's

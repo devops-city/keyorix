@@ -85,7 +85,7 @@ this bug class doesn't require re-discovery on every new feature:
   at all — a test built the easy way here would pass unconditionally and
   prove nothing.
 - **A structural AST guard going forward**
-  (`internal/core/check_then_act_lock_guard_test.go`), with exemptions
+  (`internal/core/guards/check_then_act_lock_guard_test.go`), with exemptions
   tracked in `docs/check-then-act-lock-exempt.tsv` for decisions where
   the worst case is availability/UX, not a security bypass. The
   invariant is recorded as `internal/core/INVARIANTS.md`'s **INV-CORE-41**.

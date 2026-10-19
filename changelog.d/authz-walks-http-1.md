@@ -1,0 +1,5 @@
+### Testing
+- **Route-wide authorization walks for writes and for dead credentials.** `TestEveryWriteRouteRefusesAndChangesNothing` calls every POST/PUT/PATCH/DELETE route as a zero-grant machine token, a viewer and three restricted PATs, with every path parameter bound to the real canary objects, and requires a 4xx plus an unchanged hash of every table. `TestEveryRouteRefusesADeadCredential` calls every route with each dead credential state (suspended or deleted user, expired or revoked session, revoked or expired PAT, revoked or suspended machine identity, machine token of a deleted project), cold and cache-warm, and requires a 401 and no state change. Public routes and self-service writes are explicit, commented allowlists, so a new route has to be classified.
+
+### Fixed
+- **A machine-identity token on `POST /api/v1/notifications/read-all` and `POST /api/v1/notifications/{id}/read` now gets 403.** The routes act on the caller's own notifications and a machine has none; `read-all` answered 200 `{"all_read":true}` and `{id}/read` answered 404. Nothing was disclosed or changed. Found by the new write walk.

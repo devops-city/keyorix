@@ -368,7 +368,7 @@ func TestRunRBACExportMatrix_JSONFormat(t *testing.T) {
 }
 
 // TestMatrixRowToCSV_NeutralizesFormulaInjection guards against CWE-1236
-// (spreadsheet formula injection, CI's repo-wide csv_writer_completeness_test.go):
+// (spreadsheet formula injection, CI's repo-wide internal/core/guards/csv_writer_completeness_test.go):
 // a role/username/etc. value beginning with =, +, -, or @ must be prefixed with
 // a leading single quote so Excel/Sheets/LibreOffice treat it as text, not a
 // formula, when an auditor opens the export.

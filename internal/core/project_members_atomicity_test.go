@@ -17,45 +17,35 @@ import (
 // from #2295 (auth_bootstrap_retryable_test.go): wraps storage.Storage,
 // re-wraps itself across WithTransaction so the injected fault also fires on
 // the transaction-scoped handle, and trips exactly once per armed instance.
-type failOnceProjectMemberStorage struct {
-	storage.Storage
-	failStep string
-	armed    *bool
-}
-
-func (s *failOnceProjectMemberStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceProjectMemberStorage{Storage: tx, failStep: s.failStep, armed: s.armed})
+func failOnceProjectMemberStorage(inner storage.Storage, failStep string, armed *bool) storage.Storage {
+	trip := func(step string) error {
+		if *armed && failStep == step {
+			*armed = false
+			return errors.New("injected fault: " + step)
+		}
+		return nil
+	}
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		RemoveAllProjectRoleGrants: func(next storage.Storage, ctx context.Context, userID, projectID uint) error {
+			if err := trip("RemoveAllProjectRoleGrants"); err != nil {
+				return err
+			}
+			return next.RemoveAllProjectRoleGrants(ctx, userID, projectID)
+		},
+		ClearProjectSecretOwnership: func(next storage.Storage, ctx context.Context, userID, projectID uint) error {
+			if err := trip("ClearProjectSecretOwnership"); err != nil {
+				return err
+			}
+			return next.ClearProjectSecretOwnership(ctx, userID, projectID)
+		},
+		DeleteSecretACLsByUserAndProject: func(next storage.Storage, ctx context.Context, userID, projectID uint) error {
+			if err := trip("DeleteSecretACLsByUserAndProject"); err != nil {
+				return err
+			}
+			return next.DeleteSecretACLsByUserAndProject(ctx, userID, projectID)
+		},
 	})
-}
-
-func (s *failOnceProjectMemberStorage) trip(step string) error {
-	if *s.armed && s.failStep == step {
-		*s.armed = false
-		return errors.New("injected fault: " + step)
-	}
-	return nil
-}
-
-func (s *failOnceProjectMemberStorage) RemoveAllProjectRoleGrants(ctx context.Context, userID, projectID uint) error {
-	if err := s.trip("RemoveAllProjectRoleGrants"); err != nil {
-		return err
-	}
-	return s.Storage.RemoveAllProjectRoleGrants(ctx, userID, projectID)
-}
-
-func (s *failOnceProjectMemberStorage) ClearProjectSecretOwnership(ctx context.Context, userID, projectID uint) error {
-	if err := s.trip("ClearProjectSecretOwnership"); err != nil {
-		return err
-	}
-	return s.Storage.ClearProjectSecretOwnership(ctx, userID, projectID)
-}
-
-func (s *failOnceProjectMemberStorage) DeleteSecretACLsByUserAndProject(ctx context.Context, userID, projectID uint) error {
-	if err := s.trip("DeleteSecretACLsByUserAndProject"); err != nil {
-		return err
-	}
-	return s.Storage.DeleteSecretACLsByUserAndProject(ctx, userID, projectID)
 }
 
 // projectMemberAtomicityFixture builds: a project with one environment, a
@@ -128,7 +118,7 @@ func TestRemoveProjectMember_PartialFailureLeavesNothingBehind(t *testing.T) {
 			c, projectID, aliceID, actorID, ownedSecretID := projectMemberAtomicityFixture(t)
 			base := c.storage
 			armed := true
-			c.storage = &failOnceProjectMemberStorage{Storage: base, failStep: step, armed: &armed}
+			c.storage = failOnceProjectMemberStorage(base, step, &armed)
 
 			ctx := context.Background()
 			err := c.RemoveProjectMember(ctx, actorID, projectID, aliceID)

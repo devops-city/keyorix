@@ -20,12 +20,12 @@ import (
 // panicOnEnforceSessionLimitStorage wraps a real storage.Storage and makes
 // EnforceSessionLimit panic unconditionally, mirroring the failOnce*/mfaSecretReadErrStub
 // stub idiom used elsewhere in this package.
-type panicOnEnforceSessionLimitStorage struct {
-	storage.Storage
-}
-
-func (s *panicOnEnforceSessionLimitStorage) EnforceSessionLimit(_ context.Context, _ uint, _ int) error {
-	panic("injected fault: EnforceSessionLimit")
+func panicOnEnforceSessionLimitStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		EnforceSessionLimit: func(_ storage.Storage, _ context.Context, _ uint, _ int) error {
+			panic("injected fault: EnforceSessionLimit")
+		},
+	})
 }
 
 // TestLogin_EnforceSessionLimitPanic_StillSucceeds: a panic in mintSession's
@@ -42,7 +42,7 @@ func TestLogin_EnforceSessionLimitPanic_StillSucceeds(t *testing.T) {
 	c, st := newBootstrappedCore(t)
 	ctx := context.Background()
 
-	c.storage = &panicOnEnforceSessionLimitStorage{Storage: st}
+	c.storage = panicOnEnforceSessionLimitStorage(st)
 
 	session, user, err := c.Login(ctx, &LoginRequest{Username: "admin", Password: "BootstrapPass123!"})
 	require.NoError(t, err, "a panic in the best-effort session-limit enforcement must not fail an otherwise-correct login")

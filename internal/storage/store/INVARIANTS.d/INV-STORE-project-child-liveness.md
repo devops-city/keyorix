@@ -9,10 +9,15 @@
   apply it without the store growing a bespoke combined method; `LockLiveProject` is a thin
   specialisation of `lockLiveParent` and must stay one (a plain unlocked re-read answers the
   same question and serializes against nothing).
-  **The five writers, and how that list was derived rather than asserted**: the cascade
+  **The six writers, and how that list was derived rather than asserted**: the cascade
   sweeps `secret_nodes`, `environments`, and `dynamic_secret_configs`. For `secret_nodes`:
   `core.CreateSecret`, `core.CreateFolder`, `LocalStorage.RestoreSecret` (there is no
-  `RestoreFolder` — a folder is a `SecretNode` and is restored through `RestoreSecret`). For
+  `RestoreFolder` — a folder is a `SecretNode` and is restored through `RestoreSecret`), and
+  `core.ResumeSecret` (#2794: `DeleteEnvironment` counts only ACTIVE secrets, so a suspended
+  one is deletable-around, and resuming it afterwards made it live inside a deleted
+  environment; `ResumeSecret` takes `withEnvironmentSecretGuard` and does its status write and
+  a `LockLiveProject` re-read in one transaction, pg-gated guard
+  `internal/core/cta_review_resume_secret_postgres_test.go`). For
   `environments`: `core.CreateEnvironment` and `LocalStorage.RestoreEnvironment`;
   `seedProjectEnvironment` is excluded because it runs inside the transaction that just
   created the project, so no deleted-parent window exists. `dynamic_secret_configs` is
@@ -35,7 +40,7 @@
   `_CreateFolder_`, `_CreateEnvironment_`, `_RestoreSecret_`) — each asserts the count of
   live children under the deleted project, not the writer's returned error, because the
   writer may legitimately fail OR be swept; what it may not do is leave a live child.
-  Structural, default-ci: `internal/core/project_child_liveness_guard_test.go`
+  Structural, default-ci: `internal/core/guards/project_child_liveness_guard_test.go`
   (`TestProjectChildWrites_RecheckProjectLivenessInATransaction`, with the derivation above
   written into the list it iterates, and `TestLockLiveProject_GoesThroughLockLiveParent`).
   **Not covered**: the opposite interleaving, where the writer's `FOR SHARE` lands first and

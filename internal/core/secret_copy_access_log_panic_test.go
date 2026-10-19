@@ -11,7 +11,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -32,17 +32,27 @@ import (
 // outcome-log noise. This test instead asserts the actual effect: the copy
 // must succeed despite the panic, not merely "no oracle violation."
 type copySecretAccessLogPanicStorage struct {
-	storage.Storage
+	inner storage.Storage
 	calls int
 }
 
-func (s *copySecretAccessLogPanicStorage) CreateSecretAccessLog(ctx context.Context, entry *models.SecretAccessLog) error {
+func (s *copySecretAccessLogPanicStorage) CreateSecretAccessLog(next storage.Storage, ctx context.Context, entry *models.SecretAccessLog) error {
 	s.calls++
 	if s.calls == 1 {
 		panic("simulated CreateSecretAccessLog panic")
 	}
-	return s.Storage.CreateSecretAccessLog(ctx, entry)
+	return next.CreateSecretAccessLog(ctx, entry)
 }
+
+// wrap returns inner decorated with copySecretAccessLogPanicStorage's overrides.
+func (s *copySecretAccessLogPanicStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSecretAccessLog: s.CreateSecretAccessLog,
+	})
+}
+
+// store returns s.inner decorated with copySecretAccessLogPanicStorage's overrides.
+func (s *copySecretAccessLogPanicStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 func TestCopySecret_PanicInAccessLogDuringSourceRead_StillSucceeds(t *testing.T) {
 	t.Parallel()
@@ -51,12 +61,12 @@ func TestCopySecret_PanicInAccessLogDuringSourceRead_StillSucceeds(t *testing.T)
 	require.NoError(t, err)
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.SecretAccessSchedule{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{}, &models.SecretAccessSchedule{}))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "owner", Email: "o@t.com"}).Error)
 
 	real := store.NewLocalStorage(db)
-	spy := &copySecretAccessLogPanicStorage{Storage: real}
-	c := &KeyorixCore{storage: spy, now: time.Now}
+	spy := &copySecretAccessLogPanicStorage{inner: real}
+	c := &KeyorixCore{storage: spy.store(), now: time.Now}
 	ctx := context.Background()
 
 	p1, _ := c.storage.CreateProject(ctx, &models.Project{Name: "p1"})

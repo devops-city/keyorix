@@ -220,37 +220,19 @@ func TestKeyorixCore_ShareSecret_RejectsSelfShare(t *testing.T) {
 	mockStorage.AssertNotCalled(t, "GetSecret", mock.Anything, mock.Anything)
 	mockStorage.AssertNotCalled(t, "CreateShareRecord", mock.Anything, mock.Anything)
 
-	// A group share whose RecipientID (a group ID) numerically equals SharedBy must
-	// NOT be treated as a self-share — RecipientID identifies a group, not a user.
 	mockTime := time.Date(2025, 7, 1, 12, 0, 0, 0, time.UTC)
 	core.now = func() time.Time { return mockTime }
-	groupSecret := &models.SecretNode{ID: 1, Name: "s", OwnerID: 1}
-	groupShareRecord := &models.ShareRecord{ID: 2, SecretID: 1, OwnerID: 1, RecipientID: 1, IsGroup: true, Permission: "read"}
-	mockStorage.On("GetSecret", ctx, uint(1)).Return(groupSecret, nil)
-	mockStorage.On("IsProjectMember", ctx, uint(1), uint(0)).Return(true, nil)
-	mockStorage.On("CreateShareRecord", ctx, mock.MatchedBy(func(s *models.ShareRecord) bool {
-		return s.SecretID == 1 && s.IsGroup
-	})).Return(groupShareRecord, nil)
-	mockStorage.On("LogAuditEvent", ctx, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
-	mockStorage.On("ListGroupMembers", ctx, uint(1)).Return([]*models.User{}, nil)
-	groupReq := &ShareSecretRequest{
-		SecretID:    1,
-		RecipientID: 1, // group ID, coincides numerically with SharedBy
-		IsGroup:     true,
-		Permission:  "read",
-		SharedBy:    1,
-	}
-	_, err = core.ShareSecret(ctx, groupReq)
-	require.NoError(t, err, "a group share must not be misidentified as a self-share just because RecipientID (group ID) equals SharedBy")
 
 	// A normal share to a different user still succeeds.
 	otherSecret := &models.SecretNode{ID: 3, Name: "s2", OwnerID: 1}
 	otherShareRecord := &models.ShareRecord{ID: 4, SecretID: 3, OwnerID: 1, RecipientID: 2, IsGroup: false, Permission: "read"}
 	mockStorage.On("GetSecret", ctx, uint(3)).Return(otherSecret, nil)
+	mockStorage.On("IsProjectMember", ctx, uint(1), uint(0)).Return(true, nil) // owner's live membership
 	mockStorage.On("IsProjectMember", ctx, uint(2), uint(0)).Return(true, nil)
 	mockStorage.On("CreateShareRecord", ctx, mock.MatchedBy(func(s *models.ShareRecord) bool {
 		return s.SecretID == 3 && !s.IsGroup
 	})).Return(otherShareRecord, nil)
+	mockStorage.On("LogAuditEvent", ctx, mock.AnythingOfType("*models.AuditEvent")).Return(nil)
 	mockStorage.On("CreateNotification", ctx, mock.AnythingOfType("*models.Notification")).Return(&models.Notification{}, nil)
 	normalReq := &ShareSecretRequest{
 		SecretID:    3,
@@ -262,6 +244,30 @@ func TestKeyorixCore_ShareSecret_RejectsSelfShare(t *testing.T) {
 	result, err := core.ShareSecret(ctx, normalReq)
 	require.NoError(t, err, "an ordinary share to a different user must still succeed")
 	assert.Equal(t, otherShareRecord, result)
+}
+
+// #3422: core ShareSecret must refuse IsGroup. It has no group-scope check (that is
+// ShareSecretWithGroup's IsGroupProjectScoped), so accepting IsGroup here would let a
+// future caller share a secret with a group that holds no role in the secret's project.
+func TestKeyorixCore_ShareSecret_RejectsGroupShare(t *testing.T) {
+	t.Parallel()
+	for _, recipient := range []uint{1, 7} { // 1 coincides with SharedBy, 7 does not
+		mockStorage := new(MockStorage)
+		core := &KeyorixCore{storage: mockStorage}
+		_, err := core.ShareSecret(context.Background(), &ShareSecretRequest{
+			SecretID:    1,
+			RecipientID: recipient,
+			IsGroup:     true,
+			Permission:  "read",
+			SharedBy:    1,
+		})
+		require.Error(t, err, "a group share through ShareSecret must be refused")
+		assert.Contains(t, err.Error(), "ShareSecretWithGroup")
+		// Refused before any lookup or write: nothing is persisted, nothing is audited.
+		mockStorage.AssertNotCalled(t, "GetSecret", mock.Anything, mock.Anything)
+		mockStorage.AssertNotCalled(t, "CreateShareRecord", mock.Anything, mock.Anything)
+		mockStorage.AssertNotCalled(t, "LogAuditEvent", mock.Anything, mock.Anything)
+	}
 }
 
 func TestKeyorixCore_UpdateSharePermission(t *testing.T) {

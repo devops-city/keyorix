@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -61,9 +62,9 @@ func (v rolesUnavailableValidator) ValidateMachineToken(ctx context.Context, tok
 	return v.fakeValidator.ValidateMachineToken(ctx, token)
 }
 
-func (v rolesUnavailableValidator) ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, error) {
+func (v rolesUnavailableValidator) ValidateOIDCToken(ctx context.Context, token string) (*models.MachineIdentity, []string, time.Time, error) {
 	if token == rolesDownOIDC {
-		return nil, nil, fmt.Errorf("validate: %w", core.ErrRoleResolutionUnavailable)
+		return nil, nil, time.Time{}, fmt.Errorf("validate: %w", core.ErrRoleResolutionUnavailable)
 	}
 	return v.fakeValidator.ValidateOIDCToken(ctx, token)
 }

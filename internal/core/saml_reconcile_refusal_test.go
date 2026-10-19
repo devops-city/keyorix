@@ -34,7 +34,7 @@ import (
 // WithTransaction re-wraps the tx handle so a write made through a transaction
 // is faulted too (the tx-handle blind spot failSetAccountStateStorage documents).
 type reconcileFaultStorage struct {
-	storage.Storage
+	inner           storage.Storage
 	failRemoveGroup map[uint]bool
 	failRemoveRole  map[uint]bool
 	failListGroups  bool
@@ -45,55 +45,63 @@ type reconcileFaultStorage struct {
 	panicUpdateLastLogin bool
 }
 
-func (s *reconcileFaultStorage) UpdateLastLogin(ctx context.Context, userID uint, at time.Time) error {
+func (s *reconcileFaultStorage) UpdateLastLogin(next storage.Storage, ctx context.Context, userID uint, at time.Time) error {
 	if s.panicUpdateLastLogin {
 		panic("injected fault: UpdateLastLogin")
 	}
-	return s.Storage.UpdateLastLogin(ctx, userID, at)
+	return next.UpdateLastLogin(ctx, userID, at)
 }
 
-func (s *reconcileFaultStorage) GetGroupRoles(ctx context.Context, groupID uint) ([]*models.Role, error) {
+func (s *reconcileFaultStorage) GetGroupRoles(next storage.Storage, ctx context.Context, groupID uint) ([]*models.Role, error) {
 	if s.failGetGroupRoles {
 		return nil, errors.New("injected fault: GetGroupRoles")
 	}
-	return s.Storage.GetGroupRoles(ctx, groupID)
+	return next.GetGroupRoles(ctx, groupID)
 }
 
-func (s *reconcileFaultStorage) GetRolePermissions(ctx context.Context, roleID uint) ([]*models.Permission, error) {
+func (s *reconcileFaultStorage) GetRolePermissions(next storage.Storage, ctx context.Context, roleID uint) ([]*models.Permission, error) {
 	if s.failGetRolePermissions {
 		return nil, errors.New("injected fault: GetRolePermissions")
 	}
-	return s.Storage.GetRolePermissions(ctx, roleID)
+	return next.GetRolePermissions(ctx, roleID)
 }
 
-func (s *reconcileFaultStorage) RemoveUserFromGroup(ctx context.Context, userID, groupID, projectID uint) error {
+func (s *reconcileFaultStorage) RemoveUserFromGroup(next storage.Storage, ctx context.Context, userID, groupID, projectID uint) error {
 	if s.failRemoveGroup[groupID] {
 		return fmt.Errorf("injected fault: RemoveUserFromGroup(group %d)", groupID)
 	}
-	return s.Storage.RemoveUserFromGroup(ctx, userID, groupID, projectID)
+	return next.RemoveUserFromGroup(ctx, userID, groupID, projectID)
 }
 
-func (s *reconcileFaultStorage) RemoveRole(ctx context.Context, userID, roleID uint, scope storage.Scope) error {
+func (s *reconcileFaultStorage) RemoveRole(next storage.Storage, ctx context.Context, userID, roleID uint, scope storage.Scope) error {
 	if s.failRemoveRole[roleID] {
 		return fmt.Errorf("injected fault: RemoveRole(role %d)", roleID)
 	}
-	return s.Storage.RemoveRole(ctx, userID, roleID, scope)
+	return next.RemoveRole(ctx, userID, roleID, scope)
 }
 
-func (s *reconcileFaultStorage) ListGroups(ctx context.Context) ([]*models.Group, error) {
+func (s *reconcileFaultStorage) ListGroups(next storage.Storage, ctx context.Context) ([]*models.Group, error) {
 	if s.failListGroups {
 		return nil, errors.New("injected fault: ListGroups")
 	}
-	return s.Storage.ListGroups(ctx)
+	return next.ListGroups(ctx)
 }
 
-func (s *reconcileFaultStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		inner := *s
-		inner.Storage = tx
-		return fn(&inner)
+// wrap returns inner decorated with reconcileFaultStorage's overrides.
+func (s *reconcileFaultStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		UpdateLastLogin:     s.UpdateLastLogin,
+		GetGroupRoles:       s.GetGroupRoles,
+		GetRolePermissions:  s.GetRolePermissions,
+		RemoveUserFromGroup: s.RemoveUserFromGroup,
+		RemoveRole:          s.RemoveRole,
+		ListGroups:          s.ListGroups,
+		WrapTx:              true,
 	})
 }
+
+// store returns s.inner decorated with reconcileFaultStorage's overrides.
+func (s *reconcileFaultStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 type samlReconcileFixture struct {
 	t     *testing.T
@@ -117,12 +125,12 @@ func newSAMLReconcileFixture(t *testing.T, info *ports.SAMLAssertion, groupRoleM
 		Email: "ada@x.io", EmailFolded: "ada@x.io", ExternalID: "sso:corp:corp|123",
 		AccountState: AccountActive, IsActive: true,
 	}).Error)
-	fault := &reconcileFaultStorage{Storage: store.NewLocalStorage(db), failRemoveGroup: map[uint]bool{}, failRemoveRole: map[uint]bool{}}
+	fault := &reconcileFaultStorage{inner: store.NewLocalStorage(db), failRemoveGroup: map[uint]bool{}, failRemoveRole: map[uint]bool{}}
 	p := &SSOProvider{
 		Name: "corp", Type: "saml", SAML: &stubSAML{info: info},
 		GroupSync: true, GroupRoleMap: groupRoleMap,
 	}
-	c := &KeyorixCore{storage: fault, now: time.Now, ssoProviders: map[string]*SSOProvider{"corp": p}}
+	c := &KeyorixCore{storage: fault.store(), now: time.Now, ssoProviders: map[string]*SSOProvider{"corp": p}}
 	return &samlReconcileFixture{t: t, c: c, db: db, fault: fault}
 }
 

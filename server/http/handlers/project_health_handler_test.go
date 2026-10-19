@@ -41,7 +41,7 @@ func newProjectHealthHandler(t *testing.T) (*SecretHandler, *gorm.DB) {
 		&models.MachineIdentity{},
 		&models.AuditEvent{},
 		&models.RotationPolicy{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.UserGroup{},
 	))
 	h, err := NewSecretHandler(core.NewKeyorixCore(store.NewLocalStorage(db)))

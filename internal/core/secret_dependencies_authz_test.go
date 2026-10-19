@@ -37,7 +37,7 @@ func newDepAuthzCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretDependency{}, &models.SecretACL{}, &models.AuditEvent{},
-		&models.Project{}, &models.Environment{}, &models.ShareRecord{},
+		&models.Project{}, &models.Environment{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.User{}, &models.Role{}, &models.UserRole{},
 		&models.Permission{}, &models.RolePermission{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},

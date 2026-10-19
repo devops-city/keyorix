@@ -331,11 +331,16 @@ func TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres(t *
 	})
 	require.NoError(t, err)
 
+	// MayBlock since SHARE-CAS-1: A now holds the share row lock
+	// (LockShareRecordForUpdate) from its in-transaction read, so B's revoke
+	// waits for A's commit instead of committing inside A's window; run
+	// synchronously in A's hook it would deadlock the test.
 	var errB error
-	fired := f.beforeA("update", "share_records", func() { errB = f.coreB.RevokeShare(f.ctx, share.ID, owner.ID) })
+	fired, waitB := f.beforeAMayBlock("update", "share_records", func() { errB = f.coreB.RevokeShare(f.ctx, share.ID, owner.ID) })
 	_, errA := f.coreA.UpdateSharePermission(f.ctx, &UpdateShareRequest{
 		ShareID: share.ID, Permission: "write", UpdatedBy: owner.ID,
 	})
+	waitB()
 	t.Logf("UpdateSharePermission (A) err=%v, RevokeShare (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have interleaved B's RevokeShare before A's share UPDATE")
 	require.NoError(t, errB, "the revoke itself reported success")
@@ -475,7 +480,7 @@ func TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgr
 			fired = true
 			var aPID int
 			require.NoError(t, tx.Statement.ConnPool.QueryRowContext(f.ctx, "SELECT pg_backend_pid()").Scan(&aPID))
-			go func() { bDone <- f.coreB.DeleteProject(f.ctx, f.projectID, true) }()
+			go func() { bDone <- f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) }()
 			// Bounded wait until B's backend is blocked behind A's transaction.
 			deadline := time.Now().Add(bound)
 			for time.Now().Before(deadline) {
@@ -544,7 +549,7 @@ func TestCTAReview_CreateDynamicSecretConfig_DeleteProjectAfterInsert_CrossRepli
 	f.coreB.SetDynamicEngineFactory(func(string) (dynamic.CredentialEngine, error) { return fake, nil })
 
 	var errB error
-	fired := f.afterA("create", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.afterA("create", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	_, errA := f.coreA.CreateDynamicSecretConfig(f.ctx, &CreateDynamicSecretConfigRequest{
 		Name: "cta-dyn-after", ProjectID: f.projectID, EnvironmentID: f.envID, BackendType: "postgres",
 		AdminDSN:          "postgres://admin:s3cr3t@db.internal:5432/app",
@@ -580,7 +585,7 @@ func TestCTAReview_IssueLease_vs_DeleteProject_CrossReplicaPostgres(t *testing.T
 	require.NoError(t, err)
 
 	var errB error
-	fired := f.beforeA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.beforeA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	lease, errA := f.coreA.IssueLease(f.ctx, cfg.ID, 0, f.adminID)
 	t.Logf("IssueLease (A) err=%v, DeleteProject (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have interleaved B's DeleteProject before A's lease INSERT")
@@ -626,7 +631,7 @@ func TestCTAReview_IssueLease_DeleteProjectAfterInsert_CrossReplicaPostgres(t *t
 	require.NoError(t, err)
 
 	var errB error
-	fired := f.afterA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.afterA("create", "dynamic_secret_leases", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	_, errA := f.coreA.IssueLease(f.ctx, cfg.ID, 0, f.adminID)
 	t.Logf("IssueLease (A) err=%v, DeleteProject (B) err=%v, backend revocations: %v", errA, errB, fake.Revoked)
 	require.True(t, fired(), "the hook must have run B's DeleteProject after A's lease INSERT")
@@ -747,9 +752,11 @@ func TestCTAReview_ActivateMFA_vs_BeginMFAEnrollment_CrossReplicaPostgres(t *tes
 func assertActivationNeverBindsUnvalidatedSecret(t *testing.T, c *KeyorixCore, userID uint, validated string, activateErr error) {
 	t.Helper()
 	ctx := context.Background()
-	active, err := c.loadTOTPSecret(ctx, userID)
-	require.NoError(t, err)
 	row, err := c.Storage().GetMFASecret(ctx, userID)
+	require.NoError(t, err)
+	// Decrypted directly, not via loadTOTPSecret: that refuses a pending
+	// secret (#2692), and the fail-closed outcome leaves exactly one.
+	active, err := c.decryptAuthSecret(row.SecretEnc, row.SecretMeta, ports.MFASecretAAD(userID))
 	require.NoError(t, err)
 	user, err := c.Storage().GetUser(ctx, userID)
 	require.NoError(t, err)
@@ -773,7 +780,7 @@ func TestCTAReview_RestoreEnvironment_vs_DeleteProject_CrossReplicaPostgres(t *t
 	require.NoError(t, f.setup.DeleteEnvironment(f.ctx, f.envID))
 
 	var errB error
-	fired := f.beforeA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.beforeA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	errA := f.coreA.RestoreEnvironment(f.ctx, f.adminID, f.projectID, f.envID)
 	t.Logf("RestoreEnvironment (A) err=%v, DeleteProject (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have interleaved B's DeleteProject before A's environment UPDATE")
@@ -837,7 +844,7 @@ func TestCTAReview_RestoreEnvironment_InsideDeleteProjectCascade_CrossReplicaPos
 		})
 	}))
 
-	errB := f.coreB.DeleteProject(f.ctx, f.projectID, true)
+	errB := f.coreB.DeleteProject(f.ctx, 0, f.projectID, true)
 	require.True(t, hit, "the hook must have fired before B's project UPDATE")
 	require.NoError(t, errB)
 	select {
@@ -858,7 +865,7 @@ func TestCTAReview_RestoreEnvironment_DeleteProjectAfterUpdate_CrossReplicaPostg
 	require.NoError(t, f.setup.DeleteEnvironment(f.ctx, f.envID))
 
 	var errB error
-	fired := f.afterA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.afterA("update", "environments", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	errA := f.coreA.RestoreEnvironment(f.ctx, f.adminID, f.projectID, f.envID)
 	t.Logf("RestoreEnvironment (A) err=%v, DeleteProject (B) err=%v", errA, errB)
 	require.True(t, fired(), "the hook must have run B's DeleteProject after A's environment UPDATE")

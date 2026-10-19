@@ -22,10 +22,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 )
@@ -35,10 +36,7 @@ import (
 // uses.
 func repoRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed to resolve this test file's path")
-	}
+	file := filepath.Join(srcpath.PkgDir(), "registry_exhaustiveness_test.go")
 	// this file lives at <root>/internal/keyfiles/registry_exhaustiveness_test.go
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }

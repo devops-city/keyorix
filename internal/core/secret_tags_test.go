@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -15,6 +14,7 @@ import (
 	coreStorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -25,7 +25,7 @@ func TestSecretTags(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB, _ := db.DB()
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.AuditEvent{}, &models.Tag{}, &models.SecretTag{}, &models.ShareRecord{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{}))
+	require.NoError(t, db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.User{}, &models.AuditEvent{}, &models.Tag{}, &models.SecretTag{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{}, &models.UserGroup{}, &models.UserRole{}))
 	require.NoError(t, db.Create(&models.User{ID: 1, Username: "owner", Email: "o@t.com"}).Error)
 	require.NoError(t, db.Create(&models.User{ID: 2, Username: "mallory", Email: "m@t.com"}).Error)
 	require.NoError(t, db.Create(&models.UserRole{UserID: 1, RoleID: 1, ProjectID: 1}).Error)
@@ -148,13 +148,12 @@ func TestCreateSecret_AppliesTags(t *testing.T) {
 // permanent hard stub (RemoteStorage.SetSecretTags under storage.type: remote --
 // see remote_reachability_registry_test.go's SetSecretTags entry) without needing
 // a live RemoteStorage/HTTP setup.
-type failingSetTagsStorage struct {
-	coreStorage.Storage
-	err error
-}
-
-func (f *failingSetTagsStorage) SetSecretTags(_ context.Context, _ uint, _ []string) error {
-	return f.err
+func failingSetTagsStorage(inner coreStorage.Storage, err error) coreStorage.Storage {
+	return hooked(inner, &storeHooks{
+		SetSecretTags: func(_ coreStorage.Storage, _ context.Context, _ uint, _ []string) error {
+			return err
+		},
+	})
 }
 
 // TestCreateSecret_TagFailureDoesNotDeleteSecret is the #1600 regression: CreateSecret
@@ -177,7 +176,7 @@ func TestCreateSecret_TagFailureDoesNotDeleteSecret(t *testing.T) {
 		&models.Environment{}, &models.AuditEvent{}, &models.Tag{}, &models.SecretTag{}))
 
 	real := store.NewLocalStorage(db)
-	failing := &failingSetTagsStorage{Storage: real, err: fmt.Errorf("simulated tag-write failure")}
+	failing := failingSetTagsStorage(real, fmt.Errorf("simulated tag-write failure"))
 	c := &KeyorixCore{storage: failing, now: time.Now}
 	ctx := context.Background()
 

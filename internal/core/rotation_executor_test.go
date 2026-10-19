@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -15,6 +14,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/rotation"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -616,16 +616,15 @@ func TestRunAutoRotation_GenerateUpstreamFailureNotStored(t *testing.T) {
 // failingProjectSecretsStore wraps LocalStorage and fails ListSecrets only for
 // filter.ProjectID == failProject, simulating a transient storage error scoped to
 // exactly one rotation policy's scope while a sibling project's policy still succeeds.
-type failingProjectSecretsStore struct {
-	*store.LocalStorage
-	failProject uint
-}
-
-func (s *failingProjectSecretsStore) ListSecrets(ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
-	if filter.ProjectID != nil && *filter.ProjectID == s.failProject {
-		return nil, 0, errors.New("simulated storage failure")
-	}
-	return s.LocalStorage.ListSecrets(ctx, filter)
+func failingProjectSecretsStore(inner storage.Storage, failProject uint) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSecrets: func(next storage.Storage, ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
+			if filter.ProjectID != nil && *filter.ProjectID == failProject {
+				return nil, 0, errors.New("simulated storage failure")
+			}
+			return next.ListSecrets(ctx, filter)
+		},
+	})
 }
 
 // #364: before the fix, a scopedPolicySecrets failure for one policy silently skipped
@@ -670,7 +669,7 @@ func TestRunAutoRotation_LogsAndContinuesOnScopedSecretsError(t *testing.T) {
 		SecretNodeID: 2, VersionNumber: 1, EncryptedValue: []byte("orig"), EncryptionMetadata: []byte("{}"), CreatedAt: fixed.Add(-90 * 24 * time.Hour),
 	}).Error)
 
-	c := &KeyorixCore{storage: &failingProjectSecretsStore{LocalStorage: store.NewLocalStorage(db), failProject: pid2}}
+	c := &KeyorixCore{storage: failingProjectSecretsStore(store.NewLocalStorage(db), pid2)}
 	c.now = func() time.Time { return fixed }
 
 	var n int
@@ -887,12 +886,12 @@ func ptrTime(t time.Time) *time.Time { return &t }
 // last_rotated_at write onto it; the fault is injected at the same logical point
 // as before (the row update that follows the upstream rotation), so this test
 // pins the same property it always did.
-type rotationDriftStore struct {
-	*store.LocalStorage
-}
-
-func (s *rotationDriftStore) UpdateSecretFields(_ context.Context, _ uint, _ storage.SecretFieldUpdate) (bool, error) {
-	return false, errors.New("simulated storage failure after upstream rotation")
+func rotationDriftStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		UpdateSecretFields: func(_ storage.Storage, _ context.Context, _ uint, _ storage.SecretFieldUpdate) (bool, error) {
+			return false, errors.New("simulated storage failure after upstream rotation")
+		},
+	})
 }
 
 // TestRunAutoRotation_BackendSucceedsStoreFails_AuditsDrift pins that the most dangerous
@@ -904,7 +903,7 @@ func TestRunAutoRotation_BackendSucceedsStoreFails_AuditsDrift(t *testing.T) {
 	fake := &fakeExecutor{name: "pg"}
 	c, db, fixed := backendPolicyCore(t, fake)
 	// Make the post-backend store fail: RotateSecret's final UpdateSecret errors.
-	c.storage = &rotationDriftStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = rotationDriftStore(c.storage.(*store.LocalStorage))
 	seedBackendSecret(t, db, 1, "pg", "app_svc", fixed.Add(-60*24*time.Hour))
 
 	n, err := c.RunAutoRotation(context.Background())

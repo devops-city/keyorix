@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -48,7 +49,8 @@ type PassphraseSource struct {
 	// FilePath, if non-empty, is a file to read the passphrase from. Refused
 	// if the file is group- or world-readable (mode & 0o077 != 0) — a
 	// passphrase file readable by anyone but its owner defeats the point of
-	// keeping the passphrase out of the environment.
+	// keeping the passphrase out of the environment — or owned by anyone but
+	// the running user or root (#3410: its owner can replace it).
 	FilePath string
 	// Stdin, if true, reads the passphrase from stdin: with no echo via
 	// golang.org/x/term when stdin is an interactive terminal (matching
@@ -99,6 +101,24 @@ func ResolvePassphrase(src PassphraseSource, envVarName string) ([]byte, error) 
 	return []byte(v), nil
 }
 
+// Describe names the source ResolvePassphrase reads for src, with the same
+// precedence, for error messages ("which passphrase did the server use?"). It
+// names flags, variables and paths only, never the value.
+func (src PassphraseSource) Describe(envVarName string) string {
+	switch {
+	case src.FDSet:
+		return fmt.Sprintf("--passphrase-fd %d", src.FD)
+	case src.FilePath != "":
+		return fmt.Sprintf("--passphrase-file %q", src.FilePath)
+	case src.Stdin:
+		return "--passphrase-stdin"
+	}
+	if p := os.Getenv(envVarName + secretenv.FileSuffix); p != "" {
+		return fmt.Sprintf("%s%s=%q", envVarName, secretenv.FileSuffix, p)
+	}
+	return envVarName
+}
+
 func readPassphraseFD(fd int) ([]byte, error) {
 	f := os.NewFile(uintptr(fd), "passphrase-fd")
 	defer func() { _ = f.Close() }()
@@ -128,6 +148,15 @@ func readPassphraseFile(path string) ([]byte, error) {
 
 	if info.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("--passphrase-file %q is group- or world-readable (mode %04o) -- refusing to read it; chmod 600 the file", path, info.Mode().Perm())
+	}
+	// #3410: the owner can chmod and rewrite the file, so it must be the running
+	// user or root (the #3393 rule KEYORIX_MASTER_PASSWORD_FILE follows), judged on
+	// the same descriptor. No override, like the mode check above.
+	if err := secretenv.CheckOwner(info); err != nil {
+		if foe, ok := errors.AsType[*secretenv.ForeignOwnerError](err); ok {
+			return nil, fmt.Errorf("--passphrase-file %q is %w; chown it to uid %d (the user the server runs as) or to root", path, err, foe.ProcessUID)
+		}
+		return nil, fmt.Errorf("--passphrase-file %q: %w", path, err)
 	}
 
 	data, err := io.ReadAll(f)

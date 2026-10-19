@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -26,8 +27,6 @@ import (
 const (
 	// patPrefix marks a raw PAT. Load-bearing: middleware routing + secret scanning.
 	patPrefix = "kx_pat_"
-	// patTouchInterval throttles last_used_at writes on the auth hot path.
-	patTouchInterval = 30 * time.Second
 )
 
 // EventPATCreated/EventPATRevoked are audited on every self-service PAT
@@ -95,14 +94,22 @@ func (c *KeyorixCore) CreateOwnPAT(ctx context.Context, userID uint, name string
 		ExpiresAt:        expiresAt,
 		CreatedAt:        c.now(),
 	}
-	created, err := c.storage.CreatePersonalAccessToken(ctx, pat)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// AUDIT-TX-2: the token and its pat.created row commit in ONE transaction,
+	// so a credential is never minted unaudited.
+	var created *models.PersonalAccessToken
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var err error
+		if created, err = tx.CreatePersonalAccessToken(ctx, pat); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		// Description never carries the raw token or its hash — only the id/name,
+		// same discipline as every other credential-creation audit event.
+		c.writeAuditEventFullOn(ctx, tgt, EventPATCreated, actorPtr(userID), nil, nil, "",
+			fmt.Sprintf("user %d created PAT %d (%q)", userID, created.ID, created.Name))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	// Description never carries the raw token or its hash — only the id/name,
-	// same discipline as every other credential-creation audit event.
-	c.writeAuditEvent(ctx, EventPATCreated, actorPtr(userID), nil,
-		fmt.Sprintf("user %d created PAT %d (%q)", userID, created.ID, created.Name))
 	return &CreatePATResult{Token: created, PlainToken: raw}, nil
 }
 
@@ -201,17 +208,18 @@ func (c *KeyorixCore) ValidatePATToken(ctx context.Context, raw string) (*models
 	return user, roleNames, restriction, pat.ID, nil
 }
 
-// TouchPATLastUsed records that PAT patID was just used, subject to the same
-// patTouchInterval throttle the inline stamp always used. Split out of
+// TouchPATLastUsed records that PAT patID was just used. Split out of
 // ValidatePATToken (#G60) so the caller only stamps last_used_at AFTER its
 // own network-restriction (CIDR allowlist) check has passed — see
 // ValidatePATToken's doc comment for why touching unconditionally during
-// validation was misleading. Best-effort: never fails the caller's request.
-func (c *KeyorixCore) TouchPATLastUsed(ctx context.Context, patID uint) {
+// validation was misleading. The use is recorded in memory and written by
+// the last-used coalescer within lastUsedFlushInterval (OPT-LASTUSED-1), so
+// the request runs no statement and never waits on the token's row lock.
+func (c *KeyorixCore) TouchPATLastUsed(_ context.Context, patID uint) {
 	if patID == 0 {
 		return
 	}
-	_ = c.storage.TouchPersonalAccessToken(ctx, patID, c.now(), patTouchInterval)
+	c.lastUsed().record(lastUsedKey{lastUsedPAT, patID}, c.now())
 }
 
 // CurrentPATRestriction re-fetches a PAT's restriction fresh from storage by its

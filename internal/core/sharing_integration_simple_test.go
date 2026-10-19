@@ -34,7 +34,7 @@ func TestSharingIntegrationSimple(t *testing.T) {
 	err = db.AutoMigrate(
 		&models.SecretNode{},
 		&models.SecretVersion{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.AuditEvent{},
 		&models.User{},
 		&models.Role{},

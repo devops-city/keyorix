@@ -86,7 +86,7 @@ func sqliteDB(t *testing.T, name string) *gorm.DB {
 		&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Project{}, &models.Environment{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.SecretNode{}, &models.ShareRecord{}, &models.SecretACL{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 	))
 	require.NoError(t, db.Create(&models.Permission{ID: 1, Name: "roles.assign"}).Error)
 	return db

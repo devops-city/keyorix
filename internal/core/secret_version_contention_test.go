@@ -26,17 +26,12 @@ import (
 // concurrent writer would produce — deterministically forcing
 // updateSecretWithNewVersion/storeNextSecretVersion to exhaust their retry
 // budget without needing actual concurrency.
-type alwaysVersionConflictStorage struct {
-	corestorage.Storage
-}
-
-func (s *alwaysVersionConflictStorage) CreateSecretVersion(ctx context.Context, version *models.SecretVersion) (*models.SecretVersion, error) {
-	return nil, corestorage.ErrDuplicateSecretVersion
-}
-
-func (s *alwaysVersionConflictStorage) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
-		return fn(&alwaysVersionConflictStorage{Storage: tx})
+func alwaysVersionConflictStorage(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateSecretVersion: func(_ corestorage.Storage, ctx context.Context, version *models.SecretVersion) (*models.SecretVersion, error) {
+			return nil, corestorage.ErrDuplicateSecretVersion
+		},
 	})
 }
 
@@ -64,7 +59,7 @@ func TestUpdateSecret_VersionContentionExhausted_IsDistinguishable(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	c.storage = &alwaysVersionConflictStorage{Storage: c.storage}
+	c.storage = alwaysVersionConflictStorage(c.storage)
 
 	_, err = c.UpdateSecret(ctx, &UpdateSecretRequest{ID: secret.ID, Value: []byte("v2-value"), UpdatedBy: "tester"})
 	require.Error(t, err)
@@ -95,7 +90,7 @@ func TestRotateSecret_VersionContentionExhausted_IsDistinguishable(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	c.storage = &alwaysVersionConflictStorage{Storage: c.storage}
+	c.storage = alwaysVersionConflictStorage(c.storage)
 
 	_, err = c.RotateSecret(ctx, secret.ID, []byte("rotated-value"), 0, "tester")
 	require.Error(t, err)

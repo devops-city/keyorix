@@ -12,12 +12,43 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// UpsertMFASecret creates or replaces the user's TOTP secret row (one per user).
+// UpsertMFASecret creates the user's TOTP secret row (one per user) or replaces
+// a PENDING one; an activated row is never replaced (#2692). The replace is the
+// ON CONFLICT ... DO UPDATE ... WHERE of one statement, so it is decided on the
+// row as it is when the write lands, not on the caller's earlier read of
+// MFAEnabled: a concurrent ActivateMFA that committed in between makes the
+// conflict branch match nothing (0 rows) and this returns
+// storage.ErrMFASecretActivated. Same conditional-write shape as
+// ActivateMFASecret below. The replaced columns are the ones the former
+// OnConflict{UpdateAll} wrote (everything but the key and created_at), so a
+// re-enrolment still resets last_used_step.
+//
+// Bug origin (#2692):
+//
+//	Introduced-by: the OnConflict{UpdateAll} upsert (unconditional replace)
+//	Detected-by:   review (C-GUARD3-EXEMPT-REVIEW), reproduced by ISSUE-TRIAGE-1
+//	Class:         race (stale read, unconditional write)
+//	Severity:      high (the late enroller holds a seed that passes MFA on an
+//	               MFA-enabled account; login verification does not read Activated)
+//	Guard:         TestCTAReview_BeginMFAEnrollment_vs_ActivateMFA_CrossReplicaPostgres,
+//	               TestBeginMFAEnrollment_DoesNotReplaceActivatedSecret,
+//	               TestUpsertMFASecret_NeverReplacesActivatedSecret
 func (ls *LocalStorage) UpsertMFASecret(ctx context.Context, s *models.MFASecret) error {
-	return ls.db.WithContext(ctx).Clauses(clause.OnConflict{
+	res := ls.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "user_id"}},
-		UpdateAll: true,
-	}).Create(s).Error
+		DoUpdates: clause.AssignmentColumns([]string{"secret_enc", "secret_meta", "activated", "last_used_step"}),
+		// COALESCE: a NULL activated (legacy row) is not activated.
+		Where: clause.Where{Exprs: []clause.Expression{
+			clause.Expr{SQL: "COALESCE(mfa_secrets.activated, ?) = ?", Vars: []any{false, false}},
+		}},
+	}).Create(s)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return storage.ErrMFASecretActivated
+	}
+	return nil
 }
 
 func (ls *LocalStorage) GetMFASecret(ctx context.Context, userID uint) (*models.MFASecret, error) {
