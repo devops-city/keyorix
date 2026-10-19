@@ -511,6 +511,37 @@ describe('useDeleteSecret', () => {
         expect(removeSpy).toHaveBeenCalledWith({ queryKey: queryKeys.secrets.detail(1) });
         expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: queryKeys.secrets.all });
     });
+
+    // A soft-deleted secret must show up in the project's recycle bin
+    // (ProjectSettingsTab, key ['project-deleted-secrets', projectId], default 5 min staleTime)
+    // without a full page reload, so deleting has to invalidate that query too.
+    it('invalidates the project recycle-bin queries so the deleted secret appears there', async () => {
+        mock.delete!.mockResolvedValueOnce(undefined);
+        queryClient.setQueryData(['project-deleted-secrets', 7], []);
+        const { result } = renderHook(() => useDeleteSecret(), { wrapper });
+
+        act(() => {
+            result.current.mutate(1);
+        });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(queryClient.getQueryState(['project-deleted-secrets', 7])?.isInvalidated).toBe(true);
+    });
+});
+
+describe('useBulkDeleteSecrets recycle bin', () => {
+    it('invalidates the project recycle-bin queries', async () => {
+        mock.delete!.mockResolvedValue(undefined);
+        queryClient.setQueryData(['project-deleted-secrets', 7], []);
+        const { result } = renderHook(() => useBulkDeleteSecrets(), { wrapper });
+
+        act(() => {
+            result.current.mutate([1, 2]);
+        });
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+        expect(queryClient.getQueryState(['project-deleted-secrets', 7])?.isInvalidated).toBe(true);
+    });
 });
 
 describe('useBulkClassifySecrets', () => {
