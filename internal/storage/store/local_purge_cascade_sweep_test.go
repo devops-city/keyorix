@@ -101,12 +101,19 @@ func TestPurgeDeletedProjectsBefore_GroupRoleDeleteFails(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestPurgeDeletedProjectsBefore_FinalProjectDeleteFails(t *testing.T) {
+func TestPurgeDeletedProjectsBefore_MachineIdentityRoleDeleteFails(t *testing.T) {
 	t.Parallel()
 	ls := newPurgeProjectsFixture(t, &models.UserRole{}, &models.GroupRole{})
+	_, err := ls.PurgeDeletedProjectsBefore(context.Background(), time.Now())
+	require.Error(t, err)
+}
 
-	// 2 delete-family statements precede the final Project delete.
-	dropTableAfterDeletes(t, ls.db, 2, "projects")
+func TestPurgeDeletedProjectsBefore_FinalProjectDeleteFails(t *testing.T) {
+	t.Parallel()
+	ls := newPurgeProjectsFixture(t, &models.UserRole{}, &models.GroupRole{}, &models.MachineIdentityRole{})
+
+	// 3 delete-family statements precede the final Project delete.
+	dropTableAfterDeletes(t, ls.db, 3, "projects")
 
 	_, err := ls.PurgeDeletedProjectsBefore(context.Background(), time.Now())
 	require.Error(t, err)

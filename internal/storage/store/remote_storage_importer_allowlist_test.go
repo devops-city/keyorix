@@ -13,9 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // remoteStorageImporterAllowlist is every non-test file, outside this package, that references
@@ -43,10 +44,7 @@ func remoteStorageMentioned(data []byte) bool {
 
 func remoteStorageGuardRepoRoot(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller must resolve this test file's path")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "remote_storage_importer_allowlist_test.go")
 	// this file lives at internal/storage/store/remote_storage_importer_allowlist_test.go
 	root, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
 	if err != nil {

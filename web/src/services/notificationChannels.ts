@@ -9,7 +9,12 @@ export interface NotificationChannel {
     name: string;
     type: string;
     enabled: boolean;
+    // Contract v2 (#3425): the channel URL is a bearer credential. list/get/update
+    // return it elided to scheme+host ("https://hooks.slack.com/…"), never in full;
+    // only the create response carries the full URL, once. Treat it as display text.
     url?: string;
+    // True when a URL is stored. An update that omits `url` keeps it.
+    url_set?: boolean;
     email?: string;
     // Comma-separated event types, e.g. "secret.rotated,anomaly.detected".
     events: string;
@@ -22,6 +27,7 @@ export interface NotificationChannelPayload {
     name: string;
     type: string;
     enabled?: boolean;
+    // Omit on update to keep the stored URL; sending it replaces it.
     url?: string;
     email?: string;
     events: string;

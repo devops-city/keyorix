@@ -37,3 +37,22 @@ func TestCheckClosuresSelfTestFixture_SkipsWithoutPGDSN(t *testing.T) {
 		t.Skip("check-closures.sh self-test fixture -- SUPPOSED to skip without a DSN")
 	}
 }
+
+// TestCheckClosuresSelfTestFixture_AlwaysPasses always passes. Paired with
+// _FailsWhenAsked in one package to prove a failing package still reports each
+// OTHER row's own verdict (a per-row `ok` line), not one blanket package failure.
+func TestCheckClosuresSelfTestFixture_AlwaysPasses(t *testing.T) {
+	t.Parallel()
+}
+
+// TestCheckClosuresSelfTestFixture_FailsWhenAsked fails only when the self-test
+// sets CHECK_CLOSURES_SELFTEST_FAIL=1 for its sub-invocation, and skips otherwise,
+// so a plain `go test ./internal/core` is unaffected. It makes the package's
+// `go test` exit non-zero while _AlwaysPasses still passes.
+func TestCheckClosuresSelfTestFixture_FailsWhenAsked(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("CHECK_CLOSURES_SELFTEST_FAIL") != "1" {
+		t.Skip("check-closures.sh self-test fixture -- fails only when CHECK_CLOSURES_SELFTEST_FAIL=1")
+	}
+	t.Fatal("check-closures.sh self-test fixture -- this test is SUPPOSED to fail")
+}

@@ -1,0 +1,1 @@
+KMS-CONTEXT-FALLBACK-UNNEEDED-GCP-3398	./internal/crypto/gcpkms	TestGCPKMS_ContextFallbackFlag_RefusedWhenKEKAlreadyBound	default-ci	pending	3398	Same as the aws-kms row for gcp-kms (AAD binding); a legacy KEK with the flag still boots (TestGCPKMS_ContextFallbackFlag_LegacyKEKStillBoots).

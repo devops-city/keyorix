@@ -30,7 +30,7 @@ func TestCTAReview_CreateDynamicSecretConfig_DeleteProjectBeforeTx_CrossReplicaP
 	f.coreB.SetDynamicEngineFactory(func(string) (dynamic.CredentialEngine, error) { return fake, nil })
 
 	var errB error
-	fired := f.beforeA("create", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, f.projectID, true) })
+	fired := f.beforeA("create", "dynamic_secret_configs", func() { errB = f.coreB.DeleteProject(f.ctx, 0, f.projectID, true) })
 	_, errA := f.coreA.CreateDynamicSecretConfig(f.ctx, &CreateDynamicSecretConfigRequest{
 		Name: "cta-dyn-before", ProjectID: f.projectID, EnvironmentID: f.envID, BackendType: "postgres",
 		AdminDSN:          "postgres://admin:s3cr3t@db.internal:5432/app",

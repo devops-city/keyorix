@@ -331,6 +331,10 @@ func (c *KeyorixCore) DeleteNotificationChannel(ctx context.Context, id uint, ac
 	return nil
 }
 
+// ElidedChannelURLSuffix ends the display form of a channel URL returned by
+// GET/list ("https://host/…"). It is never a valid stored URL.
+const ElidedChannelURLSuffix = "/…"
+
 // validateNotificationChannel enforces invariants for create and update paths.
 func (c *KeyorixCore) validateNotificationChannel(ch *models.NotificationChannel) error {
 	if strings.TrimSpace(ch.Name) == "" {
@@ -347,6 +351,11 @@ func (c *KeyorixCore) validateNotificationChannel(ch *models.NotificationChannel
 	case "webhook", "slack", "teams":
 		if strings.TrimSpace(ch.URL) == "" {
 			return fmt.Errorf("notification channel URL is required for type %q", ch.Type)
+		}
+		// GET/list return the elided "https://host/…" form; a client that echoes it
+		// back in a PUT would otherwise replace the stored credential with it.
+		if strings.HasSuffix(strings.TrimSpace(ch.URL), ElidedChannelURLSuffix) {
+			return fmt.Errorf("notification channel URL is the elided display form; send the full URL to replace it, or omit url to keep the stored one")
 		}
 		if err := urlValidator(ch.URL); err != nil {
 			return err
@@ -399,7 +408,10 @@ func validateWebhookSendTimeURL(raw string) error {
 func parseWebhookURLLiteral(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("notification channel: invalid URL %q: %w", raw, err)
+		// Neither raw nor the *url.Error (which embeds it) may appear in the
+		// message: it reaches logs on the send-time path and, at create/update
+		// time, the HTTP response, and a channel URL is a bearer credential (#3426).
+		return nil, fmt.Errorf("notification channel: invalid URL: %w", netutil.RedactErrorURLs(err))
 	}
 	if u.Scheme != "https" {
 		return nil, fmt.Errorf("notification channel: URL must use https (got %q)", u.Scheme)

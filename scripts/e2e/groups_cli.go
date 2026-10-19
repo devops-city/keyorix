@@ -12,7 +12,8 @@ import "strings"
 // isolated ~/.keyorix session, via ctx.cliEnv's isolated HOME) so it doesn't
 // interfere with ctx.c's own bearer-token session.
 func groupCLISmoke(ctx *smokeCtx) {
-	ctx.runCLI("login", "--server", ctx.c.baseURL, "--username", ctx.adminUsername, "--password", ctx.adminPassword)
+	ctx.runCLIWithEnv([]string{"KEYORIX_PASSWORD=" + ctx.adminPassword},
+		"login", "--server", ctx.c.baseURL, "--username", ctx.adminUsername)
 
 	projectList := ctx.runCLI("project", "list")
 	if !strings.Contains(projectList, "e2e-smoke-project") {

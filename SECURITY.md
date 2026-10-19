@@ -79,7 +79,9 @@ Keyorix server runs **entirely within your perimeter**:
   AAD-bound to secret identity). Envelope encryption: the data key is wrapped by a
   key derived from an operator passphrase (PBKDF2-SHA256, 600k iterations); no
   plaintext key material is ever written to disk.
-- Session tokens, API tokens, and client secrets are encrypted at rest.
+- Session tokens, personal access tokens and machine tokens are stored only as
+  SHA-256 hashes, never in plaintext, and API client secrets are stored hashed
+  too. TOTP shared secrets cannot be hashed and are encrypted at rest.
 - Every secret access and every administrative action is written to an append-only
   audit log in your database.
 - RBAC is enforced at the API level, not the UI.

@@ -30,7 +30,7 @@ func healthBody(t *testing.T, probe func() bool) (int, map[string]any) {
 }
 
 func TestHealth_ReportsTheAuthRateLimitFallback(t *testing.T) {
-	db := openLoginBudgetDB(t, "file:kxhealthfallback?mode=memory&cache=shared")
+	db := openLoginBudgetMemDB(t, "kxhealthfallback")
 	healthy := core.NewKeyorixCore(store.NewLocalStorage(db))
 	down := core.NewKeyorixCore(loginAttemptsDownStore{store.NewLocalStorage(db)})
 	_ = healthy.IsLoginRateLimited(context.Background(), "203.0.113.60")

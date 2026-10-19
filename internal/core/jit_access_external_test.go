@@ -114,7 +114,8 @@ func TestApproveAccessRequestWithExpiry_TimeBound(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.AccessRequest{}, &models.AccessRequestApproval{}))
+	// AuditEvent: the approval's grant commits with its audit rows (AUDIT-TX-2).
+	require.NoError(t, h.DB.AutoMigrate(&models.AccessRequest{}, &models.AccessRequestApproval{}, &models.AuditEvent{}))
 
 	const proj = uint(2)
 	ctx := context.Background()
@@ -150,7 +151,8 @@ func TestApproveAccessRequest_PermanentByDefault(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	require.NoError(t, h.DB.AutoMigrate(&models.AccessRequest{}, &models.AccessRequestApproval{}))
+	// AuditEvent: the approval's grant commits with its audit rows (AUDIT-TX-2).
+	require.NoError(t, h.DB.AutoMigrate(&models.AccessRequest{}, &models.AccessRequestApproval{}, &models.AuditEvent{}))
 
 	const proj = uint(2)
 	ctx := context.Background()

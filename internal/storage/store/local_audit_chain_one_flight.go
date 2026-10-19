@@ -491,11 +491,17 @@ func (ls *LocalStorage) runAuditOneFlightStatements(ctx context.Context, pc *pgx
 	return auditChainHead{id: tail.ID, hash: tail.EntryHash}, false, nil
 }
 
-// auditEventsTable is the audit_events table name as GORM resolves it.
+// auditEventsTable is the audit_events table name as GORM resolves it,
+// resolved once per LocalStorage (ls.auditTable).
 func (ls *LocalStorage) auditEventsTable(ctx context.Context) (string, error) {
+	if t := ls.auditTable.Load(); t != nil {
+		return *t, nil
+	}
 	st := ls.auditDryRun(ctx).Model(&models.AuditEvent{}).Find(&[]models.AuditEvent{})
 	if st.Error != nil {
 		return "", st.Error
 	}
-	return st.Statement.Schema.Table, nil
+	table := st.Statement.Schema.Table
+	ls.auditTable.Store(&table)
+	return table, nil
 }

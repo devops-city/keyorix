@@ -8,13 +8,14 @@ describe('SdksPage', () => {
         expect(screen.getByRole('heading', { level: 1, name: 'SDKs & CLI' })).toBeInTheDocument();
     });
 
-    it('renders the CLI install and connect commands', () => {
+    it('renders the CLI install and login commands', () => {
         render(<SdksPage />);
         expect(
             screen.getByText('curl -L https://raw.githubusercontent.com/keyorixhq/keyorix/main/install.sh | sh')
         ).toBeInTheDocument();
+        expect(screen.getByText('keyorix login --server http://your-server:8080 --username admin')).toBeInTheDocument();
         expect(
-            screen.getByText('keyorix connect http://your-server:8080 --username admin --password yourpassword')
+            screen.getByText(/keyorix secret create --name db-password --from-file \.\/db-password\.txt/)
         ).toBeInTheDocument();
     });
 

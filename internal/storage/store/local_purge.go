@@ -163,6 +163,12 @@ func (ls *LocalStorage) PurgeDeletedProjectsBefore(ctx context.Context, before t
 		if e := tx.Where("project_id IN (?)", stillEligible()).Delete(&models.GroupRole{}).Error; e != nil {
 			return e
 		}
+		// #2795: machine identity grants are project-scoped the same way. Left behind,
+		// GetMachineRoleIDsAt's LEFT JOIN on projects reads the now-missing project's NULL
+		// deleted_at as live, so the machine kept a role at a project that no longer exists.
+		if e := tx.Where("project_id IN (?)", stillEligible()).Delete(&models.MachineIdentityRole{}).Error; e != nil {
+			return e
+		}
 		rp := tx.Unscoped().
 			Where(sqlWhereIDsDeletedBefore, ids, before).
 			Delete(&models.Project{})

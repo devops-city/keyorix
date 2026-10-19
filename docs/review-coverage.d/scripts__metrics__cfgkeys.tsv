@@ -1,0 +1,1 @@
+scripts/metrics/cfgkeys	none	-	PR #3472 (COMPLEXITY-METRICS-1): developer tool run by hand that counts configuration keys by reflecting over config.Config; never linked into a shipped binary, no auth or storage decisions; unit-tested in walk_test.go	pending

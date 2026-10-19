@@ -10,6 +10,37 @@
 > does and why, and [`../security/threat-model.md`](./threat-model.md) for the
 > risk each item addresses.
 
+## Reading `admin validate --posture`
+
+Every deviation line carries a category and an origin, `[category/origin]`:
+
+- **`explicit`** — the config file writes the setting. This includes a weakening
+  written under a deprecated pre-`insecure_` name (for example
+  `security.allow_unsafe_file_permissions`): the old name is mapped to its
+  current one with the same alias table the server uses when it loads the file
+  (`internal/config/insecure_settings_aliases.go`, fallback-chain entries
+  included), so renaming a key never turns an explicit choice into a default.
+- **`shipped-default`** — the file says nothing and the weak state is what the
+  server resolves an absent key to. Reported all the same; the fix is to set the
+  hardened value explicitly.
+
+Both origins count toward the exit code. The output also has a **WARN** section
+for findings that are not deviations from the baseline: they are printed, and
+never change the exit code. Currently one finding is reported there:
+
+- **Every administrator is managed by an identity provider.** An administrator
+  account created by SSO sign-in or provisioned by SCIM has an `external_id`; a
+  local account does not. If every global administrator has one, an identity
+  provider outage, or the provider deprovisioning those accounts, leaves no
+  administrator who can sign in. *Remediation:* keep at least one local
+  administrator account as a break-glass account (with MFA enrolled and its
+  credentials stored offline), and know the local recovery procedure,
+  `keyorix-server admin recover-admin`. The check does not warn when at least
+  one local administrator exists, or when there is no administrator at all.
+
+`keyorix-server admin migrate` runs the same configuration validation as
+`serve` and refuses a config `serve` refuses, before it opens the database.
+
 ## 1. Transport (TLS)
 
 | Setting | Key | Recommendation |
@@ -27,7 +58,7 @@
 | KEK source | `storage.encryption.key_provider.type` | For production, prefer `aws-kms` / `gcp-kms` / `azure-kms` / `tpm` over `password` (the default). This is the single highest-leverage decision in this guide — with a file/password-derived KEK, host root already has everything (see `threat-model.md` §5.1); with a KMS/HSM-backed KEK, host compromise alone is insufficient. |
 | KMS install binding | `storage.encryption.key_provider.kms_encryption_context` | Set to a value unique to this install (e.g. `{keyorix-install: <id>}`) if multiple Keyorix installs share one cloud CMK — prevents a different install's wrapped KEK from being planted and decrypting under this install's identity. Not supported for `azure-kms` (hard startup error if attempted, not a silent no-op). |
 | Fallback chain | `storage.encryption.key_provider.fallbacks`, `.insecure_allow_weaker_kek_fallback` (deprecated alias: `allow_weaker_fallback`) | Do not set `insecure_allow_weaker_kek_fallback: true` in production unless actively migrating — it is what allows a transient KMS/TPM outage to silently downgrade the deployment's real security floor. |
-| Key-material file ownership | `KEYORIX_MASTER_PASSWORD_FILE`, `key_provider.env_var` + `_FILE`, `shamir_share_env` + `_FILE` | Own every secret file by root or by the server's user, never by another account: whoever owns the file can replace the KEK or master password, so the server refuses any other owner at boot and names the uid (#3393). |
+| Key-material file ownership | `KEYORIX_MASTER_PASSWORD_FILE`, `key_provider.env_var` + `_FILE`, `shamir_share_env` + `_FILE`, `--passphrase-file`, `key_provider.file_path`, `storage.encryption.dek_path` / `salt_path`, `server.*.tls.key_file` | Own every secret and key file by root or by the server's user, never by another account: whoever owns the file can replace the KEK, master password, wrapped DEK or TLS key, so the server refuses any other owner at boot and names the uid (#3393, #3410). The passphrase and KEK files are refused outright; the DEK, salt and TLS key follow `security.enable_file_permission_check` (refuse when it is on, warn in the ADR-112 upgrade grace or when it is off). |
 | Shamir split custody | `storage.encryption.key_provider.type: shamir`, `.shamir_share_files`/`.shamir_share_env`, `.shamir_commitment` | If splitting KEK custody across people/systems, always set `shamir_commitment` (from `keyorix-server admin encryption shamir-split`'s own output) — without it, reconstruction is checked only by a forgeable 4-byte magic value. |
 
 ## 3. Recovery key custody
@@ -264,10 +295,11 @@ option there, but it does not bundle the key-material files.
   `LimitCORE=`/`ulimit -c` before exec-ing the process is outside this
   control's reach; don't do that in a production unit file.
 - **Host access is database access.** The `keyorix` CLI is REST-only and has no
-  local-database mode; `keyorix-server admin ...` (ADR-108) runs on the server
-  host with the database and key files, so restrict shell access to the server
-  host to the people you would trust with a raw database connection and the
-  key material.
+  local-database mode (ADR-108 Decision A, see `threat-model.md` §5.2), so it is
+  subject to authorization, audit and rate limits like any client.
+  `keyorix-server admin ...` (ADR-108) runs on the server host with the database
+  and key files, so restrict shell access to the server host to the people you
+  would trust with a raw database connection and the key material.
 
 ## 8. Kubernetes delivery (operator / sync agent / ESO)
 

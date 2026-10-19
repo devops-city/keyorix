@@ -1,0 +1,1 @@
+internal/refusaldocs	none	-	test-only package: refusaldocs_test.go checks that every Match text in docs/operator/startup-refusals.md still appears as a string in the Go sources under server/ and internal/ (no non-test Go code)	test-helper
