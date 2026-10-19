@@ -62,7 +62,7 @@
   nothing. `LoginCompletion` carries which of the two a path is
   (`newLoginCompletion` vs `newLoginCompletionNotCounted`) so the transport's
   single commit point stays uniform. Guard:
-  `login_lockout_clear_site_guard_test.go:TestClearLoginFailures_HasNoCallerBeforeAFallibleStep`
+  `guards/login_lockout_clear_site_guard_test.go:TestClearLoginFailures_HasNoCallerBeforeAFallibleStep`
   (structural — every `clearLoginFailures` / `recheckLoginLockFailClosed` call
   site is allowlisted with its reason, so a new login path cannot quietly
   reintroduce the ordering), plus the behavioural

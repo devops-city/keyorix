@@ -4,15 +4,17 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
-	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// failOnceUpdateUserStorage makes UpdateUser fail once, mirroring the
-// failOnceStorage idiom from #2295.
+// failOnceUpdateUserStorage makes RestoreUser's LAST write (SetAccountState,
+// after the undelete and the is_active write already ran in the transaction)
+// fail once, mirroring the failOnceStorage idiom from #2295. It used to fail
+// the full-row UpdateUser, which RestoreUser no longer calls (#2677 sweep).
 type failOnceUpdateUserStorage struct {
 	storage.Storage
 	armed *bool
@@ -24,12 +26,12 @@ func (s *failOnceUpdateUserStorage) WithTransaction(ctx context.Context, fn func
 	})
 }
 
-func (s *failOnceUpdateUserStorage) UpdateUser(ctx context.Context, u *models.User) (*models.User, error) {
+func (s *failOnceUpdateUserStorage) SetAccountState(ctx context.Context, id uint, state string, updatedAt time.Time) error {
 	if *s.armed {
 		*s.armed = false
-		return nil, errors.New("injected fault: UpdateUser")
+		return errors.New("injected fault: SetAccountState")
 	}
-	return s.Storage.UpdateUser(ctx, u)
+	return s.Storage.SetAccountState(ctx, id, state, updatedAt)
 }
 
 // TestRestoreUser_UpdateFailureRollsBackUndelete is the red-proof for Session

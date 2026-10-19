@@ -386,6 +386,11 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// nothing would otherwise call Close() to drain that queue before the process
 	// exits, silently losing whatever was in flight at SIGTERM.
 	defer closeAuditForwarder(coreService)
+	// OPT-LASTUSED-1: write the coalesced last_used_at / last_seen_at stamps on
+	// a graceful stop. Deferred after the servers have drained (defers run after
+	// the shutdown wait below) and before swGuard.Close releases the
+	// single-writer hold. A crash loses at most one flush interval of stamps.
+	defer flushLastUsedOnShutdown(coreService)
 
 	// single_writer: the fence goes on once the security tables exist
 	// (migrations ran in initializeCoreService). No fence, no server.
@@ -1424,6 +1429,16 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// flushLastUsedOnShutdown writes the last-used stamps the core has recorded
+// but not yet flushed (internal/core/last_used_coalescer.go). It is bounded by
+// its own 10 s context, including the wait for a background flush that is
+// stuck in a slow write.
+func flushLastUsedOnShutdown(coreService *core.KeyorixCore) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	coreService.FlushLastUsed(ctx)
 }
 
 // closeAuditForwarder flushes/closes the wired SIEM audit forwarder (if any) on

@@ -25,7 +25,7 @@ import (
 // is the acting admin, recorded on every audit event. The created machine
 // identity is returned.
 // actorMachineID is the acting MACHINE identity, or 0 for a human actor —
-// #2495, found by actor_kind_literal_completeness_test.go. This path is HTTP-
+// #2495, found by guards/actor_kind_literal_completeness_test.go. This path is HTTP-
 // reachable (POST /api/v1/projects/{id}/machine-identities/migrate-from-user)
 // and the route gate is actor-aware, so a machine identity holding the required
 // permissions can perform the migration; passing only actorID recorded

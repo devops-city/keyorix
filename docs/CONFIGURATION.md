@@ -176,6 +176,7 @@ server:
       burst: 100
     metrics_token: ""             # GET /metrics then requires "Authorization: Bearer <token>"
     metrics_token_file: ""        # or read the token from this file (secret-file rules, see below); set one, not both
+    max_request_body_bytes: 0     # cap on each request body; 0 = built-in default (10 MiB). INSECURE when negative: a negative value removes the cap (memory-exhaustion DoS)
   access_log:
     on_sink_stall: block          # block (default) | drop — what a request does when the access-log sink stalls (see below)
   log:
@@ -192,6 +193,7 @@ server:
     tls:
       enabled: false
     tls_mode: ""                  # same two values as server.http.tls_mode above
+    max_request_body_bytes: 0     # same meaning as server.http.max_request_body_bytes; bounds each gRPC message (request and response)
     ratelimit:
       enabled: true
       requests_per_second: 25
@@ -625,7 +627,7 @@ storage:
       # file_path: /etc/keyorix/kek.key
 
       # type: env — read the KEK (hex or base64) from the named env var's value.
-      # env_var: KEYORIX_KEK
+      # env_var: MY_KEK_HEX         # any variable name you choose; Keyorix defines no fixed name
 
       # type: exec — run a resolver command and read the KEK (32 raw bytes, or
       # hex/base64) from its stdout. argv form (no shell); fetches from any
@@ -1312,6 +1314,18 @@ session:
   access_ttl: "30m"     # access-token window before a refresh is needed (default 24h)
   absolute_ttl: "12h"   # hard cap on total session lifetime; "" or "0" = no ceiling
 ```
+
+### "Last used" / "last seen" freshness (not configurable)
+
+`personal_access_tokens.last_used_at`, `machine_identity_credentials.last_used_at`
+and `sessions.last_seen_at` are written off the request path: each server records
+uses in memory and writes them at most once per credential per **30 seconds**, and
+on a graceful stop. Bound: a use is in the database within 30 seconds plus one
+flush. A server that is killed (no graceful stop) loses at most the last 30 seconds
+of these stamps. Replicas write their own observations and the stored value never
+moves backwards. These columns feed displays and day-granularity hygiene reports
+only; no authentication or authorization decision reads them. See
+[`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
 
 **Authentication cache and database outages (not configurable).** A validated
 session, PAT or machine token is cached for about 30 seconds per replica, and

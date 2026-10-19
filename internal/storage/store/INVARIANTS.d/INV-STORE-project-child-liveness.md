@@ -40,7 +40,7 @@
   `_CreateFolder_`, `_CreateEnvironment_`, `_RestoreSecret_`) — each asserts the count of
   live children under the deleted project, not the writer's returned error, because the
   writer may legitimately fail OR be swept; what it may not do is leave a live child.
-  Structural, default-ci: `internal/core/project_child_liveness_guard_test.go`
+  Structural, default-ci: `internal/core/guards/project_child_liveness_guard_test.go`
   (`TestProjectChildWrites_RecheckProjectLivenessInATransaction`, with the derivation above
   written into the list it iterates, and `TestLockLiveProject_GoesThroughLockLiveParent`).
   **Not covered**: the opposite interleaving, where the writer's `FOR SHARE` lands first and
