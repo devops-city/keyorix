@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/delivery"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -63,13 +64,15 @@ func (*countingDeliverer) Name() string { return "counting" }
 
 // loginAttemptsErrMock is MockStorage with its login-attempt methods failing.
 // (MockStorage hard-codes them to succeed and ignores .On setups for them.)
-type loginAttemptsErrMock struct{ *MockStorage }
-
-func (loginAttemptsErrMock) CountRecentLoginAttempts(context.Context, string, time.Time) (int64, error) {
-	return 0, errLoginAttemptsDown
-}
-func (loginAttemptsErrMock) RecordLoginAttempt(context.Context, string, time.Time) error {
-	return errLoginAttemptsDown
+func loginAttemptsErrMock(ms *MockStorage) storage.Storage {
+	return hooked(ms, &storeHooks{
+		CountRecentLoginAttempts: func(storage.Storage, context.Context, string, time.Time) (int64, error) {
+			return 0, errLoginAttemptsDown
+		},
+		RecordLoginAttempt: func(storage.Storage, context.Context, string, time.Time) error {
+			return errLoginAttemptsDown
+		},
+	})
 }
 
 func TestPasswordReset_DuringFallbackCapsResetsPerAccount(t *testing.T) {
@@ -79,7 +82,7 @@ func TestPasswordReset_DuringFallbackCapsResetsPerAccount(t *testing.T) {
 	var nowNanos atomic.Int64
 	nowNanos.Store(time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC).UnixNano())
 	ms := new(MockStorage)
-	c := NewKeyorixCore(loginAttemptsErrMock{ms})
+	c := NewKeyorixCore(loginAttemptsErrMock(ms))
 	c.now = func() time.Time { return time.Unix(0, nowNanos.Load()).UTC() }
 	d := &countingDeliverer{each: make(chan struct{}, 16)}
 	c.SetCredentialDelivery(d, testBaseURL)

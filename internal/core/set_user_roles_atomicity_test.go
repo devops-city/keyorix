@@ -13,28 +13,21 @@ import (
 
 // failOnceAssignRoleForRoleStorage makes AssignRole fail once for a specific
 // roleID, mirroring the failOnceStorage idiom from #2295.
-type failOnceAssignRoleForRoleStorage struct {
-	storage.Storage
-	failRoleID uint
-	armed      *bool
-}
-
-func (s *failOnceAssignRoleForRoleStorage) AssignRole(ctx context.Context, userID, roleID uint, scope storage.Scope) error {
-	if *s.armed && roleID == s.failRoleID {
-		*s.armed = false
-		return errors.New("injected fault: AssignRole")
-	}
-	return s.Storage.AssignRole(ctx, userID, roleID, scope)
+func failOnceAssignRoleForRoleStorage(inner storage.Storage, failRoleID uint, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		AssignRole: func(next storage.Storage, ctx context.Context, userID, roleID uint, scope storage.Scope) error {
+			if *armed && roleID == failRoleID {
+				*armed = false
+				return errors.New("injected fault: AssignRole")
+			}
+			return next.AssignRole(ctx, userID, roleID, scope)
+		},
+	})
 }
 
 // WithTransaction keeps the fault on the transaction-scoped handle: a grant is
 // written through tx since AUDIT-TX-2 (it commits with its audit row).
-func (s *failOnceAssignRoleForRoleStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceAssignRoleForRoleStorage{Storage: tx, failRoleID: s.failRoleID, armed: s.armed})
-	})
-}
-
 // TestSetUserRoles_PartialApplyFailureRevertsToOriginalSet is the red-proof
 // for Session O's O3 SetUserRoles finding (a NEW finding, not in the
 // coordinator's preliminary list): unlike AssignUserRole/RemoveUserRole's
@@ -67,7 +60,7 @@ func TestSetUserRoles_PartialApplyFailureRevertsToOriginalSet(t *testing.T) {
 
 	// New set: keep viewer, drop developer, add admin (which will fail).
 	armed := true
-	c.storage = &failOnceAssignRoleForRoleStorage{Storage: st, failRoleID: admin.ID, armed: &armed}
+	c.storage = failOnceAssignRoleForRoleStorage(st, admin.ID, &armed)
 
 	const actor = uint(1) // bootstrapped global admin
 	err = c.SetUserRoles(ctx, actor, u.ID, []uint{viewer.ID, admin.ID}, scope, false)

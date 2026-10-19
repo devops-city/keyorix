@@ -24,16 +24,15 @@ import (
 
 // getSessionErrStub wraps a real storage.Storage and overrides exactly GetSession
 // to inject a fixed error, mirroring mfaSecretReadErrStub (mfa_login_storage_error_test.go).
-type getSessionErrStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *getSessionErrStub) GetSession(ctx context.Context, token string) (*models.Session, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.GetSession(ctx, token)
+func getSessionErrStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetSession: func(next corestorage.Storage, ctx context.Context, token string) (*models.Session, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.GetSession(ctx, token)
+		},
+	})
 }
 
 // TestChangePassword_KeepSessionLookupFailure_WidensAndAudits: a GetSession
@@ -50,7 +49,7 @@ func TestChangePassword_KeepSessionLookupFailure_WidensAndAudits(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &getSessionErrStub{Storage: realStorage, err: faultErr}
+	c.storage = getSessionErrStub(realStorage, faultErr)
 
 	err := c.ChangePassword(ctx, 1, mfaTestPassword, "NewSecret#Passw0rd!", "caller-token")
 	require.NoError(t, err, "a keep-session lookup failure must not fail the password change itself")
@@ -83,7 +82,7 @@ func TestActivateMFA_KeepSessionLookupFailure_WidensAndAudits(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &getSessionErrStub{Storage: realStorage, err: faultErr}
+	c.storage = getSessionErrStub(realStorage, faultErr)
 
 	_, err = c.ActivateMFA(ctx, 1, actCode, mfaTestPassword, "caller-token")
 	require.NoError(t, err, "a keep-session lookup failure must not fail MFA activation itself")
@@ -120,7 +119,7 @@ func TestDisableMFA_KeepSessionLookupFailure_WidensAndAudits(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &getSessionErrStub{Storage: realStorage, err: faultErr}
+	c.storage = getSessionErrStub(realStorage, faultErr)
 
 	err = c.DisableMFA(ctx, 1, disCode, "caller-token")
 	require.NoError(t, err, "a keep-session lookup failure must not fail MFA disable itself")
@@ -154,16 +153,15 @@ func TestResolveKeepSession_EmptyToken_NeverAudits(t *testing.T) {
 
 // deleteSessionsForUserExceptErrStub wraps a real storage.Storage and overrides
 // exactly DeleteSessionsForUserExcept to inject a fixed error.
-type deleteSessionsForUserExceptErrStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *deleteSessionsForUserExceptErrStub) DeleteSessionsForUserExcept(ctx context.Context, userID, keepID uint) error {
-	if s.err != nil {
-		return s.err
-	}
-	return s.Storage.DeleteSessionsForUserExcept(ctx, userID, keepID)
+func deleteSessionsForUserExceptErrStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		DeleteSessionsForUserExcept: func(next corestorage.Storage, ctx context.Context, userID, keepID uint) error {
+			if err != nil {
+				return err
+			}
+			return next.DeleteSessionsForUserExcept(ctx, userID, keepID)
+		},
+	})
 }
 
 // TestDeleteSessionsForUserAndEvict_PurgeFailure_Audits: the purge call itself
@@ -178,7 +176,7 @@ func TestDeleteSessionsForUserAndEvict_PurgeFailure_Audits(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &deleteSessionsForUserExceptErrStub{Storage: realStorage, err: faultErr}
+	c.storage = deleteSessionsForUserExceptErrStub(realStorage, faultErr)
 
 	err := c.deleteSessionsForUserAndEvict(ctx, 1, 0, "")
 	assert.Error(t, err, "the real failure must still be returned to the (test) caller")

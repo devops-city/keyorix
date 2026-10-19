@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -14,22 +13,22 @@ import (
 	coreStorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
 // transientOwnerLookup wraps LocalStorage so GetUser(failID) returns a transient
 // (non-not-found) error, simulating a momentary backend failure during the owner
 // lookup. All other methods/users behave normally.
-type transientOwnerLookup struct {
-	*store.LocalStorage
-	failID uint
-}
-
-func (t *transientOwnerLookup) GetUser(ctx context.Context, id uint) (*models.User, error) {
-	if id == t.failID {
-		return nil, errors.New("db timeout") // transient, NOT storage.ErrUserNotFound
-	}
-	return t.LocalStorage.GetUser(ctx, id)
+func transientOwnerLookup(inner coreStorage.Storage, failID uint) coreStorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUser: func(next coreStorage.Storage, ctx context.Context, id uint) (*models.User, error) {
+			if id == failID {
+				return nil, errors.New("db timeout") // transient, NOT storage.ErrUserNotFound
+			}
+			return next.GetUser(ctx, id)
+		},
+	})
 }
 
 // newOwnershipFixture builds an in-memory core with a secret owned by user 1, plus:
@@ -208,7 +207,7 @@ func TestTransferSecretOwnership(t *testing.T) {
 		// Wrap storage so the OWNER lookup (user 1) fails transiently (not not-found),
 		// while other users resolve normally.
 		base := c.storage.(*store.LocalStorage)
-		c.storage = &transientOwnerLookup{LocalStorage: base, failID: 1}
+		c.storage = transientOwnerLookup(base, 1)
 		_, err := c.TransferSecretOwnership(ctx, id, 2, 3, ActorTypeUser) // non-owner actor, owner "errors"
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "only the current owner",

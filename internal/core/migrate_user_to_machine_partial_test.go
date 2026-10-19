@@ -177,17 +177,12 @@ func newMigrateRealDBCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 // decorator is inert for the faulted call, because the embedded storage hands
 // the closure its OWN tx with no override on it (the same tx-handle blind spot
 // CLAUDE.md records for raw_storage_bypass_guard_test.go).
-type failSetAccountStateStorage struct {
-	storage.Storage
-}
-
-func (s *failSetAccountStateStorage) SetAccountState(ctx context.Context, userID uint, state string, at time.Time) error {
-	return errors.New("injected fault: SetAccountState")
-}
-
-func (s *failSetAccountStateStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failSetAccountStateStorage{Storage: tx})
+func failSetAccountStateStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		SetAccountState: func(_ storage.Storage, ctx context.Context, userID uint, state string, at time.Time) error {
+			return errors.New("injected fault: SetAccountState")
+		},
 	})
 }
 
@@ -210,7 +205,7 @@ func TestMigrateUserToMachine_FaultedSuspendRollsBackTheIdentity(t *testing.T) {
 	require.NoError(t, db.Model(&models.MachineIdentity{}).Count(&before).Error)
 	require.Zero(t, before)
 
-	c.storage = &failSetAccountStateStorage{Storage: c.storage}
+	c.storage = failSetAccountStateStorage(c.storage)
 
 	m, err := c.MigrateUserToMachine(ctx, "ci-bot", 3, "", "", 9, 0, true)
 	require.Error(t, err, "a failed suspension must be reported")

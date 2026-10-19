@@ -14,25 +14,25 @@ import (
 
 // afterFirstGetUser runs hook once, right after the first GetUser returns: the
 // window between a function's pre-read of the user row and its later write.
-type afterFirstGetUser struct {
-	storage.Storage
-	hook func()
-	done bool
-}
-
-func (s *afterFirstGetUser) GetUser(ctx context.Context, id uint) (*models.User, error) {
-	u, err := s.Storage.GetUser(ctx, id)
-	if !s.done {
-		s.done = true
-		s.hook()
-	}
-	return u, err
-}
-
-// GetSessionAuthLiveness forwards over the wrapper itself, so a session cache
-// hit meets the GetUser override too (session_auth_read_wrapper_forwarding_guard_test.go).
-func (s *afterFirstGetUser) GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
-	return storage.ComposeSessionAuthLiveness(ctx, s, userID, sessionID), nil
+func afterFirstGetUser(inner storage.Storage, hook func()) storage.Storage {
+	done := false
+	var st storage.Storage
+	st = hooked(inner, &storeHooks{
+		GetUser: func(next storage.Storage, ctx context.Context, id uint) (*models.User, error) {
+			u, err := next.GetUser(ctx, id)
+			if !done {
+				done = true
+				hook()
+			}
+			return u, err
+		},
+		// Forwards over the wrapper itself, so a session cache hit meets the
+		// GetUser override too (session_auth_read_wrapper_forwarding_guard_test.go).
+		GetSessionAuthLiveness: func(_ storage.Storage, ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
+			return storage.ComposeSessionAuthLiveness(ctx, st, userID, sessionID), nil
+		},
+	})
+	return st
 }
 
 // TestBeginMFAEnrollment_DoesNotReplaceActivatedSecret (#2692): an ActivateMFA
@@ -45,11 +45,11 @@ func (s *afterFirstGetUser) GetSessionAuthLiveness(ctx context.Context, userID, 
 func TestBeginMFAEnrollment_DoesNotReplaceActivatedSecret(t *testing.T) {
 	c, db, _ := newMFATestCore(t)
 	ctx := context.Background()
-	c.storage = &afterFirstGetUser{Storage: c.storage, hook: func() {
+	c.storage = afterFirstGetUser(c.storage, func() {
 		// a concurrent ActivateMFA commits between the MFAEnabled read and the upsert
 		require.NoError(t, db.Create(&models.MFASecret{UserID: 1, SecretEnc: []byte("live-secret"), Activated: true}).Error)
 		require.NoError(t, db.Model(&models.User{}).Where("id = 1").Update("mfa_enabled", true).Error)
-	}}
+	})
 	uri, secret, err := c.BeginMFAEnrollment(ctx, 1)
 	require.ErrorIs(t, err, ErrMFAAlreadyEnabled, "the late enrolment must be refused, not silently succeed")
 	require.Equal(t, ErrMFAAlreadyEnabled.Error(), err.Error(),
