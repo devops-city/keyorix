@@ -209,6 +209,8 @@ func (c *KeyorixCore) UpdateRole(ctx context.Context, actorID uint, role *models
 	// description, is a revocation or neutral and is never blocked by the audit
 	// log: its rows are written best-effort after the commit
 	// (withDirectedAuditedMutation).
+	// SHARE-CAS-1: no row lock needed (unlike UpdateSharePermission): the verdict is
+	// what this transaction itself inserted, not a read another writer could change.
 	txErr := c.withDirectedAuditedMutation(ctx, func(tx storage.Storage) (bool, error) {
 		var err error
 		updated, finalPermissions, removedPermissionIDs, assignedPermissionIDs, err = c.updateRoleTx(ctx, tx, role, newPermissionIDs)

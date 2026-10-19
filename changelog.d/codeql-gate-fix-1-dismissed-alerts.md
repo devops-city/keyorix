@@ -1,0 +1,2 @@
+### Internal
+- **The CodeQL merge-queue gate accepts findings that are dismissed alerts on main.** `scripts/ci/codeql-gate.sh` read only `state=open`, but the analysis still writes dismissed findings (won't fix / false positive) into the SARIF, so since 18 Oct nearly every queue entry failed. It now reads open and dismissed alerts (still matched by rule id and path, still fail-closed on an API error); a new rule or a new path for a dismissed rule still fails.

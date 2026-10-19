@@ -640,11 +640,55 @@ type crHistories struct {
 	grant          []porcupine.Operation
 	grantOK        int
 	revokeOK       int
+	grantLog       []string // every grant/revoke attempt incl. ambiguous errors, for mismatch diagnostics (#3328)
 	rotateAttempts []crRotateAttempt
 
 	mu2         sync.Mutex
 	cfgAWinners int
 	cfgBWinners int
+}
+
+// logGrantAttempt records one grant/revoke call. An error that is neither
+// "already assigned" nor ErrRoleNotAssigned is AMBIGUOUS (the write may or may
+// not have committed before the error) and is not counted by grantOK/revokeOK,
+// so a mismatch report has to show it.
+func (h *crHistories) logGrantAttempt(kind string, gi int, replica byte, callAt, retAt int64, err error) {
+	res := "ok"
+	if err != nil {
+		res = "err: " + err.Error()
+	}
+	h.mu.Lock()
+	h.grantLog = append(h.grantLog, fmt.Sprintf("  %s goroutine=%d replica=%d [%d,%d] %s", kind, gi, replica%2, callAt, retAt, res))
+	h.mu.Unlock()
+}
+
+// grantMismatchDiagnostics returns what identifies the writes behind a
+// "role-grant" oracle (c) mismatch: every attempt with its replica, call/return
+// time and error, plus what Postgres itself holds for the register (the
+// surviving row's xmin = the inserting transaction, and the txid snapshot), so
+// the two competing writes can be named next time (#3328).
+func (h *crHistories) grantMismatchDiagnostics(w *crWorld) string {
+	var sb strings.Builder
+	h.mu.Lock()
+	fmt.Fprintf(&sb, "role-grant attempts (counted ok: %d grants, %d revokes; call order, not commit order):\n", h.grantOK, h.revokeOK)
+	for _, l := range h.grantLog {
+		sb.WriteString(l + "\n")
+	}
+	h.mu.Unlock()
+	var rows []struct {
+		Xmin string
+		Ctid string
+	}
+	if err := w.db0.Raw("SELECT xmin::text AS xmin, ctid::text AS ctid FROM user_roles WHERE user_id = ? AND role_id = ?", w.principalID, w.readerRoleID).Scan(&rows).Error; err != nil {
+		fmt.Fprintf(&sb, "user_roles row read failed: %v\n", err)
+	} else {
+		fmt.Fprintf(&sb, "surviving user_roles rows (xmin = inserting txid): %+v\n", rows)
+	}
+	var snap string
+	if err := w.db0.Raw("SELECT pg_current_snapshot()::text").Scan(&snap).Error; err == nil {
+		fmt.Fprintf(&sb, "pg_current_snapshot at check: %s\n", snap)
+	}
+	return sb.String()
 }
 
 func (h *crHistories) add(which *[]porcupine.Operation, op porcupine.Operation) {
@@ -738,14 +782,14 @@ func runCrossReplicaIteration(t *testing.T, w *crWorld, goroutines [][]crOp) {
 		t.Fatalf("read final grant state: %v", err)
 	}
 	if err := checkGrantCommitOrderReplay(hist.grantOK, hist.revokeOK, grantActual); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v\n%s", err, hist.grantMismatchDiagnostics(w))
 	}
 	// The final read is an observation strictly after every op returned.
 	end := time.Since(start).Nanoseconds()
 	if err := checkGrantRegisterLinearizable(append(hist.grant, porcupine.Operation{
 		ClientId: len(goroutines), Input: crGrantOp{kind: crGrantObserve, val: grantActual}, Call: end, Return: end,
 	}), t.Logf); err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v\n%s", err, hist.grantMismatchDiagnostics(w))
 	}
 
 	// The rotate register's "actual" value is read via an admin
@@ -803,6 +847,7 @@ func runCrossReplicaOp(
 		callAt := time.Since(start).Nanoseconds()
 		err := c.AssignUserRole(ctx, 0, w.principalID, w.readerRoleID, Scope{ProjectID: w.projID}, false)
 		retAt := time.Since(start).Nanoseconds()
+		hist.logGrantAttempt("grant", gi, op.replica, callAt, retAt, err)
 		in := crGrantOp{kind: crGrantSet}
 		switch {
 		case err == nil:
@@ -820,6 +865,7 @@ func runCrossReplicaOp(
 		callAt := time.Since(start).Nanoseconds()
 		err := c.RemoveUserRole(ctx, 0, w.principalID, w.readerRoleID, Scope{ProjectID: w.projID})
 		retAt := time.Since(start).Nanoseconds()
+		hist.logGrantAttempt("revoke", gi, op.replica, callAt, retAt, err)
 		in := crGrantOp{kind: crGrantClear}
 		switch {
 		case err == nil:

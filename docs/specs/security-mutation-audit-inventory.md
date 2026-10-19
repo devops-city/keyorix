@@ -55,6 +55,25 @@ This table is the reviewed list behind them, not a guard of its own.
   `TestShareUpdate_AuditFailure_ByDirection` (`server/faultops`, REST and gRPC).
   Not moved to the owed record: the narrowing branch keeps its plain best-effort
   row (a follow-up, see "Remaining").
+  - **The classification must hold until the write** (SHARE-CAS-1). A
+    classification is only true if no other writer can change what it read before
+    the update writes. `UpdateSharePermission` reads the share with
+    `LockShareRecordForUpdate` (`SELECT … FOR UPDATE` on PostgreSQL), so a
+    concurrent update or revoke of the share waits for its commit. A preserved
+    expiry and the "expired share" check use the same locked row. Before this, on
+    PostgreSQL READ COMMITTED, a narrowing committing between the read and the
+    UPDATE turned an update classified neutral into write over read (or a stale
+    expiry over a shortened one) with only a best-effort row. SQLite needs no lock:
+    its write transactions are `BEGIN IMMEDIATE`. `UpdateRole` has no such window:
+    it classifies from its own writes (a permission it inserted), not from a read,
+    and a permission another transaction adds in between is audited by that
+    transaction. Group shares go through `UpdateSharePermission` too; a re-share
+    of an existing share (`ShareSecret`'s upsert) is not classified (always fail
+    closed). Guards (pg-gated, two replicas on their own connections):
+    `TestCTAReview_UpdateSharePermission_NeutralVsConcurrentNarrowing_CrossReplicaPostgres`,
+    `TestCTAReview_UpdateSharePermission_PreservedExpiryVsConcurrentShortening_CrossReplicaPostgres`;
+    default CI: `TestUpdateSharePermission_ClassifiesFromALockedRead`,
+    `TestLockShareRecordForUpdate_DialectMatchedLocking`.
 - **State transitions with a known direction** pick the rule from the target state
   (`auditedByDirection`): account state into suspended/deprovisioned/restricted and
   machine suspend/revoke are revocations; back to active is a grant. `UpdateUser`
@@ -86,13 +105,13 @@ from core, as before, so there are no duplicates.
 | Group role grant (permanent, JIT) | `AssignRoleToGroup`, `AssignGroupRoleWithExpiry` → `grantGroupRoleAudited` | `role.group_assigned` | after commit | in tx |
 | Permission into role | `AssignPermissionToRole` | `permission.assigned` | after commit | in tx |
 | Role create | `CreateRole` | `role.created` + `permission.assigned`×n | after commit | in tx |
-| Role update (incl. permission set) | `UpdateRole` | `role.updated` + `permission.removed/assigned`×n | after commit | in tx when it assigns any permission (mixed included); after commit, best-effort, when it only removes permissions or changes the description (see "Updates classified per call") |
+| Role update (incl. permission set) | `UpdateRole` | `role.updated` + `permission.removed/assigned`×n | after commit | in tx when it assigns any permission (mixed included); after commit, best-effort, when it only removes permissions or changes the description (see "Updates classified per call"); classified from its own inserts, so no row lock is needed (SHARE-CAS-1) |
 | Group membership add | `AddUserToGroup` | `group.member_added` | after commit | in tx |
 | Project member add | `AddProjectMember` → `AssignUserRole` | `role.assigned` | after commit | in tx |
 | Access-request approval grant | `finalizeAccessRequestApproval` | `role.assigned` + `access_request.approved` | after commit | in tx |
 | Break-glass activation | `activateBreakGlassLocked` | `role.assigned` + `break_glass.activated` | after commit (activated: outside the lock) | in tx |
 | Share create (user, group) | `ShareSecret`, `ShareSecretWithGroup` | `share_created` / `group_share_created` | after commit | in tx |
-| Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx when it widens (read→write, later expiry, expiry cleared; mixed included); after commit, best-effort, when it only narrows or changes nothing |
+| Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx when it widens (read→write, later expiry, expiry cleared; mixed included); after commit, best-effort, when it only narrows or changes nothing (see "Updates classified per call"); classified from the share row read under `FOR UPDATE` (SHARE-CAS-1) |
 | Secret ACL grant | `GrantSecretACL` | `secret.acl_granted` | after commit | in tx |
 | Machine identity create | `CreateMachineIdentity` | `machine_identity.created` | after commit | in tx |
 | Machine token issue / rotate | `IssueMachineToken` | `machine_identity.token_issued` / `token_rotated` | after commit | in tx |
