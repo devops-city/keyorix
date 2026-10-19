@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -271,31 +272,6 @@ func TestMFAUpgradeGrace_NoneInstalled(t *testing.T) {
 	assert.False(t, c.MFARequired())
 }
 
-// graceFaultStorage fails the reads the grace evaluation depends on.
-type graceFaultStorage struct {
-	corestorage.Storage
-	mu   sync.Mutex
-	fail bool
-}
-
-func (s *graceFaultStorage) setFail(v bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.fail = v
-}
-
-func (s *graceFaultStorage) failing() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.fail
-}
-
-func (s *graceFaultStorage) ListProjectRoleAssignments(ctx context.Context, projectID uint) ([]corestorage.RoleAssignment, error) {
-	if s.failing() {
-		return nil, errors.New("injected: role assignments unavailable")
-	}
-	return s.Storage.ListProjectRoleAssignments(ctx, projectID)
-}
 
 // Fail closed: while the admin set cannot be read the grace period is not in
 // effect (MFA enforced), and it is suspended, not ended, so it resumes when the
@@ -303,17 +279,25 @@ func (s *graceFaultStorage) ListProjectRoleAssignments(ctx context.Context, proj
 func TestMFAUpgradeGrace_UnreadableFactsFailClosed(t *testing.T) {
 	runGraceBackends(t, func(t *testing.T, open func(t *testing.T) *gorm.DB) {
 		f := newGraceFixture(t, open(t))
-		faulty := &graceFaultStorage{Storage: f.c.storage}
-		f.c.storage = faulty
+		// Fails the reads the grace evaluation depends on.
+		var fail atomic.Bool
+		f.c.storage = hooked(f.c.storage, &storeHooks{
+			ListProjectRoleAssignments: func(next corestorage.Storage, ctx context.Context, projectID uint) ([]corestorage.RoleAssignment, error) {
+				if fail.Load() {
+					return nil, errors.New("injected: role assignments unavailable")
+				}
+				return next.ListProjectRoleAssignments(ctx, projectID)
+			},
+		})
 
-		faulty.setFail(true)
+		fail.Store(true)
 		assert.False(t, f.c.MFAUpgradeGraceActive(), "an unreadable admin set must not keep the grace period running")
 		assert.True(t, f.c.MFARequired(), "fail closed: MFA enforced")
 		assert.False(t, f.c.MFAUpgradeGraceEnded(), "a failed read suspends the grace period, it does not end it")
 		_, found := f.marker(t)
 		assert.False(t, found, "a failed read must not write the enforcement marker")
 
-		faulty.setFail(false)
+		fail.Store(false)
 		f.recheck()
 		assert.True(t, f.c.MFAUpgradeGraceActive())
 	})
