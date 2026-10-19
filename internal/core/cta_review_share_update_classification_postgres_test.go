@@ -127,7 +127,7 @@ func runShareUpdateRace(t *testing.T, when string, auditDown bool, initial Share
 	f := newCTAReview(t)
 	require.Equal(t, "postgres", f.dbA.Dialector.Name(), "this race exists only on PostgreSQL")
 	down := &atomic.Bool{}
-	coreA := NewKeyorixCore(auditOutageStorage{Storage: localstore.NewLocalStorage(f.dbA), down: down})
+	coreA := NewKeyorixCore((&auditOutageStorage{inner: localstore.NewLocalStorage(f.dbA), down: down}).store())
 	coreA.SetAuthEncryptor(f.enc)
 
 	owner := f.user("cta-cls-owner", "project_admin")

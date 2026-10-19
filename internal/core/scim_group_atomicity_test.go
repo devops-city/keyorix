@@ -13,24 +13,17 @@ import (
 
 // failOnceAddUserToGroupStorage makes AddUserToGroup fail once for a specific
 // userID, mirroring the failOnceStorage idiom from #2295.
-type failOnceAddUserToGroupStorage struct {
-	storage.Storage
-	failUserID uint
-	armed      *bool
-}
-
-func (s *failOnceAddUserToGroupStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceAddUserToGroupStorage{Storage: tx, failUserID: s.failUserID, armed: s.armed})
+func failOnceAddUserToGroupStorage(inner storage.Storage, failUserID uint, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		AddUserToGroup: func(next storage.Storage, ctx context.Context, userID, groupID, projectID uint) error {
+			if *armed && userID == failUserID {
+				*armed = false
+				return errors.New("injected fault: AddUserToGroup")
+			}
+			return next.AddUserToGroup(ctx, userID, groupID, projectID)
+		},
 	})
-}
-
-func (s *failOnceAddUserToGroupStorage) AddUserToGroup(ctx context.Context, userID, groupID, projectID uint) error {
-	if *s.armed && userID == s.failUserID {
-		*s.armed = false
-		return errors.New("injected fault: AddUserToGroup")
-	}
-	return s.Storage.AddUserToGroup(ctx, userID, groupID, projectID)
 }
 
 // TestProvisionSCIMGroup_PartialMemberFailureRollsBackGroup is the red-proof
@@ -48,7 +41,7 @@ func TestProvisionSCIMGroup_PartialMemberFailureRollsBackGroup(t *testing.T) {
 
 	base := c.storage
 	armed := true
-	c.storage = &failOnceAddUserToGroupStorage{Storage: base, failUserID: 2, armed: &armed}
+	c.storage = failOnceAddUserToGroupStorage(base, 2, &armed)
 
 	_, err := c.ProvisionSCIMGroup(ctx, 9, "Engineering", []uint{1, 2})
 	require.Error(t, err)

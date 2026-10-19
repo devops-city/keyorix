@@ -16,15 +16,25 @@ import (
 // MarkTOTPStepUsed, i.e. after the code was validated against the pending
 // secret and before the activating write.
 type swapOnMarkStepStorage struct {
-	storage.Storage
+	inner  storage.Storage
 	once   sync.Once
 	onMark func()
 }
 
-func (s *swapOnMarkStepStorage) MarkTOTPStepUsed(ctx context.Context, userID uint, step int64) (bool, error) {
+func (s *swapOnMarkStepStorage) MarkTOTPStepUsed(next storage.Storage, ctx context.Context, userID uint, step int64) (bool, error) {
 	s.once.Do(s.onMark)
-	return s.Storage.MarkTOTPStepUsed(ctx, userID, step)
+	return next.MarkTOTPStepUsed(ctx, userID, step)
 }
+
+// wrap returns inner decorated with swapOnMarkStepStorage's overrides.
+func (s *swapOnMarkStepStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		MarkTOTPStepUsed: s.MarkTOTPStepUsed,
+	})
+}
+
+// store returns s.inner decorated with swapOnMarkStepStorage's overrides.
+func (s *swapOnMarkStepStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 // TestActivateMFA_SecretSwappedAfterValidation_FailsClosed is the default-CI
 // (SQLite) form of #2655's Postgres repro: a re-enrolment that replaces the
@@ -41,11 +51,11 @@ func TestActivateMFA_SecretSwappedAfterValidation_FailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &swapOnMarkStepStorage{Storage: base, onMark: func() {
+	c.storage = (&swapOnMarkStepStorage{inner: base, onMark: func() {
 		c.storage = base // BeginMFAEnrollment below must not re-enter the hook
 		_, _, berr := c.BeginMFAEnrollment(ctx, 1)
 		require.NoError(t, berr)
-	}}
+	}}).store()
 	_, err = c.ActivateMFA(ctx, 1, code, mfaTestPassword, "")
 	c.storage = base
 	assertActivationNeverBindsUnvalidatedSecret(t, c, 1, s1, err)

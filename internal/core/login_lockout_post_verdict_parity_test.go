@@ -121,7 +121,7 @@ func TestFinishWebAuthnLogin_PostVerdictFaultCostsTheSameAsAFailedAssertion(t *t
 	ptok, err := pc.storeWebAuthnSession(context.Background(), 1, "login", &webauthn.SessionData{Challenge: challenge2, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 	base := pc.storage
-	pc.storage = &failCreateSessionStorage{Storage: base}
+	pc.storage = failCreateSessionStorage(base)
 	_, _, _, perr := pc.FinishWebAuthnLogin(context.Background(), pch, ptok, "agent", "203.0.113.5", goodParsed)
 	pc.storage = base
 	require.Error(t, perr)
@@ -165,7 +165,7 @@ func TestFinishWebAuthnPasswordlessLogin_PostVerdictFaultCostsTheSameAsAFailedAs
 	ptok, err := pc.storeWebAuthnSession(context.Background(), 0, "passwordless", &webauthn.SessionData{Challenge: challenge2})
 	require.NoError(t, err)
 	base := pc.storage
-	pc.storage = &failCreateSessionStorage{Storage: base}
+	pc.storage = failCreateSessionStorage(base)
 	_, _, _, perr := pc.FinishWebAuthnPasswordlessLogin(context.Background(), ptok, "agent", "203.0.113.5", goodParsed)
 	pc.storage = base
 	require.Error(t, perr)
@@ -210,7 +210,7 @@ func TestFinishWebAuthnReauth_PostVerdictFaultCostsTheSameAsAFailedAssertion(t *
 	ptok, err := pc.storeWebAuthnSession(context.Background(), 1, webauthnReauthSessionPurpose, &webauthn.SessionData{Challenge: challenge2, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 	base := pc.storage
-	pc.storage = &failCreateMFAStepUpGrantStorage{Storage: base}
+	pc.storage = failCreateMFAStepUpGrantStorage(base)
 	perr := pc.FinishWebAuthnReauth(context.Background(), 1, ptok, goodParsed)
 	pc.storage = base
 	require.Error(t, perr)
@@ -245,7 +245,7 @@ func TestVerifyMFAStepUp_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) 
 	good, err := totp.GenerateCode(secret, step)
 	require.NoError(t, err)
 	base := pc.storage
-	pc.storage = &failCreateMFAStepUpGrantStorage{Storage: base}
+	pc.storage = failCreateMFAStepUpGrantStorage(base)
 	perr := pc.VerifyMFAStepUp(context.Background(), 1, good)
 	pc.storage = base
 	require.Error(t, perr)
@@ -297,7 +297,7 @@ func TestRequireReauth_PostVerdictFaultCostsTheSameAsAWrongCode(t *testing.T) {
 	good, err := totp.GenerateCode(secret, pfixed)
 	require.NoError(t, err)
 	base := pc.storage
-	pc.storage = &markTOTPStepErrStub{Storage: base, err: errors.New("injected: MarkTOTPStepUsed")}
+	pc.storage = markTOTPStepErrStub(base, errors.New("injected: MarkTOTPStepUsed"))
 	require.Error(t, pc.DisableMFA(context.Background(), 1, good, ""))
 	pc.storage = base
 	probe := readLockoutState(t, pdb, 1)

@@ -23,16 +23,15 @@ import (
 // failGetSessionStorage fails GetSession for one specific token with a plain error — NOT
 // wrapping storage.ErrSessionNotFound — to simulate a real retrieval failure (DB down, a
 // timeout) distinct from a genuine "no such session."
-type failGetSessionStorage struct {
-	storage.Storage
-	failToken string
-}
-
-func (s *failGetSessionStorage) GetSession(ctx context.Context, token string) (*models.Session, error) {
-	if token == s.failToken {
-		return nil, errors.New("injected fault: simulated DB connection lost")
-	}
-	return s.Storage.GetSession(ctx, token)
+func failGetSessionStorage(inner storage.Storage, failToken string) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetSession: func(next storage.Storage, ctx context.Context, token string) (*models.Session, error) {
+			if token == failToken {
+				return nil, errors.New("injected fault: simulated DB connection lost")
+			}
+			return next.GetSession(ctx, token)
+		},
+	})
 }
 
 func TestLogout_DistinguishesNotFoundFromStorageFailure(t *testing.T) {
@@ -45,7 +44,7 @@ func TestLogout_DistinguishesNotFoundFromStorageFailure(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrSessionNotFound), "a token that never existed must map to ErrSessionNotFound: %v", err)
 
 	// Real storage failure: GetSession fails for a reason that is NOT "not found."
-	c.storage = &failGetSessionStorage{Storage: base, failToken: "fails-to-look-up"}
+	c.storage = failGetSessionStorage(base, "fails-to-look-up")
 	err = c.Logout(ctx, "fails-to-look-up")
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, ErrSessionNotFound),

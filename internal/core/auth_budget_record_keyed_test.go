@@ -35,7 +35,6 @@ import (
 // ReserveLoginAttempt) while faults > 0, one per write. effect makes a faulted
 // write land before it reports the error (a lost acknowledgement).
 type firstWriteFaultStub struct {
-	corestorage.Storage
 	faults int
 	effect bool
 }
@@ -48,24 +47,32 @@ func (s *firstWriteFaultStub) fault() bool {
 	return true
 }
 
-func (s *firstWriteFaultStub) RecordLoginAttempt(ctx context.Context, ip string, at time.Time) error {
+func (s *firstWriteFaultStub) RecordLoginAttempt(next corestorage.Storage, ctx context.Context, ip string, at time.Time) error {
 	if !s.fault() {
-		return s.Storage.RecordLoginAttempt(ctx, ip, at)
+		return next.RecordLoginAttempt(ctx, ip, at)
 	}
 	if s.effect {
-		_ = s.Storage.RecordLoginAttempt(ctx, ip, at)
+		_ = next.RecordLoginAttempt(ctx, ip, at)
 	}
 	return errLoginAttemptsDown
 }
 
-func (s *firstWriteFaultStub) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
+func (s *firstWriteFaultStub) ReserveLoginAttempt(next corestorage.Storage, ctx context.Context, ip string, at time.Time, key string) (uint, error) {
 	if !s.fault() {
-		return s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
+		return next.ReserveLoginAttempt(ctx, ip, at, key)
 	}
 	if s.effect {
-		_, _ = s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
+		_, _ = next.ReserveLoginAttempt(ctx, ip, at, key)
 	}
 	return 0, errLoginAttemptsDown
+}
+
+// wrap returns inner decorated with firstWriteFaultStub's overrides.
+func (s *firstWriteFaultStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		RecordLoginAttempt:  s.RecordLoginAttempt,
+		ReserveLoginAttempt: s.ReserveLoginAttempt,
+	})
 }
 
 func newFirstWriteFaultCore(t *testing.T) (*KeyorixCore, *firstWriteFaultStub, *gorm.DB) {
@@ -76,9 +83,9 @@ func newFirstWriteFaultCore(t *testing.T) (*KeyorixCore, *firstWriteFaultStub, *
 		sqlDB.SetMaxOpenConns(1)
 	}
 	require.NoError(t, db.AutoMigrate(&models.LoginAttempt{}, &models.AuditEvent{}))
-	stub := &firstWriteFaultStub{Storage: store.NewLocalStorage(db)}
+	stub := &firstWriteFaultStub{}
 	now := time.Date(2026, 10, 13, 10, 0, 0, 0, time.UTC)
-	c := &KeyorixCore{storage: stub, now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
+	c := &KeyorixCore{storage: stub.wrap(store.NewLocalStorage(db)), now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
 	return c, stub, db
 }
 

@@ -15,23 +15,17 @@ import (
 // after the undelete and the is_active write already ran in the transaction)
 // fail once, mirroring the failOnceStorage idiom from #2295. It used to fail
 // the full-row UpdateUser, which RestoreUser no longer calls (#2677 sweep).
-type failOnceUpdateUserStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceUpdateUserStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceUpdateUserStorage{Storage: tx, armed: s.armed})
+func failOnceUpdateUserStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		SetAccountState: func(next storage.Storage, ctx context.Context, id uint, state string, updatedAt time.Time) error {
+			if *armed {
+				*armed = false
+				return errors.New("injected fault: SetAccountState")
+			}
+			return next.SetAccountState(ctx, id, state, updatedAt)
+		},
 	})
-}
-
-func (s *failOnceUpdateUserStorage) SetAccountState(ctx context.Context, id uint, state string, updatedAt time.Time) error {
-	if *s.armed {
-		*s.armed = false
-		return errors.New("injected fault: SetAccountState")
-	}
-	return s.Storage.SetAccountState(ctx, id, state, updatedAt)
 }
 
 // TestRestoreUser_UpdateFailureRollsBackUndelete is the red-proof for Session
@@ -50,7 +44,7 @@ func TestRestoreUser_UpdateFailureRollsBackUndelete(t *testing.T) {
 	require.NoError(t, c.DeleteUser(ctx, 1, u.ID))
 
 	armed := true
-	c.storage = &failOnceUpdateUserStorage{Storage: st, armed: &armed}
+	c.storage = failOnceUpdateUserStorage(st, &armed)
 
 	err = c.RestoreUser(ctx, 1, u.ID)
 	require.Error(t, err)

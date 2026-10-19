@@ -27,11 +27,11 @@ func newDeleteUserTestCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 func TestDeleteUser_KeepsConcurrentPasswordChange(t *testing.T) {
 	c, gdb := newDeleteUserTestCore(t)
 	ctx := context.Background()
-	c.storage = &afterFirstGetUser{Storage: c.storage, hook: func() {
+	c.storage = afterFirstGetUser(c.storage, func() {
 		require.NoError(t, gdb.Model(&models.User{}).Where("id = 1").Updates(map[string]any{
 			"password_hash": "NEW-HASH-from-concurrent-change", "mfa_enabled": true,
 		}).Error)
-	}}
+	})
 	require.NoError(t, c.DeleteUser(ctx, 1, 1))
 
 	var u models.User
@@ -50,9 +50,9 @@ func TestDeleteUser_KeepsConcurrentPasswordChange(t *testing.T) {
 func TestDeleteUser_KeepsConcurrentSuspension(t *testing.T) {
 	c, gdb := newDeleteUserTestCore(t)
 	ctx := context.Background()
-	c.storage = &afterFirstGetUser{Storage: c.storage, hook: func() {
+	c.storage = afterFirstGetUser(c.storage, func() {
 		require.NoError(t, gdb.Model(&models.User{}).Where("id = 1").Update("account_state", AccountSuspended).Error)
-	}}
+	})
 	require.NoError(t, c.DeleteUser(ctx, 1, 1))
 
 	var u models.User

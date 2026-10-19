@@ -15,52 +15,48 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
 // --- storage stubs for rotation policy error paths ---
 
-type createRotPolicyErrStorage struct {
-	corestorage.Storage
-	err error
+func createRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateRotationPolicy: func(_ corestorage.Storage, _ context.Context, _ *models.RotationPolicy) error {
+			return err
+		},
+	})
 }
 
-func (s *createRotPolicyErrStorage) CreateRotationPolicy(_ context.Context, _ *models.RotationPolicy) error {
-	return s.err
+func updateRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		UpdateRotationPolicyFields: func(_ corestorage.Storage, _ context.Context, _ uint, _ corestorage.RotationPolicyFieldUpdate, _ time.Time) (bool, error) {
+			return false, err
+		},
+	})
 }
 
-type updateRotPolicyErrStorage struct {
-	corestorage.Storage
-	err error
+func deleteRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		DeleteRotationPolicy: func(_ corestorage.Storage, _ context.Context, _ uint) error {
+			return err
+		},
+	})
 }
 
-func (s *updateRotPolicyErrStorage) UpdateRotationPolicyFields(_ context.Context, _ uint, _ corestorage.RotationPolicyFieldUpdate, _ time.Time) (bool, error) {
-	return false, s.err
-}
-
-type deleteRotPolicyErrStorage struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *deleteRotPolicyErrStorage) DeleteRotationPolicy(_ context.Context, _ uint) error {
-	return s.err
-}
-
-type listRotPoliciesErrStorage struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *listRotPoliciesErrStorage) ListRotationPolicies(_ context.Context, _, _ *uint) ([]*models.RotationPolicy, error) {
-	return nil, s.err
+func listRotPoliciesErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		ListRotationPolicies: func(_ corestorage.Storage, _ context.Context, _, _ *uint) ([]*models.RotationPolicy, error) {
+			return nil, err
+		},
+	})
 }
 
 // newRotPolicyCore returns a KeyorixCore backed by an in-memory SQLite with
@@ -110,7 +106,7 @@ func TestCreateRotationPolicy_StorageError(t *testing.T) {
 	ctx := context.Background()
 	c, _ := newRotPolicyCore(t)
 	wantErr := errors.New("db write failed")
-	c2 := &KeyorixCore{storage: &createRotPolicyErrStorage{Storage: c.storage, err: wantErr}, now: c.now}
+	c2 := &KeyorixCore{storage: createRotPolicyErrStorage(c.storage, wantErr), now: c.now}
 	pid := uint(1)
 	_, err := c2.CreateRotationPolicy(ctx, 1, &CreateRotationPolicyRequest{
 		Name: "p", Scope: "project", ProjectID: &pid,
@@ -178,7 +174,7 @@ func TestUpdateRotationPolicy_StorageError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	wantErr := errors.New("update failed")
-	c2 := &KeyorixCore{storage: &updateRotPolicyErrStorage{Storage: store.NewLocalStorage(db), err: wantErr}, now: c.now}
+	c2 := &KeyorixCore{storage: updateRotPolicyErrStorage(store.NewLocalStorage(db), wantErr), now: c.now}
 	_, err = c2.UpdateRotationPolicy(ctx, 1, &UpdateRotationPolicyRequest{
 		ID: p.ID, Name: "updated", IntervalDays: 60, AlertDaysBefore: 5, IsActive: true,
 	})
@@ -208,7 +204,7 @@ func TestDeleteRotationPolicy_StorageError(t *testing.T) {
 	})
 	require.NoError(t, err)
 	wantErr := errors.New("delete failed")
-	c2 := &KeyorixCore{storage: &deleteRotPolicyErrStorage{Storage: store.NewLocalStorage(db), err: wantErr}, now: c.now}
+	c2 := &KeyorixCore{storage: deleteRotPolicyErrStorage(store.NewLocalStorage(db), wantErr), now: c.now}
 	err = c2.DeleteRotationPolicy(ctx, 1, p.ID)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -221,7 +217,7 @@ func TestEvaluateRotationPolicies_ListError(t *testing.T) {
 	ctx := context.Background()
 	c, _ := newRotPolicyCore(t)
 	wantErr := errors.New("list failed")
-	c2 := &KeyorixCore{storage: &listRotPoliciesErrStorage{Storage: c.storage, err: wantErr}, now: c.now}
+	c2 := &KeyorixCore{storage: listRotPoliciesErrStorage(c.storage, wantErr), now: c.now}
 	_, err := c2.EvaluateRotationPolicies(ctx, nil, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)

@@ -25,28 +25,20 @@ import (
 // LogAuditEvent call, mirroring failOnceProjectMemberStorage's re-wrap-across-WithTransaction
 // idiom (project_members_atomicity_test.go) so the fault also fires on the transaction-scoped
 // handle CreateProject's seeding loop actually uses.
-type failEnvStorage struct {
-	storage.Storage
-	failEnvName string
-	auditEvents *[]*models.AuditEvent
-}
-
-func (s *failEnvStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failEnvStorage{Storage: tx, failEnvName: s.failEnvName, auditEvents: s.auditEvents})
+func failEnvStorage(inner storage.Storage, failEnvName string, auditEvents *[]*models.AuditEvent) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateEnvironment: func(next storage.Storage, ctx context.Context, env *models.Environment) (*models.Environment, error) {
+			if env.Name == failEnvName {
+				return nil, errors.New("injected fault: CreateEnvironment " + failEnvName)
+			}
+			return next.CreateEnvironment(ctx, env)
+		},
+		LogAuditEvent: func(next storage.Storage, ctx context.Context, event *models.AuditEvent) error {
+			*auditEvents = append(*auditEvents, event)
+			return next.LogAuditEvent(ctx, event)
+		},
 	})
-}
-
-func (s *failEnvStorage) CreateEnvironment(ctx context.Context, env *models.Environment) (*models.Environment, error) {
-	if env.Name == s.failEnvName {
-		return nil, errors.New("injected fault: CreateEnvironment " + s.failEnvName)
-	}
-	return s.Storage.CreateEnvironment(ctx, env)
-}
-
-func (s *failEnvStorage) LogAuditEvent(ctx context.Context, event *models.AuditEvent) error {
-	*s.auditEvents = append(*s.auditEvents, event)
-	return s.Storage.LogAuditEvent(ctx, event)
 }
 
 // TestCreateProject_PartialEnvironmentSeedFailure_AuditedAndRecoverable is the red-proof for
@@ -55,7 +47,7 @@ func (s *failEnvStorage) LogAuditEvent(ctx context.Context, event *models.AuditE
 func TestCreateProject_PartialEnvironmentSeedFailure_AuditedAndRecoverable(t *testing.T) {
 	c, base := newBootstrappedCore(t)
 	var auditEvents []*models.AuditEvent
-	c.storage = &failEnvStorage{Storage: base, failEnvName: "staging", auditEvents: &auditEvents}
+	c.storage = failEnvStorage(base, "staging", &auditEvents)
 
 	ctx := context.Background()
 	project, err := c.CreateProject(ctx, "demo-project", "")
@@ -99,7 +91,7 @@ func TestCreateProject_PartialEnvironmentSeedFailure_AuditedAndRecoverable(t *te
 func TestCreateProjectWithEnvs_PartialEnvironmentSeedFailure_Audited(t *testing.T) {
 	c, base := newBootstrappedCore(t)
 	var auditEvents []*models.AuditEvent
-	c.storage = &failEnvStorage{Storage: base, failEnvName: "qa", auditEvents: &auditEvents}
+	c.storage = failEnvStorage(base, "qa", &auditEvents)
 
 	ctx := context.Background()
 	project, err := c.CreateProjectWithEnvs(ctx, "custom-envs-project", "", []string{"dev", "qa", "prod"})
@@ -131,7 +123,7 @@ func TestCreateProjectWithEnvs_PartialEnvironmentSeedFailure_Audited(t *testing.
 func TestCreateProject_NoSeedFailure_NoSeedFailedAudit(t *testing.T) {
 	c, base := newBootstrappedCore(t)
 	var auditEvents []*models.AuditEvent
-	c.storage = &failEnvStorage{Storage: base, failEnvName: "", auditEvents: &auditEvents}
+	c.storage = failEnvStorage(base, "", &auditEvents)
 
 	ctx := context.Background()
 	project, err := c.CreateProject(ctx, "clean-project", "")

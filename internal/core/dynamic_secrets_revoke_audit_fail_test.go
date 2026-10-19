@@ -34,16 +34,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type failLogAuditEventStorage struct {
-	storage.Storage
-	eventType string
-}
-
-func (f *failLogAuditEventStorage) LogAuditEvent(ctx context.Context, event *models.AuditEvent) error {
-	if event.EventType == f.eventType {
-		return fmt.Errorf("fault-injected: %s audit write failed", f.eventType)
-	}
-	return f.Storage.LogAuditEvent(ctx, event)
+func failLogAuditEventStorage(inner storage.Storage, eventType string) storage.Storage {
+	return hooked(inner, &storeHooks{
+		LogAuditEvent: func(next storage.Storage, ctx context.Context, event *models.AuditEvent) error {
+			if event.EventType == eventType {
+				return fmt.Errorf("fault-injected: %s audit write failed", eventType)
+			}
+			return next.LogAuditEvent(ctx, event)
+		},
+	})
 }
 
 // TestDynamicSecrets_RevokeLease_AuditWriteFailureIsNotSwallowed is the
@@ -60,7 +59,7 @@ func TestDynamicSecrets_RevokeLease_AuditWriteFailureIsNotSwallowed(t *testing.T
 	issued, err := c.IssueLease(ctx, cfg.ID, 0, 7)
 	require.NoError(t, err)
 
-	c.storage = &failLogAuditEventStorage{Storage: c.storage, eventType: "dynamic_lease.revoked"}
+	c.storage = failLogAuditEventStorage(c.storage, "dynamic_lease.revoked")
 
 	err = c.RevokeLease(ctx, issued.LeaseID, 7, "manual")
 	require.Error(t, err, "#2406: the caller must get an error, not OK, when the audit write for a revoke fails")
@@ -93,7 +92,7 @@ func TestDynamicSecrets_RevokeLeasesForConfig_AuditWriteFailureIsNotSwallowed(t 
 	issued, err := c.IssueLease(ctx, cfg.ID, 0, 7)
 	require.NoError(t, err)
 
-	c.storage = &failLogAuditEventStorage{Storage: c.storage, eventType: "dynamic_lease.revoked"}
+	c.storage = failLogAuditEventStorage(c.storage, "dynamic_lease.revoked")
 
 	revoked, failed, err := c.RevokeLeasesForConfig(ctx, cfg.ID, 7, "incident")
 	require.Error(t, err, "#2406: a bulk revoke whose per-lease audit write failed must not report a clean success")
@@ -148,7 +147,7 @@ func TestDynamicSecrets_RevokeLease_AuditWriteFailureIsNotSwallowed_Postgres(t *
 	issued, err := c.IssueLease(ctx, cfg.ID, 0, 7)
 	require.NoError(t, err)
 
-	c.storage = &failLogAuditEventStorage{Storage: c.storage, eventType: "dynamic_lease.revoked"}
+	c.storage = failLogAuditEventStorage(c.storage, "dynamic_lease.revoked")
 
 	err = c.RevokeLease(ctx, issued.LeaseID, 7, "manual")
 	require.Error(t, err, "#2406: the caller must get an error, not OK, when the audit write for a revoke fails (Postgres)")
