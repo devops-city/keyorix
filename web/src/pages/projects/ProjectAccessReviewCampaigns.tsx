@@ -23,12 +23,22 @@ interface Props {
 
 // lastUsedInfo renders a user principal's recency (dormant-access signal); empty
 // for groups (last-use is not aggregated server-side). Shared with the live review.
-export const lastUsedInfo = (e: {
-    principalType: string;
-    lastUsedAt?: string;
-}): { label: string; dormant: boolean } => {
+// No lastUsedAt means no use WITHIN the look-back window (the recertification period),
+// not no use ever; windowDays = 0 is a campaign opened before the window existed, whose
+// look-back was the whole audit history.
+export const lastUsedInfo = (
+    e: {
+        principalType: string;
+        lastUsedAt?: string;
+        activityWindowDays?: number;
+    },
+    windowDays: number | undefined = e.activityWindowDays
+): { label: string; dormant: boolean } => {
     if (e.principalType !== 'user') return { label: '', dormant: false };
-    if (!e.lastUsedAt) return { label: 'never used', dormant: true };
+    if (!e.lastUsedAt) {
+        if (windowDays === 0) return { label: 'never used', dormant: true };
+        return { label: windowDays ? `no use in the last ${windowDays}d` : 'no recent use', dormant: true };
+    }
     const days = Math.floor((Date.now() - parseServerDate(e.lastUsedAt).getTime()) / 86_400_000);
     return { label: days <= 0 ? 'used today' : `used ${days}d ago`, dormant: days >= 90 };
 };
@@ -245,7 +255,7 @@ const CampaignDetail: React.FC<DetailProps> = ({ projectId, campaignId, onError 
             ) : (
                 <ul className="divide-y" style={{ borderColor: 'var(--border)' }}>
                     {data.items.map((it) => {
-                        const info = lastUsedInfo(it);
+                        const info = lastUsedInfo(it, data.campaign.activityWindowDays);
                         return (
                             <li key={it.id} className="flex items-center gap-3 px-3 py-2">
                                 <span

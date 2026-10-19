@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '../../../test/test-utils';
 import { ProjectMembersTab } from '../ProjectMembersTab';
+import { answerConfirm, queryConfirm } from '../../../test/confirm';
 import type { ProjectMember } from '../../../services/projects';
 import { AxiosError } from 'axios';
 
@@ -254,66 +255,62 @@ describe('ProjectMembersTab', () => {
     });
 
     describe('remove member', () => {
-        // Fixed: removal now requires window.confirm(), and proceeds only
-        // when confirmed. The mocked current user is id 1, matching
-        // makeMember()'s default userId, so this exercises the self-removal
-        // wording specifically.
-        it('confirms before removing, with a self-removal warning when the current user removes themselves', () => {
-            const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        // Removal goes through the in-app confirmation dialog (#3153) and
+        // proceeds only when confirmed. The mocked current user is id 1,
+        // matching makeMember()'s default userId, so this exercises the
+        // self-removal wording specifically.
+        it('confirms before removing, with a self-removal warning when the current user removes themselves', async () => {
+            const confirmSpy = vi.spyOn(window, 'confirm');
             mockMembers([makeMember(), makeMember({ userId: 2, roleName: 'project_admin' })]);
             render(<ProjectMembersTab projectId={1} />);
 
             const removeButtons = screen.getAllByTitle('Remove from project');
             fireEvent.click(removeButtons[0]); // Alice — userId 1, the mocked "current user"
+            expect(removeMemberMutate).not.toHaveBeenCalled();
+            await answerConfirm('Remove yourself from this project? You will lose access immediately.', 'accept');
 
-            expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/remove yourself/i));
-            expect(removeMemberMutate).toHaveBeenCalledWith(1);
+            await waitFor(() => expect(removeMemberMutate).toHaveBeenCalledWith(1));
+            expect(confirmSpy).not.toHaveBeenCalled(); // in-app dialog, not window.confirm
             confirmSpy.mockRestore();
         });
 
-        it('confirms with the member name (not self-removal wording) when removing someone else', () => {
-            const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        it('confirms with the member name (not self-removal wording) when removing someone else', async () => {
             mockMembers([makeMember(), makeMember({ userId: 2, displayName: 'Carol', roleName: 'project_developer' })]);
             render(<ProjectMembersTab projectId={1} />);
 
             const removeButtons = screen.getAllByTitle('Remove from project');
             fireEvent.click(removeButtons[1]); // Carol, userId 2 — not the mocked current user
+            await answerConfirm('Remove Carol from this project?', 'accept');
 
-            expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/remove carol from this project/i));
-            expect(removeMemberMutate).toHaveBeenCalledWith(2);
-            confirmSpy.mockRestore();
+            await waitFor(() => expect(removeMemberMutate).toHaveBeenCalledWith(2));
         });
 
-        it('does not remove the member when the confirmation is cancelled', () => {
-            const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        it('does not remove the member when the confirmation is cancelled', async () => {
             mockMembers([makeMember()]);
             render(<ProjectMembersTab projectId={1} />);
 
             fireEvent.click(screen.getByTitle('Remove from project'));
+            await answerConfirm(/^Remove yourself from this project\?/, 'cancel');
 
-            expect(confirmSpy).toHaveBeenCalled();
+            await waitFor(() => expect(queryConfirm(/^Remove yourself/)).toBeNull());
             expect(removeMemberMutate).not.toHaveBeenCalled();
-            confirmSpy.mockRestore();
         });
 
         // Fixed: removing the last project_admin (the closest analog to an
         // "owner" this project model has) is now hard-blocked, before ever
         // prompting for confirmation.
         it('blocks removing the last admin, without ever prompting for confirmation', () => {
-            const confirmSpy = vi.spyOn(window, 'confirm');
             mockMembers([makeMember({ roleName: 'project_admin' })]);
             render(<ProjectMembersTab projectId={1} />);
 
             fireEvent.click(screen.getByTitle('Remove from project'));
 
-            expect(confirmSpy).not.toHaveBeenCalled();
+            expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
             expect(removeMemberMutate).not.toHaveBeenCalled();
             expect(screen.getByText(/cannot remove the last admin/i)).toBeInTheDocument();
-            confirmSpy.mockRestore();
         });
 
-        it('falls back through displayName to username, then to a generic label/initial', () => {
-            const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        it('falls back through displayName to username, then to a generic label/initial', async () => {
             mockMembers([
                 makeMember({ userId: 3, displayName: '', username: 'dave', roleName: 'project_developer' }),
                 makeMember({ userId: 4, displayName: '', username: '', roleName: 'project_developer' }),
@@ -329,16 +326,14 @@ describe('ProjectMembersTab', () => {
 
             const removeButtons = screen.getAllByTitle('Remove from project');
             fireEvent.click(removeButtons[0]); // dave: displayName empty, username set
-            expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/remove dave from this project/i));
+            await answerConfirm('Remove dave from this project?', 'cancel');
+            await waitFor(() => expect(queryConfirm(/^Remove dave/)).toBeNull());
 
             fireEvent.click(removeButtons[1]); // both empty -> generic "this member"
-            expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/remove this member from this project/i));
-
-            confirmSpy.mockRestore();
+            await answerConfirm('Remove this member from this project?', 'cancel');
         });
 
-        it('allows removing an admin when another admin remains', () => {
-            const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        it('allows removing an admin when another admin remains', async () => {
             mockMembers([
                 makeMember({ roleName: 'project_admin' }),
                 makeMember({ userId: 2, displayName: 'Carol', roleName: 'project_admin' }),
@@ -347,9 +342,9 @@ describe('ProjectMembersTab', () => {
 
             const removeButtons = screen.getAllByTitle('Remove from project');
             fireEvent.click(removeButtons[1]); // Carol — not the last admin
+            await answerConfirm('Remove Carol from this project?', 'accept');
 
-            expect(removeMemberMutate).toHaveBeenCalledWith(2);
-            confirmSpy.mockRestore();
+            await waitFor(() => expect(removeMemberMutate).toHaveBeenCalledWith(2));
         });
     });
 

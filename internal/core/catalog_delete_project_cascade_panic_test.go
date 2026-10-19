@@ -45,6 +45,16 @@ func (s *cascadePanicSpy) DeleteProjectIfEmpty(_ context.Context, id uint) (int,
 	return 0, nil
 }
 
+// WithTransaction / SuspendMachineIdentitiesForDeletedProject: DeleteProject runs the
+// cascade and its machine-identity step (#3433) in one transaction; this spy has none.
+func (s *cascadePanicSpy) WithTransaction(_ context.Context, fn func(storage.Storage) error) error {
+	return fn(s)
+}
+
+func (s *cascadePanicSpy) SuspendMachineIdentitiesForDeletedProject(_ context.Context, _ uint) ([]*models.MachineIdentity, error) {
+	return nil, nil
+}
+
 func (s *cascadePanicSpy) ListDynamicSecretConfigs(_ context.Context, _, _ uint) ([]*models.DynamicSecretConfig, error) {
 	if s.panicOnListConfigs {
 		panic("simulated ListDynamicSecretConfigs panic")
@@ -78,7 +88,7 @@ func TestDeleteProject_CascadePanicInListConfigs_StillReturnsNil(t *testing.T) {
 	spy := &cascadePanicSpy{panicOnListConfigs: true}
 	c := core.NewKeyorixCore(spy)
 
-	err := c.DeleteProject(context.Background(), 7, false)
+	err := c.DeleteProject(context.Background(), 0, 7, false)
 	require.NoError(t, err, "the project delete already committed — a panic in the best-effort post-commit cascade must not surface as an error")
 
 	require.Len(t, spy.auditEvents, 1)
@@ -95,7 +105,7 @@ func TestDeleteProject_CascadePanicInRevokeLeases_StillReturnsNil(t *testing.T) 
 	}
 	c := core.NewKeyorixCore(spy)
 
-	err := c.DeleteProject(context.Background(), 7, false)
+	err := c.DeleteProject(context.Background(), 0, 7, false)
 	require.NoError(t, err, "the project delete already committed — a panic revoking leases must not surface as an error")
 
 	require.Len(t, spy.auditEvents, 1)
@@ -115,7 +125,7 @@ func TestDeleteProject_PreCommitPanic_StillPropagates(t *testing.T) {
 	c := core.NewKeyorixCore(spy)
 
 	assert.Panics(t, func() {
-		_ = c.DeleteProject(context.Background(), 7, false)
+		_ = c.DeleteProject(context.Background(), 0, 7, false)
 	}, "a pre-commit panic must not be recovered by the post-commit cascade's recover")
 	assert.Empty(t, spy.auditEvents, "the post-commit cascade must never run if the pre-commit guard panicked")
 }
@@ -125,7 +135,7 @@ func TestDeleteProject_CascadeNoPanic_NoCascadeFailedAudit(t *testing.T) {
 	spy := &cascadePanicSpy{}
 	c := core.NewKeyorixCore(spy)
 
-	require.NoError(t, c.DeleteProject(context.Background(), 7, false))
+	require.NoError(t, c.DeleteProject(context.Background(), 0, 7, false))
 	for _, e := range spy.auditEvents {
 		assert.NotEqual(t, "dynamic_secret.project_cascade_failed", e.EventType, "a normal cascade with no configs must not write a cascade_failed event")
 	}

@@ -126,7 +126,31 @@ func Hash(raw string) string {
 // subtle.ConstantTimeCompare itself returns 0 (not a panic) on any length
 // mismatch, so a malformed or truncated storedHash fails closed rather than
 // comparing a partial prefix.
+//
+// An input that does not normalise to a well-formed key (keyLength symbols
+// from alphabet) is refused before any hash is compared: otherwise a record
+// whose KeyHash is the digest of a short or empty string -- hand-edited,
+// corrupted, restored from elsewhere -- would be satisfied by typing that
+// string (TestVerify_RefusesMalformedKeyEvenWhenHashMatches). The early return
+// depends only on the caller's own input, never on storedHash.
 func Verify(raw, storedHash string) bool {
+	if !wellFormed(Normalize(raw)) {
+		return false
+	}
 	computed := Hash(raw)
 	return subtle.ConstantTimeCompare([]byte(computed), []byte(storedHash)) == 1
+}
+
+// wellFormed reports whether normalized is exactly what Generate produces once
+// its grouping dashes are stripped: keyLength symbols, each from alphabet.
+func wellFormed(normalized string) bool {
+	if len(normalized) != keyLength {
+		return false
+	}
+	for i := range len(normalized) {
+		if strings.IndexByte(alphabet, normalized[i]) < 0 {
+			return false
+		}
+	}
+	return true
 }

@@ -35,7 +35,7 @@ func setupByRefScopeCore(t *testing.T) *core.KeyorixCore {
 		&models.Project{}, &models.Environment{}, &models.User{},
 		&models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.Session{},
+		&models.SecretNode{}, &models.SecretVersion{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{},
 		&models.SecretAccessSchedule{},
 		// AuditEvent/SecretAccessLog: a successful value-by-ref read now writes
 		// these synchronously and checks the result (SESSION-PERF, #2403 follow-up,

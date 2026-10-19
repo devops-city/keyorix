@@ -20,12 +20,12 @@ import (
 // panicOnCreateSecretAccessLogStorage wraps a real storage.Storage and makes
 // CreateSecretAccessLog panic unconditionally, mirroring the
 // panicOnEnforceSessionLimitStorage stub idiom used elsewhere in this package.
-type panicOnCreateSecretAccessLogStorage struct {
-	storage.Storage
-}
-
-func (s *panicOnCreateSecretAccessLogStorage) CreateSecretAccessLog(_ context.Context, _ *models.SecretAccessLog) error {
-	panic("injected fault: CreateSecretAccessLog")
+func panicOnCreateSecretAccessLogStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSecretAccessLog: func(_ storage.Storage, _ context.Context, _ *models.SecretAccessLog) error {
+			panic("injected fault: CreateSecretAccessLog")
+		},
+	})
 }
 
 // TestLogSecretUpdated_AccessLogPanic_StillSucceeds: a panic in
@@ -37,7 +37,7 @@ func TestLogSecretUpdated_AccessLogPanic_StillSucceeds(t *testing.T) {
 	c, _ := newBootstrappedCore(t)
 	ctx := context.Background()
 
-	c.storage = &panicOnCreateSecretAccessLogStorage{Storage: c.storage}
+	c.storage = panicOnCreateSecretAccessLogStorage(c.storage)
 
 	require.NotPanics(t, func() {
 		c.LogSecretUpdated(ctx, 1, 1, "admin", "my-secret", "127.0.0.1", "test-agent")

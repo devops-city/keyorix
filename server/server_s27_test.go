@@ -1079,16 +1079,14 @@ func TestStartHTTPServer_S27_AutoCertBadCipher(t *testing.T) {
 				Enabled: true,
 				Port:    "0",
 				TLS: config.TLSConfig{
-					Enabled:        true,
-					AutoCert:       true,
-					AllowedCiphers: []string{"INVALID_CIPHER_XYZ_S27"}, // not a recognised cipher suite
+					Enabled:  true,
+					AutoCert: true,
 					// #1475: cfg.Validate() (now enforced by initializeCoreService)
-					// requires at least one domain when AutoCert is set. Validate()
-					// never inspects AllowedCiphers, so this placeholder only
-					// satisfies the domains check — buildAutoCertTLSConfig still
-					// fails at applyTLSHardening's cipher-suite resolution, BEFORE
-					// domains/HostWhitelist ever matter (verified below), for the
-					// same reason as before.
+					// requires at least one domain when AutoCert is set. This
+					// placeholder only satisfies the domains check —
+					// buildAutoCertTLSConfig still fails at applyTLSHardening's
+					// cipher-suite resolution, BEFORE domains/HostWhitelist ever
+					// matter (verified below).
 					Domains: []string{"s27-autocert-badcipher.test.invalid"},
 				},
 			},
@@ -1096,6 +1094,10 @@ func TestStartHTTPServer_S27_AutoCertBadCipher(t *testing.T) {
 	}
 
 	coreService := mustInitCoreService(t, cfg)
+	// Validate() refuses an unrecognised cipher name since BOOT-REFUSALS-1 item 8,
+	// so the bad name is set after the core service is built: this test exercises
+	// the serve goroutine's own (defence-in-depth) cipher check.
+	cfg.Server.HTTP.TLS.AllowedCiphers = []string{"INVALID_CIPHER_XYZ_S27"} // not a recognised cipher suite
 
 	// #1475: confirm this fixture's placeholder Domains didn't change what the
 	// test actually exercises — the invalid cipher name must still make

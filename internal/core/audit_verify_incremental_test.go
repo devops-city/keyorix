@@ -503,25 +503,36 @@ func TestIncrementalVerify_PurgeBetweenSegments(t *testing.T) {
 
 // walkSpy fails the test on any full walk and records segment walks.
 type walkSpy struct {
-	storage.Storage
+	inner    storage.Storage
 	t        *testing.T
 	segments []storage.AuditChainSegment
 	rows     int64
 }
 
-func (s *walkSpy) VerifyAuditChain(ctx context.Context, a *storage.AuditChainAnchor) (*storage.AuditChainVerification, error) {
+func (s *walkSpy) VerifyAuditChain(next storage.Storage, ctx context.Context, a *storage.AuditChainAnchor) (*storage.AuditChainVerification, error) {
 	s.t.Errorf("a full chain walk ran on a path that must be incremental")
-	return s.Storage.VerifyAuditChain(ctx, a)
+	return next.VerifyAuditChain(ctx, a)
 }
 
-func (s *walkSpy) VerifyAuditChainSegment(ctx context.Context, seg storage.AuditChainSegment) (*storage.AuditChainVerification, error) {
+func (s *walkSpy) VerifyAuditChainSegment(next storage.Storage, ctx context.Context, seg storage.AuditChainSegment) (*storage.AuditChainVerification, error) {
 	s.segments = append(s.segments, seg)
-	v, err := s.Storage.VerifyAuditChainSegment(ctx, seg)
+	v, err := next.VerifyAuditChainSegment(ctx, seg)
 	if v != nil {
 		s.rows += v.ChainedEvents
 	}
 	return v, err
 }
+
+// wrap returns inner decorated with walkSpy's overrides.
+func (s *walkSpy) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		VerifyAuditChain:        s.VerifyAuditChain,
+		VerifyAuditChainSegment: s.VerifyAuditChainSegment,
+	})
+}
+
+// store returns s.inner decorated with walkSpy's overrides.
+func (s *walkSpy) store() storage.Storage { return s.wrap(s.inner) }
 
 // (6) Startup/tick cost is O(tail + one segment), never a full walk, once a
 // checkpoint exists; posture walks nothing at all.
@@ -534,8 +545,8 @@ func TestIncrementalVerify_TickAndPostureNeverWalkTheWholeChain(t *testing.T) {
 	require.NoError(t, err)
 	logIncrEvents(t, seed, clk, 7)
 
-	spy := &walkSpy{Storage: store.NewLocalStorage(db), t: t}
-	c := NewKeyorixCore(spy)
+	spy := &walkSpy{inner: store.NewLocalStorage(db), t: t}
+	c := NewKeyorixCore(spy.store())
 	c.now = clk.now
 	c.SetAuditCheckpointKey([]byte("reanchor-test-key-32-bytes-long"), "v1")
 	c.SetAuditIncrementalVerification(24*time.Hour, 10)

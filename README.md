@@ -33,12 +33,13 @@ Vault is powerful but requires a dedicated admin. Doppler is simple but SaaS-onl
 curl -L https://raw.githubusercontent.com/keyorixhq/keyorix/main/install.sh | sh
 ```
 
-That installs the `keyorix` **CLI** only. The server (`keyorix-server`) is a
-separate release asset (`keyorix-server_linux_amd64`, plus an `-airgap` variant,
-with `checksums.txt`) — see [QUICK_START.md](QUICK_START.md#get-the-binaries) — or a
+That installs the `keyorix` **CLI** only (Linux and macOS, amd64 and arm64). The server
+(`keyorix-server`) is a separate release asset (`keyorix-server_<os>_<arch>` for
+`linux`/`darwin` on `amd64`/`arm64`, plus a Linux-only `-airgap` variant, with
+`checksums.txt`) — see [QUICK_START.md](QUICK_START.md#get-the-binaries) — or a
 container image (`ghcr.io/keyorixhq/keyorix-server`).
 
-Or build from source:
+Or build from source (Go only; no C toolchain, the SQLite driver is pure Go):
 
 ```bash
 git clone https://github.com/keyorixhq/keyorix

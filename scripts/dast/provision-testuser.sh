@@ -17,11 +17,12 @@ fi
 . "$WORKDIR/lib-alert.sh"
 # shellcheck source=/dev/null
 . "$WORKDIR/lib-passwords.sh"
+# shellcheck source=/dev/null
+. "$WORKDIR/lib-http.sh"
 
 if [ -n "${KEYORIX_TESTUSER_USERNAME:-}" ] && [ -n "${KEYORIX_TESTUSER_PASSWORD:-}" ]; then
-    resp=$(curl -sf -X POST http://localhost:8080/auth/login \
-        -H 'Content-Type: application/json' \
-        -d "{\"username\":\"$KEYORIX_TESTUSER_USERNAME\",\"password\":\"$KEYORIX_TESTUSER_PASSWORD\"}" 2>/dev/null || true)
+    resp=$(dast_post_json http://localhost:8080/auth/login \
+        "{\"username\":\"$KEYORIX_TESTUSER_USERNAME\",\"password\":\"$KEYORIX_TESTUSER_PASSWORD\"}" -sf 2>/dev/null || true)
     if echo "${resp:-}" | jq -e '.success == true' >/dev/null 2>&1; then
         echo "dast-viewer test user already provisioned and working — nothing to do."
         exit 0
@@ -32,9 +33,8 @@ fi
 : "${KEYORIX_ADMIN_USERNAME:?}"
 : "${KEYORIX_ADMIN_PASSWORD:?}"
 
-ADMIN_TOKEN=$(curl -sf -X POST http://localhost:8080/auth/login \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$KEYORIX_ADMIN_USERNAME\",\"password\":\"$KEYORIX_ADMIN_PASSWORD\"}" \
+ADMIN_TOKEN=$(dast_post_json http://localhost:8080/auth/login \
+    "{\"username\":\"$KEYORIX_ADMIN_USERNAME\",\"password\":\"$KEYORIX_ADMIN_PASSWORD\"}" -sf \
     2>/dev/null | jq -r '.data.token // empty')
 if [ -z "$ADMIN_TOKEN" ]; then
     dast_alert "provision-testuser: could not mint admin token to provision the viewer test user"
@@ -42,10 +42,8 @@ if [ -z "$ADMIN_TOKEN" ]; then
 fi
 
 NEW_PASSWORD="$(generate_compliant_password "dast-viewer" "DAST" "Viewer")"
-CREATE_RESP=$(curl -s -X POST http://localhost:8080/api/v1/users \
-    -H "Authorization: Bearer $ADMIN_TOKEN" \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"dast-viewer\",\"email\":\"dast-viewer@keyorix.local\",\"display_name\":\"DAST Viewer\",\"password\":\"$NEW_PASSWORD\",\"role\":\"viewer\"}")
+CREATE_RESP=$(dast_post_json_bearer "$ADMIN_TOKEN" http://localhost:8080/api/v1/users \
+    "{\"username\":\"dast-viewer\",\"email\":\"dast-viewer@keyorix.local\",\"display_name\":\"DAST Viewer\",\"password\":\"$NEW_PASSWORD\",\"role\":\"viewer\"}" -s)
 unset ADMIN_TOKEN
 
 if ! echo "$CREATE_RESP" | jq -e '.success == true' >/dev/null 2>&1; then

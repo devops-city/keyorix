@@ -27,24 +27,21 @@ import (
 // webauthnStorageErrStub / userRoleScopesStub pattern used elsewhere in this
 // package for the same reason (MockStorage's fixed stubs can't be made to
 // fail via mock.Called()).
-type secretReadErrStub struct {
-	corestorage.Storage
-	latestVersionErr error
-	getByNameErr     error
-}
-
-func (s *secretReadErrStub) GetLatestSecretVersion(ctx context.Context, secretID uint) (*models.SecretVersion, error) {
-	if s.latestVersionErr != nil {
-		return nil, s.latestVersionErr
-	}
-	return s.Storage.GetLatestSecretVersion(ctx, secretID)
-}
-
-func (s *secretReadErrStub) GetSecretByName(ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error) {
-	if s.getByNameErr != nil {
-		return nil, s.getByNameErr
-	}
-	return s.Storage.GetSecretByName(ctx, name, projectID, environmentID)
+func secretReadErrStub(inner corestorage.Storage, latestVersionErr error, getByNameErr error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetLatestSecretVersion: func(next corestorage.Storage, ctx context.Context, secretID uint) (*models.SecretVersion, error) {
+			if latestVersionErr != nil {
+				return nil, latestVersionErr
+			}
+			return next.GetLatestSecretVersion(ctx, secretID)
+		},
+		GetSecretByName: func(next corestorage.Storage, ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error) {
+			if getByNameErr != nil {
+				return nil, getByNameErr
+			}
+			return next.GetSecretByName(ctx, name, projectID, environmentID)
+		},
+	})
 }
 
 // TestUpdateSecret_LatestVersionReadErrorPropagates: a real (non-not-found)
@@ -72,7 +69,7 @@ func TestUpdateSecret_LatestVersionReadErrorPropagates(t *testing.T) {
 	require.NoError(t, err)
 
 	wantErr := errors.New("db down")
-	c.storage = &secretReadErrStub{Storage: c.storage, latestVersionErr: wantErr}
+	c.storage = secretReadErrStub(c.storage, wantErr, nil)
 
 	_, err = c.UpdateSecret(ctx, &UpdateSecretRequest{ID: secret.ID, Value: []byte("v2-value"), UpdatedBy: "tester"})
 	require.Error(t, err)
@@ -105,7 +102,7 @@ func TestCreateSecret_DuplicateNameCheckReadErrorPropagates(t *testing.T) {
 	envID := envs[0].ID
 
 	wantErr := errors.New("db down")
-	c.storage = &secretReadErrStub{Storage: c.storage, getByNameErr: wantErr}
+	c.storage = secretReadErrStub(c.storage, nil, wantErr)
 
 	_, err = c.CreateSecret(ctx, &CreateSecretRequest{
 		Name: "new-secret", Value: []byte("value"), ProjectID: proj.ID, EnvironmentID: envID,

@@ -30,6 +30,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -41,6 +42,21 @@ import (
 // construction, and sharing one across goroutines would be a different bug.
 type auditForwardSink struct {
 	persisted []*models.AuditEvent
+	// failClosed makes a write that does not persist (error or panic) a
+	// failure of the enclosing mutation instead of a logged best-effort miss:
+	// the first such failure is kept in err, and withAuditedMutation returns
+	// it so the transaction rolls back (AUDIT-TX-2). false keeps the historical
+	// best-effort semantics (DecideAccessReviewItem's revoke path).
+	failClosed bool
+	err        error
+}
+
+// fail records a write that did not persist, when the sink is fail-closed.
+func (s *auditForwardSink) fail(eventType string, cause error) {
+	if s == nil || !s.failClosed || s.err != nil {
+		return
+	}
+	s.err = fmt.Errorf("%w: audit event %q: %v", ErrMutationAuditUnavailable, eventType, cause)
 }
 
 // Flush runs the deferred side effects, in write order. Call it ONLY after the
@@ -54,7 +70,9 @@ func (s *auditForwardSink) Flush(c *KeyorixCore) {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logAuditEmitPanic(e, r)
+					// Flush runs after the commit with no request context to
+					// correlate against; log without a request ID.
+					logAuditEmitPanic(context.Background(), e, r)
 				}
 			}()
 			c.afterAuditEventPersisted(e)
@@ -99,7 +117,8 @@ func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *m
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			logAuditEmitPanic(event, r)
+			logAuditEmitPanic(ctx, event, r)
+			tgt.sink.fail(event.EventType, fmt.Errorf("audit write panicked: %v", r))
 			persisted = false
 		}
 	}()
@@ -108,7 +127,8 @@ func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *m
 	}
 	prepareAuditEventForEmit(ctx, event)
 	if err := tgt.st.LogAuditEvent(ctx, event); err != nil {
-		logAuditEmitFailure(event, err)
+		logAuditEmitFailure(ctx, event, err)
+		tgt.sink.fail(event.EventType, err)
 		return false
 	}
 	tgt.sink.persisted = append(tgt.sink.persisted, event)

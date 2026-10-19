@@ -196,7 +196,10 @@ func lcCases() []lcCase {
 				require.NoError(t, on.c.DeleteUser(ctx, w.adminID, u.ID))
 				return ""
 			}},
-		{name: "soft-deleted user row, session row intact", want: [2]string{"200", "200"},
+		// CACHE-FAILCLOSED-1: a missing account row is a definitive verdict
+		// (deny + evict), no longer an unreadable account that degraded to
+		// the cached login ("200", "200" until then).
+		{name: "soft-deleted user row, session row intact", want: [2]string{lc401, lc401},
 			change: func(t *testing.T, _ *lcWorld, on *svReplica, u *models.User, _ string) string {
 				require.NoError(t, on.db.Delete(&models.User{}, u.ID).Error)
 				return ""

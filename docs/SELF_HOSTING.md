@@ -5,6 +5,10 @@ outbound telemetry. This guide covers a Docker Compose deployment (web UI + API
 server + PostgreSQL), the production concerns that actually matter (encryption
 keys, backups, upgrades, TLS), and how to recover.
 
+If the server refuses to start (a configuration error, a key-file permission, a schema
+epoch newer than the binary, a lock held by another process), the message and the fix
+are in [operator/startup-refusals.md](operator/startup-refusals.md).
+
 The stack is three containers:
 
 | Service    | Image                              | Purpose                                  |
@@ -136,14 +140,20 @@ Non-secret settings stay in `.env`: `KEYORIX_ADMIN_USERNAME` (default `admin`),
 `uid`/`gid`/`mode` (it warns "not supported"), so a `0600` file on the host would be
 unreadable by the containers' non-root users. `init-secrets.sh` writes the files
 `0640` with your primary group and records that gid as `KEYORIX_SECRETS_GID`; the
-`postgres` and `backend` containers join that group. Nothing is world-readable, and
-the server's secret-file permission check (nothing for "other", no group write; a
-group-readable file must not be owned by the container's own user) passes. Run the
-script as a regular user, not root. If your uid is `1001` (the uid the server
-container runs as) the server would refuse the group-readable files it "owns", and the
-script says so: hand them to another owner with `sudo chown root:<your gid> secrets/*`
-and re-run it. Docker Desktop (macOS/Windows) maps file ownership
-differently; this layout is for Linux hosts.
+`postgres` and `backend` containers join that group. Nothing is world-readable. The
+server's secret-file check also asks who owns each file (#3393): only root or the
+server's own uid is trusted, because the owner can rewrite the file. So, after running
+the script as a regular user, hand the files to root, keeping your group:
+
+```sh
+sudo chown root:<your gid> secrets/*
+```
+
+The script prints this command with your gid filled in. Until you run it, the backend
+refuses to start and names each file and its owner uid. If your uid is `1001` (the uid
+the server container runs as), the script refuses outright: the server would also
+refuse a group-readable file it owns. Docker Desktop (macOS/Windows) maps file
+ownership differently; this layout is for Linux hosts.
 
 **Upgrading an install that keeps its passwords in `.env`:**
 
@@ -161,9 +171,9 @@ your stored secrets decryptable and the existing `postgres_data` volume working.
 set `KEYORIX_<NAME>_FILE` to a path (Docker secrets mount under `/run/secrets/`, a
 Kubernetes Secret volume wherever you mount it). Setting both `X` and `X_FILE` is a
 startup error, not a precedence rule, and an unreadable or empty file stops the server.
-The master-password file must be `0600`/`0400` (or a `0440` mount owned by another user,
-e.g. root, in a group the container holds -- Kubernetes `fsGroup`, Docker `group_add`);
-a looser one is refused. The container entrypoint passes `X_FILE` through to the server
+The master-password file must be `0600`/`0400` (or a `0440` mount owned by root in a
+group the container holds -- Kubernetes `fsGroup`, Docker `group_add`) and owned by the
+server's user or root; anything else is refused. The container entrypoint passes `X_FILE` through to the server
 unchanged and never exports a value it read from a file. Details and the full list of
 supported variables: [CONFIGURATION.md](CONFIGURATION.md#secrets-from-files-name_file).
 
@@ -190,6 +200,18 @@ Two ways to permanently lose every stored secret:
    `keyorix-server admin encryption rotate-kek` — never by editing `.env`.)
 2. **Losing the `keyorix_keys` volume.** Back it up (next section).
 
+The files on `keyorix_keys` and `keyorix_tls` belong to the server's uid (`1001`): the
+volumes are created from the image's `/app/keys` and `/app/tls`, which are owned by that
+uid, and the server writes the files itself. The server refuses (or, with
+`security.enable_file_permission_check` off, warns about) a key file owned by any other
+account except root (#3410), because the owner could replace it. If you copied key files in
+by hand and the server names a file and an owner uid, give the files back to the server's
+uid, with the backend stopped:
+
+```sh
+docker compose run --rm --no-deps --user 0 --cap-add CHOWN --entrypoint chown backend -R 1001:1001 /app/keys /app/tls
+```
+
 ### DEK rotation procedure
 
 To generate a new Data Encryption Key and re-encrypt every secret in the database:
@@ -213,6 +235,11 @@ The rotation re-encrypts all secrets, credentials, and session tokens in a
 single transaction.  If the server crashes mid-sweep, the orphaned pending key
 file is detected and cleaned up automatically on the next `--confirm` run.
 Back up the `keyorix_keys` volume after a successful rotation.
+
+With several server replicas on one PostgreSQL database, stop all of them, and
+copy the new key files to every replica before starting it: a replica with the
+old `dek.key` refuses to start. See [`operator/j6-key-rotation.md`](operator/j6-key-rotation.md)
+("Several server replicas").
 
 Store `KEYORIX_MASTER_PASSWORD` in your own password manager / secret store. It is
 not recoverable from the system.
@@ -247,7 +274,8 @@ docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
 > command fails with `failed to acquire the encryption key lock (another process
 > is using it)`. With those older images (a stack still pinned to them) stop `backend` first and use
 > `docker compose run --rm -v "$PWD/backups:/out" backend ./keyorix-server admin backup --output /out/keyorix-backup.tar.gz`
-> (`mkdir -m 777 backups` first: the container user is uid 1001).
+> (`mkdir -m 700 backups` and `sudo chown 1001 backups` first: the container user is uid 1001,
+> and the archive holds the database and the wrapped key files, so keep it owner-only).
 
 On Postgres, this reads through a single `REPEATABLE READ` snapshot
 transaction by default — every table sees the identical point-in-time view,
@@ -276,11 +304,14 @@ running one). The throwaway container has its own filesystem, so mount the
 archive into it with `-v` (a `docker compose cp` into the stopped `backend`
 container is not visible to `run`, and fails outright after `down -v` because
 no container exists). The container user is uid 1001: the archive must be
-readable by it (`chmod 644`).
+readable by it: give it to that user (`chown 1001`) and keep the mode owner-only
+(`chmod 600`) — the archive holds the database and the wrapped key files, so it
+must not be group- or world-readable.
 
 ```sh
 docker compose stop backend            # (no-op on a freshly wiped host)
-chmod 644 ./keyorix-backup-YYYY-MM-DD.tar.gz
+sudo chown 1001 ./keyorix-backup-YYYY-MM-DD.tar.gz
+chmod 600 ./keyorix-backup-YYYY-MM-DD.tar.gz
 docker compose run --rm -v "$PWD/keyorix-backup-YYYY-MM-DD.tar.gz:/tmp/backup.tar.gz:ro" \
   backend ./keyorix-server admin restore --input /tmp/backup.tar.gz
 docker compose up -d
@@ -655,7 +686,7 @@ dropping or failing audit events is a compliance gap.
 | Backend logs `password authentication failed` | The `postgres_data` volume was initialised with a different password. For a *new* install, `docker compose down -v` and start fresh (this wipes data — only for a clean install). |
 | Backend can't decrypt secrets after a change | `KEYORIX_MASTER_PASSWORD` changed or the `keyorix_keys` volume was lost. Restore both from backup (section 5). |
 | Login returns 404 | Reverse proxy not forwarding `/auth/` — Keyorix serves login at the root path, not under `/api/`. The bundled `web` image already handles this. |
-| Server refuses to start: `database schema epoch N is newer than this binary's schema epoch M` (multi-replica deployments only — see [ADR-039](adr-039-ha-deployment.md); the bundled Helm chart is pinned to 1 replica and cannot hit this) | Two possible causes, and the message can't tell them apart on its own — check the "recorded at ... ago" timestamp in the log line against your own rollout: **(a) rolling upgrade in progress** — a sibling replica already migrated to the new schema epoch, and this pod is still running the old binary. Expected and self-resolving: this pod will be replaced by the new image (or crash-loop briefly) until the rollout completes, then it stops recurring. This repo does not orchestrate that rollout for you (see ADR-039). **(b) genuine downgrade** — this binary was rolled back against a schema a newer version already migrated. Upgrade this binary to match, or restore a backup taken before the newer version ran. The server deliberately refuses to start rather than guess which case applies — see [ADR-097](adr-097-schema-epoch-downgrade-guard.md) and [ADR-101](adr-101-schema-epoch-compatibility-floor.md). |
+| Server refuses to start: `database schema epoch N is newer than this binary's schema epoch M` (multi-replica deployments only — see [ADR-039](adr-039-ha-deployment.md); the bundled Helm chart runs 1 replica by default and cannot hit this until the chart's replica count is raised with `--set server.replicas=2` or more) | Two possible causes, and the message can't tell them apart on its own — check the "recorded at ... ago" timestamp in the log line against your own rollout: **(a) rolling upgrade in progress** — a sibling replica already migrated to the new schema epoch, and this pod is still running the old binary. Expected and self-resolving: this pod will be replaced by the new image (or crash-loop briefly) until the rollout completes, then it stops recurring. This repo does not orchestrate that rollout for you (see ADR-039). **(b) genuine downgrade** — this binary was rolled back against a schema a newer version already migrated. Upgrade this binary to match, or restore a backup taken before the newer version ran. The server deliberately refuses to start rather than guess which case applies — see [ADR-097](adr-097-schema-epoch-downgrade-guard.md) and [ADR-101](adr-101-schema-epoch-compatibility-floor.md). |
 
 ### SQLite write contention (`503` + `Retry-After`)
 

@@ -10,7 +10,7 @@
 // alone; CHURN-2). Each row now lives in its OWN file that registers itself
 // from init(), so two PRs adding two rows touch two different files:
 //
-//	mfaStepUpPurposeAllowlist   mfa_stepup_purpose_allow_entry_<slug>_test.go
+//	(mfaStepUpPurposeAllowlist moved to internal/core/guards, see its registry_entries_test.go)
 //	g4FuzzSeedPrograms          cross_replica_seed_entry_<issue>_test.go
 //	pendingSeedFix              pending_seed_fix_entry_<issue>_test.go
 //
@@ -68,12 +68,12 @@ func (r *sliceRegistry[T]) add(name string, v T) {
 
 // mapRegistry adds entries to a map keyed by the entry's real key, panicking
 // on a duplicate key instead of silently overwriting it.
-type mapRegistry[V any] struct {
+type mapRegistry[V any] struct { //nolint:unused // only pendingSeedFixRegistry uses it today (its table is empty); see REGISTRY-ENTRIES.md
 	table map[string]V
 	label string
 }
 
-func (r mapRegistry[V]) add(key string, v V) {
+func (r mapRegistry[V]) add(key string, v V) { //nolint:unused // see the type
 	if _, dup := r.table[key]; dup {
 		panic(fmt.Sprintf("%s: key %q is registered twice — one file per entry, with a unique key", r.label, key))
 	}
@@ -81,15 +81,11 @@ func (r mapRegistry[V]) add(key string, v V) {
 }
 
 var (
-	g4FuzzSeedsReg           = &sliceRegistry[g4FuzzSeed]{table: &g4FuzzSeedPrograms, label: "g4FuzzSeedPrograms"}
-	mfaStepUpPurposeAllowReg = mapRegistry[mfaStepUpAllowEntry]{table: mfaStepUpPurposeAllowlist, label: "mfaStepUpPurposeAllowlist"}
-	pendingSeedFixRegistry   = mapRegistry[int]{table: pendingSeedFix, label: "pendingSeedFix"} //nolint:unused // the table is empty today; its first row is a new file, see REGISTRY-ENTRIES.md
+	g4FuzzSeedsReg         = &sliceRegistry[g4FuzzSeed]{table: &g4FuzzSeedPrograms, label: "g4FuzzSeedPrograms"}
+	pendingSeedFixRegistry = mapRegistry[int]{table: pendingSeedFix, label: "pendingSeedFix"} //nolint:unused // the table is empty today; its first row is a new file, see REGISTRY-ENTRIES.md
 )
 
 func registerG4FuzzSeed(name string, s g4FuzzSeed) {
 	g4FuzzSeedsReg.add(name, s)
-}
-func registerMFAStepUpPurposeAllow(key string, e mfaStepUpAllowEntry) {
-	mfaStepUpPurposeAllowReg.add(key, e)
 }
 func registerPendingSeedFix(issue string, pr int) { pendingSeedFixRegistry.add(issue, pr) } //nolint:unused // see REGISTRY-ENTRIES.md

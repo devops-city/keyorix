@@ -8,57 +8,56 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// failingDashboardAuditStore wraps LocalStorage and fails every GetAuditLogs
+// failingDashboardAuditStore wraps inner and fails every GetAuditLogs
 // call, simulating an audit-log query outage while every other dashboard
 // sub-check still runs for real.
-type failingDashboardAuditStore struct {
-	*store.LocalStorage
+func failingDashboardAuditStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetAuditLogs: func(_ storage.Storage, _ context.Context, _ *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
+			return nil, 0, errors.New("simulated audit log outage")
+		},
+	})
 }
 
-func (s *failingDashboardAuditStore) GetAuditLogs(_ context.Context, _ *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
-	return nil, 0, errors.New("simulated audit log outage")
-}
-
-// failingDashboardStatsStore wraps LocalStorage and fails GetStats, simulating
+// failingDashboardStatsStore wraps inner and fails GetStats, simulating
 // a DB error on the active-users rollup.
-type failingDashboardStatsStore struct {
-	*store.LocalStorage
+func failingDashboardStatsStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetStats: func(_ storage.Storage, _ context.Context) (*storage.StorageStats, error) {
+			return nil, errors.New("simulated stats query failure")
+		},
+	})
 }
 
-func (s *failingDashboardStatsStore) GetStats(_ context.Context) (*storage.StorageStats, error) {
-	return nil, errors.New("simulated stats query failure")
-}
-
-// failingDashboardUsersStore wraps LocalStorage and fails ListUsers, simulating
+// failingDashboardUsersStore wraps inner and fails ListUsers, simulating
 // a DB error on the inactive-users rollup.
-type failingDashboardUsersStore struct {
-	*store.LocalStorage
+func failingDashboardUsersStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListUsers: func(_ storage.Storage, _ context.Context, _ *storage.UserFilter) ([]*models.User, int64, error) {
+			return nil, 0, errors.New("simulated users query failure")
+		},
+	})
 }
 
-func (s *failingDashboardUsersStore) ListUsers(_ context.Context, _ *storage.UserFilter) ([]*models.User, int64, error) {
-	return nil, 0, errors.New("simulated users query failure")
-}
-
-// failingExpiringSecretsStore wraps LocalStorage and fails ListSecrets only
+// failingExpiringSecretsStore wraps inner and fails ListSecrets only
 // when called with the ExpiresBefore filter getExpiringSecrets uses, leaving
 // the unrelated TotalSecrets ListSecrets call (no ExpiresBefore) untouched.
-type failingExpiringSecretsStore struct {
-	*store.LocalStorage
+func failingExpiringSecretsStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSecrets: func(next storage.Storage, ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
+			if filter != nil && filter.ExpiresBefore != nil {
+				return nil, 0, errors.New("simulated expiring-secrets query failure")
+			}
+			return next.ListSecrets(ctx, filter)
+		},
+	})
 }
 
-func (s *failingExpiringSecretsStore) ListSecrets(ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
-	if filter != nil && filter.ExpiresBefore != nil {
-		return nil, 0, errors.New("simulated expiring-secrets query failure")
-	}
-	return s.LocalStorage.ListSecrets(ctx, filter)
-}
-
-// failingDashboardTotalSecretsStore wraps LocalStorage and fails the query the
+// failingDashboardTotalSecretsStore wraps inner and fails the query the
 // TOTAL SECRETS rollup depends on, leaving the dashboard's other sub-checks —
 // notably the expiring-secrets ListSecrets call — untouched.
 //
@@ -76,47 +75,47 @@ func (s *failingExpiringSecretsStore) ListSecrets(ctx context.Context, filter *s
 // GetDashboardStats calls it — the audit.read gate goes through AuthorizePrincipal
 // -> GetUserRoleIDsAt, and the expiring-secrets rollup through ListSecrets — so this
 // fails exactly one sub-check, as before.
-type failingDashboardTotalSecretsStore struct {
-	*store.LocalStorage
+func failingDashboardTotalSecretsStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoleScopes: func(_ storage.Storage, _ context.Context, _ uint) ([]storage.Scope, error) {
+			return nil, errors.New("simulated total-secrets query failure")
+		},
+	})
 }
 
-func (s *failingDashboardTotalSecretsStore) GetUserRoleScopes(_ context.Context, _ uint) ([]storage.Scope, error) {
-	return nil, errors.New("simulated total-secrets query failure")
-}
-
-// failingDashboardSharesByOwnerStore wraps LocalStorage and fails
+// failingDashboardSharesByOwnerStore wraps inner and fails
 // ListSharesByOwner, simulating a DB error on the shared-secrets rollup.
-type failingDashboardSharesByOwnerStore struct {
-	*store.LocalStorage
+func failingDashboardSharesByOwnerStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSharesByOwner: func(_ storage.Storage, _ context.Context, _ uint, _ time.Time) ([]*models.ShareRecord, error) {
+			return nil, errors.New("simulated shares-by-owner query failure")
+		},
+	})
 }
 
-func (s *failingDashboardSharesByOwnerStore) ListSharesByOwner(_ context.Context, _ uint, _ time.Time) ([]*models.ShareRecord, error) {
-	return nil, errors.New("simulated shares-by-owner query failure")
-}
-
-// failingDashboardSharesByUserStore wraps LocalStorage and fails
+// failingDashboardSharesByUserStore wraps inner and fails
 // ListSharesByUser, simulating a DB error on the shared-with-me rollup.
-type failingDashboardSharesByUserStore struct {
-	*store.LocalStorage
+func failingDashboardSharesByUserStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSharesByUser: func(_ storage.Storage, _ context.Context, _ uint, _ time.Time) ([]*models.ShareRecord, error) {
+			return nil, errors.New("simulated shares-by-user query failure")
+		},
+	})
 }
 
-func (s *failingDashboardSharesByUserStore) ListSharesByUser(_ context.Context, _ uint, _ time.Time) ([]*models.ShareRecord, error) {
-	return nil, errors.New("simulated shares-by-user query failure")
-}
-
-// failingDashboardRecentActivityStore wraps LocalStorage and fails only the
+// failingDashboardRecentActivityStore wraps inner and fails only the
 // recent-activity GetAuditLogs call (identified by having no StartTime set —
 // the deployment-wide audit-count sub-checks below all set StartTime),
 // leaving those sub-checks untouched.
-type failingDashboardRecentActivityStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingDashboardRecentActivityStore) GetAuditLogs(ctx context.Context, filter *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
-	if filter != nil && filter.StartTime == nil {
-		return nil, 0, errors.New("simulated recent-activity query failure")
-	}
-	return s.LocalStorage.GetAuditLogs(ctx, filter)
+func failingDashboardRecentActivityStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetAuditLogs: func(next storage.Storage, ctx context.Context, filter *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
+			if filter != nil && filter.StartTime == nil {
+				return nil, 0, errors.New("simulated recent-activity query failure")
+			}
+			return next.GetAuditLogs(ctx, filter)
+		},
+	})
 }
 
 // #394: on a real deployment, a failed audit-log/user-count query left every
@@ -128,7 +127,7 @@ func TestGetDashboardStats_DegradedOnAuditLogsQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	auditorID := seedUserWithRole(t, st, "auditor1", "system_auditor", storage.Scope{})
-	c.storage = &failingDashboardAuditStore{LocalStorage: st}
+	c.storage = failingDashboardAuditStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), auditorID, "auditor1", auditorID)
 	require.NoError(t, err, "a single failed sub-check must not abort the whole dashboard")
@@ -144,6 +143,8 @@ func TestGetDashboardStats_DegradedOnAuditLogsQueryError(t *testing.T) {
 	assert.Zero(t, stats.RefusedSecretReads24h)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_logins_24h"), "expected a failed_logins_24h entry, got %v", stats.DegradedReasons)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "refused_secret_reads_24h"), "expected a refused_secret_reads_24h entry, got %v", stats.DegradedReasons)
+	assert.Zero(t, stats.FailedLoginsWrongSecondFactor24h)
+	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_second_factor_24h"), "expected a failed_second_factor_24h entry, got %v", stats.DegradedReasons)
 }
 
 // DASH-FAILED-AUTH-LABEL: the dashboard used to count every success=false audit event
@@ -174,11 +175,42 @@ func TestGetDashboardStats_FailedLoginsAndRefusedReadsCountedApart(t *testing.T)
 	assert.Equal(t, int64(3), stats.RefusedSecretReads24h, "refused secret reads only")
 }
 
+// DASH-FAILED-2FA: "Failed Logins (24h)" also counts a refused second factor (mfa.failed,
+// webauthn.failed), with the wrong-password / wrong-second-factor split. Rows written
+// before #3363 carry success=true and must still count; mfa.error (a fault, no verdict)
+// and refused secret reads must not.
+func TestGetDashboardStats_FailedLoginsSplitWrongPasswordFromWrongSecondFactor(t *testing.T) {
+	t.Parallel()
+	c, st := newBootstrappedCore(t)
+	ctx := context.Background()
+	auditorID := seedUserWithRole(t, st, "auditor-2fa", "system_auditor", storage.Scope{})
+
+	for range 2 {
+		c.writeAuditEventFailed(ctx, "auth.login_failed", nil, nil, "192.0.2.1", "bad password")
+	}
+	c.writeAuditEventFailed(ctx, "mfa.failed", &auditorID, nil, "192.0.2.2", "wrong code")
+	// A pre-#3363 row: the same event stored by the success writer.
+	c.writeAuditEvent(ctx, "mfa.failed", &auditorID, nil, "wrong code, historical row")
+	c.writeAuditEventFailed(ctx, "webauthn.failed", &auditorID, nil, "192.0.2.3", "bad assertion")
+	// Counted in neither bucket.
+	c.writeAuditEventFailed(ctx, "mfa.error", &auditorID, nil, "192.0.2.4", "storage fault before a verdict")
+	c.writeAuditEventFailed(ctx, "secret.read", &auditorID, nil, "192.0.2.5", "refused")
+	c.writeAuditEvent(ctx, "auth.login", &auditorID, nil, "ok login")
+
+	stats, err := c.GetDashboardStats(ctx, auditorID, "auditor-2fa", auditorID)
+	require.NoError(t, err)
+	assert.False(t, stats.Degraded, "reasons: %v", stats.DegradedReasons)
+	assert.Equal(t, int64(2), stats.FailedLoginsWrongPassword24h, "auth.login_failed only")
+	assert.Equal(t, int64(3), stats.FailedLoginsWrongSecondFactor24h, "mfa.failed (both rows) + webauthn.failed")
+	assert.Equal(t, int64(5), stats.FailedAuthAttempts24h, "the headline is the sum of the two buckets")
+	assert.Equal(t, int64(1), stats.RefusedSecretReads24h, "refused reads stay apart")
+}
+
 func TestGetDashboardStats_DegradedOnActiveUsersQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	auditorID := seedUserWithRole(t, st, "auditor2", "system_auditor", storage.Scope{})
-	c.storage = &failingDashboardStatsStore{LocalStorage: st}
+	c.storage = failingDashboardStatsStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), auditorID, "auditor2", auditorID)
 	require.NoError(t, err)
@@ -192,7 +224,7 @@ func TestGetDashboardStats_DegradedOnInactiveUsersQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	auditorID := seedUserWithRole(t, st, "auditor3", "system_auditor", storage.Scope{})
-	c.storage = &failingDashboardUsersStore{LocalStorage: st}
+	c.storage = failingDashboardUsersStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), auditorID, "auditor3", auditorID)
 	require.NoError(t, err)
@@ -210,7 +242,7 @@ func TestGetDashboardStats_DegradedOnExpiringSecretsQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	viewerID := seedUserWithRole(t, st, "viewer1", "system_viewer", storage.Scope{})
-	c.storage = &failingExpiringSecretsStore{LocalStorage: st}
+	c.storage = failingExpiringSecretsStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), viewerID, "viewer1", viewerID)
 	require.NoError(t, err)
@@ -235,7 +267,7 @@ func TestGetDashboardStats_DegradedOnTotalSecretsQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	viewerID := seedUserWithRole(t, st, "viewer2", "system_viewer", storage.Scope{})
-	c.storage = &failingDashboardTotalSecretsStore{LocalStorage: st}
+	c.storage = failingDashboardTotalSecretsStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), viewerID, "viewer2", viewerID)
 	require.NoError(t, err, "a single failed sub-check must not abort the whole dashboard")
@@ -249,7 +281,7 @@ func TestGetDashboardStats_DegradedOnSharedSecretsQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	viewerID := seedUserWithRole(t, st, "viewer3", "system_viewer", storage.Scope{})
-	c.storage = &failingDashboardSharesByOwnerStore{LocalStorage: st}
+	c.storage = failingDashboardSharesByOwnerStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), viewerID, "viewer3", viewerID)
 	require.NoError(t, err)
@@ -263,7 +295,7 @@ func TestGetDashboardStats_DegradedOnSharedWithMeQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	viewerID := seedUserWithRole(t, st, "viewer4", "system_viewer", storage.Scope{})
-	c.storage = &failingDashboardSharesByUserStore{LocalStorage: st}
+	c.storage = failingDashboardSharesByUserStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), viewerID, "viewer4", viewerID)
 	require.NoError(t, err)
@@ -277,7 +309,7 @@ func TestGetDashboardStats_DegradedOnRecentActivityQueryError(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	viewerID := seedUserWithRole(t, st, "viewer5", "system_viewer", storage.Scope{})
-	c.storage = &failingDashboardRecentActivityStore{LocalStorage: st}
+	c.storage = failingDashboardRecentActivityStore(st)
 
 	stats, err := c.GetDashboardStats(context.Background(), viewerID, "viewer5", viewerID)
 	require.NoError(t, err)

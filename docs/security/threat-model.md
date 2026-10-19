@@ -46,14 +46,14 @@ never as closed.
 | # | Boundary | What crosses it | Enforcement chokepoint |
 |---|---|---|---|
 | B1 | **CLI → server (remote mode)** | HTTP requests carrying a session/PAT/machine token | Same HTTP middleware + `core.Authorize` as any browser/API client |
-| B2 | **CLI → local SQLite (local mode)** | Direct storage-layer calls, no network hop | **None equivalent to B1** — see §5.2, this is today's largest open item |
+| B2 | ~~CLI → local SQLite (local mode)~~ **Removed** | The CLI has no local mode: `cli/` is its own Go module, imports no server internals or database driver, and only speaks HTTP | Closed by ADR-108 Decision A — see §5.2 |
 | B3 | **REST API** | Every human- and machine-facing HTTP request | `core.Authorize(user, permission, scope)` at every handler |
 | B4 | **gRPC API** | A partial (86-RPC), data-plane-only subset of the REST surface | The *same* `core.Authorize` call, reached from `server/grpc/services/*` (ADR-105) |
 | B5 | **Web UI ↔ server** | Session cookie (`kx_session`, HttpOnly+Secure+SameSite=Lax) + CSRF double-submit token | `server/middleware/session_cookie.go`; verified in `security-review-2026-09.md`'s frontend token-storage check |
 | B6 | **k8s-sync / operator / ESO ↔ server** | Machine-identity token, by-reference secret reads (`GET /api/v1/secrets/value?ref=…`, ADR-059) | Same `core.Authorize` chokepoint; least-privilege namespace-scoped RBAC on the Kubernetes side (ADR-076) |
 | B7 | **Server ↔ external connectors/KMS/rotation targets** (AWS/Azure/GCP SDKs, Vault, Postgres/MySQL rotation targets) | Outbound calls carrying operator-configured credentials | Per-connector `allowed_refs` allowlist + project/environment scoping (ADR-082); SSRF/link-local guards (`internal/netutil`, `internal/core/dynamic_secrets_ssrf_test.go`) |
 | B8 | **Admin host access** (`keyorix-server admin …`) | Direct DB + key-file access, no network hop, by design | Host access IS the authority (ADR-108 decision B) — see §5.1 |
-| B9 | **Backups** | `keyorix-server admin backup`/`admin restore` (local/SQLite; ADR-108 §B3) or a manual `pg_dump` + key-material copy (Postgres) | Neither half alone is useful — see §5.3 |
+| B9 | **Backups** | `keyorix-server admin backup`/`admin restore` (SQLite and PostgreSQL; ADR-108 §B3, `docs/SELF_HOSTING.md` §5) | Neither half alone is useful — see §5.3 |
 | B10 | **Supply chain** (CI, dependencies, release artifacts) | Third-party code entering the build; the build entering a customer's environment | CI gates enumerated in `SECURITY-VERIFICATION.md` — see §5.4 |
 
 ## 4. STRIDE per trust boundary
@@ -105,27 +105,19 @@ Each row: **Threat → Mitigation → Evidence → Residual risk.**
 
 ### B1/B2 — CLI (remote vs. local mode)
 
-- **Elevation of privilege via local mode** → **Not mitigated today.** CLI
-  local mode opens the SQLite database directly — it is, structurally, a
-  second server that bypasses the API's authorization, audit, and rate
-  limiting entirely (ADR-108 Context: "it works in two modes: local... which
-  makes it a second server that bypasses the API's authorization, audit and
-  rate limits"). This is the single largest structural item in this threat
-  model. **Planned fix, not yet shipped**: ADR-108 (Accepted 2026-09-23)
-  removes local mode entirely, making the CLI a thin network client with no
-  local database access. As of this writing, only early steps of that program
-  are measured (ADR-109's M4 table shows steps 0–2 of 7). Anyone relying on
-  this threat model to evaluate current risk should treat CLI local-mode
-  access as equivalent to direct database access — because it is.
-- **CLI remote mode** → Same authorization/audit/rate-limit coverage as any
-  other HTTP client (B3) → Residual: the `/system` storage-proxy tier
-  (`RemoteStorage`) that remote mode uses today has needed its own
-  re-implementation of each human-facing route's authorization, which is
-  exactly the class of bug the 2026-09 review's raw-storage-bypass sweep found
-  and closed (16 issues, `TestNoUnjustifiedRawStorageBypass` now covers the
-  full 500+ route surface) — closed as a *class*, via a guard, not a fixed
-  list, but the proxy tier itself is slated for deletion once ADR-108 lands
-  (fewer moving parts, not just fixed ones).
+- **Elevation of privilege via local mode** → **Closed.** The CLI used to
+  open the SQLite database directly in a "local" mode, a second server that
+  bypassed the API's authorization, audit and rate limiting (ADR-108 Context).
+  ADR-108 Decision A (status Implemented) removed it: the CLI (`cli/`, its own
+  Go module) is a thin client that talks to a server over HTTP only, has no
+  database driver and no import of server internals, and `cli/internal/depguard`
+  guards the imports. What remains of the old path is host access, which is the
+  authority by design (B8, ADR-108 decision B).
+- **CLI** → Same authorization/audit/rate-limit coverage as any other HTTP
+  client (B3). The `/system` storage-proxy tier (`RemoteStorage`) that the old
+  remote mode used, and whose per-route authorization re-implementation was the
+  class of bug the 2026-09 raw-storage-bypass sweep found, has been deleted
+  with it (`docs/ARCHITECTURE.md`, "Deleted: the old three-mode CLI").
 
 ### B5 — Web UI
 
@@ -242,29 +234,26 @@ restore, and version-skipping upgrades are all `keyorix-server admin`
 subcommands rather than network endpoints, specifically because a network path
 to any of them would be a built-in authentication bypass.
 
-### 5.2 The CLI local-mode gap (repeated from §4, stated once more for visibility)
+### 5.2 The CLI local-mode gap (closed)
 
-This is the one place today's implementation genuinely falls short of the
-product's own stated authorization model, and it is called out three times in
-this document deliberately (§3 table, §4 B1/B2, here) because it is easy to
-undersell by mentioning it once in a large table. CLI local mode is a second,
-unaudited, unrate-limited path into the same database the API protects. ADR-108
-(Accepted, not yet implemented beyond early measurement steps) removes it. Until
-it ships, an operator who wants the authorization model this threat model
-otherwise describes to be complete must not grant local-mode CLI access to
-anyone who shouldn't also have direct database access — because, today, that's
-exactly what it is.
+Earlier versions of this document listed CLI local mode as the largest open
+item: a second, unaudited, unrate-limited path into the database the API
+protects. ADR-108 Decision A removed it and the CLI no longer contains it (§4,
+B1/B2). The remaining non-API path into the database is host access
+(`keyorix-server admin …`, direct database and key-file access), which is the
+authority by design (B8): grant shell access on the server, and database
+access, only to people who may also read every secret.
 
 ### 5.3 Stolen backup
 
-For local/SQLite installs, `keyorix-server admin backup`/`admin restore`
-(ADR-108 §B3) is now the supported mechanism, alongside an offline audit
-checkpoint export for drills and real disaster recovery
-([`../AIRGAP_RUNBOOK.md`](../AIRGAP_RUNBOOK.md)). For a Postgres-backed
-deployment, backup is still operator-driven: a `pg_dump` of the database plus
-a `tar` of the key-material volume
-([`../SELF_HOSTING.md`](../SELF_HOSTING.md) §5) — `admin backup` refuses
-outright rather than attempt an unsupported backend. Either way, the
+`keyorix-server admin backup`/`admin restore` (ADR-108 §B3) is the supported
+mechanism on both SQLite and PostgreSQL, alongside an offline audit checkpoint
+export for drills and real disaster recovery
+([`../AIRGAP_RUNBOOK.md`](../AIRGAP_RUNBOOK.md)). It writes the database and the
+key material in one archive; the PostgreSQL procedure, including a live backup
+next to a running server, is in [`../SELF_HOSTING.md`](../SELF_HOSTING.md) §5.
+A manual `pg_dump` plus a copy of the key-material volume remains possible but
+is not required. Either way, the
 threat-model consequence is the same, stated plainly rather than left
 implicit:
 
@@ -354,14 +343,19 @@ Carried forward from `security-review-2026-09.md` rather than re-litigated:
   `PasswordKeyProvider`'s own long-lived string stays open **by design** — it
   can legitimately be asked for the KEK a second time during in-process
   rotation, so wiping after the first call would break the second.
-- **Authentication cache window (~30s).** A revoked token or suspended
-  account can remain valid for up to this TTL; logout and password-change
-  evict immediately, and suspension purges DB sessions immediately — the
-  cached-validity window is the only lag. A documented tradeoff, tunable by
-  reducing the TTL.
-- **CLI local mode bypasses API-layer authorization, audit, and rate
-  limiting** (§5.2) — the largest open item in this document, with a shipped
-  ADR (108) and a program not yet complete.
+- **Authentication cache window (~30s), narrowed.** Every cache hit
+  re-checks the credential's revocation state live (session row, account
+  state, PAT, machine token, federated machine identity), so a revocation is
+  honoured on the next request on every replica. Since CACHE-FAILCLOSED-1
+  (2026-10-17) a re-check that cannot read the database refuses the request
+  (503 / `Unavailable`) instead of serving the cached login, so an outage no
+  longer hides a revocation; the cost is that a brief database outage rejects
+  cached credentials. Still held for up to the cache TTL: an impersonation
+  session's admin-ceiling re-check (slow path only, behind its own
+  60s cache). A federated JWT's own `exp` is no longer held past expiry
+  (OIDC-EXPIRY-CAP-1): its cache entry ends at `exp` and a token within 5s of
+  expiring is not cached. See `threat-models/authentication.md` AUTH-1 and AUTH-11.
+- **CLI local mode** — removed (ADR-108 Decision A, §5.2); no longer an open item.
 - **API response wire-hygiene** — an open, in-progress internal finding
   (§4, B3/B4 information-disclosure row) covering PascalCase/snake_case
   inconsistency and, more seriously, PII (`IPAddress`) leaking via two

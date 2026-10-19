@@ -10,8 +10,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"log"
-	"math/rand/v2"
+	"math/big"
 	"sync"
 	"time"
 
@@ -95,8 +96,11 @@ func runSchedulerAfter(ctx context.Context, name string, interval, firstDelay ti
 // lockedRun executes fn under scheduler advisory lock key and maps the result to a
 // metric outcome: skipped when another replica holds the lock (a follower, by design),
 // failure when fn errors or the lock cannot be acquired (logged via errLabel), success
-// otherwise. The error log line mirrors the pre-refactor per-job wording.
-func lockedRun(ctx context.Context, storage corestorage.Storage, key int64, errLabel string, fn func() error) middleware.SchedulerOutcome {
+// otherwise. The error log line mirrors the pre-refactor per-job wording. fn runs
+// under the ctx it is passed, which is cancelled with cause store.ErrAdvisoryLockLost
+// if the lock's connection dies mid-tick, so the job stops instead of running on
+// beside the replica that takes the lock next.
+func lockedRun(ctx context.Context, storage corestorage.Storage, key int64, errLabel string, fn func(ctx context.Context) error) middleware.SchedulerOutcome {
 	ran, err := storage.WithSchedulerLock(ctx, key, fn)
 	if err != nil {
 		log.Printf("%s scheduler error: %v", errLabel, err)
@@ -132,5 +136,14 @@ func anomalyFirstPassDelay(interval time.Duration, randN func(time.Duration) tim
 }
 
 // defaultRandN is the production randN for anomalyFirstPassDelay. Scheduling jitter,
-// not a security value, so math/rand is appropriate.
-func defaultRandN(n time.Duration) time.Duration { return rand.N(n) } // #nosec G404 -- scheduling jitter, not security-sensitive
+// not a security value (crypto/rand keeps scanners quiet).
+func defaultRandN(n time.Duration) time.Duration {
+	if n <= 0 {
+		return 0
+	}
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0
+	}
+	return time.Duration(v.Int64())
+}

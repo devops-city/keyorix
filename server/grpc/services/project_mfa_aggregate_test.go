@@ -51,7 +51,7 @@ func newMFAAggregateTestRig(t *testing.T) *mfaAggregateTestRig {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.RotationPolicy{},
-		&models.SecretDependency{}, &models.ShareRecord{}, &models.User{}, &models.Role{},
+		&models.SecretDependency{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.User{}, &models.Role{},
 		&models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{}, &models.SecretACL{},
 	))

@@ -4,7 +4,7 @@
 // wipeBytes, or have its ownership handed off, on every return path after the
 // assignment.
 //
-// An AST walk in the style of internal/core's atomicity_guard_test.go, with no
+// An AST walk in the style of internal/core/guards/atomicity_guard_test.go, with no
 // type checking and only a lexical notion of "path". What it recognises,
 // stated explicitly so a reviewer can check it:
 //
@@ -93,6 +93,8 @@ var notKeyMaterialCallees = map[string]string{
 	"ensureSaltExists":         "KEK salt: public by design (stored next to the wrapped DEK)",
 	"wrapKey":                  "wrapped (encrypted) key: ciphertext, safe to persist",
 	"GetKeyVersion":            "key version label string",
+	"readDEKEpoch":             "DEK epoch: a DEK fingerprint (HMAC output) stored in the database, not key bytes",
+	"casDEKEpoch":              "DEK epoch compare-and-set: returns whether it applied",
 	"lockRelPath":              "lock file path",
 	"openKeyLockFile":          "lock file handle",
 	"keyFileSpecs":             "file permission specs",

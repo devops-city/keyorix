@@ -19,9 +19,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// sessionTouchInterval throttles last_seen_at writes on the auth hot path.
-const sessionTouchInterval = 30 * time.Second
-
 // defaultSessionAccessTTL is the access-token lifetime when no session config is
 // set. It matches the historic hard-coded value, so an install that does not
 // configure a session block keeps the old 24h behaviour.
@@ -798,13 +795,13 @@ func (c *KeyorixCore) ValidateSessionToken(ctx context.Context, token string) (*
 			return nil, nil, err
 		}
 	}
-	// Best-effort, throttled last-seen stamp for the My Account sessions view.
-	// Only writes when the stored value is older than sessionTouchInterval, so the
-	// auth hot path is not turned into a write per request. Never fails the request.
+	// Best-effort last-seen stamp for the My Account sessions view, recorded in
+	// memory and written by the last-used coalescer within lastUsedFlushInterval
+	// (OPT-LASTUSED-1): no statement on the auth hot path. Never fails the request.
 	// Stamped only AFTER the account-state gate, so a rejected request from a
 	// suspended/deactivated account is not "used" — it must not refresh last-seen
 	// (matching ValidatePATToken, which touches only after the same gate).
-	_ = c.storage.TouchSession(ctx, session.ID, c.now(), sessionTouchInterval)
+	c.lastUsed().record(lastUsedKey{lastUsedSession, session.ID}, c.now())
 	roles, err := c.storage.GetUserRoles(ctx, user.ID)
 	if err != nil {
 		return nil, nil, ErrRoleResolutionUnavailable
@@ -895,10 +892,12 @@ func hashSessionTokenForLookup(token string) string {
 //     rotated away, or expired. Callers must deny and evict, exactly like the
 //     PAT/machine branches deny on ErrPATRevoked/ErrMachineTokenRevoked.
 //   - (false, err) / (_, err) for any other error: the LOOKUP failed — a
-//     transient storage error. Callers must fall back to the cached snapshot,
-//     exactly like the PAT/machine branches do on any err besides the
-//     specific revoked/expired sentinels — a DB blip must not lock out every
-//     session holder. (GetSessionByID also has no RemoteStorage implementation,
+//     transient storage error. Callers must refuse the request as temporarily
+//     unavailable without evicting, exactly like the PAT/machine branches do
+//     on any err besides the specific revoked/expired sentinels — never serve
+//     the cached snapshot, since this failed read is the one that would have
+//     seen a revocation (CACHE-FAILCLOSED-1; it used to degrade to the cached
+//     snapshot, INV-MW-05's former transient half). (GetSessionByID also has no RemoteStorage implementation,
 //     which would hit this same branch, but that combination cannot occur in a
 //     supported deployment: ADR-083 makes storage.type: remote a CLI/client
 //     mode only, never wired into the server's own HTTP handlers — see
@@ -940,8 +939,10 @@ func (c *KeyorixCore) sessionRowLiveForToken(storedHash string, rotatedAt, expir
 // the method it used to come from.
 //   - AccountErr / AccountUsable / AccountState: AccountUsabilityAndState's
 //     (err, usable, state). AccountErr non-nil means the account could not be
-//     read (absent, soft-deleted or a storage error): the caller keeps the
-//     cached snapshot for it, as before.
+//     read. Absent or soft-deleted (storage.IsUserNotFound) is definitive:
+//     the caller denies and evicts. Any other error is a failed read: the
+//     caller refuses the request as temporarily unavailable
+//     (CACHE-FAILCLOSED-1; it used to keep the cached snapshot).
 //   - SessionChecked: a session id was given (a cache entry filled before the
 //     liveness check existed has none; the caller skips the check then).
 //   - SessionErr / SessionLive: SessionLiveForToken's (live, err): SessionErr nil

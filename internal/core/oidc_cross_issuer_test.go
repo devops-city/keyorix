@@ -72,14 +72,14 @@ func TestValidateOIDCToken_CrossIssuerBindingIsolation(t *testing.T) {
 	}
 
 	// Control: the genuine token from issuer A authenticates as the bound machine.
-	m, roles, err := c.ValidateOIDCToken(ctx, signToken(t, keyA, "kid-1", claims(issA)))
+	m, roles, _, err := c.ValidateOIDCToken(ctx, signToken(t, keyA, "kid-1", claims(issA)))
 	require.NoError(t, err)
 	require.Equal(t, uint(7), m.ID)
 	require.Equal(t, []string{"ci-deployer"}, roles)
 
 	// Attack: a VALID token from the OTHER trusted issuer, same subject, must NOT
 	// authenticate as machine 7 — no binding exists for (issuer B, subject).
-	_, _, err = c.ValidateOIDCToken(ctx, signToken(t, keyB, "kid-1", claims(issB)))
+	_, _, _, err = c.ValidateOIDCToken(ctx, signToken(t, keyB, "kid-1", claims(issB)))
 	require.Error(t, err, "a token from a different trusted issuer must not resolve another issuer's binding")
 	require.Contains(t, err.Error(), "no machine identity bound")
 	// The lookup was scoped by the TOKEN's issuer (B), not the bound issuer (A).

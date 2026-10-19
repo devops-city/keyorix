@@ -186,6 +186,7 @@ const grpcTokenAuthFailureBurst = 10
 type grpcIPFailureLimiter struct {
 	mu       sync.Mutex
 	limiters map[string]*grpcPrincipalBucket
+	requests uint64
 }
 
 var globalGRPCTokenAuthFailureLimiter = &grpcIPFailureLimiter{
@@ -200,16 +201,25 @@ func recordGRPCTokenAuthFailure(ip string) bool {
 	return globalGRPCTokenAuthFailureLimiter.allow(ip)
 }
 
+// #3429: allow() runs on every failed gRPC token validation and used to call
+// sweepLocked() every time, a full scan of the map under the one mutex, so a
+// flood from many source IPs (the case this limiter exists for) made the limiter
+// itself the bottleneck. Amortized like grpcRateLimiter.allow above and the HTTP
+// twin (ipFailureLimiter.allow, #G19): one sweep every
+// grpcPrincipalLimiterSweepEvery calls.
 func (l *grpcIPFailureLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.requests++
+	if l.requests%grpcPrincipalLimiterSweepEvery == 0 {
+		l.sweepLocked()
+	}
 	b, ok := l.limiters[ip]
 	if !ok {
 		b = &grpcPrincipalBucket{limiter: rate.NewLimiter(rate.Limit(1), grpcTokenAuthFailureBurst)}
 		l.limiters[ip] = b
 	}
 	b.lastSeen = time.Now()
-	l.sweepLocked()
 	return b.limiter.Allow()
 }
 

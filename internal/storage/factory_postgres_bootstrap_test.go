@@ -89,7 +89,9 @@ func TestCreateStorage_Postgres_MigrationFailure_Propagates(t *testing.T) {
 	st, err := NewStorageFactory().CreateStorage(cfg)
 	require.Error(t, err)
 	assert.Nil(t, st)
-	assert.Contains(t, err.Error(), "failed to migrate database")
+	// The epoch check runs before any migration (BOOT-REFUSALS-1 item 6).
+	assert.Contains(t, err.Error(), "database schema check failed (checked before migrating; nothing was migrated)")
+	assert.NotContains(t, err.Error(), "failed to migrate database")
 	assert.Contains(t, err.Error(), "not a valid integer")
 }
 

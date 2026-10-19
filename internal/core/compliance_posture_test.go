@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/keyorixhq/keyorix/pkg/trust"
 )
@@ -42,12 +43,12 @@ func compliancePostureCoreDB(t *testing.T) (*KeyorixCore, *gorm.DB) {
 
 // failingLegalHoldStore wraps LocalStorage and fails GetActiveLegalHold, simulating a DB
 // error on that one sub-rollup while every other posture query still runs for real.
-type failingLegalHoldStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingLegalHoldStore) GetActiveLegalHold(_ context.Context) (*models.LegalHold, error) {
-	return nil, errors.New("simulated db failure")
+func failingLegalHoldStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetActiveLegalHold: func(_ storage.Storage, _ context.Context) (*models.LegalHold, error) {
+			return nil, errors.New("simulated db failure")
+		},
+	})
 }
 
 // #136: before the fix, a failed legal-hold query left LegalHold.Active=false —
@@ -58,7 +59,7 @@ func (s *failingLegalHoldStore) GetActiveLegalHold(_ context.Context) (*models.L
 func TestGetCompliancePosture_DegradedOnLegalHoldQueryError(t *testing.T) {
 	t.Parallel()
 	c := compliancePostureCore(t)
-	c.storage = &failingLegalHoldStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingLegalHoldStore(c.storage.(*store.LocalStorage))
 
 	p, err := c.GetCompliancePosture(context.Background())
 	require.NoError(t, err, "a single failed sub-rollup must not abort the whole snapshot")
@@ -101,12 +102,12 @@ func TestGetCompliancePosture_DegradedOnSupplyChainTrustRegistryError(t *testing
 
 // failingRiskExceptionsStore wraps LocalStorage and fails ListRiskExceptions, simulating
 // a DB error on the risk-exception sub-rollup.
-type failingRiskExceptionsStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingRiskExceptionsStore) ListRiskExceptions(_ context.Context, _ bool) ([]*models.RiskException, error) {
-	return nil, errors.New("simulated db failure")
+func failingRiskExceptionsStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListRiskExceptions: func(_ storage.Storage, _ context.Context, _ bool) ([]*models.RiskException, error) {
+			return nil, errors.New("simulated db failure")
+		},
+	})
 }
 
 // #136: empirically, dropping the risk_exceptions table flipped a real active exception
@@ -115,7 +116,7 @@ func (s *failingRiskExceptionsStore) ListRiskExceptions(_ context.Context, _ boo
 func TestGetCompliancePosture_DegradedOnRiskExceptionQueryError(t *testing.T) {
 	t.Parallel()
 	c := compliancePostureCore(t)
-	c.storage = &failingRiskExceptionsStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingRiskExceptionsStore(c.storage.(*store.LocalStorage))
 
 	p, err := c.GetCompliancePosture(context.Background())
 	require.NoError(t, err, "a single failed sub-rollup must not abort the whole snapshot")
@@ -127,12 +128,12 @@ func TestGetCompliancePosture_DegradedOnRiskExceptionQueryError(t *testing.T) {
 
 // failingSoDPoliciesStore wraps LocalStorage and fails ListSoDPolicies, simulating a DB
 // error on the SoD sub-rollup.
-type failingSoDPoliciesStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingSoDPoliciesStore) ListSoDPolicies(_ context.Context) ([]*models.SoDPolicy, error) {
-	return nil, errors.New("simulated db failure")
+func failingSoDPoliciesStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSoDPolicies: func(_ storage.Storage, _ context.Context) ([]*models.SoDPolicy, error) {
+			return nil, errors.New("simulated db failure")
+		},
+	})
 }
 
 // #136: empirically, dropping the sod_policies table flipped a real toxic-combination
@@ -141,7 +142,7 @@ func (s *failingSoDPoliciesStore) ListSoDPolicies(_ context.Context) ([]*models.
 func TestGetCompliancePosture_DegradedOnSoDPoliciesQueryError(t *testing.T) {
 	t.Parallel()
 	c := compliancePostureCore(t)
-	c.storage = &failingSoDPoliciesStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingSoDPoliciesStore(c.storage.(*store.LocalStorage))
 
 	p, err := c.GetCompliancePosture(context.Background())
 	require.NoError(t, err, "a single failed sub-rollup must not abort the whole snapshot")
@@ -296,12 +297,12 @@ func TestGetCompliancePosture_DegradedOnDormantRoleGrantsActivityQueryError(t *t
 // LastUserSecretWriteActivity, simulating a DB error on the write half of the
 // plain-tier per-permission activity split (#487 round 112) while
 // LastUserSecretReadActivity itself still succeeds.
-type failingSecretWriteActivityStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingSecretWriteActivityStore) LastUserSecretWriteActivity(_ context.Context, _ uint) (map[uint]time.Time, error) {
-	return nil, errors.New("simulated db failure")
+func failingSecretWriteActivityStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		LastUserSecretWriteActivity: func(_ storage.Storage, _ context.Context, _ uint, _ time.Time) (map[uint]time.Time, error) {
+			return nil, errors.New("simulated db failure")
+		},
+	})
 }
 
 // #487 round 112: countDormantRoleGrants's plain-tier write-activity query must
@@ -311,7 +312,7 @@ func TestGetCompliancePosture_DegradedOnDormantRoleGrantsWriteActivityQueryError
 	t.Parallel()
 	c, db := compliancePostureCoreWithProject(t)
 	require.NoError(t, db.AutoMigrate(&models.AccessReviewCampaign{}, &models.AccessReviewItem{}, &models.BreakGlassActivation{}, &models.UserRole{}, &models.GroupRole{}, &models.AuditEvent{}, &models.Group{}))
-	c.storage = &failingSecretWriteActivityStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingSecretWriteActivityStore(c.storage.(*store.LocalStorage))
 
 	p, err := c.GetCompliancePosture(context.Background())
 	require.NoError(t, err)
@@ -325,12 +326,12 @@ func TestGetCompliancePosture_DegradedOnDormantRoleGrantsWriteActivityQueryError
 // LastUserRoleManagementActivity, simulating a DB error on one of the two
 // admin-tier activity signals (#258/#487) while LastUserSecretActivity and
 // LastUserSecretDeletionActivity themselves still succeed.
-type failingRoleManagementActivityStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingRoleManagementActivityStore) LastUserRoleManagementActivity(_ context.Context, _ uint) (map[uint]time.Time, error) {
-	return nil, errors.New("simulated db failure")
+func failingRoleManagementActivityStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		LastUserRoleManagementActivity: func(_ storage.Storage, _ context.Context, _ uint, _ time.Time) (map[uint]time.Time, error) {
+			return nil, errors.New("simulated db failure")
+		},
+	})
 }
 
 // #258/#487: countDormantRoleGrants's role-management activity query must
@@ -340,7 +341,7 @@ func TestGetCompliancePosture_DegradedOnDormantRoleGrantsRoleManagementActivityQ
 	t.Parallel()
 	c, db := compliancePostureCoreWithProject(t)
 	require.NoError(t, db.AutoMigrate(&models.AccessReviewCampaign{}, &models.AccessReviewItem{}, &models.BreakGlassActivation{}, &models.UserRole{}, &models.GroupRole{}, &models.AuditEvent{}, &models.Group{}))
-	c.storage = &failingRoleManagementActivityStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingRoleManagementActivityStore(c.storage.(*store.LocalStorage))
 
 	p, err := c.GetCompliancePosture(context.Background())
 	require.NoError(t, err)
@@ -352,19 +353,19 @@ func TestGetCompliancePosture_DegradedOnDormantRoleGrantsRoleManagementActivityQ
 
 // failingSecretsDeletionActivityStore wraps LocalStorage and fails
 // LastUserSecretDeletionActivity, the other admin-tier activity signal (#258/#487).
-type failingSecretsDeletionActivityStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingSecretsDeletionActivityStore) LastUserSecretDeletionActivity(_ context.Context, _ uint) (map[uint]time.Time, error) {
-	return nil, errors.New("simulated db failure")
+func failingSecretsDeletionActivityStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		LastUserSecretDeletionActivity: func(_ storage.Storage, _ context.Context, _ uint, _ time.Time) (map[uint]time.Time, error) {
+			return nil, errors.New("simulated db failure")
+		},
+	})
 }
 
 func TestGetCompliancePosture_DegradedOnDormantRoleGrantsSecretsDeletionActivityQueryError(t *testing.T) {
 	t.Parallel()
 	c, db := compliancePostureCoreWithProject(t)
 	require.NoError(t, db.AutoMigrate(&models.AccessReviewCampaign{}, &models.AccessReviewItem{}, &models.BreakGlassActivation{}, &models.UserRole{}, &models.GroupRole{}, &models.AuditEvent{}, &models.Group{}))
-	c.storage = &failingSecretsDeletionActivityStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingSecretsDeletionActivityStore(c.storage.(*store.LocalStorage))
 
 	p, err := c.GetCompliancePosture(context.Background())
 	require.NoError(t, err)

@@ -344,6 +344,16 @@ describe('Sidebar', () => {
             expect(screen.getByRole('link', { name: 'Sharing' })).toBeInTheDocument();
         });
 
+        // #3142 decision: Sharing stays offered to a read-only role. The server answers it:
+        // GET /shares/owned needs secrets.read in ANY scope (project_viewer holds it) and the page
+        // falls back to that list, so it renders ("Shares you created") instead of a refusal. A
+        // user who once created shares and was later demoted must still be able to find them.
+        it('keeps Sharing for a read-only user with no secrets.write (the server serves GET /shares/owned)', () => {
+            asUser(['secrets.read']);
+            renderSidebar();
+            expect(screen.getByRole('link', { name: 'Sharing' })).toBeInTheDocument();
+        });
+
         it('shows Audit Logs to a user who holds audit.read', () => {
             asUser(['audit.read']);
             renderSidebar();

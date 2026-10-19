@@ -28,9 +28,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 // keylessModeAllowedFiles is the exhaustive, reasoned inventory of every
@@ -79,10 +80,7 @@ var keylessModeAllowedFiles = map[string]string{
 // package is structurally unreachable from either submodule regardless of
 // what a grep there would or wouldn't find.
 func repoRootForKeylessModeScan() string {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("runtime.Caller failed")
-	}
+	thisFile := filepath.Join(srcpath.PkgDir(), "keyless_mode_reachability_test.go")
 	return filepath.Join(filepath.Dir(thisFile), "..", "..")
 }
 

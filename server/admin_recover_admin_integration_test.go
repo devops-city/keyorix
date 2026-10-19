@@ -115,7 +115,7 @@ func TestAdminRecoverAdmin_FullFlow_SQLite(t *testing.T) {
 		t.Fatalf("admin migrate failed: %v\n%s", err, out)
 	}
 
-	bootstrapAdminViaHTTP(t, bin, dir, env, "8080", "recoveryadmin", "recover-admin-e2e@example.com", "InitialPassw0rd!")
+	bootstrapAdminViaHTTP(t, bin, dir, env, pinFreeHTTPPort(t, dir), "recoveryadmin", "recover-admin-e2e@example.com", "InitialPassw0rd!")
 
 	keyOut, err := runAdmin(t, bin, dir, env, "recovery-key", "rotate", "--config", "./keyorix.yaml")
 	if err != nil {
@@ -192,7 +192,7 @@ func TestAdminRecoverAdmin_KeylessMode_SQLite(t *testing.T) {
 		t.Fatalf("admin migrate failed: %v\n%s", err, out)
 	}
 
-	bootstrapAdminViaHTTP(t, bin, dir, env, "8080", "keylessadmin", "keyless-e2e@example.com", "InitialPassw0rd!")
+	bootstrapAdminViaHTTP(t, bin, dir, env, pinFreeHTTPPort(t, dir), "keylessadmin", "keyless-e2e@example.com", "InitialPassw0rd!")
 
 	// The startup audit event (design §5) must have been written during
 	// that boot -- verified directly against the SQLite file, independent

@@ -193,17 +193,35 @@ END;
 $keyorix$`).Error; err != nil {
 		return fmt.Errorf("failed to create %s(): %w", secretNodeCacheEpochFunc, err)
 	}
-	if SecretNodeCacheEpochTriggerPresent(tx) {
-		// Already there, and its body is whatever the function now says. Nothing
-		// to drop, so no window and no risk.
-		return nil
+	var state []string
+	if err := tx.Raw("SELECT tgenabled::text FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ?",
+		SecretNodeCacheEpochTrigger).Scan(&state).Error; err != nil {
+		return fmt.Errorf("failed to read %s state: %w", SecretNodeCacheEpochTrigger, err)
 	}
-	// EXECUTE PROCEDURE, not EXECUTE FUNCTION: the latter is Postgres 11+ only,
-	// while the former is still accepted (a documented synonym) by every version
-	// including 16 — so this works across the whole range.
-	if err := tx.Exec("CREATE TRIGGER " + SecretNodeCacheEpochTrigger +
-		" BEFORE UPDATE ON secret_nodes FOR EACH ROW EXECUTE PROCEDURE " + secretNodeCacheEpochFunc + "()").Error; err != nil {
-		return fmt.Errorf("failed to create %s: %w", SecretNodeCacheEpochTrigger, err)
+	if len(state) == 0 {
+		// Absent: create it. When present its body is whatever the function now
+		// says, so there is nothing to drop, no window and no risk.
+		//
+		// EXECUTE PROCEDURE, not EXECUTE FUNCTION: the latter is Postgres 11+
+		// only, while the former is still accepted (a documented synonym) by
+		// every version including 16 — so this works across the whole range.
+		if err := tx.Exec("CREATE TRIGGER " + SecretNodeCacheEpochTrigger +
+			" BEFORE UPDATE ON secret_nodes FOR EACH ROW EXECUTE PROCEDURE " + secretNodeCacheEpochFunc + "()").Error; err != nil {
+			return fmt.Errorf("failed to create %s: %w", SecretNodeCacheEpochTrigger, err)
+		}
+	}
+	// #3361: ENABLE ALWAYS, so the stamp moves for a write from a session with
+	// session_replication_role = replica too (an operator's session, or a
+	// per-role / per-database default), which skips ordinary triggers. Same
+	// rule as the role-permission generation triggers and the single_writer
+	// fence. ALTER TABLE ... ENABLE ALWAYS TRIGGER changes only tgenabled: the
+	// trigger is never absent, so there is no window. It also converges a
+	// trigger an older binary created as an ordinary one, or one that
+	// pg_restore --disable-triggers re-enabled as ordinary on its way out.
+	if len(state) == 0 || state[0] != "A" {
+		if err := tx.Exec("ALTER TABLE secret_nodes ENABLE ALWAYS TRIGGER " + SecretNodeCacheEpochTrigger).Error; err != nil {
+			return fmt.Errorf("failed to enable %s: %w", SecretNodeCacheEpochTrigger, err)
+		}
 	}
 	return nil
 }
@@ -295,13 +313,9 @@ func SecretNodeCacheEpochTriggerPresent(db *gorm.DB) bool {
 		// ANY table in ANY schema visible to this connection, including a
 		// same-named trigger left on a table in a DIFFERENT schema of the same
 		// database — which would report "present" while the real secret_nodes
-		// has no trigger at all. tgenabled <> 'D' is load-bearing too: a
-		// DISABLED trigger (pg_restore --disable-triggers, ALTER TABLE ...
-		// DISABLE TRIGGER) still exists in pg_trigger and would otherwise read as
-		// present while never actually firing. Known gap this does NOT cover:
-		// session_replication_role = replica suppresses ordinary triggers for the
-		// whole session without touching tgenabled, and is not checked here.
-		q = "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND tgenabled <> 'D'"
+		// has no trigger at all. The firing condition is load-bearing too; see
+		// pgTriggerFiresForEveryWriter.
+		q = "SELECT COUNT(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND " + pgTriggerFiresForEveryWriter
 	}
 	if err := db.Raw(q, SecretNodeCacheEpochTrigger).Scan(&count).Error; err != nil {
 		return false
@@ -412,16 +426,43 @@ type nodeStampRead struct {
 	trusted bool
 }
 
+// pgTriggerFiresForEveryWriter is the PostgreSQL condition, over a pg_trigger
+// row, under which a cache-validating trigger fires for EVERY write to its
+// table, so what it maintains can be trusted (#3361). Shared by the cache-epoch
+// proof here and the role-permission generation proof
+// (rolePermGenerationTriggersPresentExpr). Both halves are load-bearing:
+//
+//   - tgenabled = 'A' (ENABLE ALWAYS, which the migration installs): it fires
+//     whatever the writing session's session_replication_role is. 'D'
+//     (DISABLE TRIGGER, pg_restore --disable-triggers) never fires; 'R' (ENABLE
+//     REPLICA) fires only in replica sessions, so never for an ordinary write;
+//     'O' (ordinary) does not fire for a writer in replica role, such as an
+//     operator session. All three read as untrusted until the next migration
+//     converges the trigger back to 'A'.
+//   - current_setting('session_replication_role') = 'origin' on THIS
+//     connection: a session in replica role (Helm postgresql.settings as the
+//     server default, ALTER ROLE / ALTER DATABASE ... SET, a DSN option) runs
+//     with foreign keys and every ordinary trigger off, so the server must not
+//     treat anything on it as proven. 'local' is refused too: only 'origin' is
+//     the mode the schema's guarantees are written for. The server also
+//     refuses to start in that state (internal/storage's
+//     refuseNonOriginReplicationRole); this check covers a setting changed
+//     after start-up, which only new connections pick up.
+//
+// No bind parameter, so the statements that embed it keep their bind order.
+const pgTriggerFiresForEveryWriter = "tgenabled = 'A' AND current_setting('session_replication_role') = 'origin'"
+
 // nodeTriggerExistsExpr is the one-bind (trigger name) boolean expression that
 // proves the cache_epoch trigger is present and firing on THIS connection's
 // secret_nodes, shared by every statement that reads the stamp.
 func nodeTriggerExistsExpr(db *gorm.DB) string {
 	if db.Dialector.Name() == "postgres" {
-		// Same tgrelid + tgenabled qualification as SecretNodeCacheEpochTriggerPresent,
+		// Same tgrelid + firing qualification as SecretNodeCacheEpochTriggerPresent,
 		// and for the same reason: tgname alone can match a same-named trigger on
-		// a different table (even in a different schema), and a disabled trigger
-		// still appears in pg_trigger without ever firing.
-		return "EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND tgenabled <> 'D')"
+		// a different table (even in a different schema), and a trigger that does
+		// not fire for every writer still appears in pg_trigger
+		// (pgTriggerFiresForEveryWriter). Still exactly one bind: the trigger name.
+		return "EXISTS (SELECT 1 FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ? AND " + pgTriggerFiresForEveryWriter + ")"
 	}
 	return "EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?)"
 }

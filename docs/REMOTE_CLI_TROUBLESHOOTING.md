@@ -1,7 +1,21 @@
 # CLI connection and login troubleshooting
 
 For setup see [REMOTE_CLI_SETUP.md](REMOTE_CLI_SETUP.md). The CLI always connects to a
-server over HTTPS/HTTP; there is no local mode to fall back to. First check:
+server over HTTPS/HTTP; there is no local mode to fall back to.
+
+## Quick Diagnostics
+
+Start with `keyorix doctor`. It is read-only and checks, in order: the configuration the CLI
+would use, that the server answers, the TLS chain and its expiry, version compatibility, clock
+skew against the server, that your token is accepted, and the audit chain's integrity. Each
+problem comes with the next step:
+
+```bash
+keyorix doctor
+keyorix doctor -o json    # for scripts; exits non-zero if any check failed
+```
+
+For a short look at just the server URL and login state:
 
 ```bash
 keyorix status        # configured server, logged in or not, version-skew check

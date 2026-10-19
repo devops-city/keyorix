@@ -25,7 +25,7 @@ func TestListGroupSharesHandler(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
-		&models.SecretNode{}, &models.ShareRecord{}, &models.Group{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{},
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserGroup{}, &models.GroupRole{}, &models.Project{}, &models.Environment{},
 	))
@@ -87,7 +87,7 @@ func TestListGroupSharesHandler_Unauthorized(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
-		&models.SecretNode{}, &models.ShareRecord{}, &models.Group{},
+		&models.SecretNode{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Group{},
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserGroup{}, &models.GroupRole{}, &models.Project{}, &models.Environment{},
 	))

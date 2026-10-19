@@ -41,7 +41,7 @@ func newScopedTestDB(t *testing.T) *gorm.DB {
 		&models.Project{},
 		&models.Environment{},
 		&models.SecretNode{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.RotationPolicy{},
 		&models.AuditEvent{},
 	))

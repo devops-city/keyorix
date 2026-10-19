@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -9,6 +10,8 @@ import (
 	"unicode"
 
 	chimw "github.com/go-chi/chi/v5/middleware"
+
+	"github.com/keyorixhq/keyorix/internal/logging"
 )
 
 // stripControl removes control characters (CR/LF, ANSI/C1 escapes, NUL, etc.) from a
@@ -36,8 +39,21 @@ func Recovery() func(next http.Handler) http.Handler { // NOSONAR -- cognitive c
 			ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
 			defer func() {
 				if err := recover(); err != nil {
-					// Log the panic with stack trace
-					log.Printf("PANIC: %v\n%s", err, debug.Stack())
+					// Request fields (id, principal type) for both log lines. The holder is
+					// there when LogContext ran; otherwise a local one is built so the line
+					// still carries the (sanitised) caller-supplied id.
+					lctx, lh := logging.WithHolder(r.Context())
+					if lh.Snapshot().RequestID == "" {
+						lh.SetRequestID(r.Header.Get(RequestIDHeader))
+					}
+
+					// Log the panic with stack trace. JSON mode keeps the stack inside one
+					// record; text mode keeps the original multi-line form.
+					if logging.JSONMode() {
+						logging.Event(lctx, logging.LevelError, "PANIC", "panic", fmt.Sprint(err), "stack", string(debug.Stack()))
+					} else {
+						log.Printf("PANIC: %v\n%s", err, debug.Stack())
+					}
 
 					// Get request context for logging
 					// Strip control characters from the attacker-influenceable X-Request-ID
@@ -63,8 +79,13 @@ func Recovery() func(next http.Handler) http.Handler { // NOSONAR -- cognitive c
 					// the SAME canonicalizing redact+strip-control function the
 					// access log uses, so this can't independently drift out of
 					// sync with it.
-					log.Printf("PANIC CONTEXT: RequestID=%s, User=%s, Method=%s, Path=%s, RemoteAddr=%s",
-						requestID, userInfo, r.Method, logSafeRequestURI(r), r.RemoteAddr)
+					if logging.JSONMode() {
+						logging.Event(lctx, logging.LevelError, "PANIC CONTEXT",
+							"user", userInfo, "method", r.Method, "uri", logSafeRequestURI(r), "remote_addr", r.RemoteAddr)
+					} else {
+						log.Printf("PANIC CONTEXT: RequestID=%s, User=%s, Method=%s, Path=%s, RemoteAddr=%s",
+							requestID, userInfo, r.Method, logSafeRequestURI(r), r.RemoteAddr)
+					}
 
 					// #G55: if the handler already sent a status/wrote part of the body
 					// before panicking, our own WriteHeader below would be a silent no-op

@@ -37,28 +37,24 @@ import (
 // noRowLockStorage turns LockUserForUpdate into a plain read, on the outer
 // storage and on every transaction handle WithTransaction hands out — the
 // #G42 SQLite deferred-transaction shape. Every other method is the real one.
-type noRowLockStorage struct{ storage.Storage }
-
 // bInterleaveWait is how long the hook waits for replica B before concluding
 // that a named lock is serializing B behind A.
 const bInterleaveWait = 3 * time.Second
-
-func (s *noRowLockStorage) LockUserForUpdate(ctx context.Context, id uint) (*models.User, error) {
-	return s.Storage.GetUser(ctx, id)
-}
 
 // WithNamedLock is also bypassed on replica A: main now serializes the SCIM
 // and suspension paths with the same named lock as well as the row lock, and
 // this test exists to prove the conditional account_state write holds even
 // when BOTH are missing (a future caller that skips them, or SQLite's #G42
 // window). Replica B keeps the real lock.
-func (s *noRowLockStorage) WithNamedLock(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
-	return fn(ctx)
-}
-
-func (s *noRowLockStorage) WithTransaction(ctx context.Context, fn func(tx storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&noRowLockStorage{tx})
+func noRowLockStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		LockUserForUpdate: func(next storage.Storage, ctx context.Context, id uint) (*models.User, error) {
+			return next.GetUser(ctx, id)
+		},
+		WithNamedLock: func(_ storage.Storage, ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+			return fn(ctx)
+		},
 	})
 }
 
@@ -98,7 +94,7 @@ func TestCTAReview_SCIM_vs_SuspendUser_WithoutRowLock_CrossReplicaPostgres(t *te
 				"external_id": "okta|" + tc.name, "account_state": tc.initState, "is_active": tc.initAct,
 			}).Error)
 
-			coreA := NewKeyorixCore(&noRowLockStorage{localstore.NewLocalStorage(f.dbA)})
+			coreA := NewKeyorixCore(noRowLockStorage(localstore.NewLocalStorage(f.dbA)))
 			coreA.SetAuthEncryptor(f.enc)
 
 			// B runs in its own goroutine. On current main both paths also hold the

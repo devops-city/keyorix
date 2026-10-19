@@ -520,6 +520,330 @@ token again, so on such an install you can also simply unset it.
 **UNVERIFIED** against a release build; covered by
 `server/secret_file_test.go:TestResolveBootstrapToken_ShortPinnedTokenRefused` and
 `scripts/e2e/bootstrap_token_strength_test.go:TestBootstrapTokenStrength_SQLite`.
+## 6h. A database outage now rejects cached credentials (503)
+
+Behaviour change, no setting. On an HTTP request whose credential is in the
+server's ~30-second auth cache, the server re-checks the credential's
+revocation state against the database (PAT, machine token, session and its
+account, federated OIDC machine identity). When that read fails, the request is
+now refused with `503 Service Unavailable`, `Retry-After: 2` and the message
+"authentication temporarily unavailable, please retry". Before, the server
+authenticated it from the cached login, which also kept a credential revoked
+on another replica working during the outage. Expect brief database outages,
+failovers and connection-pool exhaustion to show up as 503s on already
+authenticated clients rather than only on new logins; make API clients, CI
+jobs and agents retry on 503 (gRPC: `Unavailable`, unchanged). Nothing is
+evicted, so requests are served from the cache again as soon as the database
+answers. A session whose user row was deleted is now refused `401` on its next
+request instead of being served until the cache entry expired. See
+[`security/threat-models/authentication.md`](security/threat-models/authentication.md) AUTH-11.
+
+## 6g. "Last used" in access recertification now means "within the review period"
+
+The per-user "last used" of the project access review (and of the items a campaign
+snapshots from it) used to be the user's most recent secret activity anywhere in the
+audit log. It now looks back over the recertification period only,
+`recertification.cadence_days` (default 90, at most 366). The meaning changes from
+"no activity ever" to **"no activity within the last N days"**: a user whose last
+activity is older than the period now shows no last use, so they read as dormant where
+before they showed an old date. Expect more entries flagged dormant after the upgrade
+if your cadence is shorter than your longest-idle users' last activity. Nothing is
+deleted; raise `cadence_days` (up to 366) for a longer look-back.
+
+- API: `GET /api/v1/projects/{id}/access-review` adds `activity_window_days`, and
+  campaigns carry `activity_window_days`.
+- Campaign CSV export: a new last column, `last_used_window_days` (a CSV parser that
+  reads columns by position is unaffected; one that rejects extra columns is not).
+  Campaigns opened before the upgrade say `all_history`: their `last_used_at` was
+  computed over the whole log and stays as recorded.
+- The `dormant-access` control and the digest now say "no use in the last 90 days"; the
+  dormant-grant count itself is unchanged (it was always judged against 90 days).
+- The campaigns table gets one column, `activity_window_days`, added automatically at
+  start-up (nothing to run); a rollback to the previous binary ignores it.
+
+Details: [recertification-activity-window.md](recertification-activity-window.md).
+
+## 6j. The first run after upgrade scans the audit history once
+## 6r. "Last used" / "last seen" are written in the background
+
+`last_used_at` on personal access tokens and machine credentials, and
+`last_seen_at` on sessions, are no longer written by the request itself. Each
+server records uses in memory and writes them at most once per credential every
+30 seconds, and on a graceful stop. Nothing to configure. What you may notice:
+a token's first use can take up to about 30 seconds to show in the PAT list,
+the machine token list or My Account → Sessions (before, the first use showed
+at once and later ones could already lag by 30 seconds). A server killed
+without a graceful stop loses up to 30 seconds of these stamps. With several
+replicas each writes its own observations and the stored value only moves
+forward. No access decision uses these columns; the stale-credential and
+hygiene reports work in days. Details: [`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
+## 6j. First start after the upgrade: recover-admin alerting reads the audit history once
+
+The recover-admin alert (`admin.recover_admin` use is always notified to your
+notification channels) now remembers how far through the audit table it has looked,
+instead of re-reading the whole table every 10 minutes. On an install that has no
+such mark yet, which is every install the first time it runs this version, the first
+pass has nothing to resume from and **reads the audit table from its first row to
+its last, once**. On a large audit table this takes a while.
+
+What bounds it, from the code (`internal/core/recover_admin_alert.go`):
+
+- The scan walks the audit ids in windows of 100,000 ids (about 100,000 rows, as audit
+  ids are dense). Each window is its own short read, so no long read snapshot is held
+  (on SQLite that would otherwise hold back the WAL checkpoint).
+- The whole catch-up runs in that one pass: it is `ceil(audit rows / 100,000)` windows
+  back to back, not one window per 10-minute tick. Time grows with the row count; it
+  is a one-time cost, and it runs in the background scheduler, not in the start-up
+  path, so the server answers requests while it runs.
+- It is resumable. The position (the system metadata key
+  `recover_admin_alert_last_notified_id`) is saved after every window, so a restart or
+  a handover to another replica continues from the last finished window, not from the
+  beginning. Stopping the server mid-scan loses at most the window in flight.
+- Afterwards every run reads only the rows added since the previous run.
+- A pass alerts on at most 200 `admin.recover_admin` events at a time; if a window holds
+  that many, the pass stops there and the next tick (10 minutes later) continues. This
+  needs 200 unnotified uses of recover-admin, so it does not happen in normal operation.
+- Nothing is deleted or changed in the audit table. An install that already notified
+  recover-admin uses keeps its saved position, so those events are not notified again.
+
+The "last used" lookups of the access recertification are not part of this scan: they
+have no first-run pass. Each lookup reads only the review period, at most 366 days,
+through the `(project_id, event_time)` index (see 6g), so their cost follows the size
+of that window for the project, not the size of the whole audit table.
+
+## 6k. v0.97.0: breaking changes at a glance
+
+Read this table, then the sections it points to, before upgrading to v0.97.0.
+An entry marked **(pending #NNNN)** describes a pull request that is not merged
+yet; it is written from that PR and must be re-checked when the PR merges. The
+checklist to follow is [operator/upgrade-checklist-v0.97.md](operator/upgrade-checklist-v0.97.md).
+
+| Change | Section |
+|---|---|
+| CLI refuses secrets given as flags (pending #3325) | §6l |
+| CLI exit codes 2 to 6 (#3316) | §6m |
+| `session_replication_role` must be `origin` (pending #3366) | §6n |
+| Grants and break-glass fail closed when the audit row cannot be written (pending #3367) | §6o |
+| Audit list paging limits, listener limits, refused-read status codes, 503 on a database outage | §6p |
+| `KEYORIX_BOOTSTRAP_TOKEN` shorter than 32 characters refused (pending #3341) | written in #3341 (heading number assigned when it merges) |
+| `server.grpc.tls.auto_cert: true` refused (pending #3365, AUTH-2) | written in #3365 (heading number assigned when it merges) |
+| `mfa.failed` and other `*_failed` audit rows stored with `success=false` (pending #3365, AUTH-2) | written in #3365 (heading number assigned when it merges) |
+| Schema epoch 3, compatibility floor 3: no binary downgrade (pending #3364) | written in #3364 (heading number assigned when it merges) |
+| Weak SCIM token and an unneeded KMS context fallback refused at start-up (#3397, #3398) | §6i |
+| `audit_durability` defaults to `standard` on PostgreSQL (#3268) | §6c |
+| `ssl_root_cert`, the `ssl_mode` allowlist, Compose Postgres over TLS (#3162, #3189, #3203) | §2 |
+
+§6g is taken on main (access-recertification window). The sections of the three
+open pull requests (#3341, #3365, #3364) take the next free heading numbers
+when they merge. No Helm value was renamed
+or removed in this window; the chart's new values are additive (see
+`deploy/helm/keyorix/values.yaml`).
+
+## 6l. BREAKING (pending #3325): secrets are refused as CLI flags
+
+`keyorix` no longer accepts a secret on the command line, where it shows in
+`ps`, in shell history and in CI logs. These 13 flags are refused by default,
+hidden from `--help`, and the command fails (exit code 2) with a message that
+names the flag and the safe form. The value is never echoed.
+
+| Flag | Use instead |
+|---|---|
+| `login --password`, `mfa activate --password` | `KEYORIX_PASSWORD` or `KEYORIX_PASSWORD_FILE`, or the prompt |
+| `login --mfa-code`, `mfa activate --code`, `mfa stepup --code` | `KEYORIX_MFA_CODE` or `KEYORIX_MFA_CODE_FILE`, or the prompt |
+| `change-password --current-password`, `--new-password` | `KEYORIX_CURRENT_PASSWORD`, `KEYORIX_NEW_PASSWORD` (each with `_FILE`), or the prompt |
+| `system init --admin-password`, `--bootstrap-token` | `KEYORIX_ADMIN_PASSWORD`, `KEYORIX_BOOTSTRAP_TOKEN` (each with `_FILE`), or the prompt |
+| `user create --password` | `KEYORIX_INITIAL_PASSWORD`, the prompt, `--setup-link` or `--one-time-password` |
+| `secret create --value`, `secret update --value` | `--from-file <relative path>`, `--from-file -` (stdin), or `--interactive` |
+| `secret rotate --value` | leave it out: hidden prompt, or stdin when piped |
+
+What to do:
+
+1. Find the scripts: `rg -n -- '--(password|mfa-code|current-password|new-password|admin-password|bootstrap-token|value)\b|mfa (activate|stepup).*--code' <your repos>`.
+2. Move each to the safe form above. A secret in an environment variable is
+   still visible to the same user's other processes, so prefer `_FILE` (mode 0600)
+   or stdin in CI.
+3. Until that is done, `KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1` turns the refusal
+   back into the old warning. It is a migration aid named in the error, not a
+   feature; do not leave it in production scripts.
+
+`notification channel add|update --url` is not covered (a webhook URL is
+configuration that `notification channel get` shows to admins). The server and the
+REST/gRPC APIs are unchanged: only the CLI refuses.
+
+UNVERIFIED against a release build; covered in #3325 by
+`TestRefusedSecretFlagsAreRefused`, `TestSecretFlagsAreAllClassified` and
+`TestJourney_CLISecretsNeverOnTheCommandLine`.
+
+## 6m. CLI exit codes 2 to 6 (#3316)
+
+Before, every CLI failure exited 1. The CLI now exits with a code that says why
+(the table is in `keyorix --help`):
+
+| Code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | the request was refused or failed (conflict, validation error, server error) |
+| 2 | usage error: unknown command, bad or missing flag or argument |
+| 3 | not logged in, or the session was rejected (HTTP 401): run `keyorix login` |
+| 4 | permission denied (HTTP 403) |
+| 5 | not found (HTTP 404) |
+| 6 | the server could not be reached (network, TLS certificate refused, redirect) |
+
+What to check: a script that tests `[ $? -eq 1 ]` (or `== 1`) for "failed" stops
+matching; test `-ne 0`, or branch on the codes you care about (retry on 6, re-login
+on 3). Scripts that only test for non-zero are unaffected. Two related changes:
+a mistyped subcommand of a group (`keyorix secret lst`) used to print help and
+exit 0, and now exits 2; a stray positional argument on a command that takes none
+(`keyorix secret get 42`) is refused instead of ignored. A panic prints a one-line
+internal error; the stack trace needs `KEYORIX_DEBUG=1`.
+
+## 6n. BREAKING (pending #3366): PostgreSQL `session_replication_role` must be `origin`
+
+With `session_replication_role = replica` PostgreSQL fires no ordinary trigger, so
+the trigger that stamps the secret read cache did not run and a suspended secret
+could still be read as active. The trigger is now installed `ENABLE ALWAYS`
+(the migration converts the existing one) and **the server refuses to start unless
+its own database sessions report `origin`**; `admin` commands that open the
+database (DEK rotation sweep, `admin validate --posture`) refuse too. The
+refusal comes from the effective value, so it catches every source: the server
+default, `ALTER DATABASE ... SET`, `ALTER ROLE [IN DATABASE] ... SET`, `PGOPTIONS`
+and a DSN startup option.
+
+Before upgrading, on the database the server uses:
+
+```sql
+SHOW session_replication_role;   -- as the server's database user; must print: origin
+SELECT d.datname, r.rolname, s.setconfig
+  FROM pg_db_role_setting s
+  LEFT JOIN pg_database d ON d.oid = s.setdatabase
+  LEFT JOIN pg_roles r ON r.oid = s.setrole
+ WHERE s.setconfig::text LIKE '%session_replication_role%';
+```
+
+If a row comes back, remove it: `ALTER DATABASE <db> RESET session_replication_role;`
+or `ALTER ROLE <role> [IN DATABASE <db>] RESET session_replication_role;`. Remove the
+setting from `postgresql.conf`, from `PGOPTIONS` and from any `options=` in the
+`dsn` as well. A migration or bulk-load tool that sets `replica` must use its own
+role and database user, not the server's. Helm: `postgresql.settings.session_replication_role`
+is refused by the template and by `values.schema.json`.
+
+The same PR also fixes nested named locks that could stall every named lock on a
+replica (#3358), with no configuration change.
+
+UNVERIFIED against a release build; covered in #3366 by
+`TestCreateStorage_Postgres_RefusesNonOriginReplicationRole` and
+`TestSecretNodeCacheEpoch_ReplicaRoleWriter_StillMovesStamp_Postgres` (PostgreSQL).
+
+## 6o. Grants and break-glass fail closed without their audit row (pending #3367)
+
+A role grant, credential or other access-granting change used to commit first and
+write its audit row afterwards, so a crash or a refused audit append between the
+two left a grant with no record. These changes now write the audit row in the same
+database transaction (SQLite and PostgreSQL): if the row cannot be written, the
+request fails with `could not record the change in the audit log; nothing was
+changed, retry` and nothing changes. Covered: role grants (direct, JIT, SSO-mapped,
+project member add, access-request approval), group role grants and membership,
+role and permission definitions, **break-glass activation**, secret shares and ACL
+grants, machine identity create, token issue and rotate, PAT create, user create
+(setup link, one-time password), project and environment create, SoD policy create
+and delete. The inventory is `docs/specs/security-mutation-audit-inventory.md` in #3367.
+
+Revocations (role, share, ACL, token, session removal, suspend, delete) are
+unchanged on purpose: they are never blocked by the audit log and still audit after
+their commit.
+
+What to do: nothing in the configuration. Operationally, a healthy audit path is
+now a precondition for granting access **and for break-glass**, the emergency
+path. Before upgrading, run `keyorix-server admin verify-audit` and check
+database health and free disk space, and make sure automation that creates users,
+roles, shares or tokens retries on this error. The HTTP status of the refusal was
+not verified for this entry.
+
+## 6p. API and client-visible behaviour changes
+
+None of these needs a configuration change; check clients that depend on them.
+
+- **Audit list paging (#3260).** `GET /api/v1/audit/logs` and `/audit/search` order
+  by event time, then id. `total` is exact up to 10,000 matching events and reads
+  10,000 with `total_exact: false` above that. An `offset` past the newest 10,000
+  events, or one that is not a non-negative integer, answers **400** with a pointer
+  to `cursor` (every response carries `next_cursor`; `include_total=true` asks for
+  the exact count). Clients that page by `offset` through a large trail must move
+  to `cursor`. The first start builds new `audit_events` indexes: on PostgreSQL
+  `CREATE INDEX CONCURRENTLY` in the background while the server serves, on SQLite
+  during the startup migration with a progress line per index (a large trail
+  makes that first start slower).
+- **Listener limits (#3312).** REST request headers are capped at 64 KiB (431
+  above it; net/http's default was 1 MiB). gRPC: a new connection must finish its
+  handshake in `server.grpc.keepalive.handshake_timeout` (default 10s), a connection
+  with no RPC in flight closes after `server.grpc.keepalive.max_connection_idle`
+  (default 15m), at most 128 concurrent RPCs per connection and 64 KiB of metadata.
+  Neither new key can be set to 0 to switch the bound off.
+- **Refused secret-value reads (#3175).** A read refused by the secret's own state
+  answers a client error with a stable code instead of 500: outside the access
+  schedule is 403 `SecretAccessOutsideSchedule`; expired, suspended or
+  max-reads-exhausted is 409 `SecretExpired`, `SecretSuspended` or
+  `SecretMaxReadsExhausted` (gRPC `PermissionDenied` / `FailedPrecondition`). A
+  client that matched on the old 500, or on `Forbidden` for a schedule denial,
+  must match the new codes.
+- **Database outage (#3326).** A failed credential, account or machine-identity
+  lookup is now a retryable 503 (gRPC `Unavailable`), not a 401, and is not
+  negative-cached. Clients and load-balancer rules that treated 401 as "stop
+  retrying" should retry a 503.
+- **Secure cookies behind a TLS-terminating load balancer (#3190, #3181).** Session
+  and CSRF cookies get `Secure`, and HSTS is sent, when the request comes from a
+  peer listed in `server.http.trusted_proxies` with `X-Forwarded-Proto: https`.
+  If your load balancer talks to the server directly, list it there (Helm:
+  `server.trustedProxies`). `server.grpc.trusted_proxies` and
+  `server.grpc.hsts_preload` are HTTP-only and now log a start-up warning.
+- **Files that must be regular (#3178, #3182, #3186, #3187, #3195).** A FIFO or
+  other non-regular file at a key, CA, license, metadata, backup, witness or CLI
+  input path is refused instead of hanging the start-up.
+- **`KEYORIX_DB_PASSWORD` next to a `dsn` (#3159, #3206).** Already in v0.96.1; if
+  you upgrade from v0.96.0, a `dsn` that carries a password together with a
+  configured `KEYORIX_DB_PASSWORD` / `storage.database.password` refuses to start.
+
+## 6s. PostgreSQL: the server checks it holds the database's DEK (DEK epoch)
+
+On PostgreSQL the database now records which DEK it is encrypted under (the DEK
+epoch: `system_metadata` key `dek.epoch`, a fingerprint, not key material). The
+first server to start after the upgrade records it, after checking that its DEK
+decrypts the newest stored secret version. From then on:
+
+- A server whose DEK is not the recorded one refuses to start (it would write
+  rows nobody can decrypt once the old DEK is gone). This catches a replica
+  started with an old `dek.key` after a DEK rotation on another host.
+- A running server refuses encrypted writes (reads and revocations continue)
+  while a DEK rotation is in progress or after one finished elsewhere.
+- `admin encryption rotate` fences writes on every replica, waits about 10
+  seconds, and locks the encrypted tables against writes during its sweep.
+
+Upgrade every replica before the next DEK rotation: an older binary does not
+check the epoch. With several replicas, start one that holds the current key
+set first. SQLite is unchanged. See
+[`operator/j6-key-rotation.md`](operator/j6-key-rotation.md).
+
+## 6i. Start-up refuses a weak SCIM token and an unneeded KMS context fallback
+
+Two behaviour changes at boot, no new setting. Check before upgrading:
+
+- **SCIM token (`scim.enabled: true`).** Besides the 20-character minimum, the token
+  must not be one byte repeated, have fewer than 10 distinct characters, contain a
+  placeholder (`changeme`, `password`, `example`, `secret` ...), be made only of sample
+  words (`test-token-...`), or equal another configured secret. An upgraded deployment
+  gets the ADR-112 grace period: the server starts and logs
+  `WARNING: SCIM token is too weak: ... ADR-112 grace period ...` until the first start
+  with a token that passes (or with SCIM off); after that, and on a fresh install, it
+  refuses to start.
+  Replace the token with `openssl rand -base64 32` in Keyorix and in the IdP's SCIM
+  connector.
+- **`storage.encryption.key_provider.insecure_allow_kms_context_fallback`** (aws-kms,
+  gcp-kms). When the stored wrapped KEK already opens with its `kms_encryption_context`
+  (the migration it exists for is done), the server refuses to start and says the flag
+  can be removed. Remove it before upgrading. A KEK that still needs it starts as before.
+
+Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
+[KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
 
 ## 7. Rollback
 
@@ -550,8 +874,13 @@ If an upgrade goes wrong:
 
 - `docs/SELF_HOSTING.md` §4 (master password / KEK), §5 (backup and
   restore), §6 (upgrades), §9 (troubleshooting).
+- `docs/operator/startup-refusals.md` for what each start-up refusal means after an
+  upgrade or rollback (schema epoch newer than the binary, compatibility floor,
+  key files, restore rollback protection) and which fixes are safe in place.
 - `docs/AIRGAP_RUNBOOK.md` for the air-gapped-specific backup/restore
   procedure.
+- `docs/rolling-upgrade-columns.md` for why a column added by one release does
+  not break the previous release's replicas during a rolling upgrade.
 - `CHANGELOG.md` and the GitHub release notes for the full list of changes
   in this release.
 - `design-b3-backup-v2.md` for the full backup-v2 design (§3 format, §5

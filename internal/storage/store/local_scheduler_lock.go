@@ -14,13 +14,13 @@ import (
 // bad tick can't kill the scheduler goroutine (and so the advisory lock is still
 // released by the caller's defers). Mirrors that the pre-ADR-039 schedulers had no
 // panic guard either, but this is now the natural choke point to add one.
-func runProtected(fn func() error) (err error) {
+func runProtected(ctx context.Context, fn func(context.Context) error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("scheduler job panicked: %v", r)
 		}
 	}()
-	return fn()
+	return fn(ctx)
 }
 
 // WithSchedulerLock runs fn iff this process can acquire the advisory lock `key`.
@@ -36,9 +36,9 @@ func runProtected(fn func() error) (err error) {
 // request pool fn's own queries use. See SetSchedulerLockDB for why.
 //
 // SQLite / non-Postgres: there is only one instance, so fn always runs.
-func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn func() error) (bool, error) {
+func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn func(ctx context.Context) error) (bool, error) {
 	if ls.db.Dialector.Name() != "postgres" {
-		return true, runProtected(fn)
+		return true, runProtected(ctx, fn)
 	}
 	lockDB := ls.schedulerLockDB
 	if lockDB == nil {
@@ -75,7 +75,8 @@ func (ls *LocalStorage) WithSchedulerLock(ctx context.Context, key int64, fn fun
 	// forces database/sql to physically close it instead of pooling it, which
 	// terminates the Postgres backend and releases every advisory lock it held.
 	defer sess.unlock(ctx, key, "scheduler")
-	return true, runProtected(fn)
+	wctx, finish := sess.watch(ctx, "scheduler lock")
+	return true, finish(runProtected(wctx, fn))
 }
 
 // SetSchedulerLockDB gives WithSchedulerLock a pool of its own for the advisory-

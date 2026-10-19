@@ -240,6 +240,10 @@ type LocalStorage struct {
 	// foldMemo is single_writer's memo of the folded credential statement
 	// (local_folded_credential_memo.go). Root store only, like the native pool.
 	foldMemo *foldMemo
+	// auditTable caches the audit_events table name as GORM resolves it for
+	// ls.db (auditEventsTable): fixed for the life of the handle, and resolving
+	// it ran a DryRun Find per audit batch (PERF-LOWCONC-1 step 3).
+	auditTable atomic.Pointer[string]
 	// rolePermCache backs RoleSetHasPermission's read-path cache (PERF-3,
 	// docs/specs/read-path-caching.md PR-2). A pointer so a transaction-scoped
 	// LocalStorage (see WithTransaction) shares the SAME cache as its parent,

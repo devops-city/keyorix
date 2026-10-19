@@ -2,7 +2,7 @@
 //
 // Covers: CreateShareRecord, GetShareRecord, UpdateShareRecord, DeleteShareRecord,
 //
-//	ListSharesBySecret, ListSharesByUser, ListSharesByOwner, ListSharesByGroup,
+//	LockShareRecordForUpdate, ListSharesBySecret, ListSharesByUser, ListSharesByOwner, ListSharesByGroup,
 //	ListSharedSecrets, CheckSharePermission.
 //
 // Sharing logic includes soft-delete awareness (deleted_at IS NULL filters),
@@ -19,6 +19,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CreateShareRecord creates a share record, or updates the permission if one already exists.
@@ -152,6 +153,32 @@ func createShareRecordTx(tx *gorm.DB, share *models.ShareRecord) (*models.ShareR
 func (ls *LocalStorage) GetShareRecord(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
 	var share models.ShareRecord
 	if err := ls.db.First(&share, shareID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%s", i18n.T("ErrorShareNotFound", nil))
+		}
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), err)
+	}
+	return &share, nil
+}
+
+// LockShareRecordForUpdate re-reads a live share record by ID, adding SELECT … FOR
+// UPDATE on Postgres so the read and a later write of the row in the same transaction
+// serialize against every other writer of it across replicas (mirrors
+// LockUserForUpdate). Outside a transaction the lock ends with the statement. SQLite
+// has no row lock; its write transactions are BEGIN IMMEDIATE, so no other writer can
+// commit between the read and the write anyway.
+//
+// SHARE-CAS-1: core.UpdateSharePermission classifies its change (widens or not)
+// against this read and then writes; without the lock, a narrowing that committed in
+// between could turn a write classified neutral into a widening with only a
+// best-effort audit row.
+func (ls *LocalStorage) LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
+	q := ls.db.WithContext(ctx)
+	if ls.db.Dialector.Name() == "postgres" {
+		q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var share models.ShareRecord
+	if err := q.First(&share, shareID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("%s", i18n.T("ErrorShareNotFound", nil))
 		}
@@ -373,13 +400,13 @@ func (ls *LocalStorage) ListSharedSecrets(ctx context.Context, userID uint, now 
 	// listing would keep surfacing secrets whose access CheckSharePermission already
 	// denies for that same account.
 	directQuery := fmt.Sprintf(`
-		SELECT s.* FROM secret_nodes s
+		SELECT %s FROM secret_nodes s
 		JOIN share_records sr ON s.id = sr.secret_id
 		JOIN users u ON u.id = sr.recipient_id AND u.deleted_at IS NULL
 		WHERE sr.recipient_id = ? AND sr.is_group = ? AND sr.deleted_at IS NULL AND s.deleted_at IS NULL
 		  AND (sr.expires_at IS NULL OR sr.expires_at > ?)
 		LIMIT %d
-	`, maxUnboundedListRows)
+	`, modelColumns(ls.db, &models.SecretNode{}, "s"), maxUnboundedListRows)
 	if err := ls.db.Raw(directQuery, userID, false, now).Scan(&secrets).Error; err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), err)
 	}
@@ -394,7 +421,7 @@ func (ls *LocalStorage) ListSharedSecrets(ctx context.Context, userID uint, now 
 	// in every other project too (mirrors GetUserRoleIDsAt/
 	// GetUserGroupRoleIDsAt's own project_id=0-OR-exact-match convention).
 	groupQuery := fmt.Sprintf(`
-		SELECT s.* FROM secret_nodes s
+		SELECT %s FROM secret_nodes s
 		JOIN share_records sr ON s.id = sr.secret_id
 		JOIN user_groups ug ON sr.recipient_id = ug.group_id
 		JOIN groups g ON g.id = ug.group_id AND g.deleted_at IS NULL
@@ -403,7 +430,7 @@ func (ls *LocalStorage) ListSharedSecrets(ctx context.Context, userID uint, now 
 		  AND (sr.expires_at IS NULL OR sr.expires_at > ?)
 		  AND (ug.project_id = 0 OR ug.project_id = s.project_id)
 		LIMIT %d
-	`, maxUnboundedListRows)
+	`, modelColumns(ls.db, &models.SecretNode{}, "s"), maxUnboundedListRows)
 	var groupSecrets []*models.SecretNode
 	if err := ls.db.Raw(groupQuery, userID, true, now).Scan(&groupSecrets).Error; err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), err)
@@ -470,13 +497,13 @@ func (ls *LocalStorage) CheckSharePermission(ctx context.Context, secretID, user
 	// user's direct share would keep granting access even though the equivalent
 	// group-share path already denies it for a deleted group member.
 	var directShare models.ShareRecord
-	directQuery := `
-		SELECT sr.* FROM share_records sr
+	directQuery := fmt.Sprintf(`
+		SELECT %s FROM share_records sr
 		JOIN users u ON u.id = sr.recipient_id AND u.deleted_at IS NULL
 		WHERE sr.secret_id = ? AND sr.recipient_id = ? AND sr.is_group = ? AND sr.deleted_at IS NULL
 		  AND (sr.expires_at IS NULL OR sr.expires_at > ?)
 		LIMIT 1
-	`
+	`, modelColumns(ls.db, &models.ShareRecord{}, "sr"))
 	dres := ls.db.Raw(directQuery, secretID, userID, false, now).Scan(&directShare)
 	haveDirect := dres.Error == nil && directShare.ID != 0
 	if dres.Error != nil && !errors.Is(dres.Error, gorm.ErrRecordNotFound) {
@@ -488,8 +515,8 @@ func (ls *LocalStorage) CheckSharePermission(ctx context.Context, secretID, user
 	// confer the group's share permission on it. See ListSharedSecrets's
 	// identical fix above for the full reasoning.
 	var groupShare models.ShareRecord
-	groupQuery := `
-		SELECT sr.* FROM share_records sr
+	groupQuery := fmt.Sprintf(`
+		SELECT %s FROM share_records sr
 		JOIN user_groups ug ON sr.recipient_id = ug.group_id
 		JOIN groups g ON g.id = ug.group_id AND g.deleted_at IS NULL
 		JOIN users u ON u.id = ug.user_id AND u.deleted_at IS NULL
@@ -497,7 +524,7 @@ func (ls *LocalStorage) CheckSharePermission(ctx context.Context, secretID, user
 		  AND (sr.expires_at IS NULL OR sr.expires_at > ?)
 		  AND (ug.project_id = 0 OR ug.project_id = ?)
 		LIMIT 1
-	`
+	`, modelColumns(ls.db, &models.ShareRecord{}, "sr"))
 	res := ls.db.Raw(groupQuery, secretID, userID, true, now, secret.ProjectID).Scan(&groupShare)
 	haveGroup := res.Error == nil && groupShare.ID != 0
 	if res.Error != nil && !errors.Is(res.Error, gorm.ErrRecordNotFound) {

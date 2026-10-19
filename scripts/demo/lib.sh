@@ -207,19 +207,28 @@ else:
 " "$1"
 }
 
-# demo_uptime_seconds BASE_URL — how long the server process has been up (GET /health),
-# '' when it cannot be read.
+# demo_uptime_seconds BASE_URL TOKEN — how long the server process has been up, from the
+# system.read-gated GET /api/v1/system/info ("uptime", a Go duration). Not from /health:
+# that is unauthenticated and never carried a documented uptime contract, and behind the
+# Postgres compose stack nginx answers /health itself with a static "healthy" (web/nginx.conf),
+# so it can never reach the backend (DEMO-UPTIME-1). Prints whole seconds. When it cannot
+# read them it prints nothing on stdout, returns 1 and says on stderr what it got (HTTP
+# status, body head), so a drifted endpoint or a dropped field is obvious in the log.
 demo_uptime_seconds() {
-  local d body
-  # The /health body is only PARSED as JSON below, never executed; it goes to
-  # python3's stdin from a variable rather than straight off the curl pipe.
-  body="$(curl -s --max-time 5 "$1/health" || true)"
-  d="$(python3 -c 'import sys, json
-try:
-    print(json.load(sys.stdin).get("uptime", ""))
-except Exception:
-    print("")' <<<"$body")"
-  [ -n "$d" ] && demo_duration_seconds "$d"
+  local d secs
+  demo_api GET "$1" "/api/v1/system/info" "${2:-}"
+  if [ "$DEMO_HTTP_CODE" != "200" ]; then
+    echo "demo_uptime_seconds: GET $1/api/v1/system/info returned HTTP ${DEMO_HTTP_CODE:-none}: $(printf '%.300s' "$DEMO_BODY")" >&2
+    return 1
+  fi
+  d="$(demo_json "d['data']['uptime']" "$DEMO_BODY")"
+  secs=""
+  [ -n "$d" ] && secs="$(demo_duration_seconds "$d")"
+  if [ -z "$secs" ]; then
+    echo "demo_uptime_seconds: no parseable data.uptime in GET $1/api/v1/system/info (uptime='${d}'): $(printf '%.300s' "$DEMO_BODY")" >&2
+    return 1
+  fi
+  echo "$secs"
 }
 
 # demo_open_anomalies BASE_URL TOKEN — prints one "ID TYPE SEVERITY ACCESSED_BY SECRET" line per
@@ -257,15 +266,19 @@ for a in json.loads(sys.argv[1])['data'].get('alerts') or []:
 # from the server log; without it the worst case (5 min) is waited.
 demo_settle_anomalies() {
   local base="$1" token="$2" container="${3:-}" need=320 line d up wait tries=0 acked=0 left=0
-  if [ -n "$container" ]; then
-    line="$(docker logs "$container" 2>&1 | grep -m1 'Anomaly detection: first pass in' || true)"
+  if [ -n "$container" ] || [ -n "${DEMO_SERVER_LOG:-}" ]; then
+    # DEMO_SERVER_LOG (native-up.sh) is the server's log file; otherwise the docker log.
+    if [ -n "${DEMO_SERVER_LOG:-}" ]; then
+      line="$(grep -m1 'Anomaly detection: first pass in' "$DEMO_SERVER_LOG" 2>/dev/null || true)"
+    else
+      line="$(docker logs "$container" 2>&1 | grep -m1 'Anomaly detection: first pass in' || true)"
+    fi
     d="$(printf '%s' "$line" | sed -n 's/.*first pass in \([0-9hms.]*\),.*/\1/p')"
     [ -n "$d" ] && d="$(demo_duration_seconds "$d")"
     [ -n "$d" ] && need=$((d + 20))
   fi
   while :; do
-    up="$(demo_uptime_seconds "$base")"
-    [ -n "$up" ] || { echo "settle: could not read the server uptime; skipping" >&2; return 0; }
+    up="$(demo_uptime_seconds "$base" "$token")" || { echo "settle: could not read the server uptime (detail above); skipping" >&2; return 0; }
     [ "$up" -ge "$need" ] && break
     wait=$((need - up)); [ "$wait" -gt 10 ] && wait=10
     sleep "$wait"
@@ -283,7 +296,10 @@ demo_settle_anomalies() {
     case "$type:$sev:$who" in
       new_user:low:admin|new_user:low:alice|new_user:low:security-officer|new_user:low:ci-app|\
       new_ip:low:admin|new_ip:low:alice|new_ip:low:security-officer|new_ip:low:ci-app|\
-      off_hours:medium:admin|off_hours:medium:alice|off_hours:medium:security-officer|off_hours:medium:ci-app)
+      off_hours:medium:admin|off_hours:medium:alice|off_hours:medium:security-officer|off_hours:medium:ci-app|\
+      principal_breadth:high:admin|principal_breadth:medium:admin)
+        # principal_breadth:*:admin - the admin creating and classifying the seed's 13 secrets
+        # is "one principal touching >= 5 secrets it never read" to the detector.
         demo_api POST "$base" "/api/v1/audit/anomalies/$id/acknowledge" "$token" "{}"
         if [ "$DEMO_HTTP_CODE" = "200" ]; then acked=$((acked + 1)); else left=$((left + 1)); fi
         ;;

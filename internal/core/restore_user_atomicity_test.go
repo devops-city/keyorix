@@ -4,32 +4,28 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
-	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// failOnceUpdateUserStorage makes UpdateUser fail once, mirroring the
-// failOnceStorage idiom from #2295.
-type failOnceUpdateUserStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceUpdateUserStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceUpdateUserStorage{Storage: tx, armed: s.armed})
+// failOnceUpdateUserStorage makes RestoreUser's LAST write (SetAccountState,
+// after the undelete and the is_active write already ran in the transaction)
+// fail once, mirroring the failOnceStorage idiom from #2295. It used to fail
+// the full-row UpdateUser, which RestoreUser no longer calls (#2677 sweep).
+func failOnceUpdateUserStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		SetAccountState: func(next storage.Storage, ctx context.Context, id uint, state string, updatedAt time.Time) error {
+			if *armed {
+				*armed = false
+				return errors.New("injected fault: SetAccountState")
+			}
+			return next.SetAccountState(ctx, id, state, updatedAt)
+		},
 	})
-}
-
-func (s *failOnceUpdateUserStorage) UpdateUser(ctx context.Context, u *models.User) (*models.User, error) {
-	if *s.armed {
-		*s.armed = false
-		return nil, errors.New("injected fault: UpdateUser")
-	}
-	return s.Storage.UpdateUser(ctx, u)
 }
 
 // TestRestoreUser_UpdateFailureRollsBackUndelete is the red-proof for Session
@@ -48,7 +44,7 @@ func TestRestoreUser_UpdateFailureRollsBackUndelete(t *testing.T) {
 	require.NoError(t, c.DeleteUser(ctx, 1, u.ID))
 
 	armed := true
-	c.storage = &failOnceUpdateUserStorage{Storage: st, armed: &armed}
+	c.storage = failOnceUpdateUserStorage(st, &armed)
 
 	err = c.RestoreUser(ctx, 1, u.ID)
 	require.Error(t, err)

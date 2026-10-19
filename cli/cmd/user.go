@@ -468,6 +468,9 @@ func init() {
 }
 
 func runUserList(_ *cobra.Command, _ []string) error {
+	if err := checkOutputFormat(userListFormat); err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -489,6 +492,16 @@ func runUserList(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
+	if userListFormat != outputTable {
+		// The server pages this list, so the object carries the total next to the page.
+		if data.Users == nil {
+			data.Users = []remoteUser{}
+		}
+		return printStructured(userListFormat, struct {
+			Total int64        `json:"total"`
+			Users []remoteUser `json:"users"`
+		}{data.Total, data.Users})
+	}
 	fmt.Printf("Total: %d\n", data.Total)
 	fmt.Printf("%-6s %-20s %-30s %-10s\n", "ID", "USERNAME", "EMAIL", "ACTIVE")
 	for _, u := range data.Users {

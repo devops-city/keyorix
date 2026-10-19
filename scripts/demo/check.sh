@@ -83,11 +83,19 @@ RESP_BODY=""
 req() { # req METHOD PATH [BEARER_TOKEN] [JSON_BODY]
   local method="$1" path="$2" token="${3:-}" body="${4:-}"
   local args=(-s -o "$SCRATCH/resp.json" -w '%{http_code}' --max-time 10 -X "$method" "${SERVER_URL}${path}")
-  [ -n "$token" ] && args+=(-H "Authorization: Bearer $token")
-  if [ -n "$body" ]; then
-    args+=(-H "Content-Type: application/json" -d "$body")
+  # Credentials never go on argv (visible in ps): the bearer token is read from a 0600 header
+  # file (`-H @file`) and the JSON body, which can carry a password or MFA code, from stdin.
+  if [ -n "$token" ]; then
+    ( umask 077; printf 'Authorization: Bearer %s\n' "$token" >"$SCRATCH/req.hdr" )
+    args+=(-H "@$SCRATCH/req.hdr")
   fi
-  HTTP_CODE="$(curl "${args[@]}")"
+  if [ -n "$body" ]; then
+    args+=(-H "Content-Type: application/json" --data-binary @-)
+    HTTP_CODE="$(printf '%s' "$body" | curl "${args[@]}")"
+  else
+    HTTP_CODE="$(curl "${args[@]}")"
+  fi
+  rm -f "$SCRATCH/req.hdr"
   RESP_BODY="$(cat "$SCRATCH/resp.json" 2>/dev/null || true)"
 }
 jget() { # jget '<python expr over d, e.g. d["data"]["token"]>' -- reads $RESP_BODY
@@ -482,10 +490,16 @@ step_seed_posture() {
     return 1
   }
   local detail; detail="$(jget 'next(c["detail"] for c in d["data"]["controls"] if c["id"]=="secret-rotation")')"
-  case "$detail" in
-    *"2 of 3 secrets covered"*) ;;
-    *) echo "secret-rotation gap has the wrong detail '$detail', expected '2 of 3 secrets covered' (payments-webhook-secret uncovered)"; return 1 ;;
-  esac
+  # Exactly ONE secret uncovered (payments-webhook-secret), whatever the seed's
+  # total is: the seed grows (13 secrets since the anomaly demo), so "N-1 of N" is
+  # asserted, not a hard-coded "2 of 3".
+  local covered total
+  covered="$(printf '%s' "$detail" | sed -n 's/.*; \([0-9][0-9]*\) of \([0-9][0-9]*\) secrets covered.*/\1/p')"
+  total="$(printf '%s' "$detail" | sed -n 's/.*; \([0-9][0-9]*\) of \([0-9][0-9]*\) secrets covered.*/\2/p')"
+  if [ -z "$covered" ] || [ -z "$total" ] || [ "$total" -lt 3 ] || [ "$covered" -ne $((total - 1)) ]; then
+    echo "secret-rotation gap has the wrong detail '$detail', expected exactly one secret uncovered, 'N-1 of N secrets covered' with N >= 3 (payments-webhook-secret)"
+    return 1
+  fi
   # No high-severity anomaly: that is what turns the anomaly-detection control red.
   local passing; passing="$(jget 'next(c["status"] for c in d["data"]["controls"] if c["id"]=="anomaly-detection")')"
   [ "$passing" = "pass" ] || { echo "anomaly-detection control is '$passing' on a fresh demo, expected pass (no high-severity alert)"; return 1; }
@@ -779,10 +793,12 @@ step_latency() {
   local n=50 times_file="$SCRATCH/latencies.txt"
   : > "$times_file"
   local ref; ref="$(urlenc "default/development/stripe-api-key")"
+  ( umask 077; printf 'Authorization: Bearer %s\n' "$ADMIN_TOKEN" >"$SCRATCH/latency.hdr" )
   for _ in $(seq 1 "$n"); do
     curl -s -o /dev/null -w '%{time_total}\n' --max-time 5 \
-      -H "Authorization: Bearer $ADMIN_TOKEN" "${SERVER_URL}/api/v1/secrets/value?ref=$ref" >>"$times_file"
+      -H "@$SCRATCH/latency.hdr" "${SERVER_URL}/api/v1/secrets/value?ref=$ref" >>"$times_file"
   done
+  rm -f "$SCRATCH/latency.hdr"
   local p50; p50="$(sort -n "$times_file" | awk -v n="$n" 'NR==int(n/2)+1{print; exit}')"
   [ -n "$p50" ] || { echo "could not measure any secret-read latency samples"; return 1; }
   LAST_P50_MS="$(python3 -c "print(round(float('$p50')*1000,1))")"
@@ -848,15 +864,13 @@ step_ui() {
 # scratch secret ("check-secret") is ignored: it is created after the seed's pass.
 step_no_open_anomalies() {
   local up
-  up="$(demo_uptime_seconds "$SERVER_URL")"
-  [ -n "$up" ] || { echo "could not read the server uptime from GET /health"; return 1; }
+  up="$(demo_uptime_seconds "$SERVER_URL" "$ADMIN_TOKEN")" || { echo "could not read the server uptime from GET /api/v1/system/info (detail above)"; return 1; }
   if [ "$up" -lt 360 ]; then
     echo "waiting $((360 - up))s: the first anomaly pass runs up to 5 minutes after start" >&2
   fi
   while [ "$up" -lt 360 ]; do
     sleep 5
-    up="$(demo_uptime_seconds "$SERVER_URL")"
-    [ -n "$up" ] || { echo "lost the server while waiting for the first anomaly pass"; return 1; }
+    up="$(demo_uptime_seconds "$SERVER_URL" "$ADMIN_TOKEN")" || { echo "lost the server while waiting for the first anomaly pass (detail above)"; return 1; }
   done
   local open
   open="$(demo_open_anomalies "$SERVER_URL" "$ADMIN_TOKEN" | awk '$5 != "check-secret"')"

@@ -48,12 +48,12 @@ import (
 // and it drives the FULL rejectIfCloned path rather than the inner function in
 // isolation, so the caller's discarded error is part of what is under test.
 type credentialVanishingStore struct {
-	corestorage.Storage
-	db *gorm.DB
+	inner corestorage.Storage
+	db    *gorm.DB
 }
 
-func (s *credentialVanishingStore) GetWebAuthnCredentialByCredID(ctx context.Context, credID []byte, userID uint) (*models.WebAuthnCredential, error) {
-	row, err := s.Storage.GetWebAuthnCredentialByCredID(ctx, credID, userID)
+func (s *credentialVanishingStore) GetWebAuthnCredentialByCredID(next corestorage.Storage, ctx context.Context, credID []byte, userID uint) (*models.WebAuthnCredential, error) {
+	row, err := next.GetWebAuthnCredentialByCredID(ctx, credID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,17 +65,27 @@ func (s *credentialVanishingStore) GetWebAuthnCredentialByCredID(ctx context.Con
 	return row, nil
 }
 
+// wrap returns inner decorated with credentialVanishingStore's overrides.
+func (s *credentialVanishingStore) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetWebAuthnCredentialByCredID: s.GetWebAuthnCredentialByCredID,
+	})
+}
+
+// store returns s.inner decorated with credentialVanishingStore's overrides.
+func (s *credentialVanishingStore) store() corestorage.Storage { return s.wrap(s.inner) }
+
 // credentialDisableFailingStore fails the disable UPDATE outright. The clone
 // verdict was already reached before this call (CloneWarning was true), so
 // unlike an MFA storage failure this does NOT leave the security question
 // unanswered — the incident is real and must be recorded; only the mitigation
 // failed.
-type credentialDisableFailingStore struct {
-	corestorage.Storage
-}
-
-func (s *credentialDisableFailingStore) DisableWebAuthnCredential(context.Context, uint) (bool, error) {
-	return false, errors.New("pq: connection reset by peer")
+func credentialDisableFailingStore(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		DisableWebAuthnCredential: func(corestorage.Storage, context.Context, uint) (bool, error) {
+			return false, errors.New("pq: connection reset by peer")
+		},
+	})
 }
 
 func TestRejectIfCloned_AuditsTheCloneEvenWhenTheDisableDoesNotTakeEffect(t *testing.T) {
@@ -85,7 +95,7 @@ func TestRejectIfCloned_AuditsTheCloneEvenWhenTheDisableDoesNotTakeEffect(t *tes
 		c, db := newWebAuthnTestCore(t, true)
 		credID := []byte("cred-2836-vanished")
 		seedCredential(t, c, db, 1, string(credID))
-		c.storage = &credentialVanishingStore{Storage: c.storage, db: db}
+		c.storage = (&credentialVanishingStore{inner: c.storage, db: db}).store()
 
 		cred := &webauthn.Credential{ID: credID, Authenticator: webauthn.Authenticator{CloneWarning: true}}
 		err := c.rejectIfCloned(context.Background(), 1, cred, "203.0.113.9")
@@ -107,7 +117,7 @@ func TestRejectIfCloned_AuditsTheCloneEvenWhenTheDisableDoesNotTakeEffect(t *tes
 		c, db := newWebAuthnTestCore(t, true)
 		credID := []byte("cred-2836-disable-down")
 		seedCredential(t, c, db, 1, string(credID))
-		c.storage = &credentialDisableFailingStore{Storage: c.storage}
+		c.storage = credentialDisableFailingStore(c.storage)
 
 		cred := &webauthn.Credential{ID: credID, Authenticator: webauthn.Authenticator{CloneWarning: true}}
 		err := c.rejectIfCloned(context.Background(), 1, cred, "203.0.113.9")

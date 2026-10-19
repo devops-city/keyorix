@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -15,11 +14,10 @@ import (
 	coreStorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
-
-// bulkDeleteDBSeq makes each in-memory DB unique within the process.
-var bulkDeleteDBSeq atomic.Int64
 
 // setupBulkDeleteDB opens an in-memory SQLite DB, migrates the necessary models,
 // and returns a core instance plus a factory for creating test secrets.
@@ -29,11 +27,7 @@ func setupBulkDeleteDB(t *testing.T) (*KeyorixCore, func(name string) uint, uint
 
 	// Use a unique in-memory DSN per invocation to avoid shared state across tests
 	// and across repeated invocations of the same test (e.g. go test -count=N).
-	dsn := fmt.Sprintf("file:bulkdelete_%d?mode=memory&cache=shared&_busy_timeout=5000", bulkDeleteDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulkdelete_", sqlite.Open, &gorm.Config{})
 
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{},
@@ -42,7 +36,7 @@ func setupBulkDeleteDB(t *testing.T) (*KeyorixCore, func(name string) uint, uint
 		&models.Environment{},
 		&models.AuditEvent{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretACL{},
 		&models.SecretAccessSchedule{},
 		// #G31: BulkDeleteSecrets now goes through GetSecretWithPermissionCheck /
@@ -239,11 +233,7 @@ func TestBulkDeleteSecrets_CrossProjectGuard(t *testing.T) {
 	require.NoError(t, i18n.InitializeForTesting())
 	ctx := context.Background()
 
-	dsn := fmt.Sprintf("file:bulkdelete_crossproject_%d?mode=memory&cache=shared&_busy_timeout=5000", bulkDeleteDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulkdelete_crossproject_", sqlite.Open, &gorm.Config{})
 
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{},
@@ -252,7 +242,7 @@ func TestBulkDeleteSecrets_CrossProjectGuard(t *testing.T) {
 		&models.Environment{},
 		&models.AuditEvent{},
 		&models.SecretAccessLog{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretACL{},
 		&models.SecretAccessSchedule{},
 		&models.User{}, &models.Role{}, &models.UserRole{},
@@ -353,16 +343,26 @@ func TestBulkDeleteSecrets_RefusesProjectIDZero(t *testing.T) {
 // detached goroutine would let BulkDeleteSecrets return almost immediately
 // regardless of how long CreateSecretAccessLog takes, since nothing waits on it).
 type slowAuditLogStorage struct {
-	coreStorage.Storage
+	inner coreStorage.Storage
 	delay time.Duration
 	calls atomic.Int32
 }
 
-func (s *slowAuditLogStorage) CreateSecretAccessLog(ctx context.Context, entry *models.SecretAccessLog) error {
+func (s *slowAuditLogStorage) CreateSecretAccessLog(next coreStorage.Storage, ctx context.Context, entry *models.SecretAccessLog) error {
 	time.Sleep(s.delay)
 	s.calls.Add(1)
-	return s.Storage.CreateSecretAccessLog(ctx, entry)
+	return next.CreateSecretAccessLog(ctx, entry)
 }
+
+// wrap returns inner decorated with slowAuditLogStorage's overrides.
+func (s *slowAuditLogStorage) wrap(inner coreStorage.Storage) coreStorage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSecretAccessLog: s.CreateSecretAccessLog,
+	})
+}
+
+// store returns s.inner decorated with slowAuditLogStorage's overrides.
+func (s *slowAuditLogStorage) store() coreStorage.Storage { return s.wrap(s.inner) }
 
 // TestBulkDeleteSecrets_AuditLogWriteIsSynchronous is the #1600 regression.
 // BulkDeleteSecrets used to fire its per-secret audit-log write
@@ -382,22 +382,18 @@ func (s *slowAuditLogStorage) CreateSecretAccessLog(ctx context.Context, entry *
 func TestBulkDeleteSecrets_AuditLogWriteIsSynchronous(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, i18n.InitializeForTesting())
-	dsn := fmt.Sprintf("file:bulkdelete_sync_%d?mode=memory&cache=shared&_busy_timeout=5000", bulkDeleteDBSeq.Add(1))
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	require.NoError(t, err)
-	sqlDB, _ := db.DB()
-	sqlDB.SetMaxOpenConns(1)
+	db := sqlitetest.OpenWithDialector(t, "bulkdelete_sync_", sqlite.Open, &gorm.Config{})
 	require.NoError(t, db.AutoMigrate(
 		&models.SecretNode{}, &models.SecretVersion{}, &models.Project{}, &models.Environment{},
-		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.SecretACL{},
+		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.SecretAccessSchedule{}, &models.User{}, &models.Role{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 	))
 
 	real := store.NewLocalStorage(db)
 	const delay = 40 * time.Millisecond
-	slow := &slowAuditLogStorage{Storage: real, delay: delay}
-	c := &KeyorixCore{storage: slow, now: time.Now}
+	slow := &slowAuditLogStorage{inner: real, delay: delay}
+	c := &KeyorixCore{storage: slow.store(), now: time.Now}
 	ctx := context.Background()
 
 	p, err := real.CreateProject(ctx, &models.Project{Name: "proj-sync"})

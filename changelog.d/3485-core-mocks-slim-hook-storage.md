@@ -1,0 +1,2 @@
+### Testing
+- **`internal/core` test doubles share one `hookStore`.** 123 per-test `struct{ storage.Storage }` doubles each cost ~2.6 MB of method wrappers; the `[internal/core.test]` archive is now ~50 MB instead of 326 MB and compiles several times faster. No product code changed and no test assertion changed. `TestNoWholeStorageEmbeddingInCoreTests` keeps a second whole-`Storage` embedding out of the package.

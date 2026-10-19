@@ -33,7 +33,11 @@ var ErrSetupBaseURLRequired = errors.New("credential_delivery.base_url is requir
 // issued), but this is a storage fault, not a throttle verdict: unlike a real
 // "limit reached", a caller that had not yet persisted anything must not
 // persist anything either (#2599, see provisionInvitationSetupLink).
-var ErrResendThrottleUnverifiable = errors.New("could not verify resend limits, please try again")
+// ResendThrottleUnverifiableMessage is the fixed client-facing text of
+// ErrResendThrottleUnverifiable (handlers send the constant, never err.Error()).
+const ResendThrottleUnverifiableMessage = "could not verify resend limits, please try again"
+
+var ErrResendThrottleUnverifiable = errors.New(ResendThrottleUnverifiableMessage)
 
 // auditCredentialDisplayedOutOfBand records that a human saw a credential
 // out-of-band (ADR-028's one audited "a human saw this" checkpoint). Deliberately
@@ -175,11 +179,10 @@ func (c *KeyorixCore) CreateUserWithSetupLink(ctx context.Context, req *CreateUs
 	}
 	reqCopy.Password = unusable
 	reqCopy.AccountState = AccountPendingFirstLogin
-	user, err := c.CreateUser(ctx, &reqCopy)
+	user, err := c.CreateUserAudited(ctx, &reqCopy, createdBy)
 	if err != nil {
 		return nil, nil, err
 	}
-	c.LogUserCreated(ctx, createdBy, user.ID, user.Username)
 
 	res, err := c.provisionSetupLink(ctx, IssueSetupTokenRequest{
 		Purpose:       SetupPurposeAccountSetup,
@@ -229,11 +232,10 @@ func (c *KeyorixCore) CreateUserWithOneTimePassword(ctx context.Context, req *Cr
 	// The expiry is written by the same insert as the password (OTP-EXPIRY-1).
 	expiresAt := c.now().Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	reqCopy.OneTimePasswordExpiresAt = &expiresAt
-	user, err := c.CreateUser(ctx, &reqCopy)
+	user, err := c.CreateUserAudited(ctx, &reqCopy, createdBy)
 	if err != nil {
 		return nil, nil, err
 	}
-	c.LogUserCreated(ctx, createdBy, user.ID, user.Username)
 
 	// Record that a human saw a credential — the one path the ADR singles out for
 	// compliance (artifact=one_time_password, vs the setup-link artifact). Uses

@@ -85,13 +85,23 @@ Rules (all enforced at startup; the server refuses to start rather than guess):
 - **File permissions -- key material is refused, other secrets follow the
   file-permission policy.** The rule is the one the KEK file and
   `--passphrase-file` already follow: `0600` or `0400`. One exception exists for
-  files an orchestrator mounts: a file *not owned by the running user* may also be
-  group-readable (`0440`, or `0640`) when its group is one the process belongs to --
-  which is exactly what a Kubernetes Secret volume with `fsGroup` produces (the
-  kubelet makes it root-owned, group = `fsGroup`, and adds group-read even with
+  files an orchestrator mounts: a file *owned by root* may also be group-readable
+  (`0440`, or `0640`) when its group is one the process belongs to -- which is
+  exactly what a Kubernetes Secret volume with `fsGroup` produces (the kubelet
+  makes it root-owned, group = `fsGroup`, and adds group-read even with
   `defaultMode: 0400`) and what a Docker secret with `group_add` looks like. Access
   for *other*, group-write and setuid/setgid/sticky are never accepted, and a
   group-readable file owned by the running user is refused.
+- **Owner: the running user or root, nobody else (#3393).** Whoever owns a file can
+  `chmod` and rewrite it, so a secret file owned by any other account is refused
+  whatever its mode: that account could swap the master password or KEK. The error
+  names the file and the owner uid. Fix it with `chown root:<group> <file>` (keeping
+  the group the process reads it through) or `chown <server user> <file>` for a
+  `0600`/`0400` file. There is no list of further trusted owners. The same owner
+  rule covers `--passphrase-file`, the file KEK provider (`key_provider: file`), the
+  wrapped DEK, the KEK salt and the TLS private keys (#3410): the first two are
+  refused outright, the others follow `security.enable_file_permission_check`
+  like a too-open mode.
   - **Master password (`KEYORIX_MASTER_PASSWORD_FILE`), key-provider KEK
     (`key_provider.env_var`) and Shamir shares (`shamir_share_env`):** a file that
     breaks the rule is **always refused**, in the server, the CLI and every admin
@@ -166,8 +176,11 @@ server:
       burst: 100
     metrics_token: ""             # GET /metrics then requires "Authorization: Bearer <token>"
     metrics_token_file: ""        # or read the token from this file (secret-file rules, see below); set one, not both
+    max_request_body_bytes: 0     # cap on each request body; 0 = built-in default (10 MiB). INSECURE when negative: a negative value removes the cap (memory-exhaustion DoS)
   access_log:
     on_sink_stall: block          # block (default) | drop — what a request does when the access-log sink stalls (see below)
+  log:
+    format: text                  # text (default) | json — one JSON object per log line; see docs/operations/logging.md
   grpc:
     # Partial surface, off by default. HTTP is the complete interface; enable this
     # only if you need it, and read docs/adr-105-grpc-scope-and-parity.md first —
@@ -180,6 +193,7 @@ server:
     tls:
       enabled: false
     tls_mode: ""                  # same two values as server.http.tls_mode above
+    max_request_body_bytes: 0     # same meaning as server.http.max_request_body_bytes; bounds each gRPC message (request and response)
     ratelimit:
       enabled: true
       requests_per_second: 25
@@ -257,6 +271,27 @@ The web container's nginx makes its own HSTS decision and strips the backend's
 header from proxied API responses ([SELF_HOSTING.md](SELF_HOSTING.md), "HSTS
 behind a TLS-terminating load balancer").
 
+### gRPC keepalive and connection limits (`server.grpc.keepalive`)
+
+Durations are Go duration strings (`"15m"`); an unset or unparseable value takes the
+default. Only the gRPC server reads this block (the keys parse under `server.http` too,
+but have no effect there).
+
+| Key | Default | Meaning |
+|---|---|---|
+| `time` | `5m` | idle time before the server pings the client |
+| `timeout` | `20s` | how long the server waits for the ping ack before closing |
+| `min_time` | `5m` | the shortest ping interval the server accepts from a client |
+| `permit_without_stream` | `false` | accept client pings while no RPC is in flight |
+| `max_connection_age` | `1h` | a connection is asked to close after this age |
+| `max_connection_age_grace` | `30s` | time for in-flight RPCs after that |
+| `max_connection_idle` | `15m` | close a connection with no RPC in flight (keepalive acks alone never reclaim it); new in v0.97.0 (#3312) |
+| `handshake_timeout` | `10s` | a new connection must finish its TLS handshake and HTTP/2 preface in this time; new in v0.97.0 (#3312) |
+
+The two new keys cannot be set to 0 to switch the bound off. The server also caps a gRPC
+connection at 128 concurrent RPCs and 64 KiB of metadata, and REST request headers at
+64 KiB (not configurable).
+
 ## storage
 
 ```yaml
@@ -317,7 +352,12 @@ storage:
     # pooler: none                # none (default) | pgbouncer-session | pgbouncer-transaction.
     #   POSTGRES ONLY. Names the connection pooler in front of PostgreSQL;
     #   pgbouncer-transaction changes how statements and advisory locks are
-    #   run. See docs/postgresql-poolers.md.
+    #   run. Only PgBouncer is supported; other poolers and proxies (PgCat,
+    #   Odyssey, RDS Proxy, Supavisor, pgpool-II, ...) are not tested and not
+    #   supported. A lost advisory lock (backend killed, failover, partition)
+    #   stops its holder in every mode; a lost server-presence or single_writer
+    #   lock shuts the server down with exit status 1. See
+    #   docs/postgresql-poolers.md.
 ```
 
 ### PostgreSQL TLS
@@ -525,6 +565,13 @@ deviation. Comparison with Vault/OpenBao's file audit device and how to choose:
 `insecure_audit_skip_durable_sync` is a deprecated alias for one minor release
 (`true` = `standard`, `false` = `strict`); it logs a deprecation line, and
 setting both keys to conflicting levels refuses to start.
+### Log format (`server.log.format`)
+
+`text` (default) keeps the existing human-readable lines. `json` writes every log line as
+one JSON object with `ts`, `level` and `msg`, and the HTTP access log and panic lines also
+carry `request_id`, `principal_type` and `route`. Any other value refuses to start. Fields,
+request-id behaviour and what is and is not redacted: [operations/logging.md](operations/logging.md).
+
 ### Access log when the sink stalls (`server.access_log.on_sink_stall`)
 
 The HTTP access log is written through a 1 MiB in-memory queue to the process
@@ -570,7 +617,7 @@ storage:
       # file_path: /etc/keyorix/kek.key
 
       # type: env — read the KEK (hex or base64) from the named env var's value.
-      # env_var: KEYORIX_KEK
+      # env_var: MY_KEK_HEX         # any variable name you choose; Keyorix defines no fixed name
 
       # type: exec — run a resolver command and read the KEK (32 raw bytes, or
       # hex/base64) from its stdout. argv form (no shell); fetches from any
@@ -1258,6 +1305,26 @@ session:
   absolute_ttl: "12h"   # hard cap on total session lifetime; "" or "0" = no ceiling
 ```
 
+### "Last used" / "last seen" freshness (not configurable)
+
+`personal_access_tokens.last_used_at`, `machine_identity_credentials.last_used_at`
+and `sessions.last_seen_at` are written off the request path: each server records
+uses in memory and writes them at most once per credential per **30 seconds**, and
+on a graceful stop. Bound: a use is in the database within 30 seconds plus one
+flush. A server that is killed (no graceful stop) loses at most the last 30 seconds
+of these stamps. Replicas write their own observations and the stored value never
+moves backwards. These columns feed displays and day-granularity hygiene reports
+only; no authentication or authorization decision reads them. See
+[`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
+
+**Authentication cache and database outages (not configurable).** A validated
+session, PAT or machine token is cached for about 30 seconds per replica, and
+every cached request still re-checks the credential's revocation state against
+the database. If that re-check fails (database down, failover, pool exhausted),
+the request is refused with `503` and `Retry-After` instead of being served from
+the cache, so a revocation is never hidden by an outage; clients should retry.
+See [UPGRADING.md](UPGRADING.md) §6h.
+
 ## password_policy
 
 Password rules (ADR-025). Absent = conservative built-in defaults; when present,
@@ -1347,6 +1414,12 @@ opening a campaign is a create, not a delete, so it runs even under a legal hold
 The cadence also drives the compliance posture's **projects-overdue** count (and
 `keyorix compliance report` → Access governance → "overdue for recert"), so the
 overdue signal is visible to auditors even before you enable `auto_open`.
+
+`cadence_days` is also the **look-back of the "last used" column** in the access review
+and in a campaign's items: a user with no secret activity in the last `cadence_days`
+days (at most 366) shows no last use, meaning "none within the review period", not
+"never". It applies whether or not the scheduler is enabled. See
+[recertification-activity-window.md](recertification-activity-window.md).
 
 ```yaml
 recertification:
@@ -1915,6 +1988,11 @@ scim:
 
 > Set `token` only via `KEYORIX_SCIM_TOKEN`. Point your IdP's SCIM connector at
 > `https://<host>/scim/v2` with that token as the bearer credential.
+> Generate it (`openssl rand -base64 32`): the server refuses to start with a token
+> under 20 characters, or one that is obviously not random (a repeated or
+> low-variety value, a placeholder such as `changeme`, or the same value as another
+> configured secret); see
+> [startup-refusals.md](operator/startup-refusals.md#weak-scim-token).
 
 ## sso
 

@@ -87,7 +87,7 @@ func TestWithSchedulerLock_Cov_ConcurrentSQLite(t *testing.T) {
 		key := int64(i + 1)
 		go func(k int64) {
 			defer wg.Done()
-			ran, err := ls.WithSchedulerLock(ctx, k, func() error { return nil })
+			ran, err := ls.WithSchedulerLock(ctx, k, func(context.Context) error { return nil })
 			assert.True(t, ran)
 			assert.NoError(t, err)
 		}(key)
@@ -102,12 +102,12 @@ func TestWithSchedulerLock_Cov_PanicInFnAfterMultipleCalls(t *testing.T) {
 	ctx := context.Background()
 
 	// Normal call first.
-	ran, err := ls.WithSchedulerLock(ctx, 100, func() error { return nil })
+	ran, err := ls.WithSchedulerLock(ctx, 100, func(context.Context) error { return nil })
 	require.NoError(t, err)
 	assert.True(t, ran)
 
 	// Panicking call — must not propagate.
-	ran, err = ls.WithSchedulerLock(ctx, 200, func() error {
+	ran, err = ls.WithSchedulerLock(ctx, 200, func(context.Context) error {
 		panic("deliberate panic in scheduler fn")
 	})
 	assert.True(t, ran)
@@ -115,7 +115,7 @@ func TestWithSchedulerLock_Cov_PanicInFnAfterMultipleCalls(t *testing.T) {
 	assert.Contains(t, err.Error(), "panicked")
 
 	// Next call with a different key still works after the panic.
-	ran, err = ls.WithSchedulerLock(ctx, 300, func() error { return nil })
+	ran, err = ls.WithSchedulerLock(ctx, 300, func(context.Context) error { return nil })
 	require.NoError(t, err)
 	assert.True(t, ran)
 }
@@ -132,7 +132,7 @@ func TestWithAuditCheckpointLock_Cov_SequentialCalls(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		err := ls.WithAuditCheckpointLock(ctx, func() error { return nil })
+		err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error { return nil })
 		require.NoError(t, err, "iteration %d must not error or deadlock", i)
 	}
 }
@@ -156,7 +156,7 @@ func TestWithAuditCheckpointLock_Cov_MutexSerializesConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			errs[idx] = ls.WithAuditCheckpointLock(ctx, func() error {
+			errs[idx] = ls.WithAuditCheckpointLock(ctx, func(context.Context) error {
 				mu.Lock()
 				counter++
 				mu.Unlock()
@@ -400,7 +400,7 @@ func TestPurgeDeletedUsersBefore_Cov_PurgesWithImpersonation(t *testing.T) {
 		&models.ShareRecord{},
 		&models.PersonalAccessToken{},
 		&models.Session{},
-		&models.SecretACL{},
+		&models.SecretACL{}, &models.AccessRequest{},
 	)
 	ctx := context.Background()
 	now := time.Now()

@@ -51,6 +51,7 @@ const (
 	errUnknownSSOProvider        = "unknown SSO provider"
 	errUserAlreadyExists         = "User already exists"
 	errUserContext               = "User context not found"
+	errUserOnlyEndpoint          = "This endpoint is only available to user accounts"
 	errUserHandlerNotInit        = "User handler not initialised"
 	errUserNotFound              = "User not found"
 	errWebAuthnCredNotFound      = "webauthn credential not found" // #nosec G101 -- error message string, not a hardcoded credential

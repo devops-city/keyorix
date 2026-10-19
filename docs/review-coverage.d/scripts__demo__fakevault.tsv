@@ -1,0 +1,1 @@
+scripts/demo/fakevault	none	-	PR #3342 (DEMO-LOCAL-2): demo/test helper command that serves a Vault KV v2 export file over the subset of the Vault HTTP API keyorix-migrate vault reads, so the migration demo needs no Vault container; package doc says it is never part of a shipped binary	test-helper

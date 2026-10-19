@@ -468,7 +468,7 @@ func TestGetActiveLegalHold_S27_BrokenDB(t *testing.T) {
 
 func TestLastUserSecretActivity_S27_BrokenDB(t *testing.T) {
 	ls := brokenS27Store(t)
-	_, err := ls.LastUserSecretActivity(context.Background(), 1)
+	_, err := ls.LastUserSecretActivity(context.Background(), 1, time.Time{})
 	require.Error(t, err)
 }
 
@@ -579,7 +579,7 @@ func TestWithAuditCheckpointLock_S27_SQLiteRunsFn(t *testing.T) {
 	ctx := context.Background()
 
 	ran := false
-	err := ls.WithAuditCheckpointLock(ctx, func() error {
+	err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error {
 		ran = true
 		return nil
 	})
@@ -592,7 +592,7 @@ func TestWithAuditCheckpointLock_S27_PropagatesFnError(t *testing.T) {
 	ctx := context.Background()
 
 	sentinel := errors.New("fn-error")
-	err := ls.WithAuditCheckpointLock(ctx, func() error { return sentinel })
+	err := ls.WithAuditCheckpointLock(ctx, func(context.Context) error { return sentinel })
 	require.ErrorIs(t, err, sentinel)
 }
 
