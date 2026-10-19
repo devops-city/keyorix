@@ -13,7 +13,7 @@
 # Ledgers migrated (key column = column 1):
 #   docs/adr-conformance-enforced.tsv   -> docs/adr-conformance-enforced.d/   (scripts/check-adr-conformance.sh)
 #   docs/review-coverage.tsv            -> docs/review-coverage.d/            (scripts/check-review-coverage.sh)
-#   docs/check-then-act-lock-exempt.tsv -> docs/check-then-act-lock-exempt.d/ (internal/core TestCheckThenActLockGuard_*)
+#   docs/check-then-act-lock-exempt.tsv -> docs/check-then-act-lock-exempt.d/ (internal/core/guards TestCheckThenActLockGuard_*)
 # NOT migrated: docs/security-closures.tsv — it is already GENERATED from
 # docs/security-closures.d/ (scripts/gen-security-closures-tsv.sh).
 #

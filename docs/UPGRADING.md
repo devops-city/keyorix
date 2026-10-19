@@ -541,6 +541,20 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
 ## 6j. The first run after upgrade scans the audit history once
+## 6r. "Last used" / "last seen" are written in the background
+
+`last_used_at` on personal access tokens and machine credentials, and
+`last_seen_at` on sessions, are no longer written by the request itself. Each
+server records uses in memory and writes them at most once per credential every
+30 seconds, and on a graceful stop. Nothing to configure. What you may notice:
+a token's first use can take up to about 30 seconds to show in the PAT list,
+the machine token list or My Account → Sessions (before, the first use showed
+at once and later ones could already lag by 30 seconds). A server killed
+without a graceful stop loses up to 30 seconds of these stamps. With several
+replicas each writes its own observations and the stored value only moves
+forward. No access decision uses these columns; the stale-credential and
+hygiene reports work in days. Details: [`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
+## 6j. First start after the upgrade: recover-admin alerting reads the audit history once
 
 The recover-admin alert (`admin.recover_admin` use is always notified to your
 notification channels) now remembers how far through the audit table it has looked,
