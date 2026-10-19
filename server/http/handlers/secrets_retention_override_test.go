@@ -38,7 +38,7 @@ func freshRetentionHandlerFixture(t *testing.T) (*SecretHandler, uint) {
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{},
 		&models.RolePermission{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.SecretVersion{},
-		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{},
+		&models.AuditEvent{}, &models.SecretAccessLog{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Tag{}, &models.SecretTag{},
 		&models.ProjectMembership{}, &models.SoDPolicy{},
 		&models.AnomalyAlert{}, &models.RotationPolicy{}, &models.Notification{},

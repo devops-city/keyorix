@@ -12,23 +12,17 @@ import (
 
 // failOnceAssignRoleStorage makes AssignRole fail once, mirroring the
 // failOnceStorage idiom from #2295.
-type failOnceAssignRoleStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceAssignRoleStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceAssignRoleStorage{Storage: tx, armed: s.armed})
+func failOnceAssignRoleStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		AssignRole: func(next storage.Storage, ctx context.Context, userID, roleID uint, scope storage.Scope) error {
+			if *armed {
+				*armed = false
+				return errors.New("injected fault: AssignRole")
+			}
+			return next.AssignRole(ctx, userID, roleID, scope)
+		},
 	})
-}
-
-func (s *failOnceAssignRoleStorage) AssignRole(ctx context.Context, userID, roleID uint, scope storage.Scope) error {
-	if *s.armed {
-		*s.armed = false
-		return errors.New("injected fault: AssignRole")
-	}
-	return s.Storage.AssignRole(ctx, userID, roleID, scope)
 }
 
 // TestProvisionSCIMUser_RoleAssignFailureRollsBackUser is the red-proof for
@@ -42,7 +36,7 @@ func TestProvisionSCIMUser_RoleAssignFailureRollsBackUser(t *testing.T) {
 	ctx := context.Background()
 
 	armed := true
-	c.storage = &failOnceAssignRoleStorage{Storage: st, armed: &armed}
+	c.storage = failOnceAssignRoleStorage(st, &armed)
 
 	_, err := c.ProvisionSCIMUser(ctx, 0, "newuser@example.com", "", "", "ext-1", true)
 	require.Error(t, err)

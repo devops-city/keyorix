@@ -5,9 +5,11 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -873,11 +875,18 @@ func (c *KeyorixCore) RestoreSecret(ctx context.Context, actorID, id uint) error
 	}
 	// Fetch before restoring so we have name + projectID even though the row is
 	// still soft-deleted at this point (GetSecretIncludingDeleted ignores deleted_at).
+	//
+	// #2694: a failed read stops here. It used to fall through with secret nil
+	// and run the restore without the environment lock; the storage restore
+	// then re-read the row inside the transaction and, finding an environment,
+	// took that environment's named lock INSIDE the transaction — the inversion
+	// the paragraph below exists to prevent (TestLockOrder_InProcessLocksFollowDeclaredOrder).
 	secret, err := c.storage.GetSecretIncludingDeleted(ctx, id)
 	if err != nil {
-		// Fall back gracefully: the storage.RestoreSecret call will re-validate the
-		// row and return a proper error if the id is unknown.
-		secret = nil
+		if credentialRowGone(err) {
+			return fmt.Errorf("%s: %s", i18n.T("ErrorStorageFailed", nil), i18n.T("ErrorSecretNotFound", nil))
+		}
+		return fmt.Errorf("%s: reading secret %d before restoring it: %w", i18n.T("ErrorStorageFailed", nil), id, cmp.Or(errors.Unwrap(err), err))
 	}
 	// RESTORE-SECRET-AUDIT-TX: the restore and its secret.restored row commit in ONE
 	// transaction, the append last (secret_mutation_audit.go), so a failed append
@@ -896,27 +905,22 @@ func (c *KeyorixCore) RestoreSecret(ctx context.Context, actorID, id uint) error
 			if err := tx.RestoreSecret(ctx, id); err != nil {
 				return err
 			}
-			if secret != nil {
-				row.projectID = secret.ProjectID
-			}
+			row.projectID = secret.ProjectID
 			row.description = c.auditRef(ctx, tx, auditKindSecret, id) + " restored"
 			return c.writeMutationAuditTx(ctx, tx, sink, row)
 		})
 	}
-	if secret != nil && secret.EnvironmentID != 0 {
-		err = c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(secret.EnvironmentID), restore)
-	} else {
-		err = restore(ctx)
-	}
+	// Always lock, even for EnvironmentID 0 (no environment: the storage restore
+	// takes no lock then, and key 0 names no real environment), so no path reaches
+	// the transaction without the lock already held.
+	err = c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(secret.EnvironmentID), restore)
 	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
 	sink.Flush(c)
 	// Emit an audit event for every dependency edge that is now re-active so
 	// operators know which rotation plans are unblocked (best-effort).
-	if secret != nil {
-		c.emitDependencyLifecycleEvents(ctx, EventSecretDependencyRestored, actorID, id, secret.ProjectID, secret.Name)
-	}
+	c.emitDependencyLifecycleEvents(ctx, EventSecretDependencyRestored, actorID, id, secret.ProjectID, secret.Name)
 	return nil
 }
 

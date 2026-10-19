@@ -21,16 +21,15 @@ import (
 // mfaSecretReadErrStub wraps a real storage.Storage and overrides exactly
 // GetMFASecret to inject a fixed error, mirroring the secretReadErrStub /
 // webauthnStorageErrStub pattern used elsewhere in this package.
-type mfaSecretReadErrStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *mfaSecretReadErrStub) GetMFASecret(ctx context.Context, userID uint) (*models.MFASecret, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.GetMFASecret(ctx, userID)
+func mfaSecretReadErrStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetMFASecret: func(next corestorage.Storage, ctx context.Context, userID uint) (*models.MFASecret, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.GetMFASecret(ctx, userID)
+		},
+	})
 }
 
 // TestVerifyMFALogin_GetMFASecretErrorDoesNotFeedLockout: N GetMFASecret
@@ -60,7 +59,7 @@ func TestVerifyMFALogin_GetMFASecretErrorDoesNotFeedLockout(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &mfaSecretReadErrStub{Storage: realStorage, err: faultErr}
+	c.storage = mfaSecretReadErrStub(realStorage, faultErr)
 
 	// 5 attempts with the CORRECT code, each failing to even check it because
 	// GetMFASecret errors every time — more than MaxAttempts (3), so if this
@@ -100,16 +99,15 @@ func TestVerifyMFALogin_GetMFASecretErrorDoesNotFeedLockout(t *testing.T) {
 // markTOTPStepErrStub wraps a real storage.Storage and overrides exactly
 // MarkTOTPStepUsed to inject a fixed error -- the ANTI-REPLAY consumption
 // write, reached only AFTER the TOTP code has already been found correct.
-type markTOTPStepErrStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *markTOTPStepErrStub) MarkTOTPStepUsed(ctx context.Context, userID uint, step int64) (bool, error) {
-	if s.err != nil {
-		return false, s.err
-	}
-	return s.Storage.MarkTOTPStepUsed(ctx, userID, step)
+func markTOTPStepErrStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		MarkTOTPStepUsed: func(next corestorage.Storage, ctx context.Context, userID uint, step int64) (bool, error) {
+			if err != nil {
+				return false, err
+			}
+			return next.MarkTOTPStepUsed(ctx, userID, step)
+		},
+	})
 }
 
 // TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout
@@ -142,7 +140,7 @@ func TestVerifyMFALogin_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &markTOTPStepErrStub{Storage: realStorage, err: faultErr}
+	c.storage = markTOTPStepErrStub(realStorage, faultErr)
 
 	// MaxAttempts (3) attempts with the CORRECT code -- it matches every time
 	// (never actually consumed, since MarkTOTPStepUsed never succeeds), but

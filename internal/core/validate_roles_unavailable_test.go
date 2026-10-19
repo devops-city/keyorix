@@ -65,6 +65,7 @@ func TestValidateSessionToken_RolesLookupFailure_ReturnsRetryableError(t *testin
 	ms.On("GetUserRoles", ctx, uint(2)).Return(nil, errRolesStorageDown)
 
 	user, roles, err := c.ValidateSessionToken(ctx, "tok-1944")
+	c.FlushLastUsed(ctx) // write the coalesced stamp now, not from a timer after the test
 	require.ErrorIs(t, err, ErrRoleResolutionUnavailable)
 	assert.NotErrorIs(t, err, errRolesStorageDown)
 	assert.Nil(t, user)
@@ -126,7 +127,7 @@ func TestValidateOIDCToken_RolesLookupFailure_ReturnsRetryableError(t *testing.T
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
 
-	m, roles, err := c.ValidateOIDCToken(ctx, raw)
+	m, roles, _, err := c.ValidateOIDCToken(ctx, raw)
 	require.ErrorIs(t, err, ErrRoleResolutionUnavailable)
 	assert.NotErrorIs(t, err, errRolesStorageDown)
 	assert.Nil(t, m)

@@ -242,15 +242,17 @@ cli() {
 # totp <secret> [offset-seconds]
 totp() { "$DRILL_DIR/bin/totpgen" "$@"; }
 
-# totp_fresh <secret>: a code that differs from the last one this run consumed (anti-replay).
+# totp_fresh <secret>: a code that differs from the last one this run consumed FOR THAT SECRET
+# (anti-replay is per account: two accounts alternating must not share one "last code").
 totp_fresh() {
-    local secret="$1" code i last
-    # The last consumed code lives in a file: callers use this inside $(...), a subshell.
+    local secret="$1" code i last lastfile
+    # The last consumed code lives in a file per secret: callers use this inside $(...), a subshell.
+    lastfile="$DRILL_DIR/.last-totp.$(printf '%s' "$secret" | cksum | cut -d' ' -f1)"
     for i in $(seq 1 40); do
         code="$(totp "$secret")"
-        last="$(cat "$DRILL_DIR/.last-totp" 2>/dev/null || true)"
+        last="$(cat "$lastfile" 2>/dev/null || true)"
         if [ "$code" != "$last" ]; then
-            printf '%s' "$code" >"$DRILL_DIR/.last-totp"
+            printf '%s' "$code" >"$lastfile"
             echo "$code"
             return 0
         fi
@@ -370,7 +372,7 @@ verify_seed() {
     for i in 1 2 3; do
         out="$(cli "$name" "$port" secret get --id "$i" --show-value)" || fail "secret get $i failed"
         want="$(cat "$DRILL_DIR/$src/expect.secret$i")"
-        echo "$out" | grep -qF "$want" || fail "secret $i does not decrypt to the seeded value (want $want)"
+        grep -qF "$want" <<<"$out" || fail "secret $i does not decrypt to the seeded value (want $want)"
     done
     ok "3 secrets decrypt to the seeded values (secret 1 at its latest version)"
     out="$(cli "$name" "$port" secret versions --id 1)" || fail "secret versions failed"
@@ -378,11 +380,11 @@ verify_seed() {
 $out"
     ok "secret 1 still has its 3 versions"
     out="$(cli "$name" "$port" share list --secret-id 1)" || fail "share list failed"
-    echo "$out" | grep -qE '^1[[:space:]]+1[[:space:]]+1[[:space:]]+2[[:space:]]' || fail "share to alice is gone:
+    grep -qE '^1[[:space:]]+1[[:space:]]+1[[:space:]]+2[[:space:]]' <<<"$out" || fail "share to alice is gone:
 $out"
     ok "share intact"
     out="$(http_body "$name" "$port" "/api/v1/secrets/1?include_value=true" "$DRILL_DIR/$src/bearer.machine.hdr")"
-    echo "$out" | grep -qF "$(cat "$DRILL_DIR/$src/expect.secret1")" || fail "machine token no longer reads secret 1: $out"
+    grep -qF "$(cat "$DRILL_DIR/$src/expect.secret1")" <<<"$out" || fail "machine token no longer reads secret 1: $out"
     ok "machine token still authenticates and reads"
 }
 
@@ -392,7 +394,7 @@ verify_audit() {
     local out
     out="$(inst_admin "$name" verify-audit "$@" 2>&1)" || fail "verify-audit exited non-zero on $name:
 $out"
-    echo "$out" | grep -qE '^Verdict: VALID$' || fail "verify-audit did not report Verdict: VALID on $name:
+    grep -qE '^Verdict: VALID$' <<<"$out" || fail "verify-audit did not report Verdict: VALID on $name:
 $out"
     AUDIT_COUNT="$(echo "$out" | awk '/chained events:/ {print $3}')"
     ok "verify-audit VALID ($name, ${AUDIT_COUNT:-?} chained events)"

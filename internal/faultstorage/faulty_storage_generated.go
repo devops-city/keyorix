@@ -5762,6 +5762,23 @@ func (w *FaultyStorage) LockMachineIdentityForUpdate(ctx context.Context, id uin
 	return w.real.LockMachineIdentityForUpdate(ctx, id)
 }
 
+func (w *FaultyStorage) LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
+	fire, kind, injected := w.check("LockShareRecordForUpdate")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *models.ShareRecord
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.LockShareRecordForUpdate(ctx, shareID)
+			return rv1, injected
+		}
+	}
+	return w.real.LockShareRecordForUpdate(ctx, shareID)
+}
+
 func (w *FaultyStorage) LockUserForUpdate(ctx context.Context, id uint) (*models.User, error) {
 	fire, kind, injected := w.check("LockUserForUpdate")
 	if fire {
@@ -6161,6 +6178,23 @@ func (w *FaultyStorage) PurgeDeletedUsersBefore(ctx context.Context, before time
 	return w.real.PurgeDeletedUsersBefore(ctx, before)
 }
 
+func (w *FaultyStorage) ReactivateMachineIdentitiesForRestoredProject(ctx context.Context, id uint, now time.Time) ([]*models.MachineIdentity, error) {
+	fire, kind, injected := w.check("ReactivateMachineIdentitiesForRestoredProject")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []*models.MachineIdentity
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ReactivateMachineIdentitiesForRestoredProject(ctx, id, now)
+			return rv1, injected
+		}
+	}
+	return w.real.ReactivateMachineIdentitiesForRestoredProject(ctx, id, now)
+}
+
 func (w *FaultyStorage) ReassignSecretShareOwner(ctx context.Context, secretID uint, newOwnerID uint) (int64, error) {
 	fire, kind, injected := w.check("ReassignSecretShareOwner")
 	if fire {
@@ -6552,23 +6586,6 @@ func (w *FaultyStorage) RestoreUser(ctx context.Context, id uint) error {
 		}
 	}
 	return w.real.RestoreUser(ctx, id)
-}
-
-func (w *FaultyStorage) RevertAccessReviewItemClaim(ctx context.Context, itemID uint, fromDecision string, actorID uint) (bool, error) {
-	fire, kind, injected := w.check("RevertAccessReviewItemClaim")
-	if fire {
-		switch kind {
-		case KindPanic:
-			panic(injected)
-		case KindError:
-			var zero1 bool
-			return zero1, injected
-		case KindEffectThenError:
-			rv1, _ := w.real.RevertAccessReviewItemClaim(ctx, itemID, fromDecision, actorID)
-			return rv1, injected
-		}
-	}
-	return w.real.RevertAccessReviewItemClaim(ctx, itemID, fromDecision, actorID)
 }
 
 func (w *FaultyStorage) ReviewBreakGlassActivation(ctx context.Context, id uint, reviewerID uint, note string, reviewedAt time.Time) error {
@@ -7091,6 +7108,23 @@ func (w *FaultyStorage) SupersedeActiveSetupTokens(ctx context.Context, purpose 
 		}
 	}
 	return w.real.SupersedeActiveSetupTokens(ctx, purpose, email, projectID)
+}
+
+func (w *FaultyStorage) SuspendMachineIdentitiesForDeletedProject(ctx context.Context, id uint) ([]*models.MachineIdentity, error) {
+	fire, kind, injected := w.check("SuspendMachineIdentitiesForDeletedProject")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []*models.MachineIdentity
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.SuspendMachineIdentitiesForDeletedProject(ctx, id)
+			return rv1, injected
+		}
+	}
+	return w.real.SuspendMachineIdentitiesForDeletedProject(ctx, id)
 }
 
 func (w *FaultyStorage) TouchMachineIdentityCredential(ctx context.Context, id uint, usedAt time.Time, staleness time.Duration) error {

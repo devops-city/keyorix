@@ -26,7 +26,17 @@ on:
   merge_group:
   # Manual trigger for the full -race test-suite matrix outside a PR/queue
   # context (e.g. investigating a suspected flake on a specific ref).
+  # With select_base set, the run takes the merge queue's selection path
+  # instead (the `select` job below, diffed against that commit): the way to
+  # prove a selection change on a branch without enqueueing anything. Empty
+  # (the default) is the full suite, exactly as before.
   workflow_dispatch:
+    inputs:
+      select_base:
+        description: 'Optional base commit: run the merge-queue selection against it instead of the full suite'
+        required: false
+        default: ''
+        type: string
   # Nightly full run on main. A push to main skips test-suite, e2e-smoke and
   # most other jobs whenever the merge queue already passed that exact SHA
   # (changes.queue_verified), so "main green" said nothing about the journeys:
@@ -168,6 +178,20 @@ jobs:
   # reaches main: either still on the PR, or in the merge queue (FULL). Jobs
   # skipped in FAST report "skipped", which satisfies a required check; the
   # merge queue then runs them for real against the merge result.
+  #
+  # Merge-queue SELECTION (CI-SELECT-1, 2026-10-18; Andrei approved cutting
+  # queue demand without new runners): inside the FULL profile, a merge_group
+  # run tests only what its own diff can affect. Each queue entry's base_sha
+  # is the entry ahead of it (or main), so the diff is that one PR. The
+  # `select` job below computes the affected root-module packages and the
+  # path gates (scripts/ci/select-affected.py); test-suite legs with nothing
+  # affected skip their steps and still report success, and the heavy
+  # path-gated jobs skip when their inputs are untouched. Every repo-wide
+  # guard still runs (repo-guards, scripts/ci/run-guards.sh). push to main,
+  # the nightly schedule and a plain workflow_dispatch never select: they run
+  # everything exactly as before, and the nightly run is the full-suite
+  # safety net (its failure issue names the PRs merged since the last green
+  # nightly, so a selection miss is traceable).
   changes:
     runs-on: ubuntu-latest
     permissions:
@@ -446,6 +470,104 @@ jobs:
           else
             echo "operator_only=true" >> "$GITHUB_OUTPUT"
           fi
+
+  # Merge-queue selection (CI-SELECT-1; see the comment above `changes`).
+  # Runs on every event so every job can depend on it; outside merge_group
+  # (and a workflow_dispatch without select_base) it only reports mode=full
+  # with every gate open, in a few seconds and without a checkout, so pull
+  # request, push, schedule and dispatch runs behave exactly as before.
+  #
+  # On merge_group it diffs the group commit against
+  # github.event.merge_group.base_sha and runs scripts/ci/select-affected.py
+  # (rule and reasoning in that file's header): FULL when go.mod/go.sum,
+  # internal/testutil/**, ci.yml, scripts/ci/**, the leg definitions or a
+  # generated-code input changed; otherwise the changed packages plus every
+  # package that imports them. Outputs:
+  #   mode       full | selected
+  #   legs       JSON {leg: "pkg pkg ..." | "*"} of the test-suite legs that
+  #              run (selected only); a leg not listed skips its tests
+  #   gate_*     'true' when that path-gated job's inputs were touched (always
+  #              'true' in mode=full)
+  # Fail-safe both ways: the script answers mode=full on any error, and
+  # build-and-test (required) fails the run if this job itself did not
+  # succeed, so a broken selection can never turn into skipped-and-green.
+  select:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.sel.outputs.mode || steps.scope.outputs.mode }}
+      reason: ${{ steps.sel.outputs.reason || steps.scope.outputs.reason }}
+      legs: ${{ steps.sel.outputs.legs || '{}' }}
+      gate_helm: ${{ steps.sel.outputs.gate_helm || 'true' }}
+      gate_helm_boot: ${{ steps.sel.outputs.gate_helm_boot || 'true' }}
+      gate_docker_boot: ${{ steps.sel.outputs.gate_docker_boot || 'true' }}
+      gate_demo: ${{ steps.sel.outputs.gate_demo || 'true' }}
+      gate_web_e2e: ${{ steps.sel.outputs.gate_web_e2e || 'true' }}
+      gate_operator: ${{ steps.sel.outputs.gate_operator || 'true' }}
+      gate_migrate: ${{ steps.sel.outputs.gate_migrate || 'true' }}
+      gate_fuzz_targets: ${{ steps.sel.outputs.gate_fuzz_targets || 'true' }}
+      gate_fuzz_reach: ${{ steps.sel.outputs.gate_fuzz_reach || 'true' }}
+    steps:
+      - name: Does this run select? (merge_group, or workflow_dispatch with select_base)
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MG_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          DISPATCH_BASE: ${{ github.event.inputs.select_base }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          base=""
+          case "$EVENT_NAME" in
+            merge_group) base="$MG_BASE_SHA" ;;
+            workflow_dispatch) base="$DISPATCH_BASE" ;;
+          esac
+          if [ -z "$base" ]; then
+            echo "Event $EVENT_NAME runs the full suite: no selection, every gate open."
+            {
+              echo "select=false"
+              echo "mode=full"
+              echo "reason=event $EVENT_NAME runs the full suite"
+            } >> "$GITHUB_OUTPUT"
+          elif [ "$DOCS_ONLY" = "true" ]; then
+            # Every job this selection gates already skips on docs_only.
+            echo "Docs-only change: every Go job already skips; nothing to select."
+            {
+              echo "select=false"
+              echo "mode=full"
+              echo "reason=docs-only change (the docs_only skips apply)"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "Event $EVENT_NAME: selecting against base $base."
+            {
+              echo "select=true"
+              echo "base=$base"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.scope.outputs.select == 'true'
+
+      - name: Set up Go
+        if: steps.scope.outputs.select == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.2'
+
+      - name: Select affected packages and path gates (scripts/ci/select-affected.py)
+        id: sel
+        if: steps.scope.outputs.select == 'true'
+        env:
+          BASE: ${{ steps.scope.outputs.base }}
+        run: |
+          # The base is the queue entry ahead of this one (or main); depth 1
+          # is enough for a two-tree diff. If it cannot be fetched the script
+          # cannot diff and answers mode=full.
+          git fetch --no-tags --depth=1 origin "$BASE" || echo "::warning::could not fetch base $BASE; selection falls back to the full suite"
+          python3 scripts/ci/select-affected.py --base "$BASE" --head HEAD \
+            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
 
   # web/ (ADR-070) has its own pnpm-workspace.yaml. pnpm resolves its
   # workspace root by walking UP from the invoked directory until it finds a
@@ -897,7 +1019,7 @@ jobs:
   # aggregates both legs' results and does the coverage-floor check, keeping
   # that exact job name for branch protection's required status check.
   test-suite:
-    needs: [preflight, changes]
+    needs: [preflight, changes, select]
     # A custom `if:` replaces the implicit "only run if needs succeeded"
     # default, so preflight's success must be checked explicitly here too --
     # otherwise a docs_only-unrelated broken build would no longer be
@@ -912,7 +1034,11 @@ jobs:
     # pull_request push instead gets test-quick-root/test-quick-cli below --
     # see build-and-test's own gate-logic step for the pass/fail truth table
     # this split creates.
-    if: needs.preflight.result == 'success' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (github.event_name == 'merge_group' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')))
+    #
+    # needs.select.result: on merge_group the `select` job decides which legs
+    # run (each leg's first step below); if it did not succeed, test-suite is
+    # skipped and build-and-test fails closed on that.
+    if: needs.preflight.result == 'success' && needs.select.result == 'success' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (github.event_name == 'merge_group' || github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci:full')))
     strategy:
       fail-fast: false
       matrix:
@@ -979,8 +1105,12 @@ jobs:
           # paying that fixed cost per shard at all (compile once, upload the
           # test binary, run it with -test.run per shard) and t.Parallel()
           # for the 2856 currently-serial tests. Both tracked separately.
+          # timeout raised 1800 -> 3300 (2026-10-19, CI-CORE-TIMEOUT-1): merge_group
+          # runs 39289607674 and 39283963061 died with "test timed out after
+          # 30m0s". test-suite has no job-level timeout-minutes (GitHub default
+          # 360), so the go test -timeout is the only bound and is far below it.
           - leg: core
-            timeout: 1800
+            timeout: 3300
             coverage-file: coverage_core.out
           # storage-store (internal/storage/store, re-pinned out of root-4's
           # catch-all 2026-09-04) -- same trigger as core's own split above: a
@@ -1136,14 +1266,50 @@ jobs:
     env:
       KEYORIX_TEST_PG_DSN: "host=localhost port=5432 dbname=keyorix user=keyorix sslmode=disable password=keyorix123"
     steps:
+      # Merge-queue selection (CI-SELECT-1): a leg none of whose packages the
+      # group can affect skips every step below and still reports success, so
+      # the required build-and-test context sees a green matrix. Outside a
+      # selected run (mode=full) every leg runs everything, as before.
+      - name: Merge-queue selection for this leg
+        id: leg
+        env:
+          MODE: ${{ needs.select.outputs.mode }}
+          LEGS: ${{ needs.select.outputs.legs }}
+          LEG: ${{ matrix.leg }}
+        run: |
+          if [ "$MODE" != "selected" ]; then
+            echo "Full run (mode=$MODE): leg $LEG runs every package it owns."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pkgs=$(jq -r --arg l "$LEG" '.[$l] // ""' <<<"$LEGS")
+          if [ -z "$pkgs" ]; then
+            echo "Merge-queue selection: no package of leg $LEG is affected by this group; skipping its tests (the leg reports success)."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+          if [ "$pkgs" = "*" ]; then
+            echo "Merge-queue selection: leg $LEG's package is affected; running its whole shard."
+          else
+            echo "Merge-queue selection: leg $LEG runs only its affected packages:"
+            echo "$pkgs" | tr ' ' '\n'
+            echo "only=$pkgs" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.leg.outputs.run == 'true'
 
       - name: Set up Go
+        if: steps.leg.outputs.run == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.2'
 
       - name: go test (${{ matrix.leg }})
+        if: steps.leg.outputs.run == 'true'
+        env:
+          LEG_ONLY: ${{ steps.leg.outputs.only }}
         run: |
           # Which packages each leg runs, and why each excluded package is
           # excluded, now lives in one place (scripts/ci-test-legs.sh) shared
@@ -1160,6 +1326,12 @@ jobs:
           # shard by test name rather than by package.
           run_filter=""
           pkgs=$(pkgs_for_leg "$leg")
+          # Selected merge-queue run, package-list leg (root-N, core): only the
+          # affected subset of this leg's own packages (select-affected.py
+          # intersected them with pkgs_for_leg, so nothing outside the leg).
+          if [ -n "$LEG_ONLY" ]; then
+            pkgs="$LEG_ONLY"
+          fi
           # Empty for every leg except storage-store-N (below) -- see that
           # case arm for why this one package gets it and the others don't.
           shuffle_flag=""
@@ -1252,10 +1424,11 @@ jobs:
       # without a DSN (every pg-gated row gate-skips there, by design) --
       # this is the run that actually counts as evidence for those rows.
       - name: Verify pg-gated security closures with a real Postgres DSN available (core leg only)
-        if: matrix.leg == 'core'
+        if: matrix.leg == 'core' && steps.leg.outputs.run == 'true'
         run: ./scripts/check-closures.sh
 
       - name: Upload coverage artifact
+        if: steps.leg.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-${{ matrix.leg }}
@@ -1375,7 +1548,7 @@ jobs:
   # status-check context by name -- a matrix or renamed job would report as
   # e.g. "build-and-test (root)" and never satisfy it.
   build-and-test:
-    needs: [preflight, test-suite, test-quick-root, test-quick-cli, static-analysis, changes]
+    needs: [preflight, test-suite, test-quick-root, test-quick-cli, static-analysis, changes, select, repo-guards]
     # always() so this still runs (and reports the failure below) even when
     # test-suite/test-quick-root/test-quick-cli/static-analysis genuinely
     # fail, not just when they're skipped -- combined with the docs_only/
@@ -1417,9 +1590,38 @@ jobs:
       # 'skipped' -- is a failure here, not a silent pass. A required check
       # that never runs is indistinguishable from one still pending, and
       # this is the one job branch protection actually names.
+      #
+      # Merge-queue selection (CI-SELECT-1): `select` must have succeeded on
+      # every event -- it decides which legs and path-gated jobs run, and a
+      # job skipped because a dependency failed reports "skipped", which a
+      # required check accepts. This step is where that turns into a red
+      # required context instead. On a selected run (mode=selected) the
+      # repo-wide guards (repo-guards) are required too, since the legs that
+      # normally carry them may have been skipped.
       - name: Check upstream job results (two-tier gate)
         id: gate
+        env:
+          SELECT_RESULT: ${{ needs.select.result }}
+          SELECT_MODE: ${{ needs.select.outputs.mode }}
+          SELECT_REASON: ${{ needs.select.outputs.reason }}
+          SELECT_LEGS: ${{ needs.select.outputs.legs }}
+          GUARDS_RESULT: ${{ needs.repo-guards.result }}
         run: |
+          if [ "$SELECT_RESULT" != "success" ]; then
+            echo "::error::select=$SELECT_RESULT: the merge-queue selection job did not succeed, so it is unknown which tests ran"
+            exit 1
+          fi
+          selected=false
+          if [ "$SELECT_MODE" = "selected" ]; then
+            selected=true
+            nlegs=$(jq 'length' <<<"$SELECT_LEGS")
+            echo "Selected run: $nlegs of 21 test-suite legs ran ($SELECT_REASON)."
+            if [ "$GUARDS_RESULT" != "success" ]; then
+              echo "::error::selected merge-queue run requires repo-guards=success (every repo-wide guard), got repo-guards=$GUARDS_RESULT"
+              exit 1
+            fi
+          fi
+          echo "selected=$selected" >> "$GITHUB_OUTPUT"
           is_full_tier=false
           if [ "${{ github.event_name }}" = "merge_group" ] || [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
             is_full_tier=true
@@ -1451,24 +1653,34 @@ jobs:
       # package set, so a floor check against them would be meaningless).
       # go tool cover -func (below) reads the actual source files to attribute
       # coverage ranges to functions, not just the coverage profile text.
+      #
+      # A selected merge-queue run is in the same position: its skipped legs
+      # produce no profile and its partial root-N legs cover a subset, so the
+      # floor is checked on every run that executes the whole matrix instead
+      # (nightly schedule, push to main outside the queue, workflow_dispatch,
+      # ci:full, and any merge_group whose selection fell back to full).
+      - name: Coverage floor not computed on a selected merge-queue run
+        if: steps.gate.outputs.selected == 'true'
+        run: echo "::notice::Selected merge-queue run -- the ${COVERAGE_FLOOR}% coverage floor is not computed here. A coverage drop is caught by the nightly run on main, not by the merge queue."
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.gate.outputs.full_tier == 'true'
+        if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
 
       - name: Set up Go
-        if: steps.gate.outputs.full_tier == 'true'
+        if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.27.2'
 
       - name: Download coverage artifacts
-        if: steps.gate.outputs.full_tier == 'true'
+        if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-*
           merge-multiple: true
 
       - name: Merge coverage profiles
-        if: steps.gate.outputs.full_tier == 'true'
+        if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
         run: |
           echo "mode: atomic" > coverage_merged.out
           # File-pattern exclusions from the coverage-FLOOR sum (as opposed to
@@ -1489,7 +1701,7 @@ jobs:
           mv coverage_merged.out coverage.out
 
       - name: Check coverage floor (≥${{ env.COVERAGE_FLOOR }}%)
-        if: steps.gate.outputs.full_tier == 'true'
+        if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
         run: |
           pct=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
           awk -v pct="$pct" -v floor="${COVERAGE_FLOOR}" 'BEGIN {
@@ -1576,9 +1788,16 @@ jobs:
   # FULL profile only (CI-LIGHT-1, 2026-10-16): merge_group and a PR labeled
   # ci:full. A FAST pull_request run skips both shards and the aggregate (web
   # unit tests still run there in web-ci.yml).
+  #
+  # Merge-queue gate (CI-SELECT-1): on merge_group the shards run when the
+  # `select` job's gate_web_e2e is true -- the server binary (./server or
+  # anything it imports), web/**, cli/**, scripts/e2e/**, server/Dockerfile,
+  # .dockerignore or the Makefile changed. That replaces web_e2e_relevant's
+  # narrower path list there (a change in internal/core reaches the real
+  # backend this drives). Outside merge_group the gate is always true.
   web-e2e-real-smoke-shard:
-    needs: [changes]
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    needs: [changes, select]
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.web_e2e_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_web_e2e == 'true'
     name: web-e2e-real-smoke-shard (${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1641,8 +1860,8 @@ jobs:
   # keeps working: it fails if either shard failed or was cancelled, and is
   # skipped exactly when the shards are (same gate as the shards).
   web-e2e-real-smoke:
-    needs: [changes, web-e2e-real-smoke-shard]
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && needs.changes.outputs.web_e2e_relevant == 'true'
+    needs: [changes, select, web-e2e-real-smoke-shard]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.web_e2e_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_web_e2e == 'true'
     runs-on: ubuntu-latest
     permissions: {}
     steps:
@@ -1664,11 +1883,22 @@ jobs:
   # time, so a new guard test is picked up automatically. Not a required check:
   # the coordinator's merge script holds back PRs whose repo-guards failed, and
   # merge_group still runs the full suite as the real gate.
+  #
+  # Merge-queue selection (CI-SELECT-1): on a SELECTED merge_group run (the
+  # `select` job's mode=selected) this job also runs, and runs every
+  # repo-wide guard instead (scripts/ci/run-guards.sh: the named guards in
+  # every root-module package, every source-scanning test, and the packages
+  # in scripts/ci/global-guards.txt, the coordinator preflight's list). The
+  # test-suite legs that normally carry these may have been skipped, so
+  # selection must never decide whether a guard runs; build-and-test
+  # (required) requires this job's success on a selected run. A full run gets
+  # the same tests through test-suite, so the job stays skipped there, as
+  # before. Same docs/web/go-unaffected/operator-only skips as test-suite.
   repo-guards:
-    needs: [changes]
-    if: github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true'
+    needs: [changes, select]
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (github.event_name == 'pull_request' || needs.select.outputs.mode == 'selected')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -1679,7 +1909,12 @@ jobs:
         with:
           go-version: '1.27.2'
 
+      - name: Every repo-wide guard (selected merge-queue run)
+        if: needs.select.outputs.mode == 'selected'
+        run: scripts/ci/run-guards.sh
+
       - name: Run repo-wide guard tests
+        if: github.event_name == 'pull_request'
         run: |
           pkgs=$(grep -rlE --include='*_test.go' 'func Test[A-Za-z0-9_]*(Guard|Sweep|Completeness)' ./internal ./server | xargs -n1 dirname | sort -u)
           echo "guard packages:"; echo "$pkgs"
@@ -1774,9 +2009,18 @@ jobs:
   # computes boot_smoke_relevant from the group diff with the same regex, so
   # a group runs this exactly when one of its PRs would have.
   # demo-up-smoke and helm-boot-smoke below follow the same rule.
+  #
+  # Merge-queue gate (CI-SELECT-1): on merge_group this runs when the
+  # `select` job's gate_docker_boot is true -- the server binary (./server or
+  # anything it imports: the image compiles the whole root module), web/**
+  # (the web image), docker-compose*, keyorix.docker.yaml, scripts/selfhost/**,
+  # server/Dockerfile, web/Dockerfile, .dockerignore or the Makefile changed.
+  # That replaces boot_smoke_relevant's narrower server/|internal/encryption/
+  # regex there: a change in internal/config or internal/storage can stop the
+  # container booting just as well. Outside merge_group the gate is true.
   docker-boot-smoke:
-    needs: [changes]
-    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.boot_smoke_relevant == 'true'
+    needs: [changes, select]
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && (needs.changes.outputs.boot_smoke_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_docker_boot == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1856,9 +2100,15 @@ jobs:
   # of only ever running by hand). Path-filtered via demo_smoke_relevant, the
   # same shape as boot_smoke_relevant just above, so it doesn't run on every
   # unrelated change. FULL profile only, like docker-boot-smoke above.
+  #
+  # Merge-queue gate (CI-SELECT-1): gate_demo -- the server binary and what it
+  # imports, web/**, cli/** (up.sh builds and drives the CLI), scripts/demo/**,
+  # scripts/totpgen/**, scripts/airgap-e2e.sh, server/Dockerfile,
+  # .dockerignore or the Makefile. Replaces demo_smoke_relevant on
+  # merge_group only, like docker-boot-smoke above.
   demo-up-smoke:
-    needs: [changes]
-    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.demo_smoke_relevant == 'true'
+    needs: [changes, select]
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && (needs.changes.outputs.demo_smoke_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_demo == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1928,9 +2178,14 @@ jobs:
   # for the relative dek_path/salt_path convention under readOnlyRootFilesystem).
   # FULL profile only, gated on boot_smoke_relevant -- see docker-boot-smoke's
   # comment just above.
+  #
+  # Merge-queue gate (CI-SELECT-1): gate_helm_boot -- deploy/helm/** or
+  # .github/testdata/helm* (the chart), plus everything docker-boot-smoke's
+  # gate covers for the two images it builds. Replaces boot_smoke_relevant on
+  # merge_group only.
   helm-boot-smoke:
-    needs: [changes]
-    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && needs.changes.outputs.boot_smoke_relevant == 'true'
+    needs: [changes, select]
+    if: github.event_name != 'push' && needs.changes.outputs.full_profile == 'true' && (needs.changes.outputs.boot_smoke_relevant == 'true' || github.event_name == 'merge_group') && needs.select.outputs.gate_helm_boot == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2046,12 +2301,17 @@ jobs:
   # controller-runtime/client-go dependency tree stays out of the server/CLI build.
   # It is therefore not covered by the root `go ./...` jobs above; gate it here.
   operator:
-    needs: [changes]
+    needs: [changes, select]
     # Deliberately NOT gated on operator_only -- that flag means the diff is
     # CONFINED to operator/, which is exactly the case this job must still
     # run for.
     # FAST profile: only when the PR touches operator/ (a separate module, no dependency on the root module); FULL: always (CI-LIGHT-1).
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.operator_changed == 'true')
+    # Merge-queue gate (CI-SELECT-1): gate_operator -- operator/** (its own
+    # module, no dependency on the root module), .golangci.yml (the lint
+    # config it inherits), or a file outside operator/ that its Go code names
+    # by path (e.g. a CRD under deploy/helm/). ci.yml and scripts/ci/** make
+    # every gate true.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.operator_changed == 'true') && needs.select.outputs.gate_operator == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2185,9 +2445,11 @@ jobs:
   # from the matrix (only values can), and each image ignores the other's variable names, so
   # setting both is harmless and is the only way one `services:` block covers both legs.
   migrate:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches migrate/ (a separate module, no dependency on the root module); FULL: always (CI-LIGHT-1).
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.migrate_changed == 'true')
+    # Merge-queue gate (CI-SELECT-1): gate_migrate -- migrate/**,
+    # .golangci.yml, or a file outside migrate/ its Go code names by path.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.migrate_changed == 'true') && needs.select.outputs.gate_migrate == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -2282,12 +2544,16 @@ jobs:
   # Go-only (there's no JS/TS equivalent to Go's native fuzzing engine), so a
   # web/-only PR is guaranteed to produce the exact same true-targets.txt.
   fuzz-targets:
-    needs: [changes]
+    needs: [changes, select]
     # Deliberately NOT gated on operator_only -- this job checks FuzzXxx
     # functions in BOTH the root and operator modules, and an operator-only
     # diff could add/remove/rename one there.
     # FULL profile only (CI-LIGHT-1). Required context: skipped satisfies it on a FAST PR run, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true'
+    # Merge-queue gate (CI-SELECT-1): gate_fuzz_targets -- scripts/fuzzing/**,
+    # or a changed .go file (any module) that has a `func Fuzz` line before
+    # or after the change (an added, removed, renamed or build-tag-moved fuzz
+    # target is the only thing this job's comparison can see change).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true' && needs.select.outputs.gate_fuzz_targets == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2390,9 +2656,13 @@ jobs:
   # The deeper sibling/coverage-delta comparison is rig-only (--fuzz); this is the
   # CI-safe floor gate. Rationale: claude/2026-09-16-ai-fuzzing-best-practices-benchmark.md.
   fuzz-reach:
-    needs: [changes]
+    needs: [changes, select]
     # FULL profile only (CI-LIGHT-1). Required context: skipped satisfies it on a FAST PR run, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true'
+    # Merge-queue gate (CI-SELECT-1): gate_fuzz_reach -- scripts/fuzzing/**, or
+    # an affected (changed or importing a changed) package among the TARGETS
+    # packages of scripts/fuzzing/harness-acceptance.sh (read at run time; an
+    # unreadable list opens the gate).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.full_profile == 'true' && needs.select.outputs.gate_fuzz_reach == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2542,9 +2812,13 @@ jobs:
           ./gitleaks detect --source . --verbose --redact --log-opts="HEAD"
 
   helm-chart:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
+    # Merge-queue gate (CI-SELECT-1, same for helm-chart-security and
+    # helm-chart-policy): gate_helm -- deploy/helm/** or .github/testdata/helm*,
+    # everything these helm lint/template/kubeconform/checkov/kube-score steps
+    # read (plus ci.yml itself, which opens every gate).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true') && needs.select.outputs.gate_helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2829,9 +3103,10 @@ jobs:
   # This job closes that gap by running checkov's Kubernetes policy checks
   # against the same rendered chart output.
   helm-chart-security:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1). Required context: skipped satisfies it on the PR, the merge queue runs it.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
+    # Merge-queue gate: gate_helm (see helm-chart).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true') && needs.select.outputs.gate_helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -2950,9 +3225,10 @@ jobs:
   # relevant changes), not further restricted to deploy/helm/** specifically:
   # at this runtime there's no CI-minute budget reason to narrow it further.
   helm-chart-policy:
-    needs: [changes]
+    needs: [changes, select]
     # FAST profile: only when the PR touches deploy/helm/ or .github/testdata/helm*; FULL: always (CI-LIGHT-1).
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true')
+    # Merge-queue gate: gate_helm (see helm-chart).
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.queue_verified != 'true' && needs.changes.outputs.web_only != 'true' && needs.changes.outputs.go_unaffected != 'true' && needs.changes.outputs.operator_only != 'true' && (needs.changes.outputs.full_profile == 'true' || needs.changes.outputs.helm_changed == 'true') && needs.select.outputs.gate_helm == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -3192,13 +3468,21 @@ jobs:
   # multi-night outage is one thread, not one issue per night. No labels.
   #
   # The ONLY job in this workflow with issues: write (job-level, so nothing else
-  # inherits it). No checkout and no contents/actions scope: the failing jobs
-  # are named from `needs` (job ids; a matrix such as test-suite is reported
-  # under its job id) rather than from the Actions jobs API, which would need
-  # actions: read. The run link points at the per-leg detail.
+  # inherits it). No checkout: the failing jobs are named from `needs` (job
+  # ids; a matrix such as test-suite is reported under its job id). The run
+  # link points at the per-leg detail.
+  #
+  # CI-SELECT-1: the merge queue now tests only what each PR can affect, and
+  # this nightly run is the full-suite safety net behind it. The issue names
+  # the PRs merged since the last green nightly run, so a failure here that
+  # selection let through is traceable to its candidates. That lookup needs
+  # actions: read (this workflow's last successful scheduled run) and
+  # contents: read (the compare between that commit and this one), both
+  # read-only; a failed lookup says so in the issue instead of failing the job.
   nightly-failure-issue:
     needs:
       - changes
+      - select
       - pnpm-workspace-root-guard
       - base-branch-check
       - bug-origin-block-check
@@ -3236,6 +3520,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      actions: read
+      contents: read
     steps:
       - name: Open or update the "Nightly main CI failed" issue
         env:
@@ -3247,8 +3533,26 @@ jobs:
         run: |
           set -euo pipefail
           failed=$(printf '%s' "$NEEDS_JSON" | jq -r 'to_entries[] | select(.value.result == "failure") | "- " + .key')
+          # PRs merged since the last green nightly (CI-SELECT-1): every merge
+          # commit main gained between that run's commit and this one. The
+          # queue merges with merge commits ("Merge pull request #N from ...").
+          last_green=$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?event=schedule&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty') || last_green=""
+          if [ -z "$last_green" ]; then
+            merged="PRs merged since the last green full run: unknown (no successful scheduled run found)."
+          elif prs=$(gh api --paginate "repos/$GH_REPO/compare/${last_green}...${RUN_SHA}?per_page=100" --jq '.commits[].commit.message | capture("^Merge pull request #(?<n>[0-9]+)") | "#" + .n' | sort -u | paste -sd ' ' -); then
+            total=$(gh api "repos/$GH_REPO/compare/${last_green}...${RUN_SHA}?per_page=1" --jq '.total_commits') || total="?"
+            merged="PRs merged since the last green full run (${last_green:0:10}, ${total} commits; the merge queue tests only what each PR can affect, so a selection miss is one of these): ${prs:-none}"
+          else
+            merged="PRs merged since the last green full run (${last_green:0:10}): lookup failed."
+          fi
           title="Nightly main CI failed"
-          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\nA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed")
+          # The coverage floor is checked only on full runs (a selected merge-queue
+          # run skips it), so a build-and-test failure here may be the floor.
+          cov=""
+          if printf '%s\n' "$failed" | grep -qx -- '- build-and-test'; then
+            cov="build-and-test failed: besides a test or build error, a possible cause is the coverage floor (the Check coverage floor step), which merge-queue runs do not compute.\n\n"
+          fi
+          body=$(printf 'The scheduled full CI run on main (%s) failed.\n\nRun: %s\n\nFailing jobs:\n%s\n\n%s\n\n%bA failing test-suite or e2e-smoke here means main is red even if its push run looked green: push runs skip both when the merge queue already passed the SHA.\n' "$RUN_SHA" "$RUN_URL" "$failed" "$merged" "$cov")
           existing=$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "[.[] | select(.title == \"$title\")][0].number // empty")
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"

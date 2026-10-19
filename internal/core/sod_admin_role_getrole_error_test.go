@@ -20,16 +20,15 @@ import (
 // getRoleErrStub wraps a real storage.Storage and overrides exactly GetRole
 // to inject a fixed error, mirroring the secretReadErrStub /
 // mfaSecretReadErrStub pattern used elsewhere in this package.
-type getRoleErrStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *getRoleErrStub) GetRole(ctx context.Context, id uint) (*models.Role, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.GetRole(ctx, id)
+func getRoleErrStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetRole: func(next corestorage.Storage, ctx context.Context, id uint) (*models.Role, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.GetRole(ctx, id)
+		},
+	})
 }
 
 // TestCreateSoDPolicy_GetRoleErrorIsNotMisreadAsNonAdmin: the bootstrapped
@@ -48,7 +47,7 @@ func TestCreateSoDPolicy_GetRoleErrorIsNotMisreadAsNonAdmin(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &getRoleErrStub{Storage: realStorage, err: faultErr}
+	c.storage = getRoleErrStub(realStorage, faultErr)
 
 	_, err = c.CreateSoDPolicy(ctx, admin.ID, "fault-test-policy", "", "secrets.read", "secrets.write")
 	require.Error(t, err, "a GetRole storage error must still refuse the create")
@@ -81,23 +80,28 @@ func TestCreateSoDPolicy_GetRoleErrorIsNotMisreadAsNonAdmin(t *testing.T) {
 // so a test that needs the dangling id checked BEFORE the real admin id
 // cannot rely on insertion/rowid order holding by chance.
 type roleIDOrderStub struct {
-	corestorage.Storage
-	ids []uint
+	inner corestorage.Storage
+	ids   []uint
 }
 
-func (s *roleIDOrderStub) GetUserRoleIDsAt(ctx context.Context, userID uint, scope corestorage.Scope) ([]uint, error) {
+func (s *roleIDOrderStub) getUserRoleIDsAt(_ corestorage.Storage, ctx context.Context, userID uint, scope corestorage.Scope) ([]uint, error) {
 	return s.ids, nil
 }
 
-func (s *roleIDOrderStub) GetUserGroupRoleIDsAt(ctx context.Context, userID uint, scope corestorage.Scope) ([]uint, error) {
+func (s *roleIDOrderStub) getUserGroupRoleIDsAt(_ corestorage.Storage, ctx context.Context, userID uint, scope corestorage.Scope) ([]uint, error) {
 	return nil, nil
 }
 
-// ResolveUserPermissionAt (PERF-FIX-6) reads through this stub's own role-id
-// methods, so an Authorize on it sees the same fixed role set.
-func (s *roleIDOrderStub) ResolveUserPermissionAt(ctx context.Context, userID uint, scope corestorage.Scope, permission string) (*corestorage.PrincipalPermission, error) {
-	return corestorage.ComposeUserPermissionAt(ctx, s, userID, scope, permission)
+// wrap returns inner decorated with roleIDOrderStub's overrides.
+func (s *roleIDOrderStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoleIDsAt:      s.getUserRoleIDsAt,
+		GetUserGroupRoleIDsAt: s.getUserGroupRoleIDsAt,
+	})
 }
+
+// store returns s.inner decorated with roleIDOrderStub's overrides.
+func (s *roleIDOrderStub) store() corestorage.Storage { return s.wrap(s.inner) }
 
 // TestIsGlobalAdminRoleName_DanglingRoleReferenceIsSkippedNotFailed: a
 // user-role row pointing at a since-deleted role (AT4's orphan class, guard
@@ -127,7 +131,7 @@ func TestIsGlobalAdminRoleName_DanglingRoleReferenceIsSkippedNotFailed(t *testin
 	// Dangling id first, then every one of the admin's real role ids -- the
 	// dangling one must be checked and skipped before the real admin role(s)
 	// are ever reached.
-	c.storage = &roleIDOrderStub{Storage: c.storage, ids: append([]uint{danglingRoleID}, adminRoleIDs...)}
+	c.storage = (&roleIDOrderStub{inner: c.storage, ids: append([]uint{danglingRoleID}, adminRoleIDs...)}).store()
 
 	policy, err := c.CreateSoDPolicy(ctx, admin.ID, "dangling-role-test-policy", "", "secrets.read", "secrets.write")
 	require.NoError(t, err, "a dangling role checked BEFORE a real admin role must still recognize admin-tier")

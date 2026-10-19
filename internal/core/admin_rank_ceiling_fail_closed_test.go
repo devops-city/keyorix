@@ -13,15 +13,15 @@ import (
 // roleScopesFailingStorage wraps a real storage and fails every
 // GetUserRoleScopes call, the first read requireEqualOrGreaterAdminAuthority
 // makes to resolve the target's authority. Everything else passes through.
-type roleScopesFailingStorage struct {
-	storage.Storage
+func roleScopesFailingStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoleScopes: func(_ storage.Storage, ctx context.Context, userID uint) ([]storage.Scope, error) {
+			return nil, errInjectedRoleScopes
+		},
+	})
 }
 
 var errInjectedRoleScopes = errors.New("injected: role-scope read failed")
-
-func (s roleScopesFailingStorage) GetUserRoleScopes(ctx context.Context, userID uint) ([]storage.Scope, error) {
-	return nil, errInjectedRoleScopes
-}
 
 // TestAdminRankCeiling_ResolutionFailureFailsClosed pins the fix for the
 // fail-open in requireAdminRankCeilingForTarget: when the target's authority
@@ -49,7 +49,7 @@ func TestAdminRankCeiling_ResolutionFailureFailsClosed(t *testing.T) {
 
 	// Resolution failure: refused, and not reported as "insufficient
 	// authority" (the actor wasn't found wanting; we couldn't check).
-	faulty := NewKeyorixCore(roleScopesFailingStorage{Storage: st})
+	faulty := NewKeyorixCore(roleScopesFailingStorage(st))
 	err = faulty.requireAdminRankCeilingForTarget(ctx, admin.ID, target.ID, "delete")
 	require.Error(t, err, "a ceiling resolution failure must fail closed")
 	require.ErrorIs(t, err, errCeilingResolutionFailed)

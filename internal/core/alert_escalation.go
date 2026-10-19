@@ -12,7 +12,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -274,25 +273,24 @@ func (c *KeyorixCore) postJSONToURL(_ context.Context, rawURL string, payload an
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second, Transport: escalationTransport, CheckRedirect: noEscalationRedirect}
 	}
-	// Compute a redacted form of the URL for use in error messages so that
-	// embedded credentials (e.g. https://token:secret@hooks.example.com) are
-	// never written to logs (CWE-312).
-	redactedURL := rawURL
-	if u, perr := url.Parse(rawURL); perr == nil {
-		redactedURL = u.Redacted()
-	}
+	// A channel URL is a bearer credential (Slack-style tokens live in the path),
+	// and url.URL.Redacted() masks only userinfo. Errors built here are logged and
+	// returned to callers, so name the destination by scheme+host only (#3426).
+	target := netutil.RedactURLHost(rawURL)
 	// Send-time re-validation (#1209): the create/update-time check can be stale
 	// and c.httpClient may not carry the dial-time guard.
 	if verr := validateWebhookSendTimeURL(rawURL); verr != nil {
-		return fmt.Errorf("POST %s: refused: %w", redactedURL, verr)
+		return fmt.Errorf("POST %s: refused: %w", target, verr)
 	}
 	resp, err := client.Post(rawURL, "application/json", bytes.NewReader(body)) // #nosec G107 -- URL is operator-configured; SSRF-guarded at write time
 	if err != nil {
-		return fmt.Errorf("POST %s: %w", redactedURL, err)
+		// http.Client wraps every failure in a *url.Error carrying the full
+		// request URL; strip that layer and any URL left in the text.
+		return fmt.Errorf("POST %s: %w", target, netutil.RedactErrorURLs(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("POST %s: unexpected status %d", redactedURL, resp.StatusCode)
+		return fmt.Errorf("POST %s: unexpected status %d", target, resp.StatusCode)
 	}
 	return nil
 }

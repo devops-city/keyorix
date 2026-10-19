@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
@@ -17,16 +18,15 @@ import (
 
 // failingUserLookup makes GetUser(failID) fail with a transient (non-not-found)
 // error, as a momentary backend failure would.
-type failingUserLookup struct {
-	*store.LocalStorage
-	failID uint
-}
-
-func (f *failingUserLookup) GetUser(ctx context.Context, id uint) (*models.User, error) {
-	if id == f.failID {
-		return nil, errors.New("db timeout") // NOT storage.ErrUserNotFound
-	}
-	return f.LocalStorage.GetUser(ctx, id)
+func failingUserLookup(inner storage.Storage, failID uint) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUser: func(next storage.Storage, ctx context.Context, id uint) (*models.User, error) {
+			if id == failID {
+				return nil, errors.New("db timeout") // NOT storage.ErrUserNotFound
+			}
+			return next.GetUser(ctx, id)
+		},
+	})
 }
 
 // A candidate whose account lookup fails for a reason other than "gone" must fail the
@@ -67,7 +67,7 @@ func TestSearchShareRecipients_UserLookupErrorFailsTheSearch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, page.Total, "baseline: sharer, alice and bob are listed")
 
-	c = &KeyorixCore{storage: &failingUserLookup{LocalStorage: st, failID: 3}, now: time.Now}
+	c = &KeyorixCore{storage: failingUserLookup(st, 3), now: time.Now}
 	page, err = c.SearchShareRecipients(ctx, req)
 	assert.Error(t, err, "a transient GetUser failure must not produce a silently partial list")
 	assert.Nil(t, page)

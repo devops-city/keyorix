@@ -53,7 +53,7 @@ func TestBootstrapSystem_AuditOnlyAfterCommit(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			st := bootstrapCoreWithAudit(t)
 			armed := true
-			c := NewKeyorixCore(&failOnceStorage{Storage: st, failStep: step, armed: &armed})
+			c := NewKeyorixCore(failOnceStorage(st, step, &armed))
 			c.SetBootstrapToken(retryToken)
 			ctx := context.Background()
 

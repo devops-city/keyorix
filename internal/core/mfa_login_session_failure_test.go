@@ -25,18 +25,28 @@ import (
 // CreateSession failure and then behaving normally — mirrors
 // mfaSecretReadErrStub's pattern (mfa_login_storage_error_test.go).
 type createSessionErrStub struct {
-	corestorage.Storage
+	inner    corestorage.Storage
 	failNext bool
 	err      error
 }
 
-func (s *createSessionErrStub) CreateSession(ctx context.Context, sess *models.Session) (*models.Session, error) {
+func (s *createSessionErrStub) CreateSession(next corestorage.Storage, ctx context.Context, sess *models.Session) (*models.Session, error) {
 	if s.failNext {
 		s.failNext = false
 		return nil, s.err
 	}
-	return s.Storage.CreateSession(ctx, sess)
+	return next.CreateSession(ctx, sess)
 }
+
+// wrap returns inner decorated with createSessionErrStub's overrides.
+func (s *createSessionErrStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSession: s.CreateSession,
+	})
+}
+
+// store returns s.inner decorated with createSessionErrStub's overrides.
+func (s *createSessionErrStub) store() corestorage.Storage { return s.wrap(s.inner) }
 
 // TestVerifyMFALogin_CreateSessionFailure_ReleasesTOTPStepForRetry is the
 // RED/GREEN regression for #2567: a CreateSession failure right after a
@@ -58,8 +68,8 @@ func TestVerifyMFALogin_CreateSessionFailure_ReleasesTOTPStepForRetry(t *testing
 	require.NoError(t, err)
 
 	faultErr := errors.New("fault-fuzz injected CreateSession failure")
-	stub := &createSessionErrStub{Storage: c.storage, failNext: true, err: faultErr}
-	c.storage = stub
+	stub := &createSessionErrStub{inner: c.storage, failNext: true, err: faultErr}
+	c.storage = stub.store()
 
 	ch, err := c.CreateMFAChallenge(ctx, 1)
 	require.NoError(t, err)

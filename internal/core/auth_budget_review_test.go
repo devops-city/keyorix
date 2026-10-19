@@ -26,23 +26,33 @@ import (
 
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
 // countOnlyDownStub fails CountRecentLoginAttempts while down is set; every
 // write keeps working. The finding's exact shape.
 type countOnlyDownStub struct {
-	corestorage.Storage
-	down bool
+	inner corestorage.Storage
+	down  bool
 }
 
-func (s *countOnlyDownStub) CountRecentLoginAttempts(ctx context.Context, ip string, since time.Time) (int64, error) {
+func (s *countOnlyDownStub) CountRecentLoginAttempts(next corestorage.Storage, ctx context.Context, ip string, since time.Time) (int64, error) {
 	if s.down {
 		return 0, errLoginAttemptsDown
 	}
-	return s.Storage.CountRecentLoginAttempts(ctx, ip, since)
+	return next.CountRecentLoginAttempts(ctx, ip, since)
 }
+
+// wrap returns inner decorated with countOnlyDownStub's overrides.
+func (s *countOnlyDownStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		CountRecentLoginAttempts: s.CountRecentLoginAttempts,
+	})
+}
+
+// store returns s.inner decorated with countOnlyDownStub's overrides.
+func (s *countOnlyDownStub) store() corestorage.Storage { return s.wrap(s.inner) }
 
 func newCountOnlyDownCore(t *testing.T) (*KeyorixCore, *countOnlyDownStub, *gorm.DB) {
 	t.Helper()
@@ -52,9 +62,9 @@ func newCountOnlyDownCore(t *testing.T) (*KeyorixCore, *countOnlyDownStub, *gorm
 		sqlDB.SetMaxOpenConns(1)
 	}
 	require.NoError(t, db.AutoMigrate(&models.LoginAttempt{}, &models.AuditEvent{}))
-	stub := &countOnlyDownStub{Storage: store.NewLocalStorage(db)}
+	stub := &countOnlyDownStub{inner: store.NewLocalStorage(db)}
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
-	c := &KeyorixCore{storage: stub, now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
+	c := &KeyorixCore{storage: stub.store(), now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
 	return c, stub, db
 }
 
@@ -188,7 +198,7 @@ func TestFallbackLoginSlot_IsNeverPersistedToSharedRows(t *testing.T) {
 func TestFallbackLoginSlot_ReleaseOnAnotherReplicaRefundsNothingThere(t *testing.T) {
 	ctx := context.Background()
 	a, stubA, db := newSlotPersistenceCore(t)
-	b := &KeyorixCore{storage: stubA, now: a.now, passwordPolicy: DefaultPasswordPolicy()}
+	b := &KeyorixCore{storage: stubA.store(), now: a.now, passwordPolicy: DefaultPasswordPolicy()}
 
 	stubA.down = true
 	idA, _ := a.ReserveLoginAttempt(ctx, "203.0.113.10") // A's first fallback reservation

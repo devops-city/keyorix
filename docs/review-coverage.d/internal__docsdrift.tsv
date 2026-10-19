@@ -1,0 +1,1 @@
+internal/docsdrift	none	-	PR #3395 (DOCS-DRIFT-1): test-only package (config_keys_test.go, env_and_secrets_test.go, links_test.go, helpers_test.go) that machine-checks the docs against the code; no non-test Go code	test-helper
