@@ -21,7 +21,7 @@ func TestGlobalGuardsPackagesExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	n := 0
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {

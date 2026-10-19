@@ -206,7 +206,7 @@ func TestSelectAffected_GithubOutputIsOneLinePerKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	counts := map[string]int{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
