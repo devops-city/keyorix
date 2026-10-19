@@ -1,4 +1,4 @@
-package core
+package guards
 
 import "testing"
 
@@ -17,7 +17,7 @@ import "testing"
 // TestCTAReview_UpdateSharePermission_*VsConcurrent*_CrossReplicaPostgres).
 func TestUpdateSharePermission_ClassifiesFromALockedRead(t *testing.T) {
 	lockAt, updateAt := -1, -1
-	for i, c := range columnScopedFuncCalls(t, "sharing.go", "KeyorixCore", "UpdateSharePermission") {
+	for i, c := range columnScopedFuncCalls(t, "../sharing.go", "KeyorixCore", "UpdateSharePermission") {
 		switch {
 		case c.Recv == "tx" && c.Name == "GetShareRecord":
 			t.Errorf("UpdateSharePermission reads the share with tx.GetShareRecord: an unlocked read cannot hold its classification until the write")
