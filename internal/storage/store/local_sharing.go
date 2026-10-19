@@ -2,7 +2,7 @@
 //
 // Covers: CreateShareRecord, GetShareRecord, UpdateShareRecord, DeleteShareRecord,
 //
-//	ListSharesBySecret, ListSharesByUser, ListSharesByOwner, ListSharesByGroup,
+//	LockShareRecordForUpdate, ListSharesBySecret, ListSharesByUser, ListSharesByOwner, ListSharesByGroup,
 //	ListSharedSecrets, CheckSharePermission.
 //
 // Sharing logic includes soft-delete awareness (deleted_at IS NULL filters),
@@ -19,6 +19,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // CreateShareRecord creates a share record, or updates the permission if one already exists.
@@ -152,6 +153,32 @@ func createShareRecordTx(tx *gorm.DB, share *models.ShareRecord) (*models.ShareR
 func (ls *LocalStorage) GetShareRecord(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
 	var share models.ShareRecord
 	if err := ls.db.First(&share, shareID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%s", i18n.T("ErrorShareNotFound", nil))
+		}
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorDatabaseOperation", nil), err)
+	}
+	return &share, nil
+}
+
+// LockShareRecordForUpdate re-reads a live share record by ID, adding SELECT … FOR
+// UPDATE on Postgres so the read and a later write of the row in the same transaction
+// serialize against every other writer of it across replicas (mirrors
+// LockUserForUpdate). Outside a transaction the lock ends with the statement. SQLite
+// has no row lock; its write transactions are BEGIN IMMEDIATE, so no other writer can
+// commit between the read and the write anyway.
+//
+// SHARE-CAS-1: core.UpdateSharePermission classifies its change (widens or not)
+// against this read and then writes; without the lock, a narrowing that committed in
+// between could turn a write classified neutral into a widening with only a
+// best-effort audit row.
+func (ls *LocalStorage) LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
+	q := ls.db.WithContext(ctx)
+	if ls.db.Dialector.Name() == "postgres" {
+		q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var share models.ShareRecord
+	if err := q.First(&share, shareID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("%s", i18n.T("ErrorShareNotFound", nil))
 		}

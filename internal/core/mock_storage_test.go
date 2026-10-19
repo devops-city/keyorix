@@ -152,6 +152,15 @@ func (m *MockStorage) RestoreProject(_ context.Context, _ uint) (int, int, error
 	return 0, 0, nil
 }
 
+// The #3433 machine-identity cascade steps: this mock holds no machine identities.
+func (m *MockStorage) SuspendMachineIdentitiesForDeletedProject(_ context.Context, _ uint) ([]*models.MachineIdentity, error) {
+	return nil, nil
+}
+
+func (m *MockStorage) ReactivateMachineIdentitiesForRestoredProject(_ context.Context, _ uint, _ time.Time) ([]*models.MachineIdentity, error) {
+	return nil, nil
+}
+
 func (m *MockStorage) ListEnvironments(_ context.Context) ([]*models.Environment, error) {
 	return nil, nil
 }
@@ -938,6 +947,11 @@ func (m *MockStorage) GetShareRecord(ctx context.Context, shareID uint) (*models
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*models.ShareRecord), args.Error(1)
+}
+
+// LockShareRecordForUpdate has no row lock in the mock; it reuses the GetShareRecord expectation.
+func (m *MockStorage) LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
+	return m.GetShareRecord(ctx, shareID)
 }
 
 func (m *MockStorage) UpdateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error) {

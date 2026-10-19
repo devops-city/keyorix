@@ -234,6 +234,19 @@ type Storage interface {
 	// count of environments and secrets the cascade actually restored, so the caller
 	// can audit what came back (#311), not just that "the project" was restored.
 	RestoreProject(ctx context.Context, id uint) (restoredEnvironments, restoredSecrets int, err error)
+	// SuspendMachineIdentitiesForDeletedProject (#3433) suspends every ACTIVE machine
+	// identity that belongs to soft-deleted project id (home project, or a role there)
+	// and holds no role in any other live project (or at global scope), stamping each
+	// with the project's id and deleted_at (models.MachineIdentity.CascadeSuspended*).
+	// It returns the identities it suspended. It refuses a live project. Call it in the
+	// same transaction as DeleteProject/DeleteProjectIfEmpty, after the cascade.
+	SuspendMachineIdentitiesForDeletedProject(ctx context.Context, id uint) ([]*models.MachineIdentity, error)
+	// ReactivateMachineIdentitiesForRestoredProject (#3433) re-activates exactly the
+	// identities the CURRENT soft-delete of project id suspended and nothing has written
+	// since (marker equals the project's deleted_at, updated_at unchanged), clearing the
+	// marker, and returns them. Call it in the same transaction as RestoreProject,
+	// BEFORE it: it needs the project still deleted. It refuses a live project.
+	ReactivateMachineIdentitiesForRestoredProject(ctx context.Context, id uint, now time.Time) ([]*models.MachineIdentity, error)
 	ListProjects(ctx context.Context) ([]*models.Project, error)
 	ListProjectsWithCounts(ctx context.Context, includeDeleted bool) ([]ProjectWithCounts, error)
 	CreateEnvironment(ctx context.Context, env *models.Environment) (*models.Environment, error)
@@ -999,6 +1012,14 @@ type Storage interface {
 	// Secret Sharing Management
 	CreateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error)
 	GetShareRecord(ctx context.Context, shareID uint) (*models.ShareRecord, error)
+	// LockShareRecordForUpdate is GetShareRecord inside a WithTransaction, taking a
+	// row-level write lock on backends that support one (Postgres: SELECT … FOR
+	// UPDATE) so a decision made from the row and the write of it serialize against
+	// every concurrent writer across replicas. On SQLite it is a plain read (write
+	// transactions there are BEGIN IMMEDIATE). Use this — not GetShareRecord —
+	// whenever a transaction classifies an update against the row it then writes
+	// (core.UpdateSharePermission, SHARE-CAS-1). Outside a transaction it locks nothing.
+	LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error)
 	UpdateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error)
 	DeleteShareRecord(ctx context.Context, shareID uint) error
 	// now is the instant "currently active" is evaluated against (expires_at IS

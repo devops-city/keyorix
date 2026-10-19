@@ -61,13 +61,9 @@ boundaries.
 
 ## 4. Residual risks specific to this component
 
-- **CLI local mode is a structural authorization bypass, not a gap in
-  this chokepoint itself.** CLI local mode opens the SQLite database
-  directly, which means it never calls `core.Authorize` at all — it
-  isn't that the chokepoint has a flaw, it's that an entire client mode
-  doesn't go through it. See `../threat-model.md` §4 (B1/B2) and §5.2 for
-  the full analysis; ADR-108 (Accepted, implementation in progress)
-  removes this by making the CLI a thin network client with no local
-  database access.
+- **CLI local mode (closed).** The CLI used to open the SQLite database
+  directly and so never called `core.Authorize`. ADR-108 Decision A removed that
+  mode: the CLI is a thin network client with no database access. See
+  `../threat-model.md` §4 (B1/B2) and §5.2.
 - No other residual risk specific to the authorization chokepoint
   itself is identified beyond what's listed above as closed.

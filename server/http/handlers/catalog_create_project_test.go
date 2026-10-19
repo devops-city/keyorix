@@ -23,7 +23,8 @@ func newCreateProjectHandler(t *testing.T) (*CatalogHandler, *gorm.DB) {
 	require.NoError(t, i18n.InitializeForTesting())
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}))
+	// AuditEvent: the project commits with its project.created row (AUDIT-TX-2).
+	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.AuditEvent{}))
 	return NewCatalogHandler(core.NewKeyorixCore(store.NewLocalStorage(db))), db
 }
 
