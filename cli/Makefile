@@ -31,3 +31,13 @@ client: client-deps
 	PATH="$$(go env GOPATH)/bin:$$PATH" oapi-codegen -generate types -package apiclient -o internal/apiclient/types.gen.go $(FILTERED_SPEC)
 	PATH="$$(go env GOPATH)/bin:$$PATH" oapi-codegen -generate client -package apiclient -o internal/apiclient/client.gen.go $(FILTERED_SPEC)
 	rm -f $(FILTERED_SPEC)
+
+.PHONY: docs
+
+# Regenerate docs/cli-reference.md and docs/man/keyorix.1 from the command tree. cli/cmd's
+# TestCLIReferenceIsFresh fails when they are stale, so run this after changing any command,
+# flag, example or help text.
+docs:
+	mkdir -p ../docs/man
+	go run . docs markdown > ../docs/cli-reference.md
+	go run . docs man > ../docs/man/keyorix.1

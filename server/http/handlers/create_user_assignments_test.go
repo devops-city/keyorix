@@ -29,7 +29,9 @@ func setupCreateUserAssignmentsTest(t *testing.T) (*UserHandler, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.UserRole{}, &models.Role{}, &models.Project{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{}, &models.Environment{}, &models.SoDPolicy{},
-		&models.Permission{}, &models.RolePermission{}))
+		&models.Permission{}, &models.RolePermission{},
+		// AuditEvent: the user commits with its user.created row (AUDIT-TX-2).
+		&models.AuditEvent{}))
 	require.NoError(t, db.Create(&models.Role{Name: "system_viewer"}).Error)
 	require.NoError(t, db.Create(&models.Role{Name: "project_developer"}).Error)
 	require.NoError(t, db.Create(&models.Project{Name: "default"}).Error)

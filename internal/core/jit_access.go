@@ -67,11 +67,7 @@ func (c *KeyorixCore) AssignUserRoleWithExpiry(ctx context.Context, actorID, use
 // access-request TTL-approval path must go through AssignUserRoleWithExpiry
 // so both gates apply.
 func (c *KeyorixCore) assignUserRoleWithExpirySkipSoD(ctx context.Context, actorID, userID, roleID uint, scope Scope, expiresAt time.Time) error {
-	if err := c.storage.AssignRoleWithExpiry(ctx, userID, roleID, scope, expiresAt); err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-	c.LogRoleAssigned(ctx, actorID, userID, roleID, scope)
-	return nil
+	return c.grantUserRoleAudited(ctx, actorID, userID, roleID, scope, &expiresAt, false)
 }
 
 // AssignGroupRoleWithExpiry assigns a time-bound role to a group at scope, gated by
@@ -96,11 +92,7 @@ func (c *KeyorixCore) AssignGroupRoleWithExpiry(ctx context.Context, actorID, gr
 	// (rbac_management.go).
 	return c.storage.WithNamedLock(ctx, sodGrantLockKey("group", groupID), func(ctx context.Context) error {
 		write := func(ctx context.Context) error {
-			if err := c.storage.AssignRoleToGroupWithExpiry(ctx, groupID, roleID, scope, expiresAt); err != nil {
-				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-			}
-			c.LogGroupRoleAssigned(ctx, actorID, groupID, roleID, scope)
-			return nil
+			return c.grantGroupRoleAudited(ctx, actorID, groupID, roleID, scope, &expiresAt)
 		}
 		policies, adding, needed, err := c.groupGrantSoDContext(ctx, roleID)
 		if err != nil {
