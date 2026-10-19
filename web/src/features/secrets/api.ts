@@ -342,6 +342,12 @@ export const useSetAutoRotate = (id: number) => {
     });
 };
 
+// A deleted secret is soft-deleted into its project's recycle bin
+// (ProjectSettingsTab: ['project-deleted-secrets', projectId], default 5 min staleTime).
+// The hook doesn't know the project, so invalidate that query for every project.
+const invalidateRecycleBins = (queryClient: ReturnType<typeof useQueryClient>) =>
+    queryClient.invalidateQueries({ queryKey: ['project-deleted-secrets'] });
+
 export const useDeleteSecret = () => {
     const queryClient = useQueryClient();
 
@@ -350,6 +356,7 @@ export const useDeleteSecret = () => {
         onSuccess: (_, deletedId) => {
             queryClient.removeQueries({ queryKey: queryKeys.secrets.detail(deletedId) });
             invalidateQueries.secrets.all();
+            invalidateRecycleBins(queryClient);
         },
     });
 };
@@ -379,6 +386,7 @@ export const useBulkDeleteSecrets = () => {
                 queryClient.removeQueries({ queryKey: queryKeys.secrets.detail(id) });
             });
             invalidateQueries.secrets.all();
+            invalidateRecycleBins(queryClient);
         },
     });
 };

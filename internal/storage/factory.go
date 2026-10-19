@@ -111,6 +111,13 @@ const postgresMigrationLockKey = 872341
 // nil-in-production seam pattern as migrationCheckpoint below.
 var migrationLockHeldHook func()
 
+// migrationLockWorkDoneHook, when non-nil, is invoked by withMigrationLock
+// right after the migration returns and still INSIDE every lock, so a
+// timestamp taken here is strictly earlier than the lock's release and than
+// any other process's entry into the migration. Nil in every production
+// build; same test-only seam pattern as migrationLockHeldHook.
+var migrationLockWorkDoneHook func()
+
 // migrationCheckpoint, when non-nil, is invoked after each model is migrated in
 // migrateDatabase's fresh-install-only bulk AutoMigrate loop, with a stable label
 // naming the model just migrated. It is nil in every production build; only a
@@ -178,7 +185,11 @@ func withMigrationLockPooled(db *gorm.DB, isPostgres, xactLock bool, dbPath stri
 		if migrationLockHeldHook != nil {
 			migrationLockHeldHook()
 		}
-		return fn(h)
+		err := fn(h)
+		if migrationLockWorkDoneHook != nil {
+			migrationLockWorkDoneHook()
+		}
+		return err
 	}
 
 	if isPostgres {
