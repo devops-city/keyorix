@@ -66,7 +66,7 @@ func newEnv(t *testing.T) *env {
 	write(filepath.Join(bin, "docker"), fakeDocker, 0o755)
 	write(filepath.Join(bin, "make"), "#!/bin/sh\necho make \"$@\" >> \"$FAKE/calls\"\n", 0o755)
 	write(filepath.Join(bin, "pnpm"), "#!/bin/sh\n", 0o755)
-	for _, f := range []string{"up.sh", "down.sh", "lib.sh", "image-stamp.sh"} {
+	for _, f := range []string{"up.sh", "down.sh", "lib.sh", "image-stamp.sh", "seed.sh"} {
 		raw, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
