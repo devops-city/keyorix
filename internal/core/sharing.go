@@ -91,6 +91,8 @@ func (c *KeyorixCore) ShareSecret(ctx context.Context, req *ShareSecretRequest) 
 	}
 	// AUDIT-TX-2: the share record and its share_created / group_share_created
 	// row commit in ONE transaction; notifications run after the commit.
+	// SHARE-CAS-1: no row lock needed for the upsert of an existing share: it is
+	// never classified, so it always fails closed whatever the row held.
 	var createdShare *models.ShareRecord
 	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
@@ -150,8 +152,10 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	}
 
 	// Resolve the share's expiry: clear it (permanent), set/extend/shorten it, or
-	// preserve the current value when the request specifies neither. A new expiry must
-	// be in the future, just like at creation.
+	// preserve the current value when the request specifies neither (resolved from
+	// the locked row inside the transaction below). A new expiry must be in the
+	// future, just like at creation.
+	preserveExpiry := !req.ClearExpiry && req.ExpiresAt == nil
 	switch {
 	case req.ClearExpiry:
 		shareRecord.ExpiresAt = nil
@@ -170,12 +174,26 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	// narrowing or neutral one is a revocation and is never blocked by the
 	// audit log: its row is written best-effort after the commit
 	// (withDirectedAuditedMutation).
+	//
+	// SHARE-CAS-1: the read is LockShareRecordForUpdate, so on PostgreSQL READ
+	// COMMITTED no other writer can change the row between the classification and
+	// the UPDATE: a concurrent narrowing waits for this commit and then applies on
+	// top of it. With a plain read it could commit in between, and a write
+	// classified neutral (write→write) would land write over read with only a
+	// best-effort row. The expiry check and a preserved expiry use the same row.
+	// Group shares take this same path (there is no separate group-share update).
 	var updatedShare *models.ShareRecord
 	var oldPermission string
 	if err := c.withDirectedAuditedMutation(ctx, func(tx storage.Storage) (bool, error) {
-		cur, err := tx.GetShareRecord(ctx, shareRecord.ID)
+		cur, err := tx.LockShareRecordForUpdate(ctx, shareRecord.ID)
 		if err != nil {
 			return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		if cur.ExpiresAt != nil && cur.ExpiresAt.Before(c.now()) {
+			return false, fmt.Errorf("cannot update an expired share record; revoke and re-share instead")
+		}
+		if preserveExpiry {
+			shareRecord.ExpiresAt = cur.ExpiresAt
 		}
 		oldPermission = cur.Permission
 		widens := shareUpdateWidens(cur.Permission, cur.ExpiresAt, shareRecord.Permission, shareRecord.ExpiresAt)
