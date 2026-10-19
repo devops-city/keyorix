@@ -4,24 +4,26 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
-	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// failOnceUpdateUserStorage makes UpdateUser fail once, mirroring the
-// failOnceStorage idiom from #2295.
+// failOnceUpdateUserStorage makes RestoreUser's LAST write (SetAccountState,
+// after the undelete and the is_active write already ran in the transaction)
+// fail once, mirroring the failOnceStorage idiom from #2295. It used to fail
+// the full-row UpdateUser, which RestoreUser no longer calls (#2677 sweep).
 func failOnceUpdateUserStorage(inner storage.Storage, armed *bool) storage.Storage {
 	return hooked(inner, &storeHooks{
 		WrapTx: true,
-		UpdateUser: func(next storage.Storage, ctx context.Context, u *models.User) (*models.User, error) {
+		SetAccountState: func(next storage.Storage, ctx context.Context, id uint, state string, updatedAt time.Time) error {
 			if *armed {
 				*armed = false
-				return nil, errors.New("injected fault: UpdateUser")
+				return errors.New("injected fault: SetAccountState")
 			}
-			return next.UpdateUser(ctx, u)
+			return next.SetAccountState(ctx, id, state, updatedAt)
 		},
 	})
 }

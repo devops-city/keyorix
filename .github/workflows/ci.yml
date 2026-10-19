@@ -1105,8 +1105,12 @@ jobs:
           # paying that fixed cost per shard at all (compile once, upload the
           # test binary, run it with -test.run per shard) and t.Parallel()
           # for the 2856 currently-serial tests. Both tracked separately.
+          # timeout raised 1800 -> 3300 (2026-10-19, CI-CORE-TIMEOUT-1): merge_group
+          # runs 39289607674 and 39283963061 died with "test timed out after
+          # 30m0s". test-suite has no job-level timeout-minutes (GitHub default
+          # 360), so the go test -timeout is the only bound and is far below it.
           - leg: core
-            timeout: 1800
+            timeout: 3300
             coverage-file: coverage_core.out
           # storage-store (internal/storage/store, re-pinned out of root-4's
           # catch-all 2026-09-04) -- same trigger as core's own split above: a

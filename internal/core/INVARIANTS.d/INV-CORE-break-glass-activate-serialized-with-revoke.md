@@ -29,7 +29,7 @@
   unique-index slot if a compensating write were to fail. Guard:
   `TestActivateBreakGlass_FailedGrantLeavesNoActivationRecord` and the one-transaction
   assertion in the structural test below.
-  Guard: `break_glass_lock_guard_test.go`
+  Guard: `guards/break_glass_lock_guard_test.go`
   (`TestActivateBreakGlass_InsertAndGrantShareTheRevokeLock`, structural, default-ci — it
   asserts the two writes live in `activateBreakGlassLocked` AND that `ActivateBreakGlass`
   performs neither directly, so moving one back outside the callback is red even though the

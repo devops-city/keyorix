@@ -752,9 +752,11 @@ func TestCTAReview_ActivateMFA_vs_BeginMFAEnrollment_CrossReplicaPostgres(t *tes
 func assertActivationNeverBindsUnvalidatedSecret(t *testing.T, c *KeyorixCore, userID uint, validated string, activateErr error) {
 	t.Helper()
 	ctx := context.Background()
-	active, err := c.loadTOTPSecret(ctx, userID)
-	require.NoError(t, err)
 	row, err := c.Storage().GetMFASecret(ctx, userID)
+	require.NoError(t, err)
+	// Decrypted directly, not via loadTOTPSecret: that refuses a pending
+	// secret (#2692), and the fail-closed outcome leaves exactly one.
+	active, err := c.decryptAuthSecret(row.SecretEnc, row.SecretMeta, ports.MFASecretAAD(userID))
 	require.NoError(t, err)
 	user, err := c.Storage().GetUser(ctx, userID)
 	require.NoError(t, err)

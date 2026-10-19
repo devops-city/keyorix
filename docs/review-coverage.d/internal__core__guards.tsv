@@ -1,0 +1,1 @@
+internal/core/guards	none	-	CACHE-GUARDS-1: test-only package holding the source-scanning guard tests moved out of internal/core (go/parser, go/packages, filepath.Walk over the repository); no production code, no importers; each test is a guard whose red/green proof is in ~/proj/prompts/reports/SESSION-CACHE-GUARDS-1.md	test-helper

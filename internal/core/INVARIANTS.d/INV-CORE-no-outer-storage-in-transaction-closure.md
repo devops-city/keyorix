@@ -14,7 +14,7 @@
   Why: DEADLOCK-SHAPE-1, found by AUDIT-TX-2. `TestAtomicityGuard_TransactionEscape` (INV-CORE-36)
   only saw the literal `c.storage.X(...)` form, not `c.writeAuditEventFailed(...)`, which writes
   through `c.storage` one call deeper.
-  Guard: `tx_closure_outer_storage_guard_test.go` (`TestNoOuterStorageInTransactionClosure`, an AST
+  Guard: `guards/tx_closure_outer_storage_guard_test.go` (`TestNoOuterStorageInTransactionClosure`, an AST
   scan of every non-test file in `internal/core` with an allowlist whose entries each carry a reason
   and fail the test once stale; `TestTxClosureGuard_SelfTest`, which plants each violation form and
   each corrected form). Behaviour: `update_user_deactivation_cleanup_tx_test.go`

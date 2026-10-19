@@ -816,6 +816,9 @@ func TestAuthentication_PATNetworkAllowlist_DeniedRequestDoesNotTouchLastUsed(t 
 
 	// A PAT presented from a disallowed network is rejected...
 	require.Equal(t, http.StatusForbidden, serve(deniedRaw, "203.0.113.9:5555"))
+	// The stamp is coalesced off the request path (OPT-LASTUSED-1); flush so a
+	// recorded touch would be visible in the row.
+	coreService.FlushLastUsed(context.Background())
 
 	var reloadedDenied models.PersonalAccessToken
 	require.NoError(t, db.First(&reloadedDenied, 1).Error)
@@ -824,6 +827,7 @@ func TestAuthentication_PATNetworkAllowlist_DeniedRequestDoesNotTouchLastUsed(t 
 	// ...but a different token, from an allowed network, succeeds and DOES stamp
 	// it — confirming the assertion above isn't just "never touched at all".
 	require.Equal(t, http.StatusOK, serve(allowedRaw, "10.1.2.3:5555"))
+	coreService.FlushLastUsed(context.Background())
 
 	var reloadedAllowed models.PersonalAccessToken
 	require.NoError(t, db.First(&reloadedAllowed, 2).Error)
