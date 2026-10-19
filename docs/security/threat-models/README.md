@@ -67,8 +67,8 @@ yes or no; "test" means the guard is in the code and no test pins it.
 
 | Issue | Kind | Document / row | Summary |
 |---|---|---|---|
-| [#3418](https://github.com/keyorixhq/keyorix/issues/3418) | bug | scim-and-sso-accounts.md SCIM-2 | A native account that signs in through SSO gets `external_id = sso:…`, which counts as SCIM-managed: a SCIM token holder can read, edit, deactivate and delete it |
-| [#3419](https://github.com/keyorixhq/keyorix/issues/3419) | bug | scim-and-sso-accounts.md SCIM-4 | SCIM `active=false` (PATCH/PUT) does not revoke the user's PATs; an IdP re-enable hands them back (`DELETE` does, #2855) |
+| [#3418](https://github.com/keyorixhq/keyorix/issues/3418) | bug | scim-and-sso-accounts.md SCIM-2 | A native account that signs in through SSO gets `external_id = sso:…`, which counts as SCIM-managed: a SCIM token holder can read, edit, deactivate and delete it. Fixed in #3493 (not yet merged) |
+| [#3419](https://github.com/keyorixhq/keyorix/issues/3419) | bug | scim-and-sso-accounts.md SCIM-4 | SCIM `active=false` (PATCH/PUT) does not revoke the user's PATs; an IdP re-enable hands them back (`DELETE` does, #2855). Fixed in #3491 (not yet merged) |
 | [#3420](https://github.com/keyorixhq/keyorix/issues/3420) | bug (fix queued) | break-glass.md BG-6 | The break-glass audit event is best-effort after commit; a failed append leaves a live grant with no chain record. Fix owned by BREAKGLASS-OWED-1 |
 | [#3422](https://github.com/keyorixhq/keyorix/issues/3422) | decision | sharing-and-acl.md SHARE-8 | Core `ShareSecret` accepts `IsGroup=true` without the group-in-project check; no caller reaches it, no guard |
 | [#3423](https://github.com/keyorixhq/keyorix/issues/3423) | decision | sharing-and-acl.md SHARE-9 | `secrets.manage` for ACL grant/revoke is enforced only in the transports; no guard for a third caller |
