@@ -7,11 +7,18 @@
 # upload there are no code-scanning results on the merge group, so this script
 # is the gate: it reads the SARIF files the analysis wrote to disk and fails when
 # a HIGH-or-worse result (rule security-severity >= 7.0, GitHub's own "high"
-# threshold) is not already an open code-scanning alert on main.
+# threshold) is not already a known code-scanning alert on main: open, or
+# dismissed.
 #
-# "Already open on main" is matched by (rule id, file path), not by line: a
+# Dismissed = accepted risk. A human reviewed the alert in the Security tab and
+# dismissed it (won't fix / false positive); the analysis still writes such a
+# finding into the SARIF on every run, so treating only state=open as known made
+# every dismissed finding "new" and failed nearly every queue entry (18 Oct).
+# Only state=fixed alerts are ignored: a fixed finding that reappears is new.
+#
+# "Already known on main" is matched by (rule id, file path), not by line: a
 # line-exact match would call every pre-existing alert "new" whenever a queue
-# entry shifts the line. The consequence is that a SECOND instance of an open
+# entry shifts the line. The consequence is that a SECOND instance of a known
 # rule in a file that already has an alert is not caught here; it is caught
 # after merge, when the push-to-main run uploads and the new alert appears in
 # the Security tab. Everything else (a new rule, or an old rule in a new file)
@@ -21,7 +28,8 @@
 # high results present is an error, never a pass.
 #
 # Usage: codeql-gate.sh <sarif-dir>
-# Env:   GH_TOKEN, REPO (owner/name) -- to read main's open alerts.
+# Env:   GH_TOKEN, REPO (owner/name) -- to read main's open and dismissed alerts.
+#        GATE_RETRY_SLEEP -- test hook: seconds per retry step (default 5).
 #        GATE_BASELINE_TSV -- test hook: a file of "ruleId<TAB>path" lines used
 #        instead of the API.
 set -euo pipefail
@@ -64,29 +72,35 @@ if [ "$total" -eq 0 ]; then
 fi
 
 if [ -n "${GATE_BASELINE_TSV:-}" ]; then
-  cp "$GATE_BASELINE_TSV" "$work/open.tsv"
+  cp "$GATE_BASELINE_TSV" "$work/known.tsv"
 else
   : "${REPO:?REPO is required}"
-  ok=""
-  for attempt in 1 2 3; do
-    if gh api --paginate "repos/$REPO/code-scanning/alerts?state=open&ref=refs/heads/main&per_page=100" \
-      --jq '.[] | [.rule.id, .most_recent_instance.location.path] | @tsv' > "$work/open.tsv"; then
-      ok=1
-      break
+  : > "$work/known.tsv"
+  # Both states count as "known on main": open = tracked, dismissed = a human
+  # already decided (won't fix / false positive). fixed alerts do not count.
+  for state in open dismissed; do
+    ok=""
+    for attempt in 1 2 3; do
+      if gh api --paginate "repos/$REPO/code-scanning/alerts?state=$state&ref=refs/heads/main&per_page=100" \
+        --jq '.[] | [.rule.id, .most_recent_instance.location.path] | @tsv' > "$work/alerts-$state.tsv"; then
+        ok=1
+        break
+      fi
+      echo "codeql-gate: alerts API ($state) attempt $attempt failed" >&2
+      sleep $((attempt * ${GATE_RETRY_SLEEP:-5}))
+    done
+    if [ -z "$ok" ]; then
+      echo "codeql-gate: cannot read main's $state alerts; failing closed" >&2
+      exit 1
     fi
-    echo "codeql-gate: alerts API attempt $attempt failed" >&2
-    sleep $((attempt * 5))
+    cat "$work/alerts-$state.tsv" >> "$work/known.tsv"
   done
-  if [ -z "$ok" ]; then
-    echo "codeql-gate: cannot read main's open alerts; failing closed" >&2
-    exit 1
-  fi
 fi
 
 bad=0
 while IFS=$'\t' read -r rule path line sev; do
-  if ! grep -qxF "$(printf '%s\t%s' "$rule" "$path")" "$work/open.tsv"; then
-    echo "::error file=$path,line=$line::CodeQL high-severity result $rule (security-severity $sev) is not an open alert on main"
+  if ! grep -qxF "$(printf '%s\t%s' "$rule" "$path")" "$work/known.tsv"; then
+    echo "::error file=$path,line=$line::CodeQL high-severity result $rule (security-severity $sev) is not an open or dismissed alert on main"
     bad=1
   fi
 done < "$work/high.tsv"
@@ -94,4 +108,4 @@ done < "$work/high.tsv"
 if [ "$bad" -ne 0 ]; then
   exit 1
 fi
-echo "codeql-gate: every high-severity result is already an open alert on main"
+echo "codeql-gate: every high-severity result is already an open or dismissed alert on main"

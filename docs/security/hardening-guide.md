@@ -295,10 +295,11 @@ option there, but it does not bundle the key-material files.
   `LimitCORE=`/`ulimit -c` before exec-ing the process is outside this
   control's reach; don't do that in a production unit file.
 - **Host access is database access.** The `keyorix` CLI is REST-only and has no
-  local-database mode; `keyorix-server admin ...` (ADR-108) runs on the server
-  host with the database and key files, so restrict shell access to the server
-  host to the people you would trust with a raw database connection and the
-  key material.
+  local-database mode (ADR-108 Decision A, see `threat-model.md` §5.2), so it is
+  subject to authorization, audit and rate limits like any client.
+  `keyorix-server admin ...` (ADR-108) runs on the server host with the database
+  and key files, so restrict shell access to the server host to the people you
+  would trust with a raw database connection and the key material.
 
 ## 8. Kubernetes delivery (operator / sync agent / ESO)
 
