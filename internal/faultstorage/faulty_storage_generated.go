@@ -5762,6 +5762,23 @@ func (w *FaultyStorage) LockMachineIdentityForUpdate(ctx context.Context, id uin
 	return w.real.LockMachineIdentityForUpdate(ctx, id)
 }
 
+func (w *FaultyStorage) LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error) {
+	fire, kind, injected := w.check("LockShareRecordForUpdate")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 *models.ShareRecord
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.LockShareRecordForUpdate(ctx, shareID)
+			return rv1, injected
+		}
+	}
+	return w.real.LockShareRecordForUpdate(ctx, shareID)
+}
+
 func (w *FaultyStorage) LockUserForUpdate(ctx context.Context, id uint) (*models.User, error) {
 	fire, kind, injected := w.check("LockUserForUpdate")
 	if fire {

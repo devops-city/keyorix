@@ -13,7 +13,12 @@
 //     EVERY one of the six orderings, a revoke that reported success must
 //     stay revoked. The pre-#2666 code failed exactly the A-check,B-check,
 //     B-act,A-act ordering; the fix made all six hold. So all six passing
-//     here is the positive control, and the driver's own red direction is
+//     here is the positive control. Since SHARE-CAS-1 the update holds the
+//     share row lock from its in-transaction read, so the two orderings that
+//     need B's act while A is parked (A-check,B-check,B-act,A-act and
+//     B-check,A-check,B-act,A-act) are serialized and must be REPORTED as
+//     blocked, invariant intact; the other four must still be forced. The
+//     driver's own red direction is
 //     covered by interleave_production_purity_test.go's planted-violation
 //     test plus the per-issue tests that DO go red.
 //   - #2660 (AddSecretDependency cross-replica cycle, fixed by #2670): the
@@ -65,21 +70,34 @@ func TestInterleaveDriver_AllSixOrderings_OnAFixedPair_Postgres(t *testing.T) {
 			// DEGRADED rather than passing vacuously.
 			spB := newSyncPoint(t, f.dbB, "RevokeShare", "delete", "share_records")
 
-			res := runInterleaving(t, order, spA, spB,
-				func() error {
-					_, err := f.coreA.UpdateSharePermission(f.ctx, &UpdateShareRequest{
-						ShareID: share.ID, Permission: "write", UpdatedBy: owner.ID,
-					})
-					return err
-				},
-				func() error { return f.coreB.RevokeShare(f.ctx, share.ID, owner.ID) },
-			)
-			// Both ops write share_records, so both sync points must be
-			// reachable in every interleaved ordering. A degraded run here
-			// would mean the driver cannot pin this pair at all, which would
-			// invalidate every per-issue test built on the same mechanism.
-			requireForced(t, res)
-			require.NoError(t, res.ErrB, "the revoke itself must report success under %s", order)
+			opA := func() error {
+				_, err := f.coreA.UpdateSharePermission(f.ctx, &UpdateShareRequest{
+					ShareID: share.ID, Permission: "write", UpdatedBy: owner.ID,
+				})
+				return err
+			}
+			opB := func() error { return f.coreB.RevokeShare(f.ctx, share.ID, owner.ID) }
+			if order == orderABBaAa || order == orderBABcBa {
+				// SHARE-CAS-1: A holds the share row lock from its
+				// in-transaction read (LockShareRecordForUpdate), so B's act
+				// cannot land while A is parked at its UPDATE: these two
+				// orderings are serialized by design, and the driver must say
+				// so (the blocked-path control, as in the test below) while
+				// still running both to completion. 3 s as there.
+				res := runInterleavingTimeout(t, order, spA, spB, opA, opB, 3*time.Second)
+				t.Log(res.String())
+				assert.False(t, res.Forced, "B's revoke landed while A held the share row lock: the row lock is gone")
+				assert.Contains(t, res.Degraded, "serialized", "the driver must report WHY the ordering degraded")
+				require.NoError(t, res.ErrB, "the revoke itself must report success under %s", order)
+			} else {
+				res := runInterleaving(t, order, spA, spB, opA, opB)
+				// Both ops write share_records, so both sync points must be
+				// reachable in these orderings. A degraded run here would mean
+				// the driver cannot pin this pair at all, which would
+				// invalidate every per-issue test built on the same mechanism.
+				requireForced(t, res)
+				require.NoError(t, res.ErrB, "the revoke itself must report success under %s", order)
+			}
 
 			assert.Zero(t, f.countLive(&models.ShareRecord{}, "id = ? AND deleted_at IS NULL", share.ID),
 				"#2648 regression under %s: a share whose revocation reported success is live again", order)
