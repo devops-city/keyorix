@@ -36,7 +36,7 @@
 // to exist, and drives ADR-022's 5-state invite machine — not the answer to
 // "is X a member of P". It keeps its own reader
 // (`GET /api/v1/projects/{id}/memberships`, `TransitionMembership`); what it no longer
-// does is answer a membership question. `project_membership_definition_guard_test.go`
+// does is answer a membership question. `guards/project_membership_definition_guard_test.go`
 // fails the build if a second definition reappears.
 //
 // # Membership is not the same question as readability
@@ -96,7 +96,7 @@ type UserProjectMembership struct {
 // IsProjectMember reports whether userID is a member of projectID, per the
 // definition at the top of this file. This is the ONE function every caller asks;
 // `storage.IsProjectMember` has exactly one call site in the repo (this one), which
-// is what project_membership_definition_guard_test.go enforces.
+// is what guards/project_membership_definition_guard_test.go enforces.
 //
 // projectID 0 is never a project (it is the global-scope sentinel), so it is always
 // false — the storage layer agrees, and this is load-bearing for break-glass, which

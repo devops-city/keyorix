@@ -7,7 +7,7 @@ Full explanation: `registry_entries_test.go`.
 
 | Table | New row = a new file | Register function |
 |---|---|---|
-| `mfaStepUpPurposeAllowlist` | `mfa_stepup_purpose_allow_entry_<slug>_test.go` | `registerMFAStepUpPurposeAllow` |
+| `mfaStepUpPurposeAllowlist` | `guards/mfa_stepup_purpose_allow_entry_<slug>_test.go` (in `internal/core/guards`, next to the guard that reads it) | `registerMFAStepUpPurposeAllow` |
 | `g4FuzzSeedPrograms` (FuzzCrossReplicaInvariants seeds) | `cross_replica_seed_entry_<issue>_test.go` | `registerG4FuzzSeed` |
 | `pendingSeedFix` | `pending_seed_fix_entry_<issue>_test.go` | `registerPendingSeedFix` |
 

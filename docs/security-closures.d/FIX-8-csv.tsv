@@ -1,1 +1,1 @@
-FIX-8-csv	./internal/core	TestCSVWriters_EncodeAgainstFormulaInjection	default-ci	d1b93444	-	structural: every CSV writer applies an encoder
+FIX-8-csv	./internal/core/guards	TestCSVWriters_EncodeAgainstFormulaInjection	default-ci	d1b93444	-	structural: every CSV writer applies an encoder

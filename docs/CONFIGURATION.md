@@ -1303,6 +1303,18 @@ session:
   absolute_ttl: "12h"   # hard cap on total session lifetime; "" or "0" = no ceiling
 ```
 
+### "Last used" / "last seen" freshness (not configurable)
+
+`personal_access_tokens.last_used_at`, `machine_identity_credentials.last_used_at`
+and `sessions.last_seen_at` are written off the request path: each server records
+uses in memory and writes them at most once per credential per **30 seconds**, and
+on a graceful stop. Bound: a use is in the database within 30 seconds plus one
+flush. A server that is killed (no graceful stop) loses at most the last 30 seconds
+of these stamps. Replicas write their own observations and the stored value never
+moves backwards. These columns feed displays and day-granularity hygiene reports
+only; no authentication or authorization decision reads them. See
+[`specs/last-used-coalescing.md`](specs/last-used-coalescing.md).
+
 **Authentication cache and database outages (not configurable).** A validated
 session, PAT or machine token is cached for about 30 seconds per replica, and
 every cached request still re-checks the credential's revocation state against
