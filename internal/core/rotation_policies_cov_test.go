@@ -66,7 +66,6 @@ func listRotPoliciesErrStorage(inner corestorage.Storage, err error) corestorage
 	})
 }
 
-
 // newRotPolicyCore returns a KeyorixCore backed by an in-memory SQLite with
 // the RotationPolicy + AuditEvent tables migrated.
 func newRotPolicyCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
