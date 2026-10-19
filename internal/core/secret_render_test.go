@@ -7,14 +7,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/secrettemplate"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -313,7 +314,6 @@ func TestRenderSecretTemplate_RejectsTooManyDistinctReferences(t *testing.T) {
 // forbidden, or exists and is readable — the timing side-channel closed by
 // equalizeReferenceResolutionCost in secret_render.go.
 type callRecordingStorage struct {
-	*store.LocalStorage
 	mu    sync.Mutex
 	calls []string
 }
@@ -338,19 +338,22 @@ func (s *callRecordingStorage) snapshot() []string {
 	return out
 }
 
-func (s *callRecordingStorage) GetSecret(ctx context.Context, id uint) (*models.SecretNode, error) {
-	s.record("GetSecret")
-	return s.LocalStorage.GetSecret(ctx, id)
-}
-
-func (s *callRecordingStorage) GetSecretByName(ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error) {
-	s.record("GetSecretByName")
-	return s.LocalStorage.GetSecretByName(ctx, name, projectID, environmentID)
-}
-
-func (s *callRecordingStorage) GetLatestSecretVersion(ctx context.Context, secretID uint) (*models.SecretVersion, error) {
-	s.record("GetLatestSecretVersion")
-	return s.LocalStorage.GetLatestSecretVersion(ctx, secretID)
+func newCallRecordingStorage(inner storage.Storage) (storage.Storage, *callRecordingStorage) {
+	s := &callRecordingStorage{}
+	return hooked(inner, &storeHooks{
+		GetSecret: func(next storage.Storage, ctx context.Context, id uint) (*models.SecretNode, error) {
+			s.record("GetSecret")
+			return next.GetSecret(ctx, id)
+		},
+		GetSecretByName: func(next storage.Storage, ctx context.Context, name string, projectID, environmentID uint) (*models.SecretNode, error) {
+			s.record("GetSecretByName")
+			return next.GetSecretByName(ctx, name, projectID, environmentID)
+		},
+		GetLatestSecretVersion: func(next storage.Storage, ctx context.Context, secretID uint) (*models.SecretVersion, error) {
+			s.record("GetLatestSecretVersion")
+			return next.GetLatestSecretVersion(ctx, secretID)
+		},
+	}), s
 }
 
 // #<timing finding>: RenderSecretTemplate's per-reference resolution must perform
@@ -374,8 +377,8 @@ func TestRenderSecretTemplate_EqualizesResolutionCostShape(t *testing.T) {
 
 	realStorage, ok := c.storage.(*store.LocalStorage)
 	require.True(t, ok, "fixture must back RenderSecretTemplate with *store.LocalStorage")
-	spy := &callRecordingStorage{LocalStorage: realStorage}
-	c.storage = spy
+	wrapped, spy := newCallRecordingStorage(realStorage)
+	c.storage = wrapped
 
 	wantCalls := []string{"GetSecretByName", "GetSecret", "GetLatestSecretVersion"}
 

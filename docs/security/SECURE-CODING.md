@@ -117,7 +117,7 @@ opposite of §5's rule for ordinary audit logging.
   this package for a step that is part of the operation's own contract and
   must fail closed — e.g. audit-before-disclosure, where a secret's value
   may not be released until its audit write is confirmed durable."
-- **How enforced:** `internal/core/secret_read_audit_call_sites_test.go`
+- **How enforced:** `internal/core/guards/secret_read_audit_call_sites_test.go`
   walks every call site of `LogSecretReadWithProject` across the repo via
   `go/ast` (not a hand-maintained list) and fails if a call site that
   actually discloses a value either (a) doesn't check the returned error,
@@ -218,7 +218,7 @@ writer changed in between).
   whole-row write silently clobbering a concurrent writer's narrower
   change, or resurrecting a row another replica had just soft-deleted.
 - **How enforced:**
-  `internal/core/column_scoped_write_guard_helpers_test.go` provides shared
+  `internal/core/guards/column_scoped_write_guard_helpers_test.go` provides shared
   `go/ast` helpers so each fixed operation gets its own guard asserting
   the column-scoped shape on the source directly — stated honestly in the
   helper's own header: it walks one function body syntactically,

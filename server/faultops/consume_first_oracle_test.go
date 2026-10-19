@@ -8,7 +8,7 @@
 // tolerance says "a filed, not-yet-fixed finding". These are not findings. The
 // functions involved carry their own `// atomicity: consume-first by design`
 // marker comment, a class-B row in docs/atomicity-exempt.tsv, and a verifying
-// *_FailsClosed test; internal/core/atomicity_guard_test.go already fails the
+// *_FailsClosed test; internal/core/guards/atomicity_guard_test.go already fails the
 // build if either stops being classified. Oracle (a) was the only mechanism in
 // the repo that did not know about that ledger, so it read a deliberately
 // RETAINED consumption as a partial commit -- and because the consumption

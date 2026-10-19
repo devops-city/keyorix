@@ -61,7 +61,7 @@ func (c *KeyorixCore) TransferSecretOwnership(ctx context.Context, secretID, new
 // the single-secret path (TransferSecretOwnership) and the bulk path
 // (ReassignOwnedSecrets, secret_reassign_owner.go). Every caller of either of those
 // two routes through this function; do not add a third function that mutates
-// SecretNode.OwnerID directly — secret_ownership_guard_test.go's AST sweep fails the
+// SecretNode.OwnerID directly — guards/secret_ownership_guard_test.go's AST sweep fails the
 // build if one appears.
 //
 // Ownership is an AUTHORITY GRANT, not a data write: CheckSecretPermission's owner

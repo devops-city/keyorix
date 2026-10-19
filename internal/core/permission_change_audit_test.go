@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -332,7 +332,7 @@ func TestGetPermissionChangeAudit_EmptyDiff(t *testing.T) {
 func TestGetPermissionChangeAudit_StorageError(t *testing.T) {
 	t.Parallel()
 	// Use a core backed by an erroring storage stub.
-	c := NewKeyorixCore(&storageErrorStub{})
+	c := NewKeyorixCore(storageErrorStub(nil))
 	_, err := c.GetPermissionChangeAudit(context.Background(), time.Time{}, time.Time{}, 0)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "permission_change_audit")
@@ -363,10 +363,10 @@ func TestGetPermissionChangeAudit_ChronologicalOrder(t *testing.T) {
 
 // storageErrorStub is a minimal storage.Storage that returns errors for every
 // call — used to verify error propagation in GetPermissionChangeAudit.
-type storageErrorStub struct {
-	storage.Storage // embed to satisfy the full interface with zero values
-}
-
-func (s *storageErrorStub) GetAuditLogs(_ context.Context, _ *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
-	return nil, 0, errors.New("storage unavailable")
+func storageErrorStub(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetAuditLogs: func(_ storage.Storage, _ context.Context, _ *storage.AuditFilter) ([]*models.AuditEvent, int64, error) {
+			return nil, 0, errors.New("storage unavailable")
+		},
+	})
 }

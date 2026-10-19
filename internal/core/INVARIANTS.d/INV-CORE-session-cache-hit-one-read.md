@@ -14,5 +14,5 @@
   `storage.ComposeSessionAuthLiveness` over itself. Why: PERF-FIX-7 (collapse C6). Guard:
   `TestSessionCacheHitLiveness_MatchesTheTwoChecks` (200 combinations against the two methods),
   `_CombinedReadFailureIsIndeterminateOnBothHalves`;
-  `TestSessionAuthReadWrappersForwardTheCombinedRead` (AST scan, with calibration);
+  `TestSessionAuthReadWrappersForwardTheCombinedRead` (`internal/core/guards`; AST scan, with calibration);
   `server/http` `TestSessionCacheHitLiveCheck_*` (end to end, below).

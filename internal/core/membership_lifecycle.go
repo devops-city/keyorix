@@ -482,7 +482,7 @@ func (c *KeyorixCore) StaleInvites(ctx context.Context, olderThan time.Duration)
 // install whose members were added through POST /projects/{id}/members. Ask
 // ListProjectMembershipsForUser (project_membership_definition.go) instead; it reads
 // this journal only for the lifecycle STATE annotation.
-// project_membership_definition_guard_test.go fails the build if a second definition
+// guards/project_membership_definition_guard_test.go fails the build if a second definition
 // reappears.
 
 // logMembershipEvent writes an audit event for a membership transition.

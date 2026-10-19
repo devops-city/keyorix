@@ -27,20 +27,24 @@ import (
 // faulting every such call still never produces a wrongful delete, no
 // specific call index could either.
 type erroringGetUserGroupRoleIDsAtStorage struct {
-	storage.Storage
+	inner storage.Storage
 	calls *int
 }
 
-func (s *erroringGetUserGroupRoleIDsAtStorage) GetUserGroupRoleIDsAt(ctx context.Context, userID uint, scope storage.Scope) ([]uint, error) {
+func (s *erroringGetUserGroupRoleIDsAtStorage) getUserGroupRoleIDsAt(_ storage.Storage, ctx context.Context, userID uint, scope storage.Scope) ([]uint, error) {
 	*s.calls++
 	return nil, assert.AnError
 }
 
-// ResolveUserPermissionAt (PERF-FIX-6) reads through this wrapper's own
-// GetUserGroupRoleIDsAt, so Authorize still meets the fault.
-func (s *erroringGetUserGroupRoleIDsAtStorage) ResolveUserPermissionAt(ctx context.Context, userID uint, scope storage.Scope, permission string) (*storage.PrincipalPermission, error) {
-	return storage.ComposeUserPermissionAt(ctx, s, userID, scope, permission)
+// wrap returns inner decorated with erroringGetUserGroupRoleIDsAtStorage's overrides.
+func (s *erroringGetUserGroupRoleIDsAtStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserGroupRoleIDsAt: s.getUserGroupRoleIDsAt,
+	})
 }
+
+// store returns s.inner decorated with erroringGetUserGroupRoleIDsAtStorage's overrides.
+func (s *erroringGetUserGroupRoleIDsAtStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 // TestBulkDeleteSecrets_GetUserGroupRoleIDsAtFault_NeverWronglyDeletes: a user
 // whose ONLY path to secrets.delete on a project is a role granted through
@@ -91,7 +95,7 @@ func TestBulkDeleteSecrets_GetUserGroupRoleIDsAtFault_NeverWronglyDeletes(t *tes
 	require.Len(t, sanity.Deleted, 1, "sanity check failed: the group-derived project_developer role must grant delete when nothing is faulted")
 
 	calls := 0
-	c.storage = &erroringGetUserGroupRoleIDsAtStorage{Storage: st, calls: &calls}
+	c.storage = (&erroringGetUserGroupRoleIDsAtStorage{inner: st, calls: &calls}).store()
 
 	result, err := c.BulkDeleteSecrets(ctx, BulkDeleteRequest{SecretIDs: []uint{secret2.ID}}, projectID, "member", member.ID, "", "")
 	require.NoError(t, err, "BulkDeleteSecrets itself must not error even when every item fails — partial-success is its documented contract")

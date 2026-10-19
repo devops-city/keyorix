@@ -19,9 +19,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// sessionTouchInterval throttles last_seen_at writes on the auth hot path.
-const sessionTouchInterval = 30 * time.Second
-
 // defaultSessionAccessTTL is the access-token lifetime when no session config is
 // set. It matches the historic hard-coded value, so an install that does not
 // configure a session block keeps the old 24h behaviour.
@@ -817,13 +814,13 @@ func (c *KeyorixCore) ValidateSessionToken(ctx context.Context, token string) (*
 			return nil, nil, err
 		}
 	}
-	// Best-effort, throttled last-seen stamp for the My Account sessions view.
-	// Only writes when the stored value is older than sessionTouchInterval, so the
-	// auth hot path is not turned into a write per request. Never fails the request.
+	// Best-effort last-seen stamp for the My Account sessions view, recorded in
+	// memory and written by the last-used coalescer within lastUsedFlushInterval
+	// (OPT-LASTUSED-1): no statement on the auth hot path. Never fails the request.
 	// Stamped only AFTER the account-state gate, so a rejected request from a
 	// suspended/deactivated account is not "used" — it must not refresh last-seen
 	// (matching ValidatePATToken, which touches only after the same gate).
-	_ = c.storage.TouchSession(ctx, session.ID, c.now(), sessionTouchInterval)
+	c.lastUsed().record(lastUsedKey{lastUsedSession, session.ID}, c.now())
 	roles, err := c.storage.GetUserRoles(ctx, user.ID)
 	if err != nil {
 		return nil, nil, ErrRoleResolutionUnavailable

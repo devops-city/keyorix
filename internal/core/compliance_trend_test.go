@@ -6,12 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -265,12 +266,12 @@ func TestBuildCompliancePostureSnapshot_DegradedControlsCounter(t *testing.T) {
 // failingListProjectsStore wraps LocalStorage and overrides ListProjects to return
 // an error, driving the fatal-error branch in buildComplianceSnapshot (and therefore
 // GetCompliancePosture).
-type failingListProjectsStore struct {
-	*store.LocalStorage
-}
-
-func (s *failingListProjectsStore) ListProjects(_ context.Context) ([]*models.Project, error) {
-	return nil, errors.New("simulated list-projects failure")
+func failingListProjectsStore(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListProjects: func(_ storage.Storage, _ context.Context) ([]*models.Project, error) {
+			return nil, errors.New("simulated list-projects failure")
+		},
+	})
 }
 
 // TestGetCompliancePosture_ReturnsErrorWhenListProjectsFails covers the one statement
@@ -281,7 +282,7 @@ func TestGetCompliancePosture_ReturnsErrorWhenListProjectsFails(t *testing.T) {
 	t.Parallel()
 	c, db := complianceTrendCore(t)
 	// Replace the storage with a wrapper that fails ListProjects.
-	c.storage = &failingListProjectsStore{LocalStorage: c.storage.(*store.LocalStorage)}
+	c.storage = failingListProjectsStore(c.storage.(*store.LocalStorage))
 	// Also ensure the DB is still alive so the store wrapper itself is valid.
 	_ = db
 

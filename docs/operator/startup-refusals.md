@@ -201,7 +201,7 @@ Configuration is invalid: secret source misconfigured: both KEYORIX_MASTER_PASSW
 
 **Match:** `set exactly one (the secret may come from the environment or from a file, never both)`
 
-**Cause.** A secret is available as `KEYORIX_X` and `KEYORIX_X_FILE`; both are set (an
+**Cause.** A secret is available as `KEYORIX_<NAME>` and `KEYORIX_<NAME>_FILE`; both are set (an
 empty-but-set variable counts). **Fix.** Unset one. **In place:** yes. See
 [SELF_HOSTING.md](../SELF_HOSTING.md#3-configuration-env-and-secrets).
 
