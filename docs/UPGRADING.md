@@ -520,6 +520,12 @@ token again, so on such an install you can also simply unset it.
 **UNVERIFIED** against a release build; covered by
 `server/secret_file_test.go:TestResolveBootstrapToken_ShortPinnedTokenRefused` and
 `scripts/e2e/bootstrap_token_strength_test.go:TestBootstrapTokenStrength_SQLite`.
+
+`scripts/selfhost/init-secrets.sh --from-env` copies a `KEYORIX_BOOTSTRAP_TOKEN` from the
+old `.env` into `secrets/bootstrap_token` unchanged. If that token is shorter than 32
+characters the server will not start: replace the file's content with
+`openssl rand -hex 32` before `docker compose up`.
+
 ## 6h. A database outage now rejects cached credentials (503)
 
 Behaviour change, no setting. On an HTTP request whose credential is in the

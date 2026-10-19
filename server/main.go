@@ -766,8 +766,9 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	// instance.
 	bootstrapToken, btErr := resolveBootstrapToken()
 	if btErr != nil {
-		// Both KEYORIX_BOOTSTRAP_TOKEN and _FILE set, or the file unreadable: do not
-		// fall through to a generated token the operator never asked for.
+		// Both KEYORIX_BOOTSTRAP_TOKEN and _FILE set, the file unreadable, or the pinned
+		// token shorter than 32 characters: do not fall through to a generated token the
+		// operator never asked for.
 		return nil, nil, fmt.Errorf("bootstrap token: %w", btErr)
 	}
 	bootstrapTokenGenerated := false
