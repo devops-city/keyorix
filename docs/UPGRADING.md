@@ -540,6 +540,17 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
+## 6j. First start after the upgrade: recover-admin alerting reads the audit history once
+
+The `recover_admin_alert` job (at start-up, then every 10 minutes) now keeps a
+high-water mark of the last audit row it examined and reads only newer rows on
+later runs. Its first run after the upgrade has no mark yet, so it reads the
+existing audit history once, in windows of 100,000 audit ids, saving the mark
+after each window: a restart in the middle resumes from the last finished window
+instead of starting over. Nothing to configure. On a large audit table, expect
+some extra disk reads for that first pass; every later run reads only the audit
+rows written since the previous one.
+
 ## 6k. v0.97.0: breaking changes at a glance
 
 Read this table, then the sections it points to, before upgrading to v0.97.0.

@@ -27,9 +27,14 @@ package config
 //     explicit `admin verify-audit --pg-dsn` flag).
 
 import (
+	"fmt"
 	"go/ast"
+	"go/importer"
 	"go/token"
 	"go/types"
+	"io"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -42,33 +47,67 @@ func TestPostgresCredentialsReachTheDriverOnlyAsParsedConfig(t *testing.T) {
 		t.Skip("type-checks the whole module")
 	}
 	const cfgPkg = "github.com/keyorixhq/keyorix/internal/config"
+	// #3354: the loader is asked for syntax and export-file paths only, and the
+	// packages are type-checked HERE, one at a time. With NeedTypes, x/tools
+	// type-checks packages concurrently, and under -race (Go 1.27.2) the race
+	// detector reports a DATA RACE inside go/types itself, ~1 run in 15:
+	// Checker.isComplete reads Named.fromRHS with no lock while Named.unpack
+	// (called by another checker on the same lazily-loaded, export-data Named)
+	// writes it under Named.mu. That is a go/types bug, not keyorix code, and the
+	// loader's concurrency is not configurable from packages.Config. Checking
+	// serially never has two checkers touching one imported Named, so the whole
+	// guard keeps running, race detector on, with no skip.
 	pkgs, err := packages.Load(&packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax | packages.NeedTypes |
-			packages.NeedTypesInfo | packages.NeedImports | packages.NeedCompiledGoFiles,
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+			packages.NeedSyntax | packages.NeedImports | packages.NeedExportFile,
 		Dir: "../..",
 	}, "./...")
 	if err != nil {
 		t.Fatal(err)
 	}
+	exportFiles := map[string]string{}
+	packages.Visit(pkgs, nil, func(p *packages.Package) {
+		if p.ExportFile != "" {
+			exportFiles[p.PkgPath] = p.ExportFile
+		}
+	})
+	if len(pkgs) == 0 {
+		t.Fatal("packages.Load returned no packages; the guard is not looking")
+	}
+	fset := pkgs[0].Fset
+	// One importer for the whole run: it caches by path and is not safe for
+	// concurrent use, which is fine because nothing below runs concurrently.
+	imp := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		file, ok := exportFiles[path]
+		if !ok {
+			return nil, fmt.Errorf("no export data for %q", path)
+		}
+		return os.Open(file)
+	})
 	forbidden := map[string]bool{"DSN": true, "Password": true, "GetPassword": true}
-	var hits []string
+	var hits, importFailures []string
 	checked := 0
 	for _, p := range pkgs {
-		if p.PkgPath == cfgPkg || len(p.Errors) > 0 && p.TypesInfo == nil {
+		if p.PkgPath == cfgPkg || p.Imports[cfgPkg] == nil {
 			continue
 		}
-		imports := false
-		for path := range p.Imports {
-			if path == cfgPkg {
-				imports = true
-			}
+		info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
+		tc := &types.Config{
+			Importer: imp,
+			Sizes:    types.SizesFor("gc", runtime.GOARCH),
+			// Type errors are tolerated, as before (a selector whose receiver did not
+			// type-check is skipped below), but a failed IMPORT would silently shrink
+			// what the guard sees, so it is collected and fails the test.
+			Error: func(err error) {
+				if strings.Contains(err.Error(), "could not import") {
+					importFailures = append(importFailures, p.PkgPath+": "+err.Error())
+				}
+			},
 		}
-		if !imports {
-			continue
-		}
+		_, _ = tc.Check(p.PkgPath, fset, p.Syntax, info)
 		checked++
-		for i, f := range p.Syntax {
-			name := p.CompiledGoFiles[i]
+		for _, f := range p.Syntax {
+			name := fset.File(f.Pos()).Name()
 			if strings.HasSuffix(name, "_test.go") {
 				continue
 			}
@@ -89,7 +128,7 @@ func TestPostgresCredentialsReachTheDriverOnlyAsParsedConfig(t *testing.T) {
 				if !ok || !forbidden[sel.Sel.Name] || (sel.Sel.Name == "DSN" && presenceChecks[sel]) {
 					return true
 				}
-				tv, ok := p.TypesInfo.Types[sel.X]
+				tv, ok := info.Types[sel.X]
 				if !ok {
 					return true
 				}
@@ -99,7 +138,7 @@ func TestPostgresCredentialsReachTheDriverOnlyAsParsedConfig(t *testing.T) {
 				}
 				named, ok := typ.(*types.Named)
 				if ok && named.Obj().Pkg() != nil && named.Obj().Pkg().Path() == cfgPkg && named.Obj().Name() == "DatabaseConfig" {
-					hits = append(hits, p.Fset.Position(sel.Pos()).String()+": DatabaseConfig."+sel.Sel.Name)
+					hits = append(hits, fset.Position(sel.Pos()).String()+": DatabaseConfig."+sel.Sel.Name)
 				}
 				return true
 			})
@@ -107,6 +146,9 @@ func TestPostgresCredentialsReachTheDriverOnlyAsParsedConfig(t *testing.T) {
 	}
 	if checked < 5 {
 		t.Fatalf("only %d packages importing internal/config were type-checked; the guard is not looking", checked)
+	}
+	for _, f := range importFailures {
+		t.Errorf("an import failed to resolve, so the guard saw less than the whole module: %s", f)
 	}
 	sort.Strings(hits)
 	for _, h := range hits {
