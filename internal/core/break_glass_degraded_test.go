@@ -62,17 +62,18 @@ func (f bgdFault) String() string {
 	return [...]string{"ok", "error", "effect-then-error", "panic", "hang", "crash"}[f]
 }
 
-// bgdStorage injects faults into the audit append and the owed-record insert,
-// inside and outside transactions. A crash fault ends the calling goroutine
+// bgdStore injects faults into the audit append and the owed-record insert,
+// inside and outside transactions (WrapTx). A crash fault ends the calling goroutine
 // (deferred rollbacks run, nothing after them does) and disarms itself.
-type bgdStorage struct {
-	storage.Storage
-	audit, pending *atomic.Int32
-}
-
-func (s bgdStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(bgdStorage{Storage: tx, audit: s.audit, pending: s.pending})
+func bgdStore(inner storage.Storage, audit, pending *atomic.Int32) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		LogAuditEvent: func(next storage.Storage, ctx context.Context, e *models.AuditEvent) error {
+			return bgdInject(ctx, audit, "audit append", func() error { return next.LogAuditEvent(ctx, e) })
+		},
+		CreatePendingAuditEvent: func(next storage.Storage, ctx context.Context, p *models.PendingAuditEvent) error {
+			return bgdInject(ctx, pending, "owed-audit record", func() error { return next.CreatePendingAuditEvent(ctx, p) })
+		},
 	})
 }
 
@@ -99,14 +100,6 @@ func bgdInject(ctx context.Context, slot *atomic.Int32, what string, real func()
 	return real()
 }
 
-func (s bgdStorage) LogAuditEvent(ctx context.Context, e *models.AuditEvent) error {
-	return bgdInject(ctx, s.audit, "audit append", func() error { return s.Storage.LogAuditEvent(ctx, e) })
-}
-
-func (s bgdStorage) CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error {
-	return bgdInject(ctx, s.pending, "owed-audit record", func() error { return s.Storage.CreatePendingAuditEvent(ctx, p) })
-}
-
 type bgdWorld struct {
 	t              *testing.T
 	f              *ctaReview
@@ -119,7 +112,7 @@ type bgdWorld struct {
 func newBGDWorld(t *testing.T, f *ctaReview) *bgdWorld {
 	t.Helper()
 	w := &bgdWorld{t: t, f: f, db: f.dbA, audit: &atomic.Int32{}, pending: &atomic.Int32{}}
-	w.c = NewKeyorixCore(bgdStorage{Storage: localstore.NewLocalStorage(f.dbA), audit: w.audit, pending: w.pending})
+	w.c = NewKeyorixCore(bgdStore(localstore.NewLocalStorage(f.dbA), w.audit, w.pending))
 	w.c.SetBreakGlassPolicy(BreakGlassPolicy{Enabled: true, EmergencyRole: "project_developer", DefaultTTL: time.Hour, MaxTTL: 4 * time.Hour})
 	return w
 }

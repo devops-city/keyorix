@@ -39,6 +39,7 @@ type storeHooks struct {
 	CreateMFAStepUpGrant                      func(next storage.Storage, ctx context.Context, grant *models.MFAStepUpGrant) error
 	CreateNotification                        func(next storage.Storage, ctx context.Context, n *models.Notification) (*models.Notification, error)
 	CreateOrUpdateSecretACL                   func(next storage.Storage, ctx context.Context, acl *models.SecretACL) error
+	CreatePendingAuditEvent                   func(next storage.Storage, ctx context.Context, p *models.PendingAuditEvent) error
 	CreateProject                             func(next storage.Storage, ctx context.Context, project *models.Project) (*models.Project, error)
 	CreateProjectMembership                   func(next storage.Storage, ctx context.Context, m *models.ProjectMembership) (*models.ProjectMembership, error)
 	CreateRotationPolicy                      func(next storage.Storage, ctx context.Context, p *models.RotationPolicy) error
@@ -288,6 +289,13 @@ func (hs *hookStore) CreateOrUpdateSecretACL(ctx context.Context, acl *models.Se
 		return hk(hs.Storage, ctx, acl)
 	}
 	return hs.Storage.CreateOrUpdateSecretACL(ctx, acl)
+}
+
+func (hs *hookStore) CreatePendingAuditEvent(ctx context.Context, p *models.PendingAuditEvent) error {
+	if hk := hs.h.CreatePendingAuditEvent; hk != nil {
+		return hk(hs.Storage, ctx, p)
+	}
+	return hs.Storage.CreatePendingAuditEvent(ctx, p)
 }
 
 func (hs *hookStore) CreateProject(ctx context.Context, project *models.Project) (*models.Project, error) {
