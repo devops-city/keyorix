@@ -1012,6 +1012,14 @@ type Storage interface {
 	// Secret Sharing Management
 	CreateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error)
 	GetShareRecord(ctx context.Context, shareID uint) (*models.ShareRecord, error)
+	// LockShareRecordForUpdate is GetShareRecord inside a WithTransaction, taking a
+	// row-level write lock on backends that support one (Postgres: SELECT … FOR
+	// UPDATE) so a decision made from the row and the write of it serialize against
+	// every concurrent writer across replicas. On SQLite it is a plain read (write
+	// transactions there are BEGIN IMMEDIATE). Use this — not GetShareRecord —
+	// whenever a transaction classifies an update against the row it then writes
+	// (core.UpdateSharePermission, SHARE-CAS-1). Outside a transaction it locks nothing.
+	LockShareRecordForUpdate(ctx context.Context, shareID uint) (*models.ShareRecord, error)
 	UpdateShareRecord(ctx context.Context, share *models.ShareRecord) (*models.ShareRecord, error)
 	DeleteShareRecord(ctx context.Context, shareID uint) error
 	// now is the instant "currently active" is evaluated against (expires_at IS
