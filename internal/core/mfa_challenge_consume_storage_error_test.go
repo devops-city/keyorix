@@ -28,16 +28,15 @@ import (
 // consumeMFAChallengeErrStorage wraps a real storage.Storage and overrides
 // exactly ConsumeMFAChallenge to inject a fixed error, mirroring
 // mfaSecretReadErrStub (mfa_login_storage_error_test.go).
-type consumeMFAChallengeErrStorage struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *consumeMFAChallengeErrStorage) ConsumeMFAChallenge(ctx context.Context, tokenHash string, now time.Time) (*models.MFAChallenge, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.ConsumeMFAChallenge(ctx, tokenHash, now)
+func consumeMFAChallengeErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		ConsumeMFAChallenge: func(next corestorage.Storage, ctx context.Context, tokenHash string, now time.Time) (*models.MFAChallenge, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.ConsumeMFAChallenge(ctx, tokenHash, now)
+		},
+	})
 }
 
 // TestVerifyMFACredentials_ChallengeConsumeStorageError_IsTaggedPreVerdict:
@@ -65,7 +64,7 @@ func TestVerifyMFACredentials_ChallengeConsumeStorageError_IsTaggedPreVerdict(t 
 	require.NoError(t, err)
 
 	realStorage := c.storage
-	c.storage = &consumeMFAChallengeErrStorage{Storage: realStorage, err: errors.New("fault-fuzz injected failure")}
+	c.storage = consumeMFAChallengeErrStorage(realStorage, errors.New("fault-fuzz injected failure"))
 
 	_, _, _, _, verr := c.VerifyMFACredentials(ctx, ch, good)
 	require.Error(t, verr)

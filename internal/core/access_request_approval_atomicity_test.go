@@ -14,23 +14,17 @@ import (
 
 // failOnceCreateAccessRequestApprovalStorage makes CreateAccessRequestApproval
 // fail once, mirroring the failOnceStorage idiom from #2295.
-type failOnceCreateAccessRequestApprovalStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceCreateAccessRequestApprovalStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceCreateAccessRequestApprovalStorage{Storage: tx, armed: s.armed})
+func failOnceCreateAccessRequestApprovalStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateAccessRequestApproval: func(next storage.Storage, ctx context.Context, a *models.AccessRequestApproval) error {
+			if *armed {
+				*armed = false
+				return errors.New("injected fault: CreateAccessRequestApproval")
+			}
+			return next.CreateAccessRequestApproval(ctx, a)
+		},
 	})
-}
-
-func (s *failOnceCreateAccessRequestApprovalStorage) CreateAccessRequestApproval(ctx context.Context, a *models.AccessRequestApproval) error {
-	if *s.armed {
-		*s.armed = false
-		return errors.New("injected fault: CreateAccessRequestApproval")
-	}
-	return s.Storage.CreateAccessRequestApproval(ctx, a)
 }
 
 // TestFinalizeAccessRequestApproval_ApprovalRecordFailureRevertsGrant is the
@@ -70,7 +64,7 @@ func TestFinalizeAccessRequestApproval_ApprovalRecordFailureRevertsGrant(t *test
 	_ = beforeLogs
 
 	armed := true
-	c.storage = &failOnceCreateAccessRequestApprovalStorage{Storage: st, armed: &armed}
+	c.storage = failOnceCreateAccessRequestApprovalStorage(st, &armed)
 
 	// actor 1 is the bootstrapped global admin (satisfies the grant-ceiling check).
 	_, err = c.ApproveAccessRequestWithExpiry(ctx, proj.ID, req.ID, 1, 0, "project_viewer", time.Hour)

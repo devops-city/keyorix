@@ -27,30 +27,42 @@ import (
 // auditCallCountingStorage counts every storage call an audit write can make,
 // including opening a transaction, then delegates to the real store.
 type auditCallCountingStorage struct {
-	storage.Storage
+	inner                   storage.Storage
 	logAuditEvent           atomic.Int64
 	logAuditEventWithAccess atomic.Int64
 	withTransaction         atomic.Int64
 }
 
-func (s *auditCallCountingStorage) LogAuditEvent(ctx context.Context, e *models.AuditEvent) error {
+func (s *auditCallCountingStorage) LogAuditEvent(next storage.Storage, ctx context.Context, e *models.AuditEvent) error {
 	s.logAuditEvent.Add(1)
-	return s.Storage.LogAuditEvent(ctx, e)
+	return next.LogAuditEvent(ctx, e)
 }
 
-func (s *auditCallCountingStorage) LogAuditEventWithAccessLog(ctx context.Context, e *models.AuditEvent, l *models.SecretAccessLog) error {
+func (s *auditCallCountingStorage) LogAuditEventWithAccessLog(next storage.Storage, ctx context.Context, e *models.AuditEvent, l *models.SecretAccessLog) error {
 	s.logAuditEventWithAccess.Add(1)
-	return s.Storage.LogAuditEventWithAccessLog(ctx, e, l)
+	return next.LogAuditEventWithAccessLog(ctx, e, l)
 }
 
-func (s *auditCallCountingStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
+func (s *auditCallCountingStorage) WithTransaction(next storage.Storage, ctx context.Context, fn func(storage.Storage) error) error {
 	s.withTransaction.Add(1)
-	return s.Storage.WithTransaction(ctx, fn)
+	return next.WithTransaction(ctx, fn)
 }
 
 func (s *auditCallCountingStorage) total() int64 {
 	return s.logAuditEvent.Load() + s.logAuditEventWithAccess.Load() + s.withTransaction.Load()
 }
+
+// wrap returns inner decorated with auditCallCountingStorage's overrides.
+func (s *auditCallCountingStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		LogAuditEvent:              s.LogAuditEvent,
+		LogAuditEventWithAccessLog: s.LogAuditEventWithAccessLog,
+		WithTransaction:            s.WithTransaction,
+	})
+}
+
+// store returns s.inner decorated with auditCallCountingStorage's overrides.
+func (s *auditCallCountingStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 // actor is the user ID the direct writer calls below attribute their event to.
 var actor uint = 1
@@ -65,8 +77,8 @@ func newAuditSkipReadsWorld(t *testing.T, skipReads bool) (*KeyorixCore, *auditC
 	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.AutoMigrate(&models.AuditEvent{}, &models.SecretAccessLog{}, &models.SystemMetadata{},
 		&models.SecretNode{}, &models.User{}, &models.Group{}))
-	counting := &auditCallCountingStorage{Storage: store.NewLocalStorage(db)}
-	c := NewKeyorixCore(counting)
+	counting := &auditCallCountingStorage{inner: store.NewLocalStorage(db)}
+	c := NewKeyorixCore(counting.store())
 	c.SetInsecureAuditSkipReads(skipReads)
 	return c, counting, db
 }
@@ -89,7 +101,7 @@ func accessLogRows(t *testing.T, db *gorm.DB) int64 {
 // row and one access-log row, through one LogAuditEventWithAccessLog call.
 func TestInsecureAuditSkipReads_OffAuditsSuccessfulReadAsBefore(t *testing.T) {
 	c, counting, db := newAuditSkipReadsWorld(t, false)
-	assert.False(t, NewKeyorixCore(counting).InsecureAuditSkipReads(), "the setting must default to off")
+	assert.False(t, NewKeyorixCore(counting.store()).InsecureAuditSkipReads(), "the setting must default to off")
 
 	require.NoError(t, c.LogSecretReadWithProject(context.Background(), 1, 7, 1, "alice", "db-password", "10.0.0.1", "ua"))
 	c.writeAuditEventFull(context.Background(), EventConnectSecretRead, &actor, nil, nil, "", "federated read")

@@ -17,6 +17,7 @@ Served at: server `GET /metrics` (unauthenticated; keep inside your perimeter)
 | `keyorix_account_state_unrecognized_total` | counter | - | Count of AccountLoginBlocked calls against a blank or unrecognized users.account_state value, failed closed. |
 | `keyorix_audit_flusher_batch_size` | summary | - | Number of audit-chain entries committed per batch flush. |
 | `keyorix_audit_flusher_flushes_total` | counter | - | Audit-chain batch-commit flushes (one per transaction/fsync, covering 1-N queued entries each). |
+| `keyorix_audit_flusher_pipelined_batches_total` | counter | - | Audit-chain batches sent while the previous batch was still in flight (pipelined commits). |
 | `keyorix_auth_rate_limit_fallback_total` | counter | `budget` | Count of auth rate-limit operations that fell back to the in-memory limiter because the budget's storage failed. |
 | `keyorix_best_effort_failures_total` | counter | `step` | Panics or returned errors from a best-effort step that runs after a commit, by step name. Never counts the primary operation -- only the best-effort step that followed it. |
 | `keyorix_grpc_request_duration_seconds_total` | counter | - | Cumulative gRPC unary handler time in seconds; divide its rate by the request rate for average latency. |

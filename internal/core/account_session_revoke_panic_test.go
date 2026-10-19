@@ -29,36 +29,48 @@ import (
 // unstubbed method panics on a nil pointer dereference if reached, so an
 // unexpected call fails loudly rather than silently returning a zero value.
 type sessionRevokePanicSpy struct {
-	storage.Storage
+	inner             storage.Storage
 	panicOnListHashes bool
 	panicOnDelete     bool
 	hashes            []string
 	auditEvents       []*models.AuditEvent
 }
 
-func (s *sessionRevokePanicSpy) ListSessionTokenHashesForUser(_ context.Context, _ uint) ([]string, error) {
+func (s *sessionRevokePanicSpy) ListSessionTokenHashesForUser(_ storage.Storage, _ context.Context, _ uint) ([]string, error) {
 	if s.panicOnListHashes {
 		panic("simulated ListSessionTokenHashesForUser panic")
 	}
 	return s.hashes, nil
 }
 
-func (s *sessionRevokePanicSpy) DeleteSessionsForUserExcept(_ context.Context, _, _ uint) error {
+func (s *sessionRevokePanicSpy) DeleteSessionsForUserExcept(_ storage.Storage, _ context.Context, _, _ uint) error {
 	if s.panicOnDelete {
 		panic("simulated DeleteSessionsForUserExcept panic")
 	}
 	return nil
 }
 
-func (s *sessionRevokePanicSpy) LogAuditEvent(_ context.Context, event *models.AuditEvent) error {
+func (s *sessionRevokePanicSpy) LogAuditEvent(_ storage.Storage, _ context.Context, event *models.AuditEvent) error {
 	s.auditEvents = append(s.auditEvents, event)
 	return nil
 }
 
+// wrap returns inner decorated with sessionRevokePanicSpy's overrides.
+func (s *sessionRevokePanicSpy) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		ListSessionTokenHashesForUser: s.ListSessionTokenHashesForUser,
+		DeleteSessionsForUserExcept:   s.DeleteSessionsForUserExcept,
+		LogAuditEvent:                 s.LogAuditEvent,
+	})
+}
+
+// store returns s.inner decorated with sessionRevokePanicSpy's overrides.
+func (s *sessionRevokePanicSpy) store() storage.Storage { return s.wrap(s.inner) }
+
 func TestDeleteSessionsForUserAndEvict_PanicListingOrDeletingSessions_StillReturnsNilAndAudits(t *testing.T) {
 	t.Parallel()
 	spy := &sessionRevokePanicSpy{panicOnDelete: true}
-	c := &KeyorixCore{storage: spy}
+	c := &KeyorixCore{storage: spy.store()}
 
 	err := c.deleteSessionsForUserAndEvict(context.Background(), 7, 0, "")
 	require.NoError(t, err, "the primary operation already committed — a panic in this best-effort session cleanup must not surface as an error")
@@ -74,7 +86,7 @@ func TestDeleteSessionsForUserAndEvict_PanicListingOrDeletingSessions_StillRetur
 func TestDeleteSessionsForUserAndEvict_PanicInCacheEvictLoop_StillReturnsNilAndAudits(t *testing.T) {
 	t.Parallel()
 	spy := &sessionRevokePanicSpy{hashes: []string{"h1"}}
-	c := &KeyorixCore{storage: spy}
+	c := &KeyorixCore{storage: spy.store()}
 	c.SetTokenCacheInvalidator(func(string) { panic("simulated cache-evict panic") })
 
 	err := c.deleteSessionsForUserAndEvict(context.Background(), 9, 0, "")
@@ -90,7 +102,7 @@ func TestDeleteSessionsForUserAndEvict_PanicInCacheEvictLoop_StillReturnsNilAndA
 func TestDeleteSessionsForUserAndEvict_NoPanic_NormalPathUnchanged(t *testing.T) {
 	t.Parallel()
 	spy := &sessionRevokePanicSpy{hashes: []string{"h1", "h2", "keep-me"}}
-	c := &KeyorixCore{storage: spy}
+	c := &KeyorixCore{storage: spy.store()}
 	var evicted []string
 	c.SetTokenCacheInvalidator(func(h string) { evicted = append(evicted, h) })
 

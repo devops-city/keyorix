@@ -25,51 +25,62 @@ var errInjectedAfterCommit = errors.New("injected: the write committed but repor
 
 // createSessionThenFail commits the session, then reports failure the way a
 // lost acknowledgement does (err) or panics after the commit (panicAfter).
-type createSessionThenFail struct {
-	storage.Storage
-	panicAfter bool
+func createSessionThenFail(inner storage.Storage, panicAfter bool) storage.Storage {
+	return hooked(inner, createSessionThenFailHooks(panicAfter))
 }
 
-func (s *createSessionThenFail) CreateSession(ctx context.Context, session *models.Session) (*models.Session, error) {
-	if _, err := s.Storage.CreateSession(ctx, session); err != nil {
-		return nil, err
+func createSessionThenFailHooks(panicAfter bool) *storeHooks {
+	return &storeHooks{
+		CreateSession: func(next storage.Storage, ctx context.Context, session *models.Session) (*models.Session, error) {
+			if _, err := next.CreateSession(ctx, session); err != nil {
+				return nil, err
+			}
+			if panicAfter {
+				panic("injected: panic after CreateSession committed")
+			}
+			return nil, errInjectedAfterCommit
+		},
 	}
-	if s.panicAfter {
-		panic("injected: panic after CreateSession committed")
-	}
-	return nil, errInjectedAfterCommit
 }
 
 // createSessionFailsBeforeWrite never writes: the honest failure.
-type createSessionFailsBeforeWrite struct{ storage.Storage }
-
-func (s *createSessionFailsBeforeWrite) CreateSession(context.Context, *models.Session) (*models.Session, error) {
-	return nil, errors.New("injected: insert refused")
+func createSessionFailsBeforeWrite(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSession: func(storage.Storage, context.Context, *models.Session) (*models.Session, error) {
+			return nil, errors.New("injected: insert refused")
+		},
+	})
 }
 
 // createSessionThenFailUnverifiable commits, reports an error, and then cannot
 // answer the read-back either.
-type createSessionThenFailUnverifiable struct{ createSessionThenFail }
-
-func (s *createSessionThenFailUnverifiable) GetSession(context.Context, string) (*models.Session, error) {
-	return nil, errors.New("injected: session lookup unavailable")
+func createSessionThenFailUnverifiable(inner storage.Storage) storage.Storage {
+	h := createSessionThenFailHooks(false)
+	h.GetSession = func(storage.Storage, context.Context, string) (*models.Session, error) {
+		return nil, errors.New("injected: session lookup unavailable")
+	}
+	return hooked(inner, h)
 }
 
 // panicOnGetUserRoles panics in the response-identity read.
-type panicOnGetUserRoles struct{ storage.Storage }
-
-func (s *panicOnGetUserRoles) GetUserRoles(context.Context, uint) ([]*models.Role, error) {
-	panic("injected: GetUserRoles")
+func panicOnGetUserRoles(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoles: func(storage.Storage, context.Context, uint) ([]*models.Role, error) {
+			panic("injected: GetUserRoles")
+		},
+	})
 }
 
 // rotateSessionThenFail commits the rotation, then reports an error.
-type rotateSessionThenFail struct{ storage.Storage }
-
-func (s *rotateSessionThenFail) RotateSession(ctx context.Context, oldID uint, newSession *models.Session, now time.Time) (*models.Session, bool, error) {
-	if _, _, err := s.Storage.RotateSession(ctx, oldID, newSession, now); err != nil {
-		return nil, false, err
-	}
-	return nil, false, errInjectedAfterCommit
+func rotateSessionThenFail(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		RotateSession: func(next storage.Storage, ctx context.Context, oldID uint, newSession *models.Session, now time.Time) (*models.Session, bool, error) {
+			if _, _, err := next.RotateSession(ctx, oldID, newSession, now); err != nil {
+				return nil, false, err
+			}
+			return nil, false, errInjectedAfterCommit
+		},
+	})
 }
 
 func adminSessions(t *testing.T, st *store.LocalStorage) []*models.Session {
@@ -92,7 +103,7 @@ func TestLogin_SessionWriteCommittedDespiteError_DeliversThatSession(t *testing.
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	before := len(adminSessions(t, st))
-	c.storage = &createSessionThenFail{Storage: st}
+	c.storage = createSessionThenFail(st, false)
 
 	session, _, err := c.Login(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
 	require.NoError(t, err, "the session row committed; reporting the login as failed leaves a live session the client never receives")
@@ -109,7 +120,7 @@ func TestLogin_SessionWriteFailedForReal_StillFailsAndWritesNothing(t *testing.T
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	before := len(adminSessions(t, st))
-	c.storage = &createSessionFailsBeforeWrite{Storage: st}
+	c.storage = createSessionFailsBeforeWrite(st)
 
 	session, _, err := c.Login(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
 	require.Error(t, err, "calibration: an insert that never landed is still a failed login")
@@ -120,7 +131,7 @@ func TestLogin_SessionWriteFailedForReal_StillFailsAndWritesNothing(t *testing.T
 func TestLogin_SessionWriteUnverifiable_FailsClosedAndAudits(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
-	c.storage = &createSessionThenFailUnverifiable{createSessionThenFail{Storage: st}}
+	c.storage = createSessionThenFailUnverifiable(st)
 
 	session, _, err := c.Login(context.Background(), &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
 	require.Error(t, err, "when it cannot be confirmed that the row landed, the login must not be reported as successful")
@@ -137,7 +148,7 @@ func TestLogin_SessionWritePanicsAfterCommit_RevokesTheRowAndDenies(t *testing.T
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	before := len(adminSessions(t, st))
-	c.storage = &createSessionThenFail{Storage: st, panicAfter: true}
+	c.storage = createSessionThenFail(st, true)
 
 	var session *models.Session
 	var err error
@@ -156,7 +167,7 @@ func TestLoginWithIdentity_IdentityReadPanic_LeavesNoSession(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	before := len(adminSessions(t, st))
-	c.storage = &panicOnGetUserRoles{Storage: st}
+	c.storage = panicOnGetUserRoles(st)
 
 	// #3267: the panic no longer propagates. resolveLoginIdentityBeforeMint
 	// returns it as its post-verdict error, so the login is denied exactly as
@@ -190,7 +201,7 @@ func TestRefreshSession_RotationCommittedDespiteError_DeliversTheNewSession(t *t
 	ctx := context.Background()
 	old, _, err := c.Login(ctx, &LoginRequest{Username: "admin", Password: undeliveredTestPassword})
 	require.NoError(t, err)
-	c.storage = &rotateSessionThenFail{Storage: st}
+	c.storage = rotateSessionThenFail(st)
 
 	fresh, err := c.RefreshSession(ctx, old.SessionToken)
 	require.NoError(t, err, "the rotation committed: failing it leaves the client a retired token and an undelivered live one")

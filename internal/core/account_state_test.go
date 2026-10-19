@@ -265,6 +265,7 @@ func TestValidateSessionToken_RejectsBlockedOrInactive(t *testing.T) {
 			// Must reject before stamping last-seen — a blocked/inactive account's
 			// request is not "used" and must not refresh the sessions view (matching
 			// ValidatePATToken's touch-after-gate ordering).
+			c.FlushLastUsed(ctx) // the stamp is coalesced: flush so a recorded touch would reach the mock
 			store.AssertNotCalled(t, "TouchSession", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
@@ -287,6 +288,7 @@ func TestValidateSessionToken_RejectsWhenImpersonatorBlocked(t *testing.T) {
 	_, _, err := c.ValidateSessionToken(ctx, "tok")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "impersonating account is not active")
+	c.FlushLastUsed(ctx) // the stamp is coalesced: flush so a recorded touch would reach the mock
 	store.AssertNotCalled(t, "TouchSession", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
@@ -305,6 +307,11 @@ func TestValidateSessionToken_AllowsActive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint(2), user.ID)
 	assert.Equal(t, []string{"viewer"}, roles)
+	// The accepted request's last-seen stamp is coalesced, not written inline;
+	// it reaches storage on the next flush with staleness 0 (GREATEST semantics).
+	store.AssertNotCalled(t, "TouchSession", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	c.FlushLastUsed(ctx)
+	store.AssertCalled(t, "TouchSession", ctx, uint(7), mock.Anything, time.Duration(0))
 }
 
 func TestChangePassword_ClearsRestriction(t *testing.T) {

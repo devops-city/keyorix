@@ -39,7 +39,7 @@ func TestRequireReauth_GetMFASecretErrorDoesNotFeedLockout(t *testing.T) {
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &mfaSecretReadErrStub{Storage: realStorage, err: faultErr}
+	c.storage = mfaSecretReadErrStub(realStorage, faultErr)
 
 	// 5 attempts with the CORRECT code, each failing to even check it because
 	// GetMFASecret errors every time -- more than MaxAttempts (3), so if this
@@ -108,7 +108,7 @@ func TestRequireReauth_MarkTOTPStepUsedErrorAfterMatch_StillCountsTowardLockout(
 
 	realStorage := c.storage
 	faultErr := errors.New("fault-fuzz injected failure")
-	c.storage = &markTOTPStepErrStub{Storage: realStorage, err: faultErr}
+	c.storage = markTOTPStepErrStub(realStorage, faultErr)
 
 	for i := range 3 {
 		derr := c.DisableMFA(ctx, 1, good, "")

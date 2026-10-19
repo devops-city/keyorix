@@ -21,7 +21,9 @@
   transaction-scoped direct append, `DeleteAuditLogsBefore`, `MigrateAuditChainEncoding`;
   `WithTransaction`/`RemoveGlobalAdminRoleGuarded` clones share the pointer for that only.
   Out-of-process writers (another replica, `admin restore`, hand-written SQL) are caught by the
-  in-transaction checks. (4) The SQLite path and a non-pgx Postgres pool never arm it. The chain
+  in-transaction checks. (4) The SQLite path and a non-pgx Postgres pool never arm it. A pipelined batch (`INV-STORE-audit-pipelined-batches`) is a one-flight attempt chained onto the
+  previous in-flight batch's last row instead of the cache's, with the same checks (the head's id
+  left out while it is pending) and the same retry rule. The chain
   bytes are unchanged (`TestAuditChain_GoldenBytes_Postgres`), and fast mode's `SET LOCAL`
   is part of the single flight. Why: AUDIT-1FLIGHT-1 — one round trip fewer per audited request
   and a shorter flusher transaction.

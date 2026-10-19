@@ -16,12 +16,12 @@ import (
 
 // failCreateSessionStorage always fails CreateSession, forcing mintSession to
 // fail AFTER whatever single-use value the caller already consumed.
-type failCreateSessionStorage struct {
-	storage.Storage
-}
-
-func (s *failCreateSessionStorage) CreateSession(ctx context.Context, session *models.Session) (*models.Session, error) {
-	return nil, errors.New("injected fault: CreateSession")
+func failCreateSessionStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSession: func(_ storage.Storage, ctx context.Context, session *models.Session) (*models.Session, error) {
+			return nil, errors.New("injected fault: CreateSession")
+		},
+	})
 }
 
 // TestVerifyMFALogin_MintFailureAfterConsume_FailsClosed is O4's verification
@@ -58,7 +58,7 @@ func TestVerifyMFALogin_MintFailureAfterConsume_FailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &failCreateSessionStorage{Storage: base}
+	c.storage = failCreateSessionStorage(base)
 
 	sess, _, _, err := c.VerifyMFALogin(ctx, ch, code, "ua", "1.2.3.4")
 	require.Error(t, err)
@@ -100,7 +100,7 @@ func TestVerifyMFAStepUp_GrantFailureAfterConsume_FailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &failCreateMFAStepUpGrantStorage{Storage: base}
+	c.storage = failCreateMFAStepUpGrantStorage(base)
 
 	err = c.VerifyMFAStepUp(ctx, 1, code)
 	require.Error(t, err)
@@ -116,12 +116,12 @@ func TestVerifyMFAStepUp_GrantFailureAfterConsume_FailsClosed(t *testing.T) {
 	require.Error(t, err, "the TOTP step must stay consumed even though the earlier grant-creation failed")
 }
 
-type failCreateMFAStepUpGrantStorage struct {
-	storage.Storage
-}
-
-func (s *failCreateMFAStepUpGrantStorage) CreateMFAStepUpGrant(ctx context.Context, g *models.MFAStepUpGrant) error {
-	return errors.New("injected fault: CreateMFAStepUpGrant")
+func failCreateMFAStepUpGrantStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateMFAStepUpGrant: func(_ storage.Storage, ctx context.Context, g *models.MFAStepUpGrant) error {
+			return errors.New("injected fault: CreateMFAStepUpGrant")
+		},
+	})
 }
 
 // TestFinishWebAuthnLogin_MintFailureAfterConsume_FailsClosed is O4's
@@ -141,7 +141,7 @@ func TestFinishWebAuthnLogin_MintFailureAfterConsume_FailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &failCreateSessionStorage{Storage: base}
+	c.storage = failCreateSessionStorage(base)
 
 	session, user, _, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
@@ -179,7 +179,7 @@ func TestFinishWebAuthnPasswordlessLogin_MintFailureAfterConsume_FailsClosed(t *
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &failCreateSessionStorage{Storage: base}
+	c.storage = failCreateSessionStorage(base)
 
 	session, user, _, err := c.FinishWebAuthnPasswordlessLogin(ctx, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
@@ -210,7 +210,7 @@ func TestFinishWebAuthnReauth_GrantFailureAfterConsume_FailsClosed(t *testing.T)
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &failCreateMFAStepUpGrantStorage{Storage: base}
+	c.storage = failCreateMFAStepUpGrantStorage(base)
 
 	err = c.FinishWebAuthnReauth(ctx, 1, token, parsed)
 	require.Error(t, err)
@@ -229,12 +229,13 @@ func TestFinishWebAuthnReauth_GrantFailureAfterConsume_FailsClosed(t *testing.T)
 // write inside ActivateMFA's activation transaction — so the whole transaction
 // rolls back AFTER ActivateMFA's own MarkTOTPStepUsed has already burned the
 // submitted enrolment code's time-step outside it.
-type failCreateMFARecoveryCodesStorage struct {
-	storage.Storage
-}
-
-func (s *failCreateMFARecoveryCodesStorage) CreateMFARecoveryCodes(ctx context.Context, userID uint, hashes []string) error {
-	return errors.New("injected fault: CreateMFARecoveryCodes")
+func failCreateMFARecoveryCodesStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateMFARecoveryCodes: func(_ storage.Storage, ctx context.Context, userID uint, hashes []string) error {
+			return errors.New("injected fault: CreateMFARecoveryCodes")
+		},
+	})
 }
 
 // WithTransaction re-wraps the tx handle. Without this the decorator is INERT
@@ -248,12 +249,6 @@ func (s *failCreateMFARecoveryCodesStorage) CreateMFARecoveryCodes(ctx context.C
 // fail-on-c.storage-directly decorators above (CreateSession,
 // CreateMFAStepUpGrant) never needed it because their faulted calls are made
 // on c.storage, not on a tx.
-func (s *failCreateMFARecoveryCodesStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failCreateMFARecoveryCodesStorage{Storage: tx})
-	})
-}
-
 // TestActivateMFA_ActivationFailureAfterConsume_FailsClosed verifies
 // ActivateMFA's class-B (consume-first) row in docs/atomicity-exempt.tsv: the
 // enrolment code's TOTP step is burned BEFORE the activation transaction, and a
@@ -278,7 +273,7 @@ func TestActivateMFA_ActivationFailureAfterConsume_FailsClosed(t *testing.T) {
 	require.NoError(t, err)
 
 	base := c.storage
-	c.storage = &failCreateMFARecoveryCodesStorage{Storage: base}
+	c.storage = failCreateMFARecoveryCodesStorage(base)
 
 	codes, err := c.ActivateMFA(ctx, 1, code, mfaTestPassword, "")
 	require.Error(t, err, "a failure inside the activation transaction must be reported, not swallowed")

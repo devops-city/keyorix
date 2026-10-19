@@ -23,11 +23,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const (
-	machineTokenPrefix = "kx_machine_"
-	// machineTouchInterval throttles last_used_at writes on the auth hot path.
-	machineTouchInterval = 30 * time.Second
-)
+const machineTokenPrefix = "kx_machine_"
 
 // ErrMachineTokenRevoked/ErrMachineTokenExpired are returned by
 // ValidateMachineToken/CurrentMachineTokenRestriction on the same two
@@ -408,15 +404,16 @@ func (c *KeyorixCore) ValidateMachineToken(ctx context.Context, raw string) (*mo
 }
 
 // TouchMachineTokenLastUsed records that machine credential credID was just
-// used, subject to the same machineTouchInterval throttle the inline stamp
-// always used. Split out of ValidateMachineToken (#G60) so the caller only
-// stamps last_used_at AFTER its own network-restriction (CIDR allowlist)
-// check has passed. Best-effort: never fails the caller's request.
-func (c *KeyorixCore) TouchMachineTokenLastUsed(ctx context.Context, credID uint) {
+// used. Split out of ValidateMachineToken (#G60) so the caller only stamps
+// last_used_at AFTER its own network-restriction (CIDR allowlist) check has
+// passed. The use is recorded in memory and written by the last-used
+// coalescer within lastUsedFlushInterval (OPT-LASTUSED-1), so the request
+// runs no statement and never waits on the credential's row lock.
+func (c *KeyorixCore) TouchMachineTokenLastUsed(_ context.Context, credID uint) {
 	if credID == 0 {
 		return
 	}
-	_ = c.storage.TouchMachineIdentityCredential(ctx, credID, c.now(), machineTouchInterval)
+	c.lastUsed().record(lastUsedKey{lastUsedMachineCredential, credID}, c.now())
 }
 
 // CurrentMachineTokenRestriction re-fetches a machine token's network restriction

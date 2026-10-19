@@ -33,7 +33,7 @@ import (
 // helpers in postgres_contention_helpers_test.go), so the two can't share the
 // type directly. See that file's doc comment for the full mechanism rationale.
 type pgDelayedRemoveRoleStorage struct {
-	storage.Storage
+	inner                      storage.Storage
 	targetUserID, targetRoleID uint
 	blocked, release           chan struct{}
 }
@@ -43,23 +43,24 @@ type pgDelayedRemoveRoleStorage struct {
 // concurrency_remove_user_role_toctou_test.go's delayedRemoveRoleStorage.WithTransaction
 // for the full rationale (RevokeBreakGlassActivationAtomic's tx.RemoveRole
 // call needs this to be paused at all).
-func (d *pgDelayedRemoveRoleStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return d.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&pgDelayedRemoveRoleStorage{
-			Storage:      tx,
-			targetUserID: d.targetUserID, targetRoleID: d.targetRoleID,
-			blocked: d.blocked, release: d.release,
-		})
-	})
-}
-
-func (d *pgDelayedRemoveRoleStorage) RemoveRole(ctx context.Context, userID, roleID uint, scope storage.Scope) error {
+func (d *pgDelayedRemoveRoleStorage) RemoveRole(next storage.Storage, ctx context.Context, userID, roleID uint, scope storage.Scope) error {
 	if userID == d.targetUserID && roleID == d.targetRoleID {
 		close(d.blocked)
 		<-d.release
 	}
-	return d.Storage.RemoveRole(ctx, userID, roleID, scope)
+	return next.RemoveRole(ctx, userID, roleID, scope)
 }
+
+// wrap returns inner decorated with pgDelayedRemoveRoleStorage's overrides.
+func (d *pgDelayedRemoveRoleStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx:     true,
+		RemoveRole: d.RemoveRole,
+	})
+}
+
+// store returns d.inner decorated with pgDelayedRemoveRoleStorage's overrides.
+func (d *pgDelayedRemoveRoleStorage) store() storage.Storage { return d.wrap(d.inner) }
 
 var removeUserRoleProjectModels = []any{
 	&models.User{}, &models.Session{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
@@ -109,11 +110,11 @@ func TestConcurrency_RemoveUserRole_ProjectScope_CrossReplicaPostgres(t *testing
 
 	// Replica A: own connection, wrapped to pause its RemoveRole write for userA.
 	wrapped := &pgDelayedRemoveRoleStorage{
-		Storage:      localstore.NewLocalStorage(pgOpen(t, dsn)),
+		inner:        localstore.NewLocalStorage(pgOpen(t, dsn)),
 		targetUserID: userA.ID, targetRoleID: role.ID,
 		blocked: make(chan struct{}), release: make(chan struct{}),
 	}
-	coreA := NewKeyorixCore(wrapped)
+	coreA := NewKeyorixCore(wrapped.store())
 	// Replica B: its own, independent connection.
 	coreB := NewKeyorixCore(localstore.NewLocalStorage(pgOpen(t, dsn)))
 
