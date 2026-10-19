@@ -1126,7 +1126,7 @@ func (c *KeyorixCore) persistUpdatedCredential(ctx context.Context, userID uint,
 	// failed even though lockout state already changed. (Since #2894 the CLEAR
 	// itself happens later, at delivery, so the window this guards is narrower
 	// than it was -- but the lock recheck above can still have written.) besteffort.Run closes
-	// that gap; found by besteffort_guard_test.go (GUARD-1), no returned-error
+	// that gap; found by guards/besteffort_guard_test.go (GUARD-1), no returned-error
 	// protection existed here at all before this fix, let alone a panic recover.
 	besteffort.Run(ctx, "webauthn.persistUpdatedCredential", func() error {
 		c.webauthnCredentialMu.Lock()

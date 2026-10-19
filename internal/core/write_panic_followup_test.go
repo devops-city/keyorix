@@ -34,30 +34,40 @@ const (
 )
 
 type grantFaultStorage struct {
-	corestorage.Storage
+	inner corestorage.Storage
 	mode  grantFaultMode
 	fired bool
 }
 
-func (s *grantFaultStorage) CreateMFAStepUpGrant(ctx context.Context, g *models.MFAStepUpGrant) error {
+func (s *grantFaultStorage) CreateMFAStepUpGrant(next corestorage.Storage, ctx context.Context, g *models.MFAStepUpGrant) error {
 	if s.fired {
-		return s.Storage.CreateMFAStepUpGrant(ctx, g)
+		return next.CreateMFAStepUpGrant(ctx, g)
 	}
 	s.fired = true
 	switch s.mode {
 	case grantPanicBeforeWrite:
 		panic("injected panic: CreateMFAStepUpGrant")
 	case grantPanicAfterCommit:
-		_ = s.Storage.CreateMFAStepUpGrant(ctx, g)
+		_ = next.CreateMFAStepUpGrant(ctx, g)
 		panic("injected panic after commit: CreateMFAStepUpGrant")
 	case grantErrorAfterCommit:
-		_ = s.Storage.CreateMFAStepUpGrant(ctx, g)
+		_ = next.CreateMFAStepUpGrant(ctx, g)
 	case grantErrorAfterCommitCopy:
 		cp := *g
-		_ = s.Storage.CreateMFAStepUpGrant(ctx, &cp)
+		_ = next.CreateMFAStepUpGrant(ctx, &cp)
 	}
 	return errors.New("injected: CreateMFAStepUpGrant")
 }
+
+// wrap returns inner decorated with grantFaultStorage's overrides.
+func (s *grantFaultStorage) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateMFAStepUpGrant: s.CreateMFAStepUpGrant,
+	})
+}
+
+// store returns s.inner decorated with grantFaultStorage's overrides.
+func (s *grantFaultStorage) store() corestorage.Storage { return s.wrap(s.inner) }
 
 func liveStepUpGrants(t *testing.T, db *gorm.DB) int64 {
 	t.Helper()
@@ -85,8 +95,8 @@ func TestVerifyMFAStepUp_GrantWriteFailureLeavesNoElevation(t *testing.T) {
 			c.loginLockout = postVerdictParityPolicy
 			putAtThresholdMinusOne(t, db, 1)
 			base := c.storage
-			st := &grantFaultStorage{Storage: base, mode: mode}
-			c.storage = st
+			st := &grantFaultStorage{inner: base, mode: mode}
+			c.storage = st.store()
 			var err error
 			require.NotPanics(t, func() { err = c.VerifyMFAStepUp(ctx, 1, good) },
 				"a grant-write panic must come back as its error, not reach the Recovery middleware")
@@ -118,7 +128,7 @@ func TestVerifyMFAStepUp_HonestGrantFailureKeepsAnEarlierGrant(t *testing.T) {
 	require.NoError(t, db.Model(earlier).Update("created_at", time.Now().Add(-time.Hour)).Error)
 
 	base := c.storage
-	c.storage = &grantFaultStorage{Storage: base, mode: grantErrorBeforeWrite}
+	c.storage = (&grantFaultStorage{inner: base, mode: grantErrorBeforeWrite}).store()
 	require.Error(t, c.VerifyMFAStepUp(ctx, 1, good))
 	c.storage = base
 	assert.EqualValues(t, 1, liveStepUpGrants(t, db), "the earlier, delivered grant must survive an honest write failure")
@@ -137,8 +147,8 @@ func TestVerifyMFAStepUp_MarkPanicIsDeniedLikeItsError(t *testing.T) {
 			c.loginLockout = postVerdictParityPolicy
 			putAtThresholdMinusOne(t, db, 1)
 			base := c.storage
-			st := &panicLoginWriteStorage{Storage: base, method: "MarkTOTPStepUsed", afterCommit: afterCommit}
-			c.storage = st
+			st := &panicLoginWriteStorage{inner: base, method: "MarkTOTPStepUsed", afterCommit: afterCommit}
+			c.storage = st.store()
 			var err error
 			require.NotPanics(t, func() { err = c.VerifyMFAStepUp(ctx, 1, good) })
 			c.storage = base
@@ -151,7 +161,7 @@ func TestVerifyMFAStepUp_MarkPanicIsDeniedLikeItsError(t *testing.T) {
 			// Replay on a core with room under the lockout.
 			rc, _, _, rgood := newActivatedMFACore(t)
 			rbase := rc.storage
-			rc.storage = &panicLoginWriteStorage{Storage: rbase, method: "MarkTOTPStepUsed", afterCommit: afterCommit}
+			rc.storage = (&panicLoginWriteStorage{inner: rbase, method: "MarkTOTPStepUsed", afterCommit: afterCommit}).store()
 			require.NotPanics(t, func() { _ = rc.VerifyMFAStepUp(ctx, 1, rgood) })
 			rc.storage = rbase
 			rerr := rc.VerifyMFAStepUp(ctx, 1, rgood)
@@ -180,7 +190,7 @@ func TestStartImpersonation_SessionWritePanicIsRefusedLikeItsError(t *testing.T)
 				Password: "Qx#Vr9$Mn2!Zp4@Lw",
 			})
 			require.NoError(t, err)
-			c.storage = &panicLoginWriteStorage{Storage: st, method: "CreateSession", afterCommit: afterCommit}
+			c.storage = (&panicLoginWriteStorage{inner: st, method: "CreateSession", afterCommit: afterCommit}).store()
 			var session *models.Session
 			require.NotPanics(t, func() { session, _, err = c.StartImpersonation(ctx, admin.ID, target.ID, "203.0.113.9") })
 			c.storage = st

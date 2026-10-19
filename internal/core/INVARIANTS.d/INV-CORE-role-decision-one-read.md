@@ -12,5 +12,5 @@
   `TestAuthorizeRoleResolution_Equivalence` (decisions recorded on the code before the
   change, SQLite and Postgres, cold and warm, second replica), `_MutationsSeenOnNextCall`,
   `_CrossReplica` (two Postgres pools; grant/revoke and permission add/remove racing
-  decisions), `_OneStatement`; `TestRoleReadWrappersForwardTheCombinedRoleRead` (AST scan of
+  decisions), `_OneStatement`; `TestRoleReadWrappersForwardTheCombinedRoleRead` (`internal/core/guards`; AST scan of
   every Go file for a wrapper missing the forward, with calibration).

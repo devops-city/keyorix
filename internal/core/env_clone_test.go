@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -16,6 +15,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -204,30 +204,32 @@ func TestCloneEnvironment_SrcNotFound(t *testing.T) {
 
 // mockEnvCloneStorage wraps MockStorage but lets GetEnvironment return an error
 // for a designated "bad" env ID so we can exercise the ListSecrets error path.
-type mockEnvCloneStorage struct {
-	MockStorage
-}
-
-func (m *mockEnvCloneStorage) GetEnvironment(_ context.Context, id uint) (*models.Environment, error) {
-	return &models.Environment{ID: id, ProjectID: 1, Name: "env"}, nil
-}
-
-func (m *mockEnvCloneStorage) ListSecrets(ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
-	args := m.Called(ctx, filter)
-	if args.Get(0) == nil {
-		return nil, args.Get(1).(int64), args.Error(2)
-	}
-	return args.Get(0).([]*models.SecretNode), args.Get(1).(int64), args.Error(2)
+//
+// (testify derives the expected method name from the calling function, which a
+// hook closure is not, hence MethodCalled with the name spelled out.)
+func mockEnvCloneStorage(m *MockStorage) storage.Storage {
+	return hooked(m, &storeHooks{
+		GetEnvironment: func(_ storage.Storage, _ context.Context, id uint) (*models.Environment, error) {
+			return &models.Environment{ID: id, ProjectID: 1, Name: "env"}, nil
+		},
+		ListSecrets: func(_ storage.Storage, ctx context.Context, filter *storage.SecretFilter) ([]*models.SecretNode, int64, error) {
+			args := m.MethodCalled("ListSecrets", ctx, filter)
+			if args.Get(0) == nil {
+				return nil, args.Get(1).(int64), args.Error(2)
+			}
+			return args.Get(0).([]*models.SecretNode), args.Get(1).(int64), args.Error(2)
+		},
+	})
 }
 
 func TestCloneEnvironment_ListSecretsError(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, i18n.InitializeForTesting())
 
-	ms := &mockEnvCloneStorage{}
+	ms := new(MockStorage)
 	ms.On("ListSecrets", mock.Anything, mock.Anything).
 		Return(nil, int64(0), errors.New("db unavailable"))
-	c := NewKeyorixCore(ms)
+	c := NewKeyorixCore(mockEnvCloneStorage(ms))
 
 	// Both envs have ProjectID=1 (returned by the override above), so the project
 	// check passes, and we reach ListSecrets which returns an error.

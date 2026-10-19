@@ -241,18 +241,28 @@ func TestConcurrency_DeleteGroup_RemoveProjectMember_CrossPath_CrossReplicaPostg
 // concurrency_remove_user_role_project_postgres_test.go's
 // pgDelayedRemoveRoleStorage, applied to the group-role storage call.
 type pgDelayedRemoveRoleFromGroupStorage struct {
-	storage.Storage
+	inner                       storage.Storage
 	targetGroupID, targetRoleID uint
 	blocked, release            chan struct{}
 }
 
-func (d *pgDelayedRemoveRoleFromGroupStorage) RemoveRoleFromGroup(ctx context.Context, groupID, roleID uint, scope storage.Scope) error {
+func (d *pgDelayedRemoveRoleFromGroupStorage) RemoveRoleFromGroup(next storage.Storage, ctx context.Context, groupID, roleID uint, scope storage.Scope) error {
 	if groupID == d.targetGroupID && roleID == d.targetRoleID {
 		close(d.blocked)
 		<-d.release
 	}
-	return d.Storage.RemoveRoleFromGroup(ctx, groupID, roleID, scope)
+	return next.RemoveRoleFromGroup(ctx, groupID, roleID, scope)
 }
+
+// wrap returns inner decorated with pgDelayedRemoveRoleFromGroupStorage's overrides.
+func (d *pgDelayedRemoveRoleFromGroupStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		RemoveRoleFromGroup: d.RemoveRoleFromGroup,
+	})
+}
+
+// store returns d.inner decorated with pgDelayedRemoveRoleFromGroupStorage's overrides.
+func (d *pgDelayedRemoveRoleFromGroupStorage) store() storage.Storage { return d.wrap(d.inner) }
 
 func TestConcurrency_RemoveRoleFromGroup_ProjectScope_CrossReplicaPostgres(t *testing.T) {
 	t.Parallel()
@@ -283,11 +293,11 @@ func TestConcurrency_RemoveRoleFromGroup_ProjectScope_CrossReplicaPostgres(t *te
 	require.NoError(t, setupDB.Create(&models.UserGroup{UserID: userB.ID, GroupID: groupB.ID}).Error)
 
 	wrapped := &pgDelayedRemoveRoleFromGroupStorage{
-		Storage:       localstore.NewLocalStorage(pgOpen(t, dsn)),
+		inner:         localstore.NewLocalStorage(pgOpen(t, dsn)),
 		targetGroupID: groupA.ID, targetRoleID: role.ID,
 		blocked: make(chan struct{}), release: make(chan struct{}),
 	}
-	coreA := NewKeyorixCore(wrapped)
+	coreA := NewKeyorixCore(wrapped.store())
 	coreB := NewKeyorixCore(localstore.NewLocalStorage(pgOpen(t, dsn)))
 	ctx := context.Background()
 	scope := Scope{ProjectID: proj.ID}

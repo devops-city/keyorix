@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -15,6 +14,7 @@ import (
 	coreStorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 )
@@ -343,16 +343,26 @@ func TestBulkDeleteSecrets_RefusesProjectIDZero(t *testing.T) {
 // detached goroutine would let BulkDeleteSecrets return almost immediately
 // regardless of how long CreateSecretAccessLog takes, since nothing waits on it).
 type slowAuditLogStorage struct {
-	coreStorage.Storage
+	inner coreStorage.Storage
 	delay time.Duration
 	calls atomic.Int32
 }
 
-func (s *slowAuditLogStorage) CreateSecretAccessLog(ctx context.Context, entry *models.SecretAccessLog) error {
+func (s *slowAuditLogStorage) CreateSecretAccessLog(next coreStorage.Storage, ctx context.Context, entry *models.SecretAccessLog) error {
 	time.Sleep(s.delay)
 	s.calls.Add(1)
-	return s.Storage.CreateSecretAccessLog(ctx, entry)
+	return next.CreateSecretAccessLog(ctx, entry)
 }
+
+// wrap returns inner decorated with slowAuditLogStorage's overrides.
+func (s *slowAuditLogStorage) wrap(inner coreStorage.Storage) coreStorage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateSecretAccessLog: s.CreateSecretAccessLog,
+	})
+}
+
+// store returns s.inner decorated with slowAuditLogStorage's overrides.
+func (s *slowAuditLogStorage) store() coreStorage.Storage { return s.wrap(s.inner) }
 
 // TestBulkDeleteSecrets_AuditLogWriteIsSynchronous is the #1600 regression.
 // BulkDeleteSecrets used to fire its per-secret audit-log write
@@ -382,8 +392,8 @@ func TestBulkDeleteSecrets_AuditLogWriteIsSynchronous(t *testing.T) {
 
 	real := store.NewLocalStorage(db)
 	const delay = 40 * time.Millisecond
-	slow := &slowAuditLogStorage{Storage: real, delay: delay}
-	c := &KeyorixCore{storage: slow, now: time.Now}
+	slow := &slowAuditLogStorage{inner: real, delay: delay}
+	c := &KeyorixCore{storage: slow.store(), now: time.Now}
 	ctx := context.Background()
 
 	p, err := real.CreateProject(ctx, &models.Project{Name: "proj-sync"})

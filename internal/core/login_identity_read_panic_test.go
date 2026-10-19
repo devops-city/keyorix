@@ -13,23 +13,21 @@ import (
 )
 
 // panicIdentityReadStorage panics in one half of GetUserIdentity's read.
-type panicIdentityReadStorage struct {
-	storage.Storage
-	method string
-}
-
-func (s *panicIdentityReadStorage) GetUserRoles(ctx context.Context, userID uint) ([]*models.Role, error) {
-	if s.method == "GetUserRoles" {
-		panic("injected panic: GetUserRoles")
-	}
-	return s.Storage.GetUserRoles(ctx, userID)
-}
-
-func (s *panicIdentityReadStorage) GetUserPermissions(ctx context.Context, userID uint) ([]*storage.Permission, error) {
-	if s.method == "GetUserPermissions" {
-		panic("injected panic: GetUserPermissions")
-	}
-	return s.Storage.GetUserPermissions(ctx, userID)
+func panicIdentityReadStorage(inner storage.Storage, method string) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoles: func(next storage.Storage, ctx context.Context, userID uint) ([]*models.Role, error) {
+			if method == "GetUserRoles" {
+				panic("injected panic: GetUserRoles")
+			}
+			return next.GetUserRoles(ctx, userID)
+		},
+		GetUserPermissions: func(next storage.Storage, ctx context.Context, userID uint) ([]*storage.Permission, error) {
+			if method == "GetUserPermissions" {
+				panic("injected panic: GetUserPermissions")
+			}
+			return next.GetUserPermissions(ctx, userID)
+		},
+	})
 }
 
 // TestLoginIdentityReadPanic_DeniedLikeItsError is #3267 for the two WebAuthn
@@ -72,7 +70,7 @@ func TestLoginIdentityReadPanic_DeniedLikeItsError(t *testing.T) {
 			ptok, err := pc.storeWebAuthnSession(ctx, 1, "login", &webauthn.SessionData{Challenge: challenge2, UserID: specWebAuthnID(1)})
 			require.NoError(t, err)
 			base := pc.storage
-			pc.storage = &panicIdentityReadStorage{Storage: base, method: method}
+			pc.storage = panicIdentityReadStorage(base, method)
 			var perr error
 			require.NotPanics(t, func() {
 				_, _, _, perr = pc.FinishWebAuthnLogin(ctx, pch, ptok, "agent", "203.0.113.5", goodParsed)
@@ -101,7 +99,7 @@ func TestLoginIdentityReadPanic_DeniedLikeItsError(t *testing.T) {
 			tok, err := pc.storeWebAuthnSession(ctx, 0, "passwordless", &webauthn.SessionData{Challenge: challenge})
 			require.NoError(t, err)
 			base := pc.storage
-			pc.storage = &panicIdentityReadStorage{Storage: base, method: method}
+			pc.storage = panicIdentityReadStorage(base, method)
 			var perr error
 			require.NotPanics(t, func() {
 				_, _, _, perr = pc.FinishWebAuthnPasswordlessLogin(ctx, tok, "agent", "203.0.113.5", parsed)

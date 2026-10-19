@@ -13,23 +13,17 @@ import (
 
 // failOnceMachineTokenStorage makes RevokeMachineIdentityCredential fail once,
 // mirroring the failOnceStorage idiom from #2295.
-type failOnceMachineTokenStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceMachineTokenStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceMachineTokenStorage{Storage: tx, armed: s.armed})
+func failOnceMachineTokenStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		RevokeMachineIdentityCredential: func(next storage.Storage, ctx context.Context, projectID, credentialID uint) error {
+			if *armed {
+				*armed = false
+				return errors.New("injected fault: RevokeMachineIdentityCredential")
+			}
+			return next.RevokeMachineIdentityCredential(ctx, projectID, credentialID)
+		},
 	})
-}
-
-func (s *failOnceMachineTokenStorage) RevokeMachineIdentityCredential(ctx context.Context, projectID, credentialID uint) error {
-	if *s.armed {
-		*s.armed = false
-		return errors.New("injected fault: RevokeMachineIdentityCredential")
-	}
-	return s.Storage.RevokeMachineIdentityCredential(ctx, projectID, credentialID)
 }
 
 // TestIssueMachineToken_RevokeFailureRollsBackNewCredential is the red-proof for
@@ -56,7 +50,7 @@ func TestIssueMachineToken_RevokeFailureRollsBackNewCredential(t *testing.T) {
 	require.NoError(t, err)
 
 	armed := true
-	c.storage = &failOnceMachineTokenStorage{Storage: st, armed: &armed}
+	c.storage = failOnceMachineTokenStorage(st, &armed)
 
 	_, err = c.IssueMachineToken(ctx, proj.ID, machine.ID, actor, IssueMachineTokenParams{
 		Name: "rotated", ReplaceCredentialID: first.Credential.ID,
