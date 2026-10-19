@@ -233,15 +233,8 @@ func tx3Kinds() []grantKind {
 				_, err := c.UpdateProject(tagged(w), w.f.projectID, "cta-review-project", "", &on)
 				return err
 			}},
-		{name: "delete-project",
-			prepare: func(w *satWorld) any {
-				p, err := w.c.CreateProject(ctx, w.tag("g3-dp"), "")
-				require.NoError(w.t, err)
-				return p
-			},
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				return c.DeleteProject(tagged(w), w.f.adminID, s.(*models.Project).ID, true)
-			}},
+		// delete-project / delete-environment are revocations (owed row, never blocked by the
+		// audit log): covered by revocation_owed_audit_test.go, not this fail-closed matrix.
 		{name: "restore-project",
 			prepare: func(w *satWorld) any {
 				p, err := w.c.CreateProject(ctx, w.tag("g3-rp"), "")
@@ -251,15 +244,6 @@ func tx3Kinds() []grantKind {
 			},
 			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
 				return c.RestoreProject(ctx, w.f.adminID, s.(*models.Project).ID)
-			}},
-		{name: "delete-environment",
-			prepare: func(w *satWorld) any {
-				e, err := w.c.CreateEnvironment(ctx, w.f.projectID, w.tag("g3-de"))
-				require.NoError(w.t, err)
-				return e
-			},
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				return c.DeleteEnvironment(tagged(w), s.(*models.Environment).ID)
 			}},
 		{name: "restore-environment",
 			prepare: func(w *satWorld) any {

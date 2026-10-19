@@ -219,15 +219,20 @@ func (c *KeyorixCore) RevokeMachineToken(ctx context.Context, projectID, machine
 		return "", fmt.Errorf("token not found")
 	}
 	// AUDIT-TX-3: a revocation: never blocked by the audit log, row owed.
-	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		if err := tx.RevokeMachineIdentityCredential(ctx, projectID, credentialID); err != nil {
 			return err
 		}
 		c.logMachineEventOn(ctx, tgt, "machine_identity.token_revoked", m, actorID)
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return "", err
 	}
+	// Evict before the owed row is appended: a slow or refusing audit log (up to
+	// owedAuditWait) must not delay the revoked token being refused here.
+	c.clearCachedTokens(cred.TokenHash)
+	settle()
 	return cred.TokenHash, nil
 }
 

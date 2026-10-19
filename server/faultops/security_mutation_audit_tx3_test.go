@@ -39,10 +39,7 @@ import (
 // mutation's transaction (AUDIT-TX-3).
 var auditTx3FailClosedOps = []string{
 	"REST PUT /api/v1/projects/{id}",
-	"REST DELETE /api/v1/projects/{id}",
-	"GRPC keyorix.v1.ProjectService.DeleteProject",
 	"REST POST /api/v1/projects/{id}/restore",
-	"REST DELETE /api/v1/environments/{id}",
 	"REST POST /api/v1/projects/{projectId}/environments/{id}/restore",
 	"REST POST /api/v1/groups/",
 	"GRPC keyorix.v1.GroupService.CreateGroup",
@@ -84,6 +81,9 @@ var auditTx3FailClosedOps = []string{
 // log, their rows owed (AUDIT-TX-3).
 var auditTx3RevocationOps = []string{
 	"REST DELETE /api/v1/user-roles/",
+	"REST DELETE /api/v1/environments/{id}",
+	"GRPC keyorix.v1.ProjectService.DeleteProject",
+	"REST DELETE /api/v1/projects/{id}",
 	"GRPC keyorix.v1.RoleService.RemoveRole",
 	"REST DELETE /api/v1/groups/{id}/roles/{roleId}",
 	"REST DELETE /api/v1/roles/{id}/permissions/{permissionId}",

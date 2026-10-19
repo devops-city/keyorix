@@ -363,7 +363,12 @@ func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget
 			} else {
 				logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r), "event_type", eventType)
 			}
-			tgt.sink.fail(eventType, fmt.Errorf("audit write panicked: %v", r))
+			if tgt.sink != nil && tgt.sink.owing {
+				// An owing sink ignores fail(): without this the owed row would be lost silently.
+				tgt.sink.failOwed(fmt.Errorf("audit write panicked: %v", r))
+			} else {
+				tgt.sink.fail(eventType, fmt.Errorf("audit write panicked: %v", r))
+			}
 			persisted = false
 		}
 	}()

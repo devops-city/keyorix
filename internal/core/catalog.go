@@ -213,7 +213,12 @@ func (c *KeyorixCore) UpdateProject(ctx context.Context, id uint, name, descript
 	// MFA requirement off, or renaming it, never commits unrecorded.
 	actor, tagged := mutationAuditActorFromContext(ctx)
 	var updated *models.Project
-	if err := c.mutationTx(ctx, tagged || mfaChanged, func(tx storage.Storage, tgt auditTarget) error {
+	//
+	// Turning the requirement ON restricts access, so it is a revocation and its row
+	// is OWED instead (an audit outage never blocks it): only when that is all the
+	// call changes, so a rename riding along stays fail closed.
+	mfaEnabling := mfaChanged && *requireMFA && name == project.Name && description == project.Description
+	if err := c.updateProjectTx(ctx, tagged || mfaChanged, !mfaEnabling, func(tx storage.Storage, tgt auditTarget) error {
 		matched, uerr := tx.UpdateProjectFields(ctx, id, name, description, requireMFA, c.now())
 		if uerr != nil {
 			return translateProjectNameError(uerr)
@@ -242,6 +247,15 @@ func (c *KeyorixCore) UpdateProject(ctx context.Context, id uint, name, descript
 		return nil, err
 	}
 	return updated, nil
+}
+
+// updateProjectTx is mutationTx with the direction of an audited update: failClosed
+// false makes the audited rows owed (withOwedAuditMutation).
+func (c *KeyorixCore) updateProjectTx(ctx context.Context, audited, failClosed bool, fn func(tx storage.Storage, tgt auditTarget) error) error {
+	if audited && !failClosed {
+		return c.withOwedAuditMutation(ctx, fn)
+	}
+	return c.mutationTx(ctx, audited, fn)
 }
 
 // ProjectRequiresMFA reports whether the project enforces a per-project MFA
@@ -289,11 +303,12 @@ func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force
 		suspended []*models.MachineIdentity
 	)
 	//
-	// AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
-	// project.deleted row as the last statement of this transaction, fail closed: a
-	// project (and, with force, its secrets) is never deleted unrecorded. The
-	// machine-identity cascade events go through the same fail-closed sink whether or
-	// not ctx is tagged; an untagged caller with no suspended identity writes no row.
+	// AUDIT-TX-3: a deletion is a revocation, so it is never blocked by the audit log:
+	// the project.deleted row (a transport that tagged ctx, WithMutationAuditActor) and
+	// the machine-identity cascade events are OWED (runOwedAuditMutation). The delete
+	// and a pending_audit_events record of each row commit together; the rows are
+	// appended after the commit, after the identities' cache eviction, and an audit
+	// outage leaves them pending for the backfill instead of rolling the delete back.
 	actor, tagged := mutationAuditActorFromContext(ctx)
 	projectName := ""
 	if tagged {
@@ -301,10 +316,8 @@ func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force
 			projectName = p.Name
 		}
 	}
-	var sink *auditForwardSink
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		sink = &auditForwardSink{failClosed: true} // a fresh sink per attempt
-		blocking, suspended = 0, nil
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		blocking, suspended = 0, nil // fn may run twice (the owed-record fallback)
 		if force {
 			if err := tx.DeleteProject(ctx, id); err != nil {
 				return err
@@ -324,16 +337,14 @@ func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force
 		if err != nil {
 			return fmt.Errorf("project not deleted: %w", err)
 		}
-		tgt := auditInto(tx, sink)
 		for _, m := range suspended {
 			c.logMachineCascadeEvent(ctx, tgt, "machine_identity.suspended", m, actorID,
 				fmt.Sprintf("project soft-delete (project %d): it held no live role outside that project", id))
 		}
 		if tagged {
 			c.logProjectDeletedOn(ctx, tgt, actor, id, projectName, force)
-			return failClosedAuditResult(sink)
 		}
-		return sink.err
+		return nil
 	})
 	if err != nil {
 		return err
@@ -341,10 +352,10 @@ func (c *KeyorixCore) DeleteProject(ctx context.Context, actorID, id uint, force
 	if blocking > 0 {
 		return fmt.Errorf("project has %d secret(s) — delete them first or use --force to cascade", blocking)
 	}
-	sink.Flush(c)
 	for _, m := range suspended {
 		c.evictMachineIdentityCacheOrFlush(ctx, m.ID, MachineSuspended)
 	}
+	settle() // after the eviction: the audit log never delays the revocation
 	c.revokeProjectDynamicSecretLeases(ctx, id)
 	return nil
 }
@@ -523,8 +534,9 @@ func (c *KeyorixCore) requireAuthorityToReinstateProjectRoles(ctx context.Contex
 // deliberately thin.
 //
 // AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
-// environment.deleted row in the delete's own transaction, fail closed. The
-// storage delete takes the environment's secret-guard named lock itself; this
+// environment.deleted row OWED (withOwedAuditMutation): a deletion is a revocation
+// and is never blocked by the audit log, so the delete and a record of the row
+// commit together and the row is appended after the commit. The storage delete takes the environment's secret-guard named lock itself; this
 // takes that same lock FIRST, outside the transaction (WithNamedLock is
 // re-entrant per ctx), so the lock is never acquired from inside an open
 // transaction, which storage.DeleteEnvironment forbids.
@@ -534,7 +546,7 @@ func (c *KeyorixCore) DeleteEnvironment(ctx context.Context, id uint) error {
 		return c.storage.DeleteEnvironment(ctx, id)
 	}
 	return c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(id), func(ctx context.Context) error {
-		return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.DeleteEnvironment(ctx, id); err != nil {
 				return err
 			}

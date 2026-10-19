@@ -219,6 +219,40 @@ func revKinds() []revKind {
 				}
 				return err
 			}},
+		// AUDIT-TX-3 review fix: project/environment delete and enabling a project's MFA
+		// requirement restrict access, so an audit outage must not roll them back.
+		{name: "delete-project-with-machine-cascade",
+			prepare: func(w *satWorld) any {
+				p, err := w.c.CreateProject(ctx, w.tag("rev-dp"), "")
+				require.NoError(w.t, err)
+				_, err = w.c.CreateMachineIdentity(ctx, p.ID, w.tag("rev-dpm"), "service", "", "", w.f.adminID, 0)
+				require.NoError(w.t, err)
+				return p
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				return c.DeleteProject(WithMutationAuditActor(ctx, w.f.adminID), w.f.adminID, s.(*models.Project).ID, true)
+			}},
+		{name: "delete-environment",
+			prepare: func(w *satWorld) any {
+				e, err := w.c.CreateEnvironment(ctx, w.f.projectID, w.tag("rev-de"))
+				require.NoError(w.t, err)
+				return e
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				return c.DeleteEnvironment(WithMutationAuditActor(ctx, w.f.adminID), s.(*models.Environment).ID)
+			}},
+		{name: "enable-project-mfa",
+			prepare: func(w *satWorld) any {
+				p, err := w.c.CreateProject(ctx, w.tag("rev-mfa"), "")
+				require.NoError(w.t, err)
+				return p
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				p := s.(*models.Project)
+				on := true
+				_, err := c.UpdateProject(WithMutationAuditActor(ctx, w.f.adminID), p.ID, p.Name, p.Description, &on)
+				return err
+			}},
 		{name: "expire-role-grants",
 			prepare: func(w *satWorld) any {
 				u := w.newUser("rev-re", "")
