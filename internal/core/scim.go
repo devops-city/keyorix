@@ -273,7 +273,7 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	var deactivated bool
 	var updated *models.User
 	var patHashes []string // PATs revoked by a deactivation; evicted from the auth cache after commit
-	var guardErr error // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
+	var guardErr error     // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
