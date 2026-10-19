@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
@@ -24,7 +25,6 @@ import (
 // createCountingStore counts CreateAnomalyAlert calls per alert type and fails
 // the first call for each key in failFirst.
 type createCountingStore struct {
-	*store.LocalStorage
 	mu        sync.Mutex
 	calls     map[string]int
 	failFirst map[string]bool // dedupKeyString of the key
@@ -34,21 +34,22 @@ func dedupKeyString(secret uint, typ, actor, ip string) string {
 	return fmt.Sprintf("%d|%s|%s|%s", secret, typ, actor, ip)
 }
 
-func (s *createCountingStore) CreateAnomalyAlert(ctx context.Context, a *models.AnomalyAlert) error {
-	s.mu.Lock()
-	s.calls[a.AlertType]++
-	k := dedupKeyString(a.SecretNodeID, a.AlertType, a.AccessedBy, a.IPAddress)
-	fail := s.failFirst[k]
-	delete(s.failFirst, k)
-	s.mu.Unlock()
-	if fail {
-		return fmt.Errorf("injected CreateAnomalyAlert failure")
-	}
-	return s.LocalStorage.CreateAnomalyAlert(ctx, a)
-}
-
-func newCreateCountingStore(db *gorm.DB) *createCountingStore {
-	return &createCountingStore{LocalStorage: store.NewLocalStorage(db), calls: map[string]int{}, failFirst: map[string]bool{}}
+func newCreateCountingStore(db *gorm.DB) (storage.Storage, *createCountingStore) {
+	s := &createCountingStore{calls: map[string]int{}, failFirst: map[string]bool{}}
+	return hooked(store.NewLocalStorage(db), &storeHooks{
+		CreateAnomalyAlert: func(next storage.Storage, ctx context.Context, a *models.AnomalyAlert) error {
+			s.mu.Lock()
+			s.calls[a.AlertType]++
+			k := dedupKeyString(a.SecretNodeID, a.AlertType, a.AccessedBy, a.IPAddress)
+			fail := s.failFirst[k]
+			delete(s.failFirst, k)
+			s.mu.Unlock()
+			if fail {
+				return fmt.Errorf("injected CreateAnomalyAlert failure")
+			}
+			return next.CreateAnomalyAlert(ctx, a)
+		},
+	}), s
 }
 
 // TestRunDetection_OneDedupCheckPerAlertKey is the statement count: a hot secret
@@ -68,8 +69,8 @@ func TestRunDetection_OneDedupCheckPerAlertKey(t *testing.T) {
 	}
 	require.NoError(t, db.CreateInBatches(&logs, 500).Error)
 
-	s := newCreateCountingStore(db)
-	d := newScenarioDetector(t, s, now)
+	st, s := newCreateCountingStore(db)
+	d := newScenarioDetector(t, st, now)
 	require.NoError(t, d.RunDetection(ctx, []models.SecretNode{secret}))
 
 	perAccess := s.calls["off_hours"] + s.calls["new_ip"] + s.calls["new_user"]
@@ -140,11 +141,11 @@ func TestRunDetection_DedupOnceEquivalence(t *testing.T) {
 	run := func(everyAccess bool) ([]dedupMatrixRow, string, map[string]int) {
 		db := newAnomalyTestDB(t)
 		secrets, failFirst := seedDedupMatrix(t, db, now)
-		s := newCreateCountingStore(db)
+		st, s := newCreateCountingStore(db)
 		for _, k := range failFirst {
 			s.failFirst[k] = true
 		}
-		d := newScenarioDetector(t, s, now)
+		d := newScenarioDetector(t, st, now)
 		d.everyAccessDedup = everyAccess
 		errText := ""
 		if err := d.RunDetection(ctx, secrets); err != nil {

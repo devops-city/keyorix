@@ -19,7 +19,7 @@ import (
 
 	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
 
@@ -29,37 +29,50 @@ var errLoginAttemptsDown = errors.New("pq: connection reset by peer")
 // everything else (the audit table) keeps working, so the fallback's own
 // audit write is observable.
 type loginAttemptsDownStub struct {
-	corestorage.Storage
-	down bool
+	inner corestorage.Storage
+	down  bool
 }
 
-func (s *loginAttemptsDownStub) CountRecentLoginAttempts(ctx context.Context, ip string, since time.Time) (int64, error) {
+func (s *loginAttemptsDownStub) CountRecentLoginAttempts(next corestorage.Storage, ctx context.Context, ip string, since time.Time) (int64, error) {
 	if s.down {
 		return 0, errLoginAttemptsDown
 	}
-	return s.Storage.CountRecentLoginAttempts(ctx, ip, since)
+	return next.CountRecentLoginAttempts(ctx, ip, since)
 }
 
-func (s *loginAttemptsDownStub) RecordLoginAttempt(ctx context.Context, ip string, at time.Time) error {
+func (s *loginAttemptsDownStub) RecordLoginAttempt(next corestorage.Storage, ctx context.Context, ip string, at time.Time) error {
 	if s.down {
 		return errLoginAttemptsDown
 	}
-	return s.Storage.RecordLoginAttempt(ctx, ip, at)
+	return next.RecordLoginAttempt(ctx, ip, at)
 }
 
-func (s *loginAttemptsDownStub) ReserveLoginAttempt(ctx context.Context, ip string, at time.Time, key string) (uint, error) {
+func (s *loginAttemptsDownStub) ReserveLoginAttempt(next corestorage.Storage, ctx context.Context, ip string, at time.Time, key string) (uint, error) {
 	if s.down {
 		return 0, errLoginAttemptsDown
 	}
-	return s.Storage.ReserveLoginAttempt(ctx, ip, at, key)
+	return next.ReserveLoginAttempt(ctx, ip, at, key)
 }
 
-func (s *loginAttemptsDownStub) ReleaseLoginAttempt(ctx context.Context, id uint) error {
+func (s *loginAttemptsDownStub) ReleaseLoginAttempt(next corestorage.Storage, ctx context.Context, id uint) error {
 	if s.down {
 		return errLoginAttemptsDown
 	}
-	return s.Storage.ReleaseLoginAttempt(ctx, id)
+	return next.ReleaseLoginAttempt(ctx, id)
 }
+
+// wrap returns inner decorated with loginAttemptsDownStub's overrides.
+func (s *loginAttemptsDownStub) wrap(inner corestorage.Storage) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		CountRecentLoginAttempts: s.CountRecentLoginAttempts,
+		RecordLoginAttempt:       s.RecordLoginAttempt,
+		ReserveLoginAttempt:      s.ReserveLoginAttempt,
+		ReleaseLoginAttempt:      s.ReleaseLoginAttempt,
+	})
+}
+
+// store returns s.inner decorated with loginAttemptsDownStub's overrides.
+func (s *loginAttemptsDownStub) store() corestorage.Storage { return s.wrap(s.inner) }
 
 func newFallbackCore(t *testing.T) (*KeyorixCore, *loginAttemptsDownStub, *gorm.DB, func(time.Time)) {
 	t.Helper()
@@ -69,9 +82,9 @@ func newFallbackCore(t *testing.T) (*KeyorixCore, *loginAttemptsDownStub, *gorm.
 		sqlDB.SetMaxOpenConns(1)
 	}
 	require.NoError(t, db.AutoMigrate(&models.LoginAttempt{}, &models.AuditEvent{}))
-	stub := &loginAttemptsDownStub{Storage: store.NewLocalStorage(db)}
+	stub := &loginAttemptsDownStub{inner: store.NewLocalStorage(db)}
 	now := time.Date(2026, 6, 12, 10, 0, 0, 0, time.UTC)
-	c := &KeyorixCore{storage: stub, now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
+	c := &KeyorixCore{storage: stub.store(), now: func() time.Time { return now }, passwordPolicy: DefaultPasswordPolicy()}
 	return c, stub, db, func(t time.Time) { c.now = func() time.Time { return t } }
 }
 

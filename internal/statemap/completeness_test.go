@@ -47,7 +47,7 @@ const maxReviewRows = 9 // SESSION-AR batch 5/5 (AT0 REVIEW triage, FINAL): 28 m
 // maxReviewRows. It does NOT compare the file, handler or reason columns of
 // entrypoints.tsv (only kind, id and class); whole-row drift is caught by
 // cmd/statemapgen's TestGeneratedStateMapMatchesCheckedIn, which regenerates
-// both TSVs into a temp dir and compares every line. Mirrors internal/core/atomicity_guard_test.go's shape (an
+// both TSVs into a temp dir and compares every line. Mirrors internal/core/guards/atomicity_guard_test.go's shape (an
 // AST/text scan compared against a checked-in file), for the same reason: a
 // hand-maintained inventory silently rots; a regenerate-and-diff check
 // cannot.

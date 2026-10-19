@@ -35,20 +35,18 @@ func auditCount(t *testing.T, db *gorm.DB, eventType string) int64 {
 
 // markStepUsedFaultStub overrides exactly MarkTOTPStepUsed: err makes it a
 // storage failure, replay makes it a confirmed "step already used".
-type markStepUsedFaultStub struct {
-	corestorage.Storage
-	err    error
-	replay bool
-}
-
-func (s *markStepUsedFaultStub) MarkTOTPStepUsed(ctx context.Context, userID uint, step int64) (bool, error) {
-	if s.err != nil {
-		return false, s.err
-	}
-	if s.replay {
-		return false, nil
-	}
-	return s.Storage.MarkTOTPStepUsed(ctx, userID, step)
+func markStepUsedFaultStub(inner corestorage.Storage, err error, replay bool) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		MarkTOTPStepUsed: func(next corestorage.Storage, ctx context.Context, userID uint, step int64) (bool, error) {
+			if err != nil {
+				return false, err
+			}
+			if replay {
+				return false, nil
+			}
+			return next.MarkTOTPStepUsed(ctx, userID, step)
+		},
+	})
 }
 
 // TestActivateMFA_StorageErrorAuditsMFAError is item 3 (#2744).
@@ -64,7 +62,7 @@ func TestActivateMFA_StorageErrorAuditsMFAError(t *testing.T) {
 		require.NoError(t, err)
 
 		real := c.storage
-		c.storage = &markStepUsedFaultStub{Storage: real, err: errPreVerdictStorageDown}
+		c.storage = markStepUsedFaultStub(real, errPreVerdictStorageDown, false)
 		_, err = c.ActivateMFA(ctx, 1, code, mfaTestPassword, "")
 		require.Error(t, err)
 		assert.EqualError(t, err, "invalid code", "the caller-visible error must stay the wrong-code one")
@@ -85,7 +83,7 @@ func TestActivateMFA_StorageErrorAuditsMFAError(t *testing.T) {
 		code, err := totp.GenerateCode(secret, fixed)
 		require.NoError(t, err)
 
-		c.storage = &markStepUsedFaultStub{Storage: c.storage, replay: true}
+		c.storage = markStepUsedFaultStub(c.storage, nil, true)
 		_, err = c.ActivateMFA(ctx, 1, code, mfaTestPassword, "")
 		require.EqualError(t, err, "invalid code")
 		assert.EqualValues(t, 1, auditCount(t, db, "mfa.failed"), "a replay IS a failed attempt")
@@ -94,16 +92,15 @@ func TestActivateMFA_StorageErrorAuditsMFAError(t *testing.T) {
 }
 
 // usernameLookupFaultStub overrides exactly GetUserByUsername.
-type usernameLookupFaultStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *usernameLookupFaultStub) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.GetUserByUsername(ctx, username)
+func usernameLookupFaultStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserByUsername: func(next corestorage.Storage, ctx context.Context, username string) (*models.User, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.GetUserByUsername(ctx, username)
+		},
+	})
 }
 
 // TestVerifyPasswordCredentials_UsernameLookupStorageErrorIsNotEvaluated is
@@ -114,7 +111,7 @@ func TestVerifyPasswordCredentials_UsernameLookupStorageErrorIsNotEvaluated(t *t
 
 	t.Run("a storage error is not-evaluated, with the same text", func(t *testing.T) {
 		c, _, _ := newMFATestCore(t)
-		c.storage = &usernameLookupFaultStub{Storage: c.storage, err: errPreVerdictStorageDown}
+		c.storage = usernameLookupFaultStub(c.storage, errPreVerdictStorageDown)
 		_, err := c.VerifyPasswordCredentials(ctx, "alice", mfaTestPassword)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, ErrLoginNotEvaluated)
@@ -139,16 +136,15 @@ func TestVerifyPasswordCredentials_UsernameLookupStorageErrorIsNotEvaluated(t *t
 }
 
 // userReadFaultStub overrides exactly GetUser, which loadWebAuthnUser reads first.
-type userReadFaultStub struct {
-	corestorage.Storage
-	err error
-}
-
-func (s *userReadFaultStub) GetUser(ctx context.Context, id uint) (*models.User, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	return s.Storage.GetUser(ctx, id)
+func userReadFaultStub(inner corestorage.Storage, err error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUser: func(next corestorage.Storage, ctx context.Context, id uint) (*models.User, error) {
+			if err != nil {
+				return nil, err
+			}
+			return next.GetUser(ctx, id)
+		},
+	})
 }
 
 // TestLoadWebAuthnUser_PreservesNotFoundVsStorageError is item 2's enabling
@@ -160,7 +156,7 @@ func TestLoadWebAuthnUser_PreservesNotFoundVsStorageError(t *testing.T) {
 
 	t.Run("a storage error does not masquerade as not-found", func(t *testing.T) {
 		c, _, _ := newMFATestCore(t)
-		c.storage = &userReadFaultStub{Storage: c.storage, err: errPreVerdictStorageDown}
+		c.storage = userReadFaultStub(c.storage, errPreVerdictStorageDown)
 		_, err := c.loadWebAuthnUser(ctx, 1)
 		require.Error(t, err)
 		assert.False(t, corestorage.IsUserNotFound(err))

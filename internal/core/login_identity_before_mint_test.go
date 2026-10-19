@@ -47,15 +47,15 @@ import (
 // with. GetUserRoles is chosen (over GetUserPermissions) because it is the one
 // the #2841 faultops repro found: op="REST POST /auth/webauthn/login/finish",
 // fault=(GetUserRoles, NthCall=1, kind=error).
-type failGetUserRolesStorage struct {
-	storage.Storage
+func failGetUserRolesStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserRoles: func(_ storage.Storage, ctx context.Context, userID uint) ([]*models.Role, error) {
+			return nil, errInjectedGetUserRoles
+		},
+	})
 }
 
 var errInjectedGetUserRoles = errors.New("injected fault: GetUserRoles")
-
-func (s *failGetUserRolesStorage) GetUserRoles(ctx context.Context, userID uint) ([]*models.Role, error) {
-	return nil, errInjectedGetUserRoles
-}
 
 // countLoginArtifacts returns how many sessions and step-up grants exist.
 func countLoginArtifacts(t *testing.T, db *gorm.DB) (sessions, grants, tokens int64) {
@@ -83,7 +83,7 @@ func TestFinishWebAuthnLogin_IdentityReadFailureLeavesNoSessionOrGrant(t *testin
 	token, err := c.storeWebAuthnSession(ctx, 1, "login", &webauthn.SessionData{Challenge: challenge, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 
-	c.storage = &failGetUserRolesStorage{Storage: c.storage}
+	c.storage = failGetUserRolesStorage(c.storage)
 
 	session, user, identity, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
@@ -115,12 +115,12 @@ func TestFinishWebAuthnLogin_IdentityReadFailureLeavesNoSessionOrGrant(t *testin
 // GetUserIdentity reads roles, then permissions; a fault on either one must
 // leave the same nothing-written state, and each is pinned separately in
 // server/faultops' oracleAByDesignErrors.
-type failGetUserPermissionsStorage struct {
-	storage.Storage
-}
-
-func (s *failGetUserPermissionsStorage) GetUserPermissions(ctx context.Context, userID uint) ([]*storage.Permission, error) {
-	return nil, errors.New("injected fault: GetUserPermissions")
+func failGetUserPermissionsStorage(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		GetUserPermissions: func(_ storage.Storage, ctx context.Context, userID uint) ([]*storage.Permission, error) {
+			return nil, errors.New("injected fault: GetUserPermissions")
+		},
+	})
 }
 
 // TestFinishWebAuthnLogin_PermissionsReadFailureLeavesNoSessionOrGrant is the
@@ -141,7 +141,7 @@ func TestFinishWebAuthnLogin_PermissionsReadFailureLeavesNoSessionOrGrant(t *tes
 	token, err := c.storeWebAuthnSession(ctx, 1, "login", &webauthn.SessionData{Challenge: challenge, UserID: specWebAuthnID(1)})
 	require.NoError(t, err)
 
-	c.storage = &failGetUserPermissionsStorage{Storage: c.storage}
+	c.storage = failGetUserPermissionsStorage(c.storage)
 
 	session, user, identity, err := c.FinishWebAuthnLogin(ctx, ch, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
@@ -174,7 +174,7 @@ func TestFinishWebAuthnPasswordlessLogin_IdentityReadFailureLeavesNoSessionOrGra
 	token, err := c.storeWebAuthnSession(ctx, 0, "passwordless", &webauthn.SessionData{Challenge: challenge})
 	require.NoError(t, err)
 
-	c.storage = &failGetUserRolesStorage{Storage: c.storage}
+	c.storage = failGetUserRolesStorage(c.storage)
 
 	session, user, identity, err := c.FinishWebAuthnPasswordlessLogin(ctx, token, "test-agent", "203.0.113.5", parsed)
 	require.Error(t, err)
@@ -233,7 +233,7 @@ func TestVerifyMFALogin_IdentityReadFailureLeavesNoSessionOrStepUpToken(t *testi
 	// Swapped in only now, so enrolment/activation (which also read roles) are
 	// unaffected and the fault lands on the login's own identity read.
 	base := c.storage
-	c.storage = &failGetUserRolesStorage{Storage: base}
+	c.storage = failGetUserRolesStorage(base)
 
 	session, user, identity, err := c.VerifyMFALogin(ctx, ch, code, "ua", "1.2.3.4")
 	require.Error(t, err)

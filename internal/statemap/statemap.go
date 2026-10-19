@@ -13,7 +13,7 @@
 // function, found by an exact, sometimes ambiguous, method-name search —
 // see findMethodBody) and count DISTINCT write-verb-shaped calls in it,
 // reusing the exact verb list and WithTransaction-escape logic
-// internal/core/atomicity_guard_test.go already uses and already has CI
+// internal/core/guards/atomicity_guard_test.go already uses and already has CI
 // history for. This is Session O's own "handlerscan" technique (its O1
 // report: "10 hits, all D (false positives)... flagging this as the
 // shallowest-verified part of the sweep") generalized from a hand-picked
@@ -264,7 +264,7 @@ func baseIdentName(e ast.Expr) string {
 }
 
 // atomicityExprStr renders a simple selector/ident expression as text (e.g.
-// "authHandler.Login"), mirroring internal/core/atomicity_guard_test.go's
+// "authHandler.Login"), mirroring internal/core/guards/atomicity_guard_test.go's
 // own atomicityExprStr so entry-point handler identities read the same way
 // that guard's function identities do.
 func atomicityExprStr(e ast.Expr) string {

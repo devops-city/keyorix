@@ -417,7 +417,9 @@ func TestRestoreUser_Success(t *testing.T) {
 	ms.On("RestoreUser", mock.Anything, uint(5)).Return(nil)
 	restored := &models.User{ID: 5, Username: "alice", AccountState: "active"}
 	ms.On("GetUser", mock.Anything, uint(5)).Return(restored, nil)
-	ms.On("UpdateUser", mock.Anything, mock.AnythingOfType("*models.User")).Return(restored, nil)
+	// #2677 sweep: column-scoped writes, no full-row UpdateUser.
+	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.AnythingOfType("*models.User"), false).Return(true, nil)
+	ms.On("SetAccountState", mock.Anything, uint(5), AccountPasswordResetRequired, mock.Anything).Return(nil)
 	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)
 	err := c.RestoreUser(context.Background(), 1, 5)

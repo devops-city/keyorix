@@ -37,20 +37,30 @@ import (
 // runs, so RecordDynamicSecretLeaseRevocation matches zero rows. Everything
 // else goes to the real storage underneath.
 type leaseVanishingStorage struct {
-	storage.Storage
+	inner   storage.Storage
 	db      *gorm.DB
 	deleted bool
 }
 
-func (s *leaseVanishingStorage) RecordDynamicSecretLeaseRevocation(ctx context.Context, leaseID, status, revokeReason, revokeError string, revokedAt *time.Time) (bool, error) {
+func (s *leaseVanishingStorage) RecordDynamicSecretLeaseRevocation(next storage.Storage, ctx context.Context, leaseID, status, revokeReason, revokeError string, revokedAt *time.Time) (bool, error) {
 	if !s.deleted {
 		s.deleted = true
 		if err := s.db.Unscoped().Where("lease_id = ?", leaseID).Delete(&models.DynamicSecretLease{}).Error; err != nil {
 			return false, err
 		}
 	}
-	return s.Storage.RecordDynamicSecretLeaseRevocation(ctx, leaseID, status, revokeReason, revokeError, revokedAt)
+	return next.RecordDynamicSecretLeaseRevocation(ctx, leaseID, status, revokeReason, revokeError, revokedAt)
 }
+
+// wrap returns inner decorated with leaseVanishingStorage's overrides.
+func (s *leaseVanishingStorage) wrap(inner storage.Storage) storage.Storage {
+	return hooked(inner, &storeHooks{
+		RecordDynamicSecretLeaseRevocation: s.RecordDynamicSecretLeaseRevocation,
+	})
+}
+
+// store returns s.inner decorated with leaseVanishingStorage's overrides.
+func (s *leaseVanishingStorage) store() storage.Storage { return s.wrap(s.inner) }
 
 // TestDynamicSecrets_RevokeLease_RevocationRecordNoMatchFailsClosed: the lease
 // row is gone when the revocation write lands, so nothing recorded that this
@@ -64,8 +74,8 @@ func TestDynamicSecrets_RevokeLease_RevocationRecordNoMatchFailsClosed(t *testin
 	issued, err := c.IssueLease(ctx, cfg.ID, 0, 7)
 	require.NoError(t, err)
 
-	vanishing := &leaseVanishingStorage{Storage: c.storage, db: db}
-	c.storage = vanishing
+	vanishing := &leaseVanishingStorage{inner: c.storage, db: db}
+	c.storage = vanishing.store()
 
 	err = c.RevokeLease(ctx, issued.LeaseID, 7, "manual")
 	require.Error(t, err,

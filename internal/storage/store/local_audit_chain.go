@@ -544,35 +544,54 @@ func (ls *LocalStorage) submitAuditBatchItem(item *auditBatchItem) error {
 // auditChainMu provided before (a single serialization point imposing SOME
 // total order on concurrent arrivals, not a claim about real-world causal
 // order, which neither design ever provided).
+//
+// On Postgres, up to auditPipelineDepth batches are in flight at once on one
+// connection (commitFlusherBatch, local_audit_chain_pipelined_batches.go);
+// their results still reach their items in batch order, each only after its
+// own COMMIT. While a batch is in flight and nothing new is queued, the
+// flusher reads that batch's result instead of waiting for items, and the
+// idle exit ends the run first, so no batch's readers wait on the flusher.
 func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
+	pipe := ls.newAuditBatchPipeline()
 	for {
 		var batch []*auditBatchItem
-		select {
-		case item := <-af.queue:
-			batch = append(batch, item)
-		case <-time.After(auditFlusherIdleTimeout):
-			af.mu.Lock()
-			// Re-check for a race: a submitter's queue<-item may have
-			// succeeded between this timeout firing and acquiring af.mu.
-			// A submitter reads af.queue and releases af.mu BEFORE it sends,
-			// so an empty queue alone does not mean nobody is about to send:
-			// exiting then left that send in a channel nobody read (the next
-			// submission makes a new one), and its caller waited out its audit
-			// deadline and failed closed (PERF-LOWCONC-1). Exit only when no
-			// submission is registered (pending, raised under af.mu before the
-			// send); otherwise keep waiting for it.
+		if pipe.inFlight() {
 			select {
 			case item := <-af.queue:
 				batch = append(batch, item)
-				af.mu.Unlock()
 			default:
-				if af.pending == 0 {
-					af.running = false
-					af.mu.Unlock()
-					return
-				}
-				af.mu.Unlock()
+				pipe.completeOldest()
 				continue
+			}
+		} else {
+			select {
+			case item := <-af.queue:
+				batch = append(batch, item)
+			case <-time.After(auditFlusherIdleTimeout):
+				pipe.shutdown()
+				af.mu.Lock()
+				// Re-check for a race: a submitter's queue<-item may have
+				// succeeded between this timeout firing and acquiring af.mu.
+				// A submitter reads af.queue and releases af.mu BEFORE it sends,
+				// so an empty queue alone does not mean nobody is about to send:
+				// exiting then left that send in a channel nobody read (the next
+				// submission makes a new one), and its caller waited out its audit
+				// deadline and failed closed (PERF-LOWCONC-1). Exit only when no
+				// submission is registered (pending, raised under af.mu before the
+				// send); otherwise keep waiting for it.
+				select {
+				case item := <-af.queue:
+					batch = append(batch, item)
+					af.mu.Unlock()
+				default:
+					if af.pending == 0 {
+						af.running = false
+						af.mu.Unlock()
+						return
+					}
+					af.mu.Unlock()
+					continue
+				}
 			}
 		}
 		// Linger (SESSION-PERF, #2403/#2420 follow-up, coordinator-requested
@@ -586,13 +605,21 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 		// that field's doc comment, and PR #2420's body, for why 0 is the
 		// shipped default rather than a tuned nonzero value.
 		if ls.auditFlusherLingerWindow <= 0 {
+		drain:
 			for len(batch) < auditFlusherMaxBatch {
 				select {
 				case item := <-af.queue:
 					batch = append(batch, item)
 				default:
-					goto commit
+					break drain
 				}
+			}
+			// While a batch is in flight, a batch too small to be worth its
+			// own transaction waits for that one's result and takes what
+			// arrived meanwhile (auditPipelineMinBatch).
+			if pipe.waitBeforeSending(len(batch)) {
+				pipe.completeOldest()
+				goto drain
 			}
 		} else {
 			lingerTimer := time.NewTimer(ls.auditFlusherLingerWindow)
@@ -607,14 +634,10 @@ func (ls *LocalStorage) runAuditFlusher(af *auditFlusherState) {
 			}
 			lingerTimer.Stop()
 		}
-	commit:
 		af.mu.Lock()
 		af.pending -= len(batch)
 		af.mu.Unlock()
-		errs := ls.commitAuditBatch(batch)
-		for i, item := range batch {
-			item.done <- errs[i]
-		}
+		ls.commitFlusherBatch(pipe, batch)
 	}
 }
 
@@ -853,8 +876,24 @@ func (ls *LocalStorage) commitBatchWithBusyRetry(ctx context.Context, batch []*a
 // corrupt keyorix_audit_flusher_batch_size / _flushes_total at exactly the moment
 // an operator is looking at them. Found by the coordinator's review of #2637.
 func (ls *LocalStorage) commitAuditBatch(batch []*auditBatchItem) []error {
-	ctx := batch[0].ctx // auditWriteContext-derived; every item's ctx carries the same fixed deadline shape
-	err := ls.commitBatchWithBusyRetry(ctx, batch)
+	return ls.commitAuditBatchHeld(nil, batch)
+}
+
+// commitAuditBatchHeld is commitAuditBatch on the flusher's held connection
+// when held has one (local_audit_chain_pipelined_batches.go): only the
+// flusher's own commits pass it, from the flusher goroutine.
+func (ls *LocalStorage) commitAuditBatchHeld(held *auditBatchPipeline, batch []*auditBatchItem) []error {
+	ctx := withHeldAuditConn(batch[0].ctx, held) // auditWriteContext-derived; every item's ctx carries the same fixed deadline shape
+	return ls.finishAuditBatch(held, batch, ls.commitBatchWithBusyRetry(ctx, batch))
+}
+
+// finishAuditBatch is commitAuditBatch after batch's first attempt returned
+// err: nil fails nothing, a single item gets err, a batch-global contention
+// error fails every item, anything else bisects. The pipelined batches'
+// completion (local_audit_chain_pipelined_batches.go) enters here with the
+// outcome of an attempt it ran itself, so a pipelined batch is retried and
+// isolated exactly like one the flusher committed serially.
+func (ls *LocalStorage) finishAuditBatch(held *auditBatchPipeline, batch []*auditBatchItem, err error) []error {
 	recordAuditFlush(len(batch))
 	if err == nil {
 		return make([]error, len(batch))
@@ -875,8 +914,8 @@ func (ls *LocalStorage) commitAuditBatch(batch []*auditBatchItem) []error {
 		return errs
 	}
 	mid := len(batch) / 2
-	left := ls.commitAuditBatch(batch[:mid])
-	right := ls.commitAuditBatch(batch[mid:])
+	left := ls.commitAuditBatchHeld(held, batch[:mid])
+	right := ls.commitAuditBatchHeld(held, batch[mid:])
 	return append(left, right...)
 }
 

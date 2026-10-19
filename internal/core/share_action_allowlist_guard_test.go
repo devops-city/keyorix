@@ -9,6 +9,10 @@
 //   - something other than the share term reaches the un-allowlisted share lookup
 //     (activeShareGrant), which would be a second, unguarded share path.
 //
+// The third property (only the share term reaches activeShareGrant) is a pure source scan
+// and lives in guards/share_action_allowlist_guard_test.go; the rest need the SecretAction
+// type and secretActionShareElevates, so they stay here.
+//
 // The transport halves (every secrets.write route/RPC names its action) are
 // server/http/share_authz_route_guard_test.go and
 // server/grpc/services/share_authz_rpc_guard_test.go; the behavioural matrices are
@@ -20,8 +24,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -91,28 +93,6 @@ func TestSecretActionAllowlist_ElevatedSetIsExactlyTheDecision(t *testing.T) {
 	assert.Equal(t, []string{string(SecretActionRotate), string(SecretActionUpdate), string(SecretActionUpdateMetadata)}, got,
 		"Andrei 2026-10-10 19:33: a write share elevates ONLY update value, update metadata and rotate. Widening this "+
 			"is a product decision, not a code change")
-}
-
-func TestSecretActionAllowlist_OnlyTheShareTermReachesTheRawShareLookup(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	require.NoError(t, err)
-	callers := map[string]bool{}
-	for _, file := range files {
-		if strings.HasSuffix(file, "_test.go") {
-			continue
-		}
-		src, rerr := os.ReadFile(file) // #nosec G304 -- this package's own source files
-		require.NoError(t, rerr)
-		f, perr := parser.ParseFile(token.NewFileSet(), file, src, 0)
-		require.NoError(t, perr)
-		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil && bodyCalls(fd.Body, "activeShareGrant") {
-				callers[fd.Name.Name] = true
-			}
-		}
-	}
-	assert.Equal(t, map[string]bool{"sharePermissionFor": true, "shareCoversButNotElevated": true}, callers,
-		"activeShareGrant ignores the action allowlist: only the share term (and the refusal explainer) may call it")
 }
 
 // TestSecretActionAllowlist_ShareTermDecidesPerAction: behavioural, real storage. A

@@ -25,28 +25,25 @@ import (
 // liveCheckStore serves GetUser / GetSessionByID from fixed answers and
 // forwards GetSessionAuthLiveness to ComposeSessionAuthLiveness over itself,
 // unless combinedErr is set (a failure of the combined read itself).
-type liveCheckStore struct {
-	storage.Storage
-	user        *models.User
-	userErr     error
-	session     *models.Session
-	sessionErr  error
-	combinedErr error
-}
-
-func (s *liveCheckStore) GetUser(context.Context, uint) (*models.User, error) {
-	return s.user, s.userErr
-}
-
-func (s *liveCheckStore) GetSessionByID(context.Context, uint) (*models.Session, error) {
-	return s.session, s.sessionErr
-}
-
-func (s *liveCheckStore) GetSessionAuthLiveness(ctx context.Context, userID, sessionID uint) (*storage.SessionAuthLiveness, error) {
-	if s.combinedErr != nil {
-		return nil, s.combinedErr
+//
+// There is no inner store (a pure spy): any method not answered here panics on the
+// nil inner store. hookStore composes the combined read over itself whenever GetUser
+// or GetSessionByID is hooked, which is the forward this stub used to write by hand.
+func liveCheckStore(user *models.User, userErr error, session *models.Session, sessionErr, combinedErr error) *hookStore {
+	h := &storeHooks{
+		GetUser: func(storage.Storage, context.Context, uint) (*models.User, error) {
+			return user, userErr
+		},
+		GetSessionByID: func(storage.Storage, context.Context, uint) (*models.Session, error) {
+			return session, sessionErr
+		},
 	}
-	return storage.ComposeSessionAuthLiveness(ctx, s, userID, sessionID), nil
+	if combinedErr != nil {
+		h.GetSessionAuthLiveness = func(storage.Storage, context.Context, uint, uint) (*storage.SessionAuthLiveness, error) {
+			return nil, combinedErr
+		}
+	}
+	return hooked(nil, h)
 }
 
 func TestSessionCacheHitLiveness_MatchesTheTwoChecks(t *testing.T) {
@@ -102,7 +99,7 @@ func TestSessionCacheHitLiveness_MatchesTheTwoChecks(t *testing.T) {
 		for _, sc := range sessions {
 			for _, withSession := range []bool{true, false} {
 				name := fmt.Sprintf("user=%s/session=%s/with-id=%v", uc.name, sc.name, withSession)
-				st := &liveCheckStore{user: uc.user, userErr: uc.err, session: sc.session, sessionErr: sc.err}
+				st := liveCheckStore(uc.user, uc.err, sc.session, sc.err, nil)
 				c := NewKeyorixCore(st)
 				c.now = func() time.Time { return now }
 
@@ -135,7 +132,7 @@ func TestSessionCacheHitLiveness_MatchesTheTwoChecks(t *testing.T) {
 // not "unusable", not "not live".
 func TestSessionCacheHitLiveness_CombinedReadFailureIsIndeterminateOnBothHalves(t *testing.T) {
 	errDown := errors.New("connection refused")
-	c := NewKeyorixCore(&liveCheckStore{combinedErr: errDown})
+	c := NewKeyorixCore(liveCheckStore(nil, nil, nil, nil, errDown))
 	id := uint(3)
 	got := c.SessionCacheHitLiveness(context.Background(), 7, &id, "tok")
 	require.ErrorIs(t, got.AccountErr, errDown)

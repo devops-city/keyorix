@@ -51,7 +51,7 @@ file name), git reports an add/add conflict instead of silently keeping both.
   ```markdown
   - **INV-CORE-mfa-purpose-binding** Every MFA step-up consume pins a hardcoded purpose
     constant. Why: confused-deputy step-up bypass. Guard:
-    `mfa_stepup_purpose_guard_test.go:TestMFAStepUpConsumersUseExpectedPurpose`.
+    `internal/core/guards/mfa_stepup_purpose_guard_test.go:TestMFAStepUpConsumersUseExpectedPurpose`.
   <!-- section: Authorization ceiling -->
   ```
 

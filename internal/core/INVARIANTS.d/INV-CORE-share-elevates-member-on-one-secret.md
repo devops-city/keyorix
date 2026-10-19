@@ -29,8 +29,8 @@
   `ErrShareRecipientNotMember`, ...) transports turn into the same user-facing reason via
   `ShareRefusalMessage` (#2976). Why: #2941 (a `write` share let nothing happen because the
   role-only route gates refused first, and the gRPC gate was role-only too), #2976 (bare 403).
-  Guard: `share_authz_guard_test.go` (`TestShareTerm_DecisionFunctionsConsultIt`,
-  structural; `TestShareTerm_AuthorizeSecret_MaxOfRoleAndShare`,
+  Guard: `guards/share_authz_guard_test.go` (`TestShareTerm_DecisionFunctionsConsultIt`,
+  structural); `share_authz_guard_test.go` (`TestShareTerm_AuthorizeSecret_MaxOfRoleAndShare`,
   `TestShareTerm_CheckSecretPermission_NonMemberShareGrantsNothing`, behavioural with real
   storage); transport halves `server/http/share_authz_route_guard_test.go`
   (`TestEveryPerSecretRoute_UsesShareAwareGate` over router.go's AST inventory,
@@ -41,7 +41,8 @@
   `server/grpc/services/share_elevation_2941_test.go`. Allowlist (#3001 follow-up):
   `share_action_allowlist_guard_test.go` (every action has an explicit decision; the elevated
   set is exactly the decision; only the share term reaches the raw share lookup; per-action
-  behaviour; record-then-commit audit), `TestShareAwareWriteRoutes_NameTheirAction`,
+  behaviour; record-then-commit audit; `TestSecretActionAllowlist_OnlyTheShareTermReachesTheRawShareLookup`
+  lives in `guards/share_action_allowlist_guard_test.go`), `TestShareAwareWriteRoutes_NameTheirAction`,
   `TestSecretsWriteRPCs_NameTheirAction`, `TestServerChain_HasShareElevationAuditInterceptor`,
   and the per-route matrices `server/http/share_write_allowlist_test.go` (every secrets.write
   REST route from router.go's AST) and `server/grpc/services/share_write_allowlist_test.go`
