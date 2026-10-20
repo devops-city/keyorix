@@ -746,6 +746,11 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 		log.Printf("access log: server.access_log.on_sink_stall=%s (no line is dropped; requests wait for a stalled sink)", mode)
 	}
 
+	// SCIM + SSO JIT on one install: JIT-created accounts are not SCIM-managed.
+	if w := config.SCIMJITUnmanagedWarning(cfg.SCIMJITUnmanagedProviders()); w != "" {
+		log.Print(w)
+	}
+
 	// Top up the canonical RBAC permission catalog (ADR-044): adds any permission
 	// introduced in a later release to an already-initialised install, granting it to
 	// its baseline roles. No-op pre-bootstrap and best-effort (never blocks startup).

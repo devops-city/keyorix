@@ -183,6 +183,7 @@ func validateStartup(configPath string, forceAutoFix bool, tolerateUnprovisioned
 	result.EffectiveAuditDurability = cfg.Storage.Database.EffectiveAuditDurability(cfg.Storage.Type)
 	appendAccessLogPosture(cfg, result)
 	appendAuditSkipReadsPosture(cfg, result)
+	appendSCIMJITPosture(cfg, result)
 
 	return result, nil
 }
