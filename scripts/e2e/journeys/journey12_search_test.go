@@ -48,8 +48,8 @@ func TestJourney_Search(t *testing.T) {
 	envBID := environmentID(t, s, adminToken, projBID, envName)
 
 	createSecret := func(projID, envID int, name string) {
-		runCLI(t, cliBin, aEnv, "secret", "create", "--name", name,
-			"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", "v-"+name)
+		runCLISecret(t, cliBin, aEnv, "v-"+name, "secret", "create", "--name", name,
+			"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 	}
 	createSecret(projAID, envAID, "needle-alpha-1")
 	createSecret(projAID, envAID, "needle-alpha-2")
@@ -57,7 +57,7 @@ func TestJourney_Search(t *testing.T) {
 	createSecret(projBID, envBID, "needle-beta-1")
 	createSecret(projBID, envBID, "other-b")
 
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", searcherU, "--email", searcherEml, "--password", searcherPwd)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+searcherPwd), "user", "create", "--username", searcherU, "--email", searcherEml)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", searcherEml, "--role", "project_viewer", "--project", projA)
 	// No grant on projB at all -- the caller under test can see project A only.
 

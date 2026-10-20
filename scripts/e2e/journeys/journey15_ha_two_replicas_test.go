@@ -119,8 +119,8 @@ func TestJourney_HATwoReplicas(t *testing.T) {
 	runCLI(t, cliBin, aEnvA, "project", "create", "--name", projName)
 	projID := projectID(t, sA, adminToken, projName)
 	envID := environmentID(t, sA, adminToken, projID, envName)
-	runCLI(t, cliBin, aEnvA, "secret", "create", "--name", secretName,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", secretValue)
+	runCLISecret(t, cliBin, aEnvA, secretValue, "secret", "create", "--name", secretName,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 	secID := secretID(t, sA, adminToken, projID, envID, secretName)
 
 	readFromB := restExpect(t, sB, adminToken, http.MethodGet,
