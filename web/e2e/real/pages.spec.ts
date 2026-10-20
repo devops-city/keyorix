@@ -226,7 +226,11 @@ test('demo seed: Compliance shows a healthy posture with exactly one deliberate 
     const gapRows = page.getByRole('listitem').filter({ has: page.getByText('Gap', { exact: true }) });
     await expect(gapRows).toHaveCount(1);
     await expect(gapRows.first()).toContainText('Secret-rotation hygiene');
-    await expect(gapRows.first()).toContainText('2 of 3 secrets covered');
+    // Exactly one secret uncovered (payments-webhook-secret), whatever the seed's total is.
+    const gapText = (await gapRows.first().innerText());
+    const m = /(\d+) of (\d+) secrets covered/.exec(gapText);
+    expect(m, `gap detail: ${gapText}`).not.toBeNull();
+    expect(Number(m![1])).toBe(Number(m![2]) - 1);
 
     // The posture tiles agree with the matrix: nothing else is amber.
     const tile = (label: string) => page.locator('div.rounded-lg').filter({ hasText: label });

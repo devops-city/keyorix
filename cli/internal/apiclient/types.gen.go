@@ -538,7 +538,10 @@ type Environment struct {
 	Id        *int       `json:"id,omitempty"`
 	Name      *string    `json:"name,omitempty"`
 	ProjectId *int       `json:"project_id,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// SecretCount Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+	SecretCount *int64     `json:"secret_count,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 // ExpiringSecretEntry defines model for ExpiringSecretEntry.

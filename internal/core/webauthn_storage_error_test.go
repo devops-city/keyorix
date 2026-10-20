@@ -31,56 +31,46 @@ import (
 // individual WebAuthn-related methods to return a fixed error, leaving
 // everything else (including the OTHER WebAuthn methods) to the real
 // implementation.
-type webauthnStorageErrStub struct {
-	corestorage.Storage
-	createSessionErr error
-	listCredsErr     error
-	createCredErr    error
-	deleteCredErr    error
-	countCredsErr    error
-	setEnabledErr    error
-}
-
-func (s *webauthnStorageErrStub) CreateWebAuthnSession(ctx context.Context, sess *models.WebAuthnSession) error {
-	if s.createSessionErr != nil {
-		return s.createSessionErr
-	}
-	return s.Storage.CreateWebAuthnSession(ctx, sess)
-}
-
-func (s *webauthnStorageErrStub) ListWebAuthnCredentials(ctx context.Context, userID uint) ([]*models.WebAuthnCredential, error) {
-	if s.listCredsErr != nil {
-		return nil, s.listCredsErr
-	}
-	return s.Storage.ListWebAuthnCredentials(ctx, userID)
-}
-
-func (s *webauthnStorageErrStub) CreateWebAuthnCredential(ctx context.Context, cred *models.WebAuthnCredential) error {
-	if s.createCredErr != nil {
-		return s.createCredErr
-	}
-	return s.Storage.CreateWebAuthnCredential(ctx, cred)
-}
-
-func (s *webauthnStorageErrStub) DeleteWebAuthnCredential(ctx context.Context, userID, id uint) error {
-	if s.deleteCredErr != nil {
-		return s.deleteCredErr
-	}
-	return s.Storage.DeleteWebAuthnCredential(ctx, userID, id)
-}
-
-func (s *webauthnStorageErrStub) CountWebAuthnCredentials(ctx context.Context, userID uint) (int64, error) {
-	if s.countCredsErr != nil {
-		return 0, s.countCredsErr
-	}
-	return s.Storage.CountWebAuthnCredentials(ctx, userID)
-}
-
-func (s *webauthnStorageErrStub) SetUserWebAuthnEnabled(ctx context.Context, userID uint, enabled bool) error {
-	if s.setEnabledErr != nil {
-		return s.setEnabledErr
-	}
-	return s.Storage.SetUserWebAuthnEnabled(ctx, userID, enabled)
+func webauthnStorageErrStub(inner corestorage.Storage, createSessionErr error, listCredsErr error, createCredErr error, deleteCredErr error, countCredsErr error, setEnabledErr error) corestorage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		CreateWebAuthnSession: func(next corestorage.Storage, ctx context.Context, sess *models.WebAuthnSession) error {
+			if createSessionErr != nil {
+				return createSessionErr
+			}
+			return next.CreateWebAuthnSession(ctx, sess)
+		},
+		ListWebAuthnCredentials: func(next corestorage.Storage, ctx context.Context, userID uint) ([]*models.WebAuthnCredential, error) {
+			if listCredsErr != nil {
+				return nil, listCredsErr
+			}
+			return next.ListWebAuthnCredentials(ctx, userID)
+		},
+		CreateWebAuthnCredential: func(next corestorage.Storage, ctx context.Context, cred *models.WebAuthnCredential) error {
+			if createCredErr != nil {
+				return createCredErr
+			}
+			return next.CreateWebAuthnCredential(ctx, cred)
+		},
+		DeleteWebAuthnCredential: func(next corestorage.Storage, ctx context.Context, userID, id uint) error {
+			if deleteCredErr != nil {
+				return deleteCredErr
+			}
+			return next.DeleteWebAuthnCredential(ctx, userID, id)
+		},
+		CountWebAuthnCredentials: func(next corestorage.Storage, ctx context.Context, userID uint) (int64, error) {
+			if countCredsErr != nil {
+				return 0, countCredsErr
+			}
+			return next.CountWebAuthnCredentials(ctx, userID)
+		},
+		SetUserWebAuthnEnabled: func(next corestorage.Storage, ctx context.Context, userID uint, enabled bool) error {
+			if setEnabledErr != nil {
+				return setEnabledErr
+			}
+			return next.SetUserWebAuthnEnabled(ctx, userID, enabled)
+		},
+	})
 }
 
 // WithTransaction re-wraps itself across the transaction boundary so an
@@ -90,23 +80,13 @@ func (s *webauthnStorageErrStub) SetUserWebAuthnEnabled(ctx context.Context, use
 // override, the closure would receive the REAL underlying tx handle and every
 // injected error above would silently stop firing once those calls moved
 // inside WithTransaction.
-func (s *webauthnStorageErrStub) WithTransaction(ctx context.Context, fn func(corestorage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx corestorage.Storage) error {
-		return fn(&webauthnStorageErrStub{
-			Storage: tx, createSessionErr: s.createSessionErr, listCredsErr: s.listCredsErr,
-			createCredErr: s.createCredErr, deleteCredErr: s.deleteCredErr,
-			countCredsErr: s.countCredsErr, setEnabledErr: s.setEnabledErr,
-		})
-	})
-}
-
 // ── storeWebAuthnSession ──────────────────────────────────────────────────
 
 func TestStoreWebAuthnSession_StorageErrorPropagates(t *testing.T) {
 	t.Parallel()
 	c, _ := newWebAuthnTestCore(t, true)
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, createSessionErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, wantErr, nil, nil, nil, nil, nil)
 
 	_, err := c.storeWebAuthnSession(context.Background(), 1, "login", &webauthn.SessionData{})
 	require.Error(t, err)
@@ -119,7 +99,7 @@ func TestBeginWebAuthnRegistration_StoreSessionFails(t *testing.T) {
 	t.Parallel()
 	c, _ := newWebAuthnTestCore(t, true)
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, createSessionErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, wantErr, nil, nil, nil, nil, nil)
 
 	_, _, err := c.BeginWebAuthnRegistration(context.Background(), 1)
 	require.Error(t, err)
@@ -143,7 +123,7 @@ func TestBeginWebAuthnLogin_LoadUserFails(t *testing.T) {
 	require.NoError(t, err)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, listCredsErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, nil, wantErr, nil, nil, nil, nil)
 
 	_, _, err = c.BeginWebAuthnLogin(context.Background(), ch)
 	require.Error(t, err)
@@ -158,7 +138,7 @@ func TestBeginWebAuthnLogin_StoreSessionFails(t *testing.T) {
 	require.NoError(t, err)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, createSessionErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, wantErr, nil, nil, nil, nil, nil)
 
 	_, _, err = c.BeginWebAuthnLogin(context.Background(), ch)
 	require.Error(t, err)
@@ -171,7 +151,7 @@ func TestBeginWebAuthnPasswordlessLogin_StoreSessionFails(t *testing.T) {
 	t.Parallel()
 	c, _ := newWebAuthnTestCore(t, true)
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, createSessionErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, wantErr, nil, nil, nil, nil, nil)
 
 	_, _, err := c.BeginWebAuthnPasswordlessLogin(context.Background())
 	require.Error(t, err)
@@ -216,7 +196,7 @@ func TestFinishWebAuthnRegistration_CreateCredentialStorageFails(t *testing.T) {
 	require.NoError(t, err)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, createCredErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, nil, nil, wantErr, nil, nil, nil)
 
 	_, err = c.FinishWebAuthnRegistration(ctx, 1, token, "yubikey", webauthnTestPassword, parsed)
 	require.Error(t, err)
@@ -250,7 +230,7 @@ func TestFinishWebAuthnRegistration_SetEnabledStorageFails(t *testing.T) {
 	require.NoError(t, err)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, setEnabledErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, nil, nil, nil, nil, nil, wantErr)
 
 	_, err = c.FinishWebAuthnRegistration(ctx, 1, token, "yubikey", webauthnTestPassword, parsed)
 	require.Error(t, err)
@@ -312,7 +292,7 @@ func TestDeleteWebAuthnCredential_StorageDeleteFails(t *testing.T) {
 	require.NoError(t, db.Where("user_id = ?", 1).First(&cred).Error)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, deleteCredErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, nil, nil, nil, wantErr, nil, nil)
 
 	err := c.DeleteWebAuthnCredential(context.Background(), 1, cred.ID, webauthnTestPassword)
 	require.Error(t, err)
@@ -328,7 +308,7 @@ func TestDeleteWebAuthnCredential_CountFails(t *testing.T) {
 	require.NoError(t, db.Where("user_id = ?", 1).First(&cred).Error)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, countCredsErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, nil, nil, nil, nil, wantErr, nil)
 
 	err := c.DeleteWebAuthnCredential(context.Background(), 1, cred.ID, webauthnTestPassword)
 	require.Error(t, err)
@@ -352,7 +332,7 @@ func TestDeleteWebAuthnCredential_SetEnabledFalseFails(t *testing.T) {
 	require.NoError(t, db.Where("user_id = ?", 1).First(&cred).Error)
 
 	wantErr := errors.New("db down")
-	c.storage = &webauthnStorageErrStub{Storage: c.storage, setEnabledErr: wantErr}
+	c.storage = webauthnStorageErrStub(c.storage, nil, nil, nil, nil, nil, wantErr)
 
 	err := c.DeleteWebAuthnCredential(context.Background(), 1, cred.ID, webauthnTestPassword)
 	require.Error(t, err)

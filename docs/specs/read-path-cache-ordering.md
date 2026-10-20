@@ -366,7 +366,7 @@ Two incidental simplifications fall out and are called out because they are beha
 ## 3. Item 2 — the no-bypass guard
 
 `internal/storage/store/read_path_cache_guard_test.go`, in the style of the existing structural
-guards (`internal/core/atomicity_guard_test.go`, `check_then_act_lock_guard_test.go`,
+guards (`internal/core/guards/atomicity_guard_test.go`, `check_then_act_lock_guard_test.go`,
 `internal/storage/store/g81_guard_test.go`): parse the package's AST, derive the thing being
 checked from the code, fail on a violation.
 

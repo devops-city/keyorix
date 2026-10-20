@@ -2,7 +2,8 @@
 
 ## Status
 
-**Proposed** (2026-10-02). Two decisions are already recorded (see "Decisions recorded"); the remaining open questions are listed at the end.
+**Proposed** (2026-10-02). *Implementation note (not a status change):* the behaviour of Amendments 1, 3 and 4 is shipped on main
+(`audit_durability`, `insecure_audit_skip_reads`; `docs/UPGRADING.md` §6c to §6e); whether the ADR's status becomes Accepted is the maintainer's decision. Two decisions are already recorded (see "Decisions recorded"); the remaining open questions are listed at the end.
 
 Amended 2026-10-05 (decision by Andrei, "Amendment 1" below): the
 audit-before-disclosure and `synchronous` baseline items gain one named

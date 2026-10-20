@@ -35,7 +35,7 @@ func newPrefetchWorld(t *testing.T, backend string) prefetchWorld {
 func newPrefetchWorldWith(t *testing.T, backend string, prep func(*LocalStorage)) prefetchWorld {
 	t.Helper()
 	ls, _ := newPrincipalPermStorage(t, backend)
-	require.NoError(t, ls.db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}))
+	require.NoError(t, ls.db.AutoMigrate(&models.SecretNode{}, &models.SecretVersion{}, &models.SecretAccessSchedule{}, &models.ShareRecord{}, &models.SecretACL{}, &models.AccessRequest{}))
 	if prep != nil {
 		prep(ls)
 	}

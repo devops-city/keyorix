@@ -61,7 +61,7 @@ func freshCoreS11(t *testing.T) *core.KeyorixCore {
 		&models.SecretDependency{}, &models.RiskException{},
 		&models.MFASecret{}, &models.MFARecoveryCode{},
 		&models.IdentityProvider{}, &models.ExternalIdentity{},
-		&models.LegalHold{}, &models.ShareRecord{},
+		&models.LegalHold{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.PersonalAccessToken{},
 		&models.ProjectInvitation{}, &models.SchedulerLockLease{},
 		&models.SecretAccessLog{},
@@ -1708,7 +1708,7 @@ func TestRestoreProject_HappyPath_S11(t *testing.T) {
 	// Create then soft-delete a project.
 	proj, err := cs.CreateProject(ctx, "s11restoreproj", "")
 	require.NoError(t, err)
-	err = cs.DeleteProject(ctx, proj.ID, false)
+	err = cs.DeleteProject(ctx, 0, proj.ID, false)
 	require.NoError(t, err)
 
 	r := withUserCtx(httptest.NewRequest(http.MethodPost,

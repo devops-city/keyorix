@@ -58,13 +58,17 @@ func TestMFA_UpsertGetActivate(t *testing.T) {
 	_, err = ls.GetMFASecret(ctx, 99)
 	require.Error(t, err)
 
-	// Upsert (update — replaces the row).
-	require.NoError(t, ls.UpsertMFASecret(ctx, &models.MFASecret{
+	// Upsert over the now-ACTIVATED row is refused and writes nothing (#2692);
+	// this used to assert the replace, which was the bug. Replacing a pending
+	// row is covered by TestUpsertMFASecret_NeverReplacesActivatedSecret.
+	err = ls.UpsertMFASecret(ctx, &models.MFASecret{
 		UserID: 1, SecretEnc: []byte("enc2"), SecretMeta: []byte("meta2"), Activated: false,
-	}))
+	})
+	require.ErrorIs(t, err, coreStorage.ErrMFASecretActivated)
 	got3, err := ls.GetMFASecret(ctx, 1)
 	require.NoError(t, err)
-	assert.Equal(t, []byte("enc2"), got3.SecretEnc)
+	assert.Equal(t, []byte("enc"), got3.SecretEnc)
+	assert.True(t, got3.Activated)
 }
 
 func TestMFA_MarkTOTPStepUsed(t *testing.T) {

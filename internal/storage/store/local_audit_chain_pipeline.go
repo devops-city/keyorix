@@ -98,8 +98,21 @@ func (ls *LocalStorage) commitBatchAttemptPipelined(ctx context.Context, batch [
 			return err
 		}
 		ls.auditHead.missedOneFlight()
-		epoch, _, _ = ls.auditHead.begin()
+		return ls.commitBatchTwoFlights(ctx, batch)
 	}
+	return ls.commitBatchTwoFlightsUnder(ctx, epoch, batch)
+}
+
+// commitBatchTwoFlights is the two-flight attempt that follows a one-flight
+// attempt which provably wrote nothing (here and in the pipelined batches'
+// completion, local_audit_chain_pipelined_batches.go): it re-reads the head
+// under the lock, and its result is the attempt's result.
+func (ls *LocalStorage) commitBatchTwoFlights(ctx context.Context, batch []*auditBatchItem) error {
+	epoch, _, _ := ls.auditHead.begin()
+	return ls.commitBatchTwoFlightsUnder(ctx, epoch, batch)
+}
+
+func (ls *LocalStorage) commitBatchTwoFlightsUnder(ctx context.Context, epoch uint64, batch []*auditBatchItem) error {
 	return ls.withAuditPipelineConn(ctx, func(pc *pgx.Conn) error {
 		read, last, err := ls.runAuditPipeline(ctx, pc, batch)
 		if err != nil {
@@ -115,7 +128,19 @@ func (ls *LocalStorage) commitBatchAttemptPipelined(ctx context.Context, batch [
 // The connection goes back to the pool idle, or closed (and so discarded by
 // database/sql) when it cannot be brought back to idle; it never goes back
 // inside a transaction.
+//
+// A commit the flusher runs itself carries the flusher's pipeline in ctx
+// (withHeldAuditConn): it then runs on the connection the flusher holds, not a
+// second pool connection, which on a one-connection pool would never come. A
+// held connection that broke is handed back to the pool first.
 func (ls *LocalStorage) withAuditPipelineConn(ctx context.Context, fn func(*pgx.Conn) error) error {
+	if p, ok := ctx.Value(auditHeldConnKey{}).(*auditBatchPipeline); ok && p.conn != nil && p.run == nil {
+		if pc := p.conn.pc; !pc.IsClosed() {
+			defer leaveAuditConnIdle(pc)
+			return fn(pc)
+		}
+		p.releaseConn()
+	}
 	sqlDB, ok := ls.db.Statement.ConnPool.(*sql.DB)
 	if !ok {
 		return errAuditPipelineUnavailable
@@ -252,6 +277,13 @@ func (f *auditFlight) queue(sql string, vars ...any) {
 func (f *auditFlight) send(pc *pgx.Conn) {
 	f.begin = time.Now()
 	f.br = pc.SendBatch(f.ctx, &f.batch)
+}
+
+// attach makes br the source of the flight's results: a run's pipeline
+// (local_audit_chain_pipelined_batches.go) sends the statements itself.
+func (f *auditFlight) attach(br pgx.BatchResults) {
+	f.begin = time.Now()
+	f.br = br
 }
 
 // done traces the next statement's outcome and passes err through.

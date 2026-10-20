@@ -29,7 +29,7 @@
 # docs/check-then-act-lock-exempt.d/, not here.
 #
 # GUARD-2 Item 4: reviewed exemptions for TestCheckThenActLockGuard_UnlockedSecurityCheck
-# (internal/core/check_then_act_lock_guard_test.go). Every hit from this guard's first run
+# (internal/core/guards/check_then_act_lock_guard_test.go). Every hit from this guard's first run
 # (31) was read against the real code and classified below. The first classification said
 # none was a genuine cross-replica race; the independent second review (see the review
 # column and the block below) found 13 that are. See

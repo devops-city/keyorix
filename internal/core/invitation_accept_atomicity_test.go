@@ -17,17 +17,16 @@ import (
 // storage write inviteMemberWithMode makes, so it forces
 // applyInvitationGrants to fail for a project-scoped invite (the shape
 // completeInvitationAccept uses when inv.SystemRole == "" && inv.AssignmentsJSON == "").
-type failOnceCreateProjectMembershipStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failOnceCreateProjectMembershipStorage) CreateProjectMembership(ctx context.Context, m *models.ProjectMembership) (*models.ProjectMembership, error) {
-	if *s.armed {
-		*s.armed = false
-		return nil, errors.New("injected fault: CreateProjectMembership")
-	}
-	return s.Storage.CreateProjectMembership(ctx, m)
+func failOnceCreateProjectMembershipStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		CreateProjectMembership: func(next storage.Storage, ctx context.Context, m *models.ProjectMembership) (*models.ProjectMembership, error) {
+			if *armed {
+				*armed = false
+				return nil, errors.New("injected fault: CreateProjectMembership")
+			}
+			return next.CreateProjectMembership(ctx, m)
+		},
+	})
 }
 
 // inviteAcceptFixture builds a bootstrapped core with a pending project
@@ -78,7 +77,7 @@ func TestCompleteInvitationAccept_GrantFailureRecoverableViaResend(t *testing.T)
 	inv := inviteAcceptFixture(t, c, st, proj.ID, 1, email, rawToken)
 
 	armed := true
-	c.storage = &failOnceCreateProjectMembershipStorage{Storage: st, armed: &armed}
+	c.storage = failOnceCreateProjectMembershipStorage(st, &armed)
 
 	_, err = c.CompleteSetup(ctx, rawToken, strongPw, "ua", "1.2.3.4")
 	require.Error(t, err, "grants failure must surface as an error, not a silent partial success")

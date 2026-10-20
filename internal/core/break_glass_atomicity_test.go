@@ -16,21 +16,15 @@ import (
 // handle ActivateBreakGlass actually uses: WithTransaction re-wraps the
 // transaction-scoped handle so the fault fires inside the transaction too
 // (an embedded Storage would hand the callback the bare, un-faulted handle).
-type failBreakGlassGrantStorage struct {
-	storage.Storage
-	armed *bool
-}
-
-func (s *failBreakGlassGrantStorage) AssignRoleWithExpiry(ctx context.Context, userID, roleID uint, scope storage.Scope, expiresAt time.Time) error {
-	if *s.armed {
-		return errors.New("injected fault: AssignRoleWithExpiry")
-	}
-	return s.Storage.AssignRoleWithExpiry(ctx, userID, roleID, scope, expiresAt)
-}
-
-func (s *failBreakGlassGrantStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failBreakGlassGrantStorage{Storage: tx, armed: s.armed})
+func failBreakGlassGrantStorage(inner storage.Storage, armed *bool) storage.Storage {
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		AssignRoleWithExpiry: func(next storage.Storage, ctx context.Context, userID, roleID uint, scope storage.Scope, expiresAt time.Time) error {
+			if *armed {
+				return errors.New("injected fault: AssignRoleWithExpiry")
+			}
+			return next.AssignRoleWithExpiry(ctx, userID, roleID, scope, expiresAt)
+		},
 	})
 }
 
@@ -57,7 +51,7 @@ func TestActivateBreakGlass_FailedGrantLeavesNoActivationRecord(t *testing.T) {
 	})
 
 	armed := true
-	c.storage = &failBreakGlassGrantStorage{Storage: st, armed: &armed}
+	c.storage = failBreakGlassGrantStorage(st, &armed)
 
 	_, err = c.ActivateBreakGlass(ctx, proj.ID, u.ID, "prod incident, needs immediate access", "")
 	require.Error(t, err)

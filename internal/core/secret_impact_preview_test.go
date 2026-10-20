@@ -34,7 +34,7 @@ func newImpactPreviewCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.AuditEvent{},
 		&models.Project{},
 		&models.Environment{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.User{}, &models.Role{}, &models.UserRole{}, &models.Permission{}, &models.RolePermission{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{}, &models.MachineIdentityRole{}, &models.SecretACL{},
 	))

@@ -107,24 +107,27 @@ var childFKTargets = map[string]string{
 	"DynamicSecretLease.ConfigID":        "DynamicSecretConfig",
 	"ShareRecord.RecipientID":            "User", // or Group when IsGroup; both are liveness parents
 	"ShareSummary.RecipientID":           "-",    // response DTO, not a table
-	"RecentShareInfo.RecipientID":        "-",
-	"AccessReviewItem.PrincipalID":       "-", // polymorphic (user/group/machine) snapshot of a review subject, not a live grant
-	"AccessReviewItem.EnvironmentID":     "-", // descriptive snapshot column of a review item
-	"AccessReviewItem.SecretID":          "-", // descriptive snapshot column of a review item
-	"AuditEvent.UserID":                  "-", // audit rows are append-only history; they must outlive their subject
-	"AuditEvent.SecretNodeID":            "-",
-	"AuditEvent.ProjectID":               "-",
-	"APICallLog.UserID":                  "-", // request log, history
-	"SecretAccessLog.SecretNodeID":       "-", // access history
-	"SecretMetadataHistory.SecretNodeID": "-", // history
-	"AnomalyAlert.SecretNodeID":          "-", // detection history
-	"SecretListFilter.ProjectID":         "-", // query DTO, not a table
-	"SecretListFilter.EnvironmentID":     "-",
-	"SecretListFilter.ParentID":          "-",
-	"SecretVersionComment.SecretID":      "SecretNode",
-	"StatsSnapshot.UserID":               "-", // metrics snapshot
-	"Setting.UserID":                     "User",
-	"GRPCService.Name":                   "-",
+	// #3433 cascade marker: names the project whose soft-delete suspended the identity,
+	// i.e. a parent that is deleted by definition while the marker is set; not a live parent.
+	"MachineIdentity.CascadeSuspendedProjectID": "-",
+	"RecentShareInfo.RecipientID":               "-",
+	"AccessReviewItem.PrincipalID":              "-", // polymorphic (user/group/machine) snapshot of a review subject, not a live grant
+	"AccessReviewItem.EnvironmentID":            "-", // descriptive snapshot column of a review item
+	"AccessReviewItem.SecretID":                 "-", // descriptive snapshot column of a review item
+	"AuditEvent.UserID":                         "-", // audit rows are append-only history; they must outlive their subject
+	"AuditEvent.SecretNodeID":                   "-",
+	"AuditEvent.ProjectID":                      "-",
+	"APICallLog.UserID":                         "-", // request log, history
+	"SecretAccessLog.SecretNodeID":              "-", // access history
+	"SecretMetadataHistory.SecretNodeID":        "-", // history
+	"AnomalyAlert.SecretNodeID":                 "-", // detection history
+	"SecretListFilter.ProjectID":                "-", // query DTO, not a table
+	"SecretListFilter.EnvironmentID":            "-",
+	"SecretListFilter.ParentID":                 "-",
+	"SecretVersionComment.SecretID":             "SecretNode",
+	"StatsSnapshot.UserID":                      "-", // metrics snapshot
+	"Setting.UserID":                            "User",
+	"GRPCService.Name":                          "-",
 }
 
 func childLiveModelName(m any) (reflect.Type, string) {
@@ -570,6 +573,9 @@ func TestChildParentLiveness_PendingRowsNotExpired(t *testing.T) {
 		exp, err := time.Parse("2006-01-02", r.Expires)
 		require.NoErrorf(t, err, "%s:%d expires must be YYYY-MM-DD or -", childLiveExemptPath, r.Line)
 		require.Truef(t, now.Before(exp.Add(24*time.Hour)), "%s:%d exemption %s expired on %s: %s", childLiveExemptPath, r.Line, r.key(), r.Expires, r.Reason)
+		if days := int(exp.Sub(now.Truncate(24*time.Hour)).Hours() / 24); days <= 3 {
+			t.Logf("WARNING: %s:%d exemption %s expires in %d days (%s): resolve or renew it now, it fails hard the day after", childLiveExemptPath, r.Line, r.key(), days, r.Expires)
+		}
 	}
 }
 

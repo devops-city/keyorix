@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
+	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,13 +22,17 @@ import (
 // access-log reads RunDetection makes, so a test can see how many secrets a pass
 // actually evaluated.
 type countingAnomalyStore struct {
-	*store.LocalStorage
 	perSecretReads atomic.Int64
 }
 
-func (s *countingAnomalyStore) ListSecretAccessLogs(ctx context.Context, secretID uint, since time.Time) ([]models.SecretAccessLog, error) {
-	s.perSecretReads.Add(1)
-	return s.LocalStorage.ListSecretAccessLogs(ctx, secretID, since)
+func newCountingAnomalyStore(db *gorm.DB) (*hookStore, *countingAnomalyStore) {
+	s := &countingAnomalyStore{}
+	return hooked(store.NewLocalStorage(db), &storeHooks{
+		ListSecretAccessLogs: func(next storage.Storage, ctx context.Context, secretID uint, since time.Time) ([]models.SecretAccessLog, error) {
+			s.perSecretReads.Add(1)
+			return next.ListSecretAccessLogs(ctx, secretID, since)
+		},
+	}), s
 }
 
 func newAnomalyTestDB(t testing.TB) *gorm.DB {
@@ -144,8 +149,8 @@ func TestRunDetection_IncrementalSweepDetectsSameAnomaliesAsFullSweep(t *testing
 	run := func(full bool) ([]alertKey, int64) {
 		db := newAnomalyTestDB(t)
 		secrets := seedAnomalyScenario(t, db, now, idle)
-		s := &countingAnomalyStore{LocalStorage: store.NewLocalStorage(db)}
-		d := newScenarioDetector(t, s, now)
+		st, s := newCountingAnomalyStore(db)
+		d := newScenarioDetector(t, st, now)
 		d.fullSweep = full
 		require.NoError(t, d.RunDetection(ctx, secrets))
 		return alertKeys(t, db), s.perSecretReads.Load()
@@ -176,10 +181,12 @@ func TestRunDetection_IncrementalSweepDetectsSameAnomaliesAsFullSweep(t *testing
 func seedAnomalyScenarioActiveIDs() []int { return make([]int, 11) }
 
 // A candidate-query failure must fall back to the full sweep, never skip secrets.
-type failingCandidateStore struct{ *countingAnomalyStore }
-
-func (failingCandidateStore) ListSecretIDsAccessedSince(context.Context, time.Time) ([]uint, error) {
-	return nil, fmt.Errorf("boom")
+func failingCandidateStore(inner *hookStore) *hookStore {
+	h := *inner.h
+	h.ListSecretIDsAccessedSince = func(storage.Storage, context.Context, time.Time) ([]uint, error) {
+		return nil, fmt.Errorf("boom")
+	}
+	return hooked(inner.Storage, &h)
 }
 
 func TestRunDetection_CandidateQueryFailureFallsBackToFullSweep(t *testing.T) {
@@ -187,8 +194,8 @@ func TestRunDetection_CandidateQueryFailureFallsBackToFullSweep(t *testing.T) {
 	now := time.Now().UTC()
 	db := newAnomalyTestDB(t)
 	secrets := seedAnomalyScenario(t, db, now, 20)
-	s := failingCandidateStore{&countingAnomalyStore{LocalStorage: store.NewLocalStorage(db)}}
-	d := newScenarioDetector(t, s, now)
+	counting, s := newCountingAnomalyStore(db)
+	d := newScenarioDetector(t, failingCandidateStore(counting), now)
 	require.NoError(t, d.RunDetection(ctx, secrets))
 	assert.Equal(t, int64(2*len(secrets)), s.perSecretReads.Load(), "every secret evaluated")
 	var n int64

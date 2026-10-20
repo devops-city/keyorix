@@ -54,7 +54,7 @@ cp "$d/pre-rotation.tar.gz" "$EXT/"
 # ---- A. DEK rotation ----------------------------------------------------------
 step "A. DEK rotation: dry run changes nothing"
 out="$(inst_admin "$I" encryption rotate --dry-run 2>&1)" || { echo "$out" >&2; fail "rotate --dry-run failed"; }
-echo "$out" | grep -qi 'dry run complete' || { echo "$out" >&2; fail "dry run did not say it completed"; }
+grep -qi 'dry run complete' <<<"$out" || { echo "$out" >&2; fail "dry run did not say it completed"; }
 dek_before="$(shasum -a 256 "$d/keys/dek.key" | cut -d' ' -f1)"
 ok "dry run: $(echo "$out" | grep -c 'secret_versions') summary line(s), DEK file untouched"
 
@@ -72,7 +72,7 @@ now() { perl -MTime::HiRes=time -e 'printf "%.3f", time'; }
 t0="$(now)"
 out="$(inst_admin "$I" encryption rotate --confirm 2>&1)" || { echo "$out" >&2; fail "rotate --confirm failed"; }
 ROTATE_SECS="$(awk -v a="$t0" -v b="$(now)" 'BEGIN{printf "%.3f", b-a}')"
-echo "$out" | grep -q 'DEK rotated' || { echo "$out" >&2; fail "rotate did not report success"; }
+grep -q 'DEK rotated' <<<"$out" || { echo "$out" >&2; fail "rotate did not report success"; }
 [ "$(shasum -a 256 "$d/keys/dek.key" | cut -d' ' -f1)" != "$dek_before" ] || fail "DEK file unchanged after rotation"
 check_all "after DEK rotation"
 
@@ -115,7 +115,7 @@ out="$(env KEYORIX_NEW_MASTER_PASSWORD="$NEW_PW" bash -c 'cd "$1" && shift && ex
     env KEYORIX_CONFIG_PATH=./keyorix.yaml ${PG_PASS:+KEYORIX_DB_PASSWORD="$PG_PASS"} \
     "$DRILL_SERVER_BIN" admin encryption rotate-kek --confirm --config ./keyorix.yaml 2>&1)" \
     || { echo "$out" >&2; fail "rotate-kek failed"; }
-echo "$out" | grep -q 'KEK rotation complete' || { echo "$out" >&2; fail "rotate-kek did not report completion"; }
+grep -q 'KEK rotation complete' <<<"$out" || { echo "$out" >&2; fail "rotate-kek did not report completion"; }
 ok "rotate-kek complete"
 
 step "C. the OLD passphrase is refused at start with a clear message"

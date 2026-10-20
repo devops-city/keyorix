@@ -1,0 +1,15 @@
+# Allowlist for TestNoTestLeaksTempResources (internal/statemap/test_tempdir_cleanup_guard_test.go).
+#
+# A *_test.go declaration may call os.MkdirTemp / os.CreateTemp without an
+# os.Remove / os.RemoveAll / .Cleanup in the SAME declaration only when it is listed
+# here with the reason (and where the cleanup actually lives). Format:
+#
+#   path/from/repo/root_test.go:DeclName   # reason
+#
+# DeclName is the function name (Recv.Method for methods). Each entry is verified: it
+# must still name a declaration that creates a temp resource without same-declaration
+# cleanup. Prefer t.TempDir() or t.Cleanup over adding a line here.
+
+server/admin_integration_test.go:buildServerBinary  # binary built once per process; the directory is removed by TestMain in the same file
+internal/auditverify/bench_test.go:buildBenchFixture1M  # 1M-row fixture built once per process; the directory is removed by TestMain in the same file
+server/http/canary_secret_leakage_fuzz_test.go:buildCanaryWorld  # directory is recorded in canaryWorld.tempDir and removed by canaryWorld.close() (a fuzz iteration may rebuild the world, so t.TempDir() would be reaped at the wrong time)

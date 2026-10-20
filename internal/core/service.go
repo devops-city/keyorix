@@ -88,6 +88,11 @@ type KeyorixCore struct {
 	// may set it beforehand to shorten the window.
 	secretReadDenialAgg     *denialAggregator
 	secretReadDenialAggOnce sync.Once
+	// lastUsedAgg coalesces the per-request last_used_at / last_seen_at stamps
+	// (last_used_coalescer.go). Created on first use by lastUsed; a test may
+	// set it beforehand to shorten the interval.
+	lastUsedAgg  *lastUsedCoalescer
+	lastUsedOnce sync.Once
 	// dynamicMaxLeaseTTL mirrors config dynamic_secrets.max_lease_ttl (#97): a hard,
 	// install-wide ceiling dynamicTTL enforces alongside (never instead of) each
 	// config's own MaxTTLSeconds, which has no ceiling of its own. Zero = the

@@ -1358,7 +1358,7 @@ type Session struct {
 	SessionToken string     `gorm:"unique" json:"-"` // SHA-256 hash of the session token (never plaintext)
 	UserAgent    string     // captured at login, for the My Account "active sessions" view
 	IPAddress    string     // captured at login
-	LastSeenAt   *time.Time // throttled — updated at most once per validTokenTTL on the auth slow path
+	LastSeenAt   *time.Time // coalesced — written in the background, at most 30 s behind the newest use (internal/core/last_used_coalescer.go)
 	CreatedAt    time.Time
 	ExpiresAt    *time.Time // short-lived access window; RefreshSession rotates the token and extends this
 
@@ -2082,6 +2082,15 @@ type MachineIdentity struct {
 	// (ISO 27001 A.5.12): "" = unclassified, else public|internal|confidential|restricted.
 	// LABEL ONLY, NOT A CONTROL — see internal/core/classification.go.
 	Classification string `gorm:"index"`
+	// CascadeSuspendedProjectID / CascadeSuspendedAt (#3433) record that a project
+	// soft-delete suspended this identity (it held no live role outside that project):
+	// the project's id and its deleted_at, copied from the projects row. RestoreProject
+	// re-activates exactly the identities still carrying the marker of THAT deletion,
+	// and only while updated_at still equals CascadeSuspendedAt (nothing has written the
+	// row since). Every state transition clears both, so an identity an admin acted on
+	// during the deletion window is never re-activated by the restore. 0 / nil = none.
+	CascadeSuspendedProjectID uint `gorm:"not null;default:0"`
+	CascadeSuspendedAt        *time.Time
 }
 
 // BeforeSave normalises CreatedAt to UTC so SQLite string comparisons are

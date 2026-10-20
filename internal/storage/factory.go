@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 3
+const currentSchemaEpoch = 4
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -71,6 +71,13 @@ const schemaEpochMetadataKey = "schema_epoch"
 // Epoch 3 (pending_audit_events) left it at 2: the table is additive, an
 // epoch-2 replica never reads or writes it, and rows it leaves behind are
 // drained by the next epoch-3 replica's backfill.
+// Epoch 4 (machine_identities.cascade_suspended_project_id/_at, #3433) leaves it at
+// 2: an epoch-3 replica's project delete does not suspend (the pre-#3433 behaviour,
+// for the length of the rollout), its project restore re-activates nothing (fail
+// closed: the identities stay suspended), and its machine-identity writes do not clear
+// the marker but do move updated_at, which the epoch-4 restore requires unchanged
+// (LocalStorage.ReactivateMachineIdentitiesForRestoredProject). Nothing an epoch-3
+// binary does makes an epoch-4 restore re-activate an identity it should not.
 const minCompatibleSchemaEpoch = 2
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
@@ -103,6 +110,13 @@ const postgresMigrationLockKey = 872341
 // test installs it (factory_sqlite_migration_lock_indb_test.go), the same
 // nil-in-production seam pattern as migrationCheckpoint below.
 var migrationLockHeldHook func()
+
+// migrationLockWorkDoneHook, when non-nil, is invoked by withMigrationLock
+// right after the migration returns and still INSIDE every lock, so a
+// timestamp taken here is strictly earlier than the lock's release and than
+// any other process's entry into the migration. Nil in every production
+// build; same test-only seam pattern as migrationLockHeldHook.
+var migrationLockWorkDoneHook func()
 
 // migrationCheckpoint, when non-nil, is invoked after each model is migrated in
 // migrateDatabase's fresh-install-only bulk AutoMigrate loop, with a stable label
@@ -171,7 +185,11 @@ func withMigrationLockPooled(db *gorm.DB, isPostgres, xactLock bool, dbPath stri
 		if migrationLockHeldHook != nil {
 			migrationLockHeldHook()
 		}
-		return fn(h)
+		err := fn(h)
+		if migrationLockWorkDoneHook != nil {
+			migrationLockWorkDoneHook()
+		}
+		return err
 	}
 
 	if isPostgres {
@@ -635,7 +653,7 @@ func (f *DefaultStorageFactory) createLocalStorage(cfg *config.Config) (storage.
 	}
 
 	if err := withMigrationLock(db, false, dbPath, f.migrateSQLite); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+		return nil, migrateError(err)
 	}
 
 	ls := store.NewLocalStorage(db)
@@ -685,7 +703,7 @@ func (f *DefaultStorageFactory) createPostgresStorage(cfg *config.Config) (_ sto
 	}
 
 	if err := withMigrationLockPooled(db, true, cfg.Storage.Database.TransactionPooling(), "", f.migratePostgres); err != nil {
-		return nil, fmt.Errorf("failed to migrate database: %w", err)
+		return nil, migrateError(err)
 	}
 
 	schedulerLockDB, _, err := openPostgresSQLDB(&cfg.Storage.Database)
@@ -1015,6 +1033,23 @@ func tableExists(db *gorm.DB, table string) bool {
 		db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&count)
 	}
 	return count > 0
+}
+
+// schemaCheckRefusal marks a refusal of checkSchemaEpoch inside migrateDatabase.
+// That check runs before any migration step, so migrateError reports it as what
+// it is instead of as "failed to migrate database" (BOOT-REFUSALS-1 item 6:
+// operators went looking for a migration error). The message is the check's own.
+type schemaCheckRefusal struct{ err error }
+
+func (e *schemaCheckRefusal) Error() string { return e.err.Error() }
+func (e *schemaCheckRefusal) Unwrap() error { return e.err }
+
+// migrateError wraps an error of the migration step for the start-up message.
+func migrateError(err error) error {
+	if _, ok := errors.AsType[*schemaCheckRefusal](err); ok {
+		return fmt.Errorf("database schema check failed (checked before migrating; nothing was migrated): %w", err)
+	}
+	return fmt.Errorf("failed to migrate database: %w", err)
 }
 
 // checkSchemaEpoch (ADR-097, ADR-101) refuses to let a binary run
@@ -1480,7 +1515,7 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	// ADR-097: refuse before touching anything if this binary is older than
 	// the database it's pointed at -- must run before every other step below.
 	if err := checkSchemaEpoch(db); err != nil {
-		return err
+		return &schemaCheckRefusal{err: err}
 	}
 	// The pipelined audit commit needs the audit_events id sequence to be
 	// CACHE 1; refuse to start rather than fail every audit write later.
@@ -2448,6 +2483,24 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// rather than nested inside the ALTER guard.
 		if err := exec("CREATE INDEX IF NOT EXISTS idx_machine_identities_classification ON machine_identities (classification)"); err != nil {
 			return err
+		}
+		// #3433: the project soft-delete cascade's suspension marker (schema epoch 4).
+		// Additive; 0 / NULL = "not suspended by a cascade", which is what every
+		// existing row is.
+		if !columnExists(db, "machine_identities", "cascade_suspended_project_id") {
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_project_id BIGINT NOT NULL DEFAULT 0"); err != nil {
+				return err
+			}
+		}
+		if !columnExists(db, "machine_identities", "cascade_suspended_at") {
+			// Per-dialect type for the reason given at secret_nodes.purge_at.
+			ts := "DATETIME"
+			if db.Dialector.Name() == "postgres" {
+				ts = "TIMESTAMP WITH TIME ZONE"
+			}
+			if err := exec("ALTER TABLE machine_identities ADD COLUMN cascade_suspended_at " + ts); err != nil {
+				return err
+			}
 		}
 	}
 

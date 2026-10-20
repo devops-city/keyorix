@@ -91,6 +91,10 @@ func NewRBACTestHelper(t *testing.T) *RBACTestHelper {
 		&models.SoDPolicy{},
 		// GetSecret now queries secret_access_schedules for temporal-access enforcement.
 		&models.SecretAccessSchedule{},
+		// AUDIT-TX-2: every grant path (role, group, permission, share, machine
+		// identity, PAT, user/project create) commits its audit row in its own
+		// transaction and fails closed without it, so the table must exist.
+		&models.AuditEvent{},
 	)
 	require.NoError(t, err)
 

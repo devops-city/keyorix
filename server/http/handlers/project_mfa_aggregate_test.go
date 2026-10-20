@@ -42,7 +42,7 @@ func newHTTPMFAAggregateTestRig(t *testing.T) *httpMFAAggregateTestRig {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Project{}, &models.Environment{}, &models.SecretNode{}, &models.RotationPolicy{},
-		&models.SecretDependency{}, &models.ShareRecord{}, &models.User{},
+		&models.SecretDependency{}, &models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.User{},
 		&models.Group{}, &models.UserGroup{},
 	))
 
@@ -159,7 +159,7 @@ func TestListOwnedShares_DeniesNoMFASessionOnMFARequiredProject(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.ShareRecord{}, &models.User{}, &models.Group{}, &models.UserGroup{}))
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.User{}, &models.Group{}, &models.UserGroup{}))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "guarded", RequireMFA: true}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env1"}).Error)
 	require.NoError(t, db.Create(&models.SecretNode{ID: 1, Name: "guarded-secret", ProjectID: 1, EnvironmentID: 1, IsSecret: true, Status: "active", OwnerID: 1}).Error)
@@ -189,7 +189,7 @@ func TestShareLists_OverCapIsTyped422(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.ShareRecord{}, &models.User{}, &models.Group{}, &models.UserGroup{}))
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.User{}, &models.Group{}, &models.UserGroup{}))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "p"}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env1"}).Error)
 	require.NoError(t, db.Create(&models.SecretNode{ID: 1, Name: "s", ProjectID: 1, EnvironmentID: 1, IsSecret: true, Status: "active", OwnerID: 1}).Error)
@@ -236,7 +236,7 @@ func TestListShares_MFACheckFailsClosedOnLookupError(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.Project{}, &models.Environment{}, &models.SecretNode{},
-		&models.ShareRecord{}, &models.User{}, &models.Group{}, &models.UserGroup{}))
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.User{}, &models.Group{}, &models.UserGroup{}))
 	require.NoError(t, db.Create(&models.Project{ID: 1, Name: "guarded", RequireMFA: true}).Error)
 	require.NoError(t, db.Create(&models.Environment{ID: 1, ProjectID: 1, Name: "env1"}).Error)
 	require.NoError(t, db.Create(&models.SecretNode{ID: 1, Name: "guarded-secret", ProjectID: 1, EnvironmentID: 1, IsSecret: true, Status: "active", OwnerID: 1}).Error)

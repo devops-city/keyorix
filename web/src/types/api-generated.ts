@@ -4535,13 +4535,15 @@ export interface paths {
         };
         /**
          * List notification channel destinations (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel list`) -- was already a live route (notificationChannelHandler.List, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel list`) -- was already a live route (notificationChannelHandler.List, router.go), just undocumented in this spec until now.
+         *     Contract v2 (#3425): the channel URL is a bearer credential, so it is NOT returned here. Each channels[] entry carries the destination as scheme+host with the path elided (e.g. `https://hooks.slack.com/…`) and `url_set`.
          */
         get: operations["listNotificationChannels"];
         put?: never;
         /**
          * Add a notification channel (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel add`) -- was already a live route (notificationChannelHandler.Create, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel add`) -- was already a live route (notificationChannelHandler.Create, router.go), just undocumented in this spec until now.
+         *     Contract v2 (#3425): the create response is the ONLY response that returns the full channel URL (it is a bearer credential); it is never returned again.
          */
         post: operations["createNotificationChannel"];
         delete?: never;
@@ -4561,7 +4563,8 @@ export interface paths {
         };
         /**
          * Get a notification channel by ID (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel get`, which resolves a name via list then calls this) -- was already a live route (notificationChannelHandler.Get, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel get`, which resolves a name via list then calls this) -- was already a live route (notificationChannelHandler.Get, router.go), just undocumented in this spec until now.
+         *     Contract v2 (#3425): `url` is scheme+host with the path elided and `url_set` says whether one is stored; the full URL is never returned here.
          */
         get: operations["getNotificationChannel"];
         /**
@@ -4572,7 +4575,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a notification channel (ADR-108 PR 7 addition)
-         * @description Requires system.write. Added for ADR-108 PR 7 (thin CLI `notification channel delete`) -- was already a live route (notificationChannelHandler.Delete, router.go), just undocumented in this spec until now.
+         * @description Requires alerts.write. Added for ADR-108 PR 7 (thin CLI `notification channel delete`) -- was already a live route (notificationChannelHandler.Delete, router.go), just undocumented in this spec until now.
          */
         delete: operations["deleteNotificationChannel"];
         options?: never;
@@ -6611,6 +6614,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     revokeSession: {
@@ -6654,6 +6658,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     createPAT: {
@@ -6723,6 +6728,7 @@ export interface operations {
                     };
                 };
             };
+            403: components["responses"]["Error"];
         };
     };
     bulkRevokeExpiredPATs: {
@@ -6741,6 +6747,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     patHygiene: {
@@ -7002,6 +7009,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            403: components["responses"]["Error"];
         };
     };
     getSystemInfo: {
@@ -11420,6 +11428,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
             404: components["responses"]["Error"];
         };
     };
@@ -14104,7 +14113,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data.channels[]: {id, name, type, enabled, url, email, events, created_by}. */
+            /** @description Envelope {data, message}. data.channels[]: {id, name, type, enabled, url, url_set, email, events, created_by, created_at, updated_at}. Contract v2 (#3425): `url` is scheme+host with the path elided (`https://hooks.slack.com/…`), or "" when the channel has no URL (email); `url_set` (boolean) is true when a URL is stored. Before v2 `url` was the full URL. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -14137,7 +14146,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Envelope {data, message}. data: same shape as list's channels[] entry. */
+            /** @description Envelope {data, message}. data: same fields as list's channels[] entry, except that `url` is the FULL URL exactly as stored (contract v2, #3425: the only response that ever carries it). `url_set` is true when a URL was given. */
             201: {
                 headers: {
                     [name: string]: unknown;

@@ -103,12 +103,12 @@ func (fakeValidator) ValidateMachineToken(_ context.Context, token string) (*mod
 
 func (fakeValidator) OIDCEnabled() bool { return true }
 
-func (fakeValidator) ValidateOIDCToken(_ context.Context, token string) (*models.MachineIdentity, []string, error) {
+func (fakeValidator) ValidateOIDCToken(_ context.Context, token string) (*models.MachineIdentity, []string, time.Time, error) {
 	// A three-segment dotted token whose middle segment marks it valid.
 	if token == "header.valid.sig" {
-		return &models.MachineIdentity{ID: 11, Name: "k8s-sa", State: "active"}, []string{"project_viewer"}, nil
+		return &models.MachineIdentity{ID: 11, Name: "k8s-sa", State: "active"}, []string{"project_viewer"}, time.Now().Add(time.Hour), nil
 	}
-	return nil, nil, fmt.Errorf("invalid token")
+	return nil, nil, time.Time{}, fmt.Errorf("invalid token")
 }
 
 // newTestAuthMiddleware builds the Authentication middleware with the fake
@@ -816,6 +816,9 @@ func TestAuthentication_PATNetworkAllowlist_DeniedRequestDoesNotTouchLastUsed(t 
 
 	// A PAT presented from a disallowed network is rejected...
 	require.Equal(t, http.StatusForbidden, serve(deniedRaw, "203.0.113.9:5555"))
+	// The stamp is coalesced off the request path (OPT-LASTUSED-1); flush so a
+	// recorded touch would be visible in the row.
+	coreService.FlushLastUsed(context.Background())
 
 	var reloadedDenied models.PersonalAccessToken
 	require.NoError(t, db.First(&reloadedDenied, 1).Error)
@@ -824,6 +827,7 @@ func TestAuthentication_PATNetworkAllowlist_DeniedRequestDoesNotTouchLastUsed(t 
 	// ...but a different token, from an allowed network, succeeds and DOES stamp
 	// it — confirming the assertion above isn't just "never touched at all".
 	require.Equal(t, http.StatusOK, serve(allowedRaw, "10.1.2.3:5555"))
+	coreService.FlushLastUsed(context.Background())
 
 	var reloadedAllowed models.PersonalAccessToken
 	require.NoError(t, db.First(&reloadedAllowed, 2).Error)

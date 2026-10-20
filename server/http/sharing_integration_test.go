@@ -51,7 +51,7 @@ func newSharingTestCore(t *testing.T) *core.KeyorixCore {
 		&models.SecretAccessSchedule{}, // DeleteSecret's cleanup step queries this table
 		&models.SecretAccessLog{},
 		&models.SecretMetadataHistory{},
-		&models.ShareRecord{},
+		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{},
 		&models.Session{},
 		&models.PasswordReset{},
 		&models.Tag{},

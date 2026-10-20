@@ -144,45 +144,35 @@ func TestBootstrapSystem_RetryAfterPartialSeedSucceeds(t *testing.T) {
 // failOnceStorage makes one named storage step fail during the first
 // bootstrap attempt only, and follows WithTransaction so the failure also
 // fires on the transaction-scoped handle.
-type failOnceStorage struct {
-	storage.Storage
-	failStep string
-	armed    *bool
-}
-
-func (s *failOnceStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
-	return s.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return fn(&failOnceStorage{Storage: tx, failStep: s.failStep, armed: s.armed})
+func failOnceStorage(inner storage.Storage, failStep string, armed *bool) storage.Storage {
+	trip := func(step string) error {
+		if *armed && failStep == step {
+			*armed = false
+			return errors.New("injected fault: " + step)
+		}
+		return nil
+	}
+	return hooked(inner, &storeHooks{
+		WrapTx: true,
+		AssignRole: func(next storage.Storage, ctx context.Context, userID, roleID uint, scope Scope) error {
+			if err := trip("AssignRole"); err != nil {
+				return err
+			}
+			return next.AssignRole(ctx, userID, roleID, scope)
+		},
+		CreateProject: func(next storage.Storage, ctx context.Context, p *models.Project) (*models.Project, error) {
+			if err := trip("CreateProject"); err != nil {
+				return nil, err
+			}
+			return next.CreateProject(ctx, p)
+		},
+		SetSystemMetadata: func(next storage.Storage, ctx context.Context, key, value string) error {
+			if err := trip("SetSystemMetadata"); err != nil {
+				return err
+			}
+			return next.SetSystemMetadata(ctx, key, value)
+		},
 	})
-}
-
-func (s *failOnceStorage) trip(step string) error {
-	if *s.armed && s.failStep == step {
-		*s.armed = false
-		return errors.New("injected fault: " + step)
-	}
-	return nil
-}
-
-func (s *failOnceStorage) AssignRole(ctx context.Context, userID, roleID uint, scope Scope) error {
-	if err := s.trip("AssignRole"); err != nil {
-		return err
-	}
-	return s.Storage.AssignRole(ctx, userID, roleID, scope)
-}
-
-func (s *failOnceStorage) CreateProject(ctx context.Context, p *models.Project) (*models.Project, error) {
-	if err := s.trip("CreateProject"); err != nil {
-		return nil, err
-	}
-	return s.Storage.CreateProject(ctx, p)
-}
-
-func (s *failOnceStorage) SetSystemMetadata(ctx context.Context, key, value string) error {
-	if err := s.trip("SetSystemMetadata"); err != nil {
-		return err
-	}
-	return s.Storage.SetSystemMetadata(ctx, key, value)
 }
 
 // TestBootstrapSystem_FailureAfterUserCreateRollsBackEverything: a failure at
@@ -196,7 +186,7 @@ func TestBootstrapSystem_FailureAfterUserCreateRollsBackEverything(t *testing.T)
 		t.Run(step, func(t *testing.T) {
 			base := freshBootstrapCore(t)
 			armed := true
-			c := NewKeyorixCore(&failOnceStorage{Storage: base.storage, failStep: step, armed: &armed})
+			c := NewKeyorixCore(failOnceStorage(base.storage, step, &armed))
 			c.SetBootstrapToken(retryToken)
 			ctx := context.Background()
 
@@ -244,7 +234,7 @@ func TestBootstrapSystem_FailureAfterUserCreateRollsBackEverything_Postgres(t *t
 	ctx := context.Background()
 
 	armed := true
-	c := NewKeyorixCore(&failOnceStorage{Storage: st, failStep: "CreateProject", armed: &armed})
+	c := NewKeyorixCore(failOnceStorage(st, "CreateProject", &armed))
 	c.SetBootstrapToken(retryToken)
 
 	_, err := c.BootstrapSystem(ctx, goodRetryReq())

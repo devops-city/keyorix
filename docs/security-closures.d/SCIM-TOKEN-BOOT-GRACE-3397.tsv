@@ -1,0 +1,1 @@
+SCIM-TOKEN-BOOT-GRACE-3397	./server	TestEnforceSCIMTokenStrength	default-ci	pending	3397	Boot gate for the SCIM token shape checks: fresh install refuses, upgraded deployment warns under the ADR-112 grace until one clean boot writes adr112.scim_token_strength.enforced, the length floor is never softened, a token equal to another configured secret is refused naming that secret.

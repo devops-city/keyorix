@@ -3,6 +3,7 @@ import { KeyIcon, NoSymbolIcon } from '@heroicons/react/24/outline';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
 import { Alert } from '../../components/ui/Alert';
+import { useConfirm } from '../../components/ui/useConfirm';
 import { IssuedMachineToken } from '../../services/machineIdentities';
 import { classificationMeta, CLASSIFICATION_LEVELS } from '../secrets/classification';
 import { useMachineTokens, useIssueMachineToken, useRevokeMachineToken, useClassifyMachineToken } from './api';
@@ -23,6 +24,7 @@ export const MachineTokensPanel: React.FC<{
     const { data: tokens = [], isLoading } = useMachineTokens(projectId, machineId);
     const issue = useIssueMachineToken(projectId, machineId);
     const revoke = useRevokeMachineToken(projectId, machineId);
+    const { requestConfirm, confirmDialog } = useConfirm();
     const classify = useClassifyMachineToken(projectId, machineId);
 
     const [issued, setIssued] = useState<IssuedMachineToken | null>(null);
@@ -125,13 +127,13 @@ export const MachineTokensPanel: React.FC<{
                             {canManage && !t.revoked && (
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        if (
-                                            !window.confirm(
-                                                `Revoke token "${t.name || t.prefix}"? Any client using it will lose access immediately.`
-                                            )
-                                        )
-                                            return;
+                                    onClick={async () => {
+                                        const ok = await requestConfirm({
+                                            title: 'Revoke token',
+                                            message: `Revoke token "${t.name || t.prefix}"? Any client using it will lose access immediately.`,
+                                            confirmText: 'Revoke',
+                                        });
+                                        if (!ok) return;
                                         setError('');
                                         revoke.mutate(t.id, {
                                             onError: (err) => surface(err, 'Failed to revoke token.'),
@@ -211,6 +213,7 @@ export const MachineTokensPanel: React.FC<{
                     </div>
                 </div>
             </Modal>
+            {confirmDialog}
         </div>
     );
 };

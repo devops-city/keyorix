@@ -417,7 +417,9 @@ func TestRestoreUser_Success(t *testing.T) {
 	ms.On("RestoreUser", mock.Anything, uint(5)).Return(nil)
 	restored := &models.User{ID: 5, Username: "alice", AccountState: "active"}
 	ms.On("GetUser", mock.Anything, uint(5)).Return(restored, nil)
-	ms.On("UpdateUser", mock.Anything, mock.AnythingOfType("*models.User")).Return(restored, nil)
+	// #2677 sweep: column-scoped writes, no full-row UpdateUser.
+	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.AnythingOfType("*models.User"), false).Return(true, nil)
+	ms.On("SetAccountState", mock.Anything, uint(5), AccountPasswordResetRequired, mock.Anything).Return(nil)
 	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)
 	err := c.RestoreUser(context.Background(), 1, 5)
@@ -978,19 +980,24 @@ func TestValidateShareSecretRequest_SelfShare(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot share a secret with yourself")
 }
 
-func TestValidateShareSecretRequest_GroupSelfShareAllowed(t *testing.T) {
+// #3422: a group share must go through ShareSecretWithGroup (IsGroupProjectScoped);
+// ShareSecret refuses IsGroup outright, whatever the IDs. The tests for the
+// ShareSecret path: TestKeyorixCore_ShareSecret_RejectsGroupShare (sharing_test.go).
+func TestValidateShareSecretRequest_GroupRefused(t *testing.T) {
 	t.Parallel()
 	ms := new(MockStorage)
 	c := NewKeyorixCore(ms)
-	// IsGroup=true: RecipientID is a group ID, so same numeric value as SharedBy is fine.
-	err := c.validateShareSecretRequest(&ShareSecretRequest{
-		SecretID:    1,
-		RecipientID: 5,
-		Permission:  "read",
-		SharedBy:    5,
-		IsGroup:     true,
-	})
-	require.NoError(t, err)
+	for _, recipient := range []uint{5, 6} { // 5 coincides with SharedBy, 6 does not
+		err := c.validateShareSecretRequest(&ShareSecretRequest{
+			SecretID:    1,
+			RecipientID: recipient,
+			Permission:  "read",
+			SharedBy:    5,
+			IsGroup:     true,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "ShareSecretWithGroup")
+	}
 }
 
 // ── RevokeAccessReviewGrant — validation branches ────────────────────────────

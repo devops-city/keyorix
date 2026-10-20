@@ -1,6 +1,7 @@
 package statemap
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -43,7 +44,10 @@ const maxReviewRows = 9 // SESSION-AR batch 5/5 (AT0 REVIEW triage, FINAL): 28 m
 // number -- see AggregateFileWriteSites's doc for why). Also fails if any
 // entrypoints row's class column is empty or not one of validClasses, if
 // any KnownGapRows entry is missing, or if the REVIEW-class count exceeds
-// maxReviewRows. Mirrors internal/core/atomicity_guard_test.go's shape (an
+// maxReviewRows. It does NOT compare the file, handler or reason columns of
+// entrypoints.tsv (only kind, id and class); whole-row drift is caught by
+// cmd/statemapgen's TestGeneratedStateMapMatchesCheckedIn, which regenerates
+// both TSVs into a temp dir and compares every line. Mirrors internal/core/guards/atomicity_guard_test.go's shape (an
 // AST/text scan compared against a checked-in file), for the same reason: a
 // hand-maintained inventory silently rots; a regenerate-and-diff check
 // cannot.
@@ -295,10 +299,13 @@ func readEntrypointsTSV(path string) ([]entrypointsRow, error) {
 			continue
 		}
 		fields := strings.Split(line, "\t")
-		if len(fields) < 6 {
-			continue
+		// kind, id, file, handler, class, reason (no line column: see the
+		// generator's header). A short row used to be skipped silently; it is an
+		// error now so a mangled row cannot hide from the class check.
+		if len(fields) != 6 {
+			return nil, fmt.Errorf("%s: want 6 tab-separated fields, got %d in row %q", path, len(fields), line)
 		}
-		out = append(out, entrypointsRow{kind: fields[0], id: fields[1], class: fields[5]})
+		out = append(out, entrypointsRow{kind: fields[0], id: fields[1], class: fields[4]})
 	}
 	return out, nil
 }

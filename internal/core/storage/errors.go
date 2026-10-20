@@ -19,6 +19,12 @@ var ErrUserNotFound = errors.New("user not found")
 // (#2565).
 var ErrMFAChallengeInvalid = errors.New("invalid or expired challenge")
 
+// ErrMFASecretActivated is returned by UpsertMFASecret when the user's existing
+// TOTP secret row is already activated: the conditional upsert never replaces an
+// activated secret (#2692), and nothing was written. core.BeginMFAEnrollment maps
+// it to ErrMFAAlreadyEnabled.
+var ErrMFASecretActivated = errors.New("mfa secret already activated")
+
 // ErrWebAuthnSessionInvalid is ConsumeWebAuthnSession's counterpart of
 // ErrMFAChallengeInvalid: no unused, unexpired ceremony session matched.
 var ErrWebAuthnSessionInvalid = errors.New("invalid or expired webauthn session")

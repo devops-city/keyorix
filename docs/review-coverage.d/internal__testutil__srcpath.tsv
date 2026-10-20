@@ -1,0 +1,1 @@
+internal/testutil/srcpath	none	-	PR #3401 (TRIMPATH-1): test-only helper that locates repository source files from os.Getwd() so static-guard tests work under go build -trimpath; imported only by *_test.go files; runtime_caller_guard_test.go keeps runtime.Caller out of file-opening code	test-helper

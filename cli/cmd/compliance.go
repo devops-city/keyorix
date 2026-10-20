@@ -377,11 +377,19 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 		if err != nil {
 			return err
 		}
-		body := apiclient.VerifyComplianceEvidenceJSONRequestBody{
-			DataB64:   base64.StdEncoding.EncodeToString(data),
-			Signature: signature,
+		// The server binds the signature to the pack's canonical filename (AUD-009) and reads it
+		// from the request's "filename" field; the OpenAPI schema (and so the generated typed
+		// body) does not list that field, so the typed call would send none and every genuine
+		// pack failed with "presented under the wrong filename". Send the raw JSON instead.
+		payload, err := json.Marshal(map[string]string{
+			"data_b64":  base64.StdEncoding.EncodeToString(data),
+			"signature": signature,
+			"filename":  filename,
+		})
+		if err != nil {
+			return err
 		}
-		resp, err := client.VerifyComplianceEvidenceWithResponse(ctx, body)
+		resp, err := client.VerifyComplianceEvidenceWithBodyWithResponse(ctx, "application/json", bytes.NewReader(payload))
 		if err != nil {
 			return err
 		}
@@ -398,7 +406,6 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 		if err != nil {
 			return err
 		}
-		_ = filename // carried for symmetry with the old CLI's request shape; the server derives the binding from the request body itself
 		if res.Valid {
 			fmt.Printf("VALID — %s is authentic and unmodified (key version %s).\n", complianceVerifyFile, res.KeyVersion)
 			return nil

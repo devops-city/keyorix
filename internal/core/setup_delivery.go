@@ -179,11 +179,10 @@ func (c *KeyorixCore) CreateUserWithSetupLink(ctx context.Context, req *CreateUs
 	}
 	reqCopy.Password = unusable
 	reqCopy.AccountState = AccountPendingFirstLogin
-	user, err := c.CreateUser(ctx, &reqCopy)
+	user, err := c.CreateUserAudited(ctx, &reqCopy, createdBy)
 	if err != nil {
 		return nil, nil, err
 	}
-	c.LogUserCreated(ctx, createdBy, user.ID, user.Username)
 
 	res, err := c.provisionSetupLink(ctx, IssueSetupTokenRequest{
 		Purpose:       SetupPurposeAccountSetup,
@@ -233,11 +232,10 @@ func (c *KeyorixCore) CreateUserWithOneTimePassword(ctx context.Context, req *Cr
 	// The expiry is written by the same insert as the password (OTP-EXPIRY-1).
 	expiresAt := c.now().Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	reqCopy.OneTimePasswordExpiresAt = &expiresAt
-	user, err := c.CreateUser(ctx, &reqCopy)
+	user, err := c.CreateUserAudited(ctx, &reqCopy, createdBy)
 	if err != nil {
 		return nil, nil, err
 	}
-	c.LogUserCreated(ctx, createdBy, user.ID, user.Username)
 
 	// Record that a human saw a credential — the one path the ADR singles out for
 	// compliance (artifact=one_time_password, vs the setup-link artifact). Uses
