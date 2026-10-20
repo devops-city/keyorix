@@ -174,7 +174,7 @@ func adr112MFAConfig(t *testing.T) *config.Config {
 // warning); an explicit true is never graced; a deployment enforced once stays
 // enforced (marker); an undecidable database fails closed (enforced).
 func TestApplyADR112UpgradeGrace_RequireMFA(t *testing.T) {
-	t.Cleanup(func() { adr112MFAReason = "" })
+	t.Cleanup(resetMFAGraceGlobals)
 
 	t.Run("fresh install is enforced", func(t *testing.T) {
 		cfg := adr112MFAConfig(t)
@@ -187,11 +187,13 @@ func TestApplyADR112UpgradeGrace_RequireMFA(t *testing.T) {
 		cfg := adr112MFAConfig(t)
 		migrateADR112DB(t, cfg, 1)
 		applyADR112UpgradeGrace(cfg)
-		if cfg.Security.RequireMFA || !cfg.Security.RequireMFAUpgradeGrace {
+		// #2923: RequireMFA stays true (the policy); the grace period is
+		// subtracted at request time by core.KeyorixCore.MFARequired.
+		if !cfg.Security.RequireMFA || !cfg.Security.RequireMFAUpgradeGrace {
 			t.Fatalf("upgrade: want the grace period, got RequireMFA=%v grace=%v", cfg.Security.RequireMFA, cfg.Security.RequireMFAUpgradeGrace)
 		}
 		logged := captureLogs(func() { logWarnOnImplicitRequireMFADefault(cfg) })
-		for _, want := range []string{"WARNING", "ADR-112 grace period", "NOT enforced", "security.require_mfa: true"} {
+		for _, want := range []string{"WARNING", "ADR-112 grace period", "NOT enforced", "30 day(s) left", "first administrator enrols", "not locked out", "security.require_mfa explicitly"} {
 			if !strings.Contains(logged, want) {
 				t.Errorf("grace warning missing %q: %q", want, logged)
 			}
@@ -221,7 +223,7 @@ func TestApplyADR112UpgradeGrace_RequireMFA(t *testing.T) {
 			t.Fatal(err)
 		}
 		applyADR112UpgradeGrace(cfg)
-		if !cfg.Security.RequireMFA {
+		if !cfg.Security.RequireMFA || cfg.Security.RequireMFAUpgradeGrace {
 			t.Fatal("an undecidable database must fail closed (require_mfa enforced)")
 		}
 	})
@@ -229,8 +231,8 @@ func TestApplyADR112UpgradeGrace_RequireMFA(t *testing.T) {
 
 // A fresh install's first boot writes the require_mfa marker, so its second boot
 // (users now exist) is still enforced rather than mistaken for an upgrade. A
-// graced boot (RequireMFA false) writes none, so the grace period stays until the
-// key is set explicitly.
+// graced boot writes none: its grace period ends at the first admin enrolment
+// or the deadline (#2923, adr112_mfa_grace_test.go), not at the next boot.
 func TestRecordADR112Markers_RequireMFARatchet(t *testing.T) {
 	t.Cleanup(func() { adr112MFAReason = "" })
 
@@ -247,7 +249,7 @@ func TestRecordADR112Markers_RequireMFARatchet(t *testing.T) {
 
 	upgrade := adr112MFAConfig(t)
 	migrateADR112DB(t, upgrade, 1)
-	applyADR112UpgradeGrace(upgrade) // graced: RequireMFA false
+	applyADR112UpgradeGrace(upgrade) // graced
 	recordADR112Markers(upgrade)
 	again := adr112MFAConfig(t)
 	again.Storage = upgrade.Storage

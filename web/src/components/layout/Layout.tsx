@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar';
 import { Footer } from './Footer';
 import { Breadcrumb, BreadcrumbItem } from './Breadcrumb';
 import { ImpersonationBanner } from './ImpersonationBanner';
+import { MfaGraceBanner } from './MfaGraceBanner';
 import { AuditReadsSkippedBanner } from './AuditReadsSkippedBanner';
 import { AuditOwedBanner } from './AuditOwedBanner';
 import { CmdKSearch } from '../ui/CmdKSearch';
@@ -53,6 +54,9 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
                 <div className="sticky top-0 z-50 flex flex-col">
                     {/* Impersonation warning bar (visible only while impersonating) */}
                     <ImpersonationBanner />
+
+                    {/* Until ADR-112's require_mfa upgrade grace period ends, for an account without MFA (#2923) */}
+                    <MfaGraceBanner />
 
                     {/* Persistent while secret reads are not audited (ADR-112 Amendment 4) */}
                     <AuditReadsSkippedBanner />

@@ -1239,6 +1239,19 @@ const (
 	ADR112SCIMTokenEnforcedMarker = "adr112.scim_token_strength.enforced" // #nosec G101 -- metadata key name, not a credential
 )
 
+// The require_mfa upgrade grace period's own durable facts (#2923): when it
+// started (written once, by the first graced boot on the version that bounded
+// it; RFC 3339) and the grace clock's high-water mark (the latest time any
+// boot or check recorded; RFC 3339). The grace period ends at the first
+// administrator MFA enrolment or ADR112RequireMFAGracePeriod after the start,
+// whichever comes first, and the clock never reads earlier than the
+// high-water mark, so a backward clock step cannot extend it.
+const (
+	ADR112RequireMFAGraceStartedKey = "adr112.require_mfa.grace_started"
+	ADR112RequireMFAGraceClockKey   = "adr112.require_mfa.grace_clock"
+	ADR112RequireMFAGracePeriod     = 30 * 24 * time.Hour
+)
+
 type SecurityConfig struct {
 	// EnableFilePermissionCheck gates the file-permission/DEK-salt-size/database-
 	// reachability startup checks (internal/startup.ValidateStartup) and whether
@@ -1293,11 +1306,13 @@ type SecurityConfig struct {
 	RequireMFAImplicitDefault bool `yaml:"-"`
 	// RequireMFAUpgradeGrace is true when server/main.go's applyADR112UpgradeGrace
 	// found an UPGRADED deployment (its database already has users, and no
-	// adr112.require_mfa.enforced marker) relying on the implicit default, and so
-	// set RequireMFA back to false for this boot: ADR-112's grace period for MFA
-	// on upgrades, with a loud start-up warning, until the key is set explicitly.
-	// A fresh install is enforced and marked, so it never gets here. Never read
-	// from YAML; false on every hand-built *Config.
+	// adr112.require_mfa.enforced marker) relying on the implicit default, still
+	// inside ADR-112's grace period for MFA on upgrades (#2923: until the first
+	// administrator enrols a second factor, at most ADR112RequireMFAGracePeriod
+	// after the recorded start). RequireMFA stays true: the running server reads
+	// the grace period from core.KeyorixCore.MFARequired, so it can end without
+	// a restart. A fresh install is enforced and marked, so it never gets here.
+	// Never read from YAML; false on every hand-built *Config.
 	RequireMFAUpgradeGrace bool `yaml:"-"`
 	// LoginLockout configures per-account login lockout (brute-force protection):
 	// after MaxAttempts failed password logins within Window, the account is locked
