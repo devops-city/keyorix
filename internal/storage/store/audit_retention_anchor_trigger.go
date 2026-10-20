@@ -73,7 +73,7 @@ $keyorix$`).Error; err != nil {
 		if err := tx.Exec(`CREATE TRIGGER ` + AuditRetentionAnchorTrigger + `
 BEFORE UPDATE ON system_metadata FOR EACH ROW
 WHEN (OLD.key = 'audit_retention_anchor')
-EXECUTE FUNCTION ` + auditRetentionAnchorFunc + `()`).Error; err != nil {
+EXECUTE PROCEDURE ` + auditRetentionAnchorFunc + `()`).Error; err != nil {
 			return fmt.Errorf("failed to create %s: %w", AuditRetentionAnchorTrigger, err)
 		}
 		if err := tx.Exec(`ALTER TABLE system_metadata ENABLE ALWAYS TRIGGER ` + AuditRetentionAnchorTrigger).Error; err != nil {

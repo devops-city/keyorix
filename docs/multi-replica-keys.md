@@ -67,7 +67,7 @@ pinned transaction (`internal/serverguard`).
 | Crash recovery (promote/discard `data.key.pending`) | under `dek.lock` | under the same key-initialisation lock |
 | Rotation/restore while a server runs (#92) | server's lifetime `dek.lock` (and the presence lock) | the presence lock `872342` alone: every replica holds it **shared** for its lifetime, key-changing admin commands need it **exclusive** (already true on main) |
 | Admin `--force` past a held presence lock | still stopped by `dek.lock` | **refused**: `--force` cannot override in this mode (`server/admin/admin.go`) |
-| Live `admin backup` vs a rotation | `data.key.lock` shared vs exclusive | additionally holds the presence lock **shared** for the whole backup, so a rotation cannot start meanwhile |
+| Live `admin backup` vs a rotation | `data.key.lock` shared vs exclusive | additionally holds the presence lock **shared** for the whole backup, so a rotation cannot start meanwhile. It does so when its own config says `database` **or** the database records it (as `--force` does); if the record cannot be read the backup is refused |
 | Admin command vs admin command | `data.key.lock` | the presence lock exclusive (unchanged) |
 
 One more check, which the flock made unnecessary: **first-boot generation is refused when the
@@ -83,8 +83,10 @@ covered as well: the first records the DEK epoch
 key-initialisation lock, so the second, which waits on that lock, finds the epoch and is refused
 before it writes any key file (`TestKeyDirLock_Database_ConcurrentStartOwnEmptyDirsSeedsEpochUnderLock`).
 
-A server in this mode also records `key_dir_lock.mode = database` in `system_metadata`. `admin`
-commands read it: `--force` cannot override a held lock when the database says its replicas run
+A server in this mode also records `key_dir_lock.mode = database` in `system_metadata`, right after
+the migrations and before key initialisation, so the record is there for the whole time the server
+holds the presence lock. `admin` commands read it (and a live `admin backup` does too, to decide
+whether it must hold the presence lock): `--force` cannot override a held lock when the database says its replicas run
 this mode, even if the admin command's own config does not set `key_dir_lock`. On PostgreSQL,
 `--force` is also refused when the row cannot be read (the database cannot be opened, or the query
 fails): an unverified record is treated as database mode. The row is never

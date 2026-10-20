@@ -72,7 +72,7 @@ $keyorix$`).Error; err != nil {
 		if err := tx.Exec(`CREATE TRIGGER ` + SecretSuspendMarkerTrigger + `
 BEFORE UPDATE OF status ON secret_nodes FOR EACH ROW
 WHEN (NEW.status IS DISTINCT FROM 'suspended' AND NEW.suspend_clear_synced_copies)
-EXECUTE FUNCTION ` + secretSuspendMarkerFunc + `()`).Error; err != nil {
+EXECUTE PROCEDURE ` + secretSuspendMarkerFunc + `()`).Error; err != nil {
 			return fmt.Errorf("failed to create %s: %w", SecretSuspendMarkerTrigger, err)
 		}
 		if err := tx.Exec(`ALTER TABLE secret_nodes ENABLE ALWAYS TRIGGER ` + SecretSuspendMarkerTrigger).Error; err != nil {

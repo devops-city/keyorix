@@ -377,13 +377,6 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	// ADR-112: a boot that enforced enable_file_permission_check (checks passed, nothing
 	// softened) or require_mfa ratchets this deployment to enforced for that key for good.
 	recordADR112Markers(cfg)
-	// key_dir_lock: database — record it in the database so `admin --force` refuses
-	// from what the replicas declare, not from the admin command's own config.
-	if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
-		if err := recordKeyDirLockMode(cfg); err != nil {
-			log.Fatalf("%v", err)
-		}
-	}
 	// #G56: flush/close the SIEM audit forwarder (if configured) on shutdown — it
 	// queues events in memory (worker.go's Deliver is non-blocking, async), and
 	// nothing would otherwise call Close() to drain that queue before the process
@@ -685,6 +678,18 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	store, err := factory.CreateStorage(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
+	// key_dir_lock: database — record it in the database so `admin --force` and a
+	// live backup decide from what the replicas declare, not from the admin
+	// command's own config. Here, right after the migrations CreateStorage ran and
+	// before key initialisation (which can hold the key-init lock for up to
+	// keyInitLockWait): main() took the presence lock before this function, so the
+	// marker must not trail it by the rest of the boot.
+	if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		if err := recordKeyDirLockMode(cfg); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	encSvc, err := initializeEncryption(cfg, store.LogAuditEvent)
