@@ -128,6 +128,9 @@ func TestOwedAuditOracle_Calibration(t *testing.T) {
 			{"g1 owed outcome, LogAuditEvent#1, backfill converges", owedCalOp, "LogAuditEvent", 1},
 			{"g2 SSO callback ClaimPendingAuditEvent#1 (seed 5012b3d0b086d4a4)", owedAuditSSOCallbackOp, "ClaimPendingAuditEvent", 1},
 			{"g4 two owed rows (break-glass revoke), LogAuditEvent#1: both queued, backfill converges", owedCalTwoRowOp, "LogAuditEvent", 1},
+			// SAML ACS: its one owed row (role.removed of the JIT baseline role) comes from the
+			// role reconcile it shares with the SSO callback (sso.go reconcileSSORoles).
+			{"g5 SAML ACS ClaimPendingAuditEvent#1 (role.removed queued), backfill converges", owedAuditSAMLACSOp, "ClaimPendingAuditEvent", 1},
 		} {
 			in := owedCalDrive(t, c.op, c.method, c.nth, faultstorage.KindError)
 			require.NotEqual(t, in.refAfter.Hash, in.after.Hash, "premise: the owed outcome differs from the reference before the backfill")
@@ -160,6 +163,16 @@ func TestOwedAuditOracle_Calibration(t *testing.T) {
 		in = owedCalResnapshot(t, in)
 		f := owedCalFindings(t, in)
 		record("i  neither audit row nor pending row", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// i-saml: the same on the SAML ACS op. Its first audit call is a best-effort row
+		// (auth.sso_jit_provisioned), so this also pins the probe: refusing only
+		// LogAuditEvent#1 learned no owed type for this op, and the lost row was accepted.
+		in = owedCalDrive(t, owedAuditSAMLACSOp, "ClaimPendingAuditEvent", 1, faultstorage.KindError)
+		require.EqualValues(t, 1, len(in.after.Tables[owedAuditPendingTable].Rows), "premise: the SAML ACS op queued its owed row")
+		exec(in, "DELETE FROM pending_audit_events")
+		in = owedCalResnapshot(t, in)
+		f = owedCalFindings(t, in)
+		record("i-saml SAML ACS: neither audit row nor pending row", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
 
 		// i2: the pending record and the direct write both failed: the effect stands,
 		// no audit row, no record. Built on the CreatePendingAuditEvent case by removing
