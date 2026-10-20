@@ -143,7 +143,7 @@ func TestGetDashboardStats_DegradedOnAuditLogsQueryError(t *testing.T) {
 	assert.Zero(t, stats.RefusedSecretReads24h)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_logins_24h"), "expected a failed_logins_24h entry, got %v", stats.DegradedReasons)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "refused_secret_reads_24h"), "expected a refused_secret_reads_24h entry, got %v", stats.DegradedReasons)
-	assert.Zero(t, stats.FailedLoginsWrongSecondFactor24h)
+	assert.Zero(t, stats.FailedSecondFactors24h)
 	assert.True(t, containsSubstring(stats.DegradedReasons, "failed_second_factor_24h"), "expected a failed_second_factor_24h entry, got %v", stats.DegradedReasons)
 }
 
@@ -175,11 +175,12 @@ func TestGetDashboardStats_FailedLoginsAndRefusedReadsCountedApart(t *testing.T)
 	assert.Equal(t, int64(3), stats.RefusedSecretReads24h, "refused secret reads only")
 }
 
-// DASH-FAILED-2FA: "Failed Logins (24h)" also counts a refused second factor (mfa.failed,
-// webauthn.failed), with the wrong-password / wrong-second-factor split. Rows written
-// before #3363 carry success=true and must still count; mfa.error (a fault, no verdict)
-// and refused secret reads must not.
-func TestGetDashboardStats_FailedLoginsSplitWrongPasswordFromWrongSecondFactor(t *testing.T) {
+// DASH-FAILED-SPLIT-1: the three failure figures are separate and never summed. Seeded
+// with distinct counts (2 / 3 / 1) so any merge of two buckets shows up as a wrong number.
+// "Failed Logins" is auth.login_failed only; "Failed Second Factors" is mfa.failed +
+// webauthn.failed (rows written before #3363 carry success=true and must still count);
+// mfa.error (a fault, no verdict) counts in none of the three.
+func TestGetDashboardStats_FailedLoginsSecondFactorsAndRefusedReadsAreSeparateFigures(t *testing.T) {
 	t.Parallel()
 	c, st := newBootstrappedCore(t)
 	ctx := context.Background()
@@ -200,10 +201,9 @@ func TestGetDashboardStats_FailedLoginsSplitWrongPasswordFromWrongSecondFactor(t
 	stats, err := c.GetDashboardStats(ctx, auditorID, "auditor-2fa", auditorID)
 	require.NoError(t, err)
 	assert.False(t, stats.Degraded, "reasons: %v", stats.DegradedReasons)
-	assert.Equal(t, int64(2), stats.FailedLoginsWrongPassword24h, "auth.login_failed only")
-	assert.Equal(t, int64(3), stats.FailedLoginsWrongSecondFactor24h, "mfa.failed (both rows) + webauthn.failed")
-	assert.Equal(t, int64(5), stats.FailedAuthAttempts24h, "the headline is the sum of the two buckets")
-	assert.Equal(t, int64(1), stats.RefusedSecretReads24h, "refused reads stay apart")
+	assert.Equal(t, int64(2), stats.FailedAuthAttempts24h, "auth.login_failed only, no second factors")
+	assert.Equal(t, int64(3), stats.FailedSecondFactors24h, "mfa.failed (both rows) + webauthn.failed")
+	assert.Equal(t, int64(1), stats.RefusedSecretReads24h, "refused secret reads only")
 }
 
 func TestGetDashboardStats_DegradedOnActiveUsersQueryError(t *testing.T) {
