@@ -1,5 +1,10 @@
 import { formatDateTime } from '../../utils/datetime';
-import { SHARE_WRITE_LABEL, sharePermissionLabel } from '../../utils/sharePermission';
+import {
+    SHARE_OWNER_ONLY_HINT,
+    SHARE_WRITE_LABEL,
+    canManageShare,
+    sharePermissionLabel,
+} from '../../utils/sharePermission';
 import React, { useState } from 'react';
 import {
     ShareIcon,
@@ -18,6 +23,7 @@ import {
     expiresAtFromPreset,
 } from '../../features/sharing';
 import { useUIStore } from '../../store/uiStore';
+import { useAuthStore } from '../../store/authStore';
 import { ShareRecord, PaginationState } from '../../types';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -79,6 +85,7 @@ export const shareExpiry = (
 export const SharingManagementPage: React.FC = () => {
     const { openModal, closeModal, activeModal, modalData } = useUIStore();
     const updateShare = useUpdateShare();
+    const currentUser = useAuthStore((s) => s.user);
     // Edit-share form: the chosen permission and an expiry action (keep current,
     // clear to permanent, or a new duration).
     const editShare = modalData?.share as ShareRecord | undefined;
@@ -337,6 +344,10 @@ export const SharingManagementPage: React.FC = () => {
                                             className="rounded-sm border-gray-300 text-blue-600 focus:ring-blue-500"
                                             checked={selectedItems.has(share.id)}
                                             onChange={() => toggleSelectedItem(share.id)}
+                                            disabled={!canManageShare(share, currentUser)}
+                                            title={
+                                                canManageShare(share, currentUser) ? undefined : SHARE_OWNER_ONLY_HINT
+                                            }
                                         />
                                     </td>
                                 )}
@@ -420,7 +431,12 @@ export const SharingManagementPage: React.FC = () => {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleEditShare(share)}
-                                            title="Edit permissions"
+                                            disabled={!canManageShare(share, currentUser)}
+                                            title={
+                                                canManageShare(share, currentUser)
+                                                    ? 'Edit permissions'
+                                                    : SHARE_OWNER_ONLY_HINT
+                                            }
                                         >
                                             <PencilIcon className="h-4 w-4" />
                                         </Button>
@@ -428,7 +444,12 @@ export const SharingManagementPage: React.FC = () => {
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleDeleteShare(share)}
-                                            title="Revoke access"
+                                            disabled={!canManageShare(share, currentUser)}
+                                            title={
+                                                canManageShare(share, currentUser)
+                                                    ? 'Revoke access'
+                                                    : SHARE_OWNER_ONLY_HINT
+                                            }
                                             className="text-red-600 hover:text-red-700"
                                         >
                                             <TrashIcon className="h-4 w-4" />
