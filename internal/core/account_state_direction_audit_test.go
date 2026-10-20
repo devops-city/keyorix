@@ -13,6 +13,7 @@ package core
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,21 +108,18 @@ func TestRequirePasswordReset_AuditRefused_DirectionFollowsCurrentState(t *testi
 	})
 }
 
-// staleAccountStateStorage runs afterGetUser once, right after the first GetUser
-// returns: the state the caller just read is then out of date, the way another
-// replica's suspension landing between setAccountState's read and its transaction is.
-type staleAccountStateStorage struct {
-	storage.Storage
-	afterGetUser func()
-}
-
-func (s *staleAccountStateStorage) GetUser(ctx context.Context, id uint) (*models.User, error) {
-	u, err := s.Storage.GetUser(ctx, id)
-	if f := s.afterGetUser; f != nil {
-		s.afterGetUser = nil
-		f()
-	}
-	return u, err
+// staleGetUserStore runs afterGetUser once, right after the first GetUser returns: the
+// state the caller just read is then out of date, the way another replica's suspension
+// landing between setAccountState's read and its transaction is.
+func staleGetUserStore(inner storage.Storage, afterGetUser func()) storage.Storage {
+	var once sync.Once
+	return hooked(inner, &storeHooks{
+		GetUser: func(next storage.Storage, ctx context.Context, id uint) (*models.User, error) {
+			u, err := next.GetUser(ctx, id)
+			once.Do(afterGetUser)
+			return u, err
+		},
+	})
 }
 
 // An account read as active that is suspended by the time the row lock is taken is a
@@ -130,9 +128,7 @@ func (s *staleAccountStateStorage) GetUser(ctx context.Context, id uint) (*model
 func TestRequirePasswordReset_StateChangedAfterRead_RechecksUnderLock(t *testing.T) {
 	txClosureBackends(t, func(t *testing.T, w *txClosureWorld) {
 		id := w.seedDeactivationTarget(t, "f5-stale")
-		stale := &staleAccountStateStorage{Storage: w.fs}
-		stale.afterGetUser = func() { w.setAccountStateRaw(t, id, AccountSuspended) }
-		c := NewKeyorixCore(stale)
+		c := NewKeyorixCore(staleGetUserStore(w.fs, func() { w.setAccountStateRaw(t, id, AccountSuspended) }))
 		w.fs.Arm(&faultstorage.FaultSpec{Method: "LogAuditEvent", NthCall: 1, Kind: faultstorage.KindError, Err: errors.New("audit log refused")})
 		runWithDeadline(t, 30*time.Second, func() {
 			require.Error(t, c.RequirePasswordReset(context.Background(), 0, id))
