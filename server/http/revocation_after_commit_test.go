@@ -220,6 +220,25 @@ func racRun(t *testing.T, backend string, tc racCase, firstRoute string, refuseA
 	err := tc.end(t, w, cred)
 	if refuseAudit && tc.auditGated {
 		require.Error(t, err, "%s is audit-gated (see the file header)", tc.name)
+		// TODAY's behaviour: the refused rotation rolls back as a whole, so the OLD
+		// credential is still live, on replica B too (its warm cache entry included),
+		// on both REST routes and on gRPC.
+		// MERGE-FIX-3482G (Andrei 2026-10-20, ask perf-cred-lookup-1-rotation-audit-gated
+		// = b) splits rotation: revoking the old credential becomes owed and is no
+		// longer audit-gated, issuing the new one stays fail closed. Its one-line
+		// change here: make the old token refused like an unknown token (the
+		// assertion every non-gated case below ends with) instead of "200".
+		//
+		// The audit log is given back first: a secret READ is itself audit-gated
+		// (secret.read fails closed while the audit refuses), so with the table still
+		// renamed no read could tell a live credential from a revoked one.
+		require.NoError(t, w.a.db.Exec("ALTER TABLE audit_events_refused_rac RENAME TO audit_events").Error)
+		for _, rt := range order {
+			require.Equal(t, "200", racREST(w.b, cred.token, routes[rt], remote),
+				"old %s credential must still authenticate on B after the audit-refused %s (%s route)", tc.kind, tc.name, rt)
+		}
+		require.Equal(t, val, w.read(t, w.b, "grpc", "subject", sec).Value,
+			"old %s credential must still authenticate over gRPC on B after the audit-refused %s", tc.kind, tc.name)
 		return
 	}
 	require.NoError(t, err, "ending the credential (%s) must succeed%s", tc.name, map[bool]string{true: " while the audit log refuses", false: ""}[refuseAudit])
@@ -232,8 +251,8 @@ func racRun(t *testing.T, backend string, tc racCase, firstRoute string, refuseA
 	}
 	got := w.read(t, w.b, "grpc", "subject", sec)
 	require.Empty(t, got.Value, "gRPC on B after %s committed on A must disclose nothing: %s", tc.name, got)
-	require.Contains(t, []int{int(codes.Unauthenticated), int(codes.ResourceExhausted)}, got.Status,
-		"gRPC on B after %s committed on A must be refused as unauthenticated: %s", tc.name, got)
+	require.Equal(t, int(codes.Unauthenticated), got.Status,
+		"gRPC on B after %s committed on A must be refused as unauthenticated (not rate limited): %s", tc.name, got)
 }
 
 // TestRevocationAfterCommit_EveryCredentialType: see the file header.
