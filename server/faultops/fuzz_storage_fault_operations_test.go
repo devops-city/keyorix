@@ -320,23 +320,10 @@ func opScopedAcceptableByDesign(op, method string, nth int, diff []string, execL
 // so a future genuinely-load-bearing table added to the same op/method pair
 // is not silently swallowed by a too-broad exclusion.
 //
-// GRPC keyorix.v1.UserService.CreateUser, CreateUserWithRoleGrants: found live
-// by FuzzStorageFaultOperations, op="GRPC keyorix.v1.UserService.CreateUser"
-// fault=CreateUserWithRoleGrants#1/effect-then-error -- ORACLE (d) VIOLATION,
-// differing tables vs before: [User UserRole] (both match the real, committed
-// NEW state -- CreateUserWithRoleGrants already wraps the user row and every
-// role-grant row in one storage.WithTransaction, internal/storage/store/
-// local_users.go:84, so there is no partial-role-grants scenario here); vs
-// reference: [AuditEvent PasswordHistory] (AuditEvent already excluded by
-// outcomeLogTables above; PasswordHistory is the remaining divergence).
-// internal/core/users.go's own comment names PasswordHistory's seed as
-// "Best-effort password-history seed, after the atomic create (ADR-025)",
-// and bestEffortTables["AddPasswordHistory"] = {"PasswordHistory"} already
-// documents this exact tradeoff for oracle (a) -- this entry extends the
-// SAME already-accepted tradeoff to oracle (d) rather than asserting a new
-// one. Coordinator review requested on this exclusion specifically (Session
-// CR round 2 PR body) per the "never widen a carve-out without flagging it"
-// rule -- not silently assumed correct.
+// GRPC keyorix.v1.UserService.CreateUser, CreateUserWithRoleGrants (PasswordHistory):
+// row removed by GUARD-HYGIENE-1. TestEffectThenErrorExclusions_AreLoadBearing showed
+// oracle (d) reports nothing for it without the row (the best-effort history seed no
+// longer diverges in the driven case), so the row was stale.
 //
 // #2410/#2406: the four GRPC/REST revoke-lease routes under
 // fault=LogAuditEvent#1/effect-then-error use `columns`, not `tables` --

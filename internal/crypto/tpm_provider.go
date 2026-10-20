@@ -36,7 +36,7 @@
 //     that is the entire point — so without a second authorization path a routine,
 //     uncoordinated host patch converts into unrecoverable loss of the KEK and
 //     therefore the DEK and every encrypted secret behind it.
-//   - `keyorix encryption migrate-provider` cannot serve as that recovery path
+//   - `keyorix-server admin encryption migrate-provider` cannot serve as that recovery path
 //     either: it re-wraps the DEK by first calling KEK() on the *current* provider,
 //     so once a PCR mismatch makes this provider's blob unsealable there is no way
 //     to migrate off it. There is no in-place "reseal under fresh PCR values"
