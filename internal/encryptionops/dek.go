@@ -19,6 +19,7 @@ package encryptionops
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/crypto"
@@ -57,26 +58,54 @@ func MasterPassphrase(cfg *config.Config, src crypto.PassphraseSource) (string, 
 	return string(passphraseBytes), nil
 }
 
+// requireExistingKeys refuses when the wrapped DEK is not where the config
+// says. Service.Initialize generates a new salt and DEK when they are missing,
+// which only `init` (and a server's first boot) may do: every other command
+// works on an existing install's keys, and run from the wrong directory (key
+// paths are resolved against it), with a wrong dek_path or an unmounted volume
+// it would otherwise act on brand-new keys and report success (REVIEW-COVERAGE-2).
+func requireExistingKeys(cfg *config.Config, service *encryption.Service, baseDir string) error {
+	if service.WrappedDEKExists() {
+		return nil
+	}
+	return missingKeysError(cfg, baseDir)
+}
+
+// missingKeysError is requireExistingKeys' refusal.
+func missingKeysError(cfg *config.Config, baseDir string) error {
+	if abs, err := filepath.Abs(baseDir); err == nil {
+		baseDir = abs
+	}
+	dekPath := cfg.Storage.Encryption.DEKPath
+	if !filepath.IsAbs(dekPath) {
+		dekPath = filepath.Join(baseDir, dekPath)
+	}
+	return fmt.Errorf("no wrapped DEK at %s (storage.encryption.dek_path %q; relative key paths are resolved against the current directory %s): this command works on existing keys and does not create keys. Run it from the directory the server runs in, or fix dek_path; `admin encryption init` creates the keys of a new install",
+		dekPath, cfg.Storage.Encryption.DEKPath, baseDir)
+}
+
 // InitLocalKeyOpService constructs and initializes the encryption.Service for
-// a short-lived, LOCAL key-management operation — status/validate/fix-perms/
-// upgrade-aad/init — and has it participate in the same cross-process lock
-// coordination the server (held for its whole lifetime) and rotate/migrate-
-// provider (held for the duration of their write) already use (#92/#195/
-// #196). None of these operations rotate the DEK themselves, so they take the
-// SHARED side of the lock: any number of them can run concurrently with each
-// other, but every one is refused while a live server or an in-progress
-// rotation/migrate-provider holds the lock exclusively, instead of silently
-// reading (or, for upgrade-aad, writing under) a DEK that's concurrently
-// being replaced. cleanPendingDEK matches upgrade-aad/rotate's existing
-// convention of clearing a leftover dek.key.pending from an interrupted
-// rotation before initializing. Callers must `defer service.Shutdown()` on
-// success to release the lock.
-func InitLocalKeyOpService(cfg *config.Config, baseDir, passphrase string, cleanPendingDEK bool) (*encryption.Service, error) {
+// a short-lived, LOCAL key-management operation that does not change the DEK
+// or its wrapping — status/validate/fix-perms/rotate --dry-run/init — and has
+// it participate in the same cross-process lock coordination the server (held
+// for its whole lifetime) and the key writers (openKeyWriter, held for the
+// duration of their write) already use (#92/#195/#196). These take the SHARED
+// side of the lock: any number of them can run concurrently with each other,
+// but every one is refused while a live server or an in-progress key writer
+// holds the lock exclusively. Only init (createKeys) may generate missing key
+// files, and it takes the lock exclusively before it does. Callers must
+// `defer service.Shutdown()` on success to release the lock.
+func InitLocalKeyOpService(cfg *config.Config, baseDir, passphrase string, createKeys bool) (*encryption.Service, error) {
 	service := encryption.NewService(&cfg.Storage.Encryption, baseDir)
-	if cleanPendingDEK {
-		service.CleanPendingDEK()
+	if createKeys {
+		if err := service.AcquireExclusiveKeyLock(); err != nil {
+			return nil, fmt.Errorf("%w — a live server or an in-progress key operation is using this key directory; stop it or wait for it to finish, then retry", err)
+		}
+	} else if err := requireExistingKeys(cfg, service, baseDir); err != nil {
+		return nil, err
 	}
 	if err := service.Initialize(passphrase); err != nil {
+		service.Shutdown()
 		return nil, fmt.Errorf("failed to initialize encryption: %w", err)
 	}
 	if err := service.AcquireSharedKeyLock(); err != nil {
@@ -84,6 +113,54 @@ func InitLocalKeyOpService(cfg *config.Config, baseDir, passphrase string, clean
 		return nil, fmt.Errorf("%w — a live server or an in-progress rotation/migrate-provider is using this key directory; stop it or wait for it to finish, then retry", err)
 	}
 	return service, nil
+}
+
+// openKeyWriter prepares a Service for a command that writes key files or
+// re-encrypts rows (rotate, upgrade-aad, rotate-kek, migrate-provider): the
+// exclusive key lock first (refused while a server or another key operation
+// runs), then DEK-rotation crash recovery from the database's redo marker, then
+// Initialize on the existing keys.
+//
+// Recovery has to come first for every one of them, not only rotate: after a
+// rotation killed between its sweep commit and the dek.key.pending -> dek.key
+// rename, the pending file is the only copy of the DEK the rows are now under.
+// upgrade-aad and rotate-kek used to delete it (a bare CleanPendingDEK) and
+// migrate-provider to overwrite it, each making every swept row undecryptable
+// (REVIEW-COVERAGE-2). The caller must Shutdown the service and close the DB.
+func openKeyWriter(cfg *config.Config, baseDir, passphrase, what string) (*encryption.Service, *gorm.DB, error) {
+	service := encryption.NewService(&cfg.Storage.Encryption, baseDir)
+	// Hold the exclusive key lock across crash-recovery + the write (refuses if a
+	// server is running — the #92 guard), so the recovery-promote below can never
+	// race a live server. Shutdown() releases it.
+	if err := service.AcquireExclusiveKeyLock(); err != nil {
+		return nil, nil, fmt.Errorf("refusing to %s: %w — stop the running server before running it", what, err)
+	}
+	// OpenGormDB honors cfg.Storage.Type and keeps the driver selection inside the
+	// storage package (ADR-049). Callers refuse remote storage before this.
+	db, err := storage.OpenGormDB(cfg)
+	if err != nil {
+		service.Shutdown()
+		return nil, nil, fmt.Errorf("failed to open database to %s: %w", what, err)
+	}
+	// Heal an interrupted PRIOR rotation BEFORE Initialize, so Initialize loads the
+	// correct (possibly just-promoted) active DEK: promote dek.key.pending when the
+	// redo marker says the sweep committed, discard it otherwise.
+	if err := service.RecoverInterruptedRotation(db); err != nil {
+		closeGormDB(db)
+		service.Shutdown()
+		return nil, nil, fmt.Errorf("DEK-rotation crash recovery failed: %w", err)
+	}
+	if err := requireExistingKeys(cfg, service, baseDir); err != nil {
+		closeGormDB(db)
+		service.Shutdown()
+		return nil, nil, err
+	}
+	if err := service.Initialize(passphrase); err != nil {
+		closeGormDB(db)
+		service.Shutdown()
+		return nil, nil, fmt.Errorf("failed to initialize encryption: %w", err)
+	}
+	return service, db, nil
 }
 
 // RotateWithConfig is the testable core of `encryption rotate`. Returns early
@@ -126,42 +203,19 @@ func RotateWithConfig(cfg *config.Config, confirm bool, dryRun bool, passSrc cry
 	fmt.Println("⚠️  Rotating DEK and re-encrypting all DEK-encrypted rows. This holds a write lock on the database — stop write traffic before continuing.")
 
 	baseDir, _ := os.Getwd()
-	service := encryption.NewService(&cfg.Storage.Encryption, baseDir)
-
 	passphrase, err := MasterPassphrase(cfg, passSrc)
 	if err != nil {
 		return err
 	}
 
-	// Hold the exclusive key lock across crash-recovery + rotation (refuses if a server is
-	// running — the #92 guard). Held for the whole operation so the recovery-promote below
-	// can never race a live server. Shutdown() releases it.
-	if err := service.AcquireExclusiveKeyLock(); err != nil {
-		return fmt.Errorf("refusing to rotate: %w — stop the running server before rotating", err)
-	}
-	defer service.Shutdown()
-
 	// RotateDEKWithSweep needs a raw *gorm.DB so it can own the re-encryption
 	// transaction (ADR-010), which the storage.Storage abstraction can't provide.
-	// OpenGormDB honors cfg.Storage.Type and keeps the driver selection inside the
-	// storage package rather than this file (ADR-049). The remote-storage guard
-	// above means this only reaches the local sqlite/postgres branches.
-	db, err := storage.OpenGormDB(cfg)
+	service, db, err := openKeyWriter(cfg, baseDir, passphrase, "rotate")
 	if err != nil {
-		return fmt.Errorf("failed to open database for rotation: %w", err)
+		return err
 	}
+	defer service.Shutdown()
 	defer closeGormDB(db)
-
-	// Heal any interrupted PRIOR rotation BEFORE Initialize, so Initialize loads the correct
-	// (possibly just-promoted) active DEK. If a previous rotation crashed after committing the
-	// sweep but before promoting the new DEK file, this promotes it (via the redo marker);
-	// otherwise it discards a stray pending file (the old CleanPendingDEK behavior).
-	if err := service.RecoverInterruptedRotation(db); err != nil {
-		return fmt.Errorf("DEK-rotation crash recovery failed: %w", err)
-	}
-	if err := service.Initialize(passphrase); err != nil {
-		return fmt.Errorf("failed to initialize encryption: %w", err)
-	}
 
 	fmt.Println("🔄 Rotating DEK with full re-encryption sweep...")
 	result, err := service.RotateDEKWithSweep(passphrase, db)
@@ -246,16 +300,13 @@ func UpgradeAADWithConfig(cfg *config.Config, passSrc crypto.PassphraseSource) e
 		return err
 	}
 
-	service, err := InitLocalKeyOpService(cfg, baseDir, passphrase, true)
+	// A writer under the current DEK: exclusive, after crash recovery (an
+	// interrupted rotation's pending DEK is promoted, never discarded).
+	service, db, err := openKeyWriter(cfg, baseDir, passphrase, "upgrade AAD")
 	if err != nil {
 		return err
 	}
 	defer service.Shutdown()
-
-	db, err := storage.OpenGormDB(cfg)
-	if err != nil {
-		return fmt.Errorf("failed to open database for AAD upgrade: %w", err)
-	}
 	defer closeGormDB(db)
 
 	fmt.Println("🔄 Upgrading legacy auth-secret rows to per-row AAD...")
@@ -327,7 +378,7 @@ func InitWithConfig(cfg *config.Config, passSrc crypto.PassphraseSource) error {
 	}
 
 	fmt.Println("🔐 Initializing encryption...")
-	service, err := InitLocalKeyOpService(cfg, baseDir, passphrase, false)
+	service, err := InitLocalKeyOpService(cfg, baseDir, passphrase, true)
 	if err != nil {
 		return err
 	}

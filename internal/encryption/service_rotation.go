@@ -87,8 +87,14 @@ func (s *Service) RotateDEKWithSweep(passphrase string, db *gorm.DB) (*SweepResu
 		// DEK / wipe the old one / delete backups even though the sweep transaction was rolled
 		// back and the rows never moved to the new DEK. See
 		// docs/findings/2026-09-20-FINDING-sweepfn-panic-recovery-swallows-failure.md.
+		committed := false
 		defer func() {
 			if r := recover(); r != nil {
+				if committed {
+					// Rows and marker are under the new DEK: keep its pending file.
+					err = fmt.Errorf("re-encryption sweep panicked after its commit: %v: %w", r, errSweepOutcomeUnknown)
+					return
+				}
 				tx.Rollback()
 				err = fmt.Errorf("re-encryption sweep panicked: %v", r)
 			}
@@ -129,8 +135,11 @@ func (s *Service) RotateDEKWithSweep(passphrase string, db *gorm.DB) (*SweepResu
 			return fmt.Errorf("failed to write DEK-rotation redo marker: %w", err)
 		}
 		if err := tx.Commit().Error; err != nil {
-			return fmt.Errorf("failed to commit sweep transaction: %w", err)
+			// A failed COMMIT does not say the transaction did not commit (the
+			// connection can drop after the server committed): keep the new DEK.
+			return fmt.Errorf("failed to commit sweep transaction: %w (%w)", err, errSweepOutcomeUnknown)
 		}
+		committed = true
 
 		// Log (and, via the returned SweepResult, report to the CLI operator) every
 		// field of the result — not just the original 5 of 8 "Swept" counts. The 3

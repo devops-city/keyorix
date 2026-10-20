@@ -17,10 +17,12 @@ import (
 // raw credential bytes go straight into the library with no keyorix-side schema
 // validation in front of them. keyorix has no filter to bypass here — the library
 // IS the front line — so a panic / out-of-bounds / hang inside the parser is a
-// pre-auth DoS. This is a "behind the wall" pour point in the sense that the rich
+// pre-auth DoS. The parse decodes the JSON envelope, the attestationObject CBOR,
+// the authenticator data and the COSE credential key. It does NOT reach the
 // attestation-format family (packed / tpm / android-key / android-safetynet /
-// apple / fido-u2f, plus the CBOR/COSE key decode each carries) sits behind the
-// outer JSON envelope; fuzzing the parser directly floods all of it.
+// apple / fido-u2f / compound statements: x5c, TPM structures, JWS): those are
+// decoded only in CreateCredential's verification, which
+// FuzzWebAuthnRegistrationCeremony (ceremony_fuzz_test.go) covers.
 //
 // Invariants:
 //   - never panics / hangs (Guard bounds the per-input wall clock, matching the

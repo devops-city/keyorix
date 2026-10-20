@@ -74,6 +74,9 @@ func AuthStatusWithConfig(cfg *config.Config, passSrc crypto.PassphraseSource) e
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	authEnc := encryption.NewAuthEncryption(&cfg.Storage.Encryption, ".", db)
+	if cfg.Storage.Encryption.Enabled && !authEnc.WrappedDEKExists() {
+		return missingKeysError(cfg, ".")
+	}
 	passphrase, _ := MasterPassphrase(cfg, passSrc)
 	if err := authEnc.Initialize(passphrase); err != nil {
 		return fmt.Errorf("failed to initialize auth encryption: %w", err)
@@ -180,14 +183,10 @@ func RotateAuthEncryptionWithConfig(cfg *config.Config, confirm bool, passSrc cr
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	authEnc := encryption.NewAuthEncryption(&cfg.Storage.Encryption, ".", db)
 	passphrase, _ := MasterPassphrase(cfg, passSrc)
-	if err := authEnc.Initialize(passphrase); err != nil {
-		return fmt.Errorf("failed to initialize auth encryption: %w", err)
-	}
-	if err := authEnc.AcquireExclusiveKeyLock(); err != nil {
-		authEnc.Shutdown()
-		return fmt.Errorf("refusing to rotate: %w — stop the running server before rotating", err)
+	authEnc, err := openAuthKeyWriter(cfg, db, passphrase, "rotate")
+	if err != nil {
+		return err
 	}
 	defer authEnc.Shutdown()
 
@@ -207,19 +206,14 @@ func MigrateAuthDataWithConfig(cfg *config.Config, dryRun bool, passSrc crypto.P
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	authEnc := encryption.NewAuthEncryption(&cfg.Storage.Encryption, ".", db)
-	passphrase, _ := MasterPassphrase(cfg, passSrc)
-	if err := authEnc.Initialize(passphrase); err != nil {
-		return fmt.Errorf("failed to initialize auth encryption: %w", err)
-	}
-	// #292/G62: take the same cross-process shared DEK lock the sibling DEK
-	// operations (status/validate/fix-perms/upgrade-aad) already require —
 	// migrate writes under the current DEK without rotating it, exactly like
-	// upgrade-aad, so this fails fast instead of racing a concurrent
-	// migrate-provider/rotate.
-	if err := authEnc.AcquireSharedKeyLock(); err != nil {
-		authEnc.Shutdown()
-		return fmt.Errorf("%w — a live server or an in-progress rotation/migrate-provider is using this key directory; stop it or wait for it to finish, then retry", err)
+	// upgrade-aad: exclusive, after crash recovery, so it never writes under a
+	// DEK an interrupted rotation has already retired (#292/G62 took only the
+	// shared lock).
+	passphrase, _ := MasterPassphrase(cfg, passSrc)
+	authEnc, err := openAuthKeyWriter(cfg, db, passphrase, "migrate authentication data")
+	if err != nil {
+		return err
 	}
 	defer authEnc.Shutdown()
 
@@ -287,6 +281,9 @@ func ValidateAuthEncryptionWithConfig(cfg *config.Config, verbose bool, passSrc 
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 	authEnc := encryption.NewAuthEncryption(&cfg.Storage.Encryption, ".", db)
+	if cfg.Storage.Encryption.Enabled && !authEnc.WrappedDEKExists() {
+		return missingKeysError(cfg, ".")
+	}
 	passphrase, _ := MasterPassphrase(cfg, passSrc)
 	if err := authEnc.Initialize(passphrase); err != nil {
 		return fmt.Errorf("failed to initialize auth encryption: %w", err)
@@ -351,4 +348,28 @@ func ValidatePasswordResetTokens(db *gorm.DB, authEnc *encryption.AuthEncryption
 		fmt.Printf("  ⚠️  Reset Token %d: plaintext token with no encrypted counterpart — needs migration\n", reset.ID)
 	}
 	return len(unmigrated), nil
+}
+
+// openAuthKeyWriter is openKeyWriter for the auth-encryption commands that
+// rotate the DEK or write under it (rotate, migrate): the exclusive key lock,
+// DEK-rotation crash recovery, existing keys only, then Initialize. The caller
+// must Shutdown the returned handler.
+func openAuthKeyWriter(cfg *config.Config, db *gorm.DB, passphrase, what string) (*encryption.AuthEncryption, error) {
+	authEnc := encryption.NewAuthEncryption(&cfg.Storage.Encryption, ".", db)
+	if err := authEnc.AcquireExclusiveKeyLock(); err != nil {
+		return nil, fmt.Errorf("refusing to %s: %w — stop the running server before running it", what, err)
+	}
+	if err := authEnc.RecoverInterruptedRotation(); err != nil {
+		authEnc.Shutdown()
+		return nil, fmt.Errorf("DEK-rotation crash recovery failed: %w", err)
+	}
+	if cfg.Storage.Encryption.Enabled && !authEnc.WrappedDEKExists() {
+		authEnc.Shutdown()
+		return nil, missingKeysError(cfg, ".")
+	}
+	if err := authEnc.Initialize(passphrase); err != nil {
+		authEnc.Shutdown()
+		return nil, fmt.Errorf("failed to initialize auth encryption: %w", err)
+	}
+	return authEnc, nil
 }

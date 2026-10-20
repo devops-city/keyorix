@@ -188,12 +188,16 @@ func MigrateProviderWithConfig(cfg *config.Config, opts MigrateOpts, confirm boo
 		return err
 	}
 
-	// 1. Open with the CURRENT provider — unwraps the DEK into memory.
-	oldSvc := encryption.NewService(enc, baseDir)
-	if err := oldSvc.Initialize(oldPass); err != nil {
-		return fmt.Errorf("failed to open encryption with the current provider: %w", err)
+	// 1. Open with the CURRENT provider — unwraps the DEK into memory — under the
+	//    exclusive key lock and after DEK-rotation crash recovery: the re-wrap
+	//    writes dek.key.pending, which after an interrupted rotation holds the
+	//    only copy of the new DEK.
+	oldSvc, db, err := openKeyWriter(cfg, baseDir, oldPass, "migrate the KEK provider")
+	if err != nil {
+		return err
 	}
 	defer oldSvc.Shutdown()
+	closeGormDB(db)
 
 	// 2. Encrypt a probe value under the current DEK — used after re-wrapping to
 	//    verify the target provider yields the *same* DEK (data still decryptable).
@@ -227,13 +231,13 @@ func MigrateProviderWithConfig(cfg *config.Config, opts MigrateOpts, confirm boo
 	verifySvc := encryption.NewService(&tgtEnc, baseDir)
 	if err := verifySvc.Initialize(newPass); err != nil {
 		RestoreBackup(baseDir, backupRel, enc.DEKPath)
-		return fmt.Errorf("verification failed (target provider could not open) — restored previous DEK: %w", err)
+		return fmt.Errorf("verification failed (target provider could not open) — restored previous DEK (its copy %s is kept; `migrate-provider cleanup` removes it): %w", backupRel, err)
 	}
 	defer verifySvc.Shutdown()
 	got, err := verifySvc.DecryptSecret(probeCT)
 	if err != nil || !bytes.Equal(got, probe) {
 		RestoreBackup(baseDir, backupRel, enc.DEKPath)
-		return fmt.Errorf("verification failed (probe did not round-trip under the target provider) — restored previous DEK")
+		return fmt.Errorf("verification failed (probe did not round-trip under the target provider) — restored previous DEK (its copy %s is kept; `migrate-provider cleanup` removes it)", backupRel)
 	}
 
 	PrintMigrateSummary(tgtEnc, backupRel)
