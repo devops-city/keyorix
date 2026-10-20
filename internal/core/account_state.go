@@ -21,6 +21,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -311,18 +312,41 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	// AUDIT-TX-3: a transition into a login-blocked or restricted state is a
 	// revocation: never blocked by the audit log, its row owed from this transaction
 	// (appended after the cache eviction below). Returning to active restores access,
-	// so that one is grant-shaped: its row commits with it or not at all.
+	// so that one is grant-shaped: its row commits with it or not at all. So is
+	// suspended -> password_reset_required: the target is "restricted", but leaving a
+	// login-blocked state lets the user log in again (to reset), so the direction
+	// depends on the CURRENT state as well (accountStateTransitionRevokes). The current
+	// state is read here, under accountStateMu, and re-checked on the row lock inside
+	// the transaction: another replica may change it in between, in which case the call
+	// is retried once with the state it found.
 	aid := adminID
-	settle, err := c.auditedByDirection(ctx, !needsCacheEvictionSweep, func(tx storage.Storage, tgt auditTarget) error {
-		hashes, serr := c.setAccountStateInTx(ctx, tx, userID, state)
-		sessionHashes = hashes
-		if serr != nil {
-			return serr
+	var (
+		settle func()
+		err    error
+	)
+	for attempt := 0; ; attempt++ {
+		revocation := needsCacheEvictionSweep && accountStateTransitionRevokes(userID, c.currentAccountStateForDirection(ctx, userID), state)
+		settle, err = c.auditedByDirection(ctx, !revocation, func(tx storage.Storage, tgt auditTarget) error {
+			if revocation {
+				if locked, lerr := tx.LockUserForUpdate(ctx, userID); lerr == nil && locked != nil &&
+					!accountStateTransitionRevokes(userID, locked.AccountState, state) {
+					return errAccountStateDirectionChanged
+				}
+			}
+			hashes, serr := c.setAccountStateInTx(ctx, tx, userID, state)
+			sessionHashes = hashes
+			if serr != nil {
+				return serr
+			}
+			c.writeAuditEventFullOn(ctx, tgt, eventType, &aid, nil, nil, "",
+				fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, tx, auditKindUser, userID), state))
+			return nil
+		})
+		if errors.Is(err, errAccountStateDirectionChanged) && attempt == 0 {
+			continue
 		}
-		c.writeAuditEventFullOn(ctx, tgt, eventType, &aid, nil, nil, "",
-			fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, tx, auditKindUser, userID), state))
-		return nil
-	})
+		break
+	}
 	if err != nil {
 		return fmt.Errorf("failed to update account state: %w", err)
 	}
@@ -354,6 +378,36 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 // primitive under a different condition.
 func accountStateNeedsEvictionSweep(userID uint, state string) bool {
 	return AccountLoginBlocked(userID, state) || AccountRestricted(state)
+}
+
+// errAccountStateDirectionChanged: the account's state, read under the row lock, made
+// the audit direction chosen before the transaction wrong (it was read as not
+// login-blocked and is). setAccountState retries once with the state it found.
+var errAccountStateDirectionChanged = errors.New("account state changed while choosing the audit direction")
+
+// accountStateTransitionRevokes reports whether moving an account from one state to
+// another narrows access, which is what makes its audit row owed (never blocked by the
+// audit log) instead of fail closed. Into a blocked or restricted state narrows,
+// EXCEPT from a login-blocked state into one that is not: suspended ->
+// password_reset_required lets the user log in again, so it widens. An unreadable or
+// unrecognised current state counts as login-blocked (AccountLoginBlocked fails
+// closed), which makes that transition grant-shaped: the safe side.
+func accountStateTransitionRevokes(userID uint, from, to string) bool {
+	if !accountStateNeedsEvictionSweep(userID, to) {
+		return false // toward active
+	}
+	return !(AccountLoginBlocked(userID, from) && !AccountLoginBlocked(userID, to))
+}
+
+// currentAccountStateForDirection reads the account's current state for
+// accountStateTransitionRevokes. A failed read returns "", which counts as
+// login-blocked there; the transaction then reports the real error itself.
+func (c *KeyorixCore) currentAccountStateForDirection(ctx context.Context, userID uint) string {
+	u, err := c.storage.GetUser(ctx, userID)
+	if err != nil || u == nil {
+		return ""
+	}
+	return u.AccountState
 }
 
 // setAccountStateInTx is setAccountState's transaction body, extracted (#2867) so
