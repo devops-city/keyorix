@@ -270,6 +270,10 @@ func (c *KeyorixCore) PatchSCIMGroup(ctx context.Context, actorID, groupID uint,
 	// membership changes (another SCIM PATCH/PUT, or a native RemoveUserFromGroup)
 	// could each observe "another admin survives" before either commits.
 	toRemove := filterNonZero(removeIDs)
+	// An id in both lists ends removed: the single transaction used to apply the adds
+	// first and the removals last. The split applies the removals first, so such an
+	// add is dropped here; it neither widens nor re-adds the member in commit 2.
+	allowedAdds = slices.DeleteFunc(allowedAdds, func(id uint) bool { return slices.Contains(toRemove, id) })
 	widens := len(allowedAdds) > 0 || renaming
 	// split: removals that really remove a member, plus an add or a rename, make a
 	// mixed request (MERGE-FIX-3482G): the removals commit alone (owed) under the
