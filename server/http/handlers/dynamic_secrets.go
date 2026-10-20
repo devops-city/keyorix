@@ -52,7 +52,7 @@ func isSafeDynamicSecretError(msg string) bool {
 // it can carry driver, storage or connection detail (backlog #116).
 func dynamicSecretClientMessage(err error, op string) string {
 	if refused, ok := errors.AsType[*core.DynamicSecretTargetRefusedError](err); ok {
-		log.Printf("%s: %s", op, refused.Error()) // full text, including any resolved address
+		log.Printf("%s: %s", op, dynamic.SanitizeErrorMessage(refused)) // server-side only; the client gets ClientMessage()
 		return refused.ClientMessage()
 	}
 	msg := err.Error()
