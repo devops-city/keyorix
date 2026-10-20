@@ -324,11 +324,11 @@ func (c *KeyorixCore) updateAuditVerifyState(ctx context.Context, fn func(st *au
 // row and of a newly recorded failure (both after the save).
 func (c *KeyorixCore) reportAuditVerifyStateEvents(ctx context.Context, rejected *auditVerifyRejection, failed *auditVerifyFailure) {
 	if rejected != nil {
-		c.writeAuditEventFull(ctx, "system.audit_verification_state_rejected", nil, nil, nil, "",
+		c.writeAuditEventFailedFull(ctx, "system.audit_verification_state_rejected", nil, nil, nil, "",
 			"audit verification state rejected and restarted: "+rejected.Reason)
 	}
 	if failed != nil {
-		c.writeAuditEventFull(ctx, "system.audit_chain_verification_failed", nil, nil, nil, "",
+		c.writeAuditEventFailedFull(ctx, "system.audit_chain_verification_failed", nil, nil, nil, "",
 			"audit chain verification failed ("+failed.Source+"): "+failed.Reason)
 	}
 }

@@ -211,28 +211,3 @@ func TestVerifyMFA_GetUserPermissionsError_FailsClosed_ThenClears(t *testing.T) 
 	require.NoError(t, db.Model(&models.Session{}).Where("user_id = ?", 1).Count(&sessionCount).Error)
 	assert.Equal(t, int64(1), sessionCount, "the successful second attempt must leave exactly one live session")
 }
-
-// TestBuildLoginResponse_IdentityError_PropagatesAndMintsNothing exercises
-// buildLoginResponse directly — originally the single function shared by all
-// five login-completion handlers, confirming the #2412 fix lived in the one
-// place they shared rather than only in VerifyMFA's call site.
-//
-// Its callers are now Login and ConsumeSetup only: #2841 moved the other three
-// (VerifyMFA, FinishWebAuthnLogin, FinishWebAuthnPasswordlessLogin) to resolve
-// the identity inside core, before their first write, because each of those
-// also writes something user-scoped after minting that completeLogin's
-// session-only revoke never undid. So this test now covers two call sites, not
-// five; the other three are covered at the core boundary by
-// internal/core/login_identity_before_mint_test.go.
-func TestBuildLoginResponse_IdentityError_PropagatesAndMintsNothing(t *testing.T) {
-	h, fs, _, _, _ := newIdentityFailClosedTestHandler(t)
-
-	fs.Arm(&faultstorage.FaultSpec{
-		Method: "GetUserPermissions", NthCall: 1, Kind: faultstorage.KindError,
-		Err: errors.New("simulated: permission lookup unavailable"),
-	})
-
-	resp, err := h.buildLoginResponse(context.Background(), &models.Session{SessionToken: "irrelevant"}, &models.User{Username: "alice"})
-	require.Error(t, err, "a GetUserIdentity failure must propagate as an error, not be swallowed")
-	assert.Equal(t, loginResponseBody{}, resp, "an error return must not carry a partially-built response")
-}

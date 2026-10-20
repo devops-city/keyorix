@@ -864,6 +864,40 @@ Two behaviour changes at boot, no new setting. Check before upgrading:
 Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
 [KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
 
+## 6t. `server.grpc.tls.auto_cert: true` now refuses to start
+
+Automatic (ACME) certificates exist only for the HTTP listener. On gRPC the flag
+never obtained a certificate: with `server.grpc.tls.enabled: true` the server
+started and every gRPC TLS handshake failed, and with `enabled: false` the gRPC
+listener served plaintext. A config that sets `server.grpc.tls.auto_cert: true`
+is now refused at start-up with a message naming the key (AUTH-2).
+
+If your config has the line, remove it and either give gRPC a certificate:
+
+```yaml
+server:
+  grpc:
+    tls:
+      enabled: true
+      cert_file: /etc/keyorix/grpc.crt
+      key_file: /etc/keyorix/grpc.key
+```
+
+or terminate gRPC TLS at a proxy. `server.http.tls.auto_cert` is unchanged.
+
+## 6u. Failure audit events are now stored with `success = false`
+
+`mfa.failed`, `mfa.error`, `webauthn.failed` and the other audit events whose name
+records a failure (`auth.session_revocation_failed`, `auth.keep_session_lookup_failed`,
+`auth.session_revocation_panicked`, `secret.rotate_failed`, `dynamic_lease.revoke_failed`,
+`notification.failed`, and the rest of the `*_failed` / `*.failed` / `*_panicked`
+family) were written with `success = true`, so a wrong TOTP code or a failed passkey
+assertion was invisible to `success = false` filters, SIEM rules and exports (#3363).
+New rows have `success = false`. **Rows written before the upgrade keep
+`success = true`**: audit rows are hash-chained and never rewritten. A query or SIEM
+rule that must cover older history should match on `event_type` as well as
+`success`. `access_request.rejected` is unchanged (it records a successful decision).
+
 ## 6j. CLI: webhook URLs and tokens stay off the command line
 
 Changes in the `keyorix` CLI and web UI; the server needs no action. Check your scripts

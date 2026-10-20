@@ -627,7 +627,7 @@ func (c *KeyorixCore) RotateSecretOnDemand(ctx context.Context, id uint, newValu
 			secret.RotationBackend, secret.Name, berr)
 	case berr != nil:
 		sid := id
-		c.writeAuditEventFull(ctx, EventSecretRotateFailed, nil, &sid, &pid, "",
+		c.writeAuditEventFailedFull(ctx, EventSecretRotateFailed, nil, &sid, &pid, "",
 			fmt.Sprintf("on-demand rotation FAILED for secret %q via backend %q ref %q: %v", secret.Name, secret.RotationBackend, secret.RotationRef, berr))
 		return nil, fmt.Errorf("backend %q rotation failed for secret %q (upstream credential NOT rotated): %w", secret.RotationBackend, secret.Name, berr)
 	default:
