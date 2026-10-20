@@ -15,7 +15,13 @@
   count in `GET /api/v1/system/info`) and the record stays for `BackfillPendingAuditEvents`. If the
   record itself cannot be written the change still commits (the closure runs again with a
   collect-only target) and the row is attempted directly. A crash between the commit and the append
-  loses nothing: the record committed with the effect. Direction-dependent operations choose the
+  loses nothing: the record committed with the effect.
+  The "pending-record write fails too" case (`CreatePendingAuditEvent` refused): the revocation still
+  succeeds, the failure is a loud `SECURITY:` log, and the audit row is attempted directly after the
+  commit, so the final state equals an unfaulted run (the audit row is written once, nothing is
+  queued). The only real loss is when that direct write fails as well: it is logged as `NOT queued
+  for backfill (record it by hand)` and is an audit-trail GAP, not an outcome by design; the fuzz
+  oracle does not accept it (it reads as "neither an audit row nor a pending row"). Direction-dependent operations choose the
   rule from the change itself (`auditedByDirection`: account state into a blocked state and machine
   suspend/revoke are revocations, back to active is a grant that fails closed).
   Why: Andrei 2026-10-14; before AUDIT-TX-3 these wrote a plain best-effort row after the commit
@@ -26,8 +32,19 @@
   exactly once and the chain verifies), `TestUpdateUser_DeactivateAuditInOwnTransaction_NoSQLiteDeadlock`,
   `TestUpdateUser_DeactivateAuditRefused_RowIsOwedAndBackfilled`; `server/faultops`
   `TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed` (31 REST/gRPC ops over the
-  router, request still succeeds, rows + pending equals an unfaulted run).
+  router, request still succeeds, rows + pending equals an unfaulted run); the fuzz oracle's
+  owed-audit rule `server/faultops` `owed_audit_oracle_test.go` (oracle (a) accepts a success whose
+  diff is confined to {AuditEvent, PendingAuditEvent} only for those ops with a fault on
+  LogAuditEvent / ClaimPendingAuditEvent, only when every owed audit row has exactly one matching
+  pending record, and only when the backfill then converges to the reference exactly; a
+  CreatePendingAuditEvent fault must leave the state equal to the reference), calibrated red/green by
+  `TestOwedAuditOracle_Calibration` (regression seed `5012b3d0b086d4a4`; `FuzzOwedAuditRevocations` for
+  bursts, `TestOwedAuditOracle_SweepEveryScopedOp` for the exhaustive pass and "every op owes a row").
   Not covered: the narrowing branch of `UpdateRole` / `UpdateSharePermission` keeps its plain
   best-effort row (inventory "Remaining"); `DecideAccessReviewItem`'s revoke keeps its in-tx
   best-effort sink (#2676); a new revocation that does not use `withOwedAuditMutation` is not
-  detected by a static guard.
+  detected by a static guard. The oracle rule cannot show from state alone that the pending record
+  committed WITH the effect when an op's catalog scenario revokes nothing visible
+  (`POST /users/{id}/revoke-sessions` of a user with no session); there the proof is the exact payload
+  match plus the `internal/core` test above. The both-writes-fail gap needs two faults and is not
+  reachable by the one-fault fuzzer; it is calibrated by hand (`TestOwedAuditOracle_Calibration`, i2).

@@ -721,7 +721,7 @@ func runOneFuzzIterationReporting(t *testing.T, rep fuzzVerdict, data []byte, re
 
 	oi := oracleInput{
 		op: op.Key, method: decoded.methodName, nth: decoded.nthCall, kind: decoded.kind,
-		result: result, before: before, after: after, refAfter: refAfter, execLog: execLog,
+		result: result, before: before, after: after, refAfter: refAfter, execLog: execLog, world: w,
 	}
 	if observe != nil {
 		observe(oi)
@@ -742,6 +742,10 @@ type oracleInput struct {
 	// check (evidence that a best-effort code path actually fired, not just
 	// that the table diff resembles it).
 	execLog string
+	// world is the faulted world the case ran in. Only the owed-audit rule reads it
+	// (owed_audit_oracle_test.go: to run the backfill and prove convergence); nil on
+	// a hand-built input, where that rule fails closed.
+	world *faultWorld
 }
 
 // knownOpenTolerance narrowly fingerprints one already-filed, not-yet-fixed
@@ -1191,6 +1195,11 @@ func checkOraclesReporting(t fuzzVerdict, in oracleInput) {
 	case in.result.Success:
 		if in.after.Hash != in.refAfter.Hash {
 			diff := diffTables(in.refAfter, in.after)
+			// Owed-audit rule (owed_audit_oracle_test.go): authoritative for a revocation op
+			// with an audit-path fault, BEFORE the lenient acceptances below.
+			if owedAuditOracleA(t, label, in, func(d []string, f string, a ...any) { report("a", d, f, a...) }) {
+				return
+			}
 			if acceptableByDesign(in.method, diff) {
 				t.Logf("ACCEPTABLE-BY-DESIGN: %s: state diverges only in %v, which %s explicitly documents "+
 					"as best-effort/non-fatal (see acceptableByDesign's doc comment)", label, diff, in.method)
