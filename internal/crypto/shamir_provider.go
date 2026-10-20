@@ -117,13 +117,13 @@ func combineKEK(shares [][]byte, commitment []byte) ([]byte, error) {
 // ShamirKeyProvider reconstructs the KEK from K-of-N Shamir shares (ADR-038): no
 // single custodian holds the key. Each configured source — a file path or an
 // environment variable — carries one share (hex or base64 of the raw share bytes,
-// as emitted by `keyorix encryption shamir-split`). At KEK() time it reads the
+// as emitted by `keyorix-server admin encryption shamir-split`). At KEK() time it reads the
 // supplied shares (the operator provides at least the threshold many) and combines
 // them; the result must be exactly KEKSize bytes or the unseal fails closed (too
 // few / wrong shares reconstruct garbage rather than the real key).
 //
 // commitmentHex, if set (shamir_commitment in config, also printed by
-// `keyorix encryption shamir-split`), is the hex-encoded CommitKEK output computed
+// `keyorix-server admin encryption shamir-split`), is the hex-encoded CommitKEK output computed
 // at split time; KEK() verifies the reconstructed key against it (#429) — real
 // cryptographic protection against a forged share, unlike the magic-byte framing
 // check alone. Left empty for key material split before this existed; KEK() then
@@ -214,7 +214,7 @@ func (p *ShamirKeyProvider) KEK() ([]byte, error) { // NOSONAR -- cognitive comp
 		// shamir_commitment is a WEAKER verification posture, not an unrecoverable
 		// condition — killing the whole process denied that fallback a chance to
 		// run at all.
-		log.Printf("WARNING: shamir key provider: no shamir_commitment configured — reconstruction relies solely on the forgeable magic-byte framing check, NOT a cryptographic integrity check (see issue #429); run `keyorix encryption shamir-split` again and set shamir_commitment to close this gap")
+		log.Printf("WARNING: shamir key provider: no shamir_commitment configured — reconstruction relies solely on the forgeable magic-byte framing check, NOT a cryptographic integrity check (see issue #429); run `keyorix-server admin encryption shamir-split` again and set shamir_commitment to close this gap")
 	}
 	// combineKEK enforces the embedded threshold and verifies the framing magic, so
 	// a sub-threshold or wrong set of shares fails closed here — including on a fresh

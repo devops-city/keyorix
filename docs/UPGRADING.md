@@ -822,6 +822,41 @@ Two behaviour changes at boot, no new setting. Check before upgrading:
 Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
 [KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
 
+## 6j. CLI: webhook URLs and tokens stay off the command line
+
+Changes in the `keyorix` CLI and web UI; the server needs no action. Check your scripts
+before upgrading the CLI:
+
+- **`keyorix notification channel add|update --url <webhook>` is now refused** (exit
+  code 2, the value is never echoed). A webhook URL is a credential: the token lives in its
+  path. Give it with `--url-file <relative path>` or `--url-file -` (stdin), for example
+  `printf %s "$SLACK_URL" | keyorix notification channel add ops-slack --type slack
+  --url-file -`. While you migrate, `KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1` turns the
+  refusal back into a warning. `channel get` shows the masked `https://host/…` that the
+  server returns since the v2 channel contract; the full URL is not retrievable after
+  create. The web form takes the URL in a password-type field and, for an existing
+  channel, shows the masked value with a "Replace URL" button.
+- **Every refused secret flag and a bad `keyorix doctor --output` now exit with code 2**
+  (usage error) instead of 1. A script that branched on 1 for "login --password was
+  refused" must accept 2. `keyorix doctor` itself still exits 1 when a check failed; this is
+  now in the exit-code table of `keyorix --help`.
+- **New:** `KEYORIX_TOKEN_FILE=<path>` (mode 0600/0400, or 0440 as a mounted Secret; setting
+  `KEYORIX_TOKEN` too is an error), and `keyorix machine token issue --output-file <path>`
+  (new 0600 file, refuses to overwrite). A bad token file is an error naming the file, never
+  a silent fallback to the stored login.
+- **Operator messages name real commands.** The nonce-budget warning, the KMS context
+  fallback warning, the Shamir commitment warning and the `require_existing_path` refusal now
+  say `keyorix-server admin encryption rotate --confirm`, `keyorix-server admin encryption
+  migrate-provider ...`, `keyorix-server admin encryption shamir-split` and `keyorix-server
+  admin init`, which exist; the old texts named commands that do not. If you alert on the
+  old wording of these log lines, update the pattern.
+- **Dynamic-secret targets on a private network:** `POST /api/v1/dynamic-secrets/configs`
+  (and issue) now answer 400 with `the admin_dsn host "..." is a private or link-local
+  address, which the server's egress policy refuses ... set
+  dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true` instead of
+  "an internal error occurred". Behaviour is unchanged: the target is still refused unless a
+  server operator sets that option.
+
 ## 7. Rollback
 
 If an upgrade goes wrong:

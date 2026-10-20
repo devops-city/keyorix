@@ -107,7 +107,15 @@ func TestRefusedSecretFlagsAreRefused(t *testing.T) {
 		name := sf.Command + " --" + sf.Flag
 		t.Run(name, func(t *testing.T) {
 			isolateSecretFlagEnv(t)
-			args := append(strings.Fields(sf.Command), "--"+sf.Flag, canary)
+			args := strings.Fields(sf.Command)
+			// A command with positional arguments (`update <name>`) is checked for them
+			// before it runs; give it placeholders so the test reaches the refusal.
+			if c, _, err := rootCmd.Find(args); err == nil {
+				for range strings.Count(c.Use, "<") {
+					args = append(args, "placeholder")
+				}
+			}
+			args = append(args, "--"+sf.Flag, canary)
 			// A command with required flags checks them before it runs; satisfy them so the
 			// test reaches the refusal.
 			if c, _, err := rootCmd.Find(strings.Fields(sf.Command)); err == nil {
@@ -120,6 +128,9 @@ func TestRefusedSecretFlagsAreRefused(t *testing.T) {
 			err := executeForTest(t, args...)
 			if err == nil {
 				t.Fatalf("keyorix %s %s: want a refusal, got success", sf.Command, "--"+sf.Flag)
+			}
+			if code, _ := classifyError(err, true); code != exitUsage {
+				t.Errorf("a refused secret flag is a usage error (exit %d), got exit %d", exitUsage, code)
 			}
 			msg := err.Error()
 			for _, want := range []string{"--" + sf.Flag + " is not accepted", sf.Instead, allowInsecureSecretFlagsEnv} {

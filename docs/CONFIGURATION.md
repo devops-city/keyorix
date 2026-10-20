@@ -1527,6 +1527,12 @@ If the migration cannot complete, the server **refuses to start** rather than
 serve with webhook credentials still in plaintext on an install that asked for
 encryption. The error names the channel to investigate.
 
+The API and the clients treat the URL as write-only after creation: only the create
+response carries it in full; list, get and update return `https://host/…` and `url_set`.
+From the CLI, give it with `keyorix notification channel add|update --url-file <path|->`
+(`--url` is refused, like the other secret flags); the web form uses a password-type field
+and a "Replace URL" button on existing channels.
+
 ## compliance_digest
 
 An opt-in scheduler that periodically **broadcasts a compliance summary** to the
