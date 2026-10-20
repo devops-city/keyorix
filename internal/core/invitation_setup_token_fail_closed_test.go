@@ -8,7 +8,6 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/delivery"
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
-	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,8 +128,7 @@ func TestInviteGlobalWithLink_SupersedeActiveSetupTokensError_RetrySucceeds(t *t
 // KEYORIX_TEST_PG_DSN is unset.
 func TestInviteGlobalWithLink_SupersedeActiveSetupTokensErrorFailsClosed_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	db := pgOpen(t, pgIsolatedSchemaDSN(t, base))
-	require.NoError(t, kxstorage.MigrateExisting(db))
+	db := pgOpen(t, pgMigratedDatabaseDSN(t, base))
 	st := store.NewLocalStorage(db)
 	ctx := context.Background()
 

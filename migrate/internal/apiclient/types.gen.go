@@ -19,6 +19,13 @@ const (
 	Suspended MachineIdentityState = "suspended"
 )
 
+// Defines values for SecretReadRefusalCode.
+const (
+	SecretExpired           SecretReadRefusalCode = "SecretExpired"
+	SecretMaxReadsExhausted SecretReadRefusalCode = "SecretMaxReadsExhausted"
+	SecretSuspended         SecretReadRefusalCode = "SecretSuspended"
+)
+
 // Defines values for ListProjectsParamsIncludeDeleted.
 const (
 	ListProjectsParamsIncludeDeletedFalse ListProjectsParamsIncludeDeleted = "false"
@@ -54,7 +61,10 @@ type Environment struct {
 	Id        *int       `json:"id,omitempty"`
 	Name      *string    `json:"name,omitempty"`
 	ProjectId *int       `json:"project_id,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+
+	// SecretCount Live secrets in the environment (folders and soft-deleted secrets excluded). Computed by the server in one grouped query on the list routes (GET /environments, GET /projects/{id}/environments); 0 on a freshly created environment.
+	SecretCount *int64     `json:"secret_count,omitempty"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 }
 
 // MachineIdentity A project-scoped machine identity (ADR-023).
@@ -155,14 +165,17 @@ type RoleWithPermissions struct {
 
 // Secret A secret or folder node (internal/storage/models.SecretNode), metadata only -- never a value. Wire keys are snake_case, via the handler-level secretNodeWire type (server/http/handlers/secrets_wire.go) -- fixed from the previous bare-Go-field-name leak (ADR-108 PR 4/5) as part of the API-hygiene casing campaign.
 type Secret struct {
-	AutoRotate     *bool      `json:"auto_rotate,omitempty"`
-	Classification *string    `json:"classification,omitempty"`
-	CreatedAt      *time.Time `json:"created_at,omitempty"`
-	CreatedBy      *string    `json:"created_by,omitempty"`
-	Description    *string    `json:"description,omitempty"`
-	EnvironmentId  *int       `json:"environment_id,omitempty"`
-	Expiration     *time.Time `json:"expiration"`
-	Id             *int       `json:"id,omitempty"`
+	AutoRotate     *bool   `json:"auto_rotate,omitempty"`
+	Classification *string `json:"classification,omitempty"`
+
+	// ClearSyncedCopies True while the secret is suspended with the choice to also clear its copies synced to Kubernetes clusters; omitted otherwise. Resume removes it.
+	ClearSyncedCopies *bool      `json:"clear_synced_copies,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
+	CreatedBy         *string    `json:"created_by,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	EnvironmentId     *int       `json:"environment_id,omitempty"`
+	Expiration        *time.Time `json:"expiration"`
+	Id                *int       `json:"id,omitempty"`
 
 	// IsSecret false = this node is a folder.
 	IsSecret               *bool      `json:"is_secret,omitempty"`
@@ -221,17 +234,20 @@ type SecretGetResult struct {
 
 // SecretListEntry One row of GET /api/v1/secrets's data.secrets[], via the handler-level secretWithSharingInfoWire type (server/http/handlers/secrets_wire.go). Flat, all snake_case: the embedded secret-node fields promote using their own correct tags, and is_shared is the sharing-computed value (it correctly shadows the embedded node's raw stored one, matching Go's shallower-field-wins collision rule) -- fixed from the previous mixed-case duplicate-key leak as part of the API-hygiene casing campaign.
 type SecretListEntry struct {
-	AutoRotate      *bool      `json:"auto_rotate,omitempty"`
-	Classification  *string    `json:"classification,omitempty"`
-	CreatedAt       *time.Time `json:"created_at,omitempty"`
-	CreatedBy       *string    `json:"created_by,omitempty"`
-	Description     *string    `json:"description,omitempty"`
-	EnvironmentId   *int       `json:"environment_id,omitempty"`
-	EnvironmentName *string    `json:"environment_name,omitempty"`
-	Expiration      *time.Time `json:"expiration"`
-	Id              *int       `json:"id,omitempty"`
-	IsOwnedByUser   *bool      `json:"is_owned_by_user,omitempty"`
-	IsSecret        *bool      `json:"is_secret,omitempty"`
+	AutoRotate     *bool   `json:"auto_rotate,omitempty"`
+	Classification *string `json:"classification,omitempty"`
+
+	// ClearSyncedCopies True while the secret is suspended with the choice to also clear its copies synced to Kubernetes clusters; omitted otherwise. Resume removes it.
+	ClearSyncedCopies *bool      `json:"clear_synced_copies,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
+	CreatedBy         *string    `json:"created_by,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	EnvironmentId     *int       `json:"environment_id,omitempty"`
+	EnvironmentName   *string    `json:"environment_name,omitempty"`
+	Expiration        *time.Time `json:"expiration"`
+	Id                *int       `json:"id,omitempty"`
+	IsOwnedByUser     *bool      `json:"is_owned_by_user,omitempty"`
+	IsSecret          *bool      `json:"is_secret,omitempty"`
 
 	// IsShared Sharing-computed, not the raw stored node flag.
 	IsShared               *bool      `json:"is_shared,omitempty"`
@@ -258,6 +274,9 @@ type SecretListEntry struct {
 	UserPermission         *string    `json:"user_permission,omitempty"`
 }
 
+// SecretReadRefusalCode Stable code of a 409 secret-state read refusal (see the SecretReadRefused response).
+type SecretReadRefusalCode string
+
 // Error defines model for Error.
 type Error struct {
 	Code    *int                    `json:"code,omitempty"`
@@ -270,6 +289,21 @@ type Error struct {
 	// PendingSteps Values: change_password, enroll_mfa. Present on a 403 from the account-setup gate (error PasswordChangeRequired or MFAEnrollmentRequired, #3024): the setup steps the caller still owes. Until they are done only these are reachable -- change_password: POST /api/v1/auth/change-password; enroll_mfa: POST /api/v1/auth/mfa/enroll, /auth/mfa/activate, /auth/webauthn/register/begin|finish and GET /auth/webauthn/credentials; always GET /api/v1/auth/profile. Owing both opens both, in either order.
 	PendingSteps *[]string `json:"pending_steps,omitempty"`
 	Success      *bool     `json:"success,omitempty"`
+}
+
+// SecretReadRefused defines model for SecretReadRefused.
+type SecretReadRefused struct {
+	Code *int `json:"code,omitempty"`
+
+	// Details Present only on SecretSuspended when the suspension asked to clear synced Kubernetes copies.
+	Details *struct {
+		ClearSyncedCopies *bool `json:"clear_synced_copies,omitempty"`
+	} `json:"details,omitempty"`
+
+	// Error Stable code of a 409 secret-state read refusal (see the SecretReadRefused response).
+	Error   *SecretReadRefusalCode `json:"error,omitempty"`
+	Message *string                `json:"message,omitempty"`
+	Success *bool                  `json:"success,omitempty"`
 }
 
 // CreatePATJSONBody defines parameters for CreatePAT.
@@ -439,10 +473,13 @@ type GetSecretParams struct {
 
 // UpdateSecretJSONBody defines parameters for UpdateSecret.
 type UpdateSecretJSONBody struct {
-	ClearExpiration *bool      `json:"clear_expiration,omitempty"`
-	Expiration      *time.Time `json:"expiration,omitempty"`
-	MaxReads        *int       `json:"max_reads"`
-	Value           *string    `json:"value,omitempty"`
+	ClearExpiration *bool `json:"clear_expiration,omitempty"`
+
+	// ClearMaxReads Remove the read limit (the secret becomes unlimited). The read counter is kept.
+	ClearMaxReads *bool      `json:"clear_max_reads,omitempty"`
+	Expiration    *time.Time `json:"expiration,omitempty"`
+	MaxReads      *int       `json:"max_reads"`
+	Value         *string    `json:"value,omitempty"`
 }
 
 // CreatePATJSONRequestBody defines body for CreatePAT for application/json ContentType.

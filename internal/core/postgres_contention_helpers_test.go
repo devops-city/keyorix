@@ -24,6 +24,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
@@ -57,6 +58,16 @@ func pgIsolatedSchemaDSN(t *testing.T, base string) string {
 	})
 
 	return pgdsn.PGSearchPathDSN(base, schema)
+}
+
+// pgMigratedDatabaseDSN returns a DSN for a fresh database that already holds
+// the production schema (kxstorage.MigrateExisting), cloned from a template
+// built once per schema fingerprint (pgdsn.MigratedDatabase). Use it instead
+// of pgIsolatedSchemaDSN + MigrateExisting. Tests of the migration itself must
+// keep an empty schema or database.
+func pgMigratedDatabaseDSN(t *testing.T, base string) string {
+	t.Helper()
+	return pgdsn.MigratedDatabase(t, base, "core_migrated", pgdsn.SchemaFingerprint(), kxstorage.MigrateExisting)
 }
 
 // pgOpen opens a *gorm.DB against dsn, closing it on test cleanup. Each call

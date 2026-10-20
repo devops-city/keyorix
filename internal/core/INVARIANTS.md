@@ -222,9 +222,18 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   test or a structural check).
 - **INV-CORE-30** `SecretNode.DeletedAt` soft-delete is respected by every raw/Table/Joins
   query touching `secret_nodes` — GORM auto-scopes model-based queries but not raw SQL. Why:
-  ADR-033 (names six specific call sites). UNGUARDED (#issue: no repo-wide completeness sweep
-  exists over raw queries against `secret_nodes`, unlike the CSV-writer or account-state
-  exhaustiveness guards — only point tests like `catalog_delete_project_test.go` cover it).
+  ADR-033 (names six specific call sites). Guard:
+  `secret_nodes_soft_delete_guard_test.go:TestSecretNodesSoftDelete_RawSQLRespectsDeletedAt` — an AST
+  sweep over `internal/storage/store` and `internal/core` non-test files: every leaf statement whose
+  string literals make a source reference to `secret_nodes` (`FROM|JOIN|UPDATE|INTO secret_nodes`, or a
+  literal that is the table name, as `Table(...)` and `countByProject(ctx, "secret_nodes", ...)` carry)
+  must also say `deleted_at IS [NOT] NULL` on that table (or an alias of it) or call `.Unscoped()`,
+  else its function needs a reviewed row (`secret_nodes_allow_entry_<slug>_test.go`; today: the
+  offboarding ACL sweep, `RestoreProject`'s purge-date clear, and two label/DDL literals). The doc
+  comment lists the recognised forms and what it does not see (column qualifiers, `Model(&SecretNode{})`
+  plus `Unscoped()`, SQL split across statements, other packages). Red proof:
+  `TestSecretNodesSoftDelete_MutationKillsPredicate` deletes a real predicate in a copy of the store
+  sources and requires the scan to report that function; `_ScannerFixture` plants each shape.
 
 ## Secret dependency graph (ADR-052)
 
@@ -266,11 +275,22 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   `recover()` confirmed at `account.go:161,196`, `audit_context.go:197`, `auth.go:200`,
   `auth_bootstrap.go:469`, `break_glass.go:439`, `catalog.go:278,641`,
   `classification_gate.go:484`, `machine_identities.go:272`, `secret_dependencies.go:366`,
-  `service.go:662`, `users.go:222,264`. **No structural completeness guard enumerates every
-  best-effort post-commit call site** — each was a point-fix after a live finding. UNGUARDED
-  as a class (#issue: an AST sweep analogous to `guards/atomicity_guard_test.go` that requires every
-  deferred/best-effort post-commit call to be wrapped in `recover()` or be on a reviewed
-  allowlist).
+  `service.go:662`, `users.go:222,264`. Structural completeness (INVARIANT-GUARDS-1):
+  `besteffort_callsite_guard_test.go:TestBestEffortCallSites_EveryCallProtectedOrAllowlisted` —
+  an AST sweep over `internal/core` non-test files that establishes the best-effort set (functions
+  that recover their own panic, callees that are the single statement of a `besteffort.Run`
+  closure, and the seeds named above) and requires every call to a member to be inside a
+  `besteffort.Run`/`goSafe` closure, in a function with a top-level recovering defer, or to a
+  self-recovering callee, else to carry a reviewed row
+  (`besteffort_callsite_allow_entry_<slug>_test.go`). Its doc comment lists the recognised call forms
+  and what it does NOT see (multi-hop `c.storage.X(...)`, nested defers, transitive protection,
+  subpackages). Red proof is a permanent test: `TestBestEffortCallSites_MutationKillsRecoverWrapper`
+  breaks one recover wrapper in a copy and requires the guard to report the callers;
+  `TestBestEffortCallSites_ScannerFixture` plants each violation form. Complements GUARD-1
+  (`guards/besteffort_guard_test.go`, which keys on discards after a write, not on the callee). Open
+  finding: three MFA handlers (`requireReauth`, `VerifyMFAStepUp`, `FinishWebAuthnReauth`) call
+  `clearLoginFailures` bare after the grant committed, where `sso.go` wraps it in `besteffort.Run`;
+  allowlisted with a reason and reported to the coordinator (FIX-3277 owns the handlers).
 
 ## Atomicity / transactions
 
@@ -387,19 +407,32 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   deleted_at IS NULL` matches 0 rows and it falls back to `INSERT ... ON CONFLICT (id) DO
   UPDATE SET <all columns>` including `deleted_at = NULL`; `Select("*").Updates(...)` reverts
   every column a narrower concurrent writer (`SetAccountState`, `SetPasswordHash`, …) changed.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guards:
+  Why: C-GUARD2-EXEMPT-REVIEW. Guards, one per instance (each `*_IsColumnScoped` test walks the
+  core method and its `LocalStorage` body, and is red-proved by planting a `Save` or an extra
+  column in a scratch clone):
   share permission update (#2648, fixed):
   `guards/share_permission_column_scoped_guard_test.go:TestUpdateSharePermission_IsColumnScoped` +
-  `TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2650 secret undelete, #2651 dynamic config re-enable, #2653/#2654 user
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: secret auto-rotate config (#2650, fixed):
-  `guards/secret_autorotate_column_scoped_guard_test.go:TestSetSecretAutoRotate_IsColumnScoped` +
-  `TestCTAReview_SetSecretAutoRotate_vs_DeleteSecret_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2648 share revoke, #2651 dynamic config re-enable, #2653/#2654 user
-  suspension/password revert.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: UNGUARDED (#2648 share revoke, #2650 secret undelete,
-  #2651 dynamic config re-enable, #2653/#2654 user suspension/password revert).
   `TestCTAReview_UpdateSharePermission_vs_RevokeShare_CrossReplicaPostgres` (pg-gated);
+  share revoke (#2648, the revoke side): `guards/share_revoke_column_scoped_guard_test.go:TestRevokeShare_IsColumnScoped`
+  — `RevokeShare`, `RemoveSelfFromShare`, `DeleteShareRecord` and `DeleteExpiredShareRecords` stay
+  conditional soft deletes and never persist a pre-read share. **Open, not guarded**:
+  `createShareRecordTx` (`internal/storage/store/local_sharing.go`) still `Save`s an existing share
+  on the re-share path and in its unique-violation fallback, the same resurrection primitive on the
+  create side; owned by SHARE-CAS-1;
+  secret auto-rotate config (#2650, fixed):
+  `guards/secret_autorotate_column_scoped_guard_test.go:TestSetSecretAutoRotate_IsColumnScoped` +
+  `TestCTAReview_SetSecretAutoRotate_vs_DeleteSecret_CrossReplicaPostgres` (pg-gated); secret
+  undelete (#2650): `guards/secret_undelete_column_scoped_guard_test.go:TestRestoreSecret_IsColumnScoped`
+  (the one deliberate undelete clears `deleted_at` only, conditional on `deleted_at IS NOT NULL`)
+  and `TestUpdateSecretFullRowSave_HasNoProductionCaller` (sweep: nothing in `internal/core`,
+  `internal/storage/store` or `server` calls the full-row `UpdateSecret`), alongside
+  `guards/update_secret_column_scoped_guard_test.go:TestUpdateSecretWrites_AreColumnScoped` (#2695);
+  dynamic config re-enable (#2651, fixed by the targeted `SetDynamicSecretConfigAdminDSN`):
+  `guards/dynamic_config_reenable_column_scoped_guard_test.go:TestCreateDynamicSecretConfig_IsColumnScoped`
+  (the second write names exactly `admin_dsn_enc`, `admin_dsn_meta`, `updated_at`, never `disabled`) +
+  `TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgres` (pg-gated) and
+  `TestSetDynamicSecretConfigAdminDSN_LeavesDisabledAlone`; `guards/dynamic_secret_column_scoped_guard_test.go`
+  (#2698) keeps the full-row `UpdateDynamicSecretConfig` caller-free;
   user profile writes (#2653/#2654, fixed):
   `guards/user_profile_column_scoped_guard_test.go:TestUserProfileWrites_AreColumnScoped` +
   `TestCTAReview_UpdateUser_vs_SuspendUser_CrossReplicaPostgres` /
@@ -411,7 +444,6 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   (C-RACE-FIX-B2): `guards/scim_account_state_conditional_guard_test.go:TestSCIMAccountStateWrites_AreConditional`,
   `scim_account_state_persisted_test.go`, and
   `TestCTAReview_SCIM_vs_SuspendUser_WithoutRowLock_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2650 secret undelete, #2651 dynamic config re-enable.
 - **INV-CORE-43** `ActivateMFA` only ever activates the TOTP secret the submitted code was
   validated against: `ActivateMFASecret` is a conditional write pinned to that row's
   ciphertext, and a mismatch (a concurrent `BeginMFAEnrollment` swapped the secret) fails the
@@ -530,23 +562,6 @@ Format: `INV-CORE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue)`.
   SUSPENDED user still holds their grants (suspension blocks login, not RBAC — the same
   live-holders-vs-grant-rows distinction as INV-CORE-15) and that a soft-deleted GROUP
   confers no membership. All default-ci.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: user profile writes (#2653/#2654, fixed):
-  `guards/user_profile_column_scoped_guard_test.go:TestUserProfileWrites_AreColumnScoped` +
-  `TestCTAReview_UpdateUser_vs_SuspendUser_CrossReplicaPostgres` /
-  `TestCTAReview_UpdateOwnProfile_vs_ChangePassword_CrossReplicaPostgres` (pg-gated).
-  An operation whose NEW `account_state` is derived from the one it read (the SCIM lifecycle
-  paths: `scimUpdateUserTx`, `DeprovisionSCIMUser`) writes it only through
-  `SetAccountStateIfMatches` conditioned on that read value, never the blind
-  `SetAccountState`, and fails closed with `ErrUserAccountStateConflict` on a miss
-  (C-RACE-FIX-B2): `guards/scim_account_state_conditional_guard_test.go:TestSCIMAccountStateWrites_AreConditional`,
-  `scim_account_state_persisted_test.go`, and
-  `TestCTAReview_SCIM_vs_SuspendUser_WithoutRowLock_CrossReplicaPostgres` (pg-gated).
-  UNGUARDED: #2648 share revoke, #2650 secret undelete, #2651 dynamic config re-enable.
-  Why: C-GUARD2-EXEMPT-REVIEW. Guard: #2651 dynamic config re-enable is closed by a targeted
-  write (`SetDynamicSecretConfigAdminDSN`), guarded by
-  `TestCTAReview_CreateDynamicSecretConfig_vs_DeleteProject_CrossReplicaPostgres` (pg-gated)
-  and `TestSetDynamicSecretConfigAdminDSN_LeavesDisabledAlone`. UNGUARDED: #2648 share
-  revoke, #2650 secret undelete, #2653/#2654 user suspension/password revert.
 
 ## Account-state / exhaustiveness
 

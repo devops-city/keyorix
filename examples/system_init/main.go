@@ -18,9 +18,9 @@ func main() {
 	// Check if config exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		fmt.Printf("⚠️  Config file not found: %s\n", configPath)
-		fmt.Println("💡 This is expected if you haven't run 'keyorix system init' yet")
+		fmt.Println("💡 This is expected if you haven't run 'keyorix-server admin init' yet")
 		fmt.Println("   Run the following command to initialize:")
-		fmt.Println("   keyorix system init")
+		fmt.Println("   keyorix-server admin init")
 		return
 	}
 
@@ -49,7 +49,7 @@ func main() {
 		"certs/server.key", // TLS private key (if TLS enabled)
 	}
 
-	fmt.Println("Files that should exist after running 'keyorix system init':")
+	fmt.Println("Files that should exist after running 'keyorix-server admin init':")
 	for _, file := range expectedFiles {
 		status := "❌"
 		if _, err := os.Stat(file); err == nil {
@@ -66,16 +66,12 @@ func main() {
 		command     string
 		description string
 	}{
-		{"keyorix system init", "Initialize all components with default settings"},
-		{"keyorix system init --interactive", "Interactive setup wizard"},
-		{"keyorix system init --encryption", "Initialize encryption keys only"},
-		{"keyorix system init --database", "Initialize database only"},
-		{"keyorix system init --config ./my.yaml", "Use custom config file path"},
-		{"keyorix system init --force", "Overwrite existing files (dangerous)"},
-		{"keyorix system validate", "Validate current system setup"},
-		{"keyorix system audit", "Audit file permissions"},
-		{"keyorix encryption init", "Initialize encryption separately"},
-		{"keyorix encryption status", "Check encryption status"},
+		{"keyorix-server admin init", "Initialize all components with default settings"},
+		{"keyorix-server admin init --config ./my.yaml", "Use custom config file path"},
+		{"keyorix-server admin encryption init", "Initialize encryption keys only"},
+		{"keyorix-server admin validate", "Validate current system setup"},
+		{"keyorix-server admin encryption validate", "Check encryption setup and key file permissions"},
+		{"keyorix-server admin encryption status", "Check encryption status"},
 	}
 
 	fmt.Println("Available initialization and validation commands:")
@@ -112,12 +108,12 @@ func main() {
 	fmt.Println("=====================================")
 
 	recommendations := []string{
-		"Always run 'keyorix system validate' before starting the system",
+		"Always run 'keyorix-server admin validate' before starting the system",
 		"Keep encryption keys (KEK/DEK) in a secure location with 0600 permissions",
 		"Enable file permission checks in production environments",
 		"Use TLS for all network communications in production",
-		"Regularly rotate encryption keys using 'keyorix encryption rotate'",
-		"Monitor file permissions with 'keyorix system audit'",
+		"Regularly rotate encryption keys using 'keyorix-server admin encryption rotate'",
+		"Monitor file permissions with 'keyorix-server admin encryption validate'",
 		"Backup encryption keys securely before key rotation",
 		"Use strong, unique passwords for any interactive setup",
 	}
@@ -129,8 +125,8 @@ func main() {
 
 	fmt.Println("\n✅ Example completed!")
 	fmt.Println("💡 Next steps:")
-	fmt.Println("   1. Run 'keyorix system init' to set up your system")
-	fmt.Println("   2. Run 'keyorix system validate' to check the setup")
-	fmt.Println("   3. Run 'keyorix encryption status' to verify encryption")
+	fmt.Println("   1. Run 'keyorix-server admin init' to set up your system")
+	fmt.Println("   2. Run 'keyorix-server admin validate' to check the setup")
+	fmt.Println("   3. Run 'keyorix-server admin encryption status' to verify encryption")
 	fmt.Println("   4. Start using Keyorix for secure secret management!")
 }

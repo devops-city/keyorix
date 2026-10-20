@@ -178,6 +178,8 @@ describe('NotificationChannelsPage — create channel', () => {
         expect(within(dialog).getByRole('button', { name: 'Create' })).toBeDisabled();
 
         fireEvent.change(within(dialog).getByLabelText('Name'), { target: { value: 'new-channel' } });
+        // The URL is a credential: it is typed into a masked field, never shown in the clear.
+        expect(within(dialog).getByLabelText('Webhook URL')).toHaveAttribute('type', 'password');
         fireEvent.change(within(dialog).getByLabelText('Webhook URL'), {
             target: { value: 'https://hooks.example.com/new' },
         });
@@ -305,14 +307,14 @@ describe('NotificationChannelsPage — edit channel', () => {
         );
     });
 
-    it('does not need the stored URL: the field starts blank and an untouched save omits url (#3425)', () => {
+    it('shows the masked URL and a Replace URL button, with no URL input, until asked (#3425)', () => {
         render(<NotificationChannelsPage />);
         fireEvent.click(screen.getByTitle('Edit channel'));
 
         const dialog = screen.getByRole('dialog');
-        const urlInput = within(dialog).getByLabelText('Webhook URL');
-        expect(urlInput).toHaveValue('');
-        expect(urlInput).toHaveAttribute('placeholder', 'Leave blank to keep https://hooks.example.com/…');
+        expect(within(dialog).queryByLabelText('Webhook URL')).not.toBeInTheDocument();
+        expect(within(dialog).getByText('https://hooks.example.com/…')).toBeInTheDocument();
+        expect(within(dialog).getByRole('button', { name: 'Replace URL' })).toBeInTheDocument();
 
         fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
         const body = mocks.updateMutate.mock.calls[0]![0].body;
@@ -320,17 +322,35 @@ describe('NotificationChannelsPage — edit channel', () => {
         expect(JSON.stringify(body)).not.toContain('hooks.example.com');
     });
 
-    it('sends url only when a replacement is typed (#3425)', () => {
+    it('Replace URL reveals a blank password-type field; typing sends the trimmed URL (#3425)', () => {
         render(<NotificationChannelsPage />);
         fireEvent.click(screen.getByTitle('Edit channel'));
 
         const dialog = screen.getByRole('dialog');
-        fireEvent.change(within(dialog).getByLabelText('Webhook URL'), {
-            target: { value: ' https://hooks.example.com/services/NEW ' },
-        });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Replace URL' }));
+        const urlInput = within(dialog).getByLabelText('Webhook URL');
+        expect(urlInput).toHaveValue('');
+        expect(urlInput).toHaveAttribute('type', 'password');
+        expect(urlInput).toHaveAttribute('autocomplete', 'off');
+
+        fireEvent.change(urlInput, { target: { value: ' https://hooks.example.com/services/NEW ' } });
         fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
 
         expect(mocks.updateMutate.mock.calls[0]![0].body.url).toBe('https://hooks.example.com/services/NEW');
+    });
+
+    it('Keep current URL discards a half-typed replacement (#3425)', () => {
+        render(<NotificationChannelsPage />);
+        fireEvent.click(screen.getByTitle('Edit channel'));
+
+        const dialog = screen.getByRole('dialog');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Replace URL' }));
+        fireEvent.change(within(dialog).getByLabelText('Webhook URL'), { target: { value: 'https://x.test/abc' } });
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Keep current URL' }));
+        expect(within(dialog).queryByLabelText('Webhook URL')).not.toBeInTheDocument();
+
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+        expect(mocks.updateMutate.mock.calls[0]![0].body).not.toHaveProperty('url');
     });
 
     it('shows an error message when update fails', () => {
@@ -366,6 +386,8 @@ describe('NotificationChannelsPage — edit channel', () => {
 
         const dialog = screen.getByRole('dialog');
         expect(within(dialog).getByLabelText('Webhook URL')).toHaveValue('');
+        expect(within(dialog).getByLabelText('Webhook URL')).toHaveAttribute('type', 'password');
+        expect(within(dialog).queryByRole('button', { name: 'Replace URL' })).not.toBeInTheDocument();
     });
 });
 

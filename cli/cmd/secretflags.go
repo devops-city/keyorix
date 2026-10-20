@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -44,6 +43,9 @@ var refusedSecretFlags = []secretFlag{
 	{"secret create", "value", "use --from-file <relative path> (or --from-file - to read stdin), or --interactive for a hidden prompt"},
 	{"secret update", "value", "use --from-file <relative path> (or --from-file - to read stdin), or --interactive for a hidden prompt"},
 	{"secret rotate", "value", "leave the flag out: the value is read from a hidden prompt, or from stdin when it is piped"},
+	// A webhook URL is a credential: its path carries the token (Slack, Teams).
+	{"notification channel add", "url", "use --url-file <relative path> (or --url-file - to read stdin)"},
+	{"notification channel update", "url", "use --url-file <relative path> (or --url-file - to read stdin)"},
 }
 
 // notSecretFlags are string flags and positional arguments whose NAME looks like a
@@ -53,8 +55,6 @@ var refusedSecretFlags = []secretFlag{
 //
 // #nosec G101 -- flag names and one-line reasons, no credentials.
 var notSecretFlags = map[string]string{
-	"notification channel add --url":                              "the server returns a channel's URL to administrators (channel get prints it), so it is configuration, not a credential",
-	"notification channel update --url":                           "same as notification channel add --url",
 	"trust keygen --key-id":                                       "a public key identifier",
 	"config get <key>":                                            "the name of a CLI setting",
 	"config set <key> <value>":                                    "the only setting is ca_file, a path (requireConfigKey)",
@@ -137,7 +137,7 @@ func refuseSecretFlags(cmd *cobra.Command, flags []secretFlag) error {
 	}
 	for _, sf := range flags {
 		if cmd.Flags().Changed(sf.Flag) {
-			return fmt.Errorf("--%s is not accepted: a secret on the command line is visible to other users through ps "+
+			return usageErrorf("--%s is not accepted: a secret on the command line is visible to other users through ps "+
 				"and stays in your shell history and CI logs. Instead: %s. (Scripts not yet moved can set %s=1 to get a "+
 				"warning instead of this error.)", sf.Flag, sf.Instead, allowInsecureSecretFlagsEnv)
 		}
