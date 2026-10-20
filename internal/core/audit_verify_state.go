@@ -206,9 +206,9 @@ func (c *KeyorixCore) loadAuditVerifyState(ctx context.Context) (st *auditVerify
 	switch {
 	case err != nil:
 	case reason != "":
-		observeAuditVerifyStateUntrusted()
+		observeAuditVerifyStateUntrusted(st)
 	case c.AuditCheckpointsAvailable():
-		observeAuditVerifyState(st)
+		c.observeAuditVerifyState(st)
 	}
 	return st, reason, err
 }
@@ -307,7 +307,7 @@ func (c *KeyorixCore) saveAuditVerifyState(ctx context.Context, st *auditVerifyS
 		return err
 	}
 	c.bumpAuditVerifyGen(st.Gen)
-	observeAuditVerifyState(st)
+	c.observeAuditVerifyState(st)
 	return nil
 }
 

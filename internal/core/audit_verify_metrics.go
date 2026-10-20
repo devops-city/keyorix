@@ -51,11 +51,21 @@ func boolGauge(g prometheus.Gauge, v bool) {
 	g.Set(0)
 }
 
-// observeAuditVerifyState publishes a trusted state's facts.
-func observeAuditVerifyState(st *auditVerifyState) {
+// observeAuditVerifyState publishes a trusted state's facts, but only if st is the
+// newest generation published so far. A status reader that loaded generation N
+// without the lock can reach this after a concurrent save of N+1 recorded a failure;
+// publishing N then would lower the failure gauge and mask a tamper page. The check
+// and the writes share one lock, so two publishers cannot interleave.
+func (c *KeyorixCore) observeAuditVerifyState(st *auditVerifyState) {
 	if st == nil {
 		return
 	}
+	c.auditVerifyPubMu.Lock()
+	defer c.auditVerifyPubMu.Unlock()
+	if st.Gen < c.auditVerifyGenPublished {
+		return
+	}
+	c.auditVerifyGenPublished = st.Gen
 	if st.LastCheck != nil && st.LastCheck.Valid {
 		auditVerifyLastSuccess.WithLabelValues(auditVerifyCheckTail).Set(float64(st.LastCheck.At.Unix()))
 	}
@@ -67,5 +77,13 @@ func observeAuditVerifyState(st *auditVerifyState) {
 }
 
 // observeAuditVerifyStateUntrusted marks a load that found the persisted row
-// untrusted. It only ever raises the flag; a later trusted save/load lowers it.
-func observeAuditVerifyStateUntrusted() { auditVerifyStateRejected.Set(1) }
+// untrusted. It only ever raises the flags (never lowers, so no generation guard is
+// needed): the rejected flag always, and the failure flag when the untrusted row
+// still carries a sticky failure, which loadAuditVerifyStateUnobserved keeps. A later
+// trusted save/load of a newer generation lowers them.
+func observeAuditVerifyStateUntrusted(st *auditVerifyState) {
+	auditVerifyStateRejected.Set(1)
+	if st != nil && st.Failure != nil {
+		auditVerifyFailureRecorded.Set(1)
+	}
+}

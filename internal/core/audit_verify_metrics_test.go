@@ -69,3 +69,57 @@ func TestAuditVerifyMetrics_AreNotOnThePublicEndpoint(t *testing.T) {
 		assert.NotContains(t, name, "keyorix_audit_verify_", "audit-verify metrics must not be on the default (public) registry")
 	}
 }
+
+// A save carrying an older generation that lands after a newer one (a status reader
+// that loaded generation N without the lock and publishes after a concurrent save of
+// N+1 recorded a failure) must not lower the failure gauge and mask the tamper page.
+// Serial for the same reason as the test above: the gauges are process-global.
+func TestAuditVerifyMetrics_StalePublishCannotLowerFailureGauge(t *testing.T) {
+	c, _, clk := newIncrementalTestCore(t, 4)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		auditVerifyFailureRecorded.Set(0)
+		auditVerifyStateRejected.Set(0)
+	})
+
+	require.NoError(t, c.saveAuditVerifyState(ctx, &auditVerifyState{Gen: 2,
+		Failure: &auditVerifyFailure{DetectedAt: clk.t, Gen: 2, Source: "test", Reason: "break"}}))
+	require.Equal(t, float64(1), testutil.ToFloat64(auditVerifyFailureRecorded))
+
+	// The late generation 1 (no failure) must not overwrite it.
+	require.NoError(t, c.saveAuditVerifyState(ctx, &auditVerifyState{Gen: 1}))
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyFailureRecorded),
+		"a stale (older generation) publish must not lower the failure gauge")
+
+	// A newer generation that cleared the failure legitimately lowers it.
+	require.NoError(t, c.saveAuditVerifyState(ctx, &auditVerifyState{Gen: 3}))
+	assert.Equal(t, float64(0), testutil.ToFloat64(auditVerifyFailureRecorded),
+		"a newer generation without the failure clears the gauge")
+}
+
+// An untrusted (replayed or rolled-back) row keeps its sticky Failure, so loading it
+// must raise the failure gauge, and a later clean run must not clear a failure that
+// is still present in what the process reads.
+func TestAuditVerifyMetrics_UntrustedRowWithStickyFailureRaisesGauge(t *testing.T) {
+	c, _, clk := newIncrementalTestCore(t, 4)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		auditVerifyFailureRecorded.Set(0)
+		auditVerifyStateRejected.Set(0)
+	})
+
+	require.NoError(t, c.saveAuditVerifyState(ctx, &auditVerifyState{Gen: 5,
+		Failure: &auditVerifyFailure{DetectedAt: clk.t, Gen: 5, Source: "test", Reason: "break"}}))
+
+	// This process has since seen a newer generation, so the stored row is a replay:
+	// untrusted, but its failure is kept.
+	auditVerifyFailureRecorded.Set(0)
+	c.bumpAuditVerifyGen(9)
+	st, reason, err := c.loadAuditVerifyState(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, reason, "the row must be untrusted")
+	require.NotNil(t, st.Failure)
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyStateRejected))
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyFailureRecorded),
+		"an untrusted row carrying a sticky failure must raise the failure gauge")
+}
