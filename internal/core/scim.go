@@ -110,6 +110,13 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 	if email == "" {
 		email = userName // SCIM userName is conventionally the email
 	}
+	// #3418: the sso: scheme is reserved for SSO identity bindings (ssoExternalID). A
+	// SCIM-supplied one would mint an account scimOwned rejects (SCIM could never
+	// deactivate or delete it again) and pre-bind an SSO identity. Refused before the
+	// dedup lookup, so the answer does not depend on whether that binding exists.
+	if strings.HasPrefix(externalID, ssoExternalIDScheme) {
+		return nil, fmt.Errorf("externalId must not use the reserved %q scheme", ssoExternalIDScheme)
+	}
 	// ADR-022: the domain allowlist is an install-wide boundary on who may hold an
 	// account at all, not just an invite-flow check — a SCIM directory sync from an
 	// unapproved domain (e.g. a misconfigured/multi-tenant IdP) must not silently
