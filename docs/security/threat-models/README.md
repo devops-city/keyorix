@@ -67,8 +67,8 @@ yes or no; "test" means the guard is in the code and no test pins it.
 
 | Issue | Kind | Document / row | Summary |
 |---|---|---|---|
-| [#3418](https://github.com/keyorixhq/keyorix/issues/3418) | bug | scim-and-sso-accounts.md SCIM-2 | A native account that signs in through SSO gets `external_id = sso:…`, which counts as SCIM-managed: a SCIM token holder can read, edit, deactivate and delete it. Fixed in #3493 (not yet merged) |
-| [#3419](https://github.com/keyorixhq/keyorix/issues/3419) | bug | scim-and-sso-accounts.md SCIM-4 | SCIM `active=false` (PATCH/PUT) does not revoke the user's PATs; an IdP re-enable hands them back (`DELETE` does, #2855). Fixed in #3491 (not yet merged) |
+| [#3418](https://github.com/keyorixhq/keyorix/issues/3418) | bug | scim-and-sso-accounts.md SCIM-2 | A native account that signs in through SSO gets `external_id = sso:…`, which counts as SCIM-managed: a SCIM token holder can read, edit, deactivate and delete it. Fixed in #3493 (merged 2026-10-20) |
+| [#3419](https://github.com/keyorixhq/keyorix/issues/3419) | bug | scim-and-sso-accounts.md SCIM-4 | SCIM `active=false` (PATCH/PUT) does not revoke the user's PATs; an IdP re-enable hands them back (`DELETE` does, #2855). Fixed in #3491 (merged 2026-10-20) |
 | [#3420](https://github.com/keyorixhq/keyorix/issues/3420) | bug (fix queued) | break-glass.md BG-6 | The break-glass audit event is best-effort after commit; a failed append leaves a live grant with no chain record. Fix owned by BREAKGLASS-OWED-1 |
 | [#3422](https://github.com/keyorixhq/keyorix/issues/3422) | decision | sharing-and-acl.md SHARE-8 | Core `ShareSecret` accepts `IsGroup=true` without the group-in-project check; no caller reaches it, no guard |
 | [#3423](https://github.com/keyorixhq/keyorix/issues/3423) | decision | sharing-and-acl.md SHARE-9 | `secrets.manage` for ACL grant/revoke is enforced only in the transports; no guard for a third caller |
@@ -86,6 +86,8 @@ Already tracked elsewhere, cited in the documents rather than refiled:
 | [#2798](https://github.com/keyorixhq/keyorix/issues/2798), [#2797](https://github.com/keyorixhq/keyorix/issues/2797), [#2794](https://github.com/keyorixhq/keyorix/issues/2794), [#2795](https://github.com/keyorixhq/keyorix/issues/2795) | sharing-and-acl.md SHARE-13 | Open on `main`; LIFECYCLE-CASCADE-1 ([#3405](https://github.com/keyorixhq/keyorix/pull/3405)) was not merged. Replace each GAP with the test #3405 names when it merges |
 | [#2796](https://github.com/keyorixhq/keyorix/issues/2796) | sharing-and-acl.md SHARE-13 | Issue still open, but the lock-first fix is on `main` (`TestConcurrency_DeleteProjectIfEmpty_LockFirstPreventsOrphanedDelete`); the coordinator can close it |
 | [#3397](https://github.com/keyorixhq/keyorix/issues/3397) | scim-and-sso-accounts.md SCIM-1 | Design decision: the SCIM token strength check is length-only; recorded, not changed here |
+| BACKLOG `JIT-OFFBOARDING-GAP` | scim-and-sso-accounts.md SCIM-7 | Known gap, long-term, not started: an IdP disable or SCIM deactivation does not revoke the PATs and sessions of an SSO/JIT-claimed (`sso:`) account (decided 2026-10-20, option A of #3493) |
+| [#3494](https://github.com/keyorixhq/keyorix/issues/3494) | scim-and-sso-accounts.md section 4 | Known issue: SCIM Replace/Patch/Delete map a storage failure to 404, not 500 |
 | [#3367](https://github.com/keyorixhq/keyorix/pull/3367) | break-glass.md BG-6 | AUDIT-TX-2, open; changes how grant-shaped mutations write their audit row |
 
 ### Keeping the Evidence cells honest
