@@ -18902,6 +18902,7 @@ type UpdateProjectResponse struct {
 	}
 	JSON400 *Error
 	JSON401 *Error
+	JSON503 *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -22817,6 +22818,7 @@ type UpdateUserResponse struct {
 	JSON401      *Error
 	JSON404      *Error
 	JSON409      *Error
+	JSON503      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -22867,6 +22869,7 @@ type ReissueOneTimePasswordResponse struct {
 	JSON403      *Error
 	JSON404      *Error
 	JSON409      *Error
+	JSON503      *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -29694,6 +29697,13 @@ func ParseUpdateProjectResponse(rsp *http.Response) (*UpdateProjectResponse, err
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -36560,6 +36570,13 @@ func ParseUpdateUserResponse(rsp *http.Response) (*UpdateUserResponse, error) {
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -36653,6 +36670,13 @@ func ParseReissueOneTimePasswordResponse(rsp *http.Response) (*ReissueOneTimePas
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

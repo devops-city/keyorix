@@ -946,7 +946,8 @@ paths:
     put:
       tags: [Projects]
       summary: Update a project's name/description
-      description: Update the name and/or description of an existing project by ID.
+      description: >-
+        Update the name and/or description of an existing project by ID. A request that narrows access and also widens it is applied in two steps, the narrowing first; if the second step cannot be recorded in the audit log the answer is 503 with error MutationPartiallyApplied and details {code: mutation_partially_applied, revocation_applied: true, remainder_applied: false, applied, not_applied, retry_safe: true}: the narrowing is applied, the rest is not, and the same request can be retried.
       operationId: updateProject
       security: [{bearerAuth: []}]
       parameters:
@@ -982,6 +983,7 @@ paths:
                   data: {$ref: '#/components/schemas/Project'}
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
     delete:
       tags: [Projects]
       summary: Delete a project
@@ -5533,7 +5535,8 @@ paths:
     put:
       tags: [Users]
       summary: Update user
-      description: Update a user's username, email, display name, or active status by ID.
+      description: >-
+        Update a user's username, email, display name, or active status by ID. A request that narrows access and also widens it is applied in two steps, the narrowing first; if the second step cannot be recorded in the audit log the answer is 503 with error MutationPartiallyApplied and details {code: mutation_partially_applied, revocation_applied: true, remainder_applied: false, applied, not_applied, retry_safe: true}: the narrowing is applied, the rest is not, and the same request can be retried.
       operationId: updateUser
       security: [{bearerAuth: []}]
       requestBody:
@@ -5553,6 +5556,7 @@ paths:
         '401': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
     delete:
       tags: [Users]
       summary: Delete (soft-delete) user
@@ -5658,8 +5662,12 @@ paths:
         at once, revoked when the user sets a new password). Refused for the caller's
         own account (400, use `keyorix-server admin recover-admin`), for an
         externally-managed (SSO/SCIM) account and for a suspended or inactive one
-        (409). Audited as user.one_time_password_reissued (actor and target, never the
-        password).
+        (409). Audited as user.one_time_password_reissue_restricted (the restriction
+        and the end of the sessions, applied first) and user.one_time_password_reissued
+        (actor and target, never the password). If the audit log refuses the second
+        row no password is issued: 503 MutationPartiallyApplied (details.code
+        mutation_partially_applied, revocation_applied true, remainder_applied false),
+        the account stays restricted, and the request can be retried.
       operationId: reissueOneTimePassword
       security: [{bearerAuth: []}]
       responses:
@@ -5670,6 +5678,7 @@ paths:
         '403': {$ref: '#/components/responses/Error'}
         '404': {$ref: '#/components/responses/Error'}
         '409': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
 
   /api/v1/users/{id}/revoke-sessions:
     parameters:
