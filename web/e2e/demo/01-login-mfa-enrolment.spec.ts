@@ -13,8 +13,8 @@
 //   3. signing out ends the session and the next login asks for the second factor;
 //   4. a WRONG second factor is refused and leaves the user on the login page;
 //   5. the right one reaches the dashboard;
-//   6. DASH-FAILED-2FA: the dashboard's "Failed Logins (24h)" counts that wrong second factor and
-//      says so ("N wrong password · M wrong second factor").
+//   6. DASH-FAILED-SPLIT-1: the dashboard's own "Failed Second Factors (24h)" card counts that wrong
+//      second factor (it is not folded into "Failed Logins (24h)", which counts wrong passwords only).
 //
 // NO TIMING SLEEPS. The TOTP anti-replay rule (one accepted step per account, strictly increasing)
 // is the reason real/helpers.ts's waitForFreshTotpCode waits up to 30 s for the next step.
@@ -95,12 +95,12 @@ test('login, forced MFA enrolment, sign out, wrong then right second factor, and
     await page.getByTestId('mfa-verify-button').click();
     await page.waitForURL('/dashboard', { timeout: 15_000 });
 
-    // 6. DASH-FAILED-2FA. The dashboard loads its stats once per visit and the audit write is not
+    // 6. DASH-FAILED-SPLIT-1. The dashboard loads its stats once per visit and the audit write is not
     //    guaranteed to be visible to the very first read, so look again until the card shows it.
     await expect(async () => {
         await page.goto('/dashboard');
-        const card = page.getByRole('button', { name: /Failed Logins \(24h\)/ });
-        await expect(card).toContainText(/\d+ wrong password · [1-9]\d* wrong second factor/, { timeout: 5_000 });
+        const card = page.getByRole('button', { name: /Failed Second Factors \(24h\)/ });
+        await expect(card).toContainText(/[1-9]\d*\s*wrong code or passkey/, { timeout: 5_000 });
     }).toPass({ timeout: 60_000 });
 
     // The same refusal is in the audit log under its own name.

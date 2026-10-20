@@ -46,33 +46,35 @@ type DashboardStats struct {
 	AuditEvents30d      int64 `json:"auditEvents30d"`
 	AuditLogins30d      int64 `json:"auditLogins30d"`
 	AuditSecretReads30d int64 `json:"auditSecretReads30d"`
-	// FailedAuthAttempts24h counts failed LOGINS in the last 24h: a wrong password
-	// (auth.login_failed) plus a wrong second factor (mfa.failed, webauthn.failed); it is
-	// always FailedLoginsWrongPassword24h + FailedLoginsWrongSecondFactor24h. The name is
-	// kept for API compatibility. Refused secret reads are counted apart.
-	FailedAuthAttempts24h            int64            `json:"failedAuthAttempts24h"`
-	FailedLoginsWrongPassword24h     int64            `json:"failedLoginsWrongPassword24h"`
-	FailedLoginsWrongSecondFactor24h int64            `json:"failedLoginsWrongSecondFactor24h"`
-	RefusedSecretReads24h            int64            `json:"refusedSecretReads24h"`
-	InactiveUsers                    int64            `json:"inactiveUsers"`
-	PrevTotalSecrets                 *int64           `json:"prevTotalSecrets,omitempty"`
-	TotalSecretsTrend                *StatTrend       `json:"totalSecretsTrend,omitempty"`
-	SharedSecretsTrend               *StatTrend       `json:"sharedSecretsTrend,omitempty"`
-	SharedWithMeTrend                *StatTrend       `json:"sharedWithMeTrend,omitempty"`
-	PrevActiveUsers                  *int64           `json:"prevActiveUsers,omitempty"`
-	ActiveUsersTrend                 *StatTrend       `json:"activeUsersTrend,omitempty"`
-	PrevAuditEvents30d               *int64           `json:"prevAuditEvents30d,omitempty"`
-	AuditEvents30dTrend              *StatTrend       `json:"auditEvents30dTrend,omitempty"`
-	PrevAuditLogins30d               *int64           `json:"prevAuditLogins30d,omitempty"`
-	AuditLogins30dTrend              *StatTrend       `json:"auditLogins30dTrend,omitempty"`
-	PrevAuditSecretReads30d          *int64           `json:"prevAuditSecretReads30d,omitempty"`
-	AuditSecretReads30dTrend         *StatTrend       `json:"auditSecretReads30dTrend,omitempty"`
-	PrevFailedAuthAttempts24h        *int64           `json:"prevFailedAuthAttempts24h,omitempty"`
-	FailedAuthAttempts24hTrend       *StatTrend       `json:"failedAuthAttempts24hTrend,omitempty"`
-	PrevInactiveUsers                *int64           `json:"prevInactiveUsers,omitempty"`
-	InactiveUsersTrend               *StatTrend       `json:"inactiveUsersTrend,omitempty"`
-	ExpiringSecrets                  []ExpiringSecret `json:"expiringSecrets,omitempty"`
-	RecentActivity                   []ActivityItem   `json:"recentActivity"`
+	// FailedAuthAttempts24h counts failed password/SSO LOGINS in the last 24h
+	// (auth.login_failed) and nothing else. The name is kept for API compatibility.
+	// Three figures are deliberately never merged (DASH-FAILED-SPLIT-1): this one, the
+	// failed second factors (FailedSecondFactors24h) and the refused secret reads
+	// (RefusedSecretReads24h, authorization denials).
+	FailedAuthAttempts24h int64 `json:"failedAuthAttempts24h"`
+	// FailedSecondFactors24h counts refused second factors in the last 24h: a wrong
+	// TOTP / recovery code (mfa.failed) and a refused passkey assertion (webauthn.failed).
+	FailedSecondFactors24h     int64            `json:"failedSecondFactors24h"`
+	RefusedSecretReads24h      int64            `json:"refusedSecretReads24h"`
+	InactiveUsers              int64            `json:"inactiveUsers"`
+	PrevTotalSecrets           *int64           `json:"prevTotalSecrets,omitempty"`
+	TotalSecretsTrend          *StatTrend       `json:"totalSecretsTrend,omitempty"`
+	SharedSecretsTrend         *StatTrend       `json:"sharedSecretsTrend,omitempty"`
+	SharedWithMeTrend          *StatTrend       `json:"sharedWithMeTrend,omitempty"`
+	PrevActiveUsers            *int64           `json:"prevActiveUsers,omitempty"`
+	ActiveUsersTrend           *StatTrend       `json:"activeUsersTrend,omitempty"`
+	PrevAuditEvents30d         *int64           `json:"prevAuditEvents30d,omitempty"`
+	AuditEvents30dTrend        *StatTrend       `json:"auditEvents30dTrend,omitempty"`
+	PrevAuditLogins30d         *int64           `json:"prevAuditLogins30d,omitempty"`
+	AuditLogins30dTrend        *StatTrend       `json:"auditLogins30dTrend,omitempty"`
+	PrevAuditSecretReads30d    *int64           `json:"prevAuditSecretReads30d,omitempty"`
+	AuditSecretReads30dTrend   *StatTrend       `json:"auditSecretReads30dTrend,omitempty"`
+	PrevFailedAuthAttempts24h  *int64           `json:"prevFailedAuthAttempts24h,omitempty"`
+	FailedAuthAttempts24hTrend *StatTrend       `json:"failedAuthAttempts24hTrend,omitempty"`
+	PrevInactiveUsers          *int64           `json:"prevInactiveUsers,omitempty"`
+	InactiveUsersTrend         *StatTrend       `json:"inactiveUsersTrend,omitempty"`
+	ExpiringSecrets            []ExpiringSecret `json:"expiringSecrets,omitempty"`
+	RecentActivity             []ActivityItem   `json:"recentActivity"`
 	// Degraded is true when one or more sub-checks above could not be queried —
 	// the zero/empty values they carry are UNKNOWN, not verified-clean. A
 	// consumer must treat a degraded snapshot as incomplete, not as a clean
@@ -337,6 +339,7 @@ func (c *KeyorixCore) fetchAdminDashboardStats(ctx context.Context, stats *Dashb
 	// read is an audit event with success=false, so counting every success=false event
 	// as a "failed auth attempt" mixed authorization refusals into the brute-force signal.
 	failedAuth24h = c.countFailedLogins24h(ctx, stats, twentyFourHoursAgo)
+	stats.FailedSecondFactors24h = c.countFailedSecondFactors24h(ctx, stats, twentyFourHoursAgo)
 	_, stats.RefusedSecretReads24h, auditErr = c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &twentyFourHoursAgo, Action: &secretReadAction, Success: &successFalse, Page: 1, PageSize: 1})
 	if auditErr != nil {
 		stats.degrade("refused_secret_reads_24h", auditErr)
@@ -349,40 +352,48 @@ func (c *KeyorixCore) fetchAdminDashboardStats(ctx context.Context, stats *Dashb
 	return
 }
 
-// countFailedLogins24h counts the failed sign-in attempts since `since`, split by the
-// step that refused them, and returns the total (DASH-FAILED-2FA):
-//   - wrong password: auth.login_failed (success=false);
-//   - wrong second factor: mfa.failed (a wrong TOTP / recovery code, at login or
-//     step-up) plus webauthn.failed (a refused passkey assertion).
+// countFailedLogins24h counts the failed password/SSO logins since `since`
+// (auth.login_failed, success=false) and returns the count. Second-factor failures and
+// refused secret reads are separate figures (countFailedSecondFactors24h, the
+// secret.read count in fetchAdminDashboardStats) and never part of this one.
 //
-// The second-factor events are counted by action alone, with no success filter. They
-// are stored with success=false since #3363, but rows written before that keep
-// success=true (docs/UPGRADING.md), and the action name already says "failed", so a
-// success filter would hide the first 24h of history after an upgrade. mfa.error (a
-// storage fault before a verdict) is deliberately not counted: no second factor was
-// refused.
-//
-// Each query that errors degrades the snapshot (failed_logins_24h /
-// failed_second_factor_24h) instead of reading as a clean zero.
+// An error degrades the snapshot (failed_logins_24h) instead of reading as a clean zero.
 func (c *KeyorixCore) countFailedLogins24h(ctx context.Context, stats *DashboardStats, since time.Time) int64 {
 	successFalse := false
 	loginFailedAction := "auth.login_failed"
-	_, wrongPasswordCount, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &since, Action: &loginFailedAction, Success: &successFalse, Page: 1, PageSize: 1})
+	_, n, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &since, Action: &loginFailedAction, Success: &successFalse, Page: 1, PageSize: 1})
 	if err != nil {
 		stats.degrade("failed_logins_24h", err)
 	}
-	stats.FailedLoginsWrongPassword24h = wrongPasswordCount
-	var secondFactor int64
-	for _, action := range []string{"mfa.failed", "webauthn.failed"} {
+	return n
+}
+
+// secondFactorFailureActions are the audit actions that record a refused second factor:
+// mfa.failed (a wrong TOTP / recovery code, at login or step-up) and webauthn.failed (a
+// refused passkey assertion). mfa.error (a storage fault before a verdict) is not one:
+// no second factor was refused.
+var secondFactorFailureActions = []string{"mfa.failed", "webauthn.failed"}
+
+// countFailedSecondFactors24h counts the refused second factors since `since`.
+//
+// The events are counted by action alone, with no success filter. They are stored with
+// success=false since #3363, but rows written before that keep success=true
+// (docs/UPGRADING.md), and the action name already says "failed", so a success filter
+// would hide the first 24h of history after an upgrade.
+//
+// Each query that errors degrades the snapshot (failed_second_factor_24h) instead of
+// reading as a clean zero.
+func (c *KeyorixCore) countFailedSecondFactors24h(ctx context.Context, stats *DashboardStats, since time.Time) int64 {
+	var total int64
+	for _, action := range secondFactorFailureActions {
 		_, n, err := c.storage.GetAuditLogs(ctx, &storage.AuditFilter{StartTime: &since, Action: &action, Page: 1, PageSize: 1})
 		if err != nil {
 			stats.degrade("failed_second_factor_24h", err)
 			continue
 		}
-		secondFactor += n
+		total += n
 	}
-	stats.FailedLoginsWrongSecondFactor24h = secondFactor
-	return stats.FailedLoginsWrongPassword24h + secondFactor
+	return total
 }
 
 // GetActivityFeed returns a paginated, deployment-wide activity feed. userID is
