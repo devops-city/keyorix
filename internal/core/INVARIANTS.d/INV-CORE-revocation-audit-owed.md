@@ -1,6 +1,7 @@
 - **INV-CORE-revocation-audit-owed** A revocation (role / group-role / permission / role
   delete, group member removal and delete, project member removal, share revoke / self-removal /
-  expiry sweep, secret ACL revoke, machine suspend / revoke / token revoke / role removal, PAT and
+  expiry sweep, secret ACL revoke, machine suspend / revoke / token revoke (a rotation's revoke of the old credential
+  included) / role removal, PAT and
   session revoke, user suspend / deactivate / delete, SCIM deactivate / deprovision, break-glass
   revoke, JIT role expiry sweep, invitation revoke, access-request withdraw and reject, risk-exception
   revoke, project delete, environment delete, enabling a project's MFA requirement, and the narrowing

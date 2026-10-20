@@ -177,6 +177,7 @@ call's lock. If the second commit fails the narrowing stays and the answer is HT
 | SCIM PUT removals (current members) + adds/rename | `ReplaceSCIMGroup` | removals, `scim.group_updated` | rename + adds, `scim.group_updated` "(members=n)" |
 | MFA requirement on + rename/description | `UpdateProject` (`updateProjectSplit`) | `project.mfa_requirement_enabled` | rename, `project.updated` (tagged caller) |
 | OTP reissue | `ReissueOneTimePassword` | restricted state + sessions ended, `user.one_time_password_reissue_restricted` | password, expiry, lockout reset, `user.one_time_password_reissued` |
+| Machine token rotation (`replace_credential_id`) | `IssueMachineToken` → `rotateMachineToken` | old credential revoked (and evicted), `machine_identity.token_revoked` | new credential, `machine_identity.token_rotated` |
 
 ## Revocations: never blocked, row owed in the same transaction (AUDIT-TX-3)
 

@@ -301,6 +301,13 @@ func (h *CatalogHandler) IssueMachineToken(w http.ResponseWriter, r *http.Reques
 		ReplaceCredentialID: body.ReplaceCredentialID,
 	})
 	if err != nil {
+		// A rotation revokes the old credential first (never blocked by the audit log);
+		// if issuing the new one then fails, the old one stays revoked (503, partial
+		// apply; core already evicted it from the auth cache).
+		if sendPartialMutation(w, err) {
+			log.Printf("Rotation of machine token for machine %d in project %d partially applied: %v", machineID, projectID, err)
+			return
+		}
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		switch {

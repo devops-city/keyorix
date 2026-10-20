@@ -260,6 +260,34 @@ func splitKinds() []splitKind {
 				return w.reloadUser(s.(*userAndNew).u.ID).OneTimePasswordExpiresAt != nil
 			},
 			owed: splitRow{EventUserOneTimePasswordReissueRestricted, "account restricted"}, rest: splitRow{EventUserOneTimePasswordReissued, "reissued"}},
+		// Item 3 (ask perf-cred-lookup-1-rotation-audit-gated (b)): a rotation revokes the
+		// old credential (owed) and issues the new one (fail closed).
+		{name: "rotate-machine-token",
+			prepare: func(w *satWorld) any {
+				m, err := w.c.CreateMachineIdentity(ctx, w.f.projectID, w.tag("sp-m"), "service", "", "", w.f.adminID, 0)
+				require.NoError(w.t, err)
+				res, err := w.c.IssueMachineToken(ctx, w.f.projectID, m.ID, w.f.adminID, IssueMachineTokenParams{Name: w.tag("sp-t")})
+				require.NoError(w.t, err)
+				return [3]any{m.ID, res.Credential.ID, w.tag("sp-rot")}
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				st := s.([3]any)
+				_, err := c.IssueMachineToken(ctx, w.f.projectID, st[0].(uint), w.f.adminID,
+					IssueMachineTokenParams{Name: st[2].(string), ReplaceCredentialID: st[1].(uint)})
+				return err
+			},
+			narrowed: func(w *satWorld, s any) bool {
+				var cred models.MachineIdentityCredential
+				require.NoError(w.t, w.db.First(&cred, s.([3]any)[1].(uint)).Error)
+				return cred.Revoked
+			},
+			remainder: func(w *satWorld, s any) bool {
+				var n int64
+				require.NoError(w.t, w.db.Model(&models.MachineIdentityCredential{}).
+					Where("machine_identity_id = ? AND name = ? AND revoked = ?", s.([3]any)[0].(uint), s.([3]any)[2].(string), false).Count(&n).Error)
+				return n > 0
+			},
+			owed: splitRow{"machine_identity.token_revoked", "revoked token"}, rest: splitRow{"machine_identity.token_rotated", "rotated token"}},
 	}
 }
 

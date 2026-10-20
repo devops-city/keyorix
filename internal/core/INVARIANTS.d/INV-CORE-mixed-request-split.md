@@ -12,7 +12,9 @@
   (removals of current members, read under the guard locks, + adds or a rename),
   `UpdateProject` (MFA requirement on + rename/description, `updateProjectSplit`, decided on the
   row read in commit 1), `ReissueOneTimePassword` (account restricted + sessions ended, then the
-  credential). If commit 2 fails, commit 1 stays and the call returns `*PartialMutationError`
+  credential), `IssueMachineToken` with `ReplaceCredentialID` (`rotateMachineToken`: the old
+  credential revoked and evicted, then the new one issued; ask
+  perf-cred-lookup-1-rotation-audit-gated (b)). If commit 2 fails, commit 1 stays and the call returns `*PartialMutationError`
   (`errors.Is` `ErrMutationPartiallyApplied`; it unwraps to the cause), which the transports
   answer with HTTP 503 (error `MutationPartiallyApplied`, `details` {code
   `mutation_partially_applied`, revocation_applied true, remainder_applied false, applied,
@@ -26,7 +28,7 @@
   for backfill" gap: a violation, never accepted as complete (Andrei 2026-10-20).
   Why: a mixed request used to fail closed as a whole, so an audit outage rolled its revocation
   back (REVIEW-3482 F1); owing the whole call instead could commit a widening with no row.
-  Guard: `internal/core` `TestMixedRequestSplit_NarrowingNeverBlockedRemainderFailsClosed` (8 sites
+  Guard: `internal/core` `TestMixedRequestSplit_NarrowingNeverBlockedRemainderFailsClosed` (9 mixed requests
   x success / audit outage + backfill + retry / commit-2 append error, effect-then-error, panic /
   crash after commit 1 / owed record refused / record AND append refused, SQLite and PostgreSQL;
   every case reads the database), `TestMixedRequestSplit_RetryAfterPartialIsIdempotent`;

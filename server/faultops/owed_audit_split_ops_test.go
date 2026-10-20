@@ -92,6 +92,8 @@ var owedAuditSplitExpectedOwedTypes = map[string]map[string]int{
 	"REST PUT /api/v1/projects/{id} [mfa-on+rename]":                 {"project.mfa_requirement_enabled": 1},
 	"GRPC keyorix.v1.ProjectService.UpdateProject [mfa-on+rename]":   {"project.mfa_requirement_enabled": 1},
 	"REST POST /api/v1/users/{id}/reissue-one-time-password [split]": {"user.one_time_password_reissue_restricted": 1},
+	// Item 3: the rotation's revoke of the old credential.
+	"REST POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens [rotate]": {"machine_identity.token_revoked": 1},
 }
 
 func splitHTTPOutcome(st int, body []byte) splitOutcome {
@@ -364,6 +366,37 @@ func splitScenarios() []splitScenario {
 			// The one-time password is random: no second world has the same hash, expiry
 			// or history row. The user's account state is still compared (narrow case).
 			refIgnore: []string{"User", "PasswordHistory"},
+		},
+		{
+			// Item 3 (ask perf-cred-lookup-1-rotation-audit-gated (b)): rotation revokes the
+			// old credential (owed) and issues the new one (fail closed). The narrow-only
+			// reference is the plain revoke.
+			key: "REST POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens [rotate]",
+			setup: func(ctx context.Context, w *faultWorld) (any, error) {
+				m, err := createMachineIdentityForFuzz(ctx, w, 1)
+				if err != nil {
+					return nil, err
+				}
+				cred, err := issueMachineTokenForFuzz(ctx, w, 1, m)
+				if err != nil {
+					return nil, err
+				}
+				return [2]uint{m, cred}, nil
+			},
+			mixed: asOutcome(func(ctx context.Context, w *faultWorld, state any) (int, []byte, error) {
+				ids := state.([2]uint)
+				return httpJSON(ctx, w, http.MethodPost, fmt.Sprintf("/api/v1/projects/1/machine-identities/%d/tokens", ids[0]), map[string]any{
+					"name": "fuzz-rotated", "expires_in_days": 90, "replace_credential_id": ids[1],
+				})
+			}, false),
+			narrow: asResult(func(ctx context.Context, w *faultWorld, state any) (int, []byte, error) {
+				ids := state.([2]uint)
+				return httpJSON(ctx, w, http.MethodDelete, fmt.Sprintf("/api/v1/projects/1/machine-identities/%d/tokens/%d", ids[0], ids[1]), nil)
+			}),
+			restType: "machine_identity.token_rotated",
+			// The new token is random, so its credential row never equals another world's.
+			// The partial case still compares it (the narrow-only state has no new row).
+			refIgnore: []string{"MachineIdentityCredential"},
 		},
 	}
 }
