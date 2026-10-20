@@ -397,6 +397,19 @@ func revKinds() []revKind {
 				ids := s.([2]uint)
 				return c.WithdrawAccessRequest(ctx, ids[0], ids[1])
 			}},
+		// Rejecting a pending request grants nothing: a narrowing decision, never blocked
+		// by the audit log (ask 3482-reject-access-request-direction, MERGE-FIX-3482G).
+		{name: "reject-access-request",
+			prepare: func(w *satWorld) any {
+				u := w.newUser("rev-rj", "")
+				r, err := w.c.RequestProjectAccess(ctx, w.f.projectID, u.ID, "", "need it")
+				require.NoError(w.t, err)
+				return r
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				_, err := c.RejectAccessRequest(ctx, w.f.projectID, s.(*models.AccessRequest).ID, w.f.adminID, 0, "not now")
+				return err
+			}},
 		{name: "revoke-risk-exception",
 			prepare: func(w *satWorld) any {
 				e, err := w.c.CreateRiskException(ctx, w.f.adminID, false, "accepted gap", "other", "", "reviewed", future)

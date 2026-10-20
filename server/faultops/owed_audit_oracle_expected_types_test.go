@@ -55,4 +55,7 @@ var owedAuditExpectedOwedTypes = map[string]map[string]int{
 	"REST POST /api/v1/projects/{id}/access-requests/{requestId}/withdraw":              {"access_request.withdrawn": 1},
 	"REST DELETE /api/v1/risk-exceptions/{id}":                                          {"risk.exception_revoked": 1},
 	"REST DELETE /scim/v2/Groups/{id}":                                                  {"scim.group_deprovisioned": 1},
+	// MERGE-FIX-3482G (ask 3482-reject-access-request-direction): a rejection is owed;
+	// the bulk summary row (access_request.bulk_reject_attempted) stays best-effort.
+	"REST POST /api/v1/access-requests/bulk-reject": {"access_request.rejected": 1},
 }

@@ -1198,8 +1198,12 @@ func (c *KeyorixCore) RejectAccessRequest(ctx context.Context, projectID, reques
 	req.ResolvedBy = approverID
 	req.ResolvedByMachineIdentityID = approverMachineID
 	req.ResolvedAt = &now
-	// AUDIT-TX-3: the rejection and its access_request.rejected row commit together.
-	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+	// AUDIT-TX-3: rejecting grants nothing (the pending ask ends without a role), so it
+	// is a narrowing decision and, like WithdrawAccessRequest, never blocked by the audit
+	// log: its access_request.rejected row is owed from this transaction (Andrei
+	// 2026-10-20, ask 3482-reject-access-request-direction: a narrowing decision is
+	// never blocked).
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		ok, uerr := tx.UpdateAccessRequest(ctx, req)
 		if uerr != nil {
 			return fmt.Errorf("failed to update access request: %w", uerr)

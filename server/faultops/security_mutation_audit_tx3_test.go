@@ -114,6 +114,10 @@ var auditTx3RevocationOps = []string{
 	"REST POST /api/v1/projects/{id}/access-requests/{requestId}/withdraw",
 	"REST DELETE /api/v1/risk-exceptions/{id}",
 	"REST DELETE /scim/v2/Groups/{id}",
+	// RejectAccessRequest is a narrowing decision, owed like a withdrawal (ask
+	// 3482-reject-access-request-direction, MERGE-FIX-3482G); bulk-reject is the
+	// catalog op that drives it.
+	"REST POST /api/v1/access-requests/bulk-reject",
 }
 
 func catalogOp(t *testing.T, key string) *operation {
