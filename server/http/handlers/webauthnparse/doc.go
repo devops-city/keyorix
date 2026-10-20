@@ -1,5 +1,8 @@
-// Package webauthnparse holds FuzzWebAuthnCredentialResponse: a fuzz target
-// with no Keyorix production code to wrap. It fuzzes go-webauthn/webauthn's
+// Package webauthnparse holds the WebAuthn parser fuzz targets, with no Keyorix
+// production code to wrap: FuzzWebAuthnCredentialResponse (the parse alone),
+// and FuzzWebAuthnRegistrationCeremony / FuzzWebAuthnAssertionCeremony (parse
+// plus the library verification the finish handlers run, seeded with real
+// ceremonies; ceremony_fuzz_test.go). The first fuzzes go-webauthn/webauthn's
 // own protocol.ParseCredentialCreationResponseBytes/
 // ParseCredentialRequestResponseBytes directly on raw browser-supplied bytes
 // — the WebAuthn ceremony-finish endpoints (server/http/handlers/webauthn.go)
