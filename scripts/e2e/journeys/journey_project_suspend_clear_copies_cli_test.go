@@ -42,8 +42,8 @@ func TestJourney_ProjectSuspendClearSyncedCopiesCLI(t *testing.T) {
 	mEnv := adminEnv(s, machToken) // a read-only caller: no secrets.write
 
 	newSecret := func(name string) (ref string) {
-		runCLI(t, cliBin, aEnv, "secret", "create", "--name", name,
-			"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid), "--value", "j-value-"+name)
+		runCLISecret(t, cliBin, aEnv, "j-value-"+name, "secret", "create", "--name", name,
+			"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid))
 		return projName + "/" + envName + "/" + name
 	}
 	refusal := func(ref string) (status int, code string, clear bool) {

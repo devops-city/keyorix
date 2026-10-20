@@ -60,8 +60,8 @@ func TestJourney_CLILoginWithMFA(t *testing.T) {
 	loginEnv := s.CLIEnv()
 
 	t.Run("1. no MFA code and no terminal names KEYORIX_MFA_CODE, never \"HTTP 200\"", func(t *testing.T) {
-		out := runCLIExpectErr(t, cliBin, loginEnv,
-			"login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw)
+		out := runCLIExpectErr(t, cliBin, withEnv(loginEnv, "KEYORIX_PASSWORD="+adminPw),
+			"login", "--server", s.BaseURL, "--username", adminUser)
 		// The #2737 symptom, verbatim.
 		if strings.Contains(out, "HTTP 200") {
 			t.Fatalf("regression: the login POST's success status is being reported as the failure:\n%s", out)
@@ -71,16 +71,15 @@ func TestJourney_CLILoginWithMFA(t *testing.T) {
 		}
 		// The hint must steer to the env var, not to a secret on the command line, and must
 		// never echo the password it was given.
-		if strings.Contains(out, "--mfa-code") || strings.Contains(out, adminPw) {
+		if strings.Contains(out, "--mfa-code") /* secretflag:allow output assertion */ || strings.Contains(out, adminPw) {
 			t.Fatalf("the no-terminal hint must not suggest --mfa-code or echo a secret:\n%s", out)
 		}
 	})
 
 	t.Run("2. --mfa-code with a TOTP code logs in and stores a working session", func(t *testing.T) {
 		code := totpCodeAfterStep(t, secret, burnedStep)
-		out := runCLI(t, cliBin, loginEnv,
-			"login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw,
-			"--mfa-code", code)
+		out := runCLI(t, cliBin, withEnv(loginEnv, "KEYORIX_PASSWORD="+adminPw, "KEYORIX_MFA_CODE="+code),
+			"login", "--server", s.BaseURL, "--username", adminUser)
 		if !strings.Contains(out, "Logged in to") {
 			t.Fatalf("expected a successful login, got:\n%s", out)
 		}
@@ -103,9 +102,8 @@ func TestJourney_CLILoginWithMFA(t *testing.T) {
 		// The server accepts either a TOTP code or an unused recovery code on
 		// /auth/mfa/verify (internal/core.VerifyMFACredentials), and the CLI must not
 		// pre-judge which one it was handed.
-		out := runCLI(t, cliBin, loginEnv,
-			"login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw,
-			"--mfa-code", recoveryCodes[0])
+		out := runCLI(t, cliBin, withEnv(loginEnv, "KEYORIX_PASSWORD="+adminPw, "KEYORIX_MFA_CODE="+recoveryCodes[0]),
+			"login", "--server", s.BaseURL, "--username", adminUser)
 		if !strings.Contains(out, "Logged in to") {
 			t.Fatalf("expected a recovery code to complete the login, got:\n%s", out)
 		}
@@ -119,9 +117,8 @@ func TestJourney_CLILoginWithMFA(t *testing.T) {
 		// Single-use is the server's property (ConsumeMFARecoveryCode), not the CLI's --
 		// asserted here because the CLI is now the thing presenting it, and a CLI that
 		// reported this as success would be worse than the original bug.
-		out := runCLIExpectErr(t, cliBin, loginEnv,
-			"login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw,
-			"--mfa-code", recoveryCodes[0])
+		out := runCLIExpectErr(t, cliBin, withEnv(loginEnv, "KEYORIX_PASSWORD="+adminPw, "KEYORIX_MFA_CODE="+recoveryCodes[0]),
+			"login", "--server", s.BaseURL, "--username", adminUser)
 		if strings.Contains(out, "HTTP 200") {
 			t.Fatalf("a refused second factor must not be reported as the login POST's 200:\n%s", out)
 		}
@@ -131,9 +128,8 @@ func TestJourney_CLILoginWithMFA(t *testing.T) {
 	})
 
 	t.Run("5. a wrong code reports what the server said, not \"HTTP 200\"", func(t *testing.T) {
-		out := runCLIExpectErr(t, cliBin, loginEnv,
-			"login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw,
-			"--mfa-code", "000000")
+		out := runCLIExpectErr(t, cliBin, withEnv(loginEnv, "KEYORIX_PASSWORD="+adminPw, "KEYORIX_MFA_CODE=000000"),
+			"login", "--server", s.BaseURL, "--username", adminUser)
 		if strings.Contains(out, "HTTP 200") {
 			t.Fatalf("regression: a wrong code is being reported as the login POST's success status:\n%s", out)
 		}
