@@ -324,7 +324,6 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		if active != nil && !*active {
 			if cur, gerr := c.storage.GetUser(ctx, id); gerr == nil && cur.IsActive {
 				revocation = true
-				split = email != nil && *email != "" && *email != cur.Email
 			}
 		}
 		if active != nil && !*active {
@@ -337,12 +336,22 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// A fresh, lock-guarded read inside the transaction: never reuse a struct fetched
 		// before the lock above was taken — a concurrent setAccountState commit between
 		// that read and this write would be silently clobbered (the exact #344 race).
-		dn, em, desc := displayName, email, "SCIM updated user %d"
-		if split {
-			dn, em, desc = nil, nil, "SCIM deactivated user %d"
-		}
 		var serr error
 		settle, serr = c.auditedByDirection(ctx, !revocation, func(tx storage.Storage, tgt auditTarget) error {
+			dn, em, desc := displayName, email, "SCIM updated user %d"
+			// The email half is decided on the row lock, not on the read above: an email
+			// the stored row already has is no change, any other one is commit 2
+			// (REVIEW-3482B B3). fn may run twice: split is recomputed here.
+			split = false
+			if revocation && email != nil && *email != "" {
+				locked, lerr := tx.LockUserForUpdate(ctx, id)
+				if lerr != nil {
+					return lerr
+				}
+				if split = *email != locked.Email; split {
+					dn, em, desc = nil, nil, "SCIM deactivated user %d"
+				}
+			}
 			var err error
 			if updated, deactivated, patHashes, err = c.scimUpdateUserTx(ctx, tx, id, dn, em, active); err != nil {
 				return err

@@ -533,9 +533,6 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
-	// identityChanged: the request changes the username or the email, which can widen
-	// access (a reset link goes to the new address) whatever else it does.
-	identityChanged := false
 	if req.Username != "" && req.Username != user.Username {
 		foldedUsername, ferr := identity.NewFoldedName(req.Username)
 		if ferr != nil {
@@ -556,10 +553,8 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 		}
 		user.Username = req.Username
 		user.UsernameFolded = foldedUsername.Folded()
-		identityChanged = true
 	}
 	if req.Email != "" && req.Email != user.Email {
-		identityChanged = true
 		foldedEmail, ferr := identity.NewFoldedName(req.Email)
 		if ferr != nil {
 			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), ferr)
@@ -639,20 +634,24 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 			settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 				// fn may run again (the owed fallback): start from a clean slate.
 				patHashes, cleanupPatErr, cleanupSessionErr, remainder = nil, nil, nil, false
-				write, desc := user, "updated user %d (%s)"
-				if identityChanged {
-					// Decided on the row lock, not on the read before it: the stored
-					// username/email is what the request changes, or does not.
-					locked, lerr := tx.LockUserForUpdate(ctx, req.ID)
-					if lerr != nil {
-						return lerr
+				// Decided on the row lock, not on the read before it: the stored
+				// username/email is what the request changes, or does not. The write is
+				// built from the locked row too, so a username/email the read before the
+				// lock saw (and a concurrent rename since replaced) never rides along on
+				// this owed commit (REVIEW-3482B B3).
+				locked, lerr := tx.LockUserForUpdate(ctx, req.ID)
+				if lerr != nil {
+					return lerr
+				}
+				deactivate := *locked
+				deactivate.IsActive = false
+				deactivate.UpdatedAt = user.UpdatedAt
+				write, desc := &deactivate, "deactivated user %d (%s)"
+				if remainder = userIdentityChanges(req, locked); !remainder {
+					if req.DisplayName != "" {
+						deactivate.DisplayName = req.DisplayName
 					}
-					if remainder = userIdentityChanges(req, locked); remainder {
-						deactivate := *locked
-						deactivate.IsActive = false
-						deactivate.UpdatedAt = user.UpdatedAt
-						write, desc = &deactivate, "deactivated user %d (%s)"
-					}
+					desc = "updated user %d (%s)"
 				}
 				matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, write, wasActive)
 				if terr != nil {

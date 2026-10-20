@@ -219,7 +219,9 @@ func (c *KeyorixCore) UpdateProject(ctx context.Context, id uint, name, descript
 	// description in the same call it is a mixed request (MERGE-FIX-3482G): the
 	// requirement goes on alone first (owed), and the rest follows as its own
 	// fail-closed commit (updateProjectSplit).
-	if mfaChanged && *requireMFA && (name != project.Name || description != project.Description) {
+	// Every MFA-on goes there, so whether a rename rides along is decided on the row
+	// read in commit 1, not on the read above (REVIEW-3482B B3).
+	if mfaChanged && *requireMFA {
 		return c.updateProjectSplit(ctx, id, name, description, tagged, actor)
 	}
 	mfaEnabling := mfaChanged && *requireMFA
@@ -297,6 +299,10 @@ func (c *KeyorixCore) updateProjectSplit(ctx context.Context, id uint, name, des
 		pid := id
 		c.writeAuditEventFullOn(ctx, tgt, "project.mfa_requirement_enabled", nil, nil, &pid, "",
 			fmt.Sprintf("per-project MFA requirement enabled for project %q", updated.Name))
+		if !remainder && tagged {
+			// MFA-on alone: the project.updated row of a tagged call, owed with it.
+			c.logProjectUpdatedOn(ctx, tgt, actor, id, updated.Name)
+		}
 		return nil
 	}); err != nil {
 		return nil, err
