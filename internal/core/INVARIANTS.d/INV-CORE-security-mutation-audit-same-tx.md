@@ -7,12 +7,12 @@
   below), secret ACL grant, machine identity create /
   token issue / role grant, PAT create, `CreateUserWithAssignments` and
   `CreateUserAudited`, project/environment create, update and restore
-  called with `WithMutationAuditActor` (EXCEPT enabling a project's MFA requirement
-  with no other change, and project and environment DELETE: those narrow access and are
-  owed revocations, INV-CORE-revocation-audit-owed), SoD policy create/delete, and, since
+  called with `WithMutationAuditActor` (EXCEPT enabling a project's MFA requirement,
+  and project and environment DELETE: those narrow access and are owed revocations,
+  INV-CORE-revocation-audit-owed), SoD policy create/delete, and, since
   AUDIT-TX-3, group create/update/restore, user update / reactivate / restore,
-  OTP reissue, SCIM user and group provisioning writes, invitations, access
-  request create / reject / partial approval, notification channel and retry
+  the credential half of an OTP reissue, SCIM user and group provisioning writes,
+  invitations, access request create / partial approval, notification channel and retry
   policy changes, anomaly config, rotation policies, alert escalation policies,
   risk exception create/approve, legal hold place/lift, machine and token
   classification, access review campaign open/close) writes its audit row(s)
@@ -23,7 +23,9 @@
   the same way. Off-box side effects (SIEM, live tail) run only after the commit;
   notifications after that. Revocations are deliberately NOT covered: they are
   never blocked by the audit log (Andrei 2026-10-14) and are governed by
-  INV-CORE-revocation-audit-owed. `UpdateRole` and `UpdateSharePermission` go either way
+  INV-CORE-revocation-audit-owed. A request that narrows AND widens (deactivate + identity
+  change, SCIM removals + adds/rename, MFA on + rename, OTP reissue) is split, its widening
+  half fails closed here: INV-CORE-mixed-request-split. `UpdateRole` and `UpdateSharePermission` go either way
   and are classified per call from what they change inside their transaction
   (`withDirectedAuditedMutation`): any added permission, a higher share
   permission, a later or cleared expiry (mixed changes included) is a grant and
@@ -38,7 +40,7 @@
   Guard: `internal/core` `TestSecurityMutationAudit_RowExistsIffMutationCommitted`
   (SQLite always, PostgreSQL pg-gated; error, effect-then-error, panic, and a
   goroutine death at the append), `TestWithAuditedMutation_NoRowFailsClosed`,
-  `TestSecurityMutationAudit3_RowExistsIffMutationCommitted` (AUDIT-TX-3: 43
+  `TestSecurityMutationAudit3_RowExistsIffMutationCommitted` (AUDIT-TX-3: 40
   kinds, same matrix), `server/faultops`
   `TestSecurityMutationAuditFailure_FailsClosedChangesNothing` (28 REST/gRPC ops,
   no tolerance; break-glass activation:

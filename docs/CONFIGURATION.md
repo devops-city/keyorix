@@ -1114,9 +1114,13 @@ REST `POST /api/v1/users/{id}/reissue-one-time-password`, gRPC `UserService.Reis
   inactive account (`409` — reactivate it first, deliberately, rather than having a password
   reissue reactivate it); an actor who does not meet the rank ceiling (`403`). A refusal changes
   nothing.
-- **Audit:** `user.one_time_password_reissued` (actor = the administrator, the description
-  names the target and the expiry) and the existing `credential.displayed_out_of_band`; neither
-  contains the password.
+- **Audit:** `user.one_time_password_reissue_restricted` (the account restricted and its
+  sessions ended; written even while the audit log refuses writes, then backfilled),
+  `user.one_time_password_reissued` (actor = the administrator, the description names the
+  target and the expiry) and the existing `credential.displayed_out_of_band`; none contains the
+  password. If the audit log refuses the second row, no new password is issued: the account
+  stays restricted with its sessions ended, the answer is `503` with
+  `details.code: mutation_partially_applied`, and the same request can simply be retried.
 
 *Upgrading:* accounts already in `password_reset_required` when this version first starts
 have no recorded expiry and cannot be told apart (a one-time password, an admin-forced reset

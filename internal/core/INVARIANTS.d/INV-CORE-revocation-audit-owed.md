@@ -2,8 +2,9 @@
   delete, group member removal and delete, project member removal, share revoke / self-removal /
   expiry sweep, secret ACL revoke, machine suspend / revoke / token revoke / role removal, PAT and
   session revoke, user suspend / deactivate / delete, SCIM deactivate / deprovision, break-glass
-  revoke, JIT role expiry sweep, invitation revoke, access-request withdraw, risk-exception revoke,
-  project delete, environment delete, enabling a project's MFA requirement)
+  revoke, JIT role expiry sweep, invitation revoke, access-request withdraw and reject, risk-exception
+  revoke, project delete, environment delete, enabling a project's MFA requirement, and the narrowing
+  half of a mixed request, INV-CORE-mixed-request-split)
   is never blocked, delayed or failed by the audit log (Andrei 2026-10-14), and its audit row is
   never silently lost (AUDIT-TX-3, extending INV-CORE-plain-suspend-audit-owed to every revocation).
   The change runs through `withOwedAuditMutation` / `runOwedAuditMutation` (`audit_owed.go`) in ONE
@@ -27,12 +28,12 @@
   suspend/revoke are revocations, back to active is a grant that fails closed).
   Why: Andrei 2026-10-14; before AUDIT-TX-3 these wrote a plain best-effort row after the commit
   with no record, so a refused append or a crash lost the row for good.
-  Guard: `internal/core` `TestRevocationAudit_EffectCommitsAndRowIsOwedNeverLost` (34 kinds x
+  Guard: `internal/core` `TestRevocationAudit_EffectCommitsAndRowIsOwedNeverLost` (35 kinds x
   success / append error / effect-then-error / panic / crash at the append / pending-record error
   / pending-record panic, SQLite always, PostgreSQL pg-gated; the backfill completes the trail
   exactly once and the chain verifies), `TestUpdateUser_DeactivateAuditInOwnTransaction_NoSQLiteDeadlock`,
   `TestUpdateUser_DeactivateAuditRefused_RowIsOwedAndBackfilled`; `server/faultops`
-  `TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed` (34 REST/gRPC ops over the
+  `TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed` (35 REST/gRPC ops over the
   router, request still succeeds, rows + pending equals an unfaulted run); the fuzz oracle's
   owed-audit rule `server/faultops` `owed_audit_oracle_test.go` (oracle (a) accepts a success whose
   diff is confined to {AuditEvent, PendingAuditEvent} only for those ops with a fault on

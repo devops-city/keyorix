@@ -126,7 +126,7 @@ from core, as before, so there are no duplicates.
 | Environment create | `CreateEnvironment` with `WithMutationAuditActor` | `environment.created` | transport, after commit | in tx |
 | SoD policy create / delete | `CreateSoDPolicy`, `DeleteSoDPolicy` | `sod.policy_created` / `sod.policy_deleted` | after commit | in tx |
 | Secret create/update/rotate/rollback/delete | (#3297) | `secret.*` | – | in tx (already) |
-| **Project update** (incl. turning the MFA requirement off) | `UpdateProject` | `project.updated`, `project.mfa_requirement_enabled/disabled` | transport / after commit | in tx (AUDIT-TX-3); the MFA row is written for every caller, `project.updated` for a tagged one. A call whose only change is turning the MFA requirement ON restricts access and is owed instead (Revocations table) |
+| **Project update** (incl. turning the MFA requirement off) | `UpdateProject` | `project.updated`, `project.mfa_requirement_enabled/disabled` | transport / after commit | in tx (AUDIT-TX-3); the MFA row is written for every caller, `project.updated` for a tagged one. Turning the MFA requirement ON restricts access and is owed instead (Revocations table); with a rename in the same call it is split ("Mixed requests") |
 | **Project restore** | `RestoreProject` | `project.restored` + `machine_identity.activated`×n | after commit | in tx |
 | **Environment restore** | `RestoreEnvironment` | `environment.restored` | after commit | in tx |
 | **Group create / update** | `CreateGroup`, `UpdateGroup` | `group.created` / `group.updated` | after commit | in tx |
@@ -134,14 +134,13 @@ from core, as before, so there are no duplicates.
 | **User update** (anything but a deactivation that leaves username and email alone: profile, email, username, re-activate flag; a deactivation that also changes the username or email) | `UpdateUser` (also `UpdateOwnProfile`) | `user.updated` | after commit | in tx |
 | **User reactivate** | `ReactivateUser` → `setAccountState` (to active) | `account.reactivated` | after commit | in tx |
 | **User restore** | `RestoreUser` | `user.restored` | after commit | in tx |
-| **OTP reissue** | `ReissueOneTimePassword` | `user.one_time_password_reissued` | after commit | in tx |
+| **OTP reissue** (the credential half) | `ReissueOneTimePassword` | `user.one_time_password_reissued` | after commit | in tx, after the owed narrowing commit ("Mixed requests") |
 | **SCIM user provision** | `ProvisionSCIMUser` | `scim.user_provisioned` | after commit | in tx |
 | **SCIM user update** (anything but deactivating an active user without an email change: includes active=false on an inactive user and active=false with an email change) | `UpdateSCIMUser` | `scim.user_updated` | after commit | in tx |
 | **SCIM group provision / replace / patch** (adds a member or renames) | `ProvisionSCIMGroup`, `ReplaceSCIMGroup`, `PatchSCIMGroup` | `scim.group_provisioned` / `scim.group_updated` | after commit; rename a separate commit | in tx; the rename moved into the membership transaction |
 | **Invitation create** (project, global, with or without link) | `InviteToProject[WithLink]`, `InviteGlobal[WithLink]` | `invitation.created` | after commit | in tx (the setup-link variants: in the invitation + token transaction) |
 | **Access request create** (project, secret) | `RequestProjectAccess`, `RequestSecretAccess` | `access_request.created` / `.secret_created` | after commit | in tx |
 | **Access request partial approval** | `recordPartialApproval` | `access_request.approval_recorded` | after commit | in tx |
-| **Access request reject** | `RejectAccessRequest` | `access_request.rejected` | after commit | in tx |
 | **Secret access request approval** | `ApproveSecretAccessRequest` | `access_request.secret_approved` | after commit | in tx |
 | **Notification channel create / update / delete** | `CreateNotificationChannel`, `UpdateNotificationChannel`, `DeleteNotificationChannel` | `notification_channel.*` | after commit | in tx |
 | **Notification channel retry policy** | `SetNotificationRetryPolicy` | `notification_channel.retry_policy_updated` | after commit | in tx |
@@ -159,6 +158,25 @@ credential (PAT, machine token), a new admin-capable principal (user create with
 assignments), a changed account email (the password-reset anchor), a silently
 repointed or disabled alert channel, a relaxed rotation policy or a lifted legal
 hold.
+
+## Mixed requests: two commits, narrowing first (MERGE-FIX-3482G)
+
+A request that narrows access AND widens it (Andrei 2026-10-20, ask
+3482-mixed-request-rule (a); INV-CORE-mixed-request-split, `audit_split.go`) commits
+the narrowing alone first (owed, never blocked by the audit log) and the rest second
+(fail closed). Each part's direction is decided against the row read under the
+call's lock. If the second commit fails the narrowing stays and the answer is HTTP
+503 / SCIM 503 / gRPC Unavailable with `code: mutation_partially_applied`,
+`revocation_applied: true`, `remainder_applied: false`; a retry is safe.
+
+| Request | Core function | Commit 1 (owed) | Commit 2 (fail closed) |
+|---|---|---|---|
+| Deactivate + username/email change | `UpdateUser` | deactivation, `user.updated` "deactivated user …" | identity change, `user.updated` |
+| SCIM active=false (active user) + email change | `UpdateSCIMUser` | deactivation, `scim.user_updated` "SCIM deactivated user …" | email/displayName, `scim.user_updated` |
+| SCIM PATCH removals (current members) + adds/rename | `PatchSCIMGroup` | removals, `scim.group_updated` "(-n members)" | rename + adds, `scim.group_updated` "(+n members)" |
+| SCIM PUT removals (current members) + adds/rename | `ReplaceSCIMGroup` | removals, `scim.group_updated` | rename + adds, `scim.group_updated` "(members=n)" |
+| MFA requirement on + rename/description | `UpdateProject` (`updateProjectSplit`) | `project.mfa_requirement_enabled` | rename, `project.updated` (tagged caller) |
+| OTP reissue | `ReissueOneTimePassword` | restricted state + sessions ended, `user.one_time_password_reissue_restricted` | password, expiry, lockout reset, `user.one_time_password_reissued` |
 
 ## Revocations: never blocked, row owed in the same transaction (AUDIT-TX-3)
 
@@ -182,14 +200,14 @@ the commit with no record: a refused append or a crash lost the row for good.
 | PAT revoke (own, admin bulk, expired bulk) | `RevokeOwnPAT`, `RevokeAllPersonalAccessTokensForUser`, `BulkRevokeExpiredOwnPATs` | `pat.revoked`, `user.credentials_revoked` |
 | Session revoke (own, admin, bulk) | `RevokeOwnSession`, `RevokeUserSessions`, `DeleteSessionsForUserExcept` | `session.revoked`, `account.sessions_revoked`, `user.credentials_revoked` |
 | User suspend / restrict | `setAccountState` (to suspended, deprovisioned, password-reset-required) | `account.suspended`, … |
-| User deactivate (no username/email change in the request), delete | `UpdateUser` (deactivating branch), `DeleteUser` | `user.updated`, `user.deleted` |
-| SCIM user deactivate (active user, no email change in the request), deprovision | `UpdateSCIMUser` (active=false), `DeprovisionSCIMUser` | `scim.user_updated`, `scim.user_deprovisioned` |
+| User deactivate (with a username/email change: split, "Mixed requests"), delete | `UpdateUser` (deactivating branch), `DeleteUser` | `user.updated`, `user.deleted` |
+| SCIM user deactivate (active user; with an email change: split), deprovision | `UpdateSCIMUser` (active=false), `DeprovisionSCIMUser` | `scim.user_updated`, `scim.user_deprovisioned` |
 | Project delete (cascade, machine-identity suspension) | `DeleteProject` | `project.deleted` + `machine_identity.suspended`×n (the cascade events are owed for every caller, `project.deleted` for a tagged one) |
 | Environment delete | `DeleteEnvironment` (tagged) | `environment.deleted`; the secret-guard named lock is taken around the transaction and the row is settled after it is released |
-| Project MFA requirement turned on (only change in the call) | `UpdateProject` | `project.mfa_requirement_enabled` (+ `project.updated` for a tagged caller) |
+| Project MFA requirement turned on (with a rename: split) | `UpdateProject` | `project.mfa_requirement_enabled` (+ `project.updated` for a tagged caller when nothing else changes) |
 | Break-glass revoke | `RevokeBreakGlassActivationAtomic` | `role.removed` + `break_glass.revoked` |
 | JIT expiry sweep (roles) | `RemoveExpiredRoleGrants` | `role.expired` |
-| Invitation revoke, access request withdraw | `RevokeInvitation`, `WithdrawAccessRequest` | `invitation.revoked`, `access_request.withdrawn` |
+| Invitation revoke, access request withdraw and reject (a narrowing decision is never blocked, ask 3482-reject-access-request-direction) | `RevokeInvitation`, `WithdrawAccessRequest`, `RejectAccessRequest` | `invitation.revoked`, `access_request.withdrawn`, `access_request.rejected` |
 | Risk exception revoke | `RevokeRiskException` | `risk.exception_revoked` |
 | Access review revoke decision | `DecideAccessReviewItem` | `access_review.revoked`: already in tx (#2676) with a best-effort sink, still never blocked; unchanged |
 
