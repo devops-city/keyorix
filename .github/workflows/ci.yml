@@ -172,7 +172,7 @@ jobs:
   #   - FULL: merge_group, push to main/release, schedule, workflow_dispatch,
   #     a pull_request carrying ci:full, and every pull_request into release/**
   #     (no merge queue there, so the PR run is the last gate). Every job, exactly as before:
-  #     the 21-leg -race test-suite, e2e/web-e2e/boot/demo smokes, fuzz-targets/
+  #     the 22-leg -race test-suite, e2e/web-e2e/boot/demo smokes, fuzz-targets/
   #     fuzz-reach, the QUICK_START smoke, every module and chart job.
   # Every check that ran on pull_request before still runs before anything
   # reaches main: either still on the PR, or in the merge queue (FULL). Jobs
@@ -752,7 +752,7 @@ jobs:
       # This job never sets KEYORIX_TEST_PG_DSN, so every pg-gated row in
       # docs/security-closures.d/ gate-skips here by design -- that is
       # expected, not a failure (see the ledger's own header). The test-suite
-      # job's `core` leg below runs this SAME script again, WITH the DSN, and
+      # job's `core-1` leg below runs this SAME script again, WITH the DSN, and
       # is what actually proves those rows.
       - name: Verify every security closure claim names a passing test
         run: ./scripts/check-closures.sh
@@ -1109,9 +1109,19 @@ jobs:
           # runs 39289607674 and 39283963061 died with "test timed out after
           # 30m0s". test-suite has no job-level timeout-minutes (GitHub default
           # 360), so the go test -timeout is the only bound and is far below it.
-          - leg: core
+          #
+          # Split into core-1/core-2 (2026-10-19, CI-CORE-SHARD-1): the leg grew
+          # to ~35 min (CI-CORE-TIMEOUT-1) and was the merge queue's critical
+          # path. Unlike #1819 this split is by a pinned heavy-test regex (core-1
+          # -run, core-2 -skip of the same regex; core_heavy_regex in
+          # scripts/ci-test-legs.sh), expected ~22 min wall. timeout stays 3300
+          # per leg until the split has proven itself.
+          - leg: core-1
             timeout: 3300
-            coverage-file: coverage_core.out
+            coverage-file: coverage_core1.out
+          - leg: core-2
+            timeout: 3300
+            coverage-file: coverage_core2.out
           # storage-store (internal/storage/store, re-pinned out of root-4's
           # catch-all 2026-09-04) -- same trigger as core's own split above: a
           # real CI run (main, commit b971ed36) found root-4's `go test` step
@@ -1326,7 +1336,7 @@ jobs:
           # shard by test name rather than by package.
           run_filter=""
           pkgs=$(pkgs_for_leg "$leg")
-          # Selected merge-queue run, package-list leg (root-N, core): only the
+          # Selected merge-queue run, package-list leg (root-N, core-N): only the
           # affected subset of this leg's own packages (select-affected.py
           # intersected them with pkgs_for_leg, so nothing outside the leg).
           if [ -n "$LEG_ONLY" ]; then
@@ -1335,6 +1345,8 @@ jobs:
           # Empty for every leg except storage-store-N (below) -- see that
           # case arm for why this one package gets it and the others don't.
           shuffle_flag=""
+          # Empty (skip nothing) for every leg except core-2.
+          skip_filter=""
 
           case "$leg" in
             handlers-1|handlers-2)
@@ -1359,6 +1371,15 @@ jobs:
               shard=${leg#http-}
               run_filter=$(run_filter_for_shard "$pkgs" "$shard" 8)
               pkgs=./server/http
+              ;;
+            core-1)
+              # The heavy group only; regex defined once in ci-test-legs.sh.
+              # $pkgs stays as pkgs_for_leg / LEG_ONLY gave it (internal/core).
+              run_filter=$(core_heavy_regex)
+              ;;
+            core-2)
+              # Everything except the heavy group (same regex, -skip).
+              skip_filter=$(core_heavy_regex)
               ;;
             encryption-1|encryption-2)
               shard=${leg#encryption-}
@@ -1412,19 +1433,19 @@ jobs:
           # above). If someone proposes enabling Go's test cache here, that's
           # the trade being proposed, whether or not the proposal names it.
           # shellcheck disable=SC2086
-          go test -race -timeout ${{ matrix.timeout }}s -run "$run_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
+          go test -race -timeout ${{ matrix.timeout }}s -run "$run_filter" -skip "$skip_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
 
       # This job is the ONLY one with a Postgres service container (see this
       # job's own KEYORIX_TEST_PG_DSN comment above), so it is the only place
       # a pg-gated docs/security-closures.d/ row can ever be genuinely
-      # proven rather than gate-skipped. Restricted to the `core` leg: every
-      # pg-gated row today lives in ./internal/core, and running the full
-      # ledger sweep once per leg would just repeat the same ~17-row check 15
-      # times for no new coverage. adr-numbers already runs this same script
+      # proven rather than gate-skipped. Restricted to ONE leg, core-1 (exactly one
+      # of core-1/core-2): every pg-gated row today lives in ./internal/core,
+      # and running the full ledger sweep once per leg would just repeat the
+      # same ~17-row check 15 times for no new coverage. adr-numbers already runs this same script
       # without a DSN (every pg-gated row gate-skips there, by design) --
       # this is the run that actually counts as evidence for those rows.
-      - name: Verify pg-gated security closures with a real Postgres DSN available (core leg only)
-        if: matrix.leg == 'core' && steps.leg.outputs.run == 'true'
+      - name: Verify pg-gated security closures with a real Postgres DSN available (core-1 leg only)
+        if: matrix.leg == 'core-1' && steps.leg.outputs.run == 'true'
         run: ./scripts/check-closures.sh
 
       - name: Upload coverage artifact
@@ -1496,6 +1517,11 @@ jobs:
         run: |
           source scripts/ci-test-legs.sh
           assert_faultops_shards_complete
+
+      - name: Assert every internal/core test runs in exactly one of core-1 / core-2
+        run: |
+          source scripts/ci-test-legs.sh
+          assert_core_shards_complete
 
   # Independent of test execution/coverage -- both tools statically analyze
   # source, so this runs in parallel with test-suite instead of waiting for it
@@ -1615,7 +1641,7 @@ jobs:
           if [ "$SELECT_MODE" = "selected" ]; then
             selected=true
             nlegs=$(jq 'length' <<<"$SELECT_LEGS")
-            echo "Selected run: $nlegs of 21 test-suite legs ran ($SELECT_REASON)."
+            echo "Selected run: $nlegs of 22 test-suite legs ran ($SELECT_REASON)."
             if [ "$GUARDS_RESULT" != "success" ]; then
               echo "::error::selected merge-queue run requires repo-guards=success (every repo-wide guard), got repo-guards=$GUARDS_RESULT"
               exit 1
@@ -1691,7 +1717,7 @@ jobs:
           source scripts/ci-test-legs.sh
           grep_args=()
           while IFS= read -r pattern; do grep_args+=(-e "$pattern"); done < <(coverage_floor_grep_patterns)
-          # coverage_core.out is deliberately NOT in this list -- a pre-existing
+          # coverage_core1.out / coverage_core2.out (was coverage_core.out) are deliberately NOT in this list -- a pre-existing
           # gap this PR found but did not fix (out of scope for a CI-sharding
           # change; internal/core's coverage silently isn't counted toward the
           # floor). The coverage_storage_store*.out files below are included: they are THIS

@@ -237,6 +237,35 @@ func TestSCIM_ReplaceUser_SuppliedDisplayNameStillUpdates(t *testing.T) {
 	assert.Equal(t, "Bob New", u.DisplayName, "a PUT that supplies displayName must still update it")
 }
 
+// #3418: an SSO-claimed native account (external_id "sso:<provider>:<sub>") is not
+// SCIM-owned, so the userName filter must not surface it or its numeric id, and
+// GET/PATCH/DELETE on it answer like any non-SCIM account.
+func TestSCIM_SSOClaimedAccountIsInvisibleAndImmutable(t *testing.T) {
+	h, db := setupSCIMTest(t)
+	require.NoError(t, db.Create(&models.User{
+		ID: 7, Username: "alice", UsernameFolded: "alice", Email: "alice@corp.com", EmailFolded: "alice@corp.com",
+		IsActive: true, AccountState: core.AccountActive, ExternalID: "sso:corp:sub-alice",
+	}).Error)
+
+	w := httptest.NewRecorder()
+	h.ListUsers(w, httptest.NewRequest(http.MethodGet, `/scim/v2/Users?filter=userName+eq+"alice@corp.com"`, nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	resources, _ := decodeSCIM(t, w)["Resources"].([]any)
+	assert.Empty(t, resources)
+
+	w = httptest.NewRecorder()
+	h.GetUser(w, withID(httptest.NewRequest(http.MethodGet, "/scim/v2/Users/7", nil), "7"))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	w = httptest.NewRecorder()
+	h.DeleteUser(w, withID(httptest.NewRequest(http.MethodDelete, "/scim/v2/Users/7", nil), "7"))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+
+	var u models.User
+	require.NoError(t, db.First(&u, 7).Error)
+	assert.True(t, u.IsActive)
+}
+
 // TestSCIM_ListFilterDoesNotLeakNativeAccount pins the "List adoption" half of
 // #120: a userName-filter query (the IdP's reconciliation lookup) must not surface a
 // NATIVE account by email match — doing so would leak its numeric SCIM resource id

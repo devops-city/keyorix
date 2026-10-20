@@ -110,6 +110,13 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 	if email == "" {
 		email = userName // SCIM userName is conventionally the email
 	}
+	// #3418: the sso: scheme is reserved for SSO identity bindings (ssoExternalID). A
+	// SCIM-supplied one would mint an account scimOwned rejects (SCIM could never
+	// deactivate or delete it again) and pre-bind an SSO identity. Refused before the
+	// dedup lookup, so the answer does not depend on whether that binding exists.
+	if strings.HasPrefix(externalID, ssoExternalIDScheme) {
+		return nil, fmt.Errorf("externalId must not use the reserved %q scheme", ssoExternalIDScheme)
+	}
 	// ADR-022: the domain allowlist is an install-wide boundary on who may hold an
 	// account at all, not just an invite-flow check — a SCIM directory sync from an
 	// unapproved domain (e.g. a misconfigured/multi-tenant IdP) must not silently
@@ -196,18 +203,35 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 	return created, nil
 }
 
-// scimManaged reports whether user was provisioned/adopted via SCIM (carries a
-// stored externalId — only ProvisionSCIMUser sets one; a native/local account never
-// does). UpdateSCIMUser and DeprovisionSCIMUser refuse to operate on an id that
-// isn't: the SCIM PUT/PATCH/DELETE endpoints take an arbitrary numeric id straight
+// scimOwned reports whether user is an account SCIM owns: it carries a stored
+// externalId that SCIM set (ProvisionSCIMUser), as opposed to a native/local account
+// (empty) or one the SSO sign-in path claimed (the "sso:<provider>:<sub>" scheme,
+// ssoExternalIDScheme, written by resolveSSOUser/JIT provisioning). SCIM and SSO share
+// the external_id column, so an ExternalID != "" test alone treated a native admin who
+// merely signed in through SSO once as SCIM-managed (#3418). This is the ONLY
+// definition of SCIM ownership; every SCIM entry point (read, list, update, delete,
+// group membership) goes through it.
+//
+// UpdateSCIMUser and DeprovisionSCIMUser refuse to operate on an id that isn't
+// SCIM-owned: the SCIM PUT/PATCH/DELETE endpoints take an arbitrary numeric id straight
 // off the URL path with no check that it belongs to an account SCIM actually owns,
 // so a valid (e.g. provisioning-only) SCIM bearer token could otherwise rewrite a
 // NATIVE admin's email to a fresh attacker-controlled address (the existing
 // same-email-collision guard only blocks an address already in use) and then claim
 // the account via SSO/SAML email-fallback resolution — an account takeover reachable
 // with no admin-console access at all (#120).
-func scimManaged(user *models.User) bool {
-	return user.ExternalID != ""
+//
+// Consequence, deliberate and conservative: an account the IdP JIT-provisioned through
+// SSO carries the SSO scheme too, so SCIM does not manage it either. Accounts SCIM
+// created keep their bare externalId and are unaffected.
+func scimOwned(user *models.User) bool {
+	return user.ExternalID != "" && !strings.HasPrefix(user.ExternalID, ssoExternalIDScheme)
+}
+
+// IsSCIMManaged is scimOwned for callers outside this package (the SCIM HTTP handler's
+// userName-filter path).
+func IsSCIMManaged(user *models.User) bool {
+	return scimOwned(user)
 }
 
 // UpdateSCIMUser applies a SCIM Replace/PATCH to a user: displayName, email, and the
@@ -216,7 +240,7 @@ func scimManaged(user *models.User) bool {
 // suspension is sticky and survives IdP sync — only an admin can clear it
 // (ReactivateUser), so routine SCIM traffic can't undo an incident-response lockout.
 // nil fields are left unchanged. Refuses a target that isn't SCIM-managed
-// (scimManaged) — checked against the fresh, lock-guarded read inside the
+// (scimOwned) — checked against the fresh, lock-guarded read inside the
 // transaction below, not a pre-fetch, so a TOCTOU can't let a target's SCIM
 // management status change between the check and the write (#120).
 //
@@ -235,14 +259,14 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	// and learn from "email already in use" whether that email is registered to
 	// a DIFFERENT account, without ever needing a target id it can legitimately
 	// act on. This is a best-effort pre-check (matching DeprovisionSCIMUser's
-	// own GetUser+scimManaged pattern) — scimUpdateUserTx below still re-checks
-	// scimManaged against the fresh, lock-guarded read for the authoritative,
+	// own GetUser+scimOwned pattern) — scimUpdateUserTx below still re-checks
+	// scimOwned against the fresh, lock-guarded read for the authoritative,
 	// race-free decision.
 	target, err := c.storage.GetUser(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
-	if !scimManaged(target) {
+	if !scimOwned(target) {
 		return nil, fmt.Errorf("%s: not a SCIM-managed account", i18n.T("ErrorUserNotFound", nil))
 	}
 	// Refuse an email that collides with a DIFFERENT user (#336). Checked up front
@@ -347,7 +371,7 @@ func (c *KeyorixCore) scimUpdateUserTx(ctx context.Context, tx storage.Storage, 
 	if err != nil {
 		return nil, false, nil, err
 	}
-	if !scimManaged(user) {
+	if !scimOwned(user) {
 		return nil, false, nil, storage.ErrUserNotFound
 	}
 	// Captured before mutation so we only call SetAccountState when the state actually
@@ -538,17 +562,17 @@ func (c *KeyorixCore) GuardLastAdminDeactivation(ctx context.Context, targetID u
 // DeprovisionSCIMUser handles a SCIM DELETE: it deprovisions the user (blocks login,
 // terminates sessions) and soft-deletes the record, so the account is recoverable
 // within the retention window rather than hard-destroyed. Refuses a target that
-// isn't SCIM-managed (scimManaged) — a valid SCIM token must not be able to
+// isn't SCIM-managed (scimOwned) — a valid SCIM token must not be able to
 // deprovision an arbitrary native account it never provisioned.
 func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint) error {
 	// Best-effort pre-check only (matching UpdateSCIMUser's identical pre-fetch, #120):
-	// the authoritative scimManaged decision is re-made below against the fresh,
+	// the authoritative scimOwned decision is re-made below against the fresh,
 	// lock-guarded read inside the transaction, not this struct.
 	precheck, err := c.storage.GetUser(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
-	if !scimManaged(precheck) {
+	if !scimOwned(precheck) {
 		return fmt.Errorf("%s: not a SCIM-managed account", i18n.T("ErrorUserNotFound", nil))
 	}
 	// #G03: guardLastAdminDeactivation's read is serialized against every other
@@ -592,7 +616,7 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 			if err != nil {
 				return err
 			}
-			if !scimManaged(user) {
+			if !scimOwned(user) {
 				return storage.ErrUserNotFound
 			}
 			username = user.Username
@@ -684,10 +708,10 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 }
 
 // GetSCIMUser retrieves a user by ID for a SCIM GET, refusing (as the not-found
-// sentinel) a target that isn't SCIM-managed (scimManaged) — closing the read-path
+// sentinel) a target that isn't SCIM-managed (scimOwned) — closing the read-path
 // half of the boundary UpdateSCIMUser/DeprovisionSCIMUser already enforce on write
 // (#120). Before this, GET /scim/v2/Users/{id} called the generic core.GetUser (also
-// used by the admin console and self-profile lookups) with no scimManaged check at
+// used by the admin console and self-profile lookups) with no scimOwned check at
 // all, so a valid SCIM bearer token could disclose ANY native (non-SCIM-managed)
 // account's userName/email/displayName just by guessing/enumerating numeric ids
 // (#G85). The handler maps this error to a generic SCIM 404 either way — same as a
@@ -698,7 +722,7 @@ func (c *KeyorixCore) GetSCIMUser(ctx context.Context, id uint) (*models.User, e
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
-	if !scimManaged(user) {
+	if !scimOwned(user) {
 		return nil, fmt.Errorf("%s: not a SCIM-managed account", i18n.T("ErrorUserNotFound", nil))
 	}
 	return user, nil
@@ -715,7 +739,7 @@ const SCIMMaxPageSize = 200
 // convention); count is clamped to [0, SCIMMaxPageSize] (count==0 returns no
 // resources, just the total).
 //
-// Filtered to scimManaged (#G85): GET /scim/v2/Users previously enumerated the
+// Filtered to scimOwned (#G85): GET /scim/v2/Users previously enumerated the
 // ENTIRE user directory — native, non-SCIM-managed accounts included — because
 // storage.ListUsers/UserFilter has no externalId-presence filter and this method
 // never applied one of its own, unlike UpdateSCIMUser/DeprovisionSCIMUser which
@@ -743,7 +767,7 @@ func (c *KeyorixCore) ListSCIMUsersPage(ctx context.Context, startIndex, count i
 	}
 	managed := make([]*models.User, 0, len(allUsers))
 	for _, u := range allUsers {
-		if scimManaged(u) {
+		if scimOwned(u) {
 			managed = append(managed, u)
 		}
 	}

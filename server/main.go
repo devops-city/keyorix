@@ -768,8 +768,9 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	// instance.
 	bootstrapToken, btErr := resolveBootstrapToken()
 	if btErr != nil {
-		// Both KEYORIX_BOOTSTRAP_TOKEN and _FILE set, or the file unreadable: do not
-		// fall through to a generated token the operator never asked for.
+		// Both KEYORIX_BOOTSTRAP_TOKEN and _FILE set, the file unreadable, or the pinned
+		// token shorter than 32 characters: do not fall through to a generated token the
+		// operator never asked for.
 		return nil, nil, fmt.Errorf("bootstrap token: %w", btErr)
 	}
 	bootstrapTokenGenerated := false
@@ -2463,8 +2464,22 @@ func resolveBootstrapToken() (string, error) {
 	if !found {
 		return "", nil
 	}
-	return strings.TrimSpace(v), nil
+	v = strings.TrimSpace(v)
+	// The bootstrap token is the only thing standing between a fresh,
+	// network-reachable server and anyone claiming its first admin over
+	// POST /system/init. A generated token is 256-bit; a pinned one must not be a
+	// guessable phrase. The rejected value is never echoed.
+	if len(v) < minBootstrapTokenLen {
+		return "", errBootstrapTokenTooShort
+	}
+	return v, nil
 }
+
+// minBootstrapTokenLen is the shortest operator-pinned KEYORIX_BOOTSTRAP_TOKEN
+// the server starts with (Andrei, 2026-10-16).
+const minBootstrapTokenLen = 32
+
+var errBootstrapTokenTooShort = errors.New("KEYORIX_BOOTSTRAP_TOKEN too short (min 32 characters): generate one with: openssl rand -hex 32")
 
 // resolveVaultToken returns the Vault connector token from the env var named by
 // tokenEnv (default VAULT_TOKEN) or its _FILE variant; "" when unset.
