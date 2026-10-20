@@ -37,7 +37,7 @@ TRUST_LICENSE_KEYS?=
 VERSION_LDFLAGS=-X github.com/keyorixhq/keyorix/internal/version.Version=$(VERSION) -X github.com/keyorixhq/keyorix/internal/version.Commit=$(GIT_COMMIT) -X github.com/keyorixhq/keyorix/internal/version.BuildDate=$(BUILD_DATE) -X github.com/keyorixhq/keyorix/pkg/trust.updateKeysB64=$(TRUST_UPDATE_KEYS) -X github.com/keyorixhq/keyorix/pkg/trust.licenseKeysB64=$(TRUST_LICENSE_KEYS)
 LDFLAGS=-ldflags "$(VERSION_LDFLAGS)"
 # RELEASE_LDFLAGS additionally strips the symbol table + DWARF debug info (-s -w):
-# ~92MB -> ~62MB for keyorix-server. Only the `release` target uses this — build-cli/
+# makes the keyorix-server binary substantially smaller. Only the `release` target uses this — build-cli/
 # build-server/build-ui/dev keep full symbols (plain LDFLAGS) for local debugging.
 # Stripping does NOT remove pclntab, so panic stack traces still show function names;
 # only an attached debugger (dlv) loses symbols, an acceptable release-binary tradeoff.
