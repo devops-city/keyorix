@@ -74,7 +74,7 @@ const racPassword = "Rac#Pass-4x9!Lw-Qz7$"
 
 func racCases() []racCase {
 	ctx := context.Background()
-	past := func() time.Time { return time.Now().Add(-time.Minute) }
+	past := func() time.Time { return time.Now().UTC().Add(-time.Minute) }
 	return []racCase{
 		{kind: "machine", name: "credential-revoked", end: func(_ *testing.T, w *svWorld, c racCred) error {
 			_, err := w.a.c.RevokeMachineToken(ctx, w.projID, c.machineID, c.credID, w.adminID)

@@ -484,6 +484,16 @@ var beforeSaveBypassAllowlistG1619 = map[string]string{
 		"second occurrence in the same test (the reviewed row, backdated so it's old AND reviewed, to prove " +
 		"ListUnreviewedBreakGlassActivationsBefore excludes it for being reviewed rather than for failing the " +
 		"age cutoff), same canonical value and reasoning as #1 above.",
+	"server/http/revocation_after_commit_test.go::racCases::MachineIdentityCredential.ExpiresAt#1": "MachineIdentityCredential.ExpiresAt — " +
+		"the revocation-after-commit matrix (#3511) backdates a live credential's expiry to model \"expired after the cache " +
+		"entry was warmed\". `past()` is time.Now().UTC().Add(-time.Minute), already canonical, so BeforeSave's normalization " +
+		"would be a no-op; the read path re-checks one row by id in Go (Location-independent), not a SQL range query. A raw " +
+		"Update is used because Save() would re-write every column of the fetched row.",
+	"server/http/revocation_after_commit_test.go::racCases::PersonalAccessToken.ExpiresAt#1": "PersonalAccessToken.ExpiresAt — " +
+		"same fixture and `past()` value as the MachineIdentityCredential entry above; the PAT read path " +
+		"(ValidatePATToken -> IsPATExpired) compares via Go's now.After, never a SQL range comparison.",
+	"server/http/revocation_after_commit_test.go::racCases::Session.ExpiresAt#1": "Session.ExpiresAt — same fixture and " +
+		"canonical `past()` value as the entries above; the session re-check reads the row by token and compares in Go.",
 }
 
 // TestBeforeSaveBypassGuard_NoUnrecognizedRawWritesToHookedColumns is #1619's
