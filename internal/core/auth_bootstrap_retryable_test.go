@@ -21,7 +21,6 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/identity"
-	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 )
@@ -230,8 +229,7 @@ func TestBootstrapSystem_FailureAfterUserCreateRollsBackEverything(t *testing.T)
 // KEYORIX_TEST_PG_DSN is unset.
 func TestBootstrapSystem_FailureAfterUserCreateRollsBackEverything_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	db := pgOpen(t, pgIsolatedSchemaDSN(t, base))
-	require.NoError(t, kxstorage.MigrateExisting(db))
+	db := pgOpen(t, pgMigratedDatabaseDSN(t, base))
 	st := store.NewLocalStorage(db)
 	ctx := context.Background()
 
@@ -274,8 +272,7 @@ func TestBootstrapSystem_FailureAfterUserCreateRollsBackEverything_Postgres(t *t
 // argument. Skips when KEYORIX_TEST_PG_DSN is unset.
 func TestBootstrapSystem_RetryAfterRejectedPasswordSucceeds_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	db := pgOpen(t, pgIsolatedSchemaDSN(t, base))
-	require.NoError(t, kxstorage.MigrateExisting(db))
+	db := pgOpen(t, pgMigratedDatabaseDSN(t, base))
 	st := store.NewLocalStorage(db)
 	ctx := context.Background()
 
