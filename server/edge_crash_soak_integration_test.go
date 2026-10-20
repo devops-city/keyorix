@@ -59,7 +59,7 @@ const (
 	soakAdminUser     = "soakadmin"
 	soakAdminEmail    = "soakadmin@example.invalid"
 	soakAdminPassword = "Quartz-Falcon-77-Ridge!"
-	soakBootstrapTok  = "soak-bootstrap-token-0123456789"
+	soakBootstrapTok  = "soak-bootstrap-token-0123456789-abcdef0123456789"
 	soakHealthTimeout = 45 * time.Second
 )
 

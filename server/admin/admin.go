@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/config"
@@ -130,6 +131,59 @@ func loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+// keyDirLockEmergencySQL lists the backends holding the server-presence lock
+// (internal/serverguard, key 872342) so an operator can tell live replicas from a
+// stuck connection before terminating one.
+const keyDirLockEmergencySQL = "SELECT pid, granted, mode FROM pg_locks WHERE locktype = 'advisory' AND objid = 872342; " +
+	"then, only for a connection that is not a live replica, SELECT pg_terminate_backend(<pid>)"
+
+// keyDirLockRecordedDatabase reports whether the database records a replica
+// running with storage.encryption.key_dir_lock: database
+// (config.KeyDirLockModeMetadataKey). It returns an error when the record
+// cannot be read (the database cannot be opened, or the query fails, including
+// on a schema without system_metadata); the caller refuses --force then: an
+// unverified record must not let --force past the presence lock of replicas
+// that may hold no key-directory lock. A missing row is a successful read.
+func keyDirLockRecordedDatabase(cfg *config.Config) (bool, error) {
+	// Only PostgreSQL deployments can run in this mode; opening anything else
+	// here could create a database file as a side effect.
+	if cfg.Storage.Type != "postgres" && cfg.Storage.Type != "postgresql" {
+		return false, nil
+	}
+	db, err := storage.OpenGormDB(cfg)
+	if err != nil {
+		return false, fmt.Errorf("open the database: %w", err)
+	}
+	if sqlDB, e := db.DB(); e == nil {
+		defer func() { _ = sqlDB.Close() }()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var modes []string
+	if err := db.WithContext(ctx).Raw(`SELECT value FROM system_metadata WHERE "key" = ?`, config.KeyDirLockModeMetadataKey).Scan(&modes).Error; err != nil {
+		return false, fmt.Errorf("read system_metadata[%s]: %w", config.KeyDirLockModeMetadataKey, err)
+	}
+	return slices.Contains(modes, config.KeyDirLockDatabase), nil
+}
+
+// refuseForceUnderDatabaseKeyDirLock returns the --force refusal when this
+// command's config or the database says the replicas run with
+// key_dir_lock: database, or when the database's record cannot be read.
+// lockErr is the failed lock attempt. nil means --force may go on.
+func refuseForceUnderDatabaseKeyDirLock(cfg *config.Config, lockErr error) error {
+	recorded := cfg.Storage.Encryption.KeyDirLockIsDatabase()
+	if !recorded {
+		var rerr error
+		if recorded, rerr = keyDirLockRecordedDatabase(cfg); rerr != nil {
+			return fmt.Errorf("could not acquire this database's exclusive lock (%v), and --force cannot override it: whether the replicas run with storage.encryption.key_dir_lock: database could not be verified (%v). Fix the database connection, or stop every replica first (scale to 0) and retry without --force", lockErr, rerr)
+		}
+	}
+	if !recorded {
+		return nil
+	}
+	return fmt.Errorf("could not acquire this database's exclusive lock (%v), and --force cannot override it with storage.encryption.key_dir_lock: database: running replicas hold no key-directory lock, so this lock is what keeps admin commands away from them. Stop every replica first (scale to 0); a lock left by a dead connection is released when PostgreSQL closes it (emergency SQL: %s)", lockErr, keyDirLockEmergencySQL)
+}
+
 // stoppedServerHint is appended to the held-lock refusal: the Docker Compose
 // sequence docs/SELF_HOSTING.md documents for running an admin command with the
 // server stopped (#2540). `exec` runs inside the live backend, so it can never work.
@@ -171,6 +225,18 @@ func acquireDatabaseLock(cfg *config.Config) (*serverguard.Exclusive, error) {
 	lock, err := acquireExclusive(cfg)
 	if err != nil {
 		if forceFlag {
+			// key_dir_lock: database (docs/multi-replica-keys.md): live servers
+			// hold no key-directory flock, so this lock is the only thing that
+			// keeps an admin command (a DEK rotation, a restore) off the key
+			// files and data that running replicas use. --force cannot drop it.
+			// The mode comes from what the replicas recorded in the database, not
+			// only from this command's own config: an admin config that lacks
+			// key_dir_lock: database next to database-mode replicas must not
+			// bypass the refusal. A record that cannot be read refuses as well
+			// (fail closed): it may be the database-mode one.
+			if ferr := refuseForceUnderDatabaseKeyDirLock(cfg, err); ferr != nil {
+				return nil, ferr
+			}
 			// single_writer: --force never runs next to a single-writer server.
 			// Its write fence would refuse this command's writes to the
 			// security tables anyway; refusing up front keeps a forced command

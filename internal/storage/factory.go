@@ -64,21 +64,36 @@ const schemaEpochMetadataKey = "schema_epoch"
 // database is never lowered by recordSchemaEpoch, so declaring a lower value
 // here cannot reopen a floor a newer binary raised.
 //
-// Currently 2: an epoch-1 binary's RestoreSecret/RestoreProject do not clear
+// Floor 2: an epoch-1 binary's RestoreSecret/RestoreProject do not clear
 // secret_nodes.purge_at and its DeleteSecret does not re-stamp it, so a
 // restore + re-delete on an old replica would leave a stale date that the
 // epoch-2 purge job honours, hard-deleting before the date shown (#3021).
-// Epoch 3 (pending_audit_events) left it at 2: the table is additive, an
-// epoch-2 replica never reads or writes it, and rows it leaves behind are
-// drained by the next epoch-3 replica's backfill.
+//
+// Epoch 3 is ONE epoch (no release has shipped between its two changes): the
+// pending_audit_events table, which is additive on its own (an epoch-2 replica
+// never reads or writes it, and rows it leaves behind are drained by the next
+// epoch-3 replica's backfill), and the HA-READY-1 formats below. The floor is
+// therefore 3, HA-READY-1's value.
+//
 // Epoch 4 (machine_identities.cascade_suspended_project_id/_at, #3433) leaves it at
-// 2: an epoch-3 replica's project delete does not suspend (the pre-#3433 behaviour,
+// 3: an epoch-3 replica's project delete does not suspend (the pre-#3433 behaviour,
 // for the length of the rollout), its project restore re-activates nothing (fail
 // closed: the identities stay suspended), and its machine-identity writes do not clear
 // the marker but do move updated_at, which the epoch-4 restore requires unchanged
 // (LocalStorage.ReactivateMachineIdentitiesForRestoredProject). Nothing an epoch-3
 // binary does makes an epoch-4 restore re-activate an identity it should not.
-const minCompatibleSchemaEpoch = 2
+//
+// Floor 3 (HA-READY-1): epoch-2 binaries (v0.96.x) predate two formats
+// the database now holds. (1) The v2 audit retention anchor (#3258): an
+// epoch-2 binary reads it as malformed, reports the chain broken, and its
+// retention purge rewrites a v1 anchor, dropping the cumulative purged count
+// for good (verify "truncated", checkpoints 409; #3359). (2)
+// secret_nodes.suspend_clear_synced_copies (#3215): an epoch-2 binary's
+// resume/suspend never write it (#3362; the column is also reset by a
+// trigger on every status change away from suspended, which covers epoch-2
+// replicas still running during a rollout). The floor keeps epoch-2 binaries
+// from starting once this binary has migrated.
+const minCompatibleSchemaEpoch = 3
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
 // compatibility floor (minCompatibleSchemaEpoch) is recorded under. #nosec
@@ -1690,6 +1705,15 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if err := store.EnsureRolePermissionsGenerationTriggers(db); err != nil {
 		return err
 	}
+	// #3362: clear the suspend clear-copies marker on every status change away
+	// from suspended, an older binary's included (upgrade call site).
+	if err := store.EnsureSecretSuspendMarkerTrigger(db); err != nil {
+		return err
+	}
+	// #3359: an older binary's purge must not replace the v2 retention anchor.
+	if err := store.EnsureAuditRetentionAnchorTrigger(db); err != nil {
+		return err
+	}
 	// Anomaly alerting: additive `alerted` flag (false = not yet pushed out).
 	if tableExists(db, "anomaly_alerts") && !columnExists(db, "anomaly_alerts", "alerted") {
 		if err := exec("ALTER TABLE anomaly_alerts ADD COLUMN alerted BOOLEAN DEFAULT FALSE"); err != nil {
@@ -3096,6 +3120,14 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// #3259: the role->permission cache generation triggers (fresh-install
 		// call site; see the upgrade one above).
 		if err := store.EnsureRolePermissionsGenerationTriggers(tx); err != nil {
+			return err
+		}
+		// #3362: the suspend-marker trigger (fresh-install call site).
+		if err := store.EnsureSecretSuspendMarkerTrigger(tx); err != nil {
+			return err
+		}
+		// #3359: the retention-anchor layout trigger (fresh-install call site).
+		if err := store.EnsureAuditRetentionAnchorTrigger(tx); err != nil {
 			return err
 		}
 		// ADR-097: only after every migration step above has succeeded -- a crash

@@ -39,6 +39,7 @@ func TestConcurrency_UpdateSCIMUser_NoDuplicateEmail(t *testing.T) {
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Session{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{},
+		&models.PersonalAccessToken{},
 	))
 	// Mirror factory.go's ensureUserEmailIndex exactly (#1642: the folded-column
 	// index, not the old SQL-side LOWER() index this test used to create — SQL-side

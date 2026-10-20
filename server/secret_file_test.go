@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,17 +20,17 @@ func serverSecretFile(t *testing.T, content string) string {
 }
 
 func TestResolveBootstrapToken_Env(t *testing.T) {
-	t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", "  tok-from-env \n")
+	t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", "  tok-from-env-0123456789abcdef0123456789 \n")
 	got, err := resolveBootstrapToken()
 	require.NoError(t, err)
-	assert.Equal(t, "tok-from-env", got)
+	assert.Equal(t, "tok-from-env-0123456789abcdef0123456789", got)
 }
 
 func TestResolveBootstrapToken_File(t *testing.T) {
-	t.Setenv("KEYORIX_BOOTSTRAP_TOKEN_FILE", serverSecretFile(t, "tok-from-file\n"))
+	t.Setenv("KEYORIX_BOOTSTRAP_TOKEN_FILE", serverSecretFile(t, "tok-from-file-0123456789abcdef012345678\n"))
 	got, err := resolveBootstrapToken()
 	require.NoError(t, err)
-	assert.Equal(t, "tok-from-file", got)
+	assert.Equal(t, "tok-from-file-0123456789abcdef012345678", got)
 }
 
 func TestResolveBootstrapToken_Unset(t *testing.T) {
@@ -55,6 +56,37 @@ func TestResolveBootstrapToken_UnreadableFileRefuses(t *testing.T) {
 	got, err := resolveBootstrapToken()
 	require.Error(t, err)
 	assert.Empty(t, got)
+}
+
+// TestResolveBootstrapToken_ShortPinnedTokenRefused: an operator-pinned token
+// (env or file) shorter than 32 characters refuses to start with the exact
+// remediation text; 32 is accepted. A pinned token gates the first-admin claim
+// on POST /system/init, so a short phrase is a guessable admin seizure.
+func TestResolveBootstrapToken_ShortPinnedTokenRefused(t *testing.T) {
+	const want = "KEYORIX_BOOTSTRAP_TOKEN too short (min 32 characters): generate one with: openssl rand -hex 32"
+	t.Run("env", func(t *testing.T) {
+		t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", "choose-a-bootstrap-token")
+		got, err := resolveBootstrapToken()
+		require.Error(t, err)
+		assert.Empty(t, got)
+		assert.Contains(t, err.Error(), want)
+		assert.NotContains(t, err.Error(), "choose-a-bootstrap-token", "the rejected token must not be echoed")
+	})
+	t.Run("file", func(t *testing.T) {
+		t.Setenv("KEYORIX_BOOTSTRAP_TOKEN_FILE", serverSecretFile(t, "short-token\n"))
+		_, err := resolveBootstrapToken()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), want)
+	})
+	t.Run("31 refused, 32 accepted, whitespace not counted", func(t *testing.T) {
+		t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", "  "+strings.Repeat("a", 31)+"  ")
+		_, err := resolveBootstrapToken()
+		require.Error(t, err)
+		t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", strings.Repeat("a", 32))
+		got, err := resolveBootstrapToken()
+		require.NoError(t, err)
+		assert.Len(t, got, 32)
+	})
 }
 
 func TestResolveVaultToken(t *testing.T) {
