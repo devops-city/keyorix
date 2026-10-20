@@ -160,9 +160,14 @@ password and the token are **files** the script reads):
 `KEYORIX_DEMO_ADMIN_PASSWORD_FILE`, `KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE`.
 
 DEMO-LOCAL-2 owns the real seed and scenario scripts and this kit neither copies nor edits them.
-**At the time this kit was written they were not merged, so the hook is a PLACEHOLDER:** with
-no `--seed-script` a reset logs a loud warning and leaves the bootstrap admin only.
-When they land:
+**The hook is still a PLACEHOLDER:** `scripts/demo/seed-demo.sh STATE_DIR` has merged, but it
+cannot run on this stack yet. It runs `system init` itself (here the container entrypoint has
+already created the admin from the generated password, so it exits 1 with "already
+initialised") and it creates the admin, alice and security-officer with fixed passwords from
+the repository, which this kit must not put on an internet-facing VM. It also takes its server
+URL and bootstrap token from `STATE_DIR`/`KEYORIX_SERVER`, not from the variables above. Until
+that contract is settled, with no `--seed-script` a reset logs a loud warning and leaves the
+bootstrap admin only. Once a compatible script exists:
 
 ```
 sudo deploy/demo-hosted/install.sh --seed-script scripts/demo/<seed> --seed-script scripts/demo/<scenario> --require-seed
@@ -193,11 +198,11 @@ idle; gate rejections and scanners do not count as use. Then it runs `--idle-act
 `poweroff` (the VM shuts down), `stop` (the containers stop, the VM stays) or `none`. A
 freshly booted, started or reset stack is exempt for `--grace-minutes`.
 
-Cost: most providers keep billing a powered-off server for its disk and reserved resources.
+Cost: most providers keep billing a powered-off server for its disk and reserved resources, so
 `poweroff` saves nothing there; it only limits the exposure window. To stop paying, **destroy**
-the VM between call campaigns and rebuild it from this kit (the demo is rebuilt from the seed
-anyway, so nothing is lost; use `--acme-ca staging` to rehearse so the real name does not run
-into certificate limits).
+the VM between calls and create it again before the next one: `install.sh` is idempotent and
+rebuilds the whole demo on a fresh VM (the demo data is rebuilt from the seed anyway, so nothing
+is lost). See "Cost" below.
 
 ## Day 2
 
@@ -224,10 +229,17 @@ record, and delete the firewall group if you created one. The repository checkou
 
 ## Cost target
 
-A proposed ceiling of **about 10-15 EUR per month while the VM exists** (one small VM, no
-managed services, no backups, no load balancer). Prices were not checked for this kit: compare
-the provider's current list for the size above before creating the VM. The lever that
-actually saves money is destroying the VM when no calls are scheduled.
+The kit needs one small VM and nothing else (no managed services, no backups, no load
+balancer). This document quotes no prices, because they change: check the **current UpCloud
+and Hetzner price lists** for the size above before creating the VM.
+
+Idle power-off does not save money on most providers (see "Idle shutdown"). The lever that does
+is **destroy and recreate** between calls: before a call create the VM, point the DNS record at
+it, and run `install.sh` again (it is idempotent, and `--acme-ca staging` rehearses without
+touching Let's Encrypt's production limits); after the campaign run `keyorix-demo destroy --yes`
+and delete the VM at the provider. Remember that a recreated VM gets new secrets, so the gate
+and admin passwords change, and that repeated production certificates for the same name hit
+Let's Encrypt's duplicate-certificate limit.
 
 ## Validation status (pending e2e VM)
 
@@ -245,8 +257,16 @@ files, Caddy accepting the Caddyfile and issuing the certificate, the containers
 seed. First-boot checklist:
 
 1. `sudo keyorix-demo compose config -q` is silent.
-2. `curl -sI https://demo.example.com` shows `401` (basic) or `403` (IP), and `strict-transport-security`.
-3. With the gate password: the login page loads, the admin logs in.
-4. `sudo keyorix-demo reset`, then `sudo keyorix-demo status` shows a fresh "last reset".
+2. `curl -sI https://demo.example.com` (add `-k` while the certificate is from `--acme-ca staging`)
+   shows `401` (gate `basic` or `both`) or `403` (gate `ip`, from an address that is not allowed),
+   and `strict-transport-security`.
+3. With the gate user `demo` and the password from `/var/lib/keyorix-demo/gate_password`, the
+   login page loads. Log in as `admin` with the password in `/var/lib/keyorix-demo/secrets/admin_password`;
+   MFA is required, so the first login ends in TOTP enrolment (the seed hook does not do it yet,
+   see "Seed and scenario scripts").
+4. `sudo keyorix-demo reset`, then `sudo keyorix-demo status` shows a fresh "last reset" and the
+   seed hook line; the log says `WARNING: seed hook is a PLACEHOLDER` while no `--seed-script` is
+   set. The reset wipes the admin's TOTP too, so expect to enrol again after it.
 5. `sudo systemctl list-timers 'keyorix-demo*'` shows both timers.
-6. From an address that is not in `--ssh-allow`: `ssh` times out.
+6. From an address that is not in `--ssh-allow` (skip with `--no-firewall`, where the cloud
+   firewall decides): `ssh` times out.
