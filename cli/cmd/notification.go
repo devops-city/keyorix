@@ -7,6 +7,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -35,6 +36,7 @@ type notificationChannelWire struct {
 	Type      string `json:"type"`
 	Enabled   bool   `json:"enabled"`
 	URL       string `json:"url"`
+	URLSet    bool   `json:"url_set"`
 	Email     string `json:"email"`
 	Events    string `json:"events"`
 	CreatedBy string `json:"created_by"`
@@ -100,10 +102,11 @@ func runChannelList(_ *cobra.Command, _ []string) error {
 }
 
 var (
-	channelType   string
-	channelURL    string
-	channelEmail  string
-	channelEvents string
+	channelType    string
+	channelURL     string
+	channelURLFile string
+	channelEmail   string
+	channelEvents  string
 )
 
 var channelAddCmd = &cobra.Command{
@@ -115,13 +118,23 @@ var channelAddCmd = &cobra.Command{
 
 func init() {
 	channelAddCmd.Flags().StringVar(&channelType, "type", "", "Channel type: webhook, slack, teams, or email (required)")
-	channelAddCmd.Flags().StringVar(&channelURL, "url", "", "Webhook URL (required for webhook/slack/teams)")
+	channelAddCmd.Flags().StringVar(&channelURL, "url", "", "Webhook URL (refused: it is a credential; use --url-file)")
+	channelAddCmd.Flags().StringVar(&channelURLFile, "url-file", "", "Read the webhook URL from a file (relative path), or from stdin with \"-\" (required for webhook/slack/teams)")
+	channelAddCmd.MarkFlagsMutuallyExclusive("url", "url-file")
 	channelAddCmd.Flags().StringVar(&channelEmail, "email", "", "Email address (required for email type)")
 	channelAddCmd.Flags().StringVar(&channelEvents, "events", "", "Comma-separated event types, e.g. secret.rotated,anomaly.detected (empty = all)")
 	_ = channelAddCmd.MarkFlagRequired("type")
 }
 
-func runChannelAdd(_ *cobra.Command, args []string) error {
+func runChannelAdd(cmd *cobra.Command, args []string) error {
+	// Read the URL before any request: a bad file or empty stdin must fail first.
+	urlValue, err := resolveChannelURL(cmd, channelURL, channelURLFile)
+	if err != nil {
+		return err
+	}
+	if urlValue != nil {
+		channelURL = *urlValue
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -191,8 +204,10 @@ func printChannel(ch notificationChannelWire) {
 	fmt.Printf("name:       %s\n", ch.Name)
 	fmt.Printf("type:       %s\n", ch.Type)
 	fmt.Printf("enabled:    %s\n", enabled)
-	if ch.URL != "" {
-		fmt.Printf("url:        %s\n", ch.URL)
+	if ch.URL != "" || ch.URLSet {
+		// The server never returns the full URL after create (it is a credential): this
+		// is scheme and host only. Say so, so nobody copies it as if it were the address.
+		fmt.Printf("url:        %s  (masked: the full URL cannot be retrieved; replace it with `keyorix notification channel update %s --url-file -`)\n", ch.URL, ch.Name)
 	}
 	if ch.Email != "" {
 		fmt.Printf("email:      %s\n", ch.Email)
@@ -203,6 +218,7 @@ func printChannel(ch notificationChannelWire) {
 
 var (
 	channelUpdateURL     string
+	channelUpdateURLFile string
 	channelUpdateEmail   string
 	channelUpdateEvents  string
 	channelUpdateEnable  bool
@@ -217,7 +233,9 @@ var channelUpdateCmd = &cobra.Command{
 }
 
 func init() {
-	channelUpdateCmd.Flags().StringVar(&channelUpdateURL, "url", "", "New webhook URL")
+	channelUpdateCmd.Flags().StringVar(&channelUpdateURL, "url", "", "New webhook URL (refused: it is a credential; use --url-file)")
+	channelUpdateCmd.Flags().StringVar(&channelUpdateURLFile, "url-file", "", "Read the new webhook URL from a file (relative path), or from stdin with \"-\"")
+	channelUpdateCmd.MarkFlagsMutuallyExclusive("url", "url-file")
 	channelUpdateCmd.Flags().StringVar(&channelUpdateEmail, "email", "", "New email address")
 	channelUpdateCmd.Flags().StringVar(&channelUpdateEvents, "events", "", "New event filter (comma-separated)")
 	channelUpdateCmd.Flags().BoolVar(&channelUpdateEnable, "enabled", false, "Enable the channel")
@@ -238,6 +256,10 @@ func resolveChannelID(ctx context.Context, client *apiclient.ClientWithResponses
 }
 
 func runChannelUpdate(cmd *cobra.Command, args []string) error {
+	urlValue, err := resolveChannelURL(cmd, channelUpdateURL, channelUpdateURLFile)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	client, err := apiClientWithSkewCheck(ctx)
 	if err != nil {
@@ -248,9 +270,7 @@ func runChannelUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	body := apiclient.UpdateNotificationChannelJSONRequestBody{}
-	if cmd.Flags().Changed("url") {
-		body.Url = &channelUpdateURL
-	}
+	body.Url = urlValue // nil keeps the stored URL
 	if cmd.Flags().Changed("email") {
 		body.Email = &channelUpdateEmail
 	}
@@ -315,4 +335,30 @@ func runChannelDelete(_ *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Notification channel %q deleted.\n", args[0])
 	return nil
+}
+
+// resolveChannelURL returns the webhook URL the user supplied, or nil when they gave
+// none. The URL is a credential (its path carries the token), so the normal way in is
+// --url-file <relative path> or --url-file - (stdin); --url is refused by the secret-flag
+// policy unless KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1, in which case it warns. Errors
+// never repeat the URL.
+func resolveChannelURL(cmd *cobra.Command, urlFlag, urlFile string) (*string, error) {
+	switch {
+	case cmd.Flags().Changed("url") && cmd.Flags().Changed("url-file"):
+		return nil, usageErrorf("give the webhook URL with --url-file (a file, or - for stdin), not --url as well")
+	case cmd.Flags().Changed("url"):
+		warnInsecureFlag(cmd, "url", "use --url-file <path> (or --url-file - to read stdin) instead.")
+		return &urlFlag, nil
+	case cmd.Flags().Changed("url-file"):
+		raw, err := readSecretValueFromFile(urlFile)
+		if err != nil {
+			return nil, err
+		}
+		v := strings.TrimSpace(string(raw))
+		if u, perr := url.Parse(v); perr != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return nil, usageErrorf("the webhook URL read from --url-file is not an http(s) URL (it is not shown here: it is a credential)")
+		}
+		return &v, nil
+	}
+	return nil, nil
 }

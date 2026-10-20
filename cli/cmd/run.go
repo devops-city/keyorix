@@ -102,7 +102,7 @@ See https://github.com/keyorixhq/keyorix/issues/1816 for why`)
 		return err
 	}
 
-	secretsByName, err := fetchRunSecrets(ctx, client, projectID, projectLabel, runEnv)
+	secretsByName, err := fetchRunSecrets(ctx, client, projectID, projectLabel, runEnv, wantedRunSecrets(runVarMappings, runDeriveNames))
 	if err != nil {
 		return err
 	}
@@ -135,11 +135,31 @@ func resolveRunProjectID(ctx context.Context, client *apiclient.ClientWithRespon
 	return id, projectName, nil
 }
 
+// wantedRunSecrets returns the secret names `keyorix run` must read the VALUE of: the
+// secret-refs of the --var mappings. It returns nil (= every secret in scope) only for the
+// deprecated --derive-names path, which injects the whole environment. Reading just the
+// named secrets matters beyond efficiency: every value read is an audited secret.read and
+// feeds the anomaly detector, so a CI identity that injects one secret must not appear to
+// have read the other secrets of its project (and trip principal_breadth on every run).
+func wantedRunSecrets(varMappings []string, deriveNames bool) map[string]bool {
+	if deriveNames || len(varMappings) == 0 {
+		return nil
+	}
+	want := make(map[string]bool, len(varMappings))
+	for _, m := range varMappings {
+		// A malformed mapping is rejected later, by resolveChildEnvVars, with its own message.
+		if _, ref, ok := strings.Cut(m, "="); ok && ref != "" {
+			want[ref] = true
+		}
+	}
+	return want
+}
+
 // fetchRunSecrets resolves the environment name to an ID within projectID, then pages
-// through and fetches every secret's value in that scope, keyed by the secret's own raw
-// name (env-var-key derivation happens later, in resolveChildEnvVars, only for the
-// --derive-names path).
-func fetchRunSecrets(ctx context.Context, client *apiclient.ClientWithResponses, projectID int, project, env string) (map[string]string, error) { // NOSONAR -- cognitive complexity, matches the old CLI's remote path this mirrors
+// through the secrets in that scope and fetches the value of each one in want (every secret
+// when want is nil), keyed by the secret's own raw name (env-var-key derivation happens
+// later, in resolveChildEnvVars, only for the --derive-names path).
+func fetchRunSecrets(ctx context.Context, client *apiclient.ClientWithResponses, projectID int, project, env string, want map[string]bool) (map[string]string, error) { // NOSONAR -- cognitive complexity, matches the old CLI's remote path this mirrors
 	envResp, err := client.ListProjectEnvironmentsWithResponse(ctx, uint32(projectID), nil) // #nosec G115 -- projectID resolved from the server's own listing or an operator-supplied --project-id, always positive
 	if err != nil {
 		return nil, fmt.Errorf("list environments: %w", err)
@@ -183,6 +203,9 @@ func fetchRunSecrets(ctx context.Context, client *apiclient.ClientWithResponses,
 		for _, s := range secrets {
 			id := derefInt(s.Id)
 			name := derefStr(s.Name)
+			if want != nil && !want[name] {
+				continue // not requested by any --var: never read its value
+			}
 			includeValue := true
 			getResp, err := client.GetSecretWithResponse(ctx, id, &apiclient.GetSecretParams{IncludeValue: &includeValue})
 			if err == nil && (getResp.JSON200 == nil || getResp.JSON200.Data == nil) {

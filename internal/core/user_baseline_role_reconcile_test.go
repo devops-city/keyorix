@@ -280,9 +280,8 @@ func TestReconcileUserBaselineRoles_SkipsSSOJITNonDefaultRoleUser(t *testing.T) 
 // production does. Skips (does not fail) when KEYORIX_TEST_PG_DSN is unset.
 func TestReconcileUserBaselineRoles_RepairsPreFixOrdering_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	dsn := pgIsolatedSchemaDSN(t, base)
+	dsn := pgMigratedDatabaseDSN(t, base)
 	db := pgOpen(t, dsn)
-	require.NoError(t, kxstorage.MigrateExisting(db))
 	require.NoError(t, i18n.Initialize(&config.Config{
 		Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"},
 	}))

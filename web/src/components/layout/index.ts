@@ -6,6 +6,7 @@ export * from './RequirePasswordChange';
 export * from './RequireMfaEnrolment';
 export * from './RequireAccountSetup';
 export * from './ImpersonationBanner';
+export * from './MfaGraceBanner';
 export * from './AuditReadsSkippedBanner';
 export * from './AuditOwedBanner';
 export * from './Header';

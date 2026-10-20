@@ -5,7 +5,7 @@
  * parser and looks at the TEXT of every string literal, no-substitution template,
  * template chunk and JSX text node (comments are not scanned). In that text it fails on
  *   - `keyorix <word>` where <word> is not a real top-level CLI command, and
- *   - the secret-as-flag options `--password`, `--value` and `--mfa-code`
+ *   - the secret-as-flag options `--password`, `--value`, `--mfa-code` and `--url` (a webhook URL)
  *     (secrets on the command line leak into `ps` and shell history; the CLI refuses
  *     them since #3325, so the UI must not teach them).
  *
@@ -37,7 +37,7 @@ const WEB_SRC = path.resolve(__dirname, '..');
 const CLI_CMD_DIR = path.resolve(__dirname, '../../../cli/cmd');
 
 const COBRA_BUILTINS = ['help', 'completion'];
-const FORBIDDEN_FLAGS = ['--password', '--value', '--mfa-code'];
+const FORBIDDEN_FLAGS = ['--password', '--value', '--mfa-code', '--url'];
 const SANITY_FLOOR = 20;
 
 /** Derive the top-level command names from cli/cmd/*.go (never by hand). */

@@ -156,7 +156,7 @@ cli	keyorix machine revoke-role	cli/cmd/machine.go	runMachineRevokeRole	none	sin
 cli	keyorix machine roles	cli/cmd/machine.go	runMachineRoles	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine suspend	cli/cmd/machine_lifecycle.go	<expr>	D	machine_lifecycle.go:49-65: same shape, exactly one mutating call.
 cli	keyorix machine token	cli/cmd/machine_token.go		none	no RunE/Run set on this cobra.Command (a parent/grouping command with no direct action)
-cli	keyorix machine token issue	cli/cmd/machine_token.go	runMachineTokenIssue	none	single/no write-shaped call found by a 1-hop scan of the handler body
+cli	keyorix machine token issue	cli/cmd/machine_token.go	runMachineTokenIssue	C	machine_token.go runMachineTokenIssue: with --output-file it creates a local 0600 file (O_EXCL, refuses to overwrite) BEFORE the one server write (IssueMachineToken), removes that file if the server write fails, and if the file write fails after the token was minted it says so loudly and names the revoke command (never prints the token); without the flag it is a single-write wrapper. Local artifact write with loud partial-failure handling.
 cli	keyorix machine token list	cli/cmd/machine_token.go	runMachineTokenList	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine token revoke	cli/cmd/machine_token.go	runMachineTokenRevoke	none	single/no write-shaped call found by a 1-hop scan of the handler body
 cli	keyorix machine token-hygiene	cli/cmd/machine_hygiene_audit.go	runMachineTokenHygiene	none	single/no write-shaped call found by a 1-hop scan of the handler body

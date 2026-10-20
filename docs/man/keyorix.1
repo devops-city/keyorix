@@ -10,7 +10,7 @@ keyorix is the Keyorix CLI. It talks to a Keyorix server exclusively over the RE
 Exit codes:
 .nf
   0  success
-  1  the request was refused or failed (conflict, validation error, server error)
+  1  the request was refused or failed (conflict, validation error, server error); "doctor": a check failed
   2  usage error: unknown command, bad or missing flag or argument
   3  not logged in, or the session was rejected (HTTP 401): run "keyorix login"
   4  permission denied (HTTP 403)
@@ -569,7 +569,7 @@ Examples:
 .PP
 .nf
 keyorix billing report \-\-from 2026\-09\-01T00:00:00Z \-\-to 2026\-10\-01T00:00:00Z
-keyorix billing report \-\-from 2026\-09\-01T00:00:00Z \-\-to 2026\-10\-01T00:00:00Z \-\-project\-id 3,5 \-\-format json
+keyorix billing report \-\-from 2026\-09\-01T00:00:00Z \-\-to 2026\-10\-01T00:00:00Z \-\-project\-id 3,5 \-o json
 .fi
 .PP
 Flags:
@@ -1120,7 +1120,7 @@ Checks, in order:
   audit       the audit hash chain's integrity as the server last proved it
 .fi
 .PP
-Checks that need an earlier one to pass are skipped, not failed. The exit code is 0 when nothing failed (warnings do not fail it) and non\-zero otherwise.
+Checks that need an earlier one to pass are skipped, not failed. The exit code is 0 when nothing failed (warnings do not fail it) and 1 otherwise (2 for a bad flag; see the exit\-code table in "keyorix \-\-help").
 .PP
 Usage: \fBkeyorix doctor [flags]\fR
 .PP
@@ -2031,6 +2031,9 @@ Examples:
 .nf
 # The token is shown once; store it straight into your CI system
 keyorix machine token issue ci\-deployer \-\-project payments \-\-name github\-actions \-\-expires\-in\-days 90
+
+# Or write it to a new 0600 file, so it never appears in your terminal or shell history
+keyorix machine token issue ci\-deployer \-\-project payments \-\-name github\-actions \-\-output\-file ./ci.token
 .fi
 .PP
 Flags:
@@ -2043,6 +2046,9 @@ Token lifetime in days (0 = never expires)
 .TP
 \fB\-\-name\fR \fIstring\fR
 Token label (required)
+.TP
+\fB\-\-output\-file\fR \fIstring\fR
+Write the token to this new file (mode 0600, refuses to overwrite) instead of printing it, so it never passes through terminal scrollback or shell history
 .TP
 \fB\-\-project\fR \fIstring\fR
 Project name or numeric ID
@@ -2158,7 +2164,7 @@ Usage: \fBkeyorix notification channel add <name> [flags]\fR
 Examples:
 .PP
 .nf
-keyorix notification channel add ops\-slack \-\-type slack \-\-url https://hooks.slack.com/services/T000/B000/XXXX \-\-events secret.rotated,anomaly.detected
+keyorix notification channel add ops\-slack \-\-type slack \-\-url\-file ./slack\-url.txt \-\-events secret.rotated,anomaly.detected
 keyorix notification channel add secops\-mail \-\-type email \-\-email secops@example.com
 .fi
 .PP
@@ -2173,8 +2179,8 @@ Comma\-separated event types, e.g. secret.rotated,anomaly.detected (empty = all)
 \fB\-\-type\fR \fIstring\fR
 Channel type: webhook, slack, teams, or email (required)
 .TP
-\fB\-\-url\fR \fIstring\fR
-Webhook URL (required for webhook/slack/teams)
+\fB\-\-url\-file\fR \fIstring\fR
+Read the webhook URL from a file (relative path), or from stdin with "\-" (required for webhook/slack/teams)
 .SS keyorix notification channel delete
 Delete a notification channel by name
 .PP
@@ -2224,6 +2230,7 @@ Examples:
 .PP
 .nf
 keyorix notification channel update ops\-slack \-\-events secret.rotated \-\-enabled
+keyorix notification channel update ops\-slack \-\-url\-file \-
 .fi
 .PP
 Flags:
@@ -2240,8 +2247,8 @@ Enable the channel
 \fB\-\-events\fR \fIstring\fR
 New event filter (comma\-separated)
 .TP
-\fB\-\-url\fR \fIstring\fR
-New webhook URL
+\fB\-\-url\-file\fR \fIstring\fR
+Read the new webhook URL from a file (relative path), or from stdin with "\-"
 .SS keyorix pat
 Create and manage personal access tokens
 .PP
@@ -2546,7 +2553,7 @@ Usage: \fBkeyorix project stats <name> [flags]\fR
 Examples:
 .PP
 .nf
-keyorix project stats payments \-\-format json
+keyorix project stats payments \-o json
 .fi
 .PP
 Flags:
@@ -4242,7 +4249,7 @@ Examples:
 .PP
 .nf
 keyorix secret list \-\-project payments
-keyorix secret list \-\-project payments \-\-format json
+keyorix secret list \-\-project payments \-o json
 .fi
 .PP
 Flags:
@@ -4759,7 +4766,7 @@ Usage: \fBkeyorix secret versions [flags]\fR
 Examples:
 .PP
 .nf
-keyorix secret versions \-\-id 42 \-\-format json
+keyorix secret versions \-\-id 42 \-o json
 .fi
 .PP
 Flags:
@@ -5124,7 +5131,7 @@ Examples:
 .PP
 .nf
 keyorix usage show \-\-days 30
-keyorix usage show \-\-project\-id 3 \-\-format json
+keyorix usage show \-\-project\-id 3 \-o json
 .fi
 .PP
 Flags:
