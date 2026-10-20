@@ -67,15 +67,15 @@ func accessControl(t *testing.T, s *harness.Server, cliBin, adminToken string) {
 	envA := environmentID(t, s, adminToken, projA, n2EnvName)
 	envB := environmentID(t, s, adminToken, projB, n2EnvName)
 
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n2SecretA,
-		"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA), "--value", n2ValueA)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n2SecretB,
-		"--project", strconv.Itoa(projB), "--environment", strconv.Itoa(envB), "--value", n2ValueB)
+	runCLISecret(t, cliBin, aEnv, n2ValueA, "secret", "create", "--name", n2SecretA,
+		"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA))
+	runCLISecret(t, cliBin, aEnv, n2ValueB, "secret", "create", "--name", n2SecretB,
+		"--project", strconv.Itoa(projB), "--environment", strconv.Itoa(envB))
 	secretAID := secretID(t, s, adminToken, projA, envA, n2SecretA)
 
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n2EditorU, "--email", n2EditorEml, "--password", n2UserPass)
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n2ViewerU, "--email", n2ViewerEml, "--password", n2UserPass)
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n2Outsider, "--email", n2OutEml, "--password", n2UserPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n2UserPass), "user", "create", "--username", n2EditorU, "--email", n2EditorEml)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n2UserPass), "user", "create", "--username", n2ViewerU, "--email", n2ViewerEml)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n2UserPass), "user", "create", "--username", n2Outsider, "--email", n2OutEml)
 
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n2EditorEml, "--role", "project_developer", "--project", n2ProjectA)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n2ViewerEml, "--role", "project_viewer", "--project", n2ProjectA)
@@ -111,9 +111,9 @@ func accessControl(t *testing.T, s *harness.Server, cliBin, adminToken string) {
 
 		// Write denials (CLI -- REST is exercised directly below for the update case,
 		// since create/delete's denial path is identical in shape).
-		runCLIExpectErr(t, cliBin, viewerEnv, "secret", "create", "--name", "viewer-should-not-exist",
-			"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA), "--value", "nope")
-		runCLIExpectErr(t, cliBin, viewerEnv, "secret", "update", "--id", strconv.Itoa(secretAID), "--value", "nope")
+		runCLISecretExpectErr(t, cliBin, viewerEnv, "nope", "secret", "create", "--name", "viewer-should-not-exist",
+			"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA))
+		runCLISecretExpectErr(t, cliBin, viewerEnv, "nope", "secret", "update", "--id", strconv.Itoa(secretAID))
 		runCLIExpectErr(t, cliBin, viewerEnv, "secret", "delete", "--id", strconv.Itoa(secretAID), "--force")
 
 		restEnv2 := restCall(t, s, viewerToken, http.MethodPut,
@@ -130,13 +130,13 @@ func accessControl(t *testing.T, s *harness.Server, cliBin, adminToken string) {
 	// ── Editor: writes succeed in A, denied in B, state unchanged in B ──────
 
 	t.Run("editor can write in A but not B", func(t *testing.T) {
-		runCLI(t, cliBin, editorEnv, "secret", "create", "--name", "editor-created-in-a",
-			"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA), "--value", "editor-value")
+		runCLISecret(t, cliBin, editorEnv, "editor-value", "secret", "create", "--name", "editor-created-in-a",
+			"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA))
 		createdID := secretID(t, s, adminToken, projA, envA, "editor-created-in-a")
 		assertSecretUnchanged(t, s, adminToken, createdID, "editor-value")
 
-		runCLIExpectErr(t, cliBin, editorEnv, "secret", "create", "--name", "editor-should-not-exist-in-b",
-			"--project", strconv.Itoa(projB), "--environment", strconv.Itoa(envB), "--value", "nope")
+		runCLISecretExpectErr(t, cliBin, editorEnv, "nope", "secret", "create", "--name", "editor-should-not-exist-in-b",
+			"--project", strconv.Itoa(projB), "--environment", strconv.Itoa(envB))
 		assertNoSecretNamed(t, s, adminToken, projB, envB, "editor-should-not-exist-in-b")
 
 		// REST, exact status -- runCLIExpectErr alone passes on ANY non-zero
@@ -153,7 +153,7 @@ func accessControl(t *testing.T, s *harness.Server, cliBin, adminToken string) {
 		assertNoSecretNamed(t, s, adminToken, projB, envB, "editor-should-not-exist-in-b-rest")
 
 		secretBID := secretID(t, s, adminToken, projB, envB, n2SecretB)
-		runCLIExpectErr(t, cliBin, editorEnv, "secret", "update", "--id", strconv.Itoa(secretBID), "--value", "nope")
+		runCLISecretExpectErr(t, cliBin, editorEnv, "nope", "secret", "update", "--id", strconv.Itoa(secretBID))
 		assertSecretUnchanged(t, s, adminToken, secretBID, n2ValueB)
 
 		updateEnv := restCall(t, s, editorToken, http.MethodPut,
@@ -216,8 +216,8 @@ func accessControl(t *testing.T, s *harness.Server, cliBin, adminToken string) {
 		// permission set; evictUserSessionCache's cache-tombstone alone still denies
 		// via a 401, invalidating the whole session rather than one permission).
 		runCLI(t, cliBin, aEnv, "rbac", "remove-role", "--user", n2EditorEml, "--role", "project_developer", "--project", n2ProjectA)
-		runCLIExpectErr(t, cliBin, editorEnv, "secret", "create", "--name", "editor-post-revoke",
-			"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA), "--value", "nope")
+		runCLISecretExpectErr(t, cliBin, editorEnv, "nope", "secret", "create", "--name", "editor-post-revoke",
+			"--project", strconv.Itoa(projA), "--environment", strconv.Itoa(envA))
 		assertNoSecretNamed(t, s, adminToken, projA, envA, "editor-post-revoke")
 
 		// REST, exact status -- since #2423, removeUserRoleUnguarded's

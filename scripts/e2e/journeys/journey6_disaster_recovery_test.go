@@ -105,13 +105,13 @@ func TestJourney_DisasterRecovery(t *testing.T) {
 	// an MFA secret happened to have the same id. The admin's TOTP enrolment
 	// above is this journey's only MFA secret (id 1), so the ACL must sit on
 	// a secret whose id is not 1.
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n6ACLSecret, "--project", strconv.Itoa(seeded.ProjectID),
-		"--environment", strconv.Itoa(seeded.EnvID), "--value", n6ACLValue)
+	runCLISecret(t, cliBin, aEnv, n6ACLValue, "secret", "create", "--name", n6ACLSecret, "--project", strconv.Itoa(seeded.ProjectID),
+		"--environment", strconv.Itoa(seeded.EnvID))
 	aclSecretID := secretID(t, src, srcAdminToken, seeded.ProjectID, seeded.EnvID, n6ACLSecret)
 	if aclSecretID == 1 {
 		t.Fatalf("ACL secret has id 1, the same id as the admin's MFA secret: it would not exercise #3078")
 	}
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n6ACLUser, "--email", n6ACLUserEml, "--password", n6ACLUserPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n6ACLUserPass), "user", "create", "--username", n6ACLUser, "--email", n6ACLUserEml)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n6ACLUserEml, "--role", "project_viewer", "--project", n1ProjectName)
 	aclUserID := n20UserID(t, src, srcAdminToken, n6ACLUser)
 	runCLI(t, cliBin, aEnv, "secret", "acl", "grant", "--secret", strconv.Itoa(aclSecretID),
