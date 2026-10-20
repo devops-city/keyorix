@@ -51,7 +51,19 @@ FROM nginx:alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5
 # pcre2 10.48-r0 / tiff 4.7.1-r0, so no base-image bump carries the fix yet.
 # Remove these two pins once the pinned base digest above includes
 # pcre2>=10.49-r0 and tiff>=4.7.2-r0.
-RUN apk update && apk add --no-cache --upgrade libuuid=2.42.3-r1 libexpat=2.8.5-r0 pcre2=10.49-r0 tiff=4.7.2-r0
+#
+# The pins are MINIMUM versions (pkg>=ver), not exact revisions. Exact pins
+# (libexpat=2.8.5-r0) broke the build on 2026-10-19 when Alpine 3.24 moved on to
+# libexpat 2.9.0-r0 and dropped the old revision from the index ("unable to select
+# packages ... breaks: world[libexpat=2.8.5-r0]"): release-dry-run, docker-publish
+# and release would all fail at tag time. A floor keeps the security intent (never
+# older than the fixed version) without breaking on the next revision bump.
+# Floors and the CVE each one closes:
+#   libuuid >= 2.42.3-r1   CVE-2026-53612/53613/53614/76642/78408/78409/78410
+#   libexpat >= 2.8.5-r0   CVE-2026-93990 (HIGH)
+#   pcre2   >= 10.49-r0    CVE-2026-103111 (HIGH)
+#   tiff    >= 4.7.2-r0    CVE-2026-4775 (HIGH)
+RUN apk update && apk add --no-cache --upgrade 'libuuid>=2.42.3-r1' 'libexpat>=2.8.5-r0' 'pcre2>=10.49-r0' 'tiff>=4.7.2-r0'
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY keyorix-backend.conf /etc/nginx/keyorix-backend.conf
 # HSTS-behind-a-load-balancer policy: nginx-hsts.conf is the "no trusted proxy,
