@@ -536,7 +536,8 @@ func (c *KeyorixCore) requireAuthorityToReinstateProjectRoles(ctx context.Contex
 // AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
 // environment.deleted row OWED (withOwedAuditMutation): a deletion is a revocation
 // and is never blocked by the audit log, so the delete and a record of the row
-// commit together and the row is appended after the commit. The storage delete takes the environment's secret-guard named lock itself; this
+// commit together and the row is appended after the commit, once the lock below is released.
+// The storage delete takes the environment's secret-guard named lock itself; this
 // takes that same lock FIRST, outside the transaction (WithNamedLock is
 // re-entrant per ctx), so the lock is never acquired from inside an open
 // transaction, which storage.DeleteEnvironment forbids.
@@ -545,15 +546,24 @@ func (c *KeyorixCore) DeleteEnvironment(ctx context.Context, id uint) error {
 	if !tagged {
 		return c.storage.DeleteEnvironment(ctx, id)
 	}
-	return c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(id), func(ctx context.Context) error {
-		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+	var settle func()
+	if err := c.storage.WithNamedLock(ctx, storage.EnvironmentSecretGuardLockKey(id), func(ctx context.Context) error {
+		var rerr error
+		settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.DeleteEnvironment(ctx, id); err != nil {
 				return err
 			}
 			c.logEnvironmentDeletedOn(ctx, tgt, actor, id)
 			return nil
 		})
-	})
+		return rerr
+	}); err != nil {
+		return err
+	}
+	// After the secret-guard lock is released: an audit outage waits up to
+	// owedAuditWait here, which must not extend the lock hold.
+	settle()
+	return nil
 }
 
 // EventEnvironmentCreated/EventEnvironmentDeleted are audited on every

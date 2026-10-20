@@ -14,8 +14,8 @@ import (
 // and never persists a pre-read ShareRecord snapshot, so a revoke cannot revert
 // a concurrent permission change or write `deleted_at = NULL` back.
 //
-// Hops checked: KeyorixCore.RevokeShare (through its transaction handle) and
-// KeyorixCore.RemoveSelfFromShare -> DeleteShareRecord -> its LocalStorage body;
+// Hops checked: KeyorixCore.RevokeShare and KeyorixCore.RemoveSelfFromShare (both
+// through their transaction handle) -> DeleteShareRecord -> its LocalStorage body;
 // DeleteExpiredShareRecords (the sweep that also revokes) in storage.
 //
 // What this does NOT cover, and is reported to the coordinator because the
@@ -31,7 +31,9 @@ func TestRevokeShare_IsColumnScoped(t *testing.T) {
 	assertConditionalSoftDelete(t, store, "DeleteExpiredShareRecords")
 	assertCoreWritesOnlyVia(t, "../sharing.go", "RevokeShare", "tx", "DeleteShareRecord",
 		"Save", "UpdateShareRecord", "CreateShareRecord")
-	assertCoreWritesOnlyVia(t, "../sharing.go", "RemoveSelfFromShare", "storage", "DeleteShareRecord",
+	// Through its transaction handle since AUDIT-TX-3 (the removal and the record of
+	// its owed audit row commit together), like RevokeShare above.
+	assertCoreWritesOnlyVia(t, "../sharing.go", "RemoveSelfFromShare", "tx", "DeleteShareRecord",
 		"Save", "UpdateShareRecord", "CreateShareRecord")
 }
 

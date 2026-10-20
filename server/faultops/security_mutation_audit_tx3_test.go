@@ -5,7 +5,7 @@
 // revocation_owed_audit_test.go:
 //
 //  1. The mutations #3367's inventory listed as "not covered yet" (project and
-//     environment delete / update / restore, group create / update / restore, user
+//     environment update / restore, group create / update / restore, user
 //     update / reactivate / restore, invitations, access-request create / reject,
 //     config changes: notification channels, anomaly config, rotation policies,
 //     risk exceptions, legal hold, alert escalation policies) commit their audit row

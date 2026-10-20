@@ -77,8 +77,11 @@ This table is the reviewed list behind them, not a guard of its own.
 - **State transitions with a known direction** pick the rule from the target state
   (`auditedByDirection`): account state into suspended/deprovisioned/restricted and
   machine suspend/revoke are revocations; back to active is a grant. `UpdateUser`
-  deactivating is a revocation, every other `UpdateUser` is fail closed. A SCIM user
-  update that deactivates is a revocation, any other fails closed. A SCIM group
+  deactivating is a revocation unless the same request changes the username or
+  email (then it widens, so it fails closed), every other `UpdateUser` is fail
+  closed. A SCIM user update that deactivates a user who is active, with no email
+  change in the request, is a revocation; any other (a reactivation, an email
+  change, `active=false` on a user already inactive) fails closed. A SCIM group
   change that only removes members is a revocation; one that adds a member or
   renames the group fails closed.
 - **External side effects** (notifications, setup-link email, upstream lease
@@ -123,19 +126,17 @@ from core, as before, so there are no duplicates.
 | Environment create | `CreateEnvironment` with `WithMutationAuditActor` | `environment.created` | transport, after commit | in tx |
 | SoD policy create / delete | `CreateSoDPolicy`, `DeleteSoDPolicy` | `sod.policy_created` / `sod.policy_deleted` | after commit | in tx |
 | Secret create/update/rotate/rollback/delete | (#3297) | `secret.*` | – | in tx (already) |
-| **Project update** (incl. the MFA requirement) | `UpdateProject` | `project.updated`, `project.mfa_requirement_enabled/disabled` | transport / after commit | in tx (AUDIT-TX-3); the MFA row is written for every caller, `project.updated` for a tagged one |
-| **Project delete** (cascade, machine-identity suspension) | `DeleteProject` | `project.deleted` + `machine_identity.suspended`×n | transport; cascade events best-effort in tx | in tx, fail closed (tagged), cascade events fail closed for every caller |
+| **Project update** (incl. turning the MFA requirement off) | `UpdateProject` | `project.updated`, `project.mfa_requirement_enabled/disabled` | transport / after commit | in tx (AUDIT-TX-3); the MFA row is written for every caller, `project.updated` for a tagged one. A call whose only change is turning the MFA requirement ON restricts access and is owed instead (Revocations table) |
 | **Project restore** | `RestoreProject` | `project.restored` + `machine_identity.activated`×n | after commit | in tx |
-| **Environment delete** | `DeleteEnvironment` | `environment.deleted` | transport, after commit | in tx (tagged); the secret-guard named lock is taken around the transaction, never inside it |
 | **Environment restore** | `RestoreEnvironment` | `environment.restored` | after commit | in tx |
 | **Group create / update** | `CreateGroup`, `UpdateGroup` | `group.created` / `group.updated` | after commit | in tx |
 | **Group restore** | `RestoreGroup` | `group.restored` | after commit | in tx |
-| **User update** (not deactivating: profile, email, re-activate flag) | `UpdateUser` (also `UpdateOwnProfile`) | `user.updated` | after commit | in tx |
+| **User update** (anything but a deactivation that leaves username and email alone: profile, email, username, re-activate flag; a deactivation that also changes the username or email) | `UpdateUser` (also `UpdateOwnProfile`) | `user.updated` | after commit | in tx |
 | **User reactivate** | `ReactivateUser` → `setAccountState` (to active) | `account.reactivated` | after commit | in tx |
 | **User restore** | `RestoreUser` | `user.restored` | after commit | in tx |
 | **OTP reissue** | `ReissueOneTimePassword` | `user.one_time_password_reissued` | after commit | in tx |
 | **SCIM user provision** | `ProvisionSCIMUser` | `scim.user_provisioned` | after commit | in tx |
-| **SCIM user update** (anything but deactivate) | `UpdateSCIMUser` | `scim.user_updated` | after commit | in tx |
+| **SCIM user update** (anything but deactivating an active user without an email change: includes active=false on an inactive user and active=false with an email change) | `UpdateSCIMUser` | `scim.user_updated` | after commit | in tx |
 | **SCIM group provision / replace / patch** (adds a member or renames) | `ProvisionSCIMGroup`, `ReplaceSCIMGroup`, `PatchSCIMGroup` | `scim.group_provisioned` / `scim.group_updated` | after commit; rename a separate commit | in tx; the rename moved into the membership transaction |
 | **Invitation create** (project, global, with or without link) | `InviteToProject[WithLink]`, `InviteGlobal[WithLink]` | `invitation.created` | after commit | in tx (the setup-link variants: in the invitation + token transaction) |
 | **Access request create** (project, secret) | `RequestProjectAccess`, `RequestSecretAccess` | `access_request.created` / `.secret_created` | after commit | in tx |
@@ -181,8 +182,11 @@ the commit with no record: a refused append or a crash lost the row for good.
 | PAT revoke (own, admin bulk, expired bulk) | `RevokeOwnPAT`, `RevokeAllPersonalAccessTokensForUser`, `BulkRevokeExpiredOwnPATs` | `pat.revoked`, `user.credentials_revoked` |
 | Session revoke (own, admin, bulk) | `RevokeOwnSession`, `RevokeUserSessions`, `DeleteSessionsForUserExcept` | `session.revoked`, `account.sessions_revoked`, `user.credentials_revoked` |
 | User suspend / restrict | `setAccountState` (to suspended, deprovisioned, password-reset-required) | `account.suspended`, … |
-| User deactivate, delete | `UpdateUser` (deactivating branch), `DeleteUser` | `user.updated`, `user.deleted` |
-| SCIM user deactivate, deprovision | `UpdateSCIMUser` (active=false), `DeprovisionSCIMUser` | `scim.user_updated`, `scim.user_deprovisioned` |
+| User deactivate (no username/email change in the request), delete | `UpdateUser` (deactivating branch), `DeleteUser` | `user.updated`, `user.deleted` |
+| SCIM user deactivate (active user, no email change in the request), deprovision | `UpdateSCIMUser` (active=false), `DeprovisionSCIMUser` | `scim.user_updated`, `scim.user_deprovisioned` |
+| Project delete (cascade, machine-identity suspension) | `DeleteProject` | `project.deleted` + `machine_identity.suspended`×n (the cascade events are owed for every caller, `project.deleted` for a tagged one) |
+| Environment delete | `DeleteEnvironment` (tagged) | `environment.deleted`; the secret-guard named lock is taken around the transaction and the row is settled after it is released |
+| Project MFA requirement turned on (only change in the call) | `UpdateProject` | `project.mfa_requirement_enabled` (+ `project.updated` for a tagged caller) |
 | Break-glass revoke | `RevokeBreakGlassActivationAtomic` | `role.removed` + `break_glass.revoked` |
 | JIT expiry sweep (roles) | `RemoveExpiredRoleGrants` | `role.expired` |
 | Invitation revoke, access request withdraw | `RevokeInvitation`, `WithdrawAccessRequest` | `invitation.revoked`, `access_request.withdrawn` |

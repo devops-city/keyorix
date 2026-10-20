@@ -160,6 +160,40 @@ func tx3Kinds() []grantKind {
 				_, err := c.UpdateSCIMUser(ctx, 0, uid(s), &name, nil, nil)
 				return err
 			}},
+		// A deactivation is a revocation, but a request that also changes the email (the
+		// IdP claims the account by it) or targets a user who is already inactive is not
+		// one: it fails closed (MERGE-FIX-3482A).
+		{name: "scim-update-user-deactivate-and-email", prepare: scimUser,
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				off, email := false, w.tag("g3-dm")+"@example.com"
+				_, err := c.UpdateSCIMUser(ctx, 0, uid(s), nil, &email, &off)
+				return err
+			}},
+		{name: "scim-update-user-already-inactive-deactivate",
+			prepare: func(w *satWorld) any {
+				u := scimUser(w).(*models.User)
+				off := false
+				_, err := w.c.UpdateSCIMUser(ctx, 0, u.ID, nil, nil, &off)
+				require.NoError(w.t, err)
+				return u
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				off, name := false, w.tag("g3-ai")
+				_, err := c.UpdateSCIMUser(ctx, 0, uid(s), &name, nil, &off)
+				return err
+			}},
+		{name: "update-user-deactivate-and-email", prepare: user("project_viewer"),
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				off := false
+				_, err := c.UpdateUser(ctx, &UpdateUserRequest{ID: uid(s), ActorID: w.f.adminID, IsActive: &off, Email: w.tag("g3-dme") + "@example.com"})
+				return err
+			}},
+		{name: "update-user-deactivate-and-username", prepare: user("project_viewer"),
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				off := false
+				_, err := c.UpdateUser(ctx, &UpdateUserRequest{ID: uid(s), ActorID: w.f.adminID, IsActive: &off, Username: w.tag("g3-dmu")})
+				return err
+			}},
 		{name: "scim-provision-group",
 			prepare: func(w *satWorld) any { return scimUser(w) },
 			mutate: func(w *satWorld, c *KeyorixCore, s any) error {

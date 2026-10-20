@@ -533,6 +533,9 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
+	// identityChanged: the request changes the username or the email, which can widen
+	// access (a reset link goes to the new address) whatever else it does.
+	identityChanged := false
 	if req.Username != "" && req.Username != user.Username {
 		foldedUsername, ferr := identity.NewFoldedName(req.Username)
 		if ferr != nil {
@@ -553,8 +556,10 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 		}
 		user.Username = req.Username
 		user.UsernameFolded = foldedUsername.Folded()
+		identityChanged = true
 	}
 	if req.Email != "" && req.Email != user.Email {
+		identityChanged = true
 		foldedEmail, ferr := identity.NewFoldedName(req.Email)
 		if ferr != nil {
 			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorValidation", nil), ferr)
@@ -623,8 +628,12 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 			// log; its user.updated row is owed from this same transaction (written through
 			// tx or recorded as pending, never through c.storage, which would wait on the
 			// write gate this transaction holds) and appended after the cache eviction.
+			// A request that also changes the username or email is not only a
+			// revocation: it fails closed (row in the transaction or no change at all).
 			var rerr error
-			settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			settle, rerr = c.auditedByDirection(ctx, identityChanged, func(tx storage.Storage, tgt auditTarget) error {
+				// fn may run again (the owed fallback): start from a clean slate.
+				patHashes, cleanupPatErr, cleanupSessionErr = nil, nil, nil
 				matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
 				if terr != nil {
 					return terr

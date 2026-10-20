@@ -279,14 +279,24 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	var deactivated bool
 	var updated *models.User
 	var guardErr error // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
-	// AUDIT-TX-3: an update that deactivates is a revocation (never blocked by the
-	// audit log, its row owed); anything else can widen access (a reactivation, a new
-	// email the IdP will claim the account by) and fails closed.
-	deactivating := active != nil && !*active
 	var settle func()
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
+		// AUDIT-TX-3: an update that deactivates a user who is active is a revocation
+		// (never blocked by the audit log, its row owed). Anything else can widen
+		// access (a reactivation, a new email the IdP will claim the account by) or
+		// revokes nothing (a user already inactive), and fails closed: so does a
+		// deactivation that carries an email change in the same request. Read under the
+		// locks, so the active state is the one the transaction below will see; a
+		// failed read leaves revocation false, i.e. fail closed.
+		revocation := false
+		if active != nil && !*active {
+			if cur, gerr := c.storage.GetUser(ctx, id); gerr == nil {
+				emailChanges := email != nil && *email != "" && *email != cur.Email
+				revocation = cur.IsActive && !emailChanges
+			}
+		}
 		if active != nil && !*active {
 			// Don't let a routine (or hostile) SCIM sync deactivate the only admin.
 			if err := c.guardLastAdminDeactivation(ctx, id); err != nil {
@@ -298,7 +308,7 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// before the lock above was taken — a concurrent setAccountState commit between
 		// that read and this write would be silently clobbered (the exact #344 race).
 		var serr error
-		settle, serr = c.auditedByDirection(ctx, !deactivating, func(tx storage.Storage, tgt auditTarget) error {
+		settle, serr = c.auditedByDirection(ctx, !revocation, func(tx storage.Storage, tgt auditTarget) error {
 			var err error
 			if updated, deactivated, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active); err != nil {
 				return err
@@ -562,7 +572,7 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 	// GUARD-2: as in UpdateSCIMUser above, accountStateMu alone is cross-replica-unsafe
 	// — wrap it in storage.WithNamedLock(lastAdminGuardLockKey), the same lock
 	// SuspendUser/UpdateUser/DeleteUser already take for this exact guard.
-	var sessionHashes []string
+	var sessionHashes, patEvict []string
 	var username string
 	var guardErr error
 	var settle func()
@@ -668,7 +678,7 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 			if err != nil {
 				return err
 			}
-			sessionHashes = append(sessionHashes, patHashes...)
+			patEvict = patHashes // assigned, not appended: fn may run twice (the owed fallback)
 			if err := tx.DeleteUser(ctx, id); err != nil {
 				return err
 			}
@@ -691,6 +701,7 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 	// (offboarded) user's live session stops authenticating immediately instead of
 	// lingering for the cache TTL.
 	c.invalidateTokenCache(sessionHashes...)
+	c.invalidateTokenCache(patEvict...)
 	purgeStepUpGrants(ctx, c.storage, id)
 	settle()
 	return nil
