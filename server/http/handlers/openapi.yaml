@@ -7501,10 +7501,11 @@ paths:
           application/json:
             schema:
               type: object
-              required: [data_b64, signature]
+              required: [data_b64, signature, filename]
               properties:
                 data_b64:  {type: string, description: "Base64 of the evidence-pack bytes."}
                 signature: {type: string, description: "The detached signature ('<keyVersion>:<hmac-hex>')."}
+                filename:  {type: string, description: "The pack's canonical filename as returned by GET /api/v1/compliance/evidence (keyorix-evidence-<UTC timestamp>.json). The signature is bound to it, so a missing or different name never verifies."}
       responses:
         '200':
           description: >-
