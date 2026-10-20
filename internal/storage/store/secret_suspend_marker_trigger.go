@@ -60,23 +60,27 @@ $keyorix$`).Error; err != nil {
 		if err := tx.Exec("UPDATE secret_nodes SET suspend_clear_synced_copies = false WHERE suspend_clear_synced_copies AND status IS DISTINCT FROM 'suspended'").Error; err != nil {
 			return fmt.Errorf("failed to clear stale suspend markers: %w", err)
 		}
-		var n int64
-		if err := tx.Raw("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ?",
-			SecretSuspendMarkerTrigger).Scan(&n).Error; err != nil {
-			return fmt.Errorf("failed to read %s: %w", SecretSuspendMarkerTrigger, err)
+		var state []string
+		if err := tx.Raw("SELECT tgenabled::text FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'secret_nodes'::regclass AND tgname = ?",
+			SecretSuspendMarkerTrigger).Scan(&state).Error; err != nil {
+			return fmt.Errorf("failed to read %s state: %w", SecretSuspendMarkerTrigger, err)
 		}
-		if n > 0 {
-			return nil
-		}
-		// ENABLE ALWAYS: fires in a session_replication_role = replica session too.
-		if err := tx.Exec(`CREATE TRIGGER ` + SecretSuspendMarkerTrigger + `
+		if len(state) == 0 {
+			if err := tx.Exec(`CREATE TRIGGER ` + SecretSuspendMarkerTrigger + `
 BEFORE UPDATE OF status ON secret_nodes FOR EACH ROW
 WHEN (NEW.status IS DISTINCT FROM 'suspended' AND NEW.suspend_clear_synced_copies)
 EXECUTE PROCEDURE ` + secretSuspendMarkerFunc + `()`).Error; err != nil {
-			return fmt.Errorf("failed to create %s: %w", SecretSuspendMarkerTrigger, err)
+				return fmt.Errorf("failed to create %s: %w", SecretSuspendMarkerTrigger, err)
+			}
 		}
-		if err := tx.Exec(`ALTER TABLE secret_nodes ENABLE ALWAYS TRIGGER ` + SecretSuspendMarkerTrigger).Error; err != nil {
-			return fmt.Errorf("failed to enable %s: %w", SecretSuspendMarkerTrigger, err)
+		// ENABLE ALWAYS: fires in a session_replication_role = replica session
+		// too. Also converges an existing trigger left ordinary (pg_restore
+		// --disable-triggers re-enables that way), replica-only or disabled:
+		// only tgenabled changes, the trigger is never absent.
+		if len(state) == 0 || state[0] != "A" {
+			if err := tx.Exec(`ALTER TABLE secret_nodes ENABLE ALWAYS TRIGGER ` + SecretSuspendMarkerTrigger).Error; err != nil {
+				return fmt.Errorf("failed to enable %s: %w", SecretSuspendMarkerTrigger, err)
+			}
 		}
 		return nil
 	})
