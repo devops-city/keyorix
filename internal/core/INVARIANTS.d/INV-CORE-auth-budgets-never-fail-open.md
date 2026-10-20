@@ -26,7 +26,7 @@
   (Success=false; attributed to the account for `account_lockout`) and counted
   in `keyorix_auth_rate_limit_fallback_total{budget}`. The client response is
   unchanged. Why: Andrei, 2026-10-10 18:52 (AUTH-AUDIT-1 item 5). Guard:
-  `auth_budget_storage_guard_test.go` (`TestAuthBudgetStorage_OnlyThroughTheSharedLimiter`:
+  `guards/auth_budget_storage_guard_test.go` (`TestAuthBudgetStorage_OnlyThroughTheSharedLimiter`:
   no login_attempts storage call outside `auth_budget.go` except the relay),
   `account_lockout_storage_fallback_test.go`,
   `account_lockout_stored_plus_fallback_test.go`, `auth_budget_degraded_test.go`

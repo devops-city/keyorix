@@ -488,10 +488,16 @@ step_seed_posture() {
     return 1
   }
   local detail; detail="$(jget 'next(c["detail"] for c in d["data"]["controls"] if c["id"]=="secret-rotation")')"
-  case "$detail" in
-    *"2 of 3 secrets covered"*) ;;
-    *) echo "secret-rotation gap has the wrong detail '$detail', expected '2 of 3 secrets covered' (payments-webhook-secret uncovered)"; return 1 ;;
-  esac
+  # Exactly ONE secret uncovered (payments-webhook-secret), whatever the seed's
+  # total is: the seed grows (13 secrets since the anomaly demo), so "N-1 of N" is
+  # asserted, not a hard-coded "2 of 3".
+  local covered total
+  covered="$(printf '%s' "$detail" | sed -n 's/.*; \([0-9][0-9]*\) of \([0-9][0-9]*\) secrets covered.*/\1/p')"
+  total="$(printf '%s' "$detail" | sed -n 's/.*; \([0-9][0-9]*\) of \([0-9][0-9]*\) secrets covered.*/\2/p')"
+  if [ -z "$covered" ] || [ -z "$total" ] || [ "$total" -lt 3 ] || [ "$covered" -ne $((total - 1)) ]; then
+    echo "secret-rotation gap has the wrong detail '$detail', expected exactly one secret uncovered, 'N-1 of N secrets covered' with N >= 3 (payments-webhook-secret)"
+    return 1
+  fi
   # No high-severity anomaly: that is what turns the anomaly-detection control red.
   local passing; passing="$(jget 'next(c["status"] for c in d["data"]["controls"] if c["id"]=="anomaly-detection")')"
   [ "$passing" = "pass" ] || { echo "anomaly-detection control is '$passing' on a fresh demo, expected pass (no high-severity alert)"; return 1; }

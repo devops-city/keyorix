@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
-	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -103,19 +103,23 @@ func TestGenerateComplianceEvidence_DegradesOnBreakGlassQueryError(t *testing.T)
 // counts how many times the query actually ran, so a test can pin that the fix
 // collapses what used to be several independent reads into one.
 type divergingRiskExceptionsStore struct {
-	*store.LocalStorage
 	calls int
 }
 
-func (s *divergingRiskExceptionsStore) ListRiskExceptions(ctx context.Context, activeOnly bool) ([]*models.RiskException, error) {
-	s.calls++
-	rows, err := s.LocalStorage.ListRiskExceptions(ctx, activeOnly)
-	if err != nil || s.calls > 1 {
-		return rows, err
-	}
-	// First read: report as if the exception hadn't landed yet — the state a second,
-	// independently-timed pass would NOT have seen.
-	return nil, nil
+func newDivergingRiskExceptionsStore(inner storage.Storage) (storage.Storage, *divergingRiskExceptionsStore) {
+	s := &divergingRiskExceptionsStore{}
+	return hooked(inner, &storeHooks{
+		ListRiskExceptions: func(next storage.Storage, ctx context.Context, activeOnly bool) ([]*models.RiskException, error) {
+			s.calls++
+			rows, err := next.ListRiskExceptions(ctx, activeOnly)
+			if err != nil || s.calls > 1 {
+				return rows, err
+			}
+			// First read: report as if the exception hadn't landed yet — the state a second,
+			// independently-timed pass would NOT have seen.
+			return nil, nil
+		},
+	}), s
 }
 
 // #256: GenerateComplianceEvidence used to compute the posture via
@@ -141,8 +145,8 @@ func TestGenerateComplianceEvidence_RiskExceptionsConsistentWithPostureAcrossCon
 		CreatedBy: 1, CreatedAt: c.now(), ExpiresAt: c.now().Add(30 * 24 * time.Hour),
 	}).Error)
 
-	mock := &divergingRiskExceptionsStore{LocalStorage: c.storage.(*store.LocalStorage)}
-	c.storage = mock
+	wrapped, mock := newDivergingRiskExceptionsStore(c.storage)
+	c.storage = wrapped
 
 	ev, err := c.GenerateComplianceEvidence(context.Background())
 	require.NoError(t, err)

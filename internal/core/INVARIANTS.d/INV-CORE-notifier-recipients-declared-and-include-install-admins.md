@@ -7,7 +7,7 @@
   install's global admin, who has admin authority on every project but no project-scoped
   row (#2955: break-glass alerts reached nobody on a fresh install). Deactivated or deleted
   install-wide admins are dropped so no subject detail (secret names, anomaly text) reaches
-  an account that is off. Why: #2955, NOTIFY-1. Guard: `notify_recipients_guard_test.go`
+  an account that is off. Why: #2955, NOTIFY-1. Guard: `guards/notify_recipients_guard_test.go`
   (`TestNotifierRecipients_EveryEmitterDeclaresItsRecipientSet`,
   `_DeclaredSetIsActuallyUsed`, `_NoDirectProjectMemberFanOut`, and the red-proof
   `_GuardCatchesPlantedProjectMemberOnlyNotifier`); per-notifier effect tests in
