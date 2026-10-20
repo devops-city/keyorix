@@ -63,6 +63,12 @@
 //   - flock(2) semantics are unreliable on some network filesystems (NFS);
 //     a SQLite database on such a mount already has other correctness
 //     problems this guard does not add to or fix.
+//   - The SQLite sidecar is named after the configured path string. Every
+//     spelling that resolves into the database's own directory (relative or
+//     absolute, "." or "..", a symlinked directory, DSN query parameters)
+//     meets on one lock file (TestSQLitePathSpellings_MeetOnTheSameLock). A
+//     symlink to the database FILE, or a hard link, used by only one side does
+//     not: the two sides then lock different sidecar files.
 //   - Postgres advisory locks share one numeric keyspace across the whole
 //     database cluster, not namespaced per application. A collision with an
 //     unrelated application choosing the same key is possible in principle;
