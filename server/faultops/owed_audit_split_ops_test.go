@@ -647,6 +647,12 @@ func TestOwedAuditSplit_SweepEverySplitOp(t *testing.T) {
 				} else if r.in.out.success && len(rows.owedPending) > 0 {
 					queuedSuccesses++
 				}
+				// A refused append is the audit log failing: the verdict's plain-failure branch
+				// (nothing changed) would accept it, but here that is the audit log blocking
+				// the narrowing (REVIEW-3482B). Every refused append must end in a success
+				// (owed row queued) or a partial apply.
+				require.True(t, r.in.out.success || r.in.out.partial,
+					"%s with LogAuditEvent#%d refused failed as a whole (%s): the audit log blocked the narrowing", sc.key, nth, r.in.out.detail)
 				v := owedAuditSplitVerdict(r.in)
 				require.Empty(t, v, "%s with LogAuditEvent#%d refused (%s): %s", sc.key, nth, r.in.out.detail, v)
 				t.Logf("LogAuditEvent#%d refused: success=%t partial=%t details=%v queued=%v", nth, r.in.out.success, r.in.out.partial, r.in.out.details, rows.owedPending)
