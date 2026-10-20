@@ -356,6 +356,22 @@ func (c *KeyorixCore) writeAuditEventDiff(ctx context.Context, eventType string,
 // the source -- and a derived fact goes red if someone deletes it, where an
 // exemption row would have kept pardoning the call sites.
 func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string) (persisted bool) { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
+	return c.writeAuditEventOutcomeOn(ctx, tgt, eventType, userID, secretID, projectID, ip, description, diff, true)
+}
+
+// writeAuditEventFailedFull is writeAuditEventFull for an event that records a
+// FAILURE: stored with Success=false (#3363), so success=false queries, SIEM
+// rules and exports see it. Unlike writeAuditEventFailed it takes a secret ID
+// and keeps this writer family's own panic recovery and client-origin note.
+// TestFailureNamedAuditEvents_AreWrittenWithSuccessFalse requires it (or
+// writeAuditEventFailed) for every event whose name ends in a failure word.
+func (c *KeyorixCore) writeAuditEventFailedFull(ctx context.Context, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string) bool {
+	return c.writeAuditEventOutcomeOn(ctx, c.auditNow(), eventType, userID, secretID, projectID, ip, description, "", false)
+}
+
+// writeAuditEventOutcomeOn is the one body behind writeAuditEventDiffOn
+// (Success=true) and writeAuditEventFailedFull (Success=false).
+func (c *KeyorixCore) writeAuditEventOutcomeOn(ctx context.Context, tgt auditTarget, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string, success bool) (persisted bool) { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
 	defer func() {
 		if r := recover(); r != nil {
 			if tgt.sink != nil && tgt.sink.failClosed {
@@ -372,13 +388,18 @@ func (c *KeyorixCore) writeAuditEventDiffOn(ctx context.Context, tgt auditTarget
 			persisted = false
 		}
 	}()
-	return c.emitAuditOn(ctx, tgt, buildAuditEvent(ctx, eventType, userID, secretID, projectID, ip, description, diff))
+	return c.emitAuditOn(ctx, tgt, buildAuditEventOutcome(ctx, eventType, userID, secretID, projectID, ip, description, diff, success))
 }
 
 // buildAuditEvent is the success-path event writeAuditEventDiffOn emits, built
 // without emitting it (an owed event is stored first, see audit_owed.go).
 func buildAuditEvent(ctx context.Context, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string) *models.AuditEvent { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
-	t := true
+	return buildAuditEventOutcome(ctx, eventType, userID, secretID, projectID, ip, description, diff, true)
+}
+
+// buildAuditEventOutcome builds the event with the given outcome (#3363).
+func buildAuditEventOutcome(ctx context.Context, eventType string, userID *uint, secretID *uint, projectID *uint, ip string, description string, diff string, success bool) *models.AuditEvent { // NOSONAR -- domain-driven parameter count; each field is a distinct audit attribute
+	t := success
 	event := &models.AuditEvent{
 		EventType:    eventType,
 		UserID:       userID,
@@ -776,6 +797,49 @@ func (c *KeyorixCore) LogAuthError(ctx context.Context, username, ip string, err
 func (c *KeyorixCore) LogAuthNotEvaluated(ctx context.Context, username, ip string, err error) {
 	c.writeAuditEventFailed(ctx, "auth.login_error", nil, nil, ip,
 		fmt.Sprintf("Login for username %q could not be evaluated: storage error before any credential was checked: %v", username, err))
+}
+
+// LogCurrentPasswordFailure writes the auth.login_failed event a wrong password
+// on /auth/login writes (Success=false, the client IP), for a wrong current
+// password on a self-service credential change (op: "change_password",
+// "email_change"). AUTH-PW-BUDGET: those checks now spend the same lockout and
+// per-IP budget as a login, so they are audited with the same event, and a
+// password guessed through a stolen session shows up wherever failed logins are
+// counted (the dashboard's FailedAuthAttempts24h). The account is known here,
+// so it is recorded as the event's user too.
+func (c *KeyorixCore) LogCurrentPasswordFailure(ctx context.Context, userID uint, username, ip, op string) {
+	uid := userID
+	c.writeAuditEventFailed(ctx, "auth.login_failed", &uid, nil, ip,
+		fmt.Sprintf("Failed current-password check for username: %s (%s)", username, op))
+}
+
+// LogCurrentPasswordError is LogAuthError's counterpart for the same checks: the
+// current password matched and the lock re-check after it failed on storage, so
+// the change was refused like a wrong password (and counted) while the audit
+// says what really happened.
+func (c *KeyorixCore) LogCurrentPasswordError(ctx context.Context, userID uint, username, ip, op string, err error) {
+	uid := userID
+	c.writeAuditEventFailed(ctx, "auth.login_error", &uid, nil, ip,
+		fmt.Sprintf("Current-password check for username %s (%s) denied by a storage error AFTER the password matched: %v", username, op, err))
+}
+
+// LogSetupConsumeFailure writes setup_token.consume_failed (Success=false) for a
+// setup-link consume refused on the token or the account: unknown, expired,
+// used, or an account that cannot take a local password (AUTH-2 item 1). The
+// counterpart of auth.login_failed for this unauthenticated endpoint, so a
+// burst of dead-link attempts is visible to an operator.
+func (c *KeyorixCore) LogSetupConsumeFailure(ctx context.Context, ip string, err error) {
+	c.writeAuditEventFailed(ctx, "setup_token.consume_failed", nil, nil, ip,
+		fmt.Sprintf("setup link consume refused: %v", err))
+}
+
+// LogSetupConsumeError writes setup_token.consume_error (Success=false): the
+// token was valid and a storage fault refused the consume (ErrSetupPostVerdict).
+// Nothing was written and the link still works; the client got exactly the
+// dead-link answer, so only this event tells the two apart.
+func (c *KeyorixCore) LogSetupConsumeError(ctx context.Context, ip string, err error) {
+	c.writeAuditEventFailed(ctx, "setup_token.consume_error", nil, nil, ip,
+		fmt.Sprintf("setup link consume failed AFTER the token was validated (nothing written, the link still works): %v", err))
 }
 
 // LogAuthLogout writes an auth.logout audit event.

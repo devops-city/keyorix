@@ -26,6 +26,7 @@ func newSCIMGuardCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.Session{}, &models.AuditEvent{}, &models.Project{}, &models.Environment{},
+		&models.PersonalAccessToken{},
 	))
 	return NewKeyorixCore(store.NewLocalStorage(db)), db
 }

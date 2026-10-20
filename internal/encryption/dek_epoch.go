@@ -64,6 +64,10 @@ import (
 // dekEpochKey is the system_metadata key holding the DEK epoch. Not secret.
 const dekEpochKey = "dek.epoch"
 
+// DEKEpochMetadataKey is dekEpochKey for callers outside the package: the
+// presence of this row means some replica already generated the deployment's DEK.
+const DEKEpochMetadataKey = dekEpochKey
+
 // dekEpochRotatingPrefix marks an epoch fenced by an in-flight rotation; the
 // fingerprint after it is the DEK being rotated away from.
 const dekEpochRotatingPrefix = "rotating:"

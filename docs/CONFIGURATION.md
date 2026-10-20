@@ -203,7 +203,9 @@ server:
 `auto_cert` is ACME — it needs a public domain and inbound 80/443, so it does not work
 for a local, internal-only, or air-gapped deployment. For those, set `cert_file`/
 `key_file` to a PEM cert and key instead (gRPC's `tls:` block takes the same two
-fields; `domains`/`cert_cache_dir`/`allowed_ciphers` apply to HTTP only). A quick
+fields; `domains`/`cert_cache_dir`/`allowed_ciphers` apply to HTTP only). `auto_cert`
+is HTTP-only: `server.grpc.tls.auto_cert: true` is refused at start-up, because gRPC has
+no ACME client and the flag used to start a listener whose every handshake failed. A quick
 self-signed pair for local use:
 
 ```sh
@@ -636,6 +638,16 @@ storage:
     enabled: true
     dek_path: /app/keys/data.key  # wrapped DEK (never the raw key)
     salt_path: /app/keys/kek.salt # KEK salt (password provider only)
+
+    # key_dir_lock — how a server shares the key files with other processes.
+    #   flock (default): exclusive flock on <key dir>/dek.lock for the server's
+    #     lifetime; exactly one server per key directory.
+    #   database: PostgreSQL only, for several replicas (docs/multi-replica-keys.md).
+    #     No key-directory lock; PostgreSQL advisory locks coordinate first boot,
+    #     crash recovery and admin commands. The key directory may be a shared
+    #     ReadWriteMany volume without working flock, or read-only. Admin --force
+    #     is refused in this mode.
+    # key_dir_lock: database
 
     # key_provider — default is "password" when omitted.
     key_provider:

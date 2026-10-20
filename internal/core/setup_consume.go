@@ -17,6 +17,9 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -29,6 +32,14 @@ import (
 // reported generically by the HTTP layer so the public endpoint is not an
 // account-existence / error-string oracle.
 var ErrInvalidSetupPassword = errors.New("invalid password")
+
+// ErrSetupPostVerdict marks a setup consume that failed AFTER the token was
+// found valid: a storage fault (or a recovered panic) in the account read, the
+// identity read or the transaction (AUTH-2 item 1). The transaction is all or
+// nothing, so nothing was written and the link still works. Server-side only:
+// the transport answers it exactly like a dead token (the response must not say
+// the token was valid) and audits setup_token.consume_error for an operator.
+var ErrSetupPostVerdict = errors.New("setup consume failed after the token was validated")
 
 // SetupTokenInfo is the non-sensitive description of a setup token returned to the
 // landing page. It deliberately carries no token, no hash, and no secret material.
@@ -44,6 +55,15 @@ type SetupTokenInfo struct {
 type SetupConsumeResult struct {
 	Session *models.Session
 	User    *models.User
+	// Identity is the response identity, resolved BEFORE anything was written
+	// (AUTH-2 item 1): the transport builds the login response from it without
+	// a storage read, so nothing fallible runs after the session is delivered.
+	// Set with Session.
+	Identity UserIdentity
+	// MFAChallenge is set, with ErrMFARequired, for an account with a second
+	// factor: the challenge was created in the same transaction that consumed
+	// the token and set the password, so a failure leaves the link live.
+	MFAChallenge string
 }
 
 // DescribeSetupToken validates a raw setup token (without consuming it) and returns
@@ -72,11 +92,19 @@ func (c *KeyorixCore) DescribeSetupToken(ctx context.Context, raw string) (*Setu
 // mints a login session so the user lands authenticated. The invitation_accept
 // purpose is completed by the invitation producer, not here.
 func (c *KeyorixCore) CompleteSetup(ctx context.Context, raw, newPassword, userAgent, ip string) (*SetupConsumeResult, error) {
+	return c.CompleteSetupHoldingLoginSlot(ctx, raw, newPassword, userAgent, ip, nil)
+}
+
+// CompleteSetupHoldingLoginSlot is CompleteSetup for a transport that reserved
+// a per-IP login-budget slot: when the account has a second factor, the slot is
+// bound to the MFA challenge (as CreateMFAChallengeHoldingLoginSlot does), so
+// the second factor hands it back when it delivers the session.
+func (c *KeyorixCore) CompleteSetupHoldingLoginSlot(ctx context.Context, raw, newPassword, userAgent, ip string, slotID *uint) (*SetupConsumeResult, error) {
 	tok, err := c.inspectActiveSetupToken(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	return c.completeValidSetupToken(ctx, tok, newPassword, userAgent, ip)
+	return c.completeValidSetupToken(ctx, tok, newPassword, userAgent, ip, slotID)
 }
 
 // completeValidSetupToken is everything CompleteSetup does once the token is
@@ -93,7 +121,7 @@ func (c *KeyorixCore) CompleteSetup(ctx context.Context, raw, newPassword, userA
 // so a recovered panic never follows a minted session. Whatever else committed
 // before the panic (the consumed token, the new password) is what the same
 // write's error leaves too.
-func (c *KeyorixCore) completeValidSetupToken(ctx context.Context, tok *models.SetupToken, newPassword, userAgent, ip string) (result *SetupConsumeResult, err error) {
+func (c *KeyorixCore) completeValidSetupToken(ctx context.Context, tok *models.SetupToken, newPassword, userAgent, ip string, slotID *uint) (result *SetupConsumeResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("SECURITY: setup token %d completion panicked after the token was validated; "+
@@ -103,7 +131,7 @@ func (c *KeyorixCore) completeValidSetupToken(ctx context.Context, tok *models.S
 	}()
 	switch tok.Purpose {
 	case SetupPurposeAccountSetup, SetupPurposePasswordResetLink:
-		return c.completePasswordSetup(ctx, tok, newPassword, userAgent, ip)
+		return c.completePasswordSetup(ctx, tok, newPassword, userAgent, ip, slotID)
 	case SetupPurposeInvitationAccept:
 		return c.completeInvitationAccept(ctx, tok, newPassword, userAgent, ip)
 	default:
@@ -112,14 +140,49 @@ func (c *KeyorixCore) completeValidSetupToken(ctx context.Context, tok *models.S
 }
 
 // completePasswordSetup handles account_setup / password_reset_link: set the existing
-// subject's password and auto-log them in.
-func (c *KeyorixCore) completePasswordSetup(ctx context.Context, tok *models.SetupToken, newPassword, userAgent, ip string) (*SetupConsumeResult, error) {
+// subject's password and auto-log them in (or, with a second factor enrolled,
+// start the MFA challenge).
+//
+// All or nothing (AUTH-2 item 1, #3298). Every write that makes up the consume
+// commits in ONE transaction: the token is marked consumed, the password hash and
+// account state are set, the account's PATs are revoked, and the session (or the
+// MFA challenge) is inserted. Everything fallible that is not a write runs before
+// it: the account read, the policy/history check, the response identity. So a
+// failure or panic at any step leaves the token live, the old password in place,
+// every PAT live and no session: the caller is told the link failed and it can be
+// used again. What runs after the commit cannot report a failure: the cache
+// eviction, password history, the session cap, the purge of other sessions and the
+// audit events are best-effort and recover their own panics.
+//
+// This replaces consume-first: the token used to be spent before the password was
+// set and the session minted, so a later fault answered "link could not be
+// completed" over a spent token and a changed password (#3298's sweep).
+// Single use still holds: the consume is a conditional update inside the
+// transaction, so of two concurrent consumes exactly one commits.
+func (c *KeyorixCore) completePasswordSetup(ctx context.Context, tok *models.SetupToken, newPassword, userAgent, ip string, slotID *uint) (result *SetupConsumeResult, err error) {
+	// A panic here (a storage read, or inside the transaction, which rolls back)
+	// would reach Recovery's 500, which a dead token never gets: the status
+	// would say the token was valid. Nothing committed before a recovered panic
+	// (everything after the commit recovers its own), so it is this path's
+	// post-verdict error, answered like a dead token.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: setup token %d consume panicked after the token was validated; refusing it like a dead token: %v\n%s", tok.ID, r, debug.Stack())
+			result, err = nil, fmt.Errorf("%w: %s: panicked: %v", ErrSetupPostVerdict, i18n.T("ErrorStorageFailed", nil), r)
+		}
+	}()
 	if tok.SubjectUserID == nil {
 		return nil, fmt.Errorf("%s: setup token has no subject account", i18n.T("ErrorValidation", nil))
 	}
+	if tok.Purpose != SetupPurposeAccountSetup && tok.Purpose != SetupPurposePasswordResetLink {
+		return nil, fmt.Errorf("%s: setup token purpose mismatch", i18n.T("ErrorValidation", nil))
+	}
 	user, err := c.storage.GetUser(ctx, *tok.SubjectUserID)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
+		if storage.IsUserNotFound(err) {
+			return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
+		}
+		return nil, fmt.Errorf("%w: %s: %w", ErrSetupPostVerdict, i18n.T("ErrorUserNotFound", nil), err)
 	}
 	// A suspended account cannot be activated via a setup link.
 	if AccountLoginBlocked(user.ID, user.AccountState) {
@@ -139,49 +202,174 @@ func (c *KeyorixCore) completePasswordSetup(ctx context.Context, tok *models.Set
 		return nil, fmt.Errorf("%w: %v", ErrInvalidSetupPassword, err)
 	}
 
-	// Consume is single-use and atomic; from here the token is spent (fail-closed).
-	// tok was already inspected by CompleteSetup, so consume it directly (no re-lookup).
-	if err := c.consumeInspectedToken(ctx, tok, tok.Purpose); err != nil {
-		return nil, err
-	}
-	if err := c.applyNewPassword(ctx, user, newPassword); err != nil {
-		return nil, err
-	}
-
 	// Accounts with any second factor (TOTP or a passkey) enrolled must NOT get an
 	// auto-login session from a password reset — that would silently bypass MFA for
 	// this session, mirroring exactly the gate Login applies after the password step
-	// (see ErrMFARequired in auth.go). Still evict every existing session (keepID=0,
-	// i.e. keep none) so a stolen session is locked out immediately, same invariant as
-	// the auto-login path below — the reset must not leave a thief's session alive
-	// just because the new session isn't minted yet. The caller completes the second
-	// factor via CreateMFAChallenge → VerifyMFALogin (or the WebAuthn ceremony) using
-	// the password that was just accepted.
-	if user.MFAEnabled || user.WebAuthnEnabled {
-		_ = c.deleteSessionsForUserAndEvict(ctx, user.ID, 0, "")
-		c.writeAuditEventFull(ctx, "account.setup_completed", &user.ID, nil, nil, ip,
-			fmt.Sprintf("account setup completed via %s (MFA required before session)", tok.Purpose))
-		return &SetupConsumeResult{User: user}, ErrMFARequired
-	}
+	// (see ErrMFARequired in auth.go). They get an MFA challenge instead, created in
+	// the same transaction, and complete it via VerifyMFALogin (or the WebAuthn
+	// ceremony) with the password just accepted.
+	secondFactor := user.MFAEnabled || user.WebAuthnEnabled
 
-	// The token is spent: a panic in the insert is answered like its error
-	// (#3277 follow-up, mintLoginSession), never the Recovery 500 a dead token
-	// cannot get.
-	session, err := c.mintLoginSession(ctx, user.ID, userAgent, ip, false)
+	// Everything fallible that is not a write, before the transaction.
+	var identity UserIdentity
+	if !secondFactor {
+		if identity, err = c.resolveLoginIdentityBeforeMint(ctx, user.ID); err != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrSetupPostVerdict, i18n.T("ErrorStorageFailed", nil), err)
+		}
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), int(bcryptCost.Load()))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
+	now := c.now()
+	newState := clearRestrictionOnPasswordChange(user.AccountState)
+	stateChanged := newState != NormalizeAccountState(user.AccountState)
+	var session *models.Session
+	var challenge string
+	var challengeRow *models.MFAChallenge
+	if secondFactor {
+		if challenge, err = generateSecureToken(); err != nil {
+			return nil, err
+		}
+		challengeRow = &models.MFAChallenge{
+			UserID: user.ID, TokenHash: sha256Hex(challenge), ExpiresAt: now.Add(mfaChallengeTTL), CreatedAt: now,
+			LoginAttemptID: sharedLoginSlot(slotID),
+		}
+	} else if session, err = c.newSessionRow(user.ID, userAgent, ip, false); err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+
+	var revokedPATs []string
+	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		ok, err := tx.MarkSetupTokenConsumed(ctx, tok.ID, now)
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		if !ok {
+			// Lost a race to a concurrent consumer (or spent between inspect and
+			// here). Single use holds: refuse, and roll nothing forward. A dead
+			// token, not a fault: returned as is (see the wrap below).
+			return errSetupTokenAlreadyUsed
+		}
+		if err := tx.SetPasswordHash(ctx, user.ID, string(hash), now); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		if stateChanged {
+			if err := tx.SetAccountState(ctx, user.ID, newState, now); err != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			}
+		}
+		// A credential reset must invalidate every bearer class, PATs included.
+		// Inside the transaction: unlike ChangePassword (applyNewPassword), where
+		// the old password stays with its owner, a reset whose PAT revocation
+		// failed is refused whole and the link stays live for a retry, rather
+		// than completing with a thief's PAT still alive.
+		hashes, err := tx.RevokeAllPersonalAccessTokensForUser(ctx, user.ID)
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		revokedPATs = hashes
+		if secondFactor {
+			if err := tx.CreateMFAChallenge(ctx, challengeRow); err != nil {
+				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			}
+			return nil
+		}
+		created, err := tx.CreateSession(ctx, session)
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		session = created
+		return nil
+	})
+	if errors.Is(err, errSetupTokenAlreadyUsed) {
+		return nil, fmt.Errorf("%s: setup token already used", i18n.T("ErrorNotFound", nil))
+	}
+	if err != nil {
+		// A transaction that reports an error may still have committed (a lost
+		// acknowledgement, #2844's rule for the session insert, here for the
+		// whole consume). It is all-or-nothing, so the row this call built is
+		// present exactly when everything else committed with it: then the
+		// consume succeeded and is delivered, never reported as failed over a
+		// spent link and a live, undelivered session.
+		if !c.setupConsumeLanded(ctx, user.ID, ip, session, challengeRow, err) {
+			return nil, fmt.Errorf("%w: %w", ErrSetupPostVerdict, err)
+		}
+	}
+	user.PasswordHash = string(hash)
+	user.PasswordChangedAt = &now
+	user.AccountState = newState
+	user.UpdatedAt = now
+
+	// Committed. Nothing below can report a failure.
+	c.invalidateTokenCache(revokedPATs...)
+	if c.passwordPolicy.HistoryCount > 0 {
+		besteffort.Run(ctx, "setup_consume.AddPasswordHistory", func() error {
+			return c.storage.AddPasswordHistory(ctx, user.ID, string(hash), now)
+		})
+		besteffort.Run(ctx, "setup_consume.PrunePasswordHistory", func() error {
+			return c.storage.PrunePasswordHistory(ctx, user.ID, c.passwordPolicy.HistoryCount)
+		})
+	}
+	c.writeAuditEventFull(ctx, "setup_token.consumed", tok.SubjectUserID, nil, nil, "",
+		fmt.Sprintf("setup token consumed (purpose=%s, subject=%s)", tok.Purpose, tok.SubjectEmail))
+
+	if secondFactor {
+		// Evict every existing session (keep none) so a stolen session is locked
+		// out now, not only once the second factor completes.
+		_ = c.deleteSessionsForUserAndEvict(ctx, user.ID, 0, "")
+		c.writeAuditEventFull(ctx, "account.setup_completed", &user.ID, nil, nil, ip,
+			fmt.Sprintf("account setup completed via %s (MFA required before session)", tok.Purpose))
+		return &SetupConsumeResult{User: user, MFAChallenge: challenge}, ErrMFARequired
+	}
+
+	c.enforceSessionLimitBestEffort(ctx, user.ID)
 	// Evict every other session for this account, keeping only the one just minted, and
 	// drop those sessions from the auth cache so a stolen session is locked out on its
 	// next request, not after the cache TTL. A self-service password reset must lock out
 	// anyone holding a stolen session (and a re-provision must drop stale ones) — matching
-	// ChangePassword's invalidate-other-devices invariant, which this path previously skipped.
+	// ChangePassword's invalidate-other-devices invariant.
 	_ = c.deleteSessionsForUserAndEvict(ctx, user.ID, session.ID, session.SessionToken)
-
 	c.writeAuditEventFull(ctx, "account.setup_completed", &user.ID, nil, nil, ip,
 		fmt.Sprintf("account setup completed via %s", tok.Purpose))
 
-	return &SetupConsumeResult{Session: session, User: user}, nil
+	return &SetupConsumeResult{Session: session, User: user, Identity: identity}, nil
+}
+
+// errSetupTokenAlreadyUsed is the consume transaction's lost-race refusal.
+var errSetupTokenAlreadyUsed = errors.New("setup token already used")
+
+// setupConsumeLanded reports whether completePasswordSetup's transaction
+// committed although it returned txErr, by reading back the one row the call
+// built: the session by its token (sessionWriteLanded, which also replaces
+// *session with the stored row) or the MFA challenge by its hash. Panic-safe; a
+// lookup that fails is audited as auth.undelivered_session_unresolved and
+// answered "not landed", so the caller keeps failing closed.
+func (c *KeyorixCore) setupConsumeLanded(ctx context.Context, userID uint, ip string, session *models.Session, challenge *models.MFAChallenge, txErr error) bool {
+	if challenge == nil {
+		row := c.sessionWriteLanded(ctx, session.SessionToken, userID, ip, "setup consume", txErr)
+		if row == nil {
+			return false
+		}
+		*session = *row
+		return true
+	}
+	landed := false
+	uid := userID
+	besteffort.Run(ctx, "setup_consume.challengeLanded", func() error {
+		got, err := c.storage.GetActiveMFAChallenge(ctx, challenge.TokenHash, c.now())
+		if err == nil && got != nil {
+			landed = true
+			return nil
+		}
+		if err != nil && !credentialRowGone(err) {
+			c.writeAuditEventFailed(ctx, EventUndeliveredSessionUnresolved, &uid, nil, ip,
+				fmt.Sprintf("setup consume for user %d failed (%v), and whether its MFA challenge was written could not be checked: %v", userID, txErr, err))
+			return err
+		}
+		return nil
+	})
+	return landed
 }
 
 // completeInvitationAccept handles invitation_accept: lazily create the invited
@@ -278,7 +466,7 @@ func (c *KeyorixCore) completeInvitationAccept(ctx context.Context, tok *models.
 		// see models.User's own doc comments), so this is safe: a subsequent
 		// CreateUser for the same address does not collide with the deleted row.
 		if derr := c.storage.DeleteUser(ctx, user.ID); derr != nil {
-			c.auditProjectScoped(ctx, "invitation.accept_orphaned_account_cleanup_failed", user.ID, inv.ProjectID,
+			c.auditProjectScopedFailed(ctx, "invitation.accept_orphaned_account_cleanup_failed", user.ID, inv.ProjectID,
 				fmt.Sprintf("invitation %d: grants failed for %s (user %d): %v -- AND cleaning up the resulting ungranted account also failed: %v -- MANUAL CLEANUP REQUIRED (delete or complete this account by hand, or the invitee is stuck)", inv.ID, inv.Email, user.ID, err, derr))
 		}
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)

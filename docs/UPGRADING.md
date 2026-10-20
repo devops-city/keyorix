@@ -582,6 +582,44 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
+## 6q. Schema epoch 3: v0.96.x cannot run against an upgraded database
+
+This release raises the schema epoch and its compatibility floor to 3 (ADR-101).
+Once a server of this release has started against a database, a v0.96.x (epoch 2)
+binary refuses to start on it: `database declares a minimum compatible schema
+epoch of 3`. That is deliberate. Two formats v0.96.x cannot handle are now in the
+database:
+
+- **The v2 audit retention anchor (#3258).** v0.96.x reads it as malformed, so its
+  `GET /audit/verify` reports the chain broken. Worse, its audit purge would write
+  a v1 anchor, which drops the cumulative purged count for good (`/audit/verify`
+  then says "truncated" and `POST /audit/checkpoint` answers 409; #3359).
+- **`secret_nodes.suspend_clear_synced_copies` (#3215).** A v0.96.x resume left the
+  marker set, so its next plain suspend made the operator and k8s-sync clear the
+  synced Kubernetes copies (#3362).
+
+**There is no rollback to v0.96.x once a server of this release has started against a
+database.** The floor is recorded in the database and nothing lowers it, so a v0.96.x binary
+stays unable to start on it. To go back, restore a backup taken before the upgrade (data written
+since is lost); do not edit the epoch by hand.
+
+The floor only stops v0.96.x servers from **starting**. For v0.96.x replicas still
+running during a rolling upgrade, PostgreSQL triggers installed by the migration
+cover the same two cases. An older binary's purge over a v2 anchor is refused and
+rolled back whole, so nothing is deleted. Any status change away from `suspended`
+clears the marker, whichever binary writes it.
+
+Rolling upgrade from v0.96.x with several replicas:
+[SELF_HOSTING.md, "Running more than one replica"](SELF_HOSTING.md#running-more-than-one-replica).
+In short:
+
+- let the rollout finish;
+- don't run `POST /api/v1/admin/jobs/purge-audit-logs` until it has finished, because a
+  request that lands on an old replica fails;
+- expect `GET /audit/verify` on old replicas to report "broken" after a purge until
+  they are replaced.
+
+Rollback across this release needs a restore (section 7).
 ## 6j. The first run after upgrade scans the audit history once
 ## 6r. "Last used" / "last seen" are written in the background
 
@@ -863,6 +901,40 @@ Two behaviour changes at boot, no new setting. Check before upgrading:
 
 Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
 [KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
+
+## 6t. `server.grpc.tls.auto_cert: true` now refuses to start
+
+Automatic (ACME) certificates exist only for the HTTP listener. On gRPC the flag
+never obtained a certificate: with `server.grpc.tls.enabled: true` the server
+started and every gRPC TLS handshake failed, and with `enabled: false` the gRPC
+listener served plaintext. A config that sets `server.grpc.tls.auto_cert: true`
+is now refused at start-up with a message naming the key (AUTH-2).
+
+If your config has the line, remove it and either give gRPC a certificate:
+
+```yaml
+server:
+  grpc:
+    tls:
+      enabled: true
+      cert_file: /etc/keyorix/grpc.crt
+      key_file: /etc/keyorix/grpc.key
+```
+
+or terminate gRPC TLS at a proxy. `server.http.tls.auto_cert` is unchanged.
+
+## 6u. Failure audit events are now stored with `success = false`
+
+`mfa.failed`, `mfa.error`, `webauthn.failed` and the other audit events whose name
+records a failure (`auth.session_revocation_failed`, `auth.keep_session_lookup_failed`,
+`auth.session_revocation_panicked`, `secret.rotate_failed`, `dynamic_lease.revoke_failed`,
+`notification.failed`, and the rest of the `*_failed` / `*.failed` / `*_panicked`
+family) were written with `success = true`, so a wrong TOTP code or a failed passkey
+assertion was invisible to `success = false` filters, SIEM rules and exports (#3363).
+New rows have `success = false`. **Rows written before the upgrade keep
+`success = true`**: audit rows are hash-chained and never rewritten. A query or SIEM
+rule that must cover older history should match on `event_type` as well as
+`success`. `access_request.rejected` is unchanged (it records a successful decision).
 
 ## 6j. CLI: webhook URLs and tokens stay off the command line
 

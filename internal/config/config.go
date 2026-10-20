@@ -641,6 +641,16 @@ func (s ServerInstanceConfig) EffectiveMaxRequestBodyBytes() int64 {
 	return s.MaxRequestBodyBytes
 }
 
+// ErrGRPCAutoCertUnsupported refuses server.grpc.tls.auto_cert: true. ACME
+// (autocert) is wired only for the HTTP listener; on gRPC the flag used to build
+// a TLS config with no certificate, so the server started and every handshake
+// failed. Config.Validate returns it, and server/grpc's NewServer refuses the
+// same flag for a caller that skipped Validate.
+var ErrGRPCAutoCertUnsupported = errors.New("server.grpc.tls.auto_cert: true is not supported: " +
+	"automatic (ACME) certificates are only available for the HTTP listener (server.http.tls.auto_cert). " +
+	"Remove server.grpc.tls.auto_cert and set server.grpc.tls.cert_file and key_file, " +
+	"or terminate gRPC TLS at a proxy")
+
 type TLSConfig struct {
 	Enabled  bool     `yaml:"enabled"`
 	AutoCert bool     `yaml:"auto_cert,omitempty"`
@@ -1028,6 +1038,28 @@ type EncryptionConfig struct {
 	// the default passphrase derivation (KEYORIX_MASTER_PASSWORD + on-disk salt),
 	// byte-identical to the historical behaviour.
 	KeyProvider KeyProviderConfig `yaml:"key_provider"`
+	// KeyDirLock selects how a server coordinates with other processes using the
+	// same key files (docs/multi-replica-keys.md). "" or "flock" (default): the
+	// server holds an exclusive flock(2) on <key dir>/dek.lock for its lifetime,
+	// so exactly one server can use a key directory. "database" (PostgreSQL
+	// only, for several replicas): the server takes no key-directory lock; the
+	// server-presence advisory lock it already holds keeps key-changing admin
+	// commands out, and first-boot key generation and rotation crash recovery
+	// run under a PostgreSQL advisory lock. The key directory may then be a
+	// shared ReadWriteMany volume without working flock, or read-only.
+	KeyDirLock string `yaml:"key_dir_lock"`
+}
+
+// Key-directory lock modes (EncryptionConfig.KeyDirLock).
+const (
+	KeyDirLockFlock    = "flock"
+	KeyDirLockDatabase = "database"
+)
+
+// KeyDirLockIsDatabase reports whether the key-directory lock is the
+// PostgreSQL-backed one (storage.encryption.key_dir_lock: database).
+func (e *EncryptionConfig) KeyDirLockIsDatabase() bool {
+	return e.KeyDirLock == KeyDirLockDatabase
 }
 
 // KeyProviderConfig selects the KEK source. type: "password" (default) derives the
@@ -3007,13 +3039,15 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		}
 	}
 
+	// gRPC has no ACME integration: auto_cert would build a TLS config with no
+	// certificate, so every handshake fails while start-up succeeds (a silent
+	// outage). Refused whether or not tls.enabled is set: with it unset the
+	// listener used to serve plaintext to an operator who had asked for
+	// certificates (AUTH-2 item 3).
+	if c.Server.GRPC.TLS.AutoCert {
+		return ErrGRPCAutoCertUnsupported
+	}
 	if c.Server.GRPC.TLS.Enabled {
-		// gRPC has no ACME integration: auto_cert would build a TLS config with no
-		// certificate, so every handshake fails (a silent outage). Reject it explicitly
-		// rather than start a server that cannot serve.
-		if c.Server.GRPC.TLS.AutoCert {
-			return fmt.Errorf("gRPC TLS auto_cert is not supported; provide cert_file and key_file")
-		}
 		if c.Server.GRPC.TLS.CertFile == "" || c.Server.GRPC.TLS.KeyFile == "" {
 			return fmt.Errorf("gRPC TLS is enabled but cert_file or key_file is missing")
 		}
@@ -3032,6 +3066,10 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	}
 	// ADR-112 Amendment 4: a compliance profile refuses insecure_audit_skip_reads.
 	if err := validateInsecureAuditSkipReads(c); err != nil {
+		return err
+	}
+
+	if err := validateKeyDirLock(c); err != nil {
 		return err
 	}
 

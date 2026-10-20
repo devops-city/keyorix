@@ -32,7 +32,7 @@ func (c *KeyorixCore) VerifyMFAStepUp(ctx context.Context, userID uint, code str
 		return fmt.Errorf("account is not active")
 	}
 	if c.loginLocked(user) {
-		return fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
+		return &reauthRejectedError{msg: "account temporarily locked due to repeated failed logins; try again later"}
 	}
 	if !user.MFAEnabled {
 		return fmt.Errorf("MFA is not enabled on this account; enrol with 'keyorix mfa enroll' first")
@@ -58,14 +58,17 @@ func (c *KeyorixCore) VerifyMFAStepUp(ctx context.Context, userID uint, code str
 			// pre-verdict case) -- that is exactly the signal used here to still
 			// count it toward the lockout, same as a wrong code would be. A
 			// correct guess must never be cheaper, lockout-wise, than a wrong one.
+			verr := fmt.Errorf("%w: %s: %w", ErrMFAVerificationStorageFailure, i18n.T("ErrorRetrievalFailed", nil), storageErr)
 			if !errors.Is(storageErr, ErrMFAVerificationUnavailable) {
 				c.recordFailedLogin(ctx, user)
+				// Counted like a wrong code, so the per-IP slot is kept too.
+				return &reauthRejectedError{cause: verr}
 			}
-			return fmt.Errorf("%w: %s: %w", ErrMFAVerificationStorageFailure, i18n.T("ErrorRetrievalFailed", nil), storageErr)
+			return verr
 		}
 		c.auditMFAFailed(ctx, userID, "stepup")
 		c.recordFailedLogin(ctx, user)
-		return fmt.Errorf("invalid code")
+		return &reauthRejectedError{msg: "invalid code"}
 	}
 
 	// From here on the submitted code has been found CORRECT (and consumed). Every
@@ -95,7 +98,7 @@ func (c *KeyorixCore) VerifyMFAStepUp(ctx context.Context, userID uint, code str
 		// gets "invalid code" too, and its recordFailedLogin is a no-op on a
 		// locked account, so both cost the same and read the same.
 		c.auditMFAFailed(ctx, userID, "stepup")
-		return fmt.Errorf("invalid code")
+		return &reauthRejectedError{msg: "invalid code"}
 	}
 
 	grant := &models.MFAStepUpGrant{

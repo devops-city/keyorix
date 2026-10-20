@@ -74,7 +74,13 @@ func (h *AuthHandler) FinishWebAuthnRegistration(w http.ResponseWriter, r *http.
 	if proof == "" {
 		proof = body.Password
 	}
+	att, admitted := h.admitCredentialCheck(w, r)
+	if !admitted {
+		return
+	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
 	cred, err := h.coreService.FinishWebAuthnRegistration(r.Context(), userCtx.UserID, body.WebAuthnSession, strings.TrimSpace(body.Name), proof, parsed)
+	h.settleCredentialCheck(r, att, userCtx, "webauthn_register", err)
 	if err != nil {
 		h.writeWebAuthnErr(w, err)
 		return
@@ -146,7 +152,14 @@ func (h *AuthHandler) DeleteWebAuthnCredential(w http.ResponseWriter, r *http.Re
 	if proof == "" {
 		proof = body.Password
 	}
-	if err := h.coreService.DeleteWebAuthnCredential(r.Context(), userCtx.UserID, uint(id), proof); err != nil {
+	att, admitted := h.admitCredentialCheck(w, r)
+	if !admitted {
+		return
+	}
+	defer h.releaseCredentialSlotOnPanic(r, att)
+	err = h.coreService.DeleteWebAuthnCredential(r.Context(), userCtx.UserID, uint(id), proof)
+	h.settleCredentialCheck(r, att, userCtx, "webauthn_delete", err)
+	if err != nil {
 		h.writeWebAuthnErr(w, err)
 		return
 	}
