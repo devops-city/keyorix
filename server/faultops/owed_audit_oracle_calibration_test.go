@@ -340,7 +340,7 @@ func TestOwedAuditOracle_SweepEveryScopedOp(t *testing.T) {
 		kinds = []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindPanic, faultstorage.KindEffectThenError}
 		nths = map[string]int{"LogAuditEvent": 3, "ClaimPendingAuditEvent": 2, "CreatePendingAuditEvent": 2}
 	}
-	ops := append([]string{owedAuditSSOCallbackOp}, auditTx3RevocationOps...)
+	ops := owedAuditScopedOps()
 	var accepted, same, neverFired, notSuccess int
 	var multiOwed []string
 	for _, op := range ops {

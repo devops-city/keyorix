@@ -92,9 +92,18 @@ const (
 	owedAuditPendingTable  = "PendingAuditEvent"
 )
 
+// owedAuditSAMLACSOp is the SAML sibling of the SSO callback: the same group/role
+// reconcile (reconcileSSOGroups / reconcileSSORoles), so the same owed rows.
+const owedAuditSAMLACSOp = "REST POST /auth/saml/{provider}/acs"
+
+// owedAuditScopedOps is the rule's op scope, the single list the rule and its sweep read.
+func owedAuditScopedOps() []string {
+	return append([]string{owedAuditSSOCallbackOp, owedAuditSAMLACSOp}, auditTx3RevocationOps...)
+}
+
 // owedAuditRuleOp reports whether op is in the rule's scope (condition 1, op half).
 func owedAuditRuleOp(op string) bool {
-	return op == owedAuditSSOCallbackOp || slices.Contains(auditTx3RevocationOps, op)
+	return slices.Contains(owedAuditScopedOps(), op)
 }
 
 // owedAuditDecision is the rule's verdict on one oracleInput.
@@ -187,35 +196,60 @@ func owedAuditProbeFor(w *faultWorld) func(op string) (map[string]int, error) {
 		if entry == nil {
 			return nil, fmt.Errorf("op %q is not in opCatalog", op)
 		}
+		// Refuse each LogAuditEvent call in turn (1, 2, ... until the fault no longer
+		// fires) and take the union of what gets queued. Refusing only the first call is
+		// not enough: an op can run several owed mutations (the SSO callback removes a
+		// group membership and, separately, a mapped role), the first refusal queues only
+		// the rows of the mutation it hits, the first call can be a best-effort row (SAML
+		// ACS: auth.sso_jit_provisioned), and the SSO role reconcile iterates a map, so
+		// which call is which is not even stable between runs. A run that the refusal
+		// fails (a fail-closed grant row refused) queues nothing and adds nothing.
 		ctx := context.Background()
-		pw := newFaultWorld(w.t, nil)
-		var state any
-		if entry.Setup != nil {
-			var err error
-			if state, err = entry.Setup(ctx, pw); err != nil {
-				return nil, fmt.Errorf("probe setup: %w", err)
-			}
-		}
-		drainAllBackgroundGoroutines()
-		pw.faulty.Arm(&faultstorage.FaultSpec{Method: "LogAuditEvent", NthCall: 1, Kind: faultstorage.KindError, Err: errFuzzInjected})
-		res, err := entry.Execute(ctx, pw, state)
-		fired := pw.faulty.Fired()
-		pw.faulty.Arm(nil)
-		drainAllBackgroundGoroutines()
-		if err != nil || !res.Success || !fired {
-			return nil, fmt.Errorf("probe run of %s with LogAuditEvent#1 refused: err=%v success=%t fired=%t (%s)", op, err, res.Success, fired, res.Detail)
-		}
-		snap, err := snapshotDB(pw.db)
-		if err != nil {
-			return nil, err
-		}
 		out := map[string]int{}
-		for _, r := range snap.Tables[owedAuditPendingTable].Rows {
-			var rec struct{ EventType string }
-			if err := json.Unmarshal([]byte(r), &rec); err != nil {
+		successes := 0
+		for nth := 1; ; nth++ {
+			pw := newFaultWorld(w.t, nil)
+			var state any
+			if entry.Setup != nil {
+				var err error
+				if state, err = entry.Setup(ctx, pw); err != nil {
+					return nil, fmt.Errorf("probe setup: %w", err)
+				}
+			}
+			drainAllBackgroundGoroutines()
+			pw.faulty.Arm(&faultstorage.FaultSpec{Method: "LogAuditEvent", NthCall: nth, Kind: faultstorage.KindError, Err: errFuzzInjected})
+			res, err := entry.Execute(ctx, pw, state)
+			fired := pw.faulty.Fired()
+			pw.faulty.Arm(nil)
+			drainAllBackgroundGoroutines()
+			if err != nil {
+				return nil, fmt.Errorf("probe run of %s with LogAuditEvent#%d refused: %w", op, nth, err)
+			}
+			if !fired {
+				break
+			}
+			if !res.Success {
+				continue
+			}
+			successes++
+			snap, err := snapshotDB(pw.db)
+			if err != nil {
 				return nil, err
 			}
-			out[rec.EventType]++
+			got := map[string]int{}
+			for _, r := range snap.Tables[owedAuditPendingTable].Rows {
+				var rec struct{ EventType string }
+				if err := json.Unmarshal([]byte(r), &rec); err != nil {
+					return nil, err
+				}
+				got[rec.EventType]++
+			}
+			for k, n := range got {
+				out[k] = max(out[k], n)
+			}
+		}
+		if successes == 0 {
+			return nil, fmt.Errorf("probe of %s: no run with a refused LogAuditEvent succeeded, so the owed rows cannot be told", op)
 		}
 		owedAuditProbeCache[op] = out
 		return out, nil
