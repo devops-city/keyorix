@@ -610,15 +610,31 @@ func TestInstall_RejectsBadInputBeforeChangingAnything(t *testing.T) {
 }
 
 func TestInstall_SeedScriptIsStoredAsGiven(t *testing.T) {
-	// The kit never copies or edits DEMO-LOCAL-2's scripts: it records repo-relative paths.
-	r := renderInstall(t, []string{"--seed-script", "deploy/demo-hosted/democtl.sh", "--seed-script", "deploy/demo-hosted/install.sh", "--require-seed"})
+	// The kit never copies or edits the demo seed: it records repo-relative paths.
+	r := renderInstall(t, []string{"--seed-script", "deploy/demo-hosted/democtl.sh", "--seed-script", "deploy/demo-hosted/install.sh"})
 	env := read(t, filepath.Join(r.conf, "demo.env"))
-	if !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=deploy/demo-hosted/democtl.sh deploy/demo-hosted/install.sh\n") || !strings.Contains(env, "KEYORIX_DEMO_REQUIRE_SEED=1\n") {
+	if !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=deploy/demo-hosted/democtl.sh deploy/demo-hosted/install.sh\n") {
 		t.Errorf("demo.env:\n%s", env)
 	}
-	// And the default is the documented placeholder: empty list.
-	if env := read(t, filepath.Join(renderInstall(t, nil).conf, "demo.env")); !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=\n") {
-		t.Errorf("default seed list must be empty (placeholder hook):\n%s", env)
+	if strings.Contains(env, "REQUIRE_SEED") {
+		t.Errorf("there is no placeholder any more, so no REQUIRE_SEED switch:\n%s", env)
+	}
+}
+
+func TestInstall_DefaultSeedIsTheDemoSeedScript(t *testing.T) {
+	// No placeholder: without --seed-script a reset runs the demo seed, which must exist and be executable.
+	env := read(t, filepath.Join(renderInstall(t, nil).conf, "demo.env"))
+	if !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=scripts/demo/seed-demo.sh\n") {
+		t.Errorf("default seed list must be scripts/demo/seed-demo.sh:\n%s", env)
+	}
+	fi, err := os.Stat(filepath.Join(repoRoot, "scripts", "demo", "seed-demo.sh"))
+	if err != nil || fi.Mode()&0o111 == 0 {
+		t.Errorf("scripts/demo/seed-demo.sh must exist and be executable: %v", err)
+	}
+	// A second run keeps what the first one stored (idempotent installs), the default included.
+	r := renderInstall(t, []string{"--seed-script", "deploy/demo-hosted/democtl.sh"})
+	if env := read(t, filepath.Join(r.conf, "demo.env")); !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=deploy/demo-hosted/democtl.sh\n") {
+		t.Errorf("an explicit --seed-script must replace the default:\n%s", env)
 	}
 }
 
@@ -679,20 +695,33 @@ func TestDemoctl_ResetIsFullAndKeepsTheCertificate(t *testing.T) {
 	}
 }
 
-func TestDemoctl_SeedHookIsAPlaceholderUntilConfigured(t *testing.T) {
+func TestDemoctl_SeedHookRunsTheSeedWithTheStateDirAndNoFixedSecret(t *testing.T) {
 	s := kitFile(t, "democtl.sh")
 	hook := funcBody(t, s, "run_seed_hook")
-	for _, want := range []string{"PLACEHOLDER", "KEYORIX_DEMO_REQUIRE_SEED", `case $rel in /*|*..*)`, `"$path" ||`, "KEYORIX_DEMO_ADMIN_PASSWORD_FILE", "KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE"} {
+	for _, want := range []string{
+		`case $rel in /*|*..*)`,
+		`"$path" "$SEED_STATE" ||`, // STATE_DIR is the script's only argument
+		`KEYORIX_SERVER="$WEB_URL"`,
+		`KEYORIX_DEMO_ADMIN_PASSWORD_FILE="$SECRETS/admin_password"`, // a secret is a file, never a value
+		`KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE="$SECRETS/bootstrap_token"`,
+		`die "no seed script configured`, // fails closed: no placeholder
+	} {
 		if !strings.Contains(hook, want) {
 			t.Errorf("run_seed_hook lacks %q", want)
 		}
 	}
-	for _, f := range []string{"install.sh", "democtl.sh"} {
-		for i, line := range strings.Split(kitFile(t, f), "\n") {
-			if code := strings.TrimSpace(line); !strings.HasPrefix(code, "#") && strings.Contains(code, "scripts/demo") {
-				t.Errorf("%s:%d names a scripts/demo path in code; DEMO-LOCAL-2 owns those, pass them with --seed-script", f, i+1)
-			}
+	for _, gone := range []string{"PLACEHOLDER", "REQUIRE_SEED"} {
+		if strings.Contains(s, gone) || strings.Contains(kitFile(t, "install.sh"), gone) {
+			t.Errorf("the placeholder is gone, but %q is still in the kit scripts", gone)
 		}
+	}
+	// The seed state directory is created 0700 and holds the TOTP key and generated passwords.
+	if !strings.Contains(hook, `chmod 700 "$SEED_STATE"`) {
+		t.Error("the seed state directory must be 0700")
+	}
+	// The kit names the demo seed in exactly one place (install.sh's default); democtl takes its list from demo.env.
+	if strings.Contains(stripComments(s), "scripts/demo") {
+		t.Error("democtl.sh names a scripts/demo path in code; the list comes from KEYORIX_DEMO_SEED_SCRIPTS")
 	}
 }
 

@@ -31,8 +31,8 @@
 #   --idle-minutes N         default 45;  --grace-minutes N  default 30
 #   --reset-time HH:MM       nightly reset, UTC (default 03:30)
 #   --seed-script REPO/PATH  seed/scenario script to run after every reset (repeatable, in order;
-#                            DEMO-LOCAL-2's scripts, repo-relative). None = PLACEHOLDER hook.
-#   --require-seed           a reset fails when no seed script is configured
+#                            repo-relative; the first one replaces the default, scripts/demo/seed-demo.sh,
+#                            which gets the seed state directory as its only argument)
 #   --no-start               install but do not start the stack
 #   --render-only            write config, secrets and the gate under --state-dir/--conf-dir
 #                            and stop: no packages, users, firewall, units or containers
@@ -87,8 +87,7 @@ IDLE_ACTION=$(prev_value KEYORIX_DEMO_IDLE_ACTION); IDLE_ACTION=${IDLE_ACTION:-p
 IDLE_MINUTES=$(prev_value KEYORIX_DEMO_IDLE_MINUTES); IDLE_MINUTES=${IDLE_MINUTES:-45}
 GRACE_MINUTES=$(prev_value KEYORIX_DEMO_GRACE_MINUTES); GRACE_MINUTES=${GRACE_MINUTES:-30}
 RESET_TIME=$(prev_value KEYORIX_DEMO_RESET_TIME); RESET_TIME=${RESET_TIME:-03:30}
-SEED_SCRIPTS=$(prev_value KEYORIX_DEMO_SEED_SCRIPTS)
-REQUIRE_SEED=$(prev_value KEYORIX_DEMO_REQUIRE_SEED); REQUIRE_SEED=${REQUIRE_SEED:-0}
+SEED_SCRIPTS=$(prev_value KEYORIX_DEMO_SEED_SCRIPTS); SEED_SCRIPTS=${SEED_SCRIPTS:-scripts/demo/seed-demo.sh}
 
 SEED_GIVEN=0
 while [ $# -gt 0 ]; do
@@ -114,7 +113,6 @@ while [ $# -gt 0 ]; do
     --seed-script)
       if [ "$SEED_GIVEN" = 0 ]; then SEED_SCRIPTS=""; SEED_GIVEN=1; fi
       SEED_SCRIPTS="${SEED_SCRIPTS:+$SEED_SCRIPTS }${2:-}"; shift 2 ;;
-    --require-seed) REQUIRE_SEED=1; shift ;;
     --no-start) NO_START=1; shift ;;
     --render-only) RENDER_ONLY=1; shift ;;
     --state-dir|--conf-dir) shift 2 ;; # read above
@@ -185,7 +183,7 @@ compose_ok() {
 install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg openssl apache2-utils util-linux unattended-upgrades
+  apt-get install -y -qq ca-certificates curl gnupg openssl python3 apache2-utils util-linux unattended-upgrades
   if [ "$FIREWALL" = manage ]; then apt-get install -y -qq ufw; fi
   if ! compose_ok; then
     log "installing Docker Engine from Docker's apt repository (Compose >= $MIN_COMPOSE needed)"
@@ -386,7 +384,6 @@ write_env() {
     echo "KEYORIX_DEMO_GRACE_MINUTES=$GRACE_MINUTES"
     echo "KEYORIX_DEMO_RESET_TIME=$RESET_TIME"
     echo "KEYORIX_DEMO_SEED_SCRIPTS=$SEED_SCRIPTS"
-    echo "KEYORIX_DEMO_REQUIRE_SEED=$REQUIRE_SEED"
   } >"$ENV_FILE.new"
   chmod 644 "$ENV_FILE.new"
   mv -f "$ENV_FILE.new" "$ENV_FILE"

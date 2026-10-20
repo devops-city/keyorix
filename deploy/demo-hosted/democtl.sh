@@ -27,7 +27,8 @@ STATE="${KEYORIX_DEMO_STATE:?KEYORIX_DEMO_STATE missing in $ENV_FILE}"
 SECRETS="${KEYORIX_SECRETS_DIR:?KEYORIX_SECRETS_DIR missing in $ENV_FILE}"
 PROJECT="keyorix-demo" # the `name:` in docker-compose.demo.yml
 LOCK="${KEYORIX_DEMO_LOCK:-/run/lock/keyorix-demo.lock}"
-WEB_URL="http://127.0.0.1:8088" # web published on the loopback by the overlay
+WEB_URL="${KEYORIX_DEMO_WEB_URL:-http://127.0.0.1:8088}" # web published on the loopback by the overlay (override: offline tests only)
+SEED_STATE="$STATE/seed" # STATE_DIR of the seed script: state.env, the admin's TOTP key (admin-mfa), generated passwords
 HEALTH_TIMEOUT="${KEYORIX_DEMO_HEALTH_TIMEOUT:-300}"
 
 log() { printf '%s keyorix-demo: %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -78,36 +79,32 @@ cmd_down() {
   log "stack is down (volumes kept)"
 }
 
-# The seed/scenario hook. DEMO-LOCAL-2 owns the demo seed and scenario scripts and this
-# kit never edits or copies them: KEYORIX_DEMO_SEED_SCRIPTS lists repo-relative paths
-# that are run in order, each as its own process, with this environment (paths and
-# names only; a secret is a FILE the script reads, never a value on argv or in env):
-#   KEYORIX_DEMO_URL                       http://127.0.0.1:8088 (web, proxies /api to the backend)
+# The seed/scenario hook. KEYORIX_DEMO_SEED_SCRIPTS lists repo-relative paths (install.sh
+# defaults it to the demo seed, which this kit never edits or copies) that are run in order,
+# each as its own process with the seed state directory as its only argument ($STATE/seed,
+# 0700) and this environment (paths and names only; a secret is a FILE the script reads,
+# never a value on argv or in env):
+#   KEYORIX_SERVER                         http://127.0.0.1:8088 (web, proxies /api, /auth, /system to the backend)
+#   KEYORIX_DEMO_URL                       the same URL, for scripts that name it this way
 #   KEYORIX_DEMO_ADMIN_USERNAME            first admin (default admin)
 #   KEYORIX_DEMO_ADMIN_PASSWORD_FILE       0640 file with the generated admin password
 #   KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE      0600 file with the bootstrap token
-# While that list is empty (DEMO-LOCAL-2 not merged at the time of writing) this is a
-# PLACEHOLDER: it says so loudly and leaves the instance with the bootstrap admin only.
-# KEYORIX_DEMO_REQUIRE_SEED=1 turns the placeholder into a failure.
+# There is no placeholder: a reset without a seed script fails (fail closed, caddy stays off).
 run_seed_hook() {
   local rel path
-  if [ -z "${KEYORIX_DEMO_SEED_SCRIPTS:-}" ]; then
-    log "WARNING: seed hook is a PLACEHOLDER (KEYORIX_DEMO_SEED_SCRIPTS is empty): the demo has the bootstrap admin only, no seeded data"
-    if [ "${KEYORIX_DEMO_REQUIRE_SEED:-0}" = 1 ]; then
-      die "KEYORIX_DEMO_REQUIRE_SEED=1 but no seed script is configured"
-    fi
-    return 0
-  fi
+  [ -n "${KEYORIX_DEMO_SEED_SCRIPTS:-}" ] || die "no seed script configured (KEYORIX_DEMO_SEED_SCRIPTS is empty in $ENV_FILE): re-run install.sh"
+  mkdir -p "$SEED_STATE"; chmod 700 "$SEED_STATE"
   for rel in $KEYORIX_DEMO_SEED_SCRIPTS; do
     case $rel in /*|*..*) die "seed script path must be repo-relative without '..': $rel" ;; esac
     path="$REPO/$rel"
     [ -x "$path" ] || die "seed script $rel is not an executable file in $REPO"
     log "seed: running $rel"
+    KEYORIX_SERVER="$WEB_URL" \
     KEYORIX_DEMO_URL="$WEB_URL" \
     KEYORIX_DEMO_ADMIN_USERNAME="${KEYORIX_ADMIN_USERNAME:-admin}" \
     KEYORIX_DEMO_ADMIN_PASSWORD_FILE="$SECRETS/admin_password" \
     KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE="$SECRETS/bootstrap_token" \
-      "$path" || die "seed script $rel failed"
+      "$path" "$SEED_STATE" || die "seed script $rel failed"
   done
 }
 
@@ -148,6 +145,7 @@ cmd_reset() {
   remove_volume postgres_data
   remove_volume keyorix_keys
   rm -f "$STATE/last-reset"
+  rm -rf "$SEED_STATE" # the seed state (state.env, TOTP key, generated passwords) belongs to the data just wiped
   compose up -d
   wait_healthy backend
   wait_healthy web
@@ -200,7 +198,7 @@ cmd_status() {
   echo "last up:     $(cat "$STATE/last-up" 2>/dev/null || echo never)"
   echo "last reset:  $(cat "$STATE/last-reset" 2>/dev/null || echo 'none since the last wipe')"
   echo "idle:        ${KEYORIX_DEMO_IDLE_ACTION:-poweroff} after ${KEYORIX_DEMO_IDLE_MINUTES:-45} min (grace ${KEYORIX_DEMO_GRACE_MINUTES:-30} min)"
-  echo "seed hook:   ${KEYORIX_DEMO_SEED_SCRIPTS:-PLACEHOLDER (none configured)}"
+  echo "seed hook:   ${KEYORIX_DEMO_SEED_SCRIPTS:-NONE (a reset will fail)}  (state: $SEED_STATE)"
   echo "gate file:   $KEYORIX_DEMO_GATE_DIR/gate.caddy"
   echo "secrets:     $SECRETS (admin_password, bootstrap_token, gate_password under $STATE)"
 }
