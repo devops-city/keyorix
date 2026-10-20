@@ -270,6 +270,7 @@ describe('ProjectMembersTab', () => {
             await answerConfirm('Remove yourself from this project? You will lose access immediately.', 'accept');
 
             await waitFor(() => expect(removeMemberMutate).toHaveBeenCalledWith(1));
+            expect(removeMemberMutate).toHaveBeenCalledTimes(1);
             expect(confirmSpy).not.toHaveBeenCalled(); // in-app dialog, not window.confirm
             confirmSpy.mockRestore();
         });
@@ -283,6 +284,7 @@ describe('ProjectMembersTab', () => {
             await answerConfirm('Remove Carol from this project?', 'accept');
 
             await waitFor(() => expect(removeMemberMutate).toHaveBeenCalledWith(2));
+            expect(removeMemberMutate).toHaveBeenCalledTimes(1);
         });
 
         it('does not remove the member when the confirmation is cancelled', async () => {
@@ -345,6 +347,7 @@ describe('ProjectMembersTab', () => {
             await answerConfirm('Remove Carol from this project?', 'accept');
 
             await waitFor(() => expect(removeMemberMutate).toHaveBeenCalledWith(2));
+            expect(removeMemberMutate).toHaveBeenCalledTimes(1);
         });
     });
 

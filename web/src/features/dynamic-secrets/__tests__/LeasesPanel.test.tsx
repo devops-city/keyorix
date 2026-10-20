@@ -219,6 +219,7 @@ describe('LeasesPanel', () => {
         await answerConfirm(REVOKE_ONE, 'accept');
 
         await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith('lease-1', expect.anything()));
+        expect(revokeMutate).toHaveBeenCalledTimes(1);
         expect(window.confirm).not.toHaveBeenCalled();
     });
 
@@ -242,6 +243,7 @@ describe('LeasesPanel', () => {
         await answerConfirm(REVOKE_ALL_2, 'accept');
 
         await waitFor(() => expect(revokeAllMutate).toHaveBeenCalled());
+        expect(revokeAllMutate).toHaveBeenCalledTimes(1);
         expect(window.confirm).not.toHaveBeenCalled();
     });
 
