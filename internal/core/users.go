@@ -643,12 +643,19 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 				}
 				updated = user
 				var patErr, sessionErr error
-				var hashes []string
-				hashes, patErr = tx.RevokeAllPersonalAccessTokensForUser(ctx, req.ID)
-				if patErr == nil {
-					patHashes = hashes
-				}
-				sessionErr = tx.DeleteSessionsForUserExcept(ctx, req.ID, 0)
+				// Each cleanup in its own savepoint: on PostgreSQL a failed statement
+				// aborts the transaction, which would roll the deactivation back at
+				// commit despite the "best-effort, not fatal" reasoning below.
+				patErr = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+					hashes, herr := sp.RevokeAllPersonalAccessTokensForUser(ctx, req.ID)
+					if herr == nil {
+						patHashes = hashes
+					}
+					return herr
+				})
+				sessionErr = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+					return sp.DeleteSessionsForUserExcept(ctx, req.ID, 0)
+				})
 				// Best-effort, not fatal: the conditional write this switch case
 				// exists for (UpdateUserIfActiveStateMatches) has ALREADY matched
 				// and applied by this point -- the deactivation itself durably

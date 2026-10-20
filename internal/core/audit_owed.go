@@ -128,10 +128,22 @@ func (c *KeyorixCore) runOwedAuditMutation(ctx context.Context, fn func(tx stora
 	run := func(collectOnly bool) (*auditForwardSink, error) {
 		sink := &auditForwardSink{owing: true, collectOnly: collectOnly}
 		err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-			if err := fn(tx, auditInto(tx, sink)); err != nil {
-				return err
+			ferr := fn(tx, auditInto(tx, sink))
+			if sink.owedErr != nil {
+				if collectOnly {
+					// Only a panic building or recording an event gets here (nothing is
+					// written to storage): the row is lost and logged (logAuditEmitPanic),
+					// and the revocation still commits.
+					log.Printf("SECURITY: an owed audit event could not be built during the collect-only run and is NOT queued for backfill (record it by hand): %v", sink.owedErr)
+					return ferr
+				}
+				// The failed record write comes first: on PostgreSQL it aborted the
+				// transaction, so a later statement in fn fails BECAUSE of it, and
+				// returning that error would report the change itself as failed. The
+				// collect-only run surfaces any genuine failure of fn again.
+				return sink.owedErr
 			}
-			return sink.owedErr
+			return ferr
 		})
 		return sink, err
 	}

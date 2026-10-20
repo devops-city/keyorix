@@ -412,10 +412,19 @@ func (c *KeyorixCore) setAccountStateInTx(ctx context.Context, tx storage.Storag
 		// evict here too. Revoked PAT hashes are folded into sessionHashes so they're
 		// evicted from the auth cache alongside the session hashes after commit.
 		if AccountLoginBlocked(userID, state) {
-			_ = tx.DeleteSessionsForUserExcept(ctx, userID, 0)
-			if hashes, herr := tx.RevokeAllPersonalAccessTokensForUser(ctx, userID); herr == nil {
-				sessionHashes = append(sessionHashes, hashes...)
-			}
+			// Best-effort, each in its own savepoint: on PostgreSQL a failed statement
+			// aborts the whole transaction, so an ignored error here would roll the state
+			// change back at commit instead of leaving it applied.
+			_ = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+				return sp.DeleteSessionsForUserExcept(ctx, userID, 0)
+			})
+			_ = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+				hashes, herr := sp.RevokeAllPersonalAccessTokensForUser(ctx, userID)
+				if herr == nil {
+					sessionHashes = append(sessionHashes, hashes...)
+				}
+				return herr
+			})
 		}
 	}
 	return sessionHashes, nil
