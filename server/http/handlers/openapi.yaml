@@ -330,7 +330,7 @@ paths:
       operationId: getAuthProfile
       security: [{bearerAuth: []}]
       responses:
-        '200': {description: "Self profile (id, username, email, display_name, role, roles, permissions, last_login_at; pending_steps = the account-setup steps this session still owes, omitted when none)"}
+        '200': {description: "Self profile (id, username, email, display_name, role, roles, permissions, last_login_at; pending_steps = the account-setup steps this session still owes, omitted when none; mfa_grace = MFAGrace, present while ADR-112's require_mfa upgrade grace period runs and this interactive session's account has no second factor)"}
         '401': {$ref: '#/components/responses/Error'}
     put:
       tags: [Auth]
@@ -745,7 +745,10 @@ paths:
     get:
       tags: [System]
       summary: Authentication configuration (requires system.read)
-      description: Return session, password policy, login lockout, MFA, WebAuthn, and SSO provider settings (secrets redacted).
+      description: >-
+        Return session, password policy, login lockout, MFA, WebAuthn, and SSO provider settings (secrets redacted).
+        require_mfa is what is enforced right now: false while ADR-112's upgrade grace period runs, which is then
+        described by require_mfa_grace {ends_at, days_left} (#2923; omitted otherwise).
       operationId: getAuthConfig
       security: [{bearerAuth: []}]
       responses:
@@ -7837,6 +7840,18 @@ components:
             confined to those steps' endpoints (account-setup gate, #3024), so a client should route
             straight to the setup page rather than render protected pages. Informational: it changes
             nothing about what the session may access.
+        mfa_grace: {$ref: '#/components/schemas/MFAGrace'}
+    MFAGrace:
+      type: object
+      required: [ends_at, days_left]
+      description: >-
+        ADR-112's security.require_mfa upgrade grace period (#2923), present only while it runs and the
+        account has no second factor. MFA is not enforced until ends_at, or until the first administrator
+        enrols a second factor if that comes first; after that this account is sent to MFA enrolment when
+        it signs in (not locked out). Clients show it as a persistent banner.
+      properties:
+        ends_at: {type: string, format: date-time, description: The 30-day hard stop (RFC 3339).}
+        days_left: {type: integer, description: 'Whole days left until ends_at, rounded up (1 on the last day).'}
     MFAChallengeData:
       type: object
       description: >-

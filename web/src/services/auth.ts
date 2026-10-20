@@ -9,6 +9,7 @@ import {
     ApiResponse,
     ProfileImpersonation,
     SetupStep,
+    MfaGraceWire,
 } from '../types';
 import { API_ENDPOINTS } from '../constants';
 import { generateId } from '../utils';
@@ -153,10 +154,18 @@ export const authService = {
      * current session is impersonating another user — server-validated from
      * the session cookie, not a client-supplied claim.
      */
-    async getProfile(): Promise<User & { impersonation?: ProfileImpersonation; pending_steps?: SetupStep[] }> {
+    async getProfile(): Promise<
+        User & { impersonation?: ProfileImpersonation; pending_steps?: SetupStep[]; mfa_grace?: MfaGraceWire }
+    > {
         try {
             const response: AxiosResponse<
-                ApiResponse<User & { impersonation?: ProfileImpersonation; pending_steps?: SetupStep[] }>
+                ApiResponse<
+                    User & {
+                        impersonation?: ProfileImpersonation;
+                        pending_steps?: SetupStep[];
+                        mfa_grace?: MfaGraceWire;
+                    }
+                >
             > = await authApi.get(API_ENDPOINTS.AUTH.PROFILE);
 
             if (!response.data.data) {

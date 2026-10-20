@@ -2,8 +2,12 @@
 
 ## Status
 
-**Proposed** (2026-10-02). *Implementation note (not a status change):* the behaviour of Amendments 1, 3 and 4 is shipped on main
-(`audit_durability`, `insecure_audit_skip_reads`; `docs/UPGRADING.md` §6c to §6e); whether the ADR's status becomes Accepted is the maintainer's decision. Two decisions are already recorded (see "Decisions recorded"); the remaining open questions are listed at the end.
+**Accepted** (2026-10-17). Accepted by Andrei 2026-10-17. Amendments 1, 3 and 4
+are shipped on main (`audit_durability`, `insecure_audit_skip_reads`;
+`docs/UPGRADING.md` §6c to §6e); Amendment 5 (#2923) records the end of the
+`require_mfa` upgrade grace period. Proposed 2026-10-02; the decisions taken
+since are under "Decisions recorded", and the questions still open are listed
+at the end.
 
 Amended 2026-10-05 (decision by Andrei, "Amendment 1" below): the
 audit-before-disclosure and `synchronous` baseline items gain one named
@@ -46,7 +50,7 @@ Keyorix's promise is "easy to operate, secure by default, with opinionated setti
 
 Regulated buyers (DORA, NIS2, ENS, CRA) ask for exactly this: what the secure configuration is, and how deviations are detected.
 
-## Decision (proposed)
+## Decision
 
 ### 1. The opt-out rule
 
@@ -468,6 +472,54 @@ Accepted by Andrei, 2026-10-15. Independent of Amendment 3.
 With the setting off, behaviour is unchanged. The existing
 audit-before-disclosure tests are untouched and still pass.
 
+## Amendment 5 (2026-10-17): when the `require_mfa` upgrade grace period ends
+
+#2923, decided by Andrei 2026-10-17. The gap check gave upgraded deployments
+"a grace period with a start-up warning and a posture deviation until they
+comply" but named no compliance condition, so a deployment that never set
+`security.require_mfa` stayed unenforced forever.
+
+### The decision
+
+1. **The grace period ends at the first administrator MFA enrolment, with a
+   hard stop 30 days after the upgrade that introduced it, whichever comes
+   first.** "Administrator" is a global admin-tier holder (an admin-bypass
+   role, directly or through a group); a TOTP factor or a passkey counts. An
+   administrator who already had a second factor before the upgrade ends it at
+   the first check.
+2. **During the grace period** users without a second factor sign in normally.
+   Every page of the web UI shows a persistent banner with the days left
+   (login and profile responses carry `mfa_grace {ends_at, days_left}`),
+   `keyorix login` prints the same on stderr, and the server logs a WARN line
+   with the days left at boot, once a day and at each such sign-in.
+3. **After it** they are sent to MFA enrolment when they sign in, exactly as on
+   a fresh install: confined to the enrolment endpoints, never locked out.
+   PAT and machine credentials are unaffected. Break-glass rules are
+   unchanged. The end needs no restart: every MFA gate (session issuance, the
+   HTTP setup gate, gRPC) reads the requirement per request.
+4. **The start is stored durably, never derived from the clock alone.** The
+   first boot on the version that introduced the bound writes
+   `adr112.require_mfa.grace_started` to `system_metadata`; later boots keep
+   it. The grace clock's high-water mark (`adr112.require_mfa.grace_clock`) is
+   written at boot and every minute while the period runs, and the clock never
+   reads earlier than it, nor than boot time plus the monotonic time since
+   boot. **A clock set back does not extend the grace period**; a clock set
+   forward only ends it sooner.
+5. **Fail closed.** A start or clock value that cannot be written or parsed
+   means no grace period (MFA enforced). A check that cannot read the
+   administrator set or the marker enforces MFA until the next check. Once
+   ended, the `adr112.require_mfa.enforced` marker is written and the grace
+   period never returns.
+6. **Posture.** `admin validate --posture` keeps reporting the grace period as
+   a shipped-default deviation, now with its end date and days left, until it
+   ends.
+
+Enforced by `internal/core/mfa_upgrade_grace_test.go`
+(`TestMFAUpgradeGrace_*`, SQLite and PostgreSQL), `server/adr112_mfa_grace_test.go`
+(`TestADR112MFAGrace_*`, SQLite and PostgreSQL), `server/http/account_setup_mfa_grace_test.go`,
+`server/grpc/interceptors/auth_mfa_grace_test.go` and the real-backend journey
+`web/e2e/real/mfa-upgrade-grace.spec.ts`.
+
 ## Consequences
 
 - The baseline becomes part of the product's documentation and sales material: "here is the secure configuration, and here is how you prove you're running it."
@@ -479,7 +531,7 @@ audit-before-disclosure tests are untouched and still pass.
 
 1. Posture report: a new `admin posture` command, or extend `admin validate`? Proposal: extend `validate` with a `--posture` mode (the gap check found `admin validate` and `keyorix compliance report` already provide most of the foundation).
 2. ~~TLS 1.2 default~~ Decided 2026-10-02: TLS 1.2 stays allowed by default with modern ciphers only; TLS 1.3-only is a strict-mode setting.
-3. Admin MFA by default on fresh installs: also enforced on upgrades of existing deployments, with a grace period? Proposal: yes, with a grace period and a posture warning until enabled.
+3. ~~Admin MFA by default on fresh installs: also enforced on upgrades of existing deployments, with a grace period?~~ Decided 2026-10-17 (#2923, Amendment 5): yes; the grace period ends at the first administrator MFA enrolment or 30 days after the upgrade, whichever comes first.
 4. Shamir split of the recovery key: default or optional? Proposal: optional, recommended in the hardening guide.
 5. Approval workflows (dual control on secret reads): include in the AGPL core as a differentiator, or make it a third gated feature? Today exactly two features are gated (`airgap_updates`, billing); either choice changes the licensing story. Decide before the feature is built.
 
@@ -571,6 +623,13 @@ the revoke lock, the degraded path is reachable only from there) and
   principal, reason, path and target (first row immediate, then one summary
   per 60 s window), and best-effort (a refusal stays a refusal if its row
   cannot be written).
+
+## Decisions recorded (2026-10-17)
+
+- ADR-112 is Accepted (Andrei, 2026-10-17).
+- The `require_mfa` upgrade grace period ends at the first administrator MFA
+  enrolment or 30 days after the upgrade, whichever comes first; its start is
+  stored durably and a backward clock step cannot extend it. See Amendment 5.
 
 ## Definition of done
 
