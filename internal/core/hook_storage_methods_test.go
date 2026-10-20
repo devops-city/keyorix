@@ -25,10 +25,12 @@ type storeHooks struct {
 	AssignPermissionToRole                    func(next storage.Storage, ctx context.Context, roleID uint, permissionID uint) error
 	AssignRole                                func(next storage.Storage, ctx context.Context, userID uint, roleID uint, scope storage.Scope) error
 	AssignRoleWithExpiry                      func(next storage.Storage, ctx context.Context, userID uint, roleID uint, scope storage.Scope, expiresAt time.Time) error
+	ClaimPendingAuditEvent                    func(next storage.Storage, ctx context.Context, id uint) (bool, error)
 	ClearProjectSecretOwnership               func(next storage.Storage, ctx context.Context, userID uint, projectID uint) error
 	ConsumeMFAChallenge                       func(next storage.Storage, ctx context.Context, tokenHash string, now time.Time) (*models.MFAChallenge, error)
 	ConsumeMFARecoveryCode                    func(next storage.Storage, ctx context.Context, userID uint, codeHash string, now time.Time) (bool, error)
 	ConsumeWebAuthnSession                    func(next storage.Storage, ctx context.Context, tokenHash string, now time.Time) (*models.WebAuthnSession, error)
+	CountPendingAuditEvents                   func(next storage.Storage, ctx context.Context) (int64, error)
 	CountRecentLoginAttempts                  func(next storage.Storage, ctx context.Context, ip string, since time.Time) (int64, error)
 	CountWebAuthnCredentials                  func(next storage.Storage, ctx context.Context, userID uint) (int64, error)
 	CreateAccessRequestApproval               func(next storage.Storage, ctx context.Context, a *models.AccessRequestApproval) error
@@ -100,6 +102,7 @@ type storeHooks struct {
 	ListGlobalAdminAssignmentsForUpdate       func(next storage.Storage, ctx context.Context, adminRoleIDs []uint) ([]storage.RoleAssignment, error)
 	ListGroupMembers                          func(next storage.Storage, ctx context.Context, groupID uint) ([]*models.User, error)
 	ListGroups                                func(next storage.Storage, ctx context.Context) ([]*models.Group, error)
+	ListPendingAuditEvents                    func(next storage.Storage, ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error)
 	ListProjectMembers                        func(next storage.Storage, ctx context.Context, projectID uint) ([]storage.ProjectMember, error)
 	ListProjectRoleAssignments                func(next storage.Storage, ctx context.Context, projectID uint) ([]storage.RoleAssignment, error)
 	ListProjects                              func(next storage.Storage, ctx context.Context) ([]*models.Project, error)
@@ -123,6 +126,7 @@ type storeHooks struct {
 	MarkTOTPStepUsed                          func(next storage.Storage, ctx context.Context, userID uint, step int64) (bool, error)
 	RecordDynamicSecretLeaseRevocation        func(next storage.Storage, ctx context.Context, leaseID string, status string, revokeReason string, revokeError string, revokedAt *time.Time) (bool, error)
 	RecordLoginAttempt                        func(next storage.Storage, ctx context.Context, ip string, at time.Time) error
+	RecordPendingAuditEventFailure            func(next storage.Storage, ctx context.Context, id uint, reason string) error
 	ReleaseLoginAttempt                       func(next storage.Storage, ctx context.Context, id uint) error
 	RemoveAllProjectRoleGrants                func(next storage.Storage, ctx context.Context, userID uint, projectID uint) error
 	RemoveRole                                func(next storage.Storage, ctx context.Context, userID uint, roleID uint, scope storage.Scope) error
@@ -194,6 +198,13 @@ func (hs *hookStore) AssignRoleWithExpiry(ctx context.Context, userID uint, role
 	return hs.Storage.AssignRoleWithExpiry(ctx, userID, roleID, scope, expiresAt)
 }
 
+func (hs *hookStore) ClaimPendingAuditEvent(ctx context.Context, id uint) (bool, error) {
+	if hk := hs.h.ClaimPendingAuditEvent; hk != nil {
+		return hk(hs.Storage, ctx, id)
+	}
+	return hs.Storage.ClaimPendingAuditEvent(ctx, id)
+}
+
 func (hs *hookStore) ClearProjectSecretOwnership(ctx context.Context, userID uint, projectID uint) error {
 	if hk := hs.h.ClearProjectSecretOwnership; hk != nil {
 		return hk(hs.Storage, ctx, userID, projectID)
@@ -220,6 +231,13 @@ func (hs *hookStore) ConsumeWebAuthnSession(ctx context.Context, tokenHash strin
 		return hk(hs.Storage, ctx, tokenHash, now)
 	}
 	return hs.Storage.ConsumeWebAuthnSession(ctx, tokenHash, now)
+}
+
+func (hs *hookStore) CountPendingAuditEvents(ctx context.Context) (int64, error) {
+	if hk := hs.h.CountPendingAuditEvents; hk != nil {
+		return hk(hs.Storage, ctx)
+	}
+	return hs.Storage.CountPendingAuditEvents(ctx)
 }
 
 func (hs *hookStore) CountRecentLoginAttempts(ctx context.Context, ip string, since time.Time) (int64, error) {
@@ -712,6 +730,13 @@ func (hs *hookStore) ListGroups(ctx context.Context) ([]*models.Group, error) {
 	return hs.Storage.ListGroups(ctx)
 }
 
+func (hs *hookStore) ListPendingAuditEvents(ctx context.Context, afterID uint, limit int) ([]*models.PendingAuditEvent, error) {
+	if hk := hs.h.ListPendingAuditEvents; hk != nil {
+		return hk(hs.Storage, ctx, afterID, limit)
+	}
+	return hs.Storage.ListPendingAuditEvents(ctx, afterID, limit)
+}
+
 func (hs *hookStore) ListProjectMembers(ctx context.Context, projectID uint) ([]storage.ProjectMember, error) {
 	if hk := hs.h.ListProjectMembers; hk != nil {
 		return hk(hs.Storage, ctx, projectID)
@@ -871,6 +896,13 @@ func (hs *hookStore) RecordLoginAttempt(ctx context.Context, ip string, at time.
 		return hk(hs.Storage, ctx, ip, at)
 	}
 	return hs.Storage.RecordLoginAttempt(ctx, ip, at)
+}
+
+func (hs *hookStore) RecordPendingAuditEventFailure(ctx context.Context, id uint, reason string) error {
+	if hk := hs.h.RecordPendingAuditEventFailure; hk != nil {
+		return hk(hs.Storage, ctx, id, reason)
+	}
+	return hs.Storage.RecordPendingAuditEventFailure(ctx, id, reason)
 }
 
 func (hs *hookStore) ReleaseLoginAttempt(ctx context.Context, id uint) error {
