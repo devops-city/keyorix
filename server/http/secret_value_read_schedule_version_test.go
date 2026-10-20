@@ -115,6 +115,41 @@ func svStorageConfig(t *testing.T, backend string) *config.Config {
 	return nil
 }
 
+// svPeerSeq numbers the replicas' gRPC peers, see svPeerListener.
+var svPeerSeq atomic.Int64
+
+// svPeerListener gives every connection it accepts a distinct source address.
+// bufconn reports the same peer ("bufconn", no IP) for every connection, so all
+// replicas of every test in the package would share ONE per-IP failed-auth budget
+// (grpcAuthFailure: burst 10, refill 1/s, process-global) and, once it is spent,
+// a refused credential would come back ResourceExhausted instead of
+// Unauthenticated. A distinct address per replica keeps the limiter live but never
+// shared between tests; the limiter itself is not touched.
+type svPeerListener struct {
+	net.Listener
+	addr net.Addr
+}
+
+type svPeerConn struct {
+	net.Conn
+	addr net.Addr
+}
+
+func (c svPeerConn) RemoteAddr() net.Addr { return c.addr }
+
+func (l svPeerListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	return svPeerConn{Conn: c, addr: l.addr}, nil
+}
+
+func newSVPeerListener(lis net.Listener) net.Listener {
+	n := svPeerSeq.Add(1)
+	return svPeerListener{Listener: lis, addr: &net.TCPAddr{IP: net.IPv4(198, 19, byte(n>>8), byte(n)), Port: 5000}}
+}
+
 // newSVReplica builds storage through the PRODUCTION factory, so the read-path
 // caches, the cache_epoch trigger and the role-permission cache are all live.
 func newSVReplica(t *testing.T, cfg *config.Config) *svReplica {
@@ -146,7 +181,7 @@ func newSVReplica(t *testing.T, cfg *config.Config) *svReplica {
 	srv, err := keyorixgrpc.NewServer(&config.Config{}, r.c)
 	require.NoError(t, err)
 	lis := bufconn.Listen(1 << 20)
-	go func() { _ = srv.Serve(lis) }()
+	go func() { _ = srv.Serve(newSVPeerListener(lis)) }()
 	t.Cleanup(srv.Stop)
 	conn, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return lis.Dial() }),
