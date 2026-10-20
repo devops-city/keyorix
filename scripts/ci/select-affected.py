@@ -250,7 +250,7 @@ def leg_packages():
     return legs
 
 
-SHARDED_SINGLE_PACKAGE = re.compile(r"^(handlers|http|encryption|faultops|storage-store)-\d+$")
+SHARDED_SINGLE_PACKAGE = re.compile(r"^(handlers|http|encryption|faultops|storage-store|server)-\d+$")
 
 
 def fuzz_reach_packages():

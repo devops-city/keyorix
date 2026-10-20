@@ -144,11 +144,14 @@ func TestSelectAffected_CodeChangeSelectsImporters(t *testing.T) {
 			t.Errorf("gate %s closed although ./server imports internal/core", g)
 		}
 	}
-	// ./server (root-3) is a main package; `go list ./...` reports its Deps
+	// ./server (legs server-1/server-2, sharded by test name so they run the
+	// whole shard, "*") is a main package; `go list ./...` reports its Deps
 	// as "pkg [github.com/keyorixhq/keyorix/server]" variants, which must be
 	// normalised or the package never counts as an importer.
-	if !slices.Contains(strings.Fields(s.Legs["root-3"]), "github.com/keyorixhq/keyorix/server") {
-		t.Errorf("root-3 runs %q, want it to include ./server (imports internal/core)", s.Legs["root-3"])
+	for _, leg := range []string{"server-1", "server-2"} {
+		if s.Legs[leg] != "*" {
+			t.Errorf("%s runs %q, want its whole shard (\"*\"): ./server imports internal/core", leg, s.Legs[leg])
+		}
 	}
 }
 

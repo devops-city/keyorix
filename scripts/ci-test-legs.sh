@@ -178,17 +178,7 @@ github.com/keyorixhq/keyorix/pkg/licenseverify
 github.com/keyorixhq/keyorix/internal/crypto/awskms
 github.com/keyorixhq/keyorix/internal/utils/safeconv
 github.com/keyorixhq/keyorix/internal/config
-EOF
-}
-
-# root-3 held ./server (742s in the test binary on merge-queue run 39477864156)
-# AND ./internal/config (253s) and ran 14-24 min while root-2 ran ~6.6 min.
-# internal/config moved to root-2 (CI-SHARD-BALANCE-1): root-3 is now bounded
-# by ./server alone, root-2 by ./internal/storage (254s) / ./internal/config.
-root_3_pkgs() {
-  cat <<'EOF'
 github.com/keyorixhq/keyorix/server/tools
-github.com/keyorixhq/keyorix/server
 github.com/keyorixhq/keyorix/internal/notifychan
 github.com/keyorixhq/keyorix/internal/audit/siem
 github.com/keyorixhq/keyorix/internal/mcp
@@ -200,8 +190,22 @@ github.com/keyorixhq/keyorix/internal/core/storage
 EOF
 }
 
+# root-3 held ./server (742s in the test binary on merge-queue run 39477864156)
+# AND ./internal/config (253s) and ran 14-24 min while root-2 ran ~6.6 min; after
+# internal/config moved to root-2 it still ran 21.6 min on this PR's round 2,
+# bounded by ./server alone. CI-SHARD-BALANCE-1: ./server is now split by test
+# name into server-1/server-2 (sharded_legs, server_pkg below) and root-3's
+# remaining small packages joined root-2, so there is no root-3 leg any more.
+
 core_pkgs() {
   echo "github.com/keyorixhq/keyorix/internal/core"
+}
+
+# server_pkg: the ./server package (the server's main package and its tests),
+# split by test name into server-1/server-2. It alone bounded root-3 at 20-22
+# min (742s in the test binary on run 39477864156).
+server_pkg() {
+  echo "github.com/keyorixhq/keyorix/server"
 }
 
 # internal/core is split into core-1..N by test name with the weighted
@@ -266,7 +270,7 @@ faultops_pkgs() {
 # package always lands somewhere (root-4) rather than silently running nowhere.
 root_4_pkgs() {
   local pinned
-  pinned=$(cat <(root_1_pkgs) <(root_2_pkgs) <(root_3_pkgs) <(core_pkgs) <(storage_store_pkgs) <(encryption_pkgs) <(faultops_pkgs) | sort -u)
+  pinned=$(cat <(root_1_pkgs) <(root_2_pkgs) <(server_pkg) <(core_pkgs) <(storage_store_pkgs) <(encryption_pkgs) <(faultops_pkgs) | sort -u)
   comm -23 <(root_base | sort -u) <(echo "$pinned")
 }
 
@@ -317,13 +321,17 @@ http_pkg() {
 # package: <leg prefix>|<package function>|<number of shards>|<preload>.
 # Leg <prefix>-<k> (k = 1..shards) runs shard k. shards = 1 means the whole
 # package in one leg with no -run filter (so Example* tests run too).
-# <preload> is "-" or "<shard>:<weight>": that shard starts the bin-pack with
+# <preload> is "-" or "<shard>:<weight>[,<shard>:<weight>...]": that shard starts the bin-pack with
 # that much weight already on it, for work the leg does besides its tests
-# (core-1 also runs scripts/check-closures.sh, ~9-10 min of CI wall).
+# (core-1 also runs scripts/check-closures.sh, ~9-10 min of CI wall: preload
+# 1:570), or to correct a measured bias of the weights (core-3's 3:350: with
+# the weights of round 1 core-3 ran 22.6 min against 17.4 / 16.7 for core-1/2
+# in this PR's round 2, so it is given 350 of virtual weight).
 # This table, ci.yml's matrix and assert_matrix_consistent move together.
 sharded_legs() {
   cat <<'EOF'
-core|core_pkgs|3|1:570
+core|core_pkgs|3|1:570,3:350
+server|server_pkg|2|-
 http|http_pkg|4|-
 handlers|handlers_pkg|2|-
 encryption|encryption_pkgs|2|-
@@ -350,7 +358,6 @@ pkgs_for_leg() {
   case "$1" in
     root-1) root_1_pkgs ;;
     root-2) root_2_pkgs ;;
-    root-3) root_3_pkgs ;;
     root-4) root_4_pkgs ;;
     *)
       spec=$(leg_shard_spec "$1") || { echo "pkgs_for_leg: unknown leg '$1'" >&2; return 1; }
@@ -366,7 +373,7 @@ pkgs_for_leg() {
 # exist and no leg can run without being counted (or be counted without running).
 all_leg_names() {
   local prefix fn shards preload k
-  printf 'root-%s\n' 1 2 3 4
+  printf 'root-%s\n' 1 2 4
   while IFS='|' read -r prefix fn shards preload; do
     for k in $(seq 1 "$shards"); do
       echo "$prefix-$k"
@@ -407,7 +414,7 @@ weighted_shard_assignment() {
   ' | LC_ALL=C sort -t $'\t' -k1,1nr -k2,2 | awk -F'\t' -v n="$n" -v pre="$preload" '
     BEGIN {
       for (i = 1; i <= n; i++) load[i] = 0
-      if (pre != "-") { split(pre, p, ":"); load[p[1]] = p[2] + 0 }
+      if (pre != "-") { m = split(pre, ps, ","); for (j = 1; j <= m; j++) { split(ps[j], p, ":"); load[p[1]] = p[2] + 0 } }
     }
     {
       best = 1
@@ -555,7 +562,7 @@ assert_pinned_leg_packages_valid() {
   local actual failed=0
   actual=$(go list ./... | sort -u)
 
-  local -a exclusive_lists=(root_1_pkgs root_2_pkgs root_3_pkgs core_pkgs storage_store_pkgs encryption_pkgs faultops_pkgs)
+  local -a exclusive_lists=(root_1_pkgs root_2_pkgs server_pkg core_pkgs storage_store_pkgs encryption_pkgs faultops_pkgs)
   local list_name pkg
   local pinned_pkg_names="" pinned_pkg_owners=""
 

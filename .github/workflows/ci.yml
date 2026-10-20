@@ -1073,9 +1073,9 @@ jobs:
           - leg: root-2
             timeout: 1800
             coverage-file: coverage_root2.out
-          - leg: root-3
-            timeout: 1800
-            coverage-file: coverage_root3.out
+          # (no root-3: ./server is split by test name into server-1/server-2
+          # below, and root-3's small packages joined root-2; CI-SHARD-BALANCE-1
+          # round 2 had root-3 at 21.6 min, bounded by ./server alone.)
           - leg: root-4
             timeout: 1800
             coverage-file: coverage_root4.out
@@ -1139,6 +1139,12 @@ jobs:
           - leg: core-3
             timeout: 3300
             coverage-file: coverage_core3.out
+          - leg: server-1
+            timeout: 1800
+            coverage-file: coverage_server1.out
+          - leg: server-2
+            timeout: 1800
+            coverage-file: coverage_server2.out
           # storage-store (internal/storage/store, re-pinned out of root-4's
           # catch-all 2026-09-04) -- same trigger as core's own split above: a
           # real CI run (main, commit b971ed36) found root-4's `go test` step
@@ -1407,8 +1413,8 @@ jobs:
               run_filter=$(leg_run_filter "$leg")
               pkgs=./server/http
               ;;
-            core-*)
-              # $pkgs stays as pkgs_for_leg / LEG_ONLY gave it (internal/core).
+            core-*|server-*)
+              # $pkgs stays as pkgs_for_leg gave it (internal/core, ./server).
               run_filter=$(leg_run_filter "$leg")
               ;;
             encryption-*)
@@ -1760,7 +1766,7 @@ jobs:
           # floor). The coverage_storage_store*.out files below are included: they are THIS
           # leg's own new file, and omitting it would just be reproducing that
           # same gap in new code rather than inheriting an unrelated one.
-          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root3.out coverage_root4.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out | grep -v "${grep_args[@]}" >> coverage_merged.out
+          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root4.out coverage_server1.out coverage_server2.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out | grep -v "${grep_args[@]}" >> coverage_merged.out
           mv coverage_merged.out coverage.out
 
       - name: Check coverage floor (≥${{ env.COVERAGE_FLOOR }}%)
