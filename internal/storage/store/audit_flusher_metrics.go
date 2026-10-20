@@ -24,6 +24,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
 )
 
 var (
@@ -61,7 +63,10 @@ var (
 	// auditWriteFailures counts appends that returned an error to the caller. An
 	// audit append failing is a compliance event, not just an error rate: the
 	// mutation it records may already have committed.
-	auditWriteFailures = promauto.NewCounter(prometheus.CounterOpts{
+	//
+	// Registered on internal/protectedmetrics (authenticated scheduler-metrics only), not
+	// the default registry: an anonymous reader must not see when audit appends fail.
+	auditWriteFailures = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "keyorix_audit_write_failures_total",
 		Help: "Audit event appends that returned an error to the caller (the audited mutation may already have committed).",
 	})
@@ -74,6 +79,8 @@ var (
 		Buckets: []float64{.0005, .001, .0025, .005, .01, .025, .05, .1, .25, .5, 1, 2.5},
 	})
 )
+
+func init() { protectedmetrics.MustRegister(auditWriteFailures) }
 
 // observeAuditWrite records one LogAuditEvent* call's outcome and latency.
 func observeAuditWrite(start time.Time, err error) {

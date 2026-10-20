@@ -96,6 +96,32 @@ var endpointOverrides = map[string]string{
 	"keyorix_audit_verify_failure_recorded":               epScheduler,
 	"keyorix_audit_verify_state_rejected":                 epScheduler,
 	"keyorix_audit_owed_pending":                          epScheduler,
+
+	// Posture and tamper signals (an anonymous reader must not learn that encryption is
+	// off, that decrypts or audit appends fail, that the KEK chain downgraded, how hard
+	// logins are being refused, or that something else wrote to the fenced tables).
+	"keyorix_encryption_state":                         epScheduler,
+	"keyorix_encryption_kek_provider_info":             epScheduler,
+	"keyorix_encryption_operation_failures_total":      epScheduler,
+	"keyorix_encryption_kek_provider_downgrades_total": epScheduler,
+	"keyorix_audit_write_failures_total":               epScheduler,
+	"keyorix_auth_budget_rejections_total":             epScheduler,
+	"keyorix_single_writer_unattributed_bumps_total":   epScheduler,
+}
+
+// postureMetricsMustBeProtected pins the posture/tamper series to the protected
+// registry by name: moving one back to the default registry (or renaming it so the pin
+// silently stops matching) fails TestPostureMetricsAreProtected. The generic
+// registry-separation test below only sees series with a live sample, and several of
+// these have none until an event happens.
+var postureMetricsMustBeProtected = []string{
+	"keyorix_encryption_state",
+	"keyorix_encryption_kek_provider_info",
+	"keyorix_encryption_operation_failures_total",
+	"keyorix_encryption_kek_provider_downgrades_total",
+	"keyorix_audit_write_failures_total",
+	"keyorix_auth_budget_rejections_total",
+	"keyorix_single_writer_unattributed_bumps_total",
 }
 
 func endpointOf(d metricDef) string {
@@ -374,5 +400,42 @@ func TestProtectedMetricsAreDocumentedAndNotPublic(t *testing.T) {
 		if ep == epScheduler && onPublic[name] {
 			t.Errorf("%s is documented as authenticated-only but is served on the public /metrics registry", name)
 		}
+	}
+}
+
+// probeCollector describes one metric family and emits nothing; it exists only to ask
+// a registry "is this family already registered?".
+type probeCollector struct{ desc *prometheus.Desc }
+
+func (p probeCollector) Describe(ch chan<- *prometheus.Desc) { ch <- p.desc }
+func (probeCollector) Collect(chan<- prometheus.Metric)      {}
+
+// TestPostureMetricsAreProtected: each posture/tamper series is defined in code (so a
+// rename cannot silently orphan this pin), documented as authenticated-only, and not
+// registered on the default registry even when it has no sample yet. The probe
+// registration collides (AlreadyRegisteredError) exactly when the family is already on
+// the default registry; the generic separation test above cannot see such families
+// because Gather returns only families with a sample.
+func TestPostureMetricsAreProtected(t *testing.T) {
+	static := map[string]metricDef{}
+	for _, d := range scanned(t) {
+		static[d.Name] = d
+	}
+	for _, name := range postureMetricsMustBeProtected {
+		d, ok := static[name]
+		if !ok {
+			t.Errorf("%s is pinned as protected but no longer defined in code; update postureMetricsMustBeProtected", name)
+			continue
+		}
+		if endpointOverrides[name] != epScheduler {
+			t.Errorf("%s must be documented as authenticated-only in endpointOverrides", name)
+		}
+		probe := probeCollector{prometheus.NewDesc(name, "probe", d.Labels, nil)}
+		err := prometheus.DefaultRegisterer.Register(probe)
+		if err == nil {
+			prometheus.DefaultRegisterer.Unregister(probe)
+			continue
+		}
+		t.Errorf("%s is registered on the public default registry (probe registration: %v)", name, err)
 	}
 }

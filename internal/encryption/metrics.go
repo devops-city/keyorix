@@ -17,7 +17,8 @@ import (
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
 )
 
 const (
@@ -48,19 +49,24 @@ func providerLabel(t string) string {
 	return "other"
 }
 
+// Everything in this file registers on internal/protectedmetrics, NOT the default
+// registry: an anonymous GET /metrics reader must not learn that encryption is off,
+// which KEK source is configured, that decrypts are failing or that the KEK chain
+// downgraded. They are served at the authenticated /api/v1/admin/scheduler-metrics.
 var (
-	opFailuresTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+	opFailuresTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "keyorix_encryption_operation_failures_total",
 		Help: "Secret encrypt/decrypt operations that returned an error (including a service that was not initialised), by op (encrypt|decrypt). Decrypt failures after a restore or key change mean the wrong key or corrupt rows.",
 	}, []string{"op"})
 
-	kekDowngradesTotal = promauto.NewCounter(prometheus.CounterOpts{
+	kekDowngradesTotal = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "keyorix_encryption_kek_provider_downgrades_total",
 		Help: "Times a configured KEK fallback chain actually fell back to a weaker provider at runtime.",
 	})
 )
 
 func init() {
+	protectedmetrics.MustRegister(opFailuresTotal, kekDowngradesTotal)
 	opFailuresTotal.WithLabelValues(opEncrypt)
 	opFailuresTotal.WithLabelValues(opDecrypt)
 }
@@ -132,11 +138,11 @@ func (c *stateCollector) collectState(ch chan<- prometheus.Metric, cur string) {
 
 var registerStateOnce sync.Once
 
-// RegisterMetrics exposes svc's state on the default registry. Call it once from
+// RegisterMetrics exposes svc's state on the protected registry. Call it once from
 // the server after NewService; a later call replaces the observed service. CLI
 // tools that build short-lived Services do not call it.
 func RegisterMetrics(svc *Service) {
-	registerStateOnce.Do(func() { prometheus.MustRegister(stateMetrics) })
+	registerStateOnce.Do(func() { protectedmetrics.MustRegister(stateMetrics) })
 	stateMetrics.mu.Lock()
 	stateMetrics.svc, stateMetrics.disabled = svc, false
 	stateMetrics.mu.Unlock()
@@ -146,7 +152,7 @@ func RegisterMetrics(svc *Service) {
 // server that runs with storage.encryption.enabled=false (no Service exists then),
 // so "encryption off in production" is alertable rather than merely absent.
 func RegisterDisabledMetrics() {
-	registerStateOnce.Do(func() { prometheus.MustRegister(stateMetrics) })
+	registerStateOnce.Do(func() { protectedmetrics.MustRegister(stateMetrics) })
 	stateMetrics.mu.Lock()
 	stateMetrics.svc, stateMetrics.disabled = nil, true
 	stateMetrics.mu.Unlock()

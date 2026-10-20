@@ -9,9 +9,13 @@
 # Scrape setup this file assumes:
 #   * job "keyorix": GET /metrics (unauthenticated by default, or with metrics_token).
 #   * job "keyorix-protected": GET /api/v1/admin/scheduler-metrics with a bearer token that
-#     holds system.write. Only the four audit-verification alerts below need it; those
-#     metrics are deliberately NOT on /metrics (they would tell an anonymous reader when an
-#     integrity check last ran and whether it found a break).
+#     holds system.write. The audit-verification alerts, KeyorixAuditOwedPending,
+#     KeyorixAuditWriteFailures, KeyorixLoginBruteForce, the four keyorix-encryption alerts
+#     (disabled, not ready, decrypt failures, KEK downgrade) and
+#     KeyorixSingleWriterUnattributedWrites need it; those metrics are deliberately NOT on
+#     /metrics (they would tell an anonymous reader when an integrity check last ran,
+#     whether it found a break, whether encryption is off, or whether audit, decrypt or
+#     login protections are failing or under attack).
 # Edit the job names in `up{...}` if yours differ. Thresholds are starting points.
 
 groups:

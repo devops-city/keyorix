@@ -6,16 +6,28 @@
 // Current().Status() at scrape time; with single_writer off it emits only
 // keyorix_single_writer_enabled 0, so the family is always present and an alert can
 // distinguish "off" from "metrics missing".
+//
+// keyorix_single_writer_unattributed_bumps_total is a tamper signal (something other
+// than this process wrote to the fenced tables), so it is NOT on the default registry:
+// it is served by tamperCollector on internal/protectedmetrics, at the authenticated
+// /api/v1/admin/scheduler-metrics. The other three describe cache mode only and stay on
+// /metrics.
 package solewriter
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
 )
 
 type metricsCollector struct {
-	enabled     *prometheus.Desc
-	state       *prometheus.Desc
-	pollAge     *prometheus.Desc
+	enabled *prometheus.Desc
+	state   *prometheus.Desc
+	pollAge *prometheus.Desc
+}
+
+// tamperCollector exposes the unattributed-write counter on the protected registry.
+type tamperCollector struct {
 	unattribute *prometheus.Desc
 }
 
@@ -36,6 +48,11 @@ func newMetricsCollector() *metricsCollector {
 			"Seconds since the guard's last successful epoch poll; approaching the lease length means the guard is about to leave authoritative.",
 			nil, nil,
 		),
+	}
+}
+
+func newTamperCollector() *tamperCollector {
+	return &tamperCollector{
 		unattribute: prometheus.NewDesc(
 			"keyorix_single_writer_unattributed_bumps_total",
 			"Write-epoch changes no in-process write accounted for; a non-zero value means something else wrote to the fenced tables.",
@@ -48,7 +65,14 @@ func (c *metricsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.enabled
 	ch <- c.state
 	ch <- c.pollAge
-	ch <- c.unattribute
+}
+
+func (c *tamperCollector) Describe(ch chan<- *prometheus.Desc) { ch <- c.unattribute }
+
+func (c *tamperCollector) Collect(ch chan<- prometheus.Metric) {
+	if g := Current(); g != nil {
+		ch <- prometheus.MustNewConstMetric(c.unattribute, prometheus.CounterValue, float64(g.Status().UnattributedBumps))
+	}
 }
 
 func (c *metricsCollector) Collect(ch chan<- prometheus.Metric) {
@@ -67,9 +91,9 @@ func (c *metricsCollector) Collect(ch chan<- prometheus.Metric) {
 		ch <- prometheus.MustNewConstMetric(c.state, prometheus.GaugeValue, v, string(s))
 	}
 	ch <- prometheus.MustNewConstMetric(c.pollAge, prometheus.GaugeValue, float64(st.LastPollAgeMS)/1000)
-	ch <- prometheus.MustNewConstMetric(c.unattribute, prometheus.CounterValue, float64(st.UnattributedBumps))
 }
 
 func init() {
 	prometheus.MustRegister(newMetricsCollector())
+	protectedmetrics.MustRegister(newTamperCollector())
 }

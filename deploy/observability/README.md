@@ -36,6 +36,15 @@ keyorix-protected scrape job" depend on the second job. Without it
 `KeyorixAuditVerifyNeverPassed` fires after two days, which is the intended signal.
 `KeyorixAuditOwedPending` also reads the second job; without it that alert can never fire.
 
+The posture and tamper series are on the second job for the same reason: `keyorix_encryption_state`,
+`keyorix_encryption_kek_provider_info`, `keyorix_encryption_operation_failures_total`,
+`keyorix_encryption_kek_provider_downgrades_total`, `keyorix_audit_write_failures_total`,
+`keyorix_auth_budget_rejections_total` and `keyorix_single_writer_unattributed_bumps_total`.
+`KeyorixEncryptionDisabled`, `KeyorixEncryptionNotReady`, `KeyorixDecryptFailures`,
+`KeyorixKEKProviderDowngrade`, `KeyorixAuditWriteFailures`, `KeyorixLoginBruteForce` and
+`KeyorixSingleWriterUnattributedWrites` can never fire without it, so a Prometheus that only scrapes
+`/metrics` stops seeing these signals after this change. Series names are unchanged.
+
 `/metrics` is unauthenticated by default and must stay inside your network perimeter.
 
 ## Using the rules

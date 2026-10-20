@@ -91,6 +91,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
 )
 
 // EventAuthRateLimitError is the error event written each time an auth budget
@@ -149,10 +151,15 @@ var authRateLimitFallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 // 429s or lockouts. A request checked against two budgets can count in both, and a
 // budget re-checked within one request counts each time, so read it as a rate of
 // refusals by budget, not an exact count of distinct requests.
-var authBudgetRejectionsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+//
+// Registered on internal/protectedmetrics (authenticated scheduler-metrics only): an
+// anonymous reader must not see how close an attack is to a lockout.
+var authBudgetRejectionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 	Name: "keyorix_auth_budget_rejections_total",
 	Help: "Authentication budget checks that answered limited (login, password reset, SSO begin, account lockout), by budget. A rising rate is brute-force pressure or a misbehaving client.",
 }, []string{"budget"})
+
+func init() { protectedmetrics.MustRegister(authBudgetRejectionsTotal) }
 
 // SetAuthRateLimitFallbackReplicas sets how many server replicas share the
 // auth budgets (security.auth_rate_limit_fallback.replicas). Each replica's

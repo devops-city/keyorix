@@ -260,7 +260,7 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Audit write failures (1h)",
+      "title": "Audit write failures (1h) (needs keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -320,7 +320,7 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "Encryption ready",
+      "title": "Encryption ready (needs keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -828,7 +828,7 @@
     {
       "id": 16,
       "type": "timeseries",
-      "title": "Flush batch size and write failures",
+      "title": "Flush batch size and write failures (failures need keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1336,7 +1336,7 @@
     {
       "id": 27,
       "type": "timeseries",
-      "title": "Auth budget rejections",
+      "title": "Auth budget rejections (needs keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1410,7 +1410,7 @@
     {
       "id": 29,
       "type": "timeseries",
-      "title": "Encrypt/decrypt failures",
+      "title": "Encrypt/decrypt failures (needs keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1460,7 +1460,7 @@
     {
       "id": 30,
       "type": "timeseries",
-      "title": "KEK provider downgrades",
+      "title": "KEK provider downgrades (needs keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1674,7 +1674,7 @@
     {
       "id": 35,
       "type": "timeseries",
-      "title": "Unattributed epoch changes",
+      "title": "Unattributed epoch changes (needs keyorix-protected)",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"

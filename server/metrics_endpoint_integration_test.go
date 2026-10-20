@@ -18,6 +18,19 @@ import (
 	"time"
 )
 
+// protectedPostureMetrics are the posture/tamper series that live on
+// internal/protectedmetrics and are served only at the authenticated
+// /api/v1/admin/scheduler-metrics.
+var protectedPostureMetrics = []string{
+	"keyorix_encryption_state",
+	"keyorix_encryption_kek_provider_info",
+	"keyorix_encryption_operation_failures_total",
+	"keyorix_encryption_kek_provider_downgrades_total",
+	"keyorix_audit_write_failures_total",
+	"keyorix_auth_budget_rejections_total",
+	"keyorix_single_writer_unattributed_bumps_total",
+}
+
 func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 	bin := buildServerBinary(t)
 	dir := t.TempDir()
@@ -102,7 +115,6 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"keyorix_encryption_state{state=",
 		"keyorix_single_writer_enabled 0",
 		`keyorix_db_pool_connections{pool="request",state="in_use"}`,
 		`keyorix_db_pool_max_connections{pool="request"}`,
@@ -124,6 +136,15 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 	}
 	if strings.Contains(body, "keyorix_audit_verify_") {
 		t.Error("audit-verification metrics must not be served on the unauthenticated /metrics")
+	}
+	// Posture and tamper signals: an anonymous reader must not learn that encryption is
+	// off, which KEK source is configured, that decrypts are failing, that the KEK chain
+	// downgraded, that audit appends are failing, how hard logins are being refused, or
+	// that something else wrote to the fenced tables.
+	for _, name := range protectedPostureMetrics {
+		if strings.Contains(body, name) {
+			t.Errorf("%s must not be served on the unauthenticated /metrics", name)
+		}
 	}
 
 	// The authenticated endpoint serves the protected metrics to an admin session.
@@ -153,7 +174,16 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 	if authResp.StatusCode != http.StatusOK {
 		t.Fatalf("authenticated GET scheduler-metrics = %d: %s", authResp.StatusCode, protectedRaw)
 	}
-	for _, want := range []string{"keyorix_audit_verify_failure_recorded 0", "keyorix_audit_verify_state_rejected 0"} {
+	for _, want := range []string{
+		"keyorix_audit_verify_failure_recorded 0",
+		"keyorix_audit_verify_state_rejected 0",
+		"keyorix_encryption_state{state=",
+		"keyorix_encryption_kek_provider_info{provider=",
+		`keyorix_encryption_operation_failures_total{op="decrypt"} 0`,
+		`keyorix_encryption_operation_failures_total{op="encrypt"} 0`,
+		"keyorix_encryption_kek_provider_downgrades_total 0",
+		"keyorix_audit_write_failures_total 0",
+	} {
 		if !strings.Contains(string(protectedRaw), want) {
 			t.Errorf("authenticated scheduler-metrics is missing %q", want)
 		}
