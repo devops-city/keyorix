@@ -11,6 +11,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/ratelimitmetrics"
 )
 
 // PrincipalRateLimit enforces a general per-authenticated-principal request budget
@@ -75,6 +76,7 @@ type principalRateLimiter struct {
 func (rl *principalRateLimiter) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !rl.allow(rateLimitKey(r)) {
+			ratelimitmetrics.Reject(ratelimitmetrics.Principal)
 			w.Header().Set("Retry-After", "1")
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
@@ -153,7 +155,11 @@ var globalTokenAuthFailureLimiter = &ipFailureLimiter{
 // returning false when the IP has exceeded its failure budget. Caller should
 // respond with 429 in that case.
 func recordTokenAuthFailure(ip string) bool {
-	return globalTokenAuthFailureLimiter.allow(ip)
+	ok := globalTokenAuthFailureLimiter.allow(ip)
+	if !ok {
+		ratelimitmetrics.Reject(ratelimitmetrics.FailedAuthIP)
+	}
+	return ok
 }
 
 // #G19: allow() previously called sweepLocked() on EVERY invocation — a full O(n)

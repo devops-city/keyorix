@@ -72,6 +72,7 @@ import (
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	localstore "github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/tlsmetrics"
 	"github.com/keyorixhq/keyorix/internal/tlsreload"
 	"github.com/keyorixhq/keyorix/internal/version"
 	"github.com/keyorixhq/keyorix/pkg/trust"
@@ -519,6 +520,7 @@ const (
 // falls back to logging only.
 func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*encryption.Service, error) {
 	if !cfg.Storage.Encryption.Enabled {
+		encryption.RegisterDisabledMetrics()
 		return nil, nil
 	}
 
@@ -550,6 +552,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// first-boot key generation.
 	baseDir := "."
 	svc := encryption.NewService(&cfg.Storage.Encryption, baseDir)
+	encryption.RegisterMetrics(svc)
 	if auditSink != nil {
 		svc.SetAuditSink(auditSink)
 	}
@@ -1860,6 +1863,11 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		// 1/segments of the chain, so the whole chain is re-hashed every
 		// interval × segments; requests and posture read the persisted result.
 		coreService.SetAuditIncrementalVerification(interval, segments)
+		// Publish the persisted verification state now, not at the first tick: a
+		// restart must not read as "no audit-chain break recorded" until then.
+		if perr := coreService.PublishAuditVerifyState(ctx); perr != nil {
+			log.Printf("WARNING: could not read the audit verification state at startup: %v (the audit-verify failure gauges stay unknown until the first checkpoint tick)", perr)
+		}
 		// A fresh checkpoint defers the first tick (spec §6): a restart does not
 		// re-verify what the last tick already covered.
 		firstDelay := coreService.AuditCheckpointFirstTickDelay(ctx, interval)
@@ -1997,6 +2005,7 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 	// here too; they keep their original time and settle the activation. Every
 	// minute; single-replica-gated, and exactly-once anyway (the claim and the
 	// append share a transaction).
+	coreService.PublishOwedAuditMetric() // keyorix_audit_owed_pending, authenticated scheduler-metrics only
 	runScheduler(ctx, "audit_owed_backfill", time.Minute, func() middleware.SchedulerOutcome {
 		return lockedRun(ctx, coreService.Storage(), schedLockOwedAudit, "Owed audit backfill", func(ctx context.Context) error {
 			_, berr := coreService.BackfillPendingAuditEvents(ctx)
@@ -2739,7 +2748,7 @@ func createTLSConfig(cfg *config.Config) (*tls.Config, error) {
 		return nil, err
 	}
 
-	tlsConfig := &tls.Config{GetCertificate: reloader.GetCertificate} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
+	tlsConfig := &tls.Config{GetCertificate: tlsmetrics.Wrap(tlsmetrics.HTTP, reloader.GetCertificate)} // nosemgrep: go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion -- applyTLSHardening below sets MinVersion unconditionally on every path
 	if err := applyTLSHardening(tlsConfig, cfg.Server.HTTP.TLS, cfg.Server.HTTP.TLSMode); err != nil {
 		return nil, err
 	}

@@ -206,10 +206,21 @@ func TestLastUsed_Overload_BackoffDelayDoublesWithJitterAndCeiling(t *testing.T)
 
 // TestLastUsed_Overload_PeriodicFlushRespectsBackoffAndSuccessResetsIt: the
 // timer flush waits out the backoff, and one successful flush clears it.
+//
+// It drives the timer callback (onTimer) by hand under a fake clock instead of
+// waiting for real timers: the timer is armed for an hour and never fires, so
+// every flush below runs synchronously on this goroutine. (An earlier version
+// waited for the key to leave pending and then read failures/backoffUntil; flush
+// empties pending BEFORE its writes, so that wait could end mid-flush, before
+// finishFlush had reset the backoff.)
 func TestLastUsed_Overload_PeriodicFlushRespectsBackoffAndSuccessResetsIt(t *testing.T) {
-	a := newLastUsedCoalescer(20*time.Millisecond, 100)
+	a := newLastUsedCoalescer(time.Hour, 100)
 	stopLastUsedTimer(t, a)
-	a.backoffMin, a.backoffMax = 400*time.Millisecond, 400*time.Millisecond
+	var clockMu sync.Mutex
+	fake := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	a.clock = func() time.Time { clockMu.Lock(); defer clockMu.Unlock(); return fake }
+	// Jitter takes [d/2, d], so the backoff lasts at least 30 minutes.
+	a.backoffMin, a.backoffMax = time.Hour, time.Hour
 	var calls atomic.Int32
 	var fail atomic.Bool
 	fail.Store(true)
@@ -220,17 +231,29 @@ func TestLastUsed_Overload_PeriodicFlushRespectsBackoffAndSuccessResetsIt(t *tes
 		}
 		return nil
 	}
-	a.record(lastUsedKey{lastUsedPAT, 1}, time.Now())
-	require.Eventually(t, func() bool { return calls.Load() == 1 }, 5*time.Second, 2*time.Millisecond)
-	// The interval is 20 ms, the backoff at least 200 ms: no second attempt before then.
-	time.Sleep(120 * time.Millisecond)
+	k := lastUsedKey{lastUsedPAT, 1}
+	a.record(k, fake)
+
+	a.onTimer() // the periodic flush fails and starts the backoff
+	require.Equal(t, int32(1), calls.Load())
+	_, ok := a.pendingAt(k)
+	require.True(t, ok, "the failed stamp goes back into pending")
+
+	// The timer fires again with the clock still inside the backoff: no attempt.
+	a.onTimer()
 	assert.Equal(t, int32(1), calls.Load(), "the periodic flush must wait out the backoff")
+	// Stop the timer that call re-armed (its delay is the remaining backoff), so
+	// nothing fires on its own while the clock moves.
+	stopLastUsedTimerNow(a)
 
 	fail.Store(false)
-	require.Eventually(t, func() bool {
-		_, ok := a.pendingAt(lastUsedKey{lastUsedPAT, 1})
-		return !ok
-	}, 5*time.Second, 5*time.Millisecond, "after the backoff the periodic flush retries and succeeds")
+	clockMu.Lock()
+	fake = fake.Add(2 * time.Hour) // past the backoff
+	clockMu.Unlock()
+	a.onTimer() // after the backoff the periodic flush retries and succeeds
+	assert.Equal(t, int32(2), calls.Load(), "after the backoff the periodic flush retries")
+	_, ok = a.pendingAt(k)
+	assert.False(t, ok, "the retried stamp was written")
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	assert.Zero(t, a.failures, "success resets the backoff")
