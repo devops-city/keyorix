@@ -182,11 +182,18 @@ func runCLIExpectErr(t *testing.T, cliBin string, env []string, args ...string) 
 	return out
 }
 
-func runCLIRaw(cliBin string, env []string, args ...string) (string, error) {
+func runCLIRawStdin(cliBin string, env []string, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.Command(cliBin, args...) // #nosec G204 -- cliBin is this test's own built binary path, args are the test's own fixed arguments nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- runs the keyorix binary this e2e journey itself built, with the journey's own fixed arguments; no external input reaches it
 	cmd.Env = env
+	cmd.Stdin = stdin // nil leaves stdin empty
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// runCLIRaw runs the CLI with no stdin; with runCLIWithStdin it wraps runCLIRawStdin, the
+// single place the journeys exec the CLI binary.
+func runCLIRaw(cliBin string, env []string, args ...string) (string, error) {
+	return runCLIRawStdin(cliBin, env, nil, args...)
 }
 
 // ── Secrets the CLI accepts (never as a flag: #3325) ──────────────────────
@@ -203,11 +210,7 @@ func withEnv(env []string, kv ...string) []string {
 // runCLIWithStdin runs the CLI with stdin piped in and returns combined output and the
 // error. Use runCLIWithStdinOK / runCLIWithStdinExpectErr to assert on the exit status.
 func runCLIWithStdin(cliBin string, env []string, stdin string, args ...string) (string, error) {
-	cmd := exec.Command(cliBin, args...) // #nosec G204 -- cliBin is this test's own built binary path, args are the test's own fixed arguments nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- runs the keyorix binary this e2e journey itself built, with the journey's own fixed arguments; no external input reaches it
-	cmd.Env = env
-	cmd.Stdin = strings.NewReader(stdin)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return runCLIRawStdin(cliBin, env, strings.NewReader(stdin), args...)
 }
 
 // runCLIWithStdinOK is runCLI with stdin piped in: it fails the test on a non-zero exit.
