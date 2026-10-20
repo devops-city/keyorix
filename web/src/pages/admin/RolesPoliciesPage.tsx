@@ -451,7 +451,7 @@ export const RolesPoliciesPage: React.FC = () => {
                             <div key={resource}>
                                 <h4
                                     className="text-xs font-semibold uppercase tracking-wider mb-2"
-                                    style={{ color: 'var(--text-muted)' }}
+                                    style={{ color: 'var(--text-secondary)' }}
                                 >
                                     {resource}
                                 </h4>

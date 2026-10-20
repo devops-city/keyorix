@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError } from 'axios';
 import { render, screen, fireEvent, within, waitFor, act } from '../../../test/test-utils';
 import { SharingManagementPage, shareExpiry } from '../SharingManagementPage';
+import { useAuthStore } from '../../../store/authStore';
+import type { User } from '../../../types';
 
 const NOW = new Date('2026-08-01T12:00:00.000Z');
 
@@ -110,7 +112,7 @@ const shareCarol = {
     recipientName: 'Carol Smith',
     permission: 'read' as const,
     createdAt: '2026-07-25T12:00:00.000Z',
-    createdBy: 'carol',
+    createdBy: 'alice',
     expiresAt: '2026-08-01T17:00:00.000Z', // NOW + 5h -> "in 5h"
 };
 
@@ -135,6 +137,22 @@ function resetState() {
     mutationState.update = { isPending: false, isError: false, error: null };
 }
 
+// Signs in as `username`. The row actions (edit/revoke) are enabled only on shares the
+// signed-in user owns (createdBy), so each test signs in as the owner of the row it drives.
+function signInAs(username: string, extra: Partial<User> = {}) {
+    useAuthStore.setState({
+        user: {
+            id: 900,
+            username,
+            email: `${username}@example.com`,
+            role: 'user',
+            roles: [],
+            permissions: [],
+            ...extra,
+        } as User,
+    });
+}
+
 function rowFor(recipientName: string): HTMLElement {
     return screen.getByText(recipientName).closest('tr') as HTMLElement;
 }
@@ -147,6 +165,7 @@ beforeEach(() => {
     // and waitFor's own polling still work instead of freezing forever.
     vi.setSystemTime(NOW);
     window.history.pushState({}, '', '/');
+    signInAs('alice');
 });
 
 afterEach(() => {
@@ -529,6 +548,7 @@ describe('SharingManagementPage — per-row actions', () => {
 
 describe('SharingManagementPage — edit share modal', () => {
     it('opens pre-filled with the target share\'s permission and a "keep current" expiry', () => {
+        signInAs('bob');
         render(<SharingManagementPage />);
         fireEvent.click(within(rowFor('Ops Group')).getByTitle('Edit permissions'));
 
@@ -538,6 +558,9 @@ describe('SharingManagementPage — edit share modal', () => {
     });
 
     it('shows current-expiry copy only when the share has one and "keep" is selected', () => {
+        // Both shares owned by the signed-in user (the row action is owner-only).
+        signInAs('bob');
+        sharesState.data = makeResponse([{ ...shareAlice, createdBy: 'bob' }, shareOps]);
         render(<SharingManagementPage />);
         fireEvent.click(within(rowFor('Ops Group')).getByTitle('Edit permissions'));
         expect(screen.getByText(/Currently expires/)).toBeInTheDocument();
@@ -582,6 +605,7 @@ describe('SharingManagementPage — edit share modal', () => {
     });
 
     it('submits clearExpiry:true when "No expiry (permanent)" is chosen', () => {
+        signInAs('bob');
         render(<SharingManagementPage />);
         fireEvent.click(within(rowFor('Ops Group')).getByTitle('Edit permissions'));
         fireEvent.change(screen.getByLabelText('Access expires'), { target: { value: 'clear' } });
@@ -723,5 +747,74 @@ describe('SharingManagementPage — owner-scoped mode (SHARE-3)', () => {
         expect(screen.getByText('Failed to revoke share')).toBeInTheDocument();
         expect(screen.getByText("Only the secret's owner can share it or change its shares.")).toBeInTheDocument();
         expect(screen.queryByText(/Request failed with status code/)).not.toBeInTheDocument();
+    });
+});
+
+// Row actions follow the server's rule (PUT/DELETE /shares/{id} -> core.requireShareAuthority):
+// only the secret's owner may edit or revoke a share; the list names that owner as `createdBy`.
+// A recipient ("viewer") and a global admin who does not own the secret are refused by the server,
+// so the page disables the actions for them. The server stays the enforcement point.
+describe('SharingManagementPage — who may edit or revoke a share', () => {
+    const OWNER_ONLY = "Only the secret's owner can change or revoke its shares";
+    const ownedByOwen = { ...shareAlice, createdBy: 'owen' };
+
+    beforeEach(() => {
+        sharesState.data = makeResponse([ownedByOwen]);
+    });
+
+    it('owner: edit and revoke are enabled and act', () => {
+        signInAs('owen');
+        render(<SharingManagementPage />);
+        const row = rowFor('Alice Anderson');
+        expect(within(row).getByTitle('Edit permissions')).toBeEnabled();
+        expect(within(row).getByTitle('Revoke access')).toBeEnabled();
+        fireEvent.click(within(row).getByTitle('Revoke access'));
+        expect(openModalMock).toHaveBeenCalledWith('confirm-delete', expect.anything());
+    });
+
+    it('viewer (a recipient, not the owner): edit and revoke are disabled and do nothing', () => {
+        signInAs('viola', { role: 'viewer', permissions: ['secrets.read'] });
+        render(<SharingManagementPage />);
+        const row = rowFor('Alice Anderson');
+        expect(within(row).getAllByTitle(OWNER_ONLY)).toHaveLength(2);
+        for (const b of within(row).getAllByTitle(OWNER_ONLY)) {
+            expect(b).toBeDisabled();
+            fireEvent.click(b);
+        }
+        expect(openModalMock).not.toHaveBeenCalled();
+        expect(within(row).queryByTitle('Edit permissions')).not.toBeInTheDocument();
+        expect(within(row).queryByTitle('Revoke access')).not.toBeInTheDocument();
+        // Viewing the secret is a read and stays available.
+        expect(within(row).getByTitle('View secret')).toBeEnabled();
+    });
+
+    it('admin who does not own the secret: disabled too (the server has no admin bypass)', () => {
+        signInAs('root', { role: 'admin', roles: ['admin'], permissions: ['secrets.read', 'secrets.write', '*'] });
+        render(<SharingManagementPage />);
+        const row = rowFor('Alice Anderson');
+        for (const b of within(row).getAllByTitle(OWNER_ONLY)) expect(b).toBeDisabled();
+        expect(within(row).queryByTitle('Revoke access')).not.toBeInTheDocument();
+    });
+
+    it('signed out: disabled', () => {
+        useAuthStore.setState({ user: null });
+        render(<SharingManagementPage />);
+        expect(within(rowFor('Alice Anderson')).getAllByTitle(OWNER_ONLY)).toHaveLength(2);
+    });
+
+    it('matches the "User <id>" fallback the list uses when a name lookup failed', () => {
+        signInAs('owen', { id: 7 });
+        sharesState.data = makeResponse([{ ...shareAlice, createdBy: 'User 7' }]);
+        render(<SharingManagementPage />);
+        expect(within(rowFor('Alice Anderson')).getByTitle('Revoke access')).toBeEnabled();
+    });
+
+    it('bulk select: only shares the user owns can be ticked', () => {
+        signInAs('owen');
+        sharesState.data = makeResponse([ownedByOwen, shareOps]);
+        render(<SharingManagementPage />);
+        fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+        expect(within(rowFor('Alice Anderson')).getByRole('checkbox')).toBeEnabled();
+        expect(within(rowFor('Ops Group')).getByRole('checkbox')).toBeDisabled();
     });
 });

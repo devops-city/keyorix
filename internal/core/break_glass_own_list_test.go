@@ -219,6 +219,9 @@ func TestBreakGlassOwnView_RedactsEveryAdminField(t *testing.T) {
 		"ID": true, "ProjectID": true, "UserID": true, "RoleID": true, "RoleName": true,
 		"Justification": true, "State": true, "ExpiresAt": true, "CreatedAt": true,
 		"RevokedAt": true, "ReviewedAt": true,
+		// BREAKGLASS-OWED-1: the activator must see why their grant is short-lived
+		// and whether its owed audit rows are in the chain yet.
+		"Degraded": true, "AuditSettledAt": true,
 	}
 	filled := reflect.New(reflect.TypeFor[models.BreakGlassActivation]()).Elem()
 	now := time.Now()
@@ -227,6 +230,8 @@ func TestBreakGlassOwnView_RedactsEveryAdminField(t *testing.T) {
 		switch f.Kind() {
 		case reflect.Uint:
 			f.SetUint(5)
+		case reflect.Bool:
+			f.SetBool(true)
 		case reflect.String:
 			f.SetString("x")
 		case reflect.Pointer:

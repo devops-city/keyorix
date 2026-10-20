@@ -1,0 +1,1 @@
+BREAKGLASS-OWED-003	./internal/core	TestBreakGlass_CrashNeverLeavesAnUnrecordedActivation	default-ci	pending	-	A crash at the audit append, at the owed-record insert, after the degraded commit, or in the backfill append never leaves a break-glass activation without either its audit rows or its owed records.

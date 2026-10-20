@@ -47,6 +47,7 @@ const activation = (over: Partial<BreakGlassActivation> = {}): BreakGlassActivat
     reviewedBy: undefined,
     reviewedAt: undefined,
     reviewNote: undefined,
+    degraded: false,
     ...over,
 });
 
@@ -166,6 +167,29 @@ describe('ProjectBreakGlassTab — member view', () => {
         expect(await screen.findByText('Emergency access is active')).toBeInTheDocument();
         // The list is re-read after the write.
         await waitFor(() => expect(listMock.mock.calls.length).toBeGreaterThanOrEqual(2));
+    });
+
+    it('says so when the grant was degraded because the audit log refused writes (BREAKGLASS-OWED-1)', async () => {
+        listMock.mockResolvedValue(own([]));
+        activateMock.mockResolvedValue(activation({ id: 3, expiresAt: inMinutes(15), degraded: true }));
+        renderTab();
+        fireEvent.change(await screen.findByLabelText('Justification'), { target: { value: 'prod outage INC-124' } });
+        fireEvent.click(screen.getByRole('button', { name: 'Request emergency access' }));
+        expect(await screen.findByTestId('bg-granted-degraded')).toHaveTextContent('recorded as owed and shortened');
+    });
+
+    it('badges a degraded activation, saying whether its audit records are still owed', async () => {
+        listMock.mockResolvedValue(
+            own([
+                activation({ id: 4, degraded: true }),
+                activation({ id: 5, degraded: true, state: 'revoked', auditSettledAt: inMinutes(-1) }),
+                activation({ id: 6 }),
+            ])
+        );
+        renderTab();
+        expect(await screen.findByTestId('bg-degraded-4')).toHaveTextContent('Degraded · audit owed');
+        expect(screen.getByTestId('bg-degraded-5')).toHaveTextContent(/^Degraded$/);
+        expect(screen.queryByTestId('bg-degraded-6')).not.toBeInTheDocument();
     });
 
     it('omits ttl when the server default is picked', async () => {

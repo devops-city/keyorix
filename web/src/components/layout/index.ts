@@ -9,6 +9,7 @@ export * from './ImpersonationBanner';
 export * from './MfaGraceBanner';
 export * from './AuditReadsSkippedBanner';
 export * from './AuditOwedBanner';
+export * from './BreakGlassDegradedBanner';
 export * from './Header';
 export * from './Sidebar';
 export * from './Breadcrumb';

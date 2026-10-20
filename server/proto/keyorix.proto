@@ -797,6 +797,11 @@ message BreakGlassActivation {
   google.protobuf.Timestamp created_at = 9;
   optional uint32 revoked_by = 10; // set on early revoke; unset when the response scope is "own"
   optional google.protobuf.Timestamp revoked_at = 11;
+  // BREAKGLASS-OWED-1: granted while the audit log refused its rows; committed with
+  // an owed-audit record instead, short expiry, review mandatory.
+  bool degraded = 12;
+  // Set once every owed audit row of a degraded activation is in the hash chain.
+  optional google.protobuf.Timestamp audit_settled_at = 13;
 }
 
 message ActivateBreakGlassRequest {

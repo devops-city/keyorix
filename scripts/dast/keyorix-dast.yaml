@@ -25,7 +25,14 @@ storage:
     port: "5432"
     name: keyorix
     user: keyorix
-    ssl_mode: prefer
+    # Explicitly unencrypted (reported as storage.database.insecure_disable_database_tls):
+    # this stack's postgres (docker-compose.yml, stock postgres:15-alpine) serves no TLS and
+    # has no CA to verify against, so verify-full is not possible here. `prefer` would say the
+    # same thing less honestly (it also reports as a plaintext-fallback deviation). The
+    # database is only reachable on the stack's private compose network.
+    # Switch to verify-full + ssl_root_cert when this stack's postgres gets TLS like the
+    # Compose stack (#3203).
+    ssl_mode: disable
   encryption:
     enabled: true
     dek_path: "/app/keys/data.key"
