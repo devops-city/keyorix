@@ -104,7 +104,7 @@ func TestWaitHealthy_RetriesOnBindFailure(t *testing.T) {
 		Backend: DBBackend{Name: "bind-retry"},
 	}
 	serverEnv := append(append([]string{}, env...),
-		"KEYORIX_BOOTSTRAP_TOKEN=e2e-bind-retry-token",
+		"KEYORIX_BOOTSTRAP_TOKEN=e2e-bind-retry-token-0123456789abcdef",
 		"KEYORIX_CONFIG_PATH="+configPath,
 	)
 	StartBackgroundProcess(t, s, serverEnv)

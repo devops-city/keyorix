@@ -200,6 +200,21 @@ core_pkgs() {
   echo "github.com/keyorixhq/keyorix/internal/core"
 }
 
+# core_heavy_regex: the ONE place the core-1/core-2 split is defined
+# (CI-CORE-SHARD-1, 2026-10-19). internal/core took ~35 min on one runner
+# (reports/SESSION-CI-CORE-TIMEOUT-1.md). The heavy group -- the 300k-row audit
+# chain tests (TestAuditLongReaders_*, TestAuditChunkedWalk_*) and the big
+# per-row-vs-batch equivalence fixture (TestAuthorizeSecretsBatch_*) -- is
+# ~660 s locally and runs as core-1 (`-run`); core-2 runs everything else with
+# `-skip` of the SAME regex (Go >= 1.20), ~490 s locally. Because core-2 is
+# defined as the complement, a newly added test lands in core-2 automatically
+# and can never be dropped; assert_core_shards_complete proves it (and that the
+# regex still selects something, so a rename of a heavy test fails loudly
+# instead of silently emptying core-1).
+core_heavy_regex() {
+  echo '^(TestAudit(LongReaders|ChunkedWalk)|TestAuthorizeSecretsBatch)'
+}
+
 # storage_store_pkgs: internal/storage/store gets its own pinned leg (added
 # 2026-09-04) for the same reason internal/core did -- it grew large enough in
 # root-4's catch-all to threaten that leg's timeout budget. Measured directly:
@@ -342,7 +357,7 @@ pkgs_for_leg() {
     root-1) root_1_pkgs ;;
     root-2) root_2_pkgs ;;
     root-3) root_3_pkgs ;;
-    core) core_pkgs ;;
+    core-1|core-2) core_pkgs ;;
     root-4) root_4_pkgs ;;
     storage-store-1|storage-store-2) storage_store_pkgs ;;
     encryption-1|encryption-2) encryption_pkgs ;;
@@ -362,7 +377,8 @@ root-1
 root-2
 root-3
 root-4
-core
+core-1
+core-2
 storage-store-1
 storage-store-2
 encryption-1
@@ -564,4 +580,45 @@ assert_shard_partition_complete() {
 
 assert_faultops_shards_complete() {
   assert_shard_partition_complete "$(faultops_pkgs)" 2 faultops_run_filter
+}
+
+# assert_core_shards_complete: proves core-1 (-run core_heavy_regex) and core-2
+# (-skip core_heavy_regex) together run every Test/Fuzz/Example of
+# internal/core, each exactly once, and that core-1 is non-empty. Lists with
+# `go test -list` (core-1 via the leg's own -run regex, core-2 as the complement
+# under the same regex); does not execute any test.
+assert_core_shards_complete() {
+  local pkg re expected one two actual missing dupes failed=0
+  pkg=$(core_pkgs)
+  re=$(core_heavy_regex)
+  expected=$(go test -list '^(Test|Fuzz|Example)' "$pkg" | grep -v '^ok\b' | sort) || return 1
+  one=$(go test -list "$re" "$pkg" | grep -v '^ok\b' | sort) || return 1
+  # `go test -list` ignores -skip (verified go1.27.2), so core-2's list is
+  # derived by filtering with the same regex. For top-level test names (no
+  # '/') Go's -skip matches with regexp.MatchString, i.e. unanchored RE2, which
+  # for this regex's shape is the same as grep -E.
+  two=$(echo "$expected" | grep -vE "$re" || true)
+  if [ -z "$expected" ]; then
+    echo "CORE SHARDS: $pkg lists no Test/Fuzz/Example names at all -- refusing to call an empty set complete"
+    return 1
+  fi
+  if [ -z "$one" ]; then
+    echo "CORE SHARDS: core_heavy_regex '$re' selects no test in $pkg (heavy test renamed or removed?) -- core-1 would run nothing"
+    return 1
+  fi
+  actual=$(printf '%s\n%s\n' "$one" "$two" | sed '/^$/d' | sort)
+  missing=$(comm -23 <(echo "$expected") <(echo "$actual" | uniq))
+  dupes=$(echo "$actual" | uniq -d)
+  if [ -n "$missing" ]; then
+    echo "CORE SHARDS: $pkg tests that run in NEITHER core-1 nor core-2:"
+    echo "$missing"
+    failed=1
+  fi
+  if [ -n "$dupes" ]; then
+    echo "CORE SHARDS: $pkg tests that run in BOTH core-1 and core-2:"
+    echo "$dupes"
+    failed=1
+  fi
+  [ "$failed" -eq 0 ] && echo "OK: $pkg: all $(echo "$expected" | wc -l | tr -d ' ') Test/Fuzz/Example names run in exactly one of core-1 ($(echo "$one" | wc -l | tr -d ' ')) / core-2 ($(echo "$two" | wc -l | tr -d ' '))."
+  return $failed
 }

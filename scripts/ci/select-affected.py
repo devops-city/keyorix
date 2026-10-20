@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scripts/ci/select-affected.py -- merge_group test selection (CI-SELECT-1).
 
-The merge queue used to run every job and all 21 -race test-suite legs for
+The merge queue used to run every job and all 22 -race test-suite legs for
 every entry (~295 job-minutes). This script decides, from the entry's diff
 against github.event.merge_group.base_sha (the queue entry ahead of it, or
 main -- so the diff is that one PR), which root-module packages the change
@@ -351,11 +351,11 @@ def decide(base, head, changed=None):
             if test_hit:
                 seed(imp, False, f"its tests name {test_hit}")
 
-    # security-closure rows: the pg-gated ones are only proven in the core
+    # security-closure rows: the pg-gated ones are only proven in the core-1
     # leg's check-closures step (ci.yml test-suite), so a change to the ledger
     # or its checker must run that leg.
     if any(f.startswith("docs/security-closures.d/") or f == "scripts/check-closures.sh" for f in changed):
-        seed(MODULE + "/internal/core", False, "security-closure ledger or checker changed (core leg proves pg-gated rows)")
+        seed(MODULE + "/internal/core", False, "security-closure ledger or checker changed (core-1 leg proves pg-gated rows)")
 
     seeds = code_seeds | test_seeds
     affected = set(seeds)
@@ -460,7 +460,7 @@ def main():
         d["legs"] = {}
     log(f"select-affected: mode={d['mode']}: {one_line(d['reason'])}")
     if d["mode"] == "selected":
-        log(f"select-affected: {len(d['legs'])} of 21 test-suite legs run: {', '.join(sorted(d['legs'])) or '(none)'}")
+        log(f"select-affected: {len(d['legs'])} of 22 test-suite legs run: {', '.join(sorted(d['legs'])) or '(none)'}")
         for p, w in d["seeds"].items():
             log(f"  selected {p}: {w}")
     log("select-affected: gates " + " ".join(f"{g}={'run' if d['gates'][g] else 'skip'}" for g in ALL_GATES))
@@ -476,7 +476,7 @@ def main():
         with open(args.summary, "a", encoding="utf-8") as fh:
             fh.write(f"### merge_group selection: {d['mode']}\n\n{one_line(d['reason'])}\n\n")
             if d["mode"] == "selected":
-                fh.write(f"Changed files: {len(d['changed'])}. Test-suite legs that run ({len(d['legs'])}/21): {', '.join(sorted(d['legs'])) or 'none'}.\n\n")
+                fh.write(f"Changed files: {len(d['changed'])}. Test-suite legs that run ({len(d['legs'])}/22): {', '.join(sorted(d['legs'])) or 'none'}.\n\n")
                 fh.write("| gate | decision |\n|---|---|\n")
                 for g in ALL_GATES:
                     fh.write(f"| {g} | {'run' if d['gates'][g] else 'skip (inputs untouched)'} |\n")

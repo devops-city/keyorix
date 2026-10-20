@@ -302,7 +302,7 @@ func TestInitializeCoreService_MembershipValidationMode(t *testing.T) {
 func TestInitializeCoreService_BootstrapTokenFromEnv(t *testing.T) {
 	initI18n(t)
 	cfg := newMinimalCfg(t)
-	t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", "test-bootstrap-token-12345")
+	t.Setenv("KEYORIX_BOOTSTRAP_TOKEN", "test-bootstrap-token-0123456789abcdef")
 
 	_, _, err := initializeCoreService(cfg)
 	if err != nil {

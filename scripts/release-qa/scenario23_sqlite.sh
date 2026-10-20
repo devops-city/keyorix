@@ -43,7 +43,7 @@ trap cleanup EXIT
 REAL_HOME="$HOME"
 export HOME="$WORK_DIR"
 export KEYORIX_MASTER_PASSWORD="qa23-master-password-$$-${RANDOM}"
-BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"  # the server refuses a pinned token under 32 chars
 ADMIN_PASSWORD="Qa23-Test-Op3rator-Passw0rd!-$$-${RANDOM}"
 
 cd "$WORK_DIR"

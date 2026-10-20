@@ -539,6 +539,35 @@ verified, the server refuses to start. Read [`single-writer.md`](single-writer.m
 enabling it, and check `GET /api/v1/system/info` (`database.single_writer`) and
 `admin validate --posture` afterwards.
 
+## 6g. BREAKING: a pinned `KEYORIX_BOOTSTRAP_TOKEN` must be at least 32 characters
+
+The server now refuses to start when `KEYORIX_BOOTSTRAP_TOKEN` (or the file named by
+`KEYORIX_BOOTSTRAP_TOKEN_FILE`) is set to fewer than 32 characters, with:
+
+```
+KEYORIX_BOOTSTRAP_TOKEN too short (min 32 characters): generate one with: openssl rand -hex 32
+```
+
+The bootstrap token is what authorises claiming the first admin over
+`POST /system/init`, so a short or dictionary phrase (the old QUICK_START example
+`choose-a-bootstrap-token` among them) let anyone who reached a fresh server guess
+it. Leaving the variable unset is unchanged: the server generates a 256-bit token
+and logs it. `admin init`, `scripts/selfhost/init-secrets.sh` and the Helm chart
+already generate tokens of 32 characters or more.
+
+What to do: if you pin the token yourself, replace it with
+`openssl rand -hex 32` before upgrading. An already-initialised server never uses the
+token again, so on such an install you can also simply unset it.
+
+**UNVERIFIED** against a release build; covered by
+`server/secret_file_test.go:TestResolveBootstrapToken_ShortPinnedTokenRefused` and
+`scripts/e2e/bootstrap_token_strength_test.go:TestBootstrapTokenStrength_SQLite`.
+
+`scripts/selfhost/init-secrets.sh --from-env` copies a `KEYORIX_BOOTSTRAP_TOKEN` from the
+old `.env` into `secrets/bootstrap_token` unchanged. If that token is shorter than 32
+characters the server will not start: replace the file's content with
+`openssl rand -hex 32` before `docker compose up`.
+
 ## 6h. A database outage now rejects cached credentials (503)
 
 Behaviour change, no setting. On an HTTP request whose credential is in the

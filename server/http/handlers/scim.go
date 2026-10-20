@@ -152,7 +152,7 @@ func (h *SCIMHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		// but that means a userName-filter query here could otherwise surface (and
 		// leak the numeric id of) a NATIVE account SCIM never provisioned. Only
 		// SCIM-managed accounts are real matches for discovery/reconciliation (#120).
-		if user != nil && user.ExternalID != "" {
+		if user != nil && core.IsSCIMManaged(user) {
 			resources = append(resources, toSCIMUser(user))
 		}
 		writeSCIM(w, http.StatusOK, listResponse(resources))
