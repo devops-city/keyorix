@@ -451,6 +451,11 @@ type KeyorixCore struct {
 	// process has read or written (audit_verify_state.go): a row below it is a
 	// rollback or replay, like auditMaxCertified for the high-water mark.
 	auditVerifyGenSeen atomic.Uint64
+	// auditVerifyPubMu serialises publishing a state to the audit-verify gauges;
+	// auditVerifyGenPublished is the newest generation published, so a stale
+	// publish (audit_verify_metrics.go) cannot overwrite a newer one.
+	auditVerifyPubMu        sync.Mutex
+	auditVerifyGenPublished uint64
 	// checkpointNotary, when set, anchors each freshly-written audit checkpoint to
 	// an external authority (RFC 3161 TSA) for a forge-proof proof-of-existence
 	// (ADR-029). nil = no external anchoring. Set at startup via SetCheckpointNotary.

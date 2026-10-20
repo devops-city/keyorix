@@ -118,6 +118,7 @@ func TestJSONLogs_ShapeCorrelationAndNoSecrets(t *testing.T) {
 		t.Fatalf("admin migrate failed: %v\n%s", err, out)
 	}
 
+	port := pinFreeHTTPPort(t, dir)
 	logPath := filepath.Join(dir, "json-server.log")
 	logFile, err := os.Create(logPath) //nolint:gosec // test-generated path
 	if err != nil {
@@ -131,24 +132,9 @@ func TestJSONLogs_ShapeCorrelationAndNoSecrets(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start server: %v", err)
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
 
-	base := "http://localhost:8080"
-	up := false
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
-		if resp, gerr := http.Get(base + "/health"); gerr == nil { //nolint:noctx // test-local liveness poll
-			_ = resp.Body.Close()
-			up = true
-			break
-		}
-	}
-	if !up {
-		raw, _ := os.ReadFile(logPath) //nolint:gosec // test-generated path
-		t.Fatalf("server never became reachable; log:\n%s", raw)
-	}
+	base := "http://127.0.0.1:" + port
+	awaitServerHealthy(t, cmd, logPath, base)
 
 	// --- traffic carrying canaries ---------------------------------------------------
 	req, _ := http.NewRequest(http.MethodPost, base+"/system/init", strings.NewReader(fmt.Sprintf(

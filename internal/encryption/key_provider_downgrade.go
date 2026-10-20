@@ -56,6 +56,7 @@ func (s *Service) SetAuditSink(sink AuditSink) {
 // since the KEK derivation it's reporting on has already succeeded by the time
 // this runs and must not be undone by an audit-logging failure.
 func (s *Service) auditKeyProviderDowngrade(d crypto.FallbackDowngrade) {
+	kekDowngradesTotal.Inc()
 	s.auditSinkMu.RLock()
 	sink := s.auditSink
 	s.auditSinkMu.RUnlock()
