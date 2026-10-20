@@ -90,3 +90,4 @@ session-m-project-env-seed-oracle-gap	c347ca5c	16f92ec0	REST POST /api/v1/projec
 webauthn-loginfinish-consumemfachallenge-2565	f1ba3462	3a1c5c11	REST POST /auth/webauthn/login/finish	ConsumeMFAChallenge	1	error	d800120000
 webauthn-loginfinish-consumewebauthnsession-2603-covered-by-2565	f1ba3462	3a1c5c11	REST POST /auth/webauthn/login/finish	ConsumeWebAuthnSession	1	error	d800160000
 webauthn-loginfinish-listcredentials-2565	8b9ebe02	bf112702	REST POST /auth/webauthn/login/finish	ListWebAuthnCredentials	1	error	d801390000
+5012b3d0b086d4a4	f1acd5b3	8962363c	REST GET /auth/sso/{provider}/callback	ClaimPendingAuditEvent	1	error	da797e3230
