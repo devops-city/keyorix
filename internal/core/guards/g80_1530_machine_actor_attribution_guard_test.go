@@ -44,6 +44,12 @@ import (
 // fails if a new direct caller appears unlisted, or if a listed entry no
 // longer matches what it claims. Keys are repo-root-relative "path:func".
 var auditAttributionAllowlist = map[string]string{
+	"scripts/migrate/migratecheck/main.go:seedAudit": "#3372 MIGRATE-VERIFY-1: seedAudit is the SQLite-to-PostgreSQL " +
+		"migration-check tool's synthetic-data generator (scripts/migrate/sqlite-to-pg-check.sh), a " +
+		"standalone dev/CI binary that is never linked into the server. It writes only fixed " +
+		"human-style event types (secret.read, auth.login, ...) with no ActorType, no UserID and no " +
+		"MachineIdentityID at all, so it can never emit a machine-identity-typed event that needs the " +
+		"emitAudit attribution stamp; the rows only exist to be counted and compared after the migration.",
 	"internal/core/audit_target.go:emitAuditOn": "#2676: emitAuditOn is emitAudit against an explicit " +
 		"storage handle (the transaction-scoped one the access-review revoke path needs so its evidence " +
 		"row commits or rolls back with the removal it describes). It is NOT a bypass of the attribution " +

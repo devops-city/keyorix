@@ -125,6 +125,7 @@ migrate/cmd/vaultapplyaccess.go (os.OpenFile)	file_write	migrate/cmd	1
 migrate/cmd/vaultscan.go (os.Create)	file_write	migrate/cmd	1
 migrate/internal/apiclient/gen/filterspec.go (os.WriteFile)	file_write	migrate/internal/apiclient/gen	1
 pkg/bundleverify/bundleverify.go (os.OpenFile)	file_write	pkg/bundleverify	2
+scripts/demo/oidcissuer/main.go (os.WriteFile)	file_write	scripts/demo/oidcissuer	1
 scripts/e2e/harness/harness.go (os.Create)	file_write	scripts/e2e/harness	1
 scripts/e2e/harness/harness.go (os.WriteFile)	file_write	scripts/e2e/harness	3
 scripts/fuzzing/autofuzzgen/main.go (os.WriteFile)	file_write	scripts/fuzzing/autofuzzgen	2

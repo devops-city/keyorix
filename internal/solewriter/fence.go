@@ -465,6 +465,8 @@ var migrationTriggers = []string{
 	"permissions.trg_permissions_generation",
 	"role_permissions.trg_role_permissions_generation",
 	"secret_nodes.trg_secret_nodes_cache_epoch",
+	"secret_nodes.trg_secret_nodes_suspend_marker",
+	"system_metadata.trg_system_metadata_retention_anchor_v2",
 }
 
 // foreignTriggers lists every trigger on a covered table that is neither one

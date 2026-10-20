@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -403,6 +404,36 @@ func TestValidate_GRPCTLSNoCertFile(t *testing.T) {
 	err := c.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cert_file")
+}
+
+// TestValidate_GRPCAutoCertRefused: server.grpc.tls.auto_cert has no ACME behind
+// it, so it is refused whatever tls.enabled says (AUTH-2 item 3). With tls.enabled
+// it used to start a server whose every handshake failed; without it, the listener
+// served plaintext to an operator who had asked for certificates.
+func TestValidate_GRPCAutoCertRefused(t *testing.T) {
+	for _, tlsEnabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("tls.enabled=%v", tlsEnabled), func(t *testing.T) {
+			c := &Config{}
+			c.Server.HTTP.Port = "8080"
+			c.Server.GRPC.Port = "9090"
+			c.Server.GRPC.Enabled = true
+			c.Storage.Type = "local"
+			c.Storage.Database.Path = "./test.db"
+			c.Server.GRPC.TLS.Enabled = tlsEnabled
+			c.Server.GRPC.TLS.AutoCert = true
+			err := c.Validate()
+			require.ErrorIs(t, err, ErrGRPCAutoCertUnsupported)
+			assert.Contains(t, err.Error(), "server.grpc.tls.auto_cert")
+			assert.Contains(t, err.Error(), "cert_file")
+
+			// Calibration: the same config without auto_cert validates.
+			c.Server.GRPC.TLS.AutoCert = false
+			if tlsEnabled {
+				c.Server.GRPC.TLS.CertFile, c.Server.GRPC.TLS.KeyFile = "cert.pem", "key.pem"
+			}
+			require.NoError(t, c.Validate())
+		})
+	}
 }
 
 // TestValidate_PostgresRequiresDSNOrFields validates that postgres storage

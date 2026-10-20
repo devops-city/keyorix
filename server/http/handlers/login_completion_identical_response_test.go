@@ -388,6 +388,8 @@ func newSetupConsumeCompletionEnv(t *testing.T) (*AuthHandler, *faultstorage.Fau
 		&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 		&models.LoginAttempt{}, &models.PasswordHistory{}, &models.Notification{},
+		// AUTH-2 item 1: the consume revokes PATs inside its transaction.
+		&models.PersonalAccessToken{},
 	))
 	// One connection per in-memory DB: a shared-cache SQLite database serves
 	// concurrent connections with SQLITE_LOCKED ("database table is locked"),

@@ -62,7 +62,7 @@ keyorix audit verify
 keyorix audit verify --full --json`,
 
 	"billing report": `keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z
-keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --project-id 3,5 --format json`,
+keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --project-id 3,5 -o json`,
 
 	"break-glass activate": `keyorix break-glass activate --project-id 3 --justification "prod outage INC-1234" --ttl 2h`,
 	"break-glass list":     `keyorix break-glass list --project-id 3`,
@@ -146,7 +146,10 @@ keyorix machine binding add ci-deployer --project payments --issuer https://toke
 	"machine roles":             `keyorix machine roles ci-deployer --project payments`,
 	"machine suspend":           `keyorix machine suspend ci-deployer --project payments`,
 	"machine token issue": `# The token is shown once; store it straight into your CI system
-keyorix machine token issue ci-deployer --project payments --name github-actions --expires-in-days 90`,
+keyorix machine token issue ci-deployer --project payments --name github-actions --expires-in-days 90
+
+# Or write it to a new 0600 file, so it never appears in your terminal or shell history
+keyorix machine token issue ci-deployer --project payments --name github-actions --output-file ./ci.token`,
 	"machine token list":    `keyorix machine token list ci-deployer --project payments`,
 	"machine token revoke":  `keyorix machine token revoke ci-deployer 4 --project payments`,
 	"machine token-hygiene": `keyorix machine token-hygiene --days 60`,
@@ -158,12 +161,13 @@ keyorix mfa enroll`,
 	"mfa stepup": `# Prompts for a fresh authenticator or recovery code
 keyorix mfa stepup`,
 
-	"notification channel add": `keyorix notification channel add ops-slack --type slack --url https://hooks.slack.com/services/T000/B000/XXXX --events secret.rotated,anomaly.detected
+	"notification channel add": `keyorix notification channel add ops-slack --type slack --url-file ./slack-url.txt --events secret.rotated,anomaly.detected
 keyorix notification channel add secops-mail --type email --email secops@example.com`,
 	"notification channel delete": `keyorix notification channel delete ops-slack --confirm`,
 	"notification channel get":    `keyorix notification channel get ops-slack`,
 	"notification channel list":   `keyorix notification channel list`,
-	"notification channel update": `keyorix notification channel update ops-slack --events secret.rotated --enabled`,
+	"notification channel update": `keyorix notification channel update ops-slack --events secret.rotated --enabled
+keyorix notification channel update ops-slack --url-file -`,
 
 	"pat cleanup-expired": `keyorix pat cleanup-expired`,
 	"pat create": `# A read-only token for one project, valid until the end of the year
@@ -185,7 +189,7 @@ keyorix pat create --name ci-readonly --scope secrets.read --project-id 3 --expi
 	"project hygiene":         `keyorix project hygiene 3`,
 	"project list":            `keyorix project list`,
 	"project resume-secrets":  `keyorix project resume-secrets --id 3`,
-	"project stats":           `keyorix project stats payments --format json`,
+	"project stats":           `keyorix project stats payments -o json`,
 	"project suspend-secrets": `keyorix project suspend-secrets --id 3 --reason "suspected CI compromise"`,
 	"project use": `# Make "payments" the default for later commands
 keyorix project use payments`,
@@ -286,7 +290,7 @@ keyorix secret get --ref payments/production/DB_PASSWORD`,
 	"secret import":       `keyorix secret import --project 3 --env 2 --file .env --format dotenv --dry-run`,
 	"secret info":         `keyorix secret info --id 42`,
 	"secret list": `keyorix secret list --project payments
-keyorix secret list --project payments --format json`,
+keyorix secret list --project payments -o json`,
 	"secret move":              `keyorix secret move --id 42 --to 5`,
 	"secret name-conformance":  `keyorix secret name-conformance --project 3`,
 	"secret orphaned":          `keyorix secret orphaned --project 3`,
@@ -315,7 +319,7 @@ keyorix secret set-schedule 42 --days mon,tue,wed,thu,fri --start-hour 8 --end-h
 	"secret update": `# Prompts for the new value
 keyorix secret update --id 42 --interactive
 keyorix secret update --id 42 --expires 2027-01-31T00:00:00Z`,
-	"secret versions": `keyorix secret versions --id 42 --format json`,
+	"secret versions": `keyorix secret versions --id 42 -o json`,
 
 	"share create":         `keyorix share create --secret-id 42 --recipient-id 12 --permission read --ttl 24h`,
 	"share group-shares":   `keyorix share group-shares --group-id 4`,
@@ -342,7 +346,7 @@ keyorix system init --server https://keyorix.example.com --admin-username admin 
 	"trust keygen": `keyorix trust keygen --purpose update --key-id update-2026 --dir ./keys`,
 
 	"usage show": `keyorix usage show --days 30
-keyorix usage show --project-id 3 --format json`,
+keyorix usage show --project-id 3 -o json`,
 
 	"user create": `# Prompts for an initial password (or use --setup-link / --one-time-password)
 keyorix user create --username bob --email bob@example.com --setup-link`,

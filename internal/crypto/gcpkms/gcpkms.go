@@ -214,7 +214,7 @@ func (c *client) DecryptReportingFallback(ctx context.Context, ciphertext []byte
 		return nil, false, fmt.Errorf("gcp-kms: decrypt: plaintext checksum mismatch (possible response corruption)")
 	}
 	if fellBack {
-		msg := "gcp-kms: decrypted a wrapped KEK WITHOUT its configured AAD (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback"
+		msg := "gcp-kms: decrypted a wrapped KEK WITHOUT its configured AAD (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix-server admin encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback"
 		log.Printf("%s", msg)
 		c.emitFallbackAudit(ctx, msg)
 	}

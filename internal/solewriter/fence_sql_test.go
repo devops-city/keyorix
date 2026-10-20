@@ -105,6 +105,8 @@ func TestMigrationTriggers_MatchTheStore(t *testing.T) {
 		"permissions." + store.PermissionsGenerationTrigger,
 		"role_permissions." + store.RolePermissionsGenerationTrigger,
 		"secret_nodes." + store.SecretNodeCacheEpochTrigger,
+		"secret_nodes." + store.SecretSuspendMarkerTrigger,
+		"system_metadata." + store.AuditRetentionAnchorTrigger,
 	}
 	if !slices.Equal(migrationTriggers, want) {
 		t.Fatalf("migrationTriggers = %v, want %v", migrationTriggers, want)

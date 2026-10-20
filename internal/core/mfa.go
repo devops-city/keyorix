@@ -256,6 +256,7 @@ func (c *KeyorixCore) ActivateMFA(ctx context.Context, userID uint, code, passwo
 	c.clearCachedTokens(keepHash)
 	uid := userID
 	c.writeAuditEventFull(ctx, "mfa.activated", &uid, nil, nil, "", fmt.Sprintf("user %s activated MFA", user.Username))
+	c.recheckMFAUpgradeGrace() // ADR-112 #2923: an admin's first factor ends the grace period now
 	return codes, nil
 }
 
@@ -780,7 +781,7 @@ func (c *KeyorixCore) validateTOTPStep(secret, code string) (int64, bool) {
 
 func (c *KeyorixCore) auditMFAFailed(ctx context.Context, userID uint, phase string) {
 	uid := userID
-	c.writeAuditEventFull(ctx, "mfa.failed", &uid, nil, nil, "", fmt.Sprintf("failed MFA %s for user %d", phase, userID))
+	c.writeAuditEventFailedFull(ctx, "mfa.failed", &uid, nil, nil, "", fmt.Sprintf("failed MFA %s for user %d", phase, userID))
 }
 
 // auditMFAError records that an MFA attempt could not be conclusively evaluated
@@ -790,9 +791,35 @@ func (c *KeyorixCore) auditMFAFailed(ctx context.Context, userID uint, phase str
 // (docs/findings/2026-10-02-FINDING-mfa-login-getmfasecret-storage-error-counted-as-wrong-code.md).
 func (c *KeyorixCore) auditMFAError(ctx context.Context, userID uint, phase string, err error) {
 	uid := userID
-	c.writeAuditEventFull(ctx, "mfa.error", &uid, nil, nil, "",
+	c.writeAuditEventFailedFull(ctx, "mfa.error", &uid, nil, nil, "",
 		fmt.Sprintf("MFA %s for user %d could not be evaluated (storage error): %v", phase, userID, err))
 }
+
+// ErrReauthRejected marks the refusals of an authenticated re-check of the
+// caller's code or password (requireReauth, VerifyMFAStepUp): a wrong one, a
+// post-verdict fault (both counted toward the lockout) and a locked account. A
+// transport keeps the caller's per-IP login-budget slot for these, like a failed
+// login, and hands it back for any other outcome (a storage fault before any
+// verdict: nothing was evaluated). Server-side only: the error's text is exactly
+// what it was before the sentinel existed.
+var ErrReauthRejected = errors.New("re-authentication rejected")
+
+// reauthRejectedError is ErrReauthRejected with the refusal's unchanged text:
+// msg, or the wrapped error's when cause is set (which stays in the chain, so
+// errors.Is on it still holds).
+type reauthRejectedError struct {
+	msg   string
+	cause error
+}
+
+func (e *reauthRejectedError) Error() string {
+	if e.cause != nil {
+		return e.cause.Error()
+	}
+	return e.msg
+}
+func (*reauthRejectedError) Is(target error) bool { return target == ErrReauthRejected }
+func (e *reauthRejectedError) Unwrap() error      { return e.cause }
 
 // requireReauth is the shared self-service re-authentication gate (#372) for
 // account-security-factor changes. Every caller (DisableMFA,
@@ -865,7 +892,7 @@ func (c *KeyorixCore) auditMFAError(ctx context.Context, userID uint, phase stri
 // and its siblings (mfa_stepup_grant_single_use_test.go).
 func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, codeOrPassword, phase string) error {
 	if c.loginLocked(user) {
-		return fmt.Errorf("account temporarily locked due to repeated failed logins; try again later")
+		return &reauthRejectedError{msg: "account temporarily locked due to repeated failed logins; try again later"}
 	}
 	secondFactorEnrolled := user.MFAEnabled || user.WebAuthnEnabled
 	ok := false
@@ -964,11 +991,11 @@ func (c *KeyorixCore) requireReauth(ctx context.Context, user *models.User, code
 			// lockout-wise, than a wrong one.
 			c.auditMFAError(ctx, user.ID, phase, postVerdictErr)
 			c.recordFailedLogin(ctx, user)
-			return fmt.Errorf("invalid code or password")
+			return &reauthRejectedError{msg: "invalid code or password"}
 		}
 		c.auditMFAFailed(ctx, user.ID, phase)
 		c.recordFailedLogin(ctx, user) // count the failed re-auth attempt toward the lockout
-		return fmt.Errorf("invalid code or password")
+		return &reauthRejectedError{msg: "invalid code or password"}
 	}
 	c.clearLoginFailures(ctx, user)
 	uid := user.ID

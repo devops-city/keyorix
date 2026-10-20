@@ -57,6 +57,10 @@ var allowedLockoutAccountingSites = []clearSite{
 		why: "placed AFTER mintSession. SSO never feeds this counter (an IdP-rejected assertion never reaches here), so a later fault leaving it untouched matches every other SSO failure."},
 	{fn: "CompleteSAML", callee: "clearLoginFailures",
 		why: "same as CompleteSSO."},
+	{fn: "ChangePassword", callee: "clearLoginFailures",
+		why: "AUTH-PW-BUDGET: after applyNewPassword committed, and only with no second factor enrolled (the password was then full authentication, as for a delivered password login). What follows is the best-effort session purge (recovers its own panic) and an audit write; nothing can refuse the change any more."},
+	{fn: "UpdateOwnProfile", callee: "clearLoginFailures",
+		why: "AUTH-PW-BUDGET: after UpdateUser committed the email change, and only when the bare password authorised it (no second factor). Nothing fallible follows."},
 
 	// --- the no-clear TOCTOU re-check ---
 	{fn: "authenticatePasswordLogin", callee: "recheckLockAfterCredentialMatched",
@@ -71,6 +75,8 @@ var allowedLockoutAccountingSites = []clearSite{
 		why: "re-check only; the clear is after CreateMFAStepUpGrant."},
 	{fn: "VerifyMFAStepUp", callee: "recheckLockAfterCredentialMatched",
 		why: "re-check only; the clear is after CreateMFAStepUpGrant."},
+	{fn: "verifyCurrentPassword", callee: "recheckLockAfterCredentialMatched",
+		why: "AUTH-PW-BUDGET: re-check only; ChangePassword / UpdateOwnProfile clear after their change commits. A recheck storage fault is counted inside recheckLockAfterCredentialMatched and refused like a wrong password."},
 	{fn: "recheckLockAfterCredentialMatched", callee: "recheckLoginLockFailClosed",
 		why: "the wrapper every credential-verifying login path uses (#2894 review): it adds no clear, and on the recheck's storage-fault branch it counts the attempt (when the path counts wrong credentials) and wraps ErrLoginPostVerdict."},
 	{fn: "CompleteSSO", callee: "recheckLoginLockFailClosed",

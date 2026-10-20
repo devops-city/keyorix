@@ -18,7 +18,7 @@ import (
 //     TLS (sslmode is invalid)"), since the trailing " search_path=x" gets
 //     read as part of the query string's last value, not a new parameter.
 func PGSearchPathDSN(base, schema string) string {
-	if strings.HasPrefix(base, "postgres://") || strings.HasPrefix(base, "postgresql://") {
+	if isURLDSN(base) {
 		sep := "?"
 		if strings.Contains(base, "?") {
 			sep = "&"
@@ -37,29 +37,13 @@ func PGSearchPathDSN(base, schema string) string {
 //     "dbname=" field onto a URL is not libpq keyword/value syntax and is
 //     silently ignored, leaving every isolated test pointed at the same
 //     shared base database instead of its own disposable one.
+//
+// Both forms keep every other field (sslmode, a quoted or percent-encoded
+// password, search_path, ...) intact; see replace_dbname.go. An unparseable URL
+// panics rather than returning base unchanged.
 func PGReplaceDBName(base, newName string) string {
-	if strings.HasPrefix(base, "postgres://") || strings.HasPrefix(base, "postgresql://") {
-		u, err := url.Parse(base)
-		if err != nil {
-			return base
-		}
-		u.Path = "/" + newName
-		return u.String()
+	if isURLDSN(base) {
+		return replaceURLDBName(base, newName)
 	}
-
-	fields := strings.Fields(base)
-	out := make([]string, 0, len(fields)+1)
-	found := false
-	for _, f := range fields {
-		if strings.HasPrefix(f, "dbname=") {
-			out = append(out, "dbname="+newName)
-			found = true
-			continue
-		}
-		out = append(out, f)
-	}
-	if !found {
-		out = append(out, "dbname="+newName)
-	}
-	return strings.Join(out, " ")
+	return replaceKeywordValueDBName(base, newName)
 }

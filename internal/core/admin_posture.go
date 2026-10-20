@@ -63,10 +63,21 @@ func (c *KeyorixCore) ListAdminsWithoutMFA(ctx context.Context) ([]*models.User,
 	}
 	var withoutMFA []*models.User
 	for _, user := range admins {
-		if user.MFAEnabled || user.WebAuthnEnabled {
-			continue
+		if !userHasSecondFactor(user) {
+			withoutMFA = append(withoutMFA, user)
 		}
-		withoutMFA = append(withoutMFA, user)
 	}
 	return withoutMFA, nil
+}
+
+// AnyAdminHasSecondFactor reports whether at least one global admin-tier holder
+// (the same set ListAdminsWithoutMFA walks) has TOTP MFA or a passkey enrolled:
+// the condition that ends ADR-112's require_mfa upgrade grace period (#2923,
+// mfa_upgrade_grace.go). An error means "cannot tell", never "no".
+func (c *KeyorixCore) AnyAdminHasSecondFactor(ctx context.Context) (bool, error) {
+	admins, err := c.ListGlobalAdminHolders(ctx)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(admins, userHasSecondFactor), nil
 }

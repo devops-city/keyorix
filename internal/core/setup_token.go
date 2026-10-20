@@ -227,8 +227,14 @@ func (c *KeyorixCore) ValidateSetupToken(ctx context.Context, raw, expectedPurpo
 // expected purpose use ValidateSetupToken; the GET-describe path (which must report
 // the purpose to the landing page) uses this directly.
 func (c *KeyorixCore) inspectActiveSetupToken(ctx context.Context, raw string) (*models.SetupToken, error) {
-	tok, err := c.storage.GetSetupTokenByHash(ctx, sha256Hex(raw))
+	tok, err := c.lookupSetupToken(ctx, raw)
 	if err != nil {
+		if !credentialRowGone(err) {
+			// #3298: a storage fault, not "no such token": nothing was
+			// evaluated. Same text as a dead token (the response must not
+			// depend on it), but the transport hands the login slot back.
+			return nil, &setupNotEvaluatedError{msg: fmt.Sprintf("%s: invalid setup token", i18n.T("ErrorNotFound", nil))}
+		}
 		return nil, fmt.Errorf("%s: invalid setup token", i18n.T("ErrorNotFound", nil))
 	}
 
@@ -245,6 +251,32 @@ func (c *KeyorixCore) inspectActiveSetupToken(ctx context.Context, raw string) (
 		return nil, fmt.Errorf("%s: setup token is %s", i18n.T("ErrorNotFound", nil), tok.State)
 	}
 	return tok, nil
+}
+
+// ErrSetupNotEvaluated marks a setup-token consume or describe that reached no
+// verdict on the token: its lookup failed on storage (or panicked), so whether
+// the token is valid was never checked (#3298). Its text is the dead-token
+// text, so nothing a client sees changes; the transport hands the per-IP login
+// slot back (the budget counts evaluated attempts, as ErrLoginNotEvaluated on
+// /auth/login) and audits auth.login_error.
+var ErrSetupNotEvaluated = errors.New("setup token not evaluated: lookup failed")
+
+type setupNotEvaluatedError struct{ msg string }
+
+func (e *setupNotEvaluatedError) Error() string      { return e.msg }
+func (*setupNotEvaluatedError) Is(target error) bool { return target == ErrSetupNotEvaluated }
+
+// lookupSetupToken is GetSetupTokenByHash with a panic turned into an error
+// (#3298 point 3): the lookup runs before the token is evaluated, so its panic
+// answered 500 for a valid and a dead token alike. Now it takes the
+// not-evaluated branch: the generic answer, the slot handed back.
+func (c *KeyorixCore) lookupSetupToken(ctx context.Context, raw string) (tok *models.SetupToken, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			tok, err = nil, fmt.Errorf("setup token lookup panicked: %v", r)
+		}
+	}()
+	return c.storage.GetSetupTokenByHash(ctx, sha256Hex(raw))
 }
 
 // expireSetupToken performs a setup token's state mutation (active → expired)

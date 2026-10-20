@@ -57,6 +57,8 @@ const WIRE_TYPES: Record<string, Pair> = {
     SecretRiskScore: { locate: { schema: 'SecretRiskScore' } },
     RotationPolicy: { locate: { schema: 'RotationPolicy' } },
     RotationPolicyEvaluation: { locate: { schema: 'RotationPolicyEvaluation' } },
+    // #2923: the require_mfa upgrade grace period (login data.mfa_grace).
+    MfaGraceWire: { locate: { schema: 'MFAGrace' } },
     CreateRotationPolicyPayload: {
         locate: { op: { path: '/api/v1/rotation-policies', method: 'post', request: true } },
     },
@@ -148,6 +150,7 @@ const NOT_COMPARED: Record<string, string> = {
     // mfa_required branch (camelCase fields, unlike anything the server sends)
     // and holds it until verifyMfa()/clearMfaChallenge() resolves it.
     MfaChallengeState: 'UI store state derived by authStore from LoginResponse',
+    MfaGrace: 'UI model translated by authStore (mfaGraceFromWire) from MfaGraceWire',
     PasswordResetRequest: 'UI form state',
     PasswordResetConfirm: 'UI form state',
     EnvironmentConfig: 'client build/runtime config',

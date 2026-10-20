@@ -85,7 +85,7 @@ func TestNonceBudgetWarning_FiresExactlyOnceAtThreshold(t *testing.T) {
 
 	warning := logBuf.String()
 	if !strings.Contains(warning, "encryption rotate") {
-		t.Fatalf("expected a nonce-budget warning pointing at `keyorix encryption rotate`, got: %q", warning)
+		t.Fatalf("expected a nonce-budget warning pointing at `keyorix-server admin encryption rotate`, got: %q", warning)
 	}
 	if strings.Count(warning, "encryption rotate") != 1 {
 		t.Fatalf("expected exactly one warning line, got: %q", warning)

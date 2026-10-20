@@ -115,6 +115,7 @@ var lockOrderTable = []lockOrderEntry{
 	{"core.KeyorixCore.webauthnCredentialMu", "held across the signature-counter read-validate-write (row lock in a transaction)"},
 	{"(*github.com/keyorixhq/keyorix/internal/core.KeyorixCore).loginFailureLock()", "per-user shard of loginFailureMu, held across the failed-login counter transaction"},
 	{"core.HTTPJWKSResolver.group", "singleflight JWKS fetch; takes only the resolver's own cache mutex"},
+	{"core.mfaUpgradeGrace.mu", "ADR-112 grace evaluation: held across the marker/admin reads, the grace-ended audit write and the marker write (each its own short transaction, 5 s context); nothing in those takes it back, and it is never taken inside a transaction"},
 	{lockClassTx, "a transaction holds the SQLite write gate / a Postgres request connection: nothing that can wait on another request may be acquired inside it"},
 	{"store.LocalStorage.auditChainMu", "the transaction-scoped audit append (logAuditEventDirect) takes it inside the caller's transaction"},
 }
