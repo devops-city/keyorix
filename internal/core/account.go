@@ -80,7 +80,7 @@ func (c *KeyorixCore) UpdateOwnProfile(ctx context.Context, userID uint, display
 		// The password was full authentication for this account (no second
 		// factor) and the change has committed: reset the lockout like a
 		// delivered password login does (AUTH-PW-BUDGET).
-		c.clearLoginFailures(ctx, reauthed)
+		besteffort.Run(ctx, "account.UpdateOwnProfile.clearLoginFailures", func() error { c.clearLoginFailures(ctx, reauthed); return nil })
 	}
 	return updated, nil
 }
@@ -155,7 +155,7 @@ func (c *KeyorixCore) ChangePassword(ctx context.Context, userID uint, current, 
 	// must not wipe the count that factor's guesses feed (see
 	// verifyCurrentPassword).
 	if !user.MFAEnabled && !user.WebAuthnEnabled {
-		c.clearLoginFailures(ctx, user)
+		besteffort.Run(ctx, "account.ChangePassword.clearLoginFailures", func() error { c.clearLoginFailures(ctx, user); return nil })
 	}
 
 	// Drop OTHER sessions and evict them from the auth cache, so a thief holding a
