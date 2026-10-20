@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/beevik/etree"
 	csaml "github.com/crewjam/saml"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,14 @@ import (
 // TestParseResponse_Success uses, factored out so tampering tests can mutate the decoded
 // bytes before re-submitting.
 func buildSignedResponseB64(t *testing.T) (p *Provider, acsURL string, validB64 string) {
+	t.Helper()
+	return buildSignedResponseB64WithAssertion(t, nil)
+}
+
+// buildSignedResponseB64WithAssertion is buildSignedResponseB64 with a hook: when mutate
+// is non-nil, it is applied to the unsigned Assertion element, which is then signed with
+// the trusted IdP key -- a validly signed assertion of any shape the test needs.
+func buildSignedResponseB64WithAssertion(t *testing.T, mutate func(assertion *etree.Element)) (p *Provider, acsURL string, validB64 string) {
 	t.Helper()
 	const idpEntityID = "https://idp.example/entity"
 	const spEntityID = "https://keyorix.internal/saml/corp/metadata"
@@ -91,6 +100,9 @@ func buildSignedResponseB64(t *testing.T) (p *Provider, acsURL string, validB64 
 		Groups:         []string{"admins", "devs"},
 	}
 	require.NoError(t, csaml.DefaultAssertionMaker{}.MakeAssertion(idpReq, session))
+	if mutate != nil {
+		idpReq.AssertionEl = signMutatedAssertion(t, idpReq.Assertion.Element(), mutate, idpKey, idpCert)
+	}
 	form, err := idpReq.PostBinding()
 	require.NoError(t, err)
 	return p, acsURL, form.SAMLResponse
