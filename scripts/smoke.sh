@@ -60,7 +60,7 @@ echo "==> Isolated smoke test dir: $SMOKE_DIR"
 REAL_HOME="$HOME"
 export HOME="$SMOKE_DIR"
 export KEYORIX_MASTER_PASSWORD="smoke-test-master-password-$$-${RANDOM}"
-BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"  # the server refuses a pinned token under 32 chars
 # Must satisfy internal/core/rules.DefaultPasswordPolicy: >=16 chars, upper,
 # lower, digit, and special, and must not contain the account's username/
 # email/display name -- the plain lowercase/digit/hyphen form this used to be

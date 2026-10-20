@@ -33,7 +33,7 @@ import (
 // account's email.
 func bootstrapAdminViaHTTP(t *testing.T, bin, dir string, env []string, port, username, email, password string) {
 	t.Helper()
-	const bootstrapToken = "test-bootstrap-token-0123456789"
+	const bootstrapToken = "test-bootstrap-token-0123456789abcdef"
 
 	serverEnv := append(append([]string{}, env...), "KEYORIX_BOOTSTRAP_TOKEN="+bootstrapToken, "KEYORIX_CONFIG_PATH=./keyorix.yaml")
 	cmd := exec.Command(bin)
