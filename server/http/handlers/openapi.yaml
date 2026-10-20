@@ -1390,6 +1390,14 @@ paths:
         code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo
         reason BreakGlassDisabled), and always when the
         caller authenticated with a restricted personal access token (ADR-042).
+        While the audit log refuses writes the activation still succeeds, DEGRADED
+        (activation.degraded true): it is committed together with an owed-audit record
+        instead of its audit rows, expires after break_glass.degraded_ttl (default 15m,
+        never longer than a normal activation), alerts the admins, and its review is
+        mandatory; the rows are written to the audit trail when it recovers. When even
+        the owed-audit record cannot be written nothing is granted: 503 with the error
+        code BreakGlassUnrecordable and a message pointing to the offline recover-admin
+        procedure (gRPC: Unavailable).
       operationId: activateBreakGlass
       security: [{bearerAuth: []}]
       parameters:
@@ -1419,6 +1427,7 @@ paths:
         '400': {$ref: '#/components/responses/Error'}
         '401': {$ref: '#/components/responses/Error'}
         '403': {$ref: '#/components/responses/Error'}
+        '503': {$ref: '#/components/responses/Error'}
     get:
       tags: [Projects]
       summary: List break-glass activations (all for review, or your own)
@@ -8777,6 +8786,8 @@ components:
         # rendering would not byte-match the server's original RFC3339 text.
         expires_at: {type: string}
         created_at: {type: string}
+        degraded: {type: boolean, description: "Granted while the audit log refused its rows: recorded as owed, short expiry, review mandatory (omitted when false)"}
+        audit_settled_at: {type: string, description: "When every owed audit row of a degraded activation reached the audit trail; absent until then and for a normal activation"}
     BreakGlassSettings:
       type: object
       description: >-

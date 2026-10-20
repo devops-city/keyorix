@@ -20,6 +20,7 @@ Served at: server `GET /metrics` (unauthenticated; keep inside your perimeter)
 | `keyorix_audit_flusher_pipelined_batches_total` | counter | - | Audit-chain batches sent while the previous batch was still in flight (pipelined commits). |
 | `keyorix_auth_rate_limit_fallback_total` | counter | `budget` | Count of auth rate-limit operations that fell back to the in-memory limiter because the budget's storage failed. |
 | `keyorix_best_effort_failures_total` | counter | `step` | Panics or returned errors from a best-effort step that runs after a commit, by step name. Never counts the primary operation -- only the best-effort step that followed it. |
+| `keyorix_breakglass_degraded_activations_total` | counter | - | Count of break-glass activations committed while the audit log refused their rows (recorded as owed, short expiry, review mandatory). |
 | `keyorix_grpc_request_duration_seconds_total` | counter | - | Cumulative gRPC unary handler time in seconds; divide its rate by the request rate for average latency. |
 | `keyorix_grpc_requests_total` | counter | `status` | Total gRPC unary requests, by outcome (success or error). |
 | `keyorix_http_request_duration_seconds` | histogram | `method`, `route` | HTTP request latency in seconds, by method and matched route. |

@@ -23,6 +23,13 @@ export interface BreakGlassActivation {
     reviewedBy?: number | undefined;
     reviewedAt?: string | undefined;
     reviewNote?: string | undefined;
+    /**
+     * Granted while the server's audit log refused writes (BREAKGLASS-OWED-1): recorded as
+     * owed instead, short-lived, and its review is mandatory. Absent/false for a normal one.
+     */
+    degraded: boolean;
+    /** When a degraded activation's owed audit rows reached the audit trail; absent until then. */
+    auditSettledAt?: string | undefined;
 }
 
 /** "project": every activation of the project (caller holds roles.read). "own": only the caller's. */
@@ -80,6 +87,8 @@ const normalize = (a: WireActivation): BreakGlassActivation => ({
     reviewedBy: a.reviewed_by,
     reviewedAt: a.reviewed_at,
     reviewNote: a.review_note,
+    degraded: a.degraded === true,
+    auditSettledAt: a.audit_settled_at,
 });
 
 export const breakGlassApi = {

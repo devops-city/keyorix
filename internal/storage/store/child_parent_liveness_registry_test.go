@@ -90,6 +90,7 @@ var childFKTargets = map[string]string{
 	"*.VersionID":                        "-", // SecretVersion has no DeletedAt/Disabled (hard-deleted with its secret)
 	"*.SecretVersionID":                  "-", // SecretVersion, as above
 	"*.HeadID":                           "-", // audit-chain checkpoint pointer, not a parent
+	"*.BreakGlassActivationID":           "-", // BreakGlassActivation has no DeletedAt/Disabled; an owed row is inserted in the activation's own transaction (BREAKGLASS-OWED-1)
 	"*.LoginAttemptID":                   "-", // per-IP budget row a login flow holds (#2936); LoginAttempt has no DeletedAt/Disabled and a missing row only means nothing to hand back
 	"*.ShareID":                          "-", // UserSecretPermission is a read-model view, never inserted by storage
 	"*.ApproverMachineIdentityID":        "-",

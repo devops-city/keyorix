@@ -600,9 +600,20 @@ type Storage interface {
 	ReviewBreakGlassActivation(ctx context.Context, id, reviewerID uint, note string, reviewedAt time.Time) error
 	// ListUnreviewedBreakGlassActivationsBefore returns every activation
 	// (across all projects) with reviewed_at still NULL and created_at at or
-	// before cutoff -- the posture report's (item 4) source for "open
-	// break-glass activations without review."
+	// before cutoff, plus every unreviewed DEGRADED activation whatever its age
+	// (its review is mandatory at once, BREAKGLASS-OWED-1) -- the posture
+	// report's (item 4) source for "open break-glass activations without
+	// review."
 	ListUnreviewedBreakGlassActivationsBefore(ctx context.Context, cutoff time.Time) ([]*models.BreakGlassActivation, error)
+	// SettleBreakGlassOwedAudit (BREAKGLASS-OWED-1) marks degraded activation id
+	// settled at settledAt when no pending_audit_events row linked to it remains,
+	// and reports whether this call settled it. Run in the backfill transaction
+	// that claims and appends the activation's last owed row, so "settled" and the
+	// row being in the chain commit together.
+	SettleBreakGlassOwedAudit(ctx context.Context, id uint, settledAt time.Time) (settled bool, err error)
+	// ListUnsettledBreakGlassActivations returns every degraded activation whose
+	// owed audit rows are not all in the hash chain yet, oldest first.
+	ListUnsettledBreakGlassActivations(ctx context.Context) ([]*models.BreakGlassActivation, error)
 	// Machine identities (ADR-023) — non-human project members.
 	CreateMachineIdentity(ctx context.Context, m *models.MachineIdentity) (*models.MachineIdentity, error)
 	GetMachineIdentity(ctx context.Context, id uint) (*models.MachineIdentity, error)

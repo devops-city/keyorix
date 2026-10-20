@@ -96,6 +96,12 @@ type SecurityInfo struct {
 	// and failures counted by this process since start. Like recovery_key, nil
 	// for any caller without system.write; the web UI warns while pending > 0.
 	AuditOwed *core.OwedAuditStatus `json:"audit_owed,omitempty"`
+	// BreakGlassDegraded reports break-glass activations granted while the audit
+	// log refused their rows (BREAKGLASS-OWED-1): how many still owe audit rows to
+	// the hash chain, how many still lack their mandatory review, and their ids.
+	// nil for any caller without system.write; the web UI shows an error banner
+	// while either count is non-zero.
+	BreakGlassDegraded *core.BreakGlassDegradedStatus `json:"break_glass_degraded,omitempty"`
 }
 
 // SystemMetrics represents system performance metrics
@@ -210,9 +216,12 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 			}
 		}
 		var auditOwed *core.OwedAuditStatus
+		var breakGlassDegraded *core.BreakGlassDegradedStatus
 		if canSystemWrite {
 			st := coreService.OwedAuditStatus(r.Context())
 			auditOwed = &st
+			bg := coreService.BreakGlassDegradedStatus(r.Context())
+			breakGlassDegraded = &bg
 		}
 
 		tlsEnabled := cfg.Server.HTTP.TLS.Enabled
@@ -259,6 +268,7 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				AccessLogDropped:     middleware.AccessLogDropped(),
 				RecoveryKey:          recoveryKeyStatus,
 				AuditOwed:            auditOwed,
+				BreakGlassDegraded:   breakGlassDegraded,
 			},
 		}
 

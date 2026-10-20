@@ -8,6 +8,7 @@ import { ImpersonationBanner } from './ImpersonationBanner';
 import { MfaGraceBanner } from './MfaGraceBanner';
 import { AuditReadsSkippedBanner } from './AuditReadsSkippedBanner';
 import { AuditOwedBanner } from './AuditOwedBanner';
+import { BreakGlassDegradedBanner } from './BreakGlassDegradedBanner';
 import { CmdKSearch } from '../ui/CmdKSearch';
 import { isPaletteShortcut } from '../../utils/platform';
 import { useAuthStore } from '../../store/authStore';
@@ -63,6 +64,9 @@ const Layout: React.FC<LayoutProps> = ({ children, breadcrumbs, showFooter = tru
 
                     {/* While suspensions are missing from the audit log (system.write only) */}
                     <AuditOwedBanner />
+
+                    {/* While emergency access granted during an audit outage is owed or unreviewed */}
+                    <BreakGlassDegradedBanner />
 
                     {/* Header */}
                     <Header onMenuClick={() => setSidebarOpen(true)} />

@@ -1906,6 +1906,21 @@ exactly when it is needed. The check runs even when `enabled: false`, because
 an install that has since turned break-glass off can still be holding
 unreviewed activations from when it was on.
 
+**While the audit log refuses writes** (a full disk, a broken audit table, a held
+chain lock, or someone blocking it on purpose), activation still works, degraded,
+and is never unrecorded: the activation, its role grant and an owed-audit record of
+each audit row it could not write commit in ONE transaction. A degraded activation
+expires after `degraded_ttl` (default `15m`, never longer than the lifetime the same
+request gets normally), is logged at ERROR, counted in
+`keyorix_breakglass_degraded_activations_total`, notified to the project's admins,
+shown to system.write callers in `GET /api/v1/system/info`
+(`security.break_glass_degraded`) and as a web banner, and needs its review at once
+(no grace window). The owed rows are written into the hash chain, with their
+original times, once the audit log recovers; `verify-audit` reports any still owed.
+If even the owed-audit record cannot be written, the activation is refused with 503
+`BreakGlassUnrecordable` naming the offline `keyorix-server admin recover-admin`
+procedure. Operators: `docs/operator/break-glass-runbook.md`.
+
 ```yaml
 break_glass:
   enabled: true
@@ -1916,6 +1931,9 @@ break_glass:
   max_ttl: "24h"                    # ceiling on a requested TTL
   review_window: "72h"               # how long an activation may go unreviewed
                                       # before it's a posture-report deviation
+  degraded_ttl: "15m"                # lifetime of an activation granted while the
+                                      # audit log refuses writes (capped at the
+                                      # normal lifetime of the same request)
 ```
 
 ## dual_control

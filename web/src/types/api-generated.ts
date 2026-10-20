@@ -1067,7 +1067,7 @@ export interface paths {
         put?: never;
         /**
          * Activate break-glass emergency access (self-service)
-         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled (the error field is the code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo reason BreakGlassDisabled), and always when the caller authenticated with a restricted personal access token (ADR-042).
+         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled (the error field is the code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo reason BreakGlassDisabled), and always when the caller authenticated with a restricted personal access token (ADR-042). While the audit log refuses writes the activation still succeeds, DEGRADED (activation.degraded true): it is committed together with an owed-audit record instead of its audit rows, expires after break_glass.degraded_ttl (default 15m, never longer than a normal activation), alerts the admins, and its review is mandatory; the rows are written to the audit trail when it recovers. When even the owed-audit record cannot be written nothing is granted: 503 with the error code BreakGlassUnrecordable and a message pointing to the offline recover-admin procedure (gRPC: Unavailable).
          */
         post: operations["activateBreakGlass"];
         delete?: never;
@@ -6006,6 +6006,10 @@ export interface components {
             state?: "active" | "expired" | "revoked";
             expires_at?: string;
             created_at?: string;
+            /** @description Granted while the audit log refused its rows: recorded as owed, short expiry, review mandatory (omitted when false) */
+            degraded?: boolean;
+            /** @description When every owed audit row of a degraded activation reached the audit trail; absent until then and for a normal activation */
+            audit_settled_at?: string;
         };
         /** @description The server's effective break-glass limits, returned with the activations list to a caller it allowed. Deployment limits only: no secret, no admin-only data. */
         BreakGlassSettings: {
@@ -7847,6 +7851,7 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     revokeBreakGlass: {

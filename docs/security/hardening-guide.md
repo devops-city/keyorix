@@ -236,6 +236,23 @@ together (table `pending_audit_events`). If the audit log then refuses the row:
 A suspend that also clears synced copies is different: it is refused (nothing
 changes) when its audit row cannot be written. See `docs/k8s-operator.md`.
 
+### 5d. Break-glass while the audit log refuses writes
+
+Break-glass activation must work during an incident and must never be unrecorded
+(ADR-112 Amendment 6). When the audit log refuses an activation's rows, the
+activation, its role grant and owed records of those rows (`pending_audit_events`)
+commit together instead, marked **degraded**: it expires after
+`break_glass.degraded_ttl` (default 15m, never longer than a normal activation),
+is logged at ERROR, counted in `keyorix_breakglass_degraded_activations_total`,
+notified to the project's admins, shown in `security.break_glass_degraded` and a
+red web banner, and must be reviewed at once. The same backfill writes its rows
+with their **original** times and marks it settled; `verify-audit` reports
+unsettled ones and answers INDETERMINATE. If even the owed records cannot be
+written, nothing is granted (503 `BreakGlassUnrecordable`) and the way back in is
+the offline `recover-admin`. Alert on the metric: someone making the audit log
+refuse writes on purpose to self-elevate quietly gets a short, loud, owed
+activation instead. Runbook: `docs/operator/break-glass-runbook.md`.
+
 ## 6. Backup and key-material custody
 
 `keyorix-server admin backup`/`admin restore` (ADR-108 §B3) is the supported

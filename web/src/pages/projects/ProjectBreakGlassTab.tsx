@@ -259,6 +259,15 @@ const RequestForm: React.FC<{
             {granted && (
                 <Notice tone="warning" title="Emergency access is active">
                     Role {granted.roleName || 'granted'} until {formatTime(granted.expiresAt)}.
+                    {granted.degraded && (
+                        <>
+                            {' '}
+                            <strong data-testid="bg-granted-degraded">
+                                The audit log is not accepting writes right now, so this grant was recorded as owed and
+                                shortened; administrators have been alerted and it must be reviewed.
+                            </strong>
+                        </>
+                    )}
                 </Notice>
             )}
 
@@ -385,6 +394,20 @@ const ActivationsTable: React.FC<{
                                         >
                                             {style.label}
                                         </span>
+                                        {a.degraded && (
+                                            <span
+                                                data-testid={`bg-degraded-${a.id}`}
+                                                title={
+                                                    a.auditSettledAt
+                                                        ? 'Granted while the audit log refused writes; its audit records were written later. Review is mandatory.'
+                                                        : 'Granted while the audit log refused writes; its audit records are still owed. Review is mandatory.'
+                                                }
+                                                className="ml-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                                                style={{ backgroundColor: 'var(--error)', color: 'white' }}
+                                            >
+                                                Degraded{a.auditSettledAt ? '' : ' · audit owed'}
+                                            </span>
+                                        )}
                                     </td>
                                     <td className="px-4 py-2 max-w-xs" style={{ overflowWrap: 'anywhere' }}>
                                         {a.justification}

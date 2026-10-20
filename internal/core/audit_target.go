@@ -49,6 +49,14 @@ type auditForwardSink struct {
 	// best-effort semantics (DecideAccessReviewItem's revoke path).
 	failClosed bool
 	err        error
+	// owe (BREAKGLASS-OWED-1) makes the target CAPTURE each event instead of
+	// appending it: emitAuditOn prepares the event exactly as for a real write and
+	// keeps it in owed, and the caller stores those events as pending_audit_events
+	// records in its own transaction. Used only when the audit log has just
+	// refused the same writes (activateBreakGlassDegraded), so the owed rows are
+	// built by the same writers and carry the same attribution.
+	owe  bool
+	owed []*models.AuditEvent
 }
 
 // fail records a write that did not persist, when the sink is fail-closed.
@@ -126,6 +134,10 @@ func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *m
 		return true
 	}
 	prepareAuditEventForEmit(ctx, event)
+	if tgt.sink.owe {
+		tgt.sink.owed = append(tgt.sink.owed, event)
+		return true
+	}
 	if err := tgt.st.LogAuditEvent(ctx, event); err != nil {
 		logAuditEmitFailure(ctx, event, err)
 		tgt.sink.fail(event.EventType, err)

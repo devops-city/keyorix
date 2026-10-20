@@ -130,6 +130,10 @@ func breakGlassToProto(a *models.BreakGlassActivation) *pb.BreakGlassActivation 
 	if a.RevokedAt != nil {
 		out.RevokedAt = timestamppb.New(*a.RevokedAt)
 	}
+	out.Degraded = a.Degraded
+	if a.AuditSettledAt != nil {
+		out.AuditSettledAt = timestamppb.New(*a.AuditSettledAt)
+	}
 	return out
 }
 
@@ -161,6 +165,9 @@ func breakGlassError(err error) error {
 		return status.Error(codes.PermissionDenied, "access denied")
 	case errors.Is(err, storage.ErrBreakGlassNotActive):
 		return status.Error(codes.FailedPrecondition, "activation is not in a valid state for this operation") // GRPC-005: was msg
+	case errors.Is(err, core.ErrBreakGlassUnrecordable):
+		// BREAKGLASS-OWED-1: nothing was granted; fixed text naming the way back in.
+		return status.Error(codes.Unavailable, "emergency access was not granted: the audit log refused the activation and it could not be recorded as owed either; "+core.BreakGlassRecoverAdminHint)
 	default:
 		return status.Error(codes.Internal, "break-glass operation failed")
 	}

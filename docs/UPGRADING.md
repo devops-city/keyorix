@@ -829,7 +829,9 @@ database transaction (SQLite and PostgreSQL): if the row cannot be written, the
 request fails with `could not record the change in the audit log; nothing was
 changed, retry` and nothing changes. Covered: role grants (direct, JIT, SSO-mapped,
 project member add, access-request approval), group role grants and membership,
-role and permission definitions, **break-glass activation**, secret shares and ACL
+role and permission definitions, break-glass activation (but see 6o.1: when the
+audit log refuses it, it now commits degraded with an owed record instead of
+failing), secret shares and ACL
 grants, machine identity create, token issue and rotate, PAT create, user create
 (setup link, one-time password), project and environment create, SoD policy create
 and delete. The inventory is `docs/specs/security-mutation-audit-inventory.md` in #3367.
@@ -839,11 +841,50 @@ unchanged on purpose: they are never blocked by the audit log and still audit af
 their commit.
 
 What to do: nothing in the configuration. Operationally, a healthy audit path is
-now a precondition for granting access **and for break-glass**, the emergency
-path. Before upgrading, run `keyorix-server admin verify-audit` and check
+now a precondition for granting access (break-glass excepted, see 6o.1). Before upgrading, run `keyorix-server admin verify-audit` and check
 database health and free disk space, and make sure automation that creates users,
 roles, shares or tokens retries on this error. The HTTP status of the refusal was
 not verified for this entry.
+
+## 6o.1 Break-glass works while the audit log is down (degraded mode)
+
+Break-glass activation no longer fails when the audit log refuses its rows (#3367 made
+it fail closed). It now commits **degraded**: the activation, its role grant and an
+owed-audit record of each refused row (`pending_audit_events`) in one transaction,
+never one without the other. A degraded activation:
+
+- expires after the new `break_glass.degraded_ttl` (default **15m**; never longer than
+  the lifetime the same request would get normally, so a larger value changes nothing);
+- is logged at ERROR (`SECURITY: break-glass activation N is DEGRADED`), counted in the
+  new metric `keyorix_breakglass_degraded_activations_total`, notified to the project's
+  admins, and shown to administrators in a red web banner and in
+  `GET /api/v1/system/info` → `security.break_glass_degraded`;
+- carries `"degraded": true` (and later `audit_settled_at`) in the HTTP and gRPC
+  activation; its review is mandatory at once (posture deviation with no grace window).
+
+The existing owed-audit backfill writes its rows into the audit chain, with their
+original event times, once the audit log recovers, and marks it settled.
+`keyorix-server admin verify-audit` now has an "Owed break-glass audit records"
+section (`owed_break_glass` in `--json`) and answers **INDETERMINATE (exit 2)** while any
+degraded activation is unsettled. If even the owed record cannot be written the
+activation is refused: HTTP **503** `BreakGlassUnrecordable` (gRPC `Unavailable`), with
+a message naming the offline `keyorix-server admin recover-admin` procedure.
+
+The audit-owed banner (`security.audit_owed`) now reads "N audit records are missing"
+instead of "N suspensions", since it counts these rows too.
+
+Schema epoch 5 (additive columns `break_glass_activations.degraded`,
+`.audit_settled_at`, `pending_audit_events.break_glass_activation_id`); the
+compatibility floor stays 3, so a rolling upgrade or a one-release rollback keeps
+working. An older replica never creates degraded activations. If an older replica's
+backfill writes the owed rows of a degraded activation (possible only while replicas
+of both versions run), the rows land in the chain but the activation is not marked
+settled, and verify-audit keeps listing it: confirm and settle it by hand as the
+runbook describes ("Settling by hand").
+
+What to do: nothing in the configuration. Alert on the new metric. Operators:
+`docs/operator/break-glass-runbook.md`. Monitoring that treats verify-audit exit 2 as
+failure will fire while a degraded activation is unsettled, which is intended.
 
 ## 6p. API and client-visible behaviour changes
 

@@ -625,6 +625,19 @@ func (m *MockStorage) ListUnreviewedBreakGlassActivationsBefore(ctx context.Cont
 	return args.Get(0).([]*models.BreakGlassActivation), args.Error(1)
 }
 
+func (m *MockStorage) SettleBreakGlassOwedAudit(ctx context.Context, id uint, settledAt time.Time) (bool, error) {
+	args := m.Called(ctx, id, settledAt)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockStorage) ListUnsettledBreakGlassActivations(ctx context.Context) ([]*models.BreakGlassActivation, error) {
+	args := m.Called(ctx)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.BreakGlassActivation), args.Error(1)
+}
+
 func (m *MockStorage) GetEnvironment(_ context.Context, id uint) (*models.Environment, error) {
 	return &models.Environment{ID: id, ProjectID: 1, Name: "test"}, nil
 }
