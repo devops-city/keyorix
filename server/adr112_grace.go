@@ -18,10 +18,13 @@
 //     the grace period.
 //
 // What ends the grace period: for enable_file_permission_check, the first boot
-// whose checks pass with nothing softened; for require_mfa, setting the key
-// explicitly (ADR-112 names no compliance condition for MFA; an end condition
-// is tracked as a follow-up issue). Any error while deciding fails closed (no
-// grace).
+// whose checks pass with nothing softened; for require_mfa (#2923), the first
+// administrator MFA enrolment or 30 days after the grace start, whichever comes
+// first (or setting the key explicitly). The require_mfa start is recorded in
+// system_metadata by the first graced boot (beginADR112MFAGrace), never derived
+// from the clock alone, and the running server ends the grace period without a
+// restart (internal/core/mfa_upgrade_grace.go). Any error while deciding fails
+// closed (no grace).
 //
 // The same decision, with its own marker (adr112.scim_token_strength.enforced),
 // covers the SCIM token shape checks added by #3397 (scim_token_strength.go):
@@ -31,12 +34,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"sync/atomic"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/core"
 	appstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"gorm.io/gorm"
@@ -52,6 +57,14 @@ const (
 	adr112SCIMTokenEnforcedKey  = config.ADR112SCIMTokenEnforcedMarker
 )
 
+// adr112MFAWindow is the require_mfa grace window beginADR112MFAGrace read and
+// recorded for this boot; armADR112MFAGrace hands it to core. Zero unless
+// RequireMFAUpgradeGrace was set.
+var adr112MFAWindow core.MFAUpgradeGraceWindow
+
+// adr112Now is the boot's wall clock (no monotonic reading); replaced in tests.
+var adr112Now = func() time.Time { return time.Now().Round(0) }
+
 // adr112MFAReason is applyADR112UpgradeGrace's reason for the require_mfa
 // decision, for logWarnOnImplicitRequireMFADefault's start-up message.
 var adr112MFAReason string
@@ -64,9 +77,10 @@ var adr112GraceSoftened atomic.Bool
 
 // applyADR112UpgradeGrace decides both grace periods from one look at the
 // database and logs the decisions for keys left at their implicit default.
-// Under the require_mfa grace it sets RequireMFA to false for this boot: that is
-// the value the HTTP router, the gRPC interceptors and the settings endpoint all
-// read, so the effective setting and what the server reports agree.
+// Under the require_mfa grace it records the grace start and clock
+// (beginADR112MFAGrace) and sets RequireMFAUpgradeGrace; RequireMFA stays true,
+// and every MFA gate subtracts the running grace period through
+// core.KeyorixCore.MFARequired once armADR112MFAGrace installed it.
 func applyADR112UpgradeGrace(cfg *config.Config) {
 	sec := &cfg.Security
 	fileImplicit := sec.EnableFilePermissionCheck && sec.EnableFilePermissionCheckImplicitDefault
@@ -88,10 +102,118 @@ func applyADR112UpgradeGrace(cfg *config.Config) {
 	if mfaImplicit {
 		eligible, why := st.grace(st.mfaMarker)
 		if eligible {
-			sec.RequireMFA = false
-			sec.RequireMFAUpgradeGrace = true
+			eligible, why = beginADR112MFAGrace(cfg, adr112Now())
 		}
+		sec.RequireMFAUpgradeGrace = eligible
 		adr112MFAReason = why
+	}
+}
+
+// beginADR112MFAGrace records the require_mfa grace start (first graced boot
+// only: an existing start is kept) and the grace clock, and decides whether the
+// window is still open at now. The grace clock is max(now, the recorded clock,
+// the start): a clock stepped backwards since the last boot reads as the
+// recorded time, so it cannot extend the window. Any failure to record or read
+// the facts fails closed (no grace).
+func beginADR112MFAGrace(cfg *config.Config, now time.Time) (bool, string) {
+	db, err := appstorage.OpenGormDB(cfg)
+	if err != nil {
+		return false, "could not open the database to record the grace period start (" + err.Error() + "), failing closed"
+	}
+	defer closeGormDB(db)
+	w, clockBehind, err := recordADR112MFAGraceWindow(db, now)
+	if err != nil {
+		return false, "could not record the grace period start (" + err.Error() + "), failing closed"
+	}
+	if clockBehind > 0 {
+		log.Printf("WARNING: ADR-112 grace period: the system clock reads %s, %s earlier than this deployment last recorded (%s); the grace period counts from the recorded time, a clock set back does not extend it.", now.UTC().Format(time.RFC3339), clockBehind.Round(time.Second), w.Floor.UTC().Format(time.RFC3339))
+	}
+	if !w.Floor.Before(w.Deadline) {
+		return false, "this upgraded deployment's 30-day grace period ended at " + w.Deadline.UTC().Format(time.RFC3339)
+	}
+	adr112MFAWindow = w
+	return true, "this is an upgraded deployment (its database already has users)"
+}
+
+// recordADR112MFAGraceWindow is beginADR112MFAGrace's database half. It returns
+// the window (Floor = the grace clock at now) and how far now is behind the
+// recorded clock (0 when it is not).
+func recordADR112MFAGraceWindow(db *gorm.DB, now time.Time) (core.MFAUpgradeGraceWindow, time.Duration, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	db = db.WithContext(ctx)
+	if !db.Migrator().HasTable(&models.SystemMetadata{}) {
+		return core.MFAUpgradeGraceWindow{}, 0, errors.New("no system_metadata table")
+	}
+	if err := recordADR112Enforced(db, config.ADR112RequireMFAGraceStartedKey, now); err != nil {
+		return core.MFAUpgradeGraceWindow{}, 0, err
+	}
+	start, found, err := readADR112Time(db, config.ADR112RequireMFAGraceStartedKey)
+	if err != nil {
+		return core.MFAUpgradeGraceWindow{}, 0, err
+	}
+	if !found {
+		return core.MFAUpgradeGraceWindow{}, 0, errors.New("the grace start did not persist")
+	}
+	clock, found, err := readADR112Time(db, config.ADR112RequireMFAGraceClockKey)
+	if err != nil {
+		return core.MFAUpgradeGraceWindow{}, 0, err
+	}
+	floor := start
+	if found && clock.After(floor) {
+		floor = clock
+	}
+	var behind time.Duration
+	if now.Before(floor) {
+		behind = floor.Sub(now)
+	} else {
+		floor = now
+	}
+	if err := db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "key"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+	}).Create(&models.SystemMetadata{
+		Key: config.ADR112RequireMFAGraceClockKey, Value: floor.UTC().Format(time.RFC3339), UpdatedAt: now,
+	}).Error; err != nil {
+		return core.MFAUpgradeGraceWindow{}, 0, err
+	}
+	return core.MFAUpgradeGraceWindow{
+		Start: start, Deadline: start.Add(config.ADR112RequireMFAGracePeriod), Floor: floor,
+		EnforcedMarkerKey: adr112RequireMFAEnforcedKey, ClockKey: config.ADR112RequireMFAGraceClockKey,
+	}, behind, nil
+}
+
+// readADR112Time reads an RFC 3339 system_metadata value. A value that does not
+// parse is an error (fail closed), not "absent".
+func readADR112Time(db *gorm.DB, key string) (time.Time, bool, error) {
+	var row models.SystemMetadata
+	err := db.Where("key = ?", key).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	t, err := time.Parse(time.RFC3339, row.Value)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("%s holds %q, not an RFC 3339 time", key, row.Value)
+	}
+	return t, true, nil
+}
+
+// armADR112MFAGrace installs this boot's require_mfa grace window into core and
+// evaluates it once, so the start-up log says how many days are left, or that
+// it just ended (an administrator had already enrolled). An end at this point
+// clears RequireMFAUpgradeGrace, so the settings diff and the markers record
+// this boot as enforced.
+func armADR112MFAGrace(cfg *config.Config, coreService *core.KeyorixCore) {
+	if !cfg.Security.RequireMFAUpgradeGrace {
+		return
+	}
+	coreService.StartMFAUpgradeGrace(adr112MFAWindow)
+	coreService.MFAUpgradeGraceActive()
+	if coreService.MFAUpgradeGraceEnded() {
+		cfg.Security.RequireMFAUpgradeGrace = false
 	}
 }
 
@@ -183,7 +305,9 @@ func adr112StateFromDB(db *gorm.DB) adr112State {
 // recordADR112Markers writes the enforcement markers for the keys this boot
 // enforced: adr112FilePermEnforcedKey once the startup checks ran and nothing was
 // softened by the grace period, adr112RequireMFAEnforcedKey whenever require_mfa
-// is in force, adr112SCIMTokenEnforcedKey whenever enforceSCIMTokenStrength did
+// is in force and not in its grace period (a grace period that ends while the
+// server runs writes the marker itself, internal/core/mfa_upgrade_grace.go),
+// adr112SCIMTokenEnforcedKey whenever enforceSCIMTokenStrength did
 // not soften a weak SCIM token (#3397; also when SCIM is off: the grace period
 // is for a token that was already in use, not one configured later). A later
 // boot of the same deployment (a fresh install's second
@@ -195,7 +319,7 @@ func recordADR112Markers(cfg *config.Config) {
 	if cfg.Security.EnableFilePermissionCheck && !adr112GraceSoftened.Load() {
 		keys = append(keys, adr112FilePermEnforcedKey)
 	}
-	if cfg.Security.RequireMFA {
+	if cfg.Security.RequireMFA && !cfg.Security.RequireMFAUpgradeGrace {
 		keys = append(keys, adr112RequireMFAEnforcedKey)
 	}
 	if !adr112SCIMTokenSoftened.Load() {

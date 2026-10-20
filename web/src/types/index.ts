@@ -22,6 +22,22 @@ export interface User {
     // server confines the session to those steps' endpoints, so the SPA must not
     // render protected pages or fire their queries (RequireAccountSetup, Layout).
     pendingSteps?: SetupStep[];
+    // #2923: ADR-112's require_mfa upgrade grace period, present while it runs and
+    // this account has no second factor (login response / GET /auth/profile
+    // mfa_grace). MfaGraceBanner shows it on every page; when it ends the account
+    // is sent to MFA enrolment.
+    mfaGrace?: MfaGrace;
+}
+
+// Server MFAGrace (openapi): the 30-day hard stop and the whole days left.
+export interface MfaGraceWire {
+    ends_at: string;
+    days_left: number;
+}
+
+export interface MfaGrace {
+    endsAt: string;
+    daysLeft: number;
 }
 
 export interface UserPreferences {
@@ -366,6 +382,8 @@ export interface LoginResponse {
     account_state?: string;
     // Setup steps the new session still owes (omitted when none); see User.pendingSteps.
     pending_steps?: SetupStep[];
+    // ADR-112 require_mfa upgrade grace period (#2923); see User.mfaGrace.
+    mfa_grace?: MfaGraceWire;
 
     // mfa_required (and the three fields below) are present INSTEAD of the
     // identity fields above when the account has MFA enabled and a correct

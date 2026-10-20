@@ -812,11 +812,19 @@ to this version records one such change, because the recorded value changed
 from `true`/`false` to these names.
 
 `require_mfa` on an upgraded deployment that never set it gets the same kind of
-grace period: MFA is **not** enforced yet, and every start logs a loud `ADR-112
-grace period` warning. Have every interactive admin enrol, then set
-`require_mfa: true` explicitly to enforce it (or `false` to opt out visibly). A
-fresh install is enforced from its first start and recorded in the database
-(`adr112.require_mfa.enforced`), so it stays enforced after its admins exist.
+grace period: MFA is **not** enforced yet, every start logs a loud `ADR-112
+grace period` warning with the days left, and the web UI shows a banner to
+users without a second factor. It ends at the **first administrator MFA
+enrolment or 30 days after the first start on the release that bounded it**,
+whichever comes first (#2923, ADR-112 Amendment 5), without a restart; the
+start is recorded in the database (`adr112.require_mfa.grace_started`) and a
+clock set back does not extend it. Users without a second factor are then sent
+to MFA enrolment when they sign in (not locked out). Set `require_mfa: true`
+to enforce it at once (or `false` to opt out visibly). See
+[UPGRADING.md](UPGRADING.md#mfa-after-an-upgrade-the-grace-period-and-its-banner).
+A fresh install is enforced from its first start and recorded in the database
+(`adr112.require_mfa.enforced`), so it stays enforced after its admins exist;
+the same marker is written when a grace period ends.
 
 `require_mfa` is an ADR-112 opt-out like the `insecure_*` settings: its registry
 entry is `security.insecure_disable_mfa_requirement`. An explicit
