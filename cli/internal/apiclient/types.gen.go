@@ -1624,6 +1624,9 @@ type VerifyComplianceEvidenceJSONBody struct {
 	// DataB64 Base64 of the evidence-pack bytes.
 	DataB64 string `json:"data_b64"`
 
+	// Filename The pack's canonical filename as returned by GET /api/v1/compliance/evidence (keyorix-evidence-<UTC timestamp>.json). The signature is bound to it, so a missing or different name never verifies.
+	Filename string `json:"filename"`
+
 	// Signature The detached signature ('<keyVersion>:<hmac-hex>').
 	Signature string `json:"signature"`
 }

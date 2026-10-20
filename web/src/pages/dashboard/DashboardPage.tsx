@@ -367,15 +367,6 @@ interface OperationalSignalsSectionProps {
     failedAuthSeverity: SignalSeverity;
 }
 
-// DASH-FAILED-2FA: the failed-login count is a wrong password plus a wrong second factor
-// (TOTP / recovery code / passkey). A server that predates the split sends only the total.
-function failedLoginsHint(stats: Stats): string {
-    const wrongPassword = stats?.failedLoginsWrongPassword24h;
-    const wrongSecondFactor = stats?.failedLoginsWrongSecondFactor24h;
-    if (wrongPassword === undefined || wrongSecondFactor === undefined) return 'unsuccessful sign-ins';
-    return `${wrongPassword} wrong password · ${wrongSecondFactor} wrong second factor`;
-}
-
 const OperationalSignalsSection: React.FC<OperationalSignalsSectionProps> = ({
     navigate,
     stats,
@@ -386,6 +377,7 @@ const OperationalSignalsSection: React.FC<OperationalSignalsSectionProps> = ({
     failedAuthSeverity,
 }) => {
     const can = useCan();
+    const failedSecondFactors = stats?.failedSecondFactors24h ?? 0;
     return (
         <div className="bg-surface border border-base rounded-xl shadow-xs">
             <div className="px-6 py-4 border-b border-base">
@@ -393,7 +385,7 @@ const OperationalSignalsSection: React.FC<OperationalSignalsSectionProps> = ({
                     Operational Signals
                 </h2>
             </div>
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
                 <SignalCard
                     label="Expiring Secrets"
                     value={expiring.length}
@@ -404,8 +396,17 @@ const OperationalSignalsSection: React.FC<OperationalSignalsSectionProps> = ({
                 <SignalCard
                     label="Failed Logins (24h)"
                     value={failedAuth}
-                    hint={failedLoginsHint(stats)}
+                    hint="wrong password"
                     severity={failedAuthSeverity}
+                    onClick={() => navigate(ROUTES.AUDIT + '?tab=audit&filter=failed')}
+                    notVisible={!can.readAudit}
+                />
+                {/* DASH-FAILED-SPLIT-1: failed logins, failed second factors and refused secret reads are three figures, never summed. */}
+                <SignalCard
+                    label="Failed Second Factors (24h)"
+                    value={failedSecondFactors}
+                    hint="wrong code or passkey"
+                    severity={getFailedAuthSeverity(failedSecondFactors)}
                     onClick={() => navigate(ROUTES.AUDIT + '?tab=audit&filter=failed')}
                     notVisible={!can.readAudit}
                 />

@@ -699,11 +699,9 @@ func (s *Server) Exited() <-chan struct{} {
 // ~/.keyorix/cli.yaml -- see the repo's own "Local ~/.keyorix/cli.yaml breaks
 // CLI tests" lesson) plus PATH.
 func (s *Server) CLIEnv() []string {
-	// The CLI refuses secrets given as flags (--password, --value, ...) unless this is set.
-	// The existing journeys still pass some that way; they opt back in here until they are
-	// moved to KEYORIX_* variables / --from-file -. A journey that tests the refusal itself
-	// builds its own environment (see journey_cli_secret_flags_test.go).
-	return []string{"HOME=" + s.Dir, "PATH=" + os.Getenv("PATH"), "KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1"}
+	// No KEYORIX_ALLOW_INSECURE_SECRET_FLAGS: the CLI refuses secrets given as flags (#3325),
+	// so a journey passes them on stdin or in KEYORIX_* variables (see journeys/helpers.go).
+	return []string{"HOME=" + s.Dir, "PATH=" + os.Getenv("PATH")}
 }
 
 func readAll(resp *http.Response) (string, error) {

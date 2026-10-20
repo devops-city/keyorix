@@ -225,15 +225,10 @@ export interface DashboardStats {
     auditEvents30d: number;
     auditLogins30d: number;
     auditSecretReads30d: number;
-    /**
-     * Failed logins in the last 24h: wrong password + wrong second factor (the name is kept for
-     * API compatibility).
-     */
+    /** Failed password/SSO logins in the last 24h, nothing else (the name is kept for API compatibility). */
     failedAuthAttempts24h: number;
-    /** The wrong-password part of failedAuthAttempts24h (absent on older servers). */
-    failedLoginsWrongPassword24h?: number;
-    /** The wrong-second-factor part of failedAuthAttempts24h: TOTP, recovery code, passkey (absent on older servers). */
-    failedLoginsWrongSecondFactor24h?: number;
+    /** Refused second factors in the last 24h: TOTP, recovery code, passkey (absent on older servers). */
+    failedSecondFactors24h?: number;
     /** Refused secret reads in the last 24h (absent on older servers). */
     refusedSecretReads24h?: number;
     inactiveUsers: number;

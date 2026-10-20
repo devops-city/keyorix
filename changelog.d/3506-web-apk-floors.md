@@ -1,0 +1,2 @@
+### Fixed
+- **The `keyorix-web` image build no longer breaks when Alpine publishes a newer revision of a security-pinned package.** `web/Dockerfile` pinned `libuuid`, `libexpat`, `pcre2` and `tiff` to exact revisions; on 2026-10-19 Alpine 3.24 replaced `libexpat-2.8.5-r0` with `2.9.0-r0` and the `release-dry-run` multi-arch build (and with it `docker-publish` and `release` at tag time) failed with `unable to select packages`. The pins are now minimum versions (`libexpat>=2.8.5-r0`, etc.), so the fixed versions are still enforced but a later revision satisfies them.

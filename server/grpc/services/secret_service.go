@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 
+	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/server/grpc/interceptors"
@@ -340,10 +342,16 @@ func (s *SecretGRPCService) DeleteSecret(ctx context.Context, req *pb.DeleteSecr
 	}
 	// The delete is done; a failed read-back of the purge date leaves it unset rather
 	// than failing a completed delete (same stance as the HTTP handler's header).
+	// A panic in the read-back is left unset the same way as an error (#3508).
 	resp := &pb.DeleteSecretResponse{}
-	if purgeAt, perr := s.core.DeletedSecretPurgeAt(ctx, uint(req.GetId())); perr == nil {
+	besteffort.Run(ctx, "grpc.SecretGRPCService.DeleteSecret.purgeAt", func() error {
+		purgeAt, perr := s.core.DeletedSecretPurgeAt(ctx, uint(req.GetId()))
+		if perr != nil {
+			return fmt.Errorf("deleted secret %d but could not read back its purge date: %w", req.GetId(), perr)
+		}
 		resp.PurgeAt = timestamppb.New(purgeAt.UTC())
-	}
+		return nil
+	})
 	return resp, nil
 }
 

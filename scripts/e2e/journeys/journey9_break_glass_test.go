@@ -68,15 +68,15 @@ func TestJourney_BreakGlass(t *testing.T) {
 	projID := projectID(t, s, adminToken, n9ProjectName)
 	envID := environmentID(t, s, adminToken, projID, n9EnvName)
 
-	runCLI(t, cliBin, aEnv, "secret", "create",
+	runCLISecret(t, cliBin, aEnv, n9SecretValue, "secret", "create",
 		"--name", n9SecretName, "--project", strconv.Itoa(projID),
-		"--environment", strconv.Itoa(envID), "--value", n9SecretValue)
+		"--environment", strconv.Itoa(envID))
 	secID := secretID(t, s, adminToken, projID, envID, n9SecretName)
 
 	createNoAccessRole(t, s, adminToken)
 
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n9OncallUser,
-		"--email", n9OncallEmail, "--password", n9UserPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n9UserPass), "user", "create", "--username", n9OncallUser,
+		"--email", n9OncallEmail)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n9OncallEmail,
 		"--role", n9NoAccessRole, "--project", n9ProjectName)
 
@@ -92,8 +92,8 @@ func TestJourney_BreakGlass(t *testing.T) {
 	// A second member of the same project who never activates anything: their own
 	// `break-glass list` must not show the oncall engineer's activation
 	// (BREAKGLASS-OWN-1: a member lists only their OWN activations).
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n9PeerUser,
-		"--email", n9PeerEmail, "--password", n9UserPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n9UserPass), "user", "create", "--username", n9PeerUser,
+		"--email", n9PeerEmail)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n9PeerEmail,
 		"--role", n9NoAccessRole, "--project", n9ProjectName)
 

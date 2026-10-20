@@ -56,12 +56,12 @@ func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEma
 	runCLI(t, cliBin, aEnv, "project", "create", "--name", n20Project)
 	proj := projectID(t, s, adminToken, n20Project)
 	env := environmentID(t, s, adminToken, proj, n20EnvName)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n20Secret,
-		"--project", strconv.Itoa(proj), "--environment", strconv.Itoa(env), "--value", n20Value)
+	runCLISecret(t, cliBin, aEnv, n20Value, "secret", "create", "--name", n20Secret,
+		"--project", strconv.Itoa(proj), "--environment", strconv.Itoa(env))
 	sid := secretID(t, s, adminToken, proj, env, n20Secret)
 
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n20Viewer, "--email", n20ViewerEml, "--password", n20UserPass)
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n20Outsider, "--email", n20OutEml, "--password", n20UserPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n20UserPass), "user", "create", "--username", n20Viewer, "--email", n20ViewerEml)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n20UserPass), "user", "create", "--username", n20Outsider, "--email", n20OutEml)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n20ViewerEml, "--role", "project_viewer", "--project", n20Project)
 	aliceID := n20UserID(t, s, adminToken, n20Viewer)
 	bobID := n20UserID(t, s, adminToken, n20Outsider)
@@ -90,7 +90,7 @@ func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEma
 	})
 
 	// Before the share: the viewer reads but cannot update.
-	runCLIExpectErr(t, cliBin, aliceEnv, "secret", "update", "--id", strconv.Itoa(sid), "--value", "before-share")
+	runCLISecretExpectErr(t, cliBin, aliceEnv, "before-share", "secret", "update", "--id", strconv.Itoa(sid))
 	assertSecretUnchanged(t, s, adminToken, sid, n20Value)
 
 	runCLI(t, cliBin, aEnv, "share", "create", "--secret-id", strconv.Itoa(sid),
@@ -98,7 +98,7 @@ func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEma
 	shareID := onlyShareID(t, s, adminToken, sid)
 
 	t.Run("a write share elevates the viewer on this secret (#2941)", func(t *testing.T) {
-		runCLI(t, cliBin, aliceEnv, "secret", "update", "--id", strconv.Itoa(sid), "--value", "updated-by-alice")
+		runCLISecret(t, cliBin, aliceEnv, "updated-by-alice", "secret", "update", "--id", strconv.Itoa(sid))
 		assertSecretUnchanged(t, s, adminToken, sid, "updated-by-alice")
 		// Never delete, never re-share.
 		runCLIExpectErr(t, cliBin, aliceEnv, "secret", "delete", "--id", strconv.Itoa(sid), "--force")
@@ -112,9 +112,9 @@ func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEma
 	})
 
 	t.Run("a write share elevates only update, metadata and rotate (#3001)", func(t *testing.T) {
-		runCLI(t, cliBin, aliceEnv, "secret", "rotate", "--id", strconv.Itoa(sid), "--value", "rotated-by-alice")
+		runCLIRotate(t, cliBin, aliceEnv, strconv.Itoa(sid), "rotated-by-alice")
 		assertSecretUnchanged(t, s, adminToken, sid, "rotated-by-alice")
-		runCLI(t, cliBin, aliceEnv, "secret", "update", "--id", strconv.Itoa(sid), "--value", "updated-by-alice")
+		runCLISecret(t, cliBin, aliceEnv, "updated-by-alice", "secret", "update", "--id", strconv.Itoa(sid))
 		// An incident freeze she could undo, or a denial of service: refused, with the reason.
 		runCLIExpectErr(t, cliBin, aliceEnv, "secret", "suspend", "--id", strconv.Itoa(sid))
 		for _, p := range []string{"suspend", "resume", "move", "rollback", "transfer-ownership"} {
@@ -128,7 +128,7 @@ func shareElevation(t *testing.T, s *harness.Server, cliBin, adminUser, adminEma
 	runCLI(t, cliBin, aEnv, "share", "revoke", "--share-id", strconv.Itoa(shareID))
 
 	t.Run("revoke removes exactly the elevation", func(t *testing.T) {
-		runCLIExpectErr(t, cliBin, aliceEnv, "secret", "update", "--id", strconv.Itoa(sid), "--value", "after-revoke")
+		runCLISecretExpectErr(t, cliBin, aliceEnv, "after-revoke", "secret", "update", "--id", strconv.Itoa(sid))
 		if e := restCall(t, s, aliceToken, http.MethodPut, fmt.Sprintf("/api/v1/secrets/%d", sid),
 			map[string]string{"value": "after-revoke-rest"}); e.StatusCode != http.StatusForbidden {
 			t.Errorf("after revoke the update must be refused: got %d: %s", e.StatusCode, e.Raw)

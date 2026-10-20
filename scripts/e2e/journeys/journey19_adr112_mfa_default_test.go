@@ -36,7 +36,7 @@ func TestJourney_ADR112FreshInstallRequiresMFAEnrolment(t *testing.T) {
 	env := s.CLIEnv()
 
 	// ── 1-2. first login works, everything but enrolment is refused ───────────
-	out := runCLI(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw)
+	out := runCLI(t, cliBin, withEnv(env, "KEYORIX_PASSWORD="+adminPw), "login", "--server", s.BaseURL, "--username", adminUser)
 	if !strings.Contains(out, "Logged in to") {
 		t.Fatalf("expected the first (pre-MFA) login to succeed, got:\n%s", out)
 	}
@@ -61,14 +61,14 @@ func TestJourney_ADR112FreshInstallRequiresMFAEnrolment(t *testing.T) {
 	secret := m[1]
 	now := time.Now().UTC()
 	code, burned := totpCodeAt(t, secret, now), totpStep(now)
-	out = runCLI(t, cliBin, env, "mfa", "activate", "--code", code, "--password", adminPw)
+	out = runCLI(t, cliBin, withEnv(env, "KEYORIX_MFA_CODE="+code, "KEYORIX_PASSWORD="+adminPw), "mfa", "activate")
 	if !strings.Contains(out, "MFA enabled") || !strings.Contains(out, "recovery codes") {
 		t.Fatalf("expected activation with recovery codes, got:\n%s", out)
 	}
 
 	// ── 4. two-step login, then the refused commands work ──────────────────────
-	out = runCLI(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", adminPw,
-		"--mfa-code", totpCodeAfterStep(t, secret, burned))
+	out = runCLI(t, cliBin, withEnv(env, "KEYORIX_PASSWORD="+adminPw, "KEYORIX_MFA_CODE="+totpCodeAfterStep(t, secret, burned)),
+		"login", "--server", s.BaseURL, "--username", adminUser)
 	if !strings.Contains(out, "Logged in to") {
 		t.Fatalf("expected the MFA login to succeed, got:\n%s", out)
 	}

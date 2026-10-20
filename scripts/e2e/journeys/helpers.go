@@ -182,11 +182,77 @@ func runCLIExpectErr(t *testing.T, cliBin string, env []string, args ...string) 
 	return out
 }
 
-func runCLIRaw(cliBin string, env []string, args ...string) (string, error) {
+func runCLIRawStdin(cliBin string, env []string, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.Command(cliBin, args...) // #nosec G204 -- cliBin is this test's own built binary path, args are the test's own fixed arguments nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command -- runs the keyorix binary this e2e journey itself built, with the journey's own fixed arguments; no external input reaches it
 	cmd.Env = env
+	cmd.Stdin = stdin // nil leaves stdin empty
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// runCLIRaw runs the CLI with no stdin; with runCLIWithStdin it wraps runCLIRawStdin, the
+// single place the journeys exec the CLI binary.
+func runCLIRaw(cliBin string, env []string, args ...string) (string, error) {
+	return runCLIRawStdin(cliBin, env, nil, args...)
+}
+
+// ── Secrets the CLI accepts (never as a flag: #3325) ──────────────────────
+//
+// A secret reaches the CLI on stdin (--from-file -, or the rotate prompt read from a
+// pipe) or in a KEYORIX_* variable. These helpers keep a call site one line.
+
+// withEnv returns a copy of env with the KEY=value pairs appended (the last entry for a
+// key wins), so a call site can add KEYORIX_PASSWORD= without touching the shared slice.
+func withEnv(env []string, kv ...string) []string {
+	return append(append([]string{}, env...), kv...)
+}
+
+// runCLIWithStdin runs the CLI with stdin piped in and returns combined output and the
+// error. Use runCLIWithStdinOK / runCLIWithStdinExpectErr to assert on the exit status.
+func runCLIWithStdin(cliBin string, env []string, stdin string, args ...string) (string, error) {
+	return runCLIRawStdin(cliBin, env, strings.NewReader(stdin), args...)
+}
+
+// runCLIWithStdinOK is runCLI with stdin piped in: it fails the test on a non-zero exit.
+func runCLIWithStdinOK(t *testing.T, cliBin string, env []string, stdin string, args ...string) string {
+	t.Helper()
+	out, err := runCLIWithStdin(cliBin, env, stdin, args...)
+	if err != nil {
+		t.Fatalf("keyorix %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return out
+}
+
+// runCLIWithStdinExpectErr is runCLIExpectErr with stdin piped in.
+func runCLIWithStdinExpectErr(t *testing.T, cliBin string, env []string, stdin string, args ...string) string {
+	t.Helper()
+	out, err := runCLIWithStdin(cliBin, env, stdin, args...)
+	if err == nil {
+		t.Fatalf("keyorix %s: expected a failure, command succeeded:\n%s", strings.Join(args, " "), out)
+	}
+	return out
+}
+
+// runCLISecret runs a `secret create` / `secret update` with value piped on stdin through
+// --from-file - (the replacement for --value). Pass the command and its other flags in args.
+func runCLISecret(t *testing.T, cliBin string, env []string, value string, args ...string) string {
+	t.Helper()
+	return runCLIWithStdinOK(t, cliBin, env, value, append(append([]string{}, args...), "--from-file", "-")...)
+}
+
+// runCLISecretExpectErr is runCLISecret for a denial path.
+func runCLISecretExpectErr(t *testing.T, cliBin string, env []string, value string, args ...string) string {
+	t.Helper()
+	return runCLIWithStdinExpectErr(t, cliBin, env, value, append(append([]string{}, args...), "--from-file", "-")...)
+}
+
+// runCLIRotate runs `secret rotate --id <id>` with the new value piped on stdin (rotate has
+// no file flag: its hidden prompt reads a pipe).
+func runCLIRotate(t *testing.T, cliBin string, env []string, id, value string) string {
+	t.Helper()
+	// The prompt reads a line from a pipe, so the value needs its newline (create/update drop
+	// one trailing newline themselves, but rotate would see EOF without it).
+	return runCLIWithStdinOK(t, cliBin, env, value+"\n", "secret", "rotate", "--id", id)
 }
 
 // tokenEnv returns the environment a `keyorix` CLI invocation needs to act
