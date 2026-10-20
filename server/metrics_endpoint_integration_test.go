@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -29,6 +30,49 @@ var protectedPostureMetrics = []string{
 	"keyorix_audit_write_failures_total",
 	"keyorix_auth_budget_rejections_total",
 	"keyorix_single_writer_unattributed_bumps_total",
+}
+
+// awaitServerHealthy polls base+"/health" for up to 30 s after cmd was started, and
+// kills the child when the test ends. On timeout it fails with the child's exit state
+// (exited with what, or still running) and the tail of its log, so a bind failure is
+// visible in the failure message rather than only "never became reachable".
+func awaitServerHealthy(t *testing.T, cmd *exec.Cmd, logPath, base string) {
+	t.Helper()
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+		}
+	})
+
+	var exitState string
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if resp, gerr := http.Get(base + "/health"); gerr == nil { //nolint:noctx // test-local liveness poll
+			_ = resp.Body.Close()
+			return
+		}
+		select {
+		case werr := <-exited:
+			exited <- werr // keep it readable for the cleanup
+			exitState = fmt.Sprintf("child exited early: %v (%s)", werr, cmd.ProcessState)
+		default:
+		}
+		if exitState != "" {
+			break
+		}
+	}
+	if exitState == "" {
+		exitState = "child still running"
+	}
+	raw, _ := os.ReadFile(logPath) //nolint:gosec // test-generated path
+	const tailBytes = 8 << 10
+	if len(raw) > tailBytes {
+		raw = raw[len(raw)-tailBytes:]
+	}
+	t.Fatalf("server never became reachable at %s: %s; log tail:\n%s", base, exitState, raw)
 }
 
 func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
@@ -57,11 +101,16 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 		t.Fatalf("admin migrate failed: %v\n%s", err, out)
 	}
 
-	const port = "8080"
+	// The server refuses a bootstrap token shorter than 32 characters.
+	const bootstrapToken = "test-bootstrap-token-0123456789abcdef"
+	// A free port, not the product default 8080: the CI runner runs several packages'
+	// tests concurrently and anything else holding 8080 made the server fail to bind.
+	port := pinFreeHTTPPort(t, dir)
 	cmd := exec.Command(bin) //nolint:gosec // bin is this suite's own freshly built binary
 	cmd.Dir = dir
-	cmd.Env = append(append([]string{}, env...), "KEYORIX_BOOTSTRAP_TOKEN=test-bootstrap-token-0123456789", "KEYORIX_CONFIG_PATH=./keyorix.yaml")
-	logFile, err := os.Create(filepath.Join(dir, "metrics-server.log")) //nolint:gosec // test-generated path
+	cmd.Env = append(append([]string{}, env...), "KEYORIX_BOOTSTRAP_TOKEN="+bootstrapToken, "KEYORIX_CONFIG_PATH=./keyorix.yaml")
+	logPath := filepath.Join(dir, "metrics-server.log")
+	logFile, err := os.Create(logPath) //nolint:gosec // test-generated path
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,30 +119,15 @@ func TestMetricsEndpoint_OperatorMetricsOnRealServer(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start server: %v", err)
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
 
-	base := "http://localhost:" + port
-	up := false
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
-		if resp, gerr := http.Get(base + "/health"); gerr == nil { //nolint:noctx // test-local liveness poll
-			_ = resp.Body.Close()
-			up = true
-			break
-		}
-	}
-	if !up {
-		raw, _ := os.ReadFile(filepath.Join(dir, "metrics-server.log")) //nolint:gosec // test-generated path
-		t.Fatalf("server never became reachable; log:\n%s", raw)
-	}
+	base := "http://127.0.0.1:" + port
+	awaitServerHealthy(t, cmd, logPath, base)
 
 	// Generate audited traffic: bootstrapping the first admin writes audit events.
 	bootstrapReq, _ := http.NewRequest(http.MethodPost, base+"/system/init", strings.NewReader(
 		`{"username":"obsadmin","email":"obs1@example.com","password":"InitialPassw0rd!","display_name":"Obs Admin"}`))
 	bootstrapReq.Header.Set("Content-Type", "application/json")
-	bootstrapReq.Header.Set("X-Keyorix-Bootstrap-Token", "test-bootstrap-token-0123456789")
+	bootstrapReq.Header.Set("X-Keyorix-Bootstrap-Token", bootstrapToken)
 	if resp, derr := http.DefaultClient.Do(bootstrapReq); derr != nil {
 		t.Fatalf("bootstrap: %v", derr)
 	} else {
