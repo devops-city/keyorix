@@ -203,7 +203,9 @@ server:
 `auto_cert` is ACME — it needs a public domain and inbound 80/443, so it does not work
 for a local, internal-only, or air-gapped deployment. For those, set `cert_file`/
 `key_file` to a PEM cert and key instead (gRPC's `tls:` block takes the same two
-fields; `domains`/`cert_cache_dir`/`allowed_ciphers` apply to HTTP only). A quick
+fields; `domains`/`cert_cache_dir`/`allowed_ciphers` apply to HTTP only). `auto_cert`
+is HTTP-only: `server.grpc.tls.auto_cert: true` is refused at start-up, because gRPC has
+no ACME client and the flag used to start a listener whose every handshake failed. A quick
 self-signed pair for local use:
 
 ```sh
@@ -449,6 +451,35 @@ The Helm chart passes `externalDatabase.sslRootCert` through as
 `system`). `admin validate --posture` prints one informational line saying
 what is encrypted and what is verified against which CA.
 
+### PostgreSQL DSN forms
+
+`storage.database.dsn` takes either form the PostgreSQL driver (pgx) parses, and
+the server and every `admin` command treat them identically:
+
+| Form | Example |
+|---|---|
+| key=value | `host=db user=keyorix dbname=keyorix port=5432 sslmode=require` |
+| URL | `postgres://keyorix@db:5432/keyorix?sslmode=require` |
+| URL, `postgresql://` scheme | `postgresql://keyorix@db:5432/keyorix?sslmode=require` |
+
+Managed-Postgres connection strings and Helm values are usually the URL form;
+paste them as they are. Things to know:
+
+- **Special characters in a password.** In the URL form, percent-encode them
+  (`@` as `%40`, `:` as `%3A`, `/` as `%2F`, `?` as `%3F`, `%` as `%25`); in the
+  key=value form, wrap the value in single quotes and escape `'` and `\` with a
+  backslash (`password='p@ss w\'rd'`). Better still, leave the password out of
+  the DSN and use `KEYORIX_DB_PASSWORD` (see below), which needs no escaping.
+- **`sslmode`** and every other parameter (`sslrootcert`, `connect_timeout`,
+  `application_name`, `search_path`, ...) work the same in both forms; in a URL
+  they are query parameters. Without one, the driver default `prefer` applies.
+- **`admin verify-audit --pg-dsn`** takes the same two forms.
+
+`KEYORIX_TEST_PG_DSN`, the connection the Postgres-gated tests use, accepts both
+forms too. The tests create their own throwaway databases on that server by
+swapping the database name, keeping the other settings as written (including
+`sslmode` and a percent-encoded password).
+
 ### PostgreSQL password precedence
 
 The database password comes from `KEYORIX_DB_PASSWORD`, or the file named by
@@ -607,6 +638,16 @@ storage:
     enabled: true
     dek_path: /app/keys/data.key  # wrapped DEK (never the raw key)
     salt_path: /app/keys/kek.salt # KEK salt (password provider only)
+
+    # key_dir_lock — how a server shares the key files with other processes.
+    #   flock (default): exclusive flock on <key dir>/dek.lock for the server's
+    #     lifetime; exactly one server per key directory.
+    #   database: PostgreSQL only, for several replicas (docs/multi-replica-keys.md).
+    #     No key-directory lock; PostgreSQL advisory locks coordinate first boot,
+    #     crash recovery and admin commands. The key directory may be a shared
+    #     ReadWriteMany volume without working flock, or read-only. Admin --force
+    #     is refused in this mode.
+    # key_dir_lock: database
 
     # key_provider — default is "password" when omitted.
     key_provider:
@@ -783,11 +824,19 @@ to this version records one such change, because the recorded value changed
 from `true`/`false` to these names.
 
 `require_mfa` on an upgraded deployment that never set it gets the same kind of
-grace period: MFA is **not** enforced yet, and every start logs a loud `ADR-112
-grace period` warning. Have every interactive admin enrol, then set
-`require_mfa: true` explicitly to enforce it (or `false` to opt out visibly). A
-fresh install is enforced from its first start and recorded in the database
-(`adr112.require_mfa.enforced`), so it stays enforced after its admins exist.
+grace period: MFA is **not** enforced yet, every start logs a loud `ADR-112
+grace period` warning with the days left, and the web UI shows a banner to
+users without a second factor. It ends at the **first administrator MFA
+enrolment or 30 days after the first start on the release that bounded it**,
+whichever comes first (#2923, ADR-112 Amendment 5), without a restart; the
+start is recorded in the database (`adr112.require_mfa.grace_started`) and a
+clock set back does not extend it. Users without a second factor are then sent
+to MFA enrolment when they sign in (not locked out). Set `require_mfa: true`
+to enforce it at once (or `false` to opt out visibly). See
+[UPGRADING.md](UPGRADING.md#mfa-after-an-upgrade-the-grace-period-and-its-banner).
+A fresh install is enforced from its first start and recorded in the database
+(`adr112.require_mfa.enforced`), so it stays enforced after its admins exist;
+the same marker is written when a grace period ends.
 
 `require_mfa` is an ADR-112 opt-out like the `insecure_*` settings: its registry
 entry is `security.insecure_disable_mfa_requirement`. An explicit
@@ -1497,6 +1546,12 @@ must not fire implicitly from a startup path.
 If the migration cannot complete, the server **refuses to start** rather than
 serve with webhook credentials still in plaintext on an install that asked for
 encryption. The error names the channel to investigate.
+
+The API and the clients treat the URL as write-only after creation: only the create
+response carries it in full; list, get and update return `https://host/…` and `url_set`.
+From the CLI, give it with `keyorix notification channel add|update --url-file <path|->`
+(`--url` is refused, like the other secret flags); the web form uses a password-type field
+and a "Replace URL" button on existing channels.
 
 ## compliance_digest
 

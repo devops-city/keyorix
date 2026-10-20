@@ -26,8 +26,6 @@ import (
 	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 
-	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,8 +229,7 @@ func TestRunRecoverAdminAlerting_LargeAuditTable_SecondRunReadsOnlyNewRows(t *te
 
 func TestRunRecoverAdminAlerting_LargeAuditTable_SecondRunReadsOnlyNewRows_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	db := pgOpen(t, pgIsolatedSchemaDSN(t, base))
-	require.NoError(t, kxstorage.MigrateExisting(db))
+	db := pgOpen(t, pgMigratedDatabaseDSN(t, base))
 	require.NoError(t, i18n.Initialize(&config.Config{
 		Locale: config.LocaleConfig{Language: "en", FallbackLanguage: "en"},
 	}))

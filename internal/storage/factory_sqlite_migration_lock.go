@@ -8,7 +8,7 @@
 // construction" — but that assumption was never actually enforced anywhere.
 // Nothing previously stopped two separate Keyorix OS processes pointed at the
 // same local SQLite file (a misconfigured multi-replica deployment, or a
-// `keyorix encryption ...` CLI invocation run concurrently with a live server
+// `keyorix-server admin encryption ...` CLI invocation run concurrently with a live server
 // process) from racing gorm.Open's WAL-mode switch and migrateDatabase's DDL
 // statements against each other, unlike the Postgres path which already gets an
 // additional cross-process protection via withMigrationLock's session-level

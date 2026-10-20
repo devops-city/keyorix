@@ -1,0 +1,2 @@
+### Documentation
+- **Hosted demo README: cost advice and first-boot checklist.** Idle power-off saves nothing on most providers, so the README now recommends destroying and recreating the VM between calls (`install.sh` is idempotent) and points at the current UpCloud/Hetzner price lists instead of quoting a figure. The first-boot checklist matches the scripts again (staging certificate, gate user, MFA enrolment, the seed placeholder); the seed section explains why `scripts/demo/seed-demo.sh` is not wired as the default yet.

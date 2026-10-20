@@ -35,12 +35,27 @@ Do not script a user's password. Use a token:
 - A personal access token: `keyorix pat create --name ci --scope secrets.read
   --project-id <id> --expires 2027-01-01` prints the token once.
 - A machine identity token: `keyorix machine token issue <name>` (see
-  [operator/demo.md](operator/demo.md) step 5).
+  [operator/demo.md](operator/demo.md) step 5). It prints the token once; add
+  `--output-file ./ci.token` to write it to a new file instead (mode 0600, refuses to
+  overwrite an existing file, created before the token is minted), so the token never
+  passes through your terminal scrollback or shell history.
 
-Then set the environment for the process: `KEYORIX_SERVER=https://...` and
-`KEYORIX_TOKEN=<token>` (read the token from a secret store or a 0600 file; do not put it
-on a command line). `keyorix run --env production --var NAME=secret-ref -- cmd` injects
-secrets into a child process.
+Then set the environment for the process: `KEYORIX_SERVER=https://...` and either
+`KEYORIX_TOKEN=<token>` or `KEYORIX_TOKEN_FILE=/path/to/token` (a file of mode 0600, or 0440
+for a mounted Kubernetes Secret, holding the token; the same rules as the other `_FILE`
+variables; setting both is an error). Do not put the token on a command line.
+`keyorix run --env production --var NAME=secret-ref -- cmd` injects secrets into a child
+process. `keyorix doctor` says which of the two supplied the token.
+
+## Webhook URLs of notification channels
+
+A Slack, Teams or webhook URL carries its token in the path, so the CLI treats it as a
+secret: `keyorix notification channel add|update` take it from `--url-file <path>` (or
+`--url-file -` for stdin), and `--url` is refused like the other secret flags (set
+`KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1` to get a warning instead while you migrate
+scripts). The server returns the full URL only in the create response; `channel get` and
+`list` show `https://host/…`, and the web form shows that masked value with a
+"Replace URL" button.
 
 ## Trusting the server's certificate
 

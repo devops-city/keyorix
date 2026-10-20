@@ -25,6 +25,6 @@
   is wired only by `storage.factory`; a store never told the window stamps nothing and
   falls back to the legacy rule (`TestPurge_UnstampedRowsKeepLegacyCutoffRule`).
   Mixed versions: an epoch-1 binary neither clears nor re-stamps `purge_at`, so the
-  property holds only because `minCompatibleSchemaEpoch` is 2 (epoch-1 binaries refuse to
+  property holds only because `minCompatibleSchemaEpoch` is at least 2 (epoch-1 binaries refuse to
   start against a migrated database); guard `TestCurrentSchemaEpoch_Is4_SeeADR101`.
   Lowering the floor re-opens an irreversible early purge.

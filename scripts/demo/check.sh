@@ -206,13 +206,15 @@ bring_up_postgres() {
   # entrypoint creates the admin (idempotent) from admin_password + bootstrap_token;
   # the POST /system/init below then just confirms it (200, already initialised).
   local secrets_dir="$SCRATCH/demo-secrets"
+  # The server refuses a pinned bootstrap token shorter than 32 characters (#3341): generate one per run.
+  : "${DEMO_CHECK_BOOTSTRAP_TOKEN:=$(openssl rand -hex 32)}"
   mkdir -p "$secrets_dir"
   (
     umask 037
     printf '%s\n' "demo-check-db-password-2026" > "$secrets_dir/db_password"
     printf '%s\n' "demo-check-master-passphrase-2026" > "$secrets_dir/master_password"
     printf '%s\n' "Correct-Horse-Battery-2026" > "$secrets_dir/admin_password"
-    printf '%s\n' "demo-check-bootstrap-token" > "$secrets_dir/bootstrap_token"
+    printf '%s\n' "$DEMO_CHECK_BOOTSTRAP_TOKEN" > "$secrets_dir/bootstrap_token"
   )
   chmod 750 "$secrets_dir"
   # The Postgres TLS certificate and key (docker-compose.yml: the bundled postgres
@@ -275,7 +277,7 @@ EOF
 
   local init_ok=false
   for _ in $(seq 1 10); do
-    req POST /system/init "" '{"username":"admin","email":"admin@keyorix.demo","password":"Correct-Horse-Battery-2026","bootstrap_token":"demo-check-bootstrap-token"}'
+    req POST /system/init "" '{"username":"admin","email":"admin@keyorix.demo","password":"Correct-Horse-Battery-2026","bootstrap_token":"'"$DEMO_CHECK_BOOTSTRAP_TOKEN"'"}'
     [ "$HTTP_CODE" = "200" ] && { init_ok=true; break; }
     sleep 1
   done
@@ -488,10 +490,16 @@ step_seed_posture() {
     return 1
   }
   local detail; detail="$(jget 'next(c["detail"] for c in d["data"]["controls"] if c["id"]=="secret-rotation")')"
-  case "$detail" in
-    *"2 of 3 secrets covered"*) ;;
-    *) echo "secret-rotation gap has the wrong detail '$detail', expected '2 of 3 secrets covered' (payments-webhook-secret uncovered)"; return 1 ;;
-  esac
+  # Exactly ONE secret uncovered (payments-webhook-secret), whatever the seed's
+  # total is: the seed grows (13 secrets since the anomaly demo), so "N-1 of N" is
+  # asserted, not a hard-coded "2 of 3".
+  local covered total
+  covered="$(printf '%s' "$detail" | sed -n 's/.*; \([0-9][0-9]*\) of \([0-9][0-9]*\) secrets covered.*/\1/p')"
+  total="$(printf '%s' "$detail" | sed -n 's/.*; \([0-9][0-9]*\) of \([0-9][0-9]*\) secrets covered.*/\2/p')"
+  if [ -z "$covered" ] || [ -z "$total" ] || [ "$total" -lt 3 ] || [ "$covered" -ne $((total - 1)) ]; then
+    echo "secret-rotation gap has the wrong detail '$detail', expected exactly one secret uncovered, 'N-1 of N secrets covered' with N >= 3 (payments-webhook-secret)"
+    return 1
+  fi
   # No high-severity anomaly: that is what turns the anomaly-detection control red.
   local passing; passing="$(jget 'next(c["status"] for c in d["data"]["controls"] if c["id"]=="anomaly-detection")')"
   [ "$passing" = "pass" ] || { echo "anomaly-detection control is '$passing' on a fresh demo, expected pass (no high-severity alert)"; return 1; }

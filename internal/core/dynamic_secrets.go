@@ -99,6 +99,47 @@ func parseDSNHost(dsn string) string {
 // logic can be fuzzed cheaply as a leaf package — see that package's doc.go.
 func parseDSNHosts(dsnStr string) []string { return dsn.ParseDSNHosts(dsnStr) }
 
+// dynamicSecretPrivateTargetSetting is the server setting that allows private-network
+// dynamic-secret targets. It is named in the refusal so the operator knows what to change.
+const dynamicSecretPrivateTargetSetting = "dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets"
+
+// DynamicSecretTargetRefusedError is the egress/private-network policy refusing a
+// dynamic-secret admin_dsn host. It is a deliberate, client-safe outcome (the API shows
+// ClientMessage), unlike the driver or storage errors that share the create path, which
+// stay masked.
+type DynamicSecretTargetRefusedError struct {
+	Host       string // the host as written in the caller's own DSN
+	ResolvedTo string // the private address a hostname resolved to; server log only
+}
+
+// Error is the full text for the server log, including the resolved address.
+func (e *DynamicSecretTargetRefusedError) Error() string {
+	if e.ResolvedTo != "" {
+		return fmt.Sprintf("admin_dsn host %q resolves to private or link-local address %s; "+
+			"set %s: true to allow private-network backends", e.Host, e.ResolvedTo, dynamicSecretPrivateTargetSetting)
+	}
+	return fmt.Sprintf("admin_dsn host %q is a private or link-local address; "+
+		"set %s: true to allow private-network backends", e.Host, dynamicSecretPrivateTargetSetting)
+}
+
+// ClientMessage is what the API caller sees: what was refused and which setting allows it.
+// It names only the host the caller wrote themselves; it never carries the address the
+// server's resolver returned (a hostname probe must not map the internal network) or
+// anything else from the DSN (userinfo, password, database name).
+func (e *DynamicSecretTargetRefusedError) ClientMessage() string {
+	host := e.Host
+	if len(host) > 100 {
+		host = host[:100] + "..."
+	}
+	what := "is a private or link-local address"
+	if e.ResolvedTo != "" {
+		what = "resolves to a private or link-local address"
+	}
+	return fmt.Sprintf("the admin_dsn host %q %s, which the server's egress policy refuses. "+
+		"A server operator can allow private-network dynamic-secret targets by setting %s: true",
+		host, what, dynamicSecretPrivateTargetSetting)
+}
+
 // validateAdminDSNHost rejects an admin DSN whose host is a private or
 // link-local address. This prevents an internal operator from using Keyorix
 // as an SSRF proxy against other services on the same private network
@@ -131,8 +172,7 @@ func validateAdminDSNHost(adminDSN string) error {
 func validateAdminDSNSingleHost(host string) error {
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateIP(ip) {
-			return fmt.Errorf("admin_dsn host %q is a private or link-local address; "+
-				"set dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true to allow private-network backends", host)
+			return &DynamicSecretTargetRefusedError{Host: host}
 		}
 		return nil
 	}
@@ -157,8 +197,7 @@ func validateAdminDSNSingleHost(host string) error {
 	}
 	for _, addr := range addrs {
 		if ip := net.ParseIP(addr); ip != nil && isPrivateIP(ip) {
-			return fmt.Errorf("admin_dsn host %q resolves to private or link-local address %s; "+
-				"set dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true to allow private-network backends", host, addr)
+			return &DynamicSecretTargetRefusedError{Host: host, ResolvedTo: addr}
 		}
 	}
 	return nil
@@ -707,7 +746,7 @@ func (c *KeyorixCore) cleanupOrphanedRole(ctx context.Context, cfg *models.Dynam
 			pid := cfg.ProjectID
 			pidPtr = &pid
 		}
-		c.writeAuditEventFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, pidPtr, "",
+		c.writeAuditEventFailedFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, pidPtr, "",
 			fmt.Sprintf("FAILED to clean up orphaned dynamic role %s after an aborted issue (config=%q): %v — drop it manually", roleName, cfg.Name, err))
 	}
 }
@@ -771,7 +810,7 @@ func (c *KeyorixCore) RevokeLease(ctx context.Context, leaseID string, userID ui
 				"persisted (matched=%v, err=%s) — the credential is still live with no row recording it",
 				lease.LeaseID, matched, ports.SanitizeErrorMessage(rrerr))
 		}
-		c.writeAuditEventFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, &pid, "",
+		c.writeAuditEventFailedFull(ctx, "dynamic_lease.revoke_failed", uidPtr, nil, &pid, "",
 			fmt.Sprintf("FAILED to revoke dynamic lease %s (role %s): %v", lease.LeaseID, lease.RoleName, rerr))
 		return fmt.Errorf("failed to revoke on target: %w", rerr)
 	}

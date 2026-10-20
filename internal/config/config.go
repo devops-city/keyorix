@@ -641,6 +641,16 @@ func (s ServerInstanceConfig) EffectiveMaxRequestBodyBytes() int64 {
 	return s.MaxRequestBodyBytes
 }
 
+// ErrGRPCAutoCertUnsupported refuses server.grpc.tls.auto_cert: true. ACME
+// (autocert) is wired only for the HTTP listener; on gRPC the flag used to build
+// a TLS config with no certificate, so the server started and every handshake
+// failed. Config.Validate returns it, and server/grpc's NewServer refuses the
+// same flag for a caller that skipped Validate.
+var ErrGRPCAutoCertUnsupported = errors.New("server.grpc.tls.auto_cert: true is not supported: " +
+	"automatic (ACME) certificates are only available for the HTTP listener (server.http.tls.auto_cert). " +
+	"Remove server.grpc.tls.auto_cert and set server.grpc.tls.cert_file and key_file, " +
+	"or terminate gRPC TLS at a proxy")
+
 type TLSConfig struct {
 	Enabled  bool     `yaml:"enabled"`
 	AutoCert bool     `yaml:"auto_cert,omitempty"`
@@ -694,7 +704,7 @@ type DatabaseConfig struct {
 	// Default false, i.e. today's create-if-missing behaviour, DELIBERATELY:
 	// nothing in the supported first-boot paths creates the database file
 	// before the server starts (server/entrypoint.sh and docker-compose.yml
-	// both boot the server directly; `keyorix system init --database`, the
+	// both boot the server directly; `keyorix-server admin init`, the
 	// explicit "yes, a fresh install belongs here" marker ADR-095 names, is
 	// optional), so defaulting this to true would break every containerized
 	// first boot. ADR-095 Task 3 says the flip "deserves a deliberate
@@ -1028,6 +1038,28 @@ type EncryptionConfig struct {
 	// the default passphrase derivation (KEYORIX_MASTER_PASSWORD + on-disk salt),
 	// byte-identical to the historical behaviour.
 	KeyProvider KeyProviderConfig `yaml:"key_provider"`
+	// KeyDirLock selects how a server coordinates with other processes using the
+	// same key files (docs/multi-replica-keys.md). "" or "flock" (default): the
+	// server holds an exclusive flock(2) on <key dir>/dek.lock for its lifetime,
+	// so exactly one server can use a key directory. "database" (PostgreSQL
+	// only, for several replicas): the server takes no key-directory lock; the
+	// server-presence advisory lock it already holds keeps key-changing admin
+	// commands out, and first-boot key generation and rotation crash recovery
+	// run under a PostgreSQL advisory lock. The key directory may then be a
+	// shared ReadWriteMany volume without working flock, or read-only.
+	KeyDirLock string `yaml:"key_dir_lock"`
+}
+
+// Key-directory lock modes (EncryptionConfig.KeyDirLock).
+const (
+	KeyDirLockFlock    = "flock"
+	KeyDirLockDatabase = "database"
+)
+
+// KeyDirLockIsDatabase reports whether the key-directory lock is the
+// PostgreSQL-backed one (storage.encryption.key_dir_lock: database).
+func (e *EncryptionConfig) KeyDirLockIsDatabase() bool {
+	return e.KeyDirLock == KeyDirLockDatabase
 }
 
 // KeyProviderConfig selects the KEK source. type: "password" (default) derives the
@@ -1075,7 +1107,7 @@ type KeyProviderConfig struct {
 	// failure makes that binding purely advisory, since a blob encrypted with no
 	// context at all (the trivial attack) always succeeds on the fallback attempt.
 	// Enable this ONLY transiently while migrating an existing install onto a newly
-	// configured context (`keyorix encryption migrate-provider --to-kms-encryption-
+	// configured context (`keyorix-server admin encryption migrate-provider --to-kms-encryption-
 	// context=...` to durably re-wrap under the context), then disable it again —
 	// every fallback use is logged loudly specifically so that migration window is
 	// observable and finite, not a permanent standing weakening.
@@ -1094,12 +1126,12 @@ type KeyProviderConfig struct {
 	// ShamirShareFiles / ShamirShareEnv list the K-of-N Shamir shares for type
 	// "shamir": the KEK is reconstructed by combining the shares read from these file
 	// paths and/or env-var values (each a hex/base64 share from
-	// `keyorix encryption shamir-split`). Provide at least the threshold many; no
+	// `keyorix-server admin encryption shamir-split`). Provide at least the threshold many; no
 	// single share reveals the KEK.
 	ShamirShareFiles []string `yaml:"shamir_share_files"`
 	ShamirShareEnv   []string `yaml:"shamir_share_env"`
 	// ShamirCommitment is the hex-encoded HMAC-SHA256 commitment to the original KEK
-	// (crypto.CommitKEK), printed by `keyorix encryption shamir-split` alongside the
+	// (crypto.CommitKEK), printed by `keyorix-server admin encryption shamir-split` alongside the
 	// shares. It is verified against the RECONSTRUCTED KEK at unseal time (#429):
 	// without it, reconstruction is checked only by a 4-byte magic embedded in the
 	// split payload, which an attacker holding threshold-1 genuine shares can forge
@@ -1217,6 +1249,19 @@ const (
 	ADR112SCIMTokenEnforcedMarker = "adr112.scim_token_strength.enforced" // #nosec G101 -- metadata key name, not a credential
 )
 
+// The require_mfa upgrade grace period's own durable facts (#2923): when it
+// started (written once, by the first graced boot on the version that bounded
+// it; RFC 3339) and the grace clock's high-water mark (the latest time any
+// boot or check recorded; RFC 3339). The grace period ends at the first
+// administrator MFA enrolment or ADR112RequireMFAGracePeriod after the start,
+// whichever comes first, and the clock never reads earlier than the
+// high-water mark, so a backward clock step cannot extend it.
+const (
+	ADR112RequireMFAGraceStartedKey = "adr112.require_mfa.grace_started"
+	ADR112RequireMFAGraceClockKey   = "adr112.require_mfa.grace_clock"
+	ADR112RequireMFAGracePeriod     = 30 * 24 * time.Hour
+)
+
 type SecurityConfig struct {
 	// EnableFilePermissionCheck gates the file-permission/DEK-salt-size/database-
 	// reachability startup checks (internal/startup.ValidateStartup) and whether
@@ -1271,11 +1316,13 @@ type SecurityConfig struct {
 	RequireMFAImplicitDefault bool `yaml:"-"`
 	// RequireMFAUpgradeGrace is true when server/main.go's applyADR112UpgradeGrace
 	// found an UPGRADED deployment (its database already has users, and no
-	// adr112.require_mfa.enforced marker) relying on the implicit default, and so
-	// set RequireMFA back to false for this boot: ADR-112's grace period for MFA
-	// on upgrades, with a loud start-up warning, until the key is set explicitly.
-	// A fresh install is enforced and marked, so it never gets here. Never read
-	// from YAML; false on every hand-built *Config.
+	// adr112.require_mfa.enforced marker) relying on the implicit default, still
+	// inside ADR-112's grace period for MFA on upgrades (#2923: until the first
+	// administrator enrols a second factor, at most ADR112RequireMFAGracePeriod
+	// after the recorded start). RequireMFA stays true: the running server reads
+	// the grace period from core.KeyorixCore.MFARequired, so it can end without
+	// a restart. A fresh install is enforced and marked, so it never gets here.
+	// Never read from YAML; false on every hand-built *Config.
 	RequireMFAUpgradeGrace bool `yaml:"-"`
 	// LoginLockout configures per-account login lockout (brute-force protection):
 	// after MaxAttempts failed password logins within Window, the account is locked
@@ -2992,13 +3039,15 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 		}
 	}
 
+	// gRPC has no ACME integration: auto_cert would build a TLS config with no
+	// certificate, so every handshake fails while start-up succeeds (a silent
+	// outage). Refused whether or not tls.enabled is set: with it unset the
+	// listener used to serve plaintext to an operator who had asked for
+	// certificates (AUTH-2 item 3).
+	if c.Server.GRPC.TLS.AutoCert {
+		return ErrGRPCAutoCertUnsupported
+	}
 	if c.Server.GRPC.TLS.Enabled {
-		// gRPC has no ACME integration: auto_cert would build a TLS config with no
-		// certificate, so every handshake fails (a silent outage). Reject it explicitly
-		// rather than start a server that cannot serve.
-		if c.Server.GRPC.TLS.AutoCert {
-			return fmt.Errorf("gRPC TLS auto_cert is not supported; provide cert_file and key_file")
-		}
 		if c.Server.GRPC.TLS.CertFile == "" || c.Server.GRPC.TLS.KeyFile == "" {
 			return fmt.Errorf("gRPC TLS is enabled but cert_file or key_file is missing")
 		}
@@ -3017,6 +3066,10 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	}
 	// ADR-112 Amendment 4: a compliance profile refuses insecure_audit_skip_reads.
 	if err := validateInsecureAuditSkipReads(c); err != nil {
+		return err
+	}
+
+	if err := validateKeyDirLock(c); err != nil {
 		return err
 	}
 

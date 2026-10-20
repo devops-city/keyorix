@@ -332,6 +332,41 @@ except Exception:
     unset -f api
 }
 
+# start_group_server starts keyorix-server for the current group and waits for
+# /health. It reads run_group's locals (bash dynamic scope) and sets its
+# server_pid. Called once per group, and a second time by a
+# require_mfa=upgrade-grace group after it restarts the server.
+start_group_server() {
+    echo "==> [group $group_label] starting keyorix-server"
+    # `exec` replaces the subshell with the server binary itself, so $! below
+    # is the server's own PID, not a wrapper subshell's -- without it, killing
+    # $! on cleanup would only kill a `cd`-then-exited subshell, leaking the
+    # actual server process as an orphan.
+    (cd "$smoke_dir" && exec env KEYORIX_CONFIG_PATH="$config_rel" KEYORIX_BOOTSTRAP_TOKEN="$bootstrap_token" "$SERVER_BIN") \
+        >"$smoke_dir/server.log" 2>&1 &
+    server_pid=$!
+    CURRENT_SERVER_PID="$server_pid"
+
+    for _ in $(seq 1 30); do
+        if curl -fs "$server_url/health" >/dev/null 2>&1; then break; fi
+        # Our server died (e.g. EADDRINUSE: another session took the port between
+        # the probe and the bind): stop waiting, so a stranger's /health below
+        # cannot pass for ours.
+        kill -0 "$server_pid" 2>/dev/null || break
+        sleep 0.5
+    done
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+        echo "keyorix-server exited before becoming healthy (port $server_port taken?) -- see $smoke_dir/server.log" >&2
+        cat "$smoke_dir/server.log" >&2
+        fail "[group $group_label] keyorix-server did not start; re-run, or pin a range with KEYORIX_E2E_PORT_BASE"
+    fi
+    if ! curl -fs "$server_url/health" >/dev/null 2>&1; then
+        echo "server never became healthy -- see $smoke_dir/server.log" >&2
+        cat "$smoke_dir/server.log" >&2
+        fail "[group $group_label] keyorix-server did not start"
+    fi
+}
+
 # run_group boots one fresh server+DB, bootstraps an admin, seeds a project,
 # runs the given spec files against it, and tears it all down -- isolating
 # this group's login-attempt budget from every other group's.
@@ -366,7 +401,7 @@ run_group() {
     export HOME="$smoke_dir"
     export KEYORIX_MASTER_PASSWORD="web-e2e-master-password-$$-${RANDOM}"
     local bootstrap_token
-    bootstrap_token="$(openssl rand -hex 32)"
+    bootstrap_token="$(openssl rand -hex 32)" # the server refuses a pinned token under 32 chars
     # Deliberately unrelated to the username/email/display_name below --
     # internal/core/rules.DefaultPasswordPolicy rejects a password containing
     # any of those (see scripts/smoke.sh's own header comment on this exact trap).
@@ -416,10 +451,17 @@ run_group() {
     # unset (false). The policy confines every interactive session of an account
     # without MFA to the enrolment endpoints, so a group that sets it must not use
     # the shared admin's Bearer token for fixtures (see seed_demo_data below).
-    local require_mfa=false spec
+    local require_mfa=false upgrade_grace=false spec
     for spec in "${specs[@]}"; do
         if grep -q '^// e2e-server: require_mfa=true' "$WEB_DIR/$spec"; then
             require_mfa=true
+        fi
+        # #2923: `// e2e-server: require_mfa=upgrade-grace` boots and seeds with
+        # require_mfa: false (no enforcement marker is written), then restarts the
+        # server with the key removed: an upgraded deployment that never set it, so
+        # ADR-112's require_mfa upgrade grace period starts (see the restart below).
+        if grep -q '^// e2e-server: require_mfa=upgrade-grace' "$WEB_DIR/$spec"; then
+            upgrade_grace=true
         fi
     done
     if [ "$require_mfa" = true ]; then
@@ -499,34 +541,7 @@ run_group() {
     echo "==> [group $group_label] keyorix-server admin migrate"
     (cd "$smoke_dir" && "$SERVER_BIN" admin migrate --config "$config_rel") || fail "admin migrate exited non-zero"
 
-    echo "==> [group $group_label] starting keyorix-server"
-    # `exec` replaces the subshell with the server binary itself, so $! below
-    # is the server's own PID, not a wrapper subshell's -- without it, killing
-    # $! on cleanup would only kill a `cd`-then-exited subshell, leaking the
-    # actual server process as an orphan.
-    (cd "$smoke_dir" && exec env KEYORIX_CONFIG_PATH="$config_rel" KEYORIX_BOOTSTRAP_TOKEN="$bootstrap_token" "$SERVER_BIN") \
-        >"$smoke_dir/server.log" 2>&1 &
-    server_pid=$!
-    CURRENT_SERVER_PID="$server_pid"
-
-    for _ in $(seq 1 30); do
-        if curl -fs "$server_url/health" >/dev/null 2>&1; then break; fi
-        # Our server died (e.g. EADDRINUSE: another session took the port between
-        # the probe and the bind): stop waiting, so a stranger's /health below
-        # cannot pass for ours.
-        kill -0 "$server_pid" 2>/dev/null || break
-        sleep 0.5
-    done
-    if ! kill -0 "$server_pid" 2>/dev/null; then
-        echo "keyorix-server exited before becoming healthy (port $server_port taken?) -- see $smoke_dir/server.log" >&2
-        cat "$smoke_dir/server.log" >&2
-        fail "[group $group_label] keyorix-server did not start; re-run, or pin a range with KEYORIX_E2E_PORT_BASE"
-    fi
-    if ! curl -fs "$server_url/health" >/dev/null 2>&1; then
-        echo "server never became healthy -- see $smoke_dir/server.log" >&2
-        cat "$smoke_dir/server.log" >&2
-        fail "[group $group_label] keyorix-server did not start"
-    fi
+    start_group_server
 
     echo "==> [group $group_label] bootstrapping admin via POST /system/init"
     local init_code
@@ -562,6 +577,25 @@ except Exception:
     else
         seed_demo_data "$group_label" "$server_url" "$token" "$seed_project_name" \
             "$lowpriv_username" "$lowpriv_password"
+    fi
+
+    if [ "$upgrade_grace" = true ]; then
+        echo "==> [group $group_label] ${specs[*]} asks for the require_mfa upgrade grace period: restarting without the key"
+        kill "$server_pid" 2>/dev/null || true
+        for _ in $(seq 1 30); do
+            kill -0 "$server_pid" 2>/dev/null || break
+            sleep 0.5
+        done
+        kill -0 "$server_pid" 2>/dev/null && fail "[group $group_label] keyorix-server did not stop for the restart"
+        sed -i.bak -E '/^  require_mfa: false$/d' "$config_path"
+        rm -f "$config_path.bak"
+        [ "$(grep -c '^[[:space:]]*require_mfa:' "$config_path")" = 0 ] ||
+            fail "[group $group_label] could not remove security.require_mfa from $config_path"
+        mv "$smoke_dir/server.log" "$smoke_dir/server-before-upgrade.log"
+        start_group_server
+        grep -q 'ADR-112 grace period: security.require_mfa now defaults to true' "$smoke_dir/server.log" ||
+            fail "[group $group_label] the restarted server did not enter the require_mfa grace period: $(cat "$smoke_dir/server.log")"
+        echo "==> [group $group_label] require_mfa grace period active: $(grep -o '[0-9]* day(s) left' "$smoke_dir/server.log" | head -1)"
     fi
 
     echo "==> [group $group_label] running Playwright specs against the real backend: ${specs[*]}"

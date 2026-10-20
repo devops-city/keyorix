@@ -22,6 +22,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
 var adminPGDBCounter int64
@@ -65,26 +67,11 @@ func adminPgIsolatedDatabaseDSN(t *testing.T, base string) string {
 	return replaceAdminDBName(base, dbName)
 }
 
-// replaceAdminDBName swaps the dbname= field in a libpq-style "key=value ..."
-// DSN -- identical to internal/storage/postgres_pk_rebuild_helpers_test.go's
-// own replaceDBName; KEYORIX_TEST_PG_DSN is always this form, never a
-// "postgres://" URL, so the two helpers can and should agree.
+// replaceAdminDBName points base at newName for either DSN form
+// KEYORIX_TEST_PG_DSN may take (keyword/value or postgres:// URL); see
+// pgdsn.PGReplaceDBName.
 func replaceAdminDBName(dsn, newName string) string {
-	fields := strings.Fields(dsn)
-	out := make([]string, 0, len(fields)+1)
-	found := false
-	for _, f := range fields {
-		if strings.HasPrefix(f, "dbname=") {
-			out = append(out, "dbname="+newName)
-			found = true
-			continue
-		}
-		out = append(out, f)
-	}
-	if !found {
-		out = append(out, "dbname="+newName)
-	}
-	return strings.Join(out, " ")
+	return pgdsn.PGReplaceDBName(dsn, newName)
 }
 
 func TestAdminWorkflow_Postgres(t *testing.T) {

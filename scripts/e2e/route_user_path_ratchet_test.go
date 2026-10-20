@@ -95,23 +95,26 @@ var knownUncoveredUserPaths = map[string]string{
 	"POST /api/v1/admin/jobs/check-read-quotas":       "see coverage.go skipList -- deployment-wide job trigger",
 	"POST /api/v1/admin/jobs/compliance-digest":       "see coverage.go skipList -- deployment-wide job trigger with real side effects",
 	"POST /api/v1/admin/jobs/expiry-reminders":        "see coverage.go skipList -- deployment-wide job trigger with real side effects",
-	"POST /api/v1/admin/jobs/purge-audit-logs":        "see coverage.go skipList -- deletes real audit rows this run's own chain check depends on",
-	"POST /api/v1/admin/jobs/role-expiry-check":       "see coverage.go skipList -- may expire/notify real role grants other groups rely on",
-	"POST /api/v1/admin/jobs/rotation-reminders":      "see coverage.go skipList -- deployment-wide job trigger with real side effects",
-	"POST /api/v1/admin/jobs/run-alert-escalation":    "see coverage.go skipList -- deployment-wide job trigger with real side effects",
-	"POST /api/v1/admin/jobs/suspend-inactive-users":  "see coverage.go skipList -- suspends real users other groups still need active",
-	"POST /api/v1/admin/jobs/token-expiry-check":      "see coverage.go skipList -- may revoke real tokens other groups rely on",
-	"POST /api/v1/auth/end-impersonation":             "see coverage.go skipList -- impersonation start/end mutates session state, exercised by dedicated impersonation tests, not folded into this driver's shared session",
-	"POST /auth/saml/{provider}/acs":                  "see coverage.go skipList -- requires a real external SAML IdP to produce a valid assertion",
-	"POST /system/init":                               "see coverage.go skipList -- the bootstrap call itself, made directly by harness.StartServer before any client exists (this route IS exercised, just not through a scanned call site)",
-	"POST /scim/v2/Users":                             "SCIM provisioning surface -- see coverage.go skipList, same out-of-band-SCIMToken reasoning",
-	"PATCH /scim/v2/Users/{id}":                       "see coverage.go skipList -- SCIM provisioning surface",
-	"DELETE /scim/v2/Users/{id}":                      "see coverage.go skipList -- SCIM provisioning surface",
-	"POST /scim/v2/Groups":                            "see coverage.go skipList -- SCIM provisioning surface",
-	"PATCH /scim/v2/Groups/{id}":                      "see coverage.go skipList -- SCIM provisioning surface",
-	"PUT /scim/v2/Groups/{id}":                        "see coverage.go skipList -- SCIM provisioning surface",
-	"DELETE /scim/v2/Groups/{id}":                     "see coverage.go skipList -- SCIM provisioning surface",
-	"PUT /scim/v2/Users/{id}":                         "see coverage.go skipList -- SCIM provisioning surface",
+	// TestMixedVersion_RollingUpgrade_Postgres (mixed_version_test.go) drives this route, but it is
+	// e2e-tagged and no CI job runs it yet. Follow-up: wire scripts/e2e mixed_version_test into a CI
+	// job (.github, Andrei); remove this entry in that change.
+	"POST /api/v1/admin/jobs/purge-audit-logs":       "see coverage.go skipList -- deletes real audit rows this run's own chain check depends on",
+	"POST /api/v1/admin/jobs/role-expiry-check":      "see coverage.go skipList -- may expire/notify real role grants other groups rely on",
+	"POST /api/v1/admin/jobs/rotation-reminders":     "see coverage.go skipList -- deployment-wide job trigger with real side effects",
+	"POST /api/v1/admin/jobs/run-alert-escalation":   "see coverage.go skipList -- deployment-wide job trigger with real side effects",
+	"POST /api/v1/admin/jobs/suspend-inactive-users": "see coverage.go skipList -- suspends real users other groups still need active",
+	"POST /api/v1/admin/jobs/token-expiry-check":     "see coverage.go skipList -- may revoke real tokens other groups rely on",
+	"POST /api/v1/auth/end-impersonation":            "see coverage.go skipList -- impersonation start/end mutates session state, exercised by dedicated impersonation tests, not folded into this driver's shared session",
+	"POST /auth/saml/{provider}/acs":                 "see coverage.go skipList -- requires a real external SAML IdP to produce a valid assertion",
+	"POST /system/init":                              "see coverage.go skipList -- the bootstrap call itself, made directly by harness.StartServer before any client exists (this route IS exercised, just not through a scanned call site)",
+	"POST /scim/v2/Users":                            "SCIM provisioning surface -- see coverage.go skipList, same out-of-band-SCIMToken reasoning",
+	"PATCH /scim/v2/Users/{id}":                      "see coverage.go skipList -- SCIM provisioning surface",
+	"DELETE /scim/v2/Users/{id}":                     "see coverage.go skipList -- SCIM provisioning surface",
+	"POST /scim/v2/Groups":                           "see coverage.go skipList -- SCIM provisioning surface",
+	"PATCH /scim/v2/Groups/{id}":                     "see coverage.go skipList -- SCIM provisioning surface",
+	"PUT /scim/v2/Groups/{id}":                       "see coverage.go skipList -- SCIM provisioning surface",
+	"DELETE /scim/v2/Groups/{id}":                    "see coverage.go skipList -- SCIM provisioning surface",
+	"PUT /scim/v2/Users/{id}":                        "see coverage.go skipList -- SCIM provisioning surface",
 }
 
 // mutatingMethods is deliberately exhaustive over HTTP verbs that write --
@@ -214,9 +217,16 @@ var clientCallRE = regexp.MustCompile(`\bc\.(?:call|callExpect|skip)\(\s*(?:"[A-
 // journeys/api-smoke layers.
 var playwrightPathRE = regexp.MustCompile(`["'\x60](/(?:api/v1|auth)/[A-Za-z0-9_\-./{}]*)`)
 
+// e2eFilesNotRunByCI lists scripts/e2e files that no CI job runs. A route they
+// call is not covered, so scanStaticUserPathCoverage does not credit them.
+// Remove an entry in the change that wires the file into a CI job.
+var e2eFilesNotRunByCI = map[string]string{
+	"mixed_version_test.go": "TestMixedVersion_RollingUpgrade_Postgres; follow-up: wire scripts/e2e mixed_version_test into a CI job (.github, Andrei)",
+}
+
 // scanStaticUserPathCoverage walks journeys/*.go, scripts/e2e/*.go (this
 // package, excluding itself and other _test.go infra that isn't the
-// api-smoke driver), and web/e2e/real/*.spec.ts plus the .ts helpers they
+// api-smoke driver, and e2eFilesNotRunByCI), and web/e2e/real/*.spec.ts plus the .ts helpers they
 // import (see playwrightScanFiles), returning the set of
 // (method, literal-prefix) pairs found, as "METHOD prefix" keys.
 func scanStaticUserPathCoverage(t *testing.T, repoRoot string) map[string]bool {
@@ -294,7 +304,15 @@ func scanStaticUserPathCoverage(t *testing.T, repoRoot string) map[string]bool {
 	if err != nil {
 		t.Fatalf("glob %s: %v", e2eDir, err)
 	}
+	for name := range e2eFilesNotRunByCI {
+		if _, err := os.Stat(filepath.Join(e2eDir, name)); err != nil {
+			t.Fatalf("e2eFilesNotRunByCI names %s, which is gone: remove the entry (%v)", name, err)
+		}
+	}
 	for _, f := range e2eFiles {
+		if _, skip := e2eFilesNotRunByCI[filepath.Base(f)]; skip {
+			continue
+		}
 		addFromClientCalls(f)
 	}
 

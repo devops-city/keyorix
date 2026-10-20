@@ -28,10 +28,10 @@ func TestNewServer_ClampsOversizedMaxRequestBodyBytes(t *testing.T) {
 	srv.Stop()
 }
 
-// TestNewServer_TLSEnabledAutoCert exercises the TLS-enabled branch of NewServer using
-// AutoCert=true (no cert file needed). This hits the credentials.NewTLS + opts append
-// path that was previously uncovered.
-func TestNewServer_TLSEnabledAutoCert(t *testing.T) {
+// TestNewServer_RefusesAutoCert: there is no ACME on gRPC, so auto_cert used to
+// start a server whose every handshake failed (AUTH-2 item 3). NewServer must
+// refuse it, so a caller that skipped Config.Validate still fails at start-up.
+func TestNewServer_RefusesAutoCert(t *testing.T) {
 	h := testhelper.NewRBACTestHelper(t)
 	t.Cleanup(h.Cleanup)
 
@@ -40,9 +40,8 @@ func TestNewServer_TLSEnabledAutoCert(t *testing.T) {
 	cfg.Server.GRPC.TLS.AutoCert = true
 
 	srv, err := NewServer(cfg, h.CoreService)
-	require.NoError(t, err, "NewServer must succeed with AutoCert TLS enabled")
-	require.NotNil(t, srv)
-	srv.Stop()
+	require.ErrorIs(t, err, config.ErrGRPCAutoCertUnsupported, "NewServer must refuse gRPC auto_cert")
+	require.Nil(t, srv)
 }
 
 // TestNewServer_TLSEnabledManualCert exercises the TLS-enabled branch using a real

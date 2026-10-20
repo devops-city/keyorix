@@ -207,8 +207,16 @@ func TestDoctor_ServerDown(t *testing.T) {
 	srv.Close()
 	useServer(t, url, "tok")
 	rep := runDoctorReport(t)
-	if c := rep.check(t, "reachable"); c.Status != doctorFail || !strings.Contains(c.NextStep, "server is running") {
+	c := rep.check(t, "reachable")
+	if c.Status != doctorFail || !strings.Contains(c.NextStep, "server is running") {
 		t.Errorf("reachable: %+v", c)
+	}
+	// The detail is the plain-language transport description, not Go's `Get "...": dial tcp ...`.
+	if !strings.Contains(c.Detail, "connection refused") || strings.Contains(c.Detail, "dial tcp") || strings.Contains(c.Detail, `Get "`) {
+		t.Errorf("reachable detail should be the described transport error: %q", c.Detail)
+	}
+	if strings.Contains(c.Detail, "Next step") {
+		t.Errorf("the next step belongs in next_step, not the detail: %q", c.Detail)
 	}
 	for _, name := range []string{"version", "clock", "auth", "audit"} {
 		if got := rep.check(t, name).Status; got != doctorSkip {
@@ -342,8 +350,9 @@ func TestDoctor_TLS(t *testing.T) {
 	t.Run("a private CA that is not trusted fails with the fix", func(t *testing.T) {
 		rep := runDoctorReport(t)
 		// Without the CA, even reaching the server fails verification...
-		if c := rep.check(t, "reachable"); c.Status != doctorFail {
-			t.Fatalf("reachable should fail on an untrusted certificate: %+v", c)
+		if c := rep.check(t, "reachable"); c.Status != doctorFail || !strings.Contains(c.Detail, "cannot trust the TLS certificate") ||
+			!strings.Contains(c.NextStep, "--ca-file") {
+			t.Fatalf("reachable should fail on an untrusted certificate and say how to fix it: %+v", c)
 		}
 		// ...and the tls check says why and how to fix it.
 		c := rep.check(t, "tls")
@@ -447,6 +456,8 @@ func TestDoctor_OutputFormatsAndExitStatus(t *testing.T) {
 	doctorOutput = "xml"
 	if err := runDoctor(doctorCmd, nil); err == nil || !strings.Contains(err.Error(), "table, json or yaml") {
 		t.Errorf("a bad format must be refused, got %v", err)
+	} else if code, _ := classifyError(err, true); code != exitUsage {
+		t.Errorf("a bad --output is a usage error (exit %d), got exit %d", exitUsage, code)
 	}
 
 	// A failing check makes the command fail (after printing the report).
@@ -460,5 +471,7 @@ func TestDoctor_OutputFormatsAndExitStatus(t *testing.T) {
 	out = captureStdout(t, func() { runErr = runDoctor(doctorCmd, nil) })
 	if runErr == nil || !strings.Contains(out, "FAIL  auth") || !strings.Contains(out, "Next step: run `keyorix login`") {
 		t.Errorf("a failed check must fail the command and show its next step: err=%v\n%s", runErr, out)
+	} else if code, _ := classifyError(runErr, true); code != exitFailure {
+		t.Errorf("a failed check exits %d (documented in the exit-code table), got %d", exitFailure, code)
 	}
 }

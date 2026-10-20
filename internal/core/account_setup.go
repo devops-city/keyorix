@@ -63,6 +63,8 @@ func PendingAccountSetupSteps(restricted, hasSecondFactor, interactiveSession, r
 // SetRequireMFA tells core whether the deployment requires MFA
 // (security.require_mfa). The HTTP router calls it with the same value it
 // configures the setup gate with, so session issuance and the gate agree.
+// What is in force at a given moment is MFARequired, which also subtracts
+// ADR-112's upgrade grace period (mfa_upgrade_grace.go).
 func (c *KeyorixCore) SetRequireMFA(on bool) {
 	c.deploymentRequiresMFA = on
 }
@@ -74,7 +76,7 @@ func userHasSecondFactor(u *models.User) bool {
 // pendingSetupStepsFor is PendingAccountSetupSteps for an interactive session
 // of u under this deployment's policy.
 func (c *KeyorixCore) pendingSetupStepsFor(u *models.User) []string {
-	return PendingAccountSetupSteps(AccountRestricted(u.AccountState), userHasSecondFactor(u), true, c.deploymentRequiresMFA)
+	return PendingAccountSetupSteps(AccountRestricted(u.AccountState), userHasSecondFactor(u), true, c.MFARequired())
 }
 
 // PendingSetupStepsFor is PendingAccountSetupSteps under this deployment's
@@ -84,7 +86,7 @@ func (c *KeyorixCore) pendingSetupStepsFor(u *models.User) []string {
 // the same answer per request. interactiveSession is false for PATs, machine
 // tokens and OIDC, which are exempt from the MFA step (ADR-112).
 func (c *KeyorixCore) PendingSetupStepsFor(restricted, hasSecondFactor, interactiveSession bool) []string {
-	return PendingAccountSetupSteps(restricted, hasSecondFactor, interactiveSession, c.deploymentRequiresMFA)
+	return PendingAccountSetupSteps(restricted, hasSecondFactor, interactiveSession, c.MFARequired())
 }
 
 // needsSetupSession reports whether an interactive login for u must be a
@@ -105,10 +107,21 @@ func (c *KeyorixCore) needsSetupSession(u *models.User) bool {
 // If the account cannot be re-read, the setup session is revoked anyway: it
 // owes nothing a fresh login cannot redo, and continuing it on a state nobody
 // checked would be the fail-open side.
-func (c *KeyorixCore) EndSetupSessionIfComplete(ctx context.Context, userID uint, token string) bool {
+func (c *KeyorixCore) EndSetupSessionIfComplete(ctx context.Context, userID uint, token string) (ended bool) {
 	if token == "" {
 		return false
 	}
+	// Every caller runs this AFTER its own change committed (a password change,
+	// an MFA activation, a passkey registration): an escaping panic answered 500
+	// over the committed change (AUTH-2 sweep, change-password GetSession#4/panic).
+	// Recovered as "not ended": a setup-only session that owes nothing is refused
+	// with a re-authentication answer by both transports, so it gains nothing.
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("SECURITY: EndSetupSessionIfComplete: user %d: panicked (%v); the setup session was not ended", userID, r)
+			ended = false
+		}
+	}()
 	sess, err := c.storage.GetSession(ctx, token)
 	if err != nil || sess == nil || !sess.SetupOnly || sess.UserID != userID {
 		return false

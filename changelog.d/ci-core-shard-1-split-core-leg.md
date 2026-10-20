@@ -1,0 +1,2 @@
+### Internal
+- **CI: `core` test-suite leg split into `core-1` / `core-2`.** The internal/core leg took ~35 min and was the merge queue's critical path. `core-1` runs the heavy group (`-run` of `core_heavy_regex` in `scripts/ci-test-legs.sh`), `core-2` runs everything else (`-skip` of the same regex); `assert_core_shards_complete` (assert-leg-completeness job) fails if a test would run in neither or both. Required status check `build-and-test` is unchanged.

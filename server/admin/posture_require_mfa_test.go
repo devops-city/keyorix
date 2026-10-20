@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -71,6 +72,53 @@ func TestCollectRequireMFAPosture_ADR112Grace(t *testing.T) {
 			found = found || strings.HasPrefix(dev.detail, "security.insecure_disable_mfa_requirement is in effect (grace-not-enforced)")
 		}
 		require.True(t, found, "registry deviation missing: %+v", insecure.deviations)
+	})
+	// #2923: the deviation names the end of the recorded window; past the
+	// deadline (by the later of now and the recorded clock) it is no deviation.
+	t.Run("recorded window: days left in the deviation", func(t *testing.T) {
+		cfg := writeSecureBaselineConfig(t)
+		start := time.Now().Add(-10 * 24 * time.Hour).UTC().Truncate(time.Second)
+		report, inGrace := run(t, cfg, func(store corestorage.Storage) error {
+			if err := addUser(store); err != nil {
+				return err
+			}
+			return store.SetSystemMetadata(ctx, config.ADR112RequireMFAGraceStartedKey, start.Format(time.RFC3339))
+		})
+		require.True(t, inGrace)
+		d := graceDeviation(report)
+		require.NotNil(t, d)
+		require.Contains(t, d.detail, "ends at "+start.Add(config.ADR112RequireMFAGracePeriod).Format(time.RFC3339)+" (20 day(s) left)")
+		require.Contains(t, d.detail, "first administrator enrols")
+	})
+	t.Run("recorded clock past the deadline: enforced, no deviation", func(t *testing.T) {
+		cfg := writeSecureBaselineConfig(t)
+		start := time.Now().Add(-10 * 24 * time.Hour).UTC()
+		report, inGrace := run(t, cfg, func(store corestorage.Storage) error {
+			if err := addUser(store); err != nil {
+				return err
+			}
+			if err := store.SetSystemMetadata(ctx, config.ADR112RequireMFAGraceStartedKey, start.Format(time.RFC3339)); err != nil {
+				return err
+			}
+			return store.SetSystemMetadata(ctx, config.ADR112RequireMFAGraceClockKey, start.Add(31*24*time.Hour).Format(time.RFC3339))
+		})
+		require.False(t, inGrace, "a clock set back must not reopen the grace period in the report either")
+		require.Nil(t, graceDeviation(report))
+	})
+	t.Run("corrupt grace start: error, not a clean report", func(t *testing.T) {
+		cfg := writeSecureBaselineConfig(t)
+		report := &postureReport{}
+		err := withUsableStorage(cfg, func(store corestorage.Storage) error {
+			if err := addUser(store); err != nil {
+				return err
+			}
+			if err := store.SetSystemMetadata(ctx, config.ADR112RequireMFAGraceStartedKey, "garbage"); err != nil {
+				return err
+			}
+			_, err := collectRequireMFAPosture(ctx, cfg, store, report)
+			return err
+		})
+		require.ErrorContains(t, err, "not an RFC 3339 time")
 	})
 	t.Run("marker present: enforced, no deviation", func(t *testing.T) {
 		cfg := writeSecureBaselineConfig(t)

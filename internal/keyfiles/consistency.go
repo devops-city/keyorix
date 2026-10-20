@@ -127,7 +127,7 @@ type keyFileGroup struct {
 // Grouping per OPERATION, not across the whole set, is the correction to this
 // check's first shape. Comparing every KEK-establishing file against the
 // oldest one in the set produced a false refusal on an ordinary, documented
-// rotation: commitNewKEKFiles (`keyorix encryption rotate-kek`) rewrites only
+// rotation: commitNewKEKFiles (`keyorix-server admin encryption rotate-kek`) rewrites only
 // the salt and the DEK, so a deployment with a passphrase KEK plus a
 // KMS/TPM/Shamir fallback leaves that fallback's wrapped-key blob at its
 // original age. Weeks later the gap exceeds any tolerance and the server

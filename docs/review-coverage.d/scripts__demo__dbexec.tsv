@@ -1,0 +1,1 @@
+scripts/demo/dbexec	none	-	PR #3342 (DEMO-LOCAL-2): demo/test helper command, a tiny PostgreSQL client for the demo scenario scripts (DSN from KEYORIX_DEMO_PG_DSN, never argv); package doc says it is never part of a shipped binary	test-helper

@@ -1,6 +1,6 @@
 // audit_retention_handler.go — on-demand audit log retention purge job.
 //
-// POST /api/v1/system/admin/jobs/purge-audit-logs deletes audit events older
+// POST /api/v1/admin/jobs/purge-audit-logs deletes audit events older
 // than the requested retention window. Gated by system.write (enforced by the
 // admin jobs subrouter in router.go).
 package handlers
@@ -22,7 +22,7 @@ type purgeAuditLogsRequest struct {
 
 // PurgeAuditLogsJob handles
 //
-//	POST /api/v1/system/admin/jobs/purge-audit-logs
+//	POST /api/v1/admin/jobs/purge-audit-logs
 //
 // Body:     {"retention_days": N}   (N must be >= 7)
 // Response: {"data": {"deleted_count": N, "cutoff_time": "..."}}

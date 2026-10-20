@@ -942,6 +942,19 @@ func runVerifyRestoredAudit(cfg *config.Config, db *auditverify.DB) error {
 		opts.ExternalAnchor = bundle
 	}
 
+	// The restored key files are in place by now: derive the same KEK-derived
+	// checkpoint key `admin audit export-checkpoint-key` would write, so a retention
+	// gap left by a sanctioned purge authenticates (without it every database that was
+	// ever purged restored as INDETERMINATE, while `admin verify-audit
+	// --checkpoint-key-file` on the same data said VALID). A failure to derive it is
+	// not fatal: verification still runs, and says why it could not authenticate.
+	if key, _, kerr := deriveCheckpointKey(cfg, restorePassphraseSource); kerr == nil {
+		defer crypto.WipeBytes(key)
+		opts.CheckpointKey = key
+	} else {
+		fmt.Printf("note: could not derive the audit-checkpoint key for the automatic verify-audit: %v\n", kerr)
+	}
+
 	result, err := auditverify.Verify(context.Background(), db, opts)
 	if err != nil {
 		return fmt.Errorf("automatic verify-audit failed to run: %w", err)
