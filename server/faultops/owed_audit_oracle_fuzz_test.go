@@ -22,7 +22,7 @@ import (
 )
 
 func FuzzOwedAuditRevocations(f *testing.F) {
-	ops := append([]string{owedAuditSSOCallbackOp}, auditTx3RevocationOps...)
+	ops := owedAuditScopedOps()
 	methods := []string{"LogAuditEvent", "ClaimPendingAuditEvent", "CreatePendingAuditEvent"}
 	kinds := []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindPanic, faultstorage.KindEffectThenError}
 	for i := range ops {

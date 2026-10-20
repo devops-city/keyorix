@@ -12,6 +12,7 @@
 //	       g2  SSO callback, ClaimPendingAuditEvent#1 (the CI seed 5012b3d0b086d4a4)
 //	       g3  group-member removal, CreatePendingAuditEvent#1: rule does NOT apply, state == reference
 //	RED    i   neither an audit row nor a pending row
+//	       i-sso2 the second owed row of the SSO callback (role.removed) neither written nor queued
 //	       i2  the pending record AND the direct audit write both failed (state: effect, no row, no record)
 //	       ii  pending rows fewer than missing audit rows / a duplicated pending row
 //	       iii backfill not run / does nothing / over-writes (duplicate audit row)
@@ -173,6 +174,32 @@ func TestOwedAuditOracle_Calibration(t *testing.T) {
 		in = owedCalResnapshot(t, in)
 		f = owedCalFindings(t, in)
 		record("i-saml SAML ACS: neither audit row nor pending row", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// i-sso2: the SECOND owed mutation of the SSO callback is lost. The callback owes
+		// group.member_removed (group reconcile) and role.removed (role reconcile). A probe
+		// that refused only LogAuditEvent#1 learned the first type only, so a role.removed
+		// that was neither written nor queued was accepted as "best-effort lost". The reconcile
+		// order is sorted (sso.go), so the n that refuses the role removal is stable; the
+		// scan below finds it instead of hard-coding it.
+		found := false
+		for nth := 1; nth <= 8 && !found; nth++ {
+			in, outcome, _ := owedCalDriveRaw(t, owedAuditSSOCallbackOp, "LogAuditEvent", nth, faultstorage.KindError)
+			if outcome != driveObserved || !in.result.Success {
+				continue
+			}
+			var n int64
+			require.NoError(t, in.world.db.Table("pending_audit_events").Where("event_type = ?", "role.removed").Count(&n).Error)
+			if n != 1 {
+				continue
+			}
+			found = true
+			exec(in, "DELETE FROM pending_audit_events WHERE event_type = ?", "role.removed")
+			in = owedCalResnapshot(t, in)
+			f = owedCalFindings(t, in)
+			record(fmt.Sprintf("i-sso2 SSO callback (LogAuditEvent#%d): second owed row (role.removed) neither written nor queued", nth),
+				"violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+		}
+		require.True(t, found, "premise: some LogAuditEvent#n of the SSO callback must queue role.removed (deterministic since the reconcile iterates sorted keys)")
 
 		// i2: the pending record and the direct write both failed: the effect stands,
 		// no audit row, no record. Built on the CreatePendingAuditEvent case by removing
@@ -356,6 +383,16 @@ func TestOwedAuditOracle_SweepEveryScopedOp(t *testing.T) {
 	ops := owedAuditScopedOps()
 	var accepted, same, neverFired, notSuccess int
 	var multiOwed []string
+	for op := range owedAuditExpectedOwedTypes {
+		if !owedAuditRuleOp(op) {
+			t.Errorf("pinned owed-types table lists %q, which is not in the rule's scope", op)
+		}
+	}
+	for _, op := range ops {
+		if _, ok := owedAuditExpectedOwedTypes[op]; !ok {
+			t.Errorf("%s is in the rule's scope but has no entry in owedAuditExpectedOwedTypes: pin what it owes", op)
+		}
+	}
 	for _, op := range ops {
 		// Every scoped op must OWE at least one row. The rule takes the owed event types
 		// from a probe (owedAuditProbeFor); a revocation regressed to a plain best-effort
@@ -377,6 +414,12 @@ func TestOwedAuditOracle_SweepEveryScopedOp(t *testing.T) {
 			}
 			if total > 1 {
 				multiOwed = append(multiOwed, fmt.Sprintf("%s=%d", op, total))
+			}
+			// The probe can only report what the code owes today; the table is what it
+			// is supposed to owe. A revocation regressed to best-effort (or changed to
+			// owe another row) is invisible to the probe and visible here.
+			if want, pinned := owedAuditExpectedOwedTypes[op]; pinned && !maps.Equal(types, want) {
+				t.Errorf("%s owes %v, the pinned table says %v", op, types, want)
 			}
 		}
 		for method, maxNth := range nths {

@@ -175,8 +175,9 @@ var (
 // losing it alone is the unchanged best-effort behaviour, judged by the rest of oracle
 // (a), not by this rule. Cached per op for the process. A regression that made a
 // revocation row non-owed would make this probe return nothing for it; that is guarded
-// separately by TestOwedAuditOracle_SweepEveryScopedOp (every op must owe at least one
-// row) and TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed.
+// separately by TestOwedAuditOracle_SweepEveryScopedOp (every op's probed owed types must
+// equal the hand-written owedAuditExpectedOwedTypes table) and
+// TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed.
 func owedAuditProbeFor(w *faultWorld) func(op string) (map[string]int, error) {
 	if w == nil {
 		return nil
