@@ -194,7 +194,8 @@ scenario_pgdown() {
     (umask 077 && printf 'after-outage' >"$d/val.after")
     cli "$I" "$P" secret create --name after-outage --from-file ./val.after --project 1 --environment 1 >/dev/null \
         || fail "write failed after recovery"
-    list_names "$I" "$P" | grep -qx 'during-outage' && fail "the write refused during the outage exists anyway"
+    names_after="$(list_names "$I" "$P")" || fail "could not list secrets after recovery"
+    grep -qx 'during-outage' <<<"$names_after" && fail "the write refused during the outage exists anyway"
     ok "writes work again; the refused write left nothing behind"
     verify_seed "$I" "$P"
     srv_stop "$I"

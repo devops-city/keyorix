@@ -69,6 +69,13 @@ run_authenticated_pass() {
     echo "[$(date -u +%FT%TZ)] Starting ZAP API scan as $label (sha=$SCAN_SHA) -> $report"
     # No --hook: see scan-zap.sh's comment -- 100001 suppression now lives in
     # accepted-exceptions.yaml, applied post-scan by create-issues.sh.
+    #
+    # KNOWN GAP (SCRIPTS-SECRETS-2): the -z string below carries the principal's bearer token, so
+    # it is visible in `ps` on this host for the length of the scan. It is the one argv secret
+    # left under scripts/dast; the cli guard (TestDocsShowNoLiteralSecretOnCommandLine) cannot see it
+    # because the token is interpolated from a variable. Moving it into a ZAP properties file
+    # (`-z "-configfile ..."`) needs the file readable by the container's zap uid and a run on the
+    # DAST host to confirm, so it is not done blind.
     docker run --rm \
       --pull never \
       --network keyorix-dast_default \

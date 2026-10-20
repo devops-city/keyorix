@@ -755,8 +755,10 @@ storage:
 > **Switching providers** (e.g. password → a cloud KMS) is
 > `keyorix-server admin encryption migrate-provider --to-type <type> … --confirm` (ADR-041): it
 > re-wraps the DEK under the target provider's KEK **without re-encrypting any
-> data** (fast, no DB lock), verifies the target unwraps it, and keeps a backup of
-> the previous wrapped DEK. Migrating `--to-type password` reads the new passphrase
+> data** (only the DEK's wrapping changes), verifies the target unwraps it, and
+> keeps a backup of the previous wrapped DEK. It holds the exclusive
+> database-presence lock for its whole run, so it refuses to run next to a live
+> server or another `admin` command: stop the servers first. Migrating `--to-type password` reads the new passphrase
 > from `KEYORIX_NEW_MASTER_PASSWORD` and doubles as a master-passphrase rotation.
 > After it succeeds, update `key_provider` in this config to the target before the
 > next restart (the command prints the exact block).
