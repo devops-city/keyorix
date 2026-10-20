@@ -26,7 +26,7 @@
 // (fail closed). The floor stays 2 (see minCompatibleSchemaEpoch's doc).
 // 4 -> 5 for break_glass_activations.degraded/audit_settled_at and
 // pending_audit_events.break_glass_activation_id (BREAKGLASS-OWED-1), additive columns
-// an epoch-4 binary leaves at their "not degraded" defaults. The floor stays 2.
+// an epoch-4 binary leaves at their "not degraded" defaults. The floor stays 3.
 package storage
 
 import "testing"
@@ -41,10 +41,9 @@ func TestCurrentSchemaEpoch_Is5_SeeADR101(t *testing.T) {
 				"epoch bump -- do not just raise the constant here.",
 			currentSchemaEpoch)
 	}
-	if minCompatibleSchemaEpoch != 2 {
-		t.Fatalf("minCompatibleSchemaEpoch is %d; the purge_at column (epoch 2) is NOT safe for an epoch-1 binary: its "+
-			"RestoreSecret/RestoreProject do not clear purge_at and its DeleteSecret does not re-stamp it, so a restore+re-delete "+
-			"on an old replica leaves a stale date and the new purge job hard-deletes before the date shown (irreversible). "+
-			"The floor must be 2 so epoch-1 binaries refuse to start (INV-STORE-secret-purge-never-before-shown-date)", minCompatibleSchemaEpoch)
+	if minCompatibleSchemaEpoch != 3 {
+		t.Fatalf("minCompatibleSchemaEpoch is %d; the floor must be 3. Epoch-1 binaries mishandle purge_at "+
+			"(INV-STORE-secret-purge-never-before-shown-date), and epoch-2 binaries rewrite the v2 audit retention anchor as v1, "+
+			"dropping the purged count (#3359), and never write secret_nodes.suspend_clear_synced_copies (#3362)", minCompatibleSchemaEpoch)
 	}
 }

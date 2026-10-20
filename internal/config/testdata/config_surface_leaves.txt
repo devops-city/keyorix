@@ -315,6 +315,7 @@ storage.database.ssl_root_cert
 storage.database.user
 storage.encryption.dek_path
 storage.encryption.enabled
+storage.encryption.key_dir_lock
 storage.encryption.key_provider.env_var
 storage.encryption.key_provider.exec_command
 storage.encryption.key_provider.file_path

@@ -1038,6 +1038,28 @@ type EncryptionConfig struct {
 	// the default passphrase derivation (KEYORIX_MASTER_PASSWORD + on-disk salt),
 	// byte-identical to the historical behaviour.
 	KeyProvider KeyProviderConfig `yaml:"key_provider"`
+	// KeyDirLock selects how a server coordinates with other processes using the
+	// same key files (docs/multi-replica-keys.md). "" or "flock" (default): the
+	// server holds an exclusive flock(2) on <key dir>/dek.lock for its lifetime,
+	// so exactly one server can use a key directory. "database" (PostgreSQL
+	// only, for several replicas): the server takes no key-directory lock; the
+	// server-presence advisory lock it already holds keeps key-changing admin
+	// commands out, and first-boot key generation and rotation crash recovery
+	// run under a PostgreSQL advisory lock. The key directory may then be a
+	// shared ReadWriteMany volume without working flock, or read-only.
+	KeyDirLock string `yaml:"key_dir_lock"`
+}
+
+// Key-directory lock modes (EncryptionConfig.KeyDirLock).
+const (
+	KeyDirLockFlock    = "flock"
+	KeyDirLockDatabase = "database"
+)
+
+// KeyDirLockIsDatabase reports whether the key-directory lock is the
+// PostgreSQL-backed one (storage.encryption.key_dir_lock: database).
+func (e *EncryptionConfig) KeyDirLockIsDatabase() bool {
+	return e.KeyDirLock == KeyDirLockDatabase
 }
 
 // KeyProviderConfig selects the KEK source. type: "password" (default) derives the
@@ -3062,6 +3084,10 @@ func (c *Config) Validate() error { // NOSONAR -- cognitive complexity 32, suppr
 	}
 	// ADR-112 Amendment 4: a compliance profile refuses insecure_audit_skip_reads.
 	if err := validateInsecureAuditSkipReads(c); err != nil {
+		return err
+	}
+
+	if err := validateKeyDirLock(c); err != nil {
 		return err
 	}
 

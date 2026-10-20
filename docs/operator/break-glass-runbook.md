@@ -5,7 +5,7 @@ immediately and for a limited time, with a written justification. It is off by d
 (`break_glass.enabled`). This runbook covers what operators see, and what to do, in the
 normal case and in **degraded mode**: an activation made while the audit log refuses
 writes. Configuration keys are in `docs/CONFIGURATION.md` (`break_glass`); the policy
-behind it is ADR-112 §3 and its Amendment 5.
+behind it is ADR-112 §3 and its Amendment 6.
 
 ## 1. Normal activation
 

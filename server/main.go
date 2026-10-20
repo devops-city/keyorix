@@ -570,19 +570,28 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// clear lock-contention error, before it ever touches a key file. Refuses
 	// to start if another live holder (another server instance, or an
 	// in-progress rotation) already has it.
-	if err := svc.AcquireExclusiveKeyLock(); err != nil {
-		return nil, fmt.Errorf("failed to acquire the encryption key lock: %w", err)
+	//
+	// storage.encryption.key_dir_lock: database (several replicas on PostgreSQL,
+	// docs/multi-replica-keys.md) takes no flock: the same steps run under a
+	// PostgreSQL advisory lock instead (initializeKeysUnderDatabaseLock).
+	if !cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		if err := svc.AcquireExclusiveKeyLock(); err != nil {
+			return nil, fmt.Errorf("failed to acquire the encryption key lock: %w", err)
+		}
 	}
 	// Recover any interrupted DEK-sweep rotation BEFORE Initialize, so Initialize loads the
-	// correct (possibly just-promoted) active DEK. Runs under the exclusive key lock acquired
-	// above. For a local backend it consults the DB's redo marker to decide whether to promote
+	// correct (possibly just-promoted) active DEK. Runs under the key lock (above, or the
+	// database one). For a local backend it consults the DB's redo marker to decide whether to promote
 	// the pending DEK (a rotation that committed its re-encryption sweep but crashed before the
 	// dek.key file rename) or discard a stray pending file; for remote storage there is no
 	// local sweep, so it falls back to the leftover-cleanup behavior.
-	var keyDB *gorm.DB // kept for the DEK epoch guard below
-	if cfg.Storage.Type == "remote" {
-		svc.CleanPendingDEK()
-	} else {
+	// bootKeys returns the database handle the DEK epoch guard keeps (nil for
+	// remote storage).
+	bootKeys := func() (*gorm.DB, error) {
+		if cfg.Storage.Type == "remote" {
+			svc.CleanPendingDEK()
+			return nil, initializeKeys(svc, passphrase, providerType)
+		}
 		recoverDB, derr := appstorage.OpenGormDB(cfg)
 		if derr != nil {
 			return nil, fmt.Errorf("failed to open database for DEK-rotation crash recovery: %w", derr)
@@ -591,38 +600,16 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 			closeGormDB(recoverDB)
 			return nil, fmt.Errorf("DEK-rotation crash recovery failed: %w", rerr)
 		}
-		keyDB = recoverDB
+		if err := initializeKeys(svc, passphrase, providerType); err != nil {
+			closeGormDB(recoverDB)
+			return nil, err
+		}
+		return recoverDB, nil
 	}
-	if err := svc.Initialize(passphrase); err != nil {
-		if keyDB != nil {
-			closeGormDB(keyDB)
-		}
-		if providerType == "" || providerType == "password" {
-			// Name the source (BOOT-REFUSALS-1 item 7): with several ways to pass the
-			// passphrase, "wrong passphrase" alone does not say which one was read.
-			return nil, fmt.Errorf("KEK derivation from the master passphrase read from %s failed: %w", masterPassphraseSource.Describe("KEYORIX_MASTER_PASSWORD"), err)
-		}
-		return nil, fmt.Errorf("KEK from key provider %q failed: %w", providerType, err)
-	}
-	// Cross-replica DEK epoch (#3337, internal/encryption/dek_epoch.go): refuse to
-	// start when this server's DEK is not the DEK the database is encrypted under
-	// (the DEK was rotated on another host and this host still has the old
-	// dek.key), and refuse encrypted writes later while a rotation fences them.
-	// PostgreSQL only: the guard keeps keyDB (one connection) and closes it on
-	// Shutdown. On SQLite it is a no-op and keyDB is closed here.
-	if keyDB != nil {
-		if sqlDB, e := keyDB.DB(); e == nil {
-			sqlDB.SetMaxOpenConns(1)
-			sqlDB.SetMaxIdleConns(1)
-		}
-		if err := svc.StartDEKEpochGuard(keyDB, func() { closeGormDB(keyDB) }); err != nil {
-			closeGormDB(keyDB)
-			svc.Shutdown()
-			return nil, fmt.Errorf("refusing to start: %w", err)
-		}
-		if !svc.DEKEpochGuardRunning() {
-			closeGormDB(keyDB)
-		}
+	// Then the cross-replica DEK epoch guard, under the same key lock
+	// (initializeKeysAndStartEpochGuard).
+	if err := initializeKeysAndStartEpochGuard(cfg, svc, bootKeys); err != nil {
+		return nil, err
 	}
 
 	kekSource := providerType
@@ -691,6 +678,18 @@ func initializeCoreService(cfg *config.Config) (*core.KeyorixCore, *encryption.S
 	store, err := factory.CreateStorage(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize storage: %w", err)
+	}
+
+	// key_dir_lock: database — record it in the database so `admin --force` and a
+	// live backup decide from what the replicas declare, not from the admin
+	// command's own config. Here, right after the migrations CreateStorage ran and
+	// before key initialisation (which can hold the key-init lock for up to
+	// keyInitLockWait): main() took the presence lock before this function, so the
+	// marker must not trail it by the rest of the boot.
+	if cfg.Storage.Encryption.KeyDirLockIsDatabase() {
+		if err := recordKeyDirLockMode(cfg); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	encSvc, err := initializeEncryption(cfg, store.LogAuditEvent)

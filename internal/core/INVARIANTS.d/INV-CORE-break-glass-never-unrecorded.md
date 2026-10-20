@@ -19,7 +19,7 @@
   writers of its last two rows cannot both skip it). An unsettled degraded activation is
   never purged by retention; `verify-audit` reports it and answers INDETERMINATE.
   Why: Andrei 2026-10-16 (break-glass must work during an audit-subsystem incident without
-  ever being unrecorded), BREAKGLASS-OWED-1; ADR-112 Amendment 5.
+  ever being unrecorded), BREAKGLASS-OWED-1; ADR-112 Amendment 6.
   Guard: `break_glass_degraded_test.go` (SQLite always, PostgreSQL pg-gated):
   `TestBreakGlass_AuditRefusedCommitsDegradedWithOwedRecord` (append error,
   effect-then-error, panic, chain-lock wait; owed records, short expiry on record and

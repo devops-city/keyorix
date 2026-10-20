@@ -27,11 +27,11 @@ Amendment 4 (2026-10-15, **accepted by Andrei**): a new `insecure_` opt-out,
 successful secret-value reads write no audit row; everything else stays
 audited. See "Amendment 4" below.
 
-Amendment 5 (2026-10-18, BREAKGLASS-OWED-1, from Andrei's decision of
+Amendment 6 (2026-10-18, BREAKGLASS-OWED-1, from Andrei's decision of
 2026-10-16 "break-glass must work during an audit-subsystem incident without ever
 being unrecorded"): when the audit log refuses an activation's rows, the
 activation commits degraded, together with owed-audit records of those rows, with
-a short lifetime, a loud alert and a mandatory review. See "Amendment 5" below.
+a short lifetime, a loud alert and a mandatory review. See "Amendment 6" below.
 
 Amendment 2 (2026-10-10, **proposed, pending Andrei's OK**, #2908): the
 `enable_file_permission_check` upgrade grace period is a reported state:
@@ -558,7 +558,7 @@ Enforced by `internal/core/mfa_upgrade_grace_test.go`
   reason, as a structured field** — not as a weakening, and not only in log
   text. One start-up warning still prints, worded as "ignored".
 
-## Amendment 5 (2026-10-18): break-glass during an audit-subsystem incident
+## Amendment 6 (2026-10-18): break-glass during an audit-subsystem incident
 
 Decision (Andrei, 2026-10-16): break-glass must work during an audit-subsystem
 incident without ever being unrecorded. #3367 (AUDIT-TX-2) had made an activation

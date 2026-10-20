@@ -239,7 +239,7 @@ changes) when its audit row cannot be written. See `docs/k8s-operator.md`.
 ### 5d. Break-glass while the audit log refuses writes
 
 Break-glass activation must work during an incident and must never be unrecorded
-(ADR-112 Amendment 5). When the audit log refuses an activation's rows, the
+(ADR-112 Amendment 6). When the audit log refuses an activation's rows, the
 activation, its role grant and owed records of those rows (`pending_audit_events`)
 commit together instead, marked **degraded**: it expires after
 `break_glass.degraded_ttl` (default 15m, never longer than a normal activation),
