@@ -1,0 +1,1 @@
+scripts/demo/oidcissuer	none	-	PR #3342 (DEMO-LOCAL-2): demo/test helper command, a local stand-in for a CI platform OIDC issuer (JWKS plus short-lived RS256 tokens signed by a throwaway key) for scenario-oidc-federation.sh; package doc says it is never part of a shipped binary	test-helper

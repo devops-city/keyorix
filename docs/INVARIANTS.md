@@ -43,10 +43,10 @@ even if you skip everything else:
 - **ADR-103's Postgres RLS tenancy layer is a ratified design with zero implementation and
   zero tests** (`internal/storage/INVARIANTS.md` INV-STORAGE-31/32) — confirmed by direct grep,
   no `ROW LEVEL SECURITY`/`app.current_tenant` reference anywhere in `internal/storage`.
-- **No structural completeness guard exists for "every best-effort post-commit call recovers a
-  panic"** in `internal/core` (INV-CORE-34) or for "every key-shaped byte slice gets
-  `wipeBytes`" in `internal/encryption` (INV-ENCRYPTION-25) — both are point-fixes after live
-  fuzz findings, the same recurring shape, in two different packages.
+- **No structural completeness guard exists for "every key-shaped byte slice gets
+  `wipeBytes`"** in `internal/encryption` (INV-ENCRYPTION-25) — a point-fix after live fuzz
+  findings. The sibling gap in `internal/core` (INV-CORE-34, "every best-effort post-commit call
+  recovers a panic") now has `besteffort_callsite_guard_test.go`.
 - **`web/src/types` drift check covers only the schema'd wire types, and does not run on
   an `openapi.yaml`-only PR** (`web/src/INVARIANTS.md` INV-WEB-05) — guarded by
   `openapiDrift.test.ts`, but `web-ci.yml` is path-filtered to `web/**`.
