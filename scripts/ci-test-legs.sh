@@ -177,9 +177,14 @@ github.com/keyorixhq/keyorix/pkg/trust
 github.com/keyorixhq/keyorix/pkg/licenseverify
 github.com/keyorixhq/keyorix/internal/crypto/awskms
 github.com/keyorixhq/keyorix/internal/utils/safeconv
+github.com/keyorixhq/keyorix/internal/config
 EOF
 }
 
+# root-3 held ./server (742s in the test binary on merge-queue run 39477864156)
+# AND ./internal/config (253s) and ran 14-24 min while root-2 ran ~6.6 min.
+# internal/config moved to root-2 (CI-SHARD-BALANCE-1): root-3 is now bounded
+# by ./server alone, root-2 by ./internal/storage (254s) / ./internal/config.
 root_3_pkgs() {
   cat <<'EOF'
 github.com/keyorixhq/keyorix/server/tools
@@ -189,7 +194,6 @@ github.com/keyorixhq/keyorix/internal/audit/siem
 github.com/keyorixhq/keyorix/internal/mcp
 github.com/keyorixhq/keyorix/server/validation
 github.com/keyorixhq/keyorix/internal/connect
-github.com/keyorixhq/keyorix/internal/config
 github.com/keyorixhq/keyorix/internal/storage/models
 github.com/keyorixhq/keyorix/internal/delivery
 github.com/keyorixhq/keyorix/internal/core/storage
@@ -200,20 +204,14 @@ core_pkgs() {
   echo "github.com/keyorixhq/keyorix/internal/core"
 }
 
-# core_heavy_regex: the ONE place the core-1/core-2 split is defined
-# (CI-CORE-SHARD-1, 2026-10-19). internal/core took ~35 min on one runner
-# (reports/SESSION-CI-CORE-TIMEOUT-1.md). The heavy group -- the 300k-row audit
-# chain tests (TestAuditLongReaders_*, TestAuditChunkedWalk_*) and the big
-# per-row-vs-batch equivalence fixture (TestAuthorizeSecretsBatch_*) -- is
-# ~660 s locally and runs as core-1 (`-run`); core-2 runs everything else with
-# `-skip` of the SAME regex (Go >= 1.20), ~490 s locally. Because core-2 is
-# defined as the complement, a newly added test lands in core-2 automatically
-# and can never be dropped; assert_core_shards_complete proves it (and that the
-# regex still selects something, so a rename of a heavy test fails loudly
-# instead of silently emptying core-1).
-core_heavy_regex() {
-  echo '^(TestAudit(LongReaders|ChunkedWalk)|TestAuthorizeSecretsBatch)'
-}
+# internal/core is split into core-1..N by test name with the weighted
+# assignment in sharded_legs() / weighted_run_filter() below (CI-SHARD-BALANCE-1;
+# before that: core-1 -run / core-2 -skip of a hand-written heavy-test regex,
+# CI-CORE-SHARD-1, 2026-10-19, when the package took ~35 min on one runner --
+# reports/SESSION-CI-CORE-TIMEOUT-1.md). The heavy tests are the 300k-row audit
+# chain group (TestAuditLongReaders_*, TestAuditChunkedWalk_*) and the big
+# per-row-vs-batch equivalence fixture (TestAuthorizeSecretsBatch_*); their
+# weights in scripts/ci-test-weights.tsv are what spreads them over the shards.
 
 # storage_store_pkgs: internal/storage/store gets its own pinned leg (added
 # 2026-09-04) for the same reason internal/core did -- it grew large enough in
@@ -256,38 +254,12 @@ faultops_pkgs() {
   echo "github.com/keyorixhq/keyorix/server/faultops"
 }
 
-# faultops_run_filter <shard 1|2>: plain mod-2 over the sorted names was
-# measured badly lopsided here (local -race run, 1251s total: 381s vs 856s)
-# because four tests dominate the package. So those four are pinned two per
-# shard (measured -race seconds in parentheses), and everything else is split
-# by (sorted index) mod 2 like run_filter_for_shard does:
-#   shard 1: TestUndeliveredSessionSweep (346) + FuzzMixedPrincipalAuthority (102)
-#   shard 2: TestWorldReuseSoundness (229) + TestCanaryLeakAcrossSecretOperations (183)
-# Completeness never depends on this list: a pinned name that no longer exists
-# just drops out, and a new test lands in the mod-2 remainder. The pinning only
-# affects balance, and assert_faultops_shards_complete proves the partition.
-faultops_run_filter() {
-  local shard="$1" names rest selected n
-  local -a pinned=(TestUndeliveredSessionSweep FuzzMixedPrincipalAuthority TestWorldReuseSoundness TestCanaryLeakAcrossSecretOperations)
-  local -a mine
-  if [ "$shard" = 1 ]; then
-    mine=(TestUndeliveredSessionSweep FuzzMixedPrincipalAuthority)
-  else
-    mine=(TestWorldReuseSoundness TestCanaryLeakAcrossSecretOperations)
-  fi
-  names=$(go test -list '^(Test|Fuzz)' "$(faultops_pkgs)" | grep -v '^ok\b' | sort)
-  rest="$names"
-  for n in "${pinned[@]}"; do
-    rest=$(echo "$rest" | grep -vxF "$n" || true)
-  done
-  selected=$(echo "$rest" | awk -v s="$shard" 'NR % 2 == (s - 1)')
-  for n in "${mine[@]}"; do
-    if echo "$names" | grep -qxF "$n"; then
-      selected+=$'\n'"$n"
-    fi
-  done
-  printf '^(%s)$' "$(echo "$selected" | sed '/^$/d' | paste -sd '|' -)"
-}
+# (faultops: a plain mod-2 over the sorted names was measured badly lopsided --
+# local -race run, 1251s total: 381s vs 856s -- because four tests dominate the
+# package: TestUndeliveredSessionSweep 346s, TestWorldReuseSoundness 229s,
+# TestCanaryLeakAcrossSecretOperations 183s, FuzzMixedPrincipalAuthority 102s.
+# They were pinned two per shard by hand; their -race seconds are now rows of
+# scripts/ci-test-weights.tsv and the weighted assignment places them.)
 
 # root_4_pkgs: the dynamic catch-all -- every root_base() package not pinned
 # to root-1/2/3/core/storage-store/encryption/faultops above, so a newly added
@@ -324,96 +296,172 @@ http_pkg() {
   echo "github.com/keyorixhq/keyorix/server/http"
 }
 
-# server/http shards by (sorted test name index) mod 8, via
-# run_filter_for_shard() below -- the same mechanism handlers uses.
+# History of server/http's split: 2026-08-23 mod-6 by sorted test name index;
+# 2026-08-29 five hand-pinned per-test lists plus a catch-all (the hash had
+# landed unevenly, 765s-1180s, because server/http has real per-test cost
+# outliers); 2026-09-09 back to mod-8, because pinned lists drift (82% spread
+# eleven days after pinning, every new test landing in the catch-all); and
+# CI-SHARD-BALANCE-1 (2026-10-20) found mod-8 itself had left http-3 and
+# http-7 at 25-30 min while http-1/2/4/5/6 ran 5-7 min on the same run.
 #
-# 2026-08-23 this package shipped as mod-6. 2026-08-29 it was replaced with
-# five hand-pinned per-test lists plus a dynamic catch-all, because a CI run
-# measured the hash landing unevenly (765s-1180s, ~54% top-to-bottom) --
-# server/http, unlike handlers, has real per-test cost outliers.
-#
-# 2026-09-09 that pinning was reverted. It fixed the spread it was measured
-# against and then drifted, because a pinned list plus a catch-all has no way
-# to stay balanced: every test added to the package after the measurement
-# lands in the catch-all and nowhere else. Run 34329184317, eleven days after
-# the pinning: http-1..5 held 68-78 pinned tests each and ran 11-15 min, while
-# http-6 had absorbed 123 of the package's 484 tests and ran ~20 min. An 82%
-# spread -- worse than the 54% the pinning was introduced to fix, and widening
-# monotonically. The same run had handlers-1..4 (mod 4) at 5/6/5/5 min.
-#
-# So the trade is: mod-N gives a permanent ~50% spread, pinning gives a
-# temporary ~0% spread that decays past 80% within two weeks and needs a
-# re-measurement campaign each time. At 8 shards a ~50% spread is ~8-13 min
-# per leg, which is under the previous best-case pinned maximum, with nothing
-# to maintain. If the spread ever needs to be closed for real, the fix is a
-# committed per-test timing file regenerated from CI's own `go test -json`
-# output and bin-packed at run time -- balanced AND self-correcting. Pinning
-# by hand is neither, past the day it is measured.
+# The mechanism that replaced all three is the one the 2026-09-09 note asked
+# for: a committed per-test weight file (scripts/ci-test-weights.tsv, made by
+# scripts/ci/gen-test-weights.py from `go test -json`) and a deterministic
+# greedy bin-pack at run time (weighted_run_filter below). It keeps the one
+# property pinning lacked: a test the file does not know weighs the package's
+# average, so a new test is placed like an average test, in SOME shard, with
+# nothing to keep in sync. Stale weights cost balance, never completeness --
+# assert_all_shards_complete proves every test runs in exactly one shard.
+
+# sharded_legs: the legs that split ONE package by test name, one row per
+# package: <leg prefix>|<package function>|<number of shards>|<preload>.
+# Leg <prefix>-<k> (k = 1..shards) runs shard k. shards = 1 means the whole
+# package in one leg with no -run filter (so Example* tests run too).
+# <preload> is "-" or "<shard>:<weight>": that shard starts the bin-pack with
+# that much weight already on it, for work the leg does besides its tests
+# (core-1 also runs scripts/check-closures.sh, ~9-10 min of CI wall).
+# This table, ci.yml's matrix and assert_matrix_consistent move together.
+sharded_legs() {
+  cat <<'EOF'
+core|core_pkgs|3|1:150
+http|http_pkg|6|-
+handlers|handlers_pkg|2|-
+encryption|encryption_pkgs|2|-
+faultops|faultops_pkgs|3|-
+storage-store|storage_store_pkgs|1|-
+EOF
+}
+
+# leg_shard_spec <leg>: "<package function> <shard> <shards> <preload>" for a
+# leg of sharded_legs(), nonzero for anything else (root-N, unknown).
+leg_shard_spec() {
+  local leg="$1" prefix shard row
+  prefix=${leg%-*}
+  shard=${leg##*-}
+  row=$(sharded_legs | awk -F'|' -v p="$prefix" -v k="$shard" '$1 == p && k >= 1 && k <= $3 { print $2, k, $3, $4 }')
+  [ -n "$row" ] || return 1
+  echo "$row"
+}
 
 # pkgs_for_leg: package list for a given leg name, space/newline-separated.
 # Matches the case statement the test-suite matrix step uses to pick $pkgs.
 pkgs_for_leg() {
+  local spec fn
   case "$1" in
     root-1) root_1_pkgs ;;
     root-2) root_2_pkgs ;;
     root-3) root_3_pkgs ;;
-    core-1|core-2) core_pkgs ;;
     root-4) root_4_pkgs ;;
-    storage-store-1|storage-store-2) storage_store_pkgs ;;
-    encryption-1|encryption-2) encryption_pkgs ;;
-    faultops-1|faultops-2) faultops_pkgs ;;
-    handlers-1|handlers-2) handlers_pkg ;;
-    http-1|http-2|http-3|http-4|http-5|http-6|http-7|http-8) http_pkg ;;
-    *) echo "pkgs_for_leg: unknown leg '$1'" >&2; return 1 ;;
+    *)
+      spec=$(leg_shard_spec "$1") || { echo "pkgs_for_leg: unknown leg '$1'" >&2; return 1; }
+      fn=${spec%% *}
+      "$fn"
+      ;;
   esac
 }
 
-# all_leg_names: every matrix leg, in the same order ci.yml's matrix.include
-# declares them. Kept here too so the completeness check enumerates exactly
-# the legs that exist, not a hand-copied list that can drift from the matrix.
+# all_leg_names: every matrix leg: root-1..4, then every shard of every
+# sharded_legs() row. assert_matrix_consistent proves ci.yml's matrix.include
+# names exactly this set, so the completeness check enumerates the legs that
+# exist and no leg can run without being counted (or be counted without running).
 all_leg_names() {
-  cat <<'EOF'
-root-1
-root-2
-root-3
-root-4
-core-1
-core-2
-storage-store-1
-storage-store-2
-encryption-1
-encryption-2
-faultops-1
-faultops-2
-handlers-1
-handlers-2
-http-1
-http-2
-http-3
-http-4
-http-5
-http-6
-http-7
-http-8
-EOF
+  local prefix fn shards preload k
+  printf 'root-%s\n' 1 2 3 4
+  while IFS='|' read -r prefix fn shards preload; do
+    for k in $(seq 1 "$shards"); do
+      echo "$prefix-$k"
+    done
+  done < <(sharded_legs)
 }
 
-# run_filter_for_shard: builds a `go test -run` regex selecting roughly 1/N
-# of a single package's top-level tests, by (sorted test name index) mod N --
-# the mechanism handlers-1..4 already uses. Shared here so any future
-# by-test-name-sharded leg (not just handlers) reuses the identical, already-
-# proven splitting logic instead of a second hand-copied implementation.
-run_filter_for_shard() {
-  local pkg="$1" shard="$2" n="$3"
-  local names selected
+# Per-test weights for the weighted shard assignment below: one tab-separated
+# row per heavy test, `<package relative to the module>\t<test>\t<weight>`, plus
+# a `<package>\t*\t<weight>` row giving every test the file does not list. Made
+# by scripts/ci/gen-test-weights.py from `go test -json`; assert_test_weights_valid
+# checks the format. Unit: seconds of the run it was measured on, only ever
+# compared with other rows of the same package (and with a sharded_legs preload).
+CI_TEST_WEIGHTS_FILE="${CI_TEST_WEIGHTS_FILE:-${BASH_SOURCE[0]%/*}/ci-test-weights.tsv}"
+
+# weighted_shard_assignment <pkg> <shards> [preload]: reads the package's test
+# names (one per line) on stdin and prints `<shard>\t<name>` for every one.
+# Greedy longest-processing-time bin-packing: heaviest test first (ties by
+# name), each into the currently lightest shard (ties to the lowest shard).
+# Deterministic -- every leg of a run computes the same assignment from the
+# same tree -- and total: EVERY input name is printed exactly once, so
+# completeness does not depend on the weights, only balance does.
+weighted_shard_assignment() {
+  local pkg="$1" n="$2" preload="${3:--}" rel
+  rel="${pkg#github.com/keyorixhq/keyorix/}"
+  [ -r "$CI_TEST_WEIGHTS_FILE" ] || { echo "weighted_shard_assignment: cannot read $CI_TEST_WEIGHTS_FILE" >&2; return 1; }
+  awk -v rel="$rel" -v wf="$CI_TEST_WEIGHTS_FILE" '
+    BEGIN {
+      def = 1
+      while ((getline line < wf) > 0) {
+        if (line ~ /^#/) continue
+        split(line, f, "\t")
+        if (f[1] != rel) continue
+        if (f[2] == "*") def = f[3] + 0; else w[f[2]] = f[3] + 0
+      }
+    }
+    { printf "%.6f\t%s\n", ($0 in w) ? w[$0] : def, $0 }
+  ' | LC_ALL=C sort -t $'\t' -k1,1nr -k2,2 | awk -F'\t' -v n="$n" -v pre="$preload" '
+    BEGIN {
+      for (i = 1; i <= n; i++) load[i] = 0
+      if (pre != "-") { split(pre, p, ":"); load[p[1]] = p[2] + 0 }
+    }
+    {
+      best = 1
+      for (i = 2; i <= n; i++) if (load[i] < load[best]) best = i
+      load[best] += $1
+      print best "\t" $2
+    }'
+}
+
+# weighted_run_filter <pkg> <shard> <shards> [preload]: the `go test -run` regex
+# selecting shard <shard> (1-based) of <pkg>'s top-level tests under
+# weighted_shard_assignment. Shared by every by-test-name-sharded leg and by
+# assert_shard_partition_complete, so the leg and its proof use one function.
+weighted_run_filter() {
+  local pkg="$1" shard="$2" n="$3" preload="${4:--}" names selected filter
   # '^(Test|Fuzz)', not '^Test' (2026-09-27): with -run restricted to Test*
   # names, every sharded package's Fuzz* seed corpora (testdata/fuzz + f.Add
   # seeds, which `go test` runs as ordinary regression tests) silently never
   # ran in this matrix -- server/http, server/http/handlers and
   # internal/storage/store included. fuzz-targets only checks registration.
-  names=$(go test -list '^(Test|Fuzz)' "$pkg" | grep -v '^ok\b' | sort)
-  selected=$(echo "$names" | awk -v n="$n" -v s="$shard" 'NR % n == (s - 1)')
-  printf '^(%s)$' "$(echo "$selected" | paste -sd '|' -)"
+  names=$(go test -list '^(Test|Fuzz)' "$pkg") || return 1
+  # sort -u: a package with an internal AND an external test package can list one
+  # name twice (internal/encryption); a name must be assigned to exactly one
+  # shard, and `-run` then runs both same-named tests there.
+  names=$(echo "$names" | grep -v '^ok\b' | LC_ALL=C sort -u)
+  if [ -z "$names" ]; then
+    echo "weighted_run_filter: $pkg lists no Test/Fuzz names -- refusing to build an empty filter" >&2
+    return 1
+  fi
+  selected=$(echo "$names" | weighted_shard_assignment "$pkg" "$n" "$preload" | awk -F'\t' -v s="$shard" '$1 == s { print $2 }') || return 1
+  if [ -z "$selected" ]; then
+    echo "weighted_run_filter: shard $shard of $n for $pkg is empty -- the matrix has more shards than the package has tests" >&2
+    return 1
+  fi
+  filter=$(printf '^(%s)$' "$(echo "$selected" | paste -sd '|' -)")
+  # The regex travels as ONE argv word (twice: go test's -run, then the test
+  # binary's -test.run), and Linux caps a single word at 128 KiB (MAX_ARG_STRLEN).
+  # core's largest shard is ~59 KB today; fail here, in assert-leg-completeness,
+  # long before an exec error in a leg ("argument list too long") would.
+  if [ "${#filter}" -gt 100000 ]; then
+    echo "weighted_run_filter: shard $shard of $n for $pkg is a ${#filter}-byte -run regex, too close to Linux's 128 KiB argument limit -- add a shard to sharded_legs()" >&2
+    return 1
+  fi
+  printf '%s' "$filter"
+}
+
+# leg_run_filter <leg>: the `-run` regex of a sharded_legs() leg, or nothing
+# for a one-shard leg (the whole package, no filter) .
+leg_run_filter() {
+  local spec fn shard n preload
+  spec=$(leg_shard_spec "$1") || { echo "leg_run_filter: '$1' is not a sharded leg" >&2; return 1; }
+  read -r fn shard n preload <<<"$spec"
+  [ "$n" -gt 1 ] || return 0
+  weighted_run_filter "$("$fn")" "$shard" "$n" "$preload"
 }
 
 # check_exclusion_freshness: fails (nonzero exit, one line per offender on
@@ -451,7 +499,21 @@ assert_leg_completeness() {
   local never_args=()
   while IFS= read -r p; do never_args+=(-e "$p"); done < <(never_run_patterns)
   local target actual missing
-  target=$(go list ./... | grep -v "${never_args[@]}" | sort -u)
+  # With NO never-run exclusions (the table holds only SHARDED rows since the
+  # last TEMPORARY one closed) `grep -v` is called with no pattern: it prints
+  # its usage text, exits 2, and `target` came out EMPTY -- so nothing could
+  # ever be "missing" and this guard passed vacuously (visible in CI logs as a
+  # "Usage: grep" line directly above the OK). Only filter when there is
+  # something to filter, and refuse an empty target.
+  if [ "${#never_args[@]}" -gt 0 ]; then
+    target=$(go list ./... | grep -v "${never_args[@]}" | sort -u)
+  else
+    target=$(go list ./... | sort -u)
+  fi
+  if [ -z "$target" ]; then
+    echo "LEG COMPLETENESS: \`go list ./...\` produced no packages -- refusing to call an empty set complete"
+    return 1
+  fi
   actual=$(
     while IFS= read -r leg; do
       pkgs_for_leg "$leg"
@@ -532,38 +594,41 @@ assert_pinned_leg_packages_valid() {
   return $failed
 }
 
-# assert_shard_partition_complete <pkg> <n> [filter-fn]: proves the n test-name
-# shards that run_filter_for_shard (or filter-fn <shard>) builds for <pkg> run every test the package has, each in
-# exactly one shard. For each shard it lists what that shard's -run regex
-# selects (`go test -list`, same matching as -run), concatenates the n lists and
-# compares them, as sorted multisets, with every Test*/Fuzz*/Example* name in
-# the package: a name in no shard shows up as missing, a name in two shards as
-# a duplicate. Example* is in the reference set on purpose: run_filter_for_shard
-# selects only Test*/Fuzz*, so an Example added to a sharded package would
-# otherwise silently run nowhere (the package-level `-run ""` legs do run it).
+# assert_shard_partition_complete <pkg> <n> [preload]: proves the n test-name
+# shards that weighted_run_filter builds for <pkg> run every test the package
+# has, each in exactly one shard -- the SAME function the legs call, so the
+# proof cannot drift from what runs. For each shard it lists what that shard's
+# -run regex selects (`go test -list`, same matching as -run), concatenates the
+# n lists and compares them, as sorted multisets, with every Test*/Fuzz*/Example*
+# name in the package: a name in no shard shows up as missing, a name in two
+# shards as a duplicate. Example* is in the reference set on purpose:
+# weighted_run_filter selects only Test*/Fuzz*, so an Example added to a sharded
+# package would otherwise silently run nowhere (the package-level `-run ""` legs
+# do run it).
 # Does not execute any test, only compiles the package, so it is cheap enough
-# for the same pre-test-suite job as assert_leg_completeness. Used for
-# faultops (n=2) via assert_faultops_shards_complete below.
+# for the same pre-test-suite job as assert_leg_completeness. Run for every
+# multi-shard row of sharded_legs() by assert_all_shards_complete below.
 assert_shard_partition_complete() {
-  local pkg="$1" n="$2" filter_fn="${3:-run_filter_for_shard}" s filter
+  local pkg="$1" n="$2" preload="${3:--}" s filter
   local expected actual missing dupes failed=0
-  expected=$(go test -list '^(Test|Fuzz|Example)' "$pkg" | grep -v '^ok\b' | sort) || return 1
+  expected=$(go test -list '^(Test|Fuzz|Example)' "$pkg" | grep -v '^ok\b' | LC_ALL=C sort) || return 1
   if [ -z "$expected" ]; then
     echo "SHARD PARTITION: $pkg lists no Test/Fuzz/Example names at all -- refusing to call an empty set complete"
     return 1
   fi
   actual=""
   for s in $(seq 1 "$n"); do
-    if [ "$filter_fn" = run_filter_for_shard ]; then
-      filter=$(run_filter_for_shard "$pkg" "$s" "$n") || return 1
-    else
-      filter=$("$filter_fn" "$s") || return 1
-    fi
+    filter=$(weighted_run_filter "$pkg" "$s" "$n" "$preload") || return 1
     actual+=$(go test -list "$filter" "$pkg" | grep -v '^ok\b')$'\n'
   done
-  actual=$(echo "$actual" | sed '/^$/d' | sort)
-  missing=$(comm -23 <(echo "$expected") <(echo "$actual" | uniq))
-  dupes=$(echo "$actual" | uniq -d)
+  actual=$(echo "$actual" | sed '/^$/d' | LC_ALL=C sort)
+  # Multiset comparison, not set: a package with both an internal and an
+  # external (_test) test package lists a shared name twice (internal/encryption:
+  # TestNewKeyProviderFromConfig_*), and the shard that selects the name runs
+  # both. Names missing = expected minus actual; names in more than one shard =
+  # actual minus expected (a surplus occurrence).
+  missing=$(comm -23 <(echo "$expected") <(echo "$actual"))
+  dupes=$(comm -13 <(echo "$expected") <(echo "$actual"))
   if [ -n "$missing" ]; then
     echo "SHARD PARTITION: $pkg tests that run in NO shard (of $n):"
     echo "$missing"
@@ -578,47 +643,114 @@ assert_shard_partition_complete() {
   return $failed
 }
 
-assert_faultops_shards_complete() {
-  assert_shard_partition_complete "$(faultops_pkgs)" 2 faultops_run_filter
+# assert_all_shards_complete: assert_shard_partition_complete for every package
+# of sharded_legs() that is split over more than one leg (core, http, handlers,
+# encryption, faultops). Before CI-SHARD-BALANCE-1 only faultops and core had
+# this proof; the mod-N splits of the others were complete by construction but
+# unchecked. Reports every failing package, not just the first.
+assert_all_shards_complete() {
+  local prefix fn shards preload failed=0
+  while IFS='|' read -r prefix fn shards preload; do
+    if [ "$shards" -le 1 ]; then
+      echo "OK: $prefix: a single leg runs the whole package without a -run filter."
+      continue
+    fi
+    assert_shard_partition_complete "$("$fn")" "$shards" "$preload" </dev/null || failed=1
+  done < <(sharded_legs)
+  return $failed
 }
 
-# assert_core_shards_complete: proves core-1 (-run core_heavy_regex) and core-2
-# (-skip core_heavy_regex) together run every Test/Fuzz/Example of
-# internal/core, each exactly once, and that core-1 is non-empty. Lists with
-# `go test -list` (core-1 via the leg's own -run regex, core-2 as the complement
-# under the same regex); does not execute any test.
-assert_core_shards_complete() {
-  local pkg re expected one two actual missing dupes failed=0
-  pkg=$(core_pkgs)
-  re=$(core_heavy_regex)
-  expected=$(go test -list '^(Test|Fuzz|Example)' "$pkg" | grep -v '^ok\b' | sort) || return 1
-  one=$(go test -list "$re" "$pkg" | grep -v '^ok\b' | sort) || return 1
-  # `go test -list` ignores -skip (verified go1.27.2), so core-2's list is
-  # derived by filtering with the same regex. For top-level test names (no
-  # '/') Go's -skip matches with regexp.MatchString, i.e. unanchored RE2, which
-  # for this regex's shape is the same as grep -E.
-  two=$(echo "$expected" | grep -vE "$re" || true)
-  if [ -z "$expected" ]; then
-    echo "CORE SHARDS: $pkg lists no Test/Fuzz/Example names at all -- refusing to call an empty set complete"
-    return 1
-  fi
-  if [ -z "$one" ]; then
-    echo "CORE SHARDS: core_heavy_regex '$re' selects no test in $pkg (heavy test renamed or removed?) -- core-1 would run nothing"
-    return 1
-  fi
-  actual=$(printf '%s\n%s\n' "$one" "$two" | sed '/^$/d' | sort)
-  missing=$(comm -23 <(echo "$expected") <(echo "$actual" | uniq))
-  dupes=$(echo "$actual" | uniq -d)
-  if [ -n "$missing" ]; then
-    echo "CORE SHARDS: $pkg tests that run in NEITHER core-1 nor core-2:"
-    echo "$missing"
+# assert_test_weights_valid: scripts/ci-test-weights.tsv is well formed (three
+# tab-separated fields, positive numeric weight, no duplicate row, an existing
+# package directory) and every package split over more than one leg has its `*`
+# default row. A malformed file cannot make a test run twice or never (that is
+# assert_all_shards_complete's job), but it can silently collapse the balance.
+assert_test_weights_valid() {
+  local bad prefix fn shards preload rel failed=0
+  [ -r "$CI_TEST_WEIGHTS_FILE" ] || { echo "TEST WEIGHTS: cannot read $CI_TEST_WEIGHTS_FILE"; return 1; }
+  bad=$(awk -F'\t' '
+    /^#/ || /^$/ { next }
+    NF != 3 { print "line " NR ": want 3 tab-separated fields, got " NF; next }
+    $3 !~ /^[0-9]+(\.[0-9]+)?$/ || $3 + 0 <= 0 { print "line " NR ": weight \"" $3 "\" is not a positive number"; next }
+    ($1 SUBSEP $2) in seen { print "line " NR ": duplicate row for " $1 " " $2; next }
+    { seen[$1 SUBSEP $2] = 1 }
+  ' "$CI_TEST_WEIGHTS_FILE")
+  if [ -n "$bad" ]; then
+    echo "TEST WEIGHTS: malformed rows in $CI_TEST_WEIGHTS_FILE:"
+    echo "$bad"
     failed=1
   fi
-  if [ -n "$dupes" ]; then
-    echo "CORE SHARDS: $pkg tests that run in BOTH core-1 and core-2:"
-    echo "$dupes"
+  while IFS='|' read -r prefix fn shards preload; do
+    [ "$shards" -gt 1 ] || continue
+    rel="$("$fn")"
+    rel="${rel#github.com/keyorixhq/keyorix/}"
+    if ! awk -F'\t' -v rel="$rel" '$1 == rel && $2 == "*" { found = 1 } END { exit !found }' "$CI_TEST_WEIGHTS_FILE"; then
+      echo "TEST WEIGHTS: no \`$rel<TAB>*<TAB>weight\` default row for $prefix (split over $shards legs)"
+      failed=1
+    fi
+    if [ ! -d "$rel" ]; then
+      echo "TEST WEIGHTS: package directory $rel (leg prefix $prefix) does not exist"
+      failed=1
+    fi
+  done < <(sharded_legs)
+  [ "$failed" -eq 0 ] && echo "OK: $CI_TEST_WEIGHTS_FILE is well formed and covers every multi-leg package."
+  return $failed
+}
+
+# assert_matrix_consistent [ci.yml]: the test-suite matrix in ci.yml and this
+# file describe the same legs. Three claims, each of which was a hand-kept
+# duplicate before:
+#  1. the matrix's `leg:` names are exactly all_leg_names (a leg in the matrix
+#     but not here makes pkgs_for_leg fail at run time; a leg here but not in the
+#     matrix would let assert_leg_completeness count a package that never runs);
+#  2. each leg's coverage-file is coverage_<leg minus its last hyphen, other
+#     hyphens as underscores><shard>.out (root-1 -> coverage_root1.out,
+#     storage-store-1 -> coverage_storage_store1.out);
+#  3. build-and-test's "Merge coverage profiles" `tail -q -n +2` line names
+#     exactly those coverage files, except the core-N ones: core's coverage has
+#     never been part of the floor (a pre-existing gap noted at that step, not
+#     changed here), and that exception is spelled out below instead of implied.
+assert_matrix_consistent() {
+  local yml="${1:-.github/workflows/ci.yml}" failed=0 pairs legs want leg cov expect tail_line files f
+  pairs=$(awk '/^ +- leg: /{ leg = $3; next } /^ +coverage-file: /{ if (leg != "") print leg, $2; leg = "" }' "$yml")
+  legs=$(echo "$pairs" | awk '{ print $1 }' | LC_ALL=C sort)
+  want=$(all_leg_names | LC_ALL=C sort)
+  if [ "$legs" != "$want" ]; then
+    echo "MATRIX: ci.yml test-suite legs differ from all_leg_names (scripts/ci-test-legs.sh):"
+    comm -23 <(echo "$want") <(echo "$legs") | sed 's/^/  in all_leg_names, not in the ci.yml matrix: /'
+    comm -13 <(echo "$want") <(echo "$legs") | sed 's/^/  in the ci.yml matrix, not in all_leg_names: /'
     failed=1
   fi
-  [ "$failed" -eq 0 ] && echo "OK: $pkg: all $(echo "$expected" | wc -l | tr -d ' ') Test/Fuzz/Example names run in exactly one of core-1 ($(echo "$one" | wc -l | tr -d ' ')) / core-2 ($(echo "$two" | wc -l | tr -d ' '))."
+  while read -r leg cov; do
+    [ -n "$leg" ] || continue
+    expect="coverage_${leg%-*}${leg##*-}.out"
+    expect="${expect//-/_}"
+    if [ "$cov" != "$expect" ]; then
+      echo "MATRIX: leg $leg uploads $cov, expected $expect"
+      failed=1
+    fi
+  done <<<"$pairs"
+  tail_line=$(grep -F 'tail -q -n +2' "$yml" | head -n 1)
+  if [ -z "$tail_line" ]; then
+    echo "MATRIX: could not find the coverage merge line (\`tail -q -n +2 ...\`) in $yml"
+    return 1
+  fi
+  # coverage_merged.out is the merge line's own OUTPUT (`>> coverage_merged.out`).
+  files=$(echo "$tail_line" | grep -oE 'coverage_[a-z0-9_]+\.out' | grep -vxF coverage_merged.out | LC_ALL=C sort)
+  while read -r leg cov; do
+    [ -n "$leg" ] || continue
+    case "$leg" in core-*) continue ;; esac
+    if ! grep -qxF "$cov" <<<"$files"; then
+      echo "MATRIX: $cov (leg $leg) is not in the coverage merge line, so its coverage would be dropped from the floor"
+      failed=1
+    fi
+  done <<<"$pairs"
+  for f in $files; do
+    if ! awk -v f="$f" '$2 == f { found = 1 } END { exit !found }' <<<"$pairs"; then
+      echo "MATRIX: the coverage merge line names $f, which no matrix leg produces"
+      failed=1
+    fi
+  done
+  [ "$failed" -eq 0 ] && echo "OK: ci.yml matrix = all_leg_names ($(echo "$want" | wc -l | tr -d ' ') legs); coverage files match and are merged (core-N excepted, as before)."
   return $failed
 }

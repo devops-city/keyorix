@@ -134,7 +134,7 @@ func TestSelectAffected_CodeChangeSelectsImporters(t *testing.T) {
 	if s.Mode != "selected" {
 		t.Fatalf("mode=%q (%s), want selected", s.Mode, s.Reason)
 	}
-	for _, leg := range []string{"core-1", "core-2", "http-1", "http-8", "handlers-1", "handlers-2"} {
+	for _, leg := range []string{"core-1", "core-2", "core-3", "http-1", "http-6", "handlers-1", "handlers-2"} {
 		if _, ok := s.Legs[leg]; !ok {
 			t.Errorf("leg %s not selected for an internal/core code change; legs=%v", leg, legNames(s))
 		}

@@ -370,7 +370,8 @@ def decide(base, head, changed=None):
             affected.add(imp)
 
     legs = {}
-    for leg, pkgs in leg_packages().items():
+    all_legs = leg_packages()
+    for leg, pkgs in all_legs.items():
         hit = sorted(set(pkgs) & affected)
         if not hit:
             continue
@@ -418,6 +419,7 @@ def decide(base, head, changed=None):
         "seeds": {p: why[p] for p in sorted(seeds)},
         "affected": sorted(affected),
         "legs": legs,
+        "total_legs": len(all_legs),
         "gates": gates,
         "fuzz_files": fuzz_files,
     }
@@ -460,7 +462,7 @@ def main():
         d["legs"] = {}
     log(f"select-affected: mode={d['mode']}: {one_line(d['reason'])}")
     if d["mode"] == "selected":
-        log(f"select-affected: {len(d['legs'])} of 22 test-suite legs run: {', '.join(sorted(d['legs'])) or '(none)'}")
+        log(f"select-affected: {len(d['legs'])} of {d['total_legs']} test-suite legs run:{', '.join(sorted(d['legs'])) or '(none)'}")
         for p, w in d["seeds"].items():
             log(f"  selected {p}: {w}")
     log("select-affected: gates " + " ".join(f"{g}={'run' if d['gates'][g] else 'skip'}" for g in ALL_GATES))
@@ -476,7 +478,7 @@ def main():
         with open(args.summary, "a", encoding="utf-8") as fh:
             fh.write(f"### merge_group selection: {d['mode']}\n\n{one_line(d['reason'])}\n\n")
             if d["mode"] == "selected":
-                fh.write(f"Changed files: {len(d['changed'])}. Test-suite legs that run ({len(d['legs'])}/22): {', '.join(sorted(d['legs'])) or 'none'}.\n\n")
+                fh.write(f"Changed files: {len(d['changed'])}. Test-suite legs that run ({len(d['legs'])}/{d['total_legs']}):{', '.join(sorted(d['legs'])) or 'none'}.\n\n")
                 fh.write("| gate | decision |\n|---|---|\n")
                 for g in ALL_GATES:
                     fh.write(f"| {g} | {'run' if d['gates'][g] else 'skip (inputs untouched)'} |\n")
