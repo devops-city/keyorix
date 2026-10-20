@@ -36,6 +36,18 @@ type metricDef struct {
 	Help   string
 	Labels []string
 	File   string // repo-relative, forward slashes
+	field  string // NewDesc only: the struct field the Desc is stored in
+}
+
+var valueTypes = map[string]string{"CounterValue": "counter", "GaugeValue": "gauge", "UntypedValue": "untyped"}
+
+// selName returns the final selector name of e (`c.open` -> "open",
+// `prometheus.GaugeValue` -> "GaugeValue"), or "".
+func selName(e ast.Expr) string {
+	if s, ok := e.(*ast.SelectorExpr); ok {
+		return s.Sel.Name
+	}
+	return ""
 }
 
 var ctorTypes = map[string]string{
@@ -81,6 +93,31 @@ func scanRepo(root string) ([]metricDef, error) {
 		}
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
+		// A Desc has no type of its own. Its type is the ValueType a
+		// MustNewConstMetric call in the same file gives the struct field that holds
+		// it: `Desc: prometheus.NewDesc(...)` paired with
+		// `MustNewConstMetric(c.Desc, prometheus.CounterValue, ...)`.
+		descField := map[token.Pos]string{} // NewDesc call position -> struct field
+		constType := map[string]string{}    // struct field -> counter|gauge|untyped
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.KeyValueExpr:
+				if k, ok := x.Key.(*ast.Ident); ok {
+					if c, ok := x.Value.(*ast.CallExpr); ok {
+						descField[c.Pos()] = k.Name
+					}
+				}
+			case *ast.CallExpr:
+				if s, ok := x.Fun.(*ast.SelectorExpr); ok && s.Sel.Name == "MustNewConstMetric" && len(x.Args) >= 2 {
+					field, vt := selName(x.Args[0]), selName(x.Args[1])
+					if t, ok := valueTypes[vt]; ok && field != "" {
+						constType[field] = t
+					}
+				}
+			}
+			return true
+		})
+		first := len(defs)
 		var walkErr error
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -93,10 +130,18 @@ func scanRepo(root string) ([]metricDef, error) {
 				return false
 			}
 			if isMetric {
+				def.field = descField[call.Pos()]
 				defs = append(defs, def)
 			}
 			return true
 		})
+		for i := first; i < len(defs); i++ {
+			if defs[i].Type == "const" {
+				if t, ok := constType[defs[i].field]; ok {
+					defs[i].Type = t
+				}
+			}
+		}
 		return walkErr
 	})
 	if err != nil {
@@ -185,7 +230,7 @@ func parseDesc(call *ast.CallExpr, file string) (metricDef, bool, error) {
 			return metricDef{}, false, fmt.Errorf("NewDesc %s labels: %w", name, err)
 		}
 	}
-	// A Desc carries no type; constTypeOverrides supplies it (checked by a test).
+	// A Desc carries no type; scanRepo resolves it from MustNewConstMetric.
 	return metricDef{Name: name, Type: "const", Help: help, Labels: labels, File: file}, true, nil
 }
 
