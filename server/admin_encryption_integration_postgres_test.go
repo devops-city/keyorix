@@ -114,17 +114,18 @@ func TestAdminEncryptionWorkflow_Postgres(t *testing.T) {
 		t.Fatalf("mkdir keys: %v", err)
 	}
 
-	// encryption init unconditionally treats storage.database.path as a local
-	// SQLite file to create (a pre-existing gap in the ported-near-verbatim
-	// logic, same one admin_integration_postgres_test.go's TestAdminWorkflow_Postgres
-	// works around) -- derive the KEK directly via `status`, which triggers
-	// the same first-boot key generation without touching storage.database.path.
-	out, err := runAdmin(t, bin, dir, env, "encryption", "status", "--config", "./keyorix.yaml")
+	// `encryption init` is the only admin command that creates the keys: since
+	// REVIEW-COVERAGE-2, status/validate/fix-perms/rotate/... refuse on missing
+	// keys instead of silently generating a brand-new KEK/DEK (see
+	// TestAdminEncryptionStatus_Postgres_DoesNotCreateKeys). It used to be
+	// bootstrapped through `status`, relying on that side effect; init no longer
+	// opens a SQLite file under storage.type: postgres (#2980), so use it directly.
+	out, err := runAdmin(t, bin, dir, env, "encryption", "init", "--config", "./keyorix.yaml")
 	if err != nil {
-		t.Fatalf("encryption status (first-boot key derivation) failed: %v\n%s", err, out)
+		t.Fatalf("encryption init failed: %v\n%s", err, out)
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, "keys", "dek.key")); statErr != nil {
-		t.Fatalf("expected dek.key to be created by status's first-boot derivation: %v", statErr)
+		t.Fatalf("expected dek.key to be created by encryption init: %v", statErr)
 	}
 
 	out, err = runAdmin(t, bin, dir, env, "encryption", "validate", "--config", "./keyorix.yaml")
@@ -211,6 +212,63 @@ func TestAdminEncryptionWorkflow_Postgres(t *testing.T) {
 	}
 }
 
+// TestAdminEncryptionStatus_Postgres_DoesNotCreateKeys pins the REVIEW-COVERAGE-2
+// behaviour change that broke TestAdminEncryptionWorkflow_Postgres: `encryption
+// status` on an install without keys must report "not initialized" and create
+// nothing. Generating a new KEK/DEK from a read-only command (run from the wrong
+// directory, with a wrong dek_path or an unmounted volume) made every later
+// command act on brand-new keys and report success. Only `encryption init`
+// creates keys.
+func TestAdminEncryptionStatus_Postgres_DoesNotCreateKeys(t *testing.T) {
+	base := adminPgTestDSN(t)
+	dsn := adminPgIsolatedDatabaseDSN(t, base)
+
+	bin := buildServerBinary(t)
+	dir := t.TempDir()
+	const passphrase = "test-passphrase-enc-status-nokeys-postgres"
+	env := append(baseEnv(dir), "KEYORIX_MASTER_PASSWORD="+passphrase)
+
+	if err := encryptionPostgresYAML(dir, dsn); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "keys"), 0750); err != nil {
+		t.Fatalf("mkdir keys: %v", err)
+	}
+
+	// status reports a missing install and exits 0 (its output IS the answer).
+	out, err := runAdmin(t, bin, dir, env, "encryption", "status", "--config", "./keyorix.yaml")
+	if err != nil {
+		t.Fatalf("encryption status must exit 0 on a missing install: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "no wrapped DEK") {
+		t.Errorf("expected status to say there is no wrapped DEK, got:\n%s", out)
+	}
+	if strings.Contains(out, "Initialized: ✅") {
+		t.Errorf("status must not report an install with no keys as initialized:\n%s", out)
+	}
+	for _, name := range []string{"dek.key", "kek.salt"} {
+		if _, statErr := os.Stat(filepath.Join(dir, "keys", name)); !os.IsNotExist(statErr) {
+			t.Errorf("encryption status must not create keys/%s (stat err: %v)", name, statErr)
+		}
+	}
+
+	// A command that does act on keys must fail closed, not create them either.
+	if out, err := runAdmin(t, bin, dir, env, "encryption", "validate", "--config", "./keyorix.yaml"); err == nil {
+		t.Errorf("encryption validate must fail on missing keys, got success:\n%s", out)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "keys", "dek.key")); !os.IsNotExist(statErr) {
+		t.Errorf("encryption validate must not create keys/dek.key (stat err: %v)", statErr)
+	}
+
+	// init is the one command that creates them.
+	if out, err := runAdmin(t, bin, dir, env, "encryption", "init", "--config", "./keyorix.yaml"); err != nil {
+		t.Fatalf("encryption init failed: %v\n%s", err, out)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "keys", "dek.key")); statErr != nil {
+		t.Errorf("expected encryption init to create keys/dek.key: %v", statErr)
+	}
+}
+
 // TestAdminEncryptionRotate_RefusedWhileExclusiveLockHeld_Postgres is the
 // Postgres counterpart of the SQLite lock-guard regression test.
 func TestAdminEncryptionRotate_RefusedWhileExclusiveLockHeld_Postgres(t *testing.T) {
@@ -228,8 +286,11 @@ func TestAdminEncryptionRotate_RefusedWhileExclusiveLockHeld_Postgres(t *testing
 	if err := os.MkdirAll(filepath.Join(dir, "keys"), 0750); err != nil {
 		t.Fatalf("mkdir keys: %v", err)
 	}
-	if out, err := runAdmin(t, bin, dir, env, "encryption", "status", "--config", "./keyorix.yaml"); err != nil {
-		t.Fatalf("encryption status (key derivation) failed: %v\n%s", err, out)
+	if out, err := runAdmin(t, bin, dir, env, "encryption", "init", "--config", "./keyorix.yaml"); err != nil {
+		t.Fatalf("encryption init failed: %v\n%s", err, out)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "keys", "dek.key")); statErr != nil {
+		t.Fatalf("expected dek.key to be created by encryption init: %v", statErr)
 	}
 
 	hook := startLockHolderHook(t, bin, dir, env)
