@@ -83,6 +83,19 @@ func (ae *AuthEncryption) AcquireExclusiveKeyLock() error {
 	return ae.service.AcquireExclusiveKeyLock()
 }
 
+// RecoverInterruptedRotation runs Service.RecoverInterruptedRotation against this
+// handler's database. A command that rotates or writes under the DEK calls it
+// after AcquireExclusiveKeyLock and before Initialize, so a rotation killed
+// between its sweep commit and the dek.key.pending rename is finished, never
+// discarded (INV-ENCRYPTION-pending-dek-kept-after-commit). A no-op when
+// encryption is disabled.
+func (ae *AuthEncryption) RecoverInterruptedRotation() error {
+	if !ae.service.IsEnabled() {
+		return nil
+	}
+	return ae.service.RecoverInterruptedRotation(ae.db)
+}
+
 // Shutdown releases resources held by the underlying encryption Service —
 // wiping the DEK from memory and releasing the key lock if AcquireSharedKeyLock
 // (or Initialize's own exclusive-lock paths, e.g. via RotateAuthEncryption) took

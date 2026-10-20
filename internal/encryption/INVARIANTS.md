@@ -61,8 +61,9 @@ Format: `INV-ENCRYPTION-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#is
 - **INV-ENCRYPTION-08** A true DEK rotation with full re-encryption sweep (`RotateDEKWithSweep`,
   ADR-010) is durable across a crash at any of its four ordered steps (write pending DEK →
   sweep+commit rows under new DEK → rename pending to active → fsync directory);
-  `CleanPendingDEK()` on restart unconditionally removes a leftover `.pending` file and loads
-  the active DEK. Guard: `keymanager_sweep_crash_consistency_fuzz_test.go:FuzzDEKSweepCrashConsistency`.
+  on restart `RecoverInterruptedRotation(db)` promotes a leftover `.pending` file when the
+  sweep's redo marker committed and removes it otherwise, then the active DEK is loaded (see
+  INV-ENCRYPTION-pending-dek-kept-after-commit). Guard: `keymanager_sweep_crash_consistency_fuzz_test.go:FuzzDEKSweepCrashConsistency`.
 - **INV-ENCRYPTION-09** Beyond crash-BETWEEN-steps (the trilogy above), the same recoverability
   property holds when the ENVIRONMENT fails WHILE the process keeps running (ENOSPC/EIO/short
   write on the write itself, an fsync reporting failure after data already landed, a SQL

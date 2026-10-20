@@ -2,8 +2,8 @@
 //
 // Changes the master passphrase by re-wrapping the current DEK under a new KEK
 // derived from the new passphrase + a freshly generated salt. Unlike DEK
-// rotation, no database rows are re-encrypted and no database connection is
-// required — only the key files are updated.
+// rotation, no database rows are re-encrypted — only the key files are
+// updated; the database is read only for DEK-rotation crash recovery.
 package encryptionops
 
 import (
@@ -12,7 +12,6 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/crypto"
-	"github.com/keyorixhq/keyorix/internal/encryption"
 )
 
 // RotateKEKWithConfig is the testable core of `encryption rotate-kek`. All
@@ -55,21 +54,17 @@ func RotateKEKWithConfig(cfg *config.Config, confirm bool, oldSrc, newSrc crypto
 	}
 
 	baseDir, _ := os.Getwd()
-	service := encryption.NewService(&cfg.Storage.Encryption, baseDir)
-
-	service.CleanPendingDEK()
-	if err := service.Initialize(oldPassphrase); err != nil {
-		return fmt.Errorf("failed to initialize encryption (wrong old passphrase?): %w", err)
+	// The exclusive key lock first, so a live server fails fast with a clear
+	// message (RotateKEKPassphrase also takes the key-file rewrite lock
+	// internally). Then crash recovery: the re-wrap writes dek.key.pending, which
+	// after an interrupted DEK rotation holds the only copy of the new DEK. The
+	// database is opened only to read that rotation's redo marker.
+	service, db, err := openKeyWriter(cfg, baseDir, oldPassphrase, "rotate KEK")
+	if err != nil {
+		return err
 	}
 	defer service.Shutdown()
-
-	// Acquire the exclusive key lock to prevent a concurrent server or rotation
-	// from interfering. RotateKEKPassphrase also acquires the lock internally
-	// (cross-process flock), but we call AcquireExclusiveKeyLock here first so
-	// a live server fails fast with a clear message rather than silently waiting.
-	if err := service.AcquireExclusiveKeyLock(); err != nil {
-		return fmt.Errorf("refusing to rotate KEK: %w — stop the running server before rotating", err)
-	}
+	closeGormDB(db)
 
 	fmt.Println("Rotating KEK — re-wrapping DEK under new passphrase...")
 	if err := service.RotateKEKPassphrase(oldPassphrase, newPassphrase); err != nil {

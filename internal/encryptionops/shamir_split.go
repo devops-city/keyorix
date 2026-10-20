@@ -28,6 +28,20 @@ func ShamirSplitWithConfig(shares, threshold int, outDir string) error {
 	if shares < threshold {
 		return fmt.Errorf("--shares (%d) must be >= --threshold (%d)", shares, threshold)
 	}
+	if outDir != "" {
+		// Never overwrite: an existing share-N.hex or commitment.hex in outDir may be
+		// a share of the KEK the server reconstructs today, and replacing it would
+		// leave the install unable to start (REVIEW-COVERAGE-2). Checked for every
+		// target before anything is generated or written; the O_EXCL creates below
+		// close the window after this check.
+		for _, name := range shamirOutputFiles(shares) {
+			if _, err := os.Lstat(filepath.Join(outDir, name)); err == nil {
+				return fmt.Errorf("%s already exists: shamir-split never overwrites shares or a commitment (they may be the ones your server reconstructs its KEK from). Choose an empty --out-dir", filepath.Join(outDir, name))
+			} else if !os.IsNotExist(err) {
+				return fmt.Errorf("check %s: %w", filepath.Join(outDir, name), err)
+			}
+		}
+	}
 	kek := make([]byte, crypto.KEKSize)
 	if _, err := cryptorand.Read(kek); err != nil {
 		return fmt.Errorf("generate KEK: %w", err)
@@ -70,6 +84,15 @@ func ShamirSplitWithConfig(shares, threshold int, outDir string) error {
 		fmt.Fprintln(os.Stderr, "   single-viewer terminal.")
 		fmt.Fprintln(os.Stderr)
 	}
+	// Files this run created, removed again if a later write fails: shares of a KEK
+	// that was never configured are useless, and a partial set left behind would
+	// only make the next run refuse.
+	var created []string
+	removeCreated := func() {
+		for _, name := range created {
+			_ = os.Remove(filepath.Join(outDir, name))
+		}
+	}
 	for i, s := range splitShares {
 		enc := hex.EncodeToString(s)
 		if outDir == "" {
@@ -78,13 +101,14 @@ func ShamirSplitWithConfig(shares, threshold int, outDir string) error {
 		}
 		fileName := fmt.Sprintf("share-%d.hex", i+1)
 		path := filepath.Join(outDir, fileName)
-		// SecureWriteFileSync (#269) refuses to write through a pre-planted symlink
-		// (O_NOFOLLOW) and enforces the mode even if a file already existed with a
-		// looser one. Sync'd since this is unrecoverable key material (losing
-		// shares is permanent data loss).
-		if err := securefiles.SecureWriteFileSync(outDir, fileName, []byte(enc+"\n"), 0o600); err != nil {
+		// SecureCreateFileSync (#269) refuses to write through a pre-planted symlink
+		// (O_NOFOLLOW) and, with O_EXCL, to replace any existing file. Sync'd since
+		// this is unrecoverable key material (losing shares is permanent data loss).
+		if err := securefiles.SecureCreateFileSync(outDir, fileName, []byte(enc+"\n"), 0o600); err != nil {
+			removeCreated()
 			return fmt.Errorf("write %s: %w", path, err)
 		}
+		created = append(created, fileName)
 		fmt.Printf("  share %d -> %s\n", i+1, path)
 	}
 	fmt.Println()
@@ -94,8 +118,13 @@ func ShamirSplitWithConfig(shares, threshold int, outDir string) error {
 	fmt.Printf("  shamir_commitment: %s\n", commitment)
 	if outDir != "" {
 		commitPath := filepath.Join(outDir, "commitment.hex")
-		if err := securefiles.SecureWriteFileSync(outDir, "commitment.hex", []byte(commitment+"\n"), 0o644); err != nil {
+		if err := securefiles.SecureCreateFileSync(outDir, "commitment.hex", []byte(commitment+"\n"), 0o644); err != nil {
+			removeCreated()
 			return fmt.Errorf("write %s: %w", commitPath, err)
+		}
+		// The new directory entries, not only the file data, must survive a crash.
+		if err := securefiles.SyncDir(outDir); err != nil {
+			return fmt.Errorf("fsync %s: %w", outDir, err)
 		}
 		fmt.Printf("  -> also written to %s\n", commitPath)
 	}
@@ -104,4 +133,13 @@ func ShamirSplitWithConfig(shares, threshold int, outDir string) error {
 	fmt.Println("shamir_commitment (above) — without it, reconstruction falls back to a weaker,")
 	fmt.Println("forgeable check and logs a loud warning at every startup.")
 	return nil
+}
+
+// shamirOutputFiles names every file ShamirSplitWithConfig writes to --out-dir.
+func shamirOutputFiles(shares int) []string {
+	names := make([]string, 0, shares+1)
+	for i := range shares {
+		names = append(names, fmt.Sprintf("share-%d.hex", i+1))
+	}
+	return append(names, "commitment.hex")
 }
