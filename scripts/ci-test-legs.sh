@@ -324,13 +324,14 @@ http_pkg() {
 # <preload> is "-" or "<shard>:<weight>[,<shard>:<weight>...]": that shard starts the bin-pack with
 # that much weight already on it, for work the leg does besides its tests
 # (core-1 also runs scripts/check-closures.sh, ~9-10 min of CI wall: preload
-# 1:570), or to correct a measured bias of the weights (core-3's 3:350: with
-# the weights of round 1 core-3 ran 22.6 min against 17.4 / 16.7 for core-1/2
-# in this PR's round 2, so it is given 350 of virtual weight).
+# 1:570). Several shards may be preloaded: "1:570,3:100". (A bias correction for
+# core-3 was tried and dropped: core's shards swap places between rounds by
+# +-6 min -- 17.4/16.7/22.6, then 17.6/23.3/18.3 -- which is runner and
+# Postgres noise, not something a constant fixes.)
 # This table, ci.yml's matrix and assert_matrix_consistent move together.
 sharded_legs() {
   cat <<'EOF'
-core|core_pkgs|3|1:570,3:350
+core|core_pkgs|3|1:570
 server|server_pkg|2|-
 http|http_pkg|4|-
 handlers|handlers_pkg|2|-
