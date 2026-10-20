@@ -51,15 +51,57 @@ config file.
 single binary and Compose + Postgres): a secret written by v0.95.3 reads back
 unchanged, `admin verify-audit` is VALID, and the first start logs
 `ADR-112 grace period: security.require_mfa now defaults to true, but this is an
-upgraded deployment` — MFA is not enforced yet and `admin validate --posture`
-(run with the server stopped, like every `admin` command) counts it as a
-deviation until each admin enrols (`keyorix mfa enroll` /
-`activate`; the v0.95.3 CLI has no `mfa enroll`, so use the new CLI or the web
-UI) and `security.require_mfa: true` is set explicitly. Back up with the *old*
+upgraded deployment` — MFA is not enforced yet, for a limited time (see
+[MFA after an upgrade](#mfa-after-an-upgrade-the-grace-period-and-its-banner)
+below), and `admin validate --posture` (run with the server stopped, like every
+`admin` command) counts it as a deviation until the grace period ends or
+`security.require_mfa` is set explicitly. Admins enrol with `keyorix mfa enroll`
+/ `activate` (the v0.95.3 CLI has no `mfa enroll`, so use the new CLI) or the
+web UI. Back up with the *old*
 release's tooling before swapping: on the v0.95.3 Compose image
 `admin backup` beside the live server fails with `failed to acquire the
 encryption key lock`; stop `backend` and use `docker compose run` (see
 SELF_HOSTING.md §5).
+
+### MFA after an upgrade: the grace period and its banner
+
+`security.require_mfa` is on by default (ADR-112). A **fresh** install enforces
+it from the first start. An **upgraded** deployment whose config never set the
+key gets a grace period instead (#2923), so nobody is surprised by a login they
+cannot finish:
+
+- **It starts** at the first start on a release that bounds it: the server
+  records that moment in its database (`adr112.require_mfa.grace_started` in
+  `system_metadata`), and every later start keeps it. Restarting does not reset
+  it, and setting the system clock back does not extend it.
+- **It ends** at the **first administrator MFA enrolment** (TOTP or a passkey,
+  by any holder of a global admin role), or **30 days** after it started,
+  whichever comes first. If an administrator already had MFA before the
+  upgrade, it ends at the first check after the start. It ends while the
+  server runs: no restart is needed, and once ended it never comes back.
+- **During it**, users without a second factor sign in as before. The web UI
+  shows a yellow banner on every page: *"Multi-factor authentication will be
+  required in N days (on <date>, or sooner once the first administrator
+  enrols)"*, with an **Enrol now** button that opens Profile → Security.
+  `keyorix login` prints the same warning, and the server log has a
+  `WARNING: ADR-112 grace period ... N day(s) left` line at start-up, once a
+  day, and each time such a user signs in. `GET /api/v1/system/auth-config`
+  reports `require_mfa: false` plus `require_mfa_grace {ends_at, days_left}`.
+- **After it**, a user without a second factor who signs in is sent straight to
+  MFA enrolment (Profile → Security in the web UI, `keyorix mfa enroll` then
+  `keyorix mfa activate` on the CLI). They are **not locked out**: their
+  password still works and the enrolment endpoints stay open; every other
+  endpoint answers `403 MFAEnrollmentRequired` until they enrol. Personal
+  access tokens and machine credentials are not affected. The server log says
+  `ADR-112 grace period for security.require_mfa has ended (...)`.
+
+What to do: have every administrator enrol now (the first one ends the grace
+period for everyone, so tell your users before you do), then ask the other
+users to enrol from the banner. To enforce immediately, set
+`security.require_mfa: true`; to opt out visibly, set it to `false` (reported
+by the posture check and logged at every start). Break-glass access is
+unchanged. If every administrator is locked out of their second factor, use
+`keyorix-server admin recover-admin` ([j5-lost-admin](operator/j5-lost-admin.md)).
 
 **Your config is not changed.** From the release after v0.95.3, a *fresh*
 `keyorix-server admin init` writes the secure baseline (TLS with a generated
@@ -821,6 +863,75 @@ Two behaviour changes at boot, no new setting. Check before upgrading:
 
 Messages and fixes: [startup-refusals.md](operator/startup-refusals.md#weak-scim-token),
 [KMS context fallback](operator/startup-refusals.md#kms-context-fallback-no-longer-needed--from-code).
+
+## 6t. `server.grpc.tls.auto_cert: true` now refuses to start
+
+Automatic (ACME) certificates exist only for the HTTP listener. On gRPC the flag
+never obtained a certificate: with `server.grpc.tls.enabled: true` the server
+started and every gRPC TLS handshake failed, and with `enabled: false` the gRPC
+listener served plaintext. A config that sets `server.grpc.tls.auto_cert: true`
+is now refused at start-up with a message naming the key (AUTH-2).
+
+If your config has the line, remove it and either give gRPC a certificate:
+
+```yaml
+server:
+  grpc:
+    tls:
+      enabled: true
+      cert_file: /etc/keyorix/grpc.crt
+      key_file: /etc/keyorix/grpc.key
+```
+
+or terminate gRPC TLS at a proxy. `server.http.tls.auto_cert` is unchanged.
+
+## 6u. Failure audit events are now stored with `success = false`
+
+`mfa.failed`, `mfa.error`, `webauthn.failed` and the other audit events whose name
+records a failure (`auth.session_revocation_failed`, `auth.keep_session_lookup_failed`,
+`auth.session_revocation_panicked`, `secret.rotate_failed`, `dynamic_lease.revoke_failed`,
+`notification.failed`, and the rest of the `*_failed` / `*.failed` / `*_panicked`
+family) were written with `success = true`, so a wrong TOTP code or a failed passkey
+assertion was invisible to `success = false` filters, SIEM rules and exports (#3363).
+New rows have `success = false`. **Rows written before the upgrade keep
+`success = true`**: audit rows are hash-chained and never rewritten. A query or SIEM
+rule that must cover older history should match on `event_type` as well as
+`success`. `access_request.rejected` is unchanged (it records a successful decision).
+
+## 6j. CLI: webhook URLs and tokens stay off the command line
+
+Changes in the `keyorix` CLI and web UI; the server needs no action. Check your scripts
+before upgrading the CLI:
+
+- **`keyorix notification channel add|update --url <webhook>` is now refused** (exit
+  code 2, the value is never echoed). A webhook URL is a credential: the token lives in its
+  path. Give it with `--url-file <relative path>` or `--url-file -` (stdin), for example
+  `printf %s "$SLACK_URL" | keyorix notification channel add ops-slack --type slack
+  --url-file -`. While you migrate, `KEYORIX_ALLOW_INSECURE_SECRET_FLAGS=1` turns the
+  refusal back into a warning. `channel get` shows the masked `https://host/…` that the
+  server returns since the v2 channel contract; the full URL is not retrievable after
+  create. The web form takes the URL in a password-type field and, for an existing
+  channel, shows the masked value with a "Replace URL" button.
+- **Every refused secret flag and a bad `keyorix doctor --output` now exit with code 2**
+  (usage error) instead of 1. A script that branched on 1 for "login --password was
+  refused" must accept 2. `keyorix doctor` itself still exits 1 when a check failed; this is
+  now in the exit-code table of `keyorix --help`.
+- **New:** `KEYORIX_TOKEN_FILE=<path>` (mode 0600/0400, or 0440 as a mounted Secret; setting
+  `KEYORIX_TOKEN` too is an error), and `keyorix machine token issue --output-file <path>`
+  (new 0600 file, refuses to overwrite). A bad token file is an error naming the file, never
+  a silent fallback to the stored login.
+- **Operator messages name real commands.** The nonce-budget warning, the KMS context
+  fallback warning, the Shamir commitment warning and the `require_existing_path` refusal now
+  say `keyorix-server admin encryption rotate --confirm`, `keyorix-server admin encryption
+  migrate-provider ...`, `keyorix-server admin encryption shamir-split` and `keyorix-server
+  admin init`, which exist; the old texts named commands that do not. If you alert on the
+  old wording of these log lines, update the pattern.
+- **Dynamic-secret targets on a private network:** `POST /api/v1/dynamic-secrets/configs`
+  (and issue) now answer 400 with `the admin_dsn host "..." is a private or link-local
+  address, which the server's egress policy refuses ... set
+  dynamic_secrets.insecure_allow_private_network_dynamic_secret_targets: true` instead of
+  "an internal error occurred". Behaviour is unchanged: the target is still refused unless a
+  server operator sets that option.
 
 ## 7. Rollback
 

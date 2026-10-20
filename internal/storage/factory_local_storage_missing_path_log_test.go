@@ -120,7 +120,7 @@ func TestCreateLocalStorage_RequireExistingPath_RefusesMissing(t *testing.T) {
 	err := bootLocalStorage(t, path, true)
 	require.Error(t, err, "with database.require_existing_path set, boot against a missing SQLite path must refuse")
 	assert.Contains(t, err.Error(), "no database found at")
-	assert.Contains(t, err.Error(), "keyorix system init --database",
+	assert.Contains(t, err.Error(), "keyorix-server admin init",
 		"the refusal must name the deliberate way to create one, not just say no")
 
 	// Assert the EFFECT, not only the returned error: a refusal that had

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
@@ -73,9 +74,14 @@ type AuthConfigResponse struct {
 	Session        SessionSummary        `json:"session"`
 	PasswordPolicy PasswordPolicySummary `json:"password_policy"`
 	LoginLockout   LoginLockoutSummary   `json:"login_lockout"`
-	RequireMFA     bool                  `json:"require_mfa"`
-	WebAuthn       WebAuthnSummary       `json:"webauthn"`
-	SSO            SSOSummary            `json:"sso"`
+	// RequireMFA is whether security.require_mfa is in force right now: false
+	// while ADR-112's upgrade grace period runs (RequireMFAGrace says until when).
+	RequireMFA bool `json:"require_mfa"`
+	// RequireMFAGrace is the running require_mfa upgrade grace period (#2923),
+	// omitted when there is none.
+	RequireMFAGrace *MFAGraceSummary `json:"require_mfa_grace,omitempty"`
+	WebAuthn        WebAuthnSummary  `json:"webauthn"`
+	SSO             SSOSummary       `json:"sso"`
 }
 
 // MakeAuthConfigHandler returns a handler serving a read-only, redacted
@@ -84,6 +90,13 @@ type AuthConfigResponse struct {
 // SSO client secrets, SAML metadata, and per-provider OIDC details are
 // deliberately excluded.
 func MakeAuthConfigHandler(cfg *config.Config) http.HandlerFunc {
+	return MakeAuthConfigHandlerLive(cfg, nil)
+}
+
+// MakeAuthConfigHandlerLive is MakeAuthConfigHandler reporting require_mfa as
+// coreService enforces it at request time (ADR-112's upgrade grace period,
+// #2923, ends while the server runs). A nil coreService reports the config.
+func MakeAuthConfigHandlerLive(cfg *config.Config, coreService *core.KeyorixCore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userCtx := middleware.GetUserFromContext(r.Context())
 		if userCtx == nil {
@@ -153,9 +166,32 @@ func MakeAuthConfigHandler(cfg *config.Config) http.HandlerFunc {
 				Providers: providers,
 			},
 		}
+		if coreService != nil {
+			resp.RequireMFA = coreService.MFARequired()
+			resp.RequireMFAGrace = mfaGraceSummary(coreService)
+		}
 
 		sendSuccess(w, resp, "")
 	}
+}
+
+// MFAGraceSummary is a running ADR-112 require_mfa upgrade grace period
+// (#2923): MFA is not enforced until EndsAt (RFC 3339), or until the first
+// administrator enrols a second factor if that comes first. DaysLeft is the
+// whole days left, rounded up. Clients show it as a persistent banner to users
+// without a second factor: when it ends they are sent to MFA enrolment.
+type MFAGraceSummary struct {
+	EndsAt   string `json:"ends_at"`
+	DaysLeft int    `json:"days_left"`
+}
+
+// mfaGraceSummary is coreService's running grace period, nil when none.
+func mfaGraceSummary(coreService *core.KeyorixCore) *MFAGraceSummary {
+	st, ok := coreService.MFAUpgradeGraceStatus()
+	if !ok {
+		return nil
+	}
+	return &MFAGraceSummary{EndsAt: st.EndsAt.UTC().Format(time.RFC3339), DaysLeft: st.DaysLeft}
 }
 
 // KeyProviderSummary is a deliberately narrow view of config.KeyProviderConfig:

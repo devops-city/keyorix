@@ -6,6 +6,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -42,6 +43,24 @@ func isSafeDynamicSecretError(msg string) bool {
 		}
 	}
 	return false
+}
+
+// dynamicSecretClientMessage is the message an API caller gets for a failed dynamic-secret
+// operation, and logs op's failure server-side. The egress policy's refusal of a
+// private-network target is a deliberate, safe message (what was refused, which setting
+// allows it); the allowlisted core messages pass through; anything else is masked, because
+// it can carry driver, storage or connection detail (backlog #116).
+func dynamicSecretClientMessage(err error, op string) string {
+	if refused, ok := errors.AsType[*core.DynamicSecretTargetRefusedError](err); ok {
+		log.Printf("%s: %s", op, dynamic.SanitizeErrorMessage(refused)) // server-side only; the client gets ClientMessage()
+		return refused.ClientMessage()
+	}
+	msg := err.Error()
+	if isSafeDynamicSecretError(msg) {
+		return msg
+	}
+	log.Printf("%s: %s", op, dynamic.SanitizeErrorMessage(err))
+	return clientSafe(err)
 }
 
 // DynamicSecretHandler handles dynamic-secrets HTTP requests.
@@ -124,11 +143,7 @@ func (h *DynamicSecretHandler) CreateConfig(w http.ResponseWriter, r *http.Reque
 		ActorID:           userCtx.PrincipalID(),
 	})
 	if err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error creating dynamic-secret config: %s", dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, "Error creating dynamic-secret config")
 		sendError(w, "Error", msg, http.StatusBadRequest, nil)
 		return
 	}
@@ -186,11 +201,7 @@ func (h *DynamicSecretHandler) IssueLease(w http.ResponseWriter, r *http.Request
 
 	lease, err := h.coreService.IssueLease(r.Context(), cfg.ID, body.TTLSeconds, userCtx.UserID)
 	if err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error issuing dynamic-secret lease for config %d: %s", cfg.ID, dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, fmt.Sprintf("Error issuing dynamic-secret lease for config %d", cfg.ID))
 		sendError(w, "Error", msg, http.StatusBadGateway, nil)
 		return
 	}
@@ -228,11 +239,7 @@ func (h *DynamicSecretHandler) RevokeLease(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.coreService.RevokeLease(r.Context(), leaseID, userCtx.UserID, "manual"); err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error revoking dynamic-secret lease %q: %s", leaseID, dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, fmt.Sprintf("Error revoking dynamic-secret lease %q", leaseID))
 		sendError(w, "Error", msg, http.StatusBadGateway, nil)
 		return
 	}
@@ -256,11 +263,7 @@ func (h *DynamicSecretHandler) RenewLease(w http.ResponseWriter, r *http.Request
 	_ = json.NewDecoder(r.Body).Decode(&body) // body optional; default TTL on absence
 	newExpiry, err := h.coreService.RenewLease(r.Context(), leaseID, body.TTLSeconds, userCtx.UserID)
 	if err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error renewing dynamic-secret lease %q: %s", leaseID, dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, fmt.Sprintf("Error renewing dynamic-secret lease %q", leaseID))
 		sendError(w, "Error", msg, http.StatusBadGateway, nil)
 		return
 	}
@@ -280,11 +283,7 @@ func (h *DynamicSecretHandler) RevokeAllLeases(w http.ResponseWriter, r *http.Re
 	}
 	revoked, failed, err := h.coreService.RevokeLeasesForConfig(r.Context(), cfg.ID, userCtx.UserID, "bulk")
 	if err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error revoking all dynamic-secret leases for config %d: %s", cfg.ID, dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, fmt.Sprintf("Error revoking all dynamic-secret leases for config %d", cfg.ID))
 		sendError(w, "Error", msg, http.StatusBadGateway, nil)
 		return
 	}
@@ -313,11 +312,7 @@ func (h *DynamicSecretHandler) ClassifyConfig(w http.ResponseWriter, r *http.Req
 	}
 	updated, err := h.coreService.ClassifyDynamicSecretConfig(r.Context(), userCtx.UserID, cfg.ID, body.Classification)
 	if err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error classifying dynamic-secret config %d: %s", cfg.ID, dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, fmt.Sprintf("Error classifying dynamic-secret config %d", cfg.ID))
 		sendError(w, "Error", msg, http.StatusBadRequest, nil)
 		return
 	}
@@ -347,11 +342,7 @@ func (h *DynamicSecretHandler) SetConfigEnabled(w http.ResponseWriter, r *http.R
 	}
 	updated, err := h.coreService.SetDynamicSecretConfigEnabled(r.Context(), userCtx.UserID, cfg.ID, body.Enabled)
 	if err != nil {
-		msg := err.Error()
-		if !isSafeDynamicSecretError(msg) {
-			log.Printf("Error setting enabled state for dynamic-secret config %d: %s", cfg.ID, dynamic.SanitizeErrorMessage(err))
-			msg = clientSafe(err)
-		}
+		msg := dynamicSecretClientMessage(err, fmt.Sprintf("Error setting enabled state for dynamic-secret config %d", cfg.ID))
 		sendError(w, "Error", msg, http.StatusBadRequest, nil)
 		return
 	}

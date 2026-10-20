@@ -98,7 +98,7 @@ active users, audit events, security status.
 Open **Compliance**. A fresh demo is deliberately calm: the control matrix reads
 `16 controls · 12 pass · 1 gap` (the other 3 are optional controls that are not
 configured on a demo: certificate scanning, data retention, signed-update keys). The
-single gap is **Secret-rotation hygiene**: *0 overdue, 0 due soon; 2 of 3 secrets
+single gap is **Secret-rotation hygiene**: *0 overdue, 0 due soon; 12 of 13 secrets
 covered*. That is the talking point, and it is a real one: `payments-webhook-secret`
 in backend-api / Production was added after the rotation policies were written, so
 nothing would ever tell anyone it is going stale. Keyorix finds it because it checks

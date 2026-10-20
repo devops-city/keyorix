@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AuthState, User, LoginFormData, LoginResponse, ImpersonatedBy, MfaChallengeState } from '../types';
+import {
+    AuthState,
+    User,
+    LoginFormData,
+    LoginResponse,
+    ImpersonatedBy,
+    MfaChallengeState,
+    MfaGrace,
+    MfaGraceWire,
+} from '../types';
 import { authService } from '../services/auth';
 import {
     persistAuthData,
@@ -82,7 +91,13 @@ function buildUserFromLoginResponse(response: LoginResponse): User {
         passwordChangeRequired: response.password_change_required || false,
         ...(response.account_state ? { accountState: response.account_state } : {}),
         ...(response.pending_steps?.length ? { pendingSteps: response.pending_steps } : {}),
+        ...(response.mfa_grace ? { mfaGrace: mfaGraceFromWire(response.mfa_grace) } : {}),
     };
+}
+
+// mfaGraceFromWire maps the server's MFAGrace (#2923) onto User.mfaGrace.
+export function mfaGraceFromWire(g: MfaGraceWire): MfaGrace {
+    return { endsAt: g.ends_at, daysLeft: g.days_left };
 }
 
 // Shared in-flight refresh promise so concurrent callers coalesce onto a single
@@ -333,6 +348,9 @@ export const useAuthStore = create<AuthStore>()(
                             // reload of a setup-only session routes without probing a protected
                             // endpoint (which would 403).
                             ...(profile.pending_steps?.length ? { pendingSteps: profile.pending_steps } : {}),
+                            // #2923: re-read on every reload, so the banner goes away once the
+                            // grace period ends (or the account enrols).
+                            ...(profile.mfa_grace ? { mfaGrace: mfaGraceFromWire(profile.mfa_grace) } : {}),
                         };
                         // impersonation is present only while the session is actively
                         // impersonating — server-validated, not a client claim (see

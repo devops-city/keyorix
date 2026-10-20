@@ -343,9 +343,11 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// an interactive session without a second factor when the deployment mandates
 		// MFA (security.require_mfa, ADR-112). Owing both opens both, in either order
 		// (#3024). core learns the same policy so a login owing both steps gets a
-		// short-lived setup-only session that is revoked once setup is done.
+		// short-lived setup-only session that is revoked once setup is done. The gate
+		// reads MFARequired per request: ADR-112's upgrade grace period (#2923) ends
+		// while the server runs.
 		coreService.SetRequireMFA(cfg.Security.RequireMFA)
-		r.Use(customMiddleware.EnforceAccountSetup(cfg.Security.RequireMFA))
+		r.Use(customMiddleware.EnforceAccountSetupLive(coreService.MFARequired))
 		// A restricted PAT is refused on every ungated write core's table marks
 		// refused (ADR-042, PAT-GUARD-3): the self-service writes below never reach
 		// Authorize, so its restriction would mean nothing there.
@@ -448,7 +450,7 @@ func NewRouter(cfg *config.Config, coreService *core.KeyorixCore) (http.Handler,
 		// group below: that group is the RemoteStorage server-to-server proxy API
 		// (machine credentials only, system.write-gated) — these are human-facing reads,
 		// so they sit here alongside /dashboard/stats at system.read instead.
-		r.With(customMiddleware.RequirePermission(permSystemRead)).Get("/system/auth-config", handlers.MakeAuthConfigHandler(cfg))
+		r.With(customMiddleware.RequirePermission(permSystemRead)).Get("/system/auth-config", handlers.MakeAuthConfigHandlerLive(cfg, coreService))
 		r.With(customMiddleware.RequirePermission(permSystemRead)).Get("/system/encryption-config", handlers.MakeEncryptionConfigHandler(cfg))
 		// Same reasoning as auth-config/encryption-config above: server version/
 		// build/runtime info and memory/GC/HTTP/DB metrics are human-facing reads,

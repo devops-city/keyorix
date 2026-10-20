@@ -282,3 +282,37 @@ through one shared mechanism helps structurally (a single code path means a
 single timing profile, rather than N independently-timed implementations),
 but actually measuring and closing that gap is a separate pass — not
 attempted as part of this ADR or its migration.
+
+## Amendment 1 (2026-10-17): a zero-grant caller on a list route gets an empty 200
+
+Decided by Andrei, 2026-10-17 (MACHINE-IDENT-DENY-1). It makes the
+"List endpoints" bullet under "Scope" explicit for a caller holding no grant at
+all, such as a machine identity created with no role. The SDK contract suites
+expected 403 for this caller, and nothing written down said otherwise.
+
+For an authenticated caller with no grant:
+
+1. **A list route answers 200 with only the rows the caller may read**, which
+   for this caller means none. A list is filtered by permission, not gated on
+   it. This is the reasoning in #2780's code comments:
+   `CatalogHandler.ListProjects` and `ListEnvironments`
+   (`server/http/handlers/catalog.go`) and `internal/core/project_visibility.go`
+   ("Why this exists (#2780)"). Those comments carry `ListSecrets`' existing
+   behaviour over to the project and environment lists.
+2. **A single-object read without a grant stays 403**, per the convention
+   above.
+3. **A bad token stays 401.** The empty 200 is only for a token that
+   authenticates.
+
+Guard, once #3403 merges: `server/http`
+`TestZeroGrantMachine_ProjectListIsEmpty200` checks parts 1 and 2 for a fresh
+machine identity on SQLite and Postgres.
+`TestEveryGETRouteWithholdsDataFromZeroGrantCredentials` and
+`TestZeroGrantAfterRevocation_CachedMachineTokenReadsNothing` check that every
+GET route discloses nothing to such a caller, including just after its last
+grant is revoked. They check what is disclosed, not which code a gated route
+returns, so a route that hides a gated read behind an empty 200 would not fail
+them. **Part 3 is not yet tested end to end.** The only 401 test,
+`server/middleware` `TestHandleAuthRequest_NegativeCacheHit_Returns401`, seeds
+the token cache directly. A follow-up adds a mangled-machine-token → 401
+assertion on `GET /api/v1/projects` to `TestZeroGrantMachine_ProjectListIsEmpty200`.

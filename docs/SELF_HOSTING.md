@@ -330,8 +330,10 @@ restoring into a fresh database, not overwriting a live one.
 **Recovery point (RPO).** The recovery point is the backup itself: a restore
 brings back exactly what the archive's snapshot held (on PostgreSQL the instant the
 `REPEATABLE READ` snapshot was taken, on SQLite the moment the server was stopped),
-including the audit chain up to and including the archive's own
-`admin.backup_created` event, and nothing written afterwards. Your worst-case data
+including the audit chain up to the snapshot, and nothing written afterwards (the
+`admin.backup_created` event is recorded in the SOURCE database after the archive is
+written, so it is not in the archive; the restore appends its own
+`admin.restore_completed` event instead). Your worst-case data
 loss is therefore your backup interval plus the time to notice. Keyorix does not
 replay a write-ahead log: to shrink the interval below what scheduled `admin backup`
 runs give you, add PostgreSQL point-in-time recovery on your own infrastructure
@@ -383,17 +385,79 @@ After a manual restore, run `docker compose run --rm backend ./keyorix-server ad
 
 ### Moving from SQLite to Postgres
 
-`admin restore` doesn't care which backend a backup came from — only which
-one the *target* config points at. Take a backup from a SQLite (single-binary)
-deployment, point a fresh config at a Postgres database instead, and restore
-into it: same command, same code path as any other restore, no separate
-migration tool or conversion step (`docs/design-b3-backup-v2.md` §8). This
-works directly for any archive a v2-writing binary produced (every release
-from the one that introduced this backup format onward). An archive from an
-*older* release that only ever wrote the v1 (physical, SQLite-only) format
-can only restore into SQLite — restore it there first with the current
-binary (which also upgrades its schema), take a fresh backup of that, and
-restore *that* into Postgres.
+`admin restore` doesn't care which backend a backup came from, only which one the
+*target* config points at. So the move from a Standalone (SQLite) install to a Server
+(PostgreSQL) install is `admin backup` on the old instance and `admin restore` into a
+config that points at an empty PostgreSQL database: same commands and code path as any
+other restore, no separate migration tool (`docs/design-b3-backup-v2.md` §8). It works
+for any archive a v2-writing binary produced. An archive from an *older* release that
+only wrote the v1 (physical, SQLite-only) format can only restore into SQLite: restore
+it there first with the current binary, take a fresh backup of that, and restore *that*
+into Postgres.
+
+**Verified procedure** (`scripts/migrate/sqlite-to-pg-check.sh`, see
+[operator/drill-sqlite-to-postgres.md](operator/drill-sqlite-to-postgres.md), exercises
+every step below on a seeded instance):
+
+1. Create an **empty** PostgreSQL database and a role that owns it. Restore creates the
+   schema; it refuses a database that already has tables.
+2. Stop the SQLite server (`admin backup` refuses beside a live SQLite server).
+3. Recommended: export an off-host audit anchor first (`admin audit export-checkpoint`,
+   `admin audit export-checkpoint-key`; the server must have run for one checkpoint
+   interval). You can then prove after the move that the chain continues from it.
+4. `keyorix-server admin backup --output migrate.tar.gz`. This is the only write the
+   procedure makes to the SQLite source: one `admin.backup_created` audit event.
+5. On the new host (or the same one): copy `keyorix.yaml`, `certs/` and the secrets
+   files, **not** `keys/`; set `storage.type: postgres` and the `database` block
+   (host, port, name, user, `ssl_mode`; the password via `KEYORIX_DB_PASSWORD`). Use the
+   **same** `KEYORIX_MASTER_PASSWORD`.
+6. `keyorix-server admin restore --input migrate.tar.gz`. It installs the key files,
+   migrates the empty database, loads every table in one transaction, resynchronises
+   the sequences and verifies the audit chain; the last line must read
+   `verify-audit on the restored database: VALID`.
+7. Optional proof: `admin verify-audit --anchor checkpoint-export.json --checkpoint-key-file checkpoint.key`.
+8. Start the server on PostgreSQL.
+
+**What was checked** on a seeded instance (projects, secrets with several versions, a
+soft-deleted and a suspended secret, shares, two users with MFA, a group, a machine
+identity with a live and a revoked token, a dynamic-secret config, break-glass history,
+more than 10,000 audit events after a retention purge): all 78 tables have the same row
+counts and checksums on both sides; every secret decrypts with the same keys; password +
+TOTP logins, machine tokens (the revoked one stays revoked), shares, suspended and
+deleted secrets and the dynamic-secret config's encrypted admin DSN all work on
+PostgreSQL; the audit chain verifies and also verifies against the checkpoint exported
+from the SQLite instance, so there is **no new genesis**: the restore appends one
+`admin.restore_completed` event to the existing chain and nothing else; the signed
+retention anchor is byte-identical; the schema epoch matches the binary's.
+
+**Not carried over, by design:** `secret_nodes.cache_epoch` (a trigger-maintained
+read-cache stamp; a fresh database starts it at 0), and the `system_metadata` rows
+`schema_epoch`, `schema_min_compatible_epoch` and `role_permissions_generation`, which
+the target's own migration writes before the load and the archive must not overwrite.
+TOTP anti-replay state *is* carried over: a user who logged in on SQLite is refused the
+same code on PostgreSQL within its 30-second step.
+
+**If the restore is interrupted** (`kill -9`, power loss, the database going away): the
+restore cannot be resumed, but it restarts cleanly. The row load is one transaction, so
+the target never holds a partial set of rows (checked by killing it while migrating and
+while loading: no schema, or a schema with 0 rows). What it leaves behind are the key
+files it installed (`keys/dek.key`, `keys/kek.salt`) and, after the migration step, the
+empty schema, so a plain re-run is refused. Either:
+
+- re-run with `--overwrite-existing` (the refusal message suggests it; the key files are
+  replaced and the previous ones kept as `*.pre-restore-<timestamp>`); or
+- start over: delete the key files the restore installed, drop and recreate the empty
+  database, re-run.
+
+Use the second for anything other than a restore you just interrupted: on a database that
+holds other data, `--overwrite-existing` neither empties it nor is it a merge.
+
+**Rollback.** The SQLite source is not modified by the restore (checked byte for byte,
+including after killed restores), so rolling back before you cut over is to keep running
+it. After cutover, writes land only in PostgreSQL; there is no reverse sync. To go back
+with them, `admin backup` on PostgreSQL and `admin restore` into a SQLite config (the
+same commands the other way round; this direction is not exercised by the check). Keep
+the SQLite file and the archive until you have run on PostgreSQL long enough to trust it.
 
 ### Version-skipping upgrades
 

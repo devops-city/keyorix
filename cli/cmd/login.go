@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -128,7 +129,24 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Logged in to %s as %s.\n", serverURL, username)
+	if w := mfaGraceWarning(profileResp.Body); w != "" {
+		fmt.Fprintln(os.Stderr, w)
+	}
 	return nil
+}
+
+// mfaGraceWarning is the warning for a profile that carries mfa_grace (#2923):
+// the server is in ADR-112's require_mfa upgrade grace period and this account
+// has no second factor yet. "" when the profile has none.
+func mfaGraceWarning(profileBody []byte) string {
+	p, err := decodeData[struct {
+		MFAGrace *apiclient.MFAGrace `json:"mfa_grace"`
+	}](profileBody)
+	if err != nil || p.MFAGrace == nil {
+		return ""
+	}
+	return fmt.Sprintf("Warning: this server does not require MFA for your account yet (ADR-112 upgrade grace period): %d day(s) left, until %s, or until the first administrator enrols MFA if that comes first. After that you are sent to MFA enrolment when you sign in. Enrol now: keyorix mfa enroll, then keyorix mfa activate.",
+		p.MFAGrace.DaysLeft, p.MFAGrace.EndsAt.UTC().Format(time.RFC3339))
 }
 
 // ── /auth/login's two 200 response shapes (#2737) ─────────────────────────────

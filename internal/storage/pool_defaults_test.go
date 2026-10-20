@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	sqlite "github.com/keyorixhq/keyorix/internal/storage/sqlitedialect"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
+	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
@@ -259,14 +259,5 @@ func benchPGDatabase(b *testing.B) string {
 			_ = sqlDB.Close()
 		}
 	})
-	if strings.Contains(base, "dbname=") {
-		fields := strings.Fields(base)
-		for i, f := range fields {
-			if strings.HasPrefix(f, "dbname=") {
-				fields[i] = "dbname=" + name
-			}
-		}
-		return strings.Join(fields, " ")
-	}
-	return base + " dbname=" + name
+	return pgdsn.PGReplaceDBName(base, name)
 }
