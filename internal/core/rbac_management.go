@@ -278,11 +278,19 @@ func (c *KeyorixCore) RemoveRoleFromGroup(ctx context.Context, actorID, groupID,
 	if _, err := c.storage.GetGroup(ctx, groupID); err != nil {
 		return fmt.Errorf("group not found: %w", err)
 	}
-	return c.withGroupRoleRemovalGuards(ctx, groupID, roleID, scope, func(ctx context.Context) error {
-		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+	var settle func() // appends the owed row; called after the guard lock is released
+	err := c.withGroupRoleRemovalGuards(ctx, groupID, roleID, scope, func(ctx context.Context) error {
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			return c.removeGroupRoleWriteOn(ctx, tx, tgt, actorID, groupID, roleID, scope)
 		})
+		return merr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // withGroupRoleRemovalGuards runs write under exactly the named lock and
@@ -735,9 +743,17 @@ func (c *KeyorixCore) RemoveUserRole(ctx context.Context, actorID, userID, roleI
 			return nil
 		}
 	}
-	return c.withUserRoleRemovalGuards(ctx, userID, roleID, scope, func(ctx context.Context) error {
-		return c.removeUserRoleUnguarded(ctx, actorID, userID, roleID, scope)
+	var settle func() // appends the owed row; called after the guard lock is released
+	err := c.withUserRoleRemovalGuards(ctx, userID, roleID, scope, func(ctx context.Context) error {
+		var rerr error
+		settle, rerr = c.removeUserRoleUnguarded(ctx, actorID, userID, roleID, scope)
+		return rerr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // withUserRoleRemovalGuards runs write under exactly the named lock and
@@ -811,16 +827,21 @@ func (c *KeyorixCore) withUserRoleRemovalGuards(ctx context.Context, userID, rol
 // now calls this unguarded primitive directly for its removal-loop steps,
 // relying on its own already-correct, whole-operation guard instead of
 // RemoveUserRole's necessarily narrower, single-call one.
-func (c *KeyorixCore) removeUserRoleUnguarded(ctx context.Context, actorID, userID, roleID uint, scope Scope) error {
-	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+//
+// It returns settle (non-nil only once the removal has committed) instead of calling
+// it: both callers hold a named lock around this, and during an audit outage settle
+// waits up to owedAuditWait per refused row, which must not be spent holding a
+// last-admin / project-admin lock. The caller calls settle after releasing the lock
+// (the cache is already evicted here, so the revocation has taken effect).
+func (c *KeyorixCore) removeUserRoleUnguarded(ctx context.Context, actorID, userID, roleID uint, scope Scope) (settle func(), err error) {
+	settle, err = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		return c.removeUserRoleWriteOn(ctx, tx, tgt, actorID, userID, roleID, scope)
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	c.evictUserSessionCache(ctx, userID)
-	settle() // after the eviction: the audit log never delays a revocation taking effect
-	return nil
+	return settle, nil
 }
 
 // removeUserRoleWriteOn is the user-role removal's persistent effect — the

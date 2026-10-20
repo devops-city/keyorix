@@ -859,7 +859,13 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 	// calls for two different admins each observe "not the last admin" and both
 	// proceed on two different replicas, jointly stranding the install with zero
 	// admins. See lastAdminGuardLockKey's doc comment (account_state.go).
-	return c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
+	//
+	// The owed row is appended (settle) only AFTER the named lock is released: during an
+	// audit outage a refused append waits up to owedAuditWait, and holding the
+	// install-wide last-admin lock for that long would serialise every last-admin
+	// operation behind the audit log.
+	var settle func()
+	err := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		if err := c.guardLastAdminDeactivation(ctx, id); err != nil {
 			return err
 		}
@@ -868,8 +874,8 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 		var user *models.User
 		// AUDIT-TX-3: deleting a user is a revocation, so never blocked by the audit
 		// log: its user.deleted row is owed from this same transaction and appended
-		// after the cache eviction below.
-		settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		// after the cache eviction below (and after the lock is released).
+		owedSettle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			// #2677: deprovision from the row as it is NOW, under its row lock,
 			// and write only the columns this changes. It used to set them on the
 			// GetUser result read before the lock and persist that whole struct
@@ -924,9 +930,15 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 		c.invalidateTokenCache(sessionHashes...)
 		c.invalidateTokenCache(patHashes...)
 		purgeStepUpGrants(ctx, c.storage, id)
-		settle()
+		settle = owedSettle
 		return nil
 	})
+	// settle is set only once the delete has committed; call it even if releasing the
+	// lock failed, so the owed row is never left unattempted.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // EventUserCredentialsRevoked is audited when an admin-driven bulk PAT/session

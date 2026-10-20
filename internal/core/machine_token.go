@@ -623,11 +623,19 @@ func (c *KeyorixCore) RemoveMachineRole(ctx context.Context, machineID, roleID u
 	if err != nil {
 		return err
 	}
-	return c.withMachineRoleRemovalGuards(ctx, machineID, scope, func(ctx context.Context) error {
-		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+	var settle func() // appends the owed row; called after the named lock is released
+	err = c.withMachineRoleRemovalGuards(ctx, machineID, scope, func(ctx context.Context) error {
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			return c.removeMachineRoleWriteOn(ctx, tx, tgt, m, roleID, scope, actorID)
 		})
+		return merr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // withMachineRoleRemovalGuards runs write under exactly the named lock and

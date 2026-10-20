@@ -140,6 +140,7 @@ func (c *KeyorixCore) UpdateGroup(ctx context.Context, actorID uint, req *Update
 // the delete's own transaction.
 func (c *KeyorixCore) deleteGroupGuarded(ctx context.Context, id uint, audit func(tgt auditTarget, group *models.Group)) (*models.Group, error) {
 	var group *models.Group
+	var settle func() // appends the owed row; called after the guard locks are released
 	err := c.withGroupProjectAdminGuardLocks(ctx, id, func(ctx context.Context) error {
 		var gerr error
 		group, gerr = c.storage.GetGroup(ctx, id)
@@ -152,14 +153,20 @@ func (c *KeyorixCore) deleteGroupGuarded(ctx context.Context, id uint, audit fun
 		if err := c.guardLastProjectAdminGroupDelete(ctx, id); err != nil {
 			return err
 		}
-		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.DeleteGroup(ctx, id); err != nil {
 				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 			}
 			audit(tgt, group)
 			return nil
 		})
+		return merr
 	})
+	// settle is set only once the delete has committed; the guard locks are released.
+	if settle != nil {
+		settle()
+	}
 	return group, err
 }
 
@@ -400,7 +407,8 @@ func (c *KeyorixCore) RemoveUserFromGroup(ctx context.Context, actorID, userID, 
 	// concurrent removals of two DIFFERENT users (each independently the last
 	// route to admin via this or another group) could each observe "another
 	// admin survives" before either commits.
-	return c.withGroupProjectAdminGuardLocks(ctx, groupID, func(ctx context.Context) error {
+	var settle func() // appends the owed row; called after the guard locks are released
+	err := c.withGroupProjectAdminGuardLocks(ctx, groupID, func(ctx context.Context) error {
 		if err := c.guardLastGlobalAdminMembership(ctx, userID, groupID); err != nil {
 			return err
 		}
@@ -408,14 +416,21 @@ func (c *KeyorixCore) RemoveUserFromGroup(ctx context.Context, actorID, userID, 
 			return err
 		}
 		// AUDIT-TX-3: a revocation: never blocked by the audit log, row owed.
-		return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.RemoveUserFromGroup(ctx, userID, groupID, projectID); err != nil {
 				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 			}
 			c.logGroupMemberChangeOn(ctx, tgt, EventGroupMemberRemoved, "removed from group", actorID, userID, groupID)
 			return nil
 		})
+		return merr
 	})
+	// settle is set only once the removal has committed; the guard locks are released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // RemoveUserFromGroupGlobal is a convenience wrapper that removes the global
