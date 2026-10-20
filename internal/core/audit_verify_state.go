@@ -206,7 +206,7 @@ func (c *KeyorixCore) loadAuditVerifyState(ctx context.Context) (st *auditVerify
 	switch {
 	case err != nil:
 	case reason != "":
-		observeAuditVerifyStateUntrusted(st)
+		c.observeAuditVerifyStateUntrusted(st)
 	case c.AuditCheckpointsAvailable():
 		c.observeAuditVerifyState(st)
 	}

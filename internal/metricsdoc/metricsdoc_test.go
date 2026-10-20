@@ -122,6 +122,10 @@ var postureMetricsMustBeProtected = []string{
 	"keyorix_audit_write_failures_total",
 	"keyorix_auth_budget_rejections_total",
 	"keyorix_single_writer_unattributed_bumps_total",
+	"keyorix_audit_verify_last_success_timestamp_seconds",
+	"keyorix_audit_verify_failure_recorded",
+	"keyorix_audit_verify_state_rejected",
+	"keyorix_audit_owed_pending",
 }
 
 func endpointOf(d metricDef) string {

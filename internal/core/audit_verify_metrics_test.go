@@ -130,6 +130,82 @@ func TestAuditVerifyMetrics_UntrustedRowWithStickyFailureRaisesGauge(t *testing.
 		"an untrusted row carrying a sticky failure must raise the failure gauge")
 }
 
+// A status reader that loaded a trusted generation N without the lock can reach the
+// publish after another load found the row untrusted and raised the flags. The
+// untrusted raise must advance the published generation, or the stale reader passes
+// the guard and lowers the failure gauge again (masking the tamper page).
+func TestAuditVerifyMetrics_UntrustedRaiseThenStaleTrustedPublish(t *testing.T) {
+	c, _, clk := newIncrementalTestCore(t, 4)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		auditVerifyFailureRecorded.Set(0)
+		auditVerifyStateRejected.Set(0)
+	})
+
+	// Generation 9 is the newest published, clean.
+	require.NoError(t, c.saveAuditVerifyState(ctx, &auditVerifyState{Gen: 9}))
+	require.Equal(t, float64(0), testutil.ToFloat64(auditVerifyFailureRecorded))
+
+	// Another load finds the stored row untrusted but carrying a sticky failure.
+	c.observeAuditVerifyStateUntrusted(&auditVerifyState{V: 1, Gen: 9,
+		Failure: &auditVerifyFailure{DetectedAt: clk.t, Gen: 9, Source: "test", Reason: "break"}})
+	require.Equal(t, float64(1), testutil.ToFloat64(auditVerifyFailureRecorded))
+	require.Equal(t, float64(1), testutil.ToFloat64(auditVerifyStateRejected))
+
+	// The stale trusted reader (generation 9, no failure) publishes afterwards.
+	c.observeAuditVerifyState(&auditVerifyState{V: 1, Gen: 9})
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyFailureRecorded),
+		"a stale trusted publish must not lower the failure gauge an untrusted load raised")
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyStateRejected),
+		"a stale trusted publish must not lower the rejected gauge an untrusted load raised")
+
+	// A genuinely newer trusted generation still clears both.
+	c.observeAuditVerifyState(&auditVerifyState{V: 1, Gen: 10})
+	assert.Equal(t, float64(0), testutil.ToFloat64(auditVerifyFailureRecorded))
+	assert.Equal(t, float64(0), testutil.ToFloat64(auditVerifyStateRejected))
+}
+
+// A malformed or rolled-back row reports a low Gen (0 for a malformed one), so the
+// untrusted raise also has to move past the generation floor this process has seen.
+func TestAuditVerifyMetrics_UntrustedRaiseWithLowGenStillBlocksStaleReader(t *testing.T) {
+	c, _, _ := newIncrementalTestCore(t, 4)
+	t.Cleanup(func() {
+		auditVerifyFailureRecorded.Set(0)
+		auditVerifyStateRejected.Set(0)
+	})
+
+	c.bumpAuditVerifyGen(9)
+	c.observeAuditVerifyState(&auditVerifyState{V: 1, Gen: 9})
+	c.observeAuditVerifyStateUntrusted(&auditVerifyState{V: 1}) // malformed: Gen 0
+	require.Equal(t, float64(1), testutil.ToFloat64(auditVerifyStateRejected))
+
+	c.observeAuditVerifyState(&auditVerifyState{V: 1, Gen: 9})
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyStateRejected),
+		"a stale generation-9 reader must not clear a rejection raised by a malformed-row load")
+}
+
+// The startup publish goes through the same generation guard: it cannot lower a
+// gauge a newer publication already raised.
+func TestAuditVerifyMetrics_StartupPublishRespectsGenerationGuard(t *testing.T) {
+	c, db, _ := newIncrementalTestCore(t, 4)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		auditVerifyFailureRecorded.Set(0)
+		auditVerifyStateRejected.Set(0)
+	})
+	require.NoError(t, c.saveAuditVerifyState(ctx, &auditVerifyState{Gen: 3}))
+
+	restarted := NewKeyorixCore(store.NewLocalStorage(db))
+	restarted.now = c.now
+	restarted.SetAuditCheckpointKey([]byte("reanchor-test-key-32-bytes-long"), "v1")
+	restarted.auditVerifyGenPublished = 99 // a newer publication got there first
+	auditVerifyFailureRecorded.Set(1)
+
+	require.NoError(t, restarted.PublishAuditVerifyState(ctx))
+	assert.Equal(t, float64(1), testutil.ToFloat64(auditVerifyFailureRecorded),
+		"the startup publish of an older generation must not lower the failure gauge")
+}
+
 const freshGaugesChildEnv = "KEYORIX_TEST_AUDIT_VERIFY_FRESH_GAUGES_CHILD"
 
 // A fresh process must report the two flag gauges as unknown (NaN), not 0, until it

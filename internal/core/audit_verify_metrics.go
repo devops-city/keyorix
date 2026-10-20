@@ -94,11 +94,24 @@ func (c *KeyorixCore) observeAuditVerifyState(st *auditVerifyState) {
 }
 
 // observeAuditVerifyStateUntrusted marks a load that found the persisted row
-// untrusted. It only ever raises the flags (never lowers, so no generation guard is
-// needed): the rejected flag always, and the failure flag when the untrusted row
-// still carries a sticky failure, which loadAuditVerifyStateUnobserved keeps. A later
-// trusted save/load of a newer generation lowers them.
-func observeAuditVerifyStateUntrusted(st *auditVerifyState) {
+// untrusted. It only raises the flags: the rejected flag always, and the failure
+// flag when the untrusted row still carries a sticky failure, which
+// loadAuditVerifyStateUnobserved keeps. A later trusted save/load of a newer
+// generation lowers them.
+//
+// Raising takes the same lock as observeAuditVerifyState and moves the published
+// generation past everything this process has seen (st.Gen, and the generation
+// floor, since a malformed or rolled-back row reports a low or zero Gen). Otherwise
+// a status reader that loaded generation N before this load could still publish N
+// afterwards, lower the flags again and mask the tamper page.
+func (c *KeyorixCore) observeAuditVerifyStateUntrusted(st *auditVerifyState) {
+	c.auditVerifyPubMu.Lock()
+	defer c.auditVerifyPubMu.Unlock()
+	next := c.auditVerifyGenSeen.Load() + 1
+	if st != nil {
+		next = max(next, st.Gen+1)
+	}
+	c.auditVerifyGenPublished = max(c.auditVerifyGenPublished, next)
 	auditVerifyStateRejected.Set(1)
 	if st != nil && st.Failure != nil {
 		auditVerifyFailureRecorded.Set(1)
