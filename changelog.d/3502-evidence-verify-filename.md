@@ -1,0 +1,2 @@
+### Fixed
+- **`POST /api/v1/compliance/evidence/verify` documents its `filename` field.** The OpenAPI request schema listed only `data_b64` and `signature`, but the evidence signature is bound to the pack's canonical filename, so a client built from the spec could never get a valid verdict. `filename` is now declared and required, and the generated web types and CLI client carry it. Guarded by `TestContract_EvidenceVerifyRequest_RequiresFilename`.

@@ -14653,6 +14653,8 @@ export interface operations {
                     data_b64: string;
                     /** @description The detached signature ('<keyVersion>:<hmac-hex>'). */
                     signature: string;
+                    /** @description The pack's canonical filename as returned by GET /api/v1/compliance/evidence (keyorix-evidence-<UTC timestamp>.json). The signature is bound to it, so a missing or different name never verifies. */
+                    filename: string;
                 };
             };
         };
