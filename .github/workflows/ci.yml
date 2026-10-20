@@ -1259,33 +1259,33 @@ jobs:
           # headroom to spare, matching this workflow's generous-timeout precedent
           # rather than tuning tight to the observed duration.
           #
-          # 8 mod-8 shards -> 6 weighted shards (2026-10-20, CI-SHARD-BALANCE-1).
+          # 8 mod-8 shards -> 4 weighted shards (2026-10-20, CI-SHARD-BALANCE-1).
           # The mod-8 split put the package's heavy tests into two classes: on
           # merge-queue run 39477864156 the `go test` binaries of http-1..8 ran
           # 65 / 162 / 1248 / 57 / 94 / 59 / 1371 / 371 s (3427 s in total, 76%
           # of it in http-3 and http-7), so five legs were ~90% fixed cost
           # (checkout, Postgres, race+cover compile, ~290 s) around a minute of
-          # tests while two ran 25-28 min. Six shards bin-packed by per-test
-          # weight (scripts/ci-test-weights.tsv) put ~570 s of tests plus the
-          # ~290 s fixed cost on each: ~14 min, and two fewer runners.
+          # tests while two ran 25-28 min. Per-test CI times (a -v round on this
+          # PR) show why: TestEveryRouteRefusesADeadCredential (~1560 s with -v)
+          # and TestEveryWriteRouteRefusesAndChangesNothing (~1090 s) are 2/3 of
+          # the package. The weighted pack gives each of them a leg and splits
+          # the other ~480 tests over two more; more legs only add fixed cost.
+          # Splitting INSIDE those two tests (their /sqlite /postgres and
+          # per-route subtests) is the only way below this floor and would need
+          # a subtest-level proof of "runs exactly once"; not done here.
+          # timeout 2400 (was 1800): the longest leg runs one 20+ min test.
           - leg: http-1
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http1.out
           - leg: http-2
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http2.out
           - leg: http-3
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http3.out
           - leg: http-4
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http4.out
-          - leg: http-5
-            timeout: 1800
-            coverage-file: coverage_http5.out
-          - leg: http-6
-            timeout: 1800
-            coverage-file: coverage_http6.out
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1760,7 +1760,7 @@ jobs:
           # floor). The coverage_storage_store*.out files below are included: they are THIS
           # leg's own new file, and omitting it would just be reproducing that
           # same gap in new code rather than inheriting an unrelated one.
-          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root3.out coverage_root4.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out coverage_http5.out coverage_http6.out | grep -v "${grep_args[@]}" >> coverage_merged.out
+          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root3.out coverage_root4.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out | grep -v "${grep_args[@]}" >> coverage_merged.out
           mv coverage_merged.out coverage.out
 
       - name: Check coverage floor (≥${{ env.COVERAGE_FLOOR }}%)

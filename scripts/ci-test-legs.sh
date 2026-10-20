@@ -323,8 +323,8 @@ http_pkg() {
 # This table, ci.yml's matrix and assert_matrix_consistent move together.
 sharded_legs() {
   cat <<'EOF'
-core|core_pkgs|3|1:150
-http|http_pkg|6|-
+core|core_pkgs|3|1:570
+http|http_pkg|4|-
 handlers|handlers_pkg|2|-
 encryption|encryption_pkgs|2|-
 faultops|faultops_pkgs|3|-
