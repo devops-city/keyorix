@@ -44,9 +44,10 @@ func TestJourney_CLISecretsNeverOnTheCommandLine(t *testing.T) {
 
 	t.Run("--value is refused, names the alternatives, and nothing is created", func(t *testing.T) {
 		const canary = "flag-canary-9d3b"
-		out, err := runCLIWithStdin(cliBin, strict, "", "secret", "create", "--name", "via-flag", "--project", pidArg, "--environment", eidArg, "--value", canary)
-		if err == nil {
-			t.Fatalf("a secret on the command line must be refused:\n%s", out)
+		stdout, stderr, code := runCLIExitCode(cliBin, strict, "", "secret", "create", "--name", "via-flag", "--project", pidArg, "--environment", eidArg, "--value", canary)
+		out := stdout + stderr
+		if code != 2 {
+			t.Fatalf("a secret on the command line must be refused as a usage error (exit 2), got exit %d:\n%s", code, out)
 		}
 		for _, want := range []string{"--value is not accepted", "--from-file", "stdin"} {
 			if !strings.Contains(out, want) {
