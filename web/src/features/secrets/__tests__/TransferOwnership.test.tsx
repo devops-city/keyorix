@@ -64,6 +64,7 @@ describe('TransferOwnership', () => {
         await answerConfirm('Transfer ownership of this secret to alice? You will no longer own it.', 'accept');
 
         await waitFor(() => expect(mockMutate).toHaveBeenCalled());
+        expect(mockMutate).toHaveBeenCalledTimes(1);
         expect(mockMutate.mock.calls[0][0]).toBe(5); // new owner id
         expect(confirmSpy).not.toHaveBeenCalled(); // in-app dialog, not window.confirm
         confirmSpy.mockRestore();

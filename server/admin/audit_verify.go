@@ -440,6 +440,17 @@ func printVerifyAuditReport(r *auditverify.Result) {
 		}
 	}
 
+	fmt.Println("\nOwed break-glass audit records:")
+	switch {
+	case !r.OwedBreakGlass.Checked:
+		fmt.Printf("  NOT CHECKED -- %s\n", r.OwedBreakGlass.Error)
+	case r.OwedBreakGlass.Unsettled == 0:
+		fmt.Println("  none -- every break-glass activation's audit rows are in the chain")
+	default:
+		fmt.Printf("  %d UNSETTLED -- activation ids %v were granted while the audit log refused their rows;\n", r.OwedBreakGlass.Unsettled, r.OwedBreakGlass.ActivationIDs)
+		fmt.Println("  the server writes them once the audit log accepts writes (docs/operator/break-glass-runbook.md)")
+	}
+
 	fmt.Println("\nWhat this run does NOT prove:")
 	for _, np := range r.NotProven {
 		fmt.Printf("  - %s\n", np)

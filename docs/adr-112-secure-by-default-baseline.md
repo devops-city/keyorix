@@ -27,6 +27,12 @@ Amendment 4 (2026-10-15, **accepted by Andrei**): a new `insecure_` opt-out,
 successful secret-value reads write no audit row; everything else stays
 audited. See "Amendment 4" below.
 
+Amendment 6 (2026-10-18, BREAKGLASS-OWED-1, from Andrei's decision of
+2026-10-16 "break-glass must work during an audit-subsystem incident without ever
+being unrecorded"): when the audit log refuses an activation's rows, the
+activation commits degraded, together with owed-audit records of those rows, with
+a short lifetime, a loud alert and a mandatory review. See "Amendment 6" below.
+
 Amendment 2 (2026-10-10, **proposed, pending Andrei's OK**, #2908): the
 `enable_file_permission_check` upgrade grace period is a reported state:
 a start-up warning, a settings-diff value and a posture deviation.
@@ -551,6 +557,56 @@ Enforced by `internal/core/mfa_upgrade_grace_test.go`
 - **A configured setting that cannot take effect is reported as off, with the
   reason, as a structured field** — not as a weakening, and not only in log
   text. One start-up warning still prints, worded as "ignored".
+
+## Amendment 6 (2026-10-18): break-glass during an audit-subsystem incident
+
+Decision (Andrei, 2026-10-16): break-glass must work during an audit-subsystem
+incident without ever being unrecorded. #3367 (AUDIT-TX-2) had made an activation
+fail closed when its audit rows could not be written: correct for "never
+unrecorded", wrong for "works in a real emergency", which §3 above also requires
+("Break-glass stays single-person, so it works in a real emergency"). An incident
+can be the audit subsystem itself, or someone making it refuse writes on purpose.
+
+What changes, and only for break-glass activation (every other grant stays fail
+closed, and revocations stay never-blocked):
+
+- **Normal path unchanged.** The grant and its `role.assigned` and
+  `break_glass.activated` rows commit in one transaction.
+- **Degraded path.** When that transaction fails ONLY because the audit append
+  failed (an error, a panic, or the chain lock not coming within the write path's
+  10 s bound), a second transaction commits the activation, the grant and a
+  `pending_audit_events` record of each of those rows (#3345's owed-audit table),
+  built by the same writers. Never one without the other. If that transaction fails
+  too, the activation is refused (`BreakGlassUnrecordable`, HTTP 503 / gRPC
+  Unavailable) with a pointer to the offline `recover-admin` procedure: the
+  database itself is broken, and the rule "never unrecorded" wins over availability
+  at that point.
+- **Short, loud, reviewed.** A degraded activation expires after
+  `break_glass.degraded_ttl` (default 15 min, never longer than the same request's
+  normal lifetime). It is logged at ERROR, counted
+  (`keyorix_breakglass_degraded_activations_total`), notified to the project's
+  admins, shown to system.write callers (system info and a web banner), and listed
+  for review at once: its post-activation review is mandatory with no grace window.
+  Like every review requirement here it reports, it does not lock anyone out.
+- **Backfill.** #3345's backfill writes the owed rows into the hash chain in the
+  order they were owed with their ORIGINAL event times (the chain is ordered by id,
+  not time; the verifier accepts non-monotonic times), exactly once, and marks the
+  activation settled (`audit_settled_at`) in the same transaction as its last row.
+  `verify-audit` reports unsettled degraded activations and is INDETERMINATE while
+  any exist. Retention never purges an unsettled one.
+
+Why not keep fail-closed: an emergency path that an audit outage disables fails
+exactly when it is needed, the same reasoning that keeps break-glass
+single-person. Why not commit best-effort and audit later (the revocation shape):
+the elevation would then exist with no durable record if the process died before
+the late write. The owed record in the same transaction closes that gap.
+
+Machine-checked by `internal/core/break_glass_degraded_test.go` (the append-error,
+effect-then-error, panic, chain-lock and crash matrix plus an attacker-shaped test,
+SQLite and PostgreSQL), `break_glass_lock_guard_test.go` (both paths stay inside
+the revoke lock, the degraded path is reachable only from there) and
+`internal/auditverify/owed_break_glass_test.go`. Operators:
+`docs/operator/break-glass-runbook.md`.
 
 ## Decisions recorded (2026-10-15)
 

@@ -1,0 +1,1 @@
+BREAKGLASS-OWED-004	./server/faultops	TestBreakGlassActivation_AuditFailure_CommitsDegradedWithOwedRecords	default-ci	pending	-	Over the real REST router and gRPC, a break-glass activation whose audit append is refused succeeds degraded, and the only state it adds is the activation, its role grant and owed records of its rows, which the backfill then writes and settles.

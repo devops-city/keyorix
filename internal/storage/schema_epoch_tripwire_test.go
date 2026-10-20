@@ -24,14 +24,17 @@
 // binary neither sets nor clears the marker; its writes still move updated_at, which the
 // epoch-4 restore requires unchanged, so it can only make the restore re-activate LESS
 // (fail closed). The floor stays 2 (see minCompatibleSchemaEpoch's doc).
+// 4 -> 5 for break_glass_activations.degraded/audit_settled_at and
+// pending_audit_events.break_glass_activation_id (BREAKGLASS-OWED-1), additive columns
+// an epoch-4 binary leaves at their "not degraded" defaults. The floor stays 3.
 package storage
 
 import "testing"
 
-func TestCurrentSchemaEpoch_Is4_SeeADR101(t *testing.T) {
-	if currentSchemaEpoch != 4 {
+func TestCurrentSchemaEpoch_Is5_SeeADR101(t *testing.T) {
+	if currentSchemaEpoch != 5 {
 		t.Fatalf(
-			"currentSchemaEpoch is now %d (expected 4) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
+			"currentSchemaEpoch is now %d (expected 5) -- STOP: docs/adr-101-schema-epoch-compatibility-floor.md "+
 				"requires every bump to also decide minCompatibleSchemaEpoch (additive-and-safe leaves it "+
 				"unchanged; a migration an older binary cannot safely run against raises it to the new epoch). "+
 				"Make that decision in factory.go, THEN update this test's expected value alongside your "+

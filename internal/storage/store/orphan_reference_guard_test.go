@@ -112,7 +112,15 @@ var bulkDeleteMethodNames = map[string]string{
 // WebAuthnCredential, SecretAccessSchedule, the role-grant expiry sweep) was
 // checked by hand against every other model's ID-shaped field and found to
 // have zero incoming references -- see that test's own doc comment.
-var bulkOrCompoundDeleteAllowlist = map[string]map[string]string{}
+//
+// BREAKGLASS-OWED-1 added the first entry: PendingAuditEvent.BreakGlassActivationID.
+var bulkOrCompoundDeleteAllowlist = map[string]map[string]string{
+	"BreakGlassActivation": {
+		"PendingAuditEvent": "DeleteExpiredBreakGlassBefore never deletes a degraded activation until it is settled, and " +
+			"settling requires that no owed row links to it (SettleBreakGlassOwedAudit); a normal activation never has one. " +
+			"Pinned by TestDeleteExpiredBreakGlassBefore_KeepsUnsettledDegraded.",
+	},
+}
 
 type orphanRefCandidate struct {
 	sourceModel string
@@ -342,8 +350,9 @@ func TestOrphanReferenceGuard_EveryHardDeleteCascadesOrIsAllowlisted(t *testing.
 // Tag, SecretVersion -- never hard-deleted by any id shape) is still a
 // skip: there is nothing to account for.
 //
-// bulkOrCompoundDeleteAllowlist is empty today. That is an empirical
-// finding, not an assumption: every bulk/compound-key delete target in this
+// bulkOrCompoundDeleteAllowlist was empty until BREAKGLASS-OWED-1 added
+// PendingAuditEvent -> BreakGlassActivation (see its reason). Before that it was an
+// empirical finding, not an assumption: every bulk/compound-key delete target in this
 // codebase (grepped by hand against every "<Target>ID" field spelling
 // across models.go -- SessionID, AuditEventID, MFAStepUpGrantID,
 // AnomalyAlertID, BreakGlassActivationID, AccessRequestID, SecretACLID,

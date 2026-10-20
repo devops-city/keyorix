@@ -542,7 +542,11 @@ func (ls *LocalStorage) DeleteExpiredBreakGlassBefore(ctx context.Context, befor
 	if err := ls.reconcileBreakGlassIDsToExpired(ctx, justReconciledIDs); err != nil {
 		return 0, err
 	}
-	q := ls.db.WithContext(ctx).Where("state <> ? AND created_at < ? AND reviewed_at IS NOT NULL", breakGlassActiveState, before)
+	// BREAKGLASS-OWED-1: a degraded activation whose owed audit rows are not all
+	// in the hash chain yet is never purged -- it is the only record that those
+	// rows are missing (and verify-audit reports it) until the backfill settles it.
+	q := ls.db.WithContext(ctx).Where("state <> ? AND created_at < ? AND reviewed_at IS NOT NULL AND (degraded = ? OR audit_settled_at IS NOT NULL)",
+		breakGlassActiveState, before, false)
 	if len(justReconciledIDs) > 0 {
 		q = q.Where("id NOT IN ?", justReconciledIDs)
 	}

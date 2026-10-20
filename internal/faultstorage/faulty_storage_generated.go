@@ -5608,6 +5608,23 @@ func (w *FaultyStorage) ListUnreviewedBreakGlassActivationsBefore(ctx context.Co
 	return w.real.ListUnreviewedBreakGlassActivationsBefore(ctx, cutoff)
 }
 
+func (w *FaultyStorage) ListUnsettledBreakGlassActivations(ctx context.Context) ([]*models.BreakGlassActivation, error) {
+	fire, kind, injected := w.check("ListUnsettledBreakGlassActivations")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 []*models.BreakGlassActivation
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.ListUnsettledBreakGlassActivations(ctx)
+			return rv1, injected
+		}
+	}
+	return w.real.ListUnsettledBreakGlassActivations(ctx)
+}
+
 func (w *FaultyStorage) ListUserLiveGroupMemberships(ctx context.Context, userID uint) ([]storage.UserGroupMembershipAt, error) {
 	fire, kind, injected := w.check("ListUserLiveGroupMemberships")
 	if fire {
@@ -7092,6 +7109,23 @@ func (w *FaultyStorage) SetWebAuthnCredentialCounterState(ctx context.Context, i
 		}
 	}
 	return w.real.SetWebAuthnCredentialCounterState(ctx, id, blob, lastUsedAt)
+}
+
+func (w *FaultyStorage) SettleBreakGlassOwedAudit(ctx context.Context, id uint, settledAt time.Time) (bool, error) {
+	fire, kind, injected := w.check("SettleBreakGlassOwedAudit")
+	if fire {
+		switch kind {
+		case KindPanic:
+			panic(injected)
+		case KindError:
+			var zero1 bool
+			return zero1, injected
+		case KindEffectThenError:
+			rv1, _ := w.real.SettleBreakGlassOwedAudit(ctx, id, settledAt)
+			return rv1, injected
+		}
+	}
+	return w.real.SettleBreakGlassOwedAudit(ctx, id, settledAt)
 }
 
 func (w *FaultyStorage) SupersedeActiveSetupTokens(ctx context.Context, purpose string, email string, projectID *uint) error {

@@ -22,6 +22,7 @@ Served at: server `GET /metrics` (unauthenticated; keep inside your perimeter)
 | `keyorix_audit_write_duration_seconds` | histogram | - | End-to-end latency of an audit event append (LogAuditEvent*), including group-commit queueing, whether it succeeded or failed. |
 | `keyorix_auth_rate_limit_fallback_total` | counter | `budget` | Count of auth rate-limit operations that fell back to the in-memory limiter because the budget's storage failed. |
 | `keyorix_best_effort_failures_total` | counter | `step` | Panics or returned errors from a best-effort step that runs after a commit, by step name. Never counts the primary operation -- only the best-effort step that followed it. |
+| `keyorix_breakglass_degraded_activations_total` | counter | - | Count of break-glass activations committed while the audit log refused their rows (recorded as owed, short expiry, review mandatory). |
 | `keyorix_db_pool_connections` | gauge | `pool`, `state` | Open database connections in a pool, by pool and state (in_use\|idle). in_use close to keyorix_db_pool_max_connections means callers are queueing for a connection. |
 | `keyorix_db_pool_max_connections` | gauge | `pool` | Configured maximum open connections of a pool (0 = unlimited). |
 | `keyorix_db_pool_wait_seconds_total` | counter | `pool` | Total time callers spent waiting for a free connection in a pool; rate() of it is the average number of goroutines blocked on the pool. |

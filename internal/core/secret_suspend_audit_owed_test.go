@@ -150,7 +150,7 @@ func TestSuspendSecret_PlainSuspendAuditIsOwed(t *testing.T) {
 		require.Len(t, p, 1)
 		// A writer that lost the claim (another replica committed first) writes nothing.
 		ev := buildAuditEvent(ctx, EventSecretSuspended, nil, nil, nil, "", "x", "")
-		wrote, err := w.c.appendOwedAudit(ctx, p[0].ID+1000, ev)
+		wrote, err := w.c.appendOwedAudit(ctx, p[0].ID+1000, 0, ev)
 		require.NoError(t, err, "a lost claim is not an error")
 		assert.False(t, wrote)
 		assert.Empty(t, w.events(t, EventSecretSuspended))

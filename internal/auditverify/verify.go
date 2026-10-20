@@ -122,6 +122,10 @@ type Result struct {
 	RetentionGap   RetentionGapStatus   `json:"retention_gap"`
 	Anchor         AnchorStatus         `json:"anchor"`
 	ExternalAnchor ExternalAnchorStatus `json:"external_anchor"`
+	// OwedBreakGlass reports degraded break-glass activations whose audit rows
+	// are owed to the chain (BREAKGLASS-OWED-1); any unsettled one makes the
+	// verdict at least INDETERMINATE.
+	OwedBreakGlass OwedBreakGlassStatus `json:"owed_break_glass"`
 
 	// AnchorSource records how this run resolved its Options.ExternalAnchor
 	// bundle: "flag" (the caller's --anchor was passed explicitly), "config
@@ -268,6 +272,8 @@ func Verify(ctx context.Context, db *DB, opts Options) (*Result, error) {
 			return nil, err
 		}
 	}
+
+	checkOwedBreakGlass(ctx, db, result)
 
 	result.NotProven = buildNotProven(opts, result)
 	return result, nil
@@ -553,6 +559,15 @@ func buildNotProven(opts Options, result *Result) []string {
 		}
 		notProven = append(notProven, fmt.Sprintf(
 			"a checkpoint anchor token is present but was not independently re-verified against a TSA trust root (%s)", reason))
+	}
+	if !result.OwedBreakGlass.Checked {
+		notProven = append(notProven, fmt.Sprintf(
+			"whether any break-glass activation granted during an audit outage still owes audit rows to the chain "+
+				"(break_glass_activations could not be read: %s)", result.OwedBreakGlass.Error))
+	} else {
+		notProven = append(notProven,
+			"that each SETTLED degraded break-glass activation's owed rows are in the chain: the server marks it settled "+
+				"in the same transaction as the append of its last owed row, and this run does not re-derive that from audit_events")
 	}
 	if result.ExternalAnchor.Supplied && !result.ExternalAnchor.Authenticated {
 		notProven = append(notProven,

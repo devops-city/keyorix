@@ -38,7 +38,7 @@ const (
 // column encodes). NOT bumped for pure comment/refactor changes that don't
 // touch what gets written to the database. Every bump must also decide
 // minCompatibleSchemaEpoch below (ADR-101).
-const currentSchemaEpoch = 4
+const currentSchemaEpoch = 5
 
 // schemaEpochMetadataKey is the system_metadata (see models.SystemMetadata)
 // key checkSchemaEpoch/recordSchemaEpoch read and write. #nosec G101 --
@@ -93,6 +93,14 @@ const schemaEpochMetadataKey = "schema_epoch"
 // trigger on every status change away from suspended, which covers epoch-2
 // replicas still running during a rollout). The floor keeps epoch-2 binaries
 // from starting once this binary has migrated.
+//
+// Epoch 5 (break_glass_activations.degraded/audit_settled_at and
+// pending_audit_events.break_glass_activation_id, BREAKGLASS-OWED-1) leaves it at 3:
+// an epoch-4 replica never writes a degraded activation (it fails closed on audit, its
+// pre-epoch-5 behaviour), its writes default both new columns to "not degraded", and
+// its backfill still writes the owed rows of an epoch-5 degraded activation exactly
+// once. The only cost is that it does not mark that activation settled, so
+// verify-audit keeps reporting it as owed: loud, never silent.
 const minCompatibleSchemaEpoch = 3
 
 // schemaMinCompatibleEpochMetadataKey is the system_metadata key ADR-101's
@@ -2395,8 +2403,12 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 		// upgraded install picks them up. Without this, ReviewBreakGlassActivation's
 		// conditional UPDATE would hard-fail on every upgraded install that predates
 		// this feature (the column it sets simply wouldn't exist).
+		//
+		// BREAKGLASS-OWED-1 (epoch 5): Degraded/AuditSettledAt the same way. Without
+		// them an upgraded install's degraded commit (audit log down) would fail, and
+		// break-glass would be refused exactly when it is needed.
 		m := db.Migrator()
-		for _, col := range []string{"ReviewedBy", "ReviewedAt", "ReviewNote"} {
+		for _, col := range []string{"ReviewedBy", "ReviewedAt", "ReviewNote", "Degraded", "AuditSettledAt"} {
 			if !m.HasColumn(&models.BreakGlassActivation{}, col) {
 				if err := m.AddColumn(&models.BreakGlassActivation{}, col); err != nil {
 					return fmt.Errorf("failed to add break_glass_activations.%s column: %w", col, err)
@@ -2486,6 +2498,21 @@ func (f *DefaultStorageFactory) migrateDatabase(db *gorm.DB) error { // NOSONAR 
 	if !pendingAuditExists {
 		if err := db.AutoMigrate(&models.PendingAuditEvent{}); err != nil {
 			return fmt.Errorf("failed to migrate pending_audit_events table: %w", err)
+		}
+	} else {
+		// BREAKGLASS-OWED-1 (epoch 5): the link from an owed row to its degraded
+		// break-glass activation, added to a table an epoch-3/4 install already has
+		// (never full-AutoMigrate an existing table here, as above).
+		m := db.Migrator()
+		if !m.HasColumn(&models.PendingAuditEvent{}, "BreakGlassActivationID") {
+			if err := m.AddColumn(&models.PendingAuditEvent{}, "BreakGlassActivationID"); err != nil {
+				return fmt.Errorf("failed to add pending_audit_events.break_glass_activation_id column: %w", err)
+			}
+		}
+		if !m.HasIndex(&models.PendingAuditEvent{}, "BreakGlassActivationID") {
+			if err := m.CreateIndex(&models.PendingAuditEvent{}, "BreakGlassActivationID"); err != nil {
+				return fmt.Errorf("failed to index pending_audit_events.break_glass_activation_id: %w", err)
+			}
 		}
 	}
 
