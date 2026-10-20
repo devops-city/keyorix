@@ -582,6 +582,44 @@ deleted; raise `cadence_days` (up to 366) for a longer look-back.
 
 Details: [recertification-activity-window.md](recertification-activity-window.md).
 
+## 6q. Schema epoch 3: v0.96.x cannot run against an upgraded database
+
+This release raises the schema epoch and its compatibility floor to 3 (ADR-101).
+Once a server of this release has started against a database, a v0.96.x (epoch 2)
+binary refuses to start on it: `database declares a minimum compatible schema
+epoch of 3`. That is deliberate. Two formats v0.96.x cannot handle are now in the
+database:
+
+- **The v2 audit retention anchor (#3258).** v0.96.x reads it as malformed, so its
+  `GET /audit/verify` reports the chain broken. Worse, its audit purge would write
+  a v1 anchor, which drops the cumulative purged count for good (`/audit/verify`
+  then says "truncated" and `POST /audit/checkpoint` answers 409; #3359).
+- **`secret_nodes.suspend_clear_synced_copies` (#3215).** A v0.96.x resume left the
+  marker set, so its next plain suspend made the operator and k8s-sync clear the
+  synced Kubernetes copies (#3362).
+
+**There is no rollback to v0.96.x once a server of this release has started against a
+database.** The floor is recorded in the database and nothing lowers it, so a v0.96.x binary
+stays unable to start on it. To go back, restore a backup taken before the upgrade (data written
+since is lost); do not edit the epoch by hand.
+
+The floor only stops v0.96.x servers from **starting**. For v0.96.x replicas still
+running during a rolling upgrade, PostgreSQL triggers installed by the migration
+cover the same two cases. An older binary's purge over a v2 anchor is refused and
+rolled back whole, so nothing is deleted. Any status change away from `suspended`
+clears the marker, whichever binary writes it.
+
+Rolling upgrade from v0.96.x with several replicas:
+[SELF_HOSTING.md, "Running more than one replica"](SELF_HOSTING.md#running-more-than-one-replica).
+In short:
+
+- let the rollout finish;
+- don't run `POST /api/v1/admin/jobs/purge-audit-logs` until it has finished, because a
+  request that lands on an old replica fails;
+- expect `GET /audit/verify` on old replicas to report "broken" after a purge until
+  they are replaced.
+
+Rollback across this release needs a restore (section 7).
 ## 6j. The first run after upgrade scans the audit history once
 ## 6r. "Last used" / "last seen" are written in the background
 

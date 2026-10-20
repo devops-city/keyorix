@@ -37,6 +37,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/encryption"
 	"github.com/keyorixhq/keyorix/internal/keyfiles"
 	"github.com/keyorixhq/keyorix/internal/secretenv"
+	"github.com/keyorixhq/keyorix/internal/serverguard"
 	"github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/spf13/cobra"
@@ -117,6 +118,38 @@ func init() {
 	rootCmd.AddCommand(backupCmd)
 }
 
+// acquireLiveBackupPresence returns the shared server-presence lock a live
+// (non-exclusive) Postgres backup must hold when the replicas run with
+// storage.encryption.key_dir_lock: database (docs/multi-replica-keys.md): the
+// key-file flocks may not be enforced across nodes, so the presence lock, as a
+// replica holds it, keeps a key rotation or restore (they need it exclusively)
+// out for the whole backup; live replicas share it and are not blocked.
+//
+// The mode is this command's own config or what the replicas recorded in the
+// database, as --force decides (refuseForceUnderDatabaseKeyDirLock): a backup
+// config that lacks key_dir_lock: database next to database-mode replicas must
+// not skip the lock. A record that cannot be read refuses the backup (fail
+// closed): it may be the database-mode one. A nil lock (nothing to hold) is a
+// safe Release.
+func acquireLiveBackupPresence(cfg *config.Config) (*serverguard.Presence, error) {
+	databaseMode := cfg.Storage.Encryption.KeyDirLockIsDatabase()
+	if !databaseMode {
+		recorded, rerr := keyDirLockRecordedDatabase(cfg)
+		if rerr != nil {
+			return nil, fmt.Errorf("whether the replicas run with storage.encryption.key_dir_lock: database could not be verified (%v), so the backup cannot tell whether it must hold the server-presence lock. Fix the database connection and retry", rerr)
+		}
+		databaseMode = recorded
+	}
+	if !databaseMode {
+		return nil, nil
+	}
+	presence, perr := serverguard.AcquirePresence(cfg)
+	if perr != nil {
+		return nil, fmt.Errorf("a key rotation or another admin command holds this database -- retry the backup after it completes: %w", perr)
+	}
+	return presence, nil
+}
+
 func runAdminBackup(cmd *cobra.Command, args []string) error {
 	if backupOutput == "" {
 		return fmt.Errorf("--output is required")
@@ -148,6 +181,12 @@ func runAdminBackup(cmd *cobra.Command, args []string) error {
 				"(a live backup without downtime needs Postgres): %w", err)
 		}
 		defer lock.Release() //nolint:errcheck
+	} else {
+		presence, perr := acquireLiveBackupPresence(cfg)
+		if perr != nil {
+			return perr
+		}
+		defer presence.Release() //nolint:errcheck
 	}
 
 	if err := preflightBackupFreeSpace(cfg); err != nil {
