@@ -177,11 +177,22 @@ for a hosted VM like this:
 
 ## Reset
 
-`sudo keyorix-demo reset` is the **full reset back to the seed**: stop the stack, delete the
-`keyorix-demo_postgres_data` and `keyorix-demo_keyorix_keys` volumes (the database and the
-encryption key files; the master password file is kept, so the new keys are wrapped with this
-VM's same KEK secret), start again (the bootstrap admin is recreated from the same secret
-files), wait for health, run the seed hook. The issued certificate is **not** touched.
+`sudo keyorix-demo reset` is the **full reset back to the seed**: copy the admin's TOTP enrolment
+aside (see below), stop the stack, delete the `keyorix-demo_postgres_data` volume (the database:
+every project, secret, user, audit event), start again (the bootstrap admin is recreated from the
+same secret files), put the TOTP enrolment back, wait for health, run the seed hook. The issued
+certificate (`caddy_data`) and the encryption keys (`keyorix_keys`) are **not** touched.
+
+**The admin's TOTP survives the reset**, so the presenter's authenticator keeps working and MFA
+stays required (`require_mfa` is never changed). The server generates the TOTP key itself and has
+no way to import one, so instead of importing a key the reset carries the admin's own rows across
+the wipe: the encrypted TOTP secret and the hashed recovery codes, as JSON in
+`/var/lib/keyorix-demo/admin-mfa-rows` (0600; ciphertext, useless without the `keyorix_keys`
+volume, which is why that volume is kept). After the fresh admin exists they are inserted for it and
+the seed adopts the key in `seed/admin-mfa`. Nothing prints a row or the key. If the copy or the
+restore fails the log says `WARNING ... must enrol again`, the stale key file is removed, and the
+seed enrols a new key (the old authenticator entry stops working until it is replaced).
+Because the keys are kept, a reset is a data wipe, not a key rotation: to rotate, `destroy`.
 
 The same command runs nightly from `keyorix-demo-reset.timer` (03:30 UTC by default,
 `--reset-time`). The timer is `Persistent=true`: a VM that was powered off at 03:30 resets as

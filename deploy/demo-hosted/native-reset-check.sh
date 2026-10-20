@@ -169,7 +169,7 @@ case "${1:-}" in
         psql_emulation "${shift_args[@]:$((i + 1))}" ;;
       *) note "compose $sub (ignored)" ;;
     esac ;;
-  inspect) if [ "${3:-}" = cid-postgres ] || running; then echo healthy; else echo exited; fi ;;
+  inspect) if [ "${!#}" = cid-postgres ] || running; then echo healthy; else echo exited; fi ;;
   volume)
     case "${2:-}" in
       inspect) exit 0 ;;
@@ -240,15 +240,27 @@ verify_audit || fail "after reset #1 audit verify is not VALID"
 snapshot r1
 [ "$S_r1" -gt 0 ] && [ "$U_r1" -ge 3 ] || fail "reset #1 did not seed the demo (users=$U_r1 secret_nodes=$S_r1)"
 
+KEY_BEFORE="$(mfa_key)"
 say "reset #2"
 "$DEMOCTL" reset
 login_with_seed || fail "after reset #2 the admin cannot log in with the key in admin-mfa"
 verify_audit || fail "after reset #2 audit verify is not VALID"
 snapshot r2
 
+if [ "$MODE" = postgres ]; then # the key captured BEFORE reset #2 (the one in the presenter's authenticator) must still log in
+  export DEMO_STEP_DIR="$WORK/state/seed/cli-home"
+  demo_login_mfa "$URL" admin "$ADMIN_PW" "$KEY_BEFORE" >/dev/null || fail "the TOTP key from before reset #2 no longer logs the admin in"
+  say "a code generated from the key that existed BEFORE the reset logs the admin in AFTER it"
+fi
 [ "$U_r1" = "$U_r2" ] || fail "user counts differ: $U_r1 vs $U_r2"
 [ "$S_r1" = "$S_r2" ] || fail "secret counts differ: $S_r1 vs $S_r2"
-if [ "$K_r1" = "$K_r2" ]; then say "the admin's TOTP key is the same after the reset"; else say "the admin's TOTP key was re-enrolled by the reset"; fi
+if [ "$MODE" = postgres ]; then
+  [ "$K_r1" = "$K_r2" ] || fail "the admin's TOTP key changed across the reset (it must be kept)"
+  say "the admin's TOTP key is unchanged across the reset; a code generated from it logs in (require_mfa stays on)"
+else
+  [ "$K_r1" != "$K_r2" ] || fail "sqlite mode: expected a new TOTP key (the kit's SQL copy is PostgreSQL only)"
+  say "sqlite: TOTP was re-enrolled (expected: the copy is PostgreSQL only); the seed state is identical"
+fi
 
 # ---- no secret value reached the output (this script's own output is the log) ----------------------
 say "checking the secret files hold values that were never printed"

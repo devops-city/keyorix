@@ -670,10 +670,14 @@ func stripComments(s string) string {
 func TestDemoctl_ResetIsFullAndKeepsTheCertificate(t *testing.T) {
 	s := kitFile(t, "democtl.sh")
 	reset := funcBody(t, s, "cmd_reset")
-	for _, want := range []string{"remove_volume postgres_data", "remove_volume keyorix_keys", "run_seed_hook", "compose down --remove-orphans"} {
+	for _, want := range []string{"remove_volume postgres_data", "run_seed_hook", "compose down --remove-orphans"} {
 		if !strings.Contains(reset, want) {
 			t.Errorf("cmd_reset lacks %q", want)
 		}
+	}
+	// The kept TOTP secret is encrypted under the key volume: a reset that wiped it would make the kept rows undecryptable.
+	if strings.Contains(reset, "remove_volume keyorix_keys") {
+		t.Error("cmd_reset removes keyorix_keys; the admin's kept TOTP secret could no longer be decrypted")
 	}
 	// -v / --volumes would delete caddy_data: a nightly new certificate hits Let's Encrypt's limits.
 	for _, name := range []string{"cmd_up", "cmd_down", "cmd_reset", "cmd_idle_check", "cmd_seed", "remove_volume"} {
@@ -722,6 +726,58 @@ func TestDemoctl_SeedHookRunsTheSeedWithTheStateDirAndNoFixedSecret(t *testing.T
 	// The kit names the demo seed in exactly one place (install.sh's default); democtl takes its list from demo.env.
 	if strings.Contains(stripComments(s), "scripts/demo") {
 		t.Error("democtl.sh names a scripts/demo path in code; the list comes from KEYORIX_DEMO_SEED_SCRIPTS")
+	}
+}
+
+func TestDemoctl_ResetKeepsTheAdminsTOTPAndNeverPrintsIt(t *testing.T) {
+	s := kitFile(t, "democtl.sh")
+	reset := funcBody(t, s, "cmd_reset")
+	// Order matters: capture before anything is wiped; restore after the fresh admin exists and before the seed adopts the key.
+	order := []string{"capture_admin_mfa", "compose down --remove-orphans", "remove_volume postgres_data", "compose up -d", "restore_admin_mfa", "run_seed_hook"}
+	prev := -1
+	for _, want := range order {
+		i := strings.Index(reset, want)
+		if i < 0 || i < prev {
+			t.Fatalf("cmd_reset must run %v in this order; %q is missing or out of order:\n%s", order, want, reset)
+		}
+		prev = i
+	}
+	capture, restore := funcBody(t, s, "capture_admin_mfa"), funcBody(t, s, "restore_admin_mfa")
+	// The rows hold the encrypted TOTP secret: written 0600, never echoed or logged.
+	if !strings.Contains(capture, "umask 077") {
+		t.Error("the kept rows must be written under umask 077")
+	}
+	for name, body := range map[string]string{"capture_admin_mfa": capture, "restore_admin_mfa": restore} {
+		for i, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, "log ") && regexp.MustCompile(`\$line|\$tmp|\$sql|\$\(cat`).MatchString(line) {
+				t.Errorf("%s line %d logs row content: %s", name, i+1, line)
+			}
+			if regexp.MustCompile(`\b(echo|cat|printf)\b[^|>]*\$KEPT_MFA`).MatchString(line) {
+				t.Errorf("%s line %d prints the kept rows: %s", name, i+1, line)
+			}
+		}
+	}
+	// Fail soft but safe: a failed capture/restore removes the stale key file so the seed enrols a new key
+	// instead of adopting a key that does not match.
+	for name, body := range map[string]string{"capture_admin_mfa": capture, "restore_admin_mfa": restore} {
+		if !strings.Contains(body, `rm -f "$SEED_STATE/admin-mfa"`) {
+			t.Errorf("%s must drop the stale admin-mfa key file when it cannot keep the enrolment", name)
+		}
+	}
+	// Only the admin's own rows are carried, by user name, and require_mfa is not touched.
+	for _, want := range []string{"u.username = '$ADMIN_USER'", "mfa_secrets", "mfa_recovery_codes"} {
+		if !strings.Contains(capture, want) {
+			t.Errorf("capture_admin_mfa lacks %q", want)
+		}
+	}
+	if strings.Contains(s, "require_mfa") {
+		t.Error("the reset must not touch the require_mfa policy")
+	}
+	if !strings.Contains(restore, "UPDATE users SET mfa_enabled = true WHERE username = '$ADMIN_USER'") || !strings.Contains(restore, "BEGIN;") || !strings.Contains(restore, "COMMIT;") {
+		t.Error("the restore must be one transaction that switches MFA on for the admin only")
+	}
+	if !strings.Contains(restore, "pg_get_serial_sequence") {
+		t.Error("restored rows must take ids from the table's sequence, or the next enrolment (alice) collides")
 	}
 }
 
