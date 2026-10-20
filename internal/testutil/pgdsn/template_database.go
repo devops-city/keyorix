@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -366,11 +366,10 @@ var SchemaFingerprint = sync.OnceValue(func() string { return SourceFingerprint(
 // binary run away from the checkout), which makes MigratedDatabase migrate
 // without a template.
 func SourceFingerprint(extra ...string) string {
-	_, self, _, ok := runtime.Caller(0)
+	root, ok := sourceRoot()
 	if !ok {
 		return ""
 	}
-	root := filepath.Join(filepath.Dir(self), "..", "..", "..") // internal/testutil/pgdsn -> repo root
 	var files []string
 	err := filepath.WalkDir(filepath.Join(root, "internal", "storage"), func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -404,4 +403,16 @@ func SourceFingerprint(extra ...string) string {
 		h.Write([]byte("extra\x00" + e + "\x00")) //nolint:errcheck // hash.Hash.Write never fails
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// sourceRoot returns the repository root via srcpath (runtime.Caller file names are
+// not filesystem paths under -trimpath). ok is false when the test binary runs
+// away from the checkout, where srcpath panics.
+func sourceRoot() (root string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			root, ok = "", false
+		}
+	}()
+	return srcpath.RepoRoot(), true
 }
