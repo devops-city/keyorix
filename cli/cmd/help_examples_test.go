@@ -119,8 +119,14 @@ func TestHelpExamples_EveryLeafHasAValidExample(t *testing.T) {
 					continue
 				}
 				name, _, _ := strings.Cut(strings.TrimPrefix(w, "--"), "=")
-				if c.Flags().Lookup(name) == nil && c.InheritedFlags().Lookup(name) == nil {
+				f := c.Flags().Lookup(name)
+				if f == nil {
+					f = c.InheritedFlags().Lookup(name)
+				}
+				if f == nil {
 					t.Errorf("%q example uses unknown flag --%s: %q", key, name, line)
+				} else if f.Deprecated != "" {
+					t.Errorf("%q example teaches the deprecated flag --%s (%s): %q", key, name, f.Deprecated, line)
 				}
 				if flagsThatCarrySecrets[name] {
 					t.Errorf("%q example puts a secret on the command line (--%s): %q", key, name, line)

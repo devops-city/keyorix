@@ -100,6 +100,7 @@ type storeHooks struct {
 	ListGroupMembers                          func(next storage.Storage, ctx context.Context, groupID uint) ([]*models.User, error)
 	ListGroups                                func(next storage.Storage, ctx context.Context) ([]*models.Group, error)
 	ListProjectMembers                        func(next storage.Storage, ctx context.Context, projectID uint) ([]storage.ProjectMember, error)
+	ListProjectRoleAssignments                func(next storage.Storage, ctx context.Context, projectID uint) ([]storage.RoleAssignment, error)
 	ListProjects                              func(next storage.Storage, ctx context.Context) ([]*models.Project, error)
 	ListRiskExceptions                        func(next storage.Storage, ctx context.Context, activeOnly bool) ([]*models.RiskException, error)
 	ListRotationPolicies                      func(next storage.Storage, ctx context.Context, projectID *uint, environmentID *uint) ([]*models.RotationPolicy, error)
@@ -708,6 +709,13 @@ func (hs *hookStore) ListProjectMembers(ctx context.Context, projectID uint) ([]
 		return hk(hs.Storage, ctx, projectID)
 	}
 	return hs.Storage.ListProjectMembers(ctx, projectID)
+}
+
+func (hs *hookStore) ListProjectRoleAssignments(ctx context.Context, projectID uint) ([]storage.RoleAssignment, error) {
+	if hk := hs.h.ListProjectRoleAssignments; hk != nil {
+		return hk(hs.Storage, ctx, projectID)
+	}
+	return hs.Storage.ListProjectRoleAssignments(ctx, projectID)
 }
 
 func (hs *hookStore) ListProjects(ctx context.Context) ([]*models.Project, error) {

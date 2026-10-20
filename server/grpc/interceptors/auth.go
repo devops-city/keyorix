@@ -296,6 +296,9 @@ func authenticateRequest(ctx context.Context, coreService *core.KeyorixCore, req
 		// Fail closed: a server wired without a core service must not authenticate.
 		return nil, nil, status.Errorf(codes.Internal, "authentication unavailable")
 	}
+	// ADR-112 #2923: during the require_mfa upgrade grace period the deployment's
+	// policy is not in force yet; it is again the moment the period ends.
+	requireMFA = requireMFA && !coreService.MFAUpgradeGraceActive()
 
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {

@@ -1,6 +1,7 @@
 package backupfmt
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -158,6 +159,15 @@ func unmarshalRow(data []byte, dest any) error {
 		}
 		fieldData, ok := raw[f.Name]
 		if !ok {
+			continue
+		}
+		// A SQL NULL is archived as JSON null. For a plain field json.Unmarshal
+		// treats that as a no-op, but models.JSON implements Unmarshaler and keeps
+		// the four bytes "null" -- the restored column would hold the TEXT 'null'
+		// instead of NULL. Give null back as the field's zero value (nil), which
+		// also clears a destination struct that was reused for the previous row.
+		if bytes.Equal(bytes.TrimSpace(fieldData), []byte("null")) {
+			v.Field(i).Set(reflect.Zero(f.Type))
 			continue
 		}
 		if err := json.Unmarshal(fieldData, v.Field(i).Addr().Interface()); err != nil {

@@ -26,11 +26,28 @@ func resolveCredStore() (*credstore.FileStore, error) {
 	return credstore.NewFileStore(path), nil
 }
 
+// tokenSourceError is a failure to read the token the environment names (KEYORIX_TOKEN_FILE
+// unreadable, empty, too open, or both forms set). It is never answered by falling back to
+// another token: the caller asked for this one. The text never contains the token.
+type tokenSourceError struct{ err error }
+
+func (e *tokenSourceError) Error() string { return e.err.Error() }
+func (e *tokenSourceError) Unwrap() error { return e.err }
+
 // resolveServerAndToken applies the precedence flag > env var > stored credentials file. A
-// server URL is required; a token is optional (e.g. `login` itself has none yet).
+// server URL is required; a token is optional (e.g. `login` itself has none yet). The env
+// var is KEYORIX_TOKEN or KEYORIX_TOKEN_FILE (a file of mode 0600, like the other _FILE
+// variables), so a script or a Kubernetes Secret volume need not put the token in the
+// environment.
 func resolveServerAndToken(store *credstore.FileStore) (serverURL, token string, err error) {
 	serverURL = os.Getenv("KEYORIX_SERVER")
-	token = os.Getenv("KEYORIX_TOKEN")
+	token, _, terr := lookupSecretEnv("KEYORIX_TOKEN")
+	if terr != nil {
+		if _, isExit := errors.AsType[*exitError](terr); !isExit {
+			terr = withExitCode(exitAuth, fmt.Errorf("%w. Next step: fix the file, or unset KEYORIX_TOKEN_FILE", terr))
+		}
+		return "", "", &tokenSourceError{terr}
+	}
 
 	if serverURL != "" && token != "" {
 		return serverURL, token, nil

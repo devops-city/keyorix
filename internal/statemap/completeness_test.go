@@ -100,7 +100,7 @@ type entrypointsRow struct {
 	kind, id, class string
 }
 
-func diffEntryCounts(t *testing.T, want []entrypointsRow, got []Entry) {
+func diffEntryCounts(t testing.TB, want []entrypointsRow, got []Entry) {
 	t.Helper()
 	wantCount := map[string]int{}
 	for _, r := range want {

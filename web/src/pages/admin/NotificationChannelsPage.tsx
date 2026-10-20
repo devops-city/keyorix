@@ -29,6 +29,8 @@ interface ChannelFormData {
     // The stored URL, elided by the server (scheme+host only). Display-only: the
     // edit form never holds the real URL, so a blank url field means "keep it".
     currentUrl: string;
+    // True once the user chose "Replace URL" on a channel that already has one.
+    replaceUrl: boolean;
     email: string;
     events: Set<string>;
     enabled: boolean;
@@ -39,6 +41,7 @@ const emptyForm = (): ChannelFormData => ({
     type: 'webhook',
     url: '',
     currentUrl: '',
+    replaceUrl: false,
     email: '',
     events: new Set(),
     enabled: true,
@@ -200,13 +203,51 @@ const ChannelFormFields: React.FC<ChannelFormFieldsProps> = ({ form, setForm }) 
                     onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
                     placeholder="alerts@example.com"
                 />
+            ) : form.currentUrl && !form.replaceUrl ? (
+                // The webhook URL is a credential: the server only ever returns its masked form, so
+                // show that (read-only) and offer to replace it rather than a field to edit.
+                <div>
+                    <span className="block text-sm font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                        Webhook URL
+                    </span>
+                    <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm truncate" style={{ color: 'var(--text-muted)' }}>
+                            {form.currentUrl}
+                        </span>
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setForm((f) => ({ ...f, replaceUrl: true }))}
+                        >
+                            Replace URL
+                        </Button>
+                    </div>
+                </div>
             ) : (
-                <Input
-                    label="Webhook URL"
-                    value={form.url}
-                    onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-                    placeholder={form.currentUrl ? `Leave blank to keep ${form.currentUrl}` : 'https://...'}
-                />
+                <div>
+                    <Input
+                        label="Webhook URL"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={form.url}
+                        onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                        placeholder="https://..."
+                        helperText="The URL is a credential: it is stored encrypted and cannot be shown again."
+                    />
+                    {form.currentUrl && (
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            className="mt-2"
+                            onClick={() => setForm((f) => ({ ...f, url: '', replaceUrl: false }))}
+                        >
+                            Keep current URL
+                        </Button>
+                    )}
+                </div>
             )}
             <div>
                 <span className="block text-sm font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>
@@ -345,6 +386,7 @@ export const NotificationChannelsPage: React.FC = () => {
             type: channel.type,
             url: '',
             currentUrl: channel.url ?? '',
+            replaceUrl: false,
             email: channel.email ?? '',
             events: new Set(
                 channel.events

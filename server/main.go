@@ -208,7 +208,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	resolveADR112BootPosture(cfg)
 
 	// Run the file-permission / encryption-key / database-reachability checks that were
-	// previously reachable ONLY via the manual `keyorix system validate` CLI subcommand
+	// previously reachable ONLY via the manual `keyorix-server admin validate` CLI subcommand
 	// (#330), despite official docs and that command's own help text claiming they run
 	// automatically on every boot.
 	if err := runStartupValidation(cfg); err != nil {
@@ -372,6 +372,9 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	if encSvc != nil {
 		defer encSvc.Shutdown()
 	}
+	// ADR-112 #2923: hand the require_mfa grace window (if any) to core, which ends it
+	// at the first admin MFA enrolment or the 30-day deadline, without a restart.
+	armADR112MFAGrace(cfg, coreService)
 	// ADR-112: a boot that enforced enable_file_permission_check (checks passed, nothing
 	// softened) or require_mfa ratchets this deployment to enforced for that key for good.
 	recordADR112Markers(cfg)
@@ -538,7 +541,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// Always ".". An absolute dek_path/salt_path is reconciled by
 	// NewKeyManager (normalizeKeyPaths), which is where every other
 	// encryption.NewService caller benefits from it too -- the six CLI call
-	// sites included, so `keyorix encryption ...` can operate on the same key
+	// sites included, so `keyorix-server admin encryption ...` can operate on the same key
 	// files this server just created.
 	//
 	// This previously set baseDir="" for an absolute DEKPath, meaning "the
@@ -2229,7 +2232,7 @@ func checkTransportTLSPosture(cfg *config.Config) error {
 
 // runStartupValidation runs internal/startup.ValidateStartup — the file-permission,
 // encryption-key (DEK/salt existence + size), and database-reachability checks that were
-// previously reachable ONLY via the manual `keyorix system validate` CLI subcommand,
+// previously reachable ONLY via the manual `keyorix-server admin validate` CLI subcommand,
 // despite that command's own help text and SYSTEM_SETUP.md/docs/CONFIGURATION.md claiming
 // they run automatically on every boot (#330).
 //
@@ -2514,12 +2517,15 @@ func verifyKeyFileSetConsistency(cfg *config.Config) error {
 // user without MFA to the enrolment endpoints (never locks the account out; PAT/machine
 // credentials are exempt). On an upgraded deployment, applyADR112UpgradeGrace has put
 // require_mfa in ADR-112's grace period (RequireMFAUpgradeGrace): MFA is NOT enforced yet,
-// and this warns loudly on every boot until the key is set explicitly.
+// and this warns loudly on every boot, with the days left, until the grace period ends
+// (first admin MFA enrolment or the 30-day deadline, #2923) or the key is set explicitly.
 func logWarnOnImplicitRequireMFADefault(cfg *config.Config) {
 	sec := cfg.Security
 	switch {
 	case sec.RequireMFAUpgradeGrace:
-		log.Printf("WARNING: ADR-112 grace period: security.require_mfa now defaults to true, but %s and this config never set it, so MFA is NOT enforced yet. Have every interactive admin enrol (keyorix mfa enroll / activate, or Profile -> Security in the web UI), then set security.require_mfa: true explicitly to enforce it (or false to opt out visibly).", adr112MFAReason)
+		deadline := adr112MFAWindow.Deadline
+		days := int((deadline.Sub(adr112MFAWindow.Floor) + 24*time.Hour - 1) / (24 * time.Hour))
+		log.Printf("WARNING: ADR-112 grace period: security.require_mfa now defaults to true, but %s and this config never set it, so MFA is NOT enforced yet: %d day(s) left. It is enforced at %s, or as soon as the first administrator enrols a second factor, whichever comes first; users without MFA are then sent to MFA enrolment when they sign in (they are not locked out). Have every interactive admin enrol now (keyorix mfa enroll / activate, or Profile -> Security in the web UI), or set security.require_mfa explicitly (true to enforce now, false to opt out visibly).", adr112MFAReason, days, deadline.UTC().Format(time.RFC3339))
 	case sec.RequireMFA && sec.RequireMFAImplicitDefault:
 		reason := adr112MFAReason
 		if reason == "" {

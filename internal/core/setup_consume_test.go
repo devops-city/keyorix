@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -88,6 +89,10 @@ func TestCompleteSetup(t *testing.T) {
 		ms.On("SetAccountState", ctx, uid, AccountActive, mock.Anything).Return(nil)
 		ms.On("AddPasswordHistory", ctx, uid, mock.AnythingOfType("string"), mock.Anything).Return(nil)
 		ms.On("PrunePasswordHistory", ctx, uid, 5).Return(nil)
+		// AUTH-2 item 1: the response identity is resolved before the transaction.
+		ms.On("GetUserRoles", ctx, uid).Return([]*models.Role{{Name: "viewer"}}, nil)
+		ms.On("GetUserPermissions", ctx, uid).Return([]*storage.Permission{}, nil)
+		ms.On("EnforceSessionLimit", mock.Anything, uid, mock.Anything).Return(nil)
 		ms.On("CreateSession", ctx, mock.AnythingOfType("*models.Session")).
 			Return(&models.Session{ID: 1, UserID: uid, SessionToken: "sess-abc"}, nil)
 		// Completing setup must evict the subject's other sessions (keeping the new
@@ -99,6 +104,7 @@ func TestCompleteSetup(t *testing.T) {
 		res, err := c.CompleteSetup(ctx, raw, strongPw, "ua", "1.2.3.4")
 		require.NoError(t, err)
 		assert.Equal(t, "sess-abc", res.Session.SessionToken)
+		assert.Equal(t, []string{"viewer"}, res.Identity.Roles, "the identity comes back with the session")
 		assert.Equal(t, AccountActive, user.AccountState, "restricted account cleared to active")
 		assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(strongPw)))
 		ms.AssertCalled(t, "MarkSetupTokenConsumed", ctx, uint(2), mock.AnythingOfType("time.Time"))

@@ -1,10 +1,13 @@
 package handlers
 
-// #2844: ConsumeSetup still reads the response identity after core has minted
-// the session (completeLogin), and compensates by revoking it. That
-// compensation used to run only for an ERROR from the read; a PANIC unwound
-// past it to the recovery middleware's 500 and left the session live. Setup
-// consume is not in the faultops op catalog, so its oracle (f) coverage is here.
+// #2844: ConsumeSetup used to read the response identity after core had minted
+// the session (completeLogin), compensating by revoking it. AUTH-2 item 1: core
+// now resolves the identity BEFORE its one transaction (consume + password +
+// PATs + session), so a fault in that read writes nothing at all. These keep
+// the original property (no live session behind a reported failure) and add the
+// stronger one: the link stays usable. The full write-by-write sweep is
+// server/faultops' setup consume op and internal/core's
+// TestCompleteSetup_FaultAtAnyWriteLeavesNothingAndTheLinkStillWorks.
 
 import (
 	"context"
@@ -71,8 +74,8 @@ func countSessions(t *testing.T, st *store.LocalStorage, userID uint) int {
 }
 
 // lastIdentityReadNth returns how many GetUserPermissions calls a fault-free
-// ConsumeSetup makes: the last one is completeLogin's identity read, after the
-// session is minted. Measured rather than hard-coded so a change in how many
+// ConsumeSetup makes: the last one is the response identity read (now before
+// the transaction). Measured rather than hard-coded so a change in how many
 // times core reads permissions earlier cannot silently move the fault onto a
 // pre-mint read and make the test pass for the wrong reason.
 func lastIdentityReadNth(t *testing.T, h *AuthHandler, c *core.KeyorixCore, fs *faultstorage.FaultyStorage, st *store.LocalStorage, adminID uint) int {
@@ -98,10 +101,10 @@ func TestConsumeSetup_IdentityReadPanic_LeavesNoSession(t *testing.T) {
 
 	fs.Arm(&faultstorage.FaultSpec{Method: "GetUserPermissions", NthCall: nth, Kind: faultstorage.KindPanic, Err: errors.New("injected")})
 	w, uid, panicked := consumeSetupFor(t, h, c, adminID, "undeliveredpanic")
-	require.True(t, fs.Fired(), "the armed fault must fire on the post-mint identity read")
-	// #3277 follow-up: completeLogin returns the panic as its error after the
-	// revoke, so the caller answers the generic setup failure, not the Recovery
-	// 500 that only a valid token could reach.
+	require.True(t, fs.Fired(), "the armed fault must fire on the identity read")
+	// AUTH-2 item 1: the read runs before anything is written and its panic is
+	// returned as an error (resolveLoginIdentityBeforeMint), so it answers the
+	// generic setup failure, not the Recovery 500 a dead token never gets.
 	assert.Nil(t, panicked, "the panic must not reach the recovery middleware")
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "This setup link could not be completed", "same response as the generic setup failure")

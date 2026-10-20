@@ -357,14 +357,14 @@ func (c *KeyorixCore) logMachineCascadeEvent(ctx context.Context, tgt auditTarge
 func (c *KeyorixCore) revokeProjectDynamicSecretLeases(ctx context.Context, projectID uint) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.writeAuditEventFull(ctx, "dynamic_secret.project_cascade_failed", nil, nil, &projectID, "",
+			c.writeAuditEventFailedFull(ctx, "dynamic_secret.project_cascade_failed", nil, nil, &projectID, "",
 				fmt.Sprintf("panic revoking dynamic-secret leases after project %d deletion: %v — revoke them manually", projectID, r))
 			log.Printf("project %d dynamic-secret lease revocation cascade panicked: %v\n%s", projectID, r, debug.Stack())
 		}
 	}()
 	configs, err := c.storage.ListDynamicSecretConfigs(ctx, projectID, 0)
 	if err != nil {
-		c.writeAuditEventFull(ctx, "dynamic_secret.project_cascade_failed", nil, nil, &projectID, "",
+		c.writeAuditEventFailedFull(ctx, "dynamic_secret.project_cascade_failed", nil, nil, &projectID, "",
 			fmt.Sprintf("failed to list dynamic-secret configs to revoke after project %d deletion: %v — revoke them manually", projectID, err))
 		return
 	}
@@ -844,6 +844,6 @@ func (c *KeyorixCore) reportProjectEnvironmentSeedFailures(ctx context.Context, 
 	for _, f := range failures {
 		msg := fmt.Sprintf("project %d (%s) created without its environment %q: %s — create it manually via POST /projects/%d/environments",
 			project.ID, project.Name, f.envName, f.reason, project.ID)
-		c.writeAuditEventFull(ctx, EventProjectEnvironmentSeedFailed, nil, nil, &project.ID, "", msg)
+		c.writeAuditEventFailedFull(ctx, EventProjectEnvironmentSeedFailed, nil, nil, &project.ID, "", msg)
 	}
 }

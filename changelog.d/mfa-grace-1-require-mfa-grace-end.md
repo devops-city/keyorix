@@ -1,0 +1,8 @@
+### Security
+- **Behaviour change for upgraded installs: the `security.require_mfa` grace period now ends** (#2923, ADR-112 Amendment 5). An upgraded deployment whose config never set `require_mfa` used to stay unenforced forever. The grace period now ends at the first administrator MFA enrolment (TOTP or passkey) or 30 days after the first start on this release, whichever comes first, while the server runs. After that, users without a second factor are sent to MFA enrolment when they sign in (not locked out; PATs and machine credentials are unaffected; break-glass is unchanged). The start is stored in `system_metadata` (`adr112.require_mfa.grace_started`), never derived from the clock alone, and a clock set back cannot extend it. Any value that cannot be read fails closed (MFA enforced). Until then the web UI shows a persistent banner with the days left, `keyorix login` warns, the server logs a WARN line with the days left, and `admin validate --posture` names the end date. If an administrator already has MFA, enforcement starts at the first start on this release. To enforce at once set `require_mfa: true`, or set `false` to opt out visibly. See docs/UPGRADING.md "MFA after an upgrade".
+
+### Added
+- **`mfa_grace {ends_at, days_left}`** on the login response and `GET /api/v1/auth/profile` (present only while the grace period runs and the account has no second factor), and `require_mfa_grace` on `GET /api/v1/system/auth-config`, whose `require_mfa` now reports what is enforced at that moment.
+
+### Documentation
+- **ADR-112 is Accepted** (Andrei, 2026-10-17; Amendments 1, 3 and 4 shipped). Amendment 5 records the `require_mfa` grace end condition.

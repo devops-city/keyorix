@@ -43,7 +43,7 @@ const keyMaterialMode = 0600
 // registry_exhaustiveness_test.go, which re-derives this list from the actual
 // source rather than trusting it blindly. "shamir" is handled separately
 // below: crypto.ShamirKeyProvider itself never writes, but its share files
-// are written by a different tool (`keyorix encryption shamir-split`) and are
+// are written by a different tool (`keyorix-server admin encryption shamir-split`) and are
 // config-driven the same way, so they belong in this registry too.
 var writeCapableProviderTypes = map[string]bool{
 	"tpm":       true,
@@ -88,7 +88,7 @@ func resolve(baseDir, path string) string {
 //   - The KEK salt and wrapped DEK (enc.SaltPath / enc.DEKPath, ADR-004) --
 //     required: FixFilePerms itself fails closed if either is missing,
 //     matching this repo's existing behavior (an operator provisions these
-//     via `keyorix system init --encryption` before the server's first real
+//     via `keyorix-server admin encryption init` before the server's first real
 //     boot; see internal/startup/validation.go's identical pre-existing
 //     requirement for these same two paths).
 //   - Their ".pending" rotation-staging siblings

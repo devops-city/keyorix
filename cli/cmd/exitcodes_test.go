@@ -41,6 +41,9 @@ func TestExitCodesAreDocumented(t *testing.T) {
 	if got := strings.Count(exitCodesHelp, "\n  "); got != 7 {
 		t.Errorf("exitCodesHelp documents %d codes, the constants define 7", got)
 	}
+	if !strings.Contains(exitCodesHelp, "doctor") {
+		t.Error("exitCodesHelp must say that `keyorix doctor` exits 1 when a check fails")
+	}
 	if !strings.Contains(rootCmd.Long, exitCodesHelp) {
 		t.Error("`keyorix --help` does not show the exit-code table")
 	}
