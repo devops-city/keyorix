@@ -100,9 +100,6 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
 
-	c.accountStateMu.Lock()
-	defer c.accountStateMu.Unlock()
-
 	now := c.now()
 	expiresAt := now.Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	var target *models.User
@@ -133,26 +130,38 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 		return locked, nil
 	}
 	aid := adminID
-	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
-		evict = nil // fn may run again (the owed fallback)
-		locked, lerr := lockValid(tx)
-		if lerr != nil {
-			return lerr
-		}
-		target = locked
-		// Restricts the account and collects the session + PAT hashes to evict.
-		hashes, serr := c.setAccountStateInTx(ctx, tx, userID, AccountPasswordResetRequired)
-		if serr != nil {
-			return serr
-		}
-		evict = hashes
-		if err := tx.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
-			return err
-		}
-		c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissueRestricted, &aid, nil, nil, "",
-			fmt.Sprintf("administrator %d is reissuing the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended",
-				adminID, target.ID, target.Username))
-		return nil
+	// accountStateMu is held for each commit, never while commit 1's owed row settles
+	// (F6): a slow audit log must not hold up another account-state change. Deferred
+	// unlock, so a panic in either commit never leaves it held.
+	underAccountStateMu := func(f func() error) error {
+		c.accountStateMu.Lock()
+		defer c.accountStateMu.Unlock()
+		return f()
+	}
+	var settle func()
+	err = underAccountStateMu(func() (rerr error) {
+		settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			evict = nil // fn may run again (the owed fallback)
+			locked, lerr := lockValid(tx)
+			if lerr != nil {
+				return lerr
+			}
+			target = locked
+			// Restricts the account and collects the session + PAT hashes to evict.
+			hashes, serr := c.setAccountStateInTx(ctx, tx, userID, AccountPasswordResetRequired)
+			if serr != nil {
+				return serr
+			}
+			evict = hashes
+			if err := tx.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissueRestricted, &aid, nil, nil, "",
+				fmt.Sprintf("administrator %d is reissuing the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended",
+					adminID, target.ID, target.Username))
+			return nil
+		})
+		return rerr
 	})
 	if err != nil {
 		if errors.Is(err, ErrReissueExternalIdentity) || errors.Is(err, ErrReissueAccountBlocked) {
@@ -165,28 +174,31 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 	c.invalidateTokenCache(evict...)
 	settle()
 
-	if err := c.commitSplitRemainder(ctx, "account restriction and session end", "new one-time password", true, func(tx storage.Storage, tgt auditTarget) error {
-		locked, lerr := lockValid(tx)
-		if lerr != nil {
-			return lerr
-		}
-		target = locked
-		// SetPasswordHash clears any prior expiry; the new one is written in the same
-		// transaction so the credential never exists without its expiry.
-		if err := tx.SetPasswordHash(ctx, userID, string(hash), now); err != nil {
-			return err
-		}
-		if err := tx.SetOneTimePasswordExpiry(ctx, userID, &expiresAt, now); err != nil {
-			return err
-		}
-		if err := tx.UpdateLoginLockoutState(ctx, userID, 0, nil, nil, 0); err != nil {
-			return err
-		}
-		c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissued, &aid, nil, nil, "",
-			fmt.Sprintf("administrator %d reissued the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended, expires %s",
-				adminID, target.ID, target.Username, expiresAt.Format(time.RFC3339)))
-		return nil
-	}); err != nil {
+	err = underAccountStateMu(func() error {
+		return c.commitSplitRemainder(ctx, "account restriction and session end", "new one-time password", true, func(tx storage.Storage, tgt auditTarget) error {
+			locked, lerr := lockValid(tx)
+			if lerr != nil {
+				return lerr
+			}
+			target = locked
+			// SetPasswordHash clears any prior expiry; the new one is written in the same
+			// transaction so the credential never exists without its expiry.
+			if err := tx.SetPasswordHash(ctx, userID, string(hash), now); err != nil {
+				return err
+			}
+			if err := tx.SetOneTimePasswordExpiry(ctx, userID, &expiresAt, now); err != nil {
+				return err
+			}
+			if err := tx.UpdateLoginLockoutState(ctx, userID, 0, nil, nil, 0); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissued, &aid, nil, nil, "",
+				fmt.Sprintf("administrator %d reissued the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended, expires %s",
+					adminID, target.ID, target.Username, expiresAt.Format(time.RFC3339)))
+			return nil
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 

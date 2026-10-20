@@ -208,12 +208,20 @@ func (c *KeyorixCore) StaleAccounts(ctx context.Context, state string, olderThan
 // operation is rare (admin actions, not steady-state traffic), and the
 // invariant itself is install-wide, not per-target-user.
 func (c *KeyorixCore) SuspendUser(ctx context.Context, adminID, userID uint) error {
-	return c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
+	var settle func()
+	if err := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		if err := c.guardLastAdminDeactivation(ctx, userID); err != nil {
 			return err
 		}
-		return c.setAccountState(ctx, adminID, userID, AccountSuspended, "account.suspended")
-	})
+		var serr error
+		settle, serr = c.setAccountStateUnsettled(ctx, adminID, userID, AccountSuspended, "account.suspended")
+		return serr
+	}); err != nil {
+		return err
+	}
+	// After the named lock (F6): the owed row never settles under lastAdminGuardLockKey.
+	settle()
+	return nil
 }
 
 // lastAdminGuardLockKey is the WithNamedLock key for guardLastAdminDeactivation's
@@ -250,8 +258,21 @@ func (c *KeyorixCore) RequirePasswordReset(ctx context.Context, adminID, userID 
 // succeed while the account stays unchanged. See SetAccountState's doc comment on
 // storage.Storage.
 func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint, state, eventType string) error {
+	settle, err := c.setAccountStateUnsettled(ctx, adminID, userID, state, eventType)
+	if err != nil {
+		return err
+	}
+	settle()
+	return nil
+}
+
+// setAccountStateUnsettled is setAccountState returning, once the change has committed
+// and the auth cache is evicted, settle to append its owed row. It returns with
+// accountStateMu released, so the caller calls settle after every lock it holds (F6):
+// a slow audit log never holds up another account-state change of this process.
+func (c *KeyorixCore) setAccountStateUnsettled(ctx context.Context, adminID, userID uint, state, eventType string) (func(), error) {
 	if userID == 0 {
-		return fmt.Errorf("user ID is required")
+		return nil, fmt.Errorf("user ID is required")
 	}
 	// S1 sweep (CLI-split inventory #2012): a non-zero, non-self adminID must
 	// hold the same admin-rank ceiling UpdateUser/DeleteUser/RestoreUser now
@@ -266,7 +287,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	// decision" rather than "unauthenticated human."
 	if adminID != userID {
 		if err := c.requireAdminRankCeilingForTarget(ctx, adminID, userID, "change the account state of"); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	c.accountStateMu.Lock()
@@ -348,7 +369,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 		break
 	}
 	if err != nil {
-		return fmt.Errorf("failed to update account state: %w", err)
+		return nil, fmt.Errorf("failed to update account state: %w", err)
 	}
 	// Evict the captured session/PAT-token hashes from the auth cache — AFTER commit,
 	// so a rolled-back transaction never evicts a still-valid cache entry — so the new
@@ -366,8 +387,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	if AccountLoginBlocked(userID, state) {
 		purgeStepUpGrants(ctx, c.storage, userID)
 	}
-	settle()
-	return nil
+	return settle, nil
 }
 
 // accountStateNeedsEvictionSweep reports whether a transition to state needs the
