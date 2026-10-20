@@ -277,6 +277,7 @@ describe('MachineTokensPanel', () => {
         await answerConfirm(REVOKE_MSG, 'accept');
 
         await waitFor(() => expect(revokeMutate).toHaveBeenCalledWith(11, expect.anything()));
+        expect(revokeMutate).toHaveBeenCalledTimes(1);
         expect(window.confirm).not.toHaveBeenCalled();
     });
 
