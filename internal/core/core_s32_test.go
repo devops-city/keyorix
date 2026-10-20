@@ -107,16 +107,22 @@ func TestApplyGroupMembershipChanges_RemoveAndAdd(t *testing.T) {
 	// user 2 is in current AND in want → no-op.
 	// user 3 is in toAdd → AddUserToGroup (global: projectID=0).
 	ms.On("AddUserToGroup", mock.Anything, uint(3), uint(10), uint(0)).Return(nil)
-	// AUDIT-TX-3: the membership change adds a member, so its audit row is written in
-	// the same transaction (fail closed).
+	// MERGE-FIX-3482G: removing user 1 (a member, read under the guard locks) and
+	// adding user 3 is a mixed request, so two commits: the removal first, its row
+	// owed (recorded, then appended and claimed), then the add, its row written in
+	// that transaction (fail closed).
+	ms.On("ListGroupMembers", mock.Anything, uint(10)).Return([]*models.User{{ID: 1}, {ID: 2}}, nil)
+	ms.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil)
+	ms.On("ClaimPendingAuditEvent", mock.Anything, mock.Anything).Return(true, nil).Maybe() // the mock assigns no pending id
 	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	c := NewKeyorixCore(ms)
 	want := map[uint]bool{2: true}
 	current := []*models.User{{ID: 1}, {ID: 2}}
 	toAdd := []uint{3}
-	require.NoError(t, c.applyGroupMembershipChanges(context.Background(), 10, want, current, toAdd, nil, func(tgt auditTarget) {
+	audit := func(tgt auditTarget) {
 		c.writeAuditEventFullOn(context.Background(), tgt, EventSCIMGroupUpdated, nil, nil, nil, "", "test")
-	}))
+	}
+	require.NoError(t, c.applyGroupMembershipChanges(context.Background(), 10, want, current, toAdd, nil, audit, audit))
 	ms.AssertExpectations(t)
 }
 

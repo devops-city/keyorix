@@ -215,9 +215,14 @@ func (c *KeyorixCore) UpdateProject(ctx context.Context, id uint, name, descript
 	var updated *models.Project
 	//
 	// Turning the requirement ON restricts access, so it is a revocation and its row
-	// is OWED instead (an audit outage never blocks it): only when that is all the
-	// call changes, so a rename riding along stays fail closed.
-	mfaEnabling := mfaChanged && *requireMFA && name == project.Name && description == project.Description
+	// is OWED instead (an audit outage never blocks it). With a rename or a new
+	// description in the same call it is a mixed request (MERGE-FIX-3482G): the
+	// requirement goes on alone first (owed), and the rest follows as its own
+	// fail-closed commit (updateProjectSplit).
+	if mfaChanged && *requireMFA && (name != project.Name || description != project.Description) {
+		return c.updateProjectSplit(ctx, id, name, description, tagged, actor)
+	}
+	mfaEnabling := mfaChanged && *requireMFA
 	if err := c.updateProjectTx(ctx, tagged || mfaChanged, !mfaEnabling, func(tx storage.Storage, tgt auditTarget) error {
 		matched, uerr := tx.UpdateProjectFields(ctx, id, name, description, requireMFA, c.now())
 		if uerr != nil {
@@ -256,6 +261,68 @@ func (c *KeyorixCore) updateProjectTx(ctx context.Context, audited, failClosed b
 		return c.withOwedAuditMutation(ctx, fn)
 	}
 	return c.mutationTx(ctx, audited, fn)
+}
+
+// updateProjectSplit is UpdateProject for a call that turns the per-project MFA
+// requirement ON and also renames the project or changes its description: two
+// commits (audit_split.go). Commit 1 turns the requirement on alone, owed (never
+// blocked by the audit log), on the row as read in its own transaction; commit 2
+// applies the name and description, fail closed when ctx is tagged (a plain
+// transaction otherwise, as UpdateProject's untagged rename). Whether commit 2 has
+// anything to do is decided on that same read, not on the request alone. A retry of
+// the same request finds the requirement on already, so only the rename runs.
+func (c *KeyorixCore) updateProjectSplit(ctx context.Context, id uint, name, description string, tagged bool, actor uint) (*models.Project, error) {
+	var updated *models.Project
+	remainder := false
+	on := true
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		cur, gerr := tx.GetProject(ctx, id)
+		if gerr != nil {
+			return gerr
+		}
+		updated, remainder = cur, name != cur.Name || description != cur.Description
+		if cur.RequireMFA {
+			return nil // already on: nothing to restrict, and no row owed
+		}
+		matched, uerr := tx.UpdateProjectFields(ctx, id, cur.Name, cur.Description, &on, c.now())
+		if uerr != nil {
+			return translateProjectNameError(uerr)
+		}
+		if !matched {
+			return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+		}
+		if updated, uerr = tx.GetProject(ctx, id); uerr != nil {
+			return uerr
+		}
+		pid := id
+		c.writeAuditEventFullOn(ctx, tgt, "project.mfa_requirement_enabled", nil, nil, &pid, "",
+			fmt.Sprintf("per-project MFA requirement enabled for project %q", updated.Name))
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if !remainder {
+		return updated, nil
+	}
+	if err := c.commitSplitRemainder(ctx, "MFA requirement on", "rename/description change", tagged, func(tx storage.Storage, tgt auditTarget) error {
+		matched, uerr := tx.UpdateProjectFields(ctx, id, name, description, nil, c.now())
+		if uerr != nil {
+			return translateProjectNameError(uerr)
+		}
+		if !matched {
+			return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+		}
+		if updated, uerr = tx.GetProject(ctx, id); uerr != nil {
+			return uerr
+		}
+		if tagged {
+			c.logProjectUpdatedOn(ctx, tgt, actor, id, updated.Name)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // ProjectRequiresMFA reports whether the project enforces a per-project MFA

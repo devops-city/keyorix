@@ -23,6 +23,11 @@ import (
 // administrator, subject = the user. The description never contains the password.
 const EventUserOneTimePasswordReissued = "user.one_time_password_reissued" // #nosec G101 -- audit event type, not a credential
 
+// EventUserOneTimePasswordReissueRestricted audits a reissue's first commit (the account
+// restricted to a password change, every session ended): owed, so an audit outage never
+// keeps a session alive. The new credential follows with EventUserOneTimePasswordReissued.
+const EventUserOneTimePasswordReissueRestricted = "user.one_time_password_reissue_restricted" // #nosec G101 -- audit event type, not a credential
+
 // Fixed client-facing texts of the two refusal sentinels below. The transports
 // send these constants, never err.Error() (keyorix-raw-error-to-client).
 const (
@@ -102,34 +107,70 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 	expiresAt := now.Add(c.effectiveOneTimePasswordExpiry()).UTC()
 	var target *models.User
 	var evict []string
-	// AUDIT-TX-3: a reissue mints a new credential, so it is grant-shaped: the
-	// reissue row commits in this same transaction or nothing changes.
-	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
-		// Validate on the row lock, not on an earlier read: the account may have been
-		// suspended or linked to an IdP since.
+	// A reissue narrows access (the account is restricted to a password change and
+	// every session ends) and widens it (a new credential, a cleared lockout): a mixed
+	// request, so two commits (MERGE-FIX-3482G, audit_split.go). Commit 1, the
+	// narrowing, is owed: an audit outage never keeps a session alive. Commit 2, the
+	// credential, is fail closed: the reissue row commits with it or no password is
+	// issued. Both validate on the row lock, not on an earlier read: the account may
+	// have been suspended or linked to an IdP since.
+	lockValid := func(tx storage.Storage) (*models.User, error) {
 		locked, lerr := tx.LockUserForUpdate(ctx, userID)
 		if lerr != nil {
 			if errors.Is(lerr, storage.ErrUserNotFound) {
-				return fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), lerr)
+				return nil, fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), lerr)
 			}
 			// A storage fault is not a missing user: it surfaces as a server error
 			// (500 / Internal), never as a 404 the admin would read as "no such user".
-			return lerr
+			return nil, lerr
 		}
 		if locked.ExternalID != "" {
-			return ErrReissueExternalIdentity
+			return nil, ErrReissueExternalIdentity
 		}
 		if !locked.IsActive || AccountLoginBlocked(locked.ID, locked.AccountState) {
-			return ErrReissueAccountBlocked
+			return nil, ErrReissueAccountBlocked
+		}
+		return locked, nil
+	}
+	aid := adminID
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		evict = nil // fn may run again (the owed fallback)
+		locked, lerr := lockValid(tx)
+		if lerr != nil {
+			return lerr
 		}
 		target = locked
-
 		// Restricts the account and collects the session + PAT hashes to evict.
 		hashes, serr := c.setAccountStateInTx(ctx, tx, userID, AccountPasswordResetRequired)
 		if serr != nil {
 			return serr
 		}
 		evict = hashes
+		if err := tx.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissueRestricted, &aid, nil, nil, "",
+			fmt.Sprintf("administrator %d is reissuing the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended",
+				adminID, target.ID, target.Username))
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrReissueExternalIdentity) || errors.Is(err, ErrReissueAccountBlocked) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	// After commit, so a rolled-back reissue never evicts a still-valid cache entry;
+	// before the owed row and before commit 2, so the restriction binds at once.
+	c.invalidateTokenCache(evict...)
+	settle()
+
+	if err := c.commitSplitRemainder(ctx, "account restriction and session end", "new one-time password", true, func(tx storage.Storage, tgt auditTarget) error {
+		locked, lerr := lockValid(tx)
+		if lerr != nil {
+			return lerr
+		}
+		target = locked
 		// SetPasswordHash clears any prior expiry; the new one is written in the same
 		// transaction so the credential never exists without its expiry.
 		if err := tx.SetPasswordHash(ctx, userID, string(hash), now); err != nil {
@@ -141,30 +182,19 @@ func (c *KeyorixCore) ReissueOneTimePassword(ctx context.Context, adminID, userI
 		if err := tx.UpdateLoginLockoutState(ctx, userID, 0, nil, nil, 0); err != nil {
 			return err
 		}
-		if err := tx.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
-			return err
-		}
-		aid := adminID
 		c.writeAuditEventFullOn(ctx, tgt, EventUserOneTimePasswordReissued, &aid, nil, nil, "",
 			fmt.Sprintf("administrator %d reissued the one-time password of user %d (%s): account restricted to a password change, all existing sessions ended, expires %s",
 				adminID, target.ID, target.Username, expiresAt.Format(time.RFC3339)))
 		return nil
-	})
-	if err != nil {
-		if errors.Is(err, ErrReissueExternalIdentity) || errors.Is(err, ErrReissueAccountBlocked) || errors.Is(err, ErrMutationAuditUnavailable) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}); err != nil {
+		return nil, err
 	}
-	// After commit, so a rolled-back reissue never evicts a still-valid cache entry.
-	c.invalidateTokenCache(evict...)
 
 	// Best-effort, as in CreateUser: the reissue has already succeeded.
 	besteffort.Run(ctx, "users.ReissueOneTimePassword.AddPasswordHistory", func() error {
 		return c.storage.AddPasswordHistory(ctx, userID, string(hash), now)
 	})
 
-	aid := adminID
 	// The compliance record that a human was shown a credential (artifact only, no value).
 	c.auditCredentialDisplayedOutOfBand(ctx, &aid, target.Email, "one_time_password")
 

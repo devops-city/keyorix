@@ -121,11 +121,8 @@ func tx3Kinds() []grantKind {
 				return u
 			},
 			mutate: func(w *satWorld, c *KeyorixCore, s any) error { return c.RestoreUser(ctx, w.f.adminID, uid(s)) }},
-		{name: "reissue-one-time-password", prepare: user("project_viewer"),
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				_, err := c.ReissueOneTimePassword(ctx, w.f.adminID, uid(s))
-				return err
-			}},
+		// reissue-one-time-password narrows (sessions end) and widens (a new credential):
+		// split into two commits, covered by audit_split_test.go (MERGE-FIX-3482G).
 		// groups
 		{name: "create-group", prepare: none,
 			mutate: func(w *satWorld, c *KeyorixCore, _ any) error {
@@ -160,15 +157,10 @@ func tx3Kinds() []grantKind {
 				_, err := c.UpdateSCIMUser(ctx, 0, uid(s), &name, nil, nil)
 				return err
 			}},
-		// A deactivation is a revocation, but a request that also changes the email (the
-		// IdP claims the account by it) or targets a user who is already inactive is not
-		// one: it fails closed (MERGE-FIX-3482A).
-		{name: "scim-update-user-deactivate-and-email", prepare: scimUser,
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				off, email := false, w.tag("g3-dm")+"@example.com"
-				_, err := c.UpdateSCIMUser(ctx, 0, uid(s), nil, &email, &off)
-				return err
-			}},
+		// A deactivation is a revocation; a request that also changes the email or the
+		// username is split (deactivation owed, identity change fail closed):
+		// audit_split_test.go (MERGE-FIX-3482G). A user who is already inactive revokes
+		// nothing, so that request stays fail closed as a whole.
 		{name: "scim-update-user-already-inactive-deactivate",
 			prepare: func(w *satWorld) any {
 				u := scimUser(w).(*models.User)
@@ -180,18 +172,6 @@ func tx3Kinds() []grantKind {
 			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
 				off, name := false, w.tag("g3-ai")
 				_, err := c.UpdateSCIMUser(ctx, 0, uid(s), &name, nil, &off)
-				return err
-			}},
-		{name: "update-user-deactivate-and-email", prepare: user("project_viewer"),
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				off := false
-				_, err := c.UpdateUser(ctx, &UpdateUserRequest{ID: uid(s), ActorID: w.f.adminID, IsActive: &off, Email: w.tag("g3-dme") + "@example.com"})
-				return err
-			}},
-		{name: "update-user-deactivate-and-username", prepare: user("project_viewer"),
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				off := false
-				_, err := c.UpdateUser(ctx, &UpdateUserRequest{ID: uid(s), ActorID: w.f.adminID, IsActive: &off, Username: w.tag("g3-dmu")})
 				return err
 			}},
 		{name: "scim-provision-group",
@@ -228,17 +208,8 @@ func tx3Kinds() []grantKind {
 				_, err := c.RequestProjectAccess(ctx, w.f.projectID, uid(s), "", "need it")
 				return err
 			}},
-		{name: "reject-access-request",
-			prepare: func(w *satWorld) any {
-				u := w.newUser("g3-rj", "")
-				r, err := w.c.RequestProjectAccess(ctx, w.f.projectID, u.ID, "", "need it")
-				require.NoError(w.t, err)
-				return r
-			},
-			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
-				_, err := c.RejectAccessRequest(ctx, w.f.projectID, s.(*models.AccessRequest).ID, w.f.adminID, 0, "not now")
-				return err
-			}},
+		// reject-access-request is a narrowing decision (owed, never blocked by the audit
+		// log): revocation_owed_audit_test.go (ask 3482-reject-access-request-direction).
 		{name: "request-secret-access", prepare: user("project_viewer"),
 			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
 				_, err := c.RequestSecretAccess(ctx, w.secretID, uid(s), "need it")

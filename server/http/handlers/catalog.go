@@ -390,6 +390,10 @@ func (h *CatalogHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	// transaction, attributed to the tagged actor.
 	project, err := h.coreService.UpdateProject(core.WithMutationAuditActor(r.Context(), actor.UserID), id, body.Name, body.Description, body.RequireMFA)
 	if err != nil {
+		if sendPartialMutation(w, err) {
+			log.Printf("Update of project %d partially applied: %v", id, err)
+			return
+		}
 		status := http.StatusInternalServerError
 		msg := err.Error()
 		switch {

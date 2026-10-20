@@ -226,6 +226,9 @@ func (s *ProjectGRPCService) UpdateProject(ctx context.Context, req *pb.UpdatePr
 	// AUDIT-TX-3: core writes the project.updated row in the update's own transaction.
 	project, err := s.core.UpdateProject(core.WithMutationAuditActor(ctx, user.UserID), uint(req.GetId()), req.GetName(), req.GetDescription(), requireMFA)
 	if err != nil {
+		if perr, ok := partialMutationStatus(err); ok {
+			return nil, perr
+		}
 		return nil, mapProjectError(err)
 	}
 	return projectToProto(project), nil

@@ -601,6 +601,10 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 	// settle appends the deactivation's owed audit row (AUDIT-TX-3), after the cache
 	// eviction below.
 	var settle func()
+	// remainder: a deactivation that also changes the username or email (decided on the
+	// row lock) is a mixed request: the deactivation commits alone (owed), and the
+	// identity change follows as its own fail-closed commit (audit_split.go).
+	var remainder bool
 	// Cleanup errors recorded inside the deactivating transaction and audited
 	// after it commits (DEADLOCK-SHAPE-1: no c.storage/audit call in the closure).
 	var cleanupPatErr, cleanupSessionErr error
@@ -628,20 +632,36 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 			// log; its user.updated row is owed from this same transaction (written through
 			// tx or recorded as pending, never through c.storage, which would wait on the
 			// write gate this transaction holds) and appended after the cache eviction.
-			// A request that also changes the username or email is not only a
-			// revocation: it fails closed (row in the transaction or no change at all).
+			// A request that also changes the username or email is a mixed request
+			// (MERGE-FIX-3482G): this transaction then deactivates only, and the identity
+			// change is commit 2 below, fail closed.
 			var rerr error
-			settle, rerr = c.auditedByDirection(ctx, identityChanged, func(tx storage.Storage, tgt auditTarget) error {
+			settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 				// fn may run again (the owed fallback): start from a clean slate.
-				patHashes, cleanupPatErr, cleanupSessionErr = nil, nil, nil
-				matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
+				patHashes, cleanupPatErr, cleanupSessionErr, remainder = nil, nil, nil, false
+				write, desc := user, "updated user %d (%s)"
+				if identityChanged {
+					// Decided on the row lock, not on the read before it: the stored
+					// username/email is what the request changes, or does not.
+					locked, lerr := tx.LockUserForUpdate(ctx, req.ID)
+					if lerr != nil {
+						return lerr
+					}
+					if remainder = userIdentityChanges(req, locked); remainder {
+						deactivate := *locked
+						deactivate.IsActive = false
+						deactivate.UpdatedAt = user.UpdatedAt
+						write, desc = &deactivate, "deactivated user %d (%s)"
+					}
+				}
+				matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, write, wasActive)
 				if terr != nil {
 					return terr
 				}
 				if !matched {
 					return fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
 				}
-				updated = user
+				updated = write
 				var patErr, sessionErr error
 				// Each cleanup in its own savepoint: on PostgreSQL a failed statement
 				// aborts the transaction, which would roll the deactivation back at
@@ -692,7 +712,7 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 				// event is written after the commit, below.
 				cleanupPatErr, cleanupSessionErr = patErr, sessionErr
 				c.writeAuditEventFullOn(ctx, tgt, EventUserUpdated, actorPtr(req.ActorID), nil, nil, "",
-					fmt.Sprintf("updated user %d (%s)", updated.ID, updated.Username))
+					fmt.Sprintf(desc, updated.ID, updated.Username))
 				return nil
 			})
 			return rerr
@@ -744,7 +764,50 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 		purgeStepUpGrants(ctx, c.storage, req.ID)
 		settle()
 	}
+	if remainder {
+		// Commit 2 of the mixed request: the identity change, fail closed, on the
+		// deactivated row (the conditional write keeps it inactive). A retry of the
+		// same request finds the user inactive already, so only this part runs.
+		if err := c.commitSplitRemainder(ctx, "deactivation", "username/email change", true, func(tx storage.Storage, tgt auditTarget) error {
+			locked, lerr := tx.LockUserForUpdate(ctx, req.ID)
+			if lerr != nil {
+				return lerr
+			}
+			// Only the fields the request sets: the rest stay as stored.
+			next := *locked
+			if req.Username != "" {
+				next.Username, next.UsernameFolded = user.Username, user.UsernameFolded
+			}
+			if req.Email != "" {
+				next.Email, next.EmailFolded = user.Email, user.EmailFolded
+			}
+			if req.DisplayName != "" {
+				next.DisplayName = req.DisplayName
+			}
+			next.UpdatedAt = c.now()
+			matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, &next, locked.IsActive)
+			if terr != nil {
+				return terr
+			}
+			if !matched {
+				return fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
+			}
+			updated = &next
+			c.writeAuditEventFullOn(ctx, tgt, EventUserUpdated, actorPtr(req.ActorID), nil, nil, "",
+				fmt.Sprintf("updated user %d (%s)", next.ID, next.Username))
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return updated, nil
+}
+
+// userIdentityChanges reports whether req changes the username or the email the stored
+// row has (cur, read on the row lock): the part of an update that can widen access (a
+// reset link goes to the new address).
+func userIdentityChanges(req *UpdateUserRequest, cur *models.User) bool {
+	return (req.Username != "" && req.Username != cur.Username) || (req.Email != "" && req.Email != cur.Email)
 }
 
 // EventUserDeleted/EventUserRestored are audited on the admin delete/restore path

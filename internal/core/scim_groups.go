@@ -8,6 +8,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
@@ -222,6 +223,9 @@ func (c *KeyorixCore) ReplaceSCIMGroup(ctx context.Context, actorID, groupID uin
 	}
 	if err := c.applyGroupMembershipChanges(ctx, groupID, want, current, toAdd, rename, func(tgt auditTarget) {
 		c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupUpdated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("SCIM replaced group %d: removed the members not in the new set", groupID))
+	}, func(tgt auditTarget) {
+		c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupUpdated, actorPtr(actorID), nil, nil, "",
 			fmt.Sprintf("SCIM replaced group %d (members=%d)", groupID, len(want)))
 	}); err != nil {
 		return nil, err
@@ -266,6 +270,12 @@ func (c *KeyorixCore) PatchSCIMGroup(ctx context.Context, actorID, groupID uint,
 	// membership changes (another SCIM PATCH/PUT, or a native RemoveUserFromGroup)
 	// could each observe "another admin survives" before either commits.
 	toRemove := filterNonZero(removeIDs)
+	widens := len(allowedAdds) > 0 || renaming
+	// split: removals that really remove a member, plus an add or a rename, make a
+	// mixed request (MERGE-FIX-3482G): the removals commit alone (owed) under the
+	// guard locks, and the adds/rename follow as their own fail-closed commit.
+	var split bool
+	var settle func()
 	if err := c.withGroupProjectAdminGuardLocks(ctx, groupID, func(ctx context.Context) error {
 		// Check every removal against guardLastGlobalAdminMembership (#G02) BEFORE
 		// applying any of them, so a PATCH that would strip the install's last route
@@ -295,8 +305,27 @@ func (c *KeyorixCore) PatchSCIMGroup(ctx context.Context, actorID, groupID uint,
 		// AUDIT-TX-3: the rename and the audit row run in this same transaction. A
 		// change that adds members or renames the group can widen access, so its
 		// row commits with it or not at all; a pure removal is a revocation, never
-		// blocked by the audit log, its row owed from the transaction.
-		if err := c.withAuditedOrOwedMutation(ctx, len(allowedAdds) > 0 || renaming, func(tx storage.Storage, tgt auditTarget) error {
+		// blocked by the audit log, its row owed from the transaction. Both at once is
+		// split, decided on the membership read under these locks: the removals here
+		// (owed), the rest after the locks (fail closed).
+		if widens && len(toRemove) > 0 {
+			split = c.scimRemovesAMember(ctx, groupID, toRemove)
+		}
+		if split {
+			var rerr error
+			settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+				for _, id := range toRemove {
+					if err := tx.RemoveUserFromGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
+						return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+					}
+				}
+				c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupUpdated, actorPtr(actorID), nil, nil, "",
+					fmt.Sprintf("SCIM patched group %d (-%d members)", groupID, len(removeIDs)))
+				return nil
+			})
+			return rerr
+		}
+		if err := c.withAuditedOrOwedMutation(ctx, widens, func(tx storage.Storage, tgt auditTarget) error {
 			if renaming {
 				matched, uerr := tx.UpdateGroupFields(ctx, groupID, newName, &folded, nil, c.now())
 				if uerr != nil {
@@ -326,7 +355,51 @@ func (c *KeyorixCore) PatchSCIMGroup(ctx context.Context, actorID, groupID uint,
 	}); err != nil {
 		return nil, err
 	}
+	if split {
+		// After the guard locks (F6: the owed row never settles under them), then
+		// commit 2: the rename and the adds, fail closed. A retry of the same PATCH
+		// removes nothing more (the members are gone), so it is fail closed as a whole.
+		settle()
+		if err := c.commitSplitRemainder(ctx, "member removal", "member addition/rename", true, func(tx storage.Storage, tgt auditTarget) error {
+			if renaming {
+				matched, uerr := tx.UpdateGroupFields(ctx, groupID, newName, &folded, nil, c.now())
+				if uerr != nil {
+					return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), uerr)
+				}
+				if !matched {
+					return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+				}
+			}
+			for _, id := range allowedAdds {
+				if err := tx.AddUserToGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
+					return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+				}
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMGroupUpdated, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM patched group %d (+%d members)", groupID, len(addIDs)))
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return c.storage.GetGroup(ctx, groupID)
+}
+
+// scimRemovesAMember reports whether removing ids from groupID removes at least one
+// current member (read under the caller's guard locks). A failed read counts as yes:
+// splitting a request that removes nothing only costs a second commit, while not
+// splitting one that does would let the audit log block its revocation.
+func (c *KeyorixCore) scimRemovesAMember(ctx context.Context, groupID uint, ids []uint) bool {
+	members, err := c.storage.ListGroupMembers(ctx, groupID)
+	if err != nil {
+		return true
+	}
+	for _, m := range members {
+		if slices.Contains(ids, m.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 // scimGroupConfersAdmin reports whether membership in groupID grants an escalation-tier
@@ -429,33 +502,63 @@ func filterNonZero(ids []uint) []uint {
 // membership writes. A change that adds members or renames the group can widen
 // access, so its audit row commits with it or not at all; a pure removal is a
 // revocation, never blocked by the audit log, its row owed from the transaction.
-func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID uint, want map[uint]bool, current []*models.User, toAdd []uint, rename func(tx storage.Storage) error, audit func(tgt auditTarget)) error {
-	return c.withGroupProjectAdminGuardLocks(ctx, groupID, func(ctx context.Context) error {
-		for _, u := range current {
-			if !want[u.ID] {
-				if err := c.guardLastGlobalAdminMembership(ctx, u.ID, groupID); err != nil {
-					return err
-				}
-				if err := c.guardLastProjectAdminGroupMembership(ctx, u.ID, groupID); err != nil {
+// Both at once (a removal that really removes a member, decided on the membership
+// read under the guard locks, plus an add or a rename) is a mixed request
+// (MERGE-FIX-3482G): the removals commit alone under the locks (owed, their row
+// written by auditRemovals), and the rename and adds follow after the locks as their
+// own fail-closed commit (audit writes its row).
+func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID uint, want map[uint]bool, current []*models.User, toAdd []uint, rename func(tx storage.Storage) error, auditRemovals, audit func(tgt auditTarget)) error {
+	var removals []uint
+	for _, u := range current {
+		if !want[u.ID] {
+			removals = append(removals, u.ID)
+		}
+	}
+	widens := len(toAdd) > 0 || rename != nil
+	var split bool
+	var settle func()
+	if err := c.withGroupProjectAdminGuardLocks(ctx, groupID, func(ctx context.Context) error {
+		for _, id := range removals {
+			if err := c.guardLastGlobalAdminMembership(ctx, id, groupID); err != nil {
+				return err
+			}
+			if err := c.guardLastProjectAdminGroupMembership(ctx, id, groupID); err != nil {
+				return err
+			}
+		}
+		removeAll := func(tx storage.Storage) error {
+			for _, id := range removals {
+				if err := tx.RemoveUserFromGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
 					return err
 				}
 			}
+			return nil
+		}
+		if widens && len(removals) > 0 {
+			split = c.scimRemovesAMember(ctx, groupID, removals)
+		}
+		if split {
+			var rerr error
+			settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+				if err := removeAll(tx); err != nil {
+					return err
+				}
+				auditRemovals(tgt)
+				return nil
+			})
+			return rerr
 		}
 		// All add/remove membership writes run in one transaction: a partial apply used
 		// to be best-effort (`_ =`). Both storage calls are idempotent, so this stays
 		// safe under an IdP's own retry of the same PUT.
-		return c.withAuditedOrOwedMutation(ctx, len(toAdd) > 0 || rename != nil, func(tx storage.Storage, tgt auditTarget) error {
+		return c.withAuditedOrOwedMutation(ctx, widens, func(tx storage.Storage, tgt auditTarget) error {
 			if rename != nil {
 				if err := rename(tx); err != nil {
 					return err
 				}
 			}
-			for _, u := range current {
-				if !want[u.ID] {
-					if err := tx.RemoveUserFromGroup(ctx, u.ID, groupID, 0); err != nil { // SCIM memberships are always global
-						return err
-					}
-				}
+			if err := removeAll(tx); err != nil {
+				return err
 			}
 			for _, id := range toAdd {
 				if err := tx.AddUserToGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
@@ -465,6 +568,25 @@ func (c *KeyorixCore) applyGroupMembershipChanges(ctx context.Context, groupID u
 			audit(tgt)
 			return nil
 		})
+	}); err != nil || !split {
+		return err
+	}
+	// After the guard locks (F6: the owed row never settles under them), then commit 2.
+	// A retry of the same PUT removes nothing more, so it is fail closed as a whole.
+	settle()
+	return c.commitSplitRemainder(ctx, "member removal", "member addition/rename", true, func(tx storage.Storage, tgt auditTarget) error {
+		if rename != nil {
+			if err := rename(tx); err != nil {
+				return err
+			}
+		}
+		for _, id := range toAdd {
+			if err := tx.AddUserToGroup(ctx, id, groupID, 0); err != nil { // SCIM memberships are always global
+				return err
+			}
+		}
+		audit(tgt)
+		return nil
 	})
 }
 

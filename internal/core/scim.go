@@ -305,21 +305,26 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	var patHashes []string // PATs revoked by a deactivation; evicted from the auth cache after commit
 	var guardErr error     // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
 	var settle func()
+	// split: a deactivation of an active user that also changes the email is a mixed
+	// request (MERGE-FIX-3482G): the deactivation commits alone below (owed), and the
+	// email/displayName change follows as its own fail-closed commit (audit_split.go).
+	var split bool
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
 		// AUDIT-TX-3: an update that deactivates a user who is active is a revocation
 		// (never blocked by the audit log, its row owed). Anything else can widen
 		// access (a reactivation, a new email the IdP will claim the account by) or
-		// revokes nothing (a user already inactive), and fails closed: so does a
-		// deactivation that carries an email change in the same request. Read under the
-		// locks, so the active state is the one the transaction below will see; a
-		// failed read leaves revocation false, i.e. fail closed.
+		// revokes nothing (a user already inactive), and fails closed. A deactivation
+		// that carries an email change in the same request is split: the deactivation
+		// first, owed; the email change second, fail closed. Read under the locks, so
+		// the active state is the one the transaction below will see; a failed read
+		// leaves revocation false, i.e. fail closed.
 		revocation := false
 		if active != nil && !*active {
-			if cur, gerr := c.storage.GetUser(ctx, id); gerr == nil {
-				emailChanges := email != nil && *email != "" && *email != cur.Email
-				revocation = cur.IsActive && !emailChanges
+			if cur, gerr := c.storage.GetUser(ctx, id); gerr == nil && cur.IsActive {
+				revocation = true
+				split = email != nil && *email != "" && *email != cur.Email
 			}
 		}
 		if active != nil && !*active {
@@ -332,14 +337,18 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// A fresh, lock-guarded read inside the transaction: never reuse a struct fetched
 		// before the lock above was taken — a concurrent setAccountState commit between
 		// that read and this write would be silently clobbered (the exact #344 race).
+		dn, em, desc := displayName, email, "SCIM updated user %d"
+		if split {
+			dn, em, desc = nil, nil, "SCIM deactivated user %d"
+		}
 		var serr error
 		settle, serr = c.auditedByDirection(ctx, !revocation, func(tx storage.Storage, tgt auditTarget) error {
 			var err error
-			if updated, deactivated, patHashes, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active); err != nil {
+			if updated, deactivated, patHashes, err = c.scimUpdateUserTx(ctx, tx, id, dn, em, active); err != nil {
 				return err
 			}
 			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserUpdated, actorPtr(actorID), nil, nil, "",
-				fmt.Sprintf("SCIM updated user %d", id))
+				fmt.Sprintf(desc, id))
 			return nil
 		})
 		return serr
@@ -366,6 +375,24 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		c.invalidateTokenCache(patHashes...)
 	}
 	settle()
+	if split {
+		// Commit 2 of the mixed request: the email (and displayName) change, fail closed,
+		// on a fresh row lock. It leaves the active state alone, so the deactivation
+		// stands; a retry of the same request finds the user inactive and is fail closed
+		// as a whole (nothing left to revoke).
+		if err := c.commitSplitRemainder(ctx, "deactivation", "email/displayName change", true, func(tx storage.Storage, tgt auditTarget) error {
+			u, _, _, err := c.scimUpdateUserTx(ctx, tx, id, displayName, email, nil)
+			if err != nil {
+				return err
+			}
+			updated = u
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserUpdated, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM updated user %d", id))
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return updated, nil
 }
 
