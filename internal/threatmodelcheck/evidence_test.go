@@ -48,10 +48,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 )
 
 const modelsDir = "docs/security/threat-models"
@@ -93,11 +94,7 @@ type stats struct {
 
 func repoRootDir(t testing.TB) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate test source")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	return srcpath.RepoRoot()
 }
 
 // repoIndex is what one walk of the repository finds: every Test/Fuzz function
