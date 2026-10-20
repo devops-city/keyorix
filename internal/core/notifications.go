@@ -233,7 +233,7 @@ func (c *KeyorixCore) runPostCommitNotification(ctx context.Context, step string
 	}
 	log.Printf("SECURITY: WARN: %s: notification for access request %d (project %d, actor %d) failed after the transition committed; the transition stands: %v",
 		step, req.ID, req.ProjectID, actorID, failure)
-	c.auditProjectScoped(ctx, auditNotificationFailed, actorID, req.ProjectID,
+	c.auditProjectScopedFailed(ctx, auditNotificationFailed, actorID, req.ProjectID,
 		fmt.Sprintf("%s: notification for access request %d was not delivered: %v", step, req.ID, failure))
 }
 

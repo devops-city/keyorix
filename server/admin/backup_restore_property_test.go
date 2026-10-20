@@ -148,7 +148,8 @@ func runPropertyRoundTrip(t *testing.T, srcBackend, dstBackend string) {
 	srcDir := t.TempDir()
 	chdirTest(t, srcDir)
 	encCfg := &config.EncryptionConfig{Enabled: true, DEKPath: "dek.key", SaltPath: "kek.salt"}
-	require.NoError(t, encryption.NewService(encCfg, srcDir).Initialize("test-passphrase-1234"))
+	encSvc := encryption.NewService(encCfg, srcDir)
+	require.NoError(t, encSvc.Initialize("test-passphrase-1234"))
 
 	configPathFlag = configureBackendTestDir(t, srcBackend, srcDir, pgBaseDSN)
 	srcCfg, err := loadConfig()
@@ -159,6 +160,7 @@ func runPropertyRoundTrip(t *testing.T, srcBackend, dstBackend string) {
 	gdb, err := storage.OpenGormDB(srcCfg)
 	require.NoError(t, err)
 	seedOneRowPerModel(t, gdb)
+	sealSeededAuditCheckpoint(t, gdb, encSvc)
 
 	archive1Path := filepath.Join(t.TempDir(), "backup1.tar.gz")
 	backupOutput = archive1Path

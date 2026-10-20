@@ -81,7 +81,8 @@ func addedRows(before, after dbSnapshot, table string) int {
 // sessionIssuingOps are the opCatalog ops whose fault-free run writes a new
 // session. Derived from the session-insert sites, not guessed: every
 // storage.CreateSession and storage.RotateSession call in internal/core
-// (mintSession's seven callers, StartImpersonation, RefreshSession), mapped to
+// (mintSession's callers, StartImpersonation, RefreshSession, and the setup
+// consume's in-transaction insert), mapped to
 // the ops that reach them. TestUndeliveredSessionSweep's calibration fails if
 // one of these stops issuing a session, so the list cannot rot into a set of ops
 // that test nothing.
@@ -93,6 +94,7 @@ var sessionIssuingOps = []string{
 	"REST GET /auth/sso/{provider}/callback",
 	"REST POST /api/v1/admin/impersonate",
 	"REST POST /auth/refresh",
+	"REST POST /auth/setup/consume", // AUTH-2 item 1 (#3298): its session is inserted in the consume's transaction
 }
 
 // undeliveredSessionPins are every tuple that left an undelivered session on

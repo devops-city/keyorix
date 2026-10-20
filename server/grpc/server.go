@@ -306,14 +306,11 @@ func applyTLSHardening(tlsConfig *tls.Config, tlsCfg config.TLSConfig, mode stri
 // createGRPCTLSConfig creates TLS configuration for gRPC server
 func createGRPCTLSConfig(cfg *config.Config) (*tls.Config, error) {
 	if cfg.Server.GRPC.TLS.AutoCert {
-		// For gRPC, autocert (certificate acquisition) is more complex and typically
-		// not wired up here — but the hardened MinVersion/CipherSuites below must
-		// still apply, matching the non-AutoCert path's posture (#172).
-		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12} // raised to TLS 1.3 by applyTLSHardening in strict mode
-		if err := applyTLSHardening(tlsConfig, cfg.Server.GRPC.TLS, cfg.Server.GRPC.TLSMode); err != nil {
-			return nil, err
-		}
-		return tlsConfig, nil
+		// No ACME on gRPC: this branch used to return a hardened config with no
+		// certificate, so NewServer succeeded and every handshake failed (AUTH-2
+		// item 3). Config.Validate refuses the flag at boot; this refuses it for a
+		// caller that skipped Validate.
+		return nil, config.ErrGRPCAutoCertUnsupported
 	}
 
 	// Served through tlsreload so a pair rotated on disk is picked up without a

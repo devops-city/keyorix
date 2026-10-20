@@ -1163,7 +1163,7 @@ func (c *KeyorixCore) notifyOverdueBreakGlassReviewers(ctx context.Context, rows
 func (c *KeyorixCore) notifyBreakGlassAdmins(ctx context.Context, actorID, projectID uint, roleName string, expiresAt time.Time, degraded bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.auditProjectScoped(ctx, EventBreakGlassNotifyPanicked, actorID, projectID,
+			c.auditProjectScopedFailed(ctx, EventBreakGlassNotifyPanicked, actorID, projectID,
 				fmt.Sprintf("break-glass admin notification failed: panic notifying project %d admins: %v — emergency access is active but admins may not have been alerted, review manually", projectID, r))
 			log.Printf("SECURITY: notifyBreakGlassAdmins panicked for project %d (break-glass grant already committed and audited): %v\n%s", projectID, r, debug.Stack())
 			err = nil

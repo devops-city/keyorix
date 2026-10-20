@@ -35,6 +35,9 @@ func (c *KeyorixCore) UpdateOwnProfile(ctx context.Context, userID uint, display
 	if userID == 0 {
 		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "user ID is required")
 	}
+	// reauthed is the account whose bare current password (no second factor)
+	// authorised an email change; its lockout clear follows the update.
+	var reauthed *models.User
 	if email != "" {
 		user, err := c.storage.GetUser(ctx, userID)
 		if err != nil {
@@ -57,17 +60,66 @@ func (c *KeyorixCore) UpdateOwnProfile(ctx context.Context, userID uint, display
 				if err := c.requireReauth(ctx, user, currentPassword, "email_change"); err != nil {
 					return nil, err
 				}
-			} else if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
-				return nil, fmt.Errorf("%w: current password is incorrect", ErrIncorrectCurrentPassword)
+			} else if err := c.verifyCurrentPassword(ctx, user, currentPassword); err != nil {
+				return nil, err
+			} else {
+				reauthed = user
 			}
 		}
 	}
-	return c.UpdateUser(ctx, &UpdateUserRequest{
+	updated, err := c.UpdateUser(ctx, &UpdateUserRequest{
 		ID:          userID,
 		ActorID:     userID,
 		DisplayName: displayName,
 		Email:       email,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if reauthed != nil {
+		// The password was full authentication for this account (no second
+		// factor) and the change has committed: reset the lockout like a
+		// delivered password login does (AUTH-PW-BUDGET).
+		besteffort.Run(ctx, "account.UpdateOwnProfile.clearLoginFailures", func() error { c.clearLoginFailures(ctx, reauthed); return nil })
+	}
+	return updated, nil
+}
+
+// verifyCurrentPassword checks the caller's current password for a self-service
+// credential change (ChangePassword, and UpdateOwnProfile's email change on an
+// account with no second factor) against the same per-account lockout a password
+// login uses (AUTH-PW-BUDGET). Both endpoints are reachable with nothing but a
+// bearer token, and used a bare bcrypt comparison: a stolen session could guess
+// the account's password with no bound at all.
+//
+// It is VerifyPasswordCredentials' lockout handling for a caller that is already
+// identified: refused while the account is locked, even with the right password
+// (spending an equivalent bcrypt first, so the lock is not a timing signal); a
+// wrong password is counted by recordFailedLogin; a match re-checks the lock
+// under recordFailedLogin's serialization (recheckLockAfterCredentialMatched),
+// as authenticatePasswordLogin does before it mints.
+//
+// Every refusal wraps ErrIncorrectCurrentPassword, so the client gets the answer
+// a wrong password already got: a locked account, and a storage fault in the
+// re-check after a match (counted; ErrLoginPostVerdict stays in the chain for
+// the audit), look exactly like a wrong password, as on /auth/login. It never
+// clears the counter: the caller does that once its change has committed, and
+// only when the password alone is full authentication (no second factor). A
+// correct password on an MFA account must not reset the counter its second
+// factor's guesses feed, exactly as the password step of an MFA login does not.
+func (c *KeyorixCore) verifyCurrentPassword(ctx context.Context, user *models.User, password string) error {
+	if c.loginLocked(user) {
+		_ = bcrypt.CompareHashAndPassword(*dummyBcryptHash.Load(), []byte(password))
+		return fmt.Errorf("%w: account temporarily locked due to repeated failed logins", ErrIncorrectCurrentPassword)
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		c.recordFailedLogin(ctx, user)
+		return fmt.Errorf("%w: current password is incorrect", ErrIncorrectCurrentPassword)
+	}
+	if err := c.recheckLockAfterCredentialMatched(ctx, user, true); err != nil {
+		return fmt.Errorf("%w: %w", ErrIncorrectCurrentPassword, err)
+	}
+	return nil
 }
 
 // ChangePassword verifies the caller's current password and sets a new one. On
@@ -84,8 +136,10 @@ func (c *KeyorixCore) ChangePassword(ctx context.Context, userID uint, current, 
 	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorUserNotFound", nil), err)
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(current)); err != nil {
-		return fmt.Errorf("%w: current password is incorrect", ErrIncorrectCurrentPassword)
+	// Lockout-checked and counted like a login (AUTH-PW-BUDGET); see
+	// verifyCurrentPassword.
+	if err := c.verifyCurrentPassword(ctx, user, current); err != nil {
+		return err
 	}
 	// Enforce policy + history after the current-password check so an attacker can't
 	// probe the policy without already holding valid credentials (ADR-025).
@@ -94,6 +148,14 @@ func (c *KeyorixCore) ChangePassword(ctx context.Context, userID uint, current, 
 	}
 	if err := c.applyNewPassword(ctx, user, newPassword); err != nil {
 		return err
+	}
+	// The change has committed. Reset the lockout as a delivered password login
+	// does, but only where the password alone is full authentication: with a
+	// second factor enrolled, a correct password plus a refused new password
+	// must not wipe the count that factor's guesses feed (see
+	// verifyCurrentPassword).
+	if !user.MFAEnabled && !user.WebAuthnEnabled {
+		besteffort.Run(ctx, "account.ChangePassword.clearLoginFailures", func() error { c.clearLoginFailures(ctx, user); return nil })
 	}
 
 	// Drop OTHER sessions and evict them from the auth cache, so a thief holding a
@@ -251,7 +313,7 @@ func (c *KeyorixCore) resolveKeepSession(ctx context.Context, userID uint, keepS
 	s, serr := c.getKeepSession(ctx, keepSessionToken)
 	if serr != nil {
 		log.Printf("SECURITY: %s: could not resolve the caller's own session (%v) -- purging ALL sessions for user %d instead of sparing the caller's", reason, serr, userID)
-		c.writeAuditEventFull(ctx, EventKeepSessionLookupFailed, &userID, nil, nil, "",
+		c.writeAuditEventFailedFull(ctx, EventKeepSessionLookupFailed, &userID, nil, nil, "",
 			fmt.Sprintf("%s: the caller's own session could not be resolved (%v), so the session purge included it too instead of sparing it", reason, serr))
 		return 0, ""
 	}
@@ -286,7 +348,7 @@ func (c *KeyorixCore) getKeepSession(ctx context.Context, token string) (s *mode
 func (c *KeyorixCore) deleteSessionsForUserAndEvict(ctx context.Context, userID, keepID uint, keepHash string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			c.writeAuditEventFull(ctx, EventSessionRevocationPanicked, &userID, nil, nil, "",
+			c.writeAuditEventFailedFull(ctx, EventSessionRevocationPanicked, &userID, nil, nil, "",
 				fmt.Sprintf("panic revoking sessions for user %d: %v — sessions may not have been fully revoked, review manually", userID, r))
 			log.Printf("SECURITY: deleteSessionsForUserAndEvict panicked for user %d (best-effort, primary operation already succeeded): %v\n%s", userID, r, debug.Stack())
 			err = nil
@@ -296,7 +358,7 @@ func (c *KeyorixCore) deleteSessionsForUserAndEvict(ctx context.Context, userID,
 	err = c.storage.DeleteSessionsForUserExcept(ctx, userID, keepID)
 	if err != nil {
 		log.Printf("SECURITY: deleteSessionsForUserAndEvict failed to purge sessions for user %d (best-effort, primary operation already succeeded): %v", userID, err)
-		c.writeAuditEventFull(ctx, EventSessionRevocationFailed, &userID, nil, nil, "",
+		c.writeAuditEventFailedFull(ctx, EventSessionRevocationFailed, &userID, nil, nil, "",
 			fmt.Sprintf("failed to purge sessions for user %d: %v — sessions may not have been fully revoked, review manually", userID, err))
 	}
 	for _, h := range hashes {
@@ -388,7 +450,7 @@ func (c *KeyorixCore) applyNewPassword(ctx context.Context, user *models.User, n
 	// surviving a compromise-driven password reset is exactly the attack this step exists
 	// to close, so it must be visible for operator follow-up, not indistinguishable from
 	// "nothing to revoke."
-	hashes, herr := c.storage.RevokeAllPersonalAccessTokensForUser(ctx, user.ID)
+	hashes, herr := c.revokePATsAfterPasswordChange(ctx, user.ID)
 	if herr != nil {
 		uid := user.ID
 		c.writeAuditEventFailed(ctx, EventPasswordChangePATRevokeFailed, &uid, nil, "",
@@ -397,6 +459,19 @@ func (c *KeyorixCore) applyNewPassword(ctx context.Context, user *models.User, n
 		c.invalidateTokenCache(hashes...)
 	}
 	return nil
+}
+
+// revokePATsAfterPasswordChange is RevokeAllPersonalAccessTokensForUser with a
+// panic turned into an error, so it takes the same loud, audited branch: the
+// password change has committed by now, and an escaping panic answered 500 over
+// it (AUTH-2 sweep, change-password RevokeAllPersonalAccessTokensForUser#1/panic).
+func (c *KeyorixCore) revokePATsAfterPasswordChange(ctx context.Context, userID uint) (hashes []string, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			hashes, err = nil, fmt.Errorf("PAT revocation panicked: %v", r)
+		}
+	}()
+	return c.storage.RevokeAllPersonalAccessTokensForUser(ctx, userID)
 }
 
 // EventPasswordChangePATRevokeFailed fires when applyNewPassword's PAT

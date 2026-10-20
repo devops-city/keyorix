@@ -3728,41 +3728,6 @@ func TestAuthHandler_InitSystem_AlreadyInitialized(t *testing.T) {
 
 // ── auth.go buildLoginResponse and helpers (cover via successful Login flow) ──
 
-func TestAuthHandler_buildLoginResponse_Direct(t *testing.T) {
-	h := newAuthHandlerWithWebAuthn(t)
-	now := time.Now()
-	later := now.Add(time.Hour)
-	absoluteExpiry := now.Add(24 * time.Hour)
-	session := &models.Session{
-		SessionToken:      "tok123",
-		ExpiresAt:         &later,
-		AbsoluteExpiresAt: &absoluteExpiry,
-	}
-	user := &models.User{
-		Username:    "alice",
-		Email:       "alice@example.com",
-		DisplayName: "Alice",
-	}
-	user.ID = 1
-	resp, err := h.buildLoginResponse(context.Background(), session, user)
-	require.NoError(t, err)
-	assert.Equal(t, "tok123", resp.Token)
-	assert.Equal(t, "alice", resp.Username)
-	assert.NotEmpty(t, resp.ExpiresAt)
-	assert.NotEmpty(t, resp.AbsoluteExpiresAt)
-}
-
-func TestAuthHandler_buildLoginResponse_NoExpiry(t *testing.T) {
-	h := newAuthHandlerWithWebAuthn(t)
-	session := &models.Session{SessionToken: "tok"}
-	user := &models.User{Username: "bob", Email: "bob@example.com"}
-	user.ID = 99
-	resp, err := h.buildLoginResponse(context.Background(), session, user)
-	require.NoError(t, err)
-	assert.Equal(t, "tok", resp.Token)
-	assert.Empty(t, resp.ExpiresAt)
-}
-
 func TestAuthHandler_setSessionCookies_Direct(t *testing.T) {
 	h := newAuthHandlerWithWebAuthn(t)
 	now := time.Now().Add(time.Hour)
