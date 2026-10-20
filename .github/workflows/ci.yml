@@ -1461,10 +1461,7 @@ jobs:
           # above). If someone proposes enabling Go's test cache here, that's
           # the trade being proposed, whether or not the proposal names it.
           # shellcheck disable=SC2086
-          # TEMPORARY (CI-SHARD-BALANCE-1 measurement round, reverted in the next
-          # commit): -v prints "--- PASS: Name (12.3s)" per test so the shard
-          # weights can be regenerated from CI itself (gen-test-weights.py --v-log).
-          go test -v -race -timeout ${{ matrix.timeout }}s -run "$run_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
+          go test -race -timeout ${{ matrix.timeout }}s -run "$run_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
 
       # This job is the ONLY one with a Postgres service container (see this
       # job's own KEYORIX_TEST_PG_DSN comment above), so it is the only place
