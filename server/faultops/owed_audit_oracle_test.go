@@ -81,6 +81,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -208,43 +209,62 @@ func owedAuditProbeFor(w *faultWorld) func(op string) (map[string]int, error) {
 		ctx := context.Background()
 		out := map[string]int{}
 		successes := 0
-		for nth := 1; ; nth++ {
-			pw := newFaultWorld(w.t, nil)
-			var state any
-			if entry.Setup != nil {
-				var err error
-				if state, err = entry.Setup(ctx, pw); err != nil {
-					return nil, fmt.Errorf("probe setup: %w", err)
+		// One probe run: whether the fault fired, and the pending rows' event types when
+		// the op succeeded (nil otherwise). Each run gets its own subtest so its world is
+		// torn down when the run ends: on Postgres every world holds a connection pool
+		// and a schema until its test's Cleanup, and a union probe over every scoped op
+		// built on the caller's t outlived max_connections (SQLSTATE 53300).
+		probeOnce := func(nth int) (fired bool, got map[string]int, err error) {
+			w.t.Run(fmt.Sprintf("owed-probe/%s/LogAuditEvent#%d", op, nth), func(t *testing.T) {
+				pw := newFaultWorld(t, nil)
+				var state any
+				if entry.Setup != nil {
+					if state, err = entry.Setup(ctx, pw); err != nil {
+						err = fmt.Errorf("probe setup: %w", err)
+						return
+					}
 				}
-			}
-			drainAllBackgroundGoroutines()
-			pw.faulty.Arm(&faultstorage.FaultSpec{Method: "LogAuditEvent", NthCall: nth, Kind: faultstorage.KindError, Err: errFuzzInjected})
-			res, err := entry.Execute(ctx, pw, state)
-			fired := pw.faulty.Fired()
-			pw.faulty.Arm(nil)
-			drainAllBackgroundGoroutines()
+				drainAllBackgroundGoroutines()
+				pw.faulty.Arm(&faultstorage.FaultSpec{Method: "LogAuditEvent", NthCall: nth, Kind: faultstorage.KindError, Err: errFuzzInjected})
+				res, xerr := entry.Execute(ctx, pw, state)
+				fired = pw.faulty.Fired()
+				pw.faulty.Arm(nil)
+				drainAllBackgroundGoroutines()
+				if xerr != nil {
+					err = fmt.Errorf("probe run of %s with LogAuditEvent#%d refused: %w", op, nth, xerr)
+					return
+				}
+				if !fired || !res.Success {
+					return
+				}
+				snap, serr := snapshotDB(pw.db)
+				if serr != nil {
+					err = serr
+					return
+				}
+				got = map[string]int{}
+				for _, r := range snap.Tables[owedAuditPendingTable].Rows {
+					var rec struct{ EventType string }
+					if err = json.Unmarshal([]byte(r), &rec); err != nil {
+						return
+					}
+					got[rec.EventType]++
+				}
+			})
+			return fired, got, err
+		}
+		for nth := 1; ; nth++ {
+			fired, got, err := probeOnce(nth)
 			if err != nil {
-				return nil, fmt.Errorf("probe run of %s with LogAuditEvent#%d refused: %w", op, nth, err)
+				return nil, err
 			}
 			if !fired {
 				break
 			}
-			if !res.Success {
+			if got == nil {
 				continue
 			}
 			successes++
-			snap, err := snapshotDB(pw.db)
-			if err != nil {
-				return nil, err
-			}
-			got := map[string]int{}
-			for _, r := range snap.Tables[owedAuditPendingTable].Rows {
-				var rec struct{ EventType string }
-				if err := json.Unmarshal([]byte(r), &rec); err != nil {
-					return nil, err
-				}
-				got[rec.EventType]++
-			}
 			for k, n := range got {
 				out[k] = max(out[k], n)
 			}

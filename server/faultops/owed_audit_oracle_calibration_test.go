@@ -394,63 +394,74 @@ func TestOwedAuditOracle_SweepEveryScopedOp(t *testing.T) {
 		}
 	}
 	for _, op := range ops {
-		// Every scoped op must OWE at least one row. The rule takes the owed event types
-		// from a probe (owedAuditProbeFor); a revocation regressed to a plain best-effort
-		// row would owe nothing, the rule would stop engaging for it, and only this
-		// assertion (and TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed)
-		// would notice.
-		in, outcome, why := owedCalDriveRaw(t, op, "LogAuditEvent", 1, faultstorage.KindError)
-		if outcome != driveObserved {
-			t.Errorf("%s: LogAuditEvent#1 case not observed: %s", op, why)
-		} else if types, err := owedAuditProbeFor(in.world)(op); err != nil {
-			t.Errorf("%s: owed-type probe failed: %v", op, err)
-		} else {
-			total := 0
-			for _, n := range types {
-				total += n
-			}
-			if total == 0 {
-				t.Errorf("%s owes no audit row (a refused first append queued nothing): it is not an owed-audit revocation any more", op)
-			}
-			if total > 1 {
-				multiOwed = append(multiOwed, fmt.Sprintf("%s=%d", op, total))
-			}
-			// The probe can only report what the code owes today; the table is what it
-			// is supposed to owe. A revocation regressed to best-effort (or changed to
-			// owe another row) is invisible to the probe and visible here.
-			if want, pinned := owedAuditExpectedOwedTypes[op]; pinned && !maps.Equal(types, want) {
-				t.Errorf("%s owes %v, the pinned table says %v", op, types, want)
-			}
-		}
-		for method, maxNth := range nths {
-			for nth := 1; nth <= maxNth; nth++ {
-				for _, kind := range kinds {
-					in, outcome, why := owedCalDriveRaw(t, op, method, nth, kind)
-					switch outcome {
-					case driveFaultNeverFired:
-						neverFired++
-						continue
-					case driveObserved:
-					default:
-						t.Errorf("%s %s#%d/%s: not evaluated: %s", op, method, nth, kind, why)
-						continue
-					}
-					if !in.result.Success {
-						notSuccess++
-					}
-					if in.after.Hash == in.refAfter.Hash {
-						same++
-					}
-					if f := owedCalFindings(t, in); len(f) > 0 {
-						t.Errorf("%s %s#%d/%s: %v", op, method, nth, kind, f)
-						continue
-					}
-					accepted++
-				}
-			}
-		}
+		// One subtest per op: every drive builds a reference and a faulted world, and on
+		// Postgres each world holds a connection pool and a schema until its test ends, so
+		// the whole sweep on one t outlived max_connections (SQLSTATE 53300).
+		t.Run(op, func(t *testing.T) {
+			owedCalSweepOp(t, op, kinds, nths, &accepted, &same, &neverFired, &notSuccess, &multiOwed)
+		})
 	}
 	t.Logf("sweep: %d ops; cases with no finding: %d (of which state == reference: %d, reported errors: %d); fault never fired: %d",
 		len(ops), accepted, same, notSuccess, neverFired)
 	t.Logf("ops owing more than one audit row: %v", multiOwed)
+}
+
+// owedCalSweepOp is TestOwedAuditOracle_SweepEveryScopedOp for one op.
+func owedCalSweepOp(t *testing.T, op string, kinds []faultstorage.FaultKind, nths map[string]int,
+	accepted, same, neverFired, notSuccess *int, multiOwed *[]string) {
+	// Every scoped op must OWE at least one row. The rule takes the owed event types
+	// from a probe (owedAuditProbeFor); a revocation regressed to a plain best-effort
+	// row would owe nothing, the rule would stop engaging for it, and only this
+	// assertion (and TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed)
+	// would notice.
+	in, outcome, why := owedCalDriveRaw(t, op, "LogAuditEvent", 1, faultstorage.KindError)
+	if outcome != driveObserved {
+		t.Errorf("%s: LogAuditEvent#1 case not observed: %s", op, why)
+	} else if types, err := owedAuditProbeFor(in.world)(op); err != nil {
+		t.Errorf("%s: owed-type probe failed: %v", op, err)
+	} else {
+		total := 0
+		for _, n := range types {
+			total += n
+		}
+		if total == 0 {
+			t.Errorf("%s owes no audit row (a refused first append queued nothing): it is not an owed-audit revocation any more", op)
+		}
+		if total > 1 {
+			*multiOwed = append(*multiOwed, fmt.Sprintf("%s=%d", op, total))
+		}
+		// The probe can only report what the code owes today; the table is what it
+		// is supposed to owe. A revocation regressed to best-effort (or changed to
+		// owe another row) is invisible to the probe and visible here.
+		if want, pinned := owedAuditExpectedOwedTypes[op]; pinned && !maps.Equal(types, want) {
+			t.Errorf("%s owes %v, the pinned table says %v", op, types, want)
+		}
+	}
+	for method, maxNth := range nths {
+		for nth := 1; nth <= maxNth; nth++ {
+			for _, kind := range kinds {
+				in, outcome, why := owedCalDriveRaw(t, op, method, nth, kind)
+				switch outcome {
+				case driveFaultNeverFired:
+					*neverFired++
+					continue
+				case driveObserved:
+				default:
+					t.Errorf("%s %s#%d/%s: not evaluated: %s", op, method, nth, kind, why)
+					continue
+				}
+				if !in.result.Success {
+					*notSuccess++
+				}
+				if in.after.Hash == in.refAfter.Hash {
+					*same++
+				}
+				if f := owedCalFindings(t, in); len(f) > 0 {
+					t.Errorf("%s %s#%d/%s: %v", op, method, nth, kind, f)
+					continue
+				}
+				*accepted++
+			}
+		}
+	}
 }
