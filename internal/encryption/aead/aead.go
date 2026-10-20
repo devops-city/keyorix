@@ -23,7 +23,7 @@ const (
 
 // nonceBudgetWarnThreshold is a conservative, coarse checkpoint on the number of
 // Encrypt/EncryptWithAAD calls made under a single DEK, logged as a one-time loud
-// warning to nudge an operator toward a routine `keyorix encryption rotate` well
+// warning to nudge an operator toward a routine `keyorix-server admin encryption rotate` well
 // before nonce-collision risk becomes material. Standard random 96-bit AES-GCM
 // nonces only become a real birthday-bound collision risk near 2^32 encryptions
 // under one key; this threshold (2^28, ~268M) sits far below that boundary, giving
@@ -55,12 +55,12 @@ type EncryptionService struct {
 
 // checkNonceBudget increments the per-DEK encryption counter and, the first time it
 // crosses nonceBudgetWarnThreshold, logs a loud one-time warning nudging the operator
-// toward a routine DEK rotation (`keyorix encryption rotate --confirm`). See
+// toward a routine DEK rotation (`keyorix-server admin encryption rotate --confirm`). See
 // nonceBudgetWarnThreshold for why this threshold, not 2^32, is used.
 func (es *EncryptionService) checkNonceBudget() {
 	count := es.encryptCount.Add(1)
 	if count >= nonceBudgetWarnThreshold && es.nonceBudgetWarned.CompareAndSwap(false, true) {
-		log.Printf("[WARN] SECURITY: this DEK has performed %d encryptions, approaching the AES-GCM 96-bit random-nonce birthday bound — run `keyorix encryption rotate --confirm` to rotate to a fresh DEK", count)
+		log.Printf("[WARN] SECURITY: this DEK has performed %d encryptions, approaching the AES-GCM 96-bit random-nonce birthday bound — run `keyorix-server admin encryption rotate --confirm` to rotate to a fresh DEK", count)
 	}
 }
 

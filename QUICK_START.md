@@ -250,9 +250,11 @@ there; none of them take `--server` again.
 With no terminal (a script, CI), `login` reads `KEYORIX_PASSWORD` or the file named
 by `KEYORIX_PASSWORD_FILE` (a 0600 file; on `main`, not in the v0.96.1 release).
 
-There is no `keyorix doctor` command. To check the connection at any time, run
-`keyorix status` (server URL, whether you are logged in, health, version
-compatibility). On the server host, `keyorix-server admin diagnose` runs the checks
+To check the connection at any time, run `keyorix status` (server URL, whether you are
+logged in, health, version compatibility), or `keyorix doctor` (on `main`, not in the
+v0.96.1 release) for a read-only checklist (reachability, TLS, version, clock, login,
+audit chain) that says what to do about each failure; it exits 1 when a check failed.
+On the server host, `keyorix-server admin diagnose` runs the checks
 server startup depends on (config parse, encryption-key access, database open,
 migration state); like every `admin` command it refuses while the server is
 running, so stop the server first.

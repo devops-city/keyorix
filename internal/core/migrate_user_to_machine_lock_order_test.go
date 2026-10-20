@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
-	kxstorage "github.com/keyorixhq/keyorix/internal/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/stretchr/testify/assert"
@@ -64,8 +63,7 @@ func TestMigrateUserToMachine_LockAcquisitionFailureLeavesNothingCommitted(t *te
 // KEYORIX_TEST_PG_DSN is unset.
 func TestMigrateUserToMachine_LockAcquisitionFailureLeavesNothingCommitted_Postgres(t *testing.T) {
 	base := pgTestDSN(t)
-	db := pgOpen(t, pgIsolatedSchemaDSN(t, base))
-	require.NoError(t, kxstorage.MigrateExisting(db))
+	db := pgOpen(t, pgMigratedDatabaseDSN(t, base))
 	st := store.NewLocalStorage(db)
 	c := NewKeyorixCore(st)
 	ctx := context.Background()

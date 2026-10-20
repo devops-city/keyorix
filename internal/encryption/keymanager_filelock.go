@@ -1,8 +1,8 @@
 // keymanager_filelock.go — cross-process exclusive lock guarding the DEK
 // read-modify-rename critical sections (#195).
 //
-// RewrapDEK/RewrapDEKWithProvider (the `keyorix encryption migrate-provider`
-// command) and RotateDEKWithSweep (the `keyorix encryption rotate` command)
+// RewrapDEK/RewrapDEKWithProvider (the `keyorix-server admin encryption migrate-provider`
+// command) and RotateDEKWithSweep (the `keyorix-server admin encryption rotate` command)
 // both read the currently-active DEK, compute a new wrapped form, and
 // atomically rename it onto keys/dek.key. Each is a separate, short-lived CLI
 // process with its own KeyManager instance, so KeyManager.mu — an in-process

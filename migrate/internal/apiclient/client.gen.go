@@ -2040,6 +2040,7 @@ type ListPATsResponse struct {
 	JSON200      *struct {
 		Data *[]PATToken `json:"data,omitempty"`
 	}
+	JSON403 *Error
 }
 
 // Status returns HTTPResponse.Status
@@ -2690,6 +2691,7 @@ type GetSecretResponse struct {
 	JSON401 *Error
 	JSON403 *Error
 	JSON404 *Error
+	JSON409 *SecretReadRefused
 }
 
 // Status returns HTTPResponse.Status
@@ -3097,6 +3099,13 @@ func ParseListPATsResponse(rsp *http.Response) (*ListPATsResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 
@@ -4237,6 +4246,13 @@ func ParseGetSecretResponse(rsp *http.Response) (*GetSecretResponse, error) {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest SecretReadRefused
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	}
 

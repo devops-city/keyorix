@@ -449,6 +449,35 @@ The Helm chart passes `externalDatabase.sslRootCert` through as
 `system`). `admin validate --posture` prints one informational line saying
 what is encrypted and what is verified against which CA.
 
+### PostgreSQL DSN forms
+
+`storage.database.dsn` takes either form the PostgreSQL driver (pgx) parses, and
+the server and every `admin` command treat them identically:
+
+| Form | Example |
+|---|---|
+| key=value | `host=db user=keyorix dbname=keyorix port=5432 sslmode=require` |
+| URL | `postgres://keyorix@db:5432/keyorix?sslmode=require` |
+| URL, `postgresql://` scheme | `postgresql://keyorix@db:5432/keyorix?sslmode=require` |
+
+Managed-Postgres connection strings and Helm values are usually the URL form;
+paste them as they are. Things to know:
+
+- **Special characters in a password.** In the URL form, percent-encode them
+  (`@` as `%40`, `:` as `%3A`, `/` as `%2F`, `?` as `%3F`, `%` as `%25`); in the
+  key=value form, wrap the value in single quotes and escape `'` and `\` with a
+  backslash (`password='p@ss w\'rd'`). Better still, leave the password out of
+  the DSN and use `KEYORIX_DB_PASSWORD` (see below), which needs no escaping.
+- **`sslmode`** and every other parameter (`sslrootcert`, `connect_timeout`,
+  `application_name`, `search_path`, ...) work the same in both forms; in a URL
+  they are query parameters. Without one, the driver default `prefer` applies.
+- **`admin verify-audit --pg-dsn`** takes the same two forms.
+
+`KEYORIX_TEST_PG_DSN`, the connection the Postgres-gated tests use, accepts both
+forms too. The tests create their own throwaway databases on that server by
+swapping the database name, keeping the other settings as written (including
+`sslmode` and a percent-encoded password).
+
 ### PostgreSQL password precedence
 
 The database password comes from `KEYORIX_DB_PASSWORD`, or the file named by
@@ -1497,6 +1526,12 @@ must not fire implicitly from a startup path.
 If the migration cannot complete, the server **refuses to start** rather than
 serve with webhook credentials still in plaintext on an install that asked for
 encryption. The error names the channel to investigate.
+
+The API and the clients treat the URL as write-only after creation: only the create
+response carries it in full; list, get and update return `https://host/…` and `url_set`.
+From the CLI, give it with `keyorix notification channel add|update --url-file <path|->`
+(`--url` is refused, like the other secret flags); the web form uses a password-type field
+and a "Replace URL" button on existing channels.
 
 ## compliance_digest
 

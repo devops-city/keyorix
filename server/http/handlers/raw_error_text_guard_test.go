@@ -14,9 +14,7 @@ import (
 
 // rawErrorTextExempt lists sendError call sites (file:func) that still pass a raw
 // err.Error() with a run-time status, each with the reason it is not fixed here.
-var rawErrorTextExempt = map[string]string{
-	"auth.go:InitSystem": "auth handler owned by FIX-3277 (HARDEN-HTTP-1 brief: report, do not change); reported in the HARDEN-HTTP-1 session report",
-}
+var rawErrorTextExempt = map[string]string{}
 
 // TestNoRawErrorTextOnServerErrors: no handler in this package may send an error's
 // raw text (x.Error()) as the client message unless the status argument is a

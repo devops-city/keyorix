@@ -154,14 +154,14 @@ func (c *client) DecryptReportingFallback(ctx context.Context, ciphertext []byte
 	// install's context is. When allowFallback IS set (a deliberate, transient
 	// migration aid — see KMSAllowContextFallback), a successful fallback is logged
 	// loudly: it means this decrypt just used the weaker, unbound path, which should
-	// be closed by re-wrapping (`keyorix encryption migrate-provider
+	// be closed by re-wrapping (`keyorix-server admin encryption migrate-provider
 	// --to-kms-encryption-context=...`) and turning the flag back off.
 	fellBack := false
 	if err != nil && c.ContextFallbackEnabled() {
 		out, err = c.kms.Decrypt(ctx, &kms.DecryptInput{CiphertextBlob: ciphertext, KeyId: &c.keyID})
 		if err == nil {
 			fellBack = true
-			log.Printf("aws-kms: decrypted a wrapped KEK WITHOUT its configured encryption context (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback")
+			log.Printf("aws-kms: decrypted a wrapped KEK WITHOUT its configured encryption context (insecure_allow_kms_context_fallback is on) — this blob is not bound to this install; re-wrap it under the context via 'keyorix-server admin encryption migrate-provider --to-kms-encryption-context=...' and disable insecure_allow_kms_context_fallback")
 			if c.fallbackHook != nil {
 				c.fallbackHook(ctx, c.keyID)
 			}

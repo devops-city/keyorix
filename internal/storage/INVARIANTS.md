@@ -18,9 +18,18 @@ Format: `INV-STORAGE-NN <rule>. Why: <source>. Guard: <test> | UNGUARDED (#issue
   accompanying ADR-101 compatibility-floor work landing — this is a deliberate tripwire, not a
   claim that raising the epoch is wrong. Guard: `schema_epoch_tripwire_test.go:TestCurrentSchemaEpoch_Is5_SeeADR101`.
 - **INV-STORAGE-03** A corrupt (non-integer) `schema_epoch` value in `system_metadata` fails
-  closed (refuses boot), not proceed silently. Why: ADR-097 "Corrupt value" section. UNGUARDED
-  (#issue: no test located beyond the two epoch tests above directly asserting this; likely
-  covered incidentally by `checkSchemaEpoch`'s own tests — confirm and cite precisely, or add).
+  closed (refuses boot), not proceed silently. Why: ADR-097 "Corrupt value" section. Guard:
+  `factory_schema_epoch_corrupt_test.go` (`TestSchemaEpoch_CorruptValueShapes_MigrateDatabaseRefuses`,
+  `TestSchemaEpoch_CorruptValue_CreateStorageRefusesBoot`: eight value shapes a lenient parser would
+  accept — `1abc`, ` 1`, `1\n`, `1.0`, `0x1`, empty, overflow, non-numeric — through
+  `migrateDatabase` and the real `CreateStorage`, asserting the refusal leaves the database and the
+  corrupt marker untouched) and `TestSchemaEpoch_CorruptRecordedEpoch_FailsClosed`; Postgres
+  (pg-gated, `KEYORIX_TEST_PG_DSN`) `factory_schema_epoch_corrupt_postgres_test.go:TestSchemaEpoch_CorruptValue_Postgres_CreateStorageRefusesBoot`
+  runs the same table through `createPostgresStorage`/`withMigrationLock`. Red-proved by making
+  `checkSchemaEpochFor`'s parse error fall back to epoch 0 in a scratch copy: every SQLite shape
+  and the Postgres shapes go red. On Postgres the fallback is also caught later by the integer cast
+  in `recordSchemaEpoch`, so boot still fails there, but after the migration steps ran and with the
+  wrong error; the test pins the early, specific refusal.
 - **INV-STORAGE-04** Rolling back past a recorded `minCompatibleEpoch` floor
   (`system_metadata` key `schema_min_compatible_epoch`, declared by `minCompatibleSchemaEpoch`
   in `factory.go`) must still refuse; an additive-safe migration must NOT raise that floor; a

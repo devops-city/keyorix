@@ -7,7 +7,7 @@ keyorix is the Keyorix CLI. It talks to a Keyorix server exclusively over the RE
 
 Exit codes:
   0  success
-  1  the request was refused or failed (conflict, validation error, server error)
+  1  the request was refused or failed (conflict, validation error, server error); "doctor": a check failed
   2  usage error: unknown command, bad or missing flag or argument
   3  not logged in, or the session was rejected (HTTP 401): run "keyorix login"
   4  permission denied (HTTP 403)
@@ -625,7 +625,7 @@ rotations, unique human users, and machine reads for the specified date window
 
 ```sh
 keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z
-keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --project-id 3,5 --format json
+keyorix billing report --from 2026-09-01T00:00:00Z --to 2026-10-01T00:00:00Z --project-id 3,5 -o json
 ```
 
 **Flags:**
@@ -1307,7 +1307,8 @@ Checks, in order:
 
 ```
 Checks that need an earlier one to pass are skipped, not failed. The exit code is 0 when
-nothing failed (warnings do not fail it) and non-zero otherwise.
+nothing failed (warnings do not fail it) and 1 otherwise (2 for a bad flag; see the
+exit-code table in "keyorix --help").
 
 **Usage:** `keyorix doctor [flags]`
 
@@ -2372,6 +2373,9 @@ Issue a new bearer token for a machine identity
 ```sh
 # The token is shown once; store it straight into your CI system
 keyorix machine token issue ci-deployer --project payments --name github-actions --expires-in-days 90
+
+# Or write it to a new 0600 file, so it never appears in your terminal or shell history
+keyorix machine token issue ci-deployer --project payments --name github-actions --output-file ./ci.token
 ```
 
 **Flags:**
@@ -2381,6 +2385,7 @@ keyorix machine token issue ci-deployer --project payments --name github-actions
 | `--classification` | `string` | — | Data classification: public \| internal \| confidential \| restricted |
 | `--expires-in-days` | `int` | — | Token lifetime in days (0 = never expires) |
 | `--name` | `string` | — | Token label (required) |
+| `--output-file` | `string` | — | Write the token to this new file (mode 0600, refuses to overwrite) instead of printing it, so it never passes through terminal scrollback or shell history |
 | `--project` | `string` | — | Project name or numeric ID |
 
 ## `keyorix machine token list`
@@ -2546,7 +2551,7 @@ Add a notification channel
 **Examples:**
 
 ```sh
-keyorix notification channel add ops-slack --type slack --url https://hooks.slack.com/services/T000/B000/XXXX --events secret.rotated,anomaly.detected
+keyorix notification channel add ops-slack --type slack --url-file ./slack-url.txt --events secret.rotated,anomaly.detected
 keyorix notification channel add secops-mail --type email --email secops@example.com
 ```
 
@@ -2557,7 +2562,7 @@ keyorix notification channel add secops-mail --type email --email secops@example
 | `--email` | `string` | — | Email address (required for email type) |
 | `--events` | `string` | — | Comma-separated event types, e.g. secret.rotated,anomaly.detected (empty = all) |
 | `--type` | `string` | — | Channel type: webhook, slack, teams, or email (required) |
-| `--url` | `string` | — | Webhook URL (required for webhook/slack/teams) |
+| `--url-file` | `string` | — | Read the webhook URL from a file (relative path), or from stdin with "-" (required for webhook/slack/teams) |
 
 ## `keyorix notification channel delete`
 
@@ -2617,6 +2622,7 @@ Update a notification channel by name
 
 ```sh
 keyorix notification channel update ops-slack --events secret.rotated --enabled
+keyorix notification channel update ops-slack --url-file -
 ```
 
 **Flags:**
@@ -2627,7 +2633,7 @@ keyorix notification channel update ops-slack --events secret.rotated --enabled
 | `--email` | `string` | — | New email address |
 | `--enabled` | — | — | Enable the channel |
 | `--events` | `string` | — | New event filter (comma-separated) |
-| `--url` | `string` | — | New webhook URL |
+| `--url-file` | `string` | — | Read the new webhook URL from a file (relative path), or from stdin with "-" |
 
 ## `keyorix pat`
 
@@ -3003,7 +3009,7 @@ Show rich statistics for a project
 **Examples:**
 
 ```sh
-keyorix project stats payments --format json
+keyorix project stats payments -o json
 ```
 
 **Flags:**
@@ -4891,7 +4897,7 @@ only what you're authorized to read.
 
 ```sh
 keyorix secret list --project payments
-keyorix secret list --project payments --format json
+keyorix secret list --project payments -o json
 ```
 
 **Flags:**
@@ -5449,7 +5455,7 @@ List secret versions
 **Examples:**
 
 ```sh
-keyorix secret versions --id 42 --format json
+keyorix secret versions --id 42 -o json
 ```
 
 **Flags:**
@@ -5894,7 +5900,7 @@ given reporting window (GET /admin/usage). Requires audit.read.
 
 ```sh
 keyorix usage show --days 30
-keyorix usage show --project-id 3 --format json
+keyorix usage show --project-id 3 -o json
 ```
 
 **Flags:**
