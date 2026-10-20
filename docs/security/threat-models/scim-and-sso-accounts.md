@@ -91,8 +91,15 @@ flowchart TB
   `JIT-OFFBOARDING-GAP`).** Since #3493 an account whose `external_id` is
   `sso:<provider>:<sub>` is not SCIM-managed, so an IdP disable or SCIM
   deactivation leaves its PATs and sessions alive until a Keyorix
-  administrator suspends the account or revokes the tokens. Operators
-  upgrading should also check for SCIM-created rows with an `sso:`
+  administrator suspends the account or revokes the tokens. An install
+  that enables `scim.enabled` and any enabled SSO provider with
+  `auto_provision` (SCIM is install-wide, so any such provider counts) gets
+  a `SECURITY:` warning naming those providers at server start, in
+  `keyorix-server admin validate` and as `security.scim_jit_unmanaged_warning`
+  in `GET /api/v1/system/info`: JIT accounts are not deactivated by SCIM,
+  offboard them on the IdP/SSO session side, and a `scim_managed` column
+  (option B) is the planned fix if the combination is used. The ownership
+  rule itself is unchanged. Operators upgrading should also check for SCIM-created rows with an `sso:`
   `externalId` (`docs/UPGRADING.md` section 6v).
 - **Known issue #3494: SCIM `ReplaceUser`, `PatchUser` and `DeleteUser`
   answer 404 for a storage failure, not 500**

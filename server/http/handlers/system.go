@@ -96,6 +96,11 @@ type SecurityInfo struct {
 	// and failures counted by this process since start. Like recovery_key, nil
 	// for any caller without system.write; the web UI warns while pending > 0.
 	AuditOwed *core.OwedAuditStatus `json:"audit_owed,omitempty"`
+	// SCIMJITUnmanaged is set when scim.enabled and an SSO provider's
+	// auto_provision are both on: JIT-created accounts are not SCIM-managed, so
+	// SCIM does not deactivate them. Config-derived (names no secret), omitted
+	// when the combination is absent.
+	SCIMJITUnmanaged string `json:"scim_jit_unmanaged_warning,omitempty"`
 	// BreakGlassDegraded reports break-glass activations granted while the audit
 	// log refused their rows (BREAKGLASS-OWED-1): how many still owe audit rows to
 	// the hash chain, how many still lack their mandatory review, and their ids.
@@ -268,6 +273,7 @@ func MakeSystemInfoHandler(cfg *config.Config, coreService *core.KeyorixCore) ht
 				AccessLogDropped:     middleware.AccessLogDropped(),
 				RecoveryKey:          recoveryKeyStatus,
 				AuditOwed:            auditOwed,
+				SCIMJITUnmanaged:     config.SCIMJITUnmanagedWarning(cfg.SCIMJITUnmanagedProviders()),
 				BreakGlassDegraded:   breakGlassDegraded,
 			},
 		}

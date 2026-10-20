@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/keyorixhq/keyorix/internal/besteffort"
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -730,11 +732,21 @@ func (h *SecretHandler) DeleteSecret(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Tell the caller until when this delete is undoable. A failed read-back must not
-	// turn a completed delete into an error, so the header is simply omitted then.
-	if purgeAt, perr := h.coreService.DeletedSecretPurgeAt(r.Context(), uint(id)); perr == nil {
+	// turn a completed delete into an error, so the header is simply omitted then. That
+	// holds for a panic as well as a returned error (#3508): the delete and its audit row
+	// are already committed, so besteffort.Run recovers, logs and counts the failure.
+	var purgeAt time.Time
+	var purgeAtKnown bool
+	besteffort.Run(r.Context(), "http.SecretHandler.DeleteSecret.purgeAt", func() error {
+		at, perr := h.coreService.DeletedSecretPurgeAt(r.Context(), uint(id))
+		if perr != nil {
+			return fmt.Errorf("deleted secret %d but could not read back its purge date: %w", id, perr)
+		}
+		purgeAt, purgeAtKnown = at, true
+		return nil
+	})
+	if purgeAtKnown {
 		w.Header().Set(purgeAtHeader, formatPurgeAt(purgeAt))
-	} else {
-		log.Printf("Deleted secret %d but could not read back its purge date: %v", id, perr)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
