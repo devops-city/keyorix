@@ -2,7 +2,8 @@
   delete, group member removal and delete, project member removal, share revoke / self-removal /
   expiry sweep, secret ACL revoke, machine suspend / revoke / token revoke / role removal, PAT and
   session revoke, user suspend / deactivate / delete, SCIM deactivate / deprovision, break-glass
-  revoke, JIT role expiry sweep, invitation revoke, access-request withdraw, risk-exception revoke)
+  revoke, JIT role expiry sweep, invitation revoke, access-request withdraw, risk-exception revoke,
+  project delete, environment delete, enabling a project's MFA requirement)
   is never blocked, delayed or failed by the audit log (Andrei 2026-10-14), and its audit row is
   never silently lost (AUDIT-TX-3, extending INV-CORE-plain-suspend-audit-owed to every revocation).
   The change runs through `withOwedAuditMutation` / `runOwedAuditMutation` (`audit_owed.go`) in ONE
@@ -26,12 +27,12 @@
   suspend/revoke are revocations, back to active is a grant that fails closed).
   Why: Andrei 2026-10-14; before AUDIT-TX-3 these wrote a plain best-effort row after the commit
   with no record, so a refused append or a crash lost the row for good.
-  Guard: `internal/core` `TestRevocationAudit_EffectCommitsAndRowIsOwedNeverLost` (31 kinds x
+  Guard: `internal/core` `TestRevocationAudit_EffectCommitsAndRowIsOwedNeverLost` (34 kinds x
   success / append error / effect-then-error / panic / crash at the append / pending-record error
   / pending-record panic, SQLite always, PostgreSQL pg-gated; the backfill completes the trail
   exactly once and the chain verifies), `TestUpdateUser_DeactivateAuditInOwnTransaction_NoSQLiteDeadlock`,
   `TestUpdateUser_DeactivateAuditRefused_RowIsOwedAndBackfilled`; `server/faultops`
-  `TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed` (31 REST/gRPC ops over the
+  `TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed` (34 REST/gRPC ops over the
   router, request still succeeds, rows + pending equals an unfaulted run); the fuzz oracle's
   owed-audit rule `server/faultops` `owed_audit_oracle_test.go` (oracle (a) accepts a success whose
   diff is confined to {AuditEvent, PendingAuditEvent} only for those ops with a fault on
@@ -39,7 +40,9 @@
   pending record, and only when the backfill then converges to the reference exactly; a
   CreatePendingAuditEvent fault must leave the state equal to the reference), calibrated red/green by
   `TestOwedAuditOracle_Calibration` (regression seed `5012b3d0b086d4a4`; `FuzzOwedAuditRevocations` for
-  bursts, `TestOwedAuditOracle_SweepEveryScopedOp` for the exhaustive pass and "every op owes a row").
+  bursts, `TestOwedAuditOracle_SweepEveryScopedOp` for the exhaustive pass and the hand-pinned
+  per-op `owedAuditExpectedOwedTypes`; the SSO callback and the SAML ACS are in the rule's scope,
+  they share the group and role reconcile in `sso.go`).
   Not covered: the narrowing branch of `UpdateRole` / `UpdateSharePermission` keeps its plain
   best-effort row (inventory "Remaining"); `DecideAccessReviewItem`'s revoke keeps its in-tx
   best-effort sink (#2676); a new revocation that does not use `withOwedAuditMutation` is not

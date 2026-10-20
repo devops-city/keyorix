@@ -6,8 +6,10 @@
   INV-CORE-break-glass-never-unrecorded), share create, a share or role UPDATE that widens access (see
   below), secret ACL grant, machine identity create /
   token issue / role grant, PAT create, `CreateUserWithAssignments` and
-  `CreateUserAudited`, project/environment create, update, delete and restore
-  called with `WithMutationAuditActor`, SoD policy create/delete, and, since
+  `CreateUserAudited`, project/environment create, update and restore
+  called with `WithMutationAuditActor` (EXCEPT enabling a project's MFA requirement
+  with no other change, and project and environment DELETE: those narrow access and are
+  owed revocations, INV-CORE-revocation-audit-owed), SoD policy create/delete, and, since
   AUDIT-TX-3, group create/update/restore, user update / reactivate / restore,
   OTP reissue, SCIM user and group provisioning writes, invitations, access
   request create / reject / partial approval, notification channel and retry
