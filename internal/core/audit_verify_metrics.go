@@ -12,6 +12,9 @@
 package core
 
 import (
+	"context"
+	"math"
+
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
@@ -30,17 +33,31 @@ var (
 
 	auditVerifyFailureRecorded = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "keyorix_audit_verify_failure_recorded",
-		Help: "1 while a sticky audit-chain verification failure (a detected break) is recorded; it clears only after a passing full verification. Page on 1.",
+		Help: "1 while a sticky audit-chain verification failure (a detected break) is recorded; it clears only after a passing full verification. NaN until this process has read the state. Page on 1.",
 	})
 
 	auditVerifyStateRejected = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "keyorix_audit_verify_state_rejected",
-		Help: "1 while the persisted verification state was found untrusted (bad signature, replayed or rolled back) and the status is therefore not_proven; it clears after a passing full verification.",
+		Help: "1 while the persisted verification state was found untrusted (bad signature, replayed or rolled back) and the status is therefore not_proven; it clears after a passing full verification. NaN until this process has read the state.",
 	})
 )
 
 func init() {
 	protectedmetrics.MustRegister(auditVerifyLastSuccess, auditVerifyFailureRecorded, auditVerifyStateRejected)
+	// Unknown until this process has read the persisted state, never a false 0: a
+	// restarted server must not report "no break recorded" before it has looked.
+	auditVerifyFailureRecorded.Set(math.NaN())
+	auditVerifyStateRejected.Set(math.NaN())
+}
+
+// PublishAuditVerifyState reads the persisted verification state once and publishes
+// it to the audit-verify gauges. The server calls it at startup on every replica:
+// otherwise a restart shows no recorded failure until the first checkpoint tick
+// (deferred by up to one interval, AuditCheckpointFirstTickDelay), which resolves a
+// KeyorixAuditChainBreakRecorded page while the sticky failure is still recorded.
+func (c *KeyorixCore) PublishAuditVerifyState(ctx context.Context) error {
+	_, _, err := c.loadAuditVerifyState(ctx)
+	return err
 }
 
 func boolGauge(g prometheus.Gauge, v bool) {

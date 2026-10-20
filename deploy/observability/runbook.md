@@ -62,9 +62,9 @@ sync cost for crash safety; change it only as that document describes.
 
 ## KeyorixAuditOwedPending
 
-**Means.** A plain secret suspend took effect (revocation is never blocked by the audit log) but
-its `secret.suspended` audit row was refused, and the owed row is still waiting in the backfill
-queue. The gauge is the cluster-wide count and is served only on the authenticated
+**Means.** An action took effect (a plain secret suspend, whose revocation is never blocked by
+the audit log, or a degraded break-glass activation) but its audit row was refused, and the owed
+row (suspend or degraded break-glass) is still waiting in the backfill queue. The gauge is the cluster-wide count and is served only on the authenticated
 `keyorix-protected` scrape job. It should be 0; the backfill runs every minute, so above 0 for
 10 minutes means the audit log is still refusing writes or a queued row cannot be written.
 **Check.** `GET /api/v1/system/info` (system.write) shows `security.audit_owed` with the pending

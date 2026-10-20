@@ -1858,6 +1858,11 @@ func startSchedulers(ctx context.Context, cfg *config.Config, coreService *core.
 		// 1/segments of the chain, so the whole chain is re-hashed every
 		// interval × segments; requests and posture read the persisted result.
 		coreService.SetAuditIncrementalVerification(interval, segments)
+		// Publish the persisted verification state now, not at the first tick: a
+		// restart must not read as "no audit-chain break recorded" until then.
+		if perr := coreService.PublishAuditVerifyState(ctx); perr != nil {
+			log.Printf("WARNING: could not read the audit verification state at startup: %v (the audit-verify failure gauges stay unknown until the first checkpoint tick)", perr)
+		}
 		// A fresh checkpoint defers the first tick (spec §6): a restart does not
 		// re-verify what the last tick already covered.
 		firstDelay := coreService.AuditCheckpointFirstTickDelay(ctx, interval)

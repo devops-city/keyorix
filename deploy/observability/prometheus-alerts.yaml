@@ -94,8 +94,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Keyorix owes {{ $value }} suspend audit row(s) the audit log has not accepted"
-          description: "A secret suspend took effect but its audit row was refused by the audit log and is still waiting for the backfill (minutely). It should drain within minutes once the audit log accepts writes; above zero for 10 minutes means the backfill is blocked or a row cannot be written."
+          summary: "Keyorix has {{ $value }} owed audit row(s) (suspend and degraded break-glass) the audit log has not accepted"
+          description: "A secret suspend or a degraded break-glass activation took effect but its audit row was refused by the audit log and is still waiting for the backfill (minutely). It should drain within minutes once the audit log accepts writes; above zero for 10 minutes means the backfill is blocked or a row cannot be written."
           runbook_url: "https://github.com/keyorixhq/keyorix/blob/main/deploy/observability/runbook.md#keyorixauditowedpending"
 
       - alert: KeyorixAuditChainBreakRecorded

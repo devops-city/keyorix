@@ -49,10 +49,10 @@ Served at: server `GET /api/v1/admin/scheduler-metrics` (needs `system.write`; N
 
 | Metric | Type | Labels | Meaning |
 |---|---|---|---|
-| `keyorix_audit_owed_pending` | gauge | - | Number of suspend audit rows owed and not yet backfilled (the audit log refused the write after the suspend took effect). 0 is normal; NaN means the count could not be read. Cluster-wide; alert when above 0 for 10 minutes. |
-| `keyorix_audit_verify_failure_recorded` | gauge | - | 1 while a sticky audit-chain verification failure (a detected break) is recorded; it clears only after a passing full verification. Page on 1. |
+| `keyorix_audit_owed_pending` | gauge | - | Number of owed audit rows (suspend and degraded break-glass) not yet backfilled (the audit log refused the write after the action took effect). 0 is normal; NaN means the count could not be read. Cluster-wide; alert when above 0 for 10 minutes. |
+| `keyorix_audit_verify_failure_recorded` | gauge | - | 1 while a sticky audit-chain verification failure (a detected break) is recorded; it clears only after a passing full verification. NaN until this process has read the state. Page on 1. |
 | `keyorix_audit_verify_last_success_timestamp_seconds` | gauge | `check` | Unix time of the last audit-chain verification that passed, by check (tail = latest-checkpoint tail check; full = complete rolling or background re-walk). Absent until one has passed. |
-| `keyorix_audit_verify_state_rejected` | gauge | - | 1 while the persisted verification state was found untrusted (bad signature, replayed or rolled back) and the status is therefore not_proven; it clears after a passing full verification. |
+| `keyorix_audit_verify_state_rejected` | gauge | - | 1 while the persisted verification state was found untrusted (bad signature, replayed or rolled back) and the status is therefore not_proven; it clears after a passing full verification. NaN until this process has read the state. |
 | `keyorix_audit_write_failures_total` | counter | - | Audit event appends that returned an error to the caller (the audited mutation may already have committed). |
 | `keyorix_auth_budget_rejections_total` | counter | `budget` | Authentication budget checks that answered limited (login, password reset, SSO begin, account lockout), by budget. A rising rate is brute-force pressure or a misbehaving client. |
 | `keyorix_encryption_kek_provider_downgrades_total` | counter | - | Times a configured KEK fallback chain actually fell back to a weaker provider at runtime. |
