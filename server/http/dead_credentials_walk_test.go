@@ -51,6 +51,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
@@ -101,6 +102,28 @@ var awDeadSideTables = map[string][]string{
 // nothing, so 200 is harmless and changes no state the digest sees. A REVOKED session
 // is 401 (INV-HTTP-17).
 var awDeadLogout = map[string]int{"session_expired": http.StatusOK}
+
+// awWaitAuditEvent waits (bounded) until an audit event of the given type exists that
+// the before digest did not have. It never fails: a missing event is simply not waited
+// for further, and the digest diff reports whatever really changed.
+func awWaitAuditEvent(t *testing.T, db *gorm.DB, eventType string, before *awDigest) {
+	t.Helper()
+	known := 0
+	for _, e := range before.audit {
+		if e.EventType == eventType {
+			known++
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int64
+		require.NoError(t, db.Model(&models.AuditEvent{}).Where("event_type = ?", eventType).Count(&n).Error)
+		if int(n) > known {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 
 func awDeadWant(state string) int {
 	if c, ok := awDeadContract[state]; ok {
@@ -293,6 +316,13 @@ func awDeadWalk(t *testing.T, backend string) {
 				}
 				before := awTakeDigest(t, b.db, tables)
 				code, resp := awDo(b, rt.Method, cred.token, path, reqBody)
+				if rt.key() == "POST /auth/logout" && code == http.StatusOK {
+					// Logout writes its auth.logout audit event from a goroutine after
+					// the response (handlers.Logout, "non-blocking"). Let it land inside
+					// THIS route's window; under load it otherwise surfaced in the next
+					// route's diff (POST /auth/mfa/verify) as a phantom state change.
+					awWaitAuditEvent(t, b.db, "auth.logout", before)
+				}
 				after := awTakeDigest(t, b.db, tables)
 				seen++
 				key := fmt.Sprintf("%s/%s %s", st.name, variant, rt.key())
