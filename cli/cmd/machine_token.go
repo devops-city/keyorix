@@ -5,8 +5,10 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -24,6 +26,7 @@ var (
 	machineTokenIssueName       string
 	machineTokenIssueExpiryDays int
 	machineTokenIssueClass      string
+	machineTokenIssueOutputFile string
 	machineTokenRevokeForce     bool
 )
 
@@ -67,6 +70,9 @@ func init() {
 	machineTokenIssueCmd.Flags().IntVar(&machineTokenIssueExpiryDays, "expires-in-days", 0, "Token lifetime in days (0 = never expires)")
 	machineTokenIssueCmd.Flags().StringVar(&machineTokenIssueClass, "classification", "", "Data classification: public | internal | confidential | restricted")
 
+	machineTokenIssueCmd.Flags().StringVar(&machineTokenIssueOutputFile, "output-file", "",
+		"Write the token to this new file (mode 0600, refuses to overwrite) instead of printing it, so it never passes through terminal scrollback or shell history")
+
 	machineTokenListCmd.Flags().StringVar(&machineTokenProjectName, "project", "", "Project name or numeric ID")
 
 	machineTokenRevokeCmd.Flags().StringVar(&machineTokenProjectName, "project", "", "Project name or numeric ID")
@@ -100,25 +106,64 @@ func runMachineTokenIssue(cmd *cobra.Command, args []string) error {
 	if machineTokenIssueClass != "" {
 		body.Classification = &machineTokenIssueClass
 	}
+	// Create the destination first: a token minted with nowhere to go is lost, and an
+	// existing file is refused before anything is issued.
+	var outFile *os.File
+	if machineTokenIssueOutputFile != "" {
+		outFile, err = secureCreateOutputFile(machineTokenIssueOutputFile)
+		if err != nil {
+			return fmt.Errorf("cannot create --output-file %s (it must not exist yet; no token was issued): %w",
+				machineTokenIssueOutputFile, err)
+		}
+	}
+	discardOutFile := func() {
+		if outFile != nil {
+			_ = outFile.Close()
+			_ = os.Remove(machineTokenIssueOutputFile)
+		}
+	}
 	resp, err := client.IssueMachineTokenWithResponse(context.Background(), projectID, derefInt(m.Id), body)
 	if err != nil {
+		discardOutFile()
 		return fmt.Errorf("failed to issue machine token: %w", err)
 	}
 	if resp.JSON201 == nil || resp.JSON201.Data == nil {
+		discardOutFile()
 		return httpStatusError("failed to issue machine token", resp.StatusCode(), resp.Body)
 	}
 	data := *resp.JSON201.Data
+	if outFile != nil {
+		_, werr := outFile.WriteString(derefStr(data.Token) + "\n")
+		if cerr := outFile.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			// The token exists on the server but was never saved or shown: say how to undo it.
+			_ = os.Remove(machineTokenIssueOutputFile)
+			return fmt.Errorf("token %d was issued but could not be written to %s (%w); it was not shown. "+
+				"Next step: revoke it with `keyorix machine token revoke %s %d` and issue a new one",
+				derefInt(data.Id), machineTokenIssueOutputFile, werr, args[0], derefInt(data.Id))
+		}
+		fmt.Printf("Machine token issued and written to %s (mode 0600). It will not be shown again.\n\n", machineTokenIssueOutputFile)
+		printMachineTokenMeta(data.Id, data.Prefix, data.ExpiresAt)
+		return nil
+	}
 	fmt.Println("Machine token issued. Copy it now — it will not be shown again.")
 	fmt.Println()
 	fmt.Printf("Token:   %s\n", derefStr(data.Token))
-	fmt.Printf("ID:      %d\n", derefInt(data.Id))
-	fmt.Printf("Prefix:  %s\n", derefStr(data.Prefix))
-	if data.ExpiresAt != nil && !data.ExpiresAt.IsZero() {
-		fmt.Printf("Expires: %s\n", data.ExpiresAt.Format("2006-01-02"))
+	printMachineTokenMeta(data.Id, data.Prefix, data.ExpiresAt)
+	return nil
+}
+
+// printMachineTokenMeta prints everything about an issued token except the token itself.
+func printMachineTokenMeta(id *int, prefix *string, expiresAt *time.Time) {
+	fmt.Printf("ID:      %d\n", derefInt(id))
+	fmt.Printf("Prefix:  %s\n", derefStr(prefix))
+	if expiresAt != nil && !expiresAt.IsZero() {
+		fmt.Printf("Expires: %s\n", expiresAt.Format("2006-01-02"))
 	} else {
 		fmt.Println("Expires: never")
 	}
-	return nil
 }
 
 func runMachineTokenList(cmd *cobra.Command, args []string) error {

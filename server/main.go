@@ -207,7 +207,7 @@ func main() { // NOSONAR -- cognitive complexity 22, suppress go:S3776
 	resolveADR112BootPosture(cfg)
 
 	// Run the file-permission / encryption-key / database-reachability checks that were
-	// previously reachable ONLY via the manual `keyorix system validate` CLI subcommand
+	// previously reachable ONLY via the manual `keyorix-server admin validate` CLI subcommand
 	// (#330), despite official docs and that command's own help text claiming they run
 	// automatically on every boot.
 	if err := runStartupValidation(cfg); err != nil {
@@ -543,7 +543,7 @@ func initializeEncryption(cfg *config.Config, auditSink encryption.AuditSink) (*
 	// Always ".". An absolute dek_path/salt_path is reconciled by
 	// NewKeyManager (normalizeKeyPaths), which is where every other
 	// encryption.NewService caller benefits from it too -- the six CLI call
-	// sites included, so `keyorix encryption ...` can operate on the same key
+	// sites included, so `keyorix-server admin encryption ...` can operate on the same key
 	// files this server just created.
 	//
 	// This previously set baseDir="" for an absolute DEKPath, meaning "the
@@ -2219,7 +2219,7 @@ func checkTransportTLSPosture(cfg *config.Config) error {
 
 // runStartupValidation runs internal/startup.ValidateStartup — the file-permission,
 // encryption-key (DEK/salt existence + size), and database-reachability checks that were
-// previously reachable ONLY via the manual `keyorix system validate` CLI subcommand,
+// previously reachable ONLY via the manual `keyorix-server admin validate` CLI subcommand,
 // despite that command's own help text and SYSTEM_SETUP.md/docs/CONFIGURATION.md claiming
 // they run automatically on every boot (#330).
 //

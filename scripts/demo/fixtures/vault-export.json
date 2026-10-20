@@ -1,0 +1,10 @@
+{
+  "mount": "secret",
+  "secrets": {
+    "payments/stripe": {"api_key": "vaultdemo_stripe_key_0001", "webhook_secret": "whsec_vaultdemo_0001"},
+    "payments/db": {"password": "vault-demo-payments-db-pw"},
+    "platform/redis": {"password": "vault-demo-redis-pw"},
+    "platform/github": {"deploy_token": "ghp_vaultdemo_0001"},
+    "mobile/firebase": {"server_key": "AAAA-vaultdemo-firebase"}
+  }
+}
