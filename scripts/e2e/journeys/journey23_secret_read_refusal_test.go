@@ -47,8 +47,8 @@ func TestJourney_SecretReadRefusals(t *testing.T) {
 		name := "j23-secret-" + strconv.Itoa(n)
 		value = "j23-value-" + strconv.Itoa(n) + "-do-not-leak"
 		args := append([]string{"secret", "create", "--name", name,
-			"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", value}, extra...)
-		runCLI(t, cliBin, aEnv, args...)
+			"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID)}, extra...)
+		runCLISecret(t, cliBin, aEnv, value, args...)
 		return secretID(t, s, adminToken, projID, envID, name), projName + "/" + envName + "/" + name, value
 	}
 	// readOK reads the value both ways and checks it.

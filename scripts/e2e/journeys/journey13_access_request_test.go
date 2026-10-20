@@ -57,11 +57,11 @@ func TestJourney_AccessRequest(t *testing.T) {
 	runCLI(t, cliBin, aEnv, "project", "create", "--name", projName)
 	projID := projectID(t, s, adminToken, projName)
 	envID := environmentID(t, s, adminToken, projID, envName)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", secretName,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", secretValue)
+	runCLISecret(t, cliBin, aEnv, secretValue, "secret", "create", "--name", secretName,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", requesterU, "--email", requesterEm, "--password", userPass)
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", deniedU, "--email", deniedEm, "--password", userPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+userPass), "user", "create", "--username", requesterU, "--email", requesterEm)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+userPass), "user", "create", "--username", deniedU, "--email", deniedEm)
 
 	requesterToken := mfaPersonaLogin(t, s, requesterU, userPass)
 	requesterEnvCLI := tokenEnv(s, requesterToken)

@@ -46,13 +46,12 @@ func TestJourney_VersioningRollback(t *testing.T) {
 	projID := projectID(t, s, adminToken, projectName)
 	envID := environmentID(t, s, adminToken, projID, envName)
 
-	runCLI(t, cliBin, aEnv, "secret", "create",
-		"--name", secretName, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID),
-		"--value", valueV1)
+	runCLISecret(t, cliBin, aEnv, valueV1, "secret", "create",
+		"--name", secretName, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 	secID := secretID(t, s, adminToken, projID, envID, secretName)
 
-	runCLI(t, cliBin, aEnv, "secret", "update", "--id", strconv.Itoa(secID), "--value", valueV2)
-	runCLI(t, cliBin, aEnv, "secret", "update", "--id", strconv.Itoa(secID), "--value", valueV3)
+	runCLISecret(t, cliBin, aEnv, valueV2, "secret", "update", "--id", strconv.Itoa(secID))
+	runCLISecret(t, cliBin, aEnv, valueV3, "secret", "update", "--id", strconv.Itoa(secID))
 
 	// ── `secret versions` lists 3 ────────────────────────────────────────────
 

@@ -66,7 +66,7 @@ func TestJourney_CLIUX2(t *testing.T) {
 			t.Fatalf("channel list leaked the token:\n%s", list)
 		}
 
-		out, errOut, code = runCLIExitCode(cliBin, strict, "", "notification", "channel", "add", "ops-hook-flag", "--type", "webhook", "--url", webhook)
+		out, errOut, code = runCLIExitCode(cliBin, strict, "", "notification", "channel", "add", "ops-hook-flag", "--type", "webhook", "--url", webhook) // secretflag:allow refusal check: this journey proves --url is a usage error
 		if code != 2 {
 			t.Fatalf("--url must be a usage error (exit 2), got %d\n%s%s", code, out, errOut)
 		}

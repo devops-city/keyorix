@@ -41,8 +41,8 @@ func TestJourney_SecretSuspendAuditRefusedHintCLI(t *testing.T) {
 	runCLI(t, cliBin, aEnv, "machine", "create", "--project", projName, "--name", machineName, "--type", "service")
 	runCLI(t, cliBin, aEnv, "machine", "grant-role", machineName, "--project", projName, "--role", "project_viewer")
 	machToken, _ := parseIssuedToken(t, runCLI(t, cliBin, aEnv, "machine", "token", "issue", machineName, "--project", projName, "--name", "j-token"))
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", secretName,
-		"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid), "--value", "j-hint-value")
+	runCLISecret(t, cliBin, aEnv, "j-hint-value", "secret", "create", "--name", secretName,
+		"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid))
 	id := secretID(t, s, adminToken, pid, eid, secretName)
 	ref := projName + "/" + envName + "/" + secretName
 	suspendPath := fmt.Sprintf("/api/v1/secrets/%d/suspend", id)

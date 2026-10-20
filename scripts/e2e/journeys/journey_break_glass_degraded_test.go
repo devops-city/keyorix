@@ -42,7 +42,7 @@ func TestJourney_BreakGlassDegradedWhileAuditDown(t *testing.T) {
 	pid := projectID(t, s, adminToken, projName)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", "smoketestadmin@example.invalid", "--role", "project_admin", "--project", projName)
 	for _, u := range []string{oncall, peer} {
-		runCLI(t, cliBin, aEnv, "user", "create", "--username", u, "--email", u+"@example.invalid", "--password", pass)
+		runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+pass), "user", "create", "--username", u, "--email", u+"@example.invalid")
 		runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", u+"@example.invalid", "--role", "project_viewer", "--project", projName)
 	}
 	oncallToken := enrolTOTPAndLogin(t, s, oncall, pass)

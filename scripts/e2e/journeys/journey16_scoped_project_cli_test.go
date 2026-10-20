@@ -61,12 +61,12 @@ func TestJourney_ScopedUserProjectCLI(t *testing.T) {
 	idB := projectID(t, s, adminToken, projB)
 	envA := environmentID(t, s, adminToken, idA, envName)
 	envB := environmentID(t, s, adminToken, idB, envName)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", secretA,
-		"--project", strconv.Itoa(idA), "--environment", strconv.Itoa(envA), "--value", valueA)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", secretB,
-		"--project", strconv.Itoa(idB), "--environment", strconv.Itoa(envB), "--value", valueB)
+	runCLISecret(t, cliBin, aEnv, valueA, "secret", "create", "--name", secretA,
+		"--project", strconv.Itoa(idA), "--environment", strconv.Itoa(envA))
+	runCLISecret(t, cliBin, aEnv, valueB, "secret", "create", "--name", secretB,
+		"--project", strconv.Itoa(idB), "--environment", strconv.Itoa(envB))
 
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", viewerU, "--email", viewerEml, "--password", viewerPw)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+viewerPw), "user", "create", "--username", viewerU, "--email", viewerEml)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", viewerEml, "--role", "project_viewer", "--project", projA)
 
 	viewerToken := mfaPersonaLogin(t, s, viewerU, viewerPw)

@@ -37,9 +37,8 @@ func TestJourney_SecretClearLimitsCLI(t *testing.T) {
 	runCLI(t, cliBin, aEnv, "project", "create", "--name", proj)
 	pid := projectID(t, s, adminToken, proj)
 	eid := environmentID(t, s, adminToken, pid, "development")
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", name,
-		"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid),
-		"--value", value, "--max-reads", "1")
+	runCLISecret(t, cliBin, aEnv, value, "secret", "create", "--name", name,
+		"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid), "--max-reads", "1")
 	id := secretID(t, s, adminToken, pid, eid, name)
 	idArg := strconv.Itoa(id)
 

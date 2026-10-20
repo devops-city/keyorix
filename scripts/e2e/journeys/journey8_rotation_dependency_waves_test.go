@@ -47,9 +47,9 @@ func TestJourney_RotationDependencyWaves(t *testing.T) {
 	projID := projectID(t, s, adminToken, n8ProjectName)
 	envID := environmentID(t, s, adminToken, projID, n8EnvName)
 
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n8SecretA, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", n8ValueA)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n8SecretB, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", n8ValueB)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n8SecretC, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", n8ValueC)
+	runCLISecret(t, cliBin, aEnv, n8ValueA, "secret", "create", "--name", n8SecretA, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
+	runCLISecret(t, cliBin, aEnv, n8ValueB, "secret", "create", "--name", n8SecretB, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
+	runCLISecret(t, cliBin, aEnv, n8ValueC, "secret", "create", "--name", n8SecretC, "--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 	idA := secretID(t, s, adminToken, projID, envID, n8SecretA)
 	idB := secretID(t, s, adminToken, projID, envID, n8SecretB)
 	idC := secretID(t, s, adminToken, projID, envID, n8SecretC)
@@ -114,9 +114,9 @@ func TestJourney_RotationDependencyWaves(t *testing.T) {
 	}
 
 	// ── Actually rotate all three, in wave order ────────────────────────────
-	runCLI(t, cliBin, aEnv, "secret", "rotate", "--id", strconv.Itoa(idA), "--value", n8ValueA+"-rotated")
-	runCLI(t, cliBin, aEnv, "secret", "rotate", "--id", strconv.Itoa(idB), "--value", n8ValueB+"-rotated")
-	runCLI(t, cliBin, aEnv, "secret", "rotate", "--id", strconv.Itoa(idC), "--value", n8ValueC+"-rotated")
+	runCLIRotate(t, cliBin, aEnv, strconv.Itoa(idA), n8ValueA+"-rotated")
+	runCLIRotate(t, cliBin, aEnv, strconv.Itoa(idB), n8ValueB+"-rotated")
+	runCLIRotate(t, cliBin, aEnv, strconv.Itoa(idC), n8ValueC+"-rotated")
 
 	// ── rotation status is now clean ────────────────────────────────────────
 	statusOut := runCLI(t, cliBin, aEnv, "rotation", "status")
