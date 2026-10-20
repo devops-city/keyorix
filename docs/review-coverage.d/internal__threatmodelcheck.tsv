@@ -1,0 +1,1 @@
+internal/threatmodelcheck	none	-	THREAT-MODELS-2: test-only package (evidence_test.go) that checks every file path, Test/Fuzz name and identifier cited in a docs/security/threat-models/*.md Evidence cell exists; no non-test Go code; checks existence, not that a test proves the mitigation	test-helper

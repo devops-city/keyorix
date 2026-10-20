@@ -965,6 +965,26 @@ New rows have `success = false`. **Rows written before the upgrade keep
 rule that must cover older history should match on `event_type` as well as
 `success`. `access_request.rejected` is unchanged (it records a successful decision).
 
+## 6v. SCIM no longer creates or manages `sso:` accounts (#3493)
+
+`external_id` values starting with `sso:` are reserved for the binding SSO sign-in
+writes (`sso:<provider>:<sub>`). After the upgrade:
+
+- `POST /scim/v2/Users` with an `externalId` that starts with `sso:` is refused
+  (`ProvisionSCIMUser`, `TestProvisionSCIMUser_RejectsReservedSSOExternalID`).
+- Accounts whose `external_id` starts with `sso:` are not SCIM-managed: SCIM get,
+  list, update, deactivate, delete and group membership refuse them
+  (`TestSCIMEntryPoints_SSOClaimedAccountIsNotSCIMManaged`). This includes accounts
+  created just-in-time by SSO, and native accounts that signed in through SSO.
+
+**Check after upgrading.** If your IdP's SCIM connector ever sent an `externalId`
+starting with `sso:`, such a row now exists but SCIM can no longer deactivate or delete
+it. Look for them (`SELECT id, username, external_id FROM users WHERE external_id LIKE 'sso:%'`)
+and decide per account whether it is a SCIM-created row or an SSO-claimed one. An
+IdP-side disable of an SSO/JIT account does not revoke its sessions or PATs; see
+SCIM-7 in [security/threat-models/scim-and-sso-accounts.md](security/threat-models/scim-and-sso-accounts.md).
+Deactivate such accounts, or revoke their PATs, in Keyorix.
+
 ## 6j. CLI: webhook URLs and tokens stay off the command line
 
 Changes in the `keyorix` CLI and web UI; the server needs no action. Check your scripts
