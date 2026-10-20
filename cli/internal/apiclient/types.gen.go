@@ -368,7 +368,12 @@ type BlastRadiusReport struct {
 
 // BreakGlassActivation One emergency-access self-grant (ADR-108 PR 1 addition).
 type BreakGlassActivation struct {
-	CreatedAt     *string                    `json:"created_at,omitempty"`
+	// AuditSettledAt When every owed audit row of a degraded activation reached the audit trail; absent until then and for a normal activation
+	AuditSettledAt *string `json:"audit_settled_at,omitempty"`
+	CreatedAt      *string `json:"created_at,omitempty"`
+
+	// Degraded Granted while the audit log refused its rows: recorded as owed, short expiry, review mandatory (omitted when false)
+	Degraded      *bool                      `json:"degraded,omitempty"`
 	ExpiresAt     *string                    `json:"expires_at,omitempty"`
 	Id            *uint32                    `json:"id,omitempty"`
 	Justification *string                    `json:"justification,omitempty"`
@@ -1618,6 +1623,9 @@ type GetComplianceCredentialTrendsParamsDays int
 type VerifyComplianceEvidenceJSONBody struct {
 	// DataB64 Base64 of the evidence-pack bytes.
 	DataB64 string `json:"data_b64"`
+
+	// Filename The pack's canonical filename as returned by GET /api/v1/compliance/evidence (keyorix-evidence-<UTC timestamp>.json). The signature is bound to it, so a missing or different name never verifies.
+	Filename string `json:"filename"`
 
 	// Signature The detached signature ('<keyVersion>:<hmac-hex>').
 	Signature string `json:"signature"`

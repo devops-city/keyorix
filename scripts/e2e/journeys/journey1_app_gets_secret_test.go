@@ -88,12 +88,10 @@ func appGetsSecretAs(t *testing.T, s *harness.Server, cliBin, adminToken string)
 	projID := projectID(t, s, adminToken, n1ProjectName)
 	envID := environmentID(t, s, adminToken, projID, n1EnvName)
 
-	runCLI(t, cliBin, aEnv, "secret", "create",
+	runCLISecret(t, cliBin, aEnv, n1ValueV1, "secret", "create",
 		"--name", n1SecretName,
 		"--project", strconv.Itoa(projID),
-		"--environment", strconv.Itoa(envID),
-		"--value", n1ValueV1,
-	)
+		"--environment", strconv.Itoa(envID))
 	secID := secretID(t, s, adminToken, projID, envID, n1SecretName)
 
 	runCLI(t, cliBin, aEnv, "machine", "create",
@@ -129,7 +127,7 @@ func appGetsSecretAs(t *testing.T, s *harness.Server, cliBin, adminToken string)
 	// version-bumping update, confirmed by secret_crud.go's runSecretUpdate
 	// printing "New encrypted version created"). ──────────────────────────
 
-	runCLI(t, cliBin, aEnv, "secret", "update", "--id", strconv.Itoa(secID), "--value", n1ValueV2)
+	runCLISecret(t, cliBin, aEnv, n1ValueV2, "secret", "update", "--id", strconv.Itoa(secID))
 
 	assertThreeReadersAgree(t, s, cliBin, machToken, ref, n1SecretName, n1ValueV2)
 

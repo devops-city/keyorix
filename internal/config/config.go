@@ -2219,6 +2219,24 @@ type BreakGlassConfig struct {
 	// week. Purely a reporting threshold: it never blocks or expires anything,
 	// and never governs whether a review can still be submitted late.
 	ReviewWindow string `yaml:"review_window"`
+	// DegradedTTL (BREAKGLASS-OWED-1) is the lifetime of an activation granted
+	// while the audit log refuses writes: it is committed together with an
+	// owed-audit record instead of its audit rows, and expires after this (or
+	// after the lifetime it would get normally, whichever is shorter). Default
+	// 15m when unset or unparseable.
+	DegradedTTL string `yaml:"degraded_ttl"`
+}
+
+// GetDegradedTTL returns a degraded activation's lifetime; defaults to 15m.
+// core caps it at the normal lifetime of the same request, so a value above
+// default_ttl/max_ttl never lengthens anything.
+func (c BreakGlassConfig) GetDegradedTTL() time.Duration {
+	if c.DegradedTTL != "" {
+		if d, err := time.ParseDuration(c.DegradedTTL); err == nil && d > 0 {
+			return d
+		}
+	}
+	return 15 * time.Minute
 }
 
 // GetReviewWindow returns how long an activation may go unreviewed before the

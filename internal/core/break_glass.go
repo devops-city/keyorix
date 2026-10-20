@@ -13,15 +13,18 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
+	"github.com/keyorixhq/keyorix/internal/logging"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
 
@@ -57,6 +60,12 @@ var (
 	// ErrBreakGlassInvalidRequest: the request itself is malformed (missing
 	// project/user, short justification, bad TTL) or names no usable emergency role.
 	ErrBreakGlassInvalidRequest = errors.New("break-glass: invalid request")
+	// ErrBreakGlassUnrecordable (BREAKGLASS-OWED-1): the audit log refused the
+	// activation AND the database could not commit it together with an owed-audit
+	// record either, so it was refused: an activation is never committed
+	// unrecorded. The database itself is failing; the way back in is the offline
+	// recover-admin procedure. HTTP 503, gRPC Unavailable.
+	ErrBreakGlassUnrecordable = errors.New("break-glass: activation could not be recorded")
 )
 
 // breakGlassRefusal is an error whose user-visible text is fixed (the
@@ -139,6 +148,30 @@ type BreakGlassPolicy struct {
 	// (every unit test, and any embedder) still reports deviations rather than
 	// treating a zero window as "everything is overdue".
 	ReviewWindow time.Duration
+	// DegradedTTL (BREAKGLASS-OWED-1) is the lifetime of an activation committed
+	// while the audit log refused its rows (activateBreakGlassDegraded). Never
+	// longer than the lifetime the same request gets normally: the shorter of the
+	// two applies. Zero falls back to defaultBreakGlassDegradedTTL.
+	DegradedTTL time.Duration
+}
+
+// defaultBreakGlassDegradedTTL is a degraded activation's lifetime when the
+// policy sets none; it mirrors config.BreakGlassConfig.GetDegradedTTL's default
+// (TestBreakGlassDegradedTTLDefaultMatchesConfig).
+const defaultBreakGlassDegradedTTL = 15 * time.Minute
+
+// breakGlassDegradedExpiry is when a degraded activation requested to expire at
+// normalExpiry expires: the configured degraded lifetime, never later than
+// normalExpiry.
+func (c *KeyorixCore) breakGlassDegradedExpiry(now, normalExpiry time.Time) time.Time {
+	ttl := c.breakGlassPolicy.DegradedTTL
+	if ttl <= 0 {
+		ttl = defaultBreakGlassDegradedTTL
+	}
+	if exp := now.Add(ttl); exp.Before(normalExpiry) {
+		return exp
+	}
+	return normalExpiry
 }
 
 // defaultBreakGlassReviewWindow mirrors config.BreakGlassConfig's own 72h
@@ -385,7 +418,7 @@ func (c *KeyorixCore) ActivateBreakGlass(ctx context.Context, projectID, userID 
 	// if the notification pipeline itself is down, so surface it loudly (#166): a
 	// SECURITY-prefixed log line, matching the convention emitAudit already uses for a
 	// failed audit write, so an operational alerting pipeline watching logs still pages.
-	if nerr := c.notifyBreakGlassAdmins(ctx, userID, projectID, role.Name, expiresAt); nerr != nil {
+	if nerr := c.notifyBreakGlassAdmins(ctx, userID, projectID, role.Name, *activation.ExpiresAt, activation.Degraded); nerr != nil {
 		log.Printf("SECURITY: break-glass activation %d (project %d, user %d): admin notification failed: %v",
 			activation.ID, projectID, userID, nerr)
 	}
@@ -394,10 +427,21 @@ func (c *KeyorixCore) ActivateBreakGlass(ctx context.Context, projectID, userID 
 
 // activateBreakGlassLocked is ActivateBreakGlass's insert-then-grant pair, split
 // out so the whole pair runs under one projectAdminGuardLockKey acquisition
-// (#2722). The audit and the admin notification deliberately stay OUTSIDE the
-// lock in the caller: both happen after the grant is committed, and holding a
-// cross-replica advisory lock across a notification fan-out would widen the
-// window every other project-admin operation waits on, for no safety gain.
+// (#2722). The admin notification deliberately stays OUTSIDE the lock in the
+// caller: it happens after the grant is committed, and holding a cross-replica
+// advisory lock across a notification fan-out would widen the window every
+// other project-admin operation waits on, for no safety gain.
+//
+// BREAKGLASS-OWED-1: break-glass must work during an audit-subsystem incident
+// without ever being unrecorded. When the normal attempt fails ONLY because its
+// audit rows could not be appended (an error, a panic, or a chain lock that did
+// not come within the audit write path's own bound, auditWriteTimeout = 10 s in
+// internal/storage/store), the activation is committed on the
+// degraded path instead (activateBreakGlassDegraded): together with
+// pending_audit_events records of exactly those rows, in one transaction, with a
+// short expiry. If that transaction fails too, the activation is refused. There
+// is no third path: an activation commits with its audit rows, or with durable
+// records of them, or not at all.
 func (c *KeyorixCore) activateBreakGlassLocked(
 	ctx context.Context,
 	userID, projectID uint,
@@ -436,36 +480,175 @@ func (c *KeyorixCore) activateBreakGlassLocked(
 	// preventive gate during a genuine incident — see that function's doc comment
 	// (jit_access.go).
 	var activation *models.BreakGlassActivation
-	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
-		a, err := tx.CreateBreakGlassActivation(ctx, &models.BreakGlassActivation{
-			ProjectID:     projectID,
-			UserID:        userID,
-			RoleID:        role.ID,
-			RoleName:      role.Name,
-			Justification: justification,
-			State:         BreakGlassActive,
-			ExpiresAt:     &expiresAt,
-			CreatedAt:     now,
-		})
+	err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		a, err := c.grantBreakGlassTx(ctx, tx, userID, projectID, role, justification, now, expiresAt, scope, false)
 		if err != nil {
-			if errors.Is(err, storage.ErrBreakGlassAlreadyActive) {
-				return fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "you already have an active break-glass grant on this project; revoke it before activating again")
-			}
-			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+			return err
 		}
-		if err := tx.AssignRoleWithExpiry(ctx, userID, role.ID, scope, expiresAt); err != nil {
-			return fmt.Errorf("failed to grant emergency role: %s: %w", i18n.T("ErrorStorageFailed", nil), err)
-		}
-		c.LogRoleAssignedOn(ctx, tgt, userID, userID, role.ID, scope)
-		c.auditProjectScopedOn(ctx, tgt, EventBreakGlassActivated, userID, projectID,
-			fmt.Sprintf("break-glass: user %d self-granted %q until %s — %s",
-				userID, role.Name, expiresAt.UTC().Format(time.RFC3339), justification))
+		c.auditBreakGlassActivationOn(ctx, tgt, a, scope)
 		activation = a
 		return nil
-	}); err != nil {
+	})
+	if err == nil {
+		return activation, nil
+	}
+	if !breakGlassAuditRefused(err) {
 		return nil, err
 	}
+	return c.activateBreakGlassDegraded(ctx, userID, projectID, role, justification, now, expiresAt, scope, err)
+}
+
+// breakGlassAuditRefused reports whether the normal activation failed only
+// because its audit rows could not be appended: the fail-closed sink's
+// ErrMutationAuditUnavailable (an append that errored, panicked or timed out).
+// Not the "wrote no audit row" programming error, which stays fail-closed.
+func breakGlassAuditRefused(err error) bool {
+	return errors.Is(err, ErrMutationAuditUnavailable) && !errors.Is(err, errMutationWroteNoAudit)
+}
+
+// grantBreakGlassTx inserts the activation record and grants the emergency role
+// through tx: the part of an activation shared by the normal and the degraded
+// path.
+func (c *KeyorixCore) grantBreakGlassTx(
+	ctx context.Context,
+	tx storage.Storage,
+	userID, projectID uint,
+	role *models.Role,
+	justification string,
+	now, expiresAt time.Time,
+	scope storage.Scope,
+	degraded bool,
+) (*models.BreakGlassActivation, error) {
+	a, err := tx.CreateBreakGlassActivation(ctx, &models.BreakGlassActivation{
+		ProjectID:     projectID,
+		UserID:        userID,
+		RoleID:        role.ID,
+		RoleName:      role.Name,
+		Justification: justification,
+		State:         BreakGlassActive,
+		ExpiresAt:     &expiresAt,
+		CreatedAt:     now,
+		Degraded:      degraded,
+	})
+	if err != nil {
+		if errors.Is(err, storage.ErrBreakGlassAlreadyActive) {
+			// Same text as before; the kind lets the degraded path tell this
+			// refusal apart from a failing database.
+			return nil, refuseBreakGlass(fmt.Sprintf("%s: %s", i18n.T("ErrorValidation", nil), "you already have an active break-glass grant on this project; revoke it before activating again"), storage.ErrBreakGlassAlreadyActive)
+		}
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	if err := tx.AssignRoleWithExpiry(ctx, userID, role.ID, scope, expiresAt); err != nil {
+		return nil, fmt.Errorf("failed to grant emergency role: %s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	return a, nil
+}
+
+// auditBreakGlassActivationOn writes an activation's two audit rows,
+// role.assigned and break_glass.activated, to tgt. ONE body for both paths: on
+// the degraded path tgt captures the rows as owed instead of appending them.
+func (c *KeyorixCore) auditBreakGlassActivationOn(ctx context.Context, tgt auditTarget, a *models.BreakGlassActivation, scope storage.Scope) {
+	c.LogRoleAssignedOn(ctx, tgt, a.UserID, a.UserID, a.RoleID, scope)
+	desc := fmt.Sprintf("break-glass: user %d self-granted %q until %s — %s",
+		a.UserID, a.RoleName, a.ExpiresAt.UTC().Format(time.RFC3339), a.Justification)
+	if a.Degraded {
+		desc = fmt.Sprintf("break-glass (DEGRADED: the audit log refused this row at activation; activation %d, short expiry, review mandatory): user %d self-granted %q until %s — %s",
+			a.ID, a.UserID, a.RoleName, a.ExpiresAt.UTC().Format(time.RFC3339), a.Justification)
+	}
+	c.auditProjectScopedOn(ctx, tgt, EventBreakGlassActivated, a.UserID, a.ProjectID, desc)
+}
+
+// BreakGlassRecoverAdminHint is the operator's way back in when even the degraded
+// activation cannot be recorded (ErrBreakGlassUnrecordable). Fixed text, shared
+// by the core refusal and the gRPC status, so no transport has to pass a storage
+// error through.
+const BreakGlassRecoverAdminHint = "the database itself is failing: an operator with host access can restore administrative access offline with 'keyorix-server admin recover-admin' (see docs/operator/break-glass-runbook.md, \"Last resort\")"
+
+// activateBreakGlassDegraded commits the activation while the audit log refuses
+// its rows (BREAKGLASS-OWED-1). In ONE transaction: the activation record
+// (degraded, with a forced short expiry), the emergency-role grant with that same
+// expiry, and a pending_audit_events record of each audit row the normal path
+// would have appended, built by the same writers and linked to the activation.
+// Never one without the other: if any of it fails, nothing commits and the
+// activation is refused with ErrBreakGlassUnrecordable.
+//
+// The owed rows are not retried inline: the audit log has just refused them, and
+// the user is mid-incident. BackfillPendingAuditEvents writes them into the hash
+// chain (original event times, id order) once the audit log accepts writes, and
+// marks the activation settled in the same transaction as its last row.
+func (c *KeyorixCore) activateBreakGlassDegraded(
+	ctx context.Context,
+	userID, projectID uint,
+	role *models.Role,
+	justification string,
+	now, normalExpiry time.Time,
+	scope storage.Scope,
+	auditErr error,
+) (*models.BreakGlassActivation, error) {
+	expiresAt := c.breakGlassDegradedExpiry(now, normalExpiry)
+	var activation *models.BreakGlassActivation
+	var owed int
+	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) (err error) {
+		// A panic in any write here (the owed-record insert included) is a failed
+		// degraded commit like an error: roll back and refuse, never let it escape
+		// to a caller that would read it as a crash of the request.
+		defer func() {
+			if r := recover(); r != nil {
+				err = &pendingRecordError{fmt.Errorf("panic in the degraded break-glass commit: %v", r)}
+			}
+		}()
+		a, err := c.grantBreakGlassTx(ctx, tx, userID, projectID, role, justification, now, expiresAt, scope, true)
+		if err != nil {
+			return err
+		}
+		sink := &auditForwardSink{failClosed: true, owe: true}
+		c.auditBreakGlassActivationOn(ctx, auditInto(tx, sink), a, scope)
+		if err := failClosedOwedResult(sink); err != nil {
+			return err
+		}
+		for _, e := range sink.owed {
+			encoded, err := json.Marshal(e)
+			if err != nil {
+				return &pendingRecordError{err}
+			}
+			if err := tx.CreatePendingAuditEvent(ctx, &models.PendingAuditEvent{
+				EventType: e.EventType, Event: string(encoded), BreakGlassActivationID: a.ID,
+			}); err != nil {
+				return &pendingRecordError{err}
+			}
+		}
+		owed = len(sink.owed)
+		activation = a
+		return nil
+	})
+	if err != nil {
+		if !errors.Is(err, storage.ErrBreakGlassAlreadyActive) {
+			logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: break-glass activation REFUSED for user %d on project %d: the audit log refused it (%v) and the degraded commit with an owed-audit record failed too (%v); %s",
+				userID, projectID, auditErr, err, BreakGlassRecoverAdminHint), "event_type", EventBreakGlassActivated)
+			return nil, refuseBreakGlass(fmt.Sprintf("%s: emergency access was NOT granted: the audit log refused the activation and it could not be recorded as owed either; %s",
+				i18n.T("ErrorStorageFailed", nil), BreakGlassRecoverAdminHint), ErrBreakGlassUnrecordable)
+		}
+		return nil, err
+	}
+	if owed > 0 {
+		owedAuditFailures.Add(uint64(owed)) // #nosec G115 -- owed is len(sink.owed), guarded > 0 above
+	}
+	breakGlassDegradedActivationsTotal.Inc()
+	logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: break-glass activation %d is DEGRADED: user %d self-granted %q on project %d while the audit log refused its rows (%v). It expires at %s (short, degraded), its %d audit row(s) are owed in pending_audit_events until the backfill writes them, and its post-activation review is mandatory",
+		activation.ID, userID, role.Name, projectID, auditErr, expiresAt.UTC().Format(time.RFC3339), owed), "event_type", EventBreakGlassActivated)
 	return activation, nil
+}
+
+// failClosedOwedResult is failClosedAuditResult for a capturing sink: the
+// writers did not fail, and they produced at least one row to owe.
+func failClosedOwedResult(sink *auditForwardSink) error {
+	if sink.err != nil {
+		return sink.err
+	}
+	if len(sink.owed) == 0 {
+		return fmt.Errorf("%w: %w", ErrMutationAuditUnavailable, errMutationWroteNoAudit)
+	}
+	return nil
 }
 
 // ListBreakGlassActivations returns the project's activations, newest first. An
@@ -923,12 +1106,20 @@ func (c *KeyorixCore) RunBreakGlassReviewReminder(ctx context.Context) (int, err
 	// Oldest first (ListUnreviewedBreakGlassActivationsBefore orders by
 	// created_at ASC), so the age reported is the worst one outstanding.
 	oldest := c.now().Sub(rows[0].CreatedAt)
-	log.Printf("SECURITY: %d break-glass activation(s) have gone unreviewed for longer than %s (oldest: activation %d, project %d, user %d, %s ago) -- ADR-112 requires a post-activation review of every activation; this is a compliance posture deviation until each is reviewed",
-		len(rows), window, rows[0].ID, rows[0].ProjectID, rows[0].UserID, oldest.Round(time.Hour))
+	// BREAKGLASS-OWED-1: a degraded activation is listed from the moment it
+	// exists (its review is mandatory, with no grace window); say how many.
+	degraded := 0
+	for _, a := range rows {
+		if a.Degraded {
+			degraded++
+		}
+	}
+	log.Printf("SECURITY: %d break-glass activation(s) have gone unreviewed for longer than %s, or are DEGRADED (%d: activated while the audit log refused writes, review mandatory at once) (oldest: activation %d, project %d, user %d, %s ago) -- ADR-112 requires a post-activation review of every activation; this is a compliance posture deviation until each is reviewed",
+		len(rows), window, degraded, rows[0].ID, rows[0].ProjectID, rows[0].UserID, oldest.Round(time.Hour))
 	auditCtx, userID := adminJobAuditContext(ctx)
 	c.writeAuditEvent(auditCtx, EventBreakGlassReviewOverdue, userID, nil,
-		fmt.Sprintf("break-glass: %d activation(s) unreviewed past the %s review window (oldest: activation %d, %s ago)",
-			len(rows), window, rows[0].ID, oldest.Round(time.Hour)))
+		fmt.Sprintf("break-glass: %d activation(s) unreviewed past the %s review window or degraded (%d degraded) (oldest: activation %d, %s ago)",
+			len(rows), window, degraded, rows[0].ID, oldest.Round(time.Hour)))
 	c.notifyOverdueBreakGlassReviewers(ctx, rows, window)
 	return len(rows), nil
 }
@@ -987,7 +1178,7 @@ func (c *KeyorixCore) notifyOverdueBreakGlassReviewers(ctx context.Context, rows
 // ActivateBreakGlass's own caller just logs), a panic is additionally audited
 // under EventBreakGlassNotifyPanicked, since a panic mid-fan-out can leave an
 // unknown subset of admins un-notified with no other signal that happened.
-func (c *KeyorixCore) notifyBreakGlassAdmins(ctx context.Context, actorID, projectID uint, roleName string, expiresAt time.Time) (err error) {
+func (c *KeyorixCore) notifyBreakGlassAdmins(ctx context.Context, actorID, projectID uint, roleName string, expiresAt time.Time, degraded bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			c.auditProjectScopedFailed(ctx, EventBreakGlassNotifyPanicked, actorID, projectID,
@@ -1001,10 +1192,63 @@ func (c *KeyorixCore) notifyBreakGlassAdmins(ctx context.Context, actorID, proje
 	title := "Break-glass emergency access activated"
 	msg := fmt.Sprintf("User %d self-granted emergency role %q until %s. Review the audit trail.",
 		actorID, roleName, expiresAt.UTC().Format(time.RFC3339))
+	if degraded {
+		title = "Break-glass activated in DEGRADED mode (audit log unavailable)"
+		msg = fmt.Sprintf("User %d self-granted emergency role %q until %s while the audit log refused writes. The activation is recorded as owed and will be written to the audit trail when it recovers; its lifetime was shortened and its review is mandatory.",
+			actorID, roleName, expiresAt.UTC().Format(time.RFC3339))
+	}
 	link := fmt.Sprintf("/projects/%d/access-review", projectID)
 	// Notify whoever WAS resolved even when part of the resolution failed.
 	for _, uid := range recipients {
 		c.notify(ctx, uid, EventBreakGlassActivated, title, msg, &pid, link)
 	}
 	return rerr
+}
+
+// BreakGlassDegradedStatus is the admin-visible state of degraded break-glass
+// activations (BREAKGLASS-OWED-1), for GET /api/v1/system/info's
+// security.break_glass_degraded and the web banner.
+type BreakGlassDegradedStatus struct {
+	// Unsettled is how many degraded activations still have audit rows owed
+	// (not yet in the hash chain), or -1 when the count could not be read.
+	Unsettled int64 `json:"unsettled"`
+	// Unreviewed is how many degraded activations have no post-activation review
+	// yet (mandatory for every one of them), or -1 when it could not be read.
+	Unreviewed int64 `json:"unreviewed"`
+	// ActivationIDs lists the unsettled or unreviewed degraded activations, oldest
+	// first, so an administrator can go straight to them.
+	ActivationIDs []uint `json:"activation_ids"`
+}
+
+// BreakGlassDegradedStatus reports the degraded break-glass state for the system
+// status surface. Nothing degraded is the zero value with an empty id list.
+func (c *KeyorixCore) BreakGlassDegradedStatus(ctx context.Context) BreakGlassDegradedStatus {
+	st := BreakGlassDegradedStatus{ActivationIDs: []uint{}}
+	seen := map[uint]bool{}
+	note := func(id uint) {
+		if !seen[id] {
+			seen[id] = true
+			st.ActivationIDs = append(st.ActivationIDs, id)
+		}
+	}
+	if rows, err := c.storage.ListUnsettledBreakGlassActivations(ctx); err != nil {
+		st.Unsettled = -1
+	} else {
+		st.Unsettled = int64(len(rows))
+		for _, a := range rows {
+			note(a.ID)
+		}
+	}
+	if rows, err := c.storage.ListUnreviewedBreakGlassActivationsBefore(ctx, c.now().Add(-c.breakGlassReviewWindow())); err != nil {
+		st.Unreviewed = -1
+	} else {
+		for _, a := range rows {
+			if a.Degraded {
+				st.Unreviewed++
+				note(a.ID)
+			}
+		}
+	}
+	slices.Sort(st.ActivationIDs)
+	return st
 }

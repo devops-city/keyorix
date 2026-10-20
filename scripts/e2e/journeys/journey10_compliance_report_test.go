@@ -47,12 +47,12 @@ func TestJourney_ComplianceReport(t *testing.T) {
 	// secretOverdue and secretUnclassified both live in "development" (covered
 	// by the policy created below); secretNoPolicy lives in "staging", which
 	// deliberately has no policy of its own -- the "no rotation policy" gap.
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n10SecretOverdue,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(devEnvID), "--value", "v1")
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n10SecretUnclassifed,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(devEnvID), "--value", "v1")
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n10SecretNoPolicy,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(stagingEnvID), "--value", "v1")
+	runCLISecret(t, cliBin, aEnv, "v1", "secret", "create", "--name", n10SecretOverdue,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(devEnvID))
+	runCLISecret(t, cliBin, aEnv, "v1", "secret", "create", "--name", n10SecretUnclassifed,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(devEnvID))
+	runCLISecret(t, cliBin, aEnv, "v1", "secret", "create", "--name", n10SecretNoPolicy,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(stagingEnvID))
 	idOverdue := secretID(t, s, adminToken, projID, devEnvID, n10SecretOverdue)
 	idUnclassified := secretID(t, s, adminToken, projID, devEnvID, n10SecretUnclassifed)
 	idNoPolicy := secretID(t, s, adminToken, projID, stagingEnvID, n10SecretNoPolicy)
@@ -84,7 +84,7 @@ func TestJourney_ComplianceReport(t *testing.T) {
 	assertInventoryClassification(t, cliBin, aEnv, projID, n10SecretUnclassifed, "internal")
 
 	// ── Fix gap 2: rotate the overdue secret -- confirm it drops out ─────────
-	runCLI(t, cliBin, aEnv, "secret", "rotate", "--id", strconv.Itoa(idOverdue), "--value", "v2-rotated")
+	runCLIRotate(t, cliBin, aEnv, strconv.Itoa(idOverdue), "v2-rotated")
 	assertEvidenceRotationOverdue(t, cliBin, aEnv, n10SecretOverdue, false)
 
 	// ── Fix gap 3: cover staging with its own policy -- confirm CoveredSecrets

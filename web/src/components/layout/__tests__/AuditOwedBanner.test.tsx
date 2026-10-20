@@ -30,20 +30,20 @@ describe('AuditOwedBanner (SUSPEND-AUDIT-LOUD)', () => {
         setSession(true);
     });
 
-    it('warns while suspensions are missing from the audit log', async () => {
+    it('warns while audit records are missing from the audit log', async () => {
         getInfo.mockResolvedValue(info({ audit_owed: { pending: 2, failures_since_start: 2 } }));
         render(<AuditOwedBanner />);
         const banner = await screen.findByTestId('audit-owed-banner');
         expect(banner).toHaveAttribute('role', 'alert');
-        expect(banner).toHaveTextContent('2 suspensions are missing from the audit log.');
-        expect(banner).toHaveTextContent('Access was blocked at once');
+        expect(banner).toHaveTextContent('2 audit records are missing from the audit log.');
+        expect(banner).toHaveTextContent('took effect at once');
     });
 
     it('uses the singular for one', async () => {
         getInfo.mockResolvedValue(info({ audit_owed: { pending: 1, failures_since_start: 1 } }));
         render(<AuditOwedBanner />);
         expect(await screen.findByTestId('audit-owed-banner')).toHaveTextContent(
-            '1 suspension is missing from the audit log.'
+            '1 audit record is missing from the audit log.'
         );
     });
 
@@ -51,7 +51,7 @@ describe('AuditOwedBanner (SUSPEND-AUDIT-LOUD)', () => {
         getInfo.mockResolvedValue(info({ audit_owed: { pending: -1, failures_since_start: 0 } }));
         render(<AuditOwedBanner />);
         expect(await screen.findByTestId('audit-owed-banner')).toHaveTextContent(
-            'Some suspensions may be missing from the audit log.'
+            'Some audit records may be missing from the audit log.'
         );
     });
 

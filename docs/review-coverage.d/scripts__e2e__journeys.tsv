@@ -1,0 +1,1 @@
+scripts/e2e/journeys	none	-	PR #3498: test-only package: every journey and helper file carries `//go:build e2e`, and the untagged secret_flags_guard_test.go (source-scan guard that no journey passes a secret as a flag) is what first makes `go list ./...` see this directory; no non-test code is imported by the production binaries	test-helper

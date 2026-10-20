@@ -83,8 +83,7 @@ Docker-published ports bypass ufw: that is why the overlay moves web's 8088 to t
 | `--idle-minutes N` | minutes without use before that (default 45, minimum 5) |
 | `--grace-minutes N` | a freshly started or reset stack cannot be judged idle for this long (default 30) |
 | `--reset-time HH:MM` | nightly reset, UTC (default 03:30) |
-| `--seed-script PATH` | repo-relative seed/scenario script run after every reset; repeatable, in order |
-| `--require-seed` | a reset fails when no seed script is configured |
+| `--seed-script PATH` | repo-relative seed/scenario script run after every reset; repeatable, in order; the first one replaces the default `scripts/demo/seed-demo.sh` |
 | `--no-start` | install but do not start |
 | `--render-only` | write the config, secrets and gate into `--state-dir`/`--conf-dir` and stop (tests, dry look) |
 | `--state-dir DIR` | default `/var/lib/keyorix-demo` |
@@ -150,40 +149,50 @@ install), a 0600 bootstrap token, a firewall, key-only SSH on request.
 - **Idle:** see below.
 - Not in phase 1: WAF, fail2ban, restricted egress, uptime alert, per-visitor accounts.
 
-## Seed and scenario scripts (placeholder until DEMO-LOCAL-2 merges)
+## Seed and scenario scripts
 
-After every reset `keyorix-demo` runs the scripts listed with `--seed-script` (repo-relative
-paths, in order), as separate processes, with these variables (paths and names only; the
-password and the token are **files** the script reads):
+After every reset `keyorix-demo` runs the scripts in `KEYORIX_DEMO_SEED_SCRIPTS` (set by
+`--seed-script`, repo-relative paths, in order; the default is `scripts/demo/seed-demo.sh`) as
+separate processes. Each gets the **seed state directory** `/var/lib/keyorix-demo/seed` (0700)
+as its only argument and these variables (paths and names only; the password and the token are
+**files** the script reads):
 
-`KEYORIX_DEMO_URL` (`http://127.0.0.1:8088`), `KEYORIX_DEMO_ADMIN_USERNAME`,
+`KEYORIX_SERVER` and `KEYORIX_DEMO_URL` (`http://127.0.0.1:8088`), `KEYORIX_DEMO_ADMIN_USERNAME`,
 `KEYORIX_DEMO_ADMIN_PASSWORD_FILE`, `KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE`.
 
-DEMO-LOCAL-2 owns the real seed and scenario scripts and this kit neither copies nor edits them.
-**The hook is still a PLACEHOLDER:** `scripts/demo/seed-demo.sh STATE_DIR` has merged, but it
-cannot run on this stack yet. It runs `system init` itself (here the container entrypoint has
-already created the admin from the generated password, so it exits 1 with "already
-initialised") and it creates the admin, alice and security-officer with fixed passwords from
-the repository, which this kit must not put on an internet-facing VM. It also takes its server
-URL and bootstrap token from `STATE_DIR`/`KEYORIX_SERVER`, not from the variables above. Until
-that contract is settled, with no `--seed-script` a reset logs a loud warning and leaves the
-bootstrap admin only. Once a compatible script exists:
+There is no placeholder any more: a reset without a seed script fails, and the failure stops
+Caddy so nobody meets a half-seeded demo. The demo seed, with the admin password file set, behaves
+for a hosted VM like this:
 
-```
-sudo deploy/demo-hosted/install.sh --seed-script scripts/demo/<seed> --seed-script scripts/demo/<scenario> --require-seed
-```
-
-Open point for DEMO-LOCAL-2: Keyorix ships with MFA required (ADR-112). Today's `scripts/demo/up.sh`
-enrols TOTP for the admin itself and prints the secret for the presenter; the hosted seed has to
-do the same (or the presenter enrols on first login), and must not need a pinned weak token.
+- The admin is the one the container entrypoint bootstrapped from `secrets/admin_password`; the
+  seed does not run `system init` (it only does so if the admin does not exist yet).
+- No fixed password from the repository is used. alice and security-officer get passwords generated
+  on every run, written to `/var/lib/keyorix-demo/seed/demo-passwords` (0600) and never printed.
+- MFA stays required. The admin's TOTP setup key, otpauth URI and recovery codes are in
+  `/var/lib/keyorix-demo/seed/admin-mfa` (0600); nothing secret is printed or logged.
+- The seed needs `python3`, `curl` and `openssl` (installed by `install.sh`) and the two helper
+  binaries `bin/keyorix` and `bin/totpgen` in the checkout; it builds them with `go` if `go` exists
+  and otherwise stops and says so. Install Go on the VM or copy the two binaries to `bin/`
+  before the first reset.
 
 ## Reset
 
-`sudo keyorix-demo reset` is the **full reset back to the seed**: stop the stack, delete the
-`keyorix-demo_postgres_data` and `keyorix-demo_keyorix_keys` volumes (the database and the
-encryption key files; the master password file is kept, so the new keys are wrapped with this
-VM's same KEK secret), start again (the bootstrap admin is recreated from the same secret
-files), wait for health, run the seed hook. The issued certificate is **not** touched.
+`sudo keyorix-demo reset` is the **full reset back to the seed**: copy the admin's TOTP enrolment
+aside (see below), stop the stack, delete the `keyorix-demo_postgres_data` volume (the database:
+every project, secret, user, audit event), start again (the bootstrap admin is recreated from the
+same secret files), put the TOTP enrolment back, wait for health, run the seed hook. The issued
+certificate (`caddy_data`) and the encryption keys (`keyorix_keys`) are **not** touched.
+
+**The admin's TOTP survives the reset**, so the presenter's authenticator keeps working and MFA
+stays required (`require_mfa` is never changed). The server generates the TOTP key itself and has
+no way to import one, so instead of importing a key the reset carries the admin's own rows across
+the wipe: the encrypted TOTP secret and the hashed recovery codes, as JSON in
+`/var/lib/keyorix-demo/admin-mfa-rows` (0600; ciphertext, useless without the `keyorix_keys`
+volume, which is why that volume is kept). After the fresh admin exists they are inserted for it and
+the seed adopts the key in `seed/admin-mfa`. Nothing prints a row or the key. If the copy or the
+restore fails the log says `WARNING ... must enrol again`, the stale key file is removed, and the
+seed enrols a new key (the old authenticator entry stops working until it is replaced).
+Because the keys are kept, a reset is a data wipe, not a key rotation: to rotate, `destroy`.
 
 The same command runs nightly from `keyorix-demo-reset.timer` (03:30 UTC by default,
 `--reset-time`). The timer is `Persistent=true`: a VM that was powered off at 03:30 resets as
@@ -262,11 +271,10 @@ seed. First-boot checklist:
    and `strict-transport-security`.
 3. With the gate user `demo` and the password from `/var/lib/keyorix-demo/gate_password`, the
    login page loads. Log in as `admin` with the password in `/var/lib/keyorix-demo/secrets/admin_password`;
-   MFA is required, so the first login ends in TOTP enrolment (the seed hook does not do it yet,
-   see "Seed and scenario scripts").
+   MFA is required: the seed enrols the admin's TOTP, so add the setup key from
+   `/var/lib/keyorix-demo/seed/admin-mfa` to your authenticator once (see "Seed and scenario scripts").
 4. `sudo keyorix-demo reset`, then `sudo keyorix-demo status` shows a fresh "last reset" and the
-   seed hook line; the log says `WARNING: seed hook is a PLACEHOLDER` while no `--seed-script` is
-   set. The reset wipes the admin's TOTP too, so expect to enrol again after it.
+   seed hook line. The log shows `seed: running scripts/demo/seed-demo.sh`.
 5. `sudo systemctl list-timers 'keyorix-demo*'` shows both timers.
 6. From an address that is not in `--ssh-allow` (skip with `--no-firewall`, where the cloud
    firewall decides): `ssh` times out.

@@ -71,8 +71,8 @@ func TestJourney_GoldenPath(t *testing.T) {
 	envID := environmentID(t, s, adminToken, projID, n16EnvName)
 
 	// ── Least-privilege user: grant honored at the exact scope claimed ──────────
-	runCLI(t, cliBin, aEnv, "user", "create", "--username", n16LeastPrivUser,
-		"--email", n16LeastPrivEmail, "--password", n16LeastPrivPass)
+	runCLI(t, cliBin, withEnv(aEnv, "KEYORIX_INITIAL_PASSWORD="+n16LeastPrivPass), "user", "create", "--username", n16LeastPrivUser,
+		"--email", n16LeastPrivEmail)
 	runCLI(t, cliBin, aEnv, "rbac", "assign-role", "--user", n16LeastPrivEmail,
 		"--role", "project_viewer", "--project", n16ProjectName)
 
@@ -96,9 +96,8 @@ func TestJourney_GoldenPath(t *testing.T) {
 	}
 
 	// ── Secret lifecycle: create, reveal, rotate, soft-delete, restore ──────────
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", n16SecretName,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID),
-		"--value", n16SecretValueV1)
+	runCLISecret(t, cliBin, aEnv, n16SecretValueV1, "secret", "create", "--name", n16SecretName,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 	secID := secretID(t, s, adminToken, projID, envID, n16SecretName)
 
 	getOut := runCLI(t, cliBin, aEnv, "secret", "get", "--id", strconv.Itoa(secID), "--show-value")
@@ -106,7 +105,7 @@ func TestJourney_GoldenPath(t *testing.T) {
 		t.Fatalf("secret get after create: want %q, got %q", n16SecretValueV1, got)
 	}
 
-	runCLI(t, cliBin, aEnv, "secret", "rotate", "--id", strconv.Itoa(secID), "--value", n16SecretValueV2)
+	runCLIRotate(t, cliBin, aEnv, strconv.Itoa(secID), n16SecretValueV2)
 	getOut = runCLI(t, cliBin, aEnv, "secret", "get", "--id", strconv.Itoa(secID), "--show-value")
 	if got := parseDecryptedValue(t, getOut); got != n16SecretValueV2 {
 		t.Fatalf("secret get after rotate: want %q, got %q", n16SecretValueV2, got)

@@ -65,7 +65,7 @@ func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 
 	// ── 3. CLI, MFA first ───────────────────────────────────────────────────────
 	env := s.CLIEnv()
-	out := runCLI(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", otp)
+	out := runCLI(t, cliBin, withEnv(env, "KEYORIX_PASSWORD="+otp), "login", "--server", s.BaseURL, "--username", adminUser)
 	if !strings.Contains(out, "Logged in to") {
 		t.Fatalf("login with the one-time password: want success, got:\n%s", out)
 	}
@@ -86,7 +86,7 @@ func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 	assertPendingSteps(t, restCall(t, s, setupToken, http.MethodGet, "/api/v1/projects", nil), "change_password", "enroll_mfa")
 	now := time.Now().UTC()
 	code, burned := totpCodeAt(t, secret, now), totpStep(now)
-	out = runCLI(t, cliBin, env, "mfa", "activate", "--code", code, "--password", otp)
+	out = runCLI(t, cliBin, withEnv(env, "KEYORIX_MFA_CODE="+code, "KEYORIX_PASSWORD="+otp), "mfa", "activate")
 	if !strings.Contains(out, "MFA enabled") || strings.Contains(out, "session has ended") {
 		t.Fatalf("mfa activate with the password still owed: want MFA enabled and the session kept, got:\n%s", out)
 	}
@@ -94,7 +94,7 @@ func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 	if !strings.Contains(out, "403") {
 		t.Fatalf("project list with the password change still owed: want a 403, got:\n%s", out)
 	}
-	out = runCLI(t, cliBin, env, "change-password", "--current-password", otp, "--new-password", newPwA)
+	out = runCLI(t, cliBin, withEnv(env, "KEYORIX_CURRENT_PASSWORD="+otp, "KEYORIX_NEW_PASSWORD="+newPwA), "change-password")
 	if !strings.Contains(out, "session has ended") || !strings.Contains(out, "keyorix login") {
 		t.Fatalf("change-password as the last setup step: want the session-ended instruction, got:\n%s", out)
 	}
@@ -107,15 +107,15 @@ func TestJourney_RecoverAdminUnderRequireMFA(t *testing.T) {
 	}
 
 	// ── 4. a normal MFA login, full access, audited ─────────────────────────────
-	out = runCLIExpectErr(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", newPwA)
+	out = runCLIExpectErr(t, cliBin, withEnv(env, "KEYORIX_PASSWORD="+newPwA), "login", "--server", s.BaseURL, "--username", adminUser)
 	if !strings.Contains(out, "KEYORIX_MFA_CODE") {
 		t.Fatalf("login with only the new password must ask for the second factor, got:\n%s", out)
 	}
-	if strings.Contains(out, "--mfa-code") || strings.Contains(out, newPwA) {
+	if strings.Contains(out, "--mfa-code") /* secretflag:allow output assertion */ || strings.Contains(out, newPwA) {
 		t.Fatalf("the no-terminal hint must not suggest --mfa-code or echo a secret, got:\n%s", out)
 	}
-	out = runCLI(t, cliBin, env, "login", "--server", s.BaseURL, "--username", adminUser, "--password", newPwA,
-		"--mfa-code", totpCodeAfterStep(t, secret, burned))
+	out = runCLI(t, cliBin, withEnv(env, "KEYORIX_PASSWORD="+newPwA, "KEYORIX_MFA_CODE="+totpCodeAfterStep(t, secret, burned)),
+		"login", "--server", s.BaseURL, "--username", adminUser)
 	if !strings.Contains(out, "Logged in to") {
 		t.Fatalf("MFA login after recovery: want success, got:\n%s", out)
 	}

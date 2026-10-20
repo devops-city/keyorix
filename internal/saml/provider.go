@@ -257,7 +257,12 @@ func (p *Provider) ParseResponse(r *http.Request, possibleRequestIDs []string) (
 		log.Printf("saml: provider %q: response validation failed: %v", p.name, err)
 		return nil, errInvalidSAMLResponse
 	}
-	assertion, err := p.sp.ParseResponse(r, possibleRequestIDs)
+	strictNameID, err := strictAssertionShape(r)
+	if err != nil {
+		log.Printf("saml: provider %q: response validation failed: %v", p.name, err)
+		return nil, errInvalidSAMLResponse
+	}
+	assertion, err := p.parseResponseRecovered(r, possibleRequestIDs)
 	if err != nil {
 		var ire *csaml.InvalidResponseError
 		if errors.As(err, &ire) && ire.PrivateErr != nil {
@@ -267,7 +272,183 @@ func (p *Provider) ParseResponse(r *http.Request, possibleRequestIDs []string) (
 		}
 		return nil, errInvalidSAMLResponse
 	}
+	// The library binds Subject.NameID by local name only; confirm the identifier it
+	// authenticated is the one our namespace-strict parse found.
+	if assertion.Subject == nil || assertion.Subject.NameID == nil || assertion.Subject.NameID.Value != strictNameID {
+		log.Printf("saml: provider %q: response validation failed: library NameID differs from the namespace-strict NameID", p.name)
+		return nil, errInvalidSAMLResponse
+	}
 	return extractAssertion(assertion, p.emailAttr, p.nameAttr, p.groupsAttr), nil
+}
+
+// parseResponseRecovered calls the library's ParseResponse and turns a panic inside it
+// into an ordinary validation error, so a malformed-but-signed response is refused here
+// (logged, generic error) instead of relying on the outer Recovery() middleware.
+func (p *Provider) parseResponseRecovered(r *http.Request, possibleRequestIDs []string) (assertion *csaml.Assertion, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			assertion = nil
+			err = fmt.Errorf("saml: panic while validating response: %v", rec)
+		}
+	}()
+	return p.sp.ParseResponse(r, possibleRequestIDs)
+}
+
+// samlAssertionNS is the SAML 2.0 assertion namespace.
+const samlAssertionNS = "urn:oasis:names:tc:SAML:2.0:assertion"
+
+// maxResponseDepth bounds strictAssertionShape's element stack: real responses nest
+// about a dozen deep, and an unbounded stack lets a 10 MiB body of "<a>" allocate a frame
+// per 3 input bytes before the library ever sees it.
+const maxResponseDepth = 64
+
+// strictAssertionShape parses the posted SAMLResponse with namespace resolution (so a
+// correctly-bound prefix of any name passes) and refuses any shape the library would
+// either mis-bind or fail to handle safely:
+//
+//   - the root has exactly one Assertion child, in the assertion namespace, and no
+//     Assertion-named child in any other namespace;
+//   - every Assertion has exactly one Subject and exactly one Conditions child, both in
+//     the assertion namespace, and no Subject/Conditions-named child in any other
+//     namespace;
+//   - every such Subject has exactly one identifier child, and it is a NameID in the
+//     assertion namespace (no NameID-named child in any other namespace, no BaseID or
+//     EncryptedID beside it), and that NameID holds text only;
+//   - only the HTTP-POST binding with plaintext assertions: no SAMLart form key, no
+//     root-level EncryptedAssertion, one root element, at most maxResponseDepth deep.
+//
+// It returns the text of the root Assertion's Subject NameID, which the caller compares
+// against what the library authenticated. Unlike the epilogue check this is fail-closed:
+// no SAMLResponse, bad base64 or malformed XML is a refusal, not a deferral to the
+// library. It does not check signatures, so it only ever narrows what is accepted.
+func strictAssertionShape(r *http.Request) (string, error) {
+	// The library switches to the artifact binding when r.Form (query string included)
+	// carries SAMLart, and then never reads the SAMLResponse checked below. Keyorix only
+	// asks for the POST binding, so refuse the artifact binding outright (the key at all,
+	// not only a non-empty first value).
+	if _, ok := r.Form["SAMLart"]; ok {
+		return "", errors.New("saml: artifact binding is not supported")
+	}
+	raw := r.PostForm.Get("SAMLResponse")
+	if raw == "" {
+		return "", errors.New("saml: no SAMLResponse form value")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return "", fmt.Errorf("saml: SAMLResponse is not valid base64: %w", err)
+	}
+
+	type frame struct {
+		name                         xml.Name
+		parentIsRoot, parentIsAssert bool // this element's position
+		assertions                   int  // root: direct Assertion children
+		subjects, conditions         int  // Assertion: direct Subject/Conditions children
+		nameIDs, identifiers         int  // Subject: direct NameID / any identifier children
+		text                         strings.Builder
+	}
+	isNS := func(n xml.Name, local string) bool { return n.Space == samlAssertionNS && n.Local == local }
+
+	// #nosec G709 -- token-walking untrusted bytes, not deserializing into a struct;
+	// Go's encoding/xml has no DTD/external-entity expansion to exploit here.
+	dec := xml.NewDecoder(bytes.NewReader(decoded))
+	var stack []*frame
+	nameID, haveNameID, sawRoot := "", false, false
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("saml: response is not well-formed XML: %w", err)
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			f := &frame{name: t.Name}
+			if len(stack) == 0 {
+				// The library reads only the first root element; refuse a second one.
+				if sawRoot {
+					return "", errors.New("saml: response has more than one root element")
+				}
+				sawRoot = true
+			}
+			if n := len(stack); n > 0 {
+				parent := stack[n-1]
+				f.parentIsRoot = n == 1
+				f.parentIsAssert = isNS(parent.name, "Assertion")
+				switch {
+				case f.parentIsRoot && t.Name.Local == "Assertion":
+					if t.Name.Space != samlAssertionNS {
+						return "", fmt.Errorf("saml: Assertion element in namespace %q", t.Name.Space)
+					}
+					parent.assertions++
+				case f.parentIsRoot && t.Name.Local == "EncryptedAssertion":
+					// The library returns a decrypted assertion ahead of the plaintext one
+					// this check reads; Keyorix configures no decryption key, so refuse.
+					return "", errors.New("saml: EncryptedAssertion is not supported")
+				case isNS(parent.name, "NameID"):
+					return "", errors.New("saml: NameID has child elements")
+				}
+				if f.parentIsAssert && (t.Name.Local == "Subject" || t.Name.Local == "Conditions") {
+					if t.Name.Space != samlAssertionNS {
+						return "", fmt.Errorf("saml: %s element in namespace %q", t.Name.Local, t.Name.Space)
+					}
+					if t.Name.Local == "Subject" {
+						parent.subjects++
+					} else {
+						parent.conditions++
+					}
+				}
+				if isNS(parent.name, "Subject") && parent.parentIsAssert {
+					switch {
+					case t.Name.Local == "NameID" && t.Name.Space != samlAssertionNS:
+						return "", fmt.Errorf("saml: Subject NameID in namespace %q", t.Name.Space)
+					case isNS(t.Name, "NameID"):
+						parent.nameIDs++
+						parent.identifiers++
+					case t.Name.Local == "BaseID", t.Name.Local == "EncryptedID":
+						// Any namespace: an identifier beside the NameID is refused however it is spelled.
+						parent.identifiers++
+					}
+				}
+			}
+			if len(stack) >= maxResponseDepth {
+				return "", fmt.Errorf("saml: response nests deeper than %d elements", maxResponseDepth)
+			}
+			stack = append(stack, f)
+		case xml.CharData:
+			if n := len(stack); n > 0 && isNS(stack[n-1].name, "NameID") {
+				stack[n-1].text.Write(t)
+			}
+		case xml.EndElement:
+			n := len(stack)
+			if n == 0 {
+				return "", errors.New("saml: unbalanced XML")
+			}
+			f := stack[n-1]
+			stack = stack[:n-1]
+			switch {
+			case n == 1:
+				if f.assertions != 1 {
+					return "", fmt.Errorf("saml: response has %d Assertion elements, want exactly 1", f.assertions)
+				}
+			case isNS(f.name, "Assertion"):
+				if f.subjects != 1 || f.conditions != 1 {
+					return "", fmt.Errorf("saml: Assertion has %d Subject and %d Conditions elements, want exactly 1 each", f.subjects, f.conditions)
+				}
+			case isNS(f.name, "Subject") && f.parentIsAssert:
+				if f.nameIDs != 1 || f.identifiers != 1 {
+					return "", fmt.Errorf("saml: Subject has %d NameID and %d identifier elements, want exactly 1 NameID", f.nameIDs, f.identifiers)
+				}
+			case isNS(f.name, "NameID") && n == 4 && isNS(stack[2].name, "Subject") && stack[1].parentIsRoot && isNS(stack[1].name, "Assertion"):
+				// Root > Assertion > Subject > NameID: the identifier the library binds.
+				nameID, haveNameID = f.text.String(), true
+			}
+		}
+	}
+	if len(stack) != 0 || !haveNameID {
+		return "", errors.New("saml: response has no Subject NameID in its Assertion")
+	}
+	return nameID, nil
 }
 
 // extractAssertion maps a validated assertion to identity fields. Split out so the

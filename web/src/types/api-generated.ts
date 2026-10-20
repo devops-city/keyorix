@@ -1067,7 +1067,7 @@ export interface paths {
         put?: never;
         /**
          * Activate break-glass emergency access (self-service)
-         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled (the error field is the code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo reason BreakGlassDisabled), and always when the caller authenticated with a restricted personal access token (ADR-042).
+         * @description Immediately self-grant the configured emergency role at the project scope, time-bound (default + capped by server config), with a required written justification. NOT RBAC-gated — the controls are config-enablement, the justification, a loud audit (break_glass.activated) + admin alert, and auto-expiry. Returns 403 when break-glass is disabled (the error field is the code BreakGlassDisabled; gRPC: PermissionDenied with a google.rpc.ErrorInfo reason BreakGlassDisabled), and always when the caller authenticated with a restricted personal access token (ADR-042). While the audit log refuses writes the activation still succeeds, DEGRADED (activation.degraded true): it is committed together with an owed-audit record instead of its audit rows, expires after break_glass.degraded_ttl (default 15m, never longer than a normal activation), alerts the admins, and its review is mandatory; the rows are written to the audit trail when it recovers. When even the owed-audit record cannot be written nothing is granted: 503 with the error code BreakGlassUnrecordable and a message pointing to the offline recover-admin procedure (gRPC: Unavailable).
          */
         post: operations["activateBreakGlass"];
         delete?: never;
@@ -4652,7 +4652,7 @@ export interface paths {
         };
         /**
          * Dashboard summary statistics
-         * @description The caller's own home dashboard (secret/share counts, expiring secrets). Requires the universal system.read baseline (every real principal holds it). The deployment-wide aggregate fields (activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins: wrong password + wrong second factor), failedLoginsWrongPassword24h, failedLoginsWrongSecondFactor24h, refusedSecretReads24h, inactiveUsers) and the full recentActivity feed are additionally scoped to audit.read — a baseline-only caller gets zeroed aggregates and an activity feed limited to their own events.
+         * @description The caller's own home dashboard (secret/share counts, expiring secrets). Requires the universal system.read baseline (every real principal holds it). The deployment-wide aggregate fields (activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed password/SSO logins only), failedSecondFactors24h (refused TOTP, recovery code or passkey: mfa.failed + webauthn.failed), refusedSecretReads24h (refused secret reads: authorization denials), inactiveUsers) and the full recentActivity feed are additionally scoped to audit.read — a baseline-only caller gets zeroed aggregates and an activity feed limited to their own events.
          */
         get: operations["getDashboardStats"];
         put?: never;
@@ -6006,6 +6006,10 @@ export interface components {
             state?: "active" | "expired" | "revoked";
             expires_at?: string;
             created_at?: string;
+            /** @description Granted while the audit log refused its rows: recorded as owed, short expiry, review mandatory (omitted when false) */
+            degraded?: boolean;
+            /** @description When every owed audit row of a degraded activation reached the audit trail; absent until then and for a normal activation */
+            audit_settled_at?: string;
         };
         /** @description The server's effective break-glass limits, returned with the activations list to a caller it allowed. Deployment limits only: no secret, no admin-only data. */
         BreakGlassSettings: {
@@ -7847,6 +7851,7 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     revokeBreakGlass: {
@@ -14324,7 +14329,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe, activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed logins: wrong password + wrong second factor), failedLoginsWrongPassword24h, failedLoginsWrongSecondFactor24h, refusedSecretReads24h, inactiveUsers; optional trend objects (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}), expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and recentActivity[] (id, type, secretName, timestamp, actor). */
+            /** @description Envelope {data, message}. data: totalSecrets, sharedSecrets, secretsSharedWithMe, activeUsers, auditEvents30d, auditLogins30d, auditSecretReads30d, failedAuthAttempts24h (failed password/SSO logins only), failedSecondFactors24h (refused TOTP, recovery code or passkey: mfa.failed + webauthn.failed), refusedSecretReads24h (refused secret reads: authorization denials), inactiveUsers; optional trend objects (totalSecretsTrend/sharedSecretsTrend/sharedWithMeTrend, each {value, isPositive}), expiringSecrets[] (id, name, environment, expiresAt, daysLeft, expired), and recentActivity[] (id, type, secretName, timestamp, actor). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -14648,6 +14653,8 @@ export interface operations {
                     data_b64: string;
                     /** @description The detached signature ('<keyVersion>:<hmac-hex>'). */
                     signature: string;
+                    /** @description The pack's canonical filename as returned by GET /api/v1/compliance/evidence (keyorix-evidence-<UTC timestamp>.json). The signature is bound to it, so a missing or different name never verifies. */
+                    filename: string;
                 };
             };
         };

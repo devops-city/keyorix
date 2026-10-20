@@ -3,7 +3,7 @@
 // Every grant-shaped security mutation (role grants, permission and role
 // definition changes, group membership and group grants, shares, secret ACLs,
 // machine identities and their tokens and roles, PATs, user / project /
-// environment create, break-glass activation, SoD policies) commits its audit row
+// environment create, SoD policies) commits its audit row
 // in its own transaction, so a failed audit append must fail the request and
 // change NOTHING. Each catalog operation below runs over the real router with
 // its first audit append (LogAuditEvent#1, which the mutation now calls through
@@ -69,8 +69,9 @@ var securityMutationAuditOps = []string{
 	"REST POST /api/v1/projects",
 	"GRPC keyorix.v1.ProjectService.CreateProject",
 	"REST POST /api/v1/projects/{id}/environments",
-	"REST POST /api/v1/projects/{id}/break-glass",
-	"GRPC keyorix.v1.BreakGlassService.ActivateBreakGlass",
+	// Break-glass activation is NOT here since BREAKGLASS-OWED-1: a refused audit
+	// append commits it degraded with owed records instead of failing
+	// (break_glass_degraded_owed_test.go).
 	"REST POST /api/v1/sod/policies",
 	"REST DELETE /api/v1/sod/policies/{id}",
 }

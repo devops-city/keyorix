@@ -43,8 +43,8 @@ func TestJourney_SecretSuspendClearSyncedCopiesCLI(t *testing.T) {
 	machToken, _ := parseIssuedToken(t, issueOut)
 
 	newSecret := func(name string) (id int, ref string) {
-		runCLI(t, cliBin, aEnv, "secret", "create", "--name", name,
-			"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid), "--value", "j-value-"+name)
+		runCLISecret(t, cliBin, aEnv, "j-value-"+name, "secret", "create", "--name", name,
+			"--project", strconv.Itoa(pid), "--environment", strconv.Itoa(eid))
 		return secretID(t, s, adminToken, pid, eid, name), projName + "/" + envName + "/" + name
 	}
 	// refusal reads the secret by reference as the machine identity would.

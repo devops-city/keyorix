@@ -181,6 +181,7 @@ describe('DashboardPage — operational signals', () => {
         ['Inactive Users', '/admin/users?filter=inactive'],
         ['Expiring Secrets', '/secrets?sort=expiry_asc&filter=expiring'],
         ['Secret Reads (30d)', '/audit?tab=audit&filter=reads'],
+        ['Failed Second Factors (24h)', '/audit?tab=audit&filter=failed'],
         ['Refused Secret Reads (24h)', '/audit?tab=audit&filter=failed'],
     ])('navigates from the "%s" signal', (label, expectedUrl) => {
         render(<DashboardPage />);
@@ -188,50 +189,31 @@ describe('DashboardPage — operational signals', () => {
         expect(navigateMock).toHaveBeenCalledWith(expectedUrl);
     });
 
-    it('shows failed logins and refused secret reads as separate counts', () => {
-        mockHooks({ stats: { ...baseStats, failedAuthAttempts24h: 3, refusedSecretReads24h: 7 } });
+    // DASH-FAILED-SPLIT-1: three figures, each its own card, never summed. Distinct values (2 / 3 / 7)
+    // so a card showing a sum (5, 9, 10, 12) or the wrong field fails.
+    it('shows failed logins, failed second factors and refused secret reads as three separate counts', () => {
+        mockHooks({
+            stats: {
+                ...baseStats,
+                failedAuthAttempts24h: 2,
+                failedSecondFactors24h: 3,
+                refusedSecretReads24h: 7,
+            },
+        });
         render(<DashboardPage />);
         const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
+        const factors = screen.getByText('Failed Second Factors (24h)').closest('button')!;
         const reads = screen.getByText('Refused Secret Reads (24h)').closest('button')!;
-        expect(within(logins).getByText('3')).toBeInTheDocument();
+        expect(within(logins).getByText('2')).toBeInTheDocument();
+        expect(within(factors).getByText('3')).toBeInTheDocument();
         expect(within(reads).getByText('7')).toBeInTheDocument();
     });
 
-    // DASH-FAILED-2FA: the headline is wrong password + wrong second factor, with the split as the hint.
-    it('breaks the failed-login count down into wrong password and wrong second factor', () => {
-        mockHooks({
-            stats: {
-                ...baseStats,
-                failedAuthAttempts24h: 5,
-                failedLoginsWrongPassword24h: 2,
-                failedLoginsWrongSecondFactor24h: 3,
-            },
-        });
-        render(<DashboardPage />);
-        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
-        expect(within(logins).getByText('5')).toBeInTheDocument();
-        expect(within(logins).getByText('2 wrong password · 3 wrong second factor')).toBeInTheDocument();
-    });
-
-    it('keeps the generic hint when the server sends no failed-login breakdown', () => {
+    it('shows zero second factors when the server predates failedSecondFactors24h', () => {
         mockHooks({ stats: { ...baseStats, failedAuthAttempts24h: 3 } });
         render(<DashboardPage />);
-        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
-        expect(within(logins).getByText('unsuccessful sign-ins')).toBeInTheDocument();
-    });
-
-    it('shows zero in both failed-login buckets as an explicit breakdown', () => {
-        mockHooks({
-            stats: {
-                ...baseStats,
-                failedAuthAttempts24h: 0,
-                failedLoginsWrongPassword24h: 0,
-                failedLoginsWrongSecondFactor24h: 0,
-            },
-        });
-        render(<DashboardPage />);
-        const logins = screen.getByText('Failed Logins (24h)').closest('button')!;
-        expect(within(logins).getByText('0 wrong password · 0 wrong second factor')).toBeInTheDocument();
+        const factors = screen.getByText('Failed Second Factors (24h)').closest('button')!;
+        expect(within(factors).getByText('0')).toBeInTheDocument();
     });
 
     it('shows the inactive-users count', () => {
@@ -641,6 +623,7 @@ describe('DashboardPage — tiles the user cannot see (DEMO-UI-1)', () => {
             'Audit Events (30d)',
             'Security',
             'Failed Logins (24h)',
+            'Failed Second Factors (24h)',
             'Inactive Users',
             'Secret Reads (30d)',
         ]) {

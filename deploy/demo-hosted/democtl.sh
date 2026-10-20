@@ -27,7 +27,8 @@ STATE="${KEYORIX_DEMO_STATE:?KEYORIX_DEMO_STATE missing in $ENV_FILE}"
 SECRETS="${KEYORIX_SECRETS_DIR:?KEYORIX_SECRETS_DIR missing in $ENV_FILE}"
 PROJECT="keyorix-demo" # the `name:` in docker-compose.demo.yml
 LOCK="${KEYORIX_DEMO_LOCK:-/run/lock/keyorix-demo.lock}"
-WEB_URL="http://127.0.0.1:8088" # web published on the loopback by the overlay
+WEB_URL="${KEYORIX_DEMO_WEB_URL:-http://127.0.0.1:8088}" # web published on the loopback by the overlay (override: offline tests only)
+SEED_STATE="$STATE/seed" # STATE_DIR of the seed script: state.env, the admin's TOTP key (admin-mfa), generated passwords
 HEALTH_TIMEOUT="${KEYORIX_DEMO_HEALTH_TIMEOUT:-300}"
 
 log() { printf '%s keyorix-demo: %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -78,36 +79,32 @@ cmd_down() {
   log "stack is down (volumes kept)"
 }
 
-# The seed/scenario hook. DEMO-LOCAL-2 owns the demo seed and scenario scripts and this
-# kit never edits or copies them: KEYORIX_DEMO_SEED_SCRIPTS lists repo-relative paths
-# that are run in order, each as its own process, with this environment (paths and
-# names only; a secret is a FILE the script reads, never a value on argv or in env):
-#   KEYORIX_DEMO_URL                       http://127.0.0.1:8088 (web, proxies /api to the backend)
+# The seed/scenario hook. KEYORIX_DEMO_SEED_SCRIPTS lists repo-relative paths (install.sh
+# defaults it to the demo seed, which this kit never edits or copies) that are run in order,
+# each as its own process with the seed state directory as its only argument ($STATE/seed,
+# 0700) and this environment (paths and names only; a secret is a FILE the script reads,
+# never a value on argv or in env):
+#   KEYORIX_SERVER                         http://127.0.0.1:8088 (web, proxies /api, /auth, /system to the backend)
+#   KEYORIX_DEMO_URL                       the same URL, for scripts that name it this way
 #   KEYORIX_DEMO_ADMIN_USERNAME            first admin (default admin)
 #   KEYORIX_DEMO_ADMIN_PASSWORD_FILE       0640 file with the generated admin password
 #   KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE      0600 file with the bootstrap token
-# While that list is empty (DEMO-LOCAL-2 not merged at the time of writing) this is a
-# PLACEHOLDER: it says so loudly and leaves the instance with the bootstrap admin only.
-# KEYORIX_DEMO_REQUIRE_SEED=1 turns the placeholder into a failure.
+# There is no placeholder: a reset without a seed script fails (fail closed, caddy stays off).
 run_seed_hook() {
   local rel path
-  if [ -z "${KEYORIX_DEMO_SEED_SCRIPTS:-}" ]; then
-    log "WARNING: seed hook is a PLACEHOLDER (KEYORIX_DEMO_SEED_SCRIPTS is empty): the demo has the bootstrap admin only, no seeded data"
-    if [ "${KEYORIX_DEMO_REQUIRE_SEED:-0}" = 1 ]; then
-      die "KEYORIX_DEMO_REQUIRE_SEED=1 but no seed script is configured"
-    fi
-    return 0
-  fi
+  [ -n "${KEYORIX_DEMO_SEED_SCRIPTS:-}" ] || die "no seed script configured (KEYORIX_DEMO_SEED_SCRIPTS is empty in $ENV_FILE): re-run install.sh"
+  mkdir -p "$SEED_STATE"; chmod 700 "$SEED_STATE"
   for rel in $KEYORIX_DEMO_SEED_SCRIPTS; do
     case $rel in /*|*..*) die "seed script path must be repo-relative without '..': $rel" ;; esac
     path="$REPO/$rel"
     [ -x "$path" ] || die "seed script $rel is not an executable file in $REPO"
     log "seed: running $rel"
+    KEYORIX_SERVER="$WEB_URL" \
     KEYORIX_DEMO_URL="$WEB_URL" \
     KEYORIX_DEMO_ADMIN_USERNAME="${KEYORIX_ADMIN_USERNAME:-admin}" \
     KEYORIX_DEMO_ADMIN_PASSWORD_FILE="$SECRETS/admin_password" \
     KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE="$SECRETS/bootstrap_token" \
-      "$path" || die "seed script $rel failed"
+      "$path" "$SEED_STATE" || die "seed script $rel failed"
   done
 }
 
@@ -124,10 +121,81 @@ remove_volume() { # short name, e.g. postgres_data
   fi
 }
 
-# Full reset: database and encryption keys are wiped, the stack starts empty, the
-# bootstrap admin is created again from the same secret files, then the seed hook runs.
-# caddy_data (the issued certificate) is kept on purpose: a nightly reset must not
-# request a new certificate every time (Let's Encrypt rate limits).
+# --- the admin's TOTP enrolment survives the reset (HOSTED-RESET-TOTP) -----------------------------
+# MFA stays required, and the server generates the TOTP key at enrolment (the API takes none), so
+# a wiped admin means the presenter enrols again every morning. The smaller fix is to carry the
+# admin's own rows across the wipe instead of importing a key: the encrypted TOTP secret
+# (mfa_secrets) and the hashed recovery codes (mfa_recovery_codes), as JSON, in $KEPT_MFA (0600,
+# ciphertext only: the key is meaningless without the keyorix_keys volume, which a reset therefore
+# keeps). After the fresh admin is bootstrapped they are inserted for that admin and users.mfa_enabled
+# is set; the seed then finds the key in $SEED_STATE/admin-mfa still valid and adopts it (it never
+# re-enrols). Nothing here prints a row or the key. Any failure only costs the presenter one
+# re-enrolment: the stale key file is removed so the seed enrols a new key.
+KEPT_MFA="$STATE/admin-mfa-rows"
+ADMIN_USER="${KEYORIX_ADMIN_USERNAME:-admin}"
+
+pg_sql() { compose exec -T postgres psql -U keyorix -d keyorix -qAtX -v ON_ERROR_STOP=1 "$@"; }
+
+capture_admin_mfa() {
+  local tmp
+  rm -f "$KEPT_MFA"
+  [[ $ADMIN_USER =~ ^[A-Za-z0-9._-]+$ ]] || { log "reset: admin user name has unusual characters; its TOTP is not kept"; rm -f "$SEED_STATE/admin-mfa"; return 0; }
+  if [ ! -s "$SEED_STATE/admin-mfa" ]; then
+    log "reset: no admin TOTP key from an earlier seed; the seed will enrol one"
+    return 0
+  fi
+  tmp=$(umask 077; mktemp "$STATE/.admin-mfa-rows.XXXXXX")
+  if compose up -d postgres >/dev/null 2>&1 && ( wait_healthy postgres ) \
+     && pg_sql -c "SELECT 'S ' || row_to_json(m) FROM mfa_secrets m JOIN users u ON u.id = m.user_id WHERE u.username = '$ADMIN_USER' AND m.activated
+                   UNION ALL
+                   SELECT 'C ' || row_to_json(c) FROM mfa_recovery_codes c JOIN users u ON u.id = c.user_id WHERE u.username = '$ADMIN_USER'" >"$tmp" \
+     && grep -q '^S ' "$tmp"; then
+    mv "$tmp" "$KEPT_MFA"
+    log "reset: the admin's TOTP enrolment is kept ($(grep -c . "$KEPT_MFA") row(s), not shown)"
+  else
+    rm -f "$tmp"
+    rm -f "$SEED_STATE/admin-mfa"
+    log "WARNING: could not read the admin's TOTP enrolment; it is NOT kept and the presenter must enrol again after this reset"
+  fi
+}
+
+# The entrypoint bootstraps the admin once the backend is healthy; wait for that row.
+restore_admin_mfa() {
+  local i n line sql
+  [ -s "$KEPT_MFA" ] || return 0
+  for i in $(seq 1 30); do
+    n=$(pg_sql -c "SELECT count(*) FROM users WHERE username = '$ADMIN_USER'" 2>/dev/null || true)
+    [ "${n:-0}" = 1 ] && break
+    [ "$i" -lt 30 ] || { log "WARNING: the bootstrapped admin did not appear; its TOTP is NOT restored"; rm -f "$SEED_STATE/admin-mfa"; return 0; }
+    sleep 2
+  done
+  sql="BEGIN;
+DELETE FROM mfa_recovery_codes WHERE user_id = (SELECT id FROM users WHERE username = '$ADMIN_USER');
+DELETE FROM mfa_secrets WHERE user_id = (SELECT id FROM users WHERE username = '$ADMIN_USER');"
+  while IFS= read -r line; do
+    case $line in
+      "S "*) sql="$sql
+INSERT INTO mfa_secrets SELECT (json_populate_record(NULL::mfa_secrets, (\$kx\$${line#S }\$kx\$::jsonb || jsonb_build_object('id', nextval(pg_get_serial_sequence('mfa_secrets','id')), 'user_id', (SELECT id FROM users WHERE username = '$ADMIN_USER')))::json)).*;" ;;
+      "C "*) sql="$sql
+INSERT INTO mfa_recovery_codes SELECT (json_populate_record(NULL::mfa_recovery_codes, (\$kx\$${line#C }\$kx\$::jsonb || jsonb_build_object('id', nextval(pg_get_serial_sequence('mfa_recovery_codes','id')), 'user_id', (SELECT id FROM users WHERE username = '$ADMIN_USER')))::json)).*;" ;;
+    esac
+  done <"$KEPT_MFA"
+  sql="$sql
+UPDATE users SET mfa_enabled = true WHERE username = '$ADMIN_USER';
+COMMIT;"
+  if printf '%s\n' "$sql" | pg_sql >/dev/null; then
+    log "reset: the admin's TOTP enrolment is restored (the key in $SEED_STATE/admin-mfa stays valid)"
+  else
+    rm -f "$SEED_STATE/admin-mfa"
+    log "WARNING: restoring the admin's TOTP failed; the seed enrols a new key, the presenter must enrol again"
+  fi
+}
+
+# Full reset: the database is wiped, the stack starts empty, the bootstrap admin is created
+# again from the same secret files (its TOTP enrolment is carried across, see above), then the
+# seed hook runs. Kept on purpose: caddy_data (the issued certificate: a nightly reset must not
+# request a new certificate every time, Let's Encrypt rate limits) and keyorix_keys (the kept
+# TOTP secret is encrypted under them; the demo data is re-encrypted under the same keys).
 # Fail closed: if anything after the wipe fails, the public entry (caddy) is stopped so
 # nobody meets a half-seeded demo; `status` and the log say why.
 RESETTING=0
@@ -143,14 +211,18 @@ cmd_reset() {
   take_lock
   trap reset_exit_guard EXIT
   log "reset: start"
+  capture_admin_mfa
   compose down --remove-orphans
   RESETTING=1
   remove_volume postgres_data
-  remove_volume keyorix_keys
   rm -f "$STATE/last-reset"
+  # The seed state belongs to the data just wiped, except the admin's TOTP key file and the
+  # step ledger of already-spent codes (cli-home) when the enrolment was kept.
+  rm -f "$SEED_STATE/state.env" "$SEED_STATE/demo-passwords" "$SEED_STATE/server.url" "$SEED_STATE/bootstrap-token"
   compose up -d
   wait_healthy backend
   wait_healthy web
+  restore_admin_mfa
   run_seed_hook
   RESETTING=0
   stamp last-reset
@@ -200,7 +272,7 @@ cmd_status() {
   echo "last up:     $(cat "$STATE/last-up" 2>/dev/null || echo never)"
   echo "last reset:  $(cat "$STATE/last-reset" 2>/dev/null || echo 'none since the last wipe')"
   echo "idle:        ${KEYORIX_DEMO_IDLE_ACTION:-poweroff} after ${KEYORIX_DEMO_IDLE_MINUTES:-45} min (grace ${KEYORIX_DEMO_GRACE_MINUTES:-30} min)"
-  echo "seed hook:   ${KEYORIX_DEMO_SEED_SCRIPTS:-PLACEHOLDER (none configured)}"
+  echo "seed hook:   ${KEYORIX_DEMO_SEED_SCRIPTS:-NONE (a reset will fail)}  (state: $SEED_STATE)"
   echo "gate file:   $KEYORIX_DEMO_GATE_DIR/gate.caddy"
   echo "secrets:     $SECRETS (admin_password, bootstrap_token, gate_password under $STATE)"
 }

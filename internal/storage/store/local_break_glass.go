@@ -201,11 +201,67 @@ func (ls *LocalStorage) ReviewBreakGlassActivation(ctx context.Context, id, revi
 // all projects — this is a global posture query, not a per-project one) with
 // reviewed_at still NULL and created_at at or before cutoff, oldest first (the
 // posture report's natural display order: longest-outstanding review first).
+// A degraded activation (BREAKGLASS-OWED-1) is listed whatever its age: its
+// review is mandatory from the moment it exists, with no grace window.
 func (ls *LocalStorage) ListUnreviewedBreakGlassActivationsBefore(ctx context.Context, cutoff time.Time) ([]*models.BreakGlassActivation, error) {
 	var rows []*models.BreakGlassActivation
 	err := ls.db.WithContext(ctx).
-		Where("reviewed_at IS NULL AND created_at <= ?", cutoff).
+		Where("reviewed_at IS NULL AND (created_at <= ? OR degraded = ?)", cutoff, true).
 		Order("created_at ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	return rows, nil
+}
+
+// SettleBreakGlassOwedAudit marks degraded activation id settled at settledAt once
+// no pending_audit_events row linked to it remains (BREAKGLASS-OWED-1), and
+// reports whether this call settled it. The caller runs it inside the backfill
+// transaction that has just claimed one of the activation's owed rows.
+//
+// The activation row is locked FIRST, then the remaining owed rows are counted:
+// two replicas claiming the activation's last two rows concurrently would each
+// still count the other's uncommitted row and neither would settle. With the
+// lock, the second one counts after the first has committed (READ COMMITTED
+// takes a new snapshot per statement) and settles. SQLite serializes every
+// write transaction anyway (BEGIN IMMEDIATE).
+func (ls *LocalStorage) SettleBreakGlassOwedAudit(ctx context.Context, id uint, settledAt time.Time) (bool, error) {
+	db := ls.db.WithContext(ctx)
+	var locked models.BreakGlassActivation
+	q := db.Select("id")
+	if db.Dialector.Name() == "postgres" {
+		q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	if err := q.Where("id = ?", id).Take(&locked).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil // purged or never committed: nothing left to settle
+		}
+		return false, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	var remaining int64
+	if err := db.Model(&models.PendingAuditEvent{}).Where("break_glass_activation_id = ?", id).Count(&remaining).Error; err != nil {
+		return false, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)
+	}
+	if remaining > 0 {
+		return false, nil
+	}
+	res := db.Model(&models.BreakGlassActivation{}).
+		Where("id = ? AND degraded = ? AND audit_settled_at IS NULL", id, true).
+		Update("audit_settled_at", settledAt.UTC())
+	if res.Error != nil {
+		return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), res.Error)
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// ListUnsettledBreakGlassActivations returns every degraded activation whose
+// owed audit rows are not all in the hash chain yet, oldest first.
+func (ls *LocalStorage) ListUnsettledBreakGlassActivations(ctx context.Context) ([]*models.BreakGlassActivation, error) {
+	var rows []*models.BreakGlassActivation
+	err := ls.db.WithContext(ctx).
+		Where("degraded = ? AND audit_settled_at IS NULL", true).
+		Order("id ASC").
 		Find(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorRetrievalFailed", nil), err)

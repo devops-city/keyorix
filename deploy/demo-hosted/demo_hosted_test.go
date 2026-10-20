@@ -610,15 +610,31 @@ func TestInstall_RejectsBadInputBeforeChangingAnything(t *testing.T) {
 }
 
 func TestInstall_SeedScriptIsStoredAsGiven(t *testing.T) {
-	// The kit never copies or edits DEMO-LOCAL-2's scripts: it records repo-relative paths.
-	r := renderInstall(t, []string{"--seed-script", "deploy/demo-hosted/democtl.sh", "--seed-script", "deploy/demo-hosted/install.sh", "--require-seed"})
+	// The kit never copies or edits the demo seed: it records repo-relative paths.
+	r := renderInstall(t, []string{"--seed-script", "deploy/demo-hosted/democtl.sh", "--seed-script", "deploy/demo-hosted/install.sh"})
 	env := read(t, filepath.Join(r.conf, "demo.env"))
-	if !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=deploy/demo-hosted/democtl.sh deploy/demo-hosted/install.sh\n") || !strings.Contains(env, "KEYORIX_DEMO_REQUIRE_SEED=1\n") {
+	if !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=deploy/demo-hosted/democtl.sh deploy/demo-hosted/install.sh\n") {
 		t.Errorf("demo.env:\n%s", env)
 	}
-	// And the default is the documented placeholder: empty list.
-	if env := read(t, filepath.Join(renderInstall(t, nil).conf, "demo.env")); !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=\n") {
-		t.Errorf("default seed list must be empty (placeholder hook):\n%s", env)
+	if strings.Contains(env, "REQUIRE_SEED") {
+		t.Errorf("there is no placeholder any more, so no REQUIRE_SEED switch:\n%s", env)
+	}
+}
+
+func TestInstall_DefaultSeedIsTheDemoSeedScript(t *testing.T) {
+	// No placeholder: without --seed-script a reset runs the demo seed, which must exist and be executable.
+	env := read(t, filepath.Join(renderInstall(t, nil).conf, "demo.env"))
+	if !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=scripts/demo/seed-demo.sh\n") {
+		t.Errorf("default seed list must be scripts/demo/seed-demo.sh:\n%s", env)
+	}
+	fi, err := os.Stat(filepath.Join(repoRoot, "scripts", "demo", "seed-demo.sh"))
+	if err != nil || fi.Mode()&0o111 == 0 {
+		t.Errorf("scripts/demo/seed-demo.sh must exist and be executable: %v", err)
+	}
+	// A second run keeps what the first one stored (idempotent installs), the default included.
+	r := renderInstall(t, []string{"--seed-script", "deploy/demo-hosted/democtl.sh"})
+	if env := read(t, filepath.Join(r.conf, "demo.env")); !strings.Contains(env, "KEYORIX_DEMO_SEED_SCRIPTS=deploy/demo-hosted/democtl.sh\n") {
+		t.Errorf("an explicit --seed-script must replace the default:\n%s", env)
 	}
 }
 
@@ -654,10 +670,14 @@ func stripComments(s string) string {
 func TestDemoctl_ResetIsFullAndKeepsTheCertificate(t *testing.T) {
 	s := kitFile(t, "democtl.sh")
 	reset := funcBody(t, s, "cmd_reset")
-	for _, want := range []string{"remove_volume postgres_data", "remove_volume keyorix_keys", "run_seed_hook", "compose down --remove-orphans"} {
+	for _, want := range []string{"remove_volume postgres_data", "run_seed_hook", "compose down --remove-orphans"} {
 		if !strings.Contains(reset, want) {
 			t.Errorf("cmd_reset lacks %q", want)
 		}
+	}
+	// The kept TOTP secret is encrypted under the key volume: a reset that wiped it would make the kept rows undecryptable.
+	if strings.Contains(reset, "remove_volume keyorix_keys") {
+		t.Error("cmd_reset removes keyorix_keys; the admin's kept TOTP secret could no longer be decrypted")
 	}
 	// -v / --volumes would delete caddy_data: a nightly new certificate hits Let's Encrypt's limits.
 	for _, name := range []string{"cmd_up", "cmd_down", "cmd_reset", "cmd_idle_check", "cmd_seed", "remove_volume"} {
@@ -679,20 +699,85 @@ func TestDemoctl_ResetIsFullAndKeepsTheCertificate(t *testing.T) {
 	}
 }
 
-func TestDemoctl_SeedHookIsAPlaceholderUntilConfigured(t *testing.T) {
+func TestDemoctl_SeedHookRunsTheSeedWithTheStateDirAndNoFixedSecret(t *testing.T) {
 	s := kitFile(t, "democtl.sh")
 	hook := funcBody(t, s, "run_seed_hook")
-	for _, want := range []string{"PLACEHOLDER", "KEYORIX_DEMO_REQUIRE_SEED", `case $rel in /*|*..*)`, `"$path" ||`, "KEYORIX_DEMO_ADMIN_PASSWORD_FILE", "KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE"} {
+	for _, want := range []string{
+		`case $rel in /*|*..*)`,
+		`"$path" "$SEED_STATE" ||`, // STATE_DIR is the script's only argument
+		`KEYORIX_SERVER="$WEB_URL"`,
+		`KEYORIX_DEMO_ADMIN_PASSWORD_FILE="$SECRETS/admin_password"`, // a secret is a file, never a value
+		`KEYORIX_DEMO_BOOTSTRAP_TOKEN_FILE="$SECRETS/bootstrap_token"`,
+		`die "no seed script configured`, // fails closed: no placeholder
+	} {
 		if !strings.Contains(hook, want) {
 			t.Errorf("run_seed_hook lacks %q", want)
 		}
 	}
-	for _, f := range []string{"install.sh", "democtl.sh"} {
-		for i, line := range strings.Split(kitFile(t, f), "\n") {
-			if code := strings.TrimSpace(line); !strings.HasPrefix(code, "#") && strings.Contains(code, "scripts/demo") {
-				t.Errorf("%s:%d names a scripts/demo path in code; DEMO-LOCAL-2 owns those, pass them with --seed-script", f, i+1)
+	for _, gone := range []string{"PLACEHOLDER", "REQUIRE_SEED"} {
+		if strings.Contains(s, gone) || strings.Contains(kitFile(t, "install.sh"), gone) {
+			t.Errorf("the placeholder is gone, but %q is still in the kit scripts", gone)
+		}
+	}
+	// The seed state directory is created 0700 and holds the TOTP key and generated passwords.
+	if !strings.Contains(hook, `chmod 700 "$SEED_STATE"`) {
+		t.Error("the seed state directory must be 0700")
+	}
+	// The kit names the demo seed in exactly one place (install.sh's default); democtl takes its list from demo.env.
+	if strings.Contains(stripComments(s), "scripts/demo") {
+		t.Error("democtl.sh names a scripts/demo path in code; the list comes from KEYORIX_DEMO_SEED_SCRIPTS")
+	}
+}
+
+func TestDemoctl_ResetKeepsTheAdminsTOTPAndNeverPrintsIt(t *testing.T) {
+	s := kitFile(t, "democtl.sh")
+	reset := funcBody(t, s, "cmd_reset")
+	// Order matters: capture before anything is wiped; restore after the fresh admin exists and before the seed adopts the key.
+	order := []string{"capture_admin_mfa", "compose down --remove-orphans", "remove_volume postgres_data", "compose up -d", "restore_admin_mfa", "run_seed_hook"}
+	prev := -1
+	for _, want := range order {
+		i := strings.Index(reset, want)
+		if i < 0 || i < prev {
+			t.Fatalf("cmd_reset must run %v in this order; %q is missing or out of order:\n%s", order, want, reset)
+		}
+		prev = i
+	}
+	capture, restore := funcBody(t, s, "capture_admin_mfa"), funcBody(t, s, "restore_admin_mfa")
+	// The rows hold the encrypted TOTP secret: written 0600, never echoed or logged.
+	if !strings.Contains(capture, "umask 077") {
+		t.Error("the kept rows must be written under umask 077")
+	}
+	for name, body := range map[string]string{"capture_admin_mfa": capture, "restore_admin_mfa": restore} {
+		for i, line := range strings.Split(body, "\n") {
+			if strings.Contains(line, "log ") && regexp.MustCompile(`\$line|\$tmp|\$sql|\$\(cat`).MatchString(line) {
+				t.Errorf("%s line %d logs row content: %s", name, i+1, line)
+			}
+			if regexp.MustCompile(`\b(echo|cat|printf)\b[^|>]*\$KEPT_MFA`).MatchString(line) {
+				t.Errorf("%s line %d prints the kept rows: %s", name, i+1, line)
 			}
 		}
+	}
+	// Fail soft but safe: a failed capture/restore removes the stale key file so the seed enrols a new key
+	// instead of adopting a key that does not match.
+	for name, body := range map[string]string{"capture_admin_mfa": capture, "restore_admin_mfa": restore} {
+		if !strings.Contains(body, `rm -f "$SEED_STATE/admin-mfa"`) {
+			t.Errorf("%s must drop the stale admin-mfa key file when it cannot keep the enrolment", name)
+		}
+	}
+	// Only the admin's own rows are carried, by user name, and require_mfa is not touched.
+	for _, want := range []string{"u.username = '$ADMIN_USER'", "mfa_secrets", "mfa_recovery_codes"} {
+		if !strings.Contains(capture, want) {
+			t.Errorf("capture_admin_mfa lacks %q", want)
+		}
+	}
+	if strings.Contains(s, "require_mfa") {
+		t.Error("the reset must not touch the require_mfa policy")
+	}
+	if !strings.Contains(restore, "UPDATE users SET mfa_enabled = true WHERE username = '$ADMIN_USER'") || !strings.Contains(restore, "BEGIN;") || !strings.Contains(restore, "COMMIT;") {
+		t.Error("the restore must be one transaction that switches MFA on for the admin only")
+	}
+	if !strings.Contains(restore, "pg_get_serial_sequence") {
+		t.Error("restored rows must take ids from the table's sequence, or the next enrolment (alice) collides")
 	}
 }
 

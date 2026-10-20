@@ -2,7 +2,8 @@
   (one that adds access, a credential, a principal or changes a preventive
   control: every direct, JIT, SSO, baseline and access-request role grant, group
   role grant and membership, permission and role-definition change, break-glass
-  activation, share create, a share or role UPDATE that widens access (see
+  activation (whose audit refusal alone commits it degraded with owed records instead,
+  INV-CORE-break-glass-never-unrecorded), share create, a share or role UPDATE that widens access (see
   below), secret ACL grant, machine identity create /
   token issue / role grant, PAT create, `CreateUserWithAssignments` and
   `CreateUserAudited`, project/environment create, update, delete and restore
@@ -37,9 +38,11 @@
   goroutine death at the append), `TestWithAuditedMutation_NoRowFailsClosed`,
   `TestSecurityMutationAudit3_RowExistsIffMutationCommitted` (AUDIT-TX-3: 43
   kinds, same matrix), `server/faultops`
-  `TestSecurityMutationAuditFailure_FailsClosedChangesNothing` (30 REST/gRPC ops,
-  no tolerance) and `TestAuditTx3Mutation_AuditFailureFailsClosedChangesNothing`
-  (40 more), the per-call classification by
+  `TestSecurityMutationAuditFailure_FailsClosedChangesNothing` (28 REST/gRPC ops,
+  no tolerance; break-glass activation:
+  `TestBreakGlassActivation_AuditFailure_CommitsDegradedWithOwedRecords`) and
+  `TestAuditTx3Mutation_AuditFailureFailsClosedChangesNothing` (40 more), the
+  per-call classification by
   `TestSecurityMutationAudit_UpdateRole_ByDirection`,
   `TestSecurityMutationAudit_UpdateSharePermission_ByDirection` and
   `server/faultops` `TestRoleEditorUpdate_AuditFailure_ByDirection`,

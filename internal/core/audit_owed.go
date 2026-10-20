@@ -154,7 +154,7 @@ func (c *KeyorixCore) settleOwedAudit(ctx context.Context, sink *auditForwardSin
 	// the backfill (and are counted and logged) instead of each waiting out its own
 	// bound against a log that is down.
 	refused := false
-	for _, e := range sink.owed {
+	for _, e := range sink.owedRows {
 		if refused {
 			c.noteOwedAuditNotAttempted(e.pendingID, e.event)
 			continue
@@ -206,7 +206,7 @@ func (c *KeyorixCore) recordOwedOn(ctx context.Context, tgt auditTarget, event *
 		}
 		entry.pendingID = p.ID
 	}
-	s.owed = append(s.owed, entry)
+	s.owedRows = append(s.owedRows, entry)
 	return true
 }
 
@@ -231,7 +231,7 @@ func (c *KeyorixCore) writeOwedAudit(ctx context.Context, pendingID uint, event 
 	}()
 	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), owedAuditWait)
 	defer cancel()
-	_, err := c.appendOwedAudit(wctx, pendingID, event)
+	_, err := c.appendOwedAudit(wctx, pendingID, 0, event)
 	if err == nil {
 		return true
 	}
@@ -252,7 +252,13 @@ func (c *KeyorixCore) writeOwedAudit(ctx context.Context, pendingID uint, event 
 // appendOwedAudit claims pendingID (when non-zero) and appends event in one
 // transaction, then forwards the committed row. wrote is false with a nil error when
 // the claim found the row already gone: another writer committed it first.
-func (c *KeyorixCore) appendOwedAudit(ctx context.Context, pendingID uint, event *models.AuditEvent) (wrote bool, err error) {
+//
+// breakGlassActivationID (non-zero for a row owed by a degraded break-glass
+// activation, BREAKGLASS-OWED-1) settles that activation in the same transaction
+// once this was its last owed row, so "settled" commits iff the row is in the chain.
+// The settle runs before the append: the append stays the last statement (on
+// PostgreSQL it takes the chain's advisory lock until the transaction ends).
+func (c *KeyorixCore) appendOwedAudit(ctx context.Context, pendingID, breakGlassActivationID uint, event *models.AuditEvent) (wrote bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic writing owed audit event: %v", r)
@@ -267,6 +273,11 @@ func (c *KeyorixCore) appendOwedAudit(ctx context.Context, pendingID uint, event
 			}
 			if !claimed {
 				return errOwedAuditAlreadyWritten
+			}
+		}
+		if breakGlassActivationID != 0 {
+			if _, err := tx.SettleBreakGlassOwedAudit(ctx, breakGlassActivationID, time.Now()); err != nil {
+				return err
 			}
 		}
 		if !c.emitAuditOn(ctx, auditInto(tx, sink), event) {
@@ -288,6 +299,13 @@ func (c *KeyorixCore) appendOwedAudit(ctx context.Context, pendingID uint, event
 // how many it wrote. It stops at the first row the audit log still refuses (the next
 // pass retries it). Each row is written with the time it is recorded and says when
 // the operation happened. Safe to run on several replicas at once.
+//
+// A row owed by a degraded break-glass activation (BREAKGLASS-OWED-1) keeps its
+// ORIGINAL event time instead: the chain is ordered by id, not by time (auditverify
+// accepts non-monotonic times, edge_clock_audit_test.go), and an emergency
+// elevation's record must say when it happened, not when the audit log came back.
+// Its description says it was recorded late, and its activation is settled with its
+// last row (appendOwedAudit).
 func (c *KeyorixCore) BackfillPendingAuditEvents(ctx context.Context) (int, error) {
 	written := 0
 	var after uint
@@ -308,8 +326,10 @@ func (c *KeyorixCore) BackfillPendingAuditEvents(ctx context.Context) (int, erro
 			event.ID = 0
 			event.Description = fmt.Sprintf("%s (recorded late: it happened at %s, when the audit log refused the write)",
 				event.Description, event.EventTime.UTC().Format(time.RFC3339))
-			event.EventTime = time.Now()
-			wrote, err := c.appendOwedAudit(ctx, p.ID, &event)
+			if p.BreakGlassActivationID == 0 {
+				event.EventTime = time.Now()
+			}
+			wrote, err := c.appendOwedAudit(ctx, p.ID, p.BreakGlassActivationID, &event)
 			if err != nil {
 				_ = c.storage.RecordPendingAuditEventFailure(ctx, p.ID, err.Error())
 				return written, fmt.Errorf("pending audit event %d (%s): %w", p.ID, p.EventType, err)

@@ -44,14 +44,14 @@ func TestJourney_RunEnvInjection(t *testing.T) {
 	runCLI(t, cliBin, aEnv, "project", "create", "--name", projName)
 	projID := projectID(t, s, adminToken, projName)
 	envID := environmentID(t, s, adminToken, projID, envName)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", readableName,
-		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID), "--value", readableValue)
+	runCLISecret(t, cliBin, aEnv, readableValue, "secret", "create", "--name", readableName,
+		"--project", strconv.Itoa(projID), "--environment", strconv.Itoa(envID))
 
 	runCLI(t, cliBin, aEnv, "project", "create", "--name", otherProjName)
 	otherProjID := projectID(t, s, adminToken, otherProjName)
 	otherEnvID := environmentID(t, s, adminToken, otherProjID, envName)
-	runCLI(t, cliBin, aEnv, "secret", "create", "--name", forbiddenName,
-		"--project", strconv.Itoa(otherProjID), "--environment", strconv.Itoa(otherEnvID), "--value", forbiddenVal)
+	runCLISecret(t, cliBin, aEnv, forbiddenVal, "secret", "create", "--name", forbiddenName,
+		"--project", strconv.Itoa(otherProjID), "--environment", strconv.Itoa(otherEnvID))
 
 	runCLI(t, cliBin, aEnv, "machine", "create", "--project", projName, "--name", machineName, "--type", "service")
 	runCLI(t, cliBin, aEnv, "machine", "grant-role", machineName, "--project", projName, "--role", "project_viewer")

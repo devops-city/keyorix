@@ -8,7 +8,8 @@
 #      the old shape fails every time, not at random.
 #   2. totp_fresh keeps the last code PER ACCOUNT: with one shared "last code", the sequence
 #      A, B, A handed A's already-consumed code back (replay rejected by the server).
-#   3. Guard: no `echo|printf ... | grep -q` in scripts/drills/*.sh (the shape behind 1).
+#   3. Guard: no `<anything> | grep -q` in scripts/drills/*.sh (the shape behind 1: the left side gets
+#      SIGPIPE once grep -q exits, whatever the command is, and a failing left side is also hidden).
 #
 # Usage: scripts/drills/selftest.sh   (exit 0 = all cases green; run by `go test ./internal/statemap`
 # through TestDrillScripts_SelfTestAndNoEchoGrepQ)
@@ -53,13 +54,13 @@ check "totp_fresh A,B,A never replays A's code (got $a1 $b1 $a2)" "$rc"
 
 # --- 3. no echo|printf ... | grep -q in the drill scripts --------------------------------------
 rc=0
-hits="$(grep -nE '(echo|printf)[^|]*\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' "$HERE"/*.sh | grep -v 'selftest.sh' || true)"
+hits="$(grep -nE '\|[[:space:]]*grep[[:space:]]+-[a-zA-Z]*q' "$HERE"/*.sh | grep -v 'selftest.sh' || true)"
 if [ -n "$hits" ]; then
     echo "$hits"
-    echo "use: grep -q... <<<\"\$x\" (here-string) instead of echo \"\$x\" | grep -q..."
+    echo "use: out=\"\$(cmd)\" then grep -q... <<<\"\$out\" (here-string) instead of cmd | grep -q..."
     rc=1
 fi
-check "no 'echo | grep -q' under scripts/drills" "$rc"
+check "no 'cmd | grep -q' under scripts/drills" "$rc"
 
 [ "$FAILS" -eq 0 ] || { echo "drills selftest: $FAILS case(s) failed"; exit 1; }
 echo "drills selftest: all cases green"

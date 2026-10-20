@@ -54,6 +54,8 @@ sso:
 
 ## Security
 
+- Supported binding: HTTP-POST to the ACS URL with plaintext (unencrypted) assertions; the
+  artifact binding and encrypted assertions are not supported.
 - The assertion's signature is verified against the **pinned IdP certificate** from its
   metadata (never a cert in the response); audience (`sp_entity_id`), recipient
   (`acs_url`), the validity window, and `InResponseTo` are all enforced — by the vetted
