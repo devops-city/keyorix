@@ -73,7 +73,7 @@ func TestSecurityTxtIsValidRFC9116(t *testing.T) {
 // parseSecurityTxt returns field name -> values, skipping comments and blanks.
 func parseSecurityTxt(s string) map[string][]string {
 	out := map[string][]string{}
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
