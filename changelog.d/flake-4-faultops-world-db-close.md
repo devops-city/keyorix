@@ -1,0 +1,2 @@
+### Fixed
+- **The fault-ops test world now closes its SQLite connection pool on cleanup (FLAKE-4).** `openWorldDBTB` (`server/faultops`) already closed the Postgres pool when the test finished but left each SQLite in-memory database open, so a fuzz run leaked two databases per iteration until the process exited. Guarded by `TestOpenWorldDB_ClosesPoolOnCleanup`, which pings the pool after its owning subtest ends.

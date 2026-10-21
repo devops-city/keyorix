@@ -266,6 +266,7 @@ func openWorldDBTB(tb tbLite) (*gorm.DB, string) {
 			tb.Fatal(err)
 		}
 		sqlDB.SetMaxOpenConns(1)
+		tb.Cleanup(func() { _ = sqlDB.Close() })
 		return db, "sqlite"
 	}
 
