@@ -97,8 +97,11 @@ set a new password and enrol a second factor. Everything else is refused:
 
 ```
 $ keyorix secret list
-Error: failed to list secrets: HTTP 403
+Error: failed to list secrets: Finish account setup before continuing: change your password and enrol a second factor (MFA), in either order. (HTTP 403) Next step: you do not have permission for this; ask a project admin, or request access with `keyorix request access`.
 ```
+
+(The "Next step" text is the CLI's generic hint for any 403; it does not apply here. What is owed
+is in the message before it.)
 
 Over the API the refusal names what is still owed:
 `{"error":"PasswordChangeRequired", ..., "pending_steps":["change_password","enroll_mfa"]}`.
@@ -138,7 +141,7 @@ flags to be prompted (no terminal echo); passing `--current-password`/`--new-pas
 
 ```
 $ keyorix secret list
-Error: failed to list secrets: HTTP 401          # the setup session is gone
+Error: failed to list secrets: Account setup is complete. Sign in again with your new password and second factor. (HTTP 401) Next step: run `keyorix login` to sign in again (the session may have expired or been revoked).
 $ keyorix login --server https://localhost:8080 --ca-file certs/server.crt --username admin
 Password:                                        # the new password, no echo
 Authenticator code (or an unused recovery code):

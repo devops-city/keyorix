@@ -1,0 +1,2 @@
+### Documentation
+- **The j5 lost-admin runbook shows the CLI's real refusal text.** The 403 a setup-only session gets and the 401 after setup is complete are now quoted exactly as `keyorix` prints them (server message, HTTP status and the CLI's "Next step" hint), and two tests keep them true: one checks the doc lines against the CLI's formatter, one checks the quoted messages against the middleware's.
