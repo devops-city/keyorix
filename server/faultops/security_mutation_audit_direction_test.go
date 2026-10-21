@@ -218,8 +218,13 @@ func createExpiringShareForFuzz(ctx context.Context, w *faultWorld, permission s
 	if err != nil {
 		return 0, err
 	}
-	exp := time.Now().Add(ttl).UTC()
-	return id, w.db.Model(&models.ShareRecord{}).Where("id = ?", id).Update("expires_at", exp).Error
+	var share models.ShareRecord
+	if err := w.db.First(&share, id).Error; err != nil {
+		return 0, err
+	}
+	exp := time.Now().Add(ttl)
+	share.ExpiresAt = &exp
+	return id, w.db.Save(&share).Error // Save: the model's BeforeSave hook normalizes the expiry
 }
 
 // createShareForFuzz is the "REST PUT /api/v1/shares/{id}" catalog setup with
