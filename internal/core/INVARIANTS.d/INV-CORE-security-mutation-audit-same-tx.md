@@ -24,17 +24,17 @@
   notifications after that. Revocations are deliberately NOT covered: they are
   never blocked by the audit log (Andrei 2026-10-14) and are governed by
   INV-CORE-revocation-audit-owed. A request that narrows AND widens (deactivate + identity
-  change, SCIM removals + adds/rename, MFA on + rename, OTP reissue) is split, its widening
-  half fails closed here: INV-CORE-mixed-request-split. `UpdateRole` and `UpdateSharePermission` go either way
-  and are classified per call from what they change inside their transaction
-  (`withDirectedAuditedMutation`): any added permission, a higher share
-  permission, a later or cleared expiry (mixed changes included) is a grant and
-  fails closed; a change that only narrows or changes no access commits and
-  audits best-effort after the commit (REVIEW-2 on #3367). The classification
+  change, SCIM removals + adds/rename, MFA on + rename, OTP reissue, a role update that
+  removes and adds permissions, a share update that lowers one part and raises the other) is
+  split, its widening half fails closed here: INV-CORE-mixed-request-split. `UpdateRole` and
+  `UpdateSharePermission` go either way and are classified per call from what they change
+  inside their transaction: any added permission, a higher share permission, a later or
+  cleared expiry is a grant and fails closed; a change that only narrows or changes no
+  access is owed (INV-CORE-revocation-audit-owed, REVIEW-2 on #3367). The classification
   must hold until the write: `UpdateSharePermission` reads the share with
-  `LockShareRecordForUpdate` (PostgreSQL `FOR UPDATE`) in that transaction, so no
-  other writer can change it in between (SHARE-CAS-1); `UpdateRole` classifies
-  from its own inserts and needs no lock. Why: a crash or refused append between the commit and the
+  `LockShareRecordForUpdate` (PostgreSQL `FOR UPDATE`) in each of its transactions, so no
+  other writer can change it in between (SHARE-CAS-1); `UpdateRole` classifies from the
+  permission set it reads and changes in the same transaction. Why: a crash or refused append between the commit and the
   row left a grant with no audit record (REVIEW-1, AUDIT-TX-2). Inventory:
   `docs/specs/security-mutation-audit-inventory.md`.
   Guard: `internal/core` `TestSecurityMutationAudit_RowExistsIffMutationCommitted`

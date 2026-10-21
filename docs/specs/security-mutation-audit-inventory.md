@@ -42,19 +42,17 @@ This table is the reviewed list behind them, not a guard of its own.
   committed with the effect.
 - **Updates classified per call** (REVIEW-2 on #3367). `UpdateRole` and
   `UpdateSharePermission` can widen access or narrow it. They decide from what the
-  update actually changes, read inside its own transaction
-  (`withDirectedAuditedMutation`): one that grants anything, including a mixed one
-  that also removes, is grant-shaped and fails closed; one that only narrows
-  (removes permissions, write→read, sets or shortens an expiry) or changes no
-  access is a revocation or neutral, commits without an audit write in its
-  transaction, and writes the same rows best-effort after the commit. The web role
-  editor (`PUT /api/v1/roles/{id}`) can therefore strip a permission during an
-  audit outage. Guards: `TestSecurityMutationAudit_UpdateRole_ByDirection`,
+  update actually changes, read inside its own transaction: one that only grants is
+  grant-shaped and fails closed; one that only narrows (removes permissions,
+  write→read, sets or shortens an expiry) or changes no access is a revocation or
+  neutral, never blocked by the audit log, its rows owed (`withOwedAuditMutation`);
+  one that does both is split, the narrowing first (MERGE-FIX-3482K, see "Mixed
+  requests"). The web role editor (`PUT /api/v1/roles/{id}`) can therefore strip a
+  permission during an audit outage. Guards:
+  `TestSecurityMutationAudit_UpdateRole_ByDirection`,
   `TestSecurityMutationAudit_UpdateSharePermission_ByDirection` (`internal/core`,
   SQLite and PostgreSQL), `TestRoleEditorUpdate_AuditFailure_ByDirection`,
   `TestShareUpdate_AuditFailure_ByDirection` (`server/faultops`, REST and gRPC).
-  Not moved to the owed record: the narrowing branch keeps its plain best-effort
-  row (a follow-up, see "Remaining").
   - **The classification must hold until the write** (SHARE-CAS-1). A
     classification is only true if no other writer can change what it read before
     the update writes. `UpdateSharePermission` reads the share with
@@ -64,10 +62,11 @@ This table is the reviewed list behind them, not a guard of its own.
     PostgreSQL READ COMMITTED, a narrowing committing between the read and the
     UPDATE turned an update classified neutral into write over read (or a stale
     expiry over a shortened one) with only a best-effort row. SQLite needs no lock:
-    its write transactions are `BEGIN IMMEDIATE`. `UpdateRole` has no such window:
-    it classifies from its own writes (a permission it inserted), not from a read,
-    and a permission another transaction adds in between is audited by that
-    transaction. Group shares go through `UpdateSharePermission` too; a re-share
+    its write transactions are `BEGIN IMMEDIATE`. A split share update locks again
+    in its second commit. `UpdateRole` classifies from the permission set it reads
+    and changes in the same transaction; its second commit (a mixed update) reads
+    the set again and also removes what a concurrent writer added since, fail
+    closed. Group shares go through `UpdateSharePermission` too; a re-share
     of an existing share (`ShareSecret`'s upsert) is not classified (always fail
     closed). Guards (pg-gated, two replicas on their own connections):
     `TestCTAReview_UpdateSharePermission_NeutralVsConcurrentNarrowing_CrossReplicaPostgres`,
@@ -108,13 +107,13 @@ from core, as before, so there are no duplicates.
 | Group role grant (permanent, JIT) | `AssignRoleToGroup`, `AssignGroupRoleWithExpiry` → `grantGroupRoleAudited` | `role.group_assigned` | after commit | in tx |
 | Permission into role | `AssignPermissionToRole` | `permission.assigned` | after commit | in tx |
 | Role create | `CreateRole` | `role.created` + `permission.assigned`×n | after commit | in tx |
-| Role update (incl. permission set) | `UpdateRole` | `role.updated` + `permission.removed/assigned`×n | after commit | in tx when it assigns any permission (mixed included); after commit, best-effort, when it only removes permissions or changes the description (see "Updates classified per call"); classified from its own inserts, so no row lock is needed (SHARE-CAS-1) |
+| Role update (incl. permission set) | `UpdateRole` | `role.updated` + `permission.removed/assigned`×n | after commit | in tx when it only assigns; owed when it only removes permissions or changes the description; removals owed then additions in tx when it does both (see "Updates classified per call", "Mixed requests"); classified from the permission set read in the same transaction (SHARE-CAS-1) |
 | Group membership add | `AddUserToGroup` | `group.member_added` | after commit | in tx |
 | Project member add | `AddProjectMember` → `AssignUserRole` | `role.assigned` | after commit | in tx |
 | Access-request approval grant | `finalizeAccessRequestApproval` | `role.assigned` + `access_request.approved` | after commit | in tx |
 | Break-glass activation | `activateBreakGlassLocked` | `role.assigned` + `break_glass.activated` | after commit (activated: outside the lock) | in tx; when only the append fails, degraded with owed records in the same tx (BREAKGLASS-OWED-1, `activateBreakGlassDegraded`) |
 | Share create (user, group) | `ShareSecret`, `ShareSecretWithGroup` | `share_created` / `group_share_created` | after commit | in tx |
-| Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx when it widens (read→write, later expiry, expiry cleared; mixed included); after commit, best-effort, when it only narrows or changes nothing (see "Updates classified per call"); classified from the share row read under `FOR UPDATE` (SHARE-CAS-1) |
+| Share update | `UpdateSharePermission` | `share_updated` / `group_share_updated` | after commit | in tx when it only widens (read→write, later expiry, expiry cleared); owed when it only narrows or changes nothing; narrowing owed then the rest in tx when it does both (see "Updates classified per call", "Mixed requests"); classified from the share row read under `FOR UPDATE` in each transaction (SHARE-CAS-1) |
 | Secret ACL grant | `GrantSecretACL` | `secret.acl_granted` | after commit | in tx |
 | Machine identity create | `CreateMachineIdentity` | `machine_identity.created` | after commit | in tx |
 | Machine token issue / rotate | `IssueMachineToken` | `machine_identity.token_issued` / `token_rotated` | after commit | in tx |
@@ -178,6 +177,8 @@ call's lock. If the second commit fails the narrowing stays and the answer is HT
 | MFA requirement on + rename/description | `UpdateProject` (`updateProjectSplit`) | `project.mfa_requirement_enabled` | rename, `project.updated` (tagged caller) |
 | OTP reissue | `ReissueOneTimePassword` | restricted state + sessions ended, `user.one_time_password_reissue_restricted` | password, expiry, lockout reset, `user.one_time_password_reissued` |
 | Machine token rotation (`replace_credential_id`) | `IssueMachineToken` → `rotateMachineToken` | old credential revoked (and evicted), `machine_identity.token_revoked` | new credential, `machine_identity.token_rotated` |
+| Role update: permissions removed + added (MERGE-FIX-3482K) | `UpdateRole` | removals, `permission.removed`×n | description + additions, `role.updated` + `permission.assigned`×n |
+| Share update: lower permission + later/cleared expiry, or the reverse (MERGE-FIX-3482K) | `UpdateSharePermission` | the narrower value of each part, `share_updated` / `group_share_updated` | the requested share, `share_updated` / `group_share_updated` |
 
 ## Revocations: never blocked, row owed in the same transaction (AUDIT-TX-3)
 
@@ -221,12 +222,6 @@ its `user.updated` row to the owed record and adds
 
 ## Remaining, with the reason each is not in a fail-closed or owed transaction
 
-- **Narrowing branch of `UpdateRole` / `UpdateSharePermission`** (see "Updates
-  classified per call"): a revocation that keeps a plain best-effort row after the
-  commit. Reason: the per-call direction is decided inside the transaction and the
-  row is written after it; moving it to the owed record needs the direction callback
-  to hand its rows to an owing sink. Follow-up, not security-significant beyond the
-  lost-row window the other revocations used to have.
 - **`SetUserRoles`**: a compensated sequence of single grants and removals. Each
   grant inside it is in-tx, each removal is owed; the sequence as a whole is not one
   transaction by design (the compensation logic reverts partial progress).
