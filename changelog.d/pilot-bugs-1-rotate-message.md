@@ -1,0 +1,2 @@
+### Fixed
+- **Admin commands refused because a server is running no longer tell a binary install to run `docker compose` (#3524).** The refusal (`admin encryption rotate` and every other admin command that needs the database to itself) now says "stop the server, run this command again, then start the server" on a host install, and names the Docker Compose sequence only when it runs inside a container.

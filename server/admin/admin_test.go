@@ -39,6 +39,7 @@ func TestAcquireDatabaseLock_ConnectFailureSurfacesRealError(t *testing.T) {
 
 func TestAcquireDatabaseLock_ActuallyHeldLockSurfacesPresenceMessage(t *testing.T) {
 	forceFlag = false
+	setInContainer(t, true)
 	dir := t.TempDir()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{
@@ -68,6 +69,46 @@ func TestAcquireDatabaseLock_ActuallyHeldLockSurfacesPresenceMessage(t *testing.
 	}
 	if strings.Contains(err.Error(), "cannot connect to the database to check for a running server") {
 		t.Fatalf("a genuine held lock must not be reported as a connect failure, got: %v", err)
+	}
+}
+
+func setInContainer(t *testing.T, v bool) {
+	t.Helper()
+	old := runningInContainer
+	runningInContainer = func() bool { return v }
+	t.Cleanup(func() { runningInContainer = old })
+}
+
+// #3524: a binary (systemd/nohup) install has no compose service; the refusal
+// must say "stop the server, run again, start it" and never name docker.
+func TestAcquireDatabaseLock_HeldLockHintIsNeutralOutsideAContainer(t *testing.T) {
+	forceFlag = false
+	setInContainer(t, false)
+	dir := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{
+			Type:     "local",
+			Database: config.DatabaseConfig{Path: filepath.Join(dir, "secrets.db")},
+		},
+	}
+	first, err := serverguard.AcquireExclusive(cfg)
+	if err != nil {
+		t.Fatalf("first AcquireExclusive: %v", err)
+	}
+	defer first.Release() //nolint:errcheck
+
+	_, err = acquireDatabaseLock(cfg)
+	if err == nil {
+		t.Fatal("expected acquireDatabaseLock to fail while another exclusive lock is held")
+	}
+	msg := err.Error()
+	if strings.Contains(strings.ToLower(msg), "docker") || strings.Contains(msg, "compose") {
+		t.Fatalf("a non-container install must not be told to run docker commands, got: %v", err)
+	}
+	for _, want := range []string{"appears to be using this database", "stop the server", "start the server"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("held-lock message must include %q, got: %v", want, err)
+		}
 	}
 }
 
