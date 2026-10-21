@@ -226,15 +226,15 @@ the UI. (Not run for this revision: container checks are pending the e2e VM.)
 
 ## What this runbook does NOT cover
 
-- **Postgres-backed deployments running this runbook's own drill script
-  end to end.** `admin backup`/`admin restore` now support Postgres directly
-  (`docs/design-b3-backup-v2.md` §4, §8) — the same commands this runbook
-  uses for SQLite work against a Postgres-configured deployment too, and
-  `pg_dump`/`psql` remains a reasonable alternative if you already have a
-  pipeline built around it (`SELF_HOSTING.md` §5). This runbook's own
-  automated drill (above) has not yet been extended to exercise the
-  Postgres target end to end — a good follow-up, not a capability gap in
-  the underlying commands.
+- **Postgres in `scripts/airgap-e2e.sh`.** `admin backup`/`admin restore`
+  support Postgres directly (`docs/design-b3-backup-v2.md` §4, §8) — the same
+  commands this runbook uses for SQLite work against a Postgres-configured
+  deployment too, and `pg_dump`/`psql` remains a reasonable alternative if you
+  already have a pipeline built around it (`SELF_HOSTING.md` §5). The
+  container drill above runs SQLite only. The Postgres cycle (live backup,
+  restore into an empty database, anchored `verify-audit`, MFA login, shares)
+  is `DRILL_BACKEND=postgres scripts/drills/backup-restore.sh`
+  ([operator/drill-backup-restore.md](operator/drill-backup-restore.md)).
 - **Cross-backend migration (SQLite → Postgres) and version-skipping
   upgrades** are documented usage patterns of the same `admin backup`/
   `admin restore` commands — no new subcommand, no separate tool

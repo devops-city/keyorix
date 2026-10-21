@@ -129,6 +129,10 @@ var owedAuditMoreOps = []string{
 	"REST PUT /api/v1/projects/{id}/machine-identities/{machineId}",
 	"REST POST /api/v1/users/{id}/require-password-reset",
 	"REST DELETE /api/v1/auth/tokens/expired",
+	// MERGE-FIX-3482K: a role update that adds no permission is owed (the catalog
+	// scenarios keep the set and, over gRPC, change the description).
+	"REST PUT /api/v1/roles/{id}",
+	"GRPC keyorix.v1.RoleService.UpdateRole",
 }
 
 // owedAuditScopedOps is the rule's op scope, the single list the rule and its sweep read.

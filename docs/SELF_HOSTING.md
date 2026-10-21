@@ -277,6 +277,15 @@ docker compose cp backend:/tmp/backup.tar.gz ./keyorix-backup-$(date +%F).tar.gz
 > (`mkdir -m 700 backups` and `sudo chown 1001 backups` first: the container user is uid 1001,
 > and the archive holds the database and the wrapped key files, so keep it owner-only).
 
+On a binary install (no Docker), run the same commands directly:
+`keyorix-server admin backup --output <path> --config keyorix.yaml`, and
+`admin restore --input <path> --config keyorix.yaml` on the replacement host, with
+`KEYORIX_MASTER_PASSWORD` and `KEYORIX_DB_PASSWORD` (or their `_FILE` forms) set for
+**every** command, as for the server itself. The replacement host needs the config,
+the certificates and the secrets files, not `keys/`: restore installs the key files
+from the archive. Server stopped is only required for restore (and for
+`admin audit export-checkpoint`, `admin verify-audit` and `--exclusive`).
+
 On Postgres, this reads through a single `REPEATABLE READ` snapshot
 transaction by default — every table sees the identical point-in-time view,
 without taking the database offline, so it runs beside the live `backend`
@@ -323,9 +332,16 @@ database and the (also empty) `keyorix_keys` volume, then runs `verify-audit`
 before the first `up -d`, as above (a stack that has already booted holds a non-empty database and keys,
 which restore refuses without `--overwrite-existing`).
 
-Restore refuses a non-empty target by default (`--overwrite-existing` to
-proceed anyway on a genuine disaster-recovery restore) — the normal flow is
-restoring into a fresh database, not overwriting a live one.
+Restore refuses a non-empty target by default — the normal flow is restoring
+into a fresh database, not overwriting a live one. `--overwrite-existing` lets it
+proceed past that check, and what it then does depends on the backend: on SQLite
+the existing database file and key files are moved aside
+(`*.pre-restore-<timestamp>`); on PostgreSQL only the key files are, and the rows
+are loaded into the tables that already exist, so over a database that holds data
+the restore fails on a duplicate key and leaves the database unchanged (the key
+files have been replaced by then). To restore over a used PostgreSQL database,
+drop and recreate the database first, then restore without the flag. A restore you
+interrupted yourself is the exception, see "If the restore is interrupted" below.
 
 **Recovery point (RPO).** The recovery point is the backup itself: a restore
 brings back exactly what the archive's snapshot held (on PostgreSQL the instant the
