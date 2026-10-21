@@ -362,12 +362,11 @@ Carried forward from `security-review-2026-09.md` rather than re-litigated:
   specific audit/access-log routes where a sibling route already redacts it.
   Not yet closed as of this writing.
 - **No dedicated backup-artifact *encryption* mechanism beyond what the
-  wrapped DEK already provides** (§5.3) — `admin backup` (local/SQLite) adds
-  checksum integrity and an audit-chain-verified restore path, but a stolen
-  archive's confidentiality still reduces to the same KEK-custody analysis as
-  before the command shipped. Postgres-backed deployments still use an
-  operator-driven `pg_dump` + key-volume copy, with no Keyorix-native
-  artifact at all.
+  wrapped DEK already provides** (§5.3) — `admin backup` (SQLite and
+  PostgreSQL) adds checksum integrity, a signed manifest and an
+  audit-chain-verified restore path, but a stolen archive's confidentiality
+  still reduces to the same KEK-custody analysis as before the command
+  shipped.
 - **On-box audit-chain enforcement can be neutralized by a DB-level actor who
   can also write `audit_checkpoints`** — deleting or overwriting the latest
   checkpoint row forces `verify` to fail closed (report invalid) until the
