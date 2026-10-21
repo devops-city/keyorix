@@ -17,10 +17,22 @@
 // THE RULE. Oracle (a) accepts a SUCCESS whose diff against the reference is confined
 // to {AuditEvent, PendingAuditEvent} only when ALL of these hold:
 //
-//  1. Scope. The op is in auditTx3RevocationOps or is the SSO callback, AND the fault is
-//     on LogAuditEvent or ClaimPendingAuditEvent. Any other fault or op stays
-//     fail-closed: it never reaches this rule's acceptance. It is not an input skip and
-//     not a per-op oracleAByDesignErrors row (the shared tables are not edited).
+//  1. Scope. The op is in auditTx3RevocationOps, is the SSO callback / SAML ACS, or is
+//     the plain secret suspend (commitOwingAudit, INV-CORE-plain-suspend-audit-owed),
+//     AND the fault is on LogAuditEvent, ClaimPendingAuditEvent or WithTransaction (the
+//     owing transaction or the settle transaction: refusing the latter leaves exactly a
+//     refused append's outcome). Any other fault or op stays fail-closed: it never
+//     reaches this rule's acceptance. It is not an input skip and not a per-op
+//     oracleAByDesignErrors row (the shared tables are not edited).
+//     Effect-then-error that the op REPORTS AS AN ERROR is in scope too (MERGE-FIX-3482J):
+//     the owing transaction commits and reports an error, so the request fails with the
+//     revocation and its record committed. Oracle (d) calls this rule first for it. The
+//     same conditions apply, with two adjustments a reported error forces and nothing
+//     else: the non-audit outcome logs (Notification, SecretAccessLog) and the audit
+//     rows of types the op does not owe (a bulk summary row records the REPORTED
+//     outcome) are left out of the comparison, as (d) leaves them out; every owed row is
+//     still compared. A failed SSO/SAML login after a committed reconcile cannot equal
+//     the reference (no session); owedAuditSSOPartialVerdict judges it.
 //  2. The pending row is REQUIRED, not tolerated. For every audit row the faulted run
 //     lacks versus the reference there is EXACTLY ONE PendingAuditEvent with the same
 //     event type and payload (compared as multisets, ids and the timestamps the
@@ -68,8 +80,7 @@
 // which transaction wrote what; condition 3 is inferred from the state (effect visible
 // implies pending-or-audit present) plus the CreatePendingAuditEvent case, which pins
 // the fallback to "equals the reference". It applies to SUCCESS only (an error branch
-// is judged by the unchanged rest of oracle (a)/(d)). It does not include the SAML ACS
-// op, which is a sibling of the SSO callback outside this ask.
+// is judged by the unchanged rest of oracle (a)/(d), except effect-then-error, see 1).
 package faultops
 
 import (
@@ -97,9 +108,33 @@ const (
 // reconcile (reconcileSSOGroups / reconcileSSORoles), so the same owed rows.
 const owedAuditSAMLACSOp = "REST POST /auth/saml/{provider}/acs"
 
+// owedAuditSecretSuspendOp is the plain secret suspend: the first owed-audit op
+// (commitOwingAudit, INV-CORE-plain-suspend-audit-owed), older than AUDIT-TX-3 and with
+// the same outcome when its audit append fails: the suspension commits with a pending
+// record of secret.suspended, and the backfill writes the row (MERGE-FIX-3482J: CI input
+// 7800103230, ClaimPendingAuditEvent#1). The project freeze (suspend-all) takes the same
+// path per secret; its catalog scenario has no secret to suspend, so it owes nothing
+// there and is not listed.
+const owedAuditSecretSuspendOp = "REST POST /api/v1/secrets/{id}/suspend"
+
+// owedAuditMoreOps are catalog ops outside auditTx3RevocationOps whose scenario also
+// owes an audit row (a narrowing through runOwedAuditMutation or commitOwingAudit). Found
+// by sweeping ClaimPendingAuditEvent#1..3 (all kinds) over the WHOLE opCatalog
+// (MERGE-FIX-3482J): each of these left exactly the owed outcome and was reported by the
+// unscoped oracle (a). TestOwedAuditOracle_EveryOwingCatalogOpIsScoped keeps the list
+// complete.
+var owedAuditMoreOps = []string{
+	owedAuditSecretSuspendOp,
+	"REST POST /api/v1/secret-access-requests/{requestId}/withdraw",
+	"REST PUT /api/v1/projects/{id}/machine-identities/{machineId}",
+	"REST POST /api/v1/users/{id}/require-password-reset",
+	"REST DELETE /api/v1/auth/tokens/expired",
+}
+
 // owedAuditScopedOps is the rule's op scope, the single list the rule and its sweep read.
 func owedAuditScopedOps() []string {
-	return append([]string{owedAuditSSOCallbackOp, owedAuditSAMLACSOp}, auditTx3RevocationOps...)
+	out := append([]string{owedAuditSSOCallbackOp, owedAuditSAMLACSOp}, owedAuditMoreOps...)
+	return append(out, auditTx3RevocationOps...)
 }
 
 // owedAuditRuleOp reports whether op is in the rule's scope (condition 1, op half).
@@ -277,17 +312,18 @@ func owedAuditProbeFor(w *faultWorld) func(op string) (map[string]int, error) {
 	}
 }
 
-// owedAuditOracleA is the hook checkOraclesReporting calls first in oracle (a)'s
-// success branch. It returns true when the rule decided the input.
-func owedAuditOracleA(t fuzzVerdict, label string, in oracleInput,
+// owedAuditOracle is the hook checkOraclesReporting calls first in oracle (a)'s
+// success branch, and in oracle (d)'s effect-then-error branch before it reports a
+// mixed state ("a" or "d" in oracle). It returns true when the rule decided the input.
+func owedAuditOracle(t fuzzVerdict, oracle, label string, in oracleInput,
 	report func(diff []string, format string, args ...any)) (handled bool) {
 	d := owedAuditVerdict(in, owedAuditDepsFor(in.world))
 	switch {
 	case !d.engaged:
 		return false
 	case d.violation != "":
-		report(diffTables(in.refAfter, in.after), "%s: ORACLE (a) VIOLATION — owed-audit rule (INV-CORE-revocation-audit-owed): %s",
-			label, d.violation)
+		report(diffTables(in.refAfter, in.after), "%s: ORACLE (%s) VIOLATION — owed-audit rule (INV-CORE-revocation-audit-owed): %s",
+			label, oracle, d.violation)
 	default:
 		t.Logf("ACCEPTABLE-BY-DESIGN (owed audit, INV-CORE-revocation-audit-owed): %s: %s", label, d.note)
 	}
@@ -298,7 +334,11 @@ func owedAuditOracleA(t fuzzVerdict, label string, in oracleInput,
 // except for deps, which the caller supplies so a test can say "the backfill did not
 // run" or "it did the wrong thing".
 func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
-	if !in.result.Success || in.after.Hash == in.refAfter.Hash || !owedAuditRuleOp(in.op) {
+	// An effect-then-error fault that the op reports as an error is judged too
+	// (condition 1): the owing transaction can commit and still report an error, and
+	// the request then fails with the revocation and its pending record committed.
+	ambiguousError := !in.result.Success && in.kind == faultstorage.KindEffectThenError
+	if (!in.result.Success && !ambiguousError) || in.after.Hash == in.refAfter.Hash || !owedAuditRuleOp(in.op) {
 		return owedAuditDecision{}
 	}
 	violation := func(format string, args ...any) owedAuditDecision {
@@ -307,6 +347,9 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 
 	switch in.method {
 	case "CreatePendingAuditEvent":
+		if ambiguousError {
+			return owedAuditDecision{} // the record and the row fail together: oracle (d) as before
+		}
 		// Condition 3: the pending record could not be written either. The revocation
 		// still succeeds and the row is attempted directly, so the final state must
 		// equal the reference. "Equal" means every table equal and the audit rows equal
@@ -314,7 +357,7 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 		// commit, so its id differs from the reference's, which wrote it in sequence.
 		// This is the one case in which this rule accepts anything for this fault, and
 		// only by comparing against the reference; no pending row may remain either.
-		if diff := owedAuditNotConverged(in.after, in.refAfter, false); len(diff) > 0 {
+		if diff := owedAuditNotConverged(in.after, in.refAfter, false, nil, nil); len(diff) > 0 {
 			return violation("the pending-record write failed and the revocation succeeded, but the final state does not equal the "+
 				"fault-free reference (%s): the audit row must then have been written directly "+
 				"(audit_owed.go falls back to a collect-only run); if it was not, that is the 'NOT queued for backfill' "+
@@ -322,7 +365,11 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 		}
 		return owedAuditDecision{engaged: true, note: "the pending-record write failed: the revocation succeeded and its audit row was " +
 			"written directly; the final state equals the reference (audit rows once each, no pending row)"}
-	case "LogAuditEvent", "ClaimPendingAuditEvent":
+	case "LogAuditEvent", "ClaimPendingAuditEvent", "WithTransaction":
+		// WithTransaction: the settle transaction itself (the claim and the append) is
+		// refused or fails, or the owing transaction commits and reports an error. Both
+		// leave exactly the outcome of a refused append, and the checks below are the
+		// same; a WithTransaction fault that leaves any other state is not accepted.
 	default:
 		return owedAuditDecision{} // condition 1: any other fault stays fail-closed
 	}
@@ -339,11 +386,25 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 	owed := multisetMinus(gotPending, refPending)
 	gone := multisetMinus(refPending, gotPending)
 
+	// On a reported error the outcome logs other than the audit log (a notification sent
+	// on success) legitimately follow the REPORTED outcome, exactly as oracle (d) treats
+	// them; they are left out of the comparison with the reference and nothing else is.
+	ignored := map[string]bool{}
+	if ambiguousError {
+		for _, tbl := range outcomeLogTables {
+			if tbl != owedAuditAuditTable {
+				ignored[tbl] = true
+			}
+		}
+	}
 	var otherDiff []string
 	for _, tbl := range diffTables(in.refAfter, in.after) {
-		if tbl != owedAuditAuditTable && tbl != owedAuditPendingTable {
+		if tbl != owedAuditAuditTable && tbl != owedAuditPendingTable && !ignored[tbl] {
 			otherDiff = append(otherDiff, tbl)
 		}
+	}
+	if _, sso := ssoClassCOps[in.op]; sso && ambiguousError && len(otherDiff) > 0 {
+		return owedAuditSSOPartialVerdict(in, deps, owed, gone)
 	}
 	if len(otherDiff) > 0 {
 		if len(owed) > 0 && !effectVisible {
@@ -357,6 +418,21 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 	gotAudit, err2 := owedAuditAuditPayloads(in.after, false)
 	if err1 != nil || err2 != nil {
 		return violation("an audit event cannot be canonicalised (reference: %v; faulted run: %v)", err1, err2)
+	}
+	// On a reported error a best-effort audit row records the REPORTED outcome (a bulk
+	// summary saying "1 failed"), which is why oracle (d) never compares AuditEvent.
+	// Here only the rows the op OWES are compared, and every one of them still is.
+	var keepType func(string) bool
+	if ambiguousError {
+		if deps.owedTypes == nil {
+			return violation("the op's owed event types are unknown, so its owed rows cannot be told from outcome rows")
+		}
+		types, err := deps.owedTypes(in.op)
+		if err != nil {
+			return violation("the op's owed event types could not be established: %v", err)
+		}
+		keepType = func(et string) bool { return types[et] > 0 }
+		refAudit, gotAudit = owedAuditKeepTypes(refAudit, keepType), owedAuditKeepTypes(gotAudit, keepType)
 	}
 	missing := multisetMinus(refAudit, gotAudit)
 	extra := multisetMinus(gotAudit, refAudit)
@@ -429,7 +505,7 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 	if err != nil {
 		return violation("the backfill did not complete: %v", err)
 	}
-	if diff := owedAuditNotConverged(got, in.refAfter, true); len(diff) > 0 {
+	if diff := owedAuditNotConverged(got, in.refAfter, true, ignored, keepType); len(diff) > 0 {
 		return violation("after BackfillPendingAuditEvents the final state still differs from the fault-free reference: %s", strings.Join(diff, "; "))
 	}
 	return owedAuditDecision{
@@ -439,11 +515,110 @@ func owedAuditVerdict(in oracleInput, deps owedAuditDeps) owedAuditDecision {
 	}
 }
 
+// owedAuditSSOPartialVerdict judges an SSO/SAML login whose owing transaction (the IdP
+// group or role reconcile, a revocation) committed and reported an error: the login
+// failed after the revocation, so no session is minted and the state is a
+// sub-transition of the fault-free login (SSO class C, zz_sso_class_c_oracle_test.go),
+// plus the pending records of the revocation's owed rows. The state cannot equal the
+// reference, so convergence is proven differently, and only this way:
+//
+//   - every queued record (owed) is a row the fault-free login writes (no spurious or
+//     duplicated record) and no record of the reference is gone;
+//   - BackfillPendingAuditEvents leaves zero pending rows, the chain verifies, and the
+//     rows it appended are exactly the queued records, each once;
+//   - the drained state is still accepted by SSO class C, the same judgment oracle (d)
+//     applies to this login when its revocation's audit rows are written in-transaction;
+//   - every membership or role the failed login removed (a UserGroup or UserRole row of
+//     the pre-fault state that is gone) has an owed audit row after the drain: one row
+//     of an owed type per removed row, so a revocation that committed with neither its
+//     row nor its record is a violation here, which oracle (d) alone would not see.
+func owedAuditSSOPartialVerdict(in oracleInput, deps owedAuditDeps, owed, gone []string) owedAuditDecision {
+	removedRows := func(after dbSnapshot) int {
+		n := 0
+		for _, tbl := range []string{"UserGroup", "UserRole"} {
+			_, rm := rowDelta(in.before.Tables[tbl].Rows, after.Tables[tbl].Rows)
+			n += len(rm)
+		}
+		return n
+	}
+	if len(owed) == 0 && removedRows(in.after) == 0 {
+		// No revocation committed and nothing queued: the login failed before its
+		// reconcile, and oracle (d) / SSO class C judge it exactly as before.
+		return owedAuditDecision{}
+	}
+	violation := func(format string, args ...any) owedAuditDecision {
+		return owedAuditDecision{engaged: true, violation: fmt.Sprintf(format, args...)}
+	}
+	refAudit, err := owedAuditAuditPayloads(in.refAfter, false)
+	if err != nil {
+		return violation("a reference audit event cannot be canonicalised: %v", err)
+	}
+	if spurious := multisetMinus(owed, refAudit); len(spurious) > 0 {
+		return violation("%d pending audit event(s) match no audit row of the fault-free login: %s", len(spurious), owedAuditSummarise(spurious))
+	}
+	if len(gone) > 0 {
+		return violation("%d pending row(s) of the reference run are gone", len(gone))
+	}
+	if deps.converge == nil {
+		return violation("the backfill was not run, so the queued rows are not proven to drain")
+	}
+	pre, err := owedAuditAuditPayloads(in.after, false)
+	if err != nil {
+		return violation("an audit event cannot be canonicalised: %v", err)
+	}
+	got, err := deps.converge()
+	if err != nil {
+		return violation("the backfill did not complete: %v", err)
+	}
+	if n := len(got.Tables[owedAuditPendingTable].Rows); n > 0 {
+		return violation("after BackfillPendingAuditEvents %d pending audit event(s) remain", n)
+	}
+	post, err := owedAuditAuditPayloads(got, true)
+	if err != nil {
+		return violation("an audit event cannot be canonicalised after the backfill: %v", err)
+	}
+	written := multisetMinus(post, pre)
+	if m, e := multisetMinus(owed, written), multisetMinus(written, owed); len(m)+len(e) > 0 {
+		return violation("the backfill did not append exactly the queued rows: %d not written [%s], %d extra [%s]",
+			len(m), owedAuditSummarise(m), len(e), owedAuditSummarise(e))
+	}
+	if deps.owedTypes == nil {
+		return violation("the op's owed event types are unknown")
+	}
+	types, err := deps.owedTypes(in.op)
+	if err != nil {
+		return violation("the op's owed event types could not be established: %v", err)
+	}
+	beforeAudit, err := owedAuditAuditPayloads(in.before, false)
+	if err != nil {
+		return violation("a pre-fault audit event cannot be canonicalised: %v", err)
+	}
+	newOwedRows := owedAuditKeepTypes(multisetMinus(post, beforeAudit), func(et string) bool { return types[et] > 0 })
+	removed := removedRows(got)
+	if len(newOwedRows) < removed {
+		return violation("the failed login removed %d membership/role row(s) but only %d owed audit row(s) exist after the drain: "+
+			"a revocation committed with neither its audit row nor a pending record", removed, len(newOwedRows))
+	}
+	drained := in
+	drained.after = got
+	if !ssoClassCAccountsForDiff(drained) {
+		return violation("after the backfill the failed login's state is not a sub-transition of the fault-free login's (SSO class C): %v",
+			diffTables(in.refAfter, got))
+	}
+	return owedAuditDecision{
+		engaged: true,
+		note: fmt.Sprintf("failed login after a committed revocation: %d owed row(s) queued, each a row of the fault-free login; the "+
+			"backfill appended exactly those, once, and the drained state is SSO class C", len(owed)),
+	}
+}
+
 // owedAuditNotConverged lists how got differs from the reference: every table by hash
-// except AuditEvent, which is compared as a multiset of payloads (row ids aside).
-// stripLate removes the backfill's description suffix from got's audit rows (only
-// right after a backfill).
-func owedAuditNotConverged(got, ref dbSnapshot, stripLate bool) []string {
+// except AuditEvent, which is compared as a multiset of payloads (row ids aside), and
+// the ignored tables (the non-audit outcome logs of a reported error, nothing else).
+// keepType, when set (a reported error), limits the AuditEvent comparison to the event
+// types the op owes. stripLate removes the backfill's description suffix from got's
+// audit rows (only right after a backfill).
+func owedAuditNotConverged(got, ref dbSnapshot, stripLate bool, ignored map[string]bool, keepType func(string) bool) []string {
 	var out []string
 	names := make([]string, 0, len(ref.Tables))
 	for name := range ref.Tables {
@@ -451,12 +626,18 @@ func owedAuditNotConverged(got, ref dbSnapshot, stripLate bool) []string {
 	}
 	sort.Strings(names)
 	for _, name := range names {
+		if ignored[name] {
+			continue
+		}
 		if name == owedAuditAuditTable {
 			g, err1 := owedAuditAuditPayloads(got, stripLate)
 			r, err2 := owedAuditAuditPayloads(ref, false)
 			if err1 != nil || err2 != nil {
 				out = append(out, fmt.Sprintf("AuditEvent cannot be canonicalised (%v; %v)", err1, err2))
 				continue
+			}
+			if keepType != nil {
+				g, r = owedAuditKeepTypes(g, keepType), owedAuditKeepTypes(r, keepType)
 			}
 			if m, e := multisetMinus(r, g), multisetMinus(g, r); len(m)+len(e) > 0 {
 				out = append(out, fmt.Sprintf("AuditEvent: %d row(s) missing [%s], %d row(s) extra or duplicated [%s]",
@@ -570,6 +751,17 @@ func owedAuditPendingPayloads(s dbSnapshot) ([]string, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// owedAuditKeepTypes returns the payloads whose event type keep accepts.
+func owedAuditKeepTypes(payloads []string, keep func(string) bool) []string {
+	var out []string
+	for _, p := range payloads {
+		if keep(owedAuditEventType(p)) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // owedAuditEventType returns the event type of an audit payload.

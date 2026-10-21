@@ -1,7 +1,8 @@
 // owed_audit_oracle_fuzz_test.go -- FuzzOwedAuditRevocations: FuzzStorageFaultOperations
 // restricted to the owed-audit rule's scope (owed_audit_oracle_test.go): the SSO
-// callback and every op in auditTx3RevocationOps, under a fault on LogAuditEvent,
-// ClaimPendingAuditEvent or CreatePendingAuditEvent (the audit-path methods), call
+// callback, the plain secret suspend and every op in auditTx3RevocationOps, under a fault
+// on LogAuditEvent, ClaimPendingAuditEvent, CreatePendingAuditEvent or WithTransaction
+// (the audit-path methods and the owing / settle transactions), call
 // ordinal 1-3, any fault kind. It runs the SAME iteration and the SAME oracle as the
 // main target (runOneFuzzIterationReporting -> checkOraclesReporting); only the input
 // space is narrowed so a short burst spends all of its time on the revocations.
@@ -23,7 +24,7 @@ import (
 
 func FuzzOwedAuditRevocations(f *testing.F) {
 	ops := owedAuditScopedOps()
-	methods := []string{"LogAuditEvent", "ClaimPendingAuditEvent", "CreatePendingAuditEvent"}
+	methods := []string{"LogAuditEvent", "ClaimPendingAuditEvent", "CreatePendingAuditEvent", "WithTransaction"}
 	kinds := []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindPanic, faultstorage.KindEffectThenError}
 	for i := range ops {
 		f.Add([]byte{byte(i), 0, 0, 0})

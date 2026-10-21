@@ -21,6 +21,17 @@ var owedAuditExpectedOwedTypes = map[string]map[string]int{
 	owedAuditSSOCallbackOp: {"group.member_removed": 1, "role.removed": 1},
 	owedAuditSAMLACSOp:     {"role.removed": 1},
 
+	// The plain secret suspend (commitOwingAudit, INV-CORE-plain-suspend-audit-owed).
+	owedAuditSecretSuspendOp: {"secret.suspended": 1},
+	// MERGE-FIX-3482J: owing catalog ops outside auditTx3RevocationOps (owedAuditMoreOps).
+	// A withdrawal narrows a pending request; the machine-identity update's scenario is a
+	// suspend (the narrowing half of the split); require-password-reset revokes the
+	// sessions; the expired-PAT sweep revokes the tokens.
+	"REST POST /api/v1/secret-access-requests/{requestId}/withdraw": {"access_request.withdrawn": 1},
+	"REST PUT /api/v1/projects/{id}/machine-identities/{machineId}": {"machine_identity.suspended": 1},
+	"REST POST /api/v1/users/{id}/require-password-reset":           {"account.password_reset_required": 1},
+	"REST DELETE /api/v1/auth/tokens/expired":                       {"pat.revoked": 1},
+
 	"REST DELETE /api/v1/user-roles/":                                                   {"role.removed": 1},
 	"REST DELETE /api/v1/environments/{id}":                                             {"environment.deleted": 1},
 	"GRPC keyorix.v1.ProjectService.DeleteProject":                                      {"project.deleted": 1},
