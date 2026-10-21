@@ -2,7 +2,6 @@ package main
 
 import (
 	"net"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -75,22 +74,19 @@ func TestBindScopeNote(t *testing.T) {
 }
 
 // TestNoWildcardListenInServerMain is the family guard: every listener in
-// server/main.go goes through bindListener, so a new `net.Listen("tcp", ":%s")`
-// (all interfaces, silently) cannot come back.
+// package main (server/*.go, non-test) goes through bindListener, so a new
+// `net.Listen("tcp", ":%s")` (all interfaces, silently) cannot come back.
 func TestNoWildcardListenInServerMain(t *testing.T) {
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := readServerPackage(t)
 	calls := regexp.MustCompile(`net\.Listen\(`).FindAllIndex(src, -1)
 	if len(calls) != 1 {
-		t.Fatalf("server/main.go has %d net.Listen calls; want exactly 1 (inside bindListener)", len(calls))
+		t.Fatalf("package main (server/*.go) has %d net.Listen calls; want exactly 1 (inside bindListener)", len(calls))
 	}
 	if !strings.Contains(string(src), "func bindListener(") {
 		t.Fatal("bindListener missing")
 	}
 	if regexp.MustCompile(`Addr:\s+fmt\.Sprintf\(":%s"`).Match(src) {
-		t.Fatal(`server/main.go builds a wildcard ":port" address`)
+		t.Fatal(`package main (server/*.go) builds a wildcard ":port" address`)
 	}
 }
 

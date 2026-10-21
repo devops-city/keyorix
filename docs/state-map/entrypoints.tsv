@@ -434,26 +434,26 @@ grpc	UserService.GetUser	server/proto/keyorix.proto	GetUser	none	single/no write
 grpc	UserService.ListUsers	server/proto/keyorix.proto	ListUsers	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.ReissueOneTimePassword	server/proto/keyorix.proto	ReissueOneTimePassword	none	single/no write-shaped call found by a 1-hop scan of the handler body
 grpc	UserService.UpdateUser	server/proto/keyorix.proto	UpdateUser	none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	anomaly_detection	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	audit_checkpoint	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	audit_owed_backfill	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	auto_rotation	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	break_glass_review_reminder	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	certificate_expiry	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	compliance_digest	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	data_retention	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	dynamic_secret_sweep	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	evidence_delivery	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	expiry_reminder	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	jit_access_expiry	server/main.go		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
-job	license_expiry	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	login_attempt_prune	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	mfa_stepup_grant_prune	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	read_quota_alerts	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recertification	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	recover_admin_alert	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
-job	retention_purge	server/main.go		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
-job	rotation_reminder	server/main.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	anomaly_detection	server/scheduler_anomaly_detection.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	audit_checkpoint	server/scheduler_audit_checkpoint.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	audit_owed_backfill	server/scheduler_audit_owed_backfill.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	auto_rotation	server/scheduler_auto_rotation.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	break_glass_review_reminder	server/scheduler_break_glass_review_reminder.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	certificate_expiry	server/scheduler_certificate_expiry.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	compliance_digest	server/scheduler_compliance_digest.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	data_retention	server/scheduler_data_retention.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	dynamic_secret_sweep	server/scheduler_dynamic_secret_sweep.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	evidence_delivery	server/scheduler_evidence_delivery.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	expiry_reminder	server/scheduler_expiry_reminder.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	jit_access_expiry	server/scheduler_jit_access_expiry.go		C	server/main.go:1569-1603: RemoveExpiredRoleGrants then RemoveExpiredShares are two independent cleanup sweeps over different tables; both grants and shares already stop authorizing immediately via expiry-filtered auth queries regardless of this sweep, so a crash between the two just leaves the second category to be swept on the next tick.
+job	license_expiry	server/scheduler_license_expiry.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	login_attempt_prune	server/scheduler_login_attempt_prune.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	mfa_stepup_grant_prune	server/scheduler_mfa_stepup_grant_prune.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	read_quota_alerts	server/scheduler_read_quota_alerts.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recertification	server/scheduler_recertification.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	recover_admin_alert	server/scheduler_recover_admin_alert.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
+job	retention_purge	server/scheduler_retention_purge.go		C	server/main.go:1278-1296 calls PurgeExpiredSoftDeletes; internally (internal/core/purge.go:32-79) the legal-hold check plus all four entity purges run inside ONE storage.WithTransaction (per the #G21 comment fixing this exact cross-entity atomicity gap). The only write after commit is a best-effort audit event. Matches PurgeExpiredComplianceRecords' C classification in atomicity-exempt.tsv. Independently verified by SESSION-AR by direct read of purge.go.
+job	rotation_reminder	server/scheduler_rotation_reminder.go		none	single/no write-shaped call found by a 1-hop scan of the handler body
 mcp	keyorix_get_secret	internal/mcp/tools.go		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 mcp	keyorix_list_secrets	internal/mcp/tools.go		none	read-only by design (ADR-061: internal/mcp has no write/rotate/delete tool) -- toolDefinitions()'s own doc comment states this explicitly
 rest	DELETE /api/v1/alert-escalation-policies/{id}	server/http/router.go	alertEscalationHandler.Delete	C	server/http/handlers/alert_escalation.go:174-195: DeleteAlertEscalationPolicy is the primary write; LogAlertEscalationPolicyDeleted runs after it as a synchronous audit-trail write -- the policy deletion has already committed by the time the audit call happens.

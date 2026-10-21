@@ -22,7 +22,7 @@ import (
 // internal/config allowed to read the raw field, with the reason. Each one
 // only READS it; TestInsecureAuditSkipReads_NoWriteAssignment forbids writes.
 var insecureAuditSkipReadsRawFieldAllowedFiles = map[string]string{
-	"server/main.go": "wires the setting into core (SetInsecureAuditSkipReads) and writes the per-start " +
+	"server/wire_audit.go": "wires the setting into core (SetInsecureAuditSkipReads) and writes the per-start " +
 		"admin.audit_reads_skipped_at_startup event",
 	"server/http/handlers/system.go": "reports security.audit_reads_skipped in GET /system/info",
 	"internal/startup/validation.go": "reports the deviation in `admin validate`",

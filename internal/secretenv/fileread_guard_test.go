@@ -37,10 +37,10 @@ import (
 // nothing about these:
 //   - Packages outside guardedDirs. Plain reads of operator-named or credential
 //     files that exist today outside the list: internal/dynamic/kubernetes.go
-//     (fixed kubelet ServiceAccount token/CA paths, like k8ssync's), server/ files
-//     other than main.go and admin/ (e.g. server/clock_warnings.go reads the
-//     configured TLS certificate, not a secret, but a FIFO there hangs the same
-//     way), and the migrate/ module
+//     (fixed kubelet ServiceAccount token/CA paths, like k8ssync's),
+//     server/clock_warnings.go (reads the configured TLS certificate, not a secret,
+//     but a FIFO there hangs the same way; listed in guardedExclusions so the gap is
+//     explicit now that the rest of server/*.go is scanned), and the migrate/ module
 //     (own go.mod; migrate/cmd/credentials.go reads a --*-file credential with a
 //     plain os.ReadFile).
 //   - Read spellings other than the four above: os.DirFS/fs.ReadFile, os.OpenRoot
@@ -98,11 +98,20 @@ var guardedDirs = []string{
 	"internal/config",
 	"internal/secretenv",
 	"server/admin",
-	"server/main.go",
+	"server/*.go",
 	"internal/k8ssync",
 	"internal/startup",
 	"internal/auditverify",
 	"cmd",
+}
+
+// guardedExclusions are files a guardedDirs glob matches but this guard does not
+// scan, each a gap listed in TestSecretFileReadsGoThroughOpenRegular's doc comment.
+// server/*.go replaced "server/main.go" when the boot wiring moved out of main.go
+// into per-domain files (WIRING-SPLIT-1); clock_warnings.go was outside the scan
+// before that and stays outside it.
+var guardedExclusions = map[string]string{
+	"server/clock_warnings.go": "reads the configured TLS certificate (not a secret); pre-existing gap, see the doc comment",
 }
 
 // nonSecretFileReads lists the read sites that are deliberately not routed through
@@ -151,6 +160,10 @@ func scanFileReads(t *testing.T, root string, targets []string) []readSite {
 	t.Helper()
 	var files []string
 	for _, tgt := range targets {
+		if strings.Contains(tgt, "*") {
+			files = append(files, guardedGlobFiles(t, root, tgt)...)
+			continue
+		}
 		p := filepath.Join(root, tgt)
 		info, err := os.Stat(p)
 		if err != nil {
@@ -343,4 +356,22 @@ func TestFileReadScanner_RedGreen(t *testing.T) {
 			t.Errorf("%s: want no site flagged, got %v", name, got)
 		}
 	}
+}
+
+// guardedGlobFiles expands a guardedDirs glob over one directory (not recursive),
+// e.g. server/*.go, to its non-test .go files minus guardedExclusions.
+func guardedGlobFiles(t *testing.T, root, glob string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(root, glob))
+	if err != nil || len(matches) == 0 {
+		t.Fatalf("guarded glob %s matched nothing (%v) (update guardedDirs)", glob, err)
+	}
+	var files []string
+	for _, m := range matches {
+		rel, _ := filepath.Rel(root, m)
+		if _, excluded := guardedExclusions[filepath.ToSlash(rel)]; !excluded && !strings.HasSuffix(m, "_test.go") {
+			files = append(files, m)
+		}
+	}
+	return files
 }

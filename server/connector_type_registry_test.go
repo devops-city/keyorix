@@ -23,14 +23,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/keyorixhq/keyorix/internal/testutil/srcpath"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/connect"
@@ -39,21 +36,15 @@ import (
 // TestConnectorTypeRegistry_SwitchMatchesKnownTypes is the regression test
 // described above.
 func TestConnectorTypeRegistry_SwitchMatchesKnownTypes(t *testing.T) {
-	thisFile := filepath.Join(srcpath.PkgDir(), "connector_type_registry_test.go")
-	mainGoPath := filepath.Join(filepath.Dir(thisFile), "main.go")
-	if _, err := os.Stat(mainGoPath); err != nil {
-		t.Fatalf("server/main.go not found at %s: %v", mainGoPath, err)
+	// The switch lives in wireConnect (wire_connect.go); every non-test file of
+	// the package is searched so moving it again cannot make this pass vacuously.
+	_, files := parseServerPackage(t)
+	discovered := map[string]bool{}
+	for _, file := range files {
+		maps.Copy(discovered, discoverConnectorTypeSwitchCases(t, file))
 	}
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, mainGoPath, nil, 0)
-	if err != nil {
-		t.Fatalf("failed to parse %s: %v", mainGoPath, err)
-	}
-
-	discovered := discoverConnectorTypeSwitchCases(t, file)
 	if len(discovered) == 0 {
-		t.Fatal("discovered zero case labels on the Connect-wiring switch in server/main.go — " +
+		t.Fatal("discovered zero case labels on the Connect-wiring switch in package main (server/*.go) — " +
 			"the AST walk is almost certainly broken (the switch has 4 cases today), not that the switch was removed")
 	}
 
@@ -77,12 +68,12 @@ func TestConnectorTypeRegistry_SwitchMatchesKnownTypes(t *testing.T) {
 	sort.Strings(missingFromSwitch)
 
 	if len(missingFromRegistry) > 0 {
-		t.Errorf("server/main.go's Connect-wiring switch has case(s) not present in connect.KnownTypes: %v\n"+
+		t.Errorf("server's Connect-wiring switch (wireConnect) has case(s) not present in connect.KnownTypes: %v\n"+
 			"internal/config.Validate() would reject a connector with this Type before boot reaches the switch, "+
 			"making the case dead code — add the type to connect.KnownTypes if it's genuinely supported.", missingFromRegistry)
 	}
 	if len(missingFromSwitch) > 0 {
-		t.Errorf("connect.KnownTypes lists type(s) with no matching case in server/main.go's Connect-wiring switch: %v\n"+
+		t.Errorf("connect.KnownTypes lists type(s) with no matching case in server's Connect-wiring switch (wireConnect): %v\n"+
 			"A connector with this Type would pass cfg.Validate() but then hit the switch's Fatal default at boot — "+
 			"add a case for it (with the right constructor call), or remove it from connect.KnownTypes.", missingFromSwitch)
 	}

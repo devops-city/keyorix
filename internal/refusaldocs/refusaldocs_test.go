@@ -55,9 +55,11 @@ var sourceRoots = []string{"server", "internal"}
 // candidateDirs are the boot-path locations scanned for the code -> docs list.
 // A candidate is a literal passed to fmt.Errorf, errors.New or log.Fatal(f)
 // that reads as a refusal (contains "refus"), plus every log.Fatalf message in
-// server/main.go, which are refusals by construction.
+// the server's package main (server/*.go: main.go and the per-domain boot files
+// it calls), which are refusals by construction. An entry with a "*" is a glob
+// over one directory, not a recursive walk.
 var candidateDirs = []string{
-	"server/main.go",
+	"server/*.go",
 	"server/admin",
 	"internal/config",
 	"internal/storage/factory.go",
@@ -158,6 +160,18 @@ func foldString(e ast.Expr) (string, bool) {
 // goFiles lists non-test .go files under root/rel (rel may be a file).
 func goFiles(root, rel string) ([]string, error) {
 	var files []string
+	if strings.Contains(rel, "*") {
+		matches, err := filepath.Glob(filepath.Join(root, rel))
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range matches {
+			if !strings.HasSuffix(p, "_test.go") {
+				files = append(files, p)
+			}
+		}
+		return files, nil
+	}
 	start := filepath.Join(root, rel)
 	info, err := os.Stat(start)
 	if err != nil {
@@ -305,7 +319,7 @@ func check(root string) (result, error) {
 			return r, err
 		}
 		for _, f := range files {
-			cands, err := candidates(f, strings.HasSuffix(filepath.ToSlash(f), "server/main.go"))
+			cands, err := candidates(f, filepath.Dir(f) == filepath.Join(root, "server"))
 			if err != nil {
 				return r, err
 			}

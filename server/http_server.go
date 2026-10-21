@@ -1,9 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/config"
+	"github.com/keyorixhq/keyorix/internal/core"
 	httpServer "github.com/keyorixhq/keyorix/server/http"
 )
 
@@ -44,4 +50,84 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		IdleTimeout:       httpIdleTimeout,
 		MaxHeaderBytes:    httpMaxHeaderBytes,
 	}
+}
+
+// errHTTPServerFailedToStart wraps every error startHTTPServer can return
+// BEFORE it ever starts serving (router construction, TLS config, listener
+// bind) — as opposed to server.Shutdown()'s own error return at the very
+// bottom of the function, which only happens during an already-intentional
+// shutdown. main()'s caller uses errors.Is against this to fail the process
+// fatally on a genuine startup failure while leaving a slow-shutdown timeout
+// logged only, as before (RELEASE-QA finding: a bind failure like "address
+// already in use" left the process running indefinitely with nothing bound,
+// since the only caller just log.Printf'd a non-nil return and fell through
+// to waiting on a shutdown signal that would never come).
+var errHTTPServerFailedToStart = errors.New("HTTP server failed to start")
+
+func startHTTPServer(ctx context.Context, cfg *config.Config, coreService *core.KeyorixCore) error { // NOSONAR -- cognitive complexity 188, suppress go:S3776
+	// Create HTTP router
+	router, err := httpServer.NewRouter(cfg, coreService)
+	if err != nil {
+		return fmt.Errorf("%w: failed to create HTTP router: %v", errHTTPServerFailedToStart, err)
+	}
+
+	server := newHTTPServer(cfg.Server.HTTP.ListenAddr(), router)
+
+	// Configure TLS if enabled
+	if cfg.Server.HTTP.TLS.Enabled {
+		tlsConfig, err := createTLSConfig(cfg)
+		if err != nil {
+			return fmt.Errorf("%w: failed to create TLS config: %v", errHTTPServerFailedToStart, err)
+		}
+		server.TLSConfig = tlsConfig
+	}
+
+	// Bind the listener early so we can confirm the address before serving.
+	ln, err := bindListener(cfg.Server.HTTP)
+	if err != nil {
+		return fmt.Errorf("%w: failed to bind HTTP listener: %v", errHTTPServerFailedToStart, err)
+	}
+
+	scheme := "http"
+	if cfg.Server.HTTP.TLS.Enabled {
+		scheme = "https"
+	}
+	log.Printf("HTTP server listening on %s://%s%s", scheme, ln.Addr().String(), bindScopeNote(cfg.Server.HTTP.BindHost()))
+
+	// Start server
+	go func() {
+		var serveErr error
+		if cfg.Server.HTTP.TLS.Enabled {
+			if cfg.Server.HTTP.TLS.AutoCert {
+				// checkTransportTLSPosture already validated tls.allowed_ciphers at boot,
+				// so this should never fail in practice; handled defensively anyway.
+				autoCertTLSConfig, err := buildAutoCertTLSConfig(cfg.Server.HTTP.TLS.Domains, cfg.Server.HTTP.TLS, cfg.Server.HTTP.TLSMode)
+				if err != nil {
+					log.Printf("HTTP server error: %v", err)
+					return
+				}
+				server.TLSConfig = autoCertTLSConfig
+				serveErr = server.ServeTLS(ln, "", "")
+			} else {
+				// Empty file names: the certificate comes from TLSConfig.GetCertificate
+				// (tlsreload). Passing the files here would pin the pair loaded now.
+				serveErr = server.ServeTLS(ln, "", "")
+			}
+		} else {
+			serveErr = server.Serve(ln)
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", serveErr)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+
+	// Graceful shutdown
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // NOSONAR
+	defer cancel()
+
+	log.Println("Shutting down HTTP server...")
+	return server.Shutdown(shutdownCtx)
 }
