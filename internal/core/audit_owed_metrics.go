@@ -1,7 +1,7 @@
 // audit_owed_metrics.go — Prometheus view of owed audit rows (audit_owed.go).
 //
-// keyorix_audit_owed_pending is the number of owed audit rows (suspend and degraded
-// break-glass) not yet backfilled: the audit log refused a write after the action had
+// keyorix_audit_owed_pending is the number of owed audit rows (every owed revocation,
+// not only suspend and degraded break-glass) not yet backfilled: the audit log refused a write after the action had
 // taken effect, and the pending_audit_events record is still waiting for
 // BackfillPendingAuditEvents.
 // Zero is the normal state. It is the same count GET /api/v1/system/info shows to
@@ -36,7 +36,7 @@ var owedAuditMetricSource atomic.Pointer[KeyorixCore]
 func init() {
 	protectedmetrics.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Name: "keyorix_audit_owed_pending",
-		Help: "Number of owed audit rows (suspend and degraded break-glass) not yet backfilled (the audit log refused the write after the action took effect). 0 is normal; NaN means the count could not be read. Cluster-wide; alert when above 0 for 10 minutes.",
+		Help: "Number of owed audit rows (every owed revocation, not only suspend and degraded break-glass) not yet backfilled (the audit log refused the write after the action took effect). 0 is normal; NaN means the count could not be read. Cluster-wide; alert when above 0 for 10 minutes.",
 	}, func() float64 {
 		c := owedAuditMetricSource.Load()
 		if c == nil {
