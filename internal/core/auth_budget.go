@@ -91,6 +91,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
+	"github.com/keyorixhq/keyorix/internal/protectedmetrics"
 )
 
 // EventAuthRateLimitError is the error event written each time an auth budget
@@ -143,6 +145,21 @@ var authRateLimitFallbackTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 	Name: "keyorix_auth_rate_limit_fallback_total",
 	Help: "Count of auth rate-limit operations that fell back to the in-memory limiter because the budget's storage failed.",
 }, []string{"budget"})
+
+// authBudgetRejectionsTotal counts budget checks that answered "limited" -- the
+// login / password-reset / SSO-begin / account-lockout refusals an operator sees as
+// 429s or lockouts. A request checked against two budgets can count in both, and a
+// budget re-checked within one request counts each time, so read it as a rate of
+// refusals by budget, not an exact count of distinct requests.
+//
+// Registered on internal/protectedmetrics (authenticated scheduler-metrics only): an
+// anonymous reader must not see how close an attack is to a lockout.
+var authBudgetRejectionsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Name: "keyorix_auth_budget_rejections_total",
+	Help: "Authentication budget checks that answered limited (login, password reset, SSO begin, account lockout), by budget. A rising rate is brute-force pressure or a misbehaving client.",
+}, []string{"budget"})
+
+func init() { protectedmetrics.MustRegister(authBudgetRejectionsTotal) }
 
 // SetAuthRateLimitFallbackReplicas sets how many server replicas share the
 // auth budgets (security.auth_rate_limit_fallback.replicas). Each replica's
@@ -203,6 +220,15 @@ func (c *KeyorixCore) budgetDegraded(b authBudget) bool {
 // mirrored attempts included (#3023, #3029, #3032 reviews): the inserts may still be
 // succeeding, and without the mirror nothing would ever reach memory.
 func (c *KeyorixCore) budgetLimited(ctx context.Context, b authBudget, key string) bool {
+	limited := c.budgetLimitedDecision(ctx, b, key)
+	if limited {
+		authBudgetRejectionsTotal.WithLabelValues(b.name).Inc()
+	}
+	return limited
+}
+
+// budgetLimitedDecision is budgetLimited's decision, uncounted.
+func (c *KeyorixCore) budgetLimitedDecision(ctx context.Context, b authBudget, key string) bool {
 	since := c.now().Add(-b.window)
 	f := c.authBudgetFallback(b)
 	mem := int64(f.count(key, since, false))

@@ -1199,14 +1199,22 @@ jobs:
           # making faultops-2 one of the slowest legs of the matrix. Four tests
           # dominate the package (346s + 229s + 183s + 102s of its 1251s -race
           # local total), so the weighted assignment places them explicitly.
+          #
+          # timeout raised 1800 -> 3300 (2026-10-21, same reasoning as
+          # CI-CORE-TIMEOUT-1 above): faultops-2 ran median 23.6 / p90 27.9 min
+          # over 241 merge-group runs Oct 18-20 and died with "test timed out
+          # after 30m0s" in 3 of them (39174719277, 39339103669, 39437208201),
+          # each time in the fuzz-seed phase after ~28 min of tests, not a hang.
+          # The rebalancing above is the real fix; the 3300 headroom from main
+          # is kept on all three legs until it has proven itself.
           - leg: faultops-1
-            timeout: 1800
+            timeout: 3300
             coverage-file: coverage_faultops1.out
           - leg: faultops-2
-            timeout: 1800
+            timeout: 3300
             coverage-file: coverage_faultops2.out
           - leg: faultops-3
-            timeout: 1800
+            timeout: 3300
             coverage-file: coverage_faultops3.out
           # handlers (server/http/handlers, one package, 167 test files, 5151
           # top-level tests, all already t.Parallel()) measured at 911s in CI

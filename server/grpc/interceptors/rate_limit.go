@@ -16,6 +16,7 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/core"
+	"github.com/keyorixhq/keyorix/internal/ratelimitmetrics"
 )
 
 // GRPCRateLimitInterceptor returns a unary server interceptor that enforces a
@@ -65,6 +66,7 @@ type grpcRateLimiter struct {
 
 func (rl *grpcRateLimiter) intercept(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 	if !rl.allow(grpcRateLimitKey(ctx)) {
+		ratelimitmetrics.Reject(ratelimitmetrics.GRPCPrincipal)
 		return nil, status.Error(codes.ResourceExhausted, "too many requests; slow down")
 	}
 	return handler(ctx, req)
@@ -155,6 +157,7 @@ func StreamRateLimitInterceptor(cfg config.RateLimitConfig) grpc.StreamServerInt
 
 func (rl *grpcRateLimiter) interceptStream(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 	if !rl.allow(grpcRateLimitKey(stream.Context())) {
+		ratelimitmetrics.Reject(ratelimitmetrics.GRPCPrincipal)
 		return status.Error(codes.ResourceExhausted, "too many requests; slow down")
 	}
 	return handler(srv, stream)

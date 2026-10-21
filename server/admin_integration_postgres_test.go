@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 )
 
@@ -409,4 +410,74 @@ server:
 	if !waitForLockFree(t, cfg, 2) {
 		t.Fatalf("expected admin audit's exclusive lock to be free within 2s of its (failure-path) exit")
 	}
+}
+
+// TestWaitForPresence_Postgres_NeverRefusesAStartingServer pins the property
+// waitForPresence's doc comment rests on: polling for a server must never hold
+// the presence lock in a way that makes a starting server's non-blocking shared
+// try-lock fail. A goroutine plays a server starting over and over
+// (pg_try_advisory_lock_shared on the presence key, then release) for as long
+// as waitForPresence keeps polling; not one of its attempts may be refused.
+// Then both directions of the detection itself: a session holding the lock
+// shared reads as a server, and no holder reads as none. Red against the
+// earlier serverguard.ProbeRunning-based poll, which takes the lock
+// exclusively on every probe.
+func TestWaitForPresence_Postgres_NeverRefusesAStartingServer(t *testing.T) {
+	base := adminPgTestDSN(t)
+	dsn := adminPgIsolatedDatabaseDSN(t, base)
+	cfg := &config.Config{}
+	cfg.Storage.Type = "postgres"
+	cfg.Storage.Database.DSN = dsn
+
+	gdb, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	sqlDB, err := gdb.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	ctx := t.Context()
+	server, err := sqlDB.Conn(ctx) // one session, like a server's lock connection
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Close() })
+
+	var attempts, refused atomic.Int64
+	stop, done := make(chan struct{}), make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			var ok bool
+			if err := server.QueryRowContext(ctx, "SELECT pg_try_advisory_lock_shared($1)", presenceLockKey).Scan(&ok); err != nil {
+				done <- err
+				return
+			}
+			attempts.Add(1)
+			if !ok {
+				refused.Add(1)
+				continue
+			}
+			if _, err := server.ExecContext(ctx, "SELECT pg_advisory_unlock_shared($1)", presenceLockKey); err != nil {
+				done <- err
+				return
+			}
+		}
+	}()
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); {
+		waitForPresence(t, cfg, 1) // returns at once whenever it catches the goroutine mid-hold
+	}
+	close(stop)
+	require.NoError(t, <-done)
+	require.Positive(t, attempts.Load(), "the starting-server goroutine never ran")
+	require.Zero(t, refused.Load(), "waitForPresence refused %d of %d shared try-locks: polling contends with a starting server", refused.Load(), attempts.Load())
+
+	var ok bool
+	require.NoError(t, server.QueryRowContext(ctx, "SELECT pg_try_advisory_lock_shared($1)", presenceLockKey).Scan(&ok))
+	require.True(t, ok)
+	require.True(t, waitForPresence(t, cfg, 10), "a session holding the presence lock shared must read as a running server")
+	_, err = server.ExecContext(ctx, "SELECT pg_advisory_unlock_shared($1)", presenceLockKey)
+	require.NoError(t, err)
+	require.False(t, waitForPresence(t, cfg, 1), "with no holder, waitForPresence must not report a server")
 }
