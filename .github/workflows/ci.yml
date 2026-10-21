@@ -554,7 +554,7 @@ jobs:
         if: steps.scope.outputs.select == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Select affected packages and path gates (scripts/ci/select-affected.py)
         id: sel
@@ -875,7 +875,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Check for invalid UTF-8 (U+FFFD replacement characters)
         run: |
@@ -921,7 +921,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Select affected root-module packages and run go test -short
         env:
@@ -980,7 +980,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Select affected cli-module packages and run go test -short
         env:
@@ -1369,7 +1369,7 @@ jobs:
         if: steps.leg.outputs.run == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go test (${{ matrix.leg }})
         if: steps.leg.outputs.run == 'true'
@@ -1543,7 +1543,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Assert every package is covered by exactly the CI matrix or an enumerated exclusion
         run: |
@@ -1590,7 +1590,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       # Keyed on the resolved Go version too (not just GOSEC_VERSION): a
       # govulncheck/gosec binary built under one Go toolchain and reused as-is
@@ -1747,7 +1747,7 @@ jobs:
         if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Download coverage artifacts
         if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
@@ -1814,7 +1814,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
       - name: Fresh-install API smoke (SQLite)
         run: make e2e-smoke
       # Customer journeys N1-N3 + N6 (SQLite, no Docker, ~40s): assert end
@@ -1889,7 +1889,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11
@@ -1984,7 +1984,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Every repo-wide guard (selected merge-queue run)
         if: needs.select.outputs.mode == 'selected'
@@ -2010,7 +2010,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       # The operator job below has always had its own gofmt step, scoped to
       # operator/ — the root module (internal/, server/, cmd/, ...) never
@@ -2064,7 +2064,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Smoke test (executes QUICK_START.md's flow end to end, the shipped binary)
         run: make smoke
@@ -2404,7 +2404,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go vet + build
         run: |
@@ -2469,7 +2469,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go vet + build
         run: |
@@ -2564,7 +2564,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go vet + build
         run: |
@@ -2640,7 +2640,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Verify targets.conf is generated from targets.d/*.conf
         run: scripts/fuzzing/gen-targets-conf.sh --check
@@ -2749,7 +2749,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Reach-check in-wall fuzz harnesses (seed corpus, floor gate)
         run: bash scripts/fuzzing/harness-acceptance.sh
@@ -2791,7 +2791,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       # Keyed on the resolved Go version too (not just GO_LICENSES_VERSION): a
       # go-licenses binary built under one Go toolchain and then reused as-is
