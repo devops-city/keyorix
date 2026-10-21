@@ -59,6 +59,7 @@ import (
 	"github.com/keyorixhq/keyorix/internal/testutil/pgdsn"
 	"github.com/keyorixhq/keyorix/internal/testutil/sqlitetest"
 	keyorixgrpc "github.com/keyorixhq/keyorix/server/grpc"
+	customMiddleware "github.com/keyorixhq/keyorix/server/middleware"
 	pb "github.com/keyorixhq/keyorix/server/proto/pb"
 )
 
@@ -203,6 +204,9 @@ func newSVWorldFromConfig(t *testing.T, backend string, replicas int, cfg *confi
 	t.Helper()
 	require.NoError(t, i18n.InitializeForTesting())
 	t.Cleanup(i18n.ResetForTesting)
+	// Each world is a fresh server set: its invalid-token budget must not be spent by a
+	// previous world's walk from the same test client address.
+	customMiddleware.ResetTokenAuthFailureLimiterForTest()
 	w := &svWorld{backend: backend, a: newSVReplica(t, cfg)}
 	if replicas >= 2 {
 		w.b = newSVReplica(t, cfg)

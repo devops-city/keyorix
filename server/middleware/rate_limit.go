@@ -162,6 +162,19 @@ func recordTokenAuthFailure(ip string) bool {
 	return ok
 }
 
+// ResetTokenAuthFailureLimiterForTest forgets every per-IP failure bucket.
+// Test servers in one process share globalTokenAuthFailureLimiter and all dial
+// from the same client address, so a harness that builds a fresh server calls this
+// to start with a full budget. It only empties the map: burst and refill rate are
+// unchanged, and production code never calls it.
+func ResetTokenAuthFailureLimiterForTest() {
+	l := globalTokenAuthFailureLimiter
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.limiters = make(map[string]*principalBucket)
+	l.requests = 0
+}
+
 // #G19: allow() previously called sweepLocked() on EVERY invocation — a full O(n)
 // scan of the limiter map under the shared mutex on every single failed-auth
 // attempt, unlike principalRateLimiter.allow (above), which explicitly amortizes
