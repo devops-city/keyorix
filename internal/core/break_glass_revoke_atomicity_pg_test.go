@@ -45,7 +45,7 @@ import (
 
 var breakGlassAtomicityPgModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
-	&models.UserRole{}, &models.BreakGlassActivation{}, &models.AuditEvent{},
+	&models.UserRole{}, &models.BreakGlassActivation{}, &models.AuditEvent{}, &models.PendingAuditEvent{},
 }
 
 // setupBreakGlassAtomicityFixture creates a user, a permission-less role (so

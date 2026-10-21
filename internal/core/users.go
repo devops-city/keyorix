@@ -593,6 +593,13 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 
 	var patHashes []string
 	var updated *models.User
+	// settle appends the deactivation's owed audit row (AUDIT-TX-3), after the cache
+	// eviction below.
+	var settle func()
+	// remainder: a deactivation that also changes the username or email (decided on the
+	// row lock) is a mixed request: the deactivation commits alone (owed), and the
+	// identity change follows as its own fail-closed commit (audit_split.go).
+	var remainder bool
 	// Cleanup errors recorded inside the deactivating transaction and audited
 	// after it commits (DEADLOCK-SHAPE-1: no c.storage/audit call in the closure).
 	var cleanupPatErr, cleanupSessionErr error
@@ -616,22 +623,58 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 			if err := c.guardLastAdminDeactivation(ctx, req.ID); err != nil {
 				return err
 			}
-			return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-				matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
+			// AUDIT-TX-3: deactivation is a revocation, so never blocked by the audit
+			// log; its user.updated row is owed from this same transaction (written through
+			// tx or recorded as pending, never through c.storage, which would wait on the
+			// write gate this transaction holds) and appended after the cache eviction.
+			// A request that also changes the username or email is a mixed request
+			// (MERGE-FIX-3482G): this transaction then deactivates only, and the identity
+			// change is commit 2 below, fail closed.
+			var rerr error
+			settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+				// fn may run again (the owed fallback): start from a clean slate.
+				patHashes, cleanupPatErr, cleanupSessionErr, remainder = nil, nil, nil, false
+				// Decided on the row lock, not on the read before it: the stored
+				// username/email is what the request changes, or does not. The write is
+				// built from the locked row too, so a username/email the read before the
+				// lock saw (and a concurrent rename since replaced) never rides along on
+				// this owed commit (REVIEW-3482B B3).
+				locked, lerr := tx.LockUserForUpdate(ctx, req.ID)
+				if lerr != nil {
+					return lerr
+				}
+				deactivate := *locked
+				deactivate.IsActive = false
+				deactivate.UpdatedAt = user.UpdatedAt
+				write, desc := &deactivate, "deactivated user %d (%s)"
+				if remainder = userIdentityChanges(req, locked); !remainder {
+					if req.DisplayName != "" {
+						deactivate.DisplayName = req.DisplayName
+					}
+					desc = "updated user %d (%s)"
+				}
+				matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, write, wasActive)
 				if terr != nil {
 					return terr
 				}
 				if !matched {
 					return fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
 				}
-				updated = user
+				updated = write
 				var patErr, sessionErr error
-				var hashes []string
-				hashes, patErr = tx.RevokeAllPersonalAccessTokensForUser(ctx, req.ID)
-				if patErr == nil {
-					patHashes = hashes
-				}
-				sessionErr = tx.DeleteSessionsForUserExcept(ctx, req.ID, 0)
+				// Each cleanup in its own savepoint: on PostgreSQL a failed statement
+				// aborts the transaction, which would roll the deactivation back at
+				// commit despite the "best-effort, not fatal" reasoning below.
+				patErr = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+					hashes, herr := sp.RevokeAllPersonalAccessTokensForUser(ctx, req.ID)
+					if herr == nil {
+						patHashes = hashes
+					}
+					return herr
+				})
+				sessionErr = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+					return sp.DeleteSessionsForUserExcept(ctx, req.ID, 0)
+				})
 				// Best-effort, not fatal: the conditional write this switch case
 				// exists for (UpdateUserIfActiveStateMatches) has ALREADY matched
 				// and applied by this point -- the deactivation itself durably
@@ -667,8 +710,11 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 				// belong to the transaction either. The errors are recorded and the
 				// event is written after the commit, below.
 				cleanupPatErr, cleanupSessionErr = patErr, sessionErr
+				c.writeAuditEventFullOn(ctx, tgt, EventUserUpdated, actorPtr(req.ActorID), nil, nil, "",
+					fmt.Sprintf(desc, updated.ID, updated.Username))
 				return nil
 			})
+			return rerr
 		})
 		if err == nil && (cleanupPatErr != nil || cleanupSessionErr != nil) {
 			// nil actor: UpdateUser (unlike DeleteUser/SetAccountState) takes
@@ -680,35 +726,30 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 					"the account is already login-blocked regardless, but a stale row may remain until its own expiry",
 					req.ID, cleanupPatErr, cleanupSessionErr))
 		}
-	case req.IsActive != nil:
-		// Not deactivating (either re-activating, or a redundant "set to the same
-		// value" call) but the request still explicitly asserts IsActive — same
-		// TOCTOU exposure as the deactivating branch above, just without the
-		// session/PAT revocation side effects.
-		var matched bool
-		matched, err = c.storage.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
-		if err == nil {
-			if !matched {
-				err = fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
-			} else {
-				updated = user
-			}
-		}
 	default:
-		// No active-state assertion in this request, but a plain c.storage.UpdateUser
-		// (unconditional Save) is still a check-then-act race against any concurrent
-		// IsActive flip observed between the GetUser above and this write — same
-		// TOCTOU shape as the two branches above, just asserting the unchanged
-		// wasActive value as the precondition instead of a new one.
-		var matched bool
-		matched, err = c.storage.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
-		if err == nil {
-			if !matched {
-				err = fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
-			} else {
-				updated = user
+		// Not deactivating: re-activating, a redundant "set to the same value" call, or
+		// no active-state assertion at all (a plain field update). The write is still
+		// conditional on the active state this call read: a plain unconditional Save is
+		// a check-then-act race against any concurrent IsActive flip observed between
+		// the GetUser above and this write -- the same TOCTOU shape as the
+		// deactivating branch above, just without the session/PAT revocation.
+		//
+		// AUDIT-TX-3: none of these narrows access, and a re-activation or an
+		// email/username change can widen it (a reset link goes to the new address),
+		// so the user.updated row commits with the update or not at all (fail closed).
+		err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, user, wasActive)
+			if terr != nil {
+				return terr
 			}
-		}
+			if !matched {
+				return fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
+			}
+			updated = user
+			c.writeAuditEventFullOn(ctx, tgt, EventUserUpdated, actorPtr(req.ActorID), nil, nil, "",
+				fmt.Sprintf("updated user %d (%s)", updated.ID, updated.Username))
+			return nil
+		})
 	}
 	if err != nil {
 		if errors.Is(err, ErrUserActiveStateConflict) {
@@ -720,10 +761,52 @@ func (c *KeyorixCore) UpdateUser(ctx context.Context, req *UpdateUserRequest) (*
 		c.invalidateTokenCache(sessionHashes...)
 		c.invalidateTokenCache(patHashes...)
 		purgeStepUpGrants(ctx, c.storage, req.ID)
+		settle()
 	}
-	c.writeAuditEvent(ctx, EventUserUpdated, actorPtr(req.ActorID), nil,
-		fmt.Sprintf("updated user %d (%s)", updated.ID, updated.Username))
+	if remainder {
+		// Commit 2 of the mixed request: the identity change, fail closed, on the
+		// deactivated row (the conditional write keeps it inactive). A retry of the
+		// same request finds the user inactive already, so only this part runs.
+		if err := c.commitSplitRemainder(ctx, "deactivation", "username/email change", true, func(tx storage.Storage, tgt auditTarget) error {
+			locked, lerr := tx.LockUserForUpdate(ctx, req.ID)
+			if lerr != nil {
+				return lerr
+			}
+			// Only the fields the request sets: the rest stay as stored.
+			next := *locked
+			if req.Username != "" {
+				next.Username, next.UsernameFolded = user.Username, user.UsernameFolded
+			}
+			if req.Email != "" {
+				next.Email, next.EmailFolded = user.Email, user.EmailFolded
+			}
+			if req.DisplayName != "" {
+				next.DisplayName = req.DisplayName
+			}
+			next.UpdatedAt = c.now()
+			matched, terr := tx.UpdateUserIfActiveStateMatches(ctx, &next, locked.IsActive)
+			if terr != nil {
+				return terr
+			}
+			if !matched {
+				return fmt.Errorf("user %d: %w", req.ID, ErrUserActiveStateConflict)
+			}
+			updated = &next
+			c.writeAuditEventFullOn(ctx, tgt, EventUserUpdated, actorPtr(req.ActorID), nil, nil, "",
+				fmt.Sprintf("updated user %d (%s)", next.ID, next.Username))
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return updated, nil
+}
+
+// userIdentityChanges reports whether req changes the username or the email the stored
+// row has (cur, read on the row lock): the part of an update that can widen access (a
+// reset link goes to the new address).
+func userIdentityChanges(req *UpdateUserRequest, cur *models.User) bool {
+	return (req.Username != "" && req.Username != cur.Username) || (req.Email != "" && req.Email != cur.Email)
 }
 
 // EventUserDeleted/EventUserRestored are audited on the admin delete/restore path
@@ -838,14 +921,23 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 	// calls for two different admins each observe "not the last admin" and both
 	// proceed on two different replicas, jointly stranding the install with zero
 	// admins. See lastAdminGuardLockKey's doc comment (account_state.go).
-	return c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
+	//
+	// The owed row is appended (settle) only AFTER the named lock is released: during an
+	// audit outage a refused append waits up to owedAuditWait, and holding the
+	// install-wide last-admin lock for that long would serialise every last-admin
+	// operation behind the audit log.
+	var settle func()
+	err := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		if err := c.guardLastAdminDeactivation(ctx, id); err != nil {
 			return err
 		}
 		sessionHashes, _ := c.storage.ListSessionTokenHashesForUser(ctx, id)
 		var patHashes []string
 		var user *models.User
-		if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		// AUDIT-TX-3: deleting a user is a revocation, so never blocked by the audit
+		// log: its user.deleted row is owed from this same transaction and appended
+		// after the cache eviction below (and after the lock is released).
+		owedSettle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			// #2677: deprovision from the row as it is NOW, under its row lock,
 			// and write only the columns this changes. It used to set them on the
 			// GetUser result read before the lock and persist that whole struct
@@ -887,17 +979,28 @@ func (c *KeyorixCore) DeleteUser(ctx context.Context, actorID, id uint) error {
 				return err
 			}
 			patHashes = hashes
-			return tx.DeleteUser(ctx, id)
-		}); err != nil {
+			if err := tx.DeleteUser(ctx, id); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventUserDeleted, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("deleted user %d (%s)", id, user.Username))
+			return nil
+		})
+		if err != nil {
 			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
 		c.invalidateTokenCache(sessionHashes...)
 		c.invalidateTokenCache(patHashes...)
 		purgeStepUpGrants(ctx, c.storage, id)
-		c.writeAuditEvent(ctx, EventUserDeleted, actorPtr(actorID), nil,
-			fmt.Sprintf("deleted user %d (%s)", id, user.Username))
+		settle = owedSettle
 		return nil
 	})
+	// settle is set only once the delete has committed; call it even if releasing the
+	// lock failed, so the owed row is never left unattempted.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // EventUserCredentialsRevoked is audited when an admin-driven bulk PAT/session
@@ -1000,13 +1103,23 @@ func (c *KeyorixCore) RevokeAllPersonalAccessTokensForUser(ctx context.Context, 
 	if err := c.requireUserCredentialsRevokeAuthority(ctx, actorType, actorID); err != nil {
 		return nil, err
 	}
-	hashes, err := c.storage.RevokeAllPersonalAccessTokensForUser(ctx, targetUserID)
+	// AUDIT-TX-3: a revocation: its row is owed from the revoke's own transaction and
+	// appended after the cache eviction.
+	var hashes []string
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var rerr error
+		if hashes, rerr = tx.RevokeAllPersonalAccessTokensForUser(ctx, targetUserID); rerr != nil {
+			return rerr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventUserCredentialsRevoked, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("revoked all personal access tokens for %s", c.auditRef(ctx, tx, auditKindUser, targetUserID)))
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 	c.invalidateTokenCache(hashes...)
-	c.writeAuditEvent(ctx, EventUserCredentialsRevoked, actorPtr(actorID), nil,
-		fmt.Sprintf("revoked all personal access tokens for %s", c.auditRef(ctx, c.storage, auditKindUser, targetUserID)))
+	settle()
 	return hashes, nil
 }
 
@@ -1020,12 +1133,20 @@ func (c *KeyorixCore) DeleteSessionsForUserExcept(ctx context.Context, actorType
 		return err
 	}
 	sessionHashes, _ := c.storage.ListSessionTokenHashesForUser(ctx, targetUserID)
-	if err := c.storage.DeleteSessionsForUserExcept(ctx, targetUserID, exceptSessionID); err != nil {
+	// AUDIT-TX-3: see RevokeAllPersonalAccessTokensForUser.
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteSessionsForUserExcept(ctx, targetUserID, exceptSessionID); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventUserCredentialsRevoked, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("deleted sessions for %s", c.auditRef(ctx, tx, auditKindUser, targetUserID)))
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	c.invalidateTokenCache(sessionHashes...)
-	c.writeAuditEvent(ctx, EventUserCredentialsRevoked, actorPtr(actorID), nil,
-		fmt.Sprintf("deleted sessions for %s", c.auditRef(ctx, c.storage, auditKindUser, targetUserID)))
+	settle()
 	return nil
 }
 
@@ -1055,8 +1176,12 @@ func (c *KeyorixCore) RestoreUser(ctx context.Context, actorID, id uint) error {
 	// second call left the user undeleted (visible in listings again) but in a
 	// stale/inconsistent state — the caller sees an error and assumes nothing
 	// happened, when in fact the undelete already landed.
+	//
+	// AUDIT-TX-3: restoring reinstates the account's role grants, so it is
+	// grant-shaped: the user.restored row commits in this same transaction or the
+	// user stays deleted.
 	var user *models.User
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		if terr := tx.RestoreUser(ctx, id); terr != nil {
 			return terr
 		}
@@ -1083,16 +1208,22 @@ func (c *KeyorixCore) RestoreUser(ctx context.Context, actorID, id uint) error {
 		if !matched {
 			return fmt.Errorf("user %d: %w", id, ErrUserActiveStateConflict)
 		}
-		return tx.SetAccountState(ctx, id, AccountPasswordResetRequired, now)
+		if serr := tx.SetAccountState(ctx, id, AccountPasswordResetRequired, now); serr != nil {
+			return serr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventUserRestored, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("restored user %d (%s); password reset required", id, user.Username))
+		return nil
 	})
 	if err != nil {
 		if storage.IsUserNotFound(err) {
 			return fmt.Errorf("%s: user not found or not deleted", i18n.T("ErrorUserNotFound", nil))
 		}
+		if errors.Is(err, ErrMutationAuditUnavailable) {
+			return err
+		}
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	c.writeAuditEvent(ctx, EventUserRestored, actorPtr(actorID), nil,
-		fmt.Sprintf("restored user %d (%s); password reset required", id, user.Username))
 	return nil
 }
 

@@ -185,6 +185,7 @@ func TestUpdateUser_Success(t *testing.T) {
 	ms.On("GetUserRoleScopes", mock.Anything, uint(1)).Return([]Scope{}, nil)
 	ms.On("GetUser", mock.Anything, uint(1)).Return(original, nil)
 	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.AnythingOfType("*models.User"), false).Return(true, nil)
+	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil) // AUDIT-TX-3: the update commits with its audit row
 	c := NewKeyorixCore(ms)
 	u, err := c.UpdateUser(context.Background(), &UpdateUserRequest{ID: 1, DisplayName: "Alice Smith"})
 	require.NoError(t, err)
@@ -236,6 +237,7 @@ func TestUpdateUser_Reactivate_UsesConditionalPath(t *testing.T) {
 	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.MatchedBy(func(u *models.User) bool {
 		return u.ID == 1 && u.IsActive
 	}), false).Return(true, nil)
+	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil) // AUDIT-TX-3: the update commits with its audit row
 	c := NewKeyorixCore(ms)
 	active := true
 	u, err := c.UpdateUser(context.Background(), &UpdateUserRequest{ID: 1, IsActive: &active})
@@ -260,6 +262,7 @@ func TestUpdateUser_RedundantSameValueAssertion_UsesConditionalPath(t *testing.T
 	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.MatchedBy(func(u *models.User) bool {
 		return u.ID == 1 && u.IsActive
 	}), true).Return(true, nil)
+	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil) // AUDIT-TX-3: the update commits with its audit row
 	c := NewKeyorixCore(ms)
 	active := true
 	u, err := c.UpdateUser(context.Background(), &UpdateUserRequest{ID: 1, IsActive: &active})
@@ -344,6 +347,7 @@ func TestUpdateUser_PlainFieldUpdate_UsesActiveStateConditionalPath(t *testing.T
 	ms.On("UpdateUserIfActiveStateMatches", mock.Anything, mock.MatchedBy(func(u *models.User) bool {
 		return u.ID == 1 && u.DisplayName == "Alice Renamed"
 	}), true).Return(true, nil)
+	ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil) // AUDIT-TX-3: the update commits with its audit row
 	c := NewKeyorixCore(ms)
 	u, err := c.UpdateUser(context.Background(), &UpdateUserRequest{ID: 1, DisplayName: "Alice Renamed"})
 	require.NoError(t, err)

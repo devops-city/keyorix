@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"sort"
@@ -987,7 +988,7 @@ func (c *KeyorixCore) applySSOGroupReconcile(ctx context.Context, userID uint, a
 // a blocked escalation: the session was minted short of a group the IdP
 // asserted, and the audit claimed a refusal nobody had decided.
 func (c *KeyorixCore) reconcileSSOGroupAdditions(ctx context.Context, userID uint, desired, currentSet map[uint]bool, names map[uint]string, r *ssoReconcileReport) {
-	for id := range desired {
+	for _, id := range slices.Sorted(maps.Keys(desired)) { // sorted: a stable order, so a fault schedule (Nth call) names the same write on every run
 		if currentSet[id] {
 			continue
 		}
@@ -1045,7 +1046,7 @@ func (c *KeyorixCore) reconcileSSOGroupRemovals(ctx context.Context, userID uint
 	// with no remaining admin — RemoveUserFromGroupGlobal refuses those. The
 	// acting principal is the logging-in user themself, matching this file's
 	// audit-logging convention (actorPtr(userID), reconcileSSOGroups above).
-	for id := range currentSet {
+	for _, id := range slices.Sorted(maps.Keys(currentSet)) { // sorted, see reconcileSSOGroupAdditions
 		if desired[id] {
 			continue
 		}
@@ -1133,7 +1134,7 @@ func (c *KeyorixCore) applySSORoleReconcile(ctx context.Context, p *SSOProvider,
 	// the point, since authorization here is rooted in the admin-configured
 	// GroupRoleMap and the verified IdP assertion, not in the user's own
 	// roles.assign-derived authority.
-	for role := range managedRoles {
+	for _, role := range slices.Sorted(maps.Keys(managedRoles)) { // sorted, see reconcileSSOGroupAdditions
 		r, rerr := c.storage.GetRoleByName(ctx, role)
 		if rerr != nil {
 			// A role NAME that does not exist is a configuration fact about

@@ -82,7 +82,8 @@ func (h *AlertEscalationHandler) Create(w http.ResponseWriter, r *http.Request) 
 	} else {
 		p.Enabled = true
 	}
-	created, err := h.coreService.CreateAlertEscalationPolicy(r.Context(), p)
+	// AUDIT-TX-3: core writes the policy-created row in the create's own transaction.
+	created, err := h.coreService.CreateAlertEscalationPolicy(core.WithMutationAuditActor(r.Context(), u.UserID), p)
 	if err != nil {
 		if isEscalationValidationError(err) {
 			sendError(w, "BadRequest", err.Error(), http.StatusBadRequest, nil)
@@ -92,7 +93,6 @@ func (h *AlertEscalationHandler) Create(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "InternalError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	h.coreService.LogAlertEscalationPolicyCreated(r.Context(), u.UserID, created)
 	sendCreated(w, policyToAPI(created), "")
 }
 
@@ -146,13 +146,9 @@ func (h *AlertEscalationHandler) Update(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "BadRequest", "Invalid request body", http.StatusBadRequest, nil)
 		return
 	}
-	// Fetched BEFORE the mutation so the audit event can carry a real diff --
-	// UpdateAlertEscalationPolicy mutates the row in place, so this is the
-	// only chance to observe the pre-update state (coordinator review, PR
-	// #2249). Best-effort: a failure here must not block the update itself,
-	// it only means the audit event's before side is empty.
-	before, _ := h.coreService.GetAlertEscalationPolicy(r.Context(), id)
-	updated, err := h.coreService.UpdateAlertEscalationPolicy(r.Context(), id, body)
+	// AUDIT-TX-3: core reads the pre-update state itself (the audit diff's before
+	// side) and writes the policy-updated row in the update's own transaction.
+	updated, err := h.coreService.UpdateAlertEscalationPolicy(core.WithMutationAuditActor(r.Context(), u.UserID), id, body)
 	if err != nil {
 		if strings.Contains(err.Error(), escalationNotFound) {
 			sendError(w, "NotFound", escalationNotFoundMessage, http.StatusNotFound, nil)
@@ -166,7 +162,6 @@ func (h *AlertEscalationHandler) Update(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "InternalError", clientSafe(err), http.StatusInternalServerError, nil)
 		return
 	}
-	h.coreService.LogAlertEscalationPolicyUpdated(r.Context(), u.UserID, before, updated)
 	sendSuccess(w, policyToAPI(updated), "")
 }
 
@@ -181,7 +176,7 @@ func (h *AlertEscalationHandler) Delete(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	if err := h.coreService.DeleteAlertEscalationPolicy(r.Context(), id); err != nil {
+	if err := h.coreService.DeleteAlertEscalationPolicy(core.WithMutationAuditActor(r.Context(), u.UserID), id); err != nil {
 		if strings.Contains(err.Error(), escalationNotFound) {
 			sendError(w, "NotFound", escalationNotFoundMessage, http.StatusNotFound, nil)
 			return
@@ -190,7 +185,6 @@ func (h *AlertEscalationHandler) Delete(w http.ResponseWriter, r *http.Request) 
 		sendError(w, "InternalError", "Failed to delete alert escalation policy", http.StatusInternalServerError, nil)
 		return
 	}
-	h.coreService.LogAlertEscalationPolicyDeleted(r.Context(), u.UserID, id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

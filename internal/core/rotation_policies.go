@@ -103,11 +103,17 @@ func (c *KeyorixCore) CreateRotationPolicy(ctx context.Context, actorID uint, re
 		CreatedBy:       req.CreatedBy,
 	}
 
-	if err := c.storage.CreateRotationPolicy(ctx, policy); err != nil {
+	// AUDIT-TX-3: the policy and its audit row commit together (fail closed).
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.CreateRotationPolicy(ctx, policy); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventRotationPolicyCreated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("rotation policy %q (id %d, %s scope) created", policy.Name, policy.ID, policy.Scope))
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("failed to create rotation policy: %w", err)
 	}
-	c.writeAuditEvent(ctx, EventRotationPolicyCreated, actorPtr(actorID), nil,
-		fmt.Sprintf("rotation policy %q (id %d, %s scope) created", policy.Name, policy.ID, policy.Scope))
 	return policy, nil
 }
 
@@ -146,28 +152,36 @@ func (c *KeyorixCore) UpdateRotationPolicy(ctx context.Context, actorID uint, re
 	// pre-read struct: its upsert fallback brought a concurrently deleted policy
 	// back ACTIVE (resuming rotation and breach alerts), and it reverted the
 	// executor's rotation_state/last_rotation_error, hiding a failed rotation.
-	matched, err := c.storage.UpdateRotationPolicyFields(ctx, policy.ID, storage.RotationPolicyFieldUpdate{
-		Name:            req.Name,
-		Description:     req.Description,
-		IntervalDays:    req.IntervalDays,
-		AlertDaysBefore: req.AlertDaysBefore,
-		NotifyOnBreach:  req.NotifyOnBreach,
-		IsActive:        req.IsActive,
-	}, c.now())
-	if err != nil {
-		return nil, fmt.Errorf("failed to update rotation policy: %w", err)
+	//
+	// AUDIT-TX-3: the update and its audit row commit together (fail closed): a
+	// rotation policy is never relaxed or deactivated unrecorded.
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, uerr := tx.UpdateRotationPolicyFields(ctx, policy.ID, storage.RotationPolicyFieldUpdate{
+			Name:            req.Name,
+			Description:     req.Description,
+			IntervalDays:    req.IntervalDays,
+			AlertDaysBefore: req.AlertDaysBefore,
+			NotifyOnBreach:  req.NotifyOnBreach,
+			IsActive:        req.IsActive,
+		}, c.now())
+		if uerr != nil {
+			return fmt.Errorf("failed to update rotation policy: %w", uerr)
+		}
+		if !matched {
+			return fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
+		}
+		policy.Name = req.Name
+		policy.Description = req.Description
+		policy.IntervalDays = req.IntervalDays
+		policy.AlertDaysBefore = req.AlertDaysBefore
+		policy.NotifyOnBreach = req.NotifyOnBreach
+		policy.IsActive = req.IsActive
+		c.writeAuditEventFullOn(ctx, tgt, EventRotationPolicyUpdated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("rotation policy %q (id %d) updated", policy.Name, policy.ID))
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	if !matched {
-		return nil, fmt.Errorf("%s", i18n.T("ErrorNotFound", nil))
-	}
-	policy.Name = req.Name
-	policy.Description = req.Description
-	policy.IntervalDays = req.IntervalDays
-	policy.AlertDaysBefore = req.AlertDaysBefore
-	policy.NotifyOnBreach = req.NotifyOnBreach
-	policy.IsActive = req.IsActive
-	c.writeAuditEvent(ctx, EventRotationPolicyUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("rotation policy %q (id %d) updated", policy.Name, policy.ID))
 	return policy, nil
 }
 
@@ -177,12 +191,15 @@ func (c *KeyorixCore) DeleteRotationPolicy(ctx context.Context, actorID, id uint
 	if err != nil {
 		return fmt.Errorf("failed to get rotation policy: %w", err)
 	}
-	if err := c.storage.DeleteRotationPolicy(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete rotation policy: %w", err)
-	}
-	c.writeAuditEvent(ctx, EventRotationPolicyDeleted, actorPtr(actorID), nil,
-		fmt.Sprintf("rotation policy %q (id %d) deleted", policy.Name, id))
-	return nil
+	// AUDIT-TX-3: the delete and its audit row commit together (fail closed).
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteRotationPolicy(ctx, id); err != nil {
+			return fmt.Errorf("failed to delete rotation policy: %w", err)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventRotationPolicyDeleted, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("rotation policy %q (id %d) deleted", policy.Name, id))
+		return nil
+	})
 }
 
 // Rotation status values returned by GetRotationStatus.

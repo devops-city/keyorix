@@ -379,6 +379,9 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	updated, err := h.coreService.UpdateUser(r.Context(), req)
 	if err != nil {
 		log.Printf("Error updating user: %v", err)
+		if sendPartialMutation(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, core.ErrInsufficientAdminAuthority):
 			sendError(w, "PermissionDenied", clientSafe(err), http.StatusForbidden, nil)
@@ -623,6 +626,10 @@ func (h *UserHandler) ReissueOneTimePassword(w http.ResponseWriter, r *http.Requ
 	}
 	res, err := h.coreService.ReissueOneTimePassword(r.Context(), admin.UserID, uint(id))
 	if err != nil {
+		if sendPartialMutation(w, err) {
+			log.Printf("reissue one-time password for user %d partially applied: %v", uint(id), err)
+			return
+		}
 		switch {
 		case errors.Is(err, core.ErrInsufficientAdminAuthority):
 			// clientSafe: the underlying error names the permission the target holds.

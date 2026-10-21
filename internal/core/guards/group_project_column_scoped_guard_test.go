@@ -20,13 +20,15 @@ import "testing"
 // Hops checked: {core.UpdateGroup, ReplaceSCIMGroup, PatchSCIMGroup} ->
 // c.storage.UpdateGroupFields -> its LocalStorage body; core.UpdateProject ->
 // c.storage.UpdateProjectFields -> its LocalStorage body.
+// AUDIT-TX-3: the writes moved into the mutation's audited transaction, so the
+// required receiver is the transaction handle ("tx"), not c.storage.
 func TestUpdateGroupAndProject_AreColumnScoped(t *testing.T) {
 	assertColumnScopedStorageWrite(t, "../../storage/store/local_users.go", "UpdateGroupFields")
 	assertColumnScopedStorageWrite(t, "../../storage/store/local_secrets.go", "UpdateProjectFields")
 
-	assertCoreWritesOnlyVia(t, "../groups.go", "UpdateGroup", "storage", "UpdateGroupFields", "Save", "UpdateGroup")
+	assertCoreWritesOnlyVia(t, "../groups.go", "UpdateGroup", "tx", "UpdateGroupFields", "Save", "UpdateGroup")
 	for _, fn := range []string{"ReplaceSCIMGroup", "PatchSCIMGroup"} {
-		assertCoreWritesOnlyVia(t, "../scim_groups.go", fn, "storage", "UpdateGroupFields", "Save", "UpdateGroup")
+		assertCoreWritesOnlyVia(t, "../scim_groups.go", fn, "tx", "UpdateGroupFields", "Save", "UpdateGroup")
 	}
-	assertCoreWritesOnlyVia(t, "../catalog.go", "UpdateProject", "storage", "UpdateProjectFields", "Save", "UpdateProject")
+	assertCoreWritesOnlyVia(t, "../catalog.go", "UpdateProject", "tx", "UpdateProjectFields", "Save", "UpdateProject")
 }

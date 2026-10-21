@@ -73,9 +73,10 @@ type IssueMachineTokenParams struct {
 	ExpiresAt      *time.Time
 	Classification string
 	AllowedCIDRs   []string
-	// ReplaceCredentialID, when non-zero, atomically revokes the specified existing
-	// credential immediately after the new one is issued (PAT-006: eliminates the
-	// overlap window in the manual two-step issue-then-revoke rotation flow).
+	// ReplaceCredentialID, when non-zero, revokes the specified existing credential
+	// and issues the new one in the same call (PAT-006: no overlap window as in the
+	// manual two-step issue-then-revoke flow). The revoke commits first and is never
+	// blocked by the audit log; the issue follows, fail closed (rotateMachineToken).
 	// The credential must belong to the same machine; it is rejected if not found.
 	ReplaceCredentialID uint
 }
@@ -154,41 +155,60 @@ func (c *KeyorixCore) IssueMachineToken(ctx context.Context, projectID, machineI
 		Classification:    classification,
 		CreatedAt:         c.now(),
 	}
-	// PAT-006: create the new credential and (when rotating) revoke the replaced one
-	// in the SAME transaction. The two used to be sequential storage calls: on a
-	// revoke failure the function returned an error, but the just-created new
-	// credential was never rolled back — an orphaned row nobody could use (its plain
-	// token was discarded along with the error) while the old credential the caller
-	// believed was being replaced stayed live. Wrapping both means a revoke failure
-	// now leaves NEITHER change applied, matching the error message's own claim.
-	//
-	// AUDIT-TX-2: the token_issued / token_rotated row is the last statement of
-	// that same transaction, so a credential never commits unaudited.
-	var created *models.MachineIdentityCredential
-	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
-		var cerr error
-		created, cerr = tx.CreateMachineIdentityCredential(ctx, cred)
-		if cerr != nil {
-			return fmt.Errorf("failed to store machine token: %w", cerr)
-		}
-		if params.ReplaceCredentialID != 0 {
-			if rerr := tx.RevokeMachineIdentityCredential(ctx, projectID, params.ReplaceCredentialID); rerr != nil {
-				return fmt.Errorf("failed to revoke old credential %d: %w", params.ReplaceCredentialID, rerr)
+	// AUDIT-TX-2: the token_issued row is the last statement of the transaction that
+	// creates the credential, so a credential never commits unaudited.
+	if params.ReplaceCredentialID == 0 {
+		var created *models.MachineIdentityCredential
+		if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			var cerr error
+			if created, cerr = tx.CreateMachineIdentityCredential(ctx, cred); cerr != nil {
+				return fmt.Errorf("failed to store machine token: %w", cerr)
 			}
-			c.logMachineEventOn(ctx, tgt, "machine_identity.token_rotated", m, actorID)
+			c.logMachineEventOn(ctx, tgt, "machine_identity.token_issued", m, actorID)
 			return nil
+		}); err != nil {
+			return nil, err
 		}
-		c.logMachineEventOn(ctx, tgt, "machine_identity.token_issued", m, actorID)
+		return &IssueMachineTokenResult{Credential: created, PlainToken: raw}, nil
+	}
+	return c.rotateMachineToken(ctx, projectID, m, actorID, params.ReplaceCredentialID, oldCredHash, cred, raw)
+}
+
+// rotateMachineToken is IssueMachineToken with ReplaceCredentialID (PAT-006): a mixed
+// request (MERGE-FIX-3482G; Andrei 2026-10-20, ask perf-cred-lookup-1-rotation-audit-gated
+// (b)), so two commits (audit_split.go). Commit 1 revokes the old credential, owed like
+// RevokeMachineToken: an audit outage never keeps a credential the caller is replacing
+// alive. It is evicted from the auth cache before its row is appended. Commit 2 creates
+// the new credential with its token_rotated row, fail closed. A revoke failure leaves
+// neither change applied (nothing is created before the revoke commits); a failure of
+// commit 2 leaves the old credential revoked and no new one, and answers with a
+// PartialMutationError. A retry of the same request is safe: revoking an already
+// revoked credential changes nothing, so only the issue is left to do.
+func (c *KeyorixCore) rotateMachineToken(ctx context.Context, projectID uint, m *models.MachineIdentity, actorID, replaceID uint, oldHash string, cred *models.MachineIdentityCredential, raw string) (*IssueMachineTokenResult, error) {
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if rerr := tx.RevokeMachineIdentityCredential(ctx, projectID, replaceID); rerr != nil {
+			return fmt.Errorf("failed to revoke old credential %d: %w", replaceID, rerr)
+		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity.token_revoked", m, actorID)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	if params.ReplaceCredentialID != 0 {
-		return &IssueMachineTokenResult{Credential: created, PlainToken: raw, ReplacedTokenHash: oldCredHash}, nil
+	c.clearCachedTokens(oldHash)
+	settle()
+	var created *models.MachineIdentityCredential
+	if err := c.commitSplitRemainder(ctx, "old credential revoke", "new token issue", true, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		if created, cerr = tx.CreateMachineIdentityCredential(ctx, cred); cerr != nil {
+			return fmt.Errorf("failed to store machine token: %w", cerr)
+		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity.token_rotated", m, actorID)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	return &IssueMachineTokenResult{Credential: created, PlainToken: raw}, nil
+	return &IssueMachineTokenResult{Credential: created, PlainToken: raw, ReplacedTokenHash: oldHash}, nil
 }
 
 // ListMachineTokens returns a machine's credentials (hashes are never exposed by
@@ -214,10 +234,21 @@ func (c *KeyorixCore) RevokeMachineToken(ctx context.Context, projectID, machine
 	if err != nil || cred.MachineIdentityID != machineID {
 		return "", fmt.Errorf("token not found")
 	}
-	if err := c.storage.RevokeMachineIdentityCredential(ctx, projectID, credentialID); err != nil {
+	// AUDIT-TX-3: a revocation: never blocked by the audit log, row owed.
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.RevokeMachineIdentityCredential(ctx, projectID, credentialID); err != nil {
+			return err
+		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity.token_revoked", m, actorID)
+		return nil
+	})
+	if err != nil {
 		return "", err
 	}
-	c.logMachineEvent(ctx, "machine_identity.token_revoked", m, actorID)
+	// Evict before the owed row is appended: a slow or refusing audit log (up to
+	// owedAuditWait) must not delay the revoked token being refused here.
+	c.clearCachedTokens(cred.TokenHash)
+	settle()
 	return cred.TokenHash, nil
 }
 
@@ -265,18 +296,25 @@ func (c *KeyorixCore) ClassifyMachineToken(ctx context.Context, projectID, machi
 	// A no-match means the label moved under us; fail closed rather than clobber
 	// the concurrent classifier's value, and write no audit event (nothing of ours
 	// was persisted).
-	matched, err := c.storage.SetMachineIdentityCredentialClassification(ctx, cred.ID, old, level)
-	if err != nil {
+	//
+	// AUDIT-TX-3: the new label and its audit row commit together (fail closed).
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, terr := tx.SetMachineIdentityCredentialClassification(ctx, cred.ID, old, level)
+		if terr != nil {
+			return terr
+		}
+		if !matched {
+			return fmt.Errorf("token classification changed concurrently; re-read and retry")
+		}
+		aid, pid := actorID, m.ProjectID
+		diff := fmt.Sprintf(`{"classification":{"before":%q,"after":%q}}`, old, level)
+		c.writeAuditEventDiffOn(ctx, tgt, "machine_identity.token_classified", &aid, nil, &pid, "",
+			fmt.Sprintf("machine credential %d (machine %d) classification set to %q", cred.ID, machineID, level), diff)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	if !matched {
-		return nil, fmt.Errorf("token classification changed concurrently; re-read and retry")
-	}
 	cred.Classification = level
-	aid, pid := actorID, m.ProjectID
-	diff := fmt.Sprintf(`{"classification":{"before":%q,"after":%q}}`, old, level)
-	c.writeAuditEventDiff(ctx, "machine_identity.token_classified", &aid, nil, &pid, "",
-		fmt.Sprintf("machine credential %d (machine %d) classification set to %q", cred.ID, machineID, level), diff)
 	return cred, nil
 }
 
@@ -605,9 +643,19 @@ func (c *KeyorixCore) RemoveMachineRole(ctx context.Context, machineID, roleID u
 	if err != nil {
 		return err
 	}
-	return c.withMachineRoleRemovalGuards(ctx, machineID, scope, func(ctx context.Context) error {
-		return c.removeMachineRoleWriteOn(ctx, c.storage, c.auditNow(), m, roleID, scope, actorID)
+	var settle func() // appends the owed row; called after the named lock is released
+	err = c.withMachineRoleRemovalGuards(ctx, machineID, scope, func(ctx context.Context) error {
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			return c.removeMachineRoleWriteOn(ctx, tx, tgt, m, roleID, scope, actorID)
+		})
+		return merr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // withMachineRoleRemovalGuards runs write under exactly the named lock and

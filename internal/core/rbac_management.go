@@ -166,10 +166,17 @@ func (c *KeyorixCore) RemovePermissionFromRole(ctx context.Context, actorID, rol
 	if err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorRoleNotFound", nil), err)
 	}
-	if err := c.storage.RemovePermissionFromRole(ctx, roleID, permissionID); err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
 	builtinTarget := IsBuiltinRole(role.Name)
+	// A revocation: never blocked by the audit log, but its row is owed (AUDIT-TX-3).
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.RemovePermissionFromRole(ctx, roleID, permissionID); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.logPermissionRemovedOn(ctx, tgt, actorID, roleID, permissionID, builtinTarget)
+		return nil
+	}); err != nil {
+		return err
+	}
 	if builtinTarget {
 		// A best-effort name lookup purely for the log line's readability — unlike
 		// AssignPermissionToRole, the permission is never otherwise fetched on this
@@ -182,7 +189,6 @@ func (c *KeyorixCore) RemovePermissionFromRole(ctx context.Context, actorID, rol
 		log.Printf("SECURITY: permission %s removed from built-in role %q (id %d) by actor %d — permitted by design (ADR-044); operator authority over a built-in role's permission set is deliberate, not a bug",
 			permName, role.Name, roleID, actorID)
 	}
-	c.LogPermissionRemoved(ctx, actorID, roleID, permissionID, builtinTarget)
 	return nil
 }
 
@@ -272,9 +278,19 @@ func (c *KeyorixCore) RemoveRoleFromGroup(ctx context.Context, actorID, groupID,
 	if _, err := c.storage.GetGroup(ctx, groupID); err != nil {
 		return fmt.Errorf("group not found: %w", err)
 	}
-	return c.withGroupRoleRemovalGuards(ctx, groupID, roleID, scope, func(ctx context.Context) error {
-		return c.removeGroupRoleWriteOn(ctx, c.storage, c.auditNow(), actorID, groupID, roleID, scope)
+	var settle func() // appends the owed row; called after the guard lock is released
+	err := c.withGroupRoleRemovalGuards(ctx, groupID, roleID, scope, func(ctx context.Context) error {
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			return c.removeGroupRoleWriteOn(ctx, tx, tgt, actorID, groupID, roleID, scope)
+		})
+		return merr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // withGroupRoleRemovalGuards runs write under exactly the named lock and
@@ -712,24 +728,32 @@ func (c *KeyorixCore) grantGroupRoleAudited(ctx context.Context, actorID, groupI
 // already apply one layer up, generalized to the actual choke point.
 func (c *KeyorixCore) RemoveUserRole(ctx context.Context, actorID, userID, roleID uint, scope Scope) error {
 	if scope.ProjectID == 0 && scope.EnvironmentID == 0 {
-		handled, err := c.removeGlobalAdminRoleIfApplicable(ctx, userID, roleID)
+		handled, settle, err := c.removeGlobalAdminRoleIfApplicable(ctx, actorID, userID, roleID)
 		if err != nil {
 			return err
 		}
 		if handled {
-			c.LogRoleRemoved(ctx, actorID, userID, roleID, scope)
 			// Evict the auth cache so a just-revoked role stops authorizing on the
 			// very next request instead of the up-to-30s positive-cache window every
 			// other credential-lifecycle event in this package already closes
 			// (password change, suspend/deactivate/delete, PAT revoke,
 			// machine-identity suspend/revoke).
 			c.evictUserSessionCache(ctx, userID)
+			settle() // after the eviction (see removeUserRoleUnguarded)
 			return nil
 		}
 	}
-	return c.withUserRoleRemovalGuards(ctx, userID, roleID, scope, func(ctx context.Context) error {
-		return c.removeUserRoleUnguarded(ctx, actorID, userID, roleID, scope)
+	var settle func() // appends the owed row; called after the guard lock is released
+	err := c.withUserRoleRemovalGuards(ctx, userID, roleID, scope, func(ctx context.Context) error {
+		var rerr error
+		settle, rerr = c.removeUserRoleUnguarded(ctx, actorID, userID, roleID, scope)
+		return rerr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // withUserRoleRemovalGuards runs write under exactly the named lock and
@@ -803,12 +827,21 @@ func (c *KeyorixCore) withUserRoleRemovalGuards(ctx context.Context, userID, rol
 // now calls this unguarded primitive directly for its removal-loop steps,
 // relying on its own already-correct, whole-operation guard instead of
 // RemoveUserRole's necessarily narrower, single-call one.
-func (c *KeyorixCore) removeUserRoleUnguarded(ctx context.Context, actorID, userID, roleID uint, scope Scope) error {
-	if err := c.removeUserRoleWriteOn(ctx, c.storage, c.auditNow(), actorID, userID, roleID, scope); err != nil {
-		return err
+//
+// It returns settle (non-nil only once the removal has committed) instead of calling
+// it: both callers hold a named lock around this, and during an audit outage settle
+// waits up to owedAuditWait per refused row, which must not be spent holding a
+// last-admin / project-admin lock. The caller calls settle after releasing the lock
+// (the cache is already evicted here, so the revocation has taken effect).
+func (c *KeyorixCore) removeUserRoleUnguarded(ctx context.Context, actorID, userID, roleID uint, scope Scope) (settle func(), err error) {
+	settle, err = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		return c.removeUserRoleWriteOn(ctx, tx, tgt, actorID, userID, roleID, scope)
+	})
+	if err != nil {
+		return nil, err
 	}
 	c.evictUserSessionCache(ctx, userID)
-	return nil
+	return settle, nil
 }
 
 // removeUserRoleWriteOn is the user-role removal's persistent effect — the
@@ -854,7 +887,7 @@ func (c *KeyorixCore) removeUserRoleWriteOn(ctx context.Context, st storage.Stor
 // globalAdminGuardMu: a caller already holding lastAdminGuardLockKey re-enters
 // it (WithNamedLock is re-entrant per ctx) and then takes the mutex, the same
 // named-lock-then-mutex order as here, so the two can never invert.
-func (c *KeyorixCore) removeGlobalAdminRoleIfApplicable(ctx context.Context, userID, roleID uint) (handled bool, err error) {
+func (c *KeyorixCore) removeGlobalAdminRoleIfApplicable(ctx context.Context, actorID, userID, roleID uint) (handled bool, settle func(), err error) {
 	ids, err := c.adminBypassRoleIDSlice(ctx)
 	if err != nil {
 		// #2496: fail closed. Treating a resolution failure as "roleID is not an
@@ -862,17 +895,27 @@ func (c *KeyorixCore) removeGlobalAdminRoleIfApplicable(ctx context.Context, use
 		// the failure mode this guard exists to survive. handled=true so
 		// RemoveUserRole stops here and surfaces the error rather than falling
 		// through.
-		return true, err
+		return true, nil, err
 	}
 	if !slices.Contains(ids, roleID) {
-		return false, nil
+		return false, nil, nil
 	}
 	err = c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.globalAdminGuardMu.Lock()
 		defer c.globalAdminGuardMu.Unlock()
-		return c.storage.RemoveGlobalAdminRoleGuarded(ctx, userID, roleID, ids)
+		// AUDIT-TX-3: the removal and the record of its owed audit row commit
+		// together (RemoveGlobalAdminRoleGuarded nests as a savepoint in tx).
+		var rerr error
+		settle, rerr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+			if err := tx.RemoveGlobalAdminRoleGuarded(ctx, userID, roleID, ids); err != nil {
+				return err
+			}
+			c.LogRoleRemovedOn(ctx, tgt, actorID, userID, roleID, Scope{})
+			return nil
+		})
+		return rerr
 	})
-	return true, err
+	return true, settle, err
 }
 
 // The roles that confer install-wide administration when held at the global

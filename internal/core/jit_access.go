@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/i18n"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -119,20 +120,30 @@ const EventShareExpired = "share.expired"
 // the instant they pass (the permission queries filter on expiry); this just reclaims
 // the rows and writes the expiry audit trail. Backs the JIT access-expiry scheduler.
 func (c *KeyorixCore) RemoveExpiredShares(ctx context.Context, before time.Time) (int, error) {
-	removed, err := c.storage.DeleteExpiredShareRecords(ctx, before)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-	for _, s := range removed {
-		sid := s.SecretID
-		recipientKind := "user"
-		if s.IsGroup {
-			recipientKind = "group"
+	// AUDIT-TX-3: an expiry is a revocation; each share.expired row is owed from the
+	// sweep's own transaction (withOwedAuditMutation).
+	var n int
+	err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		removed, err := tx.DeleteExpiredShareRecords(ctx, before)
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
-		c.writeAuditEvent(ctx, EventShareExpired, nil, &sid,
-			fmt.Sprintf("time-bound share of %s expired for %s", c.auditRef(ctx, c.storage, auditKindSecret, s.SecretID), c.auditRef(ctx, c.storage, recipientKind, s.RecipientID)))
+		n = len(removed)
+		for _, s := range removed {
+			sid := s.SecretID
+			recipientKind := "user"
+			if s.IsGroup {
+				recipientKind = "group"
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventShareExpired, nil, &sid, nil, "",
+				fmt.Sprintf("time-bound share of %s expired for %s", c.auditRef(ctx, tx, auditKindSecret, s.SecretID), c.auditRef(ctx, tx, recipientKind, s.RecipientID)))
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	return len(removed), nil
+	return n, nil
 }
 
 // RemoveExpiredRoleGrants removes every user/group role grant whose expiry is at or
@@ -140,26 +151,36 @@ func (c *KeyorixCore) RemoveExpiredShares(ctx context.Context, before time.Time)
 // Returns the number of grants removed. Idempotent — a tick that finds nothing
 // removes nothing. Backs the JIT access-expiry scheduler.
 func (c *KeyorixCore) RemoveExpiredRoleGrants(ctx context.Context, before time.Time) (int, error) {
-	removed, err := c.storage.DeleteExpiredRoleGrants(ctx, before)
+	// AUDIT-TX-3: see RemoveExpiredShares: the role.expired rows are owed from the
+	// sweep's own transaction.
+	var n int
+	err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		removed, err := tx.DeleteExpiredRoleGrants(ctx, before)
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		n = len(removed)
+		for _, g := range removed {
+			scope := Scope{ProjectID: g.ProjectID, EnvironmentID: g.EnvironmentID}
+			detail := rbacAuditDetail{
+				RoleID:        g.RoleID,
+				ProjectID:     g.ProjectID,
+				EnvironmentID: g.EnvironmentID,
+			}
+			var desc string
+			if g.PrincipalType == "group" {
+				detail.GroupID = g.PrincipalID
+				desc = fmt.Sprintf("%s expired for %s", c.auditRef(ctx, tx, auditKindRole, g.RoleID), c.auditRef(ctx, tx, auditKindGroup, g.PrincipalID))
+			} else {
+				detail.TargetUserID = g.PrincipalID
+				desc = fmt.Sprintf("%s expired for %s", c.auditRef(ctx, tx, auditKindRole, g.RoleID), c.auditRef(ctx, tx, auditKindUser, g.PrincipalID))
+			}
+			c.writeRBACAuditOn(ctx, tgt, EventRoleExpired, desc, 0, scope, detail)
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		return 0, err
 	}
-	for _, g := range removed {
-		scope := Scope{ProjectID: g.ProjectID, EnvironmentID: g.EnvironmentID}
-		detail := rbacAuditDetail{
-			RoleID:        g.RoleID,
-			ProjectID:     g.ProjectID,
-			EnvironmentID: g.EnvironmentID,
-		}
-		var desc string
-		if g.PrincipalType == "group" {
-			detail.GroupID = g.PrincipalID
-			desc = fmt.Sprintf("%s expired for %s", c.auditRef(ctx, c.storage, auditKindRole, g.RoleID), c.auditRef(ctx, c.storage, auditKindGroup, g.PrincipalID))
-		} else {
-			detail.TargetUserID = g.PrincipalID
-			desc = fmt.Sprintf("%s expired for %s", c.auditRef(ctx, c.storage, auditKindRole, g.RoleID), c.auditRef(ctx, c.storage, auditKindUser, g.PrincipalID))
-		}
-		c.writeRBACAudit(ctx, EventRoleExpired, desc, 0, scope, detail)
-	}
-	return len(removed), nil
+	return n, nil
 }

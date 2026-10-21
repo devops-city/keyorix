@@ -277,15 +277,10 @@ func (c *KeyorixCore) RevokeShare(ctx context.Context, shareID uint, revokedBy u
 	// fault=DeleteShareRecord#1/effect-then-error, ORACLE (d) VIOLATION (differing
 	// tables vs before: [ShareRecord]; vs reference: [SecretAccessLog AuditEvent
 	// Notification]). Same root cause and fix shape as PR #1996 (CreateSecret).
-	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		return tx.DeleteShareRecord(ctx, shareID)
-	}); err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-
-	// Only log the revocation once the storage mutation has actually succeeded —
-	// logging first would leave a phantom "revoked" audit record if the delete
-	// failed and the share stayed live (#283).
+	//
+	// AUDIT-TX-3: the share-revoked row is owed from this same transaction (a
+	// revocation is never blocked by the audit log; its row is never lost either).
+	// The row describes a revocation that really committed with it (#283).
 	auditCtx := &ShareAuditContext{
 		ActorID:     revokedBy,
 		SecretID:    shareRecord.SecretID,
@@ -294,10 +289,18 @@ func (c *KeyorixCore) RevokeShare(ctx context.Context, shareID uint, revokedBy u
 		Permission:  shareRecord.Permission,
 		ShareID:     shareRecord.ID,
 	}
-	if shareRecord.IsGroup {
-		c.LogGroupShareRevoked(ctx, auditCtx)
-	} else {
-		c.LogShareRevoked(ctx, auditCtx)
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteShareRecord(ctx, shareID); err != nil {
+			return err
+		}
+		if shareRecord.IsGroup {
+			c.logGroupShareRevokedOn(ctx, tgt, auditCtx)
+		} else {
+			c.logShareRevokedOn(ctx, tgt, auditCtx)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
 	// Tell the affected user(s) their access was revoked. Best-effort.
 	if shareRecord.IsGroup {
@@ -337,19 +340,22 @@ func (c *KeyorixCore) RemoveSelfFromShare(ctx context.Context, secretID, userID 
 		return fmt.Errorf("%s: %w", i18n.T("ErrorSecretNotFound", nil), err)
 	}
 
-	if err := c.storage.DeleteShareRecord(ctx, shareToRemove.ID); err != nil {
+	// AUDIT-TX-3: see RevokeShare: the row is owed from the removal's transaction.
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteShareRecord(ctx, shareToRemove.ID); err != nil {
+			return err
+		}
+		c.logSelfRemovalFromShareOn(ctx, tgt, &ShareAuditContext{
+			ActorID:     userID,
+			SecretID:    secretID,
+			RecipientID: userID,
+			IsGroup:     false,
+			Permission:  shareToRemove.Permission,
+			ShareID:     shareToRemove.ID,
+		})
+		return nil
+	}); err != nil {
 		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-
-	// Only log the removal once the storage mutation has actually succeeded — see
-	// RevokeShare for why (#283).
-	c.LogSelfRemovalFromShare(ctx, &ShareAuditContext{
-		ActorID:     userID,
-		SecretID:    secretID,
-		RecipientID: userID,
-		IsGroup:     false,
-		Permission:  shareToRemove.Permission,
-		ShareID:     shareToRemove.ID,
-	})
 	return nil
 }

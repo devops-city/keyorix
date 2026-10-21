@@ -115,7 +115,7 @@ func TestConcurrency_RemoveUserRole_ProjectScope_TOCTOU_Deterministic(t *testing
 	require.NoError(t, db.AutoMigrate(
 		&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-		&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SecretNode{},
+		&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.PendingAuditEvent{}, &models.SecretNode{},
 		&models.ShareRecord{}, &models.AccessRequest{}, &models.SecretACL{}, &models.Session{},
 	))
 	require.NoError(t, db.Create(&models.Permission{ID: 1, Name: "roles.assign"}).Error)

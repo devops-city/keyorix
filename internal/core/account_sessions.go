@@ -10,6 +10,8 @@ package core
 import (
 	"context"
 	"fmt"
+
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 )
 
 // EventUserSessionsRevoked is audited when an admin force-logs-out a user.
@@ -66,8 +68,20 @@ func (c *KeyorixCore) RevokeUserSessions(ctx context.Context, adminID, userID ui
 	}
 	n := len(tokens)
 	// exceptID 0 matches no session, so this drops them all.
-	if err := c.storage.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
-		return 0, fmt.Errorf("failed to revoke sessions: %w", err)
+	//
+	// AUDIT-TX-3: a revocation: its row is owed from this transaction and appended
+	// after the eviction below, so the audit log never delays the force-logout.
+	aid := adminID
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteSessionsForUserExcept(ctx, userID, 0); err != nil {
+			return fmt.Errorf("failed to revoke sessions: %w", err)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventUserSessionsRevoked, &aid, nil, nil, "",
+			fmt.Sprintf("revoked %d active session(s) for user %d", n, userID))
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	if testRevokeUserSessionsPreInvalidate != nil {
 		testRevokeUserSessionsPreInvalidate()
@@ -77,9 +91,6 @@ func (c *KeyorixCore) RevokeUserSessions(ctx context.Context, adminID, userID ui
 	// — this is the incident-response control, so the residual window matters. The stored
 	// session_token IS the SHA-256 cache key.
 	c.invalidateTokenCache(tokens...)
-
-	aid := adminID
-	c.writeAuditEventFull(ctx, EventUserSessionsRevoked, &aid, nil, nil, "",
-		fmt.Sprintf("revoked %d active session(s) for user %d", n, userID))
+	settle()
 	return n, nil
 }

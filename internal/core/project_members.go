@@ -72,7 +72,8 @@ func (c *KeyorixCore) SetProjectMemberRole(ctx context.Context, actorID, project
 	// stripping the project of every roles.assign holder. WithNamedLock's
 	// Postgres advisory lock, keyed per project, closes that; see its doc
 	// comment in internal/core/storage/interface.go.
-	return c.storage.WithNamedLock(ctx, projectAdminGuardLockKey(projectID), func(ctx context.Context) error {
+	var settles []func() // owed rows of the removals; appended after the lock is released
+	err = c.storage.WithNamedLock(ctx, projectAdminGuardLockKey(projectID), func(ctx context.Context) error {
 		if err := c.guardLastProjectAdmin(ctx, projectID, userID, existing, []uint{role.ID}); err != nil {
 			return err
 		}
@@ -90,9 +91,11 @@ func (c *KeyorixCore) SetProjectMemberRole(ctx context.Context, actorID, project
 			// below that's about to restore admin coverage -- and would falsely
 			// refuse swapping the project's sole administrator directly from one
 			// admin-tier role to another (see removeUserRoleUnguarded's doc).
-			if err := c.removeUserRoleUnguarded(ctx, actorID, userID, rid, scope); err != nil {
-				return err
+			settle, rerr := c.removeUserRoleUnguarded(ctx, actorID, userID, rid, scope)
+			if rerr != nil {
+				return rerr
 			}
+			settles = append(settles, settle)
 		}
 		if hasTarget {
 			// The user already held exactly roleName at this scope (no other
@@ -107,6 +110,11 @@ func (c *KeyorixCore) SetProjectMemberRole(ctx context.Context, actorID, project
 		}
 		return c.AssignUserRole(ctx, actorID, userID, role.ID, scope, actorIsMachine)
 	})
+	// Each settle exists only for a removal that committed, even if a later step failed.
+	for _, settle := range settles {
+		settle()
+	}
+	return err
 }
 
 // projectAdminGuardLockKey is the WithNamedLock key for guardLastProjectAdmin's
@@ -141,7 +149,8 @@ func (c *KeyorixCore) RemoveProjectMember(ctx context.Context, actorID, projectI
 	// GetUserRoleIDsAt's project_id = 0 OR project_id = ? matching — but still an
 	// availability risk worth refusing outright rather than requiring recovery.
 	// #1646: see SetProjectMemberRole's identical WithNamedLock use above.
-	return c.storage.WithNamedLock(ctx, projectAdminGuardLockKey(projectID), func(ctx context.Context) error {
+	var settle func() // appends the owed rows; called after the project guard lock is released
+	err = c.storage.WithNamedLock(ctx, projectAdminGuardLockKey(projectID), func(ctx context.Context) error {
 		if err := c.guardLastProjectAdmin(ctx, projectID, userID, existing, nil); err != nil {
 			return err
 		}
@@ -156,7 +165,12 @@ func (c *KeyorixCore) RemoveProjectMember(ctx context.Context, actorID, projectI
 		// is not sufficient protection (see below), so a partial failure here must
 		// roll back rather than leave the member's role grants gone but their
 		// secret-level access still live.
-		if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: a revocation, so never blocked by the audit log: the role.removed
+		// rows are owed from this same transaction (runOwedAuditMutation) and appended
+		// after the lock is released.
+		var merr error
+		settle, merr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			if err := tx.RemoveAllProjectRoleGrants(ctx, userID, projectID); err != nil {
 				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 			}
@@ -179,18 +193,21 @@ func (c *KeyorixCore) RemoveProjectMember(ctx context.Context, actorID, projectI
 			if err := tx.DeleteSecretACLsByUserAndProject(ctx, userID, projectID); err != nil {
 				return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 			}
-			return nil
-		}); err != nil {
-			return err
-		}
-		for _, a := range assignments {
-			if a.PrincipalType != "user" || a.PrincipalID != userID {
-				continue
+			for _, a := range assignments {
+				if a.PrincipalType != "user" || a.PrincipalID != userID {
+					continue
+				}
+				c.LogRoleRemovedOn(ctx, tgt, actorID, userID, a.RoleID, Scope{ProjectID: projectID, EnvironmentID: a.EnvironmentID})
 			}
-			c.LogRoleRemoved(ctx, actorID, userID, a.RoleID, Scope{ProjectID: projectID, EnvironmentID: a.EnvironmentID})
-		}
-		return nil
+			return nil
+		})
+		return merr
 	})
+	// settle is set only once the removal has committed; the lock is released.
+	if settle != nil {
+		settle()
+	}
+	return err
 }
 
 // guardLastProjectAdmin refuses an operation that would strip targetID's

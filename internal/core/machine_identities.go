@@ -242,10 +242,16 @@ func (c *KeyorixCore) transitionMachineInTx(ctx context.Context, tx storage.Stor
 func (c *KeyorixCore) TransitionMachineIdentity(ctx context.Context, projectID, id uint, to string, actorID uint) (*models.MachineIdentity, error) {
 	now := c.now()
 	var result *models.MachineIdentity
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	// AUDIT-TX-3: suspend and revoke are revocations, so never blocked by the audit
+	// log, their row owed from this transaction; re-activating restores a credential
+	// holder's access, so that one is grant-shaped and fails closed.
+	settle, err := c.auditedByDirection(ctx, to == MachineActive, func(tx storage.Storage, tgt auditTarget) error {
 		var err error
-		result, err = c.transitionMachineInTx(ctx, tx, projectID, id, to, now)
-		return err
+		if result, err = c.transitionMachineInTx(ctx, tx, projectID, id, to, now); err != nil {
+			return err
+		}
+		c.logMachineEventOn(ctx, tgt, "machine_identity."+machineVerb(to), result, actorID)
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -259,7 +265,7 @@ func (c *KeyorixCore) TransitionMachineIdentity(ctx context.Context, projectID, 
 	if to == MachineSuspended || to == MachineRevoked {
 		c.evictMachineIdentityCacheOrFlush(ctx, id, to)
 	}
-	c.logMachineEvent(ctx, "machine_identity."+machineVerb(to), result, actorID)
+	settle() // after the eviction: the audit log never delays a revocation taking effect
 	return result, nil
 }
 
@@ -349,17 +355,24 @@ func (c *KeyorixCore) ClassifyMachineIdentity(ctx context.Context, projectID, id
 	// clobbered), resurrecting a just-revoked identity. Route through the
 	// same conditional write TransitionMachineIdentity itself uses, gated on
 	// the state this call actually observed.
-	matched, err := c.storage.TransitionMachineIdentityState(ctx, m, fromState)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update machine identity: %w", err)
+	//
+	// AUDIT-TX-3: the new label and its audit row commit together (fail closed).
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, terr := tx.TransitionMachineIdentityState(ctx, m, fromState)
+		if terr != nil {
+			return fmt.Errorf("failed to update machine identity: %w", terr)
+		}
+		if !matched {
+			return fmt.Errorf("machine identity %d: %w", m.ID, ErrMachineStateConflict)
+		}
+		aid, pid := actorID, m.ProjectID
+		diff := fmt.Sprintf(`{"classification":{"before":%q,"after":%q}}`, old, level)
+		c.writeAuditEventDiffOn(ctx, tgt, "machine_identity.classified", &aid, nil, &pid, "",
+			fmt.Sprintf("machine identity %d (%s) classification set to %q", m.ID, m.Name, level), diff)
+		return nil
+	}); err != nil {
+		return nil, err
 	}
-	if !matched {
-		return nil, fmt.Errorf("machine identity %d: %w", m.ID, ErrMachineStateConflict)
-	}
-	aid, pid := actorID, m.ProjectID
-	diff := fmt.Sprintf(`{"classification":{"before":%q,"after":%q}}`, old, level)
-	c.writeAuditEventDiff(ctx, "machine_identity.classified", &aid, nil, &pid, "",
-		fmt.Sprintf("machine identity %d (%s) classification set to %q", m.ID, m.Name, level), diff)
 	return m, nil
 }
 

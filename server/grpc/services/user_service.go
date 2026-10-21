@@ -152,6 +152,10 @@ func (s *UserGRPCService) ReissueOneTimePassword(ctx context.Context, req *pb.Re
 	}
 	res, err := s.core.ReissueOneTimePassword(ctx, actor.UserID, uint(req.GetId()))
 	if err != nil {
+		if perr, ok := partialMutationStatus(err); ok {
+			log.Printf("reissue one-time password for user %d partially applied: %v", req.GetId(), err)
+			return nil, perr
+		}
 		switch {
 		case errors.Is(err, core.ErrCannotActOnSelf):
 			return nil, status.Error(codes.FailedPrecondition, "cannot reissue your own one-time password; use `keyorix-server admin recover-admin` to recover your own account")
@@ -214,6 +218,10 @@ func (s *UserGRPCService) UpdateUser(ctx context.Context, req *pb.UpdateUserRequ
 		IsActive:    req.Active,
 	})
 	if err != nil {
+		if perr, ok := partialMutationStatus(err); ok {
+			log.Printf("update of user %d partially applied: %v", req.GetId(), err)
+			return nil, perr
+		}
 		return nil, mapUserError(err)
 	}
 	return s.userToProto(ctx, u), nil

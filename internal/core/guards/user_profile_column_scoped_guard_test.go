@@ -18,7 +18,6 @@ import "testing"
 // column scoping from the storage body, which is what this asserts).
 func TestUserProfileWrites_AreColumnScoped(t *testing.T) {
 	assertColumnScopedStorageWrite(t, "../../storage/store/local_users.go", "UpdateUserIfActiveStateMatches")
-	assertCoreWritesOnlyVia(t, "../users.go", "UpdateUser", "storage", "UpdateUserIfActiveStateMatches", "UpdateUser", "Save")
 	assertCoreWritesOnlyVia(t, "../users.go", "UpdateUser", "tx", "UpdateUserIfActiveStateMatches", "UpdateUser", "Save")
 	assertCoreWritesOnlyVia(t, "../account.go", "UpdateOwnProfile", "c", "UpdateUser", "UpdateUser", "Save", "UpdateUserIfActiveStateMatches")
 }

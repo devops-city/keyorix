@@ -94,7 +94,7 @@ func NewRBACTestHelper(t *testing.T) *RBACTestHelper {
 		// AUDIT-TX-2: every grant path (role, group, permission, share, machine
 		// identity, PAT, user/project create) commits its audit row in its own
 		// transaction and fails closed without it, so the table must exist.
-		&models.AuditEvent{},
+		&models.AuditEvent{}, &models.PendingAuditEvent{},
 	)
 	require.NoError(t, err)
 

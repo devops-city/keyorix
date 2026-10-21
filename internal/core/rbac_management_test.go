@@ -21,7 +21,7 @@ func newRBACManagementCore(t *testing.T) (*KeyorixCore, *gorm.DB) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
-		&models.AuditEvent{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
+		&models.AuditEvent{}, &models.PendingAuditEvent{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 		// SystemMetadata holds the role_permissions cache-invalidation generation
 		// (PERF-3 PR-2): every role_permissions write bumps it in the same
 		// transaction, so a setup that migrates RolePermission must migrate this

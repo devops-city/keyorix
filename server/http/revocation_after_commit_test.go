@@ -26,12 +26,13 @@ package http
 // cases with the audit log refusing every write from just before the change:
 // a revocation is never blocked or delayed by the audit log (Andrei
 // 2026-10-14, INV-CORE-security-mutation-audit-same-tx's "Revocations are
-// deliberately NOT covered"). Rotation with ReplaceCredentialID is left out
-// there on purpose: it is a credential issue (grant-shaped, fail-closed on the
-// audit, AUDIT-TX-2) and its revoke of the old credential shares that
-// transaction, so with the audit refused the rotation is refused as a whole and
-// the old credential is still live; the plain revoke is the control that is
-// never audit-gated.
+// deliberately NOT covered"). Rotation with ReplaceCredentialID is the one
+// case that still errs there: issuing the replacement is a credential issue (grant-shaped,
+// fail-closed on the audit, AUDIT-TX-2), so with the audit refused the call
+// errs, but since MERGE-FIX-3482G the revoke of the old credential is its own
+// owed commit: the old credential is refused on B even then. The case is
+// still listed (auditGated) and ends in the same refusal assertions, with the
+// audit log given back before the reads.
 //
 // Not covered here: federated OIDC principals (no issuer harness in this
 // package; their cache-hit re-check, CurrentFederatedMachineState, is pinned in
@@ -219,29 +220,19 @@ func racRun(t *testing.T, backend string, tc racCase, firstRoute string, refuseA
 	}
 	err := tc.end(t, w, cred)
 	if refuseAudit && tc.auditGated {
-		require.Error(t, err, "%s is audit-gated (see the file header)", tc.name)
-		// TODAY's behaviour: the refused rotation rolls back as a whole, so the OLD
-		// credential is still live, on replica B too (its warm cache entry included),
-		// on both REST routes and on gRPC.
 		// MERGE-FIX-3482G (Andrei 2026-10-20, ask perf-cred-lookup-1-rotation-audit-gated
-		// = b) splits rotation: revoking the old credential becomes owed and is no
-		// longer audit-gated, issuing the new one stays fail closed. Its one-line
-		// change here: make the old token refused like an unknown token (the
-		// assertion every non-gated case below ends with) instead of "200".
-		//
+		// = b) splits rotation: revoking the old credential is owed and no longer
+		// audit-gated, issuing the new one stays fail closed. So the call errs (the new
+		// credential is refused, a partial apply) while the OLD credential is already
+		// revoked, and B must refuse it exactly like an unknown token below.
+		require.Error(t, err, "%s issues the replacement fail closed while the audit log refuses (see the file header)", tc.name)
 		// The audit log is given back first: a secret READ is itself audit-gated
 		// (secret.read fails closed while the audit refuses), so with the table still
 		// renamed no read could tell a live credential from a revoked one.
 		require.NoError(t, w.a.db.Exec("ALTER TABLE audit_events_refused_rac RENAME TO audit_events").Error)
-		for _, rt := range order {
-			require.Equal(t, "200", racREST(w.b, cred.token, routes[rt], remote),
-				"old %s credential must still authenticate on B after the audit-refused %s (%s route)", tc.kind, tc.name, rt)
-		}
-		require.Equal(t, val, w.read(t, w.b, "grpc", "subject", sec).Value,
-			"old %s credential must still authenticate over gRPC on B after the audit-refused %s", tc.kind, tc.name)
-		return
+	} else {
+		require.NoError(t, err, "ending the credential (%s) must succeed%s", tc.name, map[bool]string{true: " while the audit log refuses", false: ""}[refuseAudit])
 	}
-	require.NoError(t, err, "ending the credential (%s) must succeed%s", tc.name, map[bool]string{true: " while the audit log refuses", false: ""}[refuseAudit])
 
 	unknown := racREST(w.b, racUnknownToken(tc.kind, w.seq.Add(1)), routes[order[0]], remote)
 	require.Contains(t, unknown, "401", "reference: an unknown %s token", tc.kind)

@@ -98,7 +98,7 @@ func (d *pgDelayedRestoreGroupStorage) store() storage.Storage { return d.wrap(d
 var restoreGroupTOCTOUPGModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-	&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SoDPolicy{},
+	&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.PendingAuditEvent{}, &models.SoDPolicy{},
 }
 
 func TestConcurrency_RestoreGroup_AdminGrantRace_CrossReplicaPostgres(t *testing.T) {

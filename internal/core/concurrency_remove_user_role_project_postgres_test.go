@@ -65,7 +65,7 @@ func (d *pgDelayedRemoveRoleStorage) store() storage.Storage { return d.wrap(d.i
 var removeUserRoleProjectModels = []any{
 	&models.User{}, &models.Session{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
-	&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.SystemMetadata{},
+	&models.Project{}, &models.Environment{}, &models.AuditEvent{}, &models.PendingAuditEvent{}, &models.SystemMetadata{},
 }
 
 // TestConcurrency_RemoveUserRole_ProjectScope_CrossReplicaPostgres proves

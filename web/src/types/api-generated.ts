@@ -734,7 +734,7 @@ export interface paths {
         get: operations["getProject"];
         /**
          * Update a project's name/description
-         * @description Update the name and/or description of an existing project by ID.
+         * @description Update the name and/or description of an existing project by ID. A request that narrows access and also widens it is applied in two steps, the narrowing first; if the second step cannot be recorded in the audit log the answer is 503 with error MutationPartiallyApplied and details {code: mutation_partially_applied, revocation_applied: true, remainder_applied: false, applied, not_applied, retry_safe: true}: the narrowing is applied, the rest is not, and the same request can be retried.
          */
         put: operations["updateProject"];
         post?: never;
@@ -3509,7 +3509,7 @@ export interface paths {
         get: operations["getUser"];
         /**
          * Update user
-         * @description Update a user's username, email, display name, or active status by ID.
+         * @description Update a user's username, email, display name, or active status by ID. A request that narrows access and also widens it is applied in two steps, the narrowing first; if the second step cannot be recorded in the audit log the answer is 503 with error MutationPartiallyApplied and details {code: mutation_partially_applied, revocation_applied: true, remainder_applied: false, applied, not_applied, retry_safe: true}: the narrowing is applied, the rest is not, and the same request can be retried.
          */
         put: operations["updateUser"];
         post?: never;
@@ -3646,7 +3646,7 @@ export interface paths {
         put?: never;
         /**
          * Reissue a one-time password for an existing user (REISSUE-1)
-         * @description Issue a new server-generated one-time password for an existing local user and return it ONCE in this response, for the administrator to relay out of band. Requires users.write (the same permission as creating a user with a one-time password) and the admin-rank ceiling over the target. The password expires after security.one_time_password_ttl (default 72h); the account is put into password_reset_required, so its first login is confined to changing the password (and to MFA enrolment where security.require_mfa applies); every existing session of the user ends. An enrolled second factor is kept. Personal access tokens are handled as for require-password-reset (restricted at once, revoked when the user sets a new password). Refused for the caller's own account (400, use `keyorix-server admin recover-admin`), for an externally-managed (SSO/SCIM) account and for a suspended or inactive one (409). Audited as user.one_time_password_reissued (actor and target, never the password).
+         * @description Issue a new server-generated one-time password for an existing local user and return it ONCE in this response, for the administrator to relay out of band. Requires users.write (the same permission as creating a user with a one-time password) and the admin-rank ceiling over the target. The password expires after security.one_time_password_ttl (default 72h); the account is put into password_reset_required, so its first login is confined to changing the password (and to MFA enrolment where security.require_mfa applies); every existing session of the user ends. An enrolled second factor is kept. Personal access tokens are handled as for require-password-reset (restricted at once, revoked when the user sets a new password). Refused for the caller's own account (400, use `keyorix-server admin recover-admin`), for an externally-managed (SSO/SCIM) account and for a suspended or inactive one (409). Audited as user.one_time_password_reissue_restricted (the restriction and the end of the sessions, applied first) and user.one_time_password_reissued (actor and target, never the password). If the audit log refuses the second row no password is issued: 503 MutationPartiallyApplied (details.code mutation_partially_applied, revocation_applied true, remainder_applied false), the account stays restricted, and the request can be retried.
          */
         post: operations["reissueOneTimePassword"];
         delete?: never;
@@ -7329,6 +7329,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     deleteProject: {
@@ -12392,6 +12393,7 @@ export interface operations {
             401: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     deleteUser: {
@@ -12553,6 +12555,7 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             409: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     revokeUserSessions: {

@@ -29,6 +29,8 @@ func getACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage 
 	})
 }
 
+// WrapTx keeps the fault on the transaction-scoped handle: the grant is written
+// through tx since AUDIT-TX-2 (it commits with its audit row).
 func createACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
 	return hooked(inner, &storeHooks{
 		WrapTx: true,
@@ -38,8 +40,6 @@ func createACLErrStorage(inner corestorage.Storage, err error) corestorage.Stora
 	})
 }
 
-// WithTransaction keeps the fault on the transaction-scoped handle: the grant
-// is written through tx since AUDIT-TX-2 (it commits with its audit row).
 func listACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
 	return hooked(inner, &storeHooks{
 		ListSecretACLs: func(_ corestorage.Storage, ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
@@ -48,8 +48,10 @@ func listACLErrStorage(inner corestorage.Storage, err error) corestorage.Storage
 	})
 }
 
+// WrapTx: the delete runs inside the mutation's audited transaction (AUDIT-TX-3).
 func deleteACLErrStorage(inner corestorage.Storage, acls []*models.SecretACL, err error) corestorage.Storage {
 	return hooked(inner, &storeHooks{
+		WrapTx: true,
 		ListSecretACLs: func(_ corestorage.Storage, ctx context.Context, secretID uint) ([]*models.SecretACL, error) {
 			return acls, nil
 		},

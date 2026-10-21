@@ -208,6 +208,9 @@ func (h *SCIMHandler) ReplaceGroup(w http.ResponseWriter, r *http.Request) {
 	g, err := h.coreService.ReplaceSCIMGroup(r.Context(), 0, id, p.DisplayName, p.memberIDs())
 	if err != nil {
 		log.Printf("Error replacing SCIM group %d: %v", id, err)
+		if scimPartialMutation(w, err) {
+			return
+		}
 		scimError(w, http.StatusNotFound, clientSafe(err))
 		return
 	}
@@ -312,6 +315,9 @@ func (h *SCIMHandler) PatchGroup(w http.ResponseWriter, r *http.Request) { // NO
 	}
 	if err != nil {
 		log.Printf("Error patching SCIM group %d: %v", id, err)
+		if scimPartialMutation(w, err) {
+			return
+		}
 		scimError(w, http.StatusNotFound, clientSafe(err))
 		return
 	}

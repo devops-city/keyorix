@@ -194,16 +194,25 @@ func (c *KeyorixCore) CreateRiskException(ctx context.Context, actorID uint, act
 	if err := c.validateSoDReferenceIsLiveViolation(ctx, category, reference); err != nil {
 		return nil, err
 	}
-	created, err := c.storage.CreateRiskException(ctx, &models.RiskException{
-		Title: title, Category: category, Reference: reference, Justification: justification,
-		CreatedBy: actorID, CreatedAt: c.now(), ExpiresAt: expiresAt,
-	})
-	if err != nil {
+	// AUDIT-TX-3: accepting a control gap is governance-weakening, so the exception
+	// and its audit row commit together (fail closed).
+	var created *models.RiskException
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		var cerr error
+		created, cerr = tx.CreateRiskException(ctx, &models.RiskException{
+			Title: title, Category: category, Reference: reference, Justification: justification,
+			CreatedBy: actorID, CreatedAt: c.now(), ExpiresAt: expiresAt,
+		})
+		if cerr != nil {
+			return cerr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventRiskExceptionCreated, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("risk exception %d accepted: %q (category=%s, ref=%q) until %s",
+				created.ID, title, category, reference, expiresAt.UTC().Format(time.RFC3339)))
+		return nil
+	}); err != nil {
 		return nil, err
 	}
-	c.writeAuditEvent(ctx, EventRiskExceptionCreated, actorPtr(actorID), nil,
-		fmt.Sprintf("risk exception %d accepted: %q (category=%s, ref=%q) until %s",
-			created.ID, title, category, reference, expiresAt.UTC().Format(time.RFC3339)))
 	return created, nil
 }
 
@@ -319,21 +328,26 @@ func (c *KeyorixCore) RevokeRiskException(ctx context.Context, actorID, id uint)
 	e.Revoked = true
 	e.RevokedBy = actorID
 	e.RevokedAt = &now
-	matched, err := c.storage.RevokeRiskExceptionIfNotRevoked(ctx, e)
-	if err != nil {
-		return err
-	}
-	if !matched {
-		// Lost the race: the row's persisted revoked flag moved to true between
-		// the GetRiskException read above and this write (a concurrent
-		// RevokeRiskException or ApproveRiskException call) — treat exactly like
-		// the already-revoked precondition failure above rather than silently
-		// overwriting the winner (StateTransitionMissingCAS.ql).
-		return fmt.Errorf("risk exception %d was concurrently revoked by another request: %w", id, ErrRiskExceptionConcurrentlyRevoked)
-	}
-	c.writeAuditEvent(ctx, EventRiskExceptionRevoked, actorPtr(actorID), nil,
-		fmt.Sprintf("risk exception %d revoked: %q", id, e.Title))
-	return nil
+	// AUDIT-TX-3: revoking an exception puts a violation back on the record: a
+	// revocation, so never blocked by the audit log; its row is owed from this
+	// transaction.
+	return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, rerr := tx.RevokeRiskExceptionIfNotRevoked(ctx, e)
+		if rerr != nil {
+			return rerr
+		}
+		if !matched {
+			// Lost the race: the row's persisted revoked flag moved to true between
+			// the GetRiskException read above and this write (a concurrent
+			// RevokeRiskException or ApproveRiskException call) — treat exactly like
+			// the already-revoked precondition failure above rather than silently
+			// overwriting the winner (StateTransitionMissingCAS.ql).
+			return fmt.Errorf("risk exception %d was concurrently revoked by another request: %w", id, ErrRiskExceptionConcurrentlyRevoked)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventRiskExceptionRevoked, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("risk exception %d revoked: %q", id, e.Title))
+		return nil
+	})
 }
 
 // ApproveRiskException dual-controls an exception (#170): actorID must be a
@@ -388,21 +402,25 @@ func (c *KeyorixCore) ApproveRiskException(ctx context.Context, actorID uint, ac
 	e.Approved = true
 	e.ApprovedBy = actorID
 	e.ApprovedAt = &now
-	matched, err := c.storage.ApproveRiskExceptionIfPending(ctx, e)
-	if err != nil {
-		return err
-	}
-	if !matched {
-		// Lost the race: the row's persisted revoked/approved flags moved between
-		// the GetRiskException read above and this write (a concurrent
-		// RevokeRiskException or ApproveRiskException call) — treat exactly like
-		// the already-revoked/already-approved precondition failures above rather
-		// than silently overwriting the winner (StateTransitionMissingCAS.ql).
-		return fmt.Errorf("risk exception %d was concurrently revoked or approved by another request: %w", id, ErrRiskExceptionConcurrentlyDecided)
-	}
-	c.writeAuditEvent(ctx, EventRiskExceptionApproved, actorPtr(actorID), nil,
-		fmt.Sprintf("risk exception %d approved by %d (created by %d): %q", id, actorID, e.CreatedBy, e.Title))
-	return nil
+	// AUDIT-TX-3: an approval suppresses a violation from the posture, so it is
+	// grant-shaped: the approval and its audit row commit together (fail closed).
+	return c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		matched, aerr := tx.ApproveRiskExceptionIfPending(ctx, e)
+		if aerr != nil {
+			return aerr
+		}
+		if !matched {
+			// Lost the race: the row's persisted revoked/approved flags moved between
+			// the GetRiskException read above and this write (a concurrent
+			// RevokeRiskException or ApproveRiskException call) — treat exactly like
+			// the already-revoked/already-approved precondition failures above rather
+			// than silently overwriting the winner (StateTransitionMissingCAS.ql).
+			return fmt.Errorf("risk exception %d was concurrently revoked or approved by another request: %w", id, ErrRiskExceptionConcurrentlyDecided)
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventRiskExceptionApproved, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("risk exception %d approved by %d (created by %d): %q", id, actorID, e.CreatedBy, e.Title))
+		return nil
+	})
 }
 
 // CountActiveRiskExceptions returns how many exceptions are currently active and how

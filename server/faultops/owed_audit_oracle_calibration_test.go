@@ -1,0 +1,585 @@
+// owed_audit_oracle_calibration_test.go -- red/green calibration of the owed-audit rule
+// in owed_audit_oracle_test.go (read its file comment first).
+//
+// A rule that accepts something is only as good as the cases it still refuses, so
+// every case here runs a REAL driven fault case (driveFaultCase: reference world +
+// faulted world over the real REST stack) and either feeds it to the rule untouched
+// (GREEN) or damages the faulted world's state the way a regression would (RED), then
+// re-snapshots and asks the real checkOraclesReporting. Nothing is hand-written state
+// except where the case is "the state a different bug would leave".
+//
+//	GREEN  g1  group-member removal, LogAuditEvent#1: owed row + pending row, backfill converges
+//	       g2  SSO callback, ClaimPendingAuditEvent#1 (the CI seed 5012b3d0b086d4a4)
+//	       g3  group-member removal, CreatePendingAuditEvent#1: rule does NOT apply, state == reference
+//	       g6  plain secret suspend, ClaimPendingAuditEvent#1 (CI input 7800103230, MERGE-FIX-3482J)
+//	       g7  group-member removal, WithTransaction#2 (the settle transaction refused)
+//	       e1  group-member removal, WithTransaction#1 effect-then-error: reported error, revocation + record committed
+//	       e2  SSO callback, WithTransaction#1 effect-then-error: failed login after a committed revocation
+//	RED    i   neither an audit row nor a pending row
+//	       i-sso2 the second owed row of the SSO callback (role.removed) neither written nor queued
+//	       i2  the pending record AND the direct audit write both failed (state: effect, no row, no record)
+//	       ii  pending rows fewer than missing audit rows / a duplicated pending row
+//	       iii backfill not run / does nothing / over-writes (duplicate audit row)
+//	       iv  pending row present but the effect missing
+//	       v   a fault outside the scope producing the same diff
+//	       vi  an op outside auditTx3RevocationOps with the same diff
+//	       e-i   e1 with its pending record removed (oracle (d), rule)
+//	       e-ii  e1 with a duplicated pending record (oracle (d), rule)
+//	       e-sso e2 with its pending record removed: a removed membership with no owed row (oracle (d), rule)
+//	       e-sso2 e2 with a duplicated pending record (oracle (d), rule)
+package faultops
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"maps"
+	"os"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/keyorixhq/keyorix/internal/faultstorage"
+	"github.com/keyorixhq/keyorix/internal/storage/models"
+)
+
+const owedCalOp = "REST DELETE /api/v1/groups/{id}/members/{userId}"
+
+// owedCalTwoRowOp owes two audit rows (the sweep logs the ops that do).
+const owedCalTwoRowOp = "REST POST /api/v1/projects/{id}/break-glass/{activationId}/revoke"
+
+// owedCalDriveRaw drives one case WITHOUT convergence: the harness's own oracle call
+// inside the drive must leave the faulted world in its pre-backfill state (see
+// owedAuditDepsFor). The caller then runs the oracle (owedCalFindings) itself.
+func owedCalDriveRaw(t *testing.T, op, method string, nth int, kind faultstorage.FaultKind) (oracleInput, driveOutcome, string) {
+	t.Helper()
+	saved := owedAuditDepsFor
+	owedAuditDepsFor = func(*faultWorld) owedAuditDeps { return owedAuditDeps{} }
+	defer func() { owedAuditDepsFor = saved }()
+	return driveFaultCase(t, op, method, nth, kind)
+}
+
+func owedCalDrive(t *testing.T, op, method string, nth int, kind faultstorage.FaultKind) oracleInput {
+	t.Helper()
+	in, outcome, why := owedCalDriveRaw(t, op, method, nth, kind)
+	require.Equal(t, driveObserved, outcome, "case %s %s#%d/%s was not observed: %s", op, method, nth, kind, why)
+	require.NotNil(t, in.world, "the oracle input must carry the faulted world")
+	require.True(t, in.result.Success, "%s must still succeed under %s#%d: %s", op, method, nth, in.result.Detail)
+	return in
+}
+
+func owedCalFindings(t *testing.T, in oracleInput) []string {
+	t.Helper()
+	return oracleFindingsWithout(t, in, func() func() { return func() {} })
+}
+
+// owedCalResnapshot re-takes the faulted world's snapshot after the test damaged it.
+func owedCalResnapshot(t *testing.T, in oracleInput) oracleInput {
+	t.Helper()
+	snap, err := snapshotDB(in.world.db)
+	require.NoError(t, err)
+	in.after = snap
+	return in
+}
+
+// owedCalSplice returns base with the named tables replaced by from's, and the overall
+// hash recomputed by snapshotDB's formula: the state "this run's audit tables, that
+// run's everything else".
+func owedCalSplice(base, from dbSnapshot, tables ...string) dbSnapshot {
+	out := dbSnapshot{Tables: make(map[string]tableSnapshot, len(base.Tables))}
+	maps.Copy(out.Tables, base.Tables)
+	for _, name := range tables {
+		out.Tables[name] = from.Tables[name]
+	}
+	var lines []string
+	for _, ts := range out.Tables {
+		lines = append(lines, ts.Table+":"+ts.Hash)
+	}
+	sort.Strings(lines)
+	h := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	out.Hash = hex.EncodeToString(h[:])
+	return out
+}
+
+func owedCalViolates(findings []string, rule bool) bool {
+	return owedCalViolatesOracle(findings, "a", rule)
+}
+
+func owedCalViolatesOracle(findings []string, oracle string, rule bool) bool {
+	for _, f := range findings {
+		if strings.Contains(f, "ORACLE ("+oracle+") VIOLATION") && strings.Contains(f, "owed-audit rule") == rule {
+			return true
+		}
+	}
+	return false
+}
+
+// owedCalDriveETE drives op under WithTransaction#1 effect-then-error: the owing
+// transaction commits and reports an error, so the request fails with the revocation
+// and one pending record committed.
+func owedCalDriveETE(t *testing.T, op string) oracleInput {
+	t.Helper()
+	in, outcome, why := owedCalDriveRaw(t, op, "WithTransaction", 1, faultstorage.KindEffectThenError)
+	require.Equal(t, driveObserved, outcome, "case %s WithTransaction#1/effect-then-error was not observed: %s", op, why)
+	require.NotNil(t, in.world, "the oracle input must carry the faulted world")
+	require.False(t, in.result.Success, "premise: %s reports the error: %s", op, in.result.Detail)
+	require.EqualValues(t, 1, len(in.after.Tables[owedAuditPendingTable].Rows), "premise: the revocation's record committed")
+	return in
+}
+
+func owedSweepWide() bool { return os.Getenv("KEYORIX_OWED_SWEEP_WIDE") == "1" }
+
+type owedCalRow struct{ name, expected, got string }
+
+func TestOwedAuditOracle_Calibration(t *testing.T) {
+	var rows []owedCalRow
+	record := func(name, expected string, ok bool, got string) {
+		if !ok {
+			t.Errorf("%s: expected %s, got %s", name, expected, got)
+		}
+		rows = append(rows, owedCalRow{name, expected, got})
+	}
+	exec := func(in oracleInput, sql string, args ...any) {
+		t.Helper()
+		require.NoError(t, in.world.db.Exec(sql, args...).Error)
+	}
+
+	t.Run("GREEN", func(t *testing.T) {
+		for _, c := range []struct {
+			name, op, method string
+			nth              int
+		}{
+			{"g1 owed outcome, LogAuditEvent#1, backfill converges", owedCalOp, "LogAuditEvent", 1},
+			{"g2 SSO callback ClaimPendingAuditEvent#1 (seed 5012b3d0b086d4a4)", owedAuditSSOCallbackOp, "ClaimPendingAuditEvent", 1},
+			{"g4 two owed rows (break-glass revoke), LogAuditEvent#1: both queued, backfill converges", owedCalTwoRowOp, "LogAuditEvent", 1},
+			// SAML ACS: its one owed row (role.removed of the JIT baseline role) comes from the
+			// role reconcile it shares with the SSO callback (sso.go reconcileSSORoles).
+			{"g5 SAML ACS ClaimPendingAuditEvent#1 (role.removed queued), backfill converges", owedAuditSAMLACSOp, "ClaimPendingAuditEvent", 1},
+			// The plain secret suspend owes secret.suspended through commitOwingAudit; the
+			// claim of that record failing is the CI input 7800103230 (MERGE-FIX-3482J).
+			{"g6 secret suspend ClaimPendingAuditEvent#1 (CI input 7800103230), backfill converges", owedAuditSecretSuspendOp, "ClaimPendingAuditEvent", 1},
+			// The settle transaction (claim + append) itself refused: the same owed outcome.
+			{"g7 owed outcome, WithTransaction#2 (settle transaction refused), backfill converges", owedCalOp, "WithTransaction", 2},
+		} {
+			in := owedCalDrive(t, c.op, c.method, c.nth, faultstorage.KindError)
+			require.NotEqual(t, in.refAfter.Hash, in.after.Hash, "premise: the owed outcome differs from the reference before the backfill")
+			wantPending := 1
+			if c.op == owedCalTwoRowOp {
+				wantPending = 2
+			}
+			require.EqualValues(t, wantPending, len(in.after.Tables[owedAuditPendingTable].Rows), "premise: one pending record per owed row")
+			d := owedAuditVerdict(in, owedAuditDepsFor(in.world))
+			f := owedCalFindings(t, owedCalDriveAgain(t, c.op, c.method, c.nth))
+			ok := d.engaged && d.violation == "" && len(f) == 0
+			record(c.name, "accepted by the rule, no finding", ok, fmt.Sprintf("engaged=%t violation=%q findings=%v", d.engaged, d.violation, f))
+		}
+
+		// g3: the pending-record write fails too -> the rule does not apply; the
+		// fallback (effect applied, row attempted directly) must equal the reference.
+		in := owedCalDrive(t, owedCalOp, "CreatePendingAuditEvent", 1, faultstorage.KindError)
+		d := owedAuditVerdict(in, owedAuditDepsFor(in.world))
+		f := owedCalFindings(t, in)
+		ok := !d.engaged && in.after.Hash == in.refAfter.Hash && len(f) == 0
+		record("g3 CreatePendingAuditEvent#1: rule not applied, final state == reference (row written directly)",
+			"state equals the reference, no finding", ok,
+			fmt.Sprintf("engaged=%t sameAsReference=%t findings=%v", d.engaged, in.after.Hash == in.refAfter.Hash, f))
+
+		// e1/e2: the owing transaction commits and reports an error (effect-then-error on
+		// WithTransaction#1): the request fails, the revocation and its record are in.
+		for _, c := range []struct{ name, op string }{
+			{"e1 WithTransaction#1 effect-then-error: reported error, revocation + record committed, backfill converges", owedCalOp},
+			{"e2 SSO callback WithTransaction#1 effect-then-error: failed login after a committed revocation, drains to SSO class C", owedAuditSSOCallbackOp},
+		} {
+			in := owedCalDriveETE(t, c.op)
+			d := owedAuditVerdict(in, owedAuditDepsFor(in.world))
+			f := owedCalFindings(t, owedCalDriveETE(t, c.op))
+			ok := d.engaged && d.violation == "" && len(f) == 0
+			record(c.name, "accepted by the rule, no finding", ok, fmt.Sprintf("engaged=%t violation=%q findings=%v", d.engaged, d.violation, f))
+		}
+	})
+
+	t.Run("RED", func(t *testing.T) {
+		// i: neither an audit row nor a pending row.
+		in := owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		exec(in, "DELETE FROM pending_audit_events")
+		in = owedCalResnapshot(t, in)
+		f := owedCalFindings(t, in)
+		record("i  neither audit row nor pending row", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// i-saml: the same on the SAML ACS op. Its first audit call is a best-effort row
+		// (auth.sso_jit_provisioned), so this also pins the probe: refusing only
+		// LogAuditEvent#1 learned no owed type for this op, and the lost row was accepted.
+		in = owedCalDrive(t, owedAuditSAMLACSOp, "ClaimPendingAuditEvent", 1, faultstorage.KindError)
+		require.EqualValues(t, 1, len(in.after.Tables[owedAuditPendingTable].Rows), "premise: the SAML ACS op queued its owed row")
+		exec(in, "DELETE FROM pending_audit_events")
+		in = owedCalResnapshot(t, in)
+		f = owedCalFindings(t, in)
+		record("i-saml SAML ACS: neither audit row nor pending row", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// i-sso2: the SECOND owed mutation of the SSO callback is lost. The callback owes
+		// group.member_removed (group reconcile) and role.removed (role reconcile). A probe
+		// that refused only LogAuditEvent#1 learned the first type only, so a role.removed
+		// that was neither written nor queued was accepted as "best-effort lost". The reconcile
+		// order is sorted (sso.go), so the n that refuses the role removal is stable; the
+		// scan below finds it instead of hard-coding it.
+		found := false
+		for nth := 1; nth <= 8 && !found; nth++ {
+			in, outcome, _ := owedCalDriveRaw(t, owedAuditSSOCallbackOp, "LogAuditEvent", nth, faultstorage.KindError)
+			if outcome != driveObserved || !in.result.Success {
+				continue
+			}
+			var n int64
+			require.NoError(t, in.world.db.Table("pending_audit_events").Where("event_type = ?", "role.removed").Count(&n).Error)
+			if n != 1 {
+				continue
+			}
+			found = true
+			exec(in, "DELETE FROM pending_audit_events WHERE event_type = ?", "role.removed")
+			in = owedCalResnapshot(t, in)
+			f = owedCalFindings(t, in)
+			record(fmt.Sprintf("i-sso2 SSO callback (LogAuditEvent#%d): second owed row (role.removed) neither written nor queued", nth),
+				"violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+		}
+		require.True(t, found, "premise: some LogAuditEvent#n of the SSO callback must queue role.removed (deterministic since the reconcile iterates sorted keys)")
+
+		// i2: the pending record and the direct write both failed: the effect stands,
+		// no audit row, no record. Built on the CreatePendingAuditEvent case by removing
+		// the row the fallback wrote directly.
+		in = owedCalDrive(t, owedCalOp, "CreatePendingAuditEvent", 1, faultstorage.KindError)
+		exec(in, "DELETE FROM audit_events WHERE id = (SELECT MAX(id) FROM audit_events)")
+		in = owedCalResnapshot(t, in)
+		f = owedCalFindings(t, in)
+		record("i2 pending write AND direct audit write both failed ('NOT queued, record it by hand')", "violation (rule)",
+			owedCalViolates(f, true), fmt.Sprint(f))
+
+		// ii-c: two rows owed, only one of them queued (pending 1 < missing 2).
+		in = owedCalDrive(t, owedCalTwoRowOp, "LogAuditEvent", 1, faultstorage.KindError)
+		require.EqualValues(t, 2, len(in.after.Tables[owedAuditPendingTable].Rows), "premise: two pending records")
+		exec(in, "DELETE FROM pending_audit_events WHERE id = (SELECT MAX(id) FROM pending_audit_events)")
+		in = owedCalResnapshot(t, in)
+		f = owedCalFindings(t, in)
+		record("ii-c two rows owed, one pending record (pending 1 < missing 2)", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// ii-a: an audit row is lost in the same run as a queued record.
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		exec(in, "DELETE FROM audit_events WHERE id = (SELECT MAX(id) FROM audit_events)")
+		in = owedCalResnapshot(t, in)
+		f = owedCalFindings(t, in)
+		record("ii-a an audit row lost besides the queued one (cannot be attributed)", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// ii-b: a duplicated pending record for one event.
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		exec(in, "INSERT INTO pending_audit_events (event_type, event, last_error, attempts, created_at, updated_at) "+
+			"SELECT event_type, event, last_error, attempts, created_at, updated_at FROM pending_audit_events")
+		in = owedCalResnapshot(t, in)
+		f = owedCalFindings(t, in)
+		record("ii-b two pending rows for one event", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// iii: convergence. The state is the real owed outcome; only the backfill step differs.
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		d := owedAuditVerdict(in, owedAuditDeps{owedTypes: owedAuditProbeFor(in.world)})
+		record("iii-a backfill not run", "violation", d.engaged && d.violation != "", fmt.Sprintf("%+v", d))
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		require.EqualValues(t, 1, int64(len(in.after.Tables[owedAuditPendingTable].Rows)), "premise: pending record present")
+		d = owedAuditVerdict(in, owedAuditDeps{owedTypes: owedAuditProbeFor(in.world), converge: func() (dbSnapshot, error) { return snapshotDB(in.world.db) }})
+		record("iii-b backfill does nothing (pending row stays)", "violation", d.engaged && d.violation != "", fmt.Sprintf("%+v", d))
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		d = owedAuditVerdict(in, owedAuditDeps{owedTypes: owedAuditProbeFor(in.world), converge: func() (dbSnapshot, error) {
+			real := owedAuditConvergeFor(in.world)
+			if _, err := real(); err != nil {
+				return dbSnapshot{}, err
+			}
+			var ev models.AuditEvent
+			if err := in.world.db.Order("id desc").First(&ev).Error; err != nil {
+				return dbSnapshot{}, err
+			}
+			ev.ID = 0
+			if err := in.world.db.Create(&ev).Error; err != nil { // the row written twice
+				return dbSnapshot{}, err
+			}
+			return snapshotDB(in.world.db)
+		}})
+		record("iii-c backfill writes a row twice", "violation", d.engaged && d.violation != "", fmt.Sprintf("%+v", d))
+
+		// iv: pending row present but the effect missing (audit tables of the owed
+		// outcome, everything else as before the request).
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		in.after = owedCalSplice(in.before, in.after, owedAuditAuditTable, owedAuditPendingTable)
+		f = owedCalFindings(t, in)
+		record("iv  pending row present, effect missing", "violation (rule)", owedCalViolates(f, true), fmt.Sprint(f))
+
+		// v: a fault outside the scope producing the same diff.
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		in.method = "GetSystemMetadata"
+		d = owedAuditVerdict(in, owedAuditDepsFor(in.world))
+		f = owedCalFindings(t, in)
+		record("v   unrelated storage fault (GetSystemMetadata) with the owed diff", "violation (not the rule's), rule not engaged",
+			!d.engaged && owedCalViolates(f, false), fmt.Sprintf("engaged=%t findings=%v", d.engaged, f))
+
+		// vi: an op outside auditTx3RevocationOps with the same diff.
+		in = owedCalDrive(t, owedCalOp, "LogAuditEvent", 1, faultstorage.KindError)
+		in.op = "REST POST /api/v1/groups/"
+		d = owedAuditVerdict(in, owedAuditDepsFor(in.world))
+		f = owedCalFindings(t, in)
+		record("vi  op outside auditTx3RevocationOps with the owed diff", "violation (not the rule's), rule not engaged",
+			!d.engaged && owedCalViolates(f, false), fmt.Sprintf("engaged=%t findings=%v", d.engaged, f))
+
+		// e-*: the effect-then-error outcome damaged the way a regression would.
+		for _, c := range []struct{ name, op, sql string }{
+			{"e-i   reported error, record removed (revocation committed, row neither written nor queued)", owedCalOp,
+				"DELETE FROM pending_audit_events"},
+			{"e-ii  reported error, pending record duplicated", owedCalOp,
+				"INSERT INTO pending_audit_events (event_type, event, last_error, attempts, created_at, updated_at) " +
+					"SELECT event_type, event, last_error, attempts, created_at, updated_at FROM pending_audit_events"},
+			{"e-sso failed SSO login, record removed (a removed membership with no owed row)", owedAuditSSOCallbackOp,
+				"DELETE FROM pending_audit_events"},
+			{"e-sso2 failed SSO login, pending record duplicated", owedAuditSSOCallbackOp,
+				"INSERT INTO pending_audit_events (event_type, event, last_error, attempts, created_at, updated_at) " +
+					"SELECT event_type, event, last_error, attempts, created_at, updated_at FROM pending_audit_events"},
+		} {
+			in := owedCalDriveETE(t, c.op)
+			exec(in, c.sql)
+			in = owedCalResnapshot(t, in)
+			f := owedCalFindings(t, in)
+			record(c.name, "violation (rule, oracle d)", owedCalViolatesOracle(f, "d", true), fmt.Sprint(f))
+		}
+	})
+
+	var b strings.Builder
+	b.WriteString("\n| case | expected | got |\n|---|---|---|\n")
+	for _, r := range rows {
+		got := r.got
+		for _, o := range []string{"a", "d"} {
+			if _, rest, ok := strings.Cut(got, "ORACLE ("+o+") VIOLATION — "); ok {
+				got = "ORACLE (" + o + ") VIOLATION — " + rest // drop the op/fault prefix every row repeats
+			}
+		}
+		if len(got) > 330 {
+			got = got[:330] + "..."
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s |\n", r.name, r.expected, strings.ReplaceAll(got, "|", "/"))
+	}
+	t.Log(b.String())
+}
+
+// owedCalDriveAgain re-drives a case for the full-oracle check: the first drive's world
+// was already backfilled by the verdict call (it mutates the world, by design).
+func owedCalDriveAgain(t *testing.T, op, method string, nth int) oracleInput {
+	return owedCalDrive(t, op, method, nth, faultstorage.KindError)
+}
+
+// TestOwedAuditOracle_EmbeddedTimeNormalisation pins what the payload comparison ignores
+// (a timestamp's value inside text) and what it still compares (everything else).
+func TestOwedAuditOracle_EmbeddedTimeNormalisation(t *testing.T) {
+	t.Parallel()
+	canon := func(desc string) string {
+		p, err := owedAuditCanon(map[string]any{"ID": 7, "EventType": "setup_token.issued", "Description": desc}, false)
+		require.NoError(t, err)
+		return p
+	}
+	const base = "setup token issued (purpose=invitation_accept, subject=a@example.com, expires=%s)"
+	require.Equal(t, canon(fmt.Sprintf(base, "2026-10-21T14:57:33Z")), canon(fmt.Sprintf(base, "2026-10-21T14:57:34Z")),
+		"a timestamp that differs by a second between two worlds is the same payload")
+	require.Equal(t, canon(fmt.Sprintf(base, "2026-10-21T14:57:33Z")), canon(fmt.Sprintf(base, "2026-10-21T16:57:33.5+02:00")))
+	require.NotEqual(t, canon(fmt.Sprintf(base, "2026-10-21T14:57:33Z")), canon("setup token issued (purpose=invitation_accept, subject=b@example.com, expires=2026-10-21T14:57:33Z)"),
+		"a different subject is a different payload")
+	require.NotEqual(t, canon(fmt.Sprintf(base, "2026-10-21T14:57:33Z")), canon("setup token revoked (purpose=invitation_accept, subject=a@example.com, expires=2026-10-21T14:57:33Z)"),
+		"different text around the time is a different payload")
+	require.NotEqual(t, canon(fmt.Sprintf(base, "2026-10-21T14:57:33Z")), canon(fmt.Sprintf(base, "tomorrow")),
+		"a value that is not a timestamp is not normalised away")
+}
+
+// TestOwedAuditOracle_PendingEventSnapshotIgnoresOnlyTime pins the snapshot's handling
+// of PendingAuditEvent.Event (typeScopedTimeInText): the event's wall-clock EventTime is
+// ignored, and nothing else in the column is.
+func TestOwedAuditOracle_PendingEventSnapshotIgnoresOnlyTime(t *testing.T) {
+	t.Parallel()
+	ev := func(at, desc string) *models.PendingAuditEvent {
+		return &models.PendingAuditEvent{ID: 1, EventType: "group.member_removed", Attempts: 1,
+			Event: fmt.Sprintf(`{"EventType":"group.member_removed","Description":%q,"EventTime":%q}`, desc, at)}
+	}
+	canon := func(p *models.PendingAuditEvent) string {
+		s, err := canonicalRow(p)
+		require.NoError(t, err)
+		return s
+	}
+	require.Equal(t, canon(ev("2026-10-20T17:04:41.362827+02:00", "removed")), canon(ev("2026-10-20T17:04:49.083121+02:00", "removed")),
+		"two worlds never share a clock reading")
+	require.NotEqual(t, canon(ev("2026-10-20T17:04:41+02:00", "removed")), canon(ev("2026-10-20T17:04:41+02:00", "removed twice")),
+		"a different payload is a different row")
+}
+
+// TestOwedAuditOracle_ScopeIsExact pins condition 1 without a world: only a SUCCESS,
+// only the listed ops, only the listed faults engage the rule.
+func TestOwedAuditOracle_ScopeIsExact(t *testing.T) {
+	t.Parallel()
+	require.True(t, owedAuditRuleOp(owedAuditSSOCallbackOp))
+	require.True(t, owedAuditRuleOp(owedAuditSecretSuspendOp), "the plain secret suspend owes its row (commitOwingAudit)")
+	for _, op := range auditTx3RevocationOps {
+		require.True(t, owedAuditRuleOp(op), op)
+	}
+	for _, op := range auditTx3FailClosedOps {
+		require.False(t, owedAuditRuleOp(op), "%s is a fail-closed op, not a revocation", op)
+	}
+	differing := func(op, method string, success bool) oracleInput {
+		a := dbSnapshot{Hash: "a", Tables: map[string]tableSnapshot{"Secret": {Table: "Secret", Hash: "x"}}}
+		r := dbSnapshot{Hash: "r", Tables: map[string]tableSnapshot{"Secret": {Table: "Secret", Hash: "y"}}}
+		return oracleInput{op: op, method: method, result: opResult{Success: success}, after: a, refAfter: r, before: r}
+	}
+	require.False(t, owedAuditVerdict(differing(owedCalOp, "LogAuditEvent", false), owedAuditDeps{}).engaged, "an error result is not this rule's business")
+	ete := func(method string) oracleInput {
+		in := differing(owedCalOp, method, false)
+		in.kind = faultstorage.KindEffectThenError
+		return in
+	}
+	require.False(t, owedAuditVerdict(ete("CreatePendingAuditEvent"), owedAuditDeps{}).engaged,
+		"an effect-then-error on the record write stays with oracle (d)")
+	require.False(t, owedAuditVerdict(ete("GetUser"), owedAuditDeps{}).engaged, "an unrelated effect-then-error fault")
+	auditOnly := ete("WithTransaction")
+	auditOnly.after = dbSnapshot{Hash: "a", Tables: map[string]tableSnapshot{owedAuditAuditTable: {Table: owedAuditAuditTable, Hash: "x"}}}
+	auditOnly.refAfter = dbSnapshot{Hash: "r", Tables: map[string]tableSnapshot{owedAuditAuditTable: {Table: owedAuditAuditTable, Hash: "y",
+		Rows: []string{`{"EventType":"group.member_removed","Description":"removed"}`}}}}
+	auditOnly.before = auditOnly.after
+	require.True(t, owedAuditVerdict(auditOnly, owedAuditDeps{}).violation != "",
+		"an effect-then-error reported error on the owing transaction is judged, and without the owed types it is a violation")
+	require.False(t, owedAuditVerdict(differing(owedCalOp, "GetUser", true), owedAuditDeps{}).engaged, "an unrelated fault")
+	require.False(t, owedAuditVerdict(differing("REST POST /api/v1/groups/", "LogAuditEvent", true), owedAuditDeps{}).engaged, "an op outside the list")
+	require.True(t, owedAuditVerdict(differing(owedCalOp, "CreatePendingAuditEvent", true), owedAuditDeps{}).violation != "",
+		"a CreatePendingAuditEvent fault with a state difference is a violation, never accepted")
+}
+
+// TestOwedAuditOracle_SweepEveryScopedOp drives every in-scope op under each audit-path
+// fault (error kind, first call, WithTransaction up to the second; KEYORIX_OWED_SWEEP_WIDE=1
+// widens to three kinds and more call ordinals) through the real oracle: none may be reported. A fault that never
+// fires for an op is counted, not failed.
+func TestOwedAuditOracle_SweepEveryScopedOp(t *testing.T) {
+	kinds := []faultstorage.FaultKind{faultstorage.KindError}
+	// WithTransaction#2 is the settle transaction (claim + append) of most ops
+	// (MERGE-FIX-3482J); #1/effect-then-error, the owing transaction committing and
+	// reporting an error, is pinned by the calibration's e-rows and swept wide.
+	nths := map[string]int{"LogAuditEvent": 1, "ClaimPendingAuditEvent": 1, "CreatePendingAuditEvent": 1, "WithTransaction": 2}
+	if owedSweepWide() {
+		kinds = []faultstorage.FaultKind{faultstorage.KindError, faultstorage.KindPanic, faultstorage.KindEffectThenError}
+		nths = map[string]int{"LogAuditEvent": 3, "ClaimPendingAuditEvent": 2, "CreatePendingAuditEvent": 2, "WithTransaction": 3}
+	}
+	ops := owedAuditScopedOps()
+	var accepted, same, neverFired, notSuccess int
+	var multiOwed []string
+	for op := range owedAuditExpectedOwedTypes {
+		if !owedAuditRuleOp(op) {
+			t.Errorf("pinned owed-types table lists %q, which is not in the rule's scope", op)
+		}
+	}
+	for _, op := range ops {
+		if _, ok := owedAuditExpectedOwedTypes[op]; !ok {
+			t.Errorf("%s is in the rule's scope but has no entry in owedAuditExpectedOwedTypes: pin what it owes", op)
+		}
+	}
+	for _, op := range ops {
+		// One subtest per op: every drive builds a reference and a faulted world, and on
+		// Postgres each world holds a connection pool and a schema until its test ends, so
+		// the whole sweep on one t outlived max_connections (SQLSTATE 53300).
+		t.Run(op, func(t *testing.T) {
+			owedCalSweepOp(t, op, kinds, nths, &accepted, &same, &neverFired, &notSuccess, &multiOwed)
+		})
+	}
+	t.Logf("sweep: %d ops; cases with no finding: %d (of which state == reference: %d, reported errors: %d); fault never fired: %d",
+		len(ops), accepted, same, notSuccess, neverFired)
+	t.Logf("ops owing more than one audit row: %v", multiOwed)
+}
+
+// owedCalSweepOp is TestOwedAuditOracle_SweepEveryScopedOp for one op.
+func owedCalSweepOp(t *testing.T, op string, kinds []faultstorage.FaultKind, nths map[string]int,
+	accepted, same, neverFired, notSuccess *int, multiOwed *[]string) {
+	// Every scoped op must OWE at least one row. The rule takes the owed event types
+	// from a probe (owedAuditProbeFor); a revocation regressed to a plain best-effort
+	// row would owe nothing, the rule would stop engaging for it, and only this
+	// assertion (and TestAuditTx3Revocation_AuditFailureDoesNotBlockAndRowIsOwed)
+	// would notice.
+	in, outcome, why := owedCalDriveRaw(t, op, "LogAuditEvent", 1, faultstorage.KindError)
+	if outcome != driveObserved {
+		t.Errorf("%s: LogAuditEvent#1 case not observed: %s", op, why)
+	} else if types, err := owedAuditProbeFor(in.world)(op); err != nil {
+		t.Errorf("%s: owed-type probe failed: %v", op, err)
+	} else {
+		total := 0
+		for _, n := range types {
+			total += n
+		}
+		if total == 0 {
+			t.Errorf("%s owes no audit row (a refused first append queued nothing): it is not an owed-audit revocation any more", op)
+		}
+		if total > 1 {
+			*multiOwed = append(*multiOwed, fmt.Sprintf("%s=%d", op, total))
+		}
+		// The probe can only report what the code owes today; the table is what it
+		// is supposed to owe. A revocation regressed to best-effort (or changed to
+		// owe another row) is invisible to the probe and visible here.
+		if want, pinned := owedAuditExpectedOwedTypes[op]; pinned && !maps.Equal(types, want) {
+			t.Errorf("%s owes %v, the pinned table says %v", op, types, want)
+		}
+	}
+	for method, maxNth := range nths {
+		for nth := 1; nth <= maxNth; nth++ {
+			for _, kind := range kinds {
+				in, outcome, why := owedCalDriveRaw(t, op, method, nth, kind)
+				switch outcome {
+				case driveFaultNeverFired:
+					*neverFired++
+					continue
+				case driveObserved:
+				default:
+					t.Errorf("%s %s#%d/%s: not evaluated: %s", op, method, nth, kind, why)
+					continue
+				}
+				if !in.result.Success {
+					*notSuccess++
+				}
+				if in.after.Hash == in.refAfter.Hash {
+					*same++
+				}
+				if f := owedCalFindings(t, in); len(f) > 0 {
+					t.Errorf("%s %s#%d/%s: %v", op, method, nth, kind, f)
+					continue
+				}
+				*accepted++
+			}
+		}
+	}
+}
+
+// TestOwedAuditOracle_EveryOwingCatalogOpIsScoped keeps the rule's scope complete: every
+// opCatalog op whose scenario reaches ClaimPendingAuditEvent (so it committed a pending
+// record of an owed row) must be in owedAuditScopedOps. An owing op outside the scope is
+// judged by the unscoped oracle (a), which reports its by-design owed outcome as a partial
+// commit: CI input 7800103230 on the plain secret suspend (MERGE-FIX-3482J) was one, and
+// the whole-catalog sweep found four more. One world per op, in its own subtest (a
+// Postgres world holds a pool until its test ends).
+func TestOwedAuditOracle_EveryOwingCatalogOpIsScoped(t *testing.T) {
+	ctx := t.Context()
+	for i := range opCatalog {
+		op := &opCatalog[i]
+		t.Run(op.Key, func(t *testing.T) {
+			w := newFaultWorld(t, nil)
+			var state any
+			if op.Setup != nil {
+				var err error
+				if state, err = op.Setup(ctx, w); err != nil {
+					t.Skipf("setup: %v", err)
+				}
+			}
+			drainAllBackgroundGoroutines()
+			w.faulty.Arm(&faultstorage.FaultSpec{Method: "ClaimPendingAuditEvent", NthCall: 1, Kind: faultstorage.KindError, Err: errFuzzInjected})
+			_, _ = op.Execute(ctx, w, state)
+			fired := w.faulty.Fired()
+			w.faulty.Arm(nil)
+			drainAllBackgroundGoroutines()
+			if fired && !owedAuditRuleOp(op.Key) {
+				t.Errorf("%s claims an owed audit row (ClaimPendingAuditEvent fired) but is not in owedAuditScopedOps: "+
+					"add it to owedAuditMoreOps and pin what it owes in owedAuditExpectedOwedTypes", op.Key)
+			}
+		})
+	}
+}

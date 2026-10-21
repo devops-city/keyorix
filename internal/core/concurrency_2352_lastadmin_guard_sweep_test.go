@@ -82,7 +82,7 @@ func sqliteDB(t *testing.T, name string) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
-		&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PersonalAccessToken{},
+		&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PendingAuditEvent{}, &models.PersonalAccessToken{},
 		&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 		&models.Project{}, &models.Environment{},
 		&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
@@ -217,6 +217,17 @@ type delayedRemoveRoleFromGroupStorage struct {
 	storage.Storage
 	targetGroupID, targetRoleID uint
 	blocked, release            chan struct{}
+}
+
+// WithTransaction re-wraps the transaction handle so the pause still fires now that
+// the targeted call runs INSIDE the mutation's audited transaction (AUDIT-TX-3):
+// without it the call would hit the undecorated store the transaction builds.
+func (d *delayedRemoveRoleFromGroupStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
+	return d.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		wrapped := *d
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
 }
 
 func (d *delayedRemoveRoleFromGroupStorage) RemoveRoleFromGroup(ctx context.Context, groupID, roleID uint, scope storage.Scope) error {
@@ -414,6 +425,17 @@ type delayedDeleteGroupStorage struct {
 	storage.Storage
 	targetGroupID    uint
 	blocked, release chan struct{}
+}
+
+// WithTransaction re-wraps the transaction handle so the pause still fires now that
+// the targeted call runs INSIDE the mutation's audited transaction (AUDIT-TX-3):
+// without it the call would hit the undecorated store the transaction builds.
+func (d *delayedDeleteGroupStorage) WithTransaction(ctx context.Context, fn func(storage.Storage) error) error {
+	return d.Storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		wrapped := *d
+		wrapped.Storage = tx
+		return fn(&wrapped)
+	})
 }
 
 func (d *delayedDeleteGroupStorage) DeleteGroup(ctx context.Context, id uint) error {

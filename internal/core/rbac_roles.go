@@ -316,10 +316,14 @@ func (c *KeyorixCore) DeleteRole(ctx context.Context, actorID, id uint) error {
 		c.LogRoleDeleteDenied(ctx, actorID, role.ID, role.Name, "target is a built-in role")
 		return fmt.Errorf("%s: %s", i18n.T("ErrorPermissionDenied", nil), "cannot delete built-in role: "+role.Name)
 	}
-	counts, err := c.storage.DeleteRole(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
-	}
-	c.LogRoleDeleted(ctx, actorID, role.ID, role.Name, counts)
-	return nil
+	// AUDIT-TX-3: a revocation (it cascades every grant of the role away): never
+	// blocked by the audit log, its row owed from the delete's own transaction.
+	return c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		counts, err := tx.DeleteRole(ctx, id)
+		if err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		}
+		c.logRoleDeletedOn(ctx, tgt, actorID, role.ID, role.Name, counts)
+		return nil
+	})
 }

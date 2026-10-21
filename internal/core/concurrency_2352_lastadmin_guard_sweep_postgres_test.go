@@ -71,7 +71,7 @@ func isConnectionError(err error) bool {
 const lastAdminSweepPGTrials = 15
 
 var lastAdminSweepPGModels = []any{
-	&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PersonalAccessToken{},
+	&models.User{}, &models.Session{}, &models.AuditEvent{}, &models.PendingAuditEvent{}, &models.PersonalAccessToken{},
 	&models.Role{}, &models.Permission{}, &models.RolePermission{}, &models.UserRole{},
 	&models.Project{}, &models.Environment{},
 	&models.Group{}, &models.UserGroup{}, &models.GroupRole{},
@@ -255,8 +255,12 @@ func (d *pgDelayedRemoveRoleFromGroupStorage) RemoveRoleFromGroup(next storage.S
 }
 
 // wrap returns inner decorated with pgDelayedRemoveRoleFromGroupStorage's overrides.
+// WrapTx re-wraps the transaction handle so the pause still fires now that the
+// targeted call runs INSIDE the mutation's audited transaction (AUDIT-TX-3):
+// without it the call would hit the undecorated store the transaction builds.
 func (d *pgDelayedRemoveRoleFromGroupStorage) wrap(inner storage.Storage) storage.Storage {
 	return hooked(inner, &storeHooks{
+		WrapTx:              true,
 		RemoveRoleFromGroup: d.RemoveRoleFromGroup,
 	})
 }

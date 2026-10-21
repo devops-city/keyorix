@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/netutil"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
 )
@@ -344,7 +345,11 @@ func newAlertEscalationPolicyAuditView(p *models.AlertEscalationPolicy) alertEsc
 }
 
 func (c *KeyorixCore) LogAlertEscalationPolicyCreated(ctx context.Context, actorID uint, p *models.AlertEscalationPolicy) {
-	c.writeConfigChangeAuditEvent(ctx, EventAlertEscalationPolicyCreated, actorID,
+	c.logAlertEscalationPolicyCreatedOn(ctx, c.auditNow(), actorID, p)
+}
+
+func (c *KeyorixCore) logAlertEscalationPolicyCreatedOn(ctx context.Context, tgt auditTarget, actorID uint, p *models.AlertEscalationPolicy) {
+	c.writeConfigChangeAuditEventOn(ctx, tgt, EventAlertEscalationPolicyCreated, actorID,
 		fmt.Sprintf("alert escalation policy %d (%q) created", p.ID, p.Name), nil, newAlertEscalationPolicyAuditView(p))
 }
 
@@ -354,16 +359,24 @@ func (c *KeyorixCore) LogAlertEscalationPolicyCreated(ctx context.Context, actor
 // entirely) -- the caller must fetch it before calling
 // UpdateAlertEscalationPolicy, since that call mutates the row in place.
 func (c *KeyorixCore) LogAlertEscalationPolicyUpdated(ctx context.Context, actorID uint, before, after *models.AlertEscalationPolicy) {
+	c.logAlertEscalationPolicyUpdatedOn(ctx, c.auditNow(), actorID, before, after)
+}
+
+func (c *KeyorixCore) logAlertEscalationPolicyUpdatedOn(ctx context.Context, tgt auditTarget, actorID uint, before, after *models.AlertEscalationPolicy) {
 	var beforeView any
 	if before != nil {
 		beforeView = newAlertEscalationPolicyAuditView(before)
 	}
-	c.writeConfigChangeAuditEvent(ctx, EventAlertEscalationPolicyUpdated, actorID,
+	c.writeConfigChangeAuditEventOn(ctx, tgt, EventAlertEscalationPolicyUpdated, actorID,
 		fmt.Sprintf("alert escalation policy %d (%q) updated", after.ID, after.Name), beforeView, newAlertEscalationPolicyAuditView(after))
 }
 
 func (c *KeyorixCore) LogAlertEscalationPolicyDeleted(ctx context.Context, actorID, policyID uint) {
-	c.writeAuditEvent(ctx, EventAlertEscalationPolicyDeleted, actorPtr(actorID), nil,
+	c.logAlertEscalationPolicyDeletedOn(ctx, c.auditNow(), actorID, policyID)
+}
+
+func (c *KeyorixCore) logAlertEscalationPolicyDeletedOn(ctx context.Context, tgt auditTarget, actorID, policyID uint) {
+	c.writeAuditEventFullOn(ctx, tgt, EventAlertEscalationPolicyDeleted, actorPtr(actorID), nil, nil, "",
 		fmt.Sprintf("alert escalation policy %d deleted", policyID))
 }
 
@@ -375,7 +388,19 @@ func (c *KeyorixCore) CreateAlertEscalationPolicy(ctx context.Context, p *models
 	now := c.now().UTC()
 	p.CreatedAt = now
 	p.UpdatedAt = now
-	if err := c.storage.CreateAlertEscalationPolicy(ctx, p); err != nil {
+	// AUDIT-TX-3: a transport that tagged ctx (WithMutationAuditActor) gets the
+	// policy-created row in this transaction (fail closed): an alert escalation
+	// policy is never created unrecorded.
+	actor, tagged := mutationAuditActorFromContext(ctx)
+	if err := c.mutationTx(ctx, tagged, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.CreateAlertEscalationPolicy(ctx, p); err != nil {
+			return err
+		}
+		if tagged {
+			c.logAlertEscalationPolicyCreatedOn(ctx, tgt, actor, p)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -397,6 +422,7 @@ func (c *KeyorixCore) UpdateAlertEscalationPolicy(ctx context.Context, id uint, 
 	if err != nil {
 		return nil, err
 	}
+	before := *p // UpdateAlertEscalationPolicy mutates p in place: keep the diff's before side
 	if v, ok := updates["name"].(string); ok && v != "" {
 		p.Name = v
 	}
@@ -416,7 +442,17 @@ func (c *KeyorixCore) UpdateAlertEscalationPolicy(ctx context.Context, id uint, 
 		return nil, err
 	}
 	p.UpdatedAt = c.now().UTC()
-	if err := c.storage.UpdateAlertEscalationPolicy(ctx, p); err != nil {
+	// AUDIT-TX-3: see CreateAlertEscalationPolicy.
+	actor, tagged := mutationAuditActorFromContext(ctx)
+	if err := c.mutationTx(ctx, tagged, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.UpdateAlertEscalationPolicy(ctx, p); err != nil {
+			return err
+		}
+		if tagged {
+			c.logAlertEscalationPolicyUpdatedOn(ctx, tgt, actor, &before, p)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -424,7 +460,17 @@ func (c *KeyorixCore) UpdateAlertEscalationPolicy(ctx context.Context, id uint, 
 
 // DeleteAlertEscalationPolicy permanently removes the policy with the given id.
 func (c *KeyorixCore) DeleteAlertEscalationPolicy(ctx context.Context, id uint) error {
-	return c.storage.DeleteAlertEscalationPolicy(ctx, id)
+	// AUDIT-TX-3: see CreateAlertEscalationPolicy.
+	actor, tagged := mutationAuditActorFromContext(ctx)
+	return c.mutationTx(ctx, tagged, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteAlertEscalationPolicy(ctx, id); err != nil {
+			return err
+		}
+		if tagged {
+			c.logAlertEscalationPolicyDeletedOn(ctx, tgt, actor, id)
+		}
+		return nil
+	})
 }
 
 // validateEscalationPolicy enforces invariants for create and update paths.

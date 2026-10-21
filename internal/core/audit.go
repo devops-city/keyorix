@@ -254,12 +254,17 @@ func (c *KeyorixCore) LogRoleUpdated(ctx context.Context, actorID, roleID uint, 
 // were silently dropped along with the role, surfaced here so the audit
 // trail shows who lost a grant row, not just that the role itself is gone.
 func (c *KeyorixCore) LogRoleDeleted(ctx context.Context, actorID, roleID uint, name string, counts storage.RoleDeleteCascadeCounts) {
+	c.logRoleDeletedOn(ctx, c.auditNow(), actorID, roleID, name, counts)
+}
+
+// logRoleDeletedOn is LogRoleDeleted against an explicit audit target.
+func (c *KeyorixCore) logRoleDeletedOn(ctx context.Context, tgt auditTarget, actorID, roleID uint, name string, counts storage.RoleDeleteCascadeCounts) {
 	desc := fmt.Sprintf("role %q (id %d) deleted", name, roleID)
 	if counts.UserAssignments > 0 || counts.GroupAssignments > 0 || counts.MachineAssignments > 0 {
 		desc += fmt.Sprintf(" (removed %d user / %d group / %d machine assignment(s))",
 			counts.UserAssignments, counts.GroupAssignments, counts.MachineAssignments)
 	}
-	c.writeRBACAudit(ctx, EventRoleDeleted, desc, actorID, Scope{}, rbacAuditDetail{RoleID: roleID})
+	c.writeRBACAuditOn(ctx, tgt, EventRoleDeleted, desc, actorID, Scope{}, rbacAuditDetail{RoleID: roleID})
 }
 
 // LogRoleUpdateDenied / LogRoleDeleteDenied record a DENIED attempt to update
@@ -285,12 +290,6 @@ func (c *KeyorixCore) LogRoleDeleteDenied(ctx context.Context, actorID, roleID u
 func (c *KeyorixCore) logRoleDefinitionChangeOn(ctx context.Context, tgt auditTarget, eventType, verb string, actorID, roleID uint, name string) {
 	desc := fmt.Sprintf("role %q (id %d) %s", name, roleID, verb)
 	c.writeRBACAuditOn(ctx, tgt, eventType, desc, actorID, Scope{}, rbacAuditDetail{RoleID: roleID})
-}
-
-// writeRBACAudit is the shared writer for RBAC audit events: actor as UserID,
-// scope's project as ProjectID, and the structured detail in the diff.
-func (c *KeyorixCore) writeRBACAudit(ctx context.Context, eventType, desc string, actorID uint, scope Scope, detail rbacAuditDetail) {
-	c.writeRBACAuditOn(ctx, c.auditNow(), eventType, desc, actorID, scope, detail)
 }
 
 // writeRBACAuditOn is writeRBACAudit against an explicit audit target — see
@@ -380,7 +379,12 @@ func (c *KeyorixCore) writeAuditEventOutcomeOn(ctx context.Context, tgt auditTar
 			} else {
 				logging.Event(ctx, logging.LevelError, fmt.Sprintf("SECURITY: writeAuditEventDiffOn panicked building/emitting audit event %q (best-effort, primary operation already succeeded): %v", eventType, r), "event_type", eventType)
 			}
-			tgt.sink.fail(eventType, fmt.Errorf("audit write panicked: %v", r))
+			if tgt.sink != nil && tgt.sink.owing {
+				// An owing sink ignores fail(): without this the owed row would be lost silently.
+				tgt.sink.failOwed(fmt.Errorf("audit write panicked: %v", r))
+			} else {
+				tgt.sink.fail(eventType, fmt.Errorf("audit write panicked: %v", r))
+			}
 			persisted = false
 		}
 	}()

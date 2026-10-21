@@ -583,13 +583,22 @@ func (c *KeyorixCore) RevokeOwnSession(ctx context.Context, userID, sessionID ui
 	if err != nil || session.UserID != userID {
 		return fmt.Errorf("%s: session not found", i18n.T("ErrorNotFound", nil))
 	}
-	if err := c.storage.DeleteSession(ctx, sessionID); err != nil {
+	// AUDIT-TX-3: a revocation: its row is owed from the delete's transaction and
+	// appended after the eviction below, so the audit log never delays the logout.
+	settle, err := c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		if err := tx.DeleteSession(ctx, sessionID); err != nil {
+			return err
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSessionRevoked, actorPtr(userID), nil, nil, "",
+			fmt.Sprintf("user %d revoked their own session %d", userID, sessionID))
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	// Evict the revoked session from the auth cache so the device is logged out on its
 	// next request, not after the positive-cache TTL. session_token is the cache key.
 	c.invalidateTokenCache(session.SessionToken)
-	c.writeAuditEvent(ctx, EventSessionRevoked, actorPtr(userID), nil,
-		fmt.Sprintf("user %d revoked their own session %d", userID, sessionID))
+	settle()
 	return nil
 }

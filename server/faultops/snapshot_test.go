@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -249,6 +250,12 @@ func canonicalRow(row any) (string, error) {
 		if _, presence := presenceOnlyFields[name]; presence {
 			out[name] = !isGoZero(fv)
 			continue
+		}
+		if cols, ok := typeScopedTimeInText[rt.Name()]; ok && slices.Contains(cols, name) {
+			if txt, isStr := reflect.TypeAssert[string](fv); isStr {
+				out[name] = embeddedTime.ReplaceAllString(txt, snapshotTimePlaceholder)
+				continue
+			}
 		}
 		out[name] = fv.Interface()
 	}

@@ -65,9 +65,10 @@ func TestValidateReplacementCredential_Success(t *testing.T) {
 }
 
 // TestIssueMachineToken_ReplaceCredential_EndToEnd exercises PAT-006's whole
-// point: rotating a credential mints the new one FIRST, then revokes the old
-// one, and returns the old token's hash for the caller to evict from any auth
-// cache -- never tested end-to-end before this.
+// point: rotating a credential revokes the old one and mints the new one in one
+// call, and returns the old token's hash for the caller to evict from any auth
+// cache -- never tested end-to-end before this. MERGE-FIX-3482G: the revoke commits
+// first with its row owed (recorded, then appended), the issue second, fail closed.
 func TestIssueMachineToken_ReplaceCredential_EndToEnd(t *testing.T) {
 	t.Parallel()
 	store := new(MockStorage)
@@ -81,6 +82,7 @@ func TestIssueMachineToken_ReplaceCredential_EndToEnd(t *testing.T) {
 	store.On("CreateMachineIdentityCredential", mock.Anything, mock.AnythingOfType("*models.MachineIdentityCredential")).
 		Return(&models.MachineIdentityCredential{ID: 51}, nil)
 	store.On("RevokeMachineIdentityCredential", mock.Anything, uint(2), uint(50)).Return(nil)
+	store.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil)
 	store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 
 	c := NewKeyorixCore(store)

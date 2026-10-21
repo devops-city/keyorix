@@ -49,6 +49,19 @@ type auditForwardSink struct {
 	// best-effort semantics (DecideAccessReviewItem's revoke path).
 	failClosed bool
 	err        error
+
+	// owing makes a write an OWED audit row instead of an audit append (AUDIT-TX-3):
+	// the event is recorded as a pending_audit_events row through the transaction
+	// handle, so it commits or rolls back with the change it describes, and the
+	// real append happens after the commit (withOwedAuditMutation). It is how a
+	// revocation keeps "never blocked by the audit log" without ever losing the
+	// row. collectOnly keeps the events but records nothing (the fallback when even
+	// the pending record cannot be written: the change still goes through).
+	owing       bool
+	collectOnly bool
+	owedRows    []owedAuditEntry
+	owedErr     error
+
 	// owe (BREAKGLASS-OWED-1) makes the target CAPTURE each event instead of
 	// appending it: emitAuditOn prepares the event exactly as for a real write and
 	// keeps it in owed, and the caller stores those events as pending_audit_events
@@ -57,6 +70,13 @@ type auditForwardSink struct {
 	// built by the same writers and carry the same attribution.
 	owe  bool
 	owed []*models.AuditEvent
+}
+
+// owedAuditEntry is one audit row an owing transaction owes: the event and the id of
+// the pending record that was committed with the change (0 = none was recorded).
+type owedAuditEntry struct {
+	pendingID uint
+	event     *models.AuditEvent
 }
 
 // fail records a write that did not persist, when the sink is fail-closed.
@@ -122,6 +142,9 @@ func auditInto(tx storage.Storage, sink *auditForwardSink) auditTarget {
 func (c *KeyorixCore) emitAuditOn(ctx context.Context, tgt auditTarget, event *models.AuditEvent) (persisted bool) {
 	if tgt.sink == nil {
 		return c.emitAudit(ctx, event)
+	}
+	if tgt.sink.owing {
+		return c.recordOwedOn(ctx, tgt, event)
 	}
 	defer func() {
 		if r := recover(); r != nil {

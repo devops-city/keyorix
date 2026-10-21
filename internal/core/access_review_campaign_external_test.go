@@ -2,11 +2,14 @@ package core_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/keyorix/internal/core"
+	corestorage "github.com/keyorixhq/keyorix/internal/core/storage"
 	"github.com/keyorixhq/keyorix/internal/storage/models"
+	"github.com/keyorixhq/keyorix/internal/storage/store"
 	"github.com/keyorixhq/keyorix/internal/testhelper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -354,28 +357,36 @@ func TestOpenAccessReviewCampaign_RequiresProject(t *testing.T) {
 // to carry it forward anyway. A degraded snapshot must now leave a DURABLE record on
 // the campaign row itself, verified by reading the row back from storage (not just
 // trusting the in-memory return value).
+// degradedActivityStorage makes the per-user secret-activity lookup fail, which is what
+// turns an access-review report Degraded.
+type degradedActivityStorage struct{ corestorage.Storage }
+
+func (degradedActivityStorage) LastUserSecretActivity(context.Context, uint, time.Time) (map[uint]time.Time, error) {
+	return nil, errors.New("simulated activity lookup failure")
+}
+
 func TestOpenAccessReviewCampaign_PersistsDegradedFromReport(t *testing.T) {
 	t.Parallel()
 	h := testhelper.NewRBACTestHelper(t)
 	defer h.Cleanup()
-	// Only the campaign tables are migrated — models.AuditEvent is deliberately NOT
-	// migrated, so GenerateProjectAccessReview's LastUserSecretActivity lookup fails
-	// and the report it returns comes back Degraded=true (same trick as
-	// TestGenerateProjectAccessReview_DegradedOnLastUsedQueryError). The helper
-	// migrates it since AUDIT-TX-2 (grants commit with their audit row), so drop it.
+	// The campaign tables are migrated, and the core's LastUserSecretActivity lookup
+	// is made to fail, so the report GenerateProjectAccessReview returns comes back
+	// Degraded=true (same trick as TestGenerateProjectAccessReview_DegradedOnLastUsedQueryError).
+	// The audit table cannot be dropped to do that any more: opening a campaign writes
+	// its campaign_opened row in its own transaction (AUDIT-TX-3, fail closed).
 	require.NoError(t, h.DB.AutoMigrate(&models.AccessReviewCampaign{}, &models.AccessReviewItem{}))
-	require.NoError(t, h.DB.Migrator().DropTable(&models.AuditEvent{}))
+	svc := core.NewKeyorixCore(degradedActivityStorage{Storage: store.NewLocalStorage(h.DB)})
 
 	const proj = uint(2)
 	ctx := context.Background()
 	h.CreateTestUser(t, "alice", 10)
 	h.AssignUserRole(t, 10, 3, uptr(proj)) // editor → write
 
-	report, err := h.CoreService.GenerateProjectAccessReview(ctx, proj)
+	report, err := svc.GenerateProjectAccessReview(ctx, proj)
 	require.NoError(t, err)
 	require.True(t, report.Degraded, "sanity: the report itself must be degraded for this test to be meaningful")
 
-	res, err := h.CoreService.OpenAccessReviewCampaign(ctx, 1, 0, proj, "degraded review")
+	res, err := svc.OpenAccessReviewCampaign(ctx, 1, 0, proj, "degraded review")
 	require.NoError(t, err)
 	assert.True(t, res.Campaign.Degraded, "the campaign returned by Open must carry the degraded signal")
 	assert.NotEmpty(t, res.Campaign.DegradedReasons)

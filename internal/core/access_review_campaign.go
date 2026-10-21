@@ -12,6 +12,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/keyorixhq/keyorix/internal/core/storage"
@@ -98,7 +99,9 @@ func (c *KeyorixCore) OpenAccessReviewCampaign(ctx context.Context, actorID, act
 	// "0 pending, fully reviewed" (looks complete) rather than what it actually is
 	// (a snapshot that never finished).
 	var campaign *models.AccessReviewCampaign
-	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	// AUDIT-TX-3: the campaign is compliance evidence, so it and its campaign_opened
+	// row commit together (fail closed).
+	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		campaign, cerr = tx.CreateAccessReviewCampaign(ctx, &models.AccessReviewCampaign{
 			ProjectID:                  projectID,
@@ -132,13 +135,16 @@ func (c *KeyorixCore) OpenAccessReviewCampaign(ctx context.Context, actorID, act
 				Decision:      ReviewItemPending,
 			})
 		}
-		return tx.CreateAccessReviewItems(ctx, items)
+		if cerr = tx.CreateAccessReviewItems(ctx, items); cerr != nil {
+			return cerr
+		}
+		c.auditProjectScopedOn(ctx, tgt, EventCampaignOpened, actorID, projectID,
+			fmt.Sprintf("opened access-review campaign %d (%q) with %d item(s)", campaign.ID, name, len(items)))
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	c.auditProjectScoped(ctx, EventCampaignOpened, actorID, projectID,
-		fmt.Sprintf("opened access-review campaign %d (%q) with %d item(s)", campaign.ID, name, len(items)))
 	return &CampaignWithProgress{Campaign: campaign, Progress: CampaignProgress{Total: len(items), Pending: len(items)}}, nil
 }
 
@@ -507,15 +513,31 @@ func (c *KeyorixCore) CloseAccessReviewCampaign(ctx context.Context, actorID, ac
 	// campaign was closed out from under it), so surface the same "already closed"
 	// error rather than silently re-closing (and re-stamping ClosedBy/ClosedAt on) an
 	// already-frozen evidence record.
-	ok, err := c.storage.UpdateAccessReviewCampaign(ctx, campaign)
-	if err != nil {
+	// AUDIT-TX-3: the close freezes the evidence record, so it and its campaign_closed
+	// row commit together (fail closed).
+	var closedAlready bool
+	if err := c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		ok, uerr := tx.UpdateAccessReviewCampaign(ctx, campaign)
+		if uerr != nil {
+			return uerr
+		}
+		if !ok {
+			closedAlready = true
+			return errCampaignAlreadyClosed
+		}
+		c.auditProjectScopedOn(ctx, tgt, EventCampaignClosed, actorID, projectID,
+			fmt.Sprintf("closed access-review campaign %d: %d attested, %d revoked, %d pending of %d",
+				campaign.ID, progress.Attested, progress.Revoked, progress.Pending, progress.Total))
+		return nil
+	}); err != nil {
+		if closedAlready {
+			return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "campaign is already closed")
+		}
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	if !ok {
-		return nil, fmt.Errorf("%s: %s", i18n.T("ErrorValidation", nil), "campaign is already closed")
-	}
-	c.auditProjectScoped(ctx, EventCampaignClosed, actorID, projectID,
-		fmt.Sprintf("closed access-review campaign %d: %d attested, %d revoked, %d pending of %d",
-			campaign.ID, progress.Attested, progress.Revoked, progress.Pending, progress.Total))
 	return &CampaignWithProgress{Campaign: campaign, Progress: progress}, nil
 }
+
+// errCampaignAlreadyClosed marks the lost close race inside CloseAccessReviewCampaign's
+// transaction (the conditional UPDATE matched no open campaign): nothing was written.
+var errCampaignAlreadyClosed = errors.New("campaign is already closed")

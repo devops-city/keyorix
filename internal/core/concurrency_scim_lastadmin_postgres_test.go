@@ -15,7 +15,7 @@ var scimLastAdminModels = []any{
 	&models.User{}, &models.Role{}, &models.Permission{}, &models.RolePermission{},
 	&models.UserRole{}, &models.Group{}, &models.UserGroup{}, &models.GroupRole{},
 	&models.Project{}, &models.Environment{}, &models.SystemMetadata{},
-	&models.SoDPolicy{}, &models.AuditEvent{},
+	&models.SoDPolicy{}, &models.AuditEvent{}, &models.PendingAuditEvent{},
 }
 
 // TestConcurrency_UpdateSCIMUser_CrossReplicaPostgres_LastAdminGuard is GUARD-2's

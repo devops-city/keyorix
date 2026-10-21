@@ -107,7 +107,9 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		store.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineSuspended
 		}), MachineActive).Return(true, nil)
-		store.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+		// AUDIT-TX-3: suspend/revoke owe their audit row (recorded in the transaction, claimed on append).
+		store.On("CreatePendingAuditEvent", ctx, mock.Anything).Return(nil)
 		// Cache eviction: suspend calls MachineTokenHashes which calls ListMachineIdentityCredentials.
 		store.On("ListMachineIdentityCredentials", ctx, uint(10)).Return([]*models.MachineIdentityCredential{}, nil)
 
@@ -124,7 +126,9 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		store.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineRevoked && m.RevokedAt != nil
 		}), MachineActive).Return(true, nil)
-		store.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		store.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+		// AUDIT-TX-3: suspend/revoke owe their audit row (recorded in the transaction, claimed on append).
+		store.On("CreatePendingAuditEvent", ctx, mock.Anything).Return(nil)
 		// Cache eviction: revoke calls MachineTokenHashes which calls ListMachineIdentityCredentials.
 		store.On("ListMachineIdentityCredentials", ctx, uint(10)).Return([]*models.MachineIdentityCredential{}, nil)
 
@@ -207,7 +211,8 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		ms.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineSuspended
 		}), MachineActive).Return(true, nil)
-		ms.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+		ms.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil)
 		ms.On("ListMachineIdentityCredentials", ctx, uint(20)).Return([]*models.MachineIdentityCredential{
 			{ID: 1, TokenHash: "hash-cred-abc"},
 		}, nil)
@@ -229,7 +234,8 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		ms.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineRevoked && m.RevokedAt != nil
 		}), MachineActive).Return(true, nil)
-		ms.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+		ms.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil)
 		ms.On("ListMachineIdentityCredentials", ctx, uint(21)).Return([]*models.MachineIdentityCredential{
 			{ID: 2, TokenHash: "hash-cred-def"},
 		}, nil)
@@ -257,7 +263,8 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		ms.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineSuspended
 		}), MachineActive).Return(true, nil)
-		ms.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+		ms.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil)
 		ms.On("ListMachineIdentityCredentials", ctx, uint(30)).Return(nil, errors.New("db unavailable"))
 
 		var evicted []string
@@ -283,7 +290,8 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		ms.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineSuspended
 		}), MachineActive).Return(true, nil)
-		ms.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
+		ms.On("CreatePendingAuditEvent", mock.Anything, mock.Anything).Return(nil)
 		ms.On("ListMachineIdentityCredentials", ctx, uint(31)).Return(nil, errors.New("db unavailable")).Once()
 		ms.On("ListMachineIdentityCredentials", ctx, uint(31)).Return([]*models.MachineIdentityCredential{
 			{ID: 3, TokenHash: "hash-cred-ghi"},
@@ -310,7 +318,7 @@ func TestTransitionMachineIdentity(t *testing.T) {
 		ms.On("TransitionMachineIdentityState", ctx, mock.MatchedBy(func(m *models.MachineIdentity) bool {
 			return m.State == MachineActive
 		}), MachineSuspended).Return(true, nil)
-		ms.On("LogAuditEvent", ctx, mock.Anything).Return(nil)
+		ms.On("LogAuditEvent", mock.Anything, mock.Anything).Return(nil)
 		// ListMachineIdentityCredentials must NOT be called for activate.
 
 		var evicted []string

@@ -169,8 +169,11 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 	// shape #2295 fixes for first-boot; best-effort here meant a SCIM-provisioned user
 	// could end up with no role at all, unable to do anything until an admin noticed
 	// and manually granted one.
+	//
+	// AUDIT-TX-3: the account and its baseline grant are access, so the
+	// scim.user_provisioned row commits with them or not at all (fail closed).
 	var created *models.User
-	err = c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+	err = c.withAuditedMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 		var cerr error
 		created, cerr = tx.CreateUser(ctx, &models.User{
 			Username: username, UsernameFolded: foldedUsername.Folded(),
@@ -185,7 +188,12 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 		if rerr != nil {
 			return fmt.Errorf("failed to resolve baseline role: %w", rerr)
 		}
-		return tx.AssignRole(ctx, created.ID, role.ID, Scope{})
+		if aerr := tx.AssignRole(ctx, created.ID, role.ID, Scope{}); aerr != nil {
+			return aerr
+		}
+		c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserProvisioned, actorPtr(actorID), nil, nil, "",
+			fmt.Sprintf("SCIM provisioned user %d (username=%s, externalId=%q, active=%t)", created.ID, username, externalID, active))
+		return nil
 	})
 	if err != nil {
 		// #117: the FindSCIMUser dedup check above races with a concurrent provision call
@@ -198,8 +206,6 @@ func (c *KeyorixCore) ProvisionSCIMUser(ctx context.Context, actorID uint, userN
 		}
 		return nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 	}
-	c.writeAuditEvent(ctx, EventSCIMUserProvisioned, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM provisioned user %d (username=%s, externalId=%q, active=%t)", created.ID, username, externalID, active))
 	return created, nil
 }
 
@@ -298,9 +304,28 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 	var updated *models.User
 	var patHashes []string // PATs revoked by a deactivation; evicted from the auth cache after commit
 	var guardErr error     // guardLastAdminDeactivation's own error, returned verbatim below — never wrapped as a storage failure
+	var settle func()
+	// split: a deactivation of an active user that also changes the email is a mixed
+	// request (MERGE-FIX-3482G): the deactivation commits alone below (owed), and the
+	// email/displayName change follows as its own fail-closed commit (audit_split.go).
+	var split bool
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
+		// AUDIT-TX-3: an update that deactivates a user who is active is a revocation
+		// (never blocked by the audit log, its row owed). Anything else can widen
+		// access (a reactivation, a new email the IdP will claim the account by) or
+		// revokes nothing (a user already inactive), and fails closed. A deactivation
+		// that carries an email change in the same request is split: the deactivation
+		// first, owed; the email change second, fail closed. Read under the locks, so
+		// the active state is the one the transaction below will see; a failed read
+		// leaves revocation false, i.e. fail closed.
+		revocation := false
+		if active != nil && !*active {
+			if cur, gerr := c.storage.GetUser(ctx, id); gerr == nil && cur.IsActive {
+				revocation = true
+			}
+		}
 		if active != nil && !*active {
 			// Don't let a routine (or hostile) SCIM sync deactivate the only admin.
 			if err := c.guardLastAdminDeactivation(ctx, id); err != nil {
@@ -311,11 +336,31 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		// A fresh, lock-guarded read inside the transaction: never reuse a struct fetched
 		// before the lock above was taken — a concurrent setAccountState commit between
 		// that read and this write would be silently clobbered (the exact #344 race).
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		var serr error
+		settle, serr = c.auditedByDirection(ctx, !revocation, func(tx storage.Storage, tgt auditTarget) error {
+			dn, em, desc := displayName, email, "SCIM updated user %d"
+			// The email half is decided on the row lock, not on the read above: an email
+			// the stored row already has is no change, any other one is commit 2
+			// (REVIEW-3482B B3). fn may run twice: split is recomputed here.
+			split = false
+			if revocation && email != nil && *email != "" {
+				locked, lerr := tx.LockUserForUpdate(ctx, id)
+				if lerr != nil {
+					return lerr
+				}
+				if split = *email != locked.Email; split {
+					dn, em, desc = nil, nil, "SCIM deactivated user %d"
+				}
+			}
 			var err error
-			updated, deactivated, patHashes, err = c.scimUpdateUserTx(ctx, tx, id, displayName, email, active)
-			return err
+			if updated, deactivated, patHashes, err = c.scimUpdateUserTx(ctx, tx, id, dn, em, active); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserUpdated, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf(desc, id))
+			return nil
 		})
+		return serr
 	})
 	if guardErr != nil {
 		return nil, guardErr
@@ -338,8 +383,25 @@ func (c *KeyorixCore) UpdateSCIMUser(ctx context.Context, actorID, id uint, disp
 		purgeStepUpGrants(ctx, c.storage, id)
 		c.invalidateTokenCache(patHashes...)
 	}
-	c.writeAuditEvent(ctx, EventSCIMUserUpdated, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM updated user %d", id))
+	settle()
+	if split {
+		// Commit 2 of the mixed request: the email (and displayName) change, fail closed,
+		// on a fresh row lock. It leaves the active state alone, so the deactivation
+		// stands; a retry of the same request finds the user inactive and is fail closed
+		// as a whole (nothing left to revoke).
+		if err := c.commitSplitRemainder(ctx, "deactivation", "email/displayName change", true, func(tx storage.Storage, tgt auditTarget) error {
+			u, _, _, err := c.scimUpdateUserTx(ctx, tx, id, displayName, email, nil)
+			if err != nil {
+				return err
+			}
+			updated = u
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserUpdated, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM updated user %d", id))
+			return nil
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return updated, nil
 }
 
@@ -584,9 +646,10 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 	// GUARD-2: as in UpdateSCIMUser above, accountStateMu alone is cross-replica-unsafe
 	// — wrap it in storage.WithNamedLock(lastAdminGuardLockKey), the same lock
 	// SuspendUser/UpdateUser/DeleteUser already take for this exact guard.
-	var sessionHashes []string
+	var sessionHashes, patEvict []string
 	var username string
 	var guardErr error
+	var settle func()
 	lockErr := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		c.accountStateMu.Lock()
 		defer c.accountStateMu.Unlock()
@@ -602,7 +665,12 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 		// deprovisions or leaves the account untouched, so a mid-way storage failure can't
 		// leave it half-deprovisioned (suspended but not deleted), which would make retries
 		// non-idempotent.
-		return c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
+		//
+		// AUDIT-TX-3: a revocation: never blocked by the audit log, its
+		// scim.user_deprovisioned row owed from this same transaction and
+		// appended after the cache eviction below.
+		var serr error
+		settle, serr = c.runOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
 			// Re-read the row via a locked read INSIDE the transaction, immediately before
 			// the write, instead of reusing the struct captured by the unlocked GetUser
 			// above — a concurrent state-changing write (e.g. SuspendUser, or another
@@ -684,9 +752,15 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 			if err != nil {
 				return err
 			}
-			sessionHashes = append(sessionHashes, patHashes...)
-			return tx.DeleteUser(ctx, id)
+			patEvict = patHashes // assigned, not appended: fn may run twice (the owed fallback)
+			if err := tx.DeleteUser(ctx, id); err != nil {
+				return err
+			}
+			c.writeAuditEventFullOn(ctx, tgt, EventSCIMUserDeprovisioned, actorPtr(actorID), nil, nil, "",
+				fmt.Sprintf("SCIM deprovisioned user %d (%s)", id, username))
+			return nil
 		})
+		return serr
 	})
 	if guardErr != nil {
 		return guardErr
@@ -701,9 +775,9 @@ func (c *KeyorixCore) DeprovisionSCIMUser(ctx context.Context, actorID, id uint)
 	// (offboarded) user's live session stops authenticating immediately instead of
 	// lingering for the cache TTL.
 	c.invalidateTokenCache(sessionHashes...)
+	c.invalidateTokenCache(patEvict...)
 	purgeStepUpGrants(ctx, c.storage, id)
-	c.writeAuditEvent(ctx, EventSCIMUserDeprovisioned, actorPtr(actorID), nil,
-		fmt.Sprintf("SCIM deprovisioned user %d (%s)", id, username))
+	settle()
 	return nil
 }
 

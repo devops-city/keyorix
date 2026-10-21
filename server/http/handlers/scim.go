@@ -278,6 +278,9 @@ func (h *SCIMHandler) ReplaceUser(w http.ResponseWriter, r *http.Request) {
 	user, err := h.coreService.UpdateSCIMUser(r.Context(), 0, id, &dn, &email, p.Active)
 	if err != nil {
 		log.Printf("Error replacing SCIM user %d: %v", id, err)
+		if scimPartialMutation(w, err) {
+			return
+		}
 		scimError(w, http.StatusNotFound, clientSafe(err))
 		return
 	}
@@ -348,6 +351,9 @@ func (h *SCIMHandler) PatchUser(w http.ResponseWriter, r *http.Request) {
 	user, err := h.coreService.UpdateSCIMUser(r.Context(), 0, id, displayName, nil, active)
 	if err != nil {
 		log.Printf("Error patching SCIM user %d: %v", id, err)
+		if scimPartialMutation(w, err) {
+			return
+		}
 		scimError(w, http.StatusNotFound, clientSafe(err))
 		return
 	}

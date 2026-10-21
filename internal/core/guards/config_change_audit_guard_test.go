@@ -71,7 +71,10 @@ func TestGuardedConfigMutations_CallSharedAuditHelper(t *testing.T) {
 	t.Parallel()
 	for name, spec := range guardedConfigMutations {
 		t.Run(name, func(t *testing.T) {
-			if !funcBodyCallsHelper(t, spec.file, name, "writeConfigChangeAuditEvent") {
+			// AUDIT-TX-3: the call is the transaction-scoped On variant (the row is
+			// written in the change's own transaction); the plain one stays valid.
+			if !funcBodyCallsHelper(t, spec.file, name, "writeConfigChangeAuditEvent") &&
+				!funcBodyCallsHelper(t, spec.file, name, "writeConfigChangeAuditEventOn") {
 				t.Errorf("%s (%s) must call writeConfigChangeAuditEvent -- %s", name, spec.file, spec.reason)
 			}
 		})
@@ -115,11 +118,11 @@ func TestGuardedConfigMutations_ReasonsAreNonEmpty(t *testing.T) {
 // writeConfigChangeAuditEvent; UpdateAnomalyConfig (checked above) must.
 func TestFuncBodyCallsHelper_SelfCheck(t *testing.T) {
 	t.Parallel()
-	if funcBodyCallsHelper(t, "anomaly_config.go", "GetAnomalyConfig", "writeConfigChangeAuditEvent") {
+	if funcBodyCallsHelper(t, "anomaly_config.go", "GetAnomalyConfig", "writeConfigChangeAuditEventOn") {
 		t.Fatal("GetAnomalyConfig is a read-only accessor and must not be detected as calling " +
 			"writeConfigChangeAuditEvent -- the scanner is vacuously true")
 	}
-	if !funcBodyCallsHelper(t, "anomaly_config.go", "UpdateAnomalyConfig", "writeConfigChangeAuditEvent") {
+	if !funcBodyCallsHelper(t, "anomaly_config.go", "UpdateAnomalyConfig", "writeConfigChangeAuditEventOn") {
 		t.Fatal("UpdateAnomalyConfig must be detected as calling writeConfigChangeAuditEvent -- " +
 			"the scanner failed to find a call site known to exist")
 	}

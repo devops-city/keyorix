@@ -1,0 +1,1 @@
+security-mutation-audit-tx3-002	./server/faultops	TestAuditTx3Mutation_AuditFailureFailsClosedChangesNothing	default-ci	pending-merge	-	Router-level companion of security-mutation-audit-tx3-001: 40 REST and gRPC operations run with their first audit append faulted must fail and leave every table, audit_events included, unchanged. Red on main 40/40.

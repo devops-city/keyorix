@@ -26,9 +26,14 @@ import (
 )
 
 // --- storage stubs for rotation policy error paths ---
+//
+// WrapTx on the write stubs re-wraps the transaction handle so the injected failure
+// still fires now that the write runs inside the mutation's audited transaction
+// (AUDIT-TX-3).
 
 func createRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
 	return hooked(inner, &storeHooks{
+		WrapTx: true,
 		CreateRotationPolicy: func(_ corestorage.Storage, _ context.Context, _ *models.RotationPolicy) error {
 			return err
 		},
@@ -37,6 +42,7 @@ func createRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage
 
 func updateRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
 	return hooked(inner, &storeHooks{
+		WrapTx: true,
 		UpdateRotationPolicyFields: func(_ corestorage.Storage, _ context.Context, _ uint, _ corestorage.RotationPolicyFieldUpdate, _ time.Time) (bool, error) {
 			return false, err
 		},
@@ -45,6 +51,7 @@ func updateRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage
 
 func deleteRotPolicyErrStorage(inner corestorage.Storage, err error) corestorage.Storage {
 	return hooked(inner, &storeHooks{
+		WrapTx: true,
 		DeleteRotationPolicy: func(_ corestorage.Storage, _ context.Context, _ uint) error {
 			return err
 		},

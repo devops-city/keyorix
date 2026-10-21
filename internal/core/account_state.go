@@ -21,6 +21,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -207,12 +208,20 @@ func (c *KeyorixCore) StaleAccounts(ctx context.Context, state string, olderThan
 // operation is rare (admin actions, not steady-state traffic), and the
 // invariant itself is install-wide, not per-target-user.
 func (c *KeyorixCore) SuspendUser(ctx context.Context, adminID, userID uint) error {
-	return c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
+	var settle func()
+	if err := c.storage.WithNamedLock(ctx, lastAdminGuardLockKey, func(ctx context.Context) error {
 		if err := c.guardLastAdminDeactivation(ctx, userID); err != nil {
 			return err
 		}
-		return c.setAccountState(ctx, adminID, userID, AccountSuspended, "account.suspended")
-	})
+		var serr error
+		settle, serr = c.setAccountStateUnsettled(ctx, adminID, userID, AccountSuspended, "account.suspended")
+		return serr
+	}); err != nil {
+		return err
+	}
+	// After the named lock (F6): the owed row never settles under lastAdminGuardLockKey.
+	settle()
+	return nil
 }
 
 // lastAdminGuardLockKey is the WithNamedLock key for guardLastAdminDeactivation's
@@ -249,8 +258,21 @@ func (c *KeyorixCore) RequirePasswordReset(ctx context.Context, adminID, userID 
 // succeed while the account stays unchanged. See SetAccountState's doc comment on
 // storage.Storage.
 func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint, state, eventType string) error {
+	settle, err := c.setAccountStateUnsettled(ctx, adminID, userID, state, eventType)
+	if err != nil {
+		return err
+	}
+	settle()
+	return nil
+}
+
+// setAccountStateUnsettled is setAccountState returning, once the change has committed
+// and the auth cache is evicted, settle to append its owed row. It returns with
+// accountStateMu released, so the caller calls settle after every lock it holds (F6):
+// a slow audit log never holds up another account-state change of this process.
+func (c *KeyorixCore) setAccountStateUnsettled(ctx context.Context, adminID, userID uint, state, eventType string) (func(), error) {
 	if userID == 0 {
-		return fmt.Errorf("user ID is required")
+		return nil, fmt.Errorf("user ID is required")
 	}
 	// S1 sweep (CLI-split inventory #2012): a non-zero, non-self adminID must
 	// hold the same admin-rank ceiling UpdateUser/DeleteUser/RestoreUser now
@@ -265,7 +287,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	// decision" rather than "unauthenticated human."
 	if adminID != userID {
 		if err := c.requireAdminRankCeilingForTarget(ctx, adminID, userID, "change the account state of"); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	c.accountStateMu.Lock()
@@ -308,13 +330,46 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	needsCacheClearSweep := !needsCacheEvictionSweep
 
 	var sessionHashes []string
-	err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		hashes, serr := c.setAccountStateInTx(ctx, tx, userID, state)
-		sessionHashes = hashes
-		return serr
-	})
+	// AUDIT-TX-3: a transition into a login-blocked or restricted state is a
+	// revocation: never blocked by the audit log, its row owed from this transaction
+	// (appended after the cache eviction below). Returning to active restores access,
+	// so that one is grant-shaped: its row commits with it or not at all. So is
+	// suspended -> password_reset_required: the target is "restricted", but leaving a
+	// login-blocked state lets the user log in again (to reset), so the direction
+	// depends on the CURRENT state as well (accountStateTransitionRevokes). The current
+	// state is read here, under accountStateMu, and re-checked on the row lock inside
+	// the transaction: another replica may change it in between, in which case the call
+	// is retried once with the state it found.
+	aid := adminID
+	var (
+		settle func()
+		err    error
+	)
+	for attempt := 0; ; attempt++ {
+		revocation := needsCacheEvictionSweep && accountStateTransitionRevokes(userID, c.currentAccountStateForDirection(ctx, userID), state)
+		settle, err = c.auditedByDirection(ctx, !revocation, func(tx storage.Storage, tgt auditTarget) error {
+			if revocation {
+				if locked, lerr := tx.LockUserForUpdate(ctx, userID); lerr == nil && locked != nil &&
+					!accountStateTransitionRevokes(userID, locked.AccountState, state) {
+					return errAccountStateDirectionChanged
+				}
+			}
+			hashes, serr := c.setAccountStateInTx(ctx, tx, userID, state)
+			sessionHashes = hashes
+			if serr != nil {
+				return serr
+			}
+			c.writeAuditEventFullOn(ctx, tgt, eventType, &aid, nil, nil, "",
+				fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, tx, auditKindUser, userID), state))
+			return nil
+		})
+		if errors.Is(err, errAccountStateDirectionChanged) && attempt == 0 {
+			continue
+		}
+		break
+	}
 	if err != nil {
-		return fmt.Errorf("failed to update account state: %w", err)
+		return nil, fmt.Errorf("failed to update account state: %w", err)
 	}
 	// Evict the captured session/PAT-token hashes from the auth cache — AFTER commit,
 	// so a rolled-back transaction never evicts a still-valid cache entry — so the new
@@ -332,10 +387,7 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 	if AccountLoginBlocked(userID, state) {
 		purgeStepUpGrants(ctx, c.storage, userID)
 	}
-	aid := adminID
-	c.writeAuditEventFull(ctx, eventType, &aid, nil, nil, "",
-		fmt.Sprintf("%s account state set to %s", c.auditRef(ctx, c.storage, auditKindUser, userID), state))
-	return nil
+	return settle, nil
 }
 
 // accountStateNeedsEvictionSweep reports whether a transition to state needs the
@@ -346,6 +398,36 @@ func (c *KeyorixCore) setAccountState(ctx context.Context, adminID, userID uint,
 // primitive under a different condition.
 func accountStateNeedsEvictionSweep(userID uint, state string) bool {
 	return AccountLoginBlocked(userID, state) || AccountRestricted(state)
+}
+
+// errAccountStateDirectionChanged: the account's state, read under the row lock, made
+// the audit direction chosen before the transaction wrong (it was read as not
+// login-blocked and is). setAccountState retries once with the state it found.
+var errAccountStateDirectionChanged = errors.New("account state changed while choosing the audit direction")
+
+// accountStateTransitionRevokes reports whether moving an account from one state to
+// another narrows access, which is what makes its audit row owed (never blocked by the
+// audit log) instead of fail closed. Into a blocked or restricted state narrows,
+// EXCEPT from a login-blocked state into one that is not: suspended ->
+// password_reset_required lets the user log in again, so it widens. An unreadable or
+// unrecognised current state counts as login-blocked (AccountLoginBlocked fails
+// closed), which makes that transition grant-shaped: the safe side.
+func accountStateTransitionRevokes(userID uint, from, to string) bool {
+	if !accountStateNeedsEvictionSweep(userID, to) {
+		return false // toward active
+	}
+	return !(AccountLoginBlocked(userID, from) && !AccountLoginBlocked(userID, to))
+}
+
+// currentAccountStateForDirection reads the account's current state for
+// accountStateTransitionRevokes. A failed read returns "", which counts as
+// login-blocked there; the transaction then reports the real error itself.
+func (c *KeyorixCore) currentAccountStateForDirection(ctx context.Context, userID uint) string {
+	u, err := c.storage.GetUser(ctx, userID)
+	if err != nil || u == nil {
+		return ""
+	}
+	return u.AccountState
 }
 
 // setAccountStateInTx is setAccountState's transaction body, extracted (#2867) so
@@ -404,10 +486,19 @@ func (c *KeyorixCore) setAccountStateInTx(ctx context.Context, tx storage.Storag
 		// evict here too. Revoked PAT hashes are folded into sessionHashes so they're
 		// evicted from the auth cache alongside the session hashes after commit.
 		if AccountLoginBlocked(userID, state) {
-			_ = tx.DeleteSessionsForUserExcept(ctx, userID, 0)
-			if hashes, herr := tx.RevokeAllPersonalAccessTokensForUser(ctx, userID); herr == nil {
-				sessionHashes = append(sessionHashes, hashes...)
-			}
+			// Best-effort, each in its own savepoint: on PostgreSQL a failed statement
+			// aborts the whole transaction, so an ignored error here would roll the state
+			// change back at commit instead of leaving it applied.
+			_ = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+				return sp.DeleteSessionsForUserExcept(ctx, userID, 0)
+			})
+			_ = tx.WithTransaction(ctx, func(sp storage.Storage) error {
+				hashes, herr := sp.RevokeAllPersonalAccessTokensForUser(ctx, userID)
+				if herr == nil {
+					sessionHashes = append(sessionHashes, hashes...)
+				}
+				return herr
+			})
 		}
 	}
 	return sessionHashes, nil

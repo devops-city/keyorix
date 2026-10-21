@@ -21,8 +21,9 @@ import "testing"
 // c.storage.SetMachineIdentityCredentialClassification -> its LocalStorage body.
 func TestClassifyMachineToken_IsColumnScoped(t *testing.T) {
 	assertColumnScopedStorageWrite(t, "../../storage/store/local_machine_credentials.go", "SetMachineIdentityCredentialClassification")
-	for _, fn := range []string{"ClassifyMachineToken", "ClassifyMachineTokenByID"} {
-		assertCoreWritesOnlyVia(t, "../machine_token.go", fn, "storage",
+	// AUDIT-TX-3: ClassifyMachineToken writes through its audited transaction's handle.
+	for fn, recv := range map[string]string{"ClassifyMachineToken": "tx", "ClassifyMachineTokenByID": "storage"} {
+		assertCoreWritesOnlyVia(t, "../machine_token.go", fn, recv,
 			"SetMachineIdentityCredentialClassification", "Save", "UpdateMachineIdentityCredential")
 	}
 }
