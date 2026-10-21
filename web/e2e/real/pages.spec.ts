@@ -238,7 +238,8 @@ test('demo seed: Compliance shows a healthy posture with exactly one deliberate 
     await expect(tile('Projects reviewed (A.5.18)')).toContainText('3/3');
     await expect(tile('Projects overdue for recert (A.5.18)')).toContainText(/^0/);
     await expect(tile('Dormant role grants')).toContainText(/^0/);
-    await expect(tile('Unclassified secrets')).toContainText('0 / 3');
+    // 0 unclassified, whatever the seed's total is (it was hardcoded to 3 and went stale).
+    await expect(tile('Unclassified secrets')).toContainText(/^0 \/ \d+/);
     await expect(tile('Rotation overdue / due-soon (A.5.15)')).toContainText('0 / 0');
     // Anomalies: a day-zero install has no baseline, so low/medium new-user/new-IP
     // alerts appear a few minutes after boot (see GOLDEN-PATH.md); what must never
