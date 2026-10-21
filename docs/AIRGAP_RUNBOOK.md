@@ -8,6 +8,39 @@ call, never a running listener — see `keyorix-server admin --help`) and the
 audit hash chain (ADR-029). Nothing in this runbook requires — or should ever
 require — reaching out to the internet.
 
+## Getting the binaries onto the host
+
+Every release carries the air-gapped server build as `keyorix-server-airgap_linux_amd64`
+(and `_arm64`; no cloud SDK linked, see `scripts/airgap-dependency-guard.sh`) next to the
+`keyorix_linux_amd64` CLI and `checksums.txt`. Download them on a connected machine, check
+them (`sha256sum -c --ignore-missing checksums.txt`), carry them over, and install the
+server as `bin/keyorix-server`. Then follow
+[INSTALL-WITH-AI.md](../INSTALL-WITH-AI.md), or the PostgreSQL variant in
+[operations/pilot-install.md](operations/pilot-install.md#binary-only-variant-no-published-images).
+Nothing in the install, the first boot, MFA enrolment, a project and secret, a live
+PostgreSQL backup, the checkpoint export, a restore into a fresh database and the audit
+check below contacted the network when run with v0.96.2.
+
+**Prove it on your own host.** With a firewall rule that drops everything the server's
+account sends off the loopback interface (it leaves the rest of the machine alone), the
+rule's packet counter shows any attempt:
+
+```sh
+sudo iptables -I OUTPUT 1 -m owner --uid-owner <server uid> ! -o lo -m comment --comment airgap -j DROP
+sudo ip6tables -I OUTPUT 1 -m owner --uid-owner <server uid> ! -o lo -m comment --comment airgap -j DROP
+# ... run the install and the drill below as that account ...
+sudo iptables -L OUTPUT -v -n -x | sed -n 3p      # pkts must still equal what it was before the run
+ss -tunp | grep keyorix | grep -v -E '127.0.0.1|\[::1\]'    # no output: no non-loopback socket
+sudo iptables -D OUTPUT -m owner --uid-owner <server uid> ! -o lo -m comment --comment airgap -j DROP
+sudo ip6tables -D OUTPUT -m owner --uid-owner <server uid> ! -o lo -m comment --comment airgap -j DROP
+```
+
+(Run `curl -m 5 https://github.com` as that account once after inserting the rule: it must
+time out, and its few dropped packets are your baseline for the counter. A DNS lookup
+that goes through a local resolver stub is sent by the resolver, not by the server's
+account, so this rule does not count it; the server log is the other witness: it had no
+`dial`, `lookup` or `no such host` line.)
+
 ## What a complete backup is
 
 A complete backup is **two files' worth of content, bundled into one
