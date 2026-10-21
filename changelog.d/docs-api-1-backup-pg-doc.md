@@ -1,0 +1,2 @@
+### Documentation
+- **Backup threat model matches `admin backup` on PostgreSQL.** `docs/security/threat-models/backup-restore.md` (diagram, BAK-4, residual risks) and `docs/security/threat-model.md` still said `admin backup` refuses on PostgreSQL and that Postgres has no Keyorix-native backup. Both backends are supported, as the hardening guide, `SELF_HOSTING.md` §5 and `AIRGAP_RUNBOOK.md` already state.
