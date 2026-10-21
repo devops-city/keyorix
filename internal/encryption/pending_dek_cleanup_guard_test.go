@@ -29,7 +29,7 @@ var allowedCleanPendingDEKCalls = map[string]int{
 	"internal/encryption/service_rotation.go": 4,
 	// The remote-storage branch: a remote backend runs no local sweep, so no
 	// marker can exist.
-	"server/main.go": 1,
+	"server/boot_encryption.go": 1,
 }
 
 // TestCleanPendingDEK_OnlyBehindTheRedoMarker fails when a production file

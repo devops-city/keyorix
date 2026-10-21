@@ -322,43 +322,75 @@ func GRPCMethods(repoRoot string) ([]Entry, error) {
 // ---------------------------------------------------------------------
 
 // ScheduledJobs extracts every runScheduler / runSchedulerAfter(ctx, "name", ...) call in
-// server/main.go's startSchedulers, capturing the tick closure's own body
+// the server's package main (server/*.go, non-test: one scheduler_<job>.go per job,
+// started in order by startSchedulers), capturing the tick closure's own body
 // position range for classification (no separate resolution step needed --
 // the closure is right there).
 func ScheduledJobs(repoRoot string) ([]Entry, error) {
-	path := filepath.Join(repoRoot, "server", "main.go")
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, 0)
+	files, err := parseServerMainPackage(repoRoot, fset)
 	if err != nil {
 		return nil, err
 	}
-	relPath, _ := filepath.Rel(repoRoot, path)
 
 	var entries []Entry
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
+	for _, sf := range files {
+		ast.Inspect(sf.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.Ident)
+			// runSchedulerAfter (a deferred first tick) registers a job the same way.
+			if !ok || (sel.Name != "runScheduler" && sel.Name != "runSchedulerAfter") || len(call.Args) < 3 {
+				return true
+			}
+			name, ok := call.Args[1].(*ast.BasicLit)
+			if !ok || name.Kind != token.STRING {
+				return true
+			}
+			label, _ := unquote(name.Value)
+			entries = append(entries, Entry{
+				Kind: "job",
+				ID:   label,
+				File: sf.relPath,
+				Line: fset.Position(call.Pos()).Line,
+			})
 			return true
-		}
-		sel, ok := call.Fun.(*ast.Ident)
-		// runSchedulerAfter (a deferred first tick) registers a job the same way.
-		if !ok || (sel.Name != "runScheduler" && sel.Name != "runSchedulerAfter") || len(call.Args) < 3 {
-			return true
-		}
-		name, ok := call.Args[1].(*ast.BasicLit)
-		if !ok || name.Kind != token.STRING {
-			return true
-		}
-		label, _ := unquote(name.Value)
-		entries = append(entries, Entry{
-			Kind: "job",
-			ID:   label,
-			File: relPath,
-			Line: fset.Position(call.Pos()).Line,
 		})
-		return true
-	})
+	}
 	return dedupSortEntries(entries), nil
+}
+
+// serverMainFile is one parsed non-test file of the server's package main.
+type serverMainFile struct {
+	file    *ast.File
+	relPath string // repo-relative, slash-separated
+}
+
+// parseServerMainPackage parses every non-test .go file directly in server/
+// (package main, not its subpackages), sorted by name. The scheduled jobs used to
+// live in server/main.go alone; reading the whole package keeps ScheduledJobs and
+// jobClosureBodies complete wherever a job's file is.
+func parseServerMainPackage(repoRoot string, fset *token.FileSet) ([]serverMainFile, error) {
+	paths, err := filepath.Glob(filepath.Join(repoRoot, "server", "*.go"))
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	var out []serverMainFile
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		rel, _ := filepath.Rel(repoRoot, path)
+		out = append(out, serverMainFile{file: f, relPath: filepath.ToSlash(rel)})
+	}
+	return out, nil
 }
 
 // ---------------------------------------------------------------------

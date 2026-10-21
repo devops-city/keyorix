@@ -37,6 +37,10 @@ func TestModeChecksAlsoJudgeTheOwner(t *testing.T) {
 	root := repoRoot(t)
 	var files []string
 	for _, tgt := range guardedDirs {
+		if strings.Contains(tgt, "*") {
+			files = append(files, guardedGlobFiles(t, root, tgt)...)
+			continue
+		}
 		err := filepath.WalkDir(filepath.Join(root, tgt), func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err

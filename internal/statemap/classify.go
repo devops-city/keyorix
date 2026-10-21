@@ -229,54 +229,55 @@ func buildFuncIndex(repoRoot string, dirs []string) (map[string][]funcInfo, erro
 	return idx, nil
 }
 
-// jobClosureBodies re-parses server/main.go's runScheduler calls (the same
-// ones ScheduledJobs finds) and returns each job's tick-closure body,
-// keyed by job name -- kept as a separate pass from ScheduledJobs so that
+// jobClosureBodies re-parses the server package's runScheduler calls (the same
+// ones ScheduledJobs finds, in server/*.go) and returns each job's tick-closure
+// body, keyed by job name -- kept as a separate pass from ScheduledJobs so that
 // function's return type doesn't have to carry an AST node.
 func jobClosureBodies(repoRoot string) (map[string]*ast.BlockStmt, error) {
-	path := filepath.Join(repoRoot, "server", "main.go")
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, path, nil, 0)
+	files, err := parseServerMainPackage(repoRoot, fset)
 	if err != nil {
 		return nil, err
 	}
 	out := map[string]*ast.BlockStmt{}
-	ast.Inspect(f, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if !ok {
+	for _, sf := range files {
+		ast.Inspect(sf.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			id, ok := call.Fun.(*ast.Ident)
+			// runScheduler(ctx, name string, interval time.Duration, tick func() ...) --
+			// 4 args; the tick closure is Args[3], NOT Args[2] (a real bug this
+			// session's own coordinator review caught: the interval argument was
+			// missed, so this matched nothing for any of the 18 real call sites and
+			// every job silently fell through to the "could not re-locate" REVIEW
+			// path in Classify).
+			// runSchedulerAfter(ctx, name, interval, firstDelay, tick) carries the
+			// closure one argument later.
+			tickArg := 3
+			switch {
+			case !ok:
+				return true
+			case id.Name == "runScheduler" && len(call.Args) >= 4:
+			case id.Name == "runSchedulerAfter" && len(call.Args) >= 5:
+				tickArg = 4
+			default:
+				return true
+			}
+			lit, ok := call.Args[1].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			label, uerr := unquote(lit.Value)
+			if uerr != nil {
+				return true
+			}
+			if fn, ok := call.Args[tickArg].(*ast.FuncLit); ok && fn.Body != nil {
+				out[label] = fn.Body
+			}
 			return true
-		}
-		id, ok := call.Fun.(*ast.Ident)
-		// runScheduler(ctx, name string, interval time.Duration, tick func() ...) --
-		// 4 args; the tick closure is Args[3], NOT Args[2] (a real bug this
-		// session's own coordinator review caught: the interval argument was
-		// missed, so this matched nothing for any of the 18 real call sites and
-		// every job silently fell through to the "could not re-locate" REVIEW
-		// path in Classify).
-		// runSchedulerAfter(ctx, name, interval, firstDelay, tick) carries the
-		// closure one argument later.
-		tickArg := 3
-		switch {
-		case !ok:
-			return true
-		case id.Name == "runScheduler" && len(call.Args) >= 4:
-		case id.Name == "runSchedulerAfter" && len(call.Args) >= 5:
-			tickArg = 4
-		default:
-			return true
-		}
-		lit, ok := call.Args[1].(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
-			return true
-		}
-		label, uerr := unquote(lit.Value)
-		if uerr != nil {
-			return true
-		}
-		if fn, ok := call.Args[tickArg].(*ast.FuncLit); ok && fn.Body != nil {
-			out[label] = fn.Body
-		}
-		return true
-	})
+		})
+	}
 	return out, nil
 }

@@ -49,7 +49,7 @@ import (
 // TestKeylessMode_NoWriteAssignment's own separate file-path check below,
 // not by this allowlist.
 var keylessModeAllowedFiles = map[string]string{
-	"server/main.go": "reads it once at server startup (only) to print the repeated-every-boot warning and " +
+	"server/wire_recover_admin.go": "reads it once at server startup (only) to print the repeated-every-boot warning and " +
 		"write the startup audit event (docs/design-b2-recover-admin.md §5) — never writes it.",
 	"server/http/handlers/system.go": "reads it once to populate SecurityInfo.KeylessRecoveryMode for the " +
 		"authenticated GET /system/info response — never writes it. This is the one HTTP handler that touches " +
@@ -67,7 +67,7 @@ var keylessModeAllowedFiles = map[string]string{
 		"closures for the insecure_keyless_admin_recovery entry, ADR-112 opt-out rule item 2) to decide " +
 		"whether this setting is in effect, for the start-up warning loop and the settings-diff audit -- " +
 		"never writes it. No HTTP or gRPC transport is involved: these closures only ever run from " +
-		"server/main.go's own startup code, over an already-loaded *config.Config.",
+		"the server's own startup code, over an already-loaded *config.Config.",
 }
 
 // repoRootForKeylessModeScan resolves the main module's repo root from this
