@@ -96,6 +96,7 @@ var endpointOverrides = map[string]string{
 	"keyorix_audit_verify_failure_recorded":               epScheduler,
 	"keyorix_audit_verify_state_rejected":                 epScheduler,
 	"keyorix_audit_owed_pending":                          epScheduler,
+	"keyorix_audit_owed_failures_total":                   epScheduler,
 
 	// Posture and tamper signals (an anonymous reader must not learn that encryption is
 	// off, that decrypts or audit appends fail, that the KEK chain downgraded, how hard
@@ -126,6 +127,7 @@ var postureMetricsMustBeProtected = []string{
 	"keyorix_audit_verify_failure_recorded",
 	"keyorix_audit_verify_state_rejected",
 	"keyorix_audit_owed_pending",
+	"keyorix_audit_owed_failures_total",
 }
 
 func endpointOf(d metricDef) string {

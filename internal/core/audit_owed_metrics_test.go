@@ -29,6 +29,37 @@ func owedPendingScrape(t *testing.T) float64 {
 	return 0
 }
 
+// owedFailuresScrape reads keyorix_audit_owed_failures_total the way the authenticated
+// endpoint serves it.
+func owedFailuresScrape(t *testing.T) float64 {
+	t.Helper()
+	mfs, err := protectedmetrics.Registry.Gather()
+	require.NoError(t, err)
+	for _, mf := range mfs {
+		if mf.GetName() == "keyorix_audit_owed_failures_total" {
+			require.Len(t, mf.GetMetric(), 1)
+			return mf.GetMetric()[0].GetCounter().GetValue()
+		}
+	}
+	t.Fatal("keyorix_audit_owed_failures_total is not on the protected registry")
+	return 0
+}
+
+// A refused plain-suspend audit write is counted on the metric, even when the pending
+// record could not be written either (the gauge above reads the database and cannot see
+// that case). The suspend still succeeds. Not parallel: process-wide counter.
+func TestOwedAuditFailuresCounter_CountsARefusedSuspendAudit(t *testing.T) {
+	ctx := context.Background()
+	w := newOwedAuditWorld(t)
+	id := w.secret(t, "leaked", 1, SecretStatusActive, false)
+
+	before := owedFailuresScrape(t)
+	defer refuseSuspendAudit(t, w)()
+	_, err := w.c.SuspendSecret(ctx, id, 1, "breach response")
+	require.NoError(t, err, "revocation is never blocked by the audit log")
+	assert.Equal(t, before+1, owedFailuresScrape(t))
+}
+
 // Not parallel: the gauge reads through one process-wide source.
 func TestOwedAuditPendingGauge_FollowsThePendingTable(t *testing.T) {
 	ctx := context.Background()
