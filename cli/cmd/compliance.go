@@ -377,19 +377,13 @@ not been modified. Requires server-side encryption (the signing key is DEK-deriv
 		if err != nil {
 			return err
 		}
-		// The server binds the signature to the pack's canonical filename (AUD-009) and reads it
-		// from the request's "filename" field; the OpenAPI schema (and so the generated typed
-		// body) does not list that field, so the typed call would send none and every genuine
-		// pack failed with "presented under the wrong filename". Send the raw JSON instead.
-		payload, err := json.Marshal(map[string]string{
-			"data_b64":  base64.StdEncoding.EncodeToString(data),
-			"signature": signature,
-			"filename":  filename,
+		// The server binds the signature to the pack's canonical filename (AUD-009), so the
+		// request must carry it.
+		resp, err := client.VerifyComplianceEvidenceWithResponse(ctx, apiclient.VerifyComplianceEvidenceJSONRequestBody{
+			DataB64:   base64.StdEncoding.EncodeToString(data),
+			Signature: signature,
+			Filename:  filename,
 		})
-		if err != nil {
-			return err
-		}
-		resp, err := client.VerifyComplianceEvidenceWithBodyWithResponse(ctx, "application/json", bytes.NewReader(payload))
 		if err != nil {
 			return err
 		}
