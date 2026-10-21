@@ -38,6 +38,17 @@ DRILL_BACKEND=postgres DRILL_PG_DSN_FILE=a.txt DRILL_PG_DSN_FILE2=b.txt \
 DRILL_PG_DSN_FILE3=c.txt scripts/drills/backup-restore.sh
 ```
 
+**Prerequisites.** A clone of `main` (the scripts are not in any tag up to v0.96.2), a Go
+toolchain on `PATH` (the drill builds its own TOTP helper and, by default, the server and
+CLI from the checkout; without Go it stops with `go: command not found` / `totpgen build
+failed`). Leave `DRILL_SERVER_BIN` and `DRILL_CLI_BIN` unset: the drill
+needs a CLI that can take its password from the environment, and the v0.96.2 release
+`keyorix` cannot (`Password: Error: read password: EOF`, `DRILL FAILED: first login
+failed`). Fetching the Go modules needs the network, so run it on a connected host. On
+PostgreSQL the DSN files may end in `?sslmode=require` for a server with TLS. A
+PostgreSQL 16 run with binaries built from `main` took about 4 minutes, nearly all of it the
+first build, and ended with `BACKUP/RESTORE DRILL PASSED`.
+
 The last line is `BACKUP/RESTORE DRILL PASSED`. What the drill does **not** cover: the
 container variants of these commands (`docker compose run ...`, Helm) are pending a
 run on the e2e VM; off-host storage of the archive is yours to arrange.

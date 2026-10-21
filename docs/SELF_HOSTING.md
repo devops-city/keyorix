@@ -860,9 +860,12 @@ wrong credential, so the response cannot be used to confirm a guess.
 ## 10. Single-binary / air-gapped deployment
 
 For environments where Docker isn't available, `keyorix-server` is a single Go
-binary that runs against SQLite or PostgreSQL (a config with `storage.type: postgres`,
-see `admin init --storage-type postgres`, and `KEYORIX_MASTER_PASSWORD` +
-`KEYORIX_DB_PASSWORD` set) — and it can serve the **web dashboard from the binary
+binary that runs against SQLite or PostgreSQL (a config with `storage.type: postgres`
+and a `dsn`, written by editing the config `admin init` generates — there is no
+`--storage-type` flag — and `KEYORIX_MASTER_PASSWORD` + `KEYORIX_DB_PASSWORD` set, or
+their `_FILE` forms; the PostgreSQL steps are in
+[operations/pilot-install.md](operations/pilot-install.md#binary-only-variant-no-published-images))
+— and it can serve the **web dashboard from the binary
 itself**, so the whole product is one file plus a database. No web container, no
 nginx.
 
