@@ -1,0 +1,8 @@
+### Security
+- **Key-changing admin commands finish an interrupted DEK rotation instead of destroying it.** After `admin encryption rotate` was killed between committing its re-encryption sweep and renaming `dek.key.pending`, `upgrade-aad`, `rotate-kek`, `migrate-provider` and `auth-encryption rotate`/`migrate` deleted, overwrote or wrote around the pending new DEK, making every re-encrypted row undecryptable. They now take the exclusive key lock and run the same crash recovery as server start-up first. A rotation whose final rename fails, or whose database COMMIT returns an error, now keeps `dek.key.pending` for that recovery instead of deleting it.
+- **Admin encryption commands no longer create keys when the key files are missing.** Every command except `admin encryption init` used to generate a new salt and DEK when `dek_path` did not resolve (run from the wrong directory, a wrong path, an unmounted volume); `rotate-kek` and `migrate-provider` then reported success on those new keys. They now refuse with the resolved path and create nothing. `upgrade-aad` and `auth-encryption migrate` now take the key lock exclusively.
+- **`admin encryption shamir-split --out-dir` never overwrites existing share or commitment files.** It refuses before generating a KEK when any target exists.
+- **The rolling-upgrade database triggers (#3359, #3362) are re-enabled as ENABLE ALWAYS at every start-up**, like the other Keyorix triggers, so one left ordinary by `pg_restore --disable-triggers`, replica-only or disabled is repaired.
+
+### Testing
+- **A schema change without a schema-epoch bump fails the build** (`internal/storage/schema_epoch_snapshot_test.go`, snapshots in `internal/storage/testdata/schema_epoch/`).

@@ -1,0 +1,913 @@
+# schema of a fresh sqlite install at currentSchemaEpoch 5; see schema_epoch_snapshot_test.go
+column access_request_approvals.approver_id INTEGER notnull=1 default=<none> pk=0
+column access_request_approvals.approver_machine_identity_id INTEGER notnull=1 default=0 pk=0
+column access_request_approvals.created_at DATETIME notnull=0 default=<none> pk=0
+column access_request_approvals.id INTEGER notnull=0 default=<none> pk=1
+column access_request_approvals.request_id INTEGER notnull=1 default=<none> pk=0
+column access_requests.created_at DATETIME notnull=0 default=<none> pk=0
+column access_requests.expires_at DATETIME notnull=0 default=<none> pk=0
+column access_requests.granted_role TEXT notnull=0 default=<none> pk=0
+column access_requests.id INTEGER notnull=0 default=<none> pk=1
+column access_requests.project_id INTEGER notnull=0 default=<none> pk=0
+column access_requests.reason TEXT notnull=0 default=<none> pk=0
+column access_requests.resolved_at DATETIME notnull=0 default=<none> pk=0
+column access_requests.resolved_by INTEGER notnull=0 default=<none> pk=0
+column access_requests.resolved_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column access_requests.secret_id INTEGER notnull=0 default=<none> pk=0
+column access_requests.state TEXT notnull=0 default=<none> pk=0
+column access_requests.suggested_role TEXT notnull=0 default=<none> pk=0
+column access_requests.user_id INTEGER notnull=0 default=<none> pk=0
+column access_review_campaigns.activity_window_days INTEGER notnull=0 default=0 pk=0
+column access_review_campaigns.closed_at DATETIME notnull=0 default=<none> pk=0
+column access_review_campaigns.closed_by INTEGER notnull=0 default=<none> pk=0
+column access_review_campaigns.closed_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column access_review_campaigns.created_at DATETIME notnull=0 default=<none> pk=0
+column access_review_campaigns.created_by INTEGER notnull=0 default=<none> pk=0
+column access_review_campaigns.created_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column access_review_campaigns.degraded NUMERIC notnull=0 default=false pk=0
+column access_review_campaigns.degraded_reasons TEXT notnull=0 default=<none> pk=0
+column access_review_campaigns.forced_incomplete NUMERIC notnull=0 default=false pk=0
+column access_review_campaigns.id INTEGER notnull=0 default=<none> pk=1
+column access_review_campaigns.name TEXT notnull=0 default=<none> pk=0
+column access_review_campaigns.project_id INTEGER notnull=0 default=<none> pk=0
+column access_review_campaigns.state TEXT notnull=0 default=<none> pk=0
+column access_review_items.access_level TEXT notnull=0 default=<none> pk=0
+column access_review_items.campaign_id INTEGER notnull=0 default=<none> pk=0
+column access_review_items.decided_at DATETIME notnull=0 default=<none> pk=0
+column access_review_items.decided_by INTEGER notnull=0 default=<none> pk=0
+column access_review_items.decision TEXT notnull=0 default=<none> pk=0
+column access_review_items.email TEXT notnull=0 default=<none> pk=0
+column access_review_items.environment_id INTEGER notnull=0 default=<none> pk=0
+column access_review_items.id INTEGER notnull=0 default=<none> pk=1
+column access_review_items.last_used_at DATETIME notnull=0 default=<none> pk=0
+column access_review_items.principal_id INTEGER notnull=0 default=<none> pk=0
+column access_review_items.principal_name TEXT notnull=0 default=<none> pk=0
+column access_review_items.principal_type TEXT notnull=0 default=<none> pk=0
+column access_review_items.reason TEXT notnull=0 default=<none> pk=0
+column access_review_items.role_id INTEGER notnull=0 default=<none> pk=0
+column access_review_items.role_name TEXT notnull=0 default=<none> pk=0
+column access_review_items.secret_id INTEGER notnull=0 default=<none> pk=0
+column access_review_items.secret_name TEXT notnull=0 default=<none> pk=0
+column access_review_items.source TEXT notnull=0 default=<none> pk=0
+column alert_escalation_policies.channel_ids TEXT notnull=0 default=<none> pk=0
+column alert_escalation_policies.created_at DATETIME notnull=0 default=<none> pk=0
+column alert_escalation_policies.created_by INTEGER notnull=0 default=<none> pk=0
+column alert_escalation_policies.enabled NUMERIC notnull=0 default=true pk=0
+column alert_escalation_policies.escalate_after_minutes INTEGER notnull=0 default=<none> pk=0
+column alert_escalation_policies.id INTEGER notnull=0 default=<none> pk=1
+column alert_escalation_policies.min_severity TEXT notnull=0 default=<none> pk=0
+column alert_escalation_policies.name TEXT notnull=1 default=<none> pk=0
+column alert_escalation_policies.updated_at DATETIME notnull=0 default=<none> pk=0
+column anomaly_alerts.accessed_by TEXT notnull=0 default=<none> pk=0
+column anomaly_alerts.acknowledged NUMERIC notnull=0 default=false pk=0
+column anomaly_alerts.acknowledged_at DATETIME notnull=0 default=<none> pk=0
+column anomaly_alerts.acknowledged_by INTEGER notnull=0 default=<none> pk=0
+column anomaly_alerts.alert_type TEXT notnull=0 default=<none> pk=0
+column anomaly_alerts.alerted NUMERIC notnull=0 default=false pk=0
+column anomaly_alerts.created_at DATETIME notnull=0 default=<none> pk=0
+column anomaly_alerts.description TEXT notnull=0 default=<none> pk=0
+column anomaly_alerts.detected_at DATETIME notnull=0 default=<none> pk=0
+column anomaly_alerts.id INTEGER notnull=0 default=<none> pk=1
+column anomaly_alerts.ip_address TEXT notnull=0 default=<none> pk=0
+column anomaly_alerts.secret_name TEXT notnull=0 default=<none> pk=0
+column anomaly_alerts.secret_node_id INTEGER notnull=0 default=<none> pk=0
+column anomaly_alerts.severity TEXT notnull=0 default=<none> pk=0
+column anomaly_config_records.cumulative_rate_floor REAL notnull=0 default=<none> pk=0
+column anomaly_config_records.cumulative_rate_max INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.id INTEGER notnull=0 default=<none> pk=1
+column anomaly_config_records.lookback_days INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.ml_enabled NUMERIC notnull=0 default=<none> pk=0
+column anomaly_config_records.ml_num_trees INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.ml_sample_size INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.ml_threshold REAL notnull=0 default=<none> pk=0
+column anomaly_config_records.off_hours_enabled NUMERIC notnull=0 default=<none> pk=0
+column anomaly_config_records.off_hours_end INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.off_hours_start INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.off_hours_timezone TEXT notnull=0 default=<none> pk=0
+column anomaly_config_records.quarantine_hours INTEGER notnull=0 default=<none> pk=0
+column anomaly_config_records.updated_at DATETIME notnull=0 default=<none> pk=0
+column anomaly_config_records.updated_by TEXT notnull=0 default=<none> pk=0
+column anomaly_config_records.volume_min_count INTEGER notnull=0 default=<none> pk=0
+column api_call_logs.client_id INTEGER notnull=0 default=<none> pk=0
+column api_call_logs.created_at DATETIME notnull=0 default=<none> pk=0
+column api_call_logs.duration_ms INTEGER notnull=0 default=<none> pk=0
+column api_call_logs.id INTEGER notnull=0 default=<none> pk=1
+column api_call_logs.ip_address TEXT notnull=0 default=<none> pk=0
+column api_call_logs.method TEXT notnull=0 default=<none> pk=0
+column api_call_logs.path TEXT notnull=0 default=<none> pk=0
+column api_call_logs.status_code INTEGER notnull=0 default=<none> pk=0
+column api_call_logs.user_agent TEXT notnull=0 default=<none> pk=0
+column api_call_logs.user_id INTEGER notnull=0 default=<none> pk=0
+column api_clients.client_id TEXT notnull=0 default=<none> pk=0
+column api_clients.client_secret TEXT notnull=0 default=<none> pk=0
+column api_clients.client_secret_metadata BLOB notnull=0 default=<none> pk=0
+column api_clients.created_at DATETIME notnull=0 default=<none> pk=0
+column api_clients.description TEXT notnull=0 default=<none> pk=0
+column api_clients.encrypted_client_secret BLOB notnull=0 default=<none> pk=0
+column api_clients.id INTEGER notnull=0 default=<none> pk=1
+column api_clients.is_active NUMERIC notnull=0 default=<none> pk=0
+column api_clients.name TEXT notnull=0 default=<none> pk=0
+column api_clients.scopes TEXT notnull=0 default=<none> pk=0
+column api_tokens.client_id INTEGER notnull=0 default=<none> pk=0
+column api_tokens.created_at DATETIME notnull=0 default=<none> pk=0
+column api_tokens.encrypted_token BLOB notnull=0 default=<none> pk=0
+column api_tokens.expires_at DATETIME notnull=0 default=<none> pk=0
+column api_tokens.id INTEGER notnull=0 default=<none> pk=1
+column api_tokens.revoked NUMERIC notnull=0 default=<none> pk=0
+column api_tokens.scope TEXT notnull=0 default=<none> pk=0
+column api_tokens.token TEXT notnull=0 default=<none> pk=0
+column api_tokens.token_metadata BLOB notnull=0 default=<none> pk=0
+column api_tokens.user_id INTEGER notnull=0 default=<none> pk=0
+column audit_checkpoints.anchor_provider TEXT notnull=0 default=<none> pk=0
+column audit_checkpoints.anchor_token BLOB notnull=0 default=<none> pk=0
+column audit_checkpoints.anchored_at DATETIME notnull=0 default=<none> pk=0
+column audit_checkpoints.chained_events INTEGER notnull=0 default=<none> pk=0
+column audit_checkpoints.created_at DATETIME notnull=0 default=<none> pk=0
+column audit_checkpoints.head_hash TEXT notnull=0 default=<none> pk=0
+column audit_checkpoints.head_id INTEGER notnull=0 default=<none> pk=0
+column audit_checkpoints.id INTEGER notnull=0 default=<none> pk=1
+column audit_checkpoints.key_version TEXT notnull=0 default=<none> pk=0
+column audit_checkpoints.signature TEXT notnull=1 default=<none> pk=0
+column audit_events.acting_as INTEGER notnull=0 default=<none> pk=0
+column audit_events.actor_type TEXT notnull=0 default="user" pk=0
+column audit_events.description TEXT notnull=0 default=<none> pk=0
+column audit_events.diff TEXT notnull=0 default=<none> pk=0
+column audit_events.entry_hash TEXT notnull=0 default=<none> pk=0
+column audit_events.event_time DATETIME notnull=0 default=<none> pk=0
+column audit_events.event_type TEXT notnull=0 default=<none> pk=0
+column audit_events.id INTEGER notnull=0 default=<none> pk=1
+column audit_events.impersonated_by INTEGER notnull=0 default=<none> pk=0
+column audit_events.impersonation NUMERIC notnull=0 default=false pk=0
+column audit_events.ip_address TEXT notnull=0 default=<none> pk=0
+column audit_events.machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column audit_events.prev_hash TEXT notnull=0 default=<none> pk=0
+column audit_events.project_id INTEGER notnull=0 default=<none> pk=0
+column audit_events.secret_node_id INTEGER notnull=0 default=<none> pk=0
+column audit_events.success NUMERIC notnull=0 default=true pk=0
+column audit_events.user_id INTEGER notnull=0 default=<none> pk=0
+column break_glass_activations.audit_settled_at DATETIME notnull=0 default=<none> pk=0
+column break_glass_activations.created_at DATETIME notnull=0 default=<none> pk=0
+column break_glass_activations.degraded NUMERIC notnull=1 default=false pk=0
+column break_glass_activations.expires_at DATETIME notnull=0 default=<none> pk=0
+column break_glass_activations.id INTEGER notnull=0 default=<none> pk=1
+column break_glass_activations.justification TEXT notnull=0 default=<none> pk=0
+column break_glass_activations.project_id INTEGER notnull=0 default=<none> pk=0
+column break_glass_activations.review_note TEXT notnull=0 default=<none> pk=0
+column break_glass_activations.reviewed_at DATETIME notnull=0 default=<none> pk=0
+column break_glass_activations.reviewed_by INTEGER notnull=0 default=<none> pk=0
+column break_glass_activations.revoked_at DATETIME notnull=0 default=<none> pk=0
+column break_glass_activations.revoked_by INTEGER notnull=0 default=<none> pk=0
+column break_glass_activations.revoked_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column break_glass_activations.role_id INTEGER notnull=0 default=<none> pk=0
+column break_glass_activations.role_name TEXT notnull=0 default=<none> pk=0
+column break_glass_activations.state TEXT notnull=0 default=<none> pk=0
+column break_glass_activations.user_id INTEGER notnull=0 default=<none> pk=0
+column compliance_posture_snapshots.created_at DATETIME notnull=0 default=<none> pk=0
+column compliance_posture_snapshots.degraded_controls INTEGER notnull=0 default=<none> pk=0
+column compliance_posture_snapshots.failed_controls INTEGER notnull=0 default=<none> pk=0
+column compliance_posture_snapshots.id INTEGER notnull=0 default=<none> pk=1
+column compliance_posture_snapshots.passed_controls INTEGER notnull=0 default=<none> pk=0
+column compliance_posture_snapshots.snapshot_date DATETIME notnull=0 default=<none> pk=0
+column compliance_posture_snapshots.total_controls INTEGER notnull=0 default=<none> pk=0
+column connect_ref_grants.connector TEXT notnull=1 default=<none> pk=0
+column connect_ref_grants.created_at DATETIME notnull=0 default=<none> pk=0
+column connect_ref_grants.expires_at DATETIME notnull=0 default=<none> pk=0
+column connect_ref_grants.id INTEGER notnull=0 default=<none> pk=1
+column connect_ref_grants.ref_prefix TEXT notnull=1 default=<none> pk=0
+column connect_ref_grants.role_id INTEGER notnull=1 default=<none> pk=0
+column connector_project_bindings.connector TEXT notnull=1 default=<none> pk=0
+column connector_project_bindings.created_at DATETIME notnull=0 default=<none> pk=0
+column connector_project_bindings.id INTEGER notnull=0 default=<none> pk=1
+column connector_project_bindings.project_id INTEGER notnull=1 default=<none> pk=0
+column connector_project_bindings.project_name TEXT notnull=1 default=<none> pk=0
+column connector_project_bindings.updated_at DATETIME notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.active_users INTEGER notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.audit_events30d INTEGER notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.audit_logins30d INTEGER notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.audit_secret_reads30d INTEGER notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.created_at DATETIME notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.failed_auth_attempts24h INTEGER notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.id INTEGER notnull=0 default=<none> pk=1
+column deployment_stats_snapshots.inactive_users INTEGER notnull=0 default=<none> pk=0
+column deployment_stats_snapshots.snapshot_date DATETIME notnull=0 default=<none> pk=0
+column dynamic_secret_configs.admin_dsn_enc BLOB notnull=0 default=<none> pk=0
+column dynamic_secret_configs.admin_dsn_meta BLOB notnull=0 default=<none> pk=0
+column dynamic_secret_configs.backend_type TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_configs.classification TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_configs.created_at DATETIME notnull=0 default=<none> pk=0
+column dynamic_secret_configs.created_by TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_configs.creation_template TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_configs.default_ttl_seconds INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_configs.disabled NUMERIC notnull=0 default=false pk=0
+column dynamic_secret_configs.environment_id INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_configs.id INTEGER notnull=0 default=<none> pk=1
+column dynamic_secret_configs.max_active_leases INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_configs.max_ttl_seconds INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_configs.name TEXT notnull=1 default=<none> pk=0
+column dynamic_secret_configs.project_id INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_configs.updated_at DATETIME notnull=0 default=<none> pk=0
+column dynamic_secret_leases.config_id INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_leases.credential_enc BLOB notnull=0 default=<none> pk=0
+column dynamic_secret_leases.credential_meta BLOB notnull=0 default=<none> pk=0
+column dynamic_secret_leases.environment_id INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_leases.expires_at DATETIME notnull=0 default=<none> pk=0
+column dynamic_secret_leases.id INTEGER notnull=0 default=<none> pk=1
+column dynamic_secret_leases.issued_at DATETIME notnull=0 default=<none> pk=0
+column dynamic_secret_leases.lease_id TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_leases.project_id INTEGER notnull=0 default=<none> pk=0
+column dynamic_secret_leases.revoke_error TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_leases.revoke_reason TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_leases.revoked_at DATETIME notnull=0 default=<none> pk=0
+column dynamic_secret_leases.role_name TEXT notnull=0 default=<none> pk=0
+column dynamic_secret_leases.status TEXT notnull=0 default=<none> pk=0
+column environments.created_at DATETIME notnull=0 default=<none> pk=0
+column environments.deleted_at DATETIME notnull=0 default=<none> pk=0
+column environments.id INTEGER notnull=0 default=<none> pk=1
+column environments.name TEXT notnull=1 default=<none> pk=0
+column environments.project_id INTEGER notnull=1 default=<none> pk=0
+column environments.updated_at DATETIME notnull=0 default=<none> pk=0
+column external_identities.email TEXT notnull=0 default=<none> pk=0
+column external_identities.external_id TEXT notnull=0 default=<none> pk=0
+column external_identities.id INTEGER notnull=0 default=<none> pk=1
+column external_identities.linked_at DATETIME notnull=0 default=<none> pk=0
+column external_identities.metadata BLOB notnull=0 default=<none> pk=0
+column external_identities.name TEXT notnull=0 default=<none> pk=0
+column external_identities.provider_id INTEGER notnull=0 default=<none> pk=0
+column external_identities.user_id INTEGER notnull=0 default=<none> pk=0
+column g_rpc_services.description TEXT notnull=0 default=<none> pk=0
+column g_rpc_services.name TEXT notnull=0 default=<none> pk=1
+column g_rpc_services.version TEXT notnull=0 default=<none> pk=0
+column group_roles.environment_id INTEGER notnull=1 default=0 pk=4
+column group_roles.expires_at DATETIME notnull=0 default=<none> pk=0
+column group_roles.group_id INTEGER notnull=0 default=<none> pk=1
+column group_roles.project_id INTEGER notnull=1 default=0 pk=3
+column group_roles.role_id INTEGER notnull=0 default=<none> pk=2
+column groups.created_at DATETIME notnull=0 default=<none> pk=0
+column groups.deleted_at DATETIME notnull=0 default=<none> pk=0
+column groups.description TEXT notnull=0 default=<none> pk=0
+column groups.id INTEGER notnull=0 default=<none> pk=1
+column groups.name TEXT notnull=1 default=<none> pk=0
+column groups.name_folded TEXT notnull=1 default=<none> pk=0
+column groups.updated_at DATETIME notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.created_at DATETIME notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.expired_pa_ts INTEGER notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.id INTEGER notnull=0 default=<none> pk=1
+column hygiene_trend_snapshots.snapshot_date DATETIME notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.stale_machines INTEGER notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.stale_pa_ts INTEGER notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.total_machines INTEGER notnull=0 default=<none> pk=0
+column hygiene_trend_snapshots.total_pa_ts INTEGER notnull=0 default=<none> pk=0
+column identity_providers.config TEXT notnull=0 default=<none> pk=0
+column identity_providers.created_at DATETIME notnull=0 default=<none> pk=0
+column identity_providers.id INTEGER notnull=0 default=<none> pk=1
+column identity_providers.is_active NUMERIC notnull=0 default=<none> pk=0
+column identity_providers.name TEXT notnull=0 default=<none> pk=0
+column identity_providers.type TEXT notnull=0 default=<none> pk=0
+column legal_holds.id INTEGER notnull=0 default=<none> pk=1
+column legal_holds.placed_at DATETIME notnull=0 default=<none> pk=0
+column legal_holds.placed_by INTEGER notnull=0 default=<none> pk=0
+column legal_holds.reason TEXT notnull=0 default=<none> pk=0
+column legal_holds.release_reason TEXT notnull=0 default=<none> pk=0
+column legal_holds.released NUMERIC notnull=0 default=<none> pk=0
+column legal_holds.released_at DATETIME notnull=0 default=<none> pk=0
+column legal_holds.released_by INTEGER notnull=0 default=<none> pk=0
+column login_attempts.attempted_at DATETIME notnull=0 default=<none> pk=0
+column login_attempts.id INTEGER notnull=0 default=<none> pk=1
+column login_attempts.ip TEXT notnull=0 default=<none> pk=0
+column login_attempts.reservation_key TEXT notnull=0 default=<none> pk=0
+column machine_identities.cascade_suspended_at DATETIME notnull=0 default=<none> pk=0
+column machine_identities.cascade_suspended_project_id INTEGER notnull=1 default=0 pk=0
+column machine_identities.classification TEXT notnull=0 default=<none> pk=0
+column machine_identities.created_at DATETIME notnull=0 default=<none> pk=0
+column machine_identities.created_by INTEGER notnull=0 default=<none> pk=0
+column machine_identities.created_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column machine_identities.description TEXT notnull=0 default=<none> pk=0
+column machine_identities.id INTEGER notnull=0 default=<none> pk=1
+column machine_identities.identity_type TEXT notnull=0 default=<none> pk=0
+column machine_identities.last_seen_at DATETIME notnull=0 default=<none> pk=0
+column machine_identities.name TEXT notnull=1 default=<none> pk=0
+column machine_identities.project_id INTEGER notnull=0 default=<none> pk=0
+column machine_identities.revoked_at DATETIME notnull=0 default=<none> pk=0
+column machine_identities.state TEXT notnull=0 default=<none> pk=0
+column machine_identities.updated_at DATETIME notnull=0 default=<none> pk=0
+column machine_identity_credentials.allowed_c_id_rs TEXT notnull=0 default=<none> pk=0
+column machine_identity_credentials.classification TEXT notnull=0 default=<none> pk=0
+column machine_identity_credentials.created_at DATETIME notnull=0 default=<none> pk=0
+column machine_identity_credentials.expires_at DATETIME notnull=0 default=<none> pk=0
+column machine_identity_credentials.id INTEGER notnull=0 default=<none> pk=1
+column machine_identity_credentials.last_used_at DATETIME notnull=0 default=<none> pk=0
+column machine_identity_credentials.machine_identity_id INTEGER notnull=1 default=<none> pk=0
+column machine_identity_credentials.name TEXT notnull=0 default=<none> pk=0
+column machine_identity_credentials.revoked NUMERIC notnull=0 default=false pk=0
+column machine_identity_credentials.token_hash TEXT notnull=1 default=<none> pk=0
+column machine_identity_credentials.token_prefix TEXT notnull=0 default=<none> pk=0
+column machine_identity_oidc_bindings.created_at DATETIME notnull=0 default=<none> pk=0
+column machine_identity_oidc_bindings.created_by INTEGER notnull=0 default=<none> pk=0
+column machine_identity_oidc_bindings.id INTEGER notnull=0 default=<none> pk=1
+column machine_identity_oidc_bindings.issuer TEXT notnull=1 default=<none> pk=0
+column machine_identity_oidc_bindings.machine_identity_id INTEGER notnull=1 default=<none> pk=0
+column machine_identity_oidc_bindings.subject TEXT notnull=1 default=<none> pk=0
+column machine_identity_roles.environment_id INTEGER notnull=1 default=0 pk=4
+column machine_identity_roles.machine_identity_id INTEGER notnull=0 default=<none> pk=1
+column machine_identity_roles.project_id INTEGER notnull=1 default=0 pk=3
+column machine_identity_roles.role_id INTEGER notnull=0 default=<none> pk=2
+column mfa_challenges.created_at DATETIME notnull=0 default=<none> pk=0
+column mfa_challenges.expires_at DATETIME notnull=0 default=<none> pk=0
+column mfa_challenges.id INTEGER notnull=0 default=<none> pk=1
+column mfa_challenges.login_attempt_id INTEGER notnull=0 default=<none> pk=0
+column mfa_challenges.token_hash TEXT notnull=0 default=<none> pk=0
+column mfa_challenges.used_at DATETIME notnull=0 default=<none> pk=0
+column mfa_challenges.user_id INTEGER notnull=0 default=<none> pk=0
+column mfa_recovery_codes.code_hash TEXT notnull=0 default=<none> pk=0
+column mfa_recovery_codes.id INTEGER notnull=0 default=<none> pk=1
+column mfa_recovery_codes.used_at DATETIME notnull=0 default=<none> pk=0
+column mfa_recovery_codes.user_id INTEGER notnull=0 default=<none> pk=0
+column mfa_secrets.activated NUMERIC notnull=0 default=false pk=0
+column mfa_secrets.created_at DATETIME notnull=0 default=<none> pk=0
+column mfa_secrets.id INTEGER notnull=0 default=<none> pk=1
+column mfa_secrets.last_used_step INTEGER notnull=0 default=<none> pk=0
+column mfa_secrets.secret_enc BLOB notnull=0 default=<none> pk=0
+column mfa_secrets.secret_meta BLOB notnull=0 default=<none> pk=0
+column mfa_secrets.user_id INTEGER notnull=0 default=<none> pk=0
+column mfa_step_up_grants.consumed_at DATETIME notnull=0 default=<none> pk=0
+column mfa_step_up_grants.created_at DATETIME notnull=0 default=<none> pk=0
+column mfa_step_up_grants.expires_at DATETIME notnull=1 default=<none> pk=0
+column mfa_step_up_grants.id INTEGER notnull=0 default=<none> pk=1
+column mfa_step_up_grants.purpose TEXT notnull=1 default="" pk=0
+column mfa_step_up_grants.user_id INTEGER notnull=1 default=<none> pk=0
+column mfa_stepup_tokens.created_at DATETIME notnull=0 default=<none> pk=0
+column mfa_stepup_tokens.expires_at DATETIME notnull=0 default=<none> pk=0
+column mfa_stepup_tokens.id INTEGER notnull=0 default=<none> pk=1
+column mfa_stepup_tokens.user_id INTEGER notnull=0 default=<none> pk=0
+column notification_channels.created_at DATETIME notnull=0 default=<none> pk=0
+column notification_channels.created_by TEXT notnull=0 default=<none> pk=0
+column notification_channels.email TEXT notnull=0 default=<none> pk=0
+column notification_channels.enabled NUMERIC notnull=0 default=true pk=0
+column notification_channels.events TEXT notnull=0 default=<none> pk=0
+column notification_channels.id INTEGER notnull=0 default=<none> pk=1
+column notification_channels.max_retries INTEGER notnull=0 default=3 pk=0
+column notification_channels.name TEXT notnull=1 default=<none> pk=0
+column notification_channels.retry_backoff_ms INTEGER notnull=0 default=1000 pk=0
+column notification_channels.type TEXT notnull=1 default=<none> pk=0
+column notification_channels.updated_at DATETIME notnull=0 default=<none> pk=0
+column notification_channels.url_enc BLOB notnull=0 default=<none> pk=0
+column notification_channels.url_meta BLOB notnull=0 default=<none> pk=0
+column notifications.created_at DATETIME notnull=0 default=<none> pk=0
+column notifications.id INTEGER notnull=0 default=<none> pk=1
+column notifications.is_read NUMERIC notnull=0 default=<none> pk=0
+column notifications.link TEXT notnull=0 default=<none> pk=0
+column notifications.message TEXT notnull=0 default=<none> pk=0
+column notifications.project_id INTEGER notnull=0 default=<none> pk=0
+column notifications.secret_node_id INTEGER notnull=0 default=<none> pk=0
+column notifications.severity INTEGER notnull=0 default=0 pk=0
+column notifications.title TEXT notnull=0 default=<none> pk=0
+column notifications.type TEXT notnull=0 default=<none> pk=0
+column notifications.user_id INTEGER notnull=0 default=<none> pk=0
+column password_histories.created_at DATETIME notnull=0 default=<none> pk=0
+column password_histories.id INTEGER notnull=0 default=<none> pk=1
+column password_histories.password_hash TEXT notnull=0 default=<none> pk=0
+column password_histories.user_id INTEGER notnull=0 default=<none> pk=0
+column password_resets.created_at DATETIME notnull=0 default=<none> pk=0
+column password_resets.encrypted_token BLOB notnull=0 default=<none> pk=0
+column password_resets.expires_at DATETIME notnull=0 default=<none> pk=0
+column password_resets.id INTEGER notnull=0 default=<none> pk=1
+column password_resets.token TEXT notnull=0 default=<none> pk=0
+column password_resets.token_metadata BLOB notnull=0 default=<none> pk=0
+column password_resets.user_id INTEGER notnull=0 default=<none> pk=0
+column pending_audit_events.attempts INTEGER notnull=1 default=0 pk=0
+column pending_audit_events.break_glass_activation_id INTEGER notnull=1 default=0 pk=0
+column pending_audit_events.created_at DATETIME notnull=0 default=<none> pk=0
+column pending_audit_events.event TEXT notnull=1 default=<none> pk=0
+column pending_audit_events.event_type TEXT notnull=1 default=<none> pk=0
+column pending_audit_events.id INTEGER notnull=0 default=<none> pk=1
+column pending_audit_events.last_error TEXT notnull=0 default=<none> pk=0
+column pending_audit_events.updated_at DATETIME notnull=0 default=<none> pk=0
+column permissions.action TEXT notnull=1 default=<none> pk=0
+column permissions.description TEXT notnull=0 default=<none> pk=0
+column permissions.id INTEGER notnull=0 default=<none> pk=1
+column permissions.name TEXT notnull=1 default=<none> pk=0
+column permissions.resource TEXT notnull=1 default=<none> pk=0
+column personal_access_tokens.allowed_c_id_rs TEXT notnull=0 default=<none> pk=0
+column personal_access_tokens.created_at DATETIME notnull=0 default=<none> pk=0
+column personal_access_tokens.environment_scope INTEGER notnull=0 default=0 pk=0
+column personal_access_tokens.expires_at DATETIME notnull=0 default=<none> pk=0
+column personal_access_tokens.id INTEGER notnull=0 default=<none> pk=1
+column personal_access_tokens.last_used_at DATETIME notnull=0 default=<none> pk=0
+column personal_access_tokens.name TEXT notnull=1 default=<none> pk=0
+column personal_access_tokens.project_scope INTEGER notnull=0 default=0 pk=0
+column personal_access_tokens.revoked NUMERIC notnull=0 default=false pk=0
+column personal_access_tokens.scopes TEXT notnull=0 default=<none> pk=0
+column personal_access_tokens.token_hash TEXT notnull=1 default=<none> pk=0
+column personal_access_tokens.token_prefix TEXT notnull=0 default=<none> pk=0
+column personal_access_tokens.user_id INTEGER notnull=1 default=<none> pk=0
+column project_invitations.accepted_at DATETIME notnull=0 default=<none> pk=0
+column project_invitations.assignments_json TEXT notnull=0 default=<none> pk=0
+column project_invitations.created_at DATETIME notnull=0 default=<none> pk=0
+column project_invitations.email TEXT notnull=0 default=<none> pk=0
+column project_invitations.expires_at DATETIME notnull=0 default=<none> pk=0
+column project_invitations.id INTEGER notnull=0 default=<none> pk=1
+column project_invitations.invited_by INTEGER notnull=0 default=<none> pk=0
+column project_invitations.invited_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column project_invitations.project_id INTEGER notnull=0 default=<none> pk=0
+column project_invitations.revoked_at DATETIME notnull=0 default=<none> pk=0
+column project_invitations.role TEXT notnull=0 default=<none> pk=0
+column project_invitations.state TEXT notnull=0 default=<none> pk=0
+column project_invitations.system_role TEXT notnull=0 default=<none> pk=0
+column project_invitations.validation_mode_at_invite TEXT notnull=0 default=<none> pk=0
+column project_memberships.activated_at DATETIME notnull=0 default=<none> pk=0
+column project_memberships.id INTEGER notnull=0 default=<none> pk=1
+column project_memberships.invited_at DATETIME notnull=0 default=<none> pk=0
+column project_memberships.invited_by INTEGER notnull=0 default=<none> pk=0
+column project_memberships.invited_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column project_memberships.project_id INTEGER notnull=0 default=<none> pk=0
+column project_memberships.revoked_at DATETIME notnull=0 default=<none> pk=0
+column project_memberships.role TEXT notnull=0 default=<none> pk=0
+column project_memberships.state TEXT notnull=0 default=<none> pk=0
+column project_memberships.updated_at DATETIME notnull=0 default=<none> pk=0
+column project_memberships.user_id INTEGER notnull=0 default=<none> pk=0
+column projects.created_at DATETIME notnull=0 default=<none> pk=0
+column projects.deleted_at DATETIME notnull=0 default=<none> pk=0
+column projects.description TEXT notnull=0 default=<none> pk=0
+column projects.id INTEGER notnull=0 default=<none> pk=1
+column projects.name TEXT notnull=1 default=<none> pk=0
+column projects.require_mfa NUMERIC notnull=0 default=false pk=0
+column projects.updated_at DATETIME notnull=0 default=<none> pk=0
+column rate_limits.client_id INTEGER notnull=0 default=<none> pk=0
+column rate_limits.created_at DATETIME notnull=0 default=<none> pk=0
+column rate_limits.id INTEGER notnull=0 default=<none> pk=1
+column rate_limits.limit_per_minute INTEGER notnull=0 default=<none> pk=0
+column rate_limits.method TEXT notnull=0 default=<none> pk=0
+column recovery_key_records.created_at DATETIME notnull=0 default=<none> pk=0
+column recovery_key_records.id INTEGER notnull=0 default=<none> pk=1
+column recovery_key_records.key_hash TEXT notnull=1 default=<none> pk=0
+column recovery_key_records.key_version INTEGER notnull=1 default=<none> pk=0
+column recovery_key_records.rotated_at DATETIME notnull=0 default=<none> pk=0
+column rejection_reason_templates.created_at DATETIME notnull=0 default=<none> pk=0
+column rejection_reason_templates.created_by INTEGER notnull=0 default=<none> pk=0
+column rejection_reason_templates.id INTEGER notnull=0 default=<none> pk=1
+column rejection_reason_templates.name TEXT notnull=1 default=<none> pk=0
+column rejection_reason_templates.reason TEXT notnull=1 default=<none> pk=0
+column rejection_reason_templates.updated_at DATETIME notnull=0 default=<none> pk=0
+column risk_exceptions.approved NUMERIC notnull=0 default=false pk=0
+column risk_exceptions.approved_at DATETIME notnull=0 default=<none> pk=0
+column risk_exceptions.approved_by INTEGER notnull=0 default=<none> pk=0
+column risk_exceptions.category TEXT notnull=0 default=<none> pk=0
+column risk_exceptions.created_at DATETIME notnull=0 default=<none> pk=0
+column risk_exceptions.created_by INTEGER notnull=0 default=<none> pk=0
+column risk_exceptions.expires_at DATETIME notnull=0 default=<none> pk=0
+column risk_exceptions.id INTEGER notnull=0 default=<none> pk=1
+column risk_exceptions.justification TEXT notnull=0 default=<none> pk=0
+column risk_exceptions.reference TEXT notnull=0 default=<none> pk=0
+column risk_exceptions.revoked NUMERIC notnull=0 default=<none> pk=0
+column risk_exceptions.revoked_at DATETIME notnull=0 default=<none> pk=0
+column risk_exceptions.revoked_by INTEGER notnull=0 default=<none> pk=0
+column risk_exceptions.title TEXT notnull=0 default=<none> pk=0
+column role_permissions.permission_id INTEGER notnull=0 default=<none> pk=2
+column role_permissions.role_id INTEGER notnull=0 default=<none> pk=1
+column roles.bypasses_permission_checks NUMERIC notnull=1 default=false pk=0
+column roles.description TEXT notnull=0 default=<none> pk=0
+column roles.id INTEGER notnull=0 default=<none> pk=1
+column roles.name TEXT notnull=1 default=<none> pk=0
+column roles.name_folded TEXT notnull=1 default=<none> pk=0
+column rotation_policies.alert_days_before INTEGER notnull=1 default=7 pk=0
+column rotation_policies.created_at DATETIME notnull=0 default=<none> pk=0
+column rotation_policies.created_by TEXT notnull=1 default=<none> pk=0
+column rotation_policies.deleted_at DATETIME notnull=0 default=<none> pk=0
+column rotation_policies.description TEXT notnull=0 default=<none> pk=0
+column rotation_policies.environment_id INTEGER notnull=0 default=<none> pk=0
+column rotation_policies.id INTEGER notnull=0 default=<none> pk=1
+column rotation_policies.interval_days INTEGER notnull=1 default=<none> pk=0
+column rotation_policies.is_active NUMERIC notnull=1 default=true pk=0
+column rotation_policies.last_rotation_error TEXT notnull=0 default="" pk=0
+column rotation_policies.last_state_at DATETIME notnull=0 default=<none> pk=0
+column rotation_policies.name TEXT notnull=1 default=<none> pk=0
+column rotation_policies.notify_on_breach NUMERIC notnull=1 default=true pk=0
+column rotation_policies.project_id INTEGER notnull=0 default=<none> pk=0
+column rotation_policies.rotation_state TEXT notnull=0 default="idle" pk=0
+column rotation_policies.scope TEXT notnull=1 default="environment" pk=0
+column rotation_policies.updated_at DATETIME notnull=0 default=<none> pk=0
+column scheduler_lock_leases.expires_at DATETIME notnull=0 default=<none> pk=0
+column scheduler_lock_leases.holder TEXT notnull=1 default=<none> pk=0
+column scheduler_lock_leases.key INTEGER notnull=0 default=<none> pk=1
+column secret_access_logs.access_time DATETIME notnull=0 default=<none> pk=0
+column secret_access_logs.accessed_by TEXT notnull=0 default=<none> pk=0
+column secret_access_logs.action TEXT notnull=0 default=<none> pk=0
+column secret_access_logs.id INTEGER notnull=0 default=<none> pk=1
+column secret_access_logs.ip_address TEXT notnull=0 default=<none> pk=0
+column secret_access_logs.secret_node_id INTEGER notnull=0 default=<none> pk=0
+column secret_access_logs.secret_version_id INTEGER notnull=0 default=<none> pk=0
+column secret_access_logs.user_agent TEXT notnull=0 default=<none> pk=0
+column secret_access_schedules.allowed_days TEXT notnull=0 default=<none> pk=0
+column secret_access_schedules.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_access_schedules.end_hour INTEGER notnull=0 default=<none> pk=0
+column secret_access_schedules.id INTEGER notnull=0 default=<none> pk=1
+column secret_access_schedules.secret_node_id INTEGER notnull=1 default=<none> pk=0
+column secret_access_schedules.start_hour INTEGER notnull=0 default=<none> pk=0
+column secret_access_schedules.timezone TEXT notnull=0 default=<none> pk=0
+column secret_access_schedules.updated_at DATETIME notnull=0 default=<none> pk=0
+column secret_acls.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_acls.granted_by INTEGER notnull=1 default=<none> pk=0
+column secret_acls.id INTEGER notnull=0 default=<none> pk=1
+column secret_acls.permissions TEXT notnull=1 default=<none> pk=0
+column secret_acls.secret_id INTEGER notnull=1 default=<none> pk=0
+column secret_acls.updated_at DATETIME notnull=0 default=<none> pk=0
+column secret_acls.user_id INTEGER notnull=1 default=<none> pk=0
+column secret_dependencies.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_dependencies.created_by INTEGER notnull=0 default=<none> pk=0
+column secret_dependencies.created_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column secret_dependencies.dependent_secret_id INTEGER notnull=1 default=<none> pk=0
+column secret_dependencies.depends_on_secret_id INTEGER notnull=1 default=<none> pk=0
+column secret_dependencies.id INTEGER notnull=0 default=<none> pk=1
+column secret_dependencies.note TEXT notnull=0 default=<none> pk=0
+column secret_dependencies.project_id INTEGER notnull=1 default=<none> pk=0
+column secret_metadata_histories.change_time DATETIME notnull=0 default=<none> pk=0
+column secret_metadata_histories.changed_by TEXT notnull=0 default=<none> pk=0
+column secret_metadata_histories.id INTEGER notnull=0 default=<none> pk=1
+column secret_metadata_histories.new_metadata BLOB notnull=0 default=<none> pk=0
+column secret_metadata_histories.old_metadata BLOB notnull=0 default=<none> pk=0
+column secret_metadata_histories.secret_node_id INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.auto_rotate NUMERIC notnull=1 default=false pk=0
+column secret_nodes.cache_epoch INTEGER notnull=1 default=0 pk=0
+column secret_nodes.cert_not_after DATETIME notnull=0 default=<none> pk=0
+column secret_nodes.classification TEXT notnull=0 default=<none> pk=0
+column secret_nodes.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_nodes.created_by TEXT notnull=0 default=<none> pk=0
+column secret_nodes.deleted_at DATETIME notnull=0 default=<none> pk=0
+column secret_nodes.description TEXT notnull=0 default=<none> pk=0
+column secret_nodes.environment_id INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.expiration DATETIME notnull=0 default=<none> pk=0
+column secret_nodes.id INTEGER notnull=0 default=<none> pk=1
+column secret_nodes.is_secret NUMERIC notnull=0 default=false pk=0
+column secret_nodes.is_shared NUMERIC notnull=0 default=false pk=0
+column secret_nodes.last_rotated_at DATETIME notnull=0 default=<none> pk=0
+column secret_nodes.max_reads INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.metadata BLOB notnull=0 default=<none> pk=0
+column secret_nodes.name TEXT notnull=1 default=<none> pk=0
+column secret_nodes.owner_id INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.owner_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.parent_id INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.project_id INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.purge_at DATETIME notnull=0 default=<none> pk=0
+column secret_nodes.read_count INTEGER notnull=0 default=<none> pk=0
+column secret_nodes.retention_override_days INTEGER notnull=0 default=0 pk=0
+column secret_nodes.rotation_backend TEXT notnull=1 default="" pk=0
+column secret_nodes.rotation_charset TEXT notnull=1 default="" pk=0
+column secret_nodes.rotation_length INTEGER notnull=1 default=0 pk=0
+column secret_nodes.rotation_ref TEXT notnull=1 default="" pk=0
+column secret_nodes.status TEXT notnull=0 default="active" pk=0
+column secret_nodes.suspend_clear_synced_copies NUMERIC notnull=1 default=false pk=0
+column secret_nodes.type TEXT notnull=0 default=<none> pk=0
+column secret_nodes.updated_at DATETIME notnull=0 default=<none> pk=0
+column secret_tags.secret_node_id INTEGER notnull=0 default=<none> pk=1
+column secret_tags.tag_id INTEGER notnull=0 default=<none> pk=2
+column secret_templates.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_templates.created_by INTEGER notnull=0 default=<none> pk=0
+column secret_templates.default_classification TEXT notnull=0 default=<none> pk=0
+column secret_templates.default_tags TEXT notnull=0 default=<none> pk=0
+column secret_templates.description TEXT notnull=0 default=<none> pk=0
+column secret_templates.description_pattern TEXT notnull=0 default=<none> pk=0
+column secret_templates.id INTEGER notnull=0 default=<none> pk=1
+column secret_templates.name TEXT notnull=1 default=<none> pk=0
+column secret_templates.rotation_hint_days INTEGER notnull=0 default=<none> pk=0
+column secret_templates.updated_at DATETIME notnull=0 default=<none> pk=0
+column secret_version_comments.comment TEXT notnull=1 default=<none> pk=0
+column secret_version_comments.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_version_comments.id INTEGER notnull=0 default=<none> pk=1
+column secret_version_comments.secret_id INTEGER notnull=1 default=<none> pk=0
+column secret_version_comments.user_id INTEGER notnull=1 default=<none> pk=0
+column secret_version_comments.username TEXT notnull=1 default=<none> pk=0
+column secret_version_comments.version_id INTEGER notnull=1 default=<none> pk=0
+column secret_versions.cache_epoch INTEGER notnull=1 default=0 pk=0
+column secret_versions.created_at DATETIME notnull=0 default=<none> pk=0
+column secret_versions.encrypted_value BLOB notnull=0 default=<none> pk=0
+column secret_versions.encryption_metadata BLOB notnull=0 default=<none> pk=0
+column secret_versions.id INTEGER notnull=0 default=<none> pk=1
+column secret_versions.read_count INTEGER notnull=0 default=<none> pk=0
+column secret_versions.secret_node_id INTEGER notnull=0 default=<none> pk=0
+column secret_versions.version_number INTEGER notnull=0 default=<none> pk=0
+column sessions.absolute_expires_at DATETIME notnull=0 default=<none> pk=0
+column sessions.created_at DATETIME notnull=0 default=<none> pk=0
+column sessions.expires_at DATETIME notnull=0 default=<none> pk=0
+column sessions.family_id TEXT notnull=0 default=<none> pk=0
+column sessions.id INTEGER notnull=0 default=<none> pk=1
+column sessions.impersonated_by INTEGER notnull=0 default=<none> pk=0
+column sessions.impersonation_started_at DATETIME notnull=0 default=<none> pk=0
+column sessions.ip_address TEXT notnull=0 default=<none> pk=0
+column sessions.last_seen_at DATETIME notnull=0 default=<none> pk=0
+column sessions.rotated_at DATETIME notnull=0 default=<none> pk=0
+column sessions.session_token TEXT notnull=0 default=<none> pk=0
+column sessions.setup_only NUMERIC notnull=1 default=false pk=0
+column sessions.user_agent TEXT notnull=0 default=<none> pk=0
+column sessions.user_id INTEGER notnull=0 default=<none> pk=0
+column settings.id INTEGER notnull=0 default=<none> pk=1
+column settings.key TEXT notnull=0 default=<none> pk=0
+column settings.user_id INTEGER notnull=0 default=<none> pk=0
+column settings.value TEXT notnull=0 default=<none> pk=0
+column setup_tokens.consumed_at DATETIME notnull=0 default=<none> pk=0
+column setup_tokens.created_at DATETIME notnull=0 default=<none> pk=0
+column setup_tokens.created_by INTEGER notnull=0 default=<none> pk=0
+column setup_tokens.created_by_machine_identity_id INTEGER notnull=0 default=<none> pk=0
+column setup_tokens.expires_at DATETIME notnull=0 default=<none> pk=0
+column setup_tokens.id INTEGER notnull=0 default=<none> pk=1
+column setup_tokens.invitation_id INTEGER notnull=0 default=<none> pk=0
+column setup_tokens.purpose TEXT notnull=1 default=<none> pk=0
+column setup_tokens.state TEXT notnull=1 default="active" pk=0
+column setup_tokens.subject_email TEXT notnull=0 default=<none> pk=0
+column setup_tokens.subject_user_id INTEGER notnull=0 default=<none> pk=0
+column setup_tokens.token_hash TEXT notnull=1 default=<none> pk=0
+column share_records.created_at DATETIME notnull=0 default=<none> pk=0
+column share_records.deleted_at DATETIME notnull=0 default=<none> pk=0
+column share_records.expires_at DATETIME notnull=0 default=<none> pk=0
+column share_records.id INTEGER notnull=0 default=<none> pk=1
+column share_records.is_group NUMERIC notnull=0 default=false pk=0
+column share_records.owner_id INTEGER notnull=0 default=<none> pk=0
+column share_records.permission TEXT notnull=0 default="read" pk=0
+column share_records.recipient_id INTEGER notnull=0 default=<none> pk=0
+column share_records.secret_id INTEGER notnull=0 default=<none> pk=0
+column share_records.updated_at DATETIME notnull=0 default=<none> pk=0
+column sod_policies.created_at DATETIME notnull=0 default=<none> pk=0
+column sod_policies.created_by INTEGER notnull=0 default=<none> pk=0
+column sod_policies.description TEXT notnull=0 default=<none> pk=0
+column sod_policies.id INTEGER notnull=0 default=<none> pk=1
+column sod_policies.name TEXT notnull=0 default=<none> pk=0
+column sod_policies.permission_a TEXT notnull=0 default=<none> pk=0
+column sod_policies.permission_b TEXT notnull=0 default=<none> pk=0
+column sso_login_states.code_verifier TEXT notnull=0 default=<none> pk=0
+column sso_login_states.created_at DATETIME notnull=0 default=<none> pk=0
+column sso_login_states.expires_at DATETIME notnull=0 default=<none> pk=0
+column sso_login_states.id INTEGER notnull=0 default=<none> pk=1
+column sso_login_states.nonce TEXT notnull=1 default=<none> pk=0
+column sso_login_states.provider TEXT notnull=1 default=<none> pk=0
+column sso_login_states.return_to TEXT notnull=0 default=<none> pk=0
+column sso_login_states.state TEXT notnull=1 default=<none> pk=0
+column stats_snapshots.created_at DATETIME notnull=0 default=<none> pk=0
+column stats_snapshots.id INTEGER notnull=0 default=<none> pk=1
+column stats_snapshots.secrets_shared_with_me INTEGER notnull=0 default=<none> pk=0
+column stats_snapshots.shared_secrets INTEGER notnull=0 default=<none> pk=0
+column stats_snapshots.snapshot_date DATETIME notnull=0 default=<none> pk=0
+column stats_snapshots.total_secrets INTEGER notnull=0 default=<none> pk=0
+column stats_snapshots.user_id INTEGER notnull=0 default=<none> pk=0
+column system_metadata.key TEXT notnull=0 default=<none> pk=1
+column system_metadata.updated_at DATETIME notnull=0 default=<none> pk=0
+column system_metadata.value TEXT notnull=0 default=<none> pk=0
+column tags.id INTEGER notnull=0 default=<none> pk=1
+column tags.name TEXT notnull=0 default=<none> pk=0
+column user_groups.group_id INTEGER notnull=0 default=<none> pk=2
+column user_groups.project_id INTEGER notnull=1 default=0 pk=3
+column user_groups.user_id INTEGER notnull=0 default=<none> pk=1
+column user_roles.environment_id INTEGER notnull=1 default=0 pk=4
+column user_roles.expires_at DATETIME notnull=0 default=<none> pk=0
+column user_roles.project_id INTEGER notnull=1 default=0 pk=3
+column user_roles.role_id INTEGER notnull=0 default=<none> pk=2
+column user_roles.user_id INTEGER notnull=0 default=<none> pk=1
+column users.account_state TEXT notnull=0 default="active" pk=0
+column users.created_at DATETIME notnull=0 default=<none> pk=0
+column users.deleted_at DATETIME notnull=0 default=<none> pk=0
+column users.display_name TEXT notnull=0 default=<none> pk=0
+column users.email TEXT notnull=0 default=<none> pk=0
+column users.email_folded TEXT notnull=0 default=<none> pk=0
+column users.external_id TEXT notnull=0 default=<none> pk=0
+column users.failed_login_attempts INTEGER notnull=0 default=0 pk=0
+column users.id INTEGER notnull=0 default=<none> pk=1
+column users.is_active NUMERIC notnull=0 default=true pk=0
+column users.last_failed_login_at DATETIME notnull=0 default=<none> pk=0
+column users.last_login_at DATETIME notnull=0 default=<none> pk=0
+column users.login_locked_until DATETIME notnull=0 default=<none> pk=0
+column users.login_lockout_count INTEGER notnull=0 default=0 pk=0
+column users.mfa_enabled NUMERIC notnull=0 default=false pk=0
+column users.one_time_password_expires_at DATETIME notnull=0 default=<none> pk=0
+column users.password_changed_at DATETIME notnull=0 default=<none> pk=0
+column users.password_hash TEXT notnull=0 default=<none> pk=0
+column users.updated_at DATETIME notnull=0 default=<none> pk=0
+column users.username TEXT notnull=1 default=<none> pk=0
+column users.username_folded TEXT notnull=1 default=<none> pk=0
+column users.web_authn_enabled NUMERIC notnull=0 default=false pk=0
+column web_authn_credentials.created_at DATETIME notnull=0 default=<none> pk=0
+column web_authn_credentials.credential_blob BLOB notnull=0 default=<none> pk=0
+column web_authn_credentials.credential_id BLOB notnull=0 default=<none> pk=0
+column web_authn_credentials.disabled NUMERIC notnull=0 default=false pk=0
+column web_authn_credentials.id INTEGER notnull=0 default=<none> pk=1
+column web_authn_credentials.last_used_at DATETIME notnull=0 default=<none> pk=0
+column web_authn_credentials.name TEXT notnull=0 default=<none> pk=0
+column web_authn_credentials.user_id INTEGER notnull=0 default=<none> pk=0
+column web_authn_sessions.created_at DATETIME notnull=0 default=<none> pk=0
+column web_authn_sessions.data BLOB notnull=0 default=<none> pk=0
+column web_authn_sessions.expires_at DATETIME notnull=0 default=<none> pk=0
+column web_authn_sessions.id INTEGER notnull=0 default=<none> pk=1
+column web_authn_sessions.login_attempt_id INTEGER notnull=0 default=<none> pk=0
+column web_authn_sessions.purpose TEXT notnull=0 default=<none> pk=0
+column web_authn_sessions.token_hash TEXT notnull=0 default=<none> pk=0
+column web_authn_sessions.used_at DATETIME notnull=0 default=<none> pk=0
+column web_authn_sessions.user_id INTEGER notnull=0 default=<none> pk=0
+index idx_access_requests_project_id on access_requests: CREATE INDEX `idx_access_requests_project_id` ON `access_requests`(`project_id`)
+index idx_access_requests_secret_id on access_requests: CREATE INDEX `idx_access_requests_secret_id` ON `access_requests`(`secret_id`)
+index idx_access_requests_user_id on access_requests: CREATE INDEX `idx_access_requests_user_id` ON `access_requests`(`user_id`)
+index idx_access_review_campaigns_project_id on access_review_campaigns: CREATE INDEX `idx_access_review_campaigns_project_id` ON `access_review_campaigns`(`project_id`)
+index idx_access_review_items_campaign_id on access_review_items: CREATE INDEX `idx_access_review_items_campaign_id` ON `access_review_items`(`campaign_id`)
+index idx_alert_escalation_policies_name on alert_escalation_policies: CREATE UNIQUE INDEX `idx_alert_escalation_policies_name` ON `alert_escalation_policies`(`name`)
+index idx_anomaly_alerts_alerted on anomaly_alerts: CREATE INDEX `idx_anomaly_alerts_alerted` ON `anomaly_alerts`(`alerted`)
+index idx_anomaly_alerts_dedup on anomaly_alerts: CREATE INDEX `idx_anomaly_alerts_dedup` ON `anomaly_alerts`(`secret_node_id`,`alert_type`,`accessed_by`,`ip_address`,`detected_at`)
+index idx_anomaly_alerts_detected_at on anomaly_alerts: CREATE INDEX `idx_anomaly_alerts_detected_at` ON `anomaly_alerts`(`detected_at`)
+index idx_anomaly_alerts_secret_node_id on anomaly_alerts: CREATE INDEX `idx_anomaly_alerts_secret_node_id` ON `anomaly_alerts`(`secret_node_id`)
+index idx_break_glass_activations_expires_at on break_glass_activations: CREATE INDEX `idx_break_glass_activations_expires_at` ON `break_glass_activations`(`expires_at`)
+index idx_break_glass_activations_project_id on break_glass_activations: CREATE INDEX `idx_break_glass_activations_project_id` ON `break_glass_activations`(`project_id`)
+index idx_break_glass_activations_reviewed_by on break_glass_activations: CREATE INDEX `idx_break_glass_activations_reviewed_by` ON `break_glass_activations`(`reviewed_by`)
+index idx_break_glass_activations_user_id on break_glass_activations: CREATE INDEX `idx_break_glass_activations_user_id` ON `break_glass_activations`(`user_id`)
+index idx_compliance_posture_snapshots_snapshot_date on compliance_posture_snapshots: CREATE UNIQUE INDEX `idx_compliance_posture_snapshots_snapshot_date` ON `compliance_posture_snapshots`(`snapshot_date`)
+index idx_connect_ref_grants_connector on connect_ref_grants: CREATE INDEX `idx_connect_ref_grants_connector` ON `connect_ref_grants`(`connector`)
+index idx_connect_ref_grants_expires_at on connect_ref_grants: CREATE INDEX `idx_connect_ref_grants_expires_at` ON `connect_ref_grants`(`expires_at`)
+index idx_connect_ref_grants_role_id on connect_ref_grants: CREATE INDEX `idx_connect_ref_grants_role_id` ON `connect_ref_grants`(`role_id`)
+index idx_connector_project_bindings_connector on connector_project_bindings: CREATE UNIQUE INDEX `idx_connector_project_bindings_connector` ON `connector_project_bindings`(`connector`)
+index idx_deployment_stats_snapshots_snapshot_date on deployment_stats_snapshots: CREATE INDEX `idx_deployment_stats_snapshots_snapshot_date` ON `deployment_stats_snapshots`(`snapshot_date`)
+index idx_dynamic_secret_configs_classification on dynamic_secret_configs: CREATE INDEX `idx_dynamic_secret_configs_classification` ON `dynamic_secret_configs`(`classification`)
+index idx_dynamic_secret_configs_project_id on dynamic_secret_configs: CREATE INDEX `idx_dynamic_secret_configs_project_id` ON `dynamic_secret_configs`(`project_id`)
+index idx_dynamic_secret_leases_config_id on dynamic_secret_leases: CREATE INDEX `idx_dynamic_secret_leases_config_id` ON `dynamic_secret_leases`(`config_id`)
+index idx_dynamic_secret_leases_lease_id on dynamic_secret_leases: CREATE UNIQUE INDEX `idx_dynamic_secret_leases_lease_id` ON `dynamic_secret_leases`(`lease_id`)
+index idx_env_project_name on environments: CREATE UNIQUE INDEX `idx_env_project_name` ON `environments`(`project_id`,`name`)
+index idx_environments_deleted_at on environments: CREATE INDEX `idx_environments_deleted_at` ON `environments`(`deleted_at`)
+index idx_group_roles_expires_at on group_roles: CREATE INDEX `idx_group_roles_expires_at` ON `group_roles`(`expires_at`)
+index idx_groups_deleted_at on groups: CREATE INDEX `idx_groups_deleted_at` ON `groups`(`deleted_at`)
+index idx_hygiene_trend_snapshots_snapshot_date on hygiene_trend_snapshots: CREATE UNIQUE INDEX `idx_hygiene_trend_snapshots_snapshot_date` ON `hygiene_trend_snapshots`(`snapshot_date`)
+index idx_lease_status_expiry on dynamic_secret_leases: CREATE INDEX `idx_lease_status_expiry` ON `dynamic_secret_leases`(`status`,`expires_at`)
+index idx_legal_holds_released on legal_holds: CREATE INDEX `idx_legal_holds_released` ON `legal_holds`(`released`)
+index idx_login_attempt_ip_time on login_attempts: CREATE INDEX `idx_login_attempt_ip_time` ON `login_attempts`(`ip`,`attempted_at`)
+index idx_login_attempt_reservation_key on login_attempts: CREATE UNIQUE INDEX `idx_login_attempt_reservation_key` ON `login_attempts`(`reservation_key`)
+index idx_login_attempt_time on login_attempts: CREATE INDEX `idx_login_attempt_time` ON `login_attempts`(`attempted_at`)
+index idx_machine_identities_classification on machine_identities: CREATE INDEX `idx_machine_identities_classification` ON `machine_identities`(`classification`)
+index idx_machine_identities_project_id on machine_identities: CREATE INDEX `idx_machine_identities_project_id` ON `machine_identities`(`project_id`)
+index idx_machine_identity_credentials_classification on machine_identity_credentials: CREATE INDEX `idx_machine_identity_credentials_classification` ON `machine_identity_credentials`(`classification`)
+index idx_machine_identity_credentials_machine_identity_id on machine_identity_credentials: CREATE INDEX `idx_machine_identity_credentials_machine_identity_id` ON `machine_identity_credentials`(`machine_identity_id`)
+index idx_machine_identity_credentials_token_hash on machine_identity_credentials: CREATE UNIQUE INDEX `idx_machine_identity_credentials_token_hash` ON `machine_identity_credentials`(`token_hash`)
+index idx_machine_identity_credentials_token_prefix on machine_identity_credentials: CREATE INDEX `idx_machine_identity_credentials_token_prefix` ON `machine_identity_credentials`(`token_prefix`)
+index idx_machine_identity_oidc_bindings_machine_identity_id on machine_identity_oidc_bindings: CREATE INDEX `idx_machine_identity_oidc_bindings_machine_identity_id` ON `machine_identity_oidc_bindings`(`machine_identity_id`)
+index idx_mfa_challenges_token_hash on mfa_challenges: CREATE UNIQUE INDEX `idx_mfa_challenges_token_hash` ON `mfa_challenges`(`token_hash`)
+index idx_mfa_challenges_user_id on mfa_challenges: CREATE INDEX `idx_mfa_challenges_user_id` ON `mfa_challenges`(`user_id`)
+index idx_mfa_recovery_codes_code_hash on mfa_recovery_codes: CREATE INDEX `idx_mfa_recovery_codes_code_hash` ON `mfa_recovery_codes`(`code_hash`)
+index idx_mfa_recovery_codes_user_id on mfa_recovery_codes: CREATE INDEX `idx_mfa_recovery_codes_user_id` ON `mfa_recovery_codes`(`user_id`)
+index idx_mfa_secrets_user_id on mfa_secrets: CREATE UNIQUE INDEX `idx_mfa_secrets_user_id` ON `mfa_secrets`(`user_id`)
+index idx_mfa_step_up_grants_purpose on mfa_step_up_grants: CREATE INDEX `idx_mfa_step_up_grants_purpose` ON `mfa_step_up_grants`(`purpose`)
+index idx_mfa_step_up_grants_user_id on mfa_step_up_grants: CREATE INDEX `idx_mfa_step_up_grants_user_id` ON `mfa_step_up_grants`(`user_id`)
+index idx_mfa_stepup_tokens_expires_at on mfa_stepup_tokens: CREATE INDEX `idx_mfa_stepup_tokens_expires_at` ON `mfa_stepup_tokens`(`expires_at`)
+index idx_mfa_stepup_tokens_user_id on mfa_stepup_tokens: CREATE UNIQUE INDEX `idx_mfa_stepup_tokens_user_id` ON `mfa_stepup_tokens`(`user_id`)
+index idx_notification_channels_name on notification_channels: CREATE UNIQUE INDEX `idx_notification_channels_name` ON `notification_channels`(`name`)
+index idx_notifications_is_read on notifications: CREATE INDEX `idx_notifications_is_read` ON `notifications`(`is_read`)
+index idx_notifications_user_id on notifications: CREATE INDEX `idx_notifications_user_id` ON `notifications`(`user_id`)
+index idx_oidc_iss_sub on machine_identity_oidc_bindings: CREATE UNIQUE INDEX `idx_oidc_iss_sub` ON `machine_identity_oidc_bindings`(`issuer`,`subject`)
+index idx_password_histories_user_id on password_histories: CREATE INDEX `idx_password_histories_user_id` ON `password_histories`(`user_id`)
+index idx_pending_audit_events_break_glass_activation_id on pending_audit_events: CREATE INDEX `idx_pending_audit_events_break_glass_activation_id` ON `pending_audit_events`(`break_glass_activation_id`)
+index idx_pending_audit_events_created_at on pending_audit_events: CREATE INDEX `idx_pending_audit_events_created_at` ON `pending_audit_events`(`created_at`)
+index idx_personal_access_tokens_token_hash on personal_access_tokens: CREATE UNIQUE INDEX `idx_personal_access_tokens_token_hash` ON `personal_access_tokens`(`token_hash`)
+index idx_personal_access_tokens_token_prefix on personal_access_tokens: CREATE INDEX `idx_personal_access_tokens_token_prefix` ON `personal_access_tokens`(`token_prefix`)
+index idx_personal_access_tokens_user_id on personal_access_tokens: CREATE INDEX `idx_personal_access_tokens_user_id` ON `personal_access_tokens`(`user_id`)
+index idx_project_invitations_email on project_invitations: CREATE INDEX `idx_project_invitations_email` ON `project_invitations`(`email`)
+index idx_project_invitations_project_id on project_invitations: CREATE INDEX `idx_project_invitations_project_id` ON `project_invitations`(`project_id`)
+index idx_project_memberships_project_id on project_memberships: CREATE INDEX `idx_project_memberships_project_id` ON `project_memberships`(`project_id`)
+index idx_project_memberships_user_id on project_memberships: CREATE INDEX `idx_project_memberships_user_id` ON `project_memberships`(`user_id`)
+index idx_projects_deleted_at on projects: CREATE INDEX `idx_projects_deleted_at` ON `projects`(`deleted_at`)
+index idx_rejection_reason_templates_name on rejection_reason_templates: CREATE UNIQUE INDEX `idx_rejection_reason_templates_name` ON `rejection_reason_templates`(`name`)
+index idx_risk_exceptions_expires_at on risk_exceptions: CREATE INDEX `idx_risk_exceptions_expires_at` ON `risk_exceptions`(`expires_at`)
+index idx_risk_exceptions_revoked on risk_exceptions: CREATE INDEX `idx_risk_exceptions_revoked` ON `risk_exceptions`(`revoked`)
+index idx_rotation_policies_deleted_at on rotation_policies: CREATE INDEX `idx_rotation_policies_deleted_at` ON `rotation_policies`(`deleted_at`)
+index idx_rotation_policies_environment_id on rotation_policies: CREATE INDEX `idx_rotation_policies_environment_id` ON `rotation_policies`(`environment_id`)
+index idx_rotation_policies_project_id on rotation_policies: CREATE INDEX `idx_rotation_policies_project_id` ON `rotation_policies`(`project_id`)
+index idx_scheduler_lock_leases_expires_at on scheduler_lock_leases: CREATE INDEX `idx_scheduler_lock_leases_expires_at` ON `scheduler_lock_leases`(`expires_at`)
+index idx_secret_access_logs_access_time on secret_access_logs: CREATE INDEX `idx_secret_access_logs_access_time` ON `secret_access_logs`(`access_time`,`secret_node_id`)
+index idx_secret_access_logs_secret_action on secret_access_logs: CREATE INDEX `idx_secret_access_logs_secret_action` ON `secret_access_logs`(`secret_node_id`,`action`)
+index idx_secret_access_logs_secret_time on secret_access_logs: CREATE INDEX `idx_secret_access_logs_secret_time` ON `secret_access_logs`(`secret_node_id`,`access_time`)
+index idx_secret_access_schedules_secret_node_id on secret_access_schedules: CREATE UNIQUE INDEX `idx_secret_access_schedules_secret_node_id` ON `secret_access_schedules`(`secret_node_id`)
+index idx_secret_acl_user on secret_acls: CREATE UNIQUE INDEX `idx_secret_acl_user` ON `secret_acls`(`secret_id`,`user_id`)
+index idx_secret_dep_edge on secret_dependencies: CREATE UNIQUE INDEX `idx_secret_dep_edge` ON `secret_dependencies`(`dependent_secret_id`,`depends_on_secret_id`)
+index idx_secret_dependencies_project_id on secret_dependencies: CREATE INDEX `idx_secret_dependencies_project_id` ON `secret_dependencies`(`project_id`)
+index idx_secret_nodes_cert_not_after on secret_nodes: CREATE INDEX `idx_secret_nodes_cert_not_after` ON `secret_nodes`(`cert_not_after`)
+index idx_secret_nodes_classification on secret_nodes: CREATE INDEX `idx_secret_nodes_classification` ON `secret_nodes`(`classification`)
+index idx_secret_nodes_deleted_at on secret_nodes: CREATE INDEX `idx_secret_nodes_deleted_at` ON `secret_nodes`(`deleted_at`)
+index idx_secret_nodes_owner_id on secret_nodes: CREATE INDEX `idx_secret_nodes_owner_id` ON `secret_nodes`(`owner_id`)
+index idx_secret_nodes_owner_machine_identity_id on secret_nodes: CREATE INDEX `idx_secret_nodes_owner_machine_identity_id` ON `secret_nodes`(`owner_machine_identity_id`)
+index idx_secret_templates_name on secret_templates: CREATE UNIQUE INDEX `idx_secret_templates_name` ON `secret_templates`(`name`)
+index idx_secret_version_comments_secret_id on secret_version_comments: CREATE INDEX `idx_secret_version_comments_secret_id` ON `secret_version_comments`(`secret_id`)
+index idx_secret_version_comments_version_id on secret_version_comments: CREATE INDEX `idx_secret_version_comments_version_id` ON `secret_version_comments`(`version_id`)
+index idx_sessions_family_id on sessions: CREATE INDEX `idx_sessions_family_id` ON `sessions`(`family_id`)
+index idx_setup_tokens_invitation_id on setup_tokens: CREATE INDEX `idx_setup_tokens_invitation_id` ON `setup_tokens`(`invitation_id`)
+index idx_setup_tokens_purpose on setup_tokens: CREATE INDEX `idx_setup_tokens_purpose` ON `setup_tokens`(`purpose`)
+index idx_setup_tokens_state on setup_tokens: CREATE INDEX `idx_setup_tokens_state` ON `setup_tokens`(`state`)
+index idx_setup_tokens_subject_email on setup_tokens: CREATE INDEX `idx_setup_tokens_subject_email` ON `setup_tokens`(`subject_email`)
+index idx_setup_tokens_subject_user_id on setup_tokens: CREATE INDEX `idx_setup_tokens_subject_user_id` ON `setup_tokens`(`subject_user_id`)
+index idx_setup_tokens_token_hash on setup_tokens: CREATE UNIQUE INDEX `idx_setup_tokens_token_hash` ON `setup_tokens`(`token_hash`)
+index idx_share_records_deleted_at on share_records: CREATE INDEX `idx_share_records_deleted_at` ON `share_records`(`deleted_at`)
+index idx_share_records_expires_at on share_records: CREATE INDEX `idx_share_records_expires_at` ON `share_records`(`expires_at`)
+index idx_share_records_owner_id on share_records: CREATE INDEX `idx_share_records_owner_id` ON `share_records`(`owner_id`)
+index idx_share_records_recipient_id on share_records: CREATE INDEX `idx_share_records_recipient_id` ON `share_records`(`recipient_id`)
+index idx_share_records_secret_id on share_records: CREATE INDEX `idx_share_records_secret_id` ON `share_records`(`secret_id`)
+index idx_sso_login_states_expires_at on sso_login_states: CREATE INDEX `idx_sso_login_states_expires_at` ON `sso_login_states`(`expires_at`)
+index idx_sso_login_states_state on sso_login_states: CREATE UNIQUE INDEX `idx_sso_login_states_state` ON `sso_login_states`(`state`)
+index idx_stats_snapshots_snapshot_date on stats_snapshots: CREATE INDEX `idx_stats_snapshots_snapshot_date` ON `stats_snapshots`(`snapshot_date`)
+index idx_stats_snapshots_user_id on stats_snapshots: CREATE INDEX `idx_stats_snapshots_user_id` ON `stats_snapshots`(`user_id`)
+index idx_user_roles_expires_at on user_roles: CREATE INDEX `idx_user_roles_expires_at` ON `user_roles`(`expires_at`)
+index idx_users_deleted_at on users: CREATE INDEX `idx_users_deleted_at` ON `users`(`deleted_at`)
+index idx_users_external_id on users: CREATE INDEX `idx_users_external_id` ON `users`(`external_id`)
+index idx_web_authn_credentials_credential_id on web_authn_credentials: CREATE UNIQUE INDEX `idx_web_authn_credentials_credential_id` ON `web_authn_credentials`(`credential_id`)
+index idx_web_authn_credentials_user_id on web_authn_credentials: CREATE INDEX `idx_web_authn_credentials_user_id` ON `web_authn_credentials`(`user_id`)
+index idx_web_authn_sessions_token_hash on web_authn_sessions: CREATE UNIQUE INDEX `idx_web_authn_sessions_token_hash` ON `web_authn_sessions`(`token_hash`)
+index idx_web_authn_sessions_user_id on web_authn_sessions: CREATE INDEX `idx_web_authn_sessions_user_id` ON `web_authn_sessions`(`user_id`)
+index uniq_break_glass_active_project_user on break_glass_activations: CREATE UNIQUE INDEX uniq_break_glass_active_project_user ON break_glass_activations (project_id, user_id) WHERE state = 'active'
+index uniq_dynamic_secret_configs_project_env_name on dynamic_secret_configs: CREATE UNIQUE INDEX uniq_dynamic_secret_configs_project_env_name ON dynamic_secret_configs (project_id, environment_id, name)
+index uniq_groups_name_folded_active on groups: CREATE UNIQUE INDEX uniq_groups_name_folded_active ON groups (name_folded) WHERE deleted_at IS NULL
+index uniq_legal_holds_active on legal_holds: CREATE UNIQUE INDEX uniq_legal_holds_active ON legal_holds (released) WHERE released = false
+index uniq_notifications_unread_reminder on notifications: CREATE UNIQUE INDEX uniq_notifications_unread_reminder ON notifications (user_id, type, project_id) WHERE is_read = false AND type IN ('rotation.reminder', 'secret.expiry_reminder')
+index uniq_project_memberships_active on project_memberships: CREATE UNIQUE INDEX uniq_project_memberships_active ON project_memberships (project_id, user_id) WHERE state <> 'revoked'
+index uniq_projects_name_active on projects: CREATE UNIQUE INDEX uniq_projects_name_active ON projects (LOWER(name)) WHERE deleted_at IS NULL AND name <> ''
+index uniq_roles_name_folded on roles: CREATE UNIQUE INDEX uniq_roles_name_folded ON roles (name_folded)
+index uniq_secret_nodes_project_env_name_active on secret_nodes: CREATE UNIQUE INDEX uniq_secret_nodes_project_env_name_active ON secret_nodes (project_id, environment_id, name) WHERE deleted_at IS NULL
+index uniq_secret_versions_node_version on secret_versions: CREATE UNIQUE INDEX uniq_secret_versions_node_version ON secret_versions (secret_node_id, version_number)
+index uniq_share_records_active on share_records: CREATE UNIQUE INDEX uniq_share_records_active ON share_records (secret_id, recipient_id, is_group) WHERE deleted_at IS NULL
+index uniq_users_email_folded_active on users: CREATE UNIQUE INDEX uniq_users_email_folded_active ON users (email_folded) WHERE deleted_at IS NULL AND email <> ''
+index uniq_users_external_id_active on users: CREATE UNIQUE INDEX uniq_users_external_id_active ON users (external_id) WHERE deleted_at IS NULL AND external_id != ''
+index uniq_users_username_folded_active on users: CREATE UNIQUE INDEX uniq_users_username_folded_active ON users (username_folded) WHERE deleted_at IS NULL
+index uq_connect_ref_grant on connect_ref_grants: CREATE UNIQUE INDEX `uq_connect_ref_grant` ON `connect_ref_grants`(`role_id`,`connector`,`ref_prefix`)
+index ux_access_request_approver on access_request_approvals: CREATE UNIQUE INDEX `ux_access_request_approver` ON `access_request_approvals`(`request_id`,`approver_id`,`approver_machine_identity_id`)
+table access_request_approvals
+table access_requests
+table access_review_campaigns
+table access_review_items
+table alert_escalation_policies
+table anomaly_alerts
+table anomaly_config_records
+table api_call_logs
+table api_clients
+table api_tokens
+table audit_checkpoints
+table audit_events
+table break_glass_activations
+table compliance_posture_snapshots
+table connect_ref_grants
+table connector_project_bindings
+table deployment_stats_snapshots
+table dynamic_secret_configs
+table dynamic_secret_leases
+table environments
+table external_identities
+table g_rpc_services
+table group_roles
+table groups
+table hygiene_trend_snapshots
+table identity_providers
+table legal_holds
+table login_attempts
+table machine_identities
+table machine_identity_credentials
+table machine_identity_oidc_bindings
+table machine_identity_roles
+table mfa_challenges
+table mfa_recovery_codes
+table mfa_secrets
+table mfa_step_up_grants
+table mfa_stepup_tokens
+table notification_channels
+table notifications
+table password_histories
+table password_resets
+table pending_audit_events
+table permissions
+table personal_access_tokens
+table project_invitations
+table project_memberships
+table projects
+table rate_limits
+table recovery_key_records
+table rejection_reason_templates
+table risk_exceptions
+table role_permissions
+table roles
+table rotation_policies
+table scheduler_lock_leases
+table secret_access_logs
+table secret_access_schedules
+table secret_acls
+table secret_dependencies
+table secret_metadata_histories
+table secret_nodes
+table secret_tags
+table secret_templates
+table secret_version_comments
+table secret_versions
+table sessions
+table settings
+table setup_tokens
+table share_records
+table sod_policies
+table sso_login_states
+table stats_snapshots
+table system_metadata
+table tags
+table user_groups
+table user_roles
+table users
+table web_authn_credentials
+table web_authn_sessions
+trigger trg_permissions_generation_delete on permissions: CREATE TRIGGER trg_permissions_generation_delete AFTER DELETE ON permissions FOR EACH ROW BEGIN INSERT OR IGNORE INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '0', datetime('now')); UPDATE system_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'role_permissions_generation'; END
+trigger trg_permissions_generation_insert on permissions: CREATE TRIGGER trg_permissions_generation_insert AFTER INSERT ON permissions FOR EACH ROW BEGIN INSERT OR IGNORE INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '0', datetime('now')); UPDATE system_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'role_permissions_generation'; END
+trigger trg_permissions_generation_update on permissions: CREATE TRIGGER trg_permissions_generation_update AFTER UPDATE ON permissions FOR EACH ROW BEGIN INSERT OR IGNORE INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '0', datetime('now')); UPDATE system_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'role_permissions_generation'; END
+trigger trg_role_permissions_generation_delete on role_permissions: CREATE TRIGGER trg_role_permissions_generation_delete AFTER DELETE ON role_permissions FOR EACH ROW BEGIN INSERT OR IGNORE INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '0', datetime('now')); UPDATE system_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'role_permissions_generation'; END
+trigger trg_role_permissions_generation_insert on role_permissions: CREATE TRIGGER trg_role_permissions_generation_insert AFTER INSERT ON role_permissions FOR EACH ROW BEGIN INSERT OR IGNORE INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '0', datetime('now')); UPDATE system_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'role_permissions_generation'; END
+trigger trg_role_permissions_generation_update on role_permissions: CREATE TRIGGER trg_role_permissions_generation_update AFTER UPDATE ON role_permissions FOR EACH ROW BEGIN INSERT OR IGNORE INTO system_metadata (key, value, updated_at) VALUES ('role_permissions_generation', '0', datetime('now')); UPDATE system_metadata SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'role_permissions_generation'; END
+trigger trg_secret_nodes_cache_epoch on secret_nodes: CREATE TRIGGER trg_secret_nodes_cache_epoch AFTER UPDATE ON secret_nodes FOR EACH ROW WHEN NEW.cache_epoch = OLD.cache_epoch BEGIN UPDATE secret_nodes SET cache_epoch = OLD.cache_epoch + 1 WHERE id = NEW.id; END

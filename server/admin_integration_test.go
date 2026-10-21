@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"net"
@@ -28,6 +29,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/keyorixhq/keyorix/internal/config"
 	"github.com/keyorixhq/keyorix/internal/serverguard"
@@ -119,26 +122,85 @@ func adminConfigForProbe(path string) (*config.Config, error) {
 	return config.Load(path)
 }
 
-// waitForPresence polls internal/serverguard.ProbeRunning in-process until
-// it reports a live server (or the timeout elapses). See
+// waitForPresence polls in-process until a live server holds cfg's
+// server-presence lock (or the timeout elapses). See
 // TestAdminGuard_RefusesWhileServerRunning_ThenForceOverrides's inline
-// comment for why polling must go through ProbeRunning directly rather than
-// shelling out to an admin command that could itself race the server's own
-// boot-time lock acquisitions.
+// comment for why polling must not shell out to an admin command that could
+// itself race the server's own boot-time lock acquisitions.
+//
+// The poll must not contend for that lock either, because every caller polls
+// while the server under test is still starting. serverguard.ProbeRunning
+// takes the lock EXCLUSIVELY for a moment, and a server's startup is a
+// non-blocking SHARED try-lock that fails fast on any exclusive holder: on
+// Postgres, where each probe holds the lock for a connection round trip,
+// polling with it every 50 ms made the probe itself the "admin operation" that
+// refused the server it was waiting for (merge-queue run 39494316618:
+// TestServerStartup_RefusedWhileAdminHoldsExclusiveLock_Postgres's server
+// logged "an admin operation is running against this database" the instant it
+// started). So on Postgres it reads pg_locks and takes no lock at all.
+//
+// Not closed: on SQLite it still uses ProbeRunning. A flock cannot be observed
+// without taking it; the exclusive hold there spans two syscalls, not a network
+// round trip, and no SQLite caller has been seen to flake on it.
 func waitForPresence(t *testing.T, cfg *config.Config, timeoutSeconds int) bool {
 	t.Helper()
-	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
-	for time.Now().Before(deadline) {
+	held := func() bool {
 		running, _, err := serverguard.ProbeRunning(cfg)
 		if err != nil {
 			t.Fatalf("ProbeRunning: %v", err)
 		}
-		if running {
+		return running
+	}
+	if st := cfg.Storage.Type; st == "postgres" || st == "postgresql" {
+		db := openPresenceObserver(t, cfg)
+		defer db.Close() //nolint:errcheck
+		held = func() bool { return postgresPresenceHeld(t, db) }
+	}
+	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	for time.Now().Before(deadline) {
+		if held() {
 			return true
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return false
+}
+
+// presenceLockKey is internal/serverguard's serverPresenceLockKey (unexported
+// there). If the two ever drift, postgresPresenceHeld never sees a holder and
+// every waitForPresence caller fails loudly with "server never present"; it
+// cannot pass by accident.
+const presenceLockKey = 872342
+
+// openPresenceObserver opens a connection pool to cfg's Postgres database that
+// only reads pg_locks, built the way serverguard builds its own lock
+// connection (the resolved config, never a DSN string). The caller closes it.
+func openPresenceObserver(t *testing.T, cfg *config.Config) *sql.DB {
+	t.Helper()
+	cc, err := config.ResolvePostgresConnConfig(&cfg.Storage.Database)
+	if err != nil {
+		t.Fatalf("resolve postgres config for the presence observer: %v", err)
+	}
+	return stdlib.OpenDB(*cc)
+}
+
+// postgresPresenceHeld reports whether some session holds the presence lock
+// SHARED in this database, i.e. a server is running. It never takes the lock.
+// A bigint advisory key below 2^32 shows in pg_locks as classid 0, objid key,
+// objsubid 1.
+func postgresPresenceHeld(t *testing.T, db *sql.DB) bool {
+	t.Helper()
+	var held bool
+	err := db.QueryRowContext(t.Context(), `SELECT EXISTS (
+		SELECT 1 FROM pg_locks
+		WHERE locktype = 'advisory' AND granted AND mode = 'ShareLock'
+		  AND classid = 0 AND objid = $1 AND objsubid = 1
+		  AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))`,
+		presenceLockKey).Scan(&held)
+	if err != nil {
+		t.Fatalf("read pg_locks for the server-presence lock: %v", err)
+	}
+	return held
 }
 
 // waitForLockFree is waitForPresence's mirror image: polls

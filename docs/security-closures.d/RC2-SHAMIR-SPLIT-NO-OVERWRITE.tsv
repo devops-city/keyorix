@@ -1,0 +1,1 @@
+RC2-SHAMIR-SPLIT-NO-OVERWRITE	./internal/encryptionops	TestShamirSplit_OutDir_RefusesToOverwriteExistingShares	default-ci	pending-merge	-	shamir-split --out-dir truncated existing share-N.hex/commitment.hex files (possibly the live KEK's shares, leaving the install unable to start); it now refuses before generating anything and creates with O_EXCL.

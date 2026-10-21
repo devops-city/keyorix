@@ -62,22 +62,25 @@ END;
 $keyorix$`).Error; err != nil {
 			return fmt.Errorf("failed to create %s(): %w", auditRetentionAnchorFunc, err)
 		}
-		var n int64
-		if err := tx.Raw("SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'system_metadata'::regclass AND tgname = ?",
-			AuditRetentionAnchorTrigger).Scan(&n).Error; err != nil {
-			return fmt.Errorf("failed to read %s: %w", AuditRetentionAnchorTrigger, err)
+		var state []string
+		if err := tx.Raw("SELECT tgenabled::text FROM pg_trigger WHERE NOT tgisinternal AND tgrelid = 'system_metadata'::regclass AND tgname = ?",
+			AuditRetentionAnchorTrigger).Scan(&state).Error; err != nil {
+			return fmt.Errorf("failed to read %s state: %w", AuditRetentionAnchorTrigger, err)
 		}
-		if n > 0 {
-			return nil
-		}
-		if err := tx.Exec(`CREATE TRIGGER ` + AuditRetentionAnchorTrigger + `
+		if len(state) == 0 {
+			if err := tx.Exec(`CREATE TRIGGER ` + AuditRetentionAnchorTrigger + `
 BEFORE UPDATE ON system_metadata FOR EACH ROW
 WHEN (OLD.key = 'audit_retention_anchor')
 EXECUTE PROCEDURE ` + auditRetentionAnchorFunc + `()`).Error; err != nil {
-			return fmt.Errorf("failed to create %s: %w", AuditRetentionAnchorTrigger, err)
+				return fmt.Errorf("failed to create %s: %w", AuditRetentionAnchorTrigger, err)
+			}
 		}
-		if err := tx.Exec(`ALTER TABLE system_metadata ENABLE ALWAYS TRIGGER ` + AuditRetentionAnchorTrigger).Error; err != nil {
-			return fmt.Errorf("failed to enable %s: %w", AuditRetentionAnchorTrigger, err)
+		// ENABLE ALWAYS, and converge an existing trigger left ordinary
+		// (pg_restore --disable-triggers), replica-only or disabled.
+		if len(state) == 0 || state[0] != "A" {
+			if err := tx.Exec(`ALTER TABLE system_metadata ENABLE ALWAYS TRIGGER ` + AuditRetentionAnchorTrigger).Error; err != nil {
+				return fmt.Errorf("failed to enable %s: %w", AuditRetentionAnchorTrigger, err)
+			}
 		}
 		return nil
 	})

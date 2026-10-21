@@ -5,6 +5,7 @@
 package encryption
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,12 @@ import (
 
 	"github.com/keyorixhq/keyorix/internal/securefiles"
 )
+
+// errSweepOutcomeUnknown marks a sweepFn error after which the sweep's
+// transaction may have committed (the COMMIT itself failed, or a panic after
+// it). The new DEK in dek.key.pending is then kept for RecoverInterruptedRotation
+// to promote or discard from the redo marker.
+var errSweepOutcomeUnknown = errors.New("the re-encryption sweep may have committed")
 
 // RotateDEKWithSweep performs a true DEK rotation with a full re-encryption sweep (ADR-010).
 //
@@ -102,6 +109,11 @@ func (km *KeyManager) RotateDEKWithSweep(passphrase string, sweepFn func(oldSvc,
 
 	if err := sweepFn(oldEncSvc, newEncSvc, newKeyVersion); err != nil {
 		wipeBytes(newDEK)
+		if errors.Is(err, errSweepOutcomeUnknown) {
+			// The rows may already be under the new DEK, and the pending file is
+			// its only copy: keep it (REVIEW-COVERAGE-2).
+			return fmt.Errorf("re-encryption sweep failed and may have committed — %s was kept; the next server start or `admin encryption rotate` promotes it if the database's rotation marker committed and discards it otherwise: %w", pendingDEKPath, err)
+		}
 		_ = os.Remove(filepath.Join(km.baseDir, pendingDEKPath))
 		return fmt.Errorf("re-encryption sweep failed — old DEK remains active: %w", err)
 	}
@@ -115,8 +127,11 @@ func (km *KeyManager) RotateDEKWithSweep(passphrase string, sweepFn func(oldSvc,
 	pendingPath := filepath.Join(km.baseDir, pendingDEKPath)
 	if err := os.Rename(pendingPath, activePath); err != nil {
 		wipeBytes(newDEK)
-		_ = os.Remove(pendingPath)
-		return fmt.Errorf("failed to promote pending DEK to active: %w", err)
+		// The sweep committed: the rows and the redo marker are under the new DEK
+		// and the pending file is its only copy. Never remove it here (it used to
+		// be, losing every swept row); recovery promotes it (REVIEW-COVERAGE-2,
+		// the DEK-sweep sibling of INV-ENCRYPTION-11).
+		return fmt.Errorf("failed to promote pending DEK to active after the re-encryption sweep committed: %w — %s was kept; fix the cause, then start the server or run `admin encryption rotate`, which finish the promotion", err, pendingDEKPath)
 	}
 	// Crash-consistency seam (nil in prod): active DEK now the new one; dir fsync pending.
 	rotationCheckpointHook("sweep:after-rename-dek")
