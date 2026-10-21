@@ -10,7 +10,7 @@
 // Run: go test ./server/faultops -run '^$' -fuzz '^FuzzOwedAuditRevocations$' -fuzztime 90s
 //
 // Registered in scripts/fuzzing/targets.d at 30m (the fuzz-targets drift guard requires
-// every real FuzzXxx to be declared). The space is small (35 ops x 3 methods x 3 ordinals x 3 kinds)
+// every real FuzzXxx to be declared). The space is small (42 ops x 4 methods x 3 ordinals x 3 kinds)
 // and TestOwedAuditOracle_SweepEveryScopedOp (KEYORIX_OWED_SWEEP_WIDE=1) covers it
 // exhaustively; this target is for bursts and for finding what the sweep's fixed
 // ordinals miss after a change to the audit path.
