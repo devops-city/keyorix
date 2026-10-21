@@ -554,7 +554,7 @@ jobs:
         if: steps.scope.outputs.select == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Select affected packages and path gates (scripts/ci/select-affected.py)
         id: sel
@@ -875,7 +875,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Check for invalid UTF-8 (U+FFFD replacement characters)
         run: |
@@ -921,7 +921,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Select affected root-module packages and run go test -short
         env:
@@ -980,7 +980,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Select affected cli-module packages and run go test -short
         env:
@@ -1073,9 +1073,9 @@ jobs:
           - leg: root-2
             timeout: 1800
             coverage-file: coverage_root2.out
-          - leg: root-3
-            timeout: 1800
-            coverage-file: coverage_root3.out
+          # (no root-3: ./server is split by test name into server-1/server-2
+          # below, and root-3's small packages joined root-2; CI-SHARD-BALANCE-1
+          # round 2 had root-3 at 21.6 min, bounded by ./server alone.)
           - leg: root-4
             timeout: 1800
             coverage-file: coverage_root4.out
@@ -1112,16 +1112,39 @@ jobs:
           #
           # Split into core-1/core-2 (2026-10-19, CI-CORE-SHARD-1): the leg grew
           # to ~35 min (CI-CORE-TIMEOUT-1) and was the merge queue's critical
-          # path. Unlike #1819 this split is by a pinned heavy-test regex (core-1
-          # -run, core-2 -skip of the same regex; core_heavy_regex in
-          # scripts/ci-test-legs.sh), expected ~22 min wall. timeout stays 3300
-          # per leg until the split has proven itself.
+          # path. That split was by a pinned heavy-test regex (core-1 -run,
+          # core-2 -skip of the same regex) and still left core-1 the slowest leg
+          # of the matrix in 5 of 8 comparable merge-queue rounds: ~20 min of
+          # tests (1037s in the test binary) plus the ~9-10 min
+          # scripts/check-closures.sh step below, serial on the same runner.
+          #
+          # core-1/2/3 (2026-10-20, CI-SHARD-BALANCE-1): the same package, three
+          # test-name shards bin-packed by committed per-test weights
+          # (sharded_legs / weighted_run_filter in scripts/ci-test-legs.sh,
+          # scripts/ci-test-weights.tsv), with check-closures' ~10 min counted as
+          # a preload on core-1 so the shard that also runs it gets fewer tests.
+          # The fixed cost of one more leg was measured at ~2-4 min of compile
+          # plus ~1 min of job setup (go test step minus the `ok` time on run
+          # 39477864156: core-2 119s, core-1 171s, http-3 215s, faultops-2 228s),
+          # not the ~10 min the #1819 note above inferred, so a third shard
+          # (about 3 leg-minutes) buys a ~6 min shorter critical path.
+          # Timeouts stay 3300: the per-binary run is now ~12-15 min, the same
+          # generous-headroom reasoning as every other leg.
           - leg: core-1
             timeout: 3300
             coverage-file: coverage_core1.out
           - leg: core-2
             timeout: 3300
             coverage-file: coverage_core2.out
+          - leg: core-3
+            timeout: 3300
+            coverage-file: coverage_core3.out
+          - leg: server-1
+            timeout: 1800
+            coverage-file: coverage_server1.out
+          - leg: server-2
+            timeout: 1800
+            coverage-file: coverage_server2.out
           # storage-store (internal/storage/store, re-pinned out of root-4's
           # catch-all 2026-09-04) -- same trigger as core's own split above: a
           # real CI run (main, commit b971ed36) found root-4's `go test` step
@@ -1139,12 +1162,16 @@ jobs:
           # Split into two test-name shards 2026-09-09: 18 min on run
           # 34329184317, the slowest leg after http-6 and unsharded, so it
           # set a floor no rebalancing elsewhere could get under.
+          #
+          # Merged back into one leg (2026-10-20, CI-SHARD-BALANCE-1): the two
+          # shards now ran 4-8 min each (run 39477864156: 5.9 and 8.0 min, of
+          # which ~4 min each is fixed cost), so one leg of ~10 min is under
+          # every leg that matters and saves a runner plus ~4 leg-minutes.
+          # sharded_legs() has it as a single shard (no -run filter, so the
+          # package's Example tests run too), -shuffle=on unchanged.
           - leg: storage-store-1
             timeout: 1800
             coverage-file: coverage_storage_store1.out
-          - leg: storage-store-2
-            timeout: 1800
-            coverage-file: coverage_storage_store2.out
           # internal/encryption split out of root-1 into two test-name shards
           # (2026-09-27): it was 829.5s of root-1's ~15-16 min on merge-queue
           # run 36320819069, the longest leg in the matrix. See
@@ -1162,22 +1189,33 @@ jobs:
           # timeout is per test binary, so one leg of its own would not have
           # been enough -- the package alone is the problem; two shards halve
           # it. Nothing is skipped or reduced: every Test*/Fuzz* name runs in
-          # exactly one shard (assert_faultops_shards_complete, run by
+          # exactly one shard (assert_all_shards_complete, run by
           # assert-leg-completeness). See faultops_pkgs in
           # scripts/ci-test-legs.sh.
+          #
+          # Three shards (2026-10-20, CI-SHARD-BALANCE-1): the hand-pinned
+          # two-shard split left faultops-1 at 12 min and faultops-2 at 27-29
+          # min on the same full rounds (run 39482036342: 11.6 vs 28.2 min),
+          # making faultops-2 one of the slowest legs of the matrix. Four tests
+          # dominate the package (346s + 229s + 183s + 102s of its 1251s -race
+          # local total), so the weighted assignment places them explicitly.
+          #
           # timeout raised 1800 -> 3300 (2026-10-21, same reasoning as
           # CI-CORE-TIMEOUT-1 above): faultops-2 ran median 23.6 / p90 27.9 min
           # over 241 merge-group runs Oct 18-20 and died with "test timed out
           # after 30m0s" in 3 of them (39174719277, 39339103669, 39437208201),
           # each time in the fuzz-seed phase after ~28 min of tests, not a hang.
-          # The shards are unbalanced (faultops-1 median 13.2 min); rebalancing
-          # faultops_run_filter is the real fix and is not done here.
+          # The rebalancing above is the real fix; the 3300 headroom from main
+          # is kept on all three legs until it has proven itself.
           - leg: faultops-1
             timeout: 3300
             coverage-file: coverage_faultops1.out
           - leg: faultops-2
             timeout: 3300
             coverage-file: coverage_faultops2.out
+          - leg: faultops-3
+            timeout: 3300
+            coverage-file: coverage_faultops3.out
           # handlers (server/http/handlers, one package, 167 test files, 5151
           # top-level tests, all already t.Parallel()) measured at 911s in CI
           # -- vs. 15s wall / 37s summed-per-test locally without -race. That
@@ -1191,6 +1229,12 @@ jobs:
           # same here. A newly added test always lands in whichever shard its
           # name happens to hash to -- nothing to keep in sync, unlike
           # root-1/2/3's pinned lists.
+          #
+          # (2026-10-20, CI-SHARD-BALANCE-1: handlers now uses the same weighted
+          # assignment as the other sharded packages; every test is parallel, so
+          # its weights file row is a single default and the pack is an even
+          # spread by name, as before. Run 39477864156: 269 s and 226 s of tests
+          # in handlers-1/2 -- balanced, left at two legs.)
           - leg: handlers-1
             timeout: 1800
             coverage-file: coverage_handlers1.out
@@ -1228,30 +1272,34 @@ jobs:
           # measurement basis, comfortably under the 1800s timeout with real
           # headroom to spare, matching this workflow's generous-timeout precedent
           # rather than tuning tight to the observed duration.
+          #
+          # 8 mod-8 shards -> 4 weighted shards (2026-10-20, CI-SHARD-BALANCE-1).
+          # The mod-8 split put the package's heavy tests into two classes: on
+          # merge-queue run 39477864156 the `go test` binaries of http-1..8 ran
+          # 65 / 162 / 1248 / 57 / 94 / 59 / 1371 / 371 s (3427 s in total, 76%
+          # of it in http-3 and http-7), so five legs were ~90% fixed cost
+          # (checkout, Postgres, race+cover compile, ~290 s) around a minute of
+          # tests while two ran 25-28 min. Per-test CI times (a -v round on this
+          # PR) show why: TestEveryRouteRefusesADeadCredential (~1560 s with -v)
+          # and TestEveryWriteRouteRefusesAndChangesNothing (~1090 s) are 2/3 of
+          # the package. The weighted pack gives each of them a leg and splits
+          # the other ~480 tests over two more; more legs only add fixed cost.
+          # Splitting INSIDE those two tests (their /sqlite /postgres and
+          # per-route subtests) is the only way below this floor and would need
+          # a subtest-level proof of "runs exactly once"; not done here.
+          # timeout 2400 (was 1800): the longest leg runs one 20+ min test.
           - leg: http-1
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http1.out
           - leg: http-2
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http2.out
           - leg: http-3
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http3.out
           - leg: http-4
-            timeout: 1800
+            timeout: 2400
             coverage-file: coverage_http4.out
-          - leg: http-5
-            timeout: 1800
-            coverage-file: coverage_http5.out
-          - leg: http-6
-            timeout: 1800
-            coverage-file: coverage_http6.out
-          - leg: http-7
-            timeout: 1800
-            coverage-file: coverage_http7.out
-          - leg: http-8
-            timeout: 1800
-            coverage-file: coverage_http8.out
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1321,7 +1369,7 @@ jobs:
         if: steps.leg.outputs.run == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go test (${{ matrix.leg }})
         if: steps.leg.outputs.run == 'true'
@@ -1338,9 +1386,9 @@ jobs:
 
           leg="${{ matrix.leg }}"
           # Empty matches everything (verified: `go test -run ""` and no
-          # -run flag at all select the identical test set) -- every leg
-          # except handlers-N/http-N leaves this empty, since only those
-          # shard by test name rather than by package.
+          # -run flag at all select the identical test set) -- the root-N and
+          # storage-store legs leave this empty; core/http/handlers/encryption/
+          # faultops shard one package by test name (leg_run_filter, below).
           run_filter=""
           pkgs=$(pkgs_for_leg "$leg")
           # Selected merge-queue run, package-list leg (root-N, core-N): only the
@@ -1352,55 +1400,42 @@ jobs:
           # Empty for every leg except storage-store-N (below) -- see that
           # case arm for why this one package gets it and the others don't.
           shuffle_flag=""
-          # Empty (skip nothing) for every leg except core-2.
-          skip_filter=""
 
+          # Every sharded package below gets its -run regex from
+          # leg_run_filter: the weighted bin-pack of the package's
+          # Test*/Fuzz* names (scripts/ci-test-legs.sh sharded_legs, weights in
+          # scripts/ci-test-weights.tsv). One function builds the regex here AND
+          # in assert-leg-completeness's exactly-once proof. A newly added test
+          # weighs the package average and lands in SOME shard automatically;
+          # stale weights cost balance, never completeness.
           case "$leg" in
-            handlers-1|handlers-2)
+            handlers-*)
               # One package (server/http/handlers), all tests already
-              # t.Parallel(), no per-test timing outliers to pin the way
-              # root-1/2/3 do -- the 60x CI/local gap here is race-detector
-              # contention scaling with total concurrent goroutines on one
-              # runner, not a few slow tests. Split by (sorted test name
-              # index) mod 2. A newly added test lands in whichever shard its
-              # name hashes to; nothing to keep in sync.
-              shard=${leg#handlers-}
-              run_filter=$(run_filter_for_shard "$pkgs" "$shard" 2)
+              # t.Parallel(): per-test times are contention, not cost, so the
+              # weights file gives every test the same default and the pack
+              # degrades to an even spread by name.
+              run_filter=$(leg_run_filter "$leg")
               pkgs=./server/http/handlers/...
               ;;
-            http-1|http-2|http-3|http-4|http-5|http-6|http-7|http-8)
-              # server/http, mod 8. Reverted 2026-09-09 from the pinned
-              # per-test lists introduced 2026-08-29 -- see http_pkg's
-              # comment in scripts/ci-test-legs.sh for the measured drift
-              # (82% spread eleven days after pinning, vs. the 54% the
-              # pinning was introduced to fix) and for what a real fix
-              # would look like.
-              shard=${leg#http-}
-              run_filter=$(run_filter_for_shard "$pkgs" "$shard" 8)
+            http-*)
+              run_filter=$(leg_run_filter "$leg")
               pkgs=./server/http
               ;;
-            core-1)
-              # The heavy group only; regex defined once in ci-test-legs.sh.
-              # $pkgs stays as pkgs_for_leg / LEG_ONLY gave it (internal/core).
-              run_filter=$(core_heavy_regex)
+            core-*|server-*)
+              # $pkgs stays as pkgs_for_leg gave it (internal/core, ./server).
+              run_filter=$(leg_run_filter "$leg")
               ;;
-            core-2)
-              # Everything except the heavy group (same regex, -skip).
-              skip_filter=$(core_heavy_regex)
-              ;;
-            encryption-1|encryption-2)
-              shard=${leg#encryption-}
-              run_filter=$(run_filter_for_shard "$pkgs" "$shard" 2)
+            encryption-*)
+              run_filter=$(leg_run_filter "$leg")
               pkgs=./internal/encryption
               ;;
-            faultops-1|faultops-2)
-              shard=${leg#faultops-}
-              run_filter=$(faultops_run_filter "$shard")
+            faultops-*)
+              run_filter=$(leg_run_filter "$leg")
               pkgs=./server/faultops
               ;;
-            storage-store-1|storage-store-2)
-              shard=${leg#storage-store-}
-              run_filter=$(run_filter_for_shard "$pkgs" "$shard" 2)
+            storage-store-*)
+              # One leg, the whole package (leg_run_filter prints nothing for a
+              # one-shard leg), so no test is filtered.
               pkgs=./internal/storage/store
               # fix/store-test-isolation-shuffle: this package's tests used
               # to depend on execution order without anyone checking for it
@@ -1440,7 +1475,7 @@ jobs:
           # above). If someone proposes enabling Go's test cache here, that's
           # the trade being proposed, whether or not the proposal names it.
           # shellcheck disable=SC2086
-          go test -race -timeout ${{ matrix.timeout }}s -run "$run_filter" -skip "$skip_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
+          go test -race -timeout ${{ matrix.timeout }}s -run "$run_filter" $shuffle_flag -coverprofile=${{ matrix.coverage-file }} -covermode=atomic $pkgs
 
       # This job is the ONLY one with a Postgres service container (see this
       # job's own KEYORIX_TEST_PG_DSN comment above), so it is the only place
@@ -1508,7 +1543,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Assert every package is covered by exactly the CI matrix or an enumerated exclusion
         run: |
@@ -1520,15 +1555,24 @@ jobs:
           source scripts/ci-test-legs.sh
           assert_pinned_leg_packages_valid
 
-      - name: Assert every server/faultops test runs in exactly one faultops shard
+      # CI-SHARD-BALANCE-1: one proof for every package split by test name
+      # (core, http, handlers, encryption, faultops), built from the same
+      # weighted_run_filter the legs run. Before, only faultops and core had
+      # one, each with its own hand-written filter.
+      - name: Assert every test of every sharded package runs in exactly one shard
         run: |
           source scripts/ci-test-legs.sh
-          assert_faultops_shards_complete
+          assert_all_shards_complete
 
-      - name: Assert every internal/core test runs in exactly one of core-1 / core-2
+      - name: Assert the shard weights file is well formed
         run: |
           source scripts/ci-test-legs.sh
-          assert_core_shards_complete
+          assert_test_weights_valid
+
+      - name: Assert the test-suite matrix, the leg table and the coverage merge agree
+        run: |
+          source scripts/ci-test-legs.sh
+          assert_matrix_consistent .github/workflows/ci.yml
 
   # Independent of test execution/coverage -- both tools statically analyze
   # source, so this runs in parallel with test-suite instead of waiting for it
@@ -1546,7 +1590,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       # Keyed on the resolved Go version too (not just GOSEC_VERSION): a
       # govulncheck/gosec binary built under one Go toolchain and reused as-is
@@ -1648,7 +1692,7 @@ jobs:
           if [ "$SELECT_MODE" = "selected" ]; then
             selected=true
             nlegs=$(jq 'length' <<<"$SELECT_LEGS")
-            echo "Selected run: $nlegs of 22 test-suite legs ran ($SELECT_REASON)."
+            echo "Selected run: $nlegs test-suite legs ran ($SELECT_REASON)."
             if [ "$GUARDS_RESULT" != "success" ]; then
               echo "::error::selected merge-queue run requires repo-guards=success (every repo-wide guard), got repo-guards=$GUARDS_RESULT"
               exit 1
@@ -1703,7 +1747,7 @@ jobs:
         if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Download coverage artifacts
         if: steps.gate.outputs.full_tier == 'true' && steps.gate.outputs.selected != 'true'
@@ -1730,7 +1774,7 @@ jobs:
           # floor). The coverage_storage_store*.out files below are included: they are THIS
           # leg's own new file, and omitting it would just be reproducing that
           # same gap in new code rather than inheriting an unrelated one.
-          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root3.out coverage_root4.out coverage_storage_store1.out coverage_storage_store2.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out coverage_http5.out coverage_http6.out coverage_http7.out coverage_http8.out | grep -v "${grep_args[@]}" >> coverage_merged.out
+          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root4.out coverage_server1.out coverage_server2.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out | grep -v "${grep_args[@]}" >> coverage_merged.out
           mv coverage_merged.out coverage.out
 
       - name: Check coverage floor (≥${{ env.COVERAGE_FLOOR }}%)
@@ -1770,7 +1814,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
       - name: Fresh-install API smoke (SQLite)
         run: make e2e-smoke
       # Customer journeys N1-N3 + N6 (SQLite, no Docker, ~40s): assert end
@@ -1845,7 +1889,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 11
@@ -1940,7 +1984,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Every repo-wide guard (selected merge-queue run)
         if: needs.select.outputs.mode == 'selected'
@@ -1966,7 +2010,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       # The operator job below has always had its own gofmt step, scoped to
       # operator/ — the root module (internal/, server/, cmd/, ...) never
@@ -2020,7 +2064,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Smoke test (executes QUICK_START.md's flow end to end, the shipped binary)
         run: make smoke
@@ -2360,7 +2404,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go vet + build
         run: |
@@ -2425,7 +2469,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go vet + build
         run: |
@@ -2520,7 +2564,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: go vet + build
         run: |
@@ -2596,7 +2640,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Verify targets.conf is generated from targets.d/*.conf
         run: scripts/fuzzing/gen-targets-conf.sh --check
@@ -2705,7 +2749,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       - name: Reach-check in-wall fuzz harnesses (seed corpus, floor gate)
         run: bash scripts/fuzzing/harness-acceptance.sh
@@ -2747,7 +2791,7 @@ jobs:
         id: setup-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.27.2'
+          go-version: '1.27.3'
 
       # Keyed on the resolved Go version too (not just GO_LICENSES_VERSION): a
       # go-licenses binary built under one Go toolchain and then reused as-is

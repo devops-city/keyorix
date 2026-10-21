@@ -59,7 +59,7 @@ scripts/preflight.sh
 
 ## 2. Rehearse the build on your machine (nothing is published)
 
-Needs Go 1.27.2, Node 22, pnpm 11, `cyclonedx-gomod` v1.10.0 and the lockfile-pinned
+Needs Go 1.27.3, Node 22, pnpm 11, `cyclonedx-gomod` v1.10.0 and the lockfile-pinned
 cdxgen (`npm ci --ignore-scripts`). About 15 minutes cold.
 
 ```sh
