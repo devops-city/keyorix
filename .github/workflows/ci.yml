@@ -1139,6 +1139,12 @@ jobs:
           - leg: core-3
             timeout: 3300
             coverage-file: coverage_core3.out
+          # core-4 (2026-10-21, CI-HTTP-SPLIT-1): with server/http's route walks
+          # split, core-1..3 (20.7 / 21.6 / 22.9 min on merge-queue run
+          # 39526263047) became the critical path; four shards put each at ~17-18.
+          - leg: core-4
+            timeout: 3300
+            coverage-file: coverage_core4.out
           - leg: server-1
             timeout: 1800
             coverage-file: coverage_server1.out
@@ -1288,6 +1294,14 @@ jobs:
           # per-route subtests) is the only way below this floor and would need
           # a subtest-level proof of "runs exactly once"; not done here.
           # timeout 2400 (was 1800): the longest leg runs one 20+ min test.
+          #
+          # 4 -> 6 legs (2026-10-21, CI-HTTP-SPLIT-1): the two walks are now four
+          # top-level tests each, one per route group (server/http
+          # authz_walk_groups_test.go; TestAWRouteGroups_PartitionTheRouter proves
+          # every route is walked by exactly one group). Merge-queue run
+          # 39526263047 had them at 1535 s and 1111 s in http-1/http-2 (30.7 and
+          # 24.0 min legs); ~3900 s of tests over 6 legs is ~11 min each plus ~5
+          # min of fixed cost. Timeout 2400 kept: the largest test is now ~7 min.
           - leg: http-1
             timeout: 2400
             coverage-file: coverage_http1.out
@@ -1300,6 +1314,12 @@ jobs:
           - leg: http-4
             timeout: 2400
             coverage-file: coverage_http4.out
+          - leg: http-5
+            timeout: 2400
+            coverage-file: coverage_http5.out
+          - leg: http-6
+            timeout: 2400
+            coverage-file: coverage_http6.out
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1774,7 +1794,7 @@ jobs:
           # floor). The coverage_storage_store*.out files below are included: they are THIS
           # leg's own new file, and omitting it would just be reproducing that
           # same gap in new code rather than inheriting an unrelated one.
-          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root4.out coverage_server1.out coverage_server2.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out | grep -v "${grep_args[@]}" >> coverage_merged.out
+          tail -q -n +2 coverage_root1.out coverage_root2.out coverage_root4.out coverage_server1.out coverage_server2.out coverage_storage_store1.out coverage_encryption1.out coverage_encryption2.out coverage_faultops1.out coverage_faultops2.out coverage_faultops3.out coverage_handlers1.out coverage_handlers2.out coverage_http1.out coverage_http2.out coverage_http3.out coverage_http4.out coverage_http5.out coverage_http6.out | grep -v "${grep_args[@]}" >> coverage_merged.out
           mv coverage_merged.out coverage.out
 
       - name: Check coverage floor (≥${{ env.COVERAGE_FLOOR }}%)

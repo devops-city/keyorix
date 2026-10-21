@@ -282,7 +282,7 @@ handlers_pkg() {
   echo "github.com/keyorixhq/keyorix/server/http/handlers"
 }
 
-# http_pkg: the single package every http-1..8 leg shards by test name, not
+# http_pkg: the single package every http-1..6 leg shards by test name, not
 # by package (G80 C4) -- same reasoning as handlers_pkg above, but see
 # http_shard_N_tests() below for how the split is actually computed: unlike
 # handlers_pkg (mod-N hash, no per-test timing data), server/http turned out
@@ -328,12 +328,18 @@ http_pkg() {
 # core-3 was tried and dropped: core's shards swap places between rounds by
 # +-6 min -- 17.4/16.7/22.6, then 17.6/23.3/18.3 -- which is runner and
 # Postgres noise, not something a constant fixes.)
+# core 3 -> 4 and http 4 -> 6 (2026-10-21, CI-HTTP-SPLIT-1): server/http's two
+# route walks are now 4 tests each (TestEveryRouteRefusesADeadCredential_G0..3,
+# TestEveryWriteRouteRefusesAndChangesNothing_G0..3 + _Control), so the package
+# packs evenly; at 4 legs that is ~17 min of tests per leg, at 6 ~11. core-1..3 ran
+# 20.7 / 21.6 / 22.9 min on merge-queue run 39526263047 and would then be the
+# critical path; a fourth shard puts each at ~17-18.
 # This table, ci.yml's matrix and assert_matrix_consistent move together.
 sharded_legs() {
   cat <<'EOF'
-core|core_pkgs|3|1:570
+core|core_pkgs|4|1:570
 server|server_pkg|2|-
-http|http_pkg|4|-
+http|http_pkg|6|-
 handlers|handlers_pkg|2|-
 encryption|encryption_pkgs|2|-
 faultops|faultops_pkgs|3|-
