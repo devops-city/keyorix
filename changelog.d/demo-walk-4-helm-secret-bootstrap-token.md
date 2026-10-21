@@ -1,0 +1,2 @@
+### Documentation
+- **The Helm quick start no longer crash-loops the server pod.** The chart README's "Quick start" and `docs/operator/j8-kubernetes.md` built `auth.existingSecret` with an admin password but no `KEYORIX_BOOTSTRAP_TOKEN`; the server then exits at first boot ("KEYORIX_ADMIN_PASSWORD is set but KEYORIX_BOOTSTRAP_TOKEN ... is not") and `helm install --wait` times out with no hint. Both recipes now write the token file (generated into the file, never on a command line), and j8 no longer calls the token optional. A deploy test keeps every such recipe carrying it.

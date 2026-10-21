@@ -29,6 +29,10 @@ printf '%s' "$v" > keyorix-secrets/KEYORIX_DB_PASSWORD
 printf 'Admin password: '; read -r -s v; echo
 printf '%s' "$v" > keyorix-secrets/KEYORIX_ADMIN_PASSWORD
 unset v
+# With an admin password the server needs the bootstrap token too (without it the pod exits at
+# first boot: "KEYORIX_ADMIN_PASSWORD is set but KEYORIX_BOOTSTRAP_TOKEN ... is not"). Generated
+# into the file, so it never appears in a command line.
+LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32 > keyorix-secrets/KEYORIX_BOOTSTRAP_TOKEN
 
 kubectl create secret generic keyorix-auth --from-file=keyorix-secrets/
 helm install keyorix oci://ghcr.io/keyorixhq/charts/keyorix \
@@ -100,7 +104,7 @@ existing release or `existingSecret` keeps working on upgrade.
 | Value | Default | Notes |
 |-------|---------|-------|
 | `auth.masterPassword` | — | **Required** (or `auth.existingSecret`). KEK passphrase. |
-| `auth.existingSecret` | — | Bring your own Secret (`KEYORIX_MASTER_PASSWORD`, `KEYORIX_DB_PASSWORD`, opt. `KEYORIX_ADMIN_PASSWORD` and `KEYORIX_BOOTSTRAP_TOKEN`). Mounted as files; see "Secrets" below. |
+| `auth.existingSecret` | — | Bring your own Secret (`KEYORIX_MASTER_PASSWORD`, `KEYORIX_DB_PASSWORD`, opt. `KEYORIX_ADMIN_PASSWORD` and `KEYORIX_BOOTSTRAP_TOKEN`; the token is required when the admin password is set, and the Secret must hold it before `helm install`/`upgrade`, which reads it then). Mounted as files; see "Secrets" below. |
 | `auth.existingSecretKeys.adminPassword` / `.bootstrapToken` | `false` | Say that `auth.existingSecret` carries the optional key. `helm install/upgrade` finds the keys in the live Secret by itself; set these for `helm template` and GitOps renderers (Argo CD, Flux) that cannot look the Secret up. |
 | `auth.adminPassword` | — | Optional first-boot admin bootstrap (idempotent). ≥16 chars, upper+lower+digit+special — see quick start note above. |
 | `server.image.tag` | chart `appVersion` | Server image tag (empty pins to the chart's own `appVersion`; `server.image.digest` takes precedence if set). |
