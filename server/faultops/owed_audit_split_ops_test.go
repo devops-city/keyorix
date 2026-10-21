@@ -98,9 +98,9 @@ var owedAuditSplitExpectedOwedTypes = map[string]map[string]int{
 	"REST POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens [rotate]": {"machine_identity.token_revoked": 1},
 	// MERGE-FIX-3482K (ask 3482-mixed-update-role-share (a)): the removed permission,
 	// and the share's lower permission.
-	"REST PUT /api/v1/roles/{id} [remove+add]":                                        {"permission.removed": 1},
-	"GRPC keyorix.v1.RoleService.UpdateRole [remove+add]":                             {"permission.removed": 1},
-	"REST PUT /api/v1/shares/{id} [write->read+later-expiry]":                         {"share_updated": 1},
+	"REST PUT /api/v1/roles/{id} [remove+add]":                                      {"permission.removed": 1},
+	"GRPC keyorix.v1.RoleService.UpdateRole [remove+add]":                           {"permission.removed": 1},
+	"REST PUT /api/v1/shares/{id} [write->read+later-expiry]":                       {"share_updated": 1},
 	"GRPC keyorix.v1.ShareService.UpdateSharePermission [write->read+later-expiry]": {"share_updated": 1},
 }
 

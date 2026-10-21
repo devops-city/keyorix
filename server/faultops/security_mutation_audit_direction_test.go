@@ -78,11 +78,11 @@ func TestRoleEditorUpdate_AuditFailure_ByDirection(t *testing.T) {
 			name    string
 			have    []string
 			want    []string
-			nth     int    // the refused LogAuditEvent call (0 = 1)
-			widens  bool   // refused as a whole, nothing changed
-			partial bool   // refused after the narrowing: 503 / Unavailable
+			nth     int      // the refused LogAuditEvent call (0 = 1)
+			widens  bool     // refused as a whole, nothing changed
+			partial bool     // refused after the narrowing: 503 / Unavailable
 			final   []string // the permission set after the call (default: want)
-			owed    string // the event type queued by the refusal, if any
+			owed    string   // the event type queued by the refusal, if any
 		}{
 			{name: "narrow", have: []string{"secrets.read", "secrets.write"}, want: []string{"secrets.read"}, owed: "role.updated"},
 			{name: "no-op", have: []string{"secrets.read"}, want: []string{"secrets.read"}, owed: "role.updated"},
