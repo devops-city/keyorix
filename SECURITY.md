@@ -4,16 +4,30 @@ Keyorix is a secrets manager. We hold ourselves to the standard we ask you to tr
 us with: every control described here is verifiable in this repository's CI
 configuration and release artifacts.
 
+**This is the one canonical vulnerability disclosure policy.**
+[`docs/SECURITY.md`](docs/SECURITY.md) (the security documentation index) and
+[`web/SECURITY.md`](web/SECURITY.md) link here and state nothing of their own about
+reporting, timelines or support. The RFC 9116 file served from keyorix.com is
+[`docs/security/security.txt`](docs/security/security.txt). Internal handling of a
+report or incident is in
+[`docs/security/incident-response-plan.md`](docs/security/incident-response-plan.md).
+
 ## Supported Versions
 
 | Version | Supported |
 |---|---|
-| Latest release | ✅ Security fixes |
-| Older releases | ❌ Upgrade to latest |
+| Current minor release line (latest patch) | ✅ Security fixes |
+| Previous minor release line (latest patch) | ✅ Security fixes |
+| Anything older | ❌ Upgrade to a supported line |
+
+"Minor release line" means `vX.Y`: for `v0.12.3` the current line is `v0.12` and the
+previous is `v0.11`. Fixes ship as patch releases on the line, so the fixed version is
+always the latest patch of that line.
 
 Keyorix is pre-1.0 and has **not yet declared a support period** under the EU Cyber
 Resilience Act. Pre-1.0 tags are development releases: they carry no declared support
-period and no Declaration of Conformity.
+period and no Declaration of Conformity. The two-line table above is a current
+operating commitment, not a declared support period.
 
 From v1.0, LTS releases receive **five years of security updates**, delivered to
 air-gapped deployments as signed offline bundles with an SBOM and a VEX document.
@@ -24,17 +38,36 @@ See [SUPPORT.md](SUPPORT.md) for the full policy and
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-- Email: **security@keyorix.com**
-- Or use GitHub's private vulnerability reporting on this repository
+- Preferred: GitHub private vulnerability reporting on this repository
+  ([report here](https://github.com/keyorixhq/keyorix/security/advisories/new)). It
+  keeps the report private until a fix ships and lets you attach a proof of concept.
+- Or email **security@keyorix.com**. This is the only security address; any other
+  (for example `security@keyorix.io`) is not ours.
 
 We acknowledge within **48 hours** and provide an initial assessment within **7 days**.
-Please include: a description, reproduction steps, and the affected version
-(`keyorix --version` / `keyorix-server --version`).
+Please include: a description and its impact, reproduction steps or a proof of
+concept, the affected version (`keyorix --version` / `keyorix-server --version`), and
+optionally your name or handle for credit. Anonymous reports are accepted. English or
+Russian.
 
 We follow coordinated disclosure: we'll agree a disclosure timeline with you,
 credit you in the advisory unless you prefer otherwise, and publish a fix and
 advisory together. As an EU vendor we operate under the EU Cyber Resilience Act
-reporting regime for actively exploited vulnerabilities.
+reporting regime for actively exploited vulnerabilities. <!-- CONFIRM WITH COUNSEL:
+whether pre-1.0 development tags are in scope of CRA Art. 14 reporting; SUPPORT.md says
+they are not placed on the EU market. Keep or soften this sentence accordingly. -->
+
+### Scope
+
+In scope: the Keyorix server, CLI, web dashboard, API (HTTP and gRPC), authentication
+and authorisation flows, secret storage and sharing, admin and RBAC functionality,
+the audit chain, the Helm chart and container images we publish, and release artifacts
+(binaries, SBOMs, signatures, attestations).
+
+Out of scope: denial-of-service by volume, social engineering or phishing of Keyorix
+staff, scanner output without a demonstrated exploit path, findings in a dependency
+that is already publicly disclosed upstream and not reachable in Keyorix (tell us if
+you think it is reachable), and deployments you do not own or operate.
 
 ## Remediation Timelines
 
@@ -46,7 +79,7 @@ expect through to a fix:
 | Fix, all severities | Within **90 days** of a validated report |
 | High / Critical severity | **1 week advance notice** before the security release ships |
 | Advisory | A **GitHub Security Advisory with a requested CVE**, published the **same day** as the fix |
-| Supported versions | Latest release only (see Supported Versions above) |
+| Supported versions | Current and previous minor line (see Supported Versions above) |
 
 The 90-day figure is a ceiling, not a target — most fixes ship well inside
 it. We publish one commitment across all severities rather than a
@@ -67,7 +100,46 @@ the competitor research behind these numbers, and the internal CRITICAL/HIGH
 definition used for prioritization. This table is the authoritative,
 current source for the published commitment above; ADR-104 also states it
 for the record, but if the two ever disagree, this page is current and
-ADR-104's copy is stale.
+ADR-104's copy is stale. (ADR-104 and [SUPPORT.md](SUPPORT.md) predate the
+two-line support table and still say "latest release only" for pre-1.0; this
+page governs.)
+
+## Advisories, CVEs and Patch Releases
+
+How a confirmed vulnerability reaches you:
+
+1. **Private fix.** The fix is developed in a private security advisory draft (a
+   temporary private fork), not in a public branch or PR, so the change is not visible
+   before the release.
+2. **Advance notice.** For High / Critical, the one-week advance notice above applies
+   before the release ships.
+3. **Same-day publication.** On release day we publish the patch releases for each
+   supported line, then the GitHub Security Advisory (GHSA) with CVE, affected and
+   patched version ranges, severity (CVSS) and credit. GitHub is the CNA for the CVE
+   request. A CVE is requested for every fixed vulnerability in Keyorix itself.
+4. **Announcement.** The fix is announced in three places: the GHSA, the GitHub
+   Release notes for each patched version, and the `### Security` section of
+   [CHANGELOG.md](CHANGELOG.md). You can be notified by watching this repository
+   (Watch → Custom → Security alerts). Container images and release binaries are
+   signed and attested as described in [Verifying a Release](#verifying-a-release),
+   so a patch release can be checked before it is deployed.
+5. **Air-gapped deployments.** Pre-1.0 there is no declared offline-bundle channel;
+   from v1.0 LTS fixes also ship as signed offline bundles with an SBOM and VEX
+   document ([SUPPORT.md](SUPPORT.md)).
+6. **If a fix is wrong or incomplete,** the advisory is updated in place and the
+   correction is stated in the next release notes; we do not silently rewrite
+   history.
+
+Vulnerabilities we find in a third-party library (for example through fuzzing) are
+reported to that project privately first. We agree an embargo with the maintainer,
+land a guard or version pin on our side, and name the library and the defect in
+public only after upstream has disclosed or the maintainer agrees. The triage gate we
+apply before reporting is
+[`scripts/fuzzing/DISCLOSURE-TRIAGE.md`](scripts/fuzzing/DISCLOSURE-TRIAGE.md); the
+standing rule is stated in [`docs/security/testing.md`](docs/security/testing.md).
+
+Reports we reject, or fixes that cannot meet the 90-day ceiling, are explained to the
+reporter in writing; we agree a revised date and do not ask for open-ended embargoes.
 
 ## Threat Model (summary)
 
@@ -228,6 +300,10 @@ provided that you:
   consistent with the coordinated-disclosure timeline above.
 - Don't exploit a finding beyond what's needed to demonstrate and report it.
 
+<!-- CONFIRM WITH COUNSEL: the CFAA / "equivalent anti-hacking laws" authorisation
+sentence below, and the statement about third-party legal action, are drafted
+language. Keyorix SL is a Spanish company; check the wording against Spanish and EU
+law (and the CRA/NIS2 good-faith research position) before Andrei signs. -->
 Testing conducted consistent with this policy is authorized under the
 Computer Fraud and Abuse Act and equivalent anti-hacking laws, and we will
 not initiate legal action for research that stays within these bounds. If
