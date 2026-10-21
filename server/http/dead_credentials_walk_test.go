@@ -9,7 +9,11 @@
 // The cache-hit path is shared by every route, so the question "does ANY route still
 // answer a dead credential" is a route-wide one.
 //
-// # The walk: TestEveryRouteRefusesADeadCredential
+// # The walk: TestEveryRouteRefusesADeadCredential_G0 .. _G3
+//
+// One walk, split by route group into awRouteGroups top-level tests so CI can
+// shard it (authz_walk_groups_test.go; TestAWRouteGroups_PartitionTheRouter proves
+// every route is in exactly one group). Each group test builds its own world.
 //
 // Behavioural, over the real router (fixture and skipped shapes:
 // authz_walk_fixture_test.go). Two replicas share one database. The credential is
@@ -102,6 +106,18 @@ var awDeadSideTables = map[string][]string{
 // nothing, so 200 is harmless and changes no state the digest sees. A REVOKED session
 // is 401 (INV-HTTP-17).
 var awDeadLogout = map[string]int{"session_expired": http.StatusOK}
+
+// awDeadExpiredSessionRowWrite: public routes that may change the sessions table
+// when called with an EXPIRED (not revoked) session, by contract:
+//   - POST /auth/logout: the idempotent cleanup drops the dead session row.
+//   - POST /auth/refresh: an access window that lapsed is the normal silent-refresh
+//     case; refresh rotates the row (retires it, adds one for the same user) and is
+//     refused only past the absolute ceiling (core.RefreshSession's doc).
+//
+// The unsplit walk never saw the refresh case: routes run sorted, so logout had
+// already deleted the row and refresh answered 401. With the walk split by route
+// group the two run on different worlds (CI-HTTP-SPLIT-1).
+var awDeadExpiredSessionRowWrite = map[string]bool{"POST /auth/logout": true, "POST /auth/refresh": true}
 
 // awWaitAuditEvent waits (bounded) until an audit event of the given type exists that
 // the before digest did not have. It never fails: a missing event is simply not waited
@@ -241,17 +257,27 @@ func awMintMachine(t *testing.T, w *awWorld, seq int, to string) awDeadCred {
 	}}
 }
 
-func TestEveryRouteRefusesADeadCredential(t *testing.T) {
+// The walk is split into awRouteGroups tests, one per route group
+// (authz_walk_groups_test.go), so CI can run them on different legs.
+// TestAWRouteGroups_PartitionTheRouter proves the groups cover every route once.
+func TestEveryRouteRefusesADeadCredential_G0(t *testing.T) { awDeadWalkGroup(t, 0) }
+func TestEveryRouteRefusesADeadCredential_G1(t *testing.T) { awDeadWalkGroup(t, 1) }
+func TestEveryRouteRefusesADeadCredential_G2(t *testing.T) { awDeadWalkGroup(t, 2) }
+func TestEveryRouteRefusesADeadCredential_G3(t *testing.T) { awDeadWalkGroup(t, 3) }
+
+func awDeadWalkGroup(t *testing.T, group int) {
 	for _, backend := range []string{"sqlite", "postgres"} {
-		t.Run(backend, func(t *testing.T) { awDeadWalk(t, backend) })
+		t.Run(backend, func(t *testing.T) { awDeadWalk(t, backend, group) })
 	}
 }
 
-func awDeadWalk(t *testing.T, backend string) {
+func awDeadWalk(t *testing.T, backend string, group int) {
 	w := newAWWorld(t, backend, 2)
 	b := w.b
-	routes := awWalkRoutes(t, b.router)
-	require.Greater(t, len(routes), 300, "sanity: the walk should find the whole router")
+	all := awWalkRoutes(t, b.router)
+	require.Greater(t, len(all), 300, "sanity: the walk should find the whole router")
+	routes := awRoutesOfGroup(all, group)
+	require.NotEmpty(t, routes, "route group %d is empty", group)
 	tables := awTables(t, b.db)
 
 	// Non-vacuity: a LIVE credential of each kind is served on the same replica, so a
@@ -268,6 +294,18 @@ func awDeadWalk(t *testing.T, backend string) {
 	patTok, _ := awMintPAT(t, w, w.userIDs["awviewer"], nil)
 	code, body := awDo(b, http.MethodGet, patTok, "/api/v1/auth/profile", nil)
 	require.Equal(t, http.StatusOK, code, "live PAT must authenticate: %s", body)
+
+	// Every route of the group except public GETs and unclassified paths is called
+	// once per state x variant; counted up front so the sanity check below is exact.
+	walked := 0
+	for _, rt := range routes {
+		_, public := awPublicRoutes[rt.key()]
+		if (public && rt.Method == http.MethodGet) || (!public && !strings.HasPrefix(rt.Path, "/api/v1/")) {
+			continue
+		}
+		walked++
+	}
+	require.Positive(t, walked, "route group %d has no route the walk calls", group)
 
 	violations := map[string][]string{}
 	seen := 0
@@ -345,8 +383,8 @@ func awDeadWalk(t *testing.T, backend string) {
 					note(key, fmt.Sprintf("%d, want %d: %.160s", code, want, resp))
 				}
 				side := awDeadSideTables[st.name]
-				if rt.key() == "POST /auth/logout" && st.name == "session_expired" {
-					side = append([]string{"sessions"}, side...) // the cleanup drops the dead session row
+				if awDeadExpiredSessionRowWrite[rt.key()] && st.name == "session_expired" {
+					side = append([]string{"sessions"}, side...)
 				}
 				d := awDiff(before, after, 0, side...)
 				if rt.key() == "POST /auth/logout" && st.name == "session_expired" {
@@ -358,7 +396,7 @@ func awDeadWalk(t *testing.T, backend string) {
 			}
 		}
 	}
-	require.Greater(t, seen, 2*len(awDeadStates)*300, "sanity: every state x variant must walk the whole router")
+	require.Equal(t, 2*len(awDeadStates)*walked, seen, "sanity: every state x variant must walk the whole route group")
 
 	keys := make([]string, 0, len(violations))
 	for k := range violations {

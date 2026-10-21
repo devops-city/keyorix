@@ -14,7 +14,9 @@
   expired one, which is an idempotent cleanup. `awDeadOpen` pins a state whose current
   behaviour is a filed finding (empty since #3433). Why: `credential_gone_cache_hit_test.go` found the cache-hit path
   serving ended credentials on one route; the path is shared by every route. Guard:
-  `dead_credentials_walk_test.go:TestEveryRouteRefusesADeadCredential` (SQLite always,
+  `dead_credentials_walk_test.go:TestEveryRouteRefusesADeadCredential_G0`..`_G3` (one test
+  per route group so CI can shard the walk; `TestAWRouteGroups_PartitionTheRouter` proves
+  every route is in exactly one group and that each group has its test; SQLite always,
   Postgres when `KEYORIX_TEST_PG_DSN` is set). Red proof: disabling the revoked check in
   `CurrentPATRestriction` makes 338 routes serve a revoked PAT on the warm variant only;
   without the #3433 cascade step, 338 routes per backend serve the deleted project's

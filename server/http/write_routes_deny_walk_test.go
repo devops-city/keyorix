@@ -8,7 +8,13 @@
 // a core denial to a 5xx (#3416: a machine token reaching a user-only handler), was
 // only found when somebody happened to write a test for that one route.
 //
-// # The walk: TestEveryWriteRouteRefusesAndChangesNothing
+// # The walk: TestEveryWriteRouteRefusesAndChangesNothing_G0 .. _G3 and _Control
+//
+// One walk, split by route group into awRouteGroups top-level tests so CI can
+// shard it (authz_walk_groups_test.go; TestAWRouteGroups_PartitionTheRouter proves
+// every mutating route is in exactly one group); _Control runs the parts that need
+// the whole surface (allowlist hygiene, shape check, admin control) once. Each test
+// builds its own world.
 //
 // Behavioural, over the real router (see authz_walk_fixture_test.go for the fixture
 // and the route shapes it skips). The route set is derived, not listed: chi.Walk over
@@ -166,21 +172,34 @@ func awAssertNoUnrecognisedShapes(t *testing.T) {
 	}
 }
 
-func TestEveryWriteRouteRefusesAndChangesNothing(t *testing.T) {
-	awAssertNoUnrecognisedShapes(t)
+// The walk is split into awRouteGroups tests, one per route group
+// (authz_walk_groups_test.go), so CI can run them on different legs.
+// TestAWRouteGroups_PartitionTheRouter proves the groups cover every route once;
+// the whole-surface parts (allowlist hygiene, shape check, admin control) are
+// TestEveryWriteRouteRefusesAndChangesNothing_Control.
+func TestEveryWriteRouteRefusesAndChangesNothing_G0(t *testing.T) { awWriteWalkGroup(t, 0) }
+func TestEveryWriteRouteRefusesAndChangesNothing_G1(t *testing.T) { awWriteWalkGroup(t, 1) }
+func TestEveryWriteRouteRefusesAndChangesNothing_G2(t *testing.T) { awWriteWalkGroup(t, 2) }
+func TestEveryWriteRouteRefusesAndChangesNothing_G3(t *testing.T) { awWriteWalkGroup(t, 3) }
+
+func awWriteWalkGroup(t *testing.T, group int) {
 	for _, backend := range []string{"sqlite", "postgres"} {
-		t.Run(backend, func(t *testing.T) { awWriteWalk(t, backend) })
+		t.Run(backend, func(t *testing.T) { awWriteWalk(t, backend, group) })
 	}
 }
 
-func awWriteWalk(t *testing.T, backend string) {
-	w := newAWWorld(t, backend, 1)
-	r := w.a
+func TestEveryWriteRouteRefusesAndChangesNothing_Control(t *testing.T) {
+	awAssertNoUnrecognisedShapes(t)
+	for _, backend := range []string{"sqlite", "postgres"} {
+		t.Run(backend, func(t *testing.T) { awWriteControl(t, backend) })
+	}
+}
+
+// awMutatingRoutes is the write walk's population: every non-public mutating route.
+func awMutatingRoutes(t *testing.T, r *svReplica) []awRoute {
+	t.Helper()
 	routes := awWalkRoutes(t, r.router)
 	require.Greater(t, len(routes), 300, "sanity: the walk should find the whole router")
-	tables := awTables(t, r.db)
-	body := w.awBody()
-
 	var mutating []awRoute
 	for _, rt := range routes {
 		if !awIsMutating(rt.Method) {
@@ -192,6 +211,14 @@ func awWriteWalk(t *testing.T, backend string) {
 		mutating = append(mutating, rt)
 	}
 	require.Greater(t, len(mutating), 150, "sanity: the walk should find the whole mutating surface")
+	return mutating
+}
+
+// awWriteControl is the whole-surface half of the write walk: allowlist hygiene
+// and the admin positive control, over every mutating route.
+func awWriteControl(t *testing.T, backend string) {
+	w := newAWWorld(t, backend, 1)
+	mutating := awMutatingRoutes(t, w.a)
 
 	// Allowlist hygiene, both directions: no entry names a route that is gone, and
 	// every entry carries a reason.
@@ -212,6 +239,32 @@ func awWriteWalk(t *testing.T, backend string) {
 		p, ok := core.RestrictedPATUngatedWritePolicy(k)
 		assert.True(t, ok && p.Allowed, "%s must be an Allowed entry of core.restrictedPATUngatedWrites", k)
 	}
+	for k := range awKnownOpen {
+		assert.True(t, known[awKnownOpenRoute(k)], "awKnownOpen entry %q is not a mutating route any more: remove it", k)
+	}
+
+	// Non-vacuity: the admin reaches the mutation on enough routes.
+	hit, misses := w.awControl(t, mutating, w.awBody())
+	t.Logf("control: admin got a 2xx on %d/%d mutating routes; misses (body or fixture does not reach them): %s",
+		len(hit), len(mutating), strings.Join(misses, ", "))
+	assert.GreaterOrEqual(t, len(hit), awMinControlHits,
+		"the unrestricted admin reached too few mutating routes: the fixture/body is not exercising the surface")
+	for _, must := range awControlMustHit {
+		assert.True(t, hit[must], "positive control: the admin must get a 2xx on %s", must)
+	}
+}
+
+func awWriteWalk(t *testing.T, backend string, group int) {
+	w := newAWWorld(t, backend, 1)
+	r := w.a
+	mutating := awRoutesOfGroup(awMutatingRoutes(t, r), group)
+	require.NotEmpty(t, mutating, "route group %d has no mutating route", group)
+	inGroup := map[string]bool{}
+	for _, rt := range mutating {
+		inGroup[rt.key()] = true
+	}
+	tables := awTables(t, r.db)
+	body := w.awBody()
 
 	knownOpenSeen := map[string]bool{}
 	violations := map[string][]string{}
@@ -268,7 +321,7 @@ func awWriteWalk(t *testing.T, backend string) {
 	}
 
 	for k, why := range awKnownOpen {
-		if !knownOpenSeen[k] {
+		if inGroup[awKnownOpenRoute(k)] && !knownOpenSeen[k] {
 			t.Logf("awKnownOpen entry %q (%s) no longer fires: remove it", k, why)
 		}
 	}
@@ -281,16 +334,6 @@ func awWriteWalk(t *testing.T, backend string) {
 		t.Errorf("%s: %s", k, strings.Join(violations[k], "\n    "))
 	}
 
-	// Non-vacuity: the admin reaches the mutation on enough routes.
-	w.revive(t, "admin")
-	hit, misses := w.awControl(t, mutating, body)
-	t.Logf("control: admin got a 2xx on %d/%d mutating routes; misses (body or fixture does not reach them): %s",
-		len(hit), len(mutating), strings.Join(misses, ", "))
-	assert.GreaterOrEqual(t, len(hit), awMinControlHits,
-		"the unrestricted admin reached too few mutating routes: the fixture/body is not exercising the surface")
-	for _, must := range awControlMustHit {
-		assert.True(t, hit[must], "positive control: the admin must get a 2xx on %s", must)
-	}
 }
 
 // awRestrictedPATOwnRevocation: the only mutating routes a restricted PAT is allowed

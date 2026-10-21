@@ -12,7 +12,10 @@
   allowlisted fails the walk. Why: write routes had no route-wide walk (reads did:
   `TestEveryGETRouteHonoursPATRestriction`); the first run found a machine token answered
   500 on three user-only routes (#3416) and 200 on `POST /notifications/read-all`. Guard:
-  `write_routes_deny_walk_test.go:TestEveryWriteRouteRefusesAndChangesNothing` (SQLite
-  always, Postgres when `KEYORIX_TEST_PG_DSN` is set). Not covered: one union request body
+  `write_routes_deny_walk_test.go:TestEveryWriteRouteRefusesAndChangesNothing_G0`..`_G3`
+  (one test per route group so CI can shard the walk; `TestAWRouteGroups_PartitionTheRouter`
+  proves every mutating route is in exactly one group and that each group has its test)
+  and `_Control` (allowlist hygiene and the admin positive control over the whole surface;
+  SQLite always, Postgres when `KEYORIX_TEST_PG_DSN` is set). Not covered: one union request body
   (a route whose handler needs another field is refused in validation before its gate;
   the control run lists them), query parameters, state outside the database.
