@@ -31,6 +31,11 @@ var owedAuditExpectedOwedTypes = map[string]map[string]int{
 	"REST PUT /api/v1/projects/{id}/machine-identities/{machineId}": {"machine_identity.suspended": 1},
 	"REST POST /api/v1/users/{id}/require-password-reset":           {"account.password_reset_required": 1},
 	"REST DELETE /api/v1/auth/tokens/expired":                       {"pat.revoked": 1},
+	// MERGE-FIX-3482K: a role update that adds no permission (narrowing or neutral)
+	// owes its role.updated row (and one permission.removed per removal; the catalog
+	// scenarios keep the set).
+	"REST PUT /api/v1/roles/{id}":            {"role.updated": 1},
+	"GRPC keyorix.v1.RoleService.UpdateRole": {"role.updated": 1},
 
 	"REST DELETE /api/v1/user-roles/":                                                   {"role.removed": 1},
 	"REST DELETE /api/v1/environments/{id}":                                             {"environment.deleted": 1},

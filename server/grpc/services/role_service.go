@@ -150,6 +150,9 @@ func (s *RoleGRPCService) UpdateRole(ctx context.Context, req *pb.UpdateRoleRequ
 	// role-row UpdateRole call, the same non-atomic shape the REST handler had).
 	updated, perms, err := s.core.UpdateRole(ctx, actor.UserID, role, newPermissionIDs)
 	if err != nil {
+		if perr, ok := partialMutationStatus(err); ok {
+			return nil, perr
+		}
 		return nil, mapRoleError(err)
 	}
 	// Same fix as CreateRole above: build from the values UpdateRole already

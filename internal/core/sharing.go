@@ -169,39 +169,47 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 	shareRecord.Permission = req.Permission
 	// AUDIT-TX-2 + REVIEW-2 on #3367: an update can widen a share (permission
 	// or expiry) or narrow it, so it is classified per call against the share
-	// as read INSIDE the transaction. A widening one, mixed included, commits
-	// with its share_updated / group_share_updated row or not at all; a
-	// narrowing or neutral one is a revocation and is never blocked by the
-	// audit log: its row is written best-effort after the commit
-	// (withDirectedAuditedMutation).
+	// as read INSIDE the transaction. One that only narrows it (or changes
+	// nothing) is a revocation or neutral: never blocked by the audit log, its
+	// share_updated / group_share_updated row owed (withOwedAuditMutation). One
+	// that only widens commits with its row or not at all. One that does both
+	// (a lower permission and a later expiry, or the reverse) is split
+	// (audit_split.go, MERGE-FIX-3482K, ask 3482-mixed-update-role-share (a)):
+	// commit 1 applies the narrower value of each part, owed; commit 2 then
+	// applies the requested share, fail closed.
 	//
-	// SHARE-CAS-1: the read is LockShareRecordForUpdate, so on PostgreSQL READ
-	// COMMITTED no other writer can change the row between the classification and
-	// the UPDATE: a concurrent narrowing waits for this commit and then applies on
-	// top of it. With a plain read it could commit in between, and a write
-	// classified neutral (write→write) would land write over read with only a
-	// best-effort row. The expiry check and a preserved expiry use the same row.
-	// Group shares take this same path (there is no separate group-share update).
+	// SHARE-CAS-1: each commit reads with LockShareRecordForUpdate, so on
+	// PostgreSQL READ COMMITTED no other writer can change the row between that
+	// commit's classification and its UPDATE: a concurrent narrowing waits for
+	// the commit and then applies on top of it. With a plain read it could commit
+	// in between, and a write classified neutral (write→write) would land write
+	// over read with only an owed row. The expiry check and a preserved expiry
+	// use the same row. Group shares take this same path (there is no separate
+	// group-share update).
 	var updatedShare *models.ShareRecord
-	var oldPermission string
-	if err := c.withDirectedAuditedMutation(ctx, func(tx storage.Storage) (bool, error) {
-		cur, err := tx.LockShareRecordForUpdate(ctx, shareRecord.ID)
-		if err != nil {
-			return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	// lockShare is the locked read both commits start from; it resolves the requested
+	// share (want) against it.
+	lockShare := func(tx storage.Storage) (cur, want *models.ShareRecord, err error) {
+		if cur, err = tx.LockShareRecordForUpdate(ctx, shareRecord.ID); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
 		if cur.ExpiresAt != nil && cur.ExpiresAt.Before(c.now()) {
-			return false, fmt.Errorf("cannot update an expired share record; revoke and re-share instead")
+			return nil, nil, fmt.Errorf("cannot update an expired share record; revoke and re-share instead")
 		}
+		want = shareRecord
 		if preserveExpiry {
-			shareRecord.ExpiresAt = cur.ExpiresAt
+			want.ExpiresAt = cur.ExpiresAt
 		}
-		oldPermission = cur.Permission
-		widens := shareUpdateWidens(cur.Permission, cur.ExpiresAt, shareRecord.Permission, shareRecord.ExpiresAt)
-		if updatedShare, err = tx.UpdateShareRecord(ctx, shareRecord); err != nil {
-			return false, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+		return cur, want, nil
+	}
+	// write sets the share to (perm, exp) and writes its row through tgt, last.
+	write := func(tx storage.Storage, tgt auditTarget, cur *models.ShareRecord, perm string, exp *time.Time) error {
+		next := *cur
+		next.Permission, next.ExpiresAt = perm, exp
+		var err error
+		if updatedShare, err = tx.UpdateShareRecord(ctx, &next); err != nil {
+			return fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
 		}
-		return widens, nil
-	}, func(tgt auditTarget) {
 		eventType := ShareAuditEventUpdated
 		if updatedShare.IsGroup {
 			eventType = ShareAuditEventGroupUpdated
@@ -212,14 +220,86 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 			RecipientID:   updatedShare.RecipientID,
 			IsGroup:       updatedShare.IsGroup,
 			Permission:    updatedShare.Permission,
-			OldPermission: oldPermission,
+			OldPermission: cur.Permission,
 			ShareID:       updatedShare.ID,
 		})
+		return nil
+	}
+	// Commit 1, owed: the narrowing part alone, or all of an update that widens
+	// nothing; nothing at all for one that only widens.
+	var narrowed, rest bool
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		// fn may run again (the owed fallback): start from a clean slate.
+		updatedShare, narrowed, rest = nil, false, false
+		cur, want, err := lockShare(tx)
+		if err != nil {
+			return err
+		}
+		if !shareUpdateWidens(cur.Permission, cur.ExpiresAt, want.Permission, want.ExpiresAt) {
+			return write(tx, tgt, cur, want.Permission, want.ExpiresAt)
+		}
+		rest = true
+		perm, exp, ok := shareUpdateNarrowing(cur.Permission, cur.ExpiresAt, want.Permission, want.ExpiresAt)
+		if !ok {
+			return nil // only widens: commit 2 alone, fail closed
+		}
+		narrowed = true
+		return write(tx, tgt, cur, perm, exp)
 	}); err != nil {
+		return nil, err
+	}
+	if !rest {
+		return updatedShare, nil
+	}
+	// Commit 2, fail closed: the requested share, on the row as locked now.
+	widen := func(tx storage.Storage, tgt auditTarget) error {
+		cur, want, err := lockShare(tx)
+		if err != nil {
+			return err
+		}
+		return write(tx, tgt, cur, want.Permission, want.ExpiresAt)
+	}
+	if narrowed {
+		// A retry of the same request finds the narrowing applied, so only this part runs.
+		if err := c.commitSplitRemainder(ctx, "share narrowing", "share widening", true, widen); err != nil {
+			return nil, err
+		}
+	} else if err := c.withAuditedMutation(ctx, widen); err != nil {
 		return nil, err
 	}
 
 	return updatedShare, nil
+}
+
+// shareUpdateNarrowing is the narrowing part of changing a share from (oldPerm,
+// oldExp) to (newPerm, newExp): each part at the narrower of its old and new value (the
+// lower permission, the earlier expiry; a nil expiry is permanent). ok is false when
+// that is the old share itself (nothing narrows) or a permission level is unknown (the
+// update is then fail closed as a whole, like shareUpdateWidens).
+func shareUpdateNarrowing(oldPerm string, oldExp *time.Time, newPerm string, newExp *time.Time) (perm string, exp *time.Time, ok bool) {
+	oldRank, newRank := sharePermissionRank(oldPerm), sharePermissionRank(newPerm)
+	if oldRank == 0 || newRank == 0 {
+		return "", nil, false
+	}
+	perm, exp = oldPerm, oldExp
+	if newRank < oldRank {
+		perm, ok = newPerm, true
+	}
+	if newExp != nil && (oldExp == nil || newExp.Before(*oldExp)) {
+		exp, ok = newExp, true
+	}
+	return perm, exp, ok
+}
+
+// sharePermissionRank orders the share permission levels; 0 is unknown.
+func sharePermissionRank(p string) int {
+	switch PermissionLevel(p) {
+	case PermissionRead:
+		return 1
+	case PermissionWrite:
+		return 2
+	}
+	return 0
 }
 
 // shareUpdateWidens reports whether changing a share from (oldPerm, oldExp) to
@@ -228,16 +308,7 @@ func (c *KeyorixCore) UpdateSharePermission(ctx context.Context, req *UpdateShar
 // (one narrower, one wider) widens. An unknown permission level counts as
 // widening, so it fails closed. A nil expiry means permanent.
 func shareUpdateWidens(oldPerm string, oldExp *time.Time, newPerm string, newExp *time.Time) bool {
-	rank := func(p string) int {
-		switch PermissionLevel(p) {
-		case PermissionRead:
-			return 1
-		case PermissionWrite:
-			return 2
-		}
-		return 0
-	}
-	oldRank, newRank := rank(oldPerm), rank(newPerm)
+	oldRank, newRank := sharePermissionRank(oldPerm), sharePermissionRank(newPerm)
 	if oldRank == 0 || newRank == 0 || newRank > oldRank {
 		return true
 	}

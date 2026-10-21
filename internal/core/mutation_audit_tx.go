@@ -32,9 +32,10 @@
 // tx, never c.storage, or the chain needs a third pooled connection.
 //
 // Revocations do NOT use this (Andrei 2026-10-14: a revocation is never blocked
-// by the audit log). An update that may go either way is classified per call
-// (withDirectedAuditedMutation). They keep their best-effort audit after the commit;
-// #3345's owed-audit record + backfill is the follow-up for those once merged.
+// by the audit log): their rows are owed (withOwedAuditMutation, AUDIT-TX-3). An
+// update that may go either way (UpdateRole, UpdateSharePermission) is classified
+// per call against what its transaction reads, and one that does both is split
+// (audit_split.go).
 package core
 
 import (
@@ -82,50 +83,6 @@ func failClosedAuditResult(sink *auditForwardSink) error {
 	if len(sink.persisted) == 0 {
 		return fmt.Errorf("%w: %w", ErrMutationAuditUnavailable, errMutationWroteNoAudit)
 	}
-	return nil
-}
-
-// withDirectedAuditedMutation is for an update that can widen access or narrow
-// it, decided per call (REVIEW-2 on #3367: UpdateRole, UpdateSharePermission).
-// fn runs the update in the transaction and reports, from what it actually
-// changed there, whether the update widens access in any way. A mixed update
-// (it adds and removes) widens.
-//
-//   - widens: audit writes its rows into the transaction through a fail-closed
-//     target, exactly as withAuditedMutation: no row, no change.
-//   - otherwise (it only narrows access, or changes none) the update is a
-//     revocation or neutral, and the audit log never blocks a revocation
-//     (Andrei 2026-10-14): the transaction commits with no audit write in it,
-//     and audit then writes the same rows best-effort through c.storage, as
-//     every other revocation does. Not inside the transaction: on PostgreSQL a
-//     failed append aborts the transaction, so "best-effort inside the tx"
-//     would still block the commit. #3345's owed-audit record is the follow-up
-//     for a row lost here, once merged.
-//
-// audit must write at least one row in the widening case (checked) and must
-// only write audit rows.
-func (c *KeyorixCore) withDirectedAuditedMutation(ctx context.Context, fn func(tx storage.Storage) (widens bool, err error), audit func(tgt auditTarget)) error {
-	var widens bool
-	var sink *auditForwardSink
-	if err := c.storage.WithTransaction(ctx, func(tx storage.Storage) error {
-		sink = &auditForwardSink{failClosed: true}
-		var err error
-		if widens, err = fn(tx); err != nil {
-			return err
-		}
-		if !widens {
-			return nil
-		}
-		audit(auditInto(tx, sink))
-		return failClosedAuditResult(sink)
-	}); err != nil {
-		return err
-	}
-	if widens {
-		sink.Flush(c)
-		return nil
-	}
-	audit(c.auditNow())
 	return nil
 }
 

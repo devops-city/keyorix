@@ -225,6 +225,10 @@ func (s *ShareGRPCService) UpdateSharePermission(ctx context.Context, req *pb.Up
 		ClearExpiry: req.GetClearExpiry(),
 	})
 	if err != nil {
+		if perr, ok := partialMutationStatus(err); ok {
+			log.Printf("update share %d permission partially applied: %v", req.GetShareId(), err)
+			return nil, perr
+		}
 		return nil, mapShareError(err)
 	}
 	return shareRecordToProto(record), nil

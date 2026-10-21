@@ -128,6 +128,9 @@ func (h *ShareHandler) UpdateSharePermission(w http.ResponseWriter, r *http.Requ
 	})
 	if err != nil {
 		log.Printf("Error updating share permission: %v", err)
+		if sendPartialMutation(w, err) {
+			return
+		}
 		if strings.Contains(err.Error(), errNotFound) {
 			h.sendError(w, "NotFound", "Share not found", http.StatusNotFound, nil)
 		} else if reason, ok := core.ShareRefusalMessage(err); ok {

@@ -1,7 +1,7 @@
 package core
 
 // SHARE-CAS-1 (REVIEW-2 residual on #3367): UpdateSharePermission classifies its
-// change (widens or not, withDirectedAuditedMutation) against the share as read
+// change (widens, narrows, or both: two commits) against the share as read
 // inside its transaction, then writes the row. On PostgreSQL READ COMMITTED a
 // plain read locks nothing, so a narrowing on another replica could commit
 // between the read and the UPDATE: an update classified neutral then landed
