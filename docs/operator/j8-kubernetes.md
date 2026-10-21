@@ -28,6 +28,9 @@ printf '%s' "$v" > keyorix-secrets/KEYORIX_DB_PASSWORD
 printf 'Admin password: '; read -r -s v; echo
 printf '%s' "$v" > keyorix-secrets/KEYORIX_ADMIN_PASSWORD
 unset v
+# The bootstrap token is required whenever an admin password is set. Generated into the file,
+# so it never appears in a command line.
+LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32 > keyorix-secrets/KEYORIX_BOOTSTRAP_TOKEN
 
 kubectl create secret generic keyorix-auth --from-file=keyorix-secrets/
 helm install keyorix ./deploy/helm/keyorix --set auth.existingSecret=keyorix-auth
@@ -50,7 +53,9 @@ values are `auth.masterPassword`, `auth.adminPassword` and `postgresql.auth.pass
   the reason in its log). Leave it empty to run `keyorix system init` yourself.
 - `KEYORIX_DB_PASSWORD` (`postgresql.auth.password`): the bundled PostgreSQL password.
 
-`KEYORIX_BOOTSTRAP_TOKEN` is optional in the Secret.
+`KEYORIX_BOOTSTRAP_TOKEN` is required in the Secret when `KEYORIX_ADMIN_PASSWORD` is set (without it the server
+pod exits at first boot and restarts in a loop; the reason is in `kubectl logs`). Put it in the Secret before
+`helm install`: the chart reads the Secret at install and upgrade time.
 
 The install prints next steps (`NOTES.txt`), including how to reach the UI and the
 warning to back up the encryption-keys volume.
