@@ -1,0 +1,12 @@
+# RFC 9116 security.txt for keyorix.com.
+# Publish this file byte-for-byte at https://keyorix.com/.well-known/security.txt
+# (and the legacy /security.txt path). Hosting notes and the renewal procedure:
+# docs/security/security-txt.md. Expires must stay within one year of the
+# publish date; deploy/security_txt_test.go enforces the format.
+
+Contact: mailto:security@keyorix.com
+Contact: https://github.com/keyorixhq/keyorix/security/advisories/new
+Expires: 2027-04-30T00:00:00.000Z
+Preferred-Languages: en, ru
+Canonical: https://keyorix.com/.well-known/security.txt
+Policy: https://github.com/keyorixhq/keyorix/blob/main/SECURITY.md
