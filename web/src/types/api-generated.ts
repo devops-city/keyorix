@@ -3263,7 +3263,7 @@ export interface paths {
         get?: never;
         /**
          * Update a share's permission
-         * @description Change the permission level (read or write) of an existing secret share.
+         * @description Change the permission level (read or write) of an existing secret share. A request that narrows access and also widens it (a lower permission and a later expiry, or the reverse) is applied in two steps, the narrowing first; if the second step cannot be recorded in the audit log the answer is 503 with error MutationPartiallyApplied and details {code: mutation_partially_applied, revocation_applied: true, remainder_applied: false, applied, not_applied, retry_safe: true}: the narrowing is applied, the rest is not, and the same request can be retried.
          */
         put: operations["updateSharePermission"];
         post?: never;
@@ -4007,7 +4007,7 @@ export interface paths {
         get: operations["getRole"];
         /**
          * Update role
-         * @description Update a role's description and/or replace its full set of permissions.
+         * @description Update a role's description and/or replace its full set of permissions. A request that narrows access and also widens it (removes a permission and adds another) is applied in two steps, the removals first; if the second step cannot be recorded in the audit log the answer is 503 with error MutationPartiallyApplied and details {code: mutation_partially_applied, revocation_applied: true, remainder_applied: false, applied, not_applied, retry_safe: true}: the removals are applied, the description and the additions are not, and the same request can be retried.
          */
         put: operations["updateRole"];
         post?: never;
@@ -11908,6 +11908,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     revokeShare: {
@@ -13271,6 +13272,7 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            503: components["responses"]["Error"];
         };
     };
     deleteRole: {
