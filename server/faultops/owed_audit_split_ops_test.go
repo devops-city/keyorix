@@ -41,11 +41,13 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/keyorixhq/keyorix/internal/core"
 	"github.com/keyorixhq/keyorix/internal/faultstorage"
@@ -94,7 +96,17 @@ var owedAuditSplitExpectedOwedTypes = map[string]map[string]int{
 	"REST POST /api/v1/users/{id}/reissue-one-time-password [split]": {"user.one_time_password_reissue_restricted": 1},
 	// Item 3: the rotation's revoke of the old credential.
 	"REST POST /api/v1/projects/{id}/machine-identities/{machineId}/tokens [rotate]": {"machine_identity.token_revoked": 1},
+	// MERGE-FIX-3482K (ask 3482-mixed-update-role-share (a)): the removed permission,
+	// and the share's lower permission.
+	"REST PUT /api/v1/roles/{id} [remove+add]":                                      {"permission.removed": 1},
+	"GRPC keyorix.v1.RoleService.UpdateRole [remove+add]":                           {"permission.removed": 1},
+	"REST PUT /api/v1/shares/{id} [write->read+later-expiry]":                       {"share_updated": 1},
+	"GRPC keyorix.v1.ShareService.UpdateSharePermission [write->read+later-expiry]": {"share_updated": 1},
 }
+
+// shareLater is the later expiry the share split scenarios request: one fixed instant,
+// so the reference and the faulted worlds ask for the same share.
+var shareLater = time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
 
 func splitHTTPOutcome(st int, body []byte) splitOutcome {
 	out := splitOutcome{success: st/100 == 2, detail: fmt.Sprintf("HTTP %d: %s", st, body)}
@@ -248,6 +260,36 @@ func splitScenarios() []splitScenario {
 		}
 		return opResult{Success: true, Detail: codes.OK.String()}
 	}
+	rolePut := func(body map[string]any) func(ctx context.Context, w *faultWorld, state any) (int, []byte, error) {
+		return func(ctx context.Context, w *faultWorld, state any) (int, []byte, error) {
+			return httpJSON(ctx, w, http.MethodPut, fmt.Sprintf("/api/v1/roles/%d", state.(uint)), body)
+		}
+	}
+	grpcUpdateRole := func(description string, perms ...string) func(ctx context.Context, w *faultWorld, state any) error {
+		return func(ctx context.Context, w *faultWorld, state any) error {
+			req := &pb.UpdateRoleRequest{Id: uint32(state.(uint)), Permissions: perms}
+			if description != "" {
+				req.Description = &description
+			}
+			_, err := pb.NewRoleServiceClient(w.grpcConn).UpdateRole(w.grpcCtx, req)
+			return err
+		}
+	}
+	sharePut := func(body map[string]any) func(ctx context.Context, w *faultWorld, state any) (int, []byte, error) {
+		return func(ctx context.Context, w *faultWorld, state any) (int, []byte, error) {
+			return httpJSON(ctx, w, http.MethodPut, fmt.Sprintf("/api/v1/shares/%d", state.(uint)), body)
+		}
+	}
+	grpcUpdateShare := func(expires *time.Time) func(ctx context.Context, w *faultWorld, state any) error {
+		return func(ctx context.Context, w *faultWorld, state any) error {
+			req := &pb.UpdateSharePermissionRequest{ShareId: uint32(state.(uint)), Permission: "read"}
+			if expires != nil {
+				req.ExpiresAt = timestamppb.New(*expires)
+			}
+			_, err := pb.NewShareServiceClient(w.grpcConn).UpdateSharePermission(w.grpcCtx, req)
+			return err
+		}
+	}
 	scimGroupPath := func(state any) string { return fmt.Sprintf("/scim/v2/Groups/%d", state.([2]any)[0].(uint)) }
 	member := func(id uint) []map[string]any { return []map[string]any{{"value": fmt.Sprint(id)}} }
 
@@ -398,7 +440,79 @@ func splitScenarios() []splitScenario {
 			// The partial case still compares it (the narrow-only state has no new row).
 			refIgnore: []string{"MachineIdentityCredential"},
 		},
+		// MERGE-FIX-3482K (ask 3482-mixed-update-role-share (a)): a role save that removes
+		// one permission and adds another (with a new description) commits the removal
+		// first (owed), then the description and the addition (fail closed).
+		// Neither transport can clear a role's whole set (REST refuses an empty list,
+		// gRPC leaves the set), so the role starts with two permissions and keeps one.
+		{
+			key: "REST PUT /api/v1/roles/{id} [remove+add]",
+			setup: func(ctx context.Context, w *faultWorld) (any, error) {
+				return createRoleWithPermissionsForFuzz(ctx, w, "fuzz-split-role", "secrets.read", "secrets.write")
+			},
+			mixed:    asOutcome(rolePut(map[string]any{"permissions": []string{"secrets.read", "secrets.delete"}, "description": "fuzz role split"}), false),
+			narrow:   asResult(rolePut(map[string]any{"permissions": []string{"secrets.read"}})),
+			restType: "role.updated", restDesc: "updated",
+		},
+		{
+			key: "GRPC keyorix.v1.RoleService.UpdateRole [remove+add]",
+			setup: func(ctx context.Context, w *faultWorld) (any, error) {
+				return createRoleWithPermissionsForFuzz(ctx, w, "fuzz-split-grpc-role", "secrets.read", "secrets.write")
+			},
+			mixed: func(ctx context.Context, w *faultWorld, state any) (splitOutcome, error) {
+				return splitGRPCOutcome(grpcUpdateRole("fuzz split", "secrets.read", "secrets.delete")(ctx, w, state)), nil
+			},
+			narrow: func(ctx context.Context, w *faultWorld, state any) (opResult, error) {
+				return grpcResult(grpcUpdateRole("", "secrets.read")(ctx, w, state)), nil
+			},
+			restType: "role.updated", restDesc: "updated",
+		},
+		// A share update that lowers the permission (owed) and extends the expiry (fail
+		// closed). The expiry itself is invisible to the state comparison (every
+		// time.Time is excluded, snapshot_test.go): the second commit is told apart by
+		// its row ("from read to read"); TestShareUpdate_AuditFailure_ByDirection and
+		// core's audit_split_test.go read the expiry.
+		{
+			key: "REST PUT /api/v1/shares/{id} [write->read+later-expiry]",
+			setup: func(ctx context.Context, w *faultWorld) (any, error) {
+				return createExpiringShareForFuzz(ctx, w, "write", time.Hour)
+			},
+			mixed:    asOutcome(sharePut(map[string]any{"permission": "read", "expires_at": shareLater.Format(time.RFC3339)}), false),
+			narrow:   asResult(sharePut(map[string]any{"permission": "read"})),
+			restType: "share_updated", restDesc: "(from read to read)",
+		},
+		{
+			key: "GRPC keyorix.v1.ShareService.UpdateSharePermission [write->read+later-expiry]",
+			setup: func(ctx context.Context, w *faultWorld) (any, error) {
+				return createExpiringShareForFuzz(ctx, w, "write", time.Hour)
+			},
+			mixed: func(ctx context.Context, w *faultWorld, state any) (splitOutcome, error) {
+				return splitGRPCOutcome(grpcUpdateShare(&shareLater)(ctx, w, state)), nil
+			},
+			narrow: func(ctx context.Context, w *faultWorld, state any) (opResult, error) {
+				return grpcResult(grpcUpdateShare(nil)(ctx, w, state)), nil
+			},
+			restType: "share_updated", restDesc: "(from read to read)",
+		},
 	}
+}
+
+// createRoleWithPermissionsForFuzz creates a role holding perms through the real REST route.
+func createRoleWithPermissionsForFuzz(ctx context.Context, w *faultWorld, name string, perms ...string) (uint, error) {
+	st, body, err := httpJSON(ctx, w, http.MethodPost, "/api/v1/roles/", map[string]any{
+		"name": name, "description": name, "permissions": perms,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if st/100 != 2 {
+		return 0, fmt.Errorf("setup CreateRole: HTTP %d: %s", st, body)
+	}
+	var role models.Role
+	if err := w.db.Where("name = ?", name).First(&role).Error; err != nil {
+		return 0, err
+	}
+	return role.ID, nil
 }
 
 // splitRows is the audit and pending rows a run added, keyed by event type, with the

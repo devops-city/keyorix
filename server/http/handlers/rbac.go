@@ -358,6 +358,9 @@ func (h *RBACHandler) UpdateRole(w http.ResponseWriter, r *http.Request) { // NO
 	updated, perms, err := h.coreService.UpdateRole(r.Context(), userCtx.UserID, role, newPermissionIDs)
 	if err != nil {
 		log.Printf("Error updating role: %v", err)
+		if sendPartialMutation(w, err) {
+			return
+		}
 		if strings.Contains(err.Error(), "built-in") {
 			sendError(w, "Forbidden", "Cannot update built-in role: "+role.Name, http.StatusForbidden, nil)
 		} else {

@@ -175,13 +175,15 @@ func (c *KeyorixCore) CreateRole(ctx context.Context, actorID uint, name, descri
 // role's permission set must not be alterable through this path), including a
 // permissions-only update: the guard runs before either phase, unconditionally.
 //
-// Both the role-row update and the permission replacement run inside ONE
-// storage.WithTransaction. When the update assigns any permission, every audit
-// event this call writes is written as the last statements of that same
-// transaction (AUDIT-TX-2; before it, they were written after the commit);
-// an update that only removes permissions or changes the description is a
-// revocation or neutral and audits best-effort after the commit (REVIEW-2 on
-// #3367) — fixing two real fault-injection
+// The role-row update and the permission replacement run inside one
+// storage.WithTransaction, with their audit rows as its last statements
+// (AUDIT-TX-2), classified by what the update changes in that transaction:
+// one that only removes permissions or changes the description (or nothing) is
+// a revocation or neutral, never blocked by the audit log, its rows owed
+// (withOwedAuditMutation); one that only adds permissions is fail closed; one
+// that removes AND adds is split (audit_split.go, MERGE-FIX-3482K): the
+// removals commit first, owed, then the description and the additions, fail
+// closed. Before AUDIT-TX-2 the rows were written after the commit — fixing two real fault-injection
 // findings from the same defect (docs/findings/2026-09-21-FINDING-role-update-permission-replace-swallows-storage-errors.md):
 // F3a (a storage error partway through the old two-phase, non-transactional
 // sequence was silently swallowed by the caller and reported as success) and
@@ -199,85 +201,136 @@ func (c *KeyorixCore) UpdateRole(ctx context.Context, actorID uint, role *models
 	}
 
 	var updated *models.Role
-	var removedPermissionIDs, assignedPermissionIDs []uint
 	var finalPermissions []*models.Permission
-	// REVIEW-2 on #3367: classified by what the update actually did in its
-	// transaction. One that assigned any permission widens the role (mixed
-	// included): its audit rows are the LAST statements of the transaction,
-	// through tx, so they commit or roll back with the update (no phantom row
-	// on rollback: F3b). One that only removed permissions, or changed only the
-	// description, is a revocation or neutral and is never blocked by the audit
-	// log: its rows are written best-effort after the commit
-	// (withDirectedAuditedMutation).
-	// SHARE-CAS-1: no row lock needed (unlike UpdateSharePermission): the verdict is
-	// what this transaction itself inserted, not a read another writer could change.
-	txErr := c.withDirectedAuditedMutation(ctx, func(tx storage.Storage) (bool, error) {
-		var err error
-		updated, finalPermissions, removedPermissionIDs, assignedPermissionIDs, err = c.updateRoleTx(ctx, tx, role, newPermissionIDs)
-		if err != nil {
-			return false, err
+	builtinTarget := IsBuiltinRole(role.Name) // always false here (guarded above); kept symmetric with Assign/RemovePermissionFromRole's own logging for a future caller of those directly
+	// audit writes the rows of what one transaction changed, last in it.
+	audit := func(tgt auditTarget, rowUpdated bool, removed, assigned []uint) {
+		if rowUpdated {
+			c.logRoleDefinitionChangeOn(ctx, tgt, EventRoleUpdated, "updated", actorID, updated.ID, updated.Name)
 		}
-		return len(assignedPermissionIDs) > 0, nil
-	}, func(tgt auditTarget) {
-		c.logRoleDefinitionChangeOn(ctx, tgt, EventRoleUpdated, "updated", actorID, updated.ID, updated.Name)
-		builtinTarget := IsBuiltinRole(updated.Name) // always false here (guarded above); kept symmetric with Assign/RemovePermissionFromRole's own logging for a future caller of those directly
-		for _, id := range removedPermissionIDs {
+		for _, id := range removed {
 			c.logPermissionRemovedOn(ctx, tgt, actorID, role.ID, id, builtinTarget)
 		}
-		for _, id := range assignedPermissionIDs {
+		for _, id := range assigned {
 			c.logPermissionAssignedOn(ctx, tgt, actorID, role.ID, id, builtinTarget)
 		}
-	})
-	if txErr != nil {
-		return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), txErr)
 	}
-
+	// Commit 1, owed: classified on the permission set read in this transaction
+	// (REVIEW-2 on #3367; SHARE-CAS-1: no row lock needed, the verdict is what this
+	// transaction itself changes). An update that adds nothing is a revocation or
+	// neutral: all of it commits here, never blocked by the audit log. One that adds
+	// is a widening: this transaction applies only its removals (a mixed update,
+	// MERGE-FIX-3482K, ask 3482-mixed-update-role-share (a)), or nothing at all.
+	var narrowed, rest bool
+	if err := c.withOwedAuditMutation(ctx, func(tx storage.Storage, tgt auditTarget) error {
+		// fn may run again (the owed fallback): start from a clean slate.
+		updated, finalPermissions, narrowed, rest = nil, nil, false, false
+		remove, add, err := rolePermissionDiff(ctx, tx, role.ID, newPermissionIDs)
+		if err != nil {
+			return err
+		}
+		if len(add) > 0 {
+			rest = true
+			for _, id := range remove {
+				if err := tx.RemovePermissionFromRole(ctx, role.ID, id); err != nil {
+					return err
+				}
+			}
+			narrowed = len(remove) > 0
+			audit(tgt, false, remove, nil)
+			return nil
+		}
+		if updated, finalPermissions, err = c.updateRoleTx(ctx, tx, role, remove, nil); err != nil {
+			return err
+		}
+		audit(tgt, true, remove, nil)
+		return nil
+	}); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
+	if !rest {
+		return updated, finalPermissions, nil
+	}
+	// Commit 2, fail closed: the role row (description) and the additions, plus any
+	// removal a concurrent writer made necessary since commit 1. Its rows commit with
+	// it or none of it commits (no phantom row on rollback: F3b).
+	widen := func(tx storage.Storage, tgt auditTarget) error {
+		remove, add, err := rolePermissionDiff(ctx, tx, role.ID, newPermissionIDs)
+		if err != nil {
+			return err
+		}
+		if updated, finalPermissions, err = c.updateRoleTx(ctx, tx, role, remove, add); err != nil {
+			return err
+		}
+		audit(tgt, true, remove, add)
+		return nil
+	}
+	var err error
+	if narrowed {
+		// A retry of the same request removes nothing more, so only this part runs.
+		err = c.commitSplitRemainder(ctx, "permission removal", "permission addition/description change", true, widen)
+	} else {
+		err = c.withAuditedMutation(ctx, widen)
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", i18n.T("ErrorStorageFailed", nil), err)
+	}
 	return updated, finalPermissions, nil
 }
 
-// updateRoleTx is UpdateRole's storage work inside its transaction: the
-// role-row update, the permission-set replacement, and the final read of the
-// permission set (F3d: read INSIDE the transaction, so a failure there rolls
-// the whole update back instead of reporting an error for a committed change).
-// It returns which permissions it removed and assigned, for the audit rows.
-func (c *KeyorixCore) updateRoleTx(ctx context.Context, tx storage.Storage, role *models.Role, newPermissionIDs *[]uint) (updated *models.Role, final []*models.Permission, removed, assigned []uint, err error) {
-	if updated, err = tx.UpdateRole(ctx, role); err != nil {
-		return nil, nil, nil, nil, err
+// rolePermissionDiff reads the role's permission set in tx and returns what
+// replacing it with want removes and adds (nil want: leave it, nothing either way).
+func rolePermissionDiff(ctx context.Context, tx storage.Storage, roleID uint, want *[]uint) (remove, add []uint, err error) {
+	if want == nil {
+		return nil, nil, nil
 	}
-	if newPermissionIDs != nil {
-		existing, err := tx.GetRolePermissions(ctx, role.ID)
-		if err != nil {
-			return nil, nil, nil, nil, err
+	existing, err := tx.GetRolePermissions(ctx, roleID)
+	if err != nil {
+		return nil, nil, err
+	}
+	wanted := make(map[uint]bool, len(*want))
+	for _, id := range *want {
+		wanted[id] = true
+	}
+	have := make(map[uint]bool, len(existing))
+	for _, ep := range existing {
+		have[ep.ID] = true
+		if !wanted[ep.ID] {
+			remove = append(remove, ep.ID)
 		}
-		want := make(map[uint]bool, len(*newPermissionIDs))
-		for _, id := range *newPermissionIDs {
-			want[id] = true
+	}
+	for _, id := range *want {
+		if !have[id] {
+			have[id] = true // a duplicate in want is added once
+			add = append(add, id)
 		}
-		have := make(map[uint]bool, len(existing))
-		for _, ep := range existing {
-			have[ep.ID] = true
-			if want[ep.ID] {
-				continue // already assigned, nothing to do
-			}
-			if err := tx.RemovePermissionFromRole(ctx, role.ID, ep.ID); err != nil {
-				return nil, nil, nil, nil, err
-			}
-			removed = append(removed, ep.ID)
+	}
+	return remove, add, nil
+}
+
+// updateRoleTx is UpdateRole's storage work inside one transaction: the role-row
+// update, the removals and additions rolePermissionDiff computed in that same
+// transaction, and the final read of the permission set (F3d: read INSIDE the
+// transaction, so a failure there rolls the whole update back instead of
+// reporting an error for a committed change).
+func (c *KeyorixCore) updateRoleTx(ctx context.Context, tx storage.Storage, role *models.Role, remove, add []uint) (updated *models.Role, final []*models.Permission, err error) {
+	if updated, err = tx.UpdateRole(ctx, role); err != nil {
+		return nil, nil, err
+	}
+	for _, id := range remove {
+		if err := tx.RemovePermissionFromRole(ctx, role.ID, id); err != nil {
+			return nil, nil, err
 		}
-		for _, id := range *newPermissionIDs {
-			if have[id] {
-				continue // already assigned, nothing to do
-			}
-			if err := tx.AssignPermissionToRole(ctx, role.ID, id); err != nil {
-				return nil, nil, nil, nil, err
-			}
-			assigned = append(assigned, id)
+	}
+	for _, id := range add {
+		if err := tx.AssignPermissionToRole(ctx, role.ID, id); err != nil {
+			return nil, nil, err
 		}
 	}
 	if final, err = tx.GetRolePermissions(ctx, role.ID); err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, err
 	}
-	return updated, final, removed, assigned, nil
+	return updated, final, nil
 }
 
 // DeleteRole deletes a role definition by id. Rejects deleting a built-in

@@ -34,8 +34,10 @@ package core
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -288,6 +290,58 @@ func splitKinds() []splitKind {
 				return n > 0
 			},
 			owed: splitRow{"machine_identity.token_revoked", "revoked token"}, rest: splitRow{"machine_identity.token_rotated", "rotated token"}},
+		// MERGE-FIX-3482K (ask 3482-mixed-update-role-share (a)): a role update that
+		// removes a permission and adds another (with a new description): the removal
+		// commits first (owed), the description and the addition fail closed.
+		{name: "update-role-remove-and-add",
+			prepare: func(w *satWorld) any {
+				p2, err := w.f.setup.Storage().CreatePermission(ctx, &models.Permission{Name: w.tag("sp.perm"), Description: "sp"})
+				require.NoError(w.t, err)
+				r, _, err := w.c.CreateRole(ctx, w.f.adminID, w.tag("sp-role"), "before", []uint{w.permID})
+				require.NoError(w.t, err)
+				return [2]any{r, p2.ID}
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				upd := *s.([2]any)[0].(*models.Role)
+				upd.Description = "after"
+				_, _, err := c.UpdateRole(ctx, w.f.adminID, &upd, &[]uint{s.([2]any)[1].(uint)})
+				return err
+			},
+			narrowed: func(w *satWorld, s any) bool {
+				return !slices.Contains(w.rolePermIDs(s.([2]any)[0].(*models.Role).ID), w.permID)
+			},
+			remainder: func(w *satWorld, s any) bool {
+				r := s.([2]any)[0].(*models.Role)
+				var got models.Role
+				require.NoError(w.t, w.db.First(&got, r.ID).Error)
+				return got.Description == "after" && slices.Contains(w.rolePermIDs(r.ID), s.([2]any)[1].(uint))
+			},
+			owed: splitRow{EventPermissionRemoved, "removed from role"}, rest: splitRow{EventRoleUpdated, "updated"}},
+		// A share update that lowers the permission and drops the expiry: commit 1 sets
+		// write->read (owed), commit 2 makes it permanent (fail closed).
+		{name: "update-share-narrow-perm-clear-expiry",
+			prepare: func(w *satWorld) any {
+				u := w.f.user(w.tag("sp-share"), "project_viewer")
+				exp := time.Now().Add(time.Hour)
+				sh, err := w.c.ShareSecret(ctx, &ShareSecretRequest{SecretID: w.secretID, RecipientID: u.ID, Permission: "write", SharedBy: w.member.ID, ExpiresAt: &exp})
+				require.NoError(w.t, err)
+				return sh.ID
+			},
+			mutate: func(w *satWorld, c *KeyorixCore, s any) error {
+				_, err := c.UpdateSharePermission(ctx, &UpdateShareRequest{ShareID: s.(uint), Permission: "read", ClearExpiry: true, UpdatedBy: w.member.ID})
+				return err
+			},
+			narrowed: func(w *satWorld, s any) bool {
+				var sh models.ShareRecord
+				require.NoError(w.t, w.db.First(&sh, s.(uint)).Error)
+				return sh.Permission == "read"
+			},
+			remainder: func(w *satWorld, s any) bool {
+				var sh models.ShareRecord
+				require.NoError(w.t, w.db.First(&sh, s.(uint)).Error)
+				return sh.ExpiresAt == nil
+			},
+			owed: splitRow{string(ShareAuditEventUpdated), "(from write to read)"}, rest: splitRow{string(ShareAuditEventUpdated), "(from read to read)"}},
 	}
 }
 

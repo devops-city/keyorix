@@ -4,8 +4,9 @@
   included) / role removal, PAT and
   session revoke, user suspend / deactivate / delete, SCIM deactivate / deprovision, break-glass
   revoke, JIT role expiry sweep, invitation revoke, access-request withdraw and reject, risk-exception
-  revoke, project delete, environment delete, enabling a project's MFA requirement, and the narrowing
-  half of a mixed request, INV-CORE-mixed-request-split)
+  revoke, project delete, environment delete, enabling a project's MFA requirement, a role update
+  that adds no permission and a share update that widens nothing (`UpdateRole`,
+  `UpdateSharePermission`), and the narrowing half of a mixed request, INV-CORE-mixed-request-split)
   is never blocked, delayed or failed by the audit log (Andrei 2026-10-14), and its audit row is
   never silently lost (AUDIT-TX-3, extending INV-CORE-plain-suspend-audit-owed to every revocation).
   The change runs through `withOwedAuditMutation` / `runOwedAuditMutation` (`audit_owed.go`) in ONE
@@ -45,8 +46,7 @@
   bursts, `TestOwedAuditOracle_SweepEveryScopedOp` for the exhaustive pass and the hand-pinned
   per-op `owedAuditExpectedOwedTypes`; the SSO callback and the SAML ACS are in the rule's scope,
   they share the group and role reconcile in `sso.go`).
-  Not covered: the narrowing branch of `UpdateRole` / `UpdateSharePermission` keeps its plain
-  best-effort row (inventory "Remaining"); `DecideAccessReviewItem`'s revoke keeps its in-tx
+  Not covered: `DecideAccessReviewItem`'s revoke keeps its in-tx
   best-effort sink (#2676); a new revocation that does not use `withOwedAuditMutation` is not
   detected by a static guard. The oracle rule cannot show from state alone that the pending record
   committed WITH the effect when an op's catalog scenario revokes nothing visible

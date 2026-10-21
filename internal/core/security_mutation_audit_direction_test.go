@@ -4,9 +4,12 @@ package core
 // UpdateSharePermission are classified per call. An update that only narrows
 // access (removes permissions, write→read, a shorter expiry) or changes no
 // access is a revocation or neutral: it is never blocked by the audit log
-// (Andrei 2026-10-14) and keeps its audit rows best-effort after the commit. An
-// update that widens access in any way, including a mixed one that also
-// narrows, stays fail-closed: it commits with its audit rows or not at all.
+// (Andrei 2026-10-14), its audit rows owed (queued in pending_audit_events while
+// the log is down). An update that only widens access stays fail-closed: it
+// commits with its audit rows or not at all. A mixed update (MERGE-FIX-3482K, ask
+// 3482-mixed-update-role-share (a)) is two commits: the narrowing applies and its
+// rows are owed, the widening is refused with a PartialMutationError
+// (audit_split_test.go runs the full split matrix on both ops).
 //
 // The outage is total (every LogAuditEvent refused, inside and outside the
 // transaction), which is what an operator sees when the audit log is down. On
@@ -73,35 +76,45 @@ func TestSecurityMutationAudit_UpdateRole_ByDirection(t *testing.T) {
 			name      string
 			have      []uint
 			want      *[]uint
-			widens    bool
-			finalPerm []uint
+			widens    bool   // fail closed as a whole
+			mixed     bool   // partial: the narrowing applied, the rest refused
+			finalPerm []uint // the permission set after the call
+			owed      int64  // audit rows queued (owed) while the log is down
 		}{
-			{name: "narrow", have: []uint{a, b}, want: &[]uint{a}, finalPerm: []uint{a}},
-			{name: "narrow-to-none", have: []uint{a, b}, want: &[]uint{}, finalPerm: []uint{}},
-			{name: "no-op-same-set", have: []uint{a}, want: &[]uint{a}, finalPerm: []uint{a}},
-			{name: "no-op-description-only", have: []uint{a}, want: nil, finalPerm: []uint{a}},
+			{name: "narrow", have: []uint{a, b}, want: &[]uint{a}, finalPerm: []uint{a}, owed: 2},
+			{name: "narrow-to-none", have: []uint{a, b}, want: &[]uint{}, finalPerm: []uint{}, owed: 3},
+			{name: "no-op-same-set", have: []uint{a}, want: &[]uint{a}, finalPerm: []uint{a}, owed: 1},
+			{name: "no-op-description-only", have: []uint{a}, want: nil, finalPerm: []uint{a}, owed: 1},
 			{name: "widen", have: []uint{a}, want: &[]uint{a, b}, widens: true},
-			{name: "mixed", have: []uint{a}, want: &[]uint{b}, widens: true},
+			{name: "mixed", have: []uint{a}, want: &[]uint{b}, mixed: true, finalPerm: []uint{}, owed: 1},
 		} {
 			t.Run(tc.name+"/audit-down", func(t *testing.T) {
 				r, _, err := w.c.CreateRole(ctx, w.f.adminID, w.tag("sat-dir"), "before", tc.have)
 				require.NoError(t, err)
-				before := w.fingerprint()
+				before, pending := w.fingerprint(), w.pendingTotal()
 				upd := *r
 				upd.Description = "after"
 				down.Store(true)
 				_, _, err = c.UpdateRole(ctx, w.f.adminID, &upd, tc.want)
 				down.Store(false)
-				if tc.widens {
+				got, gerr := w.f.setup.Storage().GetRole(ctx, r.ID)
+				require.NoError(t, gerr)
+				switch {
+				case tc.widens:
 					require.ErrorIs(t, err, ErrMutationAuditUnavailable, "a widening update must fail closed while the audit log is down")
+					require.NotErrorIs(t, err, ErrMutationPartiallyApplied, "nothing narrowed, so nothing was applied")
 					require.Equal(t, before, w.fingerprint(), "a refused widening changed state")
 					return
+				case tc.mixed:
+					requirePartial(t, err)
+					require.ErrorIs(t, err, ErrMutationAuditUnavailable)
+					require.Equal(t, "before", got.Description, "the description is commit 2's: refused with the additions")
+				default:
+					require.NoError(t, err, "a narrowing or neutral role update was blocked by the audit log")
+					require.Equal(t, "after", got.Description)
 				}
-				require.NoError(t, err, "a narrowing or neutral role update was blocked by the audit log")
 				require.Equal(t, tc.finalPerm, w.rolePermIDs(r.ID))
-				got, err := w.f.setup.Storage().GetRole(ctx, r.ID)
-				require.NoError(t, err)
-				require.Equal(t, "after", got.Description)
+				require.Equal(t, pending+tc.owed, w.pendingTotal(), "the narrowing's rows are owed: queued while the log is down")
 			})
 		}
 
@@ -134,6 +147,12 @@ func TestSecurityMutationAudit_UpdateRole_ByDirection(t *testing.T) {
 	})
 }
 
+// mixedShare is the share a mixed update leaves when only commit 1 applied.
+type mixedShare struct {
+	perm    string
+	expires *time.Time
+}
+
 func TestSecurityMutationAudit_UpdateSharePermission_ByDirection(t *testing.T) {
 	smaBackends(t, func(t *testing.T, sw *smaWorld) {
 		w := newSATWorld(t, sw.f)
@@ -148,6 +167,7 @@ func TestSecurityMutationAudit_UpdateSharePermission_ByDirection(t *testing.T) {
 			expires *time.Time // the share's expiry before (nil = permanent)
 			req     UpdateShareRequest
 			widens  bool
+			mixed   *mixedShare // the share after commit 1 of a mixed update
 		}{
 			{name: "narrow-write-to-read", perm: "write", req: UpdateShareRequest{Permission: "read"}},
 			{name: "narrow-set-expiry", perm: "read", req: UpdateShareRequest{Permission: "read", ExpiresAt: in(time.Hour)}},
@@ -158,14 +178,21 @@ func TestSecurityMutationAudit_UpdateSharePermission_ByDirection(t *testing.T) {
 			{name: "widen-read-to-write", perm: "read", req: UpdateShareRequest{Permission: "write"}, widens: true},
 			{name: "widen-extend-expiry", perm: "read", expires: in(time.Hour), req: UpdateShareRequest{Permission: "read", ExpiresAt: in(48 * time.Hour)}, widens: true},
 			{name: "widen-clear-expiry", perm: "read", expires: in(time.Hour), req: UpdateShareRequest{Permission: "read", ClearExpiry: true}, widens: true},
-			{name: "mixed-narrow-perm-clear-expiry", perm: "write", expires: in(time.Hour), req: UpdateShareRequest{Permission: "read", ClearExpiry: true}, widens: true},
-			{name: "mixed-widen-perm-shorten-expiry", perm: "read", expires: in(48 * time.Hour), req: UpdateShareRequest{Permission: "write", ExpiresAt: in(time.Hour)}, widens: true},
+			// Mixed: commit 1 applies the narrower value of each part (owed), the rest is refused.
+			{name: "mixed-narrow-perm-clear-expiry", perm: "write", expires: in(time.Hour), req: UpdateShareRequest{Permission: "read", ClearExpiry: true},
+				mixed: &mixedShare{perm: "read", expires: in(time.Hour)}},
+			{name: "mixed-narrow-perm-extend-expiry", perm: "write", expires: in(time.Hour), req: UpdateShareRequest{Permission: "read", ExpiresAt: in(48 * time.Hour)},
+				mixed: &mixedShare{perm: "read", expires: in(time.Hour)}},
+			{name: "mixed-widen-perm-shorten-expiry", perm: "read", expires: in(48 * time.Hour), req: UpdateShareRequest{Permission: "write", ExpiresAt: in(time.Hour)},
+				mixed: &mixedShare{perm: "read", expires: in(time.Hour)}},
+			{name: "mixed-widen-perm-set-expiry", perm: "read", req: UpdateShareRequest{Permission: "write", ExpiresAt: in(time.Hour)},
+				mixed: &mixedShare{perm: "read", expires: in(time.Hour)}},
 		} {
 			t.Run(tc.name+"/audit-down", func(t *testing.T) {
 				u := w.f.user(w.tag("sat-dirs"), "project_viewer")
 				s, err := w.c.ShareSecret(ctx, &ShareSecretRequest{SecretID: w.secretID, RecipientID: u.ID, Permission: tc.perm, SharedBy: w.member.ID, ExpiresAt: tc.expires})
 				require.NoError(t, err)
-				before := w.fingerprint()
+				before, pending := w.fingerprint(), w.pendingTotal()
 				req := tc.req
 				req.ShareID, req.UpdatedBy = s.ID, w.member.ID
 				down.Store(true)
@@ -173,12 +200,21 @@ func TestSecurityMutationAudit_UpdateSharePermission_ByDirection(t *testing.T) {
 				down.Store(false)
 				if tc.widens {
 					require.ErrorIs(t, err, ErrMutationAuditUnavailable, "a widening share update must fail closed while the audit log is down")
+					require.NotErrorIs(t, err, ErrMutationPartiallyApplied, "nothing narrowed, so nothing was applied")
 					require.Equal(t, before, w.fingerprint(), "a refused widening changed state")
 					return
 				}
+				require.Equal(t, pending+1, w.pendingTotal(), "the narrowing's row is owed: queued while the log is down")
+				got, gerr := w.f.setup.Storage().GetShareRecord(ctx, s.ID)
+				require.NoError(t, gerr)
+				if m := tc.mixed; m != nil {
+					requirePartial(t, err)
+					require.Equal(t, m.perm, got.Permission, "commit 1: the lower permission")
+					require.NotNil(t, got.ExpiresAt, "commit 1: the earlier expiry")
+					require.WithinDuration(t, *m.expires, *got.ExpiresAt, time.Second)
+					return
+				}
 				require.NoError(t, err, "a narrowing or neutral share update was blocked by the audit log")
-				got, err := w.f.setup.Storage().GetShareRecord(ctx, s.ID)
-				require.NoError(t, err)
 				require.Equal(t, req.Permission, got.Permission)
 				switch {
 				case req.ExpiresAt != nil:
