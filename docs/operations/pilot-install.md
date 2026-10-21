@@ -19,6 +19,18 @@ Kubernetes (see the [Helm chart](../../deploy/helm/keyorix/README.md) and
 Each step names the document that has the detail. This page was written from the code
 and the Compose files; run the whole procedure once on a staging host before the pilot.
 
+> **Check the release first.** This page lives on `main` and describes `main`; it is
+> not in any release tag up to v0.96.2 (`git clone --branch v0.96.2` has no
+> `docs/operations/`, no `scripts/drills/` and no `docs/operator/drill-*.md`), so read it
+> from the repository, not from your clone. Before you start, confirm that the tag you
+> chose has published images (`docker manifest inspect ghcr.io/keyorixhq/keyorix-server:<tag without v>`);
+> if it has none, use the [binary-only variant](#binary-only-variant-no-published-images)
+> below. As of v0.96.2 the release also rejects two settings this page uses
+> (`storage.database.audit_durability` in step 3 and `storage.database.ssl_root_cert`
+> in [SELF_HOSTING.md §3](../SELF_HOSTING.md#3-configuration-env-and-secrets)): the
+> server stops with `field ... not found in type config.DatabaseConfig`. On v0.96.2,
+> give the server a PostgreSQL `dsn` with `sslrootcert=` instead of `ssl_root_cert`.
+
 ## 0. Before you start
 
 - A Linux host with Docker Engine 24+ and the Compose plugin (`docker compose version`),
@@ -56,6 +68,14 @@ the **master passphrase**, the first-admin password, a bootstrap token and the
 PostgreSQL TLS certificate into `./secrets` (never printing a value), and records
 `KEYORIX_SECRETS_GID` in `.env`. Run it as your own user, not root.
 
+Then hand the files to root, keeping your group, with the command the script prints:
+`sudo chown root:<your gid> secrets/*`. Without it the backend refuses to start (the
+server does not trust a secret file its own uid could rewrite,
+[SELF_HOSTING.md §3](../SELF_HOSTING.md#3-configuration-env-and-secrets)). If your uid is
+`1001` (the second user on many Linux installs, and the uid the server container runs
+as) the script exits 1 after writing only four of the six files (no PostgreSQL TLS
+pair): run the `chown`, then run the script again, or use another user.
+
 **Copy `secrets/master_password` into your password manager now.** It derives the key that
 encrypts every secret: changing it after first boot, or losing it together with the
 `keyorix_keys` volume, makes every stored secret unrecoverable. Details:
@@ -74,7 +94,8 @@ Pick `strict` if your compliance position is "every disclosed secret has an audi
 that survives power loss", or if you do not control the host's power and disk cache.
 `standard` is reasonable on a UPS-backed host or replicated block storage. To pick
 `strict`, add one line under `storage.database` in `keyorix.docker.yaml` **before the
-first start**:
+first start** (needs a release newer than v0.96.2; v0.96.2 refuses the key, see the
+note at the top):
 
 ```yaml
 storage:
@@ -181,7 +202,8 @@ delete the copy in the container's `/tmp` (a 64 MiB tmpfs: raise `size=` in
   [AIRGAP_RUNBOOK.md](../AIRGAP_RUNBOOK.md).
 - **Rehearse a restore** on a spare host before the pilot starts and after any upgrade
   (`admin restore` runs `verify-audit` and fails if the chain is broken).
-  `scripts/drills/backup-restore.sh` runs the whole cycle on a throwaway instance
+  `scripts/drills/backup-restore.sh` runs the whole cycle on a throwaway instance; it
+  needs a checkout of `main`, a Go toolchain and the current CLI, not the release binaries
   ([operator/drill-backup-restore.md](../operator/drill-backup-restore.md)). Your recovery
   point is your backup interval, so choose it with that in mind
   ([SELF_HOSTING.md §5](../SELF_HOSTING.md#5-backup-and-restore), "Recovery point"). A restore into a
@@ -215,6 +237,41 @@ delete the copy in the container's `/tmp` (a 64 MiB tmpfs: raise `size=` in
 Back up first (step 8), edit the image tags in `docker-compose.yml` to the new release,
 then `docker compose pull && docker compose up -d`. Read the notes for your version jump
 in [UPGRADING.md](../UPGRADING.md); rollback is a restore of the pre-upgrade backup.
+
+## Binary-only variant (no published images)
+
+Use this when the tag has no images on ghcr.io (v0.96.2 has none), or on a host without
+Docker. It was run end to end on v0.96.2 with PostgreSQL 16 over TLS (about 7 minutes from
+download to reading a secret back, with the PostgreSQL container already running).
+The steps are those of [INSTALL-WITH-AI.md](../../INSTALL-WITH-AI.md) with three changes:
+
+1. **Binaries instead of a build.** From the release page take `keyorix-server_linux_amd64`,
+   `keyorix_linux_amd64` and `checksums.txt` (on an air-gapped host take
+   `keyorix-server-airgap_linux_amd64` instead of the server, see
+   [AIRGAP_RUNBOOK.md](../AIRGAP_RUNBOOK.md)), check them with
+   `sha256sum -c --ignore-missing checksums.txt`, and save them as `bin/keyorix-server` and
+   `bin/keyorix`.
+2. **PostgreSQL.** You provide an empty database, a role that owns it and a server
+   certificate (the bundled container is not part of this variant). `admin init` always
+   writes a SQLite config and creates `keyorix.db`: after it, delete `keyorix.db*`, set
+   `storage.type: postgres` and replace the `path:` line with a DSN, for example
+   `dsn: "host=db.internal port=5432 user=keyorix dbname=keyorix sslmode=verify-full sslrootcert=/path/ca.pem"`.
+   Keep the password out of the DSN and out of the environment: put it in a 0600 file and
+   export `KEYORIX_DB_PASSWORD_FILE=secrets/db_password` for **every** `keyorix-server`
+   command and for the service, next to `KEYORIX_MASTER_PASSWORD_FILE`. There is no
+   `admin init --storage-type` flag.
+3. **Everything else is the same**: `admin encryption init`, `admin migrate` and
+   `admin validate --posture` (expect `No deviations found.` on PostgreSQL with
+   `verify-full`), the first start, `keyorix system init`, MFA enrolment, then steps 6 to 8
+   of this page with `keyorix-server admin ...` in place of
+   `docker compose run --rm backend ./keyorix-server admin ...` (stop the server first for
+   everything except `admin backup`, which runs beside it on PostgreSQL).
+
+The `keyorix` CLI keeps one credential file and one `ca_file` per operating-system user.
+If you run a second instance on the same account (a restore rehearsal, say), run
+`keyorix config set ca_file <its certs/server.crt>` and `keyorix login` again before using
+it; otherwise the CLI talks to the first instance or fails with
+`tls: failed to verify certificate`.
 
 ## When something goes wrong
 
